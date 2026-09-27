@@ -39,19 +39,16 @@ async fn a_recorded_event_takes_a_position_and_queues_for_dispatch(pool: PgPool)
     assert_eq!(claimed[0].event, r#"{"n":1}"#);
 }
 
-/// The regression that made the ingress relay's recovery path a no-op.
-///
-/// `IngressRelay` re-publishes an admitted payload whose delivery it could not
-/// confirm, which is exactly the case where the handlers may not have run. If
-/// the dedup drops the re-publish without re-queueing, the message never
-/// reaches `task_messages` and the relay republishes it forever.
+/// A producer re-publishes an event whose delivery it could not confirm, which
+/// is exactly the case where the handlers may not have run. If the dedup drops
+/// the re-publish without re-queueing, those handlers never run.
 #[sqlx::test]
 async fn a_republish_allocates_no_position_but_re_arms_dispatch(pool: PgPool) {
     let first = record(&pool, "event-1", r#"{"n":1}"#).await;
     assert_eq!(first, Some(1));
 
     // The dispatcher takes it and clears it, but its handler failed, so the
-    // relay still holds the outbox record.
+    // producer publishes it again.
     let claimed = claim_dispatch(&pool, 10, NO_RECLAIM).await.unwrap();
     moatless_core::change_feed::events::release_dispatch(&pool, &[claimed[0].position])
         .await

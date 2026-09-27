@@ -103,8 +103,9 @@ impl EventDispatcher {
             };
             // Derived, UI-only `message.*` events reach clients through the SSE
             // feed but must never be persisted to `task_events` (server-owned
-            // assembly). Clear and skip.
+            // assembly); only the Adapters subscribed to one see it.
             if event.event_type == EventType::Message {
+                self.subscribers.dispatch(&event).await;
                 continue;
             }
             persist_event(&self.state, &event).await;
@@ -113,9 +114,7 @@ impl EventDispatcher {
         }
 
         // Cleared whether or not the handlers succeeded, so one poisoned event
-        // cannot wedge the queue for the whole fleet. An `agent.message` whose
-        // handler failed is recovered by `IngressRelay` re-publishing it, which
-        // re-arms this row.
+        // cannot wedge the queue for the whole fleet.
         feed::release_dispatch(&self.state.db, &positions).await?;
         Ok(positions.len())
     }
@@ -210,9 +209,6 @@ impl EventDispatcher {
             EventKey::TaskTurn(TaskTurnSubType::Completed) => {
                 // External notification is handled by the agent via `moat reply`.
             }
-            EventKey::Agent(AgentSubType::Message) => {
-                agent_handlers::handle_agent_message(&self.state, event).await;
-            }
             EventKey::Agent(AgentSubType::SessionInit) => {
                 agent_handlers::handle_agent_session_init(&self.state, event).await;
             }
@@ -294,7 +290,9 @@ impl EventDispatcher {
                 TaskSubType::Open
                 | TaskSubType::Created
                 | TaskSubType::Closed
-                | TaskSubType::Updated,
+                | TaskSubType::Updated
+                // Written with its Error Message by `append_error_result`.
+                | TaskSubType::Error,
             )
             | EventKey::TaskTurn(TaskTurnSubType::Active | TaskTurnSubType::Interrupted) => {
                 // `turn_interrupted` is an observability marker only — the turn
@@ -308,6 +306,8 @@ impl EventDispatcher {
                     "SSE-only event type, skipping"
                 );
             }
+            // Dispatched to subscribers only, before this match.
+            EventKey::Message(_) => {}
             EventKey::Unknown(ref t, ref s) => {
                 warn!(
                     task_id = %event.task_id,
@@ -322,13 +322,9 @@ impl EventDispatcher {
 
 /// Append an event to `task_events` (best-effort, never blocks dispatch).
 ///
-/// `agent.message` writes no row — `task_events` is lifecycle-only, and the
-/// conversation holds per-activity rows. Free rather than a method so a test
-/// can reach it with a pool and no dispatcher.
+/// Free rather than a method so a test can reach it with a pool and no
+/// dispatcher.
 pub async fn persist_event(state: &AppState, event: &AgentEvent) {
-    if moatless_tasks::agent_event::is_agent_message(event.event_type.as_str(), &event.sub_type) {
-        return;
-    }
     let insert = InsertTaskEvent {
         event_id: event.event_id.clone(),
         task_id: event.task_id.clone(),

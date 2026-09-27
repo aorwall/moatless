@@ -7,8 +7,8 @@ use super::position::{EventChange, RETAINED_CHANGES};
 /// Record `event` — the serialized envelope, verbatim — and queue it for
 /// dispatch, returning the allocated position.
 ///
-/// `None` when `event_id` is already recorded: `IngressRelay` re-publishing a
-/// payload it could not confirm. Takes a transaction, not a pool, so the
+/// `None` when `event_id` is already recorded: a producer re-publishing an
+/// event it could not confirm. Takes a transaction, not a pool, so the
 /// record stays invisible until the writer commits.
 pub async fn record_event(
     tx: &mut PgConnection,

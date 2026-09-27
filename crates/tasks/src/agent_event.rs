@@ -8,6 +8,7 @@
 
 use moatless_types::agent::AgentSubType;
 use moatless_types::event::EventType;
+use moatless_types::message::MessageSubType;
 use moatless_types::sandbox::SandboxStatus;
 use moatless_types::task::{TaskSubType, TaskTurnSubType};
 use serde::Deserialize;
@@ -22,6 +23,9 @@ pub enum EventKey {
     Task(TaskSubType),
     TaskTurn(TaskTurnSubType),
     Sandbox(SandboxStatus),
+    /// A derived, UI-only event: never persisted and handled by no generic
+    /// handler, only by the Adapters that subscribe to it.
+    Message(MessageSubType),
     /// Unrecognised `event_type` + `sub_type` pair.
     Unknown(String, String),
 }
@@ -55,23 +59,14 @@ impl AgentEvent {
             EventType::Sandbox => SandboxStatus::try_from(self.sub_type.as_str())
                 .map_or_else(|_| self.unknown(), EventKey::Sandbox),
             EventType::Resources => self.unknown(),
-            // Derived, UI-only events are gated out before dispatch (see
-            // `EventDispatcher::dispatch_batch`); never reached here.
-            EventType::Message => self.unknown(),
+            EventType::Message => MessageSubType::try_from(self.sub_type.as_str())
+                .map_or_else(|_| self.unknown(), EventKey::Message),
         }
     }
 
     fn unknown(&self) -> EventKey {
         EventKey::Unknown(self.event_type.to_string(), self.sub_type.clone())
     }
-}
-
-/// Whether an event `(type, sub_type)` is an `agent.message` source event.
-///
-/// The derived `message.upsert` / `subagentProgress` events (`type =
-/// "message"`) are the Chat's content delivery and are a different pair.
-pub fn is_agent_message(event_type: &str, sub_type: &str) -> bool {
-    event_type == "agent" && sub_type == "message"
 }
 
 #[cfg(test)]

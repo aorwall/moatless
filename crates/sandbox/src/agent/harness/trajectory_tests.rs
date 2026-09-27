@@ -148,12 +148,19 @@ fn codex_projects_each_item_once() {
         matches!(b, CanonicalContentBlock::ToolUse { .. })
     });
 
+    let commands = lines.iter().filter(|l| l.derived).count();
+
     assert!(calls > 0, "the fixture carries tool calls");
-    assert_eq!(tool_uses.count(), calls, "one ToolUse per call");
+    assert_eq!(commands, 1, "the fixture's exec call ran one command");
+    assert_eq!(
+        tool_uses.count(),
+        calls + commands,
+        "one ToolUse per call and per command it ran"
+    );
     // A compaction line holds its summary.
     for line in lines
         .iter()
-        .filter(|l| !l.kind.starts_with("response_item/") && l.kind != "compacted")
+        .filter(|l| !l.kind.starts_with("response_item/") && l.kind != "compacted" && !l.derived)
     {
         assert!(line.content.blocks.is_empty(), "{} got blocks", line.kind);
     }
@@ -460,12 +467,19 @@ const CODEX_RECORDED: &str = include_str!("../../../tests/fixtures/transcode/cod
 /// lines with content, from the last compaction on.
 fn transcode_items(format: &dyn SessionFormat, lines: &[&str]) -> Vec<EventContent> {
     let mut items = Vec::new();
+    let mut calls = LineContext::default();
     for line in lines {
-        let content = format.read_line(line).content;
+        let mut read = format.read_line(line);
+        calls.observe(&mut read);
+        let content = read.content;
         if content.compaction {
             items.clear();
         }
-        if !content.injected && content.role.is_some() && !content.blocks.is_empty() {
+        if !content.injected
+            && content.derived_from.is_none()
+            && content.role.is_some()
+            && !content.blocks.is_empty()
+        {
             items.push(content);
         }
     }
@@ -623,4 +637,130 @@ fn content_json_reads_back() {
     let line = CodexSessionFormat.read_line(CODEX_RECORDED.lines().nth(5).unwrap());
     let back: EventContent = serde_json::from_str(&line.content.to_json()).unwrap();
     assert_eq!(back, line.content);
+}
+
+/// A code-mode `exec` call's command is its own `codex.shell` call and result,
+/// shown under the `exec` call that was open when Codex ran it.
+#[test]
+fn a_codex_command_is_a_view_of_the_exec_call_that_ran_it() {
+    let mut calls = LineContext::default();
+    let mut lines = read_all(&CodexSessionFormat, CODEX);
+    for line in &mut lines {
+        calls.observe(line);
+    }
+    let command = lines.iter().find(|l| l.derived).unwrap();
+
+    assert_eq!(
+        command.content.derived_from.as_deref(),
+        Some("call_7o2cP988tSqkhfkN2WCacs8H")
+    );
+    assert_eq!(
+        command.harness_item_id.as_deref(),
+        Some("exec-f23c77a5-f8e0-4637-90b7-67f1074dc9f0")
+    );
+    let [
+        CanonicalContentBlock::ToolUse { id, name, input },
+        CanonicalContentBlock::ToolResult {
+            tool_use_id,
+            is_error,
+            ..
+        },
+    ] = command.content.blocks.as_slice()
+    else {
+        panic!("a call and its result: {:?}", command.content.blocks);
+    };
+    assert_eq!(name, "codex.shell");
+    assert_eq!(tool_use_id, id);
+    assert_eq!(input["command"], "echo 1572 > c.txt");
+    assert_eq!(input["cwd"], "/opt/moatless/workspace/step0/cproj");
+    assert_eq!(*is_error, Some(false));
+}
+
+/// A derived line with no call open is shown on its own rather than dropped.
+#[test]
+fn a_derived_line_with_no_open_call_names_none() {
+    let mut calls = LineContext::default();
+    let line = CODEX
+        .lines()
+        .find(|l| l.contains("\"CommandExecution\""))
+        .unwrap();
+    let mut read = CodexSessionFormat.read_line(line);
+    calls.observe(&mut read);
+    assert!(read.derived);
+    assert_eq!(read.content.derived_from, None);
+}
+
+/// Codex names its model on `turn_context`, not on a reply; the tail carries
+/// it onto every assistant line after it.
+#[test]
+fn a_codex_assistant_line_carries_the_turn_context_model() {
+    let mut context = LineContext::default();
+    let mut lines = read_all(&CodexSessionFormat, CODEX);
+    let first_turn = lines.iter().position(|l| l.kind == "turn_context").unwrap();
+    for line in &mut lines {
+        context.observe(line);
+    }
+    let assistant: Vec<_> = lines
+        .iter()
+        .filter(|l| l.content.role == Some(Role::Assistant))
+        .collect();
+
+    assert!(!assistant.is_empty());
+    assert!(
+        lines[..first_turn]
+            .iter()
+            .all(|l| l.content.role != Some(Role::Assistant))
+    );
+    for line in assistant {
+        assert_eq!(line.content.model.as_deref(), Some("gpt-6-astra"));
+    }
+}
+
+#[test]
+fn only_a_finished_final_response_ends_the_turn() {
+    let claude = read_all(&ClaudeSessionFormat, CLAUDE_THINKING);
+    let ending: Vec<&RecordedLine> = claude.iter().filter(|l| l.content.ends_turn).collect();
+    assert!(!ending.is_empty());
+    for line in &ending {
+        assert_eq!(line.content.role, Some(Role::Assistant));
+        assert!(
+            line.content
+                .blocks
+                .iter()
+                .all(|b| matches!(b, CanonicalContentBlock::Text { .. }))
+        );
+    }
+    // The final response's thinking line carries `end_turn` too; an
+    // interruption after it has shown no reply.
+    let thinking_first = claude.windows(2).find(|pair| {
+        pair[0].harness_item_id == pair[1].harness_item_id
+            && pair[1].content.ends_turn
+            && matches!(
+                pair[0].content.blocks.as_slice(),
+                [CanonicalContentBlock::Thinking { .. }]
+            )
+    });
+    assert!(
+        !thinking_first.expect("a thinking line before the reply")[0]
+            .content
+            .ends_turn
+    );
+    assert!(claude.iter().any(|l| {
+        !l.content.ends_turn
+            && l.content
+                .blocks
+                .iter()
+                .any(|b| matches!(b, CanonicalContentBlock::ToolUse { .. }))
+    }));
+
+    let codex = read_all(&CodexSessionFormat, CODEX);
+    for line in &codex {
+        assert_eq!(
+            line.content.ends_turn,
+            line.kind == "event_msg/task_complete",
+            "{}",
+            line.kind
+        );
+    }
+    assert!(codex.iter().any(|l| l.content.ends_turn));
 }

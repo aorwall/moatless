@@ -323,13 +323,6 @@ pub const CONCERNS: &[Concern] = &[
         slice: 11,
     },
     Concern {
-        name: "event ingress",
-        owner: "moatless-tasks",
-        roots: &["crates/tasks/src/event_ingress/outbox_dao"],
-        tables: &["event_ingress_outbox"],
-        slice: 11,
-    },
-    Concern {
         name: "tags",
         owner: "moatless-tasks",
         roots: &["crates/tasks/src/tag/dao"],

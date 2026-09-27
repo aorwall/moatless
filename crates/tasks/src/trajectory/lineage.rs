@@ -106,7 +106,8 @@ pub(crate) fn latest_of(rows: &[LineageRow], harness: &str) -> Option<Uuid> {
 
 /// The other harness's own lines after `since`, from the last compaction on
 /// (S5): what a switch session into `harness` renders after its verbatim
-/// lines. Lines with no role or no block, and injected ones, are left out.
+/// lines. Lines with no role or no block, injected ones and ones
+/// `derived_from` another call are left out.
 pub(crate) fn transcode_items(
     rows: &[LineageRow],
     since: Option<Uuid>,
@@ -124,7 +125,11 @@ pub(crate) fn transcode_items(
             items.clear();
         }
         let spoken = row.content.get("role").is_some_and(|r| !r.is_null());
-        if !spoken || row.flag("injected") || row.blocks().is_empty() {
+        let derived = row
+            .content
+            .get("derived_from")
+            .is_some_and(|d| !d.is_null());
+        if !spoken || derived || row.flag("injected") || row.blocks().is_empty() {
             continue;
         }
         items.push(TranscodeItem {

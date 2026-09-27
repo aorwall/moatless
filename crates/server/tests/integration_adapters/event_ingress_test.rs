@@ -8,11 +8,9 @@
 //! Integration tests for durable event admission — requires `DATABASE_URL` and
 //! `--features db-tests`.
 //!
-//! Drives the real gRPC ingress, outbox, relay, and consumer so each case is
-//! asserted at the seam the sandbox and consumer meet: a failed and recovered
-//! transport, a lost gRPC response, concurrent duplicates, and full message
-//! content reaching `task_messages` exactly once with state committed before
-//! fan-out.
+//! Drives the real gRPC ingress and consumer so each case is asserted at the
+//! seam the sandbox and consumer meet: a failed transport, a lost gRPC
+//! response, concurrent duplicates, and state committed before fan-out.
 
 use crate::common;
 
@@ -23,7 +21,6 @@ use serde_json::Value;
 use sqlx::PgPool;
 use tonic::Request;
 
-use moatless_backend::event_handler::agent_handlers::handle_agent_message;
 use moatless_backend::event_handler::dispatcher::persist_event;
 use moatless_backend::sandbox::grpc_server::{BackendSandboxServiceImpl, IngressPorts};
 use moatless_core::events::{EventPublisher, PublishError};
@@ -152,48 +149,18 @@ fn ingress(pool: &PgPool, transport: Option<Arc<dyn EventPublisher>>) -> Backend
     )
 }
 
-/// An `agent.message` carrying real content — the payload kind whose full body
-/// has no durable home outside the ingress outbox.
-fn message_request(
-    task_id: &str,
-    event_id: &str,
-    sequence: u64,
-    text: &str,
-) -> PublishEventRequest {
-    let payload = serde_json::json!({
-        "uuid": "msg-1",
-        "session_id": "session-1",
-        "message": {
-            "role": "assistant",
-            "content": [{ "type": "text", "text": text }],
-        },
-    });
+/// An event that bears no turn state, so admission commits its own
+/// `task_events` row before fan-out.
+fn lifecycle_request(task_id: &str, event_id: &str, sequence: u64) -> PublishEventRequest {
     PublishEventRequest {
         task_id: task_id.to_string(),
         event_type: sandbox_proto::EventType::Agent as i32,
-        sub_type: "message".to_string(),
-        payload_json: payload.to_string(),
+        sub_type: "session_init".to_string(),
+        payload_json: r#"{"sessionId":"session-1"}"#.to_string(),
         event_id: event_id.to_string(),
         sequence,
         run_id: String::new(),
     }
-}
-
-/// Rebuild the dispatcher's view of a published event, exactly as it would
-/// parse it off the feed.
-fn consumed(task_id: &str, event_id: &str, payload: &Value) -> AgentEvent {
-    serde_json::from_value(serde_json::json!({
-        "eventId": event_id,
-        "type": "agent",
-        "subType": "message",
-        "taskId": task_id,
-        "timestamp": "2026-07-20T00:00:00.000Z",
-        "isError": false,
-        "agentProfile": "claude-code",
-        "turnNumber": 1,
-        "payload": payload,
-    }))
-    .unwrap()
 }
 
 /// What the event log kept for `event_id`, if it kept anything.
@@ -205,99 +172,11 @@ async fn event_log_payload(pool: &PgPool, event_id: &str) -> Option<Value> {
         .unwrap()
 }
 
-async fn outbox_event_ids(pool: &PgPool) -> Vec<String> {
-    sqlx::query_scalar("SELECT event_id FROM event_ingress_outbox ORDER BY event_id")
-        .fetch_all(pool)
-        .await
-        .unwrap()
-}
-
-/// What the Task's Messages say, in order. Text is the Message now — the blocks
-/// that are not text are activities and have rows of their own.
-async fn message_texts(pool: &PgPool, task_id: &str) -> Vec<Option<String>> {
-    sqlx::query_scalar("SELECT message_text FROM task_messages WHERE task_id = $1 ORDER BY id")
-        .bind(task_id)
-        .fetch_all(pool)
-        .await
-        .unwrap()
-}
-
 // =========================================================================
 // Admission → consumer → delete
 // =========================================================================
 
-#[sqlx::test]
-async fn full_message_content_reaches_task_messages_exactly_once(pool: PgPool) {
-    let task_id = "task-admit-1";
-    seed_task(&pool, task_id).await;
-    let transport = Arc::new(FakeTransport::default());
-    let svc = ingress(&pool, Some(transport.clone()));
-
-    let response = svc
-        .publish_event(Request::new(message_request(
-            task_id,
-            "evt-1",
-            1,
-            "the whole message body",
-        )))
-        .await
-        .expect("a spooled payload is admitted");
-    assert_eq!(response.into_inner().event_id, "evt-1");
-
-    // Durable admission: the full payload is in the outbox, and `task_events`
-    // has no copy of it.
-    assert_eq!(outbox_event_ids(&pool).await, ["evt-1"]);
-    let spooled: Value =
-        sqlx::query_scalar("SELECT payload FROM event_ingress_outbox WHERE event_id = $1")
-            .bind("evt-1")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert_eq!(
-        spooled["message"]["content"][0]["text"],
-        "the whole message body"
-    );
-    // `task_events` holds nothing for it, not even a skeleton. The Message's
-    // durable home on the way in is the outbox, and afterwards it is the
-    // conversation. A row here would be a second copy of that state.
-    assert!(
-        event_log_payload(&pool, "evt-1").await.is_none(),
-        "admission writes no task_events row for an agent.message"
-    );
-
-    // The consumer receives the published payload whole and commits it, in the
-    // order its loop runs: append to the event log, then dispatch.
-    let published = transport.published();
-    assert_eq!(published.len(), 1);
-    let state = test_app_state(pool.clone());
-    let event = consumed(task_id, &published[0].0, &published[0].2);
-    persist_event(&state, &event).await;
-    handle_agent_message(&state, &event).await;
-
-    // The consumer does not write one either. The Sandbox publishes one
-    // `agent.message` per block, so a row here would be one event-log row per
-    // activity.
-    let history = event_log_payload(&pool, "evt-1").await;
-    assert!(
-        history.is_none(),
-        "the consumer writes no task_events row for an agent.message: {history:?}"
-    );
-
-    let texts = message_texts(&pool, task_id).await;
-    assert_eq!(texts.len(), 1);
-    assert_eq!(texts[0].as_deref(), Some("the whole message body"));
-
-    // Committing the message is what deletes the record — and only that.
-    assert!(outbox_event_ids(&pool).await.is_empty());
-
-    // At-least-once redelivery converges on the same single row.
-    handle_agent_message(&state, &event).await;
-    assert_eq!(message_texts(&pool, task_id).await.len(), 1);
-}
-
-/// What the previous test asserts is missing must not be missing for everything
-/// else: `task_events` is still the lifecycle log, and only a Message is kept
-/// out of it.
+/// `task_events` is the lifecycle log.
 #[sqlx::test]
 async fn a_lifecycle_event_still_reaches_the_event_log(pool: PgPool) {
     let task_id = "task-admit-1b";
@@ -333,7 +212,7 @@ async fn a_response_lost_after_admission_is_not_re_admitted(pool: PgPool) {
 
     // The sandbox never saw the first response, so it resends the same event
     // under the same id and sequence.
-    let request = message_request(task_id, "evt-1", 7, "hello");
+    let request = lifecycle_request(task_id, "evt-1", 7);
     svc.publish_event(Request::new(request.clone()))
         .await
         .unwrap();
@@ -345,47 +224,7 @@ async fn a_response_lost_after_admission_is_not_re_admitted(pool: PgPool) {
         1,
         "a retry of an admitted event must not reach the stream twice"
     );
-    assert_eq!(outbox_event_ids(&pool).await, ["evt-1"]);
-}
-
-/// A retry the dedup cache has forgotten (post-restart, record already consumed
-/// and deleted) still converges rather than duplicating, since the consumer's
-/// idempotency covers the feed's redelivery too.
-#[sqlx::test]
-async fn a_retry_that_outlives_the_dedup_cache_converges(pool: PgPool) {
-    let task_id = "task-admit-2b";
-    seed_task(&pool, task_id).await;
-    let transport = Arc::new(FakeTransport::default());
-    let state = test_app_state(pool.clone());
-    let request = message_request(task_id, "evt-1", 3, "the whole message body");
-
-    // First delivery: admitted, consumed, record deleted.
-    ingress(&pool, Some(transport.clone()))
-        .publish_event(Request::new(request.clone()))
-        .await
-        .unwrap();
-    let first = transport.published();
-    handle_agent_message(&state, &consumed(task_id, &first[0].0, &first[0].2)).await;
-    assert!(outbox_event_ids(&pool).await.is_empty());
-
-    // A restarted backend — a brand-new dedup cache with no memory of `evt-1`.
-    ingress(&pool, Some(transport.clone()))
-        .publish_event(Request::new(request))
-        .await
-        .expect("a forgotten retry is re-admitted, never rejected");
-
-    // It does fan out again, and that is fine: the consumer upserts the same
-    // uuid, so the message body is neither duplicated nor truncated.
-    let published = transport.published();
-    assert_eq!(published.len(), 2, "the forgotten retry is published again");
-    handle_agent_message(&state, &consumed(task_id, &published[1].0, &published[1].2)).await;
-
-    let texts = message_texts(&pool, task_id).await;
-    assert_eq!(texts.len(), 1, "one message, not two");
-    assert_eq!(texts[0].as_deref(), Some("the whole message body"));
-
-    // And the re-admitted record is released again rather than stranded.
-    assert!(outbox_event_ids(&pool).await.is_empty());
+    assert!(event_log_payload(&pool, "evt-1").await.is_some());
 }
 
 #[sqlx::test]
@@ -400,7 +239,7 @@ async fn concurrent_duplicate_requests_fan_out_once(pool: PgPool) {
         let svc = svc.clone();
         let task_id = task_id.to_string();
         handles.push(tokio::spawn(async move {
-            svc.publish_event(Request::new(message_request(&task_id, "evt-1", 1, "hi")))
+            svc.publish_event(Request::new(lifecycle_request(&task_id, "evt-1", 1)))
                 .await
                 .map(|_| ())
                 .map_err(|status| status.code())
@@ -416,7 +255,7 @@ async fn concurrent_duplicate_requests_fan_out_once(pool: PgPool) {
     }
 
     assert_eq!(transport.published().len(), 1);
-    assert_eq!(outbox_event_ids(&pool).await, ["evt-1"]);
+    assert!(event_log_payload(&pool, "evt-1").await.is_some());
 }
 
 // =========================================================================
@@ -461,56 +300,22 @@ async fn a_state_bearing_event_is_admitted_without_a_transport(pool: PgPool) {
     assert_eq!(event_rows, 1);
 }
 
+/// A transport that fails after the row is committed loses nothing: the row is
+/// the durable copy, and the sandbox is not asked to resend.
 #[sqlx::test]
-async fn a_failed_transport_recovers_through_the_relay(pool: PgPool) {
+async fn a_failed_transport_keeps_the_committed_row(pool: PgPool) {
     let task_id = "task-admit-6";
     seed_task(&pool, task_id).await;
-    // The transport fails the ingress publish, then recovers.
     let transport = Arc::new(FakeTransport::failing(1));
     let svc = ingress(&pool, Some(transport.clone()));
 
-    svc.publish_event(Request::new(message_request(
-        task_id,
-        "evt-1",
-        1,
-        "survives the outage",
-    )))
-    .await
-    .expect("durably admitted despite the failed publish");
+    svc.publish_event(Request::new(lifecycle_request(task_id, "evt-1", 1)))
+        .await
+        .expect("durably admitted despite the failed publish");
 
     assert!(transport.published().is_empty());
-    assert_eq!(outbox_event_ids(&pool).await, ["evt-1"]);
-
-    // The record is scheduled for its first relay attempt in the future; age it
-    // so one pass picks it up rather than sleeping through the retry window.
-    sqlx::query("UPDATE event_ingress_outbox SET next_attempt_at = NOW() - interval '1 minute'")
-        .execute(&pool)
-        .await
-        .unwrap();
-
-    let pass = task_graph(&pool)
-        .event_ingress(Some(transport.clone()))
-        .relay()
-        .expect("an outbox and a transport compose a relay")
-        .relay_once()
-        .await;
-    assert_eq!(pass.republished, 1);
-    assert_eq!(pass.failed, 0);
-
-    // The republished payload is the whole one, and consuming it commits the
-    // message and retires the record.
-    let published = transport.published();
-    assert_eq!(published.len(), 1);
     assert_eq!(
-        published[0].2["message"]["content"][0]["text"],
-        "survives the outage"
+        event_log_payload(&pool, "evt-1").await,
+        Some(serde_json::json!({ "sessionId": "session-1" }))
     );
-
-    let state = test_app_state(pool.clone());
-    handle_agent_message(&state, &consumed(task_id, &published[0].0, &published[0].2)).await;
-
-    let texts = message_texts(&pool, task_id).await;
-    assert_eq!(texts.len(), 1);
-    assert_eq!(texts[0].as_deref(), Some("survives the outage"));
-    assert!(outbox_event_ids(&pool).await.is_empty());
 }

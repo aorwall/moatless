@@ -2,13 +2,8 @@ use crate::compose::Ports;
 use crate::{reaper, sandbox, state::AppState};
 use moatless_core::{config::Config, leader::LeaderGuard};
 use moatless_loops::compose::ScheduleRunnerInputs;
-use moatless_tasks::event_ingress::relay::IngressRelay;
 use std::sync::Arc;
 use tracing::info;
-
-pub(crate) fn ingress_relay(app_state: &AppState) -> Option<IngressRelay> {
-    app_state.event_ingress.relay()
-}
 
 pub(crate) fn leader(
     k8s: &sandbox::k8s::client::K8sClient,

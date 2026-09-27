@@ -7,94 +7,91 @@
 
 use moatless_core::db::DbPool;
 
-use super::models::{InterruptedTurn, MessageType};
-use moatless_core::db_enum::decode_required;
+use super::models::InterruptedTurn;
 
-/// Whether the Task's last message closes `turn_number` as answered.
+/// `WITH` clauses over the Task's (`$1`) top-level Trajectory lines a reader
+/// sees, plus the role-less line that ends a turn: no transcoded prefix, no
+/// injected or derived line. `reply.answered` marks a line the harness
+/// recorded as ending the turn (`ends_turn`).
+macro_rules! shown_lines {
+    () => {
+        r#"
+    shown AS (
+        SELECT e.ord, e.turn_number, e.content
+          FROM trajectory_events e
+          JOIN trajectory_sessions s ON s.id = e.session_id
+         WHERE s.task_id = $1
+           AND s.parent_event_id IS NULL
+           AND e.seq >= COALESCE(s.own_from_seq, 0)
+           AND (e.content ->> 'role' IS NOT NULL
+                OR COALESCE((e.content ->> 'ends_turn')::boolean, false))
+           AND NOT COALESCE((e.content ->> 'injected')::boolean, false)
+           AND e.content ->> 'derived_from' IS NULL
+    ),
+    reply AS (
+        SELECT s.ord, s.turn_number,
+               COALESCE((s.content ->> 'ends_turn')::boolean, false) AS answered
+          FROM shown s
+    )"#
+    };
+}
+
+/// Whether the Task's last shown line closes `turn_number` as answered: one
+/// the harness recorded as ending the turn. Assistant text alone is not, since
+/// a tool call may follow it in the same response.
 pub(crate) async fn last_message_is_completed_reply(
     pool: &DbPool,
     task_id: &str,
     turn_number: Option<i32>,
 ) -> Result<bool, sqlx::Error> {
-    // Scope to the reconciled turn first: a stale open turn must not be
-    // closed as completed on the strength of a later turn's final reply
-    // when it already has substantive assistant/system/result state of its
-    // own (for example, a mid-tool interruption).
-    let row: Option<(String, Option<String>)> = sqlx::query_as(
-        r#"SELECT message_type, assistant_stop_reason FROM task_messages
-           WHERE task_id = $1
-             AND ($2::int IS NULL OR turn_number = $2)
-           ORDER BY timestamp DESC, id DESC
-           LIMIT 1"#,
-    )
+    // Scoped to the reconciled turn first: a stale open turn must not be
+    // closed as completed on the strength of a later turn's final reply when
+    // it has output of its own (for example, a mid-tool interruption).
+    let answered: Option<bool> = sqlx::query_scalar(concat!(
+        "WITH ",
+        shown_lines!(),
+        " SELECT answered FROM reply
+           WHERE $2::int IS NULL OR turn_number = $2
+           ORDER BY ord DESC LIMIT 1"
+    ))
     .bind(task_id)
     .bind(turn_number)
     .fetch_optional(pool)
     .await?;
-
-    // A final assistant reply ends with stop_reason `end_turn`; a turn cut
-    // off mid-tool ends with `tool_use` (or no assistant row at all), which
-    // stays a genuine orphan.
-    let row = row
-        .map(|(kind, reason)| {
-            decode_required::<MessageType>("message_type", kind).map(|kind| (kind, reason))
-        })
-        .transpose()?;
-    if matches!(
-        row,
-        Some((MessageType::Assistant, Some(reason))) if reason == "end_turn"
-    ) {
+    if answered == Some(true) {
         return Ok(true);
     }
-
     let Some(turn_number) = turn_number else {
         return Ok(false);
     };
 
-    // Coalesced pending-message run: the orphaned lower turn contains only
-    // the inbound user message (plus possible empty assistant placeholders),
-    // while the actual final assistant reply was attributed to a later
-    // sibling turn by MAX(turn_number)-at-event-arrival resolution.
-    let (has_user, has_substantive_non_user, latest_later_completed): (bool, bool, bool) =
-        sqlx::query_as(
-            r#"SELECT
-                 EXISTS (
-                   SELECT 1 FROM task_inbox
-                   WHERE task_id = $1
-                     AND turn_number = $2
-                     AND status = 'delivered'
-                 ) AS has_user,
-                 EXISTS (
-                   SELECT 1 FROM task_messages
-                   WHERE task_id = $1
-                     AND turn_number = $2
-                     AND message_type <> 'user'
-                     -- An empty assistant placeholder: a row that stopped
-                     -- for no stated reason and said nothing. Text is the
-                     -- row itself, so an empty one is a row with no text
-                     -- on it.
-                     AND NOT (
-                       message_type = 'assistant'
-                       AND assistant_stop_reason IS NULL
-                       AND COALESCE(message_text, '') = ''
-                     )
-                 ) AS has_substantive_non_user,
-                 COALESCE((
-                   SELECT message_type = 'assistant'
-                      AND assistant_stop_reason = 'end_turn'
-                      AND COALESCE(turn_number > $2, false)
-                   FROM task_messages
-                   WHERE task_id = $1
-                   ORDER BY timestamp DESC, id DESC
-                   LIMIT 1
-                 ), false) AS latest_later_completed"#,
-        )
+    // Coalesced pending-message run: the orphaned lower turn took only its
+    // inbound item, while the final reply was attributed to a later sibling
+    // turn by MAX(turn_number)-at-event-arrival resolution.
+    let (has_user, has_output, latest_later_completed): (bool, bool, bool) =
+        sqlx::query_as(concat!(
+            "WITH ",
+            shown_lines!(),
+            " SELECT
+               EXISTS (SELECT 1 FROM task_inbox
+                        WHERE task_id = $1 AND turn_number = $2 AND status = 'delivered'),
+               EXISTS (SELECT 1 FROM shown s
+                        WHERE s.turn_number = $2 AND s.content ->> 'role' = 'assistant'
+                          AND EXISTS (SELECT 1 FROM jsonb_array_elements(s.content -> 'blocks') b
+                                       WHERE b ->> 'type' = 'tool_use'
+                                          OR (b ->> 'type' = 'text' AND b ->> 'text' <> '')))
+               OR EXISTS (SELECT 1 FROM task_messages
+                           WHERE task_id = $1 AND turn_number = $2
+                             AND message_type NOT IN ('user', 'assistant')),
+               COALESCE((SELECT answered AND COALESCE(turn_number > $2, false)
+                           FROM reply ORDER BY ord DESC LIMIT 1), false)"
+        ))
         .bind(task_id)
         .bind(turn_number)
         .fetch_one(pool)
         .await?;
 
-    Ok(has_user && !has_substantive_non_user && latest_later_completed)
+    Ok(has_user && !has_output && latest_later_completed)
 }
 
 /// One delivered item of an interrupted turn: `session_id`, `turn_number`,
@@ -206,18 +203,17 @@ pub(crate) async fn turn_progressed_since_last_recovery(
     task_id: &str,
     turn_number: i32,
 ) -> Result<bool, sqlx::Error> {
-    // An `agent.message` row is only written once the resumed run produced
-    // assistant output (its content lives in `task_messages`; the event is a
-    // skeleton). Its presence after the last `recovery_started` means the
+    // An assistant Trajectory line exists only once the resumed run produced
+    // output. Its presence after the last `recovery_started` means the
     // re-drive got past resume and did real work. `created_at` (timestamptz)
     // is the reliable ordering key; `timestamp` is free-form text.
     let (progressed,): (bool,) = sqlx::query_as(
         r#"SELECT EXISTS (
-               SELECT 1 FROM task_events e
-               WHERE e.task_id = $1
+               SELECT 1 FROM trajectory_events e
+               JOIN trajectory_sessions s ON s.id = e.session_id
+               WHERE s.task_id = $1
                  AND e.turn_number = $2
-                 AND e.type = 'agent'
-                 AND e.sub_type = 'message'
+                 AND e.content->>'role' = 'assistant'
                  AND e.created_at > COALESCE(
                    (SELECT MAX(r.created_at) FROM task_events r
                       WHERE r.task_id = $1
@@ -233,3 +229,7 @@ pub(crate) async fn turn_progressed_since_last_recovery(
     .await?;
     Ok(progressed)
 }
+
+#[cfg(all(test, feature = "db-tests"))]
+#[path = "recovery_dao_db_tests.rs"]
+mod recovery_dao_db_tests;

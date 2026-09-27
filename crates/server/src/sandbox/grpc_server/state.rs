@@ -67,6 +67,8 @@ pub struct HandlerDbPorts {
     /// The trajectory store `AppendTrajectory` and `ReadTrajectory` answer
     /// from.
     pub trajectory: Arc<Trajectories>,
+    /// The `skill-<name>` tags an appended `Skill` call propagates.
+    pub tags: Arc<moatless_tasks::tag::operations::Tags>,
 }
 
 /// Durable-admission writers.

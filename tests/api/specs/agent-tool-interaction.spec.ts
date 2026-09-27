@@ -15,6 +15,7 @@
 import { EventStream } from '../../shared/event-stream'
 import { missingCapability, profile } from '../../shared/profile'
 import { expect, test } from '../fixtures/api-fixtures'
+import { progress } from '../helpers/progress'
 import { waitForPendingToolCall, waitForSandboxReady } from '../steps'
 
 const reason = missingCapability('claudeCredentials')
@@ -62,6 +63,11 @@ test.describe('Standalone: Agent asks the user a question', () => {
         outcome.toolUseId !== null || outcome.completed,
         'the agent neither asked nor finished',
       ).toBe(true)
+      progress(
+        outcome.toolUseId
+          ? 'AGENT-07: the question was parked and shown'
+          : 'AGENT-07: the agent finished without asking',
+      )
 
       if (outcome.toolUseId) {
         await api.sendToolResponse(task.taskId, {

@@ -146,9 +146,26 @@ The classifier's output, and the only part of a line the backend interprets.
   "usage": { "input_tokens": 0, "output_tokens": 0,
              "cache_read_tokens": 0, "cache_write_tokens": 0 },
   // New. On a compaction line; its summary text is in blocks.
-  "compaction": false
+  "compaction": false,
+  // New. The model that wrote an assistant line, when the harness records it.
+  "model": "claude-opus-4-5",
+  // New. On a line that restates part of a call already recorded, not a call
+  // of its own: the Codex app-server's `CommandExecution` item for a command
+  // an `exec` call ran. Names that call's `tool_use` id; never transcoded.
+  "derived_from": "call_7o2cP988tSqkhfkN2WCacs8H",
+  // New. The harness recorded that the turn's final response finished here:
+  // a Claude assistant text line with `stop_reason` `end_turn` (its thinking
+  // line repeats the stop reason and does not count), or Codex's
+  // role-less `task_complete` line. Recovery closes a turn as answered only
+  // on this; assistant text alone may precede a tool call not yet written.
+  "ends_turn": true
 }
 ```
+
+A Codex `CommandExecution` line carries no call id; the tail names the latest
+call still open in the session, and rebuilds the open calls from the skipped
+lines when it restarts. Codex names its model on `turn_context`, not on a
+reply, so the tail sets the latest one as `model` on each Codex assistant line.
 
 A housekeeping line (session metadata, turn context, file snapshots) has a null
 `role` and no `blocks`. `kind` keeps the harness's own line type for diagnostics only.
@@ -485,7 +502,7 @@ that turn as `stopped` (phase 5).
 |---|---|
 | `task_messages`, `task_activities`, `task_message_content_blocks` | Phase 5 |
 | `task_forks.source_session_id`, `source_message_uuid`, `source_agent_turn_id` | Phase 5 |
-| `agent.message` (sandbox emission, outbox, `task_events` row, handler) | Phase 4 |
+| `agent.message` (sandbox emission, outbox and its `event_ingress_outbox` table, `task_events` row, handler) | Phase 4 |
 | `FF_TRAJECTORY_RECORDING`, `FF_TRAJECTORY_RESUME`, `MOATLESS_RESUME_FROM_TRAJECTORY` | Phase 1 |
 | `AgentType`, `AgentKind`, `trajectory::Harness`, every `agent_type` name | Phase 1a |
 
@@ -782,10 +799,13 @@ or `kind`.
 | Inbox item `delivered` | Same Message, `turn_number` set | Records a change; the position does not move |
 | Trajectory user line with text blocks | Nothing | The inbox owns what was sent; the CLI's copy is never shown |
 | `content.injected` | Nothing | |
-| Agent text blocks | Agent Message | Consecutive text of one assistant turn folds into one Message, as `handle_agent_message` folds it today |
+| Agent text blocks | Agent Message | Consecutive text of one assistant turn folds into one Message, as `handle_agent_message` folds it today; `uuid` is the line's `harness_item_id` (Claude's response id, Codex's item id), else the event id |
 | `tool_use` block | `tool_call` activity, `in_progress` | |
 | `tool_result` block | Completes the call's activity | Found by `tool_use_id`; sets `detail`, `status`, `result_event_id`, and the echo-suppression claim |
-| `thinking` block | `thinking` activity, label only | As today; the full text stays in the Trajectory |
+| `thinking` block | `thinking` activity, label only | As today; the full text stays in the Trajectory. Codex reasoning becomes one too |
+| Line with `derived_from` | Its `tool_call` activities, with `message_uuid` = the Message of the call it names | Shown under that call; the call's own activity stays |
+| Line with no `role` and a `usage` | Usage admitted against its `uuid` | Codex's token counts |
+| `Skill` `tool_use` block | The Task's `skill-<name>` tag | After commit, as today |
 | Line with `seq < own_from_seq` | Nothing | The transcoded prefix |
 | `content` NULL | Nothing | Housekeeping |
 | Subagent session line | Message or activity with `parent_uuid` = spawning tool call | Served through the existing on-demand Subagent transcript fetch; records no conversation change, as today |
@@ -793,9 +813,22 @@ or `kind`.
 | Sandbox status in `task_events` | `sandbox_status` activity | |
 | Turn completed in `task_events` | Turn result Message | `usage` summed from the turn's `content.usage` |
 | `task_inbox` row with `origin = 'sandbox'` | Nothing | Nobody said it; it still opens a turn and counts for recovery |
-| Backend error result (`persist_error_result`, `message/send.rs:487`), e.g. a failed wake | Error Message | Written as a `task.error` row in `task_events` first; it no longer inserts a Message itself |
+| Backend error result (`persist_error_result`, `message/send.rs:487`), e.g. a failed wake | Error Message, `uuid` = the event id | The `task.error` row and the Message commit in one transaction |
 | Frozen row | Left alone | Never rebuilt, never deleted by `rebuild` |
 | Fork creation | The inherited rows, before any own row | Projected from each ancestor's sources up to its cut (4.9a), with the fork's ids; the ancestor's rows are neither read nor shared |
+
+After a commit, the append publishes a `message.upsert` for each top-level
+Message it changed and a `message.subagentProgress` for each subagent
+transcript. These reach the SSE stream and, through the dispatcher and never
+persisted, the Adapters subscribed to them.
+
+An Adapter subscriber reads only these derived events, never Trajectory
+content, so it inherits every rule above. It keys what it has posted by the
+`tool_use` id, and a Message's text by its uuid and how much of the text it
+has posted, since later blocks fold into it; 4.9 makes both deterministic, so a
+replayed or re-projected upsert posts nothing twice. The
+Linear subscriber keeps that ledger on its in-process turn gate, and posts
+only while the gate is open.
 
 ## 8. Semantics
 
@@ -1064,31 +1097,43 @@ redelivered child notice inserts nothing and wakes nobody.
 
 ## Phase 4 — Projector cutover
 
-- Implement `on_lines` and `on_task_event` (section 7), still writing
+- Implement `on_lines` (section 7), still writing
   `task_messages`/`task_activities`, ported from `handle_agent_message`
   (`server/src/event_handler/agent_handlers.rs:827`) and the activity mapping.
-  Called from `append` and from the `task_events` writer.
+  Called from `append`, in its transaction. The live notices, tool-call
+  metrics and skill tags follow the commit, in the `AppendTrajectory` handler.
 - `persist_error_result` (`message/send.rs:487`) writes a `task.error` event
-  instead of a Message, so the Projector stays the only writer.
+  and its Error Message in one transaction (`on_task_error`). The other
+  `task_events` rows keep their handlers until phase 5.
 - The lifecycle handlers stay: `handle_agent_completed`/`handle_agent_error` still
   close the turn and notify the parent; only `handle_agent_message` goes.
 - A Codex code-mode `exec` call is one `custom_tool_call` in the rollout, but
-  the app-server reports each `tools.exec_command` it runs as its own item, so
-  `task_activities` holds one row per command. Decide whether the Projector
-  expands an `exec` call into its commands, from its `custom_tool_call_output`,
-  or shows one activity per call; the parity report shows the gap until then.
-- Cut over per Task at a turn boundary.
+  the app-server reports each `tools.exec_command` it runs as its own item.
+  The sandbox reads each `CommandExecution` line as a `codex.shell` call and
+  its result with `derived_from` (4.1). The Projector shows them under the
+  `exec` call, which keeps its own activity, and transcoding skips them.
+- No per-Task gate: every line appended after the deploy is projected. A Codex
+  turn in flight across the deploy may show its commands twice. An old sandbox
+  still emits `agent.message` until it ends. The dispatcher persists those as
+  plain `task_events` rows and nothing handles them.
+- Turn recovery reads progress from an assistant Trajectory line after the
+  last `recovery_started` (`recovery_dao.rs`), not from an `agent.message` row.
+- The Linear subscriber reads `message.upsert` (section 7) in place of
+  `agent.message`.
 - Delete `agent.message`: emission in `sandbox/src/agent/coordinator/seam.rs`
   (`:316`, `:692-720`) and `harness/source.rs`; admission, relay and skeleton handling
   (`event_ingress/admission.rs`, `relay.rs`, `server/src/event_handler/skeleton.rs`,
-  `dispatcher.rs`); `handle_agent_message`. Delete the phase 1 parity report.
+  `dispatcher.rs`); `handle_agent_message`; the `event_ingress_outbox` table.
+  Delete the phase 1 parity report.
 
 Verification: a unit test per Projector rule, fed recorded lines from both
 harnesses; a test that the Projector never reads `payload` or `kind`; DB test
 that append and projection commit or roll back together; T3 projection snapshot
 tests (`crates/t3code/src/projection/tests/`) unchanged.
 
-**Exit:** `rg 'agent\.message'` matches only migrations.
+**Exit:** `rg 'agent\.message'` matches only migrations, this plan, the retired
+`apps/frontend`, and dated records (`docs/runbooks/`, `docs/frontend-audit-*`,
+`plugins/moatless-skills/skills/spec/DESIGN.md`).
 
 ## Phase 5 — Conversation read model
 

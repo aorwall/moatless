@@ -269,6 +269,85 @@ async fn usage_ships_once_per_model_response() {
     assert_eq!(usage, [true, false, false, true]);
 }
 
+/// Claude, except that a line containing `"derived"` is another view of the
+/// call open when it was written, as a Codex command line is.
+struct DerivedLines;
+
+impl SessionFormat for DerivedLines {
+    fn harness(&self) -> &'static str {
+        ClaudeSessionFormat.harness()
+    }
+    fn session_path(
+        &self,
+        home: &std::path::Path,
+        cwd: &std::path::Path,
+        id: &str,
+        first_line: &str,
+    ) -> PathBuf {
+        ClaudeSessionFormat.session_path(home, cwd, id, first_line)
+    }
+    fn locate(&self, home: &std::path::Path, cwd: &std::path::Path, id: &str) -> Option<PathBuf> {
+        ClaudeSessionFormat.locate(home, cwd, id)
+    }
+    fn read_line(&self, line: &str) -> crate::agent::harness::trajectory::RecordedLine {
+        let mut read = ClaudeSessionFormat.read_line(line);
+        read.derived = line.contains("\"derived\"");
+        read
+    }
+    fn retarget(&self, payload: &str, id: &str) -> String {
+        ClaudeSessionFormat.retarget(payload, id)
+    }
+    fn latest(&self, home: &std::path::Path, cwd: &std::path::Path) -> Option<String> {
+        ClaudeSessionFormat.latest(home, cwd)
+    }
+    fn render(
+        &self,
+        items: &[crate::agent::harness::trajectory::EventContent],
+        ctx: &crate::agent::harness::trajectory::RenderContext<'_>,
+    ) -> Vec<String> {
+        ClaudeSessionFormat.render(items, ctx)
+    }
+}
+
+/// A restarted recorder rebuilds the open calls from the lines it skips, so a
+/// derived line after the restart still names its call.
+#[tokio::test]
+async fn a_restarted_recorder_still_names_the_open_call() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = session_file(dir.path(), dir.path());
+    let call = r#"{"type":"tool_use","id":"call_exec","name":"exec","input":{}}"#;
+    let derived = r#"{"type":"text","text":"derived"}"#;
+    std::fs::write(&path, format!("{}\n", assistant_line("msg_1", "u1", call))).unwrap();
+    let backend = Arc::new(MemoryTrajectoryBackend::default());
+    let start = |backend: &Arc<MemoryTrajectoryBackend>| {
+        let target = RecordTarget {
+            task_id: "task".into(),
+            harness_session_id: ID.into(),
+            home: dir.path().to_path_buf(),
+            cwd: dir.path().to_path_buf(),
+            subagent: None,
+        };
+        SessionRecorder::start(
+            Arc::new(DerivedLines),
+            TrajectoryRecording::new(backend.clone()),
+            target,
+            None,
+        )
+    };
+    start(&backend).flush().await.unwrap();
+
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .unwrap();
+    writeln!(file, "{}", assistant_line("exec-1", "u2", derived)).unwrap();
+    start(&backend).flush().await.unwrap();
+
+    let events = backend.events_on(ID);
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[1].content["derived_from"], "call_exec");
+}
+
 #[tokio::test]
 async fn a_subagent_file_becomes_a_session_linked_to_its_call() {
     let dir = tempfile::tempdir().unwrap();

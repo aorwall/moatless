@@ -9,7 +9,7 @@ crate::string_enum!(
     /// `upsert` replaces-or-inserts an assembled Message by `uuid`;
     /// `subagentProgress` carries a subagent's absolute activity summary. Neither
     /// is an error.
-    MessageSubType {
+    MessageSubType [Hash] {
         Upsert => "upsert",
         /// A subagent step advanced: carries the absolute `{ toolUseId,
         /// messageCount, tokens, status }` summary for one `Agent` tool call —

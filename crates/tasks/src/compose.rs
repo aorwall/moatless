@@ -20,7 +20,6 @@ use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
 
 use crate::credential_sync::CredentialSync;
 use crate::event_ingress::EventAdmission;
-use crate::event_ingress::outbox_dao::{IngressOutbox, PgIngressOutbox};
 use crate::feedback::dao::{FeedbackDao, PgFeedbackDao};
 use crate::feedback::operations::FeedbackNotes;
 use crate::message::dao::{MessageDao, PgMessageDao};
@@ -61,7 +60,6 @@ pub struct TaskGraph {
     messages: Arc<dyn MessageDao>,
     turns: Arc<dyn TaskTurnDao>,
     events: Arc<dyn TaskEventDao>,
-    outbox: Arc<dyn IngressOutbox>,
     tags: Arc<dyn TagDao>,
     feedback: Arc<dyn FeedbackDao>,
 }
@@ -75,7 +73,6 @@ pub fn task_graph(db: DbPool) -> TaskGraph {
         messages: Arc::new(PgMessageDao(db.clone())),
         turns: Arc::new(PgTaskTurnDao(db.clone())),
         events: Arc::new(PgTaskEventDao(db.clone())),
-        outbox: Arc::new(PgIngressOutbox(db.clone())),
         tags: Arc::new(PgTagDao(db.clone())),
         feedback: Arc::new(PgFeedbackDao(db.clone())),
         db,
@@ -145,16 +142,12 @@ impl TaskGraph {
         Arc::new(TaskEvents::new(self.events.clone()))
     }
 
-    /// Durable admission for sandbox-published events, over the turn, event and
-    /// outbox stores and the `publisher` the fan-out reaches.
-    ///
-    /// `publisher` is `None` without a database, which is what makes an
-    /// `agent.message` unadmittable — see [`EventAdmission::admit`].
+    /// Durable admission for sandbox-published events, over the turn and event
+    /// stores and the `publisher` the fan-out reaches.
     pub fn event_ingress(&self, publisher: Option<Arc<dyn EventPublisher>>) -> Arc<EventAdmission> {
         Arc::new(EventAdmission::new(
             Some(self.turns.clone()),
             Some(self.events.clone()),
-            Some(self.outbox.clone()),
             publisher,
         ))
     }

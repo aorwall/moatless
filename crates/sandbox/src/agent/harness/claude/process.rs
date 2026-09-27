@@ -363,7 +363,6 @@ impl AgentProcess for ClaudeProcess {
             self.cancel_token.clone(),
             Arc::clone(&self.cfg.agent_state),
             input.env.clone(),
-            self.cfg.events.clone(),
         );
 
         match query(&input.text, options).await {

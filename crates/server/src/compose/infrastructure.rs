@@ -310,6 +310,7 @@ pub fn grpc_service(
             commit_identity: p.user_directory.clone(),
             harness_credentials: p.harness_credentials.clone(),
             trajectory: p.task_graph.trajectory(),
+            tags: p.tags.clone(),
         }
     });
 

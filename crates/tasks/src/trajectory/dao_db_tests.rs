@@ -86,6 +86,7 @@ async fn append_is_idempotent_and_rejects_gaps(pool: PgPool) {
             accepted: true,
             last_seq: 9,
             last_payload: None,
+            projected: Default::default(),
         }
     );
     assert_eq!(
@@ -94,6 +95,7 @@ async fn append_is_idempotent_and_rejects_gaps(pool: PgPool) {
             accepted: true,
             last_seq: 14,
             last_payload: None,
+            projected: Default::default(),
         }
     );
     assert_eq!(
@@ -102,6 +104,7 @@ async fn append_is_idempotent_and_rejects_gaps(pool: PgPool) {
             accepted: false,
             last_seq: 14,
             last_payload: None,
+            projected: Default::default(),
         }
     );
     assert_eq!(event_count(&pool).await, 15);
@@ -175,6 +178,7 @@ async fn fork_copies_no_events(pool: PgPool) {
             accepted: true,
             last_seq: 4,
             last_payload: None,
+            projected: Default::default(),
         }
     );
     let fork = dao

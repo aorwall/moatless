@@ -141,7 +141,7 @@ impl BackendSandboxServiceImpl {
     ) -> AdmissionRequest {
         // Resolve the turn for every event published from inside an agent run,
         // not just the state-bearing ones: the dispatcher then receives an
-        // explicit turn number on `agent.message` too and never has to guess.
+        // explicit turn number on each and never has to guess.
         // Events from outside a run (sandbox/init/heartbeat) bear no turn.
         let mut turn_number = self
             .resolve_turn_for_event(&event.task_id, &event.run_id)

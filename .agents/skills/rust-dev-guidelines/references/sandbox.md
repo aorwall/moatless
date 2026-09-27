@@ -20,8 +20,8 @@ Apply this reference to Rust changes under `crates/sandbox/`.
   kind. A missing or failed required downstream returns a retryable error.
 - Deduplication records successful admission, not mere receipt.
 - State-bearing events commit state before fan-out.
-- Full `agent.message` content reaches the canonical message store before safe
-  acknowledgment; a metadata skeleton is not equivalent durability.
+- Conversation content reaches the backend only as trajectory lines; an append
+  is acknowledged once the lines and their projection commit together.
 - The sandbox outbox is ordered, in-memory, and non-durable across process
   death. Producer-side count/byte limits and priority behavior must remain
   enforceable while its drainer is stalled. Graceful flush is bounded and

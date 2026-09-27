@@ -18,12 +18,13 @@ use moatless_ports::identity::AppCredentials;
 use moatless_ports::task::{TaskReader, TranscriptAppend};
 use moatless_tasks::agent_event::{AgentEvent, EventKey};
 use moatless_types::agent::AgentSubType;
+use moatless_types::message::MessageSubType;
 use moatless_types::sandbox::SandboxStatus;
 
 use super::active_turns::ActiveLinearTurns;
 use super::activity::{
-    ActivityKind, notify_linear_action, notify_linear_message_activities, notify_linear_status,
-    notify_linear_tool_results,
+    ActivityKind, MIN_THOUGHT_CHARS, MessagePost, message_posts, notify_linear_action,
+    notify_linear_message_posts, notify_linear_status,
 };
 
 /// The ports the Linear event reaction reads.
@@ -70,7 +71,7 @@ impl LinearEventSubscriber {
     fn keys() -> [EventKey; 9] {
         [
             EventKey::Agent(AgentSubType::Started),
-            EventKey::Agent(AgentSubType::Message),
+            EventKey::Message(MessageSubType::Upsert),
             EventKey::Agent(AgentSubType::Completed),
             EventKey::Agent(AgentSubType::Stopped),
             EventKey::Agent(AgentSubType::Error),
@@ -81,43 +82,22 @@ impl LinearEventSubscriber {
         ]
     }
 
-    /// Assistant text and tool calls as they stream in; tool results resolved
-    /// back to the tool that produced them.
-    fn on_agent_message(&self, event: &AgentEvent) {
-        if !self.active_turns.is_open(&event.task_id) {
+    /// Assistant text and tool calls as the Projector writes them; tool
+    /// results resolved back to the tool that produced them.
+    fn on_message_upsert(&self, event: &AgentEvent) {
+        let posts = fresh_posts(&self.active_turns, &event.task_id, &event.payload);
+        if posts.is_empty() {
             return;
         }
-        let Some(message) = event.payload.get("message").cloned() else {
-            return;
-        };
-        let role = message
-            .get("role")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("assistant");
-
-        // assistant → persistent `thought` text plus an ephemeral pending
-        // `action` per tool_use; user → a completed `action` per tool_result,
-        // looked up against the persisted tool_use row for the tool's name.
-        if role == "user" {
-            tokio::spawn(notify_linear_tool_results(
-                self.app_tokens.clone(),
-                self.task_bindings.clone(),
-                self.adapter_connections.clone(),
-                self.apps.clone(),
-                self.messages.clone(),
-                event.task_id.clone(),
-                message,
-            ));
-        } else {
-            tokio::spawn(notify_linear_message_activities(
-                self.app_tokens.clone(),
-                self.task_bindings.clone(),
-                self.adapter_connections.clone(),
-                self.apps.clone(),
-                event.task_id.clone(),
-                message,
-            ));
-        }
+        tokio::spawn(notify_linear_message_posts(
+            self.app_tokens.clone(),
+            self.task_bindings.clone(),
+            self.adapter_connections.clone(),
+            self.apps.clone(),
+            self.messages.clone(),
+            event.task_id.clone(),
+            posts,
+        ));
     }
 
     /// A terminal `response` activity carrying the last assistant message.
@@ -253,7 +233,7 @@ impl TaskEventSubscriber for LinearEventSubscriber {
                 self.active_turns.open(&event.task_id);
                 self.spawn_action(&event.task_id, "Agent", AgentSubType::Started.as_str());
             }
-            EventKey::Agent(AgentSubType::Message) => self.on_agent_message(event),
+            EventKey::Message(MessageSubType::Upsert) => self.on_message_upsert(event),
             EventKey::Agent(AgentSubType::Completed) => self.on_agent_completed(event).await,
             // A user-initiated stop emits no final activity; the gate close just
             // keeps post-stop stragglers out.
@@ -268,10 +248,94 @@ impl TaskEventSubscriber for LinearEventSubscriber {
     }
 }
 
+/// The posts an upserted Message owes that its open turn has not posted.
+fn fresh_posts(
+    turns: &ActiveLinearTurns,
+    task_id: &str,
+    message: &serde_json::Value,
+) -> Vec<MessagePost> {
+    message_posts(message)
+        .into_iter()
+        .filter_map(|post| match post {
+            MessagePost::Thought { key, text } => turns
+                .claim_text(task_id, &key, &text, MIN_THOUGHT_CHARS)
+                .map(|text| MessagePost::Thought { key, text }),
+            post => turns.claim(task_id, post.key()).then_some(post),
+        })
+        .collect()
+}
+
 /// Subscribe the Linear reaction to the events it needs.
 ///
 /// One call from the composition root; a build without it leaves Linear
 /// sessions without live progress and changes nothing else.
 pub fn subscribe(subscribers: &mut TaskEventSubscribers, subscriber: Arc<LinearEventSubscriber>) {
     subscribers.subscribe(LinearEventSubscriber::keys(), subscriber);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn upsert() -> serde_json::Value {
+        serde_json::json!({
+            "uuid": "msg_1",
+            "messageType": "assistant",
+            "content": [
+                { "type": "text", "text": "Reading the config." },
+                { "type": "tool_use", "toolUseId": "toolu_1", "toolName": "Read",
+                  "toolInput": { "file_path": "/repo/a.rs" } },
+            ],
+            "toolResults": [{ "toolUseId": "toolu_1", "content": "fn a() {}" }],
+        })
+    }
+
+    #[test]
+    fn a_replayed_upsert_posts_nothing() {
+        let turns = ActiveLinearTurns::new();
+        turns.open("task-1");
+        let keys: Vec<String> = fresh_posts(&turns, "task-1", &upsert())
+            .iter()
+            .map(|p| p.key().to_string())
+            .collect();
+        assert_eq!(keys, ["text:msg_1", "call:toolu_1", "result:toolu_1"]);
+        assert!(fresh_posts(&turns, "task-1", &upsert()).is_empty());
+    }
+
+    /// Claude's later text blocks fold into the same Message, so its text
+    /// grows across upserts; each addition posts once.
+    #[test]
+    fn a_growing_thought_posts_each_addition_once() {
+        let turns = ActiveLinearTurns::new();
+        turns.open("task-1");
+        let thoughts = |message: &serde_json::Value| -> Vec<String> {
+            fresh_posts(&turns, "task-1", message)
+                .into_iter()
+                .filter_map(|post| match post {
+                    MessagePost::Thought { text, .. } => Some(text),
+                    _ => None,
+                })
+                .collect()
+        };
+        let mut message = upsert();
+        assert_eq!(thoughts(&message), ["Reading the config."]);
+        message["content"][0]["text"] = "Reading the config.\n\nIt sets the port.".into();
+        assert_eq!(thoughts(&message), ["It sets the port."]);
+        assert!(thoughts(&message).is_empty());
+    }
+
+    #[test]
+    fn a_closed_turn_posts_nothing() {
+        assert!(fresh_posts(&ActiveLinearTurns::new(), "task-1", &upsert()).is_empty());
+    }
+
+    #[test]
+    fn a_subagent_or_user_message_posts_nothing() {
+        let mut subagent = upsert();
+        subagent["parentUuid"] = "toolu_0".into();
+        let mut user = upsert();
+        user["messageType"] = "user".into();
+        assert!(message_posts(&subagent).is_empty());
+        assert!(message_posts(&user).is_empty());
+    }
 }

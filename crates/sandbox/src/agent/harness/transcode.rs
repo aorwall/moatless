@@ -49,6 +49,7 @@ fn paired(items: &[EventContent]) -> Vec<(Role, Vec<&CanonicalContentBlock>)> {
         .collect();
     items
         .iter()
+        .filter(|item| item.derived_from.is_none())
         .filter_map(|item| {
             let role = match item.role? {
                 Role::System => return None,

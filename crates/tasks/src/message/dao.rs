@@ -95,6 +95,15 @@ pub(crate) trait MessageDao: Send + Sync {
         conversation: &ConversationWrite,
     ) -> Result<i32, sqlx::Error>;
 
+    /// Record a backend failure as a `task.error` event and project it as an
+    /// Error Message, in one transaction.
+    async fn append_error_result(
+        &self,
+        task_id: &str,
+        turn_number: Option<i32>,
+        error_text: &str,
+    ) -> Result<(), sqlx::Error>;
+
     /// Write what a turn *did* when it said nothing: a tool-only turn has no
     /// Message row of its own. `message_uuid` still names the conversation
     /// change — the calling Message, for a tool result.
@@ -179,9 +188,10 @@ pub(crate) trait MessageDao: Send + Sync {
         task_id: &str,
     ) -> Result<Option<super::models::MessageType>, sqlx::Error>;
 
-    /// Whether `turn_number` has a final assistant reply: its latest row is
-    /// `assistant`/`end_turn` — or, for a batched turn, a later turn already
-    /// got one, since coalesced runs attribute it there.
+    /// Whether `turn_number` has a final assistant reply: its latest shown
+    /// Trajectory line is assistant text with no tool call — or, for a batched
+    /// turn, a later turn already got one, since coalesced runs attribute it
+    /// there.
     async fn last_message_is_completed_reply(
         &self,
         task_id: &str,
@@ -634,6 +644,76 @@ pub(crate) async fn append_in(
     Ok(message_id)
 }
 
+/// [`MessageDao::append_activities`] inside the caller's transaction.
+pub(crate) async fn append_activities_in(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    task_id: &str,
+    message_uuid: &str,
+    conversation: &ConversationWrite,
+) -> Result<(), sqlx::Error> {
+    if conversation.is_empty() {
+        return Ok(());
+    }
+
+    // A subagent's activities are never in the Task's own stream, so they
+    // allocate nothing from its counter — the same exclusion `append` makes,
+    // and for the same reason: they are assembled on demand behind the call
+    // that spawned them. They still need a position to sort by within their
+    // own transcript, and arrival order is the order they happened in.
+    let parent_uuid = conversation
+        .activities
+        .iter()
+        .find_map(|activity| activity.parent_uuid.as_deref());
+    let position = match parent_uuid {
+        Some(parent_uuid) => next_subagent_position(tx, task_id, parent_uuid).await?,
+        None => {
+            moatless_core::change_feed::conversation::record_message_change(
+                tx,
+                task_id,
+                message_uuid,
+            )
+            .await?
+        }
+    };
+
+    for activity in &conversation.activities {
+        task_activities::dao::upsert(tx, position, activity).await?;
+    }
+    for outcome in &conversation.outcomes {
+        task_activities::dao::settle(tx, outcome).await?;
+    }
+    if let Some(usage) = conversation.usage {
+        task_activities::dao::admit_usage(tx, task_id, message_uuid, parent_uuid, usage).await?;
+    }
+
+    if conversation.activities.iter().any(|activity| {
+        activity.kind == ActivityKind::ToolCall
+            && INTERACTIVE_TOOLS.contains(&activity.summary.as_str())
+    }) {
+        moatless_core::change_feed::listing::record_change(tx, task_id).await?;
+    }
+
+    Ok(())
+}
+
+/// The agent mode of the Task's latest user Message, which an agent's own
+/// rows inherit.
+pub(crate) async fn last_user_agent_mode_in(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    task_id: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar(
+        r#"SELECT agent_mode FROM task_messages
+            WHERE task_id = $1 AND message_type = 'user'
+            ORDER BY timestamp DESC
+            LIMIT 1"#,
+    )
+    .bind(task_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map(Option::flatten)
+}
+
 #[async_trait]
 impl MessageDao for PgMessageDao {
     async fn get_all(&self, task_id: &str) -> Result<MessagePage, sqlx::Error> {
@@ -671,6 +751,33 @@ impl MessageDao for PgMessageDao {
         Ok(message_id)
     }
 
+    async fn append_error_result(
+        &self,
+        task_id: &str,
+        turn_number: Option<i32>,
+        error_text: &str,
+    ) -> Result<(), sqlx::Error> {
+        let event = crate::task_event::models::InsertTaskEvent {
+            event_id: uuid::Uuid::new_v4().to_string(),
+            task_id: task_id.to_string(),
+            event_type: moatless_types::event::EventType::Task.as_str().to_string(),
+            sub_type: moatless_types::task::TaskSubType::Error
+                .as_str()
+                .to_string(),
+            is_error: true,
+            agent_profile: None,
+            turn_number,
+            payload: serde_json::json!({ "text": error_text }),
+            timestamp: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        };
+        let mut tx = self.0.begin().await?;
+        crate::task_event::dao::insert_in(&mut tx, &event).await?;
+        crate::conversation::projector::Projector
+            .on_task_error(&mut tx, &event)
+            .await?;
+        tx.commit().await
+    }
+
     async fn append_activities(
         &self,
         task_id: &str,
@@ -681,46 +788,7 @@ impl MessageDao for PgMessageDao {
             return Ok(());
         }
         let mut tx = self.0.begin().await?;
-
-        // A subagent's activities are never in the Task's own stream, so they
-        // allocate nothing from its counter — the same exclusion `append` makes,
-        // and for the same reason: they are assembled on demand behind the call
-        // that spawned them. They still need a position to sort by within their
-        // own transcript, and arrival order is the order they happened in.
-        let parent_uuid = conversation
-            .activities
-            .iter()
-            .find_map(|activity| activity.parent_uuid.as_deref());
-        let position = match parent_uuid {
-            Some(parent_uuid) => next_subagent_position(&mut tx, task_id, parent_uuid).await?,
-            None => {
-                moatless_core::change_feed::conversation::record_message_change(
-                    &mut tx,
-                    task_id,
-                    message_uuid,
-                )
-                .await?
-            }
-        };
-
-        for activity in &conversation.activities {
-            task_activities::dao::upsert(&mut tx, position, activity).await?;
-        }
-        for outcome in &conversation.outcomes {
-            task_activities::dao::settle(&mut tx, outcome).await?;
-        }
-        if let Some(usage) = conversation.usage {
-            task_activities::dao::admit_usage(&mut tx, task_id, message_uuid, parent_uuid, usage)
-                .await?;
-        }
-
-        if conversation.activities.iter().any(|activity| {
-            activity.kind == ActivityKind::ToolCall
-                && INTERACTIVE_TOOLS.contains(&activity.summary.as_str())
-        }) {
-            moatless_core::change_feed::listing::record_change(&mut tx, task_id).await?;
-        }
-
+        append_activities_in(&mut tx, task_id, message_uuid, conversation).await?;
         tx.commit().await?;
         Ok(())
     }

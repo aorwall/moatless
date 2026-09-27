@@ -11,6 +11,8 @@ use serde_json::{Map, Value};
 use sandbox_proto::{ReadTrajectoryRequest, read_trajectory_request};
 use tracing::{info, warn};
 
+use moatless_types::codex::CODEX_TOOL_SHELL;
+
 use super::content::CanonicalContentBlock;
 use super::source::Role;
 pub use super::transcode::RenderContext;
@@ -73,6 +75,53 @@ pub struct RecordedLine {
     pub harness_item_id: Option<String>,
     pub harness_turn_id: Option<String>,
     pub content: EventContent,
+    /// The line is another view of the tool call open when it was written;
+    /// the tail names that call in `content.derived_from`.
+    pub derived: bool,
+    /// The model this line starts using, for a harness that names it on a
+    /// line of its own (Codex's `turn_context`) rather than on each reply.
+    pub sets_model: Option<String>,
+}
+
+/// What earlier lines of a session tell a later one: the tool calls made and
+/// not yet answered, oldest first, and the model the harness last named.
+#[derive(Debug, Clone, Default)]
+pub struct LineContext {
+    calls: Vec<String>,
+    model: Option<String>,
+}
+
+impl LineContext {
+    /// Calls a session leaves unanswered, as an interrupted turn does, are
+    /// forgotten past this many.
+    const LIMIT: usize = 64;
+
+    /// Names the latest open call on a derived line, else records the line's
+    /// own calls and results; stamps the session's model on an assistant line
+    /// that names none.
+    pub fn observe(&mut self, read: &mut RecordedLine) {
+        if let Some(model) = read.sets_model.take() {
+            self.model = Some(model);
+        }
+        if read.content.role == Some(Role::Assistant) && read.content.model.is_none() {
+            read.content.model.clone_from(&self.model);
+        }
+        if read.derived {
+            read.content.derived_from = self.calls.last().cloned();
+            return;
+        }
+        for block in &read.content.blocks {
+            match block {
+                CanonicalContentBlock::ToolUse { id, .. } => self.calls.push(id.clone()),
+                CanonicalContentBlock::ToolResult { tool_use_id, .. } => {
+                    self.calls.retain(|id| id != tool_use_id);
+                }
+                _ => {}
+            }
+        }
+        let over = self.calls.len().saturating_sub(Self::LIMIT);
+        self.calls.drain(..over);
+    }
 }
 
 /// A line's harness-neutral content; bookkeeping lines have no role and no
@@ -96,6 +145,17 @@ pub struct EventContent {
     pub usage: Option<Usage>,
     /// A compaction line; its summary text is in `blocks`.
     pub compaction: bool,
+    /// The model that wrote an assistant line, where the harness names it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// The tool call this line's blocks are another view of: shown under that
+    /// call and never transcoded, since the call itself is.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub derived_from: Option<String>,
+    /// The harness recorded that the turn's final reply finished here: a Claude
+    /// text line with `stop_reason` `end_turn`, a Codex `task_complete`.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub ends_turn: bool,
 }
 
 /// One model response's token counts. `input_tokens` excludes cached input.
@@ -189,6 +249,8 @@ fn unparsed() -> RecordedLine {
         harness_item_id: None,
         harness_turn_id: None,
         content: EventContent::default(),
+        derived: false,
+        sets_model: None,
     }
 }
 
@@ -296,6 +358,8 @@ impl SessionFormat for ClaudeSessionFormat {
             harness_item_id,
             harness_turn_id: None,
             content,
+            derived: false,
+            sets_model: None,
         }
     }
 
@@ -374,8 +438,19 @@ fn claude_content(value: &Value) -> EventContent {
                 )
             }),
         compaction,
+        model: (role == Some(Role::Assistant))
+            .then(|| str_at(message, &["model"]).map(str::to_string))
+            .flatten(),
+        // Claude repeats a response's `stop_reason` on each block's line, so
+        // only the text line ends the turn: a thinking line may precede it.
+        ends_turn: role == Some(Role::Assistant)
+            && str_at(message, &["stop_reason"]) == Some("end_turn")
+            && blocks.iter().any(
+                |b| matches!(b, CanonicalContentBlock::Text { text } if !text.trim().is_empty()),
+            ),
         role,
         blocks,
+        ..EventContent::default()
     }
 }
 
@@ -441,8 +516,13 @@ impl SessionFormat for CodexSessionFormat {
             None => top.to_string(),
         };
         let is_item = top == "response_item";
+        let command = (kind == "event_msg/item_completed")
+            .then(|| payload.get("item"))
+            .flatten()
+            .filter(|item| str_at(item, &["type"]) == Some("CommandExecution"));
         let content = match kind.as_str() {
             _ if is_item => codex_item_content(&payload),
+            _ if command.is_some() => command.map(codex_command_content).unwrap_or_default(),
             "compacted" => EventContent {
                 role: Some(Role::User),
                 blocks: vec![CanonicalContentBlock::Text {
@@ -469,13 +549,24 @@ impl SessionFormat for CodexSessionFormat {
                 }),
                 ..EventContent::default()
             },
+            "event_msg/task_complete" => EventContent {
+                ends_turn: true,
+                ..EventContent::default()
+            },
             _ => EventContent::default(),
         };
         RecordedLine {
-            harness_item_id: is_item
-                .then(|| str_at(&payload, &["id"]).map(str::to_string))
-                .flatten(),
+            harness_item_id: match command {
+                Some(item) => str_at(item, &["id"]).map(str::to_string),
+                None => is_item
+                    .then(|| str_at(&payload, &["id"]).map(str::to_string))
+                    .flatten(),
+            },
             harness_turn_id: str_at(&payload, &["turn_id"]).map(str::to_string),
+            derived: command.is_some(),
+            sets_model: (kind == "turn_context")
+                .then(|| str_at(&payload, &["model"]).map(str::to_string))
+                .flatten(),
             content,
             kind,
         }
@@ -612,6 +703,54 @@ fn codex_item_content(item: &Value) -> EventContent {
             blocks: vec![CanonicalContentBlock::Unknown { raw: item.clone() }],
             ..EventContent::default()
         },
+    }
+}
+
+/// One command a code-mode `exec` call ran, as the `codex.shell` call and
+/// result the app-server reported it as. The rollout line names no `call_id`.
+fn codex_command_content(item: &Value) -> EventContent {
+    let id = str_at(item, &["id"]).unwrap_or_default().to_string();
+    let command = match item.get("command") {
+        Some(Value::Array(argv)) => {
+            let argv: Vec<&str> = argv.iter().filter_map(Value::as_str).collect();
+            match argv.as_slice() {
+                [_, "-lc" | "-c", script] => (*script).to_string(),
+                _ => argv.join(" "),
+            }
+        }
+        Some(Value::String(command)) => command.clone(),
+        _ => String::new(),
+    };
+    let mut input = Map::new();
+    input.insert("command".into(), Value::String(command));
+    if let Some(cwd) = str_at(item, &["cwd"]) {
+        let cwd = cwd.strip_prefix("file://").unwrap_or(cwd);
+        input.insert("cwd".into(), Value::String(cwd.to_string()));
+    }
+    let failed = str_at(item, &["status"]).is_some_and(|s| s != "completed")
+        || item
+            .get("exit_code")
+            .and_then(Value::as_i64)
+            .is_some_and(|code| code != 0);
+    EventContent {
+        role: Some(Role::Assistant),
+        blocks: vec![
+            CanonicalContentBlock::ToolUse {
+                id: id.clone(),
+                name: CODEX_TOOL_SHELL.to_string(),
+                input: Value::Object(input),
+            },
+            CanonicalContentBlock::ToolResult {
+                tool_use_id: id,
+                content: Some(Value::String(
+                    str_at(item, &["aggregated_output"])
+                        .unwrap_or_default()
+                        .to_string(),
+                )),
+                is_error: Some(failed),
+            },
+        ],
+        ..EventContent::default()
     }
 }
 

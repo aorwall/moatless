@@ -15,7 +15,7 @@ This script validates the complete Docker workflow with the Rust backend:
 SSE Event Verification:
 - Connects to /api/v1/events/stream (NDJSON format)
 - Collects events in background thread
-- Verifies expected lifecycle events: agent.message, agent.completed,
+- Verifies expected lifecycle events: message.upsert, agent.completed,
   taskTurn.completed
 
 Usage: python docker-compose/e2e-test.py
@@ -170,9 +170,9 @@ def verify_task_events(events: List[SSEEvent], task_id: str) -> Tuple[bool, List
             errors.append(f"Missing: {description} ({event_type}.{sub_type or '*'})")
 
     # Check for agent messages
-    messages = [e for e in task_events if e.event_type == "agent" and e.sub_type == "message"]
+    messages = [e for e in task_events if e.event_type == "message" and e.sub_type == "upsert"]
     if not messages:
-        errors.append("Missing: Agent messages (agent.message)")
+        errors.append("Missing: Agent messages (message.upsert)")
 
     return len(errors) == 0, errors
 

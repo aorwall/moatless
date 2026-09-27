@@ -3969,7 +3969,6 @@ dependencies = [
  "moatless-workspace-types",
  "moatless-workspaces",
  "mockall",
- "moka",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",

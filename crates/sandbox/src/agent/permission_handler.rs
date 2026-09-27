@@ -10,32 +10,17 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use serde_json::json;
-
 use super::agent_state::AgentState;
 use super::prompt::{PendingPrompt, PromptResponse, PromptToolName};
-use crate::events::GrpcEventPublisher;
 
 /// Tools that require plan approval before use.
 const WRITE_TOOLS: &[&str] = &["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"];
-
-/// Announces the call that parked the run, so a person sees the question.
-///
-/// The block carrying it may lag the harness stream, and the CLI blocks on this
-/// answer before writing anything more.
-struct PromptSink {
-    events: GrpcEventPublisher,
-    task_id: String,
-}
 
 /// Permission handler that intercepts `AskUserQuestion` and `ExitPlanMode`.
 pub struct InteractivePermissionHandler {
     pub agent_state: Arc<AgentState>,
     /// When true, write tools are blocked pending `ExitPlanMode` approval.
     pub plan_mode_active: Arc<AtomicBool>,
-    /// `None` in tests and wherever no publisher is wired; the prompt then
-    /// parks exactly as before, unannounced.
-    prompt_sink: Option<PromptSink>,
 }
 
 impl InteractivePermissionHandler {
@@ -44,7 +29,6 @@ impl InteractivePermissionHandler {
         Self {
             agent_state,
             plan_mode_active: Arc::new(AtomicBool::new(plan_mode)),
-            prompt_sink: None,
         }
     }
 
@@ -53,98 +37,6 @@ impl InteractivePermissionHandler {
     pub fn new(agent_state: Arc<AgentState>) -> Self {
         Self::with_plan_mode(agent_state, false)
     }
-
-    /// Announce every interactive call this handler parks on through `events`.
-    #[must_use]
-    pub fn announcing_prompts(mut self, events: GrpcEventPublisher, task_id: String) -> Self {
-        self.prompt_sink = Some(PromptSink { events, task_id });
-        self
-    }
-
-    /// Publishes the parked call as the `tool_use` block, shaped like the
-    /// coordinator's per-block `agent.message`.
-    ///
-    /// The uuid derives from the tool-use id so a redelivery updates the row
-    /// instead of duplicating it; run-scoped through `current_run_id` like an
-    /// answer's ack.
-    async fn announce(&self, tool_name: &str, tool_use_id: &str, input: &serde_json::Value) {
-        let Some(sink) = &self.prompt_sink else {
-            return;
-        };
-        if tool_use_id.is_empty() {
-            tracing::warn!(
-                tool = %tool_name,
-                "Interactive call carries no tool-use id; parking it unannounced"
-            );
-            return;
-        }
-        // The block holding this call reaches the coordinator by its own route.
-        // Claiming the id here is what keeps the two from writing the same call
-        // twice; losing the claim means the block got there first, and there is
-        // nothing left to announce.
-        if !self.agent_state.claim_prompt_publication(tool_use_id).await {
-            return;
-        }
-
-        let events = match self.agent_state.current_run_id().await {
-            Some(run_id) => sink.events.for_run(&run_id),
-            None => sink.events.clone(),
-        };
-        let published = events
-            .publish_agent_event(
-                &sink.task_id,
-                moatless_types::agent::AgentSubType::Message,
-                prompt_message_payload(
-                    tool_name,
-                    tool_use_id,
-                    input,
-                    &self.agent_state.last_session_id().await.unwrap_or_default(),
-                ),
-            )
-            .await;
-        // The claim was taken on the strength of a publication that then did not
-        // happen. Hand it back so the block carrying this call still publishes
-        // when the harness delivers it.
-        if !published {
-            self.agent_state
-                .release_prompt_publication(tool_use_id)
-                .await;
-            tracing::warn!(
-                tool = %tool_name,
-                tool_use_id,
-                "Interactive call announcement was not enqueued; leaving the block to publish it"
-            );
-        }
-    }
-}
-
-/// The `agent.message` payload announcing one parked interactive call.
-///
-/// Byte-for-byte the shape `coordinator::seam::message_payload` produces, so
-/// the same handler reads both: one `blockIndex`, one `content` block, uuid on
-/// both the outside and inside.
-fn prompt_message_payload(
-    tool_name: &str,
-    tool_use_id: &str,
-    input: &serde_json::Value,
-    session_id: &str,
-) -> serde_json::Value {
-    let uuid = format!("prompt-{tool_use_id}");
-    json!({
-        "uuid": uuid,
-        "blockIndex": 0,
-        "session_id": session_id,
-        "message": {
-            "role": "assistant",
-            "id": uuid,
-            "content": [{
-                "type": "tool_use",
-                "id": tool_use_id,
-                "name": tool_name,
-                "input": input,
-            }],
-        },
-    })
 }
 
 #[async_trait::async_trait]
@@ -180,12 +72,6 @@ impl claude_agent_sdk::PermissionHandler for InteractivePermissionHandler {
                     interrupt: None,
                 };
             }
-
-            // Say what is being asked before waiting to be answered: the wait
-            // below ends only when a person answers, and the panel they answer
-            // in is derived from this.
-            self.announce(tool_name, &context.tool_use_id, &input_value)
-                .await;
 
             // Nothing is running while this waits, and the idle reaper asks the
             // agent before pulling the plug: reported as running, a parked run
@@ -516,45 +402,10 @@ mod tests {
         );
     }
 
-    /// The announcement carries the call in the shape the backend's per-block
-    /// `agent.message` handler already reads.
-    ///
-    /// The uuid is the tool-use id's, so a redelivery or the late-arriving real
-    /// block lands on the same row.
-    #[test]
-    fn a_parked_call_is_announced_as_the_block_it_is() {
-        let input = serde_json::json!({ "plan": "do the thing" });
-        let payload = prompt_message_payload("ExitPlanMode", "toolu_plan", &input, "sess-1");
-
-        assert_eq!(payload["uuid"], "prompt-toolu_plan");
-        assert_eq!(payload["blockIndex"], 0);
-        assert_eq!(payload["session_id"], "sess-1");
-        assert_eq!(payload["message"]["id"], "prompt-toolu_plan");
-        assert_eq!(payload["message"]["role"], "assistant");
-
-        let block = &payload["message"]["content"][0];
-        assert_eq!(block["type"], "tool_use");
-        assert_eq!(block["id"], "toolu_plan");
-        assert_eq!(block["name"], "ExitPlanMode");
-        assert_eq!(
-            block["input"], input,
-            "the plan the panel renders is the call's own input"
-        );
-
-        assert_eq!(
-            prompt_message_payload("AskUserQuestion", "toolu_ask", &input, "sess-1")["uuid"],
-            "prompt-toolu_ask",
-            "each call is announced under its own id"
-        );
-    }
-
-    /// Without a publisher the prompt still parks — the announcement is an
-    /// addition to that path, never a precondition for it.
     #[tokio::test]
-    async fn a_handler_with_no_sink_still_parks_the_prompt() {
+    async fn an_interactive_call_parks_the_prompt() {
         let state = Arc::new(AgentState::new());
         let handler = test_handler(Arc::clone(&state));
-        assert!(handler.prompt_sink.is_none());
 
         let handle = tokio::spawn(async move {
             handler
@@ -612,37 +463,5 @@ mod tests {
             parked.await.unwrap(),
             claude_agent_sdk::PermissionResult::Allow { .. }
         ));
-    }
-
-    /// The claim says the call reached the backend by this route, so the block
-    /// carrying it stays quiet on the strength of it.
-    ///
-    /// An announcement that never went anywhere must hand the claim back, or
-    /// the call is suppressed on both routes and never asked.
-    #[tokio::test]
-    async fn a_refused_announcement_hands_the_claim_back() {
-        let backend = Arc::new(crate::events::test_backend::CapturingBackend::default());
-        let cancel = tokio_util::sync::CancellationToken::new();
-        let (outbox, drainer) = crate::outbox::EventOutbox::spawn(
-            backend as Arc<dyn crate::backend_client::BackendClient>,
-            "task-1".to_string(),
-            cancel.clone(),
-        );
-        // A stopped drainer refuses everything submitted after it: the outbox
-        // will not take the announcement.
-        cancel.cancel();
-        drainer.shutdown(std::time::Duration::from_secs(5)).await;
-
-        let state = Arc::new(AgentState::new());
-        let handler = test_handler(Arc::clone(&state))
-            .announcing_prompts(GrpcEventPublisher::new(outbox), "task-1".to_string());
-        handler
-            .announce("AskUserQuestion", "tu-1", &serde_json::json!({}))
-            .await;
-
-        assert!(
-            state.claim_prompt_publication("tu-1").await,
-            "the claim is free again, so the block still publishes the call"
-        );
     }
 }

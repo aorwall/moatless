@@ -170,140 +170,117 @@ pub async fn notify_linear_action(
     }
 }
 
-/// Emit one Linear activity per block in an assistant message: `text` →
-/// ephemeral `thought`, `tool_use` → ephemeral `action` with a summarized
-/// parameter.
-///
-/// Caller must guard on `payload.type == "assistant"`; skips `tool_result`
-/// blocks (handled by [`notify_linear_tool_results`]) and `text` blocks under 4
-/// chars after trim (Claude connector tokens).
-pub async fn notify_linear_message_activities(
-    app_tokens: Arc<dyn AppCredentials>,
-    task_bindings: Arc<Bindings>,
-    adapter_connections: Arc<dyn ConnectionLookup>,
-    apps: Arc<dyn AdapterAppReader>,
-    task_id: String,
-    message: serde_json::Value,
-) {
-    let Some(blocks) = message.get("content").and_then(serde_json::Value::as_array) else {
-        return;
-    };
-    if blocks.is_empty() {
-        return;
-    }
+/// One Linear activity an assembled Message owes, with the key that makes
+/// posting it idempotent: the Message's uuid or the tool-use id, both
+/// deterministic across a re-projection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MessagePost {
+    /// Assistant `text` → a persistent `thought`. `text` is the Message's whole
+    /// folded text, which grows as later blocks of the response land; the
+    /// subscriber posts only what its ledger has not.
+    Thought { key: String, text: String },
+    /// A `tool_use` → an ephemeral pending `action`.
+    Call {
+        key: String,
+        tool_name: String,
+        parameter: String,
+    },
+    /// A settled call → a completed `action`, read back from its Activity.
+    Result { key: String, tool_use_id: String },
+}
 
-    let sessions = resolve_linear_sessions_for_task(
-        &app_tokens,
-        task_bindings.as_ref(),
-        adapter_connections.as_ref(),
-        apps.as_ref(),
-        &task_id,
-    )
-    .await;
-    if sessions.is_empty() {
-        return;
-    }
-
-    for block in blocks {
-        let block_type = block
-            .get("type")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("");
-
-        match block_type {
-            "text" => {
-                let text = block
-                    .get("text")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("")
-                    .trim();
-                if text.chars().count() < 4 {
-                    continue;
-                }
-                for (api, session_id) in &sessions {
-                    if let Err(e) = api
-                        .agent_activity_create(session_id, ActivityKind::Thought, text, false)
-                        .await
-                    {
-                        warn!(
-                            task_id,
-                            session_id,
-                            error = %e,
-                            "notify_linear_message_activities: thought failed"
-                        );
-                    }
-                }
-            }
-            "tool_use" => {
-                let Some(tool_name) = block.get("name").and_then(serde_json::Value::as_str) else {
-                    continue;
-                };
-                let empty = serde_json::Value::Null;
-                let input = block.get("input").unwrap_or(&empty);
-                let parameter = summarize_tool_input(tool_name, input);
-                for (api, session_id) in &sessions {
-                    if let Err(e) = api
-                        .agent_activity_create_action(session_id, tool_name, &parameter, None, true)
-                        .await
-                    {
-                        warn!(
-                            task_id,
-                            session_id,
-                            tool_name,
-                            error = %e,
-                            "notify_linear_message_activities: action failed"
-                        );
-                    }
-                }
-            }
-            _ => {
-                // tool_result blocks are handled by notify_linear_tool_results
-                // on the user-role agent.message sibling; any other block kinds
-                // are intentionally ignored.
-            }
+impl MessagePost {
+    pub fn key(&self) -> &str {
+        match self {
+            Self::Thought { key, .. } | Self::Call { key, .. } | Self::Result { key, .. } => key,
         }
     }
 }
 
-/// Emit a non-ephemeral `action` activity for every `tool_result` block in a
-/// user-role agent message.
+/// Text shorter than this, trimmed, is not posted (Claude connector tokens).
+pub const MIN_THOUGHT_CHARS: usize = 4;
+
+/// The activities a `message.upsert` payload shows, in order: each text and
+/// tool call of a top-level assistant Message, then each call it settled.
+pub fn message_posts(message: &serde_json::Value) -> Vec<MessagePost> {
+    let str_of = |v: &serde_json::Value, key: &str| {
+        v.get(key)
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+    };
+    if str_of(message, "messageType").as_deref() != Some("assistant")
+        || message.get("parentUuid").is_some_and(|p| !p.is_null())
+    {
+        return Vec::new();
+    }
+    let Some(uuid) = str_of(message, "uuid") else {
+        return Vec::new();
+    };
+    let empty = Vec::new();
+    let blocks = message
+        .get("content")
+        .and_then(serde_json::Value::as_array)
+        .unwrap_or(&empty);
+    let mut posts = Vec::new();
+    for block in blocks {
+        match str_of(block, "type").as_deref() {
+            Some("text") => {
+                let text = str_of(block, "text").unwrap_or_default();
+                if !text.trim().is_empty() {
+                    posts.push(MessagePost::Thought {
+                        key: format!("text:{uuid}"),
+                        text,
+                    });
+                }
+            }
+            Some("tool_use") => {
+                let (Some(id), Some(tool_name)) =
+                    (str_of(block, "toolUseId"), str_of(block, "toolName"))
+                else {
+                    continue;
+                };
+                let empty = serde_json::Value::Null;
+                let input = block.get("toolInput").unwrap_or(&empty);
+                posts.push(MessagePost::Call {
+                    key: format!("call:{id}"),
+                    parameter: summarize_tool_input(&tool_name, input),
+                    tool_name,
+                });
+            }
+            _ => {}
+        }
+    }
+    let results = message
+        .get("toolResults")
+        .and_then(serde_json::Value::as_array)
+        .unwrap_or(&empty);
+    for result in results {
+        if let Some(id) = str_of(result, "toolUseId") {
+            posts.push(MessagePost::Result {
+                key: format!("result:{id}"),
+                tool_use_id: id,
+            });
+        }
+    }
+    posts
+}
+
+/// Post `posts` to every Linear session bound to the task.
 ///
-/// Pairs with the ephemeral pending `action` emitted at `tool_use` time so a
-/// Linear viewer sees both the call and its outcome.
-pub async fn notify_linear_tool_results(
+/// A [`MessagePost::Result`] reads the full call back from its Activity, since
+/// the upsert carries only previews; one not yet readable posts nothing.
+pub async fn notify_linear_message_posts(
     app_tokens: Arc<dyn AppCredentials>,
     task_bindings: Arc<Bindings>,
     adapter_connections: Arc<dyn ConnectionLookup>,
     apps: Arc<dyn AdapterAppReader>,
     messages: Arc<dyn TranscriptAppend>,
     task_id: String,
-    message: serde_json::Value,
+    posts: Vec<MessagePost>,
 ) {
-    let Some(blocks) = message.get("content").and_then(serde_json::Value::as_array) else {
-        return;
-    };
-    if blocks.is_empty() {
+    if posts.is_empty() {
         return;
     }
-
-    // Collect tool_use_ids up-front so we can skip the sessions lookup when the
-    // user message carries no tool_result blocks (e.g. plain text follow-ups).
-    let tool_use_ids: Vec<String> = blocks
-        .iter()
-        .filter_map(|b| {
-            let kind = b.get("type").and_then(serde_json::Value::as_str)?;
-            if kind != "tool_result" {
-                return None;
-            }
-            b.get("tool_use_id")
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_string)
-        })
-        .collect();
-    if tool_use_ids.is_empty() {
-        return;
-    }
-
     let sessions = resolve_linear_sessions_for_task(
         &app_tokens,
         task_bindings.as_ref(),
@@ -316,54 +293,74 @@ pub async fn notify_linear_tool_results(
         return;
     }
 
-    for tool_use_id in tool_use_ids {
-        let row = match messages.tool_call(&task_id, &tool_use_id).await {
-            Ok(Some(row)) => row,
-            Ok(None) => {
-                debug!(
-                    task_id,
-                    tool_use_id, "notify_linear_tool_results: tool_use lookup returned no row"
-                );
-                continue;
+    for post in posts {
+        match post {
+            MessagePost::Thought { text, .. } => {
+                for (api, session_id) in &sessions {
+                    if let Err(e) = api
+                        .agent_activity_create(session_id, ActivityKind::Thought, &text, false)
+                        .await
+                    {
+                        warn!(task_id, session_id, error = %e, "notify_linear_message_posts: thought failed");
+                    }
+                }
             }
-            Err(e) => {
-                debug!(
-                    task_id,
-                    tool_use_id,
-                    error = %e,
-                    "notify_linear_tool_results: tool_use lookup failed"
-                );
-                continue;
+            MessagePost::Call {
+                tool_name,
+                parameter,
+                ..
+            } => {
+                for (api, session_id) in &sessions {
+                    if let Err(e) = api
+                        .agent_activity_create_action(
+                            session_id, &tool_name, &parameter, None, true,
+                        )
+                        .await
+                    {
+                        warn!(task_id, session_id, tool_name, error = %e, "notify_linear_message_posts: action failed");
+                    }
+                }
             }
-        };
-
-        // Race guard: pending ephemeral stays in place until the result row
-        // exists. Without truncated result content there is nothing to surface.
-        let Some(result_text) = row.result_content.as_deref() else {
-            continue;
-        };
-
-        let parameter = summarize_tool_input(&row.tool_name, &row.tool_input);
-        let result = truncate_result_for_linear(result_text, row.is_error.unwrap_or(false));
-
-        for (api, session_id) in &sessions {
-            if let Err(e) = api
-                .agent_activity_create_action(
-                    session_id,
-                    &row.tool_name,
-                    &parameter,
-                    Some(&result),
-                    false,
-                )
-                .await
-            {
-                warn!(
-                    task_id,
-                    session_id,
-                    tool_name = %row.tool_name,
-                    error = %e,
-                    "notify_linear_tool_results: action failed"
-                );
+            MessagePost::Result { tool_use_id, .. } => {
+                let row = match messages.tool_call(&task_id, &tool_use_id).await {
+                    Ok(Some(row)) => row,
+                    Ok(None) => {
+                        debug!(
+                            task_id,
+                            tool_use_id, "notify_linear_message_posts: no tool_use row"
+                        );
+                        continue;
+                    }
+                    Err(e) => {
+                        debug!(task_id, tool_use_id, error = %e, "notify_linear_message_posts: tool_use lookup failed");
+                        continue;
+                    }
+                };
+                let Some(result_text) = row.result_content.as_deref() else {
+                    continue;
+                };
+                let parameter = summarize_tool_input(&row.tool_name, &row.tool_input);
+                let result = truncate_result_for_linear(result_text, row.is_error.unwrap_or(false));
+                for (api, session_id) in &sessions {
+                    if let Err(e) = api
+                        .agent_activity_create_action(
+                            session_id,
+                            &row.tool_name,
+                            &parameter,
+                            Some(&result),
+                            false,
+                        )
+                        .await
+                    {
+                        warn!(
+                            task_id,
+                            session_id,
+                            tool_name = %row.tool_name,
+                            error = %e,
+                            "notify_linear_message_posts: result failed"
+                        );
+                    }
+                }
             }
         }
     }

@@ -20,7 +20,6 @@ use moatless_core::config::Config;
 use moatless_core::feature_flags::FeatureFlags;
 use moatless_identity::auth;
 use moatless_tasks::agent_event::EventKey;
-use moatless_tasks::event_ingress::relay::IngressRelayHandle;
 use moatless_tasks::task_listing;
 use moatless_types::sandbox::SandboxStatus;
 
@@ -267,12 +266,6 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         info!("Auth routes disabled (no database)");
     }
 
-    // Owned handle to the ingress-outbox relay (see `spawn_ingress_relay`). Held
-    // here rather than detached because the relay is critical: it is the only
-    // path an admitted `agent.message` payload has back to the consumer after a
-    // failed publish.
-    let mut ingress_relay: Option<IngressRelayHandle> = None;
-
     // Domain routes (need DB)
     if let Some(ports) = ports {
         let crate::compose::application::ApplicationAssembly {
@@ -490,11 +483,6 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .spawn(app_state.routing.clone(), cancel.clone()),
         );
 
-        // The ingress-outbox relay keeps its own handle rather than joining the
-        // supervisor: it is shut down explicitly after `supervisor.run` returns,
-        // on its own deadline (see `RELAY_SHUTDOWN_DEADLINE`).
-        ingress_relay = spawn_ingress_relay(&app_state, cancel.clone());
-
         // Build cron leader guard before reaper_k8s is moved
         let cron_leader = reaper_k8s
             .as_ref()
@@ -629,9 +617,6 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // The API server returned, so the process is going down: cancel the owned
     // background work and give it a bounded window to finish.
     cancel.cancel();
-    if let Some(relay) = ingress_relay {
-        relay.shutdown(RELAY_SHUTDOWN_DEADLINE).await;
-    }
     if let Some(provider) = otel_provider {
         shutdown_otel_provider(provider).await;
     }
@@ -655,26 +640,6 @@ async fn shutdown_otel_provider(provider: opentelemetry_sdk::trace::SdkTracerPro
         Ok(Err(e)) => warn!(error = %e, "OTel tracer provider shutdown task panicked"),
         Err(_) => warn!("OTel tracer provider shutdown timed out; buffered spans may be lost"),
     }
-}
-
-/// How long shutdown waits for the ingress-outbox relay before reporting it as
-/// a straggler and exiting anyway.
-///
-/// Separate from `SHUTDOWN_JOIN_DEADLINE`; 5s holds the worst case to 25s,
-/// inside k8s' default 30s grace period.
-const RELAY_SHUTDOWN_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
-
-/// Spawn the ingress-outbox relay, returning its owned handle.
-///
-/// Requires an event transport: with none configured the gRPC ingress refuses
-/// `agent.message` payloads outright, so there is nothing to re-publish.
-fn spawn_ingress_relay(
-    app_state: &AppState,
-    cancel: CancellationToken,
-) -> Option<IngressRelayHandle> {
-    let handle = crate::compose::workers::ingress_relay(app_state)?.spawn(cancel);
-    info!("Ingress outbox relay spawned");
-    Some(handle)
 }
 
 // =========================================================================

@@ -13,12 +13,15 @@ use sandbox_proto::{
     SessionHeader, TranscodeItem, read_trajectory_chunk, read_trajectory_request,
 };
 
+use moatless_tasks::message::hooks::{emit_message_upsert_from_daos, emit_subagent_progress};
 use moatless_tasks::trajectory::models::{
-    AppendError, AppendRequest, ChainError, ForkCut, NewEvent, OpenedSession, SubagentParent,
+    AppendError, AppendRequest, ChainError, ForkCut, LineProjection, NewEvent, OpenedSession,
+    SubagentParent,
 };
 use moatless_tasks::trajectory::operations::Trajectories;
 
 use super::state::BackendSandboxServiceImpl;
+use crate::event_handler::metrics::{bucket_tool, record_tool_call};
 
 /// The chunk stream [`read_trajectory`] answers with.
 pub(super) type TrajectoryChunkStream =
@@ -103,11 +106,58 @@ pub(super) async fn append_trajectory(
             AppendError::OwnFromSeqMissing(_) => Status::invalid_argument(e.to_string()),
             AppendError::Db(e) => internal(e, "Failed to append trajectory"),
         })?;
+    notify_projection(service, &task_id, harness, &outcome.projected).await;
     Ok(Response::new(AppendTrajectoryResponse {
         accepted: outcome.accepted,
         last_seq: outcome.last_seq,
         last_payload: outcome.last_payload,
     }))
+}
+
+/// The live notices and tool-call metrics a committed projection owes: a
+/// subagent's rows ride `subagentProgress`, a top-level Message a
+/// `message.upsert`.
+async fn notify_projection(
+    service: &BackendSandboxServiceImpl,
+    task_id: &str,
+    harness: Harness,
+    projected: &LineProjection,
+) {
+    for (tool, failed) in &projected.settled {
+        let tool = tool.as_deref().map_or("unknown", bucket_tool);
+        let status = if *failed { "error" } else { "ok" };
+        record_tool_call(tool, Some(harness.as_str()), status);
+    }
+    let Some(handlers) = service.handlers.as_ref() else {
+        return;
+    };
+    if !projected.skills.is_empty() {
+        let tags: Vec<String> = projected
+            .skills
+            .iter()
+            .map(|s| format!("skill-{s}"))
+            .collect();
+        handlers.tags.propagate_tags(task_id, &tags).await;
+    }
+    for tool_use_id in &projected.subagents {
+        emit_subagent_progress(
+            service.events.as_ref(),
+            &handlers.messages,
+            task_id,
+            tool_use_id,
+        )
+        .await;
+    }
+    for uuid in &projected.messages {
+        emit_message_upsert_from_daos(
+            service.events.as_ref(),
+            &handlers.messages,
+            Some(&handlers.files),
+            task_id,
+            uuid,
+        )
+        .await;
+    }
 }
 
 pub(super) async fn read_trajectory(

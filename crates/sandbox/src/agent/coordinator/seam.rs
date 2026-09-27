@@ -19,9 +19,8 @@ use crate::agent::handle::RunAck;
 use crate::agent::harness::content::CanonicalContentBlock;
 use crate::agent::harness::{
     Activity, Cause, ContextWindow, ErrorClass, HarnessClosed, HarnessError, HarnessRuntime, Input,
-    InputId, Outcome, Rejection, Role, SessionImpact, Signal, SourceEvent,
+    InputId, Outcome, Rejection, SessionImpact, Signal,
 };
-use crate::agent::prompt::PromptToolName;
 use crate::agent::types::ResumeSession;
 use crate::agent::wakeup_job::WakeupJob;
 use crate::events::GrpcEventPublisher;
@@ -59,10 +58,6 @@ pub struct Coordinator {
     /// can be re-driven as a fresh context-recovery Turn instead of being
     /// dropped.
     pending_inputs: HashMap<InputId, Input>,
-    /// Next `blockIndex` per native Message id, reset at each Run start. Lets
-    /// the backend assemble per-block source events in native order
-    /// (server-owned assembly).
-    block_indices: HashMap<String, usize>,
     /// When the last rate-limited liveness event was published.
     last_activity_publish: Option<Instant>,
     /// Reuse the current `run_id` on the next [`Signal::ExecutionStarted`]
@@ -110,7 +105,6 @@ impl Coordinator {
             opening_input: None,
             accepted_injected_acks: Vec::new(),
             pending_inputs: HashMap::new(),
-            block_indices: HashMap::new(),
             last_activity_publish: None,
             hold_run_id: false,
             suppress_failure_event: false,
@@ -119,16 +113,6 @@ impl Coordinator {
             run_cancel: None,
             turn_active: false,
         }
-    }
-
-    /// Share the state machine with a coordinator that has no service behind it
-    /// — the permission-dedup tests. A service binds it itself, along with the
-    /// cancellation root a turn transition also needs; see [`Self::bind`].
-    #[must_use]
-    #[cfg(test)]
-    pub fn driving(mut self, agent_state: Arc<AgentState>) -> Self {
-        self.agent_state = Some(agent_state);
-        self
     }
 
     /// Bind the state machine and the run's cancellation root.
@@ -277,7 +261,6 @@ impl Coordinator {
                     Cause::Internal => None,
                 };
                 self.hold_run_id = false;
-                self.block_indices.clear();
                 // The state machine enters the turn *before* the events say it
                 // has: a reader that catches the gap sees a not-yet-started
                 // turn, never a started turn whose agent reports idle.
@@ -315,21 +298,7 @@ impl Coordinator {
                     self.opening_input = None;
                 }
             }
-            Signal::Source(event) => {
-                // The index is spent either way, so the blocks that follow keep
-                // the positions the model gave them.
-                let block_index = self.next_block_index(&event.message_id.0);
-                if !self.published_as_a_prompt(&event.block).await {
-                    self.run_events()
-                        .publish_agent_event(
-                            &self.task_id,
-                            AgentSubType::Message,
-                            message_payload(&event, block_index),
-                        )
-                        .await;
-                }
-                self.ack_accepted_injected_inputs("source");
-            }
+            Signal::Source(_) => self.ack_accepted_injected_inputs("source"),
             Signal::Activity(activity) => {
                 self.publish_activity(&activity).await;
                 self.ack_accepted_injected_inputs("activity");
@@ -420,35 +389,6 @@ impl Coordinator {
     /// Publisher scoped to the Run currently in flight.
     fn run_events(&self) -> GrpcEventPublisher {
         self.events.for_run(&self.run_id)
-    }
-
-    /// Position of the next block in its native Message, advanced per id.
-    fn next_block_index(&mut self, message_id: &str) -> usize {
-        let slot = self
-            .block_indices
-            .entry(message_id.to_string())
-            .or_insert(0);
-        let index = *slot;
-        *slot += 1;
-        index
-    }
-
-    /// Whether the permission handler already published this block's call.
-    ///
-    /// Only calls it parks on are asked about, announced while it waits so a
-    /// person is never asked a question they weren't shown; the block itself
-    /// also arrives here under the same tool-use id, and whichever route got
-    /// there first is the one that publishes it.
-    async fn published_as_a_prompt(&self, block: &CanonicalContentBlock) -> bool {
-        let (Some(state), CanonicalContentBlock::ToolUse { id, name, .. }) =
-            (&self.agent_state, block)
-        else {
-            return false;
-        };
-        if PromptToolName::from_tool_name(name).is_none() {
-            return false;
-        }
-        !state.claim_prompt_publication(id).await
     }
 
     fn send_run_ack(&self, input: InputId, ack: oneshot::Sender<RunAck>, reason: &'static str) {
@@ -698,49 +638,6 @@ pub(super) fn extract_wakeup_from_block(block: &CanonicalContentBlock) -> Option
         return None;
     }
     WakeupJob::from_tool_use(id, input)
-}
-
-/// Wrap one native block into the per-block `agent.message` payload the backend
-/// assembler consumes.
-///
-/// The single-block `content` array plus the `blockIndex`/`uuid` it merges on,
-/// and the `session_id`/`parent_tool_use_id` it groups by.
-fn message_payload(event: &SourceEvent, block_index: usize) -> Value {
-    let mut message = json!({
-        "role": role_str(event.role),
-        "id": event.message_id.0,
-        "content": [event.block_json()],
-    });
-    if let Some(model) = &event.model {
-        message["model"] = json!(model);
-    }
-    if let Some(usage) = &event.usage {
-        message["usage"] = usage.clone();
-    }
-
-    let mut payload = json!({
-        "uuid": event.message_id.0,
-        "blockIndex": block_index,
-        "session_id": event.session.0,
-        "message": message,
-    });
-    if let Some(parent) = &event.parent_tool_use_id {
-        payload["parent_tool_use_id"] = json!(parent);
-    }
-    // A tool_result block carries its typed result at the payload top level, where
-    // the backend reads it (`toolUseResult`) to enrich the UI's rendered output.
-    if let Some(tool_use_result) = &event.tool_use_result {
-        payload["toolUseResult"] = tool_use_result.clone();
-    }
-    payload
-}
-
-fn role_str(role: Role) -> &'static str {
-    match role {
-        Role::Assistant => "assistant",
-        Role::User => "user",
-        Role::System => "system",
-    }
 }
 
 /// A stable snake-case tag for the error class, carried on `agent.error` for

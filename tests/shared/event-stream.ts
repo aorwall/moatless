@@ -173,11 +173,11 @@ export class EventStream {
     }
 
     const messages = taskEvents.filter(
-      (event) => event.type === 'agent' && event.subType === 'message',
+      (event) => event.type === 'message' && event.subType === 'upsert',
     )
     messages.length > 0
-      ? receivedEvents.push(`agent.message (${messages.length})`)
-      : errors.push('Missing: Agent messages (agent.message)')
+      ? receivedEvents.push(`message.upsert (${messages.length})`)
+      : errors.push('Missing: Agent messages (message.upsert)')
 
     return { success: errors.length === 0, errors, receivedEvents }
   }

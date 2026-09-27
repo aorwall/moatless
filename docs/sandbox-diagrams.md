@@ -275,7 +275,7 @@ sequenceDiagram
     loop Message Stream
         CLI-->>SDK: Assistant / User messages
         SDK-->>AE: SdkMessage::Assistant / User
-        AE->>EP: publish(agent.message)
+        Note over CLI: the trajectory tail appends each session-file line (AppendTrajectory)
     end
 
     Note over B,BC: Interactive Prompt Flow (AskUserQuestion)

@@ -138,13 +138,6 @@ pub struct AppState {
     /// sent outbound — closes the race where the inbound webhook lands before
     /// `set_external_event_id` commits. See [`RecentlySent`].
     pub recently_sent: Arc<RecentlySent>,
-    /// Maps `tool_use_id` → bucketed tool-type label, populated at the
-    /// assistant `tool_use` block so the later `tool_result` event can be
-    /// labelled without a DB round-trip.
-    ///
-    /// Bounded LRU; a `messages.find_tool_call` lookup covers
-    /// cross-process/post-restart misses, falling back to `unknown`.
-    pub tool_call_names: Arc<moka::future::Cache<String, &'static str>>,
 
     // =========================================================================
     // DAO trait objects

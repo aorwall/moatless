@@ -4,8 +4,6 @@
 //! Owned by the coordinator service (`coordinator.rs`); harness-neutral so any
 //! agent implementation can reuse it.
 
-use std::collections::HashSet;
-
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
@@ -32,9 +30,6 @@ struct AgentInner {
     pending_prompt: Option<PendingPrompt>,
     consecutive_errors: u32,
     messages_pending: bool,
-    /// Interactive calls already published to the backend, by tool-use id.
-    /// See [`AgentState::claim_prompt_publication`].
-    published_prompts: HashSet<String>,
 }
 
 impl Default for AgentState {
@@ -55,7 +50,6 @@ impl AgentState {
                 pending_prompt: None,
                 consecutive_errors: 0,
                 messages_pending: false,
-                published_prompts: HashSet::new(),
             }),
         }
     }
@@ -165,34 +159,6 @@ impl AgentState {
 
     pub async fn set_run_id(&self, run_id: String) {
         self.inner.write().await.current_run_id = Some(run_id);
-    }
-
-    /// Claim the right to publish this interactive call, and report whether the
-    /// claim is this caller's.
-    ///
-    /// Two routes (the permission handler and the coordinator) race on the same
-    /// tool-use id; whichever claims first publishes, the other stays quiet —
-    /// the claim outlives the publication and names the call for the session's
-    /// life.
-    pub async fn claim_prompt_publication(&self, tool_use_id: &str) -> bool {
-        self.inner
-            .write()
-            .await
-            .published_prompts
-            .insert(tool_use_id.to_string())
-    }
-
-    /// Give a claim back, for a publication that did not happen.
-    ///
-    /// The other route stays quiet on the strength of a claim, so a refused
-    /// publication must hand it back or the call is suppressed on both routes —
-    /// silently, as if the agent stopped for no reason.
-    pub async fn release_prompt_publication(&self, tool_use_id: &str) {
-        self.inner
-            .write()
-            .await
-            .published_prompts
-            .remove(tool_use_id);
     }
 
     /// Park a prompt, unless one is already parked. Returns whether it was.

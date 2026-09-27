@@ -9,8 +9,10 @@ use uuid::Uuid;
 
 use super::lineage::{LineageRow, include_pending_results};
 use super::models::{
-    AppendError, AppendOutcome, AppendRequest, ChainError, ForkCut, Head, TrajectorySession,
+    AppendError, AppendOutcome, AppendRequest, ChainError, ForkCut, Head, LineProjection,
+    TrajectorySession,
 };
+use crate::conversation::projector::Projector;
 
 macro_rules! session_columns {
     () => {
@@ -66,6 +68,44 @@ struct CutRow {
 }
 
 pub(crate) struct PgTrajectoryDao(pub(crate) DbPool);
+
+/// The first tool call on `event_id`'s line: the call a subagent session
+/// hangs under.
+pub(crate) async fn spawning_call_in(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    event_id: Uuid,
+) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar(
+        r#"SELECT b ->> 'id'
+             FROM trajectory_events e,
+                  jsonb_array_elements(COALESCE(e.content -> 'blocks', '[]'::jsonb)) b
+            WHERE e.id = $1 AND b ->> 'type' = 'tool_use'
+            LIMIT 1"#,
+    )
+    .bind(event_id)
+    .fetch_optional(&mut **tx)
+    .await
+}
+
+/// How many blocks the session's lines of `item` hold before `seq`.
+pub(crate) async fn blocks_before_in(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    session_id: Uuid,
+    item: &str,
+    seq: i64,
+) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar(
+        r#"SELECT COALESCE(SUM(jsonb_array_length(content -> 'blocks')), 0)::bigint
+             FROM trajectory_events
+            WHERE session_id = $1 AND harness_item_id = $2 AND seq < $3
+              AND jsonb_typeof(content -> 'blocks') = 'array'"#,
+    )
+    .bind(session_id)
+    .bind(item)
+    .bind(seq)
+    .fetch_one(&mut **tx)
+    .await
+}
 
 impl PgTrajectoryDao {
     /// Append `lines` as seqs `first_seq..`, creating the session on its first
@@ -138,6 +178,7 @@ impl PgTrajectoryDao {
                 accepted: false,
                 last_seq: session.last_seq,
                 last_payload: None,
+                projected: LineProjection::default(),
             });
         }
         let held = usize::try_from(session.last_seq + 1 - first_seq).unwrap_or(0);
@@ -157,9 +198,11 @@ impl PgTrajectoryDao {
                 accepted: true,
                 last_seq: session.last_seq,
                 last_payload,
+                projected: LineProjection::default(),
             });
         }
 
+        let mut session = session;
         if session.transcoded_from_event_id.is_some() && session.own_from_seq.is_none() {
             let Some(own_from_seq) = own_from_seq else {
                 return Err(AppendError::OwnFromSeqMissing(
@@ -171,6 +214,7 @@ impl PgTrajectoryDao {
                 .bind(own_from_seq)
                 .execute(&mut *tx)
                 .await?;
+            session.own_from_seq = Some(own_from_seq);
         }
         let ids: Vec<Uuid> = fresh.iter().map(|_| Uuid::now_v7()).collect();
         let mut parents = Vec::with_capacity(ids.len());
@@ -211,6 +255,15 @@ impl PgTrajectoryDao {
         .bind(fresh.iter().map(|l| l.content.clone()).collect::<Vec<_>>())
         .execute(&mut *tx)
         .await?;
+        let projected = Projector
+            .on_lines(
+                &mut tx,
+                &session,
+                session.last_seq + 1,
+                &ids.iter().copied().zip(fresh).collect::<Vec<_>>(),
+                turn_number,
+            )
+            .await?;
 
         sqlx::query(
             "UPDATE trajectory_sessions SET last_seq = $2, last_event_id = $3 WHERE id = $1",
@@ -225,6 +278,7 @@ impl PgTrajectoryDao {
             accepted: true,
             last_seq,
             last_payload: None,
+            projected,
         })
     }
 

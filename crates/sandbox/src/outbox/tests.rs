@@ -31,7 +31,7 @@ fn agent_event(sub_type: &str) -> PublishEventRequest {
     }
 }
 
-/// An `agent.message` whose payload is `bytes` long, for byte-cap tests.
+/// An agent event whose payload is `bytes` long, for byte-cap tests.
 fn fat_agent_event(sub_type: &str, bytes: usize) -> PublishEventRequest {
     let mut req = agent_event(sub_type);
     req.payload_json = "x".repeat(bytes);
@@ -612,7 +612,7 @@ async fn a_terminal_rejection_is_dropped_and_the_stream_continues() {
 /// An over-limit payload can never succeed on resend.
 ///
 /// Reachable in practice: neither end of the publish path caps gRPC size, so
-/// the backend's tonic 4 MiB default can be crossed by a large `agent.message`.
+/// the backend's tonic 4 MiB default can be crossed by a large payload.
 #[tokio::test(start_paused = true)]
 async fn an_over_limit_payload_is_dropped_rather_than_retried_forever() {
     let (backend, received) = MockBackend::new(0);

@@ -65,6 +65,9 @@ crate::string_enum!(
         Closed => "closed",
         Updated => "updated",
         MetadataUpdated => "metadata.updated",
+        /// A backend failure a person should see in the chat, e.g. a failed
+        /// wake; projected as an Error Message.
+        Error => "error",
     }
 );
 

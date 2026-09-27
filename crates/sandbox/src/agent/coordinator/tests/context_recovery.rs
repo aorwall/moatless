@@ -82,7 +82,6 @@ async fn lost_resume_recovers_with_a_fresh_turn_and_keeps_the_ack() {
             "started",
             "active",
             "session_init",
-            "message",
             "completed"
         ],
     );

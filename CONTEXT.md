@@ -220,8 +220,7 @@ from one delivery, and nothing may be built on their execution order.
 Best-effort side effects — outbound activity notifications, API-key usage
 timestamps — are deliberately not Adapter deliveries.
 _Avoid_: adapter work (the previous name), adapter queue, adapter inbox, adapter
-outbox (the transactional outbox is the durable event-ingress path, not this
-one), adapter job, bare "delivery"
+outbox, adapter job, bare "delivery"
 
 **Why not the alternatives** (recorded so the name is not re-litigated — most
 were unavailable rather than merely less good):
@@ -415,8 +414,8 @@ One entry in a Task's conversation (`TaskMessage`): user, assistant, system,
 result, or error, carrying content blocks. A Task's conversation is its ordered
 Messages.
 _Avoid_: chat / channel as a domain entity. Qualify the other "message" uses:
-inbound/outbound message (Adapter transport), the `agent.message` event, and a
-Slack channel (external, provider-scoped).
+inbound/outbound message (Adapter transport), a Trajectory line, and a Slack
+channel (external, provider-scoped).
 
 **Chat**:
 The UI view that renders a Task's Messages. A UI concept only — there is no
@@ -425,8 +424,8 @@ The UI view that renders a Task's Messages. A UI concept only — there is no
 **Message upsert**:
 The assembled, UI-facing form of a Message (`UiMessage`) pushed to the Chat over
 the live stream — a `message.upsert` event keyed by a Message's `uuid`. Produced
-server-side by the one Message assembler after the source event is persisted;
-UI-only, never stored in `task_events`. A derived upsert targets the **affected
+server-side by the one Message assembler after the Projector commits the rows it
+changed; never stored in `task_events`. The Linear Adapter reads it too. A derived upsert targets the **affected
 parent** Message: when the changed row folds into another (a `tool_result`/system
 row inlined into the assistant Message that called it), the upsert carries the
 **parent** assistant Message's `uuid`, so a top-level tool result renders live
@@ -435,30 +434,12 @@ the same Message, assembled, not a second identity.
 _Avoid_: a separate `evt-*` identity for the streamed message; treating chat
 assembly as a client concern.
 
-**Source event vs derived event**:
-A **source event** (e.g. `agent.message`) is raw agent output. Its full content
-is a **transient ingestion payload**: the Sandbox publishes it to the backend,
-which spools it in the **transactional ingress outbox** before acknowledging;
-the event-handler consumer reads it once to build the Message store and deletes
-the spooled record, and it is never persisted to `task_events` nor relayed to
-clients in full. Its
-persisted-and-relayed form is a **metadata skeleton** (`{ message: { role },
-uuid, blockCount, toolNames }`). A **derived event** (`message.upsert` /
-`message.subagentProgress`) is computed from persisted state for the live Chat
-and is never itself persisted. Message content reaches clients only via the
-derived upsert (top-level) or the on-demand subagent transcript endpoint. One
-seam separates them.
-
-**Transactional ingress outbox**:
-The durable spool the backend writes an admitted dispatch payload to before it
-answers the Sandbox's publish, plus the supervised relay that re-publishes an
-undelivered record until its consumer commits it (the durable-ingress decision). It holds exactly
-one payload kind — full `agent.message` content, which `task_events` keeps only
-as a skeleton — and a record lives only from admission to that commit. This is
-the **only** thing the phrase "transactional outbox" names here.
-_Avoid_: calling the Sandbox's in-memory event queue a transactional outbox (it
-is a local send buffer, and losing it loses events); calling commit-before-fan-out
-ordering a transactional outbox.
+**Source vs derived event**:
+A **source** is what the Projector writes the conversation from: a Trajectory
+line, an inbox item, or a lifecycle event in `task_events`. A **derived event**
+(`message.upsert` / `message.subagentProgress`) is computed from the projected
+rows and is never itself persisted. Message content reaches clients only via the
+derived upsert (top-level) or the on-demand subagent transcript endpoint.
 
 **Sandbox event send buffer**:
 The Sandbox's in-memory queue between an event producer and the single drainer

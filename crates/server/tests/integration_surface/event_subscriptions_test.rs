@@ -18,6 +18,7 @@ use sqlx::PgPool;
 
 use moatless_tasks::agent_event::EventKey;
 use moatless_types::agent::AgentSubType;
+use moatless_types::message::MessageSubType;
 use moatless_types::sandbox::SandboxStatus;
 
 use common::{test_app_state_with_adapters, test_config};
@@ -45,9 +46,8 @@ async fn the_installed_adapters_subscribe_to_the_events_they_react_to(pool: PgPo
         EventKey::Sandbox(SandboxStatus::Initializing),
         EventKey::Sandbox(SandboxStatus::Ready),
         EventKey::Sandbox(SandboxStatus::Stopped),
-        // Both Adapters read this one — Linear for the transcript, GitHub PR
-        // for the shell claim.
-        EventKey::Agent(AgentSubType::Message),
+        // Linear mirrors the transcript from the Projector's output.
+        EventKey::Message(MessageSubType::Upsert),
     ] {
         assert!(
             keys.contains(&expected),

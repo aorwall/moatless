@@ -49,6 +49,36 @@ pub struct AppendOutcome {
     pub last_seq: i64,
     /// The payload at `last_seq`, read only for an append with no lines.
     pub last_payload: Option<String>,
+    /// What projecting the appended lines changed.
+    pub projected: LineProjection,
+}
+
+/// What projecting appended lines changed, for the live notices a commit owes.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LineProjection {
+    /// Top-level Messages a reader sees change, by uuid, first change first.
+    pub messages: Vec<String>,
+    /// Subagent transcripts that changed, by spawning tool-use id.
+    pub subagents: Vec<String>,
+    /// The tool calls the lines settled: tool name (`None` for a call never
+    /// recorded) and whether it failed.
+    pub settled: Vec<(Option<String>, bool)>,
+    /// Skills the lines' `Skill` calls loaded, in call order.
+    pub skills: Vec<String>,
+}
+
+impl LineProjection {
+    pub(crate) fn touch_message(&mut self, uuid: &str) {
+        if !self.messages.iter().any(|m| m == uuid) {
+            self.messages.push(uuid.to_string());
+        }
+    }
+
+    pub(crate) fn touch_subagent(&mut self, tool_use_id: &str) {
+        if !self.subagents.iter().any(|m| m == tool_use_id) {
+            self.subagents.push(tool_use_id.to_string());
+        }
+    }
 }
 
 /// A `trajectory_sessions` row.

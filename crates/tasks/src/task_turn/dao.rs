@@ -502,8 +502,8 @@ impl TaskTurnDao for PgTaskTurnDao {
 
     async fn resolve_turn_for_run(&self, task_id: &str, run_id: &str) -> Result<i32, sqlx::Error> {
         // Fast path: most calls are the second and later signals of a run whose
-        // turn already exists (every `agent.message` it emits comes through
-        // here), and those need no lock.
+        // turn already exists (every event it emits comes through here), and
+        // those need no lock.
         let allocated: Option<(i32,)> =
             sqlx::query_as("SELECT turn_number FROM task_turns WHERE task_id = $1 AND run_id = $2")
                 .bind(task_id)

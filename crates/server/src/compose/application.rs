@@ -371,12 +371,6 @@ impl AppState {
             agent_harness_access,
             app_administration,
             recently_sent,
-            tool_call_names: Arc::new(
-                moka::future::Cache::builder()
-                    .max_capacity(50_000)
-                    .time_to_live(std::time::Duration::from_mins(30))
-                    .build(),
-            ),
         }
     }
 }

@@ -381,7 +381,7 @@ mod tests {
         publisher
             .publish_agent_event(
                 "task-1",
-                AgentSubType::Message,
+                AgentSubType::Activity,
                 serde_json::json!({ "text": "before\0after" }),
             )
             .await;

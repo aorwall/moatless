@@ -17,7 +17,7 @@ use tracing::{debug, info, warn};
 
 use crate::agent::harness::signal::Input;
 use crate::agent::harness::trajectory::{
-    SessionFormat, SubagentFile, WriteTarget, Written, latest_session, locate_session,
+    LineContext, SessionFormat, SubagentFile, WriteTarget, Written, latest_session, locate_session,
     reseed_session, write_session,
 };
 use crate::agent::harness::{ErrorClass, FailureStage, HarnessError, SessionImpact};
@@ -138,6 +138,8 @@ pub struct SessionRecorder {
     /// The item id of the line before `next_seq`: a later line of the same
     /// model response ships without the usage Claude repeats on it.
     last_item_id: Option<String>,
+    /// What the lines before `next_seq` tell the next one.
+    context: LineContext,
     /// Whether a reply has shown the session exists, so `subagent_parent` is
     /// no longer sent.
     created: bool,
@@ -168,6 +170,7 @@ impl SessionRecorder {
             probe: start_seq.is_none(),
             held_tip: None,
             last_item_id: None,
+            context: LineContext::default(),
             created: false,
             own_from_seq: None,
             reseeded: false,
@@ -272,7 +275,15 @@ impl SessionRecorder {
         let mut replaced = 0;
         loop {
             if let Some(skip) = self.skip.take() {
-                match skip_lines(&path, self.offset, skip).await {
+                let format = Arc::clone(&self.format);
+                let mut context = match self.offset {
+                    0 => LineContext::default(),
+                    _ => self.context.clone(),
+                };
+                let observe = |line: &[u8]| {
+                    context.observe(&mut format.read_line(&String::from_utf8_lossy(line)));
+                };
+                match skip_lines(&path, self.offset, skip, observe).await {
                     Ok(Ok((offset, last))) => {
                         let last = String::from_utf8_lossy(&last).into_owned();
                         if let Some(tip) = self.held_tip.take() {
@@ -287,6 +298,7 @@ impl SessionRecorder {
                         }
                         self.offset = offset;
                         self.next_seq = skip;
+                        self.context = context;
                         self.last_item_id = (skip > 0)
                             .then(|| self.format.read_line(&last).harness_item_id)
                             .flatten();
@@ -351,12 +363,12 @@ impl SessionRecorder {
             let (batch, tail) = rest.split_at(take);
             // `wire_line` advances it; a batch the backend did not take rereads
             // its first line against the id before it.
-            let before = self.last_item_id.clone();
+            let before = (self.last_item_id.clone(), self.context.clone());
             let wire = batch.iter().map(|l| self.wire_line(l)).collect();
             let reply = match self.append(self.next_seq, wire).await {
                 Ok(reply) if reply.accepted => reply,
                 other => {
-                    self.last_item_id = before;
+                    (self.last_item_id, self.context) = before;
                     return other.map(|reply| Some(reply.last_seq));
                 }
             };
@@ -377,6 +389,7 @@ impl SessionRecorder {
             read.content.usage = None;
         }
         self.last_item_id.clone_from(&read.harness_item_id);
+        self.context.observe(&mut read);
         TrajectoryLine {
             kind: read.kind,
             harness_item_id: read.harness_item_id,
@@ -473,6 +486,7 @@ async fn skip_lines(
     path: &Path,
     offset: u64,
     lines: i64,
+    mut observe: impl FnMut(&[u8]),
 ) -> std::io::Result<Result<(u64, Vec<u8>), i64>> {
     let mut reader = open_at(path, offset).await?;
     let mut line = Vec::new();
@@ -483,6 +497,7 @@ async fn skip_lines(
         if line.pop() != Some(b'\n') {
             return Ok(Err(held));
         }
+        observe(&line);
         offset += read as u64;
     }
     Ok(Ok((offset, line)))

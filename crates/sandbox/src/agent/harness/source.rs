@@ -3,8 +3,7 @@
 //! Every source event represents exactly one native content block. The type
 //! deliberately carries a single `block`, never a vector, so a harness cannot
 //! return an already-assembled Message: Message assembly is exclusively the
-//! backend's job (server-owned message assembly, the agent.message skeleton,
-//! the harness-outcome boundary).
+//! backend's job, from the Trajectory.
 
 use crate::agent::harness::content::CanonicalContentBlock;
 

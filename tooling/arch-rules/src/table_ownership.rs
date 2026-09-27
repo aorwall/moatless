@@ -22,7 +22,6 @@ pub const TABLES: &[(&str, &str)] = &[
     ("auth_sessions", "moatless-identity"),
     ("auth_transactions", "moatless-identity"),
     ("device_pairing_codes", "moatless-identity"),
-    ("event_ingress_outbox", "moatless-tasks"),
     ("feedback", "moatless-tasks"),
     ("file_metadata", "moatless-core"),
     ("forgejo_instances", "moatless-identity"),

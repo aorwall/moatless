@@ -4,15 +4,11 @@ use chrono::Utc;
 use serde_json::Value;
 use tracing::warn;
 
-use crate::agent_event::is_agent_message;
 use crate::task_event::dao::TaskEventDao;
 use crate::task_event::models::InsertTaskEvent;
 use crate::task_turn::dao::TaskTurnDao;
 use crate::task_turn::models::TurnStateEvent;
 use moatless_core::events::EventPublisher;
-
-use super::outbox_dao::{IngressOutbox, IngressPayload, RETRY_BASE_SECS};
-use super::relay::IngressRelay;
 
 use super::AdmissionError;
 
@@ -37,7 +33,6 @@ pub struct AdmissionRequest {
 pub struct EventAdmission {
     task_turns: Option<Arc<dyn TaskTurnDao>>,
     task_events: Option<Arc<dyn TaskEventDao>>,
-    ingress_outbox: Option<Arc<dyn IngressOutbox>>,
     publisher: Option<Arc<dyn EventPublisher>>,
 }
 
@@ -45,37 +40,13 @@ impl EventAdmission {
     pub(crate) fn new(
         task_turns: Option<Arc<dyn TaskTurnDao>>,
         task_events: Option<Arc<dyn TaskEventDao>>,
-        ingress_outbox: Option<Arc<dyn IngressOutbox>>,
         publisher: Option<Arc<dyn EventPublisher>>,
     ) -> Self {
         Self {
             task_turns,
             task_events,
-            ingress_outbox,
             publisher,
         }
-    }
-
-    /// Drop the outbox record for `event_id` now that its content is committed
-    /// to `task_messages` — the only delete in this path.
-    ///
-    /// `Ok(false)` when no record was present, or this process runs without an
-    /// outbox.
-    pub async fn delivered(&self, event_id: &str) -> Result<bool, sqlx::Error> {
-        match self.ingress_outbox.as_ref() {
-            Some(outbox) => outbox.delete_delivered(event_id).await,
-            None => Ok(false),
-        }
-    }
-
-    /// The relay that re-publishes admitted payloads whose delivery is
-    /// unconfirmed. `None` without an outbox or without a transport: with
-    /// neither is there anything to recover.
-    pub fn relay(&self) -> Option<IngressRelay> {
-        Some(IngressRelay::new(
-            self.ingress_outbox.clone()?,
-            self.publisher.clone()?,
-        ))
     }
 
     /// Durably admit `request`, then fan it out.
@@ -84,9 +55,7 @@ impl EventAdmission {
     /// transport; fan-out failures after that are logged, not propagated, since
     /// re-delivering an admitted event would duplicate it.
     pub async fn admit(&self, request: AdmissionRequest) -> Result<(), AdmissionError> {
-        let needs_consumer = is_agent_message(request.event_type, &request.sub_type);
-
-        self.commit(&request, needs_consumer).await?;
+        self.commit(&request).await?;
 
         if let Some(publisher) = self.publisher.as_ref() {
             if let Err(e) = publisher
@@ -115,43 +84,7 @@ impl EventAdmission {
     }
 
     /// Perform the durable write this event kind requires.
-    async fn commit(
-        &self,
-        request: &AdmissionRequest,
-        needs_consumer: bool,
-    ) -> Result<(), AdmissionError> {
-        if needs_consumer {
-            // An `agent.message` has one durable home on the way in: the
-            // outbox. After the consumer commits, the conversation is the
-            // canonical store. The outbox record alone is what gRPC success
-            // speaks for.
-            let outbox = self
-                .ingress_outbox
-                .as_ref()
-                .ok_or(AdmissionError::NotConfigured {
-                    component: "ingress outbox",
-                })?;
-            let payload = IngressPayload {
-                event_id: request.event_id.clone(),
-                task_id: request.task_id.clone(),
-                event_type: request.event_type.to_string(),
-                sub_type: request.sub_type.clone(),
-                turn_number: request.turn_number,
-                payload: request.payload.clone(),
-                timestamp: timestamp_now(),
-            };
-            let first_attempt_at = Utc::now() + chrono::Duration::seconds(RETRY_BASE_SECS.into());
-            outbox
-                .admit(&payload, first_attempt_at)
-                .await
-                .map_err(|source| AdmissionError::CommitFailed {
-                    what: "the ingress outbox record",
-                    source,
-                })?;
-            metrics::counter!("event_ingress_admitted_total", "kind" => "outbox").increment(1);
-            return Ok(());
-        }
-
+    async fn commit(&self, request: &AdmissionRequest) -> Result<(), AdmissionError> {
         if let Some(state) = request.state.as_ref() {
             let turns = self
                 .task_turns

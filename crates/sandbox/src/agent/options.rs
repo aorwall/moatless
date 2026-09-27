@@ -15,7 +15,6 @@ use tracing::{info, warn};
 use crate::agent::handle::resolve_agent_harness;
 use crate::agent::types::AgentRunRequest;
 use crate::config::Config;
-use crate::events::GrpcEventPublisher;
 
 use super::agent_state::AgentState;
 use super::permission_handler::InteractivePermissionHandler;
@@ -76,7 +75,6 @@ pub fn build_options(
     cancel_token: CancellationToken,
     agent_state: Arc<AgentState>,
     env: Option<HashMap<String, String>>,
-    events: Option<GrpcEventPublisher>,
 ) -> ClaudeOptions {
     // Determine model: request > agentConfig > DEFAULT_CLAUDE_CODE_MODEL env.
     // Each choice resolves on its own, so a task carrying the catalog's
@@ -99,14 +97,9 @@ pub fn build_options(
     let is_plan_mode = request.agent_mode.as_deref() == Some("plan");
 
     // Build the permission handler for interactive prompts (AskUserQuestion,
-    // ExitPlanMode). It also enforces plan-mode write blocking when active, and
-    // publishes each prompt it parks on so the question reaches a person.
+    // ExitPlanMode). It also enforces plan-mode write blocking when active.
     let permission_handler =
         InteractivePermissionHandler::with_plan_mode(agent_state, is_plan_mode);
-    let permission_handler = match events {
-        Some(events) => permission_handler.announcing_prompts(events, config.task_id.clone()),
-        None => permission_handler,
-    };
 
     // Determine session resume
     let (resume, continue_conversation) = resolve_resume(request);
@@ -749,7 +742,6 @@ mod tests {
             CancellationToken::new(),
             Arc::new(AgentState::new()),
             None,
-            None,
         )
     }
 
@@ -884,7 +876,6 @@ mod tests {
             CancellationToken::new(),
             Arc::new(AgentState::new()),
             None,
-            None,
         );
         assert_eq!(options.permission_mode, Some(PermissionMode::AcceptEdits));
     }
@@ -916,7 +907,6 @@ mod tests {
             CancellationToken::new(),
             Arc::new(AgentState::new()),
             Some(resolved),
-            None,
         );
 
         let env = options.env.unwrap();
@@ -949,7 +939,6 @@ mod tests {
                 CancellationToken::new(),
                 Arc::new(AgentState::new()),
                 None,
-                None,
             );
             assert_eq!(options.model.as_deref(), Some(id), "{alias}");
         }
@@ -969,7 +958,6 @@ mod tests {
             CancellationToken::new(),
             Arc::new(AgentState::new()),
             Some(resolved),
-            None,
         );
 
         assert_eq!(
@@ -991,7 +979,6 @@ mod tests {
             &request,
             CancellationToken::new(),
             Arc::new(AgentState::new()),
-            None,
             None,
         );
 
@@ -1025,7 +1012,6 @@ mod tests {
             CancellationToken::new(),
             Arc::new(AgentState::new()),
             None,
-            None,
         );
         assert_eq!(options.permission_mode, Some(PermissionMode::Plan));
     }
@@ -1039,7 +1025,6 @@ mod tests {
             &request,
             CancellationToken::new(),
             Arc::new(AgentState::new()),
-            None,
             None,
         );
         assert_eq!(options.effort.as_deref(), Some("max"));

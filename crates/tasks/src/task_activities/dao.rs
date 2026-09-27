@@ -311,6 +311,22 @@ pub(crate) async fn find_tool_call(
         .map(|row| row.map(|row| row.0))
 }
 
+/// The Message a tool call is on, and its tool name, read in the caller's
+/// transaction.
+pub(crate) async fn call_in(
+    tx: &mut PgConnection,
+    task_id: &str,
+    tool_use_id: &str,
+) -> Result<Option<(Option<String>, String)>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT message_uuid, summary FROM task_activities WHERE task_id = $1 AND tool_use_id = $2",
+    )
+    .bind(task_id)
+    .bind(tool_use_id)
+    .fetch_optional(tx)
+    .await
+}
+
 struct StoredActivity(Activity);
 
 impl sqlx::FromRow<'_, PgRow> for StoredActivity {

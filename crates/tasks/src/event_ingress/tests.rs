@@ -1,10 +1,10 @@
-//! Admission and relay behaviour (the durable-ingress decision), driven through
-//! the seams the gRPC ingress and the relay actually use.
+//! Admission behaviour (the durable-ingress decision), driven through the
+//! seams the gRPC ingress actually uses.
 
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 
 use crate::task_event::dao::MockTaskEventDao;
 use crate::task_turn::dao::TaskTurnDao;
@@ -12,8 +12,6 @@ use crate::task_turn::models::{SettledTurn, TurnSignals, TurnTransition, Unclose
 use moatless_core::events::EventPublisher;
 use moatless_core::events::test_support::RecordingPublisher;
 
-use super::outbox_dao::{ClaimedPayload, IngressOutbox, IngressPayload, Pending};
-use super::relay::IngressRelay;
 use super::{AdmissionError, AdmissionRequest, EventAdmission};
 
 /// Shared ordered log of side effects, so we can assert commit-before-fan-out.
@@ -155,118 +153,9 @@ impl TaskTurnDao for RecordingTurns {
     }
 }
 
-/// In-memory ingress outbox: admits, claims and deletes like the Postgres one,
-/// so admission and relay behaviour can be asserted without a database.
-#[derive(Default)]
-struct FakeOutbox {
-    rec: Option<Recorder>,
-    records: Mutex<Vec<(IngressPayload, DateTime<Utc>, i32)>>,
-    fail_admit: bool,
-}
-
-impl FakeOutbox {
-    fn with_log(rec: &Recorder) -> Self {
-        Self {
-            rec: Some(rec.clone()),
-            ..Self::default()
-        }
-    }
-
-    fn failing() -> Self {
-        Self {
-            fail_admit: true,
-            ..Self::default()
-        }
-    }
-
-    fn event_ids(&self) -> Vec<String> {
-        self.records
-            .lock()
-            .expect("outbox poisoned")
-            .iter()
-            .map(|(payload, ..)| payload.event_id.clone())
-            .collect()
-    }
-}
-
-#[async_trait]
-impl IngressOutbox for FakeOutbox {
-    async fn admit(
-        &self,
-        payload: &IngressPayload,
-        first_attempt_at: DateTime<Utc>,
-    ) -> Result<(), sqlx::Error> {
-        if let Some(rec) = &self.rec {
-            rec.lock().expect("recorder poisoned").push("spool");
-        }
-        if self.fail_admit {
-            return Err(sqlx::Error::PoolClosed);
-        }
-        let mut records = self.records.lock().expect("outbox poisoned");
-        if !records
-            .iter()
-            .any(|(existing, ..)| existing.event_id == payload.event_id)
-        {
-            records.push((payload.clone(), first_attempt_at, 0));
-        }
-        Ok(())
-    }
-
-    async fn delete_delivered(&self, event_id: &str) -> Result<bool, sqlx::Error> {
-        let mut records = self.records.lock().expect("outbox poisoned");
-        let before = records.len();
-        records.retain(|(payload, ..)| payload.event_id != event_id);
-        Ok(records.len() < before)
-    }
-
-    async fn claim_due(
-        &self,
-        now: DateTime<Utc>,
-        limit: i64,
-    ) -> Result<Vec<ClaimedPayload>, sqlx::Error> {
-        let mut records = self.records.lock().expect("outbox poisoned");
-        let mut claimed = Vec::new();
-        for (payload, next_attempt_at, attempts) in records.iter_mut() {
-            if claimed.len() as i64 >= limit || *next_attempt_at > now {
-                continue;
-            }
-            claimed.push(ClaimedPayload {
-                payload: payload.clone(),
-                attempts: *attempts,
-                admitted_at: now,
-            });
-            *attempts += 1;
-            *next_attempt_at = now + Duration::seconds(30);
-        }
-        Ok(claimed)
-    }
-
-    async fn pending_counts(&self, _stale_before: DateTime<Utc>) -> Result<Pending, sqlx::Error> {
-        Ok(Pending {
-            total: self.records.lock().expect("outbox poisoned").len() as i64,
-            stale: 0,
-        })
-    }
-}
-
 // =========================================================================
 // Fixtures
 // =========================================================================
-
-fn message_request(event_id: &str) -> AdmissionRequest {
-    AdmissionRequest {
-        event_id: event_id.to_string(),
-        task_id: "task-1".to_string(),
-        event_type: "agent",
-        sub_type: "message".to_string(),
-        turn_number: Some(1),
-        payload: serde_json::json!({
-            "uuid": "msg-1",
-            "message": { "role": "assistant", "content": [{ "type": "text", "text": "hello" }] }
-        }),
-        state: None,
-    }
-}
 
 fn state_request(event_id: &str) -> AdmissionRequest {
     AdmissionRequest {
@@ -331,7 +220,7 @@ async fn state_is_committed_before_fan_out() {
     let publisher: Arc<dyn EventPublisher> =
         Arc::new(RecordingPublisher::with_order_log(rec.clone()));
 
-    EventAdmission::new(Some(turns.clone()), None, None, Some(publisher.clone()))
+    EventAdmission::new(Some(turns.clone()), None, Some(publisher.clone()))
         .admit(state_request("evt-1"))
         .await
         .expect("state-bearing event is admitted");
@@ -354,7 +243,7 @@ async fn failed_state_commit_is_retryable_and_never_fans_out() {
     let publisher: Arc<dyn EventPublisher> =
         Arc::new(RecordingPublisher::with_order_log(rec.clone()));
 
-    let error = EventAdmission::new(Some(turns.clone()), None, None, Some(publisher.clone()))
+    let error = EventAdmission::new(Some(turns.clone()), None, Some(publisher.clone()))
         .admit(state_request("evt-2"))
         .await
         .expect_err("a failed state commit is not an admission");
@@ -377,7 +266,7 @@ async fn plain_event_commits_its_row_before_fan_out() {
     let publisher: Arc<dyn EventPublisher> =
         Arc::new(RecordingPublisher::with_order_log(rec.clone()));
 
-    EventAdmission::new(None, Some(events.clone()), None, Some(publisher.clone()))
+    EventAdmission::new(None, Some(events.clone()), Some(publisher.clone()))
         .admit(plain_request("evt-3"))
         .await
         .expect("a committed row is a durable admission");
@@ -395,170 +284,13 @@ async fn failed_row_commit_is_retryable() {
     let publisher: Arc<dyn EventPublisher> =
         Arc::new(RecordingPublisher::with_order_log(rec.clone()));
 
-    let error = EventAdmission::new(None, Some(events.clone()), None, Some(publisher.clone()))
+    let error = EventAdmission::new(None, Some(events.clone()), Some(publisher.clone()))
         .admit(plain_request("evt-4"))
         .await
         .expect_err("a failed row commit is not an admission");
 
     assert!(error.is_retryable());
     assert_eq!(*rec.lock().expect("recorder poisoned"), ["event-row"]);
-}
-
-#[tokio::test]
-async fn agent_message_is_spooled_before_fan_out_and_published_whole() {
-    let rec: Recorder = Arc::new(Mutex::new(Vec::new()));
-    let outbox = Arc::new(FakeOutbox::with_log(&rec));
-    let outbox_dyn: Arc<dyn IngressOutbox> = outbox.clone();
-    let recorder = Arc::new(RecordingPublisher::with_order_log(rec.clone()));
-    let publisher: Arc<dyn EventPublisher> = recorder.clone();
-    let events = recording_events(&rec, false);
-
-    EventAdmission::new(
-        None,
-        Some(events.clone()),
-        Some(outbox_dyn.clone()),
-        Some(publisher.clone()),
-    )
-    .admit(message_request("evt-5"))
-    .await
-    .expect("a spooled payload is a durable admission");
-
-    // The outbox record is the whole of what gRPC success speaks for.
-    assert_eq!(
-        *rec.lock().expect("recorder poisoned"),
-        ["spool", "publish"]
-    );
-    assert_eq!(outbox.event_ids(), ["evt-5"]);
-
-    // The consumer rebuilds the conversation from the published payload, so it
-    // must carry full content, not the relay skeleton.
-    let published = recorder.raw_publishes();
-    assert_eq!(published.len(), 1);
-    assert_eq!(
-        published[0].payload["message"]["content"][0]["text"],
-        "hello"
-    );
-}
-
-#[tokio::test]
-async fn agent_message_is_admitted_when_the_transport_fails() {
-    // The feed write failed: the payload is durable in the outbox, so the
-    // sandbox is told the event is admitted and must not resend it. The relay
-    // owns delivery.
-    let outbox = Arc::new(FakeOutbox::default());
-    let outbox_dyn: Arc<dyn IngressOutbox> = outbox.clone();
-    let publisher: Arc<dyn EventPublisher> = Arc::new(RecordingPublisher::failing(1));
-    let rec: Recorder = Arc::new(Mutex::new(Vec::new()));
-    let events = recording_events(&rec, false);
-
-    EventAdmission::new(
-        None,
-        Some(events.clone()),
-        Some(outbox_dyn.clone()),
-        Some(publisher.clone()),
-    )
-    .admit(message_request("evt-6"))
-    .await
-    .expect("durably admitted despite the transport failure");
-
-    assert_eq!(
-        outbox.event_ids(),
-        ["evt-6"],
-        "the record must survive for the relay"
-    );
-}
-
-/// Admission turns on the durable spool, deliberately not on a consumer.
-///
-/// `EVENT_HANDLER_ENABLED=false` means "not in *this* process", not "nothing
-/// will ever consume this": a shadow backend sets it because it shares the
-/// primary's database, so the primary consumes on its behalf. Refusing here
-/// would refuse admission in the one configuration the flag exists to support.
-#[tokio::test]
-async fn agent_message_is_admitted_when_no_consumer_runs_in_this_process() {
-    let outbox = Arc::new(FakeOutbox::default());
-    let outbox_dyn: Arc<dyn IngressOutbox> = outbox.clone();
-    let publisher: Arc<dyn EventPublisher> = Arc::new(RecordingPublisher::new());
-    let rec: Recorder = Arc::new(Mutex::new(Vec::new()));
-    let events = recording_events(&rec, false);
-
-    // Nothing here consumes: no event handler, no `task_messages` writer. Only
-    // the transport this process owns is present.
-    EventAdmission::new(
-        None,
-        Some(events.clone()),
-        Some(outbox_dyn.clone()),
-        Some(publisher.clone()),
-    )
-    .admit(message_request("evt-shadow"))
-    .await
-    .expect("a transport is the whole delivery obligation this process has");
-
-    assert_eq!(outbox.event_ids(), ["evt-shadow"]);
-}
-
-#[tokio::test]
-async fn agent_message_without_an_outbox_is_not_admitted() {
-    let publisher: Arc<dyn EventPublisher> = Arc::new(RecordingPublisher::new());
-    let rec: Recorder = Arc::new(Mutex::new(Vec::new()));
-    let events = recording_events(&rec, false);
-
-    let error = EventAdmission::new(None, Some(events.clone()), None, Some(publisher.clone()))
-        .admit(message_request("evt-8"))
-        .await
-        .expect_err("no durable spool means no admission");
-
-    assert!(error.is_retryable());
-}
-
-/// An `agent.message` never touches `task_events`, so a failing event
-/// repository has no say in whether one is admitted.
-#[tokio::test]
-async fn an_agent_message_is_admitted_with_no_event_row_at_all() {
-    let rec: Recorder = Arc::new(Mutex::new(Vec::new()));
-    let events = recording_events(&rec, true);
-    let outbox = Arc::new(FakeOutbox::with_log(&rec));
-    let outbox_dyn: Arc<dyn IngressOutbox> = outbox.clone();
-    let recorder = Arc::new(RecordingPublisher::new());
-    let publisher: Arc<dyn EventPublisher> = recorder.clone();
-
-    EventAdmission::new(
-        None,
-        Some(events.clone()),
-        Some(outbox_dyn.clone()),
-        Some(publisher.clone()),
-    )
-    .admit(message_request("evt-10"))
-    .await
-    .expect("the outbox record is the whole of the admission");
-
-    assert_eq!(*rec.lock().expect("recorder poisoned"), ["spool"]);
-    assert_eq!(outbox.event_ids(), ["evt-10"]);
-}
-
-#[tokio::test]
-async fn failed_spool_is_retryable() {
-    let outbox: Arc<dyn IngressOutbox> = Arc::new(FakeOutbox::failing());
-    let recorder = Arc::new(RecordingPublisher::new());
-    let publisher: Arc<dyn EventPublisher> = recorder.clone();
-    let rec: Recorder = Arc::new(Mutex::new(Vec::new()));
-    let events = recording_events(&rec, false);
-
-    let error = EventAdmission::new(
-        None,
-        Some(events.clone()),
-        Some(outbox.clone()),
-        Some(publisher.clone()),
-    )
-    .admit(message_request("evt-9"))
-    .await
-    .expect_err("a failed spool is not an admission");
-
-    assert!(error.is_retryable());
-    assert!(
-        recorder.raw_publishes().is_empty(),
-        "an unadmitted payload must not be fanned out"
-    );
 }
 
 // =========================================================================
@@ -575,7 +307,7 @@ fn invalid_requests_are_terminal_and_everything_else_retries() {
 
     for retryable in [
         AdmissionError::NotConfigured {
-            component: "ingress outbox",
+            component: "task event repository",
         },
         AdmissionError::CommitFailed {
             what: "turn state",
@@ -593,128 +325,4 @@ fn invalid_requests_are_terminal_and_everything_else_retries() {
             "event not durably admitted; retry with the same event_id"
         );
     }
-}
-
-// =========================================================================
-// Relay
-// =========================================================================
-
-#[tokio::test]
-async fn relay_republishes_due_records_and_leaves_them_for_their_consumer() {
-    let outbox = Arc::new(FakeOutbox::default());
-    let outbox_dyn: Arc<dyn IngressOutbox> = outbox.clone();
-    let recorder = Arc::new(RecordingPublisher::new());
-    let publisher: Arc<dyn EventPublisher> = recorder.clone();
-
-    // Admitted while the transport was down: due immediately.
-    outbox
-        .admit(
-            &IngressPayload {
-                event_id: "evt-relay".to_string(),
-                task_id: "task-1".to_string(),
-                event_type: "agent".to_string(),
-                sub_type: "message".to_string(),
-                turn_number: Some(1),
-                payload: serde_json::json!({ "uuid": "msg-1" }),
-                timestamp: "2026-07-12T00:00:00.000Z".to_string(),
-            },
-            Utc::now() - Duration::seconds(60),
-        )
-        .await
-        .expect("admitted");
-
-    let pass = IngressRelay::new(outbox_dyn.clone(), publisher)
-        .relay_once()
-        .await;
-
-    assert_eq!(pass.republished, 1);
-    assert_eq!(pass.failed, 0);
-    let published = recorder.raw_publishes();
-    assert_eq!(published.len(), 1);
-    assert_eq!(published[0].event_id, "evt-relay");
-
-    // Re-publication is not delivery: the record stays until the consumer
-    // commits the message and deletes it.
-    assert_eq!(outbox.event_ids(), ["evt-relay"]);
-    outbox_dyn
-        .delete_delivered("evt-relay")
-        .await
-        .expect("delete");
-    assert!(outbox.event_ids().is_empty());
-}
-
-#[tokio::test]
-async fn relay_keeps_a_record_whose_republication_failed() {
-    let outbox = Arc::new(FakeOutbox::default());
-    let outbox_dyn: Arc<dyn IngressOutbox> = outbox.clone();
-    let publisher: Arc<dyn EventPublisher> = Arc::new(RecordingPublisher::failing(1));
-
-    outbox
-        .admit(
-            &IngressPayload {
-                event_id: "evt-stuck".to_string(),
-                task_id: "task-1".to_string(),
-                event_type: "agent".to_string(),
-                sub_type: "message".to_string(),
-                turn_number: None,
-                payload: serde_json::json!({}),
-                timestamp: "2026-07-12T00:00:00.000Z".to_string(),
-            },
-            Utc::now() - Duration::seconds(60),
-        )
-        .await
-        .expect("admitted");
-
-    let pass = IngressRelay::new(outbox_dyn, publisher).relay_once().await;
-
-    assert_eq!(pass.failed, 1);
-    assert_eq!(pass.republished, 0);
-    assert_eq!(outbox.event_ids(), ["evt-stuck"]);
-}
-
-#[tokio::test]
-async fn relay_ignores_records_that_are_not_due_yet() {
-    let outbox = Arc::new(FakeOutbox::default());
-    let outbox_dyn: Arc<dyn IngressOutbox> = outbox.clone();
-    let recorder = Arc::new(RecordingPublisher::new());
-    let publisher: Arc<dyn EventPublisher> = recorder.clone();
-
-    outbox
-        .admit(
-            &IngressPayload {
-                event_id: "evt-fresh".to_string(),
-                task_id: "task-1".to_string(),
-                event_type: "agent".to_string(),
-                sub_type: "message".to_string(),
-                turn_number: None,
-                payload: serde_json::json!({}),
-                timestamp: "2026-07-12T00:00:00.000Z".to_string(),
-            },
-            Utc::now() + Duration::seconds(30),
-        )
-        .await
-        .expect("admitted");
-
-    let pass = IngressRelay::new(outbox_dyn, publisher).relay_once().await;
-
-    // The ingress publish normally wins this race; the relay must not double
-    // every healthy message onto the stream.
-    assert_eq!(pass, super::relay::RelayPass::default());
-    assert!(recorder.raw_publishes().is_empty());
-}
-
-#[tokio::test]
-async fn relay_stops_on_cancellation() {
-    let outbox: Arc<dyn IngressOutbox> = Arc::new(FakeOutbox::default());
-    let publisher: Arc<dyn EventPublisher> = Arc::new(RecordingPublisher::new());
-    let cancel = tokio_util::sync::CancellationToken::new();
-
-    let handle = IngressRelay::new(outbox, publisher).spawn(cancel.clone());
-    cancel.cancel();
-
-    // Owned, not detached: the root can observe termination.
-    tokio::time::timeout(std::time::Duration::from_secs(5), handle.into_join_handle())
-        .await
-        .expect("the relay participates in cancellation")
-        .expect("and exits cleanly");
 }

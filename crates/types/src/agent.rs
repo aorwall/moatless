@@ -74,7 +74,6 @@ crate::string_enum!(
     AgentSubType [Hash] {
         Started => "started",
         Stopped => "stopped",
-        Message => "message",
         Completed => "completed",
         Error => "error",
         PendingResponse => "pending_response",

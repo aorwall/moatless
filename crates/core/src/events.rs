@@ -98,7 +98,7 @@ pub trait EventPublisher: Send + Sync {
         payload: serde_json::Value,
     );
 
-    /// Publish an agent lifecycle event (e.g. "completed", "error", "message",
+    /// Publish an agent lifecycle event (e.g. "completed", "error", "started",
     /// "stopped").
     async fn publish_agent_event(
         &self,
@@ -453,11 +453,11 @@ mod tests {
 
     #[test]
     fn an_envelope_carries_the_producers_fields_through_untouched() {
-        let event = envelope("agent", "message").expect("known event type");
+        let event = envelope("agent", "started").expect("known event type");
         assert_eq!(event.event_id, "evt-1");
         assert_eq!(event.task_id, "task-1");
         assert_eq!(event.event_type, EventType::Agent);
-        assert_eq!(event.sub_type, "message");
+        assert_eq!(event.sub_type, "started");
         assert_eq!(event.agent_profile.as_deref(), Some("claude-code"));
         assert_eq!(event.turn_number, Some(1));
         assert_eq!(event.payload["text"], "hi");
@@ -466,7 +466,7 @@ mod tests {
     /// Derived rather than passed, so no producer can disagree about them.
     #[test]
     fn the_error_flag_follows_the_sub_type_and_nothing_else() {
-        assert!(!envelope("agent", "message").expect("known").is_error);
+        assert!(!envelope("agent", "started").expect("known").is_error);
         assert!(envelope("agent", "error").expect("known").is_error);
         assert!(envelope("sandbox", "failed").expect("known").is_error);
     }

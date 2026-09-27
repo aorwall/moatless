@@ -4,14 +4,13 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::models::TaskMessage;
 use crate::conversation::projector::Projector;
 use crate::inbox::{
     AdapterChannel, DeliveryOptions, ExternalSender, InboxContext, InboxItem, InboxOrigin,
     InboxService, NewInboxItem,
 };
 use crate::message::dao::MessageDao;
-use crate::message::models::{MessageRole, MessageType};
+use crate::message::models::MessageType;
 use crate::message::operations::Messages;
 use crate::task::dao::TaskDao;
 use crate::task::models::TaskPatch;
@@ -547,9 +546,6 @@ impl MessageSendService {
     /// Used when the message was saved but a subsequent operation (e.g. sandbox
     /// start) failed. Fire-and-forget: logs failure but never propagates it.
     pub async fn persist_error_result(&self, task_id: &str, error_text: &str) {
-        let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-        let msg_uuid = uuid::Uuid::new_v4().to_string();
-
         let turn_number = match self.task_turns.latest_turn_number(task_id).await {
             Ok(t) => t,
             Err(e) => {
@@ -557,62 +553,9 @@ impl MessageSendService {
                 None
             }
         };
-
-        let msg_row = TaskMessage {
-            id: 0,
-            task_id: task_id.to_string(),
-            uuid: msg_uuid,
-            message_type: MessageType::Error,
-            user_type: "system".to_string(),
-            parent_uuid: None,
-            is_sidechain: None,
-            cwd: None,
-            session_id: None,
-            turn_number,
-            version: None,
-            git_branch: None,
-            request_id: None,
-            timestamp: now,
-            message_role: MessageRole::Assistant,
-            message_text: Some(error_text.to_string()),
-            assistant_message_id: None,
-            assistant_message_type: None,
-            assistant_message_model: None,
-            assistant_stop_reason: None,
-            assistant_stop_sequence: None,
-            assistant_usage_input_tokens: None,
-            assistant_usage_output_tokens: None,
-            assistant_usage_cache_creation_input_tokens: None,
-            assistant_usage_cache_read_input_tokens: None,
-            assistant_usage: None,
-            tool_use_result: None,
-            tool_response: None,
-            sdk_metadata: None,
-            attachments: None,
-            agent_session_id: None,
-            will_not_resume: Some(false),
-            run_metrics: None,
-            agent_mode_raw: None,
-            model: None,
-            effort: None,
-            skills: Vec::new(),
-            resume: true,
-            sent_at: None,
-            created_at: None,
-            external_event_id: None,
-            external_adapter: None,
-            external_subject_key: None,
-            external_source_name: None,
-            external_author: None,
-            external_sender_id: None,
-            source_task_id: None,
-            start_fresh: false,
-            sent_by: None,
-        };
-
         if let Err(e) = self
             .messages
-            .append(&msg_row, &[], &ConversationWrite::default())
+            .append_error_result(task_id, turn_number, error_text)
             .await
         {
             tracing::error!(task_id = %task_id, error = %e, "Failed to persist error result message");

@@ -65,29 +65,9 @@ pub struct PgTaskEventDao(pub DbPool);
 #[async_trait]
 impl TaskEventDao for PgTaskEventDao {
     async fn insert_event(&self, event: &InsertTaskEvent) -> Result<(), sqlx::Error> {
-        // ON CONFLICT DO NOTHING makes insertion idempotent on event_id (which
-        // carries a unique index): re-delivering the same stream entry — e.g.
-        // when the consumer recovers its pending list after a disconnect —
-        // persists nothing the second time instead of erroring on the duplicate.
-        sqlx::query(
-            r#"INSERT INTO task_events (
-                event_id, task_id, type, sub_type, is_error,
-                agent_profile, turn_number, payload, timestamp
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            ON CONFLICT (event_id) DO NOTHING"#,
-        )
-        .bind(&event.event_id)
-        .bind(&event.task_id)
-        .bind(&event.event_type)
-        .bind(&event.sub_type)
-        .bind(event.is_error)
-        .bind(&event.agent_profile)
-        .bind(event.turn_number)
-        .bind(&event.payload)
-        .bind(&event.timestamp)
-        .execute(&self.0)
-        .await?;
-        Ok(())
+        // Idempotent: re-delivering the same stream entry persists nothing the
+        // second time instead of erroring on the duplicate.
+        insert_in(&mut *self.0.acquire().await?, event).await
     }
 
     async fn list_recent_events(
@@ -218,3 +198,29 @@ impl TaskEventDao for PgTaskEventDao {
 #[cfg(all(test, feature = "db-tests"))]
 #[path = "dao_db_tests.rs"]
 mod dao_db_tests;
+
+/// Insert `event` inside the caller's transaction, idempotent on `event_id`.
+pub(crate) async fn insert_in(
+    tx: &mut sqlx::PgConnection,
+    event: &InsertTaskEvent,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"INSERT INTO task_events (
+            event_id, task_id, type, sub_type, is_error,
+            agent_profile, turn_number, payload, timestamp
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        ON CONFLICT (event_id) DO NOTHING"#,
+    )
+    .bind(&event.event_id)
+    .bind(&event.task_id)
+    .bind(&event.event_type)
+    .bind(&event.sub_type)
+    .bind(event.is_error)
+    .bind(&event.agent_profile)
+    .bind(event.turn_number)
+    .bind(&event.payload)
+    .bind(&event.timestamp)
+    .execute(tx)
+    .await?;
+    Ok(())
+}

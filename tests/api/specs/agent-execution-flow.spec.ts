@@ -135,7 +135,7 @@ test.describe('Chain: Agent Execution & Multi-Turn', () => {
     const taskEvents = events().getEventsForTask(ctx.taskId!)
 
     const hasAgentStarted = taskEvents.some((e) => e.type === 'agent' && e.subType === 'started')
-    const hasAgentMessage = taskEvents.some((e) => e.type === 'agent' && e.subType === 'message')
+    const hasMessageUpsert = taskEvents.some((e) => e.type === 'message' && e.subType === 'upsert')
     const hasAgentCompleted = taskEvents.some(
       (e) => e.type === 'agent' && e.subType === 'completed',
     )
@@ -145,7 +145,7 @@ test.describe('Chain: Agent Execution & Multi-Turn', () => {
     )
 
     expect(hasAgentStarted).toBe(true)
-    expect(hasAgentMessage).toBe(true)
+    expect(hasMessageUpsert).toBe(true)
     expect(hasAgentCompleted).toBe(true)
     expect(hasTurnActive).toBe(true)
     expect(hasTurnCompleted).toBe(true)
