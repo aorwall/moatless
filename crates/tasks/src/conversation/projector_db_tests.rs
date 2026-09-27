@@ -706,3 +706,52 @@ async fn an_error_result_is_an_event_projected_as_an_error_message(pool: PgPool)
         )]
     );
 }
+
+/// Claude's `<synthetic>` reply stays in the Trajectory, and is neither a
+/// Message nor usage.
+#[sqlx::test]
+async fn a_claude_synthetic_reply_is_not_shown_or_counted(pool: PgPool) {
+    let dao = seed(&pool).await;
+    let reply = |item: &str, words: &str, model: &str, input: i32| {
+        event(
+            Some(item),
+            json!({
+                "role": "assistant",
+                "blocks": [text(words)],
+                "model": model,
+                "usage": { "input_tokens": input, "output_tokens": 1,
+                           "cache_read_tokens": 0, "cache_write_tokens": 0 },
+            }),
+        )
+    };
+    append(
+        &dao,
+        Harness::ClaudeCode,
+        "s",
+        0,
+        &[
+            reply("msg_1", "Done.", "claude-opus-4-5", 10),
+            reply("msg_2", "No response requested.", "<synthetic>", 7),
+        ],
+    )
+    .await;
+
+    assert_eq!(
+        messages(&pool).await,
+        [(
+            "msg_1".to_string(),
+            "assistant".to_string(),
+            Some("Done.".to_string()),
+            Some("claude-opus-4-5".to_string()),
+        )]
+    );
+    assert_eq!(usage(&pool).await, [("msg_1".to_string(), None, 10, 1)]);
+    assert_eq!(response_usage(&pool, TASK).await.unwrap().len(), 1);
+    let recorded: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM trajectory_events WHERE harness_item_id = 'msg_2'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(recorded, 1, "the line stays in the Trajectory");
+}

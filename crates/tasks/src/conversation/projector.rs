@@ -218,6 +218,12 @@ impl Projector {
             if content.get("injected").and_then(Value::as_bool) == Some(true) {
                 continue;
             }
+            // Claude's stand-in for a reply no model wrote ("No response
+            // requested." on resuming an unanswered prompt): not shown, and its
+            // usage is no spend.
+            if content.get("model").and_then(Value::as_str) == Some("<synthetic>") {
+                continue;
+            }
             let first = match line.harness_item_id {
                 Some(item) => dao::first_line_of_item(tx, session.id, item)
                     .await?
