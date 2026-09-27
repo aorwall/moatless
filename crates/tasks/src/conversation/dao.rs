@@ -378,8 +378,8 @@ pub(crate) async fn stamp_delivered(
 }
 
 /// Deletes a projected Message and the activities on it. No change announces
-/// the removal, so the sandbox's `ReplyHold` ships a reply in the append of the
-/// line that supersedes it, before any reader holds it.
+/// the removal, so a reader that already holds the Message keeps it; the
+/// sandbox's `ReplyHold` makes that rare (see `docs/deferred-changes.md`).
 pub(crate) async fn delete_message(
     tx: &mut PgConnection,
     task_id: &str,
