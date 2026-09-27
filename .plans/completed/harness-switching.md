@@ -1,5 +1,9 @@
 # Harness switching and a Trajectory-backed conversation
 
+> **Status:** shipped
+> **Updated:** 2026-09-27
+> **Vocabulary:** CONTEXT.md
+
 Specification and implementation plan. Self-contained: every decision, table,
 contract and phase needed to build it is in this file.
 

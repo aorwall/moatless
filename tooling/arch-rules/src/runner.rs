@@ -1,11 +1,12 @@
 use crate::workspace::Workspace;
 use crate::{
     Violation, adapter_boundaries, agents_md_budget, agents_symlink, annotations, band_order,
-    base_surface, clippy_fence, closed_dependency_list, composition_root, declaration_only_roots,
-    dependency_privacy, duplicate_comment_prose, duplicate_names, file_size, floor_type_admission,
-    manifest_inheritance, module_names, persistence_export, persistence_sql_location,
-    port_admission, process_exit, route_registration, row_stays_with_query,
-    single_implementation_trait, store_privacy, table_ownership, transport_direction,
+    base_surface, clippy_fence, closed_dependency_list, composition_root, conversation_writer,
+    declaration_only_roots, dependency_privacy, duplicate_comment_prose, duplicate_names,
+    file_size, floor_type_admission, manifest_inheritance, module_names, persistence_export,
+    persistence_sql_location, port_admission, process_exit, route_registration,
+    row_stays_with_query, session_line_parsing, single_implementation_trait, store_privacy,
+    table_ownership, transport_direction,
 };
 use anyhow::{Context, Result};
 
@@ -42,6 +43,8 @@ rules!(
     adapter_boundaries => "Bindings and providers keep their Adapter module boundaries.",
     store_privacy => "Store types and drivers stay with table owners.",
     table_ownership => "Production SQL names only tables its crate owns.",
+    conversation_writer => "Only the Projector writes the conversation read model.",
+    session_line_parsing => "Only a SessionFormat reads a harness session line.",
     composition_root => "State and concrete stores are assembled at the composition root.",
     single_implementation_trait => "A public trait has multiple implementations or an exercised mock.",
     port_admission => "Ports contain contracts with independent consumers.",

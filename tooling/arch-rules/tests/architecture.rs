@@ -159,5 +159,7 @@ enforce!(
     manifest_inheritance,
     closed_dependency_list,
     base_surface,
-    file_size
+    file_size,
+    conversation_writer,
+    session_line_parsing
 );

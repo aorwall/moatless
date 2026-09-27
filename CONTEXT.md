@@ -123,14 +123,13 @@ in its source's, copying nothing. Harness ids (session, item, turn) are stored a
 values, never as our keys.
 
 **Fork**:
-A Task branched off another Task at one of its completed Turns. It is created
-holding a copy of the parent's conversation (Messages and activities) up to that
-Turn, and its first Turn resumes the parent's Session cut at the same point —
-Claude by truncating a copy of the transcript at the anchor Message uuid, Codex
-via `thread/fork` at the anchor `agent_turn_id`. Recorded as a `forked_from`
-relation (`task_forks` row), not `created_by`: a Fork appears under its parent
-everywhere a child does, but the parent's close cascade and error notifications
-skip it. Runs in its own Sandbox or, with `sameSandbox`, in the parent's on a
+A Task branched off another Task at one of its completed Turns, cut at one
+Trajectory event (`task_forks.source_event_id`). Its conversation up to the cut
+is projected from the parent's sources, not copied, and its first Turn resumes
+a Session that continues the parent's Trajectory from that event. Recorded as a
+`forked_from` relation (`task_forks` row), not `created_by`: a Fork appears
+under its parent everywhere a child does, but the parent's close cascade and
+error notifications skip it. Runs in its own Sandbox or, with `sameSandbox`, in the parent's on a
 shared checkout.
 _Avoid_: "child" for a Fork when the distinction from a `created_by` subtask
 matters — a Fork is a parent-edged Task, not a spawned subagent Task.
@@ -293,10 +292,11 @@ Agent process.
 _Avoid_: agent run; "agent" as a synonym for a running Task
 
 **Agent harness**:
-The execution implementation that controls the Agent process, such as
-`claude-code` or `codex`. It is selected when the Task is created, fixed for that
-Task's lifetime, and instantiated inside its Sandbox; transport, model, and mode
-variants are configuration, not distinct harnesses.
+The execution implementation that controls the Agent process: exactly
+`claude-code` or `codex`. The Task's Agent profile selects it, and switching the
+profile switches it between Turns; the next Turn starts a Session of the new
+harness from the Trajectory. Transport, model, and mode variants are
+configuration, not distinct harnesses.
 _Avoid_: Agent type, treating `claude-code-tui` / `-cli` / `-fable` as harnesses
 
 **Agent harness credential**:
@@ -362,13 +362,13 @@ their respective sandboxes — and `?workspaceId=` narrows it further to what th
 Workspace loads. "Skill" unqualified means either; write the qualifier whenever
 the source is what makes the sentence true.
 
-A Skill reaches an agent as a name, never as text on the wire. `task_inbox.skills`
-carries what one send activates, `tasks.skills` what every fresh agent session on
-the Task re-activates (a Loop's `skills`), and the backend unions the two onto
-`PendingAgentDelivery.skills`. Only the pod resolves the body: it reads the
-`SKILL.md` from the repo's own skill roots or the harness's installed home skills
-dir and prepends `Activated <root>/<name>:` plus that body to the turn
-(`crates/sandbox/src/agent/skills.rs`).
+A Skill reaches an agent as a name, never as text on the wire. An Inbox item's
+`delivery_options.skills` carries what one send activates, `tasks.skills` what
+every fresh agent session on the Task re-activates (a Loop's `skills`), and the
+backend unions the two onto `PendingAgentDelivery.skills`. Only the pod resolves
+the body: it reads the `SKILL.md` from the repo's own skill roots or the
+harness's installed home skills dir and prepends `Activated <root>/<name>:` plus
+that body to the turn (`crates/sandbox/src/agent/skills.rs`).
 
 _Known debt_: the wire variant for a repository skill is `SkillSource::Workspace`,
 named before Repository and Workspace were separated. It means Repository. Rename
@@ -412,25 +412,45 @@ names one of our own concepts.
 **Message**:
 One entry in a Task's conversation (`TaskMessage`): user, assistant, system,
 result, or error, carrying content blocks. A Task's conversation is its ordered
-Messages.
+Messages, which the Projector writes to `conversation_messages` from their
+sources: a user Message from its Inbox item, an agent Message from Trajectory
+lines, an error or turn result from a `task_events` row.
 _Avoid_: chat / channel as a domain entity. Qualify the other "message" uses:
 inbound/outbound message (Adapter transport), a Trajectory line, and a Slack
 channel (external, provider-scoped).
 
 **Chat**:
-The UI view that renders a Task's Messages. A UI concept only — there is no
+The UI view that renders a Task's Messages, read from the projected
+conversation, never from a source directly. A UI concept only — there is no
 "chat" or "channel" entity on the wire.
+
+**Inbox**:
+Every message addressed to the Agent (`task_inbox`), whoever sent it: a person,
+another Task, an Adapter, the platform, or the Sandbox waking its own Agent.
+Its `origin` fixes which sender columns it carries. An item is `pending` until
+a Turn delivers it, and what the Chat shows is the item as sent, never the
+CLI's copy of it.
+_Avoid_: queued `task_messages` row; reading a prompt back from the Trajectory
+
+**Projector**:
+The only writer of the conversation read model (`conversation_messages`,
+`conversation_activities`, `conversation_usage`), in
+`crates/tasks/src/conversation/`. It projects each source in the transaction
+that writes it, and `rebuild` replays the sources to the same rows and ids. Rows
+copied from history recorded before it are `frozen`: `rebuild` keeps them as
+they are.
 
 **Message upsert**:
 The assembled, UI-facing form of a Message (`UiMessage`) pushed to the Chat over
 the live stream — a `message.upsert` event keyed by a Message's `uuid`. Produced
 server-side by the one Message assembler after the Projector commits the rows it
-changed; never stored in `task_events`. The Linear Adapter reads it too. A derived upsert targets the **affected
-parent** Message: when the changed row folds into another (a `tool_result`/system
-row inlined into the assistant Message that called it), the upsert carries the
-**parent** assistant Message's `uuid`, so a top-level tool result renders live
-under its call. The streamed form carries the persisted Message's `uuid` — it is
-the same Message, assembled, not a second identity.
+changed; never stored in `task_events`. The Linear Adapter reads it too. A
+derived upsert targets the **affected parent** Message: when the changed row
+folds into another (a `tool_result`/system row inlined into the assistant
+Message that called it), the upsert carries the **parent** assistant Message's
+`uuid`, so a top-level tool result renders live under its call. The streamed
+form carries the persisted Message's `uuid` — it is the same Message, assembled,
+not a second identity.
 _Avoid_: a separate `evt-*` identity for the streamed message; treating chat
 assembly as a client concern.
 
@@ -466,7 +486,9 @@ and a `message.subagentProgress` event keeps it live on the wire — the collaps
 `Agent` card renders from that alone. The full transcript is assembled
 server-side but **fetched on demand** from
 `GET …/tool-calls/{tool_use_id}/messages` when the card is expanded; it is never
-nested into the parent Message nor streamed on the wire.
+nested into the parent Message nor streamed on the wire. Its source is the
+subagent's own Trajectory session, projected under the spawning call's
+`parent_tool_use_id`.
 
 ### Access & commands
 
