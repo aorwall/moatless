@@ -794,3 +794,45 @@ fn only_a_finished_final_response_ends_the_turn() {
     }
     assert!(codex.iter().any(|l| l.content.ends_turn));
 }
+
+/// Codex sends its compaction summary as a reply (ordinal 43) and again inside
+/// the `compacted` line (46): the tail names that reply as superseded.
+#[test]
+fn a_codex_compaction_supersedes_the_summary_reply_it_quotes() {
+    let mut context = LineContext::default();
+    let mut lines = read_all(&CodexSessionFormat, CODEX_RECORDED);
+    for line in &mut lines {
+        context.observe(line);
+    }
+    let summary = &lines[43];
+    assert_eq!(summary.content.role, Some(Role::Assistant));
+    assert!(text_of(&summary.content).starts_with("**Handoff Summary**"));
+    let compacted = &lines[46];
+    assert!(compacted.content.compaction);
+    assert_eq!(
+        compacted.content.supersedes.as_deref(),
+        Some("msg_08a9285eb38b162e016ab7edf443c887d2bfcbb1cb768ea5c0")
+    );
+    assert_eq!(summary.harness_item_id, compacted.content.supersedes);
+    assert_eq!(
+        lines
+            .iter()
+            .filter(|l| l.content.supersedes.is_some())
+            .count(),
+        1
+    );
+}
+
+/// A compaction whose summary is not the reply before it supersedes nothing.
+#[test]
+fn a_codex_compaction_after_another_reply_supersedes_nothing() {
+    let mut context = LineContext::default();
+    let body: Vec<&str> = CODEX_RECORDED.lines().collect();
+    let mut reply = CodexSessionFormat
+        .read_line(&body[43].replace("**Handoff Summary**", "**A different reply**"));
+    let mut compacted = CodexSessionFormat.read_line(body[46]);
+    context.observe(&mut reply);
+    context.observe(&mut compacted);
+    assert!(compacted.content.compaction);
+    assert_eq!(compacted.content.supersedes, None);
+}

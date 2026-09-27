@@ -377,6 +377,33 @@ pub(crate) async fn stamp_delivered(
     Ok(())
 }
 
+/// Deletes a projected Message and the activities on it. A live reader that
+/// already holds it keeps it until it next loads the conversation: no change
+/// names a deleted row.
+pub(crate) async fn delete_message(
+    tx: &mut PgConnection,
+    task_id: &str,
+    uuid: Uuid,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"DELETE FROM conversation_activities
+            WHERE task_id = $1 AND message_uuid = $2 AND NOT frozen"#,
+    )
+    .bind(task_id)
+    .bind(uuid)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        r#"DELETE FROM conversation_messages
+            WHERE task_id = $1 AND uuid = $2 AND NOT frozen"#,
+    )
+    .bind(task_id)
+    .bind(uuid)
+    .execute(tx)
+    .await?;
+    Ok(())
+}
+
 /// The Message a tool call is on, and its tool name.
 pub(crate) async fn call_in(
     tx: &mut PgConnection,

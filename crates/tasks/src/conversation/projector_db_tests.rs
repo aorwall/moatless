@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use super::read_dao::response_usage;
 use crate::activities::mapping::{ActivityKind, ActivityStatus};
+use crate::message::dao::{MessageDao, PgMessageDao};
 use crate::message::test_support::messages_for;
 use crate::task::test_support::make_task_row;
 use crate::trajectory::dao::PgTrajectoryDao;
@@ -754,4 +755,62 @@ async fn a_claude_synthetic_reply_is_not_shown_or_counted(pool: PgPool) {
     .await
     .unwrap();
     assert_eq!(recorded, 1, "the line stays in the Trajectory");
+}
+
+/// Codex's compaction summary arrives as a reply and again in the `compacted`
+/// line that names it superseded: the reply is removed, and a rebuild removes
+/// it again.
+#[sqlx::test]
+async fn a_line_that_supersedes_a_reply_removes_its_message(pool: PgPool) {
+    let dao = seed(&pool).await;
+    let summary = "**Handoff Summary**\n- Created `release.txt`.";
+    append(
+        &dao,
+        Harness::Codex,
+        "s",
+        0,
+        &[
+            said("msg_0", "assistant", json!([text("Done.")])),
+            said("msg_s", "assistant", json!([text(summary)])),
+        ],
+    )
+    .await;
+    assert_eq!(messages(&pool).await.len(), 2);
+
+    append(
+        &dao,
+        Harness::Codex,
+        "s",
+        2,
+        &[event(
+            None,
+            json!({
+                "role": "user",
+                "blocks": [text(&format!("Here is the summary:\n{summary}"))],
+                "compaction": true,
+                "supersedes": "msg_s",
+            }),
+        )],
+    )
+    .await;
+    let shown = [(
+        "msg_0".to_string(),
+        "assistant".to_string(),
+        Some("Done.".to_string()),
+        None,
+    )];
+    assert_eq!(messages(&pool).await, shown);
+
+    PgMessageDao(pool.clone())
+        .rebuild_conversation(TASK)
+        .await
+        .unwrap();
+    assert_eq!(messages(&pool).await, shown);
+    let recorded: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM trajectory_events WHERE harness_item_id = 'msg_s'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(recorded, 1, "the reply stays in the Trajectory");
 }

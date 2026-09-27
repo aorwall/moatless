@@ -224,6 +224,14 @@ impl Projector {
             if content.get("model").and_then(Value::as_str) == Some("<synthetic>") {
                 continue;
             }
+            // A line that stands in for an earlier reply (Codex's compaction
+            // summary, which it also sent as a reply) removes that reply.
+            if let Some(item) = content.get("supersedes").and_then(Value::as_str) {
+                if let Some(first) = dao::first_line_of_item(tx, session.id, item).await? {
+                    dao::delete_message(tx, task_id, ids::message(task_id, &first.to_string()))
+                        .await?;
+                }
+            }
             let first = match line.harness_item_id {
                 Some(item) => dao::first_line_of_item(tx, session.id, item)
                     .await?

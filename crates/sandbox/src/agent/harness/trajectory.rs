@@ -81,14 +81,22 @@ pub struct RecordedLine {
     /// The model this line starts using, for a harness that names it on a
     /// line of its own (Codex's `turn_context`) rather than on each reply.
     pub sets_model: Option<String>,
+    /// The line's text ends with a summary the harness may also have sent as
+    /// the reply just before it (Codex's `compacted`); the tail then names
+    /// that reply in `content.supersedes`.
+    pub quotes_reply: bool,
 }
 
-/// What earlier lines of a session tell a later one: the tool calls made and
-/// not yet answered, oldest first, and the model the harness last named.
+/// What earlier lines of a session tell a later one.
+///
+/// The tool calls made and not yet answered, oldest first; the model the
+/// harness last named; and the item id and text of the reply, when the latest
+/// line with a role is one.
 #[derive(Debug, Clone, Default)]
 pub struct LineContext {
     calls: Vec<String>,
     model: Option<String>,
+    reply: Option<(String, String)>,
 }
 
 impl LineContext {
@@ -98,10 +106,25 @@ impl LineContext {
 
     /// Names the latest open call on a derived line, else records the line's
     /// own calls and results; stamps the session's model on an assistant line
-    /// that names none.
+    /// that names none, and names the reply a quoting line supersedes.
     pub fn observe(&mut self, read: &mut RecordedLine) {
         if let Some(model) = read.sets_model.take() {
             self.model = Some(model);
+        }
+        if read.content.role.is_some() {
+            let replied = self.reply.take();
+            if read.quotes_reply {
+                read.content.supersedes = replied
+                    .filter(|(_, reply)| text_of(&read.content).ends_with(reply.as_str()))
+                    .map(|(item, _)| item);
+            } else if read.content.role == Some(Role::Assistant) && !read.derived {
+                let text = text_of(&read.content);
+                self.reply = read
+                    .harness_item_id
+                    .clone()
+                    .filter(|_| !text.is_empty())
+                    .map(|item| (item, text));
+            }
         }
         if read.content.role == Some(Role::Assistant) && read.content.model.is_none() {
             read.content.model.clone_from(&self.model);
@@ -152,6 +175,10 @@ pub struct EventContent {
     /// call and never transcoded, since the call itself is.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub derived_from: Option<String>,
+    /// The item id of an earlier reply this line restates: that reply is not
+    /// shown, while the line stays for a resume.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub supersedes: Option<String>,
     /// The harness recorded that the turn's final reply finished here: a Claude
     /// text line with `stop_reason` `end_turn`, a Codex `task_complete`.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
@@ -243,6 +270,19 @@ const CODEX_INJECTED: &[&str] = &[
     "<turn_aborted>",
 ];
 
+/// A line's text blocks joined, trailing whitespace trimmed.
+fn text_of(content: &EventContent) -> String {
+    let text: String = content
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            CanonicalContentBlock::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    text.trim_end().to_string()
+}
+
 fn unparsed() -> RecordedLine {
     RecordedLine {
         kind: "unparsed".to_string(),
@@ -251,6 +291,7 @@ fn unparsed() -> RecordedLine {
         content: EventContent::default(),
         derived: false,
         sets_model: None,
+        quotes_reply: false,
     }
 }
 
@@ -360,6 +401,7 @@ impl SessionFormat for ClaudeSessionFormat {
             content,
             derived: false,
             sets_model: None,
+            quotes_reply: false,
         }
     }
 
@@ -567,6 +609,7 @@ impl SessionFormat for CodexSessionFormat {
             sets_model: (kind == "turn_context")
                 .then(|| str_at(&payload, &["model"]).map(str::to_string))
                 .flatten(),
+            quotes_reply: kind == "compacted",
             content,
             kind,
         }
