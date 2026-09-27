@@ -2,7 +2,7 @@ use std::fmt::Write as _;
 use std::io::Write as _;
 
 use super::*;
-use crate::agent::harness::trajectory::ClaudeSessionFormat;
+use crate::agent::harness::trajectory::{ClaudeSessionFormat, CodexSessionFormat};
 use crate::backend_client::BackendClient;
 
 use super::memory::MemoryTrajectoryBackend;
@@ -480,4 +480,94 @@ async fn an_unreadable_same_harness_fork_falls_back_to_the_cli() {
         .expect("the CLI forks its own transcript");
 
     assert_eq!(fallback, None);
+}
+
+const CODEX_ID: &str = "01a0de79-4dff-72c0-a0de-c819e502d676";
+/// Line 43 is Codex's compaction summary reply, restated by the `compacted`
+/// line 46; lines 44 and 45 carry no role.
+const CODEX_COMPACTED: &str = include_str!("../tests/fixtures/transcode/codex.jsonl");
+
+/// A Codex recorder over a rollout holding the fixture's lines before `upto`,
+/// all of them recorded.
+async fn codex_recorder(
+    backend: &Arc<MemoryTrajectoryBackend>,
+    home: &std::path::Path,
+    upto: usize,
+) -> (SessionRecorder, PathBuf) {
+    let lines: Vec<&str> = CODEX_COMPACTED.lines().collect();
+    let path = CodexSessionFormat.session_path(home, home, CODEX_ID, lines[0]);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, format!("{}\n", lines[..upto].join("\n"))).unwrap();
+    let backend: Arc<dyn BackendClient> = Arc::clone(backend) as Arc<dyn BackendClient>;
+    let mut recorder = SessionRecorder::start(
+        Arc::new(CodexSessionFormat),
+        TrajectoryRecording::new(backend),
+        RecordTarget {
+            task_id: "task".into(),
+            harness_session_id: CODEX_ID.into(),
+            home: home.to_path_buf(),
+            cwd: home.to_path_buf(),
+            subagent: None,
+        },
+        None,
+    );
+    assert_eq!(recorder.flush().await.unwrap(), upto as i64 - 1);
+    (recorder, path)
+}
+
+fn append_fixture(path: &std::path::Path, range: std::ops::Range<usize>) {
+    let lines: Vec<&str> = CODEX_COMPACTED.lines().collect();
+    let mut file = std::fs::OpenOptions::new().append(true).open(path).unwrap();
+    for line in &lines[range] {
+        writeln!(file, "{line}").unwrap();
+    }
+}
+
+#[tokio::test]
+async fn a_codex_reply_ships_in_one_append_with_the_line_that_supersedes_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let backend = Arc::new(MemoryTrajectoryBackend::default());
+    let (mut recorder, path) = codex_recorder(&backend, dir.path(), 43).await;
+
+    append_fixture(&path, 43..46);
+    assert_eq!(
+        recorder.flush().await.unwrap(),
+        42,
+        "the reply and the role-less lines wait"
+    );
+
+    let appends = backend.append_calls();
+    append_fixture(&path, 46..48);
+    assert_eq!(recorder.flush().await.unwrap(), 47);
+    assert_eq!(backend.append_calls(), appends + 1);
+    let events = backend.events_on(CODEX_ID);
+    assert_eq!(
+        events[46].content["supersedes"].as_str(),
+        events[43].harness_item_id.as_deref()
+    );
+}
+
+#[tokio::test]
+async fn a_held_codex_reply_ships_at_turn_end() {
+    let dir = tempfile::tempdir().unwrap();
+    let backend = Arc::new(MemoryTrajectoryBackend::default());
+    let (mut recorder, path) = codex_recorder(&backend, dir.path(), 43).await;
+
+    append_fixture(&path, 43..44);
+    assert_eq!(recorder.flush().await.unwrap(), 42);
+    assert_eq!(recorder.flush_all().await.unwrap(), 43);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_held_codex_reply_ships_once_it_has_waited() {
+    let dir = tempfile::tempdir().unwrap();
+    let backend = Arc::new(MemoryTrajectoryBackend::default());
+    let (mut recorder, path) = codex_recorder(&backend, dir.path(), 43).await;
+
+    append_fixture(&path, 43..45);
+    assert_eq!(recorder.flush().await.unwrap(), 42);
+    tokio::time::advance(Duration::from_millis(499)).await;
+    assert_eq!(recorder.flush().await.unwrap(), 42);
+    tokio::time::advance(Duration::from_millis(1)).await;
+    assert_eq!(recorder.flush().await.unwrap(), 44);
 }

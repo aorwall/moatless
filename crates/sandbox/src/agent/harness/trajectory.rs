@@ -4,11 +4,13 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use sandbox_proto::{ReadTrajectoryRequest, read_trajectory_request};
+use tokio::time::Instant;
 use tracing::{info, warn};
 
 use moatless_types::codex::CODEX_TOOL_SHELL;
@@ -58,6 +60,11 @@ pub trait SessionFormat: Send + Sync {
 
     /// Renders another harness's items as lines of this format, in order.
     fn render(&self, items: &[EventContent], ctx: &RenderContext<'_>) -> Vec<String>;
+
+    /// Whether a later line may restate a reply ([`RecordedLine::quotes_reply`]).
+    fn quotes_replies(&self) -> bool {
+        false
+    }
 }
 
 /// A subagent's own session file and the parent's tool call that spawned it.
@@ -117,13 +124,8 @@ impl LineContext {
                 read.content.supersedes = replied
                     .filter(|(_, reply)| text_of(&read.content).ends_with(reply.as_str()))
                     .map(|(item, _)| item);
-            } else if read.content.role == Some(Role::Assistant) && !read.derived {
-                let text = text_of(&read.content);
-                self.reply = read
-                    .harness_item_id
-                    .clone()
-                    .filter(|_| !text.is_empty())
-                    .map(|item| (item, text));
+            } else {
+                self.reply = reply_of(read);
             }
         }
         if read.content.role == Some(Role::Assistant) && read.content.model.is_none() {
@@ -144,6 +146,55 @@ impl LineContext {
         }
         let over = self.calls.len().saturating_sub(Self::LIMIT);
         self.calls.drain(..over);
+    }
+}
+
+/// Keeps a reply a later line may supersede out of an append until that line
+/// arrives, so the Projector never shows a reply it then removes.
+///
+/// The role-less lines after the reply wait with it. They ship once a line
+/// with a role follows, the recorder flushes at Turn end, or they have waited
+/// [`ReplyHold::WAIT`].
+#[derive(Debug, Default)]
+pub struct ReplyHold {
+    /// The held reply's seq, and when it was first held.
+    since: Option<(i64, Instant)>,
+}
+
+impl ReplyHold {
+    pub const WAIT: Duration = Duration::from_millis(500);
+
+    /// How many of `lines`, read from `first_seq`, may ship at `now`.
+    pub fn ready(
+        &mut self,
+        format: &dyn SessionFormat,
+        first_seq: i64,
+        lines: &[RecordedLine],
+        now: Instant,
+    ) -> usize {
+        let open = lines
+            .iter()
+            .enumerate()
+            .rfind(|(_, line)| line.content.role.is_some())
+            .filter(|(_, line)| format.quotes_replies() && reply_of(line).is_some());
+        let Some((at, _)) = open else {
+            self.since = None;
+            return lines.len();
+        };
+        let seq = first_seq + at as i64;
+        match self.since {
+            Some((held, since)) if held == seq => {
+                if now.duration_since(since) >= Self::WAIT {
+                    lines.len()
+                } else {
+                    at
+                }
+            }
+            _ => {
+                self.since = Some((seq, now));
+                at
+            }
+        }
     }
 }
 
@@ -275,6 +326,18 @@ const CODEX_INJECTED: &[&str] = &[
 ];
 
 /// A line's text blocks joined, trailing whitespace trimmed.
+/// The item id and text of a reply a later line may quote.
+pub fn reply_of(read: &RecordedLine) -> Option<(String, String)> {
+    if read.content.role != Some(Role::Assistant) || read.derived || read.quotes_reply {
+        return None;
+    }
+    let text = text_of(&read.content);
+    read.harness_item_id
+        .clone()
+        .filter(|_| !text.is_empty())
+        .map(|item| (item, text))
+}
+
 fn text_of(content: &EventContent) -> String {
     let text: String = content
         .blocks
@@ -507,6 +570,10 @@ pub struct CodexSessionFormat;
 impl SessionFormat for CodexSessionFormat {
     fn harness(&self) -> &'static str {
         "codex"
+    }
+
+    fn quotes_replies(&self) -> bool {
+        true
     }
 
     fn session_path(&self, home: &Path, _cwd: &Path, id: &str, first_line: &str) -> PathBuf {

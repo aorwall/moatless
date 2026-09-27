@@ -345,7 +345,7 @@ impl RealEnv {
             },
             None,
         );
-        recorder.flush().await.unwrap();
+        recorder.flush_all().await.unwrap();
     }
 }
 

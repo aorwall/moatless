@@ -13,12 +13,13 @@ use sandbox_proto::{
 use tokio::io::{AsyncBufReadExt, AsyncSeekExt, BufReader};
 use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinHandle;
+use tokio::time::Instant;
 use tracing::{debug, info, warn};
 
 use crate::agent::harness::signal::Input;
 use crate::agent::harness::trajectory::{
-    LineContext, SessionFormat, SubagentFile, WriteTarget, Written, latest_session, locate_session,
-    reseed_session, write_session,
+    LineContext, RecordedLine, ReplyHold, SessionFormat, SubagentFile, WriteTarget, Written,
+    latest_session, locate_session, reply_of, reseed_session, write_session,
 };
 use crate::agent::harness::{ErrorClass, FailureStage, HarnessError, SessionImpact};
 use crate::agent::types::ResumeSession;
@@ -140,6 +141,7 @@ pub struct SessionRecorder {
     last_item_id: Option<String>,
     /// What the lines before `next_seq` tell the next one.
     context: LineContext,
+    hold: ReplyHold,
     /// Whether a reply has shown the session exists, so `subagent_parent` is
     /// no longer sent.
     created: bool,
@@ -171,6 +173,7 @@ impl SessionRecorder {
             held_tip: None,
             last_item_id: None,
             context: LineContext::default(),
+            hold: ReplyHold::default(),
             created: false,
             own_from_seq: None,
             reseeded: false,
@@ -190,19 +193,28 @@ impl SessionRecorder {
         self.path.as_deref()
     }
 
-    /// Sends every complete line past the cursor; returns the acknowledged
-    /// `last_seq`.
+    /// Sends the complete lines past the cursor that [`ReplyHold`] lets
+    /// through; returns the acknowledged `last_seq`.
     pub async fn flush(&mut self) -> Result<i64, RecordError> {
+        self.flush_with(false).await
+    }
+
+    /// Sends every complete line past the cursor, a held reply included.
+    pub async fn flush_all(&mut self) -> Result<i64, RecordError> {
+        self.flush_with(true).await
+    }
+
+    async fn flush_with(&mut self, release: bool) -> Result<i64, RecordError> {
         if self.stopped || self.recording.is_off() {
             return Err(RecordError::Off);
         }
-        let mut result = self.flush_inner().await;
+        let mut result = self.flush_inner(release).await;
         if matches!(
             result,
             Err(RecordError::Behind { .. } | RecordError::Diverged { .. })
         ) && self.reseed().await
         {
-            result = self.flush_inner().await;
+            result = self.flush_inner(release).await;
         }
         if let Err(error) = &result {
             if error.is_final() {
@@ -261,7 +273,7 @@ impl SessionRecorder {
         }
     }
 
-    async fn flush_inner(&mut self) -> Result<i64, RecordError> {
+    async fn flush_inner(&mut self, release: bool) -> Result<i64, RecordError> {
         if self.probe {
             let reply = self.append(0, Vec::new()).await?;
             self.skip = Some(reply.last_seq + 1);
@@ -324,7 +336,9 @@ impl SessionRecorder {
                 Err(e) => return Err(e.into()),
             };
             let lines = complete_lines(&bytes);
-            match self.send(&lines).await? {
+            // A batch cut at the budget ships whole: the next read starts at
+            // a held line, and one over the budget alone would never ship.
+            match self.send(&lines, release || more).await? {
                 None if more => {}
                 None => return Ok(self.next_seq - 1),
                 Some(last_seq) => {
@@ -345,13 +359,25 @@ impl SessionRecorder {
         }
     }
 
-    /// Sends `lines` from `next_seq` in batches. `Some(last_seq)` when the
-    /// backend rejected one as out of place.
-    async fn send(&mut self, lines: &[&[u8]]) -> Result<Option<i64>, RecordError> {
-        let mut rest = lines;
-        while !rest.is_empty() {
+    /// Sends `lines` from `next_seq` in batches, all of them on `release`.
+    /// `Some(last_seq)` when the backend rejected one as out of place.
+    async fn send(&mut self, lines: &[&[u8]], release: bool) -> Result<Option<i64>, RecordError> {
+        let mut payloads: Vec<String> = lines
+            .iter()
+            .map(|l| String::from_utf8_lossy(l).into_owned())
+            .collect();
+        let reads: Vec<RecordedLine> = payloads.iter().map(|p| self.format.read_line(p)).collect();
+        let ready = if release {
+            self.hold = ReplyHold::default();
+            reads.len()
+        } else {
+            self.hold
+                .ready(&*self.format, self.next_seq, &reads, Instant::now())
+        };
+        let mut start = 0;
+        while start < ready {
             let mut size = 0;
-            let take = rest
+            let take = lines[start..ready]
                 .iter()
                 .take(MAX_BATCH_LINES)
                 .take_while(|l| {
@@ -360,11 +386,24 @@ impl SessionRecorder {
                 })
                 .count()
                 .max(1);
-            let (batch, tail) = rest.split_at(take);
+            // A reply goes in the append of the line after it, which may
+            // supersede it.
+            let end = match start + take {
+                end if take > 1
+                    && end < ready
+                    && self.format.quotes_replies()
+                    && reply_of(&reads[end - 1]).is_some() =>
+                {
+                    end - 1
+                }
+                end => end,
+            };
             // `wire_line` advances it; a batch the backend did not take rereads
             // its first line against the id before it.
             let before = (self.last_item_id.clone(), self.context.clone());
-            let wire = batch.iter().map(|l| self.wire_line(l)).collect();
+            let wire = (start..end)
+                .map(|i| self.wire_line(std::mem::take(&mut payloads[i]), reads[i].clone()))
+                .collect();
             let reply = match self.append(self.next_seq, wire).await {
                 Ok(reply) if reply.accepted => reply,
                 other => {
@@ -372,19 +411,20 @@ impl SessionRecorder {
                     return other.map(|reply| Some(reply.last_seq));
                 }
             };
-            self.next_seq += batch.len() as i64;
-            self.offset += batch.iter().map(|l| l.len() as u64 + 1).sum::<u64>();
+            self.next_seq += (end - start) as i64;
+            self.offset += lines[start..end]
+                .iter()
+                .map(|l| l.len() as u64 + 1)
+                .sum::<u64>();
             if reply.last_seq != self.next_seq - 1 {
                 return Ok(Some(reply.last_seq));
             }
-            rest = tail;
+            start = end;
         }
         Ok(None)
     }
 
-    fn wire_line(&mut self, line: &[u8]) -> TrajectoryLine {
-        let payload = String::from_utf8_lossy(line).into_owned();
-        let mut read = self.format.read_line(&payload);
+    fn wire_line(&mut self, payload: String, mut read: RecordedLine) -> TrajectoryLine {
         if read.harness_item_id.is_some() && read.harness_item_id == self.last_item_id {
             read.content.usage = None;
         }
@@ -535,9 +575,9 @@ struct LiveSessions {
 }
 
 impl LiveSessions {
-    async fn flush(&mut self, changes: &mpsc::Sender<()>) {
+    async fn flush(&mut self, changes: &mpsc::Sender<()>, release: bool) {
         self.warned.resize(1 + self.subagents.len(), false);
-        if let Err(error) = self.main.flush().await {
+        if let Err(error) = self.main.flush_with(release).await {
             log_failure(&self.main, &error, &mut self.warned[0]);
         }
         let Some(path) = self.main.path().map(Path::to_path_buf) else {
@@ -549,7 +589,7 @@ impl LiveSessions {
         self.adopt_subagents(&path).await;
         self.warned.resize(1 + self.subagents.len(), false);
         for (i, recorder) in self.subagents.iter_mut().enumerate() {
-            if let Err(error) = recorder.flush().await {
+            if let Err(error) = recorder.flush_with(release).await {
                 log_failure(recorder, &error, &mut self.warned[i + 1]);
             }
         }
@@ -610,7 +650,7 @@ impl LiveRecorder {
             let (changes, mut changed) = mpsc::channel(1);
             loop {
                 let mut sessions = ticking.lock().await;
-                sessions.flush(&changes).await;
+                sessions.flush(&changes, false).await;
                 if sessions.main.stopped && sessions.subagents.iter().all(|r| r.stopped) {
                     return;
                 }
@@ -621,10 +661,11 @@ impl LiveRecorder {
         Self { sessions, ticker }
     }
 
-    /// Flush now; called at Turn end, before the Turn is reported finished.
+    /// Flush every line now, a held reply included; called at Turn end,
+    /// before the Turn is reported finished.
     pub async fn flush(&self) {
         let (changes, _) = mpsc::channel(1);
-        self.sessions.lock().await.flush(&changes).await;
+        self.sessions.lock().await.flush(&changes, true).await;
     }
 }
 
