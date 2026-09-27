@@ -600,6 +600,36 @@ fn rendering_after_lines_chains_onto_the_last_with_a_uuid() {
 }
 
 #[test]
+fn codex_lines_continue_the_ordinal_of_the_line_before() {
+    let items = transcode_items(
+        &ClaudeSessionFormat,
+        &CLAUDE_RECORDED.lines().take(39).collect::<Vec<_>>(),
+    );
+    let ctx = |prior| RenderContext {
+        harness_session_id: "s",
+        cwd: Path::new("/w"),
+        model: None,
+        prior,
+        timestamp: "t",
+    };
+    let ordinals = |prior| -> Vec<Value> {
+        CodexSessionFormat
+            .render(&items, &ctx(prior))
+            .iter()
+            .map(|l| serde_json::from_str::<Value>(l).unwrap()["ordinal"].clone())
+            .collect()
+    };
+
+    let native: Vec<&str> = CODEX_RECORDED.lines().take(38).collect();
+    let after_native = ordinals(&native);
+    assert!(!after_native.is_empty());
+    let expected: Vec<Value> = (38..).take(after_native.len()).map(Value::from).collect();
+    assert_eq!(after_native, expected);
+
+    assert!(ordinals(&["{}"]).iter().all(Value::is_null));
+}
+
+#[test]
 fn an_unanswered_call_is_not_rendered() {
     let items = vec![
         EventContent {

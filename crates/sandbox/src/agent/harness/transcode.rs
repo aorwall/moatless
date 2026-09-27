@@ -242,7 +242,20 @@ pub(super) fn render_codex(items: &[EventContent], ctx: &RenderContext<'_>) -> V
             }
         }
     }
+    // Codex 0.156 refuses to resume a file whose last line lacks the `ordinal`
+    // its earlier lines carry, so rendered lines continue the prior's count.
+    if let Some(first) = next_ordinal(ctx.prior) {
+        for (line, ordinal) in out.iter_mut().zip(first..) {
+            line["ordinal"] = json!(ordinal);
+        }
+    }
     out.iter().map(Value::to_string).collect()
+}
+
+/// The `ordinal` after the prior's last line; `None` when that line has none.
+fn next_ordinal(prior: &[&str]) -> Option<u64> {
+    let last: Value = serde_json::from_str(prior.last()?).ok()?;
+    Some(last.get("ordinal")?.as_u64()? + 1)
 }
 
 /// `items` as Claude transcript lines, chained by `parentUuid` onto the last

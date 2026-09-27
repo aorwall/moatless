@@ -18,8 +18,9 @@ use std::sync::{Arc, Once};
 use std::time::Duration;
 
 use moatless_sandbox::agent::agent_state::AgentState;
+use moatless_sandbox::agent::harness::content::CanonicalContentBlock;
 use moatless_sandbox::agent::harness::trajectory::{
-    ClaudeSessionFormat, CodexSessionFormat, SessionFormat,
+    ClaudeSessionFormat, CodexSessionFormat, EventContent, RenderContext, SessionFormat,
 };
 use moatless_sandbox::agent::harness::{
     ClaudeConfig, CodexConfig, HarnessRuntime, Input, Outcome, Role, Signal,
@@ -1222,6 +1223,63 @@ async fn claude_to_codex_resume_knows_history() {
 async fn codex_to_claude_resume_knows_history() {
     let Some(env) = RealEnv::claude() else { return };
     transcoded_resume_knows_history(env, CLAUDE_FROM_CODEX).await;
+}
+
+const CODEX_RECORDED: &str = include_str!("fixtures/transcode/codex.jsonl");
+const CODEX_RECORDED_ID: &str = "01a0de79-4dff-72c0-a0de-c819e502d676";
+
+/// A switch back to Codex appends rendered lines to the rollout Codex wrote
+/// itself, whose every line carries an `ordinal`.
+#[tokio::test]
+#[ignore = "runs real Codex; needs TRAJECTORY_E2E=1"]
+async fn codex_resumes_its_own_rollout_with_rendered_lines_appended() {
+    let Some(env) = RealEnv::codex() else { return };
+    let native = CODEX_RECORDED
+        .replace(CODEX_RECORDED_ID, "{{SESSION_ID}}")
+        .replace("/workspace", "{{CWD}}");
+    let prior: Vec<&str> = native.lines().take(38).collect();
+    let text = |role, text: &str| EventContent {
+        role: Some(role),
+        blocks: vec![CanonicalContentBlock::Text { text: text.into() }],
+        ..EventContent::default()
+    };
+    let rendered = CodexSessionFormat.render(
+        &[
+            text(
+                Role::User,
+                "Our second release is named OCHRE-4471. Reply OK.",
+            ),
+            text(Role::Assistant, "OK."),
+        ],
+        &RenderContext {
+            harness_session_id: "{{SESSION_ID}}",
+            cwd: Path::new("{{CWD}}"),
+            model: None,
+            prior: &prior,
+            timestamp: "2026-09-26T16:09:00.000Z",
+        },
+    );
+    let mut body = prior.join("\n");
+    for line in &rendered {
+        body.push('\n');
+        body.push_str(line);
+    }
+    body.push('\n');
+
+    let backend = Arc::new(MemoryTrajectoryBackend::default());
+    let session = env.install_transcoded(&body);
+    let mut task = env.task("appended", &backend).resuming(session.clone());
+    let answer = task
+        .turn(
+            "Without using any tools: what is our second release named? Reply with the name only.",
+        )
+        .await;
+    assert!(answer.contains("4471"), "{answer}");
+    assert_eq!(
+        task.session(),
+        session,
+        "the CLI resumed the appended rollout"
+    );
 }
 
 /// Claude's `Read` and Codex's `apply_patch` have no counterpart, so each
