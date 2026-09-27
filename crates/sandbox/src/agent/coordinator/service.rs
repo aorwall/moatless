@@ -300,8 +300,8 @@ impl CoordinatorService {
                         // tmux mode the CLI owns its own wakeup timer, so only
                         // subprocess mode buffers one here.
                         if !self.config.use_tmux {
-                            if let Signal::Source(ref event) = signal {
-                                if let Some(job) = extract_wakeup_from_block(&event.block) {
+                            if let Signal::Source(ref block) = signal {
+                                if let Some(job) = extract_wakeup_from_block(block) {
                                     self.pending_wakeup = Some(job);
                                 }
                             }

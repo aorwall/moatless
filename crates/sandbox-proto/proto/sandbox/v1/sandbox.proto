@@ -288,9 +288,9 @@ message AppendTrajectoryRequest {
   int64 first_seq = 4;
   repeated TrajectoryLine lines = 5; // at most 256
   optional int32 turn_number = 6; // task_turns.turn_number of the running Turn
-  // A switch session's first seq its CLI wrote; the lines below it are the
-  // rendered prefix. Sent until an append with lines is accepted; read only
-  // while the session has none.
+  // The first seq its CLI wrote in this Task: below it, a switch session's
+  // rendered prefix or a frozen Task's pre-freeze lines. Sent until an append
+  // with lines is accepted; read only while the session has none.
   optional int64 own_from_seq = 7;
   // Set until the session exists: a subagent session, linked to the tool call
   // that spawned it.

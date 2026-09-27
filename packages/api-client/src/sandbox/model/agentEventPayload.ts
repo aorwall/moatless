@@ -5,7 +5,6 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
-import type { AgentEventPayloadMessage } from './agentEventPayloadMessage';
 import type { AgentEventPayloadResult } from './agentEventPayloadResult';
 import type { AgentEventPayloadToolInput } from './agentEventPayloadToolInput';
 
@@ -26,11 +25,6 @@ export interface AgentEventPayload {
      * @nullable
      */
   contextTokens?: number | null;
-  /**
-     * For "message" subtype: the Claude SDK assistant message.
-     * @nullable
-     */
-  message?: AgentEventPayloadMessage;
   /**
      * For "completed" subtype: the SDK result.
      * @nullable

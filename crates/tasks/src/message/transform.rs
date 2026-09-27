@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use moatless_api_schemas::codex::{CodexToolInput, CodexToolResult};
 
 use super::contexts::task_message_context_to_input;
-use super::models::{HARNESS_USER_TYPE, TOOL_RESPONSE_USER_TYPE, TaskMessage, TaskMessageContext};
+use super::models::{TOOL_RESPONSE_USER_TYPE, TaskMessage, TaskMessageContext};
 use crate::activities::dao::Activity;
 use crate::activities::mapping::{ActivityKind, ActivityStatus};
 use crate::activities::view::ActivityView;
@@ -214,8 +214,7 @@ fn transform_scoped(
                 if msg.user_type == TOOL_RESPONSE_USER_TYPE {
                     continue;
                 }
-                // The sandbox waking its own agent; nobody said it.
-                if msg.user_type == HARNESS_USER_TYPE {
+                if msg.sandbox_wake {
                     continue;
                 }
                 ui_messages.push(transform_user(msg, &msg_context_rows, file_metadata));
@@ -800,19 +799,14 @@ mod tests {
             uuid: uuid.into(),
             message_type,
             user_type: "human".into(),
+            sandbox_wake: false,
             parent_uuid: None,
-            is_sidechain: None,
-            cwd: None,
             session_id: None,
             turn_number: turn,
-            version: None,
-            git_branch: None,
-            request_id: None,
             timestamp: format!("2025-01-01T00:00:0{id}.000Z"),
             message_role: role,
             message_text: Some(text.to_string()),
             assistant_message_id: None,
-            assistant_message_type: None,
             assistant_message_model: None,
             assistant_stop_reason: None,
             assistant_stop_sequence: None,
@@ -820,7 +814,6 @@ mod tests {
             assistant_usage_output_tokens: None,
             assistant_usage_cache_creation_input_tokens: None,
             assistant_usage_cache_read_input_tokens: None,
-            assistant_usage: None,
             tool_use_result: None,
             tool_response: None,
             sdk_metadata: None,

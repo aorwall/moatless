@@ -17,7 +17,7 @@ use crate::agent::harness::signal::{ContextWindow, Input, InputId, RunTotals, Se
 use crate::agent::harness::trajectory::ClaudeSessionFormat;
 use crate::trajectory_tail::TurnTrajectory;
 
-use super::normalize::Normalizer;
+use super::normalize::{Normalizer, assistant_blocks, user_blocks};
 
 /// What the turn's last main-thread response says about the context window.
 ///
@@ -215,12 +215,12 @@ impl ClaudeProcess {
                         self.last_response = Some(usage);
                     }
                 }
-                for event in self.normalizer.assistant_blocks(&assistant) {
+                for event in assistant_blocks(&assistant) {
                     self.pending.push_back(ProcessEvent::Block(event));
                 }
             }
             SdkMessage::User(user) => {
-                for event in self.normalizer.user_blocks(&user) {
+                for event in user_blocks(&user) {
                     self.pending.push_back(ProcessEvent::Block(event));
                 }
             }

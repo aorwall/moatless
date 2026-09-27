@@ -33,7 +33,7 @@ async fn coordinator_service_arms_and_fires_scheduled_wakeup() {
     let script = Script::new(vec![
         Step::SessionReady(SessionId("sess-1".to_string())),
         Step::AcceptInput,
-        Step::Block(block("msg-1", wakeup_block, Role::Assistant)),
+        Step::Block(block(wakeup_block)),
         Step::Completed,
     ]);
 

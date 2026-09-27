@@ -12,23 +12,11 @@ use tokio::sync::mpsc;
 
 use super::error::{ErrorClass, FailureStage, HarnessError, SessionImpact};
 use super::scripted::ScriptedProcess;
-use super::source::SourceId;
 use super::*;
 
-fn assistant_block(source: &str, message: &str, session: &str, text: &str) -> SourceEvent {
-    SourceEvent {
-        source_id: SourceId(source.to_string()),
-        message_id: NativeMessageId(message.to_string()),
-        session: SessionId(session.to_string()),
-        parent_tool_use_id: None,
-        role: Role::Assistant,
-        block: CanonicalContentBlock::Text {
-            text: text.to_string(),
-        },
-        tool_use_result: None,
-        usage: None,
-        model: None,
-        diagnostics: None,
+fn assistant_block(text: &str) -> CanonicalContentBlock {
+    CanonicalContentBlock::Text {
+        text: text.to_string(),
     }
 }
 
@@ -63,8 +51,8 @@ async fn new_execution_ordering_started_accepted_source_finished() {
     let script = Script::new(vec![
         Step::SessionReady(SessionId("sess-1".into())),
         Step::InputAccepted(InputId("in-1".into())),
-        Step::Block(assistant_block("s1", "m1", "sess-1", "hello")),
-        Step::Block(assistant_block("s2", "m1", "sess-1", "world")),
+        Step::Block(assistant_block("hello")),
+        Step::Block(assistant_block("world")),
         Step::Completed,
     ]);
     let mut harness = HarnessRuntime::scripted(script);
@@ -84,8 +72,8 @@ async fn new_execution_ordering_started_accepted_source_finished() {
         } if id.0 == "in-1" && session.0 == "sess-1"
     ));
     assert!(matches!(signals[1], Signal::InputAccepted { ref input } if input.0 == "in-1"));
-    assert!(matches!(signals[2], Signal::Source(ref e) if e.source_id.0 == "s1"));
-    assert!(matches!(signals[3], Signal::Source(ref e) if e.source_id.0 == "s2"));
+    assert_eq!(signals[2], Signal::Source(assistant_block("hello")));
+    assert_eq!(signals[3], Signal::Source(assistant_block("world")));
     assert!(matches!(
         signals[4],
         Signal::ExecutionFinished {
@@ -100,8 +88,8 @@ async fn no_source_event_before_execution_start() {
     // Blocks arrive before SessionReady: they must be buffered and released in
     // native order only after ExecutionStarted.
     let script = Script::new(vec![
-        Step::Block(assistant_block("s1", "m1", "sess-1", "early-one")),
-        Step::Block(assistant_block("s2", "m1", "sess-1", "early-two")),
+        Step::Block(assistant_block("early-one")),
+        Step::Block(assistant_block("early-two")),
         Step::SessionReady(SessionId("sess-1".into())),
         Step::InputAccepted(InputId("in-1".into())),
         Step::Completed,
@@ -119,8 +107,8 @@ async fn no_source_event_before_execution_start() {
     // Source precedes the start or the acceptance.
     assert!(matches!(signals[0], Signal::ExecutionStarted { .. }));
     assert!(matches!(signals[1], Signal::InputAccepted { .. }));
-    assert!(matches!(signals[2], Signal::Source(ref e) if e.source_id.0 == "s1"));
-    assert!(matches!(signals[3], Signal::Source(ref e) if e.source_id.0 == "s2"));
+    assert_eq!(signals[2], Signal::Source(assistant_block("early-one")));
+    assert_eq!(signals[3], Signal::Source(assistant_block("early-two")));
     assert!(matches!(
         signals[4],
         Signal::ExecutionFinished {
@@ -137,7 +125,7 @@ async fn terminal_before_acceptance_drops_buffered_source() {
     // InputAccepted and no Source appear.
     let script = Script::new(vec![
         Step::SessionReady(SessionId("sess-1".into())),
-        Step::Block(assistant_block("s1", "m1", "sess-1", "never-anchored")),
+        Step::Block(assistant_block("never-anchored")),
         Step::Completed,
     ]);
     let mut harness = HarnessRuntime::scripted(script);
@@ -227,7 +215,7 @@ async fn unexpected_eof_after_start_is_a_process_exit() {
     let script = Script::new(vec![
         Step::SessionReady(SessionId("sess-1".into())),
         Step::InputAccepted(InputId("in-1".into())),
-        Step::Block(assistant_block("s1", "m1", "sess-1", "partial")),
+        Step::Block(assistant_block("partial")),
         Step::Eof,
     ]);
     let mut harness = HarnessRuntime::scripted(script);
@@ -250,7 +238,7 @@ async fn cancellation_during_output_finishes_cancelled_and_is_idempotent() {
     let script = Script::new(vec![
         Step::SessionReady(SessionId("sess-1".into())),
         Step::InputAccepted(InputId("in-1".into())),
-        Step::Block(assistant_block("s1", "m1", "sess-1", "working")),
+        Step::Block(assistant_block("working")),
         Step::WaitForCancel,
     ]);
     let mut harness = HarnessRuntime::scripted(script);
@@ -400,12 +388,7 @@ async fn backpressure_delivers_every_signal_in_order() {
         Step::InputAccepted(InputId("in-1".into())),
     ];
     for i in 0..10 {
-        steps.push(Step::Block(assistant_block(
-            &format!("s{i}"),
-            "m1",
-            "sess-1",
-            &format!("block-{i}"),
-        )));
+        steps.push(Step::Block(assistant_block(&format!("block-{i}"))));
     }
     steps.push(Step::Completed);
 
@@ -421,7 +404,7 @@ async fn backpressure_delivers_every_signal_in_order() {
     while let Some(signal) = harness.next_signal().await {
         tokio::task::yield_now().await;
         match signal {
-            Signal::Source(e) => sources.push(e.source_id.0),
+            Signal::Source(CanonicalContentBlock::Text { text }) => sources.push(text),
             Signal::ExecutionFinished { .. } => {
                 finished = true;
                 break;
@@ -430,7 +413,7 @@ async fn backpressure_delivers_every_signal_in_order() {
         }
     }
     assert!(finished);
-    let expected: Vec<String> = (0..10).map(|i| format!("s{i}")).collect();
+    let expected: Vec<String> = (0..10).map(|i| format!("block-{i}")).collect();
     assert_eq!(sources, expected);
 }
 
@@ -444,7 +427,7 @@ async fn driver_stops_when_signal_consumer_drops() {
 
     let mut first = Some(Script::new(vec![
         Step::SessionReady(SessionId("sess-1".into())),
-        Step::Block(assistant_block("s1", "m1", "sess-1", "hi")),
+        Step::Block(assistant_block("hi")),
         Step::Completed,
     ]));
     let factory = move || ScriptedProcess::new(first.take().unwrap_or_default());
@@ -518,7 +501,7 @@ async fn coordinator_mints_run_after_start_and_acks_after_acceptance() {
     let script = Script::new(vec![
         Step::SessionReady(SessionId("sess-1".into())),
         Step::InputAccepted(InputId("in-1".into())),
-        Step::Block(assistant_block("s1", "m1", "sess-1", "hello")),
+        Step::Block(assistant_block("hello")),
         Step::Completed,
     ]);
     let mut harness = HarnessRuntime::scripted(script);

@@ -9,7 +9,7 @@ use super::*;
 ///
 /// A family that renders nothing produces none deliberately, distinct from an
 /// unknown family, which is forwarded raw (see
-/// `unknown_item_family_is_forwarded_with_diagnostics`).
+/// `unknown_item_family_is_forwarded_raw`).
 #[test]
 fn every_item_family_maps_to_its_canonical_blocks() {
     let expected: &[(&str, &[(&str, &str)])] = &[
@@ -102,9 +102,6 @@ fn agent_message_and_reasoning_are_ordered_assistant_text_blocks() {
             .expect("text")
             .contains("four steps")
     );
-    assert!(s.iter().all(|e| e.role == Role::Assistant));
-    assert_ne!(s[0].source_id, s[1].source_id);
-    assert_eq!(s[0].model.as_deref(), None); // model set only after submit
 }
 
 /// `codex exec` reported reasoning as one `text`; this transport splits it into
@@ -162,18 +159,12 @@ fn command_execution_carries_the_same_shell_payload_exec_produced() {
         "/bin/bash -lc 'echo hello-from-codex'"
     );
     assert_eq!(use_block["input"]["cwd"], "/tmp/probe/turn/ws");
-    assert_eq!(s[0].role, Role::Assistant);
-    assert!(s[0].tool_use_result.is_none());
 
     let result_block = s[1].block_json();
     assert_eq!(result_block["type"], "tool_result");
     assert_eq!(result_block["tool_use_id"], use_block["id"]);
     assert_eq!(result_block["is_error"], false);
-    assert_eq!(s[1].role, Role::User);
-    let typed = s[1].tool_use_result.as_ref().expect("typed shell result");
-    assert_eq!(typed["status"], "completed");
-    assert_eq!(typed["exitCode"], 0);
-    assert_eq!(typed["aggregatedOutput"], "hello-from-codex\n");
+    assert_eq!(result_block["content"], "hello-from-codex\n");
 }
 
 #[test]
@@ -187,10 +178,7 @@ fn a_failed_command_is_flagged_as_an_error_result() {
     let events = drain(&mut p);
     let s = sources(&events);
     assert_eq!(s[1].block_json()["is_error"], true);
-    assert_eq!(
-        s[1].tool_use_result.as_ref().expect("typed")["status"],
-        "failed"
-    );
+    assert_eq!(s[1].block_json()["content"], "boom\n");
 }
 
 /// The app-server tags the change kind (`{"type":"update"}`) where exec sent a
@@ -220,8 +208,8 @@ fn file_change_kinds_map_to_the_canonical_flat_kind() {
     assert_eq!(add["input"]["changes"][0]["kind"], "add");
     assert_eq!(add["input"]["changes"][0]["diff"], "ALPHA\n");
     assert_eq!(
-        s[1].tool_use_result.as_ref().expect("typed")["status"],
-        "completed"
+        s[1].block_json()["content"],
+        "add /tmp/probe/turn/ws/note.txt"
     );
 
     assert_eq!(s[2].block_json()["input"]["changes"][0]["kind"], "update");
@@ -243,17 +231,13 @@ fn mcp_and_dynamic_tool_calls_share_the_mcp_card() {
     assert_eq!(s[0].block_json()["input"]["server"], "atlassian");
     assert_eq!(s[0].block_json()["input"]["tool"], "jira_search");
     assert_eq!(s[0].block_json()["input"]["arguments"]["q"], "foo");
-    let mcp = s[1].tool_use_result.as_ref().expect("typed mcp result");
-    assert_eq!(mcp["status"], "completed");
-    assert_eq!(mcp["content"][0]["text"], "match");
+    assert_eq!(s[1].block_json()["content"], "match");
 
     // The namespace is the server, so a dynamic tool renders as a named card
     // rather than an anonymous one.
     assert_eq!(s[2].block_json()["input"]["server"], "acme");
     assert_eq!(s[2].block_json()["input"]["tool"], "lookup");
-    let dynamic = s[3].tool_use_result.as_ref().expect("typed dynamic result");
-    assert_eq!(dynamic["status"], "completed");
-    assert_eq!(dynamic["content"][0]["text"], "result text");
+    assert_eq!(s[3].block_json()["content"], "result text");
 }
 
 #[test]
@@ -265,10 +249,8 @@ fn a_failed_mcp_call_carries_its_error_message() {
     })));
     let events = drain(&mut p);
     let s = sources(&events);
-    let typed = s[1].tool_use_result.as_ref().expect("typed");
-    assert_eq!(typed["status"], "failed");
-    assert_eq!(typed["errorMessage"], "connection refused");
     assert_eq!(s[1].block_json()["is_error"], true);
+    assert_eq!(s[1].block_json()["content"], "connection refused");
 }
 
 #[test]
@@ -287,11 +269,9 @@ fn collab_tool_call_carries_its_agents_states() {
         "019f0000-0000-7000-8000-00000000thre"
     );
     assert_eq!(input["input"]["prompt"], "help with the migration");
-    let typed = s[1].tool_use_result.as_ref().expect("typed collab result");
-    assert_eq!(typed["status"], "in_progress");
     assert_eq!(
-        typed["agentsStates"]["019f0000-0000-7000-8000-0000000000sub"]["status"],
-        "running"
+        s[1].block_json()["content"],
+        "019f0000-0000-7000-8000-0000000000sub: running"
     );
 }
 
@@ -329,7 +309,7 @@ fn web_search_is_a_lone_tool_use_carrying_the_query() {
 }
 
 #[test]
-fn unknown_item_family_is_forwarded_with_diagnostics() {
+fn unknown_item_family_is_forwarded_raw() {
     let mut p = open_process();
     p.absorb(item_completed(fixture_item!(
         "schema-derived" / "item_unknown_family"
@@ -338,30 +318,17 @@ fn unknown_item_family_is_forwarded_with_diagnostics() {
     let s = sources(&events);
     assert_eq!(s.len(), 1);
     // The raw native block is preserved verbatim inside the canonical `unknown`
-    // block and flagged with bounded diagnostics so an upstream CLI addition is
-    // never silently dropped.
+    // block so an upstream CLI addition is never silently dropped.
     let block = s[0].block_json();
     assert_eq!(block["type"], "unknown");
     assert_eq!(block["raw"]["type"], "brandNewThing");
     assert_eq!(block["raw"]["foo"], "bar");
-    let diag = s[0].diagnostics.as_ref().expect("diagnostics retained");
-    assert_eq!(diag["type"], "brandNewThing");
-}
-
-#[test]
-fn known_families_carry_no_diagnostics() {
-    let mut p = open_process();
-    for (_, item) in every_family() {
-        p.absorb(item_completed(item));
-    }
-    let events = drain(&mut p);
-    assert!(sources(&events).iter().all(|e| e.diagnostics.is_none()));
 }
 
 /// The running plan is a notification here, not the re-emitted `todo_list` item
 /// exec sent — but it must still upsert one live card.
 #[test]
-fn plan_updates_share_a_stable_source_id() {
+fn plan_updates_share_a_stable_tool_use_id() {
     let mut p = open_process();
     p.absorb(plan_updated(&[("a", "inProgress"), ("b", "pending")]));
     p.absorb(plan_updated(&[("a", "completed"), ("b", "inProgress")]));
@@ -369,8 +336,8 @@ fn plan_updates_share_a_stable_source_id() {
     let events = drain(&mut p);
     let s = sources(&events);
     assert_eq!(s.len(), 3, "every update emits a block");
-    assert_eq!(s[0].source_id, s[1].source_id);
-    assert_eq!(s[1].source_id, s[2].source_id);
+    assert_eq!(s[0].block_json()["id"], s[1].block_json()["id"]);
+    assert_eq!(s[1].block_json()["id"], s[2].block_json()["id"]);
     // Each emission is a codex.todo_list tool_use whose input tracks completion.
     assert_eq!(s[0].block_json()["name"], "codex.todo_list");
     assert_eq!(s[0].block_json()["input"]["items"][0]["text"], "a");
@@ -381,20 +348,22 @@ fn plan_updates_share_a_stable_source_id() {
 }
 
 #[test]
-fn duplicate_item_ids_across_spawns_get_distinct_source_ids() {
-    // Codex restarted `item_0` on every resume; two spawns must not collide.
-    let item = json!({ "type": "agentMessage", "id": "item_0", "text": "x" });
+fn duplicate_item_ids_across_spawns_get_distinct_tool_use_ids() {
+    // Codex restarted `item_0` on every resume; two spawns must not collide,
+    // or a resumed thread's tool_result would pair against the wrong tool_use.
+    let mut item = fixture_item!("observed" / "item_web_search");
+    item["id"] = json!("item_0");
 
     let mut first = open_process();
     first.absorb(item_completed(item.clone()));
-    let first_id = sources(&drain(&mut first))[0].source_id.clone();
+    let first_id = sources(&drain(&mut first))[0].block_json()["id"].clone();
 
     let mut second = open_process();
     second.absorb(item_completed(item));
-    let second_id = sources(&drain(&mut second))[0].source_id.clone();
+    let second_id = sources(&drain(&mut second))[0].block_json()["id"].clone();
 
     assert_ne!(
         first_id, second_id,
-        "same native item_0 on the same thread must yield collision-safe ids"
+        "same native item_0 on the same thread must yield collision-safe tool_use ids"
     );
 }

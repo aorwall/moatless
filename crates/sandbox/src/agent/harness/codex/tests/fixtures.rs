@@ -23,7 +23,7 @@ pub(super) fn drain(p: &mut CodexProcess) -> Vec<ProcessEvent> {
     out
 }
 
-pub(super) fn sources(events: &[ProcessEvent]) -> Vec<&SourceEvent> {
+pub(super) fn sources(events: &[ProcessEvent]) -> Vec<&CanonicalContentBlock> {
     events
         .iter()
         .filter_map(|e| match e {
@@ -31,6 +31,18 @@ pub(super) fn sources(events: &[ProcessEvent]) -> Vec<&SourceEvent> {
             _ => None,
         })
         .collect()
+}
+
+/// Test-only access to a block's wire shape, for assertions that check one
+/// field rather than matching the whole [`CanonicalContentBlock`] enum.
+pub(super) trait BlockJson {
+    fn block_json(&self) -> Value;
+}
+
+impl BlockJson for CanonicalContentBlock {
+    fn block_json(&self) -> Value {
+        serde_json::to_value(self).expect("content block serializes")
+    }
 }
 
 // ── Server events, built from wire-shaped JSON ───────────────────

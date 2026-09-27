@@ -1,5 +1,6 @@
 //! Real-CLI E2E, gated on `CODEX_SDK_E2E=1`.
 
+use super::fixtures::BlockJson;
 use super::*;
 
 /// Whether the real-CLI E2E tests are enabled. They spawn the actual `codex
@@ -72,11 +73,9 @@ async fn e2e_codex_turn_through_the_harness() {
             Signal::InputAccepted { .. } => accepted = true,
             Signal::Source(event) => {
                 eprintln!(
-                    "SOURCE role={:?} type={} name={} tool_use_result={}",
-                    event.role,
+                    "SOURCE type={} name={}",
                     event.block_json()["type"].as_str().unwrap_or("?"),
                     event.block_json()["name"].as_str().unwrap_or("-"),
-                    event.tool_use_result.is_some(),
                 );
                 blocks.push(event.block_json());
             }

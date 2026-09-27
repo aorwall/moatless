@@ -12,15 +12,15 @@ use std::sync::Arc;
 use tokio::sync::{Mutex, Notify};
 use tokio_util::sync::CancellationToken;
 
+use super::content::CanonicalContentBlock;
 use super::error::{ErrorClass, FailureStage, HarnessError, SessionImpact};
 use super::process::{AgentProcess, ProcessEvent, ProcessTermination};
 use super::signal::{Input, InputId, SessionId};
-use super::source::SourceEvent;
 
 /// One scripted step the process yields, in order, from [`AgentProcess::next`].
-// reason: mirrors `ProcessEvent`, which carries one canonical `SourceEvent` by
-// value; boxing only the `Block` variant of this test scaffold would diverge from
-// the type it scripts.
+// reason: mirrors `ProcessEvent`, which carries one canonical
+// `CanonicalContentBlock` by value; boxing only the `Block` variant of this
+// test scaffold would diverge from the type it scripts.
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum Step {
@@ -40,7 +40,7 @@ pub enum Step {
     /// persistent process idling between executions or mid-Turn injection.
     AwaitInput,
     /// Emit one native content block.
-    Block(SourceEvent),
+    Block(CanonicalContentBlock),
     /// Terminate normally.
     Completed,
     /// Terminate with a classified failure.

@@ -895,8 +895,9 @@ pub struct Written {
     pub harness_session_id: String,
     /// The lines the trajectory holds; a recorder resumes at this seq.
     pub line_count: i64,
-    /// The first seq the CLI writes, past the rendered prefix. Set for an
-    /// opened session; the recorder sends it until an append is accepted.
+    /// The first seq the CLI writes, past the rendered prefix or the lines of
+    /// a file the trajectory holds none of. The recorder sends it until an
+    /// append is accepted.
     pub own_from_seq: Option<i64>,
     /// False when an existing file was kept, which may hold other lines past
     /// a matching count.
@@ -973,6 +974,29 @@ pub async fn write_session(
         path = %path.display(), "Wrote the session file from the trajectory");
     written.rewritten = true;
     Some(written)
+}
+
+/// The session file `harness_session_id` keeps when the trajectory held none
+/// of it, as a frozen Task's restored from the archive: the CLI writes past
+/// its lines.
+pub(crate) async fn kept_session(
+    format: &Arc<dyn SessionFormat>,
+    home: &Path,
+    cwd: &Path,
+    harness_session_id: String,
+) -> Option<Written> {
+    let path = locate_session(format, home, cwd, &harness_session_id).await?;
+    let bytes = tokio::fs::read(&path).await.ok()?;
+    let lines = bytes
+        .split_inclusive(|b| *b == b'\n')
+        .filter(|line| line.ends_with(b"\n"))
+        .count() as i64;
+    Some(Written {
+        harness_session_id,
+        line_count: 0,
+        own_from_seq: Some(lines),
+        rewritten: false,
+    })
 }
 
 /// Rewrites `path` in place with what the trajectory holds for

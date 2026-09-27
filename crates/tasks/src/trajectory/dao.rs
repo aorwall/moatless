@@ -50,7 +50,8 @@ macro_rules! lineage {
               JOIN trajectory_sessions s ON s.id = e.session_id
         )
         SELECT e.id, e.session_id, s.harness, e.turn_number, e.content,
-               COALESCE(e.seq < s.own_from_seq, false) AS prefix
+               COALESCE(e.seq < s.own_from_seq AND s.transcoded_from_event_id IS NOT NULL,
+                        false) AS prefix
           FROM lineage JOIN trajectory_events e USING (id)
           JOIN trajectory_sessions s ON s.id = e.session_id
          ORDER BY e.ord"
@@ -193,18 +194,34 @@ impl PgTrajectoryDao {
         }
 
         let mut session = session;
-        if session.transcoded_from_event_id.is_some() && session.own_from_seq.is_none() {
-            let Some(own_from_seq) = own_from_seq else {
-                return Err(AppendError::OwnFromSeqMissing(
-                    harness_session_id.to_string(),
-                ));
-            };
-            sqlx::query("UPDATE trajectory_sessions SET own_from_seq = $2 WHERE id = $1")
-                .bind(session.id)
-                .bind(own_from_seq)
-                .execute(&mut *tx)
-                .await?;
-            session.own_from_seq = Some(own_from_seq);
+        if session.own_from_seq.is_none() {
+            let switch = session.transcoded_from_event_id.is_some();
+            // A frozen Task's first session file holds its pre-freeze lines,
+            // which its frozen Messages already show.
+            let frozen = !switch
+                && own_from_seq.is_some()
+                && session.last_seq < 0
+                && session.parent_event_id.is_none()
+                && session.forked_from_event_id.is_none()
+                && crate::conversation::replay_dao::frozen_at(&mut tx, task_id)
+                    .await?
+                    .is_some();
+            match own_from_seq {
+                None if switch => {
+                    return Err(AppendError::OwnFromSeqMissing(
+                        harness_session_id.to_string(),
+                    ));
+                }
+                Some(own_from_seq) if switch || frozen => {
+                    sqlx::query("UPDATE trajectory_sessions SET own_from_seq = $2 WHERE id = $1")
+                        .bind(session.id)
+                        .bind(own_from_seq)
+                        .execute(&mut *tx)
+                        .await?;
+                    session.own_from_seq = Some(own_from_seq);
+                }
+                _ => {}
+            }
         }
         let ids: Vec<Uuid> = fresh.iter().map(|_| Uuid::now_v7()).collect();
         let mut parents = Vec::with_capacity(ids.len());

@@ -113,42 +113,31 @@ fn report_redaction_covers_inline_and_following_secret_values() {
 }
 
 #[tokio::test]
-async fn timed_out_trial_keeps_its_redacted_trajectory_and_resolved_model() {
+async fn timed_out_trial_keeps_its_redacted_trajectory() {
     use moatless_sandbox::agent::harness::content::CanonicalContentBlock;
-    use moatless_sandbox::agent::harness::source::SourceId;
-    use moatless_sandbox::agent::harness::{NativeMessageId, Role, SessionId, SourceEvent};
 
     let secret = "sk-eval-secret-that-must-not-leak";
     let started = Instant::now();
     let mut recorder = TrajectoryRecorder::new(started, ReportRedactor::new([secret]));
-    let source = SourceEvent {
-        source_id: SourceId("source-1".to_string()),
-        message_id: NativeMessageId("message-1".to_string()),
-        session: SessionId("session-1".to_string()),
-        parent_tool_use_id: None,
-        role: Role::Assistant,
-        block: CanonicalContentBlock::ToolUse {
-            id: "tool-1".to_string(),
-            name: "Bash".to_string(),
-            input: serde_json::json!({
-                "command": format!("moat tasks create --token {secret}")
-            }),
-        },
-        tool_use_result: Some(serde_json::json!({ "access_token": secret })),
-        usage: Some(serde_json::json!({ "input_tokens": 123 })),
-        model: Some("gpt-eval".to_string()),
-        diagnostics: None,
+    let block = CanonicalContentBlock::ToolUse {
+        id: "tool-1".to_string(),
+        name: "Bash".to_string(),
+        input: serde_json::json!({
+            "command": format!("moat tasks create --token {secret}")
+        }),
     };
 
     let timed = tokio::time::timeout(Duration::from_millis(1), async {
-        assert!(recorder.observe(Signal::Source(source)).is_none());
+        assert!(recorder.observe(Signal::Source(block)).is_none());
         std::future::pending::<()>().await;
     })
     .await;
     assert!(timed.is_err());
     recorder.record_timeout(Duration::from_millis(1));
 
-    assert_eq!(recorder.resolved_model.as_deref(), Some("gpt-eval"));
+    // A timeout never reaches the `ExecutionFinished` terminal that resolves
+    // a model from `RunTotals`.
+    assert!(recorder.resolved_model.is_none());
     let trajectory = serde_json::to_value(&recorder.events).expect("serialize trajectory");
     let serialized = trajectory.to_string();
     assert!(serialized.contains("tool_use"));
@@ -156,8 +145,6 @@ async fn timed_out_trial_keeps_its_redacted_trajectory_and_resolved_model() {
     assert!(serialized.contains("elapsedMs"));
     assert!(!serialized.contains("elapsed_ms"));
     assert!(serialized.contains("<redacted>"));
-    assert!(serialized.contains("input_tokens"));
-    assert!(serialized.contains("123"));
     assert!(!serialized.contains(secret));
 }
 

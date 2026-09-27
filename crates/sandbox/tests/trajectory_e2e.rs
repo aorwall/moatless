@@ -360,9 +360,8 @@ enum Cut {
 #[derive(Debug, Default)]
 struct TurnRecord {
     answer: String,
-    last_message_id: Option<String>,
     agent_turn_id: Option<String>,
-    blocks: Vec<(Role, Value)>,
+    blocks: Vec<Value>,
     outcome: Option<String>,
 }
 
@@ -469,18 +468,18 @@ impl<'a> TestTask<'a> {
                         record.agent_turn_id = agent_turn_id;
                     }
                     Signal::Source(event) => {
-                        let block = event.block_json();
-                        if event.role == Role::Assistant {
-                            record.last_message_id = Some(event.message_id.0.clone());
-                            if block["type"] == "text" {
-                                record.answer.push_str(block["text"].as_str().unwrap_or(""));
-                                record.answer.push('\n');
-                            }
-                            if cancel_on_tool && block["type"] == "tool_use" {
-                                self.harness.cancel();
-                            }
+                        let block = block_json(&event);
+                        // Only the assistant ever emits `text`/`tool_use`: the
+                        // harness's own turns never feed a human chat message
+                        // back in as a `text` user block, only tool results.
+                        if block["type"] == "text" {
+                            record.answer.push_str(block["text"].as_str().unwrap_or(""));
+                            record.answer.push('\n');
                         }
-                        record.blocks.push((event.role, block));
+                        if cancel_on_tool && block["type"] == "tool_use" {
+                            self.harness.cancel();
+                        }
+                        record.blocks.push(block);
                     }
                     Signal::ExecutionFinished { outcome } => {
                         record.outcome = Some(match outcome {
@@ -505,10 +504,32 @@ impl<'a> TestTask<'a> {
     }
 
     /// The cut just after Turn `n` (1-based), as the backend's fork row names it.
+    ///
+    /// Only supports the most recently run Turn: the Claude arm reads the
+    /// backend's published events for the whole session, which only ends at
+    /// Turn `n` while no later Turn has run yet.
     fn cut_after_turn(&self, n: usize) -> Cut {
+        assert_eq!(
+            n,
+            self.turns.len(),
+            "cut_after_turn must name the last Turn run"
+        );
         let turn = &self.turns[n - 1];
         match self.env.kind {
-            Kind::Claude => Cut::Message(turn.last_message_id.clone().unwrap()),
+            Kind::Claude => {
+                let anchor = self
+                    .backend
+                    .events_on(&self.session())
+                    .iter()
+                    .rev()
+                    .find_map(|e| {
+                        (e.kind == "assistant")
+                            .then(|| e.harness_item_id.clone())
+                            .flatten()
+                    })
+                    .expect("the Turn published an assistant message");
+                Cut::Message(anchor)
+            }
             Kind::Codex => Cut::Turn(turn.agent_turn_id.clone().unwrap()),
         }
     }
@@ -528,6 +549,12 @@ impl<'a> TestTask<'a> {
 
 fn knows(answer: &str, word: &str) -> bool {
     answer.to_uppercase().contains(word)
+}
+
+/// A block's wire shape, for assertions that check one field rather than
+/// matching the whole [`CanonicalContentBlock`] enum.
+fn block_json(block: &CanonicalContentBlock) -> Value {
+    serde_json::to_value(block).expect("content block serializes")
 }
 
 fn assert_held_equals_file(task: &TestTask<'_>) {
@@ -833,13 +860,15 @@ async fn fork_at_a_tool_use_includes_its_result() {
     parent
         .turn("Our project's release name is SAFFRON; keep it in mind. Reply ok.")
         .await;
+    // Only the assistant ever emits a `tool_use` block, so the block type
+    // alone identifies it without needing the block's originating role.
     let tool_use = parent.turns[0]
         .blocks
         .iter()
-        .position(|(role, b)| *role == Role::Assistant && b["type"] == "tool_use")
+        .position(|b| b["type"] == "tool_use")
         .expect("turn 1 called a tool");
     let events = backend.events_on(&parent.session());
-    let tool_use_id = parent.turns[0].blocks[tool_use].1["id"]
+    let tool_use_id = parent.turns[0].blocks[tool_use]["id"]
         .as_str()
         .unwrap()
         .to_string();

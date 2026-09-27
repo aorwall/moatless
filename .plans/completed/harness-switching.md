@@ -64,7 +64,7 @@ under *Avoid*. The code does not follow it yet:
 | `AgentType(String)` (`types/src/agent.rs:260`), every `agent_type` column, field and env var | a catalog entry id: `claude-code`, `claude-code-tui`, `claude-code-cli`, `claude-code-fable`, `codex` | **`AgentProfile`** / `agent_profile` — a harness plus its transport, default model and credentials |
 | `AgentKind` (`tasks/src/agent/catalog.rs:17`) and `trajectory::Harness` (`tasks/src/trajectory/models.rs:9`) — two types for one fact | `ClaudeCode`, `Codex` | **one `Harness` enum** in `moatless-types`, serialised `claude-code` / `codex` |
 | `AgentEntry` (`catalog.rs`) | a profile's definition | `AgentProfileEntry`; `kind` becomes `harness` |
-| `HARNESS_USER_TYPE` (`"harness"`) | a prompt the sandbox wrote to wake its own agent | inbox `origin = 'sandbox'` (4.2); the constant is deleted with `task_messages` |
+| `HARNESS_USER_TYPE` (`"harness"`) | a prompt the sandbox wrote to wake its own agent | inbox `origin = 'sandbox'` (4.2); the constant is deleted |
 
 The catalog owns the profile → harness mapping. Nothing else stores or derives
 it: code that needs a Task's harness asks the catalog for its profile's harness.
@@ -479,7 +479,7 @@ still replays them.
 
 | What | When |
 |---|---|
-| `task_messages`, `task_activities`, `task_message_content_blocks` | Phase 5 |
+| `task_messages`, `task_activities`, `task_message_content_blocks` | Unread and unwritten from phase 5; the tables stay until a later migration |
 | `task_forks.source_session_id`, `source_message_uuid`, `source_agent_turn_id` | Phase 5 |
 | `agent.message` (sandbox emission, outbox and its `event_ingress_outbox` table, `task_events` row, handler) | Phase 4 |
 | `FF_TRAJECTORY_RECORDING`, `FF_TRAJECTORY_RESUME`, `MOATLESS_RESUME_FROM_TRAJECTORY` | Phase 1 |
@@ -1151,7 +1151,7 @@ tests (`crates/t3code/src/projection/tests/`) unchanged.
 - Project a task event in the transaction that inserts it
   (`apply_ingress_event`, `insert_event`), not after.
 - Rename the `task_activities` module to `activities`.
-- Migration: drop the tables and columns in 4.10.
+- Migration: drop the `task_forks` columns in 4.10; the tables stay.
 - Deploy: frozen positions are renumbered, so every conversation cursor resets
   once.
 

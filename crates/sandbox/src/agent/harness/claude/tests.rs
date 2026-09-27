@@ -1,5 +1,5 @@
 //! Unit + gated E2E coverage for the Claude subprocess adapter: normalization
-//! (per-block source events, activity, termination) and failure classification.
+//! (per-block content, activity, termination) and failure classification.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -15,10 +15,10 @@ use crate::agent::agent_state::AgentState;
 
 use super::super::classify::{classify_result, classify_startup_error, classify_stream_error};
 use super::{ClaudeConfig, ClaudeProcess};
+use crate::agent::harness::content::CanonicalContentBlock;
 use crate::agent::harness::error::{ErrorClass, FailureStage, SessionImpact};
 use crate::agent::harness::process::{ProcessEvent, ProcessTermination};
 use crate::agent::harness::signal::{Input, InputId};
-use crate::agent::harness::source::SourceEvent;
 
 fn process() -> ClaudeProcess {
     ClaudeProcess::new(ClaudeConfig {
@@ -131,7 +131,7 @@ fn each_content_block_is_one_source_event_in_native_order() {
         true,
     )));
     let events = drain(&mut p);
-    let sources: Vec<&SourceEvent> = events
+    let sources: Vec<&CanonicalContentBlock> = events
         .iter()
         .filter_map(|e| match e {
             ProcessEvent::Block(s) => Some(s),
@@ -139,33 +139,17 @@ fn each_content_block_is_one_source_event_in_native_order() {
         })
         .collect();
     assert_eq!(sources.len(), 2);
-    // Same native grouping id, distinct collision-safe source ids, order kept.
-    assert_eq!(sources[0].message_id, sources[1].message_id);
-    assert_ne!(sources[0].source_id, sources[1].source_id);
-    assert_eq!(sources[0].block_json()["text"], "first");
-    assert_eq!(sources[1].block_json()["text"], "second");
-}
-
-#[test]
-fn repeated_usage_is_forwarded_on_every_block_not_coalesced() {
-    let mut p = process();
-    p.absorb(SdkMessage::Assistant(assistant_line(
-        Some("msg_1"),
-        text("a"),
-        true,
-    )));
-    p.absorb(SdkMessage::Assistant(assistant_line(
-        Some("msg_1"),
-        text("b"),
-        true,
-    )));
-    let events = drain(&mut p);
-    for event in &events {
-        if let ProcessEvent::Block(s) = event {
-            assert!(s.usage.is_some(), "usage forwarded verbatim per block");
-            assert_eq!(s.model.as_deref(), Some("claude-opus-4-8"));
-        }
-    }
+    assert_eq!(
+        sources,
+        vec![
+            &CanonicalContentBlock::Text {
+                text: "first".to_string()
+            },
+            &CanonicalContentBlock::Text {
+                text: "second".to_string()
+            },
+        ]
+    );
 }
 
 #[test]

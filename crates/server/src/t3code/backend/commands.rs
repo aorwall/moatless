@@ -341,7 +341,7 @@ impl ThreadCommandSink for AppStateCommands {
 
     async fn fork(&self, viewer: &ScopeContext, fork: ForkThread) -> Result<(), CommandRefusal> {
         // Same reason `create_thread` checks this first: the id arrives from
-        // the client, and `copy_conversation` below writes rows keyed on it
+        // the client, and `inherit_conversation` below writes rows keyed on it
         // before any Task row exists to claim it.
         free_thread_id(self.0.tasks.as_ref(), viewer, &fork.new_task_id).await?;
 

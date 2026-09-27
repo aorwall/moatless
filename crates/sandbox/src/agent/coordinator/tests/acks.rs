@@ -9,7 +9,7 @@ async fn ack_is_withheld_until_input_accepted() {
     // No `AcceptInput` step, so the harness never reports the input accepted.
     let script = Script::new(vec![
         Step::SessionReady(SessionId("sess-1".to_string())),
-        Step::Block(block("msg-1", text_block("hello"), Role::Assistant)),
+        Step::Block(block(text_block("hello"))),
         Step::Completed,
     ]);
     let mut coord = Coordinator::new(HarnessRuntime::scripted(script), events.clone(), "task-1");
@@ -76,11 +76,7 @@ async fn injected_input_ack_waits_for_following_source() {
     );
 
     coord
-        .handle_signal(Signal::Source(block(
-            "msg-1",
-            text_block("still working"),
-            Role::Assistant,
-        )))
+        .handle_signal(Signal::Source(block(text_block("still working"))))
         .await;
     let second = second_rx.await.expect("injected input acked after source");
 
@@ -206,11 +202,7 @@ async fn multiple_injected_input_acks_resolve_on_one_following_source() {
     ));
 
     coord
-        .handle_signal(Signal::Source(block(
-            "msg-1",
-            text_block("still working"),
-            Role::Assistant,
-        )))
+        .handle_signal(Signal::Source(block(text_block("still working"))))
         .await;
     let second = second_rx.await.expect("second input acked");
     let third = third_rx.await.expect("third input acked");

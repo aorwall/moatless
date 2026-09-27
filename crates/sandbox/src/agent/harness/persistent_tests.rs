@@ -10,23 +10,11 @@
 use crate::agent::harness::content::CanonicalContentBlock;
 
 use super::error::{ErrorClass, FailureStage, HarnessError, SessionImpact};
-use super::source::SourceId;
 use super::*;
 
-fn assistant_block(source: &str, session: &str, text: &str) -> SourceEvent {
-    SourceEvent {
-        source_id: SourceId(source.to_string()),
-        message_id: NativeMessageId(format!("m-{source}")),
-        session: SessionId(session.to_string()),
-        parent_tool_use_id: None,
-        role: Role::Assistant,
-        block: CanonicalContentBlock::Text {
-            text: text.to_string(),
-        },
-        tool_use_result: None,
-        usage: None,
-        model: None,
-        diagnostics: None,
+fn assistant_block(text: &str) -> CanonicalContentBlock {
+    CanonicalContentBlock::Text {
+        text: text.to_string(),
     }
 }
 
@@ -54,10 +42,10 @@ async fn injection_accepts_into_active_execution_without_new_start() {
     let script = Script::new(vec![
         Step::SessionReady(SessionId("sess-1".into())),
         Step::AcceptInput,
-        Step::Block(assistant_block("s1", "sess-1", "first")),
+        Step::Block(assistant_block("first")),
         Step::AwaitInput,
         Step::AcceptInput,
-        Step::Block(assistant_block("s2", "sess-1", "second")),
+        Step::Block(assistant_block("second")),
         Step::ExecutionEnded,
     ]);
     let mut harness = HarnessRuntime::scripted_persistent(script);
@@ -75,8 +63,9 @@ async fn injection_accepts_into_active_execution_without_new_start() {
     assert!(
         matches!(harness.next_signal().await, Some(Signal::InputAccepted { ref input }) if input.0 == "in-1")
     );
-    assert!(
-        matches!(harness.next_signal().await, Some(Signal::Source(ref e)) if e.source_id.0 == "s1")
+    assert_eq!(
+        harness.next_signal().await,
+        Some(Signal::Source(assistant_block("first")))
     );
 
     // Inject a second input mid-execution.
@@ -89,7 +78,7 @@ async fn injection_accepts_into_active_execution_without_new_start() {
     // Acceptance of the injected input, no new start, then its source and the
     // single terminal.
     assert!(matches!(rest[0], Signal::InputAccepted { ref input } if input.0 == "in-2"));
-    assert!(matches!(rest[1], Signal::Source(ref e) if e.source_id.0 == "s2"));
+    assert_eq!(rest[1], Signal::Source(assistant_block("second")));
     assert!(matches!(
         rest[2],
         Signal::ExecutionFinished {
@@ -113,7 +102,7 @@ async fn terminal_before_acceptance_drops_buffered_source() {
     // InputAccepted and no Source appear.
     let script = Script::new(vec![
         Step::SessionReady(SessionId("sess-1".into())),
-        Step::Block(assistant_block("s1", "sess-1", "never-anchored")),
+        Step::Block(assistant_block("never-anchored")),
         Step::ExecutionEnded,
     ]);
     let mut harness = HarnessRuntime::scripted_persistent(script);
@@ -150,12 +139,12 @@ async fn incompatible_input_opens_replacement_execution_on_the_intended_session(
     let script = Script::new(vec![
         Step::SessionReady(SessionId("sess-1".into())),
         Step::AcceptInput,
-        Step::Block(assistant_block("s1", "sess-1", "first")),
+        Step::Block(assistant_block("first")),
         Step::AwaitInput,
         Step::ExecutionEnded,
         Step::SessionReady(SessionId("sess-2".into())),
         Step::AcceptInput,
-        Step::Block(assistant_block("s2", "sess-2", "second")),
+        Step::Block(assistant_block("second")),
         Step::ExecutionEnded,
     ]);
     let mut harness = HarnessRuntime::scripted_persistent(script);
@@ -198,7 +187,7 @@ async fn incompatible_input_opens_replacement_execution_on_the_intended_session(
         Signal::ExecutionStarted { cause: Cause::Input(ref id), ref session, .. } if id.0 == "in-2" && session.0 == "sess-2"
     ));
     assert!(matches!(second[1], Signal::InputAccepted { ref input } if input.0 == "in-2"));
-    assert!(matches!(second[2], Signal::Source(ref e) if e.session.0 == "sess-2"));
+    assert_eq!(second[2], Signal::Source(assistant_block("second")));
     assert!(matches!(
         second[3],
         Signal::ExecutionFinished {
@@ -213,7 +202,7 @@ async fn internal_execution_starts_without_input_or_acknowledgement() {
     // internal cause, source output, terminal — and no InputAccepted at all.
     let script = Script::new(vec![
         Step::InternalStart(SessionId("sess-1".into())),
-        Step::Block(assistant_block("s1", "sess-1", "self-started")),
+        Step::Block(assistant_block("self-started")),
         Step::ExecutionEnded,
     ]);
     let mut harness = HarnessRuntime::scripted_persistent(script);
@@ -223,7 +212,7 @@ async fn internal_execution_starts_without_input_or_acknowledgement() {
         signals[0],
         Signal::ExecutionStarted { cause: Cause::Internal, ref session, .. } if session.0 == "sess-1"
     ));
-    assert!(matches!(signals[1], Signal::Source(ref e) if e.source_id.0 == "s1"));
+    assert_eq!(signals[1], Signal::Source(assistant_block("self-started")));
     assert!(matches!(
         signals[2],
         Signal::ExecutionFinished {
@@ -245,12 +234,12 @@ async fn cancellation_ends_execution_and_process_persists_for_the_next() {
     let script = Script::new(vec![
         Step::SessionReady(SessionId("sess-1".into())),
         Step::AcceptInput,
-        Step::Block(assistant_block("s1", "sess-1", "working")),
+        Step::Block(assistant_block("working")),
         Step::WaitForCancelThenEnd,
         Step::AwaitInput,
         Step::SessionReady(SessionId("sess-1".into())),
         Step::AcceptInput,
-        Step::Block(assistant_block("s2", "sess-1", "after-cancel")),
+        Step::Block(assistant_block("after-cancel")),
         Step::ExecutionEnded,
     ]);
     let mut harness = HarnessRuntime::scripted_persistent(script);
@@ -308,12 +297,12 @@ async fn queued_input_opens_the_next_execution_and_is_acked_against_it() {
     let script = Script::new(vec![
         Step::SessionReady(SessionId("sess-1".into())),
         Step::AcceptInput,
-        Step::Block(assistant_block("s1", "sess-1", "first")),
+        Step::Block(assistant_block("first")),
         Step::AwaitInput,
         Step::ExecutionEnded,
         Step::SessionReady(SessionId("sess-1".into())),
         Step::AcceptInput,
-        Step::Block(assistant_block("s2", "sess-1", "second")),
+        Step::Block(assistant_block("second")),
         Step::ExecutionEnded,
     ]);
     let mut harness = HarnessRuntime::scripted_persistent(script);
@@ -367,7 +356,7 @@ async fn eof_mid_execution_is_a_process_exit() {
     let script = Script::new(vec![
         Step::SessionReady(SessionId("sess-1".into())),
         Step::AcceptInput,
-        Step::Block(assistant_block("s1", "sess-1", "partial")),
+        Step::Block(assistant_block("partial")),
         Step::Eof,
     ]);
     let mut harness = HarnessRuntime::scripted_persistent(script);

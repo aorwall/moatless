@@ -129,10 +129,6 @@ pub struct AgentEventPayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(rename = "type")]
     pub message_type: Option<String>,
-    /// For "message" subtype: the Claude SDK assistant message.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
-    pub message: Option<serde_json::Value>,
     /// For "completed" subtype: the SDK result.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]

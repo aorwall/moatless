@@ -27,8 +27,6 @@ pub use moatless_types::message::{MessageRole, MessageType};
 /// row silently.
 pub const TOOL_RESPONSE_USER_TYPE: &str = "tool_response";
 
-pub use moatless_types::message::HARNESS_USER_TYPE;
-
 // =============================================================================
 // Query shapes
 // =============================================================================
@@ -83,36 +81,32 @@ pub struct InterruptedTurn {
 }
 
 // =============================================================================
-// TaskMessage (DB)
+// TaskMessage
 // =============================================================================
 
 /// A conversation Message, as `conversation::assemble` builds it from its row
 /// and sources.
-#[derive(sqlx::FromRow, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct TaskMessage {
     pub id: i32,
     pub task_id: String,
     pub uuid: String,
-    #[sqlx(try_from = "String")]
     pub message_type: MessageType,
     pub user_type: String,
+    /// A `user` Message the sandbox wrote to wake its own agent — a finished
+    /// background command, a `ScheduleWakeup` prompt, a restart note. Nobody
+    /// said it, so no conversation shows it.
+    pub sandbox_wake: bool,
     pub parent_uuid: Option<String>,
-    pub is_sidechain: Option<bool>,
-    pub cwd: Option<String>,
     pub session_id: Option<String>,
     pub turn_number: Option<i32>,
-    pub version: Option<String>,
-    pub git_branch: Option<String>,
-    pub request_id: Option<String>,
     pub timestamp: String,
-    #[sqlx(try_from = "String")]
     pub message_role: MessageRole,
     /// What was said, as text. `None` for a Message with no text — which after
     /// the conversation split is a row that should not exist, and does only
     /// where something wrote one before its text arrived.
     pub message_text: Option<String>,
     pub assistant_message_id: Option<String>,
-    pub assistant_message_type: Option<String>,
     pub assistant_message_model: Option<String>,
     pub assistant_stop_reason: Option<String>,
     pub assistant_stop_sequence: Option<String>,
@@ -120,12 +114,6 @@ pub struct TaskMessage {
     pub assistant_usage_output_tokens: Option<i32>,
     pub assistant_usage_cache_creation_input_tokens: Option<i32>,
     pub assistant_usage_cache_read_input_tokens: Option<i32>,
-    /// Complete raw token-usage object from the assistant message (tokens,
-    /// cache-write breakdown, cache reads, server tool use, service tier).
-    ///
-    /// Kept whole so cost can be derived downstream from tokens + model — the
-    /// tmux transport never reports `total_cost_usd`.
-    pub assistant_usage: Option<serde_json::Value>,
     pub tool_use_result: Option<serde_json::Value>,
     /// A person's answer to an interactive tool call, structure intact:
     /// `{toolUseId, toolName, answers?, approved?, feedback?}`.
@@ -138,9 +126,7 @@ pub struct TaskMessage {
     pub agent_session_id: Option<String>,
     pub will_not_resume: Option<bool>,
     pub run_metrics: Option<serde_json::Value>,
-    /// Persisted column. Read the typed value through
-    /// [`TaskMessage::agent_mode`].
-    #[sqlx(rename = "agent_mode")]
+    /// Read the typed value through [`TaskMessage::agent_mode`].
     pub agent_mode_raw: Option<String>,
     pub model: Option<String>,
     /// Reasoning effort for the turn, in the agent's own vocabulary. `None`
@@ -207,19 +193,14 @@ impl TaskMessage {
             uuid,
             message_type: MessageType::User,
             user_type: "human".to_string(),
+            sandbox_wake: false,
             parent_uuid: None,
-            is_sidechain: None,
-            cwd: None,
             session_id: None,
             turn_number: None,
-            version: None,
-            git_branch: None,
-            request_id: None,
             timestamp,
             message_role: MessageRole::User,
             message_text: Some(text),
             assistant_message_id: None,
-            assistant_message_type: None,
             assistant_message_model: None,
             assistant_stop_reason: None,
             assistant_stop_sequence: None,
@@ -227,7 +208,6 @@ impl TaskMessage {
             assistant_usage_output_tokens: None,
             assistant_usage_cache_creation_input_tokens: None,
             assistant_usage_cache_read_input_tokens: None,
-            assistant_usage: None,
             tool_use_result: None,
             tool_response: None,
             sdk_metadata: None,
@@ -273,15 +253,14 @@ impl TaskMessage {
 }
 
 // =============================================================================
-// TaskMessageContext (DB)
+// TaskMessageContext
 // =============================================================================
 
 /// A context attached to a user Message, read from its inbox item.
-#[derive(sqlx::FromRow, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct TaskMessageContext {
     pub id: i32,
     pub task_message_id: i32,
-    #[sqlx(rename = "type")]
     pub context_type: String,
     pub reference_id: String,
     pub data: serde_json::Value,

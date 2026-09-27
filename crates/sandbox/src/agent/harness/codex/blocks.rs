@@ -1,10 +1,8 @@
 //! Native Codex thread item → canonical Anthropic-shaped content block(s).
 //!
-//! The backend assembler and UI don't understand Codex's native item families,
-//! so a forwarded native block renders as nothing. Each family maps into the
-//! shared [`CanonicalContentBlock`] enum, which the Claude harness also
-//! normalizes into. Tool families expand to a `tool_use` plus, when the item
-//! carries output, a paired `tool_result` under one id.
+//! Each family maps into the shared [`CanonicalContentBlock`] enum, which the
+//! Claude harness also normalizes into. Tool families expand to a `tool_use`
+//! plus, when the item carries output, a paired `tool_result` under one id.
 
 use crate::agent::harness::content::CanonicalContentBlock;
 use serde_json::{Value, json};
@@ -21,55 +19,25 @@ use crate::agent::harness::codex::payloads::{
     build_mcp_tool_result, build_mcp_tool_use, build_shell_tool_result, build_shell_tool_use,
 };
 
-use super::super::source::Role;
-
-/// One canonical content block derived from a native Codex item.
-pub(super) struct ItemBlock {
-    pub role: Role,
-    /// Suffix distinguishing this block's Message identity from the item's
-    /// qualified id — empty for the primary block, `_result` for a paired
-    /// `tool_result` so it lands in its own user Message row.
-    pub id_suffix: &'static str,
-    pub block: CanonicalContentBlock,
-    /// Typed Codex result, surfaced at the payload top level (`toolUseResult`)
-    /// for backend enrichment. `None` for every non-result block.
-    pub tool_use_result: Option<Value>,
-}
-
-fn text(role: Role, text: &str) -> ItemBlock {
-    ItemBlock {
-        role,
-        id_suffix: "",
-        block: CanonicalContentBlock::Text {
-            text: text.to_string(),
-        },
-        tool_use_result: None,
+fn text(text: &str) -> CanonicalContentBlock {
+    CanonicalContentBlock::Text {
+        text: text.to_string(),
     }
 }
 
-fn tool_use(tool_use_id: &str, name: &str, input: Value) -> ItemBlock {
-    ItemBlock {
-        role: Role::Assistant,
-        id_suffix: "",
-        block: CanonicalContentBlock::ToolUse {
-            id: tool_use_id.to_string(),
-            name: name.to_string(),
-            input,
-        },
-        tool_use_result: None,
+fn tool_use(tool_use_id: &str, name: &str, input: Value) -> CanonicalContentBlock {
+    CanonicalContentBlock::ToolUse {
+        id: tool_use_id.to_string(),
+        name: name.to_string(),
+        input,
     }
 }
 
-fn tool_result(tool_use_id: &str, content: String, is_error: bool, typed: Value) -> ItemBlock {
-    ItemBlock {
-        role: Role::User,
-        id_suffix: "_result",
-        block: CanonicalContentBlock::ToolResult {
-            tool_use_id: tool_use_id.to_string(),
-            content: Some(Value::String(content)),
-            is_error: Some(is_error),
-        },
-        tool_use_result: Some(typed),
+fn tool_result(tool_use_id: &str, content: String, is_error: bool) -> CanonicalContentBlock {
+    CanonicalContentBlock::ToolResult {
+        tool_use_id: tool_use_id.to_string(),
+        content: Some(Value::String(content)),
+        is_error: Some(is_error),
     }
 }
 
@@ -79,11 +47,11 @@ fn tool_call(
     name: &str,
     input: Value,
     result: (Value, String, bool),
-) -> Vec<ItemBlock> {
-    let (typed, summary, is_error) = result;
+) -> Vec<CanonicalContentBlock> {
+    let (_typed, summary, is_error) = result;
     vec![
         tool_use(tool_use_id, name, input),
-        tool_result(tool_use_id, summary, is_error, typed),
+        tool_result(tool_use_id, summary, is_error),
     ]
 }
 
@@ -107,7 +75,7 @@ fn reasoning_text(item: &ReasoningItem) -> Option<String> {
 /// The running plan tracker, which arrives as the `turn/plan/updated`
 /// notification rather than as an item. Re-emitted under a stable id on every
 /// update so the backend upserts one live card, exactly as `todo_list` did.
-pub(super) fn plan_blocks(plan: &[TurnPlanStep], tool_use_id: &str) -> Vec<ItemBlock> {
+pub(super) fn plan_blocks(plan: &[TurnPlanStep], tool_use_id: &str) -> Vec<CanonicalContentBlock> {
     let input =
         serde_json::to_value(build_codex_todo_list_input(plan)).unwrap_or_else(|_| json!({}));
     vec![tool_use(tool_use_id, CODEX_TOOL_TODO_LIST, input)]
@@ -119,14 +87,17 @@ pub(super) fn plan_blocks(plan: &[TurnPlanStep], tool_use_id: &str) -> Vec<ItemB
 /// Returns `None` for an unknown family (forwarded raw with bounded
 /// diagnostics) or an empty list when the family is known and deliberately
 /// renders nothing.
-pub(super) fn item_blocks(item: &ThreadItem, tool_use_id: &str) -> Option<Vec<ItemBlock>> {
+pub(super) fn item_blocks(
+    item: &ThreadItem,
+    tool_use_id: &str,
+) -> Option<Vec<CanonicalContentBlock>> {
     let blocks = match item {
         // Assistant text and model reasoning both render as assistant text.
         // There is no `error` item on this transport — a failed Turn reports its
         // error on the terminal instead.
-        ThreadItem::AgentMessage(m) => vec![text(Role::Assistant, &m.text)],
+        ThreadItem::AgentMessage(m) => vec![text(&m.text)],
         ThreadItem::Reasoning(r) => match reasoning_text(r) {
-            Some(reasoning) => vec![text(Role::Assistant, &reasoning)],
+            Some(reasoning) => vec![text(&reasoning)],
             None => vec![],
         },
         ThreadItem::CommandExecution(cmd) => tool_call(

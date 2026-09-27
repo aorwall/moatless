@@ -100,7 +100,7 @@ pub async fn seed_message(
             parent_tool_use_id: msg.parent_uuid.as_deref(),
             turn_number: msg.turn_number,
             model: msg.assistant_message_model.as_deref(),
-            usage: msg.assistant_usage.clone(),
+            usage: None,
             inbox_id,
             legacy: legacy(msg),
             created_at,
@@ -149,7 +149,7 @@ fn inbox_item(
     text: String,
     contexts: &[TaskMessageContext],
 ) -> NewInboxItem {
-    let origin = if msg.user_type == "harness" {
+    let origin = if msg.sandbox_wake {
         InboxOrigin::Sandbox
     } else if let Some(source_task_id) = &msg.source_task_id {
         InboxOrigin::Task {
@@ -223,21 +223,15 @@ fn inbox_item(
 
 /// `msg` as the `task_messages` columns a frozen row keeps.
 fn legacy(msg: &TaskMessage) -> Value {
-    let columns: [(&str, Value); 44] = [
+    let columns: [(&str, Value); 37] = [
         ("uuid", json!(msg.uuid)),
         ("message_type", json!(msg.message_type.as_str())),
         ("message_role", json!(msg.message_role.as_str())),
         ("user_type", json!(msg.user_type)),
         ("parent_uuid", json!(msg.parent_uuid)),
-        ("is_sidechain", json!(msg.is_sidechain)),
-        ("cwd", json!(msg.cwd)),
         ("session_id", json!(msg.session_id)),
-        ("version", json!(msg.version)),
-        ("git_branch", json!(msg.git_branch)),
-        ("request_id", json!(msg.request_id)),
         ("timestamp", json!(msg.timestamp)),
         ("assistant_message_id", json!(msg.assistant_message_id)),
-        ("assistant_message_type", json!(msg.assistant_message_type)),
         (
             "assistant_message_model",
             json!(msg.assistant_message_model),
@@ -263,7 +257,6 @@ fn legacy(msg: &TaskMessage) -> Value {
             "assistant_usage_cache_read_input_tokens",
             json!(msg.assistant_usage_cache_read_input_tokens),
         ),
-        ("assistant_usage", json!(msg.assistant_usage)),
         ("tool_use_result", json!(msg.tool_use_result)),
         ("tool_response", json!(msg.tool_response)),
         ("sdk_metadata", json!(msg.sdk_metadata)),
@@ -520,19 +513,14 @@ pub fn make_message_row(task_id: &str, uuid: &str) -> TaskMessage {
         uuid: uuid.to_string(),
         message_type: MessageType::User,
         user_type: "human".to_string(),
+        sandbox_wake: false,
         parent_uuid: None,
-        is_sidechain: None,
-        cwd: None,
         session_id: None,
         turn_number: None,
-        version: None,
-        git_branch: None,
-        request_id: None,
         timestamp: now,
         message_role: MessageRole::User,
         message_text: Some("hello".to_string()),
         assistant_message_id: None,
-        assistant_message_type: None,
         assistant_message_model: None,
         assistant_stop_reason: None,
         assistant_stop_sequence: None,
@@ -540,7 +528,6 @@ pub fn make_message_row(task_id: &str, uuid: &str) -> TaskMessage {
         assistant_usage_output_tokens: None,
         assistant_usage_cache_creation_input_tokens: None,
         assistant_usage_cache_read_input_tokens: None,
-        assistant_usage: None,
         tool_use_result: None,
         tool_response: None,
         sdk_metadata: None,

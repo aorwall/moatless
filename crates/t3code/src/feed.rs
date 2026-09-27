@@ -563,6 +563,7 @@ mod tests {
             message_role: MessageRole::User,
             message_text: Some("Fix the build".into()),
             user_type: "human".into(),
+            sandbox_wake: false,
             turn_number: Some(3),
             timestamp: "2026-07-01T10:00:00.000Z".into(),
             created_at: None,

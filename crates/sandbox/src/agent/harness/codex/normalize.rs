@@ -1,25 +1,20 @@
-//! Native Codex thread item → canonical `SourceEvent` normalization.
+//! Native Codex thread item → canonical content block normalization.
 //!
-//! One `SourceEvent` per native item, in native order, so every item family
-//! keeps its observable meaning without the harness re-deriving native
-//! payloads. This is the only place that maps Codex-native items; the shared
-//! harness/driver never sees a [`ThreadItem`].
+//! One canonical block (or paired `tool_use`/`tool_result`) per native item,
+//! in native order, so every item family keeps its observable meaning without
+//! the harness re-deriving native payloads. This is the only place that maps
+//! Codex-native items; the shared harness/driver never sees a [`ThreadItem`].
 
 use crate::agent::harness::content::CanonicalContentBlock;
 
 use crate::agent::codex_app_server::protocol::{ThreadItem, TokenUsageBreakdown, TurnPlanStep};
 
 use super::super::signal::{RunTotals, SessionId};
-use super::super::source::{NativeMessageId, Role, SourceEvent, SourceId};
 use super::blocks;
-use super::blocks::ItemBlock;
-
-/// Upper bound on retained native diagnostics for an unknown item block.
-const MAX_DIAGNOSTIC_BYTES: usize = 2000;
 
 /// Collision-safe Codex normalizer. Holds the last-known Session (the Codex
-/// thread), the requested model, and a per-spawn nonce so `source_id`s stay
-/// unique even when the CLI reuses `item_0` after a resume.
+/// thread), the requested model, and a per-spawn nonce so a `tool_use.id`
+/// stays unique even when the CLI reuses `item_0` after a resume.
 pub(super) struct Normalizer {
     session: Option<SessionId>,
     model: Option<String>,
@@ -59,112 +54,24 @@ impl Normalizer {
         format!("{}_{}_{native}", session.0, self.nonce)
     }
 
-    /// Canonical source events for one native Codex item, in native order (see
+    /// Canonical blocks for one native Codex item, in native order (see
     /// [`blocks::item_blocks`] for the unknown/dropped-family cases).
-    pub(super) fn item_sources(&self, item: &ThreadItem) -> Vec<SourceEvent> {
+    pub(super) fn item_sources(&self, item: &ThreadItem) -> Vec<CanonicalContentBlock> {
         let session = self.session_or(item.id());
         let qualified = self.qualify(&session, item.id());
 
         match blocks::item_blocks(item, &qualified) {
-            Some(blocks) => self.events(blocks, &session, &qualified),
-            None => vec![self.unknown_source(item, session, qualified)],
+            Some(blocks) => blocks,
+            None => vec![unknown_block(item)],
         }
     }
 
-    /// Preserve an unknown family's raw native block, flagged with bounded
-    /// diagnostics, so an upstream addition is visible rather than discarded.
-    fn unknown_source(
-        &self,
-        item: &ThreadItem,
-        session: SessionId,
-        qualified: String,
-    ) -> SourceEvent {
-        // `item_blocks` returns `None` only for `Other`, which carries its
-        // payload; anything else would be a mapping bug, not lost data.
-        let raw = match item {
-            ThreadItem::Other { raw, .. } => raw.clone(),
-            other => serde_json::json!({ "type": other.type_name() }),
-        };
-        SourceEvent {
-            source_id: SourceId(qualified.clone()),
-            message_id: NativeMessageId(qualified),
-            session,
-            parent_tool_use_id: None,
-            role: Role::Assistant,
-            block: CanonicalContentBlock::Unknown { raw: raw.clone() },
-            tool_use_result: None,
-            usage: None,
-            model: self.model.clone(),
-            diagnostics: Some(bounded(&raw)),
-        }
-    }
-
-    /// Canonical source events for the running plan tracker, which arrives as a
+    /// Canonical blocks for the running plan tracker, which arrives as a
     /// notification and so has no item id of its own.
-    ///
-    /// One stable id per spawn keeps every update upserting the same live card,
-    /// as the `todo_list` item's re-used id did.
-    pub(super) fn plan_sources(&self, plan: &[TurnPlanStep]) -> Vec<SourceEvent> {
+    pub(super) fn plan_sources(&self, plan: &[TurnPlanStep]) -> Vec<CanonicalContentBlock> {
         let session = self.session_or("");
         let qualified = self.qualify(&session, "plan");
-        self.events(blocks::plan_blocks(plan, &qualified), &session, &qualified)
-    }
-
-    fn events(
-        &self,
-        blocks: Vec<ItemBlock>,
-        session: &SessionId,
-        qualified: &str,
-    ) -> Vec<SourceEvent> {
-        blocks
-            .into_iter()
-            .map(|canonical| {
-                // A tool_result lands in its own Message (`{id}_result`) so it is
-                // grouped and role-assigned separately from the tool_use.
-                let id = format!("{qualified}{}", canonical.id_suffix);
-                SourceEvent {
-                    source_id: SourceId(id.clone()),
-                    message_id: NativeMessageId(id),
-                    session: session.clone(),
-                    // Codex items carry no per-item parent tool attribution; collab
-                    // relationships ride inside the item block itself.
-                    parent_tool_use_id: None,
-                    role: canonical.role,
-                    block: canonical.block,
-                    tool_use_result: canonical.tool_use_result,
-                    // Codex reports usage per turn, not per item — carried on the
-                    // turn-result source event instead.
-                    usage: None,
-                    model: self.model.clone(),
-                    diagnostics: None,
-                }
-            })
-            .collect()
-    }
-
-    /// Canonical source event for a completed turn, carrying the turn-level
-    /// usage so it is retained through the seam rather than dropped at the
-    /// terminal, which has no usage carrier.
-    pub(super) fn turn_result_source(&self, usage: &TurnUsage) -> SourceEvent {
-        let session = self.session_or("");
-        let id = format!("{}_{}_result", session.0, self.nonce);
-        SourceEvent {
-            source_id: SourceId(id.clone()),
-            message_id: NativeMessageId(id),
-            session,
-            parent_tool_use_id: None,
-            role: Role::System,
-            block: CanonicalContentBlock::TurnResult,
-            tool_use_result: None,
-            usage: Some(serde_json::json!({
-                "input_tokens": usage.input_tokens,
-                "output_tokens": usage.output_tokens,
-                "cache_read_input_tokens": usage.cached_input_tokens,
-                "reasoning_output_tokens": usage.reasoning_output_tokens,
-            })),
-            model: self.model.clone(),
-            diagnostics: None,
-        }
+        blocks::plan_blocks(plan, &qualified)
     }
 
     /// The run totals for a completed Codex Turn.
@@ -188,6 +95,25 @@ impl Normalizer {
             model_usage: None,
         }
     }
+}
+
+/// Canonical block for a completed turn, carrying no usage of its own — the
+/// turn's spend rides the terminal outcome via [`Normalizer::run_totals`]
+/// instead.
+pub(super) fn turn_result_source() -> CanonicalContentBlock {
+    CanonicalContentBlock::TurnResult
+}
+
+/// Preserve an unknown family's raw native block so an upstream addition is
+/// visible rather than discarded.
+fn unknown_block(item: &ThreadItem) -> CanonicalContentBlock {
+    // `item_blocks` returns `None` only for `Other`, which carries its
+    // payload; anything else would be a mapping bug, not lost data.
+    let raw = match item {
+        ThreadItem::Other { raw, .. } => raw.clone(),
+        other => serde_json::json!({ "type": other.type_name() }),
+    };
+    CanonicalContentBlock::Unknown { raw }
 }
 
 /// What one Turn spent, in the four fields the turn-result block publishes.
@@ -227,20 +153,6 @@ impl TurnUsage {
                 .max(0),
         }
     }
-}
-
-/// Bound a native diagnostic value to a fixed byte budget so an oversized
-/// unknown item cannot blow up a retained diagnostic string.
-fn bounded(raw: &serde_json::Value) -> serde_json::Value {
-    let text = raw.to_string();
-    if text.len() <= MAX_DIAGNOSTIC_BYTES {
-        return raw.clone();
-    }
-    let mut end = MAX_DIAGNOSTIC_BYTES;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    serde_json::Value::String(format!("{}…", &text[..end]))
 }
 
 #[cfg(test)]

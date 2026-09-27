@@ -27,7 +27,7 @@ use std::time::{Duration, Instant};
 use chrono::Utc;
 use moatless_sandbox::agent::agent_state::AgentState;
 use moatless_sandbox::agent::harness::{
-    Cause, ClaudeConfig, CodexConfig, HarnessRuntime, Input, Outcome, Rejection, Role, Signal,
+    Cause, ClaudeConfig, CodexConfig, HarnessRuntime, Input, Outcome, Rejection, Signal,
 };
 use moatless_sandbox::config::{AgentConfig, Config, DEFAULT_COMMAND_TIMEOUT_SECS};
 use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
@@ -194,21 +194,7 @@ enum TrajectoryEvent {
     },
     Source {
         elapsed_ms: u64,
-        source_id: String,
-        message_id: String,
-        session_id: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        parent_tool_use_id: Option<String>,
-        role: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        model: Option<String>,
         block: Value,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        tool_use_result: Option<Value>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        usage: Option<Value>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        diagnostics: Option<Value>,
     },
     Activity {
         elapsed_ms: u64,
@@ -424,30 +410,11 @@ impl TrajectoryRecorder {
                 None
             }
             Signal::Source(source) => {
-                if self.resolved_model.is_none() {
-                    self.resolved_model.clone_from(&source.model);
-                }
-                let block = self.redactor.value(source.block_json());
-                let role = match source.role {
-                    Role::Assistant => "assistant",
-                    Role::User => "user",
-                    Role::System => "system",
-                };
-                self.events.push(TrajectoryEvent::Source {
-                    elapsed_ms,
-                    source_id: source.source_id.0,
-                    message_id: source.message_id.0,
-                    session_id: source.session.0,
-                    parent_tool_use_id: source.parent_tool_use_id,
-                    role: role.to_string(),
-                    model: source.model,
-                    block,
-                    tool_use_result: source
-                        .tool_use_result
-                        .map(|value| self.redactor.value(value)),
-                    usage: source.usage.map(|value| self.redactor.value(value)),
-                    diagnostics: source.diagnostics.map(|value| self.redactor.value(value)),
-                });
+                let block = self
+                    .redactor
+                    .value(serde_json::to_value(&source).expect("content block serializes"));
+                self.events
+                    .push(TrajectoryEvent::Source { elapsed_ms, block });
                 None
             }
             Signal::Activity(activity) => {
@@ -468,7 +435,11 @@ impl TrajectoryRecorder {
             }
             Signal::ExecutionFinished { outcome } => {
                 let (terminal, outcome) = match outcome {
-                    Outcome::Completed { .. } => {
+                    Outcome::Completed { ref totals } => {
+                        if self.resolved_model.is_none() {
+                            self.resolved_model =
+                                totals.as_ref().and_then(|totals| totals.model.clone());
+                        }
                         (TrialTerminal::Completed, "completed".to_string())
                     }
                     Outcome::Cancelled => (TrialTerminal::Cancelled, "cancelled".to_string()),

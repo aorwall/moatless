@@ -2,15 +2,15 @@
 //!
 //! Both agent harnesses (Claude Code and Codex) normalize their native output
 //! into this one type, matching the Anthropic content-block wire format the
-//! backend assembler and frontend already consume — so serializing a
-//! [`CanonicalContentBlock`] is wire-compatible downstream.
+//! frontend consumes — so serializing a [`CanonicalContentBlock`] is
+//! wire-compatible downstream.
 
 use claude_agent_sdk::api::content::ImageSource;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// One canonical content block. Tagged by `type`, matching the Anthropic
-/// content-block wire format both the backend assembler and the UI consume.
+/// content-block wire format the UI consumes.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum CanonicalContentBlock {
@@ -59,7 +59,8 @@ pub enum CanonicalContentBlock {
     RedactedThinking { data: String },
 
     /// Codex's per-turn marker: the turn finished. Carries no content of its
-    /// own; its enclosing source event carries the turn-level usage.
+    /// own — the turn's spend rides the terminal `Outcome`'s `RunTotals`
+    /// instead.
     TurnResult,
 
     /// A native block whose kind the harness does not map. `raw` is the
@@ -73,8 +74,8 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    /// Each variant serializes to the Anthropic-shaped tag the backend and UI
-    /// consume, so adopting the type is wire-compatible.
+    /// Each variant serializes to the Anthropic-shaped tag the UI consumes,
+    /// so adopting the type is wire-compatible.
     #[test]
     fn variants_serialize_to_anthropic_tags() {
         assert_eq!(

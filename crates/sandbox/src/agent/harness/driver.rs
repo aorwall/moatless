@@ -188,7 +188,7 @@ struct PersistentState {
     /// submit order. The front names the input that a fresh start opens.
     pending: VecDeque<InputId>,
     /// Source events held until the active execution has started and accepted.
-    early: Vec<super::source::SourceEvent>,
+    early: Vec<super::content::CanonicalContentBlock>,
     /// The active execution's run totals, captured from
     /// `ProcessEvent::RunTotals` and attached to the `Completed` outcome at its
     /// terminal.
@@ -472,7 +472,7 @@ async fn run_execution<P: AgentProcess>(
     let mut pending_accept: Option<InputId> = None;
     // Source events held until both the execution has started and its input has
     // been accepted, so no `Source` is ever emitted before `InputAccepted`.
-    let mut early: Vec<super::source::SourceEvent> = Vec::new();
+    let mut early: Vec<super::content::CanonicalContentBlock> = Vec::new();
     // The run's totals, captured just before the terminal and attached to the
     // `Completed` outcome.
     let mut run_totals: Option<super::signal::RunTotals> = None;
@@ -653,7 +653,7 @@ async fn flush_early(
     signal_tx: &mpsc::Sender<Signal>,
     started: bool,
     accepted: bool,
-    early: &mut Vec<super::source::SourceEvent>,
+    early: &mut Vec<super::content::CanonicalContentBlock>,
 ) -> Result<(), SignalClosed> {
     if !(started && accepted) {
         return Ok(());

@@ -45,6 +45,9 @@ pub struct TranscriptMessage {
     /// Which kind of `user` row this is. The agent's tool responses are
     /// persisted as `user` too, and are not something a person said.
     pub user_type: String,
+    /// A `user` Message the sandbox wrote to wake its own agent, which nobody
+    /// said. Its inbox item's `origin` is `sandbox`.
+    pub sandbox_wake: bool,
     /// The Turn this Message was acknowledged into. `None` while it is queued.
     pub turn_number: Option<i32>,
     /// When the writer said it happened (RFC 3339 text, `NOT NULL`).
@@ -147,11 +150,11 @@ macro_rules! transcript_rows {
                        WHEN m.author = 'user' THEN 'user'
                        ELSE 'assistant' END AS message_role,
                   COALESCE(m.text, i.text) AS message_text,
-                  CASE WHEN i.origin = 'sandbox' THEN 'harness'
-                       WHEN i.delivery_options ? 'toolResponse' THEN 'tool_response'
+                  CASE WHEN i.delivery_options ? 'toolResponse' THEN 'tool_response'
                        WHEN m.frozen THEN COALESCE(m.legacy ->> 'user_type', 'system')
                        WHEN m.author = 'user' THEN 'human'
                        ELSE 'system' END AS user_type,
+                  COALESCE(i.origin = 'sandbox', false) AS sandbox_wake,
                   m.turn_number,
                   COALESCE(m.legacy ->> 'timestamp',
                            to_char(m.created_at AT TIME ZONE 'UTC',
@@ -186,7 +189,8 @@ macro_rules! transcript_rows {
 /// and not the other is present on reload and absent on the frame that
 /// delivered it.
 const TRANSCRIPT_COLUMNS: &str = r#"m.id, m.uuid, m.message_type, m.message_role,
-                      m.message_text, m.user_type, m.turn_number, m."timestamp",
+                      m.message_text, m.user_type, m.sandbox_wake, m.turn_number,
+                      m."timestamp",
                       m.created_at, m.external_adapter, m.external_source_name,
                       m.external_subject_key, m.external_event_id,
                       m.external_author, m.source_task_id,

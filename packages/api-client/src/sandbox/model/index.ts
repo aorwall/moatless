@@ -23,7 +23,6 @@ export * from './adminResetPasswordRequest';
 export * from './adminUpdateUserRequest';
 export * from './agentDescriptor';
 export * from './agentEventPayload';
-export * from './agentEventPayloadMessage';
 export * from './agentEventPayloadResult';
 export * from './agentEventPayloadToolInput';
 export * from './agentMode';

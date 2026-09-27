@@ -16,8 +16,9 @@ pub struct AppendRequest<'a> {
     pub turn_number: Option<i32>,
     /// Read only when the append creates the session.
     pub subagent_parent: Option<SubagentParent<'a>>,
-    /// A switch session's first seq its CLI wrote; read only while the
-    /// session has no event.
+    /// The first seq its CLI wrote in this Task: a switch session's, or a
+    /// frozen Task's first session's. Read only while the session has no
+    /// event.
     pub own_from_seq: Option<i64>,
 }
 
@@ -93,7 +94,9 @@ pub struct TrajectorySession {
     pub parent_event_id: Option<Uuid>,
     /// A switch session's other-harness tip its prefix was rendered from.
     pub transcoded_from_event_id: Option<Uuid>,
-    /// A switch session's first seq its CLI wrote.
+    /// The first seq its CLI wrote in this Task; the lines before it are a
+    /// switch session's rendered prefix, or a frozen Task's pre-freeze lines.
+    /// Neither is projected.
     pub own_from_seq: Option<i64>,
     pub last_event_id: Option<Uuid>,
     pub last_seq: i64,

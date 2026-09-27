@@ -27,7 +27,7 @@ use super::super::process::{AgentProcess, ProcessEvent, ProcessTermination};
 use super::super::signal::{Input, InputId, SessionId};
 use super::ClaudeConfig;
 use super::classify::{classify_result, classify_startup_error, classify_stream_error};
-use super::normalize::Normalizer;
+use super::normalize::{Normalizer, assistant_blocks, user_blocks};
 
 /// The per-Input configuration the live session was opened with.
 ///
@@ -256,13 +256,13 @@ impl ClaudePersistentProcess {
             }
             SdkMessage::Assistant(assistant) => {
                 self.begin_internal_turn_if_idle(&assistant.session_id);
-                for event in self.normalizer.assistant_blocks(&assistant) {
+                for event in assistant_blocks(&assistant) {
                     self.pending.push_back(ProcessEvent::Block(event));
                 }
             }
             SdkMessage::User(user) => {
                 self.begin_internal_turn_if_idle(&user.session_id);
-                for event in self.normalizer.user_blocks(&user) {
+                for event in user_blocks(&user) {
                     self.pending.push_back(ProcessEvent::Block(event));
                 }
             }

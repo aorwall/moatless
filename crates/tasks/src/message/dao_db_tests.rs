@@ -67,57 +67,6 @@ async fn append_and_get_all(pool: PgPool) {
     assert!(blocks.is_empty());
 }
 
-/// The raw `assistant_usage` blob, including the cache-write breakdown typed
-/// columns miss, round-trips through a frozen row for deriving cost when the
-/// transport omits `total_cost_usd` (tmux).
-#[sqlx::test]
-async fn append_persists_assistant_usage(pool: PgPool) {
-    seed_task(&pool, "task-1", "user-1").await;
-
-    let usage = serde_json::json!({
-        "input_tokens": 10,
-        "output_tokens": 197,
-        "cache_creation_input_tokens": 3980,
-        "cache_read_input_tokens": 18111,
-        "cache_creation": {
-            "ephemeral_1h_input_tokens": 3980,
-            "ephemeral_5m_input_tokens": 0
-        },
-        "server_tool_use": { "web_search_requests": 0, "web_fetch_requests": 0 },
-        "service_tier": "standard"
-    });
-
-    let mut msg = make_message_row("task-1", "usage-msg-1");
-    msg.assistant_message_model = Some("claude-haiku-4-5-20251001".to_string());
-    msg.assistant_usage = Some(usage.clone());
-
-    crate::message::test_support::seed_message(&pool, &msg, &[], &ConversationWrite::default())
-        .await
-        .unwrap();
-
-    let (messages, _, _) = crate::message::test_support::messages_for(&pool, "task-1")
-        .await
-        .unwrap();
-    assert_eq!(messages.len(), 1);
-    let stored = &messages[0];
-    assert_eq!(
-        stored.assistant_message_model.as_deref(),
-        Some("claude-haiku-4-5-20251001")
-    );
-    assert_eq!(stored.assistant_usage.as_ref(), Some(&usage));
-    // The ephemeral cache-write breakdown (absent from the typed columns) is
-    // preserved for downstream cost derivation.
-    assert_eq!(
-        stored
-            .assistant_usage
-            .as_ref()
-            .and_then(|u| u.get("cache_creation"))
-            .and_then(|c| c.get("ephemeral_1h_input_tokens"))
-            .and_then(serde_json::Value::as_i64),
-        Some(3980)
-    );
-}
-
 #[sqlx::test]
 async fn append_with_contexts_and_activities(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;

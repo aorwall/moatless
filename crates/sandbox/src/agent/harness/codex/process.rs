@@ -22,7 +22,7 @@ use crate::agent::harness::signal::{ContextWindow, Input, InputId, SessionId};
 use crate::agent::harness::trajectory::CodexSessionFormat;
 use crate::trajectory_tail::TurnTrajectory;
 
-use super::normalize::{Normalizer, TurnUsage};
+use super::normalize::{Normalizer, TurnUsage, turn_result_source};
 
 /// How long a mid-Turn message waits for the steerability gate before falling
 /// back to opening the next Turn instead — the same fallback a rejected steer
@@ -378,9 +378,8 @@ impl CodexProcess {
         let nothing = TokenUsageBreakdown::default();
         let latest = self.usage_latest.as_ref().unwrap_or(&nothing);
         let usage = TurnUsage::between(self.usage_baseline.as_ref(), latest);
-        self.pending.push_back(ProcessEvent::Block(
-            self.normalizer.turn_result_source(&usage),
-        ));
+        self.pending
+            .push_back(ProcessEvent::Block(turn_result_source()));
         // Turn totals for the backend's per-turn cost/token accounting. Codex
         // reports no cost, so the payload carries tokens and model only.
         self.pending

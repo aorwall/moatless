@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use super::payload;
 use super::read_dao::{self, MessageRecord};
-use crate::inbox::InboxItem;
+use crate::inbox::{InboxItem, InboxOrigin};
 use crate::message::models::{MessageRole, MessageType, TaskMessage, TaskMessageContext};
 
 /// `records` as Messages with their contexts, keyed by the Message `id`,
@@ -59,6 +59,8 @@ pub(crate) fn assemble(
             _ => projected(record, mode.clone()),
         };
         message.id = id;
+        // A frozen user row has an inbox item too; 0178 gave it the origin.
+        message.sandbox_wake = item.is_some_and(|item| matches!(item.origin, InboxOrigin::Sandbox));
         if message.message_type == MessageType::User {
             mode.clone_from(&message.agent_mode_raw);
         }
@@ -116,6 +118,7 @@ fn projected(record: &MessageRecord, mode: Option<String>) -> TaskMessage {
         message_type,
         message_role,
         user_type: "system".to_string(),
+        sandbox_wake: false,
         parent_uuid: record.parent_tool_use_id.clone(),
         session_id: record.harness_session_id.clone(),
         turn_number: record.turn_number,
@@ -126,7 +129,6 @@ fn projected(record: &MessageRecord, mode: Option<String>) -> TaskMessage {
         assistant_usage_output_tokens: tokens("output_tokens"),
         assistant_usage_cache_creation_input_tokens: tokens("cache_creation_input_tokens"),
         assistant_usage_cache_read_input_tokens: tokens("cache_read_input_tokens"),
-        assistant_usage: record.usage.clone(),
         will_not_resume: meta.will_not_resume,
         run_metrics: meta.run_metrics,
         agent_mode_raw: agent.then_some(mode).flatten(),
@@ -168,17 +170,12 @@ fn frozen(record: &MessageRecord, legacy: &Map<String, Value>) -> TaskMessage {
     TaskMessage {
         message_type,
         user_type: text("user_type").unwrap_or_else(|| "system".to_string()),
+        sandbox_wake: false,
         parent_uuid: text("parent_uuid"),
-        is_sidechain: flag("is_sidechain"),
-        cwd: text("cwd"),
         session_id: text("session_id"),
         turn_number: record.turn_number,
-        version: text("version"),
-        git_branch: text("git_branch"),
-        request_id: text("request_id"),
         message_role,
         assistant_message_id: text("assistant_message_id"),
-        assistant_message_type: text("assistant_message_type"),
         assistant_message_model: text("assistant_message_model"),
         assistant_stop_reason: text("assistant_stop_reason"),
         assistant_stop_sequence: text("assistant_stop_sequence"),
@@ -188,7 +185,6 @@ fn frozen(record: &MessageRecord, legacy: &Map<String, Value>) -> TaskMessage {
             "assistant_usage_cache_creation_input_tokens",
         ),
         assistant_usage_cache_read_input_tokens: int("assistant_usage_cache_read_input_tokens"),
-        assistant_usage: json("assistant_usage"),
         tool_use_result: json("tool_use_result"),
         tool_response: json("tool_response"),
         sdk_metadata: json("sdk_metadata"),

@@ -9,7 +9,7 @@ async fn fresh_turn_publishes_ordered_events_and_acks_after_acceptance() {
     let script = Script::new(vec![
         Step::SessionReady(SessionId("sess-1".to_string())),
         Step::AcceptInput,
-        Step::Block(block("msg-1", text_block("hello"), Role::Assistant)),
+        Step::Block(block(text_block("hello"))),
         Step::Completed,
     ]);
     let mut coord = Coordinator::new(HarnessRuntime::scripted(script), events.clone(), "task-1");
@@ -56,7 +56,7 @@ async fn a_turn_moves_the_state_machine_and_the_event_stream_together() {
     let script = Script::new(vec![
         Step::SessionReady(SessionId("sess-1".to_string())),
         Step::AcceptInput,
-        Step::Block(block("msg-1", text_block("hello"), Role::Assistant)),
+        Step::Block(block(text_block("hello"))),
         Step::Completed,
     ]);
     let agent_state = Arc::new(AgentState::new());

@@ -3,9 +3,7 @@
 
 use std::collections::HashMap;
 
-use crate::message::models::{
-    HARNESS_USER_TYPE, TOOL_RESPONSE_USER_TYPE, TaskMessage, TaskMessageContext,
-};
+use crate::message::models::{TOOL_RESPONSE_USER_TYPE, TaskMessage, TaskMessageContext};
 
 use super::models::{InboxContext, InboxItem, InboxOrigin};
 
@@ -40,8 +38,9 @@ impl InboxItem {
         let options = &self.options;
         let channel = self.origin.channel();
         let sender = self.origin.sender();
-        let user_type = if matches!(self.origin, InboxOrigin::Sandbox) {
-            HARNESS_USER_TYPE
+        let sandbox_wake = matches!(self.origin, InboxOrigin::Sandbox);
+        let user_type = if sandbox_wake {
+            "system"
         } else if options.tool_response.is_some() {
             // The answer is already on screen as the outcome of the call that
             // asked; rendering this carrier too would show it twice.
@@ -51,6 +50,7 @@ impl InboxItem {
         };
         TaskMessage {
             user_type: user_type.to_string(),
+            sandbox_wake,
             attachments: (!self.file_ids.is_empty())
                 .then(|| serde_json::json!({ "file_ids": &self.file_ids })),
             agent_mode_raw: options.agent_mode.clone(),

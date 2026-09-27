@@ -34,9 +34,10 @@ pub use error::{ErrorClass, FailureStage, HarnessError, SessionImpact};
 #[cfg(test)]
 pub(crate) use scripted::{Script, Step};
 pub use signal::{
-    Activity, Cause, ContextWindow, Input, InputId, Outcome, Rejection, SessionId, Signal,
+    Activity, Cause, ContextWindow, Input, InputId, Outcome, Rejection, RunTotals, SessionId,
+    Signal,
 };
-pub use source::{NativeMessageId, Role, SourceEvent};
+pub use source::Role;
 
 mod runtime;
 pub use runtime::{HarnessClosed, HarnessRuntime};

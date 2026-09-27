@@ -552,3 +552,71 @@ async fn the_ord_backfill_orders_existing_rows_by_when_they_were_written(pool: P
     let head = trajectories.head("source").await.unwrap().unwrap();
     assert_eq!(head.harness_session_id, codex.harness_session_id);
 }
+
+/// An assistant line, which projects a Message.
+fn reply(n: i64) -> NewEvent {
+    NewEvent {
+        kind: "assistant".into(),
+        content: json!({"role": "assistant", "blocks": [{"type": "text", "text": n.to_string()}]}),
+        ..line(n)
+    }
+}
+
+async fn projected_messages(pool: &PgPool, task_id: &str) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM conversation_messages WHERE task_id = $1")
+        .bind(task_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+/// A frozen Task's first recorded file holds its pre-freeze lines, which its
+/// frozen Messages already show: they are kept for a switch to render, and
+/// not projected again.
+#[sqlx::test]
+async fn a_frozen_tasks_pre_freeze_lines_are_rendered_not_projected(pool: PgPool) {
+    let dao = PgTrajectoryDao(pool.clone());
+    let mut tx = pool.begin().await.unwrap();
+    crate::conversation::dao::seed_frozen_task(&mut tx, "source", None)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    let events: Vec<NewEvent> = (0..4).map(reply).collect();
+    for (task_id, session) in [("source", "claude-1"), ("unfrozen", "claude-2")] {
+        let mut first = req(task_id, Harness::ClaudeCode, session, 0, &events, Some(3));
+        first.own_from_seq = Some(2);
+        assert!(dao.append(first).await.unwrap().accepted);
+    }
+    assert_eq!(projected_messages(&pool, "source").await, 2);
+    assert_eq!(
+        projected_messages(&pool, "unfrozen").await,
+        4,
+        "an unfrozen Task's lines are all its own"
+    );
+    let unfrozen = dao.find_session("claude-2").await.unwrap().unwrap();
+    assert_eq!(unfrozen.own_from_seq, None);
+
+    let more = [reply(4)];
+    let mut later = req("source", Harness::ClaudeCode, "claude-1", 4, &more, Some(4));
+    later.own_from_seq = Some(4);
+    assert!(dao.append(later).await.unwrap().accepted);
+    let session = dao.find_session("claude-1").await.unwrap().unwrap();
+    assert_eq!(
+        session.own_from_seq,
+        Some(2),
+        "set by the creating append only"
+    );
+    assert_eq!(projected_messages(&pool, "source").await, 3);
+
+    let switch = crate::trajectory::operations::Trajectories::new(PgTrajectoryDao(pool.clone()))
+        .open_switch_session("source", Harness::Codex)
+        .await
+        .unwrap()
+        .expect("a head to switch from");
+    assert_eq!(
+        switch.transcode.len(),
+        5,
+        "the pre-freeze lines are rendered"
+    );
+}

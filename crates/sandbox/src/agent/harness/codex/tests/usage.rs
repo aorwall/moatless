@@ -3,6 +3,17 @@
 use super::fixtures::*;
 use super::*;
 
+/// The [`RunTotals`] the terminal carries, or panics if none was emitted.
+fn run_totals(events: &[ProcessEvent]) -> RunTotals {
+    events
+        .iter()
+        .find_map(|e| match e {
+            ProcessEvent::RunTotals(t) => Some(t.clone()),
+            _ => None,
+        })
+        .expect("run totals")
+}
+
 #[test]
 fn turn_completed_emits_usage_result_then_terminated() {
     let mut p = open_process();
@@ -12,13 +23,12 @@ fn turn_completed_emits_usage_result_then_terminated() {
     let events = drain(&mut p);
     let s = sources(&events);
     assert_eq!(s.len(), 1, "turn usage carried on a single result block");
-    assert_eq!(s[0].role, Role::System);
     assert_eq!(s[0].block_json()["type"], "turn_result");
-    let usage = s[0].usage.as_ref().expect("usage retained");
-    assert_eq!(usage["input_tokens"], 12);
-    assert_eq!(usage["cache_read_input_tokens"], 3);
-    assert_eq!(usage["output_tokens"], 4);
-    assert_eq!(usage["reasoning_output_tokens"], 7);
+    let totals = run_totals(&events);
+    assert_eq!(totals.input_tokens, 9, "net of the cached-prefix reads");
+    assert_eq!(totals.cache_read_input_tokens, 3);
+    assert_eq!(totals.output_tokens, 4);
+    assert_eq!(totals.reasoning_output_tokens, 7);
     assert!(matches!(
         events.last(),
         Some(ProcessEvent::Terminated {
@@ -89,11 +99,11 @@ fn usage_on_a_resumed_thread_reports_only_what_this_turn_spent() {
     p.absorb(turn_completed("completed", None));
 
     let events = drain(&mut p);
-    let usage = sources(&events)[0].usage.as_ref().expect("usage").clone();
-    assert_eq!(usage["input_tokens"], 1200);
-    assert_eq!(usage["cache_read_input_tokens"], 100);
-    assert_eq!(usage["output_tokens"], 60);
-    assert_eq!(usage["reasoning_output_tokens"], 20);
+    let totals = run_totals(&events);
+    assert_eq!(totals.input_tokens, 1100, "net of the cached-prefix reads");
+    assert_eq!(totals.cache_read_input_tokens, 100);
+    assert_eq!(totals.output_tokens, 60);
+    assert_eq!(totals.reasoning_output_tokens, 20);
 }
 
 #[test]
@@ -103,7 +113,7 @@ fn a_turn_with_no_usage_reported_still_emits_a_result_block() {
     let events = drain(&mut p);
     let s = sources(&events);
     assert_eq!(s.len(), 1);
-    assert_eq!(s[0].usage.as_ref().expect("usage")["input_tokens"], 0);
+    assert_eq!(run_totals(&events).input_tokens, 0);
 }
 
 /// An interrupted Turn is a normal end, not a failure: the driver owns

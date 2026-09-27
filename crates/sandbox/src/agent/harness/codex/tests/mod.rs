@@ -1,7 +1,8 @@
 //! Unit + gated E2E coverage for the Codex adapter: native item normalization
-//! (one source event per item family, collision-safe ids, usage retention),
-//! failure classification, and the one-shot lifecycle through the shared driver
-//! (fresh Turn ordering, queued input, cancellation teardown, unexpected exit).
+//! (one canonical block per item family, collision-safe tool-use ids, usage
+//! retention), failure classification, and the one-shot lifecycle through the
+//! shared driver (fresh Turn ordering, queued input, cancellation teardown,
+//! unexpected exit).
 //!
 //! The item-family tests are driven from the checked-in transport fixtures
 //! (`codex_app_server/fixtures/`), not from hand-written JSON: the mapping is
@@ -24,10 +25,10 @@ use super::super::classify::{
 };
 use super::{CodexConfig, CodexProcess, MID_TURN_DELIVERY_TIMEOUT};
 use crate::agent::harness::HarnessRuntime;
+use crate::agent::harness::content::CanonicalContentBlock;
 use crate::agent::harness::error::{ErrorClass, FailureStage, SessionImpact};
 use crate::agent::harness::process::{AgentProcess, ProcessEvent, ProcessTermination};
-use crate::agent::harness::signal::{Cause, Input, InputId, Outcome, Signal};
-use crate::agent::harness::source::{Role, SourceEvent};
+use crate::agent::harness::signal::{Cause, Input, InputId, Outcome, RunTotals, Signal};
 
 mod classification;
 mod driver;

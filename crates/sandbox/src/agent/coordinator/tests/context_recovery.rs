@@ -50,7 +50,7 @@ async fn lost_resume_recovers_with_a_fresh_turn_and_keeps_the_ack() {
         Script::new(vec![
             Step::SessionReady(SessionId("sess-2".to_string())),
             Step::AcceptInput,
-            Step::Block(block("msg-1", text_block("hi again"), Role::Assistant)),
+            Step::Block(block(text_block("hi again"))),
             Step::Completed,
         ]),
     ];

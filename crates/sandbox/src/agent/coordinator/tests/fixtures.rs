@@ -90,23 +90,9 @@ pub(super) fn recording_publisher() -> (
     (GrpcEventPublisher::new(outbox), received, cancel)
 }
 
-/// A source event for one native block under a given Message id.
-pub(super) fn block(message_id: &str, block: serde_json::Value, role: Role) -> SourceEvent {
-    SourceEvent {
-        source_id: SourceId(format!(
-            "{message_id}-{}",
-            block["type"].as_str().unwrap_or("b")
-        )),
-        message_id: NativeMessageId(message_id.to_string()),
-        session: SessionId("sess-1".to_string()),
-        parent_tool_use_id: None,
-        role,
-        block: serde_json::from_value(block).expect("test block is a canonical content block"),
-        tool_use_result: None,
-        usage: None,
-        model: None,
-        diagnostics: None,
-    }
+/// A canonical content block from its wire JSON shape.
+pub(super) fn block(block: serde_json::Value) -> CanonicalContentBlock {
+    serde_json::from_value(block).expect("test block is a canonical content block")
 }
 
 pub(super) fn text_block(text: &str) -> serde_json::Value {

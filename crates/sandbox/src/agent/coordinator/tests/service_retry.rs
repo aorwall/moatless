@@ -95,7 +95,7 @@ async fn coordinator_service_retryable_failure_retries_then_completes() {
         Script::new(vec![
             Step::SessionReady(SessionId("sess-1".to_string())),
             Step::AcceptInput,
-            Step::Block(block("msg-1", text_block("recovered"), Role::Assistant)),
+            Step::Block(block(text_block("recovered"))),
             Step::Completed,
         ]),
     ];

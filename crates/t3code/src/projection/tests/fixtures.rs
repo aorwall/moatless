@@ -142,6 +142,7 @@ pub(super) fn message(id: i32, message_type: MessageType, text: &str) -> Transcr
         },
         message_text: Some(text.to_string()),
         user_type: "human".to_string(),
+        sandbox_wake: false,
         turn_number: Some(3),
         // Minute `id` past the hour, so the fixture's own order is legible
         // in an assertion failure.

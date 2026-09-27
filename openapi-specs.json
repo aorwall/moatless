@@ -10247,13 +10247,6 @@
             "format": "int64",
             "description": "Context window usage."
           },
-          "message": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "description": "For \"message\" subtype: the Claude SDK assistant message."
-          },
           "result": {
             "type": [
               "object",

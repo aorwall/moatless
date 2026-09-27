@@ -67,7 +67,7 @@ Where a concept exists only in T3 Code, **T3 Code's name carries over unchanged*
 | `Thread` | `Task` | Genuine synonym. Rename in T3 Code. |
 | `Turn` (`projection_turns`) | `Turn` (`task_turns`) | Already identical. Status enums are not the same size — `running·interrupted·completed·error` (four) vs `active·completed·error·stopped·interrupted` (five) — and the shared word `interrupted` does not mean the same thing on both sides. Mapping settled; see the known gaps below. |
 | `Session` (`projection_thread_sessions`) | `Session` | Same concept — the resumable provider conversation. Moatless additionally splits out `Sandbox` as the durable pod-lifecycle intent; T3 Code's session row carries both concerns. |
-| Message | `TaskMessage` + content blocks | T3 Code stores flat rows; Moatless stores one row with N blocks and folds tool results into the calling assistant message at assembly (server-owned assembly). |
+| Message | `conversation_messages` | Both store flat rows. Moatless projects its rows from the Trajectory, and a tool call is a `conversation_activities` row on the Message that made it. |
 | Activity (`projection_thread_activities`) | `task_events` | **Not equivalent.** T3 Code's activities are a projection; `task_events` is history. |
 | `Project` | `Workspace` | Mapped (`projectId ↔ workspaces.id`), but **not** a synonym — see below. Do not rename either. |
 | `Environment` | — | T3 Code only. Keep the name. |

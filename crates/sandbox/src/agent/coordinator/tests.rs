@@ -21,11 +21,11 @@ use tonic::Status;
 
 use crate::agent::agent_state::AgentState;
 use crate::agent::handle::AgentCommand;
+use crate::agent::harness::content::CanonicalContentBlock;
 use crate::agent::harness::error::FailureStage;
-use crate::agent::harness::source::{NativeMessageId, SourceId};
 use crate::agent::harness::{
-    Activity, Cause, ErrorClass, HarnessError, HarnessRuntime, Input, InputId, Outcome, Role,
-    Script, SessionId, SessionImpact, Signal, SourceEvent, Step,
+    Activity, Cause, ErrorClass, HarnessError, HarnessRuntime, Input, InputId, Outcome, Script,
+    SessionId, SessionImpact, Signal, Step,
 };
 use crate::agent::heartbeat::Heartbeat;
 use crate::agent::scheduled_job::{JobInjector, LateInjector, ScheduledJobRegistry};

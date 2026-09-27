@@ -1,11 +1,5 @@
--- The conversation is read from `conversation_*` (0178); a fork is anchored by
--- `source_event_id` alone.
-DROP TABLE IF EXISTS task_message_content_blocks;
-DROP TABLE IF EXISTS task_message_contexts;
-DROP TABLE IF EXISTS task_message_usage;
-DROP TABLE IF EXISTS task_activities;
-DROP TABLE IF EXISTS task_messages;
-
+-- A fork is anchored by `source_event_id` alone. The retired `task_message*`
+-- and `task_activities` tables stay until a later migration drops them.
 ALTER TABLE task_forks
     DROP COLUMN IF EXISTS source_session_id,
     DROP COLUMN IF EXISTS source_message_uuid,

@@ -66,14 +66,14 @@ pub struct StreamEvent {
 ///
 /// An event knows only the turn half of the question:
 /// `moatless_types::running::derive_running` reduced to what a turn state alone
-/// implies, plus `agent.started`/`message`/`activity`, which move no turn row
+/// implies, plus `agent.started`/`activity`, which move no turn row
 /// but do mean the run is working.
 pub fn agent_working(event_type: &str, sub_type: &str) -> Option<bool> {
     if let Some(status) = crate::task::TurnStatus::from_event(event_type, sub_type) {
         return Some(status.is_open());
     }
     match (event_type, sub_type) {
-        ("agent", "started" | "message" | "activity") => Some(true),
+        ("agent", "started" | "activity") => Some(true),
         _ => None,
     }
 }
@@ -189,7 +189,7 @@ mod tests {
 
     #[test]
     fn output_from_a_run_in_flight_says_working() {
-        for sub_type in ["started", "message", "activity"] {
+        for sub_type in ["started", "activity"] {
             assert_eq!(agent_working("agent", sub_type), Some(true), "{sub_type}");
         }
     }

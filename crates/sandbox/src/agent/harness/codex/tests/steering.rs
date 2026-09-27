@@ -206,14 +206,15 @@ async fn a_steered_turn_bills_every_model_request_it_made() {
     p.absorb(turn_completed("completed", None));
     let events = drain(&mut p);
 
-    let usage = sources(&events)
-        .last()
-        .expect("the turn-result block")
-        .usage
-        .clone()
-        .expect("usage on the turn-result block");
-    assert_eq!(usage["input_tokens"], 900, "1900 - 1000");
-    assert_eq!(usage["cache_read_input_tokens"], 80, "80 - 0");
-    assert_eq!(usage["output_tokens"], 160, "260 - 100");
-    assert_eq!(usage["reasoning_output_tokens"], 60, "60 - 0");
+    let totals = events
+        .iter()
+        .find_map(|e| match e {
+            ProcessEvent::RunTotals(t) => Some(t),
+            _ => None,
+        })
+        .expect("run totals");
+    assert_eq!(totals.input_tokens, 820, "(1900 - 1000) - (80 - 0)");
+    assert_eq!(totals.cache_read_input_tokens, 80, "80 - 0");
+    assert_eq!(totals.output_tokens, 160, "260 - 100");
+    assert_eq!(totals.reasoning_output_tokens, 60, "60 - 0");
 }

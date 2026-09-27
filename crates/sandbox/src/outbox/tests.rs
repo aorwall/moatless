@@ -233,7 +233,7 @@ fn overflow_drops_oldest_non_lifecycle_keeps_lifecycle() {
 
     // Fill: two non-lifecycle, one lifecycle.
     assert!(
-        buf.push(QueuedEvent::new(agent_event("message")))
+        buf.push(QueuedEvent::new(agent_event("activity")))
             .evicted
             .is_empty()
     );
@@ -243,16 +243,16 @@ fn overflow_drops_oldest_non_lifecycle_keeps_lifecycle() {
             .is_empty()
     );
     assert!(
-        buf.push(QueuedEvent::new(agent_event("message")))
+        buf.push(QueuedEvent::new(agent_event("activity")))
             .evicted
             .is_empty()
     );
     assert_eq!(buf.len(), 3);
 
     // Over cap: oldest non-lifecycle (index 0) is evicted, not the taskTurn.
-    let admission = buf.push(QueuedEvent::new(agent_event("message")));
+    let admission = buf.push(QueuedEvent::new(agent_event("activity")));
     assert_eq!(admission.evicted.len(), 1);
-    assert_eq!(admission.evicted[0].req.sub_type, "message");
+    assert_eq!(admission.evicted[0].req.sub_type, "activity");
     assert!(admission.rejected.is_none());
     assert_eq!(buf.len(), 3);
 
@@ -301,15 +301,15 @@ fn lifecycle_saturation_refuses_the_newest_and_holds_the_cap() {
 fn byte_cap_triggers_eviction_but_never_empties_the_buffer() {
     // Tiny byte cap, generous event cap: eviction driven purely by bytes.
     let mut buf = EventBuffer::new(1000, 40);
-    // Each agent_event: payload "{}" (2) + sub_type "message" (7) + task "task-1" (6)
-    // + a uuid event_id (36) = 51 bytes, already over the 40-byte cap, but a
+    // Each agent_event: payload "{}" (2) + sub_type "activity" (8) + task "task-1" (6)
+    // + a uuid event_id (36) = 52 bytes, already over the 40-byte cap, but a
     // single event is never dropped below itself — it's the only entry.
-    let admission = buf.push(QueuedEvent::new(agent_event("message")));
+    let admission = buf.push(QueuedEvent::new(agent_event("activity")));
     assert!(admission.evicted.is_empty());
     assert!(admission.rejected.is_none());
     assert_eq!(buf.len(), 1);
     // A second push must evict the first to try to get back under budget.
-    let admission = buf.push(QueuedEvent::new(agent_event("message")));
+    let admission = buf.push(QueuedEvent::new(agent_event("activity")));
     assert_eq!(admission.evicted.len(), 1);
     assert!(admission.rejected.is_none());
     assert_eq!(buf.len(), 1);
@@ -903,7 +903,7 @@ async fn flush_is_bounded_when_the_backend_never_recovers() {
         cancel.clone(),
     );
 
-    outbox.enqueue(agent_event("message"));
+    outbox.enqueue(agent_event("activity"));
 
     let started = tokio::time::Instant::now();
     outbox.flush(Duration::from_secs(2)).await;
@@ -1037,7 +1037,7 @@ async fn an_event_evicted_on_arrival_reports_that_it_was_not_taken() {
     assert!(outbox.enqueue(task_turn_event("completed")));
 
     assert!(
-        !outbox.enqueue(agent_event("message")),
+        !outbox.enqueue(agent_event("activity")),
         "the event was evicted to keep the caps, so nothing will send it"
     );
     assert_eq!(outbox.metrics().dropped_overflow, 1);
@@ -1057,7 +1057,7 @@ async fn admission_is_refused_after_the_drainer_terminates() {
     drainer.shutdown(Duration::from_secs(5)).await;
 
     assert!(
-        !outbox.enqueue(agent_event("message")),
+        !outbox.enqueue(agent_event("activity")),
         "a refused submission says so, so a caller with something to undo can"
     );
 

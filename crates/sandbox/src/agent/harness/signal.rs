@@ -28,8 +28,8 @@ use std::collections::HashMap;
 
 use crate::agent::types::{ForkSource, ResumeSession};
 
+use super::content::CanonicalContentBlock;
 use super::error::HarnessError;
-use super::source::SourceEvent;
 
 /// Correlation identity for a submitted input (a pending-Message batch). The
 /// coordinator uses it to acknowledge the batch once it is accepted or
@@ -210,10 +210,11 @@ pub struct ContextWindow {
 
 /// A normalized signal emitted by the harness. This is the entire external
 /// output vocabulary; the coordinator reacts only to these.
-// reason: the harness seam deliberately carries one canonical `SourceEvent` by
-// value throughout (`ProcessEvent::Block` and the driver's early-buffer `Vec` do
-// the same); boxing only the `Source` variant would be inconsistent and add an
-// allocation per content block on the hot path.
+// reason: the harness seam deliberately carries one canonical
+// `CanonicalContentBlock` by value throughout (`ProcessEvent::Block` and the
+// driver's early-buffer `Vec` do the same); boxing only the `Source` variant
+// would be inconsistent and add an allocation per content block on the hot
+// path.
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Signal {
@@ -234,7 +235,7 @@ pub enum Signal {
     /// active-execution injections, it waits for later non-terminal output.
     InputAccepted { input: InputId },
     /// One native content block, in native order.
-    Source(SourceEvent),
+    Source(CanonicalContentBlock),
     /// Liveness / tool progress; never Message content.
     Activity(Activity),
     /// What the harness reported about its own context window.

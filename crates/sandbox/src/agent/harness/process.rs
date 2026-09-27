@@ -8,9 +8,9 @@
 
 use tokio_util::sync::CancellationToken;
 
+use super::content::CanonicalContentBlock;
 use super::error::HarnessError;
 use super::signal::{Activity, ContextWindow, Input, InputId, RunTotals, SessionId};
-use super::source::SourceEvent;
 
 /// How an Agent process ended on its own.
 ///
@@ -28,10 +28,11 @@ pub(crate) enum ProcessTermination {
 /// A raw event from an Agent process, before the ordering driver applies the
 /// external contract (execution-start gating, early-output buffering, and the
 /// exactly-one-terminal guarantee).
-// reason: the process/signal seam deliberately carries one canonical `SourceEvent`
-// by value throughout (`Signal::Source` and the driver's early-buffer `Vec` do the
-// same); boxing only the `Block` variant would be inconsistent and add an
-// allocation per content block on the hot path.
+// reason: the process/signal seam deliberately carries one canonical
+// `CanonicalContentBlock` by value throughout (`Signal::Source` and the
+// driver's early-buffer `Vec` do the same); boxing only the `Block` variant
+// would be inconsistent and add an allocation per content block on the hot
+// path.
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ProcessEvent {
@@ -54,7 +55,7 @@ pub(crate) enum ProcessEvent {
     /// while an execution is already active it is injected into that execution.
     InputAccepted { input: InputId },
     /// One native content block.
-    Block(SourceEvent),
+    Block(CanonicalContentBlock),
     /// Liveness / tool progress.
     Activity(Activity),
     /// What the harness reported about its own context window.

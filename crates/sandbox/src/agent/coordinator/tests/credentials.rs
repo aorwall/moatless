@@ -252,7 +252,7 @@ async fn coordinator_service_credential_recovery_redrives_same_run_on_fresher_cr
         Script::new(vec![
             Step::SessionReady(SessionId("sess-cred".to_string())),
             Step::AcceptInput,
-            Step::Block(block("msg-1", text_block("recovered"), Role::Assistant)),
+            Step::Block(block(text_block("recovered"))),
             Step::Completed,
         ]),
     ];

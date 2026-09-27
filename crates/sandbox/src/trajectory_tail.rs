@@ -19,7 +19,7 @@ use tracing::{debug, info, warn};
 use crate::agent::harness::signal::Input;
 use crate::agent::harness::trajectory::{
     LineContext, RecordedLine, ReplyHold, SessionFormat, SubagentFile, WriteTarget, Written,
-    latest_session, locate_session, reply_of, reseed_session, write_session,
+    kept_session, latest_session, locate_session, reply_of, reseed_session, write_session,
 };
 use crate::agent::harness::{ErrorClass, FailureStage, HarnessError, SessionImpact};
 use crate::agent::types::ResumeSession;
@@ -145,7 +145,7 @@ pub struct SessionRecorder {
     /// Whether a reply has shown the session exists, so `subagent_parent` is
     /// no longer sent.
     created: bool,
-    /// A switch session's [`Written::own_from_seq`], sent until an append
+    /// The [`Written::own_from_seq`] of its file, sent until an append
     /// with lines is accepted.
     own_from_seq: Option<i64>,
     reseeded: bool,
@@ -181,7 +181,7 @@ impl SessionRecorder {
         }
     }
 
-    /// Sends `own_from_seq` on the appends that may create a switch session.
+    /// Sends `own_from_seq` on the appends that may create the session.
     #[must_use]
     pub fn own_from(mut self, own_from_seq: Option<i64>) -> Self {
         self.own_from_seq = own_from_seq;
@@ -771,6 +771,10 @@ impl TurnTrajectory {
             _ => return Ok(None),
         };
         let opens = matches!(target, WriteTarget::Fork | WriteTarget::Switch);
+        let resumed = match &target {
+            WriteTarget::Resume(id) => Some(id.clone()),
+            _ => None,
+        };
         let Some(written) = write_session(
             self.recording.backend(),
             &self.format,
@@ -782,6 +786,9 @@ impl TurnTrajectory {
         )
         .await
         else {
+            if let Some(id) = resumed {
+                self.written = kept_session(&self.format, &self.home, &self.cwd, id).await;
+            }
             return unwritten();
         };
         let id = written.harness_session_id.clone();

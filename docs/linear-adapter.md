@@ -21,7 +21,7 @@ OAuth token stored in `provider_tokens` (keyed by Linear organization UUID).
 | `adapter.rs` | `Adapter` trait impl, workspace-scoped config, `send_reply_for_binding` (routes by `subject_kind`). |
 | `handlers.rs` | Webhook endpoint dispatcher — HMAC verify, parse envelope, derive the delivery identity, admit by `event_type`. |
 | `delivery.rs` | Durable admission and the worker-side handlers for all five event kinds. |
-| `agent_runtime.rs` | All inbound business logic for `AgentSessionEvent`, `Comment.create`, `Issue.update`. Also emits ephemeral activities (`thought` / `action`) from the agent event consumer. |
+| `agent_runtime.rs` | All inbound business logic for `AgentSessionEvent`, `Comment.create`, `Issue.update`. |
 | `agent_api.rs` | GraphQL client. Token refresh, `agentActivityCreate`, `agentSessionUpdate`, `commentCreate`, `attachmentLinkURL`, name → UUID lookups. |
 | `api_routes.rs` | Typed `/api/v1/linear/*` HTTP surface used by the moat CLI (issue CRUD, comments, labels, GraphQL passthrough). Auto-creates `linear_issue` bindings when `task_id` is supplied. |
 | `webhook_payloads.rs` | Serde structs for the inbound envelopes. |
@@ -394,22 +394,25 @@ sequenceDiagram
     end
 ```
 
-## Outbound: Streamed Activities from the Event Consumer
+## Outbound: Streamed Activities from `message.upsert`
 
-While the task runs, the agent event consumer streams Claude's `assistant`
-and `user` messages back through two sibling helpers in `agent_runtime`:
+While the task runs, `event_subscriber.rs::on_message_upsert` reads each
+`message.upsert` the Projector publishes. `activity.rs::message_posts` turns a
+top-level assistant Message into posts, in order:
 
-- `notify_linear_message_activities` (assistant messages) — emits one
-  **persistent** `thought` per `text` block (the agent's narration sticks in
-  Linear's UI) and one **ephemeral** pending `action` per `tool_use` block
-  with a one-line `summarize_tool_input` parameter (e.g. `"Bash"` → the
-  command text, `"Edit"` → the file path).
-- `notify_linear_tool_results` (user messages carrying `tool_result`
-  blocks) — looks up the matching `tool_use_id` via
-  `MessageDao::find_tool_call` and emits a **non-ephemeral**
-  completed `action` carrying the same `tool_name` + `summarize_tool_input`
-  parameter, with the truncated result attached. The ephemeral pending
-  action is visually replaced; the completed one persists.
+- each `text` block → a **persistent** `thought` (the agent's narration sticks
+  in Linear's UI);
+- each `tool_use` block → an **ephemeral** pending `action` with a one-line
+  `summarize_tool_input` parameter (e.g. `"Bash"` → the command text, `"Edit"`
+  → the file path);
+- each settled call in `toolResults` → a **non-ephemeral** completed `action`.
+  `notify_linear_message_posts` reads the call back from its Activity
+  (`TranscriptAppend::tool_call`), since the upsert carries only previews, and
+  attaches the truncated result. A call not yet readable posts nothing.
+
+A subagent's or a user's Message posts nothing. The Projector upserts a Message
+again as it grows, so `active_turns.rs` records each post's key for the open
+turn and `fresh_posts` drops a post the turn already made.
 
 Linear has no `agentActivityUpdate` mutation, so "promote pending →
 completed" is implemented as two separate `agentActivityCreate` calls.
@@ -417,41 +420,39 @@ completed" is implemented as two separate `agentActivityCreate` calls.
 ```mermaid
 sequenceDiagram
     autonumber
-    participant Consumer as event consumer (claude-code SDK)
-    participant Assistant as agent_runtime::notify_linear_message_activities
-    participant Results as agent_runtime::notify_linear_tool_results
-    participant Repo as MessageDao
+    participant Sub as event_subscriber::on_message_upsert
+    participant Turns as ActiveLinearTurns
+    participant Notify as activity::notify_linear_message_posts
+    participant Repo as TranscriptAppend
     participant API as LinearAgentApi
 
-    Consumer->>Assistant: assistant message (text + tool_use blocks)
-    Assistant->>API: resolve_linear_sessions_for_task
-    Note over Assistant: empty result → silent no-op<br/>(non-Linear tasks unaffected)
-    loop each (api, session_id) pair
-        loop each content block
-            alt text block (len >= 4 chars)
-                Assistant->>API: agentActivityCreate(thought, persistent)
-            else tool_use block
-                Assistant->>API: agentActivityCreate(action, ephemeral) [no result]
+    Sub->>Sub: message_posts(message.upsert payload)
+    Sub->>Turns: claim each post's key
+    Note over Sub: nothing fresh → no-op
+    Sub->>Notify: spawn(fresh posts)
+    Notify->>API: resolve_linear_sessions_for_task
+    Note over Notify: no session → silent no-op<br/>(non-Linear tasks unaffected)
+    loop each post
+        alt Thought
+            Notify->>API: agentActivityCreate(thought, persistent)
+        else Call
+            Notify->>API: agentActivityCreate(action, ephemeral) [no result]
+        else Result
+            Notify->>Repo: tool_call(task_id, tool_use_id)
+            alt no row OR no result
+                Note over Notify: skip — pending ephemeral stays in place
+            else
+                Notify->>API: agentActivityCreate(action, persistent, result)
             end
-        end
-    end
-
-    Consumer->>Results: user message (tool_result blocks)
-    loop each tool_result block
-        Results->>Repo: find_tool_call(task_id, tool_use_id)
-        alt no row OR result_content empty
-            Note over Results: skip — pending ephemeral stays in place
-        else
-            Results->>API: agentActivityCreate(action, persistent, result)
         end
     end
 ```
 
 Result truncation: `truncate_result_for_linear` caps the result at 500
 Unicode scalars (ellipsis suffix on overflow) and prefixes `"❌ "` when
-the tool reported an error. Both helpers are **fire-and-forget**: any DB,
-GraphQL, or network failure is logged and swallowed so the event-consumer
-hot path is unaffected.
+the tool reported an error. Posting is **fire-and-forget**: any DB,
+GraphQL, or network failure is logged and swallowed so the event
+subscriber is unaffected.
 
 ## Outbound: Sandbox / Agent Lifecycle Status Markers
 
@@ -546,10 +547,10 @@ Outbound reply on a bound task                  → send_reply_for_binding:
   linear_agent_session                          → commentCreate (only)
   linear_issue                                  → commentCreate (only)
 
-Outbound progress while task runs               → notify_linear_message_activities + notify_linear_tool_results:
+Outbound progress while task runs               → message.upsert → notify_linear_message_posts:
   assistant text block                          → agentActivityCreate(thought, persistent)
   assistant tool_use block                      → agentActivityCreate(action, ephemeral) [no result]
-  user tool_result block                        → agentActivityCreate(action, persistent, result)
+  settled tool call                             → agentActivityCreate(action, persistent, result)
 
 Sandbox/agent lifecycle (ephemeral status)      → notify_linear_action:
   SandboxSubType::Initializing/Ready/Stopped    → agentActivityCreate(action="Sandbox", parameter=status, ephemeral)

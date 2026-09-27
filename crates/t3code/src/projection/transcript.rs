@@ -20,7 +20,7 @@ use moatless_core::change_feed::conversation::EVENTS_PER_CHANGE;
 use moatless_types::activity::Activity;
 use moatless_types::activity::ActivityKind;
 use moatless_types::activity::ActivityView;
-use moatless_types::message::{HARNESS_USER_TYPE, MessageType};
+use moatless_types::message::MessageType;
 
 const TOOL_RESPONSE_USER_TYPE: &str = "tool_response";
 
@@ -156,7 +156,7 @@ pub(super) fn message_bubble(
             }
             // The sandbox waking its own agent: the agent's reply shows, the
             // wake itself is harness plumbing nobody said.
-            if message.user_type == HARNESS_USER_TYPE {
+            if message.sandbox_wake {
                 return None;
             }
             // Only a `user` bubble can carry an origin: an external message is

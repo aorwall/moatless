@@ -460,7 +460,7 @@ pub(super) async fn acknowledge_messages(
 /// Queue a user message the sandbox wrote for its own Task.
 ///
 /// The row makes the turn visible to `find_interrupted_turn`; waking the agent
-/// handle alone leaves none. It is a `HARNESS_USER_TYPE` row, which no
+/// handle alone leaves none. Its inbox `origin` is `sandbox`, which no
 /// conversation shows.
 pub(super) async fn enqueue_sandbox_message(
     service: &BackendSandboxServiceImpl,

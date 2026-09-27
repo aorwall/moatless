@@ -79,7 +79,7 @@ async fn coordinator_service_submit_completed_sets_idle_and_publishes_completed(
     let script = Script::new(vec![
         Step::SessionReady(SessionId("sess-1".to_string())),
         Step::AcceptInput,
-        Step::Block(block("msg-1", text_block("response"), Role::Assistant)),
+        Step::Block(block(text_block("response"))),
         Step::Completed,
     ]);
     let (tx, received, events) = service_with_script(
@@ -141,11 +141,7 @@ async fn coordinator_service_sends_during_active_turn_into_running_harness() {
         Step::AcceptInput,
         Step::AwaitInput,
         Step::AcceptInput,
-        Step::Block(block(
-            "msg-1",
-            text_block("saw the merge conflict"),
-            Role::Assistant,
-        )),
+        Step::Block(block(text_block("saw the merge conflict"))),
         Step::Completed,
     ]);
     let (tx, received, events) = service_with_harness(

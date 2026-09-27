@@ -86,7 +86,7 @@ pub struct Conversation {
     pub running_commands: i32,
 
     /// When a person last wrote: the newest `user` row that is not a sandbox
-    /// wake (`HARNESS_USER_TYPE`); the agent's tool results are `system`.
+    /// wake (inbox `origin = 'sandbox'`); the agent's tool results are `system`.
     ///
     /// Not `tasks.last_message_at`: that also advances when the agent
     /// finishes, stops, or errors.
@@ -1342,7 +1342,7 @@ impl ConversationDao for PgConversationDao {
                    JOIN conversation_messages m ON m.task_id = t.task_id
                    LEFT JOIN task_inbox i ON i.id = m.inbox_id
                    WHERE m.parent_tool_use_id IS NULL
-                     -- A harness wake is in no conversation to jump to.
+                     -- A sandbox wake is in no conversation to jump to.
                      AND i.origin IS DISTINCT FROM 'sandbox'
                      AND COALESCE(m.text, i.text) ILIKE ${pattern} ESCAPE '\'
                    UNION ALL

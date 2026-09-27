@@ -93,13 +93,15 @@ fn a_sub_agents_usage_is_not_billed_to_this_turn() {
     p.absorb(turn_completed_on("thread-A", "completed"));
 
     let events = drain(&mut p);
-    let usage = sources(&events)
+    let totals = events
         .iter()
-        .find(|s| s.block_json()["type"] == "turn_result")
-        .and_then(|s| s.usage.clone())
-        .expect("usage");
-    assert_eq!(usage["input_tokens"], 600);
-    assert_eq!(usage["output_tokens"], 30);
+        .find_map(|e| match e {
+            ProcessEvent::RunTotals(t) => Some(t),
+            _ => None,
+        })
+        .expect("run totals");
+    assert_eq!(totals.input_tokens, 600);
+    assert_eq!(totals.output_tokens, 30);
     assert!(
         !events
             .iter()

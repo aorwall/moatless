@@ -27,13 +27,6 @@ impl MessageSubType {
     }
 }
 
-/// `user_type` on a `user` row the sandbox wrote to wake its own agent — a
-/// finished background command, a `ScheduleWakeup` prompt, a restart note.
-///
-/// Nobody said it, so no conversation shows it; the recovery reads and the
-/// running state still count it as a `user` row.
-pub const HARNESS_USER_TYPE: &str = "harness";
-
 crate::string_enum!(
     /// Type of task message.
     MessageType {
