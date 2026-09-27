@@ -327,12 +327,39 @@ SELECT pg_temp.legacy_uuid(a.activity_id), a.task_id, o.position, a.ordinal,
   FROM task_activities a
   JOIN frozen_order o ON o.what = 'activity' AND o.legacy_id = a.activity_id;
 
+-- The Task's own responses come from its assistant Messages, one per response
+-- id at its largest snapshot. Deliberately not `task_message_usage` for them:
+-- it keys a Codex response by a line no Message carries and counts its cached
+-- input inside `input_tokens`, and holds no Claude response at all.
+INSERT INTO conversation_usage
+    (message_uuid, task_id, parent_tool_use_id, input_tokens, output_tokens,
+     cache_creation_input_tokens, cache_read_input_tokens)
+SELECT DISTINCT ON (m.task_id, COALESCE(m.assistant_message_id, m.uuid))
+       pg_temp.legacy_uuid(m.uuid), m.task_id, NULL,
+       COALESCE(m.assistant_usage_input_tokens, 0),
+       COALESCE(m.assistant_usage_output_tokens, 0),
+       COALESCE(m.assistant_usage_cache_creation_input_tokens, 0),
+       COALESCE(m.assistant_usage_cache_read_input_tokens, 0)
+  FROM task_messages m
+  JOIN frozen_order o ON o.what = 'message' AND o.legacy_id = m.uuid
+ WHERE m.message_type = 'assistant' AND m.parent_uuid IS NULL
+   AND COALESCE(m.assistant_usage_input_tokens, 0) + COALESCE(m.assistant_usage_output_tokens, 0)
+     + COALESCE(m.assistant_usage_cache_creation_input_tokens, 0)
+     + COALESCE(m.assistant_usage_cache_read_input_tokens, 0) > 0
+ ORDER BY m.task_id, COALESCE(m.assistant_message_id, m.uuid),
+          COALESCE(m.assistant_usage_input_tokens, 0) + COALESCE(m.assistant_usage_output_tokens, 0)
+        + COALESCE(m.assistant_usage_cache_creation_input_tokens, 0)
+        + COALESCE(m.assistant_usage_cache_read_input_tokens, 0) DESC,
+          m.created_at
+    ON CONFLICT DO NOTHING;
+
 INSERT INTO conversation_usage
     (message_uuid, task_id, parent_tool_use_id, input_tokens, output_tokens,
      cache_creation_input_tokens, cache_read_input_tokens)
 SELECT pg_temp.legacy_uuid(u.message_uuid), u.task_id, u.parent_uuid, u.input_tokens,
        u.output_tokens, u.cache_creation_input_tokens, u.cache_read_input_tokens
   FROM task_message_usage u
+ WHERE u.parent_uuid IS NOT NULL
     ON CONFLICT DO NOTHING;
 
 UPDATE feedback SET message_uuid = pg_temp.legacy_uuid(message_uuid)::text

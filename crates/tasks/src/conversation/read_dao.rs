@@ -307,7 +307,7 @@ pub(crate) async fn response_usage(
                   LIMIT 1) r ON true
             WHERE u.task_id = $1 AND u.parent_tool_use_id IS NULL
               AND (u.trajectory_event_id IS NULL OR s.parent_event_id IS NULL)
-            ORDER BY 3, e.seq"#,
+            ORDER BY 3, e.seq, m.position"#,
     )
     .bind(task_id)
     .fetch_all(pool)
