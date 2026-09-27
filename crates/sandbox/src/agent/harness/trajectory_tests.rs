@@ -662,6 +662,186 @@ fn an_unanswered_call_is_not_rendered() {
     assert!(ClaudeSessionFormat.render(&items, &ctx).is_empty());
 }
 
+/// A call and its result, rendered by `to`.
+fn render_call(to: &dyn SessionFormat, name: &str, input: Value) -> Vec<Value> {
+    let items = vec![
+        EventContent {
+            role: Some(Role::Assistant),
+            blocks: vec![CanonicalContentBlock::ToolUse {
+                id: "c1".into(),
+                name: name.into(),
+                input,
+            }],
+            ..EventContent::default()
+        },
+        EventContent {
+            role: Some(Role::User),
+            blocks: vec![CanonicalContentBlock::ToolResult {
+                tool_use_id: "c1".into(),
+                content: Some(Value::from("done")),
+                is_error: None,
+            }],
+            ..EventContent::default()
+        },
+    ];
+    let ctx = RenderContext {
+        harness_session_id: "s",
+        cwd: Path::new("/w"),
+        model: None,
+        prior: &["{}"],
+        timestamp: "t",
+    };
+    to.render(&items, &ctx)
+        .iter()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+
+/// The Claude tool call `(name, input)` rendered for a Codex one, or `None`
+/// when it is described in text.
+fn as_claude(name: &str, input: Value) -> Option<(String, Value)> {
+    let call = &render_call(&ClaudeSessionFormat, name, input)[0]["message"]["content"][0];
+    (call["type"] == "tool_use")
+        .then(|| (call["name"].as_str().unwrap().into(), call["input"].clone()))
+}
+
+/// The Codex call `(name, arguments or input)` rendered for a Claude one.
+fn as_codex(name: &str, input: Value) -> (String, Value) {
+    let call = &render_call(&CodexSessionFormat, name, input)[0]["payload"];
+    let body = call
+        .get("arguments")
+        .unwrap_or(&call["input"])
+        .as_str()
+        .unwrap();
+    let body = serde_json::from_str(body).unwrap_or_else(|_| Value::from(body));
+    (call["name"].as_str().unwrap().into(), body)
+}
+
+#[test]
+fn a_code_mode_exec_of_one_command_renders_as_bash() {
+    let scripts: Vec<Value> = read_all(&CodexSessionFormat, CODEX)
+        .into_iter()
+        .flat_map(|line| line.content.blocks)
+        .filter_map(|b| match b {
+            CanonicalContentBlock::ToolUse { name, input, .. } if name == "exec" => Some(input),
+            _ => None,
+        })
+        .collect();
+    let rendered: Vec<_> = scripts
+        .into_iter()
+        .map(|script| as_claude("exec", script))
+        .collect();
+
+    assert_eq!(
+        rendered,
+        [
+            Some((
+                "Bash".into(),
+                serde_json::json!({"command": "echo 1572 > c.txt"})
+            )),
+            Some((
+                "Bash".into(),
+                serde_json::json!({"command": "sleep 60 && echo done"})
+            )),
+            None,
+        ]
+    );
+    let two = "await tools.exec_command({cmd:\"a\"}); await tools.exec_command({cmd:\"b\"});";
+    assert_eq!(as_claude("exec", serde_json::json!(two)), None);
+}
+
+#[test]
+fn a_codex_patch_of_one_file_renders_as_write_or_edit() {
+    let add = "*** Begin Patch\n*** Add File: a.txt\n+one\n+two\n*** End Patch\n";
+    assert_eq!(
+        as_claude("apply_patch", serde_json::json!(add)),
+        Some((
+            "Write".into(),
+            serde_json::json!({"file_path": "/w/a.txt", "content": "one\ntwo\n"})
+        ))
+    );
+    let update = "*** Begin Patch\n*** Update File: /abs/a.rs\n@@ fn main\n keep\n-old\n+new\n\n*** End of File\n*** End Patch";
+    assert_eq!(
+        as_claude("apply_patch", serde_json::json!({"input": update})),
+        Some((
+            "Edit".into(),
+            serde_json::json!({"file_path": "/abs/a.rs", "old_string": "keep\nold\n", "new_string": "keep\nnew\n"})
+        ))
+    );
+    for described in [
+        "*** Begin Patch\n*** Update File: a\n@@\n-a\n+b\n@@\n-c\n+d\n*** End Patch\n",
+        "*** Begin Patch\n*** Update File: a\n*** Move to: b\n@@\n-a\n+b\n*** End Patch\n",
+        "*** Begin Patch\n*** Delete File: a\n*** End Patch\n",
+        "*** Begin Patch\n*** Add File: a\n+a\n*** Add File: b\n+b\n*** End Patch\n",
+    ] {
+        assert_eq!(
+            as_claude("apply_patch", serde_json::json!(described)),
+            None,
+            "{described}"
+        );
+    }
+}
+
+#[test]
+fn claude_file_tools_render_as_codex_commands_and_patches() {
+    let cmd = |name: &str, input: Value| {
+        let (tool, args) = as_codex(name, input);
+        assert_eq!(tool, "exec_command");
+        args["cmd"].as_str().unwrap().to_string()
+    };
+    assert_eq!(
+        cmd("Read", serde_json::json!({"file_path": "/w/it's.rs"})),
+        r"cat -n '/w/it'\''s.rs'"
+    );
+    assert_eq!(
+        cmd(
+            "Read",
+            serde_json::json!({"file_path": "/w/a", "offset": 10, "limit": 5})
+        ),
+        "cat -n '/w/a' | sed -n '10,14p'"
+    );
+    assert_eq!(
+        cmd(
+            "Grep",
+            serde_json::json!({"pattern": "fn (a|b)", "path": "src", "glob": "*.rs", "-i": true})
+        ),
+        "rg -l -i -g '*.rs' -e 'fn (a|b)' 'src'"
+    );
+    assert_eq!(
+        cmd(
+            "Grep",
+            serde_json::json!({"pattern": "x", "output_mode": "content", "-C": 2, "head_limit": 20})
+        ),
+        "rg -n -C 2 -e 'x' | head -n 20"
+    );
+    assert_eq!(
+        cmd("Glob", serde_json::json!({"pattern": "**/*.ts"})),
+        "rg --files -g '**/*.ts'"
+    );
+
+    let edits = serde_json::json!({"file_path": "/w/a", "edits": [
+        {"old_string": "a", "new_string": "b"},
+        {"old_string": "c", "new_string": "d"},
+    ]});
+    assert_eq!(
+        as_codex("MultiEdit", edits),
+        (
+            "apply_patch".into(),
+            serde_json::json!(
+                "*** Begin Patch\n*** Update File: /w/a\n@@\n-a\n+b\n@@\n-c\n+d\n*** End Patch\n"
+            )
+        )
+    );
+    let todos = serde_json::json!({"todos": [{"content": "Build", "status": "in_progress", "activeForm": "Building"}]});
+    assert_eq!(
+        as_codex("TodoWrite", todos),
+        (
+            "update_plan".into(),
+            serde_json::json!({"plan": [{"step": "Build", "status": "in_progress"}]})
+        )
+    );
+}
+
 #[test]
 fn content_json_reads_back() {
     let line = CodexSessionFormat.read_line(CODEX_RECORDED.lines().nth(5).unwrap());

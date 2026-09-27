@@ -1311,12 +1311,12 @@ async fn codex_resumes_its_own_rollout_with_rendered_lines_appended() {
     );
 }
 
-/// Claude's `Read` and Codex's `apply_patch` have no counterpart, so each
-/// becomes a described call. The test writes 4471 into that call's result,
-/// and nowhere else, so only the description can supply it.
+/// Claude's `Read` becomes a Codex `exec_command`, and Codex's `apply_patch`
+/// a Claude `Edit`. The test writes 4471 into that call's result, and nowhere
+/// else, so only the mapped call's result can supply it.
 #[tokio::test]
 #[ignore = "runs real Claude Code and Codex; needs TRAJECTORY_E2E=1"]
-async fn transcoded_tool_call_is_described() {
+async fn transcoded_tool_call_result_is_seen() {
     let (Some(claude), Some(codex)) = (RealEnv::claude(), RealEnv::codex()) else {
         return;
     };
@@ -1324,18 +1324,15 @@ async fn transcoded_tool_call_is_described() {
 
     let fixture = with_result_marker(
         CODEX_FROM_CLAUDE,
-        r"It returned:\n1\tPERIWINKLE",
-        r"It returned:\n1\tPERIWINKLE\n2\tchecksum 4471",
+        r#""output":"1\tPERIWINKLE""#,
+        r#""output":"1\tPERIWINKLE\n2\tchecksum 4471""#,
     );
     let session = codex.install_transcoded(&fixture);
-    let mut task = codex.task("described", &backend).resuming(session);
+    let mut task = codex.task("mapped", &backend).resuming(session);
     let answer = task
         .turn("Without using any tools: when release.txt was read earlier in this conversation, what did its second line say? Reply in one sentence.")
         .await;
-    assert!(
-        answer.contains("4471"),
-        "the described Read result: {answer}"
-    );
+    assert!(answer.contains("4471"), "the mapped Read result: {answer}");
 
     let fixture = with_result_marker(
         CLAUDE_FROM_CODEX,
@@ -1343,13 +1340,67 @@ async fn transcoded_tool_call_is_described() {
         "Wall time: 4471 seconds",
     );
     let session = claude.install_transcoded(&fixture);
-    let mut task = claude.task("described", &backend).resuming(session);
+    let mut task = claude.task("mapped", &backend).resuming(session);
     let answer = task
-        .turn("Without using any tools: what wall time did the apply_patch call earlier in this conversation report? Reply in one sentence.")
+        .turn("Without using any tools: what wall time did the edit of release.txt earlier in this conversation report? Reply in one sentence.")
         .await;
     assert!(
         answer.contains("4471"),
-        "the described apply_patch result: {answer}"
+        "the mapped apply_patch result: {answer}"
+    );
+}
+
+/// A call the other harness has no tool for becomes a described call, whose
+/// text alone carries its result.
+#[tokio::test]
+#[ignore = "runs real Codex; needs TRAJECTORY_E2E=1"]
+async fn transcoded_tool_call_is_described() {
+    let Some(codex) = RealEnv::codex() else {
+        return;
+    };
+    let prior: Vec<&str> = CODEX_FROM_CLAUDE.lines().collect();
+    let items = [
+        EventContent {
+            role: Some(Role::Assistant),
+            blocks: vec![CanonicalContentBlock::ToolUse {
+                id: "toolu_fetch".into(),
+                name: "WebFetch".into(),
+                input: serde_json::json!({"url": "https://example.com/build"}),
+            }],
+            ..EventContent::default()
+        },
+        EventContent {
+            role: Some(Role::User),
+            blocks: vec![CanonicalContentBlock::ToolResult {
+                tool_use_id: "toolu_fetch".into(),
+                content: Some(Value::from("The page says the build code is 4471.")),
+                is_error: None,
+            }],
+            ..EventContent::default()
+        },
+    ];
+    let rendered = CodexSessionFormat.render(
+        &items,
+        &RenderContext {
+            harness_session_id: "{{SESSION_ID}}",
+            cwd: Path::new("{{CWD}}"),
+            model: None,
+            prior: &prior,
+            timestamp: "2026-09-26T16:09:00.000Z",
+        },
+    );
+    assert!(rendered[0].contains("Tool call `WebFetch`"), "{rendered:?}");
+    let body = format!("{}{}\n", CODEX_FROM_CLAUDE, rendered.join("\n"));
+
+    let backend = Arc::new(MemoryTrajectoryBackend::default());
+    let session = codex.install_transcoded(&body);
+    let mut task = codex.task("described", &backend).resuming(session);
+    let answer = task
+        .turn("Without using any tools: what build code did the web page fetched earlier in this conversation give? Reply in one sentence.")
+        .await;
+    assert!(
+        answer.contains("4471"),
+        "the described WebFetch result: {answer}"
     );
 }
 

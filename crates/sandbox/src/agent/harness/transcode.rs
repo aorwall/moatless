@@ -120,43 +120,127 @@ fn prefixed(text: &str, sign: char) -> String {
     })
 }
 
+/// `text` single-quoted for a POSIX shell.
+fn quoted(text: &str) -> String {
+    format!("'{}'", text.replace('\'', r"'\''"))
+}
+
+fn hunk(old: &str, new: &str) -> String {
+    format!("@@\n{}{}", prefixed(old, '-'), prefixed(new, '+'))
+}
+
+/// The shell command standing for a Claude `Read`, `Grep` or `Glob`.
+fn claude_search(name: &str, input: &Value) -> Option<String> {
+    let field = |key: &str| input.get(key).and_then(Value::as_str);
+    let number = |key: &str| input.get(key).and_then(Value::as_u64);
+    let path = || {
+        field("path")
+            .map(|p| format!(" {}", quoted(p)))
+            .unwrap_or_default()
+    };
+    match name {
+        "Read" => {
+            let file = quoted(field("file_path")?);
+            Some(match (number("offset"), number("limit")) {
+                (None, None) => format!("cat -n {file}"),
+                (offset, limit) => {
+                    let first = offset.unwrap_or(1).max(1);
+                    let last = limit.map_or("$".to_string(), |l| (first + l - 1).to_string());
+                    format!("cat -n {file} | sed -n '{first},{last}p'")
+                }
+            })
+        }
+        "Grep" => {
+            let mut cmd = String::from("rg");
+            cmd += match field("output_mode") {
+                Some("content") => " -n",
+                Some("count") => " -c",
+                _ => " -l",
+            };
+            if input.get("-i").and_then(Value::as_bool) == Some(true) {
+                cmd += " -i";
+            }
+            if input.get("multiline").and_then(Value::as_bool) == Some(true) {
+                cmd += " -U --multiline-dotall";
+            }
+            for flag in ["-A", "-B", "-C"] {
+                if let Some(n) = number(flag) {
+                    let _ = write!(cmd, " {flag} {n}");
+                }
+            }
+            if let Some(glob) = field("glob") {
+                let _ = write!(cmd, " -g {}", quoted(glob));
+            }
+            if let Some(kind) = field("type") {
+                let _ = write!(cmd, " -t {}", quoted(kind));
+            }
+            let _ = write!(cmd, " -e {}{}", quoted(field("pattern")?), path());
+            if let Some(n) = number("head_limit") {
+                let _ = write!(cmd, " | head -n {n}");
+            }
+            Some(cmd)
+        }
+        "Glob" => Some(format!(
+            "rg --files -g {}{}",
+            quoted(field("pattern")?),
+            path()
+        )),
+        _ => None,
+    }
+}
+
 /// A Codex call for a Claude one: `(custom, name, arguments or input)`.
 fn codex_call(name: &str, input: &Value) -> Option<(bool, &'static str, String)> {
     let field = |key: &str| input.get(key).and_then(Value::as_str);
+    let patch = |op: &str, body: String| {
+        Some((
+            true,
+            "apply_patch",
+            format!(
+                "*** Begin Patch\n*** {op}: {}\n{body}*** End Patch\n",
+                field("file_path")?
+            ),
+        ))
+    };
     match name {
         "Bash" => Some((
             false,
             "exec_command",
             json!({ "cmd": field("command")? }).to_string(),
         )),
-        "Write" => Some((
-            true,
-            "apply_patch",
-            format!(
-                "*** Begin Patch\n*** Add File: {}\n{}*** End Patch\n",
-                field("file_path")?,
-                prefixed(field("content")?, '+')
-            ),
+        "Read" | "Grep" | "Glob" => Some((
+            false,
+            "exec_command",
+            json!({ "cmd": claude_search(name, input)? }).to_string(),
         )),
-        "Edit" => Some((
-            true,
-            "apply_patch",
-            format!(
-                "*** Begin Patch\n*** Update File: {}\n@@\n{}{}*** End Patch\n",
-                field("file_path")?,
-                prefixed(field("old_string")?, '-'),
-                prefixed(field("new_string")?, '+')
-            ),
-        )),
+        "Write" => patch("Add File", prefixed(field("content")?, '+')),
+        "Edit" => patch(
+            "Update File",
+            hunk(field("old_string")?, field("new_string")?),
+        ),
+        "MultiEdit" => {
+            let edits = input.get("edits")?.as_array()?;
+            let hunks = edits.iter().map(|edit| {
+                let text = |key: &str| edit.get(key).and_then(Value::as_str);
+                Some(hunk(text("old_string")?, text("new_string")?))
+            });
+            patch("Update File", hunks.collect::<Option<String>>()?)
+        }
+        "TodoWrite" => {
+            let todos = input.get("todos")?.as_array()?;
+            let plan = todos.iter().map(|todo| {
+                let text = |key: &str| todo.get(key).and_then(Value::as_str);
+                Some(json!({"step": text("content")?, "status": text("status")?}))
+            });
+            let plan = plan.collect::<Option<Vec<_>>>()?;
+            Some((false, "update_plan", json!({ "plan": plan }).to_string()))
+        }
         _ => None,
     }
 }
 
-/// A Claude `Bash` command for a Codex shell call.
-fn claude_command(name: &str, input: &Value) -> Option<String> {
-    if !matches!(name, "exec_command" | "shell" | "local_shell") {
-        return None;
-    }
+/// The command of a Codex shell call.
+fn codex_command(input: &Value) -> Option<String> {
     let cmd = input
         .get("cmd")
         .filter(|c| !c.is_null() && c.as_str() != Some(""))
@@ -172,6 +256,89 @@ fn claude_command(name: &str, input: &Value) -> Option<String> {
         }
         _ => None,
     }
+}
+
+/// The command of a code-mode `exec` script that makes one
+/// `tools.exec_command` call with a double-quoted `cmd`; `None` for any other
+/// script.
+fn code_mode_command(script: &str) -> Option<String> {
+    if script.matches("tools.").count() != 1 {
+        return None;
+    }
+    let call = &script[script.find("tools.exec_command(")?..];
+    let value = call[call.find("cmd")?..]
+        .trim_start_matches("cmd")
+        .trim_start_matches('"')
+        .trim_start()
+        .strip_prefix(':')?
+        .trim_start();
+    serde_json::Deserializer::from_str(value)
+        .into_iter::<String>()
+        .next()?
+        .ok()
+}
+
+/// A Claude `Write` or `Edit` input for a Codex patch that adds one file, or
+/// changes one with a single hunk; `None` for any other patch.
+fn patch_edit(patch: &str, cwd: &Path) -> Option<(&'static str, Value)> {
+    let mut lines = patch
+        .strip_prefix("*** Begin Patch\n")?
+        .trim_end()
+        .strip_suffix("*** End Patch")?
+        .lines();
+    let header = lines.next()?;
+    let body: Vec<&str> = lines.filter(|l| *l != "*** End of File").collect();
+    let file = |path: &str| cwd.join(path).to_string_lossy().into_owned();
+    if let Some(path) = header.strip_prefix("*** Add File: ") {
+        let content = body.iter().try_fold(String::new(), |mut out, l| {
+            let _ = writeln!(out, "{}", l.strip_prefix('+')?);
+            Some(out)
+        })?;
+        return Some((
+            "Write",
+            json!({"file_path": file(path), "content": content}),
+        ));
+    }
+    let path = header.strip_prefix("*** Update File: ")?;
+    let (first, rest) = body.split_first()?;
+    if !first.starts_with("@@")
+        || rest
+            .iter()
+            .any(|l| l.starts_with("@@") || l.starts_with("***"))
+    {
+        return None;
+    }
+    let (mut old, mut new) = (Vec::new(), Vec::new());
+    for line in rest {
+        let mut chars = line.chars();
+        match (chars.next(), chars.as_str()) {
+            (None | Some(' '), text) => {
+                old.push(text);
+                new.push(text);
+            }
+            (Some('-'), text) => old.push(text),
+            (Some('+'), text) => new.push(text),
+            _ => return None,
+        }
+    }
+    Some((
+        "Edit",
+        json!({"file_path": file(path), "old_string": old.join("\n"), "new_string": new.join("\n")}),
+    ))
+}
+
+/// A Claude call for a Codex one: `(name, input)`.
+fn claude_call(name: &str, input: &Value, cwd: &Path) -> Option<(&'static str, Value)> {
+    let command = match name {
+        "exec_command" | "shell" | "local_shell" => codex_command(input)?,
+        "exec" => code_mode_command(input.as_str()?)?,
+        "apply_patch" => {
+            let patch = input.as_str().or_else(|| input.get("input")?.as_str())?;
+            return patch_edit(patch, cwd);
+        }
+        _ => return None,
+    };
+    Some(("Bash", json!({ "command": command })))
 }
 
 /// `items` as Codex rollout lines.
@@ -304,11 +471,8 @@ pub(super) fn render_claude(items: &[EventContent], ctx: &RenderContext<'_>) -> 
                     line(Role::Assistant, json!([{"type": "text", "text": text}]));
                 }
                 CanonicalContentBlock::ToolUse { id, name, input } => {
-                    let content = if let Some(command) = claude_command(name, input) {
-                        json!([{
-                            "type": "tool_use", "id": id, "name": "Bash",
-                            "input": {"command": command},
-                        }])
+                    let content = if let Some((name, input)) = claude_call(name, input, ctx.cwd) {
+                        json!([{"type": "tool_use", "id": id, "name": name, "input": input}])
                     } else {
                         described_calls.insert(id.as_str());
                         let text = described(name, input, results[id].as_ref());
