@@ -161,12 +161,18 @@ fn turns<'a>(
         });
     }
 
+    // A fork writes its inherited rows with one `created_at`, so ties fall back
+    // to the turn's own position rather than leaving it to the sort's input.
     turns.sort_by(|a, b| {
         a.key.cmp(&b.key).then_with(|| {
             let position = |turn: &Turn<'_>| {
-                turn.activities
-                    .first()
-                    .map_or(i64::MAX, |activity| activity.position)
+                turn.activities.first().map_or_else(
+                    || {
+                        turn.message
+                            .map_or(i64::MAX, |message| i64::from(message.id))
+                    },
+                    |activity| activity.position,
+                )
             };
             position(a).cmp(&position(b))
         })
@@ -1240,6 +1246,53 @@ mod tests {
             created_at: chrono::DateTime::from_timestamp(1_735_689_600 + position, 0)
                 .expect("valid ts"),
         }
+    }
+
+    #[test]
+    fn turns_sharing_a_timestamp_render_in_position_order() {
+        let mut messages = vec![
+            make_msg(
+                1,
+                "u1",
+                MessageType::User,
+                MessageRole::User,
+                Some(1),
+                "first",
+            ),
+            make_msg(
+                3,
+                "a1",
+                MessageType::Assistant,
+                MessageRole::Assistant,
+                Some(1),
+                "OK",
+            ),
+            make_msg(
+                4,
+                "u2",
+                MessageType::User,
+                MessageRole::User,
+                Some(2),
+                "second",
+            ),
+            make_msg(
+                6,
+                "a2",
+                MessageType::Assistant,
+                MessageRole::Assistant,
+                Some(2),
+                "OK 2",
+            ),
+        ];
+        for message in &mut messages {
+            message.timestamp = "2025-01-01T00:00:00.000Z".into();
+        }
+        let mut activity = call("a2", 5, "t1", "Bash");
+        activity.created_at = chrono::DateTime::from_timestamp(1_735_689_600, 0).expect("valid ts");
+
+        let ui = transform_to_ui(&messages, &[], &[activity]);
+        let uuids: Vec<_> = ui.iter().map(|m| m.uuid.as_str()).collect();
+        assert_eq!(uuids, vec!["u1", "a1", "u2", "a2"]);
     }
 
     #[test]
