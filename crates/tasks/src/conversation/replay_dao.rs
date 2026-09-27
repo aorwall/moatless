@@ -79,6 +79,68 @@ pub(crate) async fn lineage_lines(
     .await
 }
 
+/// A frozen row a fork copies: a Message, or an activity and the Message it
+/// is on.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub(crate) struct FrozenRow {
+    pub id: Uuid,
+    pub message: bool,
+    pub message_uuid: Option<Uuid>,
+    pub parent_tool_use_id: Option<String>,
+    pub position: i64,
+}
+
+/// `task_id`'s frozen rows through `turn` and at or before `cut_at`, in
+/// position order: its Messages, and the activities on them or on none. An
+/// activity sorts after the Message sharing its position.
+pub(crate) async fn frozen_rows(
+    tx: &mut PgConnection,
+    task_id: &str,
+    turn: Option<i32>,
+    cut_at: DateTime<Utc>,
+) -> Result<Vec<FrozenRow>, sqlx::Error> {
+    sqlx::query_as(
+        r#"WITH m AS (
+               SELECT uuid, parent_tool_use_id, position FROM conversation_messages
+                WHERE task_id = $1 AND frozen AND created_at <= $3
+                  AND (turn_number IS NULL OR $2::int IS NULL OR turn_number <= $2)
+           )
+           SELECT id, message, message_uuid, parent_tool_use_id, position FROM (
+               SELECT uuid AS id, true AS message, NULL::uuid AS message_uuid,
+                      parent_tool_use_id, position, 0 AS ordinal
+                 FROM m
+               UNION ALL
+               SELECT a.activity_id, false, a.message_uuid, a.parent_tool_use_id, a.position,
+                      a.ordinal
+                 FROM conversation_activities a
+                WHERE a.task_id = $1 AND a.frozen AND a.created_at <= $3
+                  AND (a.message_uuid IN (SELECT uuid FROM m) OR NOT EXISTS (
+                          SELECT 1 FROM conversation_messages x WHERE x.uuid = a.message_uuid))
+           ) rows
+           ORDER BY position, message DESC, ordinal, id"#,
+    )
+    .bind(task_id)
+    .bind(turn)
+    .bind(cut_at)
+    .fetch_all(tx)
+    .await
+}
+
+/// The Message ids `task_id`'s frozen usage rows name that no Message holds.
+pub(crate) async fn orphan_frozen_usage(
+    tx: &mut PgConnection,
+    task_id: &str,
+) -> Result<Vec<Uuid>, sqlx::Error> {
+    sqlx::query_scalar(
+        r#"SELECT u.message_uuid FROM conversation_usage u
+            WHERE u.task_id = $1 AND u.message_uuid IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM conversation_messages m WHERE m.uuid = u.message_uuid)"#,
+    )
+    .bind(task_id)
+    .fetch_all(tx)
+    .await
+}
+
 /// The sessions `ids` name.
 pub(crate) async fn sessions(
     tx: &mut PgConnection,

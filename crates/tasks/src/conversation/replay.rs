@@ -8,6 +8,10 @@ use moatless_core::db::DbPool;
 use sqlx::PgConnection;
 use uuid::Uuid;
 
+use moatless_core::change_feed::conversation::{record_activity_change, record_message_change};
+
+use super::dao::FrozenCopy;
+use super::ids;
 use super::projector::{EventSource, Line, Projector};
 use super::replay_dao::{self, ReplayEvent, ReplayLine};
 use crate::inbox::InboxItem;
@@ -20,6 +24,12 @@ enum Step {
     Item(Box<InboxItem>),
     Line(ReplayLine),
     Event(ReplayEvent),
+    /// A frozen ancestor's history through its cut, which no source replays.
+    Frozen {
+        ancestor: String,
+        turn: Option<i32>,
+        cut_at: DateTime<Utc>,
+    },
 }
 
 impl Step {
@@ -28,13 +38,15 @@ impl Step {
             Self::Item(item) => item.created_at,
             Self::Line(line) => line.created_at,
             Self::Event(event) => event.created_at,
+            Self::Frozen { .. } => DateTime::<Utc>::MIN_UTC,
         }
     }
 }
 
 impl Projector {
     /// Projects a fork's inherited conversation from each ancestor's sources up
-    /// to its cut (4.9a), and writes the fork's closed cut turn. Runs before
+    /// to its cut (4.9a), a frozen ancestor's copied rows before them, and
+    /// writes the fork's closed cut turn. Runs before
     /// the fork's Task row exists, so it records no listing change.
     pub(crate) async fn inherit(
         &self,
@@ -145,8 +157,61 @@ impl Projector {
                 };
                 self.project_event(tx, task_id, &source).await
             }
+            Step::Frozen {
+                ancestor,
+                turn,
+                cut_at,
+            } => copy_frozen(tx, task_id, ancestor, *turn, *cut_at).await,
         }
     }
+}
+
+/// Copies `ancestor`'s frozen rows through the cut onto `task_id`, each top
+/// level one at a new position in their order. A fork that holds them, as a
+/// rebuild keeps them, copies none.
+async fn copy_frozen(
+    tx: &mut PgConnection,
+    task_id: &str,
+    ancestor: &str,
+    turn: Option<i32>,
+    cut_at: DateTime<Utc>,
+) -> Result<(), sqlx::Error> {
+    if super::dao::holds_frozen(&mut *tx, task_id).await? {
+        return Ok(());
+    }
+    let message_id = |from: Uuid| ids::message(task_id, &format!("frozen:{from}"));
+    let mut messages = Vec::new();
+    let mut activities = Vec::new();
+    for row in replay_dao::frozen_rows(&mut *tx, ancestor, turn, cut_at).await? {
+        let to = if row.message {
+            message_id(row.id)
+        } else {
+            ids::activity(&ids::scope(task_id, &format!("frozen:{}", row.id)))
+        };
+        let position = match (&row.parent_tool_use_id, row.message) {
+            (Some(_), _) => row.position,
+            (None, true) => record_message_change(&mut *tx, task_id, &to.to_string()).await?,
+            (None, false) => record_activity_change(&mut *tx, task_id, &to.to_string()).await?,
+        };
+        let copy = FrozenCopy {
+            from: row.id,
+            to,
+            position,
+            message: row.message_uuid.map(message_id),
+        };
+        if row.message {
+            messages.push(copy);
+        } else {
+            activities.push(copy);
+        }
+    }
+    let usage: Vec<(Uuid, Uuid)> = messages
+        .iter()
+        .map(|copy| copy.from)
+        .chain(replay_dao::orphan_frozen_usage(&mut *tx, ancestor).await?)
+        .map(|from| (from, message_id(from)))
+        .collect();
+    super::dao::copy_frozen(tx, task_id, ancestor, &messages, &activities, &usage).await
 }
 
 async fn load_sessions(
@@ -183,6 +248,7 @@ async fn ancestor_steps(
     }
     let mut steps = Vec::new();
     for (ancestor, lines) in segments {
+        let frozen_at = replay_dao::frozen_at(&mut *tx, &ancestor).await?;
         let cut = lines.iter().rev().find(|line| !line.subagent);
         let cut_at = cut.map_or_else(Utc::now, |line| line.created_at);
         let turn = cut.and_then(|line| line.turn_number).or_else(|| {
@@ -191,10 +257,22 @@ async fn ancestor_steps(
                 .rev()
                 .find_map(|line| line.turn_number.filter(|_| !line.subagent))
         });
-        let mut segment: Vec<Step> = lines.into_iter().map(Step::Line).collect();
+        // A frozen ancestor's sources up to the freeze are its frozen rows.
+        let mut segment: Vec<Step> = lines
+            .into_iter()
+            .filter(|line| frozen_at.is_none_or(|frozen| line.created_at > frozen))
+            .map(Step::Line)
+            .collect();
+        if frozen_at.is_some() {
+            segment.push(Step::Frozen {
+                ancestor: ancestor.clone(),
+                turn,
+                cut_at,
+            });
+        }
         if let Some(turn) = turn {
             segment.extend(
-                replay_dao::inbox_items(&mut *tx, &ancestor, Some((turn, cut_at)), None)
+                replay_dao::inbox_items(&mut *tx, &ancestor, Some((turn, cut_at)), frozen_at)
                     .await?
                     .into_iter()
                     .map(|item| Step::Item(Box::new(item))),
@@ -205,7 +283,7 @@ async fn ancestor_steps(
                 &mut *tx,
                 &ancestor,
                 Some((turn.unwrap_or(i32::MIN), cut_at)),
-                None,
+                frozen_at,
             )
             .await?
             .into_iter()

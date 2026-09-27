@@ -471,6 +471,102 @@ pub(crate) async fn delete_projected(
     Ok(deleted)
 }
 
+/// A frozen row's copy into a fork: the row it copies, its id and position
+/// there, and for an activity the copied Message it is on.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct FrozenCopy {
+    pub from: Uuid,
+    pub to: Uuid,
+    pub position: i64,
+    pub message: Option<Uuid>,
+}
+
+/// Copies `source_task_id`'s frozen `messages` and `activities` into
+/// `fork_task_id`, still frozen, and the usage rows naming a Message in
+/// `usage` (`from`, `to`). A copy already there is kept.
+pub(crate) async fn copy_frozen(
+    tx: &mut PgConnection,
+    fork_task_id: &str,
+    source_task_id: &str,
+    messages: &[FrozenCopy],
+    activities: &[FrozenCopy],
+    usage: &[(Uuid, Uuid)],
+) -> Result<(), sqlx::Error> {
+    let column = |rows: &[FrozenCopy], pick: fn(&FrozenCopy) -> Uuid| -> Vec<Uuid> {
+        rows.iter().map(pick).collect()
+    };
+    let positions = |rows: &[FrozenCopy]| -> Vec<i64> { rows.iter().map(|c| c.position).collect() };
+    sqlx::query(
+        r#"INSERT INTO conversation_messages
+               (uuid, task_id, position, author, kind, text, text_parts, parent_tool_use_id,
+                turn_number, harness, model, usage, inbox_id, frozen, legacy, created_at)
+           SELECT c.to_id, $1, c.position, m.author, m.kind, m.text, m.text_parts,
+                  m.parent_tool_use_id, m.turn_number, m.harness, m.model, m.usage, m.inbox_id,
+                  true, m.legacy, m.created_at
+             FROM unnest($2::uuid[], $3::uuid[], $4::bigint[]) AS c(from_id, to_id, position)
+             JOIN conversation_messages m ON m.uuid = c.from_id AND m.task_id = $5
+           ON CONFLICT DO NOTHING"#,
+    )
+    .bind(fork_task_id)
+    .bind(column(messages, |c| c.from))
+    .bind(column(messages, |c| c.to))
+    .bind(positions(messages))
+    .bind(source_task_id)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        r#"INSERT INTO conversation_activities
+               (activity_id, task_id, position, ordinal, message_uuid, parent_tool_use_id, kind,
+                status, tool_use_id, summary, payload, detail, is_error, frozen, created_at)
+           SELECT c.to_id, $1, c.position, a.ordinal, c.message_uuid, a.parent_tool_use_id,
+                  a.kind, a.status, a.tool_use_id, a.summary, a.payload, a.detail, a.is_error,
+                  true, a.created_at
+             FROM unnest($2::uuid[], $3::uuid[], $4::bigint[], $5::uuid[])
+                  AS c(from_id, to_id, position, message_uuid)
+             JOIN conversation_activities a ON a.activity_id = c.from_id AND a.task_id = $6
+           ON CONFLICT DO NOTHING"#,
+    )
+    .bind(fork_task_id)
+    .bind(column(activities, |c| c.from))
+    .bind(column(activities, |c| c.to))
+    .bind(positions(activities))
+    .bind(activities.iter().map(|c| c.message).collect::<Vec<_>>())
+    .bind(source_task_id)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        r#"INSERT INTO conversation_usage
+               (message_uuid, task_id, parent_tool_use_id, input_tokens, output_tokens,
+                cache_creation_input_tokens, cache_read_input_tokens)
+           SELECT c.to_id, $1, u.parent_tool_use_id, u.input_tokens, u.output_tokens,
+                  u.cache_creation_input_tokens, u.cache_read_input_tokens
+             FROM unnest($2::uuid[], $3::uuid[]) AS c(from_id, to_id)
+             JOIN conversation_usage u ON u.message_uuid = c.from_id AND u.task_id = $4
+           ON CONFLICT DO NOTHING"#,
+    )
+    .bind(fork_task_id)
+    .bind(usage.iter().map(|(from, _)| *from).collect::<Vec<_>>())
+    .bind(usage.iter().map(|(_, to)| *to).collect::<Vec<_>>())
+    .bind(source_task_id)
+    .execute(&mut *tx)
+    .await?;
+    Ok(())
+}
+
+/// Whether `task_id` holds a frozen row.
+pub(crate) async fn holds_frozen(
+    tx: &mut PgConnection,
+    task_id: &str,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(
+        r#"SELECT EXISTS (SELECT 1 FROM conversation_messages WHERE task_id = $1 AND frozen)
+               OR EXISTS (SELECT 1 FROM conversation_activities WHERE task_id = $1 AND frozen)"#,
+    )
+    .bind(task_id)
+    .fetch_one(tx)
+    .await
+}
+
 /// Deletes a deleted Task's conversation, and its inbox items no other Task's
 /// conversation reads: a fork's inherited Message outlives its ancestor.
 pub(crate) async fn delete_task(tx: &mut PgConnection, task_id: &str) -> Result<(), sqlx::Error> {

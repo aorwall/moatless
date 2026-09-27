@@ -351,3 +351,97 @@ async fn a_frozen_call_settles_only_in_the_turn_open_at_the_freeze(pool: PgPool)
     settle().await;
     assert_eq!(status().await, "completed");
 }
+
+/// A fork of a Task upgraded from before recording shows the frozen history
+/// under ids of its own, then the recorded turns up to the cut; a rebuild
+/// keeps it as it was.
+#[sqlx::test]
+async fn a_fork_of_an_upgraded_task_shows_its_frozen_history(pool: PgPool) {
+    use crate::activities::mapping::{AdmittedUsage, BlockContext, map_content};
+    use crate::message::models::{MessageRole, MessageType};
+    use crate::message::test_support::{make_message_row, seed_message};
+
+    seed_bare_task(&pool, "a", "open").await;
+    let mut asked = make_message_row("a", "legacy-q");
+    asked.turn_number = Some(1);
+    asked.sent_by = Some("user-1".to_string());
+    asked.message_text = Some("legacy q".to_string());
+    let write = |uuid: &str, message_type, content: serde_json::Value| {
+        map_content(
+            BlockContext {
+                task_id: "a",
+                message_uuid: uuid,
+                parent_uuid: None,
+                message_type,
+                block_index: 0,
+                source: uuid,
+                source_block: 0,
+            },
+            &content,
+        )
+    };
+    seed_message(
+        &pool,
+        &asked,
+        &[],
+        &write("legacy-q", MessageType::User, json!("legacy q")),
+    )
+    .await
+    .unwrap();
+    let mut answered = make_message_row("a", "legacy-a");
+    answered.turn_number = Some(1);
+    answered.message_type = MessageType::Assistant;
+    answered.message_role = MessageRole::Assistant;
+    let mut answer = write(
+        "legacy-a",
+        MessageType::Assistant,
+        json!([
+            { "type": "text", "text": "legacy answer" },
+            { "type": "tool_use", "id": "tu-legacy", "name": "Bash", "input": {} }
+        ]),
+    );
+    answer.usage = Some(AdmittedUsage {
+        input_tokens: 10,
+        output_tokens: 20,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+    });
+    seed_message(&pool, &answered, &[], &answer).await.unwrap();
+    freeze(&pool, "a", None).await.unwrap();
+    let cut = run_turn(&pool, "a", "sa", 2, "new q").await;
+
+    fork(&pool, "a", "b", 2, cut).await;
+
+    let a = conversation(&pool, "a").await;
+    let b = conversation(&pool, "b").await;
+    assert_eq!(
+        texts(&b),
+        [
+            ("user", "legacy q"),
+            ("agent", "legacy answer"),
+            ("user", "new q"),
+            ("agent", "re: new q"),
+        ]
+    );
+    for id in uuids(&b) {
+        assert!(!uuids(&a).contains(&id), "{id} is also a's");
+    }
+    let activities = activity_ids(&pool, "b").await;
+    assert_eq!(
+        activities,
+        [(activities[0].0, Some(b[1].0), "tool_call".to_string())],
+        "the frozen call hangs on the fork's copy of its Message"
+    );
+    let usage: Vec<(Uuid, i32)> = sqlx::query_as(
+        "SELECT message_uuid, output_tokens FROM conversation_usage \
+         WHERE task_id = 'b' AND message_uuid IS NOT NULL",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(usage, [(b[1].0, 20)]);
+
+    rebuild(&pool, "b").await;
+    assert_eq!(conversation(&pool, "b").await, b);
+    assert_eq!(activity_ids(&pool, "b").await, activities);
+}
