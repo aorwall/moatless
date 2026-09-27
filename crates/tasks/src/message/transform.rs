@@ -48,10 +48,10 @@ impl RenderScope<'_> {
 /// One turn: what was said, and what happened on the way to saying it.
 ///
 /// Both halves are optional: a tool-only turn has no Message row, a person's
-/// turn has no activities. `key` orders the two kinds — the Message's own
-/// timestamp where there is one, else the first activity's.
+/// turn has no activities. `position` orders them: the earliest conversation
+/// position of the Message and its activities.
 struct Turn<'a> {
-    key: String,
+    position: i64,
     uuid: String,
     message: Option<&'a TaskMessage>,
     activities: Vec<&'a Activity>,
@@ -133,50 +133,38 @@ fn turns<'a>(
             continue;
         }
         claimed.insert(message.uuid.as_str());
+        let activities = by_uuid
+            .get(message.uuid.as_str())
+            .cloned()
+            .unwrap_or_default();
+        let first_activity = activities
+            .first()
+            .map_or(i64::MAX, |activity| activity.position);
         turns.push(Turn {
-            key: message.timestamp.clone(),
+            position: i64::from(message.id).min(first_activity),
             uuid: message.uuid.clone(),
             message: Some(message),
-            activities: by_uuid
-                .get(message.uuid.as_str())
-                .cloned()
-                .unwrap_or_default(),
+            activities,
         });
     }
 
-    // Turns that said nothing. They have no Message row to be found by, so they
-    // are ordered by when their first activity was recorded.
+    // Turns that said nothing: no Message row, so their first activity places them.
     for (message_uuid, group) in &by_uuid {
         if claimed.contains(message_uuid) {
             continue;
         }
         let Some(first) = group.first() else { continue };
         turns.push(Turn {
-            key: first
-                .created_at
-                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            position: first.position,
             uuid: (*message_uuid).to_string(),
             message: None,
             activities: group.clone(),
         });
     }
 
-    // A fork writes its inherited rows with one `created_at`, so ties fall back
-    // to the turn's own position rather than leaving it to the sort's input.
-    turns.sort_by(|a, b| {
-        a.key.cmp(&b.key).then_with(|| {
-            let position = |turn: &Turn<'_>| {
-                turn.activities.first().map_or_else(
-                    || {
-                        turn.message
-                            .map_or(i64::MAX, |message| i64::from(message.id))
-                    },
-                    |activity| activity.position,
-                )
-            };
-            position(a).cmp(&position(b))
-        })
-    });
+    // Deliberately position, never timestamp: an inherited user Message keeps
+    // its ancestor's inbox time while the fork's replayed rows carry the fork's.
+    turns.sort_by_key(|turn| turn.position);
     turns
 }
 
@@ -1241,15 +1229,13 @@ mod tests {
             }),
             detail: Some("ok".into()),
             is_error: false,
-            // 2025-01-01T00:00:00Z + `position`, so an activity's own key sorts
-            // against the `make_msg` timestamps rather than ahead of all of them.
             created_at: chrono::DateTime::from_timestamp(1_735_689_600 + position, 0)
                 .expect("valid ts"),
         }
     }
 
     #[test]
-    fn turns_sharing_a_timestamp_render_in_position_order() {
+    fn a_forks_inherited_turns_render_in_position_order() {
         let mut messages = vec![
             make_msg(
                 1,
@@ -1284,11 +1270,17 @@ mod tests {
                 "OK 2",
             ),
         ];
+        // As `assemble` stamps a fork: an inherited prompt keeps its ancestor's
+        // inbox time, a replayed agent row and activity carry the fork's.
         for message in &mut messages {
-            message.timestamp = "2025-01-01T00:00:00.000Z".into();
+            message.timestamp = if message.message_type == MessageType::User {
+                "2025-01-01T00:00:00.000Z".into()
+            } else {
+                "2025-06-01T00:00:00.000Z".into()
+            };
         }
         let mut activity = call("a2", 5, "t1", "Bash");
-        activity.created_at = chrono::DateTime::from_timestamp(1_735_689_600, 0).expect("valid ts");
+        activity.created_at = chrono::DateTime::from_timestamp(1_748_736_000, 0).expect("valid ts");
 
         let ui = transform_to_ui(&messages, &[], &[activity]);
         let uuids: Vec<_> = ui.iter().map(|m| m.uuid.as_str()).collect();
