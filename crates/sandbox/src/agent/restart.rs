@@ -41,10 +41,9 @@ pub(crate) async fn open_for_work(state: &SandboxState, workspace_origin: Worksp
     // health endpoint this flips, and that is the row that says the Sandbox is up.
     info!(task_id = %state.config.task_id, "Core init complete — health is now ready");
 
-    // Awaited, not detached: dispatch only fetches and submits, it does not block
-    // on the turn, so this stays the one authoritative startup dispatch. Per
-    // Member, never the task-less lookup: that resolves only a sole Member, so
-    // a shared pod would deliver nothing.
+    // Awaited, not detached, so this stays the one authoritative startup
+    // dispatch. Per Member, never the task-less lookup: that resolves only a
+    // sole Member, so a shared pod would deliver nothing.
     for context in state.task_contexts_snapshot().await {
         crate::agent::dispatcher::dispatch_pending_messages_for_task(
             state.clone(),
@@ -53,7 +52,13 @@ pub(crate) async fn open_for_work(state: &SandboxState, workspace_origin: Worksp
         .await;
     }
 
-    report_wake_notes(state, wake_notes, lost_commands).await;
+    // Detached: a wake waits on the dispatch lock that the turn above holds
+    // until the harness accepts it, and the harness waits for the workspace
+    // setup that runs after this returns. Awaiting it deadlocks init.
+    let state = state.clone();
+    crate::agent::dispatcher::spawn_supervised("startup-wake-notes", async move {
+        report_wake_notes(&state, wake_notes, lost_commands).await;
+    });
 }
 
 /// Reads and clears both copies of what a prior pod left unreported for one

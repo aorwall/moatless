@@ -169,7 +169,8 @@ pub(super) fn recording_state_with_config(
     recording_state_gated(config, phase, backend, SetupGate::opened())
 }
 
-fn recording_state_gated(
+/// Like [`recording_state_with_config`] but behind `setup_gate`.
+pub(super) fn recording_state_gated(
     config: Config,
     phase: InitPhase,
     backend: Arc<dyn BackendClient>,

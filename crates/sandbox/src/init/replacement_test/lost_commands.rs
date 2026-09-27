@@ -10,9 +10,11 @@
 use std::sync::Arc;
 
 use super::backend::ReplayBackend;
-use super::support::{recorded_inputs, recording_state_with_config, settled_inputs, tmp_config};
+use super::support::{
+    recorded_inputs, recording_state_gated, recording_state_with_config, settled_inputs, tmp_config,
+};
 use crate::commands::{CommandState, JournaledCommand, default_journal_path};
-use crate::init::{InitPhase, WorkspaceOrigin, open_for_work};
+use crate::init::{InitPhase, SetupGate, WorkspaceOrigin, open_for_work};
 
 fn journalled(id: &str, label: &str, state: CommandState) -> JournaledCommand {
     JournaledCommand {
@@ -255,4 +257,50 @@ async fn a_pending_message_does_not_swallow_the_lost_command_wake() {
         inputs.iter().any(|i| i.text.contains("c33e9d6e")),
         "the lost command must still be reported: {inputs:?}"
     );
+}
+
+/// Workspace setup runs after `open_for_work` returns, and the harness accepts
+/// no turn until it has. The wake must not wait on the pending message's turn,
+/// or setup never starts and neither turn runs.
+#[tokio::test]
+async fn the_lost_command_wake_does_not_hold_up_workspace_setup() {
+    let tmp = tempfile::TempDir::new().expect("tmp");
+    let config = tmp_config("claude-code", &tmp);
+    let workspace_dir = config.workspace_dir.clone();
+    let task_id = config.task_id.clone();
+    seed_journal(
+        &workspace_dir,
+        &task_id,
+        &[journalled("c33e9d6e", "verify", CommandState::Running)],
+    )
+    .await;
+
+    let backend = ReplayBackend::new(
+        Ok(vec![super::support::text_message("status?", "uuid-1")]),
+        None,
+    );
+    let setup_gate = SetupGate::closed();
+    let (state, recorder) = recording_state_gated(
+        config,
+        InitPhase::Starting,
+        Arc::clone(&backend) as _,
+        setup_gate.clone(),
+    );
+
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        open_for_work(
+            &state,
+            WorkspaceOrigin::RestoredFromSnapshot { taken_at: None },
+        ),
+    )
+    .await
+    .expect("open_for_work must return while setup is still pending");
+
+    setup_gate.open();
+
+    let inputs = recorded_inputs(&recorder, 2).await;
+    assert_eq!(inputs.len(), 2, "both the message and the wake must run");
+    assert!(inputs[0].text.contains("status?"), "{inputs:?}");
+    assert!(inputs[1].text.contains("c33e9d6e"), "{inputs:?}");
 }
