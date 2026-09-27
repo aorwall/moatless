@@ -834,6 +834,28 @@ async fn find_interrupted_turn_returns_acknowledged_unfinished_turn(pool: PgPool
 }
 
 #[sqlx::test]
+async fn find_interrupted_turn_replays_the_model_and_effort_it_ran_with(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+    seed_acknowledged_turn(&pool, "task-1", "interrupted-user", 1).await;
+    sqlx::query(
+        r#"UPDATE task_inbox SET delivery_options = '{"model": "claude-haiku-4-5", "effort": "low"}'
+            WHERE task_id = 'task-1'"#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let interrupted = PgMessageDao(pool.clone())
+        .find_interrupted_turn("task-1")
+        .await
+        .unwrap()
+        .expect("expected interrupted turn");
+
+    assert_eq!(interrupted.model.as_deref(), Some("claude-haiku-4-5"));
+    assert_eq!(interrupted.effort.as_deref(), Some("low"));
+}
+
+#[sqlx::test]
 async fn find_interrupted_turn_suppresses_terminal_agent_event(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
     seed_acknowledged_turn(&pool, "task-1", "agent-completed-user", 1).await;

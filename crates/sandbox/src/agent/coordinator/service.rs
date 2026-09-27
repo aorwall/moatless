@@ -600,6 +600,7 @@ impl CoordinatorService {
                             text,
                             agent_mode,
                             effort,
+                            model,
                             resume_session_id,
                             run_id,
                         }) => {
@@ -621,7 +622,7 @@ impl CoordinatorService {
                             let (throwaway_tx, _throwaway_rx) = oneshot::channel();
                             let input = match self.build_input(
                                 text,
-                                None,
+                                model,
                                 agent_mode,
                                 effort,
                                 Some(resume_session_id),

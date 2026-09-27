@@ -94,8 +94,15 @@ pub(crate) async fn last_message_is_completed_reply(
 }
 
 /// One delivered item of an interrupted turn: `session_id`, `turn_number`,
-/// `text`, `agent_mode`, `effort`.
-type InterruptedTurnRow = (Option<String>, i32, String, Option<String>, Option<String>);
+/// `text`, `agent_mode`, `effort`, `model`.
+type InterruptedTurnRow = (
+    Option<String>,
+    i32,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
 
 /// The Task's newest turn that it ran itself and that no terminal event, on it
 /// or a later turn, has closed.
@@ -108,7 +115,8 @@ pub(crate) async fn find_interrupted_turn(
     // terminal event and then returns *all* of its items, oldest first.
     let rows: Vec<InterruptedTurnRow> = sqlx::query_as(
         r#"SELECT i.session_id, i.turn_number, i.text,
-                  i.delivery_options ->> 'agentMode', i.delivery_options ->> 'effort'
+                  i.delivery_options ->> 'agentMode', i.delivery_options ->> 'effort',
+                  i.delivery_options ->> 'model'
            FROM task_inbox i
            WHERE i.task_id = $1
              AND i.status = 'delivered'
@@ -153,24 +161,28 @@ pub(crate) async fn find_interrupted_turn(
     // together); take the first that has one.
     let Some(session_id) = rows
         .iter()
-        .find_map(|(sid, _, _, _, _)| sid.clone().filter(|s| !s.is_empty()))
+        .find_map(|(sid, _, _, _, _, _)| sid.clone().filter(|s| !s.is_empty()))
     else {
         return Ok(None);
     };
     let agent_mode = rows
         .iter()
         .rev()
-        .find_map(|(_, _, _, mode, _)| mode.clone());
+        .find_map(|(_, _, _, mode, _, _)| mode.clone());
     let effort = rows
         .iter()
         .rev()
-        .find_map(|(_, _, _, _, effort)| effort.clone());
+        .find_map(|(_, _, _, _, effort, _)| effort.clone());
+    let model = rows
+        .iter()
+        .rev()
+        .find_map(|(_, _, _, _, _, model)| model.clone());
 
     // Reproduces the text the sandbox dispatcher built from the same items,
     // joined with newlines in their order, so a replay re-sends that prompt.
     let prompt_text = rows
         .iter()
-        .map(|(_, _, text, _, _)| text.as_str())
+        .map(|(_, _, text, _, _, _)| text.as_str())
         .collect::<Vec<_>>()
         .join("\n");
 
@@ -190,6 +202,7 @@ pub(crate) async fn find_interrupted_turn(
         prompt_text,
         agent_mode,
         effort,
+        model,
         recovery_attempts,
         run_id,
     }))

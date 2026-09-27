@@ -300,6 +300,7 @@ mod tests {
             prompt_text: "continue".into(),
             agent_mode: Some("code".into()),
             effort: Some("high".into()),
+            model: Some("claude-haiku-4-5".into()),
             recovery_attempts: attempts,
             run_id: Some("run".into()),
         }

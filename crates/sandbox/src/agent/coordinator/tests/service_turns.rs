@@ -302,6 +302,53 @@ async fn coordinator_service_send_without_model_reuses_last_model() {
     cancel.cancel();
 }
 
+#[tokio::test]
+async fn coordinator_service_recover_replays_the_interrupted_turns_model() {
+    let cancel = CancellationToken::new();
+    let config = {
+        let mut c = minimal_config();
+        c.agent_profile = Some("claude-code".to_string());
+        Arc::new(c)
+    };
+    let recorder = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+    let script = Script::new(vec![
+        Step::SessionReady(SessionId("sess-recover".to_string())),
+        Step::AcceptInput,
+        Step::Completed,
+    ]);
+    let (tx, _received, events) = service_with_harness(
+        HarnessRuntime::scripted_recording(script, Arc::clone(&recorder)),
+        config,
+        Arc::new(AgentState::new()),
+        cancel.clone(),
+    );
+
+    tx.send(AgentCommand::Recover {
+        text: "continue".to_string(),
+        agent_mode: None,
+        effort: None,
+        model: Some("claude-haiku-4-5".to_string()),
+        resume_session_id: "sess-recover".to_string(),
+        run_id: None,
+    })
+    .expect("channel open");
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        flush(&events).await;
+        if let Some(input) = recorder.lock().await.first() {
+            assert_eq!(input.model.as_deref(), Some("claude-haiku-4-5"));
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "recovered input not recorded within 5 s"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    cancel.cancel();
+}
+
 /// Run one scripted turn to `completed` and return that event's payload.
 async fn completed_payload(commands: Arc<crate::commands::CommandRegistry>) -> serde_json::Value {
     let cancel = CancellationToken::new();

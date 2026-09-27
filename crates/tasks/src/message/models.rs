@@ -73,6 +73,8 @@ pub struct InterruptedTurn {
     /// Reasoning effort the interrupted turn ran with, so the replay repeats
     /// it.
     pub effort: Option<String>,
+    /// Model the interrupted turn ran on, so the replay repeats it.
+    pub model: Option<String>,
     pub recovery_attempts: i32,
     /// The turn's original `run_id`, so the recovery re-drive can reuse it and
     /// keep its events on this turn. `None` for legacy turns with no recorded

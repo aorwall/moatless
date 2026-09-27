@@ -287,6 +287,7 @@ pub(super) fn interrupted_turn(
         agent_mode: None,
         effort: None,
         run_id: None,
+        model: None,
     }
 }
 

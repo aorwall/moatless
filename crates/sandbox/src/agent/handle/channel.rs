@@ -43,6 +43,7 @@ pub(crate) enum AgentCommand {
         text: String,
         agent_mode: Option<String>,
         effort: Option<String>,
+        model: Option<String>,
         resume_session_id: String,
         /// The interrupted turn's original `run_id`. Reused so the recovery
         /// run's events map back to that turn instead of forking a new one.
@@ -132,9 +133,9 @@ impl AgentHandle {
     pub fn recover(
         &self,
         text: String,
-        _agent_profile: Option<String>,
         agent_mode: Option<String>,
         effort: Option<String>,
+        model: Option<String>,
         resume_session_id: String,
         run_id: Option<String>,
     ) {
@@ -142,6 +143,7 @@ impl AgentHandle {
             text,
             agent_mode,
             effort,
+            model,
             resume_session_id,
             run_id,
         });

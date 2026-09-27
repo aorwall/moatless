@@ -397,9 +397,9 @@ async fn recover_interrupted_run(
             };
             context.agent_handle.recover(
                 prompt_text,
-                turn.agent_profile,
                 turn.agent_mode,
                 turn.effort,
+                turn.model,
                 turn.session_id,
                 turn.run_id,
             );

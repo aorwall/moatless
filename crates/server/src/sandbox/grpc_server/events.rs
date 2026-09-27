@@ -309,6 +309,7 @@ pub(super) async fn recover_interrupted_run(
                 agent_mode: interrupted.agent_mode,
                 effort: interrupted.effort,
                 run_id: interrupted.run_id,
+                model: interrupted.model,
             }
         }),
     }))
