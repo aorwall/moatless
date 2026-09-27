@@ -378,8 +378,7 @@ pub(crate) async fn stamp_delivered(
 }
 
 /// Deletes a projected Message and the activities on it. A live reader that
-/// already holds it keeps it until it next loads the conversation: no change
-/// names a deleted row.
+/// already holds it keeps it until it reloads; see `docs/deferred-changes.md`.
 pub(crate) async fn delete_message(
     tx: &mut PgConnection,
     task_id: &str,

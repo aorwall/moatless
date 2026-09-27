@@ -757,6 +757,42 @@ async fn a_claude_synthetic_reply_is_not_shown_or_counted(pool: PgPool) {
     assert_eq!(recorded, 1, "the line stays in the Trajectory");
 }
 
+/// Claude's API-error reply is also `<synthetic>`, and is shown as an agent
+/// Message; its usage, like any synthetic line's, is no spend.
+#[sqlx::test]
+async fn a_claude_api_error_reply_is_shown_and_not_counted(pool: PgPool) {
+    let dao = seed(&pool).await;
+    append(
+        &dao,
+        Harness::ClaudeCode,
+        "s",
+        0,
+        &[event(
+            Some("msg_e"),
+            json!({
+                "role": "assistant",
+                "blocks": [text("API Error: 529 Overloaded")],
+                "model": "<synthetic>",
+                "api_error": true,
+                "usage": { "input_tokens": 0, "output_tokens": 0,
+                           "cache_read_tokens": 0, "cache_write_tokens": 0 },
+            }),
+        )],
+    )
+    .await;
+
+    assert_eq!(
+        messages(&pool).await,
+        [(
+            "msg_e".to_string(),
+            "assistant".to_string(),
+            Some("API Error: 529 Overloaded".to_string()),
+            Some("<synthetic>".to_string()),
+        )]
+    );
+    assert_eq!(usage(&pool).await, []);
+}
+
 /// Codex's compaction summary arrives as a reply and again in the `compacted`
 /// line that names it superseded: the reply is removed, and a rebuild removes
 /// it again.

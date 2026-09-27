@@ -836,3 +836,26 @@ fn a_codex_compaction_after_another_reply_supersedes_nothing() {
     assert!(compacted.content.compaction);
     assert_eq!(compacted.content.supersedes, None);
 }
+
+/// Claude's API-error reply is marked, and its "No response requested."
+/// placeholder, also written as `<synthetic>`, is not.
+#[test]
+fn a_claude_api_error_reply_is_marked() {
+    let placeholder = CLAUDE_COMPACTED
+        .lines()
+        .find(|l| l.contains("No response requested."))
+        .unwrap();
+    let read = ClaudeSessionFormat.read_line(placeholder);
+    assert_eq!(read.content.model.as_deref(), Some("<synthetic>"));
+    assert!(!read.content.api_error);
+
+    let error = placeholder
+        .replace("No response requested.", "API Error: 529 Overloaded")
+        .replace(
+            r#""isApiErrorMessage":false"#,
+            r#""isApiErrorMessage":true"#,
+        );
+    let read = ClaudeSessionFormat.read_line(&error);
+    assert!(read.content.api_error);
+    assert!(read.content.to_json().contains(r#""api_error":true"#));
+}

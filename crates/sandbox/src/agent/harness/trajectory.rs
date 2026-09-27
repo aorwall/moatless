@@ -183,6 +183,10 @@ pub struct EventContent {
     /// text line with `stop_reason` `end_turn`, a Codex `task_complete`.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub ends_turn: bool,
+    /// The harness wrote this reply to report a failed API call (Claude's
+    /// `isApiErrorMessage`): shown, though no model wrote it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub api_error: bool,
 }
 
 /// One model response's token counts. `input_tokens` excludes cached input.
@@ -480,6 +484,7 @@ fn claude_content(value: &Value) -> EventContent {
                 )
             }),
         compaction,
+        api_error: flag("isApiErrorMessage"),
         model: (role == Some(Role::Assistant))
             .then(|| str_at(message, &["model"]).map(str::to_string))
             .flatten(),

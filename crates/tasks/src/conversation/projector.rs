@@ -218,10 +218,11 @@ impl Projector {
             if content.get("injected").and_then(Value::as_bool) == Some(true) {
                 continue;
             }
-            // Claude's stand-in for a reply no model wrote ("No response
-            // requested." on resuming an unanswered prompt): not shown, and its
-            // usage is no spend.
-            if content.get("model").and_then(Value::as_str) == Some("<synthetic>") {
+            // Claude's stand-in for a reply no model wrote: its usage is no
+            // spend, and only an API error ("API Error: 529 …") is shown, not
+            // the "No response requested." of a resumed unanswered prompt.
+            let synthetic = content.get("model").and_then(Value::as_str) == Some("<synthetic>");
+            if synthetic && content.get("api_error").and_then(Value::as_bool) != Some(true) {
                 continue;
             }
             // A line that stands in for an earlier reply (Codex's compaction
@@ -239,7 +240,10 @@ impl Projector {
                 None => line.id,
             };
             let uuid = ids::message(task_id, &first.to_string());
-            let usage = content.get("usage").and_then(admitted_usage);
+            let usage = content
+                .get("usage")
+                .filter(|_| !synthetic)
+                .and_then(admitted_usage);
             if let Some(usage) = usage {
                 dao::admit_usage(tx, task_id, line.id, line.harness_item_id, usage).await?;
             }
