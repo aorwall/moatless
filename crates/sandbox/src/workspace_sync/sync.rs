@@ -1160,7 +1160,7 @@ pub(super) fn rel_from(root: &Path, path: &Path) -> String {
 /// files are skipped so the walk can't loop or escape `root`.
 fn append_tree<W: std::io::Write>(builder: &mut tar::Builder<W>, root: &Path, dir: &Path) -> bool {
     // A git repo root: enumerate via git (honors gitignore) and stop descending.
-    if dir.join(".git").is_dir() {
+    if file_set::is_repo_root(dir) {
         return append_repo(builder, dir, &rel_from(root, dir));
     }
 
@@ -1248,9 +1248,12 @@ fn append_repo<W: std::io::Write>(
     // restore-on-start rejects, falling back to clone + overlay.
     let git_dir = repo_dir.join(".git");
     let git_prefix = PathBuf::from(join_prefix(prefix, ".git"));
-    if git_dir.is_dir() && append_git_dir(builder, &git_prefix, &git_dir) {
-        any = true;
-    }
+    let stored_git = if git_dir.is_dir() {
+        append_git_dir(builder, &git_prefix, &git_dir)
+    } else {
+        git_dir.is_file() && builder.append_path_with_name(&git_dir, &git_prefix).is_ok()
+    };
+    any |= stored_git;
 
     any
 }
@@ -1387,7 +1390,7 @@ pub(super) fn fingerprint_now(workspace_dir: &Path) -> Option<u64> {
 ///
 /// Symlinks/special files are skipped, matching the tar walk.
 fn fingerprint_tree(entries: &mut Vec<(String, u64, u128)>, root: &Path, dir: &Path) {
-    if dir.join(".git").is_dir() {
+    if file_set::is_repo_root(dir) {
         fingerprint_repo(entries, dir, &rel_from(root, dir));
         return;
     }
@@ -1439,11 +1442,13 @@ fn fingerprint_repo(entries: &mut Vec<(String, u64, u128)>, repo_dir: &Path, pre
     }
     // `.git` is never gitignored and its churn (commits, ref/index updates) is
     // exactly the state a resuming pod must reproduce, so walk it wholesale.
-    fingerprint_dir(
-        entries,
-        &join_prefix(prefix, ".git"),
-        &repo_dir.join(".git"),
-    );
+    let git = repo_dir.join(".git");
+    match std::fs::symlink_metadata(&git) {
+        Ok(meta) if meta.is_file() => {
+            entries.push((join_prefix(prefix, ".git"), meta.len(), mtime_nanos(&meta)));
+        }
+        _ => fingerprint_dir(entries, &join_prefix(prefix, ".git"), &git),
+    }
 }
 
 /// Recursively contribute `(name, len, mtime)` for every regular file under

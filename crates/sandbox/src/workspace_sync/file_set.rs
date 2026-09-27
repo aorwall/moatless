@@ -23,7 +23,7 @@ pub(super) fn collect(workspace_dir: &Path) -> Vec<PathBuf> {
 /// A git repo root is enumerated through git and not descended into; every
 /// other directory is walked.
 fn collect_tree(files: &mut Vec<PathBuf>, dir: &Path) {
-    if dir.join(".git").is_dir() {
+    if is_repo_root(dir) {
         collect_repo(files, dir);
         return;
     }
@@ -72,7 +72,28 @@ fn collect_repo(files: &mut Vec<PathBuf>, repo_dir: &Path) {
             }
         }
     }
-    collect_dir(files, &repo_dir.join(".git"));
+    let git = repo_dir.join(".git");
+    if git.is_file() {
+        files.push(git);
+    } else {
+        collect_dir(files, &git);
+    }
+}
+
+/// Whether `dir` is a git repo root: its `.git` is a directory, or a linked
+/// worktree's `.git` file whose `gitdir:` target exists.
+pub(super) fn is_repo_root(dir: &Path) -> bool {
+    let git = dir.join(".git");
+    if git.is_dir() {
+        return true;
+    }
+    let Ok(contents) = std::fs::read_to_string(&git) else {
+        return false;
+    };
+    contents
+        .lines()
+        .find_map(|line| line.strip_prefix("gitdir:"))
+        .is_some_and(|gitdir| dir.join(gitdir.trim()).is_dir())
 }
 
 /// Every regular file under `dir`. Used for a repo's `.git`, which has no
@@ -120,7 +141,7 @@ pub(super) fn collect_git_locks(workspace_dir: &Path) -> Vec<PathBuf> {
 /// A git repo root hands its `.git` to [`collect_locks_in`] and is not
 /// descended into; every other directory is walked.
 fn collect_locks_tree(locks: &mut Vec<PathBuf>, dir: &Path) {
-    if dir.join(".git").is_dir() {
+    if is_repo_root(dir) {
         collect_locks_in(locks, &dir.join(".git"));
         return;
     }
@@ -205,6 +226,93 @@ mod tests {
         assert!(
             locks[1].ends_with("/.git/refs/heads/main.lock"),
             "{locks:?}"
+        );
+    }
+
+    fn git(dir: &Path, args: &[&str]) {
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["-c", "user.email=t@t.co", "-c", "user.name=t"])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "git {args:?}: {output:?}");
+    }
+
+    /// `repo/` with `target/` ignored and one commit, plus a linked worktree
+    /// of it at `wt/`.
+    fn repo_with_worktree(root: &Path) -> PathBuf {
+        let repo = root.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        git(&repo, &["init", "-q"]);
+        std::fs::write(repo.join(".gitignore"), b"target/\n").unwrap();
+        std::fs::write(repo.join("main.rs"), b"fn main() {}\n").unwrap();
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "-q", "-m", "init"]);
+        git(&repo, &["worktree", "add", "-q", "--detach", "../wt"]);
+        let wt = root.join("wt");
+        std::fs::create_dir_all(wt.join("target")).unwrap();
+        std::fs::write(wt.join("target/big.bin"), b"build output").unwrap();
+        std::fs::write(wt.join("src.rs"), b"untracked").unwrap();
+        wt
+    }
+
+    fn names_under(root: &Path, files: &[PathBuf]) -> Vec<String> {
+        files
+            .iter()
+            .map(|path| path.strip_prefix(root).unwrap().display().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn a_worktree_beside_its_repo_honors_its_gitignore() {
+        let tmp = tempfile::tempdir().unwrap();
+        repo_with_worktree(tmp.path());
+
+        let names = names_under(tmp.path(), &collect(tmp.path()));
+
+        for stored in ["wt/.git", "wt/main.rs", "wt/src.rs", "repo/main.rs"] {
+            assert!(
+                names.iter().any(|name| name == stored),
+                "{stored}: {names:?}"
+            );
+        }
+        assert!(
+            names
+                .iter()
+                .any(|name| name.starts_with("repo/.git/worktrees/wt/")),
+            "{names:?}"
+        );
+        assert!(
+            !names.iter().any(|name| name.starts_with("wt/target")),
+            "{names:?}"
+        );
+    }
+
+    /// `git ls-files` fails without the gitdir, so the worktree is kept whole
+    /// rather than stored as nothing.
+    #[test]
+    fn a_worktree_whose_gitdir_is_gone_is_walked_whole() {
+        let tmp = tempfile::tempdir().unwrap();
+        let wt = tmp.path().join("wt");
+        std::fs::create_dir_all(wt.join("target")).unwrap();
+        std::fs::write(wt.join(".git"), b"gitdir: /nonexistent/.git/worktrees/wt\n").unwrap();
+        std::fs::write(wt.join(".gitignore"), b"target/\n").unwrap();
+        std::fs::write(wt.join("target/big.bin"), b"build output").unwrap();
+        std::fs::write(wt.join("main.rs"), b"fn main() {}\n").unwrap();
+
+        let mut names = names_under(tmp.path(), &collect(tmp.path()));
+        names.sort();
+
+        assert_eq!(
+            names,
+            [
+                "wt/.git",
+                "wt/.gitignore",
+                "wt/main.rs",
+                "wt/target/big.bin"
+            ],
         );
     }
 }
