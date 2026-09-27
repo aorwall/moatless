@@ -537,20 +537,17 @@ enum ChildOutcome<'a> {
     Errored { error: &'a str },
 }
 
-/// Whether the parent triggered the turn this outcome ends. A turn that cannot
-/// be resolved, or whose trigger cannot be read, still notifies: a lost notice
-/// strands a waiting parent, a spurious one only wakes it.
-async fn turn_triggered_by(
+/// The child turn this outcome ends: the event's own, else the child's latest.
+async fn outcome_turn(
     ports: &AgentErrorPorts,
     event: &AgentEvent,
     outcome: &ChildOutcome<'_>,
-    parent_task_id: &str,
-) -> bool {
+) -> Option<i32> {
     let turn_number = match outcome {
         ChildOutcome::Completed { turn_number } => *turn_number,
         ChildOutcome::Errored { .. } => event.turn_number,
     };
-    let turn_number = match turn_number {
+    match turn_number {
         Some(turn) => Some(turn),
         None => ports
             .task_turns
@@ -558,7 +555,18 @@ async fn turn_triggered_by(
             .await
             .ok()
             .flatten(),
-    };
+    }
+}
+
+/// Whether the parent triggered `turn_number`. A turn that cannot be resolved,
+/// or whose trigger cannot be read, still notifies: a lost notice strands a
+/// waiting parent, a spurious one only wakes it.
+async fn turn_triggered_by(
+    ports: &AgentErrorPorts,
+    event: &AgentEvent,
+    turn_number: Option<i32>,
+    parent_task_id: &str,
+) -> bool {
     let Some(turn_number) = turn_number else {
         return true;
     };
@@ -604,29 +612,32 @@ async fn notify_parent_of_child_outcome(
         }
     };
 
-    if !turn_triggered_by(ports, event, &outcome, &relation.to_task_id).await {
+    let outcome_turn = outcome_turn(ports, event, &outcome).await;
+    if !turn_triggered_by(ports, event, outcome_turn, &relation.to_task_id).await {
         return;
     }
 
-    // A completion is keyed on its Turn rather than on its text, which carries
-    // the child's current name: a rename, or a failed name read, between two
-    // deliveries of one event would otherwise insert a second notice.
+    // Each notice is keyed on its Turn rather than on its text. A completion's
+    // text carries the child's current name, which a rename can change between
+    // two deliveries of one event; one Sandbox failure publishes several
+    // errors (`pod_evicted`, then `fatal`), and the parent needs only the first.
+    let turn_key = |kind: &str, turn_number: Option<i32>| {
+        let turn = turn_number.map_or_else(|| event.event_id.clone(), |t| t.to_string());
+        let key = format!(
+            "child-{kind}\u{1f}{}\u{1f}{}\u{1f}{turn}",
+            event.task_id, relation.to_task_id
+        );
+        Some(uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, key.as_bytes()).to_string())
+    };
     let (message, message_uuid) = match outcome {
         ChildOutcome::Errored { error } => (
             format!("Child task `{}` errored.\n\nError: {error}", event.task_id),
-            None,
+            turn_key("errored", outcome_turn),
         ),
-        ChildOutcome::Completed { turn_number } => {
-            let turn_key = turn_number.map_or_else(|| event.event_id.clone(), |t| t.to_string());
-            let key = format!(
-                "child-completed\u{1f}{}\u{1f}{}\u{1f}{turn_key}",
-                event.task_id, relation.to_task_id
-            );
-            (
-                completion_notice(ports, &event.task_id, turn_number).await,
-                Some(uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, key.as_bytes()).to_string()),
-            )
-        }
+        ChildOutcome::Completed { turn_number } => (
+            completion_notice(ports, &event.task_id, turn_number).await,
+            turn_key("completed", turn_number),
+        ),
     };
 
     match ports

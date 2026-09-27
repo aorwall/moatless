@@ -1,5 +1,6 @@
 //! Unit tests for the watcher's transition detection.
 
+use super::event::process_watcher_event;
 use super::remediation::{
     CleanExitAction, clean_exit_action_for_intent, maybe_run_storage_fallback,
 };
@@ -311,4 +312,113 @@ async fn storage_fallback_without_generation_does_not_rebuild() {
         "the guard is still set so the unlabelled pod isn't reconsidered"
     );
     assert!(publisher.sandbox_statuses().is_empty());
+}
+
+/// A pod of `task-1` on the given node, in `phase`, with a ready sandbox
+/// container when `ready`.
+fn task_pod(name: &str, phase: &str, ready: bool, eviction: Option<&str>) -> Pod {
+    let mut pod =
+        pod_with_phase_and_containers(phase, vec![running_container("sandbox", true, ready)]);
+    pod.metadata.name = Some(name.to_string());
+    pod.metadata.labels = Some(std::collections::BTreeMap::from([(
+        "moatless.io/task-id".to_string(),
+        "task-1".to_string(),
+    )]));
+    pod.spec = Some(k8s_openapi::api::core::v1::PodSpec {
+        node_name: Some("node-1".to_string()),
+        ..Default::default()
+    });
+    if let (Some(message), Some(status)) = (eviction, pod.status.as_mut()) {
+        status.reason = Some("Evicted".to_string());
+        status.message = Some(message.to_string());
+    }
+    pod
+}
+
+/// A kubelet that rejects every replacement at admission (node `DiskPressure`)
+/// makes the `ReplicaSet` respawn the pod many times a second. The task must
+/// hear about the eviction once, not once per rejected pod, and hear about the
+/// next one again after it recovers.
+#[tokio::test]
+async fn rejected_replacements_restate_no_published_failure() {
+    use moatless_core::events::test_support::{RecordedEvent, RecordingPublisher};
+
+    // Another test may have installed it first.
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    // Nothing listens here: the deployment and log reads fail fast, as they
+    // may in production, and the watcher carries on without them.
+    let config = kube::Config::new("http://127.0.0.1:9".parse().expect("valid url"));
+    let k8s = K8sClient {
+        client: kube::Client::try_from(config).expect("client"),
+        namespace: Arc::new("test".to_string()),
+    };
+    let deps = WatcherDeps {
+        node_archive_enabled: false,
+        lifecycle: None,
+        storage_fallback: None,
+    };
+    let publisher = RecordingPublisher::new();
+    let mut pod_states = HashMap::new();
+    let rejected = "Pod was rejected: The node had condition: [DiskPressure].";
+    let count = |event: RecordedEvent| {
+        publisher
+            .events()
+            .into_iter()
+            .filter(|e| *e == event)
+            .count()
+    };
+
+    for event in [
+        watcher::Event::Apply(task_pod("pod-0", "Running", true, None)),
+        watcher::Event::Apply(task_pod(
+            "pod-0",
+            "Failed",
+            false,
+            Some("The node was low on resource: ephemeral-storage."),
+        )),
+    ] {
+        process_watcher_event(&k8s, &event, &mut pod_states, &publisher, 0, &deps).await;
+    }
+    let evicted_errors = count(RecordedEvent::Sandbox(SandboxStatus::Error));
+    assert!(evicted_errors > 0, "the eviction itself must be published");
+
+    for n in 1..=5 {
+        if n == 3 {
+            // The pod that published `fatal` is deleted mid-burst (GC or Delete).
+            let deleted = watcher::Event::Delete(task_pod("pod-0", "Failed", false, None));
+            process_watcher_event(&k8s, &deleted, &mut pod_states, &publisher, 0, &deps).await;
+        }
+        let name = format!("pod-{n}");
+        for event in [
+            watcher::Event::Apply(task_pod(&name, "Pending", false, None)),
+            watcher::Event::Apply(task_pod(&name, "Failed", false, Some(rejected))),
+        ] {
+            process_watcher_event(&k8s, &event, &mut pod_states, &publisher, 0, &deps).await;
+        }
+    }
+    assert_eq!(
+        count(RecordedEvent::Sandbox(SandboxStatus::Error)),
+        evicted_errors,
+        "a rejected replacement must not publish another error"
+    );
+    assert_eq!(
+        count(RecordedEvent::TaskTurn(TaskTurnSubType::Interrupted)),
+        1
+    );
+
+    for event in [
+        watcher::Event::Apply(task_pod("pod-6", "Running", true, None)),
+        watcher::Event::Apply(task_pod("pod-6", "Failed", false, Some(rejected))),
+    ] {
+        process_watcher_event(&k8s, &event, &mut pod_states, &publisher, 0, &deps).await;
+    }
+    assert_eq!(
+        count(RecordedEvent::Sandbox(SandboxStatus::Error)),
+        evicted_errors * 2,
+        "an eviction after recovery must be published again"
+    );
+    assert_eq!(
+        count(RecordedEvent::TaskTurn(TaskTurnSubType::Interrupted)),
+        2
+    );
 }

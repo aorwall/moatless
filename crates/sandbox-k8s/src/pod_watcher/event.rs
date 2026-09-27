@@ -98,11 +98,21 @@ pub(super) async fn process_watcher_event(
             // Cross-pod recovery: new pod appearing while a sibling is in Failed/Unknown
             if is_new_pod {
                 let siblings = sibling_pods_for_task(pod_states, &task_id, &pod_name);
-                let has_failed_sibling = siblings
+                let failed_siblings = siblings
                     .iter()
-                    .any(|s| matches!(s.phase.as_str(), "Failed" | "Unknown"));
+                    .filter(|s| matches!(s.phase.as_str(), "Failed" | "Unknown"));
+                let has_failed_sibling = failed_siblings.clone().next().is_some();
+                // Also inherit from a failed replacement: the pod that published
+                // `fatal` may already be deleted or garbage collected.
+                new_state.replaces_published_failure = failed_siblings
+                    .clone()
+                    .any(|s| s.fatal_published || s.replaces_published_failure);
+                // A failed replacement already announced this recovery.
+                let recovery_announced = failed_siblings
+                    .clone()
+                    .any(|s| s.replaces_published_failure);
 
-                if has_failed_sibling {
+                if has_failed_sibling && !recovery_announced {
                     info!(
                         task_id = %task_id,
                         pod_name = %pod_name,
@@ -126,6 +136,9 @@ pub(super) async fn process_watcher_event(
             // event per restart) publishes each status once, not once per Apply.
             new_state.last_published_sandbox_status =
                 prev_state.and_then(|p| p.last_published_sandbox_status);
+            if let Some(prev) = prev_state {
+                new_state.replaces_published_failure = prev.replaces_published_failure;
+            }
 
             let initial_plan = PodObservationPolicy::evaluate(
                 prev_state,
@@ -207,7 +220,9 @@ pub(super) async fn process_watcher_event(
 
                 // Metrics and logs above still record every detected edge —
                 // only the event publish is deduplicated.
-                if transition.skip_duplicate_publish {
+                if transition.skip_duplicate_publish
+                    || (transition.is_error_event && new_state.replaces_published_failure)
+                {
                     debug!(
                         task_id = %task_id,
                         pod_name = %pod_name,
@@ -311,12 +326,13 @@ pub(super) async fn process_watcher_event(
                     .or_else(|| Some(k8s_openapi::jiff::Timestamp::now().as_millisecond()));
                 new_state.gc_requested = prev_state.is_some_and(|p| p.gc_requested);
             }
-            if plan
+            let became_ready = plan
                 .sandbox_transitions
                 .iter()
-                .any(|transition| transition.sub_type == "pod_ready")
-            {
+                .any(|transition| transition.sub_type == "pod_ready");
+            if became_ready {
                 new_state.fatal_published = false;
+                new_state.replaces_published_failure = false;
                 // Time pod-creation → first Ready once per pod.
                 if plan.should_record_startup {
                     record_sandbox_startup(pod);
@@ -329,7 +345,11 @@ pub(super) async fn process_watcher_event(
             // Container-level crashes (OOM, terminated, crash loop) are not fatal
             // because K8s will restart them. The auto-stop threshold handles
             // persistent crash loops separately.
-            if plan.has_fatal_transition && !is_intentional_stop && !new_state.fatal_published {
+            if plan.has_fatal_transition
+                && !is_intentional_stop
+                && !new_state.fatal_published
+                && !new_state.replaces_published_failure
+            {
                 let error_msg = plan
                     .sandbox_transitions
                     .iter()
@@ -599,6 +619,17 @@ pub(super) async fn process_watcher_event(
                 }
             }
 
+            // The task recovered, so a later failure is news again: no sibling
+            // may still hand `replaces_published_failure` to the next pod.
+            if became_ready {
+                for sibling in pod_states
+                    .values_mut()
+                    .filter(|s| s.task_id == task_id && s.pod_name != pod_name)
+                {
+                    sibling.fatal_published = false;
+                    sibling.replaces_published_failure = false;
+                }
+            }
             pod_states.insert(pod_name, new_state);
         }
         watcher::Event::Delete(pod) => {

@@ -27,6 +27,11 @@ pub(crate) struct PodObservedState {
     /// Whether a fatal event has already been published for this pod.
     /// Suppresses repeated fatal events during `CrashLoopBackOff`.
     pub(super) fatal_published: bool,
+    /// This pod replaced a Failed sibling whose `fatal` was already published,
+    /// and no pod for the task has been Ready since. Its own failure restates
+    /// that one, so its error-level events are not published: a node that
+    /// rejects every replacement at admission would otherwise repeat them.
+    pub(super) replaces_published_failure: bool,
     /// Whether the `moatless_sandbox_startup_seconds` histogram has already
     /// been recorded for this pod.
     ///
@@ -254,6 +259,7 @@ pub(crate) fn extract_pod_observed_state(
         last_terminated_reason,
         failure_detail,
         fatal_published: false,
+        replaces_published_failure: false,
         startup_recorded: false,
         node_name,
         disruption_reason,

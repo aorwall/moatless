@@ -537,6 +537,35 @@ async fn errored_child_sends_parent_only_the_error_notice(pool: PgPool) {
     );
 }
 
+/// One Sandbox failure publishes `pod_evicted` and then `fatal`, and both reach
+/// `handle_agent_error`; the parent is told once per child turn.
+#[sqlx::test]
+async fn a_second_error_in_one_turn_sends_no_second_notice(pool: PgPool) {
+    seed_task_pair_with_created_by(&pool, "task-parent", "task-child").await;
+    seed_turn_triggered_by(&pool, "task-child", 1, "task-parent").await;
+    let (state, waker) = state_with_recording_waker(&pool);
+
+    for (event_id, error) in [("evt-evicted", "sandbox exploded"), ("evt-fatal", "again")] {
+        let mut event = terminal_event(
+            event_id,
+            "task-child",
+            "error",
+            serde_json::json!({ "error": error }),
+        );
+        event.turn_number = Some(1);
+        handle_agent_error(&(&state).into(), &event).await;
+    }
+
+    assert_eq!(
+        visible_parent_texts(&pool, "task-parent").await,
+        vec![ERROR_NOTICE.to_string()]
+    );
+    assert_eq!(
+        *waker.woken.lock().unwrap(),
+        vec!["task-parent".to_string()]
+    );
+}
+
 #[sqlx::test]
 async fn an_error_result_under_completed_sends_only_the_error_notice(pool: PgPool) {
     seed_task_pair_with_created_by(&pool, "task-parent", "task-child").await;
