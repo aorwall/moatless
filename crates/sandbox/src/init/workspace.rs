@@ -20,6 +20,9 @@ use crate::config::Config;
 /// pruned like a fresh one. Returns the plugins that are current.
 pub async fn fetch_plugins(config: &Config, backend: &dyn BackendClient) -> Vec<String> {
     let base_dir = config.plugins_dir();
+    for plugin in &config.plugins {
+        restore_interrupted_install(&base_dir, &plugin.name);
+    }
     remove_unpicked_plugins(&base_dir, &config.plugins).await;
     if config.plugins.is_empty() {
         return Vec::new();
@@ -141,30 +144,54 @@ fn install_archive(data: &[u8], base_dir: &Path, name: &str) -> std::io::Result<
     if staging.exists() {
         std::fs::remove_dir_all(&staging)?;
     }
-    let installed = unpack_into(data, &staging, &base_dir.join(name));
+    let installed = unpack_into(
+        data,
+        &staging,
+        &previous_path(base_dir, name),
+        &base_dir.join(name),
+    );
     if staging.exists() {
         let _ = std::fs::remove_dir_all(&staging);
     }
     installed
 }
 
-fn unpack_into(data: &[u8], staging: &Path, dest: &Path) -> std::io::Result<()> {
+/// Where [`unpack_into`] moves the installed copy while it promotes the new one.
+fn previous_path(base_dir: &Path, name: &str) -> PathBuf {
+    base_dir.join(format!(".{name}.previous"))
+}
+
+/// Put back the copy a start killed between [`unpack_into`]'s two renames left
+/// aside, before `remove_unpicked_plugins` would delete it.
+fn restore_interrupted_install(base_dir: &Path, name: &str) {
+    let (previous, dest) = (previous_path(base_dir, name), base_dir.join(name));
+    if dest.exists() || !previous.exists() {
+        return;
+    }
+    match std::fs::rename(&previous, &dest) {
+        Ok(()) => info!(name = %name, "Restored the plugin copy an interrupted install left aside"),
+        Err(e) => {
+            warn!(name = %name, error = %e, "Failed to restore the plugin copy an interrupted install left aside");
+        }
+    }
+}
+
+fn unpack_into(data: &[u8], staging: &Path, previous: &Path, dest: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(staging)?;
     tar::Archive::new(flate2::read::GzDecoder::new(data)).unpack(staging)?;
     if !dest.exists() {
         return std::fs::rename(staging, dest);
     }
     // Moved aside rather than deleted, so a failed promotion can put it back.
-    let previous = staging.with_extension("previous");
     if previous.exists() {
-        std::fs::remove_dir_all(&previous)?;
+        std::fs::remove_dir_all(previous)?;
     }
-    std::fs::rename(dest, &previous)?;
+    std::fs::rename(dest, previous)?;
     if let Err(e) = std::fs::rename(staging, dest) {
-        let _ = std::fs::rename(&previous, dest);
+        let _ = std::fs::rename(previous, dest);
         return Err(e);
     }
-    let _ = std::fs::remove_dir_all(&previous);
+    let _ = std::fs::remove_dir_all(previous);
     Ok(())
 }
 
@@ -300,6 +327,20 @@ mod tests {
         config.plugins = Vec::new();
         fetch_plugins(&config, &backend).await;
         assert!(!plugins_dir.join("kept").exists());
+    }
+
+    #[tokio::test]
+    async fn a_copy_left_aside_by_a_killed_install_is_restored() {
+        let root = tempdir().unwrap();
+        let config = config_picking(root.path(), &["review"]);
+        let plugins_dir = config.plugins_dir();
+        std::fs::create_dir_all(plugins_dir.join(".agentops.previous/skills/review")).unwrap();
+        let backend = crate::state::test_support::NoopBackend::default();
+
+        assert!(fetch_plugins(&config, &backend).await.is_empty());
+
+        assert!(plugins_dir.join("agentops/skills/review").is_dir());
+        assert!(!plugins_dir.join(".agentops.previous").exists());
     }
 
     /// Serves `version` of a one-skill plugin, answering `Unchanged` to a
