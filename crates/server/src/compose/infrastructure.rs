@@ -350,5 +350,6 @@ pub fn grpc_service(
         transcript_s3_prefix,
         workspace_s3_prefix,
         event_dedup: Arc::new(crate::sandbox::event_dedup::EventDedup::new()),
+        admissions: tokio_util::task::TaskTracker::new(),
     }
 }

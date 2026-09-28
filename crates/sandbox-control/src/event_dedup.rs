@@ -45,34 +45,52 @@ pub enum Admission {
 
 /// Ownership of one event id's admission, held for the duration of the attempt.
 ///
-/// Exactly one of [`AdmissionClaim::admitted`]/[`AdmissionClaim::failed`] must
-/// be called — neither is a `Drop` impl, since releasing is async — so a leaked
-/// claim only degrades to "retryable until TTL", never lost or duplicated.
+/// Settle it with [`AdmissionClaim::admitted`] or [`AdmissionClaim::failed`].
+/// Dropping it unsettled releases it like `failed`: an unreleased claim would
+/// answer every retry `InFlight` until [`EVENT_ID_TTL`], and the sandbox drops
+/// the event as poison before that.
 #[derive(Debug)]
 pub struct AdmissionClaim {
     seen: Cache<String, AdmissionState>,
     key: String,
     sequence: u64,
+    settled: bool,
 }
 
 impl AdmissionClaim {
     /// The complete payload is durably admitted: later deliveries of this id
     /// are duplicates.
-    pub async fn admitted(self) {
+    pub async fn admitted(mut self) {
         self.seen
             .insert(
-                self.key,
+                self.key.clone(),
                 AdmissionState::Admitted {
                     sequence: self.sequence,
                 },
             )
             .await;
+        self.settled = true;
     }
 
     /// Admission failed: release the claim so the sandbox's retry is a real
     /// attempt rather than a duplicate.
-    pub async fn failed(self) {
+    pub async fn failed(mut self) {
         self.seen.invalidate(&self.key).await;
+        self.settled = true;
+    }
+}
+
+impl Drop for AdmissionClaim {
+    fn drop(&mut self) {
+        if self.settled {
+            return;
+        }
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        let seen = self.seen.clone();
+        let key = std::mem::take(&mut self.key);
+        runtime.spawn(async move { seen.invalidate(&key).await });
     }
 }
 
@@ -117,6 +135,7 @@ impl EventDedup {
                 seen: self.seen.clone(),
                 key,
                 sequence,
+                settled: false,
             });
         }
 
@@ -235,18 +254,41 @@ mod tests {
         for _ in 0..16 {
             let dedup = dedup.clone();
             handles.push(tokio::spawn(async move {
-                matches!(
-                    dedup.claim("task-1", "evt-1", 7).await,
-                    Admission::Claimed(_)
-                )
+                dedup.claim("task-1", "evt-1", 7).await
             }));
         }
-        let mut claimed = 0;
+        // Held until counted: a dropped claim is released.
+        let mut admissions = Vec::new();
         for handle in handles {
-            if handle.await.expect("task joined") {
-                claimed += 1;
-            }
+            admissions.push(handle.await.expect("task joined"));
         }
+        let claimed = admissions
+            .iter()
+            .filter(|admission| matches!(admission, Admission::Claimed(_)))
+            .count();
         assert_eq!(claimed, 1, "exactly one concurrent delivery may admit");
+    }
+
+    #[tokio::test]
+    async fn a_dropped_claim_is_released() {
+        let dedup = EventDedup::new();
+        let Admission::Claimed(claim) = dedup.claim("task-1", "evt-1", 1).await else {
+            panic!("first delivery must own admission");
+        };
+        // What a cancelled `publish_event` leaves behind.
+        drop(claim);
+
+        // The release is spawned, so poll until it has run.
+        let retry = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                match dedup.claim("task-1", "evt-1", 1).await {
+                    Admission::InFlight => tokio::task::yield_now().await,
+                    admission => return admission,
+                }
+            }
+        })
+        .await
+        .expect("the dropped claim is released");
+        assert_eq!(kind(&retry), "claimed");
     }
 }

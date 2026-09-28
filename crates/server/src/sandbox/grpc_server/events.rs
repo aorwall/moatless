@@ -17,6 +17,7 @@ use moatless_tasks::event_ingress::{AdmissionError, AdmissionRequest};
 use moatless_tasks::task_turn::models::TurnStateEvent;
 use moatless_tasks::task_turn::models::classify_turn_transition;
 
+use super::commands::record_running_commands;
 use super::state::BackendSandboxServiceImpl;
 
 /// Decode one `PublishEventRequest` into the parts admission needs, rejecting
@@ -247,33 +248,49 @@ pub(super) async fn publish_event(
     let request = service
         .build_admission(&event, event_type_str, payload)
         .await;
-    // Databaseless there is no admission to run, and the refusal takes the
-    // same path as a failed one.
-    let admitted = match service.ingress.as_ref() {
-        Some(ingress) => ingress.admission.admit(request).await,
-        None => Err(AdmissionError::NotConfigured {
-            component: "durable admission",
-        }),
-    };
+    let admission = service.ingress.as_ref().map(|i| i.admission.clone());
+    let sandboxes = service.handlers.as_ref().map(|h| h.sandboxes.clone());
+    let (task_id, event_id) = (event.task_id.clone(), event.event_id.clone());
+    // On `admissions` so the sandbox's 10 s call deadline cannot cancel an
+    // admission midway: its retry then finds the event admitted, not still in
+    // flight. Everything admission owes happens in here for the same reason.
+    let admitted = service.admissions.spawn(async move {
+        // Databaseless there is no admission to run, and the refusal takes the
+        // same path as a failed one.
+        let admitted = match admission {
+            Some(admission) => admission.admit(request).await,
+            None => Err(AdmissionError::NotConfigured {
+                component: "durable admission",
+            }),
+        };
+        match &admitted {
+            Ok(()) => {
+                // Settled first: the count update can wait on the same
+                // contended database, and retries answered `InFlight` meanwhile
+                // count toward the sandbox dropping a committed event.
+                claim.admitted().await;
+                if let (Some(sandboxes), Some(running)) = (sandboxes, running_commands) {
+                    record_running_commands(&sandboxes, &task_id, running).await;
+                }
+            }
+            Err(error) => {
+                warn!(%task_id, %event_id, %error, "event admission failed; the sandbox retries it");
+                // Release the claim so the sandbox's retry is a real second
+                // attempt rather than a duplicate of a failed admission.
+                claim.failed().await;
+            }
+        }
+        admitted
+    });
+    let admitted = admitted
+        .await
+        .map_err(|error| Status::internal(format!("event admission task failed: {error}")))?;
 
     match admitted {
-        Ok(()) => {
-            claim.admitted().await;
-            if let Some(running) = running_commands {
-                service
-                    .record_running_commands(&event.task_id, running)
-                    .await;
-            }
-            Ok(Response::new(PublishEventResponse {
-                event_id: event.event_id,
-            }))
-        }
-        Err(e) => {
-            // Release the claim so the sandbox's retry is a real second
-            // attempt rather than a duplicate of a failed admission.
-            claim.failed().await;
-            Err(e.into_status(&event.task_id, &event.event_id))
-        }
+        Ok(()) => Ok(Response::new(PublishEventResponse {
+            event_id: event.event_id,
+        })),
+        Err(e) => Err(e.into_status(&event.task_id, &event.event_id)),
     }
 }
 

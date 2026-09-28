@@ -227,6 +227,102 @@ async fn a_response_lost_after_admission_is_not_re_admitted(pool: PgPool) {
     assert!(event_log_payload(&pool, "evt-1").await.is_some());
 }
 
+/// Holds every publish until released, so admission outlasts its caller.
+struct GatedTransport {
+    inner: FakeTransport,
+    gate: tokio::sync::Semaphore,
+    /// Signalled when a publish reaches the gate.
+    entered: tokio::sync::Notify,
+}
+
+#[async_trait]
+impl EventPublisher for GatedTransport {
+    async fn publish_sandbox_event(&self, _: &str, _: SandboxStatus, _: &str) {}
+    async fn publish_sandbox_event_with_payload(
+        &self,
+        _: &str,
+        _: SandboxStatus,
+        _: &SandboxEventPayload,
+    ) {
+    }
+    async fn publish_task_event(&self, _: &str, _: TaskSubType, _: Option<&str>, _: Value) {}
+    async fn publish_agent_event(&self, _: &str, _: AgentSubType, _: Option<&str>, _: Value) {}
+    async fn publish_task_turn_event(
+        &self,
+        _: &str,
+        _: TaskTurnSubType,
+        _: Option<&str>,
+        _: Option<i32>,
+        _: Value,
+    ) {
+    }
+    async fn publish_raw_event(
+        &self,
+        _: &str,
+        _: &str,
+        _: &str,
+        _: Option<&str>,
+        _: Option<i32>,
+        _: Value,
+    ) {
+    }
+    async fn publish_raw_event_with_id(
+        &self,
+        event_id: &str,
+        task_id: &str,
+        event_type: &str,
+        sub_type: &str,
+        agent_profile: Option<&str>,
+        turn_number: Option<i32>,
+        payload: Value,
+    ) -> Result<(), PublishError> {
+        self.entered.notify_one();
+        let _permit = self.gate.acquire().await.unwrap();
+        self.inner
+            .publish_raw_event_with_id(
+                event_id,
+                task_id,
+                event_type,
+                sub_type,
+                agent_profile,
+                turn_number,
+                payload,
+            )
+            .await
+    }
+}
+
+#[sqlx::test]
+async fn a_call_cancelled_mid_admission_is_acknowledged_on_retry(pool: PgPool) {
+    let task_id = "task-admit-cancel";
+    seed_task(&pool, task_id).await;
+    let transport = Arc::new(GatedTransport {
+        inner: FakeTransport::default(),
+        gate: tokio::sync::Semaphore::new(0),
+        entered: tokio::sync::Notify::new(),
+    });
+    let svc = ingress(&pool, Some(transport.clone()));
+    let request = lifecycle_request(task_id, "evt-1", 1);
+
+    // The call is dropped, as the sandbox's deadline drops it, once admission
+    // has committed and is blocked publishing.
+    tokio::select! {
+        _ = svc.publish_event(Request::new(request.clone())) => {
+            panic!("the gate holds admission until released");
+        }
+        () = transport.entered.notified() => {}
+    }
+
+    transport.gate.add_permits(1);
+    svc.admissions.close();
+    svc.admissions.wait().await;
+
+    let retry = svc.publish_event(Request::new(request)).await;
+    assert_eq!(retry.unwrap().into_inner().event_id, "evt-1");
+    assert_eq!(transport.inner.published().len(), 1);
+    assert!(event_log_payload(&pool, "evt-1").await.is_some());
+}
+
 #[sqlx::test]
 async fn concurrent_duplicate_requests_fan_out_once(pool: PgPool) {
     let task_id = "task-admit-3";

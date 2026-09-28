@@ -272,6 +272,7 @@ pub fn spawn_grpc_server(
     svc: BackendSandboxServiceImpl,
     cancel: CancellationToken,
 ) -> JoinHandle<()> {
+    let admissions = svc.admissions.clone();
     tokio::spawn(async move {
         let addr = SocketAddr::from(([0, 0, 0, 0], port));
         info!(port, "Starting backend gRPC server");
@@ -286,6 +287,10 @@ pub fn spawn_grpc_server(
         {
             tracing::error!(error = %e, "gRPC server failed");
         }
+        // Admissions outlive their calls; the supervisor's join deadline bounds
+        // this wait.
+        admissions.close();
+        admissions.wait().await;
     })
 }
 

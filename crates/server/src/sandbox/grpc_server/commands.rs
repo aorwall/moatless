@@ -8,7 +8,7 @@ use sandbox_proto::{
     TakeUnreportedCommandsRequest, TakeUnreportedCommandsResponse, UnreportedCommand,
 };
 
-use crate::sandbox::lifecycle::OutstandingCommand;
+use crate::sandbox::lifecycle::{OutstandingCommand, SandboxIngress};
 
 use super::state::BackendSandboxServiceImpl;
 
@@ -34,24 +34,23 @@ fn unreported_command_entry(command: OutstandingCommand) -> UnreportedCommand {
     }
 }
 
-impl BackendSandboxServiceImpl {
-    /// Mirror the pod's running-command count onto the Sandbox row, where the
-    /// Task listing can read it.
-    ///
-    /// Logged rather than propagated: the count is absolute, so the next
-    /// transition corrects any failure here.
-    pub(super) async fn record_running_commands(&self, task_id: &str, running: i32) {
-        let Some(sandboxes) = self.handlers.as_ref().map(|h| &h.sandboxes) else {
-            return;
-        };
-        if let Err(error) = sandboxes.record_running_commands(task_id, running).await {
-            warn!(
-                task_id,
-                running,
-                %error,
-                "failed to record running commands; the Task listing keeps the previous count"
-            );
-        }
+/// Mirror the pod's running-command count onto the Sandbox row, where the Task
+/// listing can read it.
+///
+/// Logged rather than propagated: the count is absolute, so the next transition
+/// corrects any failure here.
+pub(super) async fn record_running_commands(
+    sandboxes: &SandboxIngress,
+    task_id: &str,
+    running: i32,
+) {
+    if let Err(error) = sandboxes.record_running_commands(task_id, running).await {
+        warn!(
+            task_id,
+            running,
+            %error,
+            "failed to record running commands; the Task listing keeps the previous count"
+        );
     }
 }
 

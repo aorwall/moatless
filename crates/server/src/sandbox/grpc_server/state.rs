@@ -134,6 +134,9 @@ pub struct BackendSandboxServiceImpl {
     /// The sandbox outbox delivers at-least-once, reusing the `event_id` on a
     /// retry. This drops the duplicate before it reaches the feed.
     pub event_dedup: Arc<crate::sandbox::event_dedup::EventDedup>,
+    /// In-progress `publish_event` admissions, which outlive a cancelled call.
+    /// The gRPC server closes and drains it on shutdown.
+    pub admissions: tokio_util::task::TaskTracker,
 }
 
 /// Construction for the DB-backed integration harness, which lives outside this
@@ -158,6 +161,7 @@ impl BackendSandboxServiceImpl {
             authorizer: SandboxAuthorizer::dev_unauthenticated(None, None),
             github_apps: Arc::new(GitHubAppRegistry::default()),
             event_dedup: Arc::new(crate::sandbox::event_dedup::EventDedup::new()),
+            admissions: tokio_util::task::TaskTracker::new(),
             task_token_secret: None,
             github_app_service: None,
             backend_config: Arc::new(Config::test_minimal()),
