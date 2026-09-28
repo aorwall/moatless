@@ -79,6 +79,18 @@ async fn the_descriptor_advertises_thread_browse() {
     );
 }
 
+#[tokio::test]
+async fn the_descriptor_advertises_thread_provider_switch() {
+    let frame = request("1", "server.getConfig", json!({}));
+    let mut connection = connection();
+    let output = connection.exchange(&frame, &state(), &viewer()).await;
+
+    assert_eq!(
+        output.frames[0]["exit"]["value"]["environment"]["capabilities"]["threadProviderSwitch"],
+        json!(true)
+    );
+}
+
 /// A client without this key lists a thread's project's Scripts and never
 /// sends `scripts.listForThread`, so a Script the agent declared on the Task
 /// stays out of reach of the control that would run it.

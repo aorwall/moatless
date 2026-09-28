@@ -294,7 +294,7 @@ fn missing_hint(agents: &[AgentDescriptor], instance: &str) -> Option<String> {
 /// The provider list, in the shape `ServerProvider` decodes from.
 ///
 /// `requiresNewThreadForModelChange` stays unset — a cross-instance selection
-/// is refused at dispatch instead; `workspace_snapshots` publish on every
+/// switches the thread's harness at dispatch; `workspace_snapshots` publish on every
 /// instance, since a skill reaches whichever agent runs.
 pub fn providers(
     agents: &[AgentDescriptor],

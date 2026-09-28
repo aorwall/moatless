@@ -41,6 +41,10 @@ pub(crate) fn descriptor(config: &UiRpcConfig) -> Value {
             // work of somebody who is not them, and must offer no filter for
             // it at all.
             "threadBrowse": true,
+            // Whether a turn naming another harness's instance switches a
+            // started thread to it. Absent, a client locks the provider picker
+            // once the thread has started.
+            "threadProviderSwitch": true,
             // Whether `thread.user-input.respond` is understood. A client
             // cannot otherwise tell this server from one that refuses it, and
             // the descriptor is read before any thread is opened.
