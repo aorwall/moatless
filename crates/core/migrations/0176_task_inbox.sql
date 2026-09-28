@@ -102,6 +102,9 @@ WITH moved AS (
            END AS origin,
            t.run_id AS turn_run_id
       FROM task_messages m
+      -- `task_messages` has no foreign key to `tasks`, so it keeps rows of
+      -- deleted Tasks; `task_inbox` rejects them.
+      JOIN tasks tk ON tk.task_id = m.task_id
       LEFT JOIN task_turns t
         ON t.task_id = m.task_id AND t.turn_number = m.turn_number
      WHERE m.message_type = 'user'
