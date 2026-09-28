@@ -218,10 +218,9 @@ impl SkillService {
 /// Merge the workspace's own skills with the plugin skills a caller picked,
 /// name-deduplicated and sorted.
 ///
-/// A stored skill the caller did not pick is dropped — the same filter the
-/// sandbox applies pruning the cloned plugin directory, so this matches what
-/// the agent has. Workspace shadows plugin on a name clash; among plugins, DAO
-/// order (`plugins` is one entry per plugin) breaks the tie.
+/// A stored skill the caller did not pick is dropped, as the sandbox prunes it
+/// from the fetched plugin. Workspace shadows plugin on a name clash; among
+/// plugins, DAO order breaks the tie.
 fn merge_skills(workspace: Vec<Skill>, plugins: Vec<(Vec<Skill>, Vec<String>)>) -> Vec<Skill> {
     let mut merged: Vec<Skill> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();

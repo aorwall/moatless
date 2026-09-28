@@ -17,16 +17,16 @@ use sandbox_proto::backend_sandbox_service_server::{
 use sandbox_proto::{
     AcknowledgeMessagesRequest, AcknowledgeMessagesResponse, DownloadTranscriptRequest,
     DownloadUploadRequest, DownloadUploadResponse, EnqueueSandboxMessageRequest,
-    EnqueueSandboxMessageResponse, GetCredentialsRequest, GetCredentialsResponse,
-    GetPendingMessagesRequest, GetPendingMessagesResponse, GetSystemPromptRequest,
-    GetSystemPromptResponse, GetWorkspaceRepositoryAccessRequest,
+    EnqueueSandboxMessageResponse, FetchPluginRequest, GetCredentialsRequest,
+    GetCredentialsResponse, GetPendingMessagesRequest, GetPendingMessagesResponse,
+    GetSystemPromptRequest, GetSystemPromptResponse, GetWorkspaceRepositoryAccessRequest,
     GetWorkspaceRepositoryAccessResponse, GetWorkspaceSyncUrlsRequest,
-    GetWorkspaceSyncUrlsResponse, PublishEventRequest, PublishEventResponse, RecordGitPushRequest,
-    RecordGitPushResponse, RecordUnreportedCommandsRequest, RecordUnreportedCommandsResponse,
-    RecoverInterruptedRunRequest, RecoverInterruptedRunResponse, ReportWorkspaceSyncRequest,
-    ReportWorkspaceSyncResponse, TakeUnreportedCommandsRequest, TakeUnreportedCommandsResponse,
-    TranscriptChunk, UpdateCredentialRequest, UpdateCredentialResponse, UploadChunk,
-    UploadTranscriptResponse,
+    GetWorkspaceSyncUrlsResponse, PluginChunk, PublishEventRequest, PublishEventResponse,
+    RecordGitPushRequest, RecordGitPushResponse, RecordUnreportedCommandsRequest,
+    RecordUnreportedCommandsResponse, RecoverInterruptedRunRequest, RecoverInterruptedRunResponse,
+    ReportWorkspaceSyncRequest, ReportWorkspaceSyncResponse, TakeUnreportedCommandsRequest,
+    TakeUnreportedCommandsResponse, TranscriptChunk, UpdateCredentialRequest,
+    UpdateCredentialResponse, UploadChunk, UploadTranscriptResponse,
 };
 use tonic::{Request, Response, Status, Streaming};
 
@@ -107,6 +107,15 @@ impl BackendSandboxService for UploadOnlyBackend {
         &self,
         _request: Request<DownloadTranscriptRequest>,
     ) -> Result<Response<Self::DownloadTranscriptStream>, Status> {
+        Err(Status::unimplemented("not used"))
+    }
+
+    type FetchPluginStream = Pin<Box<dyn Stream<Item = Result<PluginChunk, Status>> + Send>>;
+
+    async fn fetch_plugin(
+        &self,
+        _request: Request<FetchPluginRequest>,
+    ) -> Result<Response<Self::FetchPluginStream>, Status> {
         Err(Status::unimplemented("not used"))
     }
 

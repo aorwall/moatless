@@ -71,6 +71,13 @@ service BackendSandboxService {
   // stream means "no session archive stored yet". Auth via gRPC metadata.
   rpc DownloadTranscript(DownloadTranscriptRequest) returns (stream TranscriptChunk);
 
+  // Download one of the task's plugins as a gzip tar of its plugin files,
+  // rooted at the repository root, at the head of its default branch. The
+  // backend checks the head as the task's run-as identity on every call and
+  // caches the files by commit. NOT_FOUND when the task's plugin list does not
+  // name the plugin. Auth via gRPC metadata.
+  rpc FetchPlugin(FetchPluginRequest) returns (stream PluginChunk);
+
   // Record harness session lines in file order into the Task's trajectory.
   // Idempotent on (harness_session_id, seq); creates the session on its first
   // append. FAILED_PRECONDITION while a subagent session's spawning tool call
@@ -279,6 +286,22 @@ message UploadTranscriptResponse {
 message DownloadTranscriptRequest {
   string task_id = 1;
   // auth via gRPC metadata (authorization: Bearer <token>)
+}
+
+message FetchPluginRequest {
+  string task_id = 1;
+  // `PluginDelivery.name`, as the sandbox's REPO_CONFIG lists it.
+  string plugin_name = 2;
+  // The commit the sandbox already holds, or empty. When it is still the
+  // head, the reply is one chunk with `unchanged` set and no data.
+  string known_version = 3;
+}
+
+message PluginChunk {
+  bytes data = 1;
+  // The commit the archive was taken at; set on the first chunk only.
+  string version = 2;
+  bool unchanged = 3;
 }
 
 message AppendTrajectoryRequest {

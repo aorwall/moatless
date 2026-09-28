@@ -8,6 +8,7 @@ use moatless_core::config::Config;
 use moatless_core::db::{self, DbPool};
 use moatless_core::events::{EventPublisher, FeedEventPublisher};
 use moatless_identity::secret::service::LocalEnvelopeSecretCipher;
+use moatless_workspaces::skill::fetcher::GitHostSkillFetcher;
 
 pub async fn init_database(
     database_url: Option<&str>,
@@ -284,6 +285,11 @@ pub fn grpc_service(
         task_turns: p.task_turns.clone(),
         task_events: p.task_events.clone(),
     });
+    // Longer than the skill fetcher's 30s: an archive is a whole repository.
+    let plugin_http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_mins(2))
+        .build()
+        .unwrap_or_default();
     let handlers = ports.map(|p| {
         // Tasks-band orchestrator — guard + fan-out over the pure service.
         let credential_sync = p.task_graph.credential_sync(
@@ -311,6 +317,10 @@ pub fn grpc_service(
             harness_credentials: p.harness_credentials.clone(),
             trajectory: p.task_graph.trajectory(),
             tags: p.tags.clone(),
+            plugin_archives: moatless_workspaces::compose::plugin_archives(
+                Arc::new(GitHostSkillFetcher::new(plugin_http.clone())),
+                p.git_host_tokens.clone(),
+            ),
         }
     });
 

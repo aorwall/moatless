@@ -356,7 +356,7 @@ fn env_flag_override(name: &str) -> Option<bool> {
 }
 
 impl Config {
-    /// Where the task owner's plugins are cloned: `$WORKSPACE_DIR/.plugins`.
+    /// Where the task owner's plugins are fetched to: `$WORKSPACE_DIR/.plugins`.
     ///
     /// Under the workspace so `workspace_sync` restores them after a pod
     /// replacement; hidden so `files::git::discover_git_repos` does not list

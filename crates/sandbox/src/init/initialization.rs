@@ -265,21 +265,22 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
         }
     }
 
-    // 5. Clone the task's plugins (non-fatal). Runs with none picked too, so
-    // plugins a restored snapshot still holds are removed.
-    let cloned = workspace::clone_plugins(&state.config).await;
-    if !cloned.is_empty() {
+    // 5. Fetch the task's plugins from the backend (non-fatal). Runs with none
+    // picked too, so plugins a restored snapshot still holds are removed. The
+    // event keeps its `PluginsCloned` reason, which clients match on.
+    let fetched = workspace::fetch_plugins(&state.config, state.backend_client.as_ref()).await;
+    if !fetched.is_empty() {
         publish_sandbox_event(
             state,
             "PluginsCloned",
-            &format!("Cloned {} plugin(s)", cloned.len()),
+            &format!("Fetched {} plugin(s)", fetched.len()),
             false,
         )
         .await;
     }
 
     // 6. Stage plugin-bundled skills so the Codex agent can discover them.
-    // Runs unconditionally so a plugin cloned above is picked up.
+    // Runs unconditionally so a plugin fetched above is picked up.
     let plugins_dir = state.config.plugins_dir();
     let staged = run_init_blocking("stage_plugin_skills_for_codex", move || {
         plugin_skills::stage_plugin_skills_for_codex(&plugins_dir)

@@ -9,6 +9,7 @@ mod dispatch;
 mod events;
 mod git_push;
 mod messages;
+mod plugins;
 mod state;
 mod trajectory;
 mod transcripts;

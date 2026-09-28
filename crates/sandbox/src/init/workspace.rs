@@ -1,6 +1,8 @@
-//! Workspace setup: plugin checkouts and setup commands.
+//! Workspace setup: plugin fetches and setup commands.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
 
 use tokio::fs;
 use tokio::process::Command;
@@ -8,14 +10,15 @@ use tracing::{info, warn};
 
 use moatless_workspace_types::plugin::PluginDelivery;
 
+use crate::backend_client::{BackendClient, PluginFetch};
 use crate::config::Config;
 
-/// Clone or update each of the task owner's plugins under
+/// Fetch each of the task owner's plugins from the backend into
 /// [`Config::plugins_dir`] and remove the plugins and skills they did not pick.
 ///
-/// Non-fatal per plugin; see [`checkout_plugin`] for what a restored
-/// checkout gets. Prune reruns since picks can change between starts.
-pub async fn clone_plugins(config: &Config) -> Vec<String> {
+/// Non-fatal per plugin: one the backend cannot serve keeps the restored copy,
+/// pruned like a fresh one. Returns the plugins that are current.
+pub async fn fetch_plugins(config: &Config, backend: &dyn BackendClient) -> Vec<String> {
     let base_dir = config.plugins_dir();
     remove_unpicked_plugins(&base_dir, &config.plugins).await;
     if config.plugins.is_empty() {
@@ -27,38 +30,142 @@ pub async fn clone_plugins(config: &Config) -> Vec<String> {
         return Vec::new();
     }
 
-    let git_token = std::env::var("GIT_TOKEN").ok();
-
-    let mut cloned_paths = Vec::new();
-
+    let mut fetched = Vec::new();
     for plugin in &config.plugins {
         let name = &plugin.name;
         let dest = base_dir.join(name);
 
-        if let Err(e) = checkout_plugin(&plugin.git_url, &dest, git_token.as_deref()).await {
-            warn!(
+        match fetch_plugin(config, backend, &base_dir, plugin).await {
+            Ok(()) => fetched.push(dest.to_string_lossy().into_owned()),
+            Err(e) if dest.exists() => warn!(
                 name = %name,
-                url = %strip_url_credentials(&plugin.git_url),
                 error = %e,
-                "Failed to clone plugin (non-fatal)"
-            );
-            // A restored copy left here would load with every skill unpruned.
-            if let Err(e) = fs::remove_dir_all(&dest).await {
-                if e.kind() != std::io::ErrorKind::NotFound {
-                    warn!(name = %name, error = %e, "Failed to remove unusable plugin checkout");
-                }
+                "Failed to fetch plugin; keeping the copy restored from the snapshot"
+            ),
+            Err(e) => {
+                warn!(name = %name, error = %e, "Failed to fetch plugin (non-fatal)");
+                continue;
             }
-            continue;
         }
 
         let dropped = super::plugin_skills::keep_only(&dest, name, &plugin.skill_names);
         if dropped > 0 {
             info!(name = %name, dropped, "Removed skills this task's owner did not pick");
         }
-        cloned_paths.push(dest.to_string_lossy().into_owned());
     }
 
-    cloned_paths
+    fetched
+}
+
+/// What an installed plugin was fetched at, kept beside it as `.{name}.json`.
+#[derive(Debug, Serialize, Deserialize)]
+struct Installed {
+    version: String,
+    /// The picks it was pruned to; a skill outside them is no longer on disk.
+    skills: Vec<String>,
+}
+
+fn installed_path(base_dir: &Path, name: &str) -> PathBuf {
+    base_dir.join(format!(".{name}.json"))
+}
+
+/// The version to name as known: only one whose copy still holds every skill
+/// now picked.
+async fn known_version(base_dir: &Path, plugin: &PluginDelivery) -> Option<String> {
+    if !base_dir.join(&plugin.name).is_dir() {
+        return None;
+    }
+    let raw = fs::read(installed_path(base_dir, &plugin.name))
+        .await
+        .ok()?;
+    let installed: Installed = serde_json::from_slice(&raw).ok()?;
+    plugin
+        .skill_names
+        .iter()
+        .all(|skill| installed.skills.contains(skill))
+        .then_some(installed.version)
+}
+
+async fn fetch_plugin(
+    config: &Config,
+    backend: &dyn BackendClient,
+    base_dir: &Path,
+    plugin: &PluginDelivery,
+) -> Result<(), String> {
+    let name = &plugin.name;
+    let known = known_version(base_dir, plugin).await;
+    let fetched = backend
+        .fetch_plugin(&config.task_id, name, known.as_deref())
+        .await
+        .map_err(|e| format!("{}: {}", e.code(), e.message()))?;
+    let version = match fetched {
+        PluginFetch::Unchanged => {
+            info!(name = %name, version = ?known, "Plugin unchanged since it was fetched");
+            known.unwrap_or_default()
+        }
+        PluginFetch::Archive { version, data } => {
+            // Dropped first, so a failed install is never taken for `version`.
+            let _ = fs::remove_file(installed_path(base_dir, name)).await;
+            let (dir, owned) = (base_dir.to_path_buf(), name.clone());
+            tokio::task::spawn_blocking(move || install_archive(&data, &dir, &owned))
+                .await
+                .map_err(|e| e.to_string())?
+                .map_err(|e| format!("Failed to unpack plugin archive: {e}"))?;
+            info!(name = %name, version = %version, "Plugin fetched from the backend");
+            version
+        }
+    };
+
+    let installed = Installed {
+        version,
+        skills: plugin.skill_names.clone(),
+    };
+    let written = match serde_json::to_vec(&installed) {
+        Ok(raw) => fs::write(installed_path(base_dir, name), raw)
+            .await
+            .map_err(|e| e.to_string()),
+        Err(e) => Err(e.to_string()),
+    };
+    if let Err(e) = written {
+        warn!(name = %name, error = %e, "Failed to record the plugin's version; the next start downloads it again");
+    }
+    Ok(())
+}
+
+/// Unpack a `FetchPlugin` archive to `base_dir/name`, replacing what is there
+/// only once the archive has unpacked whole.
+fn install_archive(data: &[u8], base_dir: &Path, name: &str) -> std::io::Result<()> {
+    // Dot-prefixed so a leftover from a killed start is not loaded as a plugin;
+    // `remove_unpicked_plugins` clears it on the next one.
+    let staging = base_dir.join(format!(".{name}.partial"));
+    if staging.exists() {
+        std::fs::remove_dir_all(&staging)?;
+    }
+    let installed = unpack_into(data, &staging, &base_dir.join(name));
+    if staging.exists() {
+        let _ = std::fs::remove_dir_all(&staging);
+    }
+    installed
+}
+
+fn unpack_into(data: &[u8], staging: &Path, dest: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(staging)?;
+    tar::Archive::new(flate2::read::GzDecoder::new(data)).unpack(staging)?;
+    if !dest.exists() {
+        return std::fs::rename(staging, dest);
+    }
+    // Moved aside rather than deleted, so a failed promotion can put it back.
+    let previous = staging.with_extension("previous");
+    if previous.exists() {
+        std::fs::remove_dir_all(&previous)?;
+    }
+    std::fs::rename(dest, &previous)?;
+    if let Err(e) = std::fs::rename(staging, dest) {
+        let _ = std::fs::rename(&previous, dest);
+        return Err(e);
+    }
+    let _ = std::fs::remove_dir_all(&previous);
+    Ok(())
 }
 
 /// Remove every child of `base_dir` that `picked` does not name.
@@ -72,7 +179,10 @@ async fn remove_unpicked_plugins(base_dir: &Path, picked: &[PluginDelivery]) {
     };
     while let Ok(Some(entry)) = entries.next_entry().await {
         let name = entry.file_name();
-        if picked.iter().any(|plugin| name == plugin.name.as_str()) {
+        if picked.iter().any(|plugin| {
+            name == plugin.name.as_str()
+                || installed_path(base_dir, &plugin.name).file_name() == Some(name.as_os_str())
+        }) {
             continue;
         }
         let path = entry.path();
@@ -87,89 +197,6 @@ async fn remove_unpicked_plugins(base_dir: &Path, picked: &[PluginDelivery]) {
             }
             Err(e) => warn!(path = %path.display(), error = %e, "Failed to remove unpicked plugin"),
         }
-    }
-}
-
-/// Bring `dest` to the tip of `git_url`'s default branch, shallowly.
-///
-/// `dest` is snapshotted, so `token` goes only in a per-command header. A
-/// restored checkout is fetched, not re-cloned; if the fetch fails it is reset
-/// to its own `HEAD`, which restores the skills `keep_only` pruned last start.
-async fn checkout_plugin(git_url: &str, dest: &Path, token: Option<&str>) -> Result<(), String> {
-    let origin = strip_url_credentials(git_url);
-    let auth = token.map(auth_header_config);
-    let dest_str = dest.to_string_lossy();
-
-    if dest.join(".git").exists() {
-        // Also scrubs a token an older clone embedded in the URL.
-        git_in(&dest_str, None, &["remote", "set-url", "origin", &origin]).await?;
-        match git_in(
-            &dest_str,
-            auth.as_deref(),
-            &["fetch", "--depth", "1", "origin", "HEAD"],
-        )
-        .await
-        {
-            Ok(()) => {
-                git_in(&dest_str, None, &["reset", "--hard", "FETCH_HEAD"]).await?;
-                info!(dest = %dest_str, "Plugin updated from origin");
-            }
-            Err(e) => {
-                warn!(
-                    dest = %dest_str,
-                    error = %e,
-                    "Failed to fetch plugin; keeping the copy restored from the snapshot"
-                );
-                git_in(&dest_str, None, &["reset", "--hard", "HEAD"]).await?;
-            }
-        }
-        return Ok(());
-    }
-
-    // A directory without `.git` is a clone that died part-way; git refuses to
-    // clone into it while it is non-empty.
-    if dest.exists() {
-        fs::remove_dir_all(dest)
-            .await
-            .map_err(|e| format!("Failed to remove partial plugin dir: {e}"))?;
-    }
-    let mut args: Vec<&str> = Vec::new();
-    if let Some(auth) = &auth {
-        args.extend(["-c", auth]);
-    }
-    args.extend(["clone", "--depth", "1", &origin, &dest_str]);
-    super::git::run_command("git", &args).await?;
-    info!(dest = %dest_str, "Plugin cloned successfully");
-    Ok(())
-}
-
-/// Run `git -C dir [-c auth] args…`.
-async fn git_in(dir: &str, auth: Option<&str>, args: &[&str]) -> Result<(), String> {
-    let mut full: Vec<&str> = vec!["-C", dir];
-    if let Some(auth) = auth {
-        full.extend(["-c", auth]);
-    }
-    full.extend_from_slice(args);
-    super::git::run_command("git", &full).await
-}
-
-/// The `-c` value that authenticates one git command with `token`, the same
-/// `x-access-token` basic credential `inject_token_into_url` puts in a URL.
-fn auth_header_config(token: &str) -> String {
-    use base64::Engine;
-    let basic = base64::engine::general_purpose::STANDARD.encode(format!("x-access-token:{token}"));
-    format!("http.extraHeader=Authorization: Basic {basic}")
-}
-
-/// `url` without any `user:pass@` in front of an HTTPS host.
-fn strip_url_credentials(url: &str) -> String {
-    let Some(rest) = url.strip_prefix("https://") else {
-        return url.to_string();
-    };
-    let authority_end = rest.find('/').unwrap_or(rest.len());
-    match rest[..authority_end].rfind('@') {
-        Some(at) => format!("https://{}", &rest[at + 1..]),
-        None => url.to_string(),
     }
 }
 
@@ -199,156 +226,224 @@ pub async fn run_setup_command(config: &Config, cmd: &str) -> Result<(), String>
 mod tests {
     use super::*;
 
-    use std::path::PathBuf;
     use tempfile::tempdir;
 
-    fn git_sync(dir: &Path, args: &[&str]) -> String {
-        let output = std::process::Command::new("git")
-            .current_dir(dir)
-            .args(args)
-            .output()
-            .expect("git command runs");
-        assert!(output.status.success(), "git {args:?} failed");
-        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    /// A gzip tar laid out as `FetchPlugin` serves one: rooted at the
+    /// repository root.
+    fn plugin_archive(files: &[(&str, &str)]) -> Vec<u8> {
+        let mut builder = tar::Builder::new(flate2::write::GzEncoder::new(
+            Vec::new(),
+            flate2::Compression::fast(),
+        ));
+        for (path, contents) in files {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(contents.len() as u64);
+            header.set_mode(0o644);
+            builder
+                .append_data(&mut header, path, contents.as_bytes())
+                .unwrap();
+        }
+        builder.into_inner().unwrap().finish().unwrap()
     }
 
-    fn commit_file(repo: &Path, rel: &str, contents: &str) {
-        let path = repo.join(rel);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, contents).unwrap();
-        git_sync(repo, &["add", "."]);
-        git_sync(
-            repo,
-            &[
-                "-c",
-                "user.email=test@example.com",
-                "-c",
-                "user.name=Test User",
-                "commit",
-                "-m",
-                rel,
-            ],
-        );
-    }
-
-    /// A plugin source repo holding one skill, served over `file://` so the
-    /// shallow clone and fetch behave as they do against a remote.
-    fn source_repo(root: &Path) -> (PathBuf, String) {
-        let source = root.join("source");
-        std::fs::create_dir_all(&source).unwrap();
-        git_sync(&source, &["init", "--initial-branch", "main"]);
-        commit_file(&source, "skills/review/SKILL.md", "v1\n");
-        let url = format!("file://{}", source.display());
-        (source, url)
-    }
-
-    #[tokio::test]
-    async fn a_fresh_clone_keeps_the_token_out_of_origin() {
+    #[test]
+    fn an_archive_replaces_the_previous_copy_whole() {
         let root = tempdir().unwrap();
-        let (_source, url) = source_repo(root.path());
-        let dest = root.path().join("plugins/agentops");
+        let dest = root.path().join("agentops");
+        std::fs::create_dir_all(dest.join("skills/stale")).unwrap();
+        let data = plugin_archive(&[("skills/review/SKILL.md", "v2\n")]);
 
-        checkout_plugin(&url, &dest, Some("ghu_secret"))
-            .await
-            .unwrap();
+        install_archive(&data, root.path(), "agentops").unwrap();
 
         assert!(dest.join("skills/review/SKILL.md").is_file());
-        let config = std::fs::read_to_string(dest.join(".git/config")).unwrap();
-        assert!(!config.contains("ghu_secret"), "token persisted: {config}");
+        assert!(!dest.join("skills/stale").exists());
+        assert!(!root.path().join(".agentops.partial").exists());
     }
 
-    /// A checkout the snapshot restored moves to the new tip, and a skill the
-    /// last start pruned comes back for `keep_only` to judge again.
-    #[tokio::test]
-    async fn a_restored_checkout_is_fetched_rather_than_recloned() {
+    #[test]
+    fn a_corrupt_archive_leaves_the_previous_copy_in_place() {
         let root = tempdir().unwrap();
-        let (source, url) = source_repo(root.path());
-        let dest = root.path().join("plugins/agentops");
-        checkout_plugin(&url, &dest, None).await.unwrap();
-        std::fs::remove_dir_all(dest.join("skills/review")).unwrap();
-        commit_file(&source, "skills/lint/SKILL.md", "v2\n");
+        let dest = root.path().join("agentops");
+        std::fs::create_dir_all(dest.join("skills/review")).unwrap();
 
-        checkout_plugin(&url, &dest, None).await.unwrap();
+        assert!(install_archive(b"not a tarball", root.path(), "agentops").is_err());
 
-        assert!(dest.join("skills/review/SKILL.md").is_file());
-        assert!(dest.join("skills/lint/SKILL.md").is_file());
+        assert!(dest.join("skills/review").is_dir());
+        assert!(!root.path().join(".agentops.partial").exists());
     }
 
-    /// An unreachable origin keeps the restored copy, and a token an older
-    /// clone embedded in `origin` is scrubbed either way.
-    #[tokio::test]
-    async fn a_failed_fetch_keeps_the_restored_copy() {
-        let root = tempdir().unwrap();
-        let (_source, url) = source_repo(root.path());
-        let dest = root.path().join("plugins/agentops");
-        checkout_plugin(&url, &dest, None).await.unwrap();
-        std::fs::remove_dir_all(dest.join("skills/review")).unwrap();
-        let unreachable = "https://x-access-token:ghu_secret@unreachable.invalid/o/p.git";
-        git_sync(&dest, &["remote", "set-url", "origin", unreachable]);
-
-        checkout_plugin(unreachable, &dest, Some("ghu_secret"))
-            .await
-            .unwrap();
-
-        assert!(dest.join("skills/review/SKILL.md").is_file());
-        assert_eq!(
-            git_sync(&dest, &["remote", "get-url", "origin"]),
-            "https://unreachable.invalid/o/p.git"
-        );
-    }
-
-    #[tokio::test]
-    async fn a_partial_checkout_is_replaced_by_a_clone() {
-        let root = tempdir().unwrap();
-        let (_source, url) = source_repo(root.path());
-        let dest = root.path().join("plugins/agentops");
-        std::fs::create_dir_all(dest.join("leftover")).unwrap();
-
-        checkout_plugin(&url, &dest, None).await.unwrap();
-
-        assert!(dest.join("skills/review/SKILL.md").is_file());
-        assert!(!dest.join("leftover").exists());
-    }
-
-    /// The snapshot restores every plugin a previous start cloned, including
-    /// ones the owner has since dropped; those must not survive to be loaded.
+    /// The snapshot restores every plugin a previous start fetched, including
+    /// ones the owner has since dropped; those must not survive to be loaded,
+    /// and a kept one the backend cannot serve is still pruned.
     #[tokio::test]
     async fn a_restored_plugin_the_owner_dropped_is_removed() {
         let root = tempdir().unwrap();
-        let (_source, url) = source_repo(root.path());
         let mut config = crate::config::test_support::minimal_config();
         config.workspace_dir = root.path().join("ws").to_string_lossy().into_owned();
         let plugins_dir = config.plugins_dir();
         std::fs::create_dir_all(plugins_dir.join("dropped/skills/x")).unwrap();
+        std::fs::create_dir_all(plugins_dir.join("kept/skills/review")).unwrap();
+        std::fs::create_dir_all(plugins_dir.join("kept/skills/lint")).unwrap();
         config.plugins = vec![PluginDelivery {
             name: "kept".to_string(),
-            git_url: url,
+            git_url: "https://github.com/acme/plugins".to_string(),
             skill_names: vec!["review".to_string()],
             frontload_skill_names: Vec::new(),
         }];
+        let backend = crate::state::test_support::NoopBackend::default();
 
-        clone_plugins(&config).await;
-        assert!(plugins_dir.join("kept/skills/review/SKILL.md").is_file());
+        assert!(fetch_plugins(&config, &backend).await.is_empty());
+        assert!(plugins_dir.join("kept/skills/review").is_dir());
+        assert!(!plugins_dir.join("kept/skills/lint").exists());
         assert!(!plugins_dir.join("dropped").exists());
 
         config.plugins = Vec::new();
-        clone_plugins(&config).await;
+        fetch_plugins(&config, &backend).await;
         assert!(!plugins_dir.join("kept").exists());
     }
 
-    #[test]
-    fn strip_url_credentials_removes_only_userinfo() {
+    /// Serves `version` of a one-skill plugin, answering `Unchanged` to a
+    /// caller that names it, and records what each call named.
+    struct PluginBackend {
+        version: &'static str,
+        known: std::sync::Mutex<Vec<Option<String>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl BackendClient for PluginBackend {
+        async fn fetch_plugin(
+            &self,
+            _task_id: &str,
+            _plugin_name: &str,
+            known_version: Option<&str>,
+        ) -> Result<PluginFetch, tonic::Status> {
+            self.known
+                .lock()
+                .unwrap()
+                .push(known_version.map(str::to_string));
+            if known_version == Some(self.version) {
+                return Ok(PluginFetch::Unchanged);
+            }
+            Ok(PluginFetch::Archive {
+                version: self.version.to_string(),
+                data: plugin_archive(&[
+                    ("skills/review/SKILL.md", self.version),
+                    ("skills/lint/SKILL.md", self.version),
+                ]),
+            })
+        }
+
+        async fn publish_event(
+            &self,
+            _req: sandbox_proto::PublishEventRequest,
+        ) -> Result<(), tonic::Status> {
+            unimplemented!()
+        }
+        async fn get_pending_messages(
+            &self,
+            _task_id: &str,
+        ) -> Result<Vec<sandbox_proto::PendingAgentDelivery>, tonic::Status> {
+            unimplemented!()
+        }
+        async fn acknowledge_messages(
+            &self,
+            _task_id: &str,
+            _message_uuids: Vec<String>,
+            _session_id: &str,
+            _run_id: &str,
+            _answered_prompt: Option<&str>,
+        ) -> Result<(), tonic::Status> {
+            unimplemented!()
+        }
+        async fn get_credentials(
+            &self,
+            _task_id: &str,
+        ) -> Result<sandbox_proto::GetCredentialsResponse, tonic::Status> {
+            unimplemented!()
+        }
+        async fn update_credential(
+            &self,
+            _task_id: &str,
+            _key: &str,
+            _value: &str,
+        ) -> Result<(), tonic::Status> {
+            unimplemented!()
+        }
+        async fn get_system_prompt(&self, _task_id: &str) -> Result<String, tonic::Status> {
+            unimplemented!()
+        }
+        async fn download_upload(
+            &self,
+            _task_id: &str,
+            _file_id: &str,
+        ) -> Result<sandbox_proto::DownloadUploadResponse, tonic::Status> {
+            unimplemented!()
+        }
+        async fn recover_interrupted_run(
+            &self,
+            _task_id: &str,
+        ) -> Result<Option<sandbox_proto::InterruptedTurn>, tonic::Status> {
+            unimplemented!()
+        }
+        async fn upload_transcript(
+            &self,
+            _task_id: &str,
+            _tar_data: Vec<u8>,
+        ) -> Result<(), tonic::Status> {
+            unimplemented!()
+        }
+        async fn download_transcript(&self, _task_id: &str) -> Result<Vec<u8>, tonic::Status> {
+            unimplemented!()
+        }
+    }
+
+    fn config_picking(root: &Path, skills: &[&str]) -> Config {
+        let mut config = crate::config::test_support::minimal_config();
+        config.workspace_dir = root.join("ws").to_string_lossy().into_owned();
+        config.plugins = vec![PluginDelivery {
+            name: "agentops".to_string(),
+            git_url: "https://github.com/acme/plugins".to_string(),
+            skill_names: skills.iter().map(ToString::to_string).collect(),
+            frontload_skill_names: Vec::new(),
+        }];
+        config
+    }
+
+    #[tokio::test]
+    async fn a_plugin_still_at_its_version_is_not_downloaded_again() {
+        let root = tempdir().unwrap();
+        let config = config_picking(root.path(), &["review"]);
+        let backend = PluginBackend {
+            version: "sha-1",
+            known: Default::default(),
+        };
+
+        fetch_plugins(&config, &backend).await;
+        let fetched = fetch_plugins(&config, &backend).await;
+
+        assert_eq!(fetched.len(), 1);
         assert_eq!(
-            strip_url_credentials("https://x-access-token:tok@github.com/o/p.git"),
-            "https://github.com/o/p.git"
+            *backend.known.lock().unwrap(),
+            [None, Some("sha-1".to_string())]
         );
-        assert_eq!(
-            strip_url_credentials("https://github.com/o/p@v1.git"),
-            "https://github.com/o/p@v1.git"
-        );
-        assert_eq!(
-            strip_url_credentials("git@github.com:o/p.git"),
-            "git@github.com:o/p.git"
-        );
+        let skills = config.plugins_dir().join("agentops/skills");
+        assert!(skills.join("review/SKILL.md").is_file());
+        assert!(!skills.join("lint").exists());
+    }
+
+    #[tokio::test]
+    async fn a_newly_picked_skill_downloads_the_plugin_again() {
+        let root = tempdir().unwrap();
+        let backend = PluginBackend {
+            version: "sha-1",
+            known: Default::default(),
+        };
+        fetch_plugins(&config_picking(root.path(), &["review"]), &backend).await;
+
+        let config = config_picking(root.path(), &["review", "lint"]);
+        fetch_plugins(&config, &backend).await;
+
+        assert_eq!(*backend.known.lock().unwrap(), [None, None]);
+        assert!(config.plugins_dir().join("agentops/skills/lint").is_dir());
     }
 }

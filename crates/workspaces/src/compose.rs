@@ -12,6 +12,7 @@ use moatless_identity::secret::service::SecretCipher;
 use moatless_ports::identity::GitHostTokenIssuer;
 use moatless_workspace_ports::RepositoryReader;
 
+use crate::plugin::archive::PluginArchives;
 use crate::plugin::dao::PgPluginDao;
 use crate::plugin::operations::Plugins;
 use crate::plugin::sync::PluginSyncService;
@@ -113,6 +114,14 @@ pub fn plugin_sync(
         fetcher,
         git_host_tokens,
     ))
+}
+
+/// Plugin archives served to sandboxes, cached by commit.
+pub fn plugin_archives(
+    fetcher: Arc<dyn SkillFetcher>,
+    git_host_tokens: Arc<dyn GitHostTokenIssuer>,
+) -> Arc<PluginArchives> {
+    Arc::new(PluginArchives::new(fetcher, git_host_tokens))
 }
 
 /// Skill discovery across a workspace and the plugins its activations name.

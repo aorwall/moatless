@@ -10,7 +10,7 @@ use sandbox_proto::{
     AcknowledgeMessagesRequest, AcknowledgeMessagesResponse, AppendTrajectoryRequest,
     AppendTrajectoryResponse, DownloadTranscriptRequest, DownloadUploadRequest,
     DownloadUploadResponse, EnqueueSandboxMessageRequest, EnqueueSandboxMessageResponse,
-    GetCredentialsRequest, GetCredentialsResponse, GetPendingMessagesRequest,
+    FetchPluginRequest, GetCredentialsRequest, GetCredentialsResponse, GetPendingMessagesRequest,
     GetPendingMessagesResponse, GetSystemPromptRequest, GetSystemPromptResponse,
     GetWorkspaceRepositoryAccessRequest, GetWorkspaceRepositoryAccessResponse,
     GetWorkspaceSyncUrlsRequest, GetWorkspaceSyncUrlsResponse, PublishEventRequest,
@@ -23,7 +23,7 @@ use sandbox_proto::{
 
 use super::state::BackendSandboxServiceImpl;
 use super::{
-    commands, credentials, events, git_push, messages, trajectory, transcripts, uploads,
+    commands, credentials, events, git_push, messages, plugins, trajectory, transcripts, uploads,
     workspace_sync,
 };
 
@@ -32,6 +32,7 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
     type DownloadUploadChunkedStream = uploads::UploadChunkStream;
     type DownloadTranscriptStream = transcripts::TranscriptChunkStream;
     type ReadTrajectoryStream = trajectory::TrajectoryChunkStream;
+    type FetchPluginStream = plugins::PluginChunkStream;
 
     async fn publish_event(
         &self,
@@ -101,6 +102,13 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         request: Request<DownloadTranscriptRequest>,
     ) -> Result<Response<Self::DownloadTranscriptStream>, Status> {
         transcripts::download_transcript(self, request).await
+    }
+
+    async fn fetch_plugin(
+        &self,
+        request: Request<FetchPluginRequest>,
+    ) -> Result<Response<Self::FetchPluginStream>, Status> {
+        plugins::fetch_plugin(self, request).await
     }
 
     async fn append_trajectory(

@@ -69,6 +69,8 @@ pub struct HandlerDbPorts {
     pub trajectory: Arc<Trajectories>,
     /// The `skill-<name>` tags an appended `Skill` call propagates.
     pub tags: Arc<moatless_tasks::tag::operations::Tags>,
+    /// The cache `FetchPlugin` serves plugin files from.
+    pub plugin_archives: Arc<moatless_workspaces::plugin::archive::PluginArchives>,
 }
 
 /// Durable-admission writers.

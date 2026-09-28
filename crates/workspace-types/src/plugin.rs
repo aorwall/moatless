@@ -5,9 +5,8 @@ use serde::{Deserialize, Serialize};
 /// One plugin as handed to a sandbox: where to get it, and which of its skills
 /// were picked.
 ///
-/// Decision 2 on the wire — the sandbox clones the plugin and removes skill
-/// directories not named here, keeping everything else (manifest, commands,
-/// hooks, agents) intact.
+/// The sandbox fetches the plugin from the backend (`FetchPlugin`, by `name`)
+/// and removes the skill directories not named here, keeping everything else.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]

@@ -93,11 +93,8 @@ impl PluginSyncService {
             .map_err(SkillError::Db)?
             .unwrap_or_else(|| plugin.clone());
 
-        let remote = crate::repository::remote::resolve_remote(
-            Some(RepositoryProvider::Github),
-            current.git_url.clone(),
-        );
-        let token = self.fetch_token(actor, &remote).await;
+        let remote = plugin_remote(&current.git_url);
+        let token = plugin_token(self.git_host_tokens.as_ref(), actor, &remote).await;
 
         let version = self
             .fetcher
@@ -161,29 +158,38 @@ impl PluginSyncService {
         );
         Ok(())
     }
+}
 
-    /// `actor`'s own credential for a plugin's repository.
-    ///
-    /// `None` when unconnected or unmintable — a public plugin still fetches
-    /// unauthenticated; a private one fails at the fetch naming authentication,
-    /// not here.
-    async fn fetch_token(&self, actor: &Actor, remote: &RepositoryRemote) -> Option<String> {
-        let repo = remote.host_repo.as_ref()?;
-        match self
-            .git_host_tokens
-            .token(actor, &repo.credential_account())
-            .await
-        {
-            Ok(token) => Some(token),
-            Err(e) => {
-                debug!(
-                    git_url = %remote.url,
-                    %actor,
-                    error = %e,
-                    "No GitHub credential for plugin — fetching unauthenticated"
-                );
-                None
-            }
+/// A plugin's repository, which is always read as a GitHub one: the `plugins`
+/// table records no provider (see `docs/deferred-changes.md`).
+pub(super) fn plugin_remote(git_url: &str) -> RepositoryRemote {
+    crate::repository::remote::resolve_remote(Some(RepositoryProvider::Github), git_url.to_string())
+}
+
+/// `actor`'s own credential for a plugin's repository.
+///
+/// `None` when unconnected or unmintable — a public plugin still fetches
+/// unauthenticated; a private one fails at the fetch naming authentication,
+/// not here.
+pub(super) async fn plugin_token(
+    git_host_tokens: &dyn GitHostTokenIssuer,
+    actor: &Actor,
+    remote: &RepositoryRemote,
+) -> Option<String> {
+    let repo = remote.host_repo.as_ref()?;
+    match git_host_tokens
+        .token(actor, &repo.credential_account())
+        .await
+    {
+        Ok(token) => Some(token),
+        Err(e) => {
+            debug!(
+                git_url = %remote.url,
+                %actor,
+                error = %e,
+                "No GitHub credential for plugin — fetching unauthenticated"
+            );
+            None
         }
     }
 }
@@ -351,6 +357,15 @@ mod tests {
         ) -> Result<Option<String>, SkillError> {
             self.versions_probed.fetch_add(1, Ordering::SeqCst);
             Ok(Some(self.version.lock().unwrap().clone()))
+        }
+
+        async fn fetch_archive(
+            &self,
+            _remote: &RepositoryRemote,
+            _version: &str,
+            _token: Option<&str>,
+        ) -> Result<Vec<u8>, SkillError> {
+            unimplemented!()
         }
     }
 

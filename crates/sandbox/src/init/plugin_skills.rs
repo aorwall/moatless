@@ -3,7 +3,7 @@
 //! Codex has no plugin system and only discovers skills under
 //! `/etc/codex/skills`, so a repo-bundled plugin skill is copied into
 //! `/etc/codex/skills/{plugin_name}--{skill_name}/`; Claude instead consumes
-//! plugins in place via `PluginConfig`. Runs after `clone_plugins()` during
+//! plugins in place via `PluginConfig`. Runs after `fetch_plugins()` during
 //! core init — see [`stage_plugin_skills_for_codex`] for the non-fatal/
 //! blocking contract.
 
@@ -112,7 +112,7 @@ fn stage_single_plugin(plugin_path: &Path, plugin_name: &str, codex_skills_root:
         .sum()
 }
 
-/// Remove every skill directory in a cloned plugin that is not in `picked`
+/// Remove every skill directory in a fetched plugin that is not in `picked`
 /// (identified by directory name), returning how many went.
 ///
 /// Deletes unpicked skills, leaving manifest, commands, hooks and agents
@@ -160,7 +160,7 @@ pub(super) fn keep_only(plugin_path: &Path, plugin_name: &str, picked: &[String]
     dropped
 }
 
-/// The `(name, root)` pairs a cloned plugin directory contains. A repo carrying
+/// The `(name, root)` pairs a fetched plugin directory contains. A repo carrying
 /// a plugin marketplace with local entries contributes one per entry; anything
 /// else is a single component at the root.
 fn plugin_components(plugin_path: &Path, plugin_name: &str) -> Vec<(String, PathBuf)> {

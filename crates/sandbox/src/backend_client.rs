@@ -11,13 +11,14 @@ use sandbox_proto::backend_sandbox_service_client::BackendSandboxServiceClient;
 use sandbox_proto::{
     AcknowledgeMessagesRequest, AppendTrajectoryRequest, AppendTrajectoryResponse,
     DownloadTranscriptRequest, DownloadUploadRequest, DownloadUploadResponse,
-    EnqueueSandboxMessageRequest, GetCredentialsRequest, GetCredentialsResponse,
-    GetPendingMessagesRequest, GetSystemPromptRequest, GetWorkspaceRepositoryAccessRequest,
-    GetWorkspaceRepositoryAccessResponse, GetWorkspaceSyncUrlsRequest,
-    GetWorkspaceSyncUrlsResponse, InterruptedTurn, PendingAgentDelivery, PublishEventRequest,
-    ReadTrajectoryRequest, RecordGitPushRequest, RecordUnreportedCommandsRequest,
-    RecoverInterruptedRunRequest, ReportWorkspaceSyncRequest, SessionHeader,
-    TakeUnreportedCommandsRequest, TranscriptChunk, UnreportedCommand, UpdateCredentialRequest,
+    EnqueueSandboxMessageRequest, FetchPluginRequest, GetCredentialsRequest,
+    GetCredentialsResponse, GetPendingMessagesRequest, GetSystemPromptRequest,
+    GetWorkspaceRepositoryAccessRequest, GetWorkspaceRepositoryAccessResponse,
+    GetWorkspaceSyncUrlsRequest, GetWorkspaceSyncUrlsResponse, InterruptedTurn,
+    PendingAgentDelivery, PublishEventRequest, ReadTrajectoryRequest, RecordGitPushRequest,
+    RecordUnreportedCommandsRequest, RecoverInterruptedRunRequest, ReportWorkspaceSyncRequest,
+    SessionHeader, TakeUnreportedCommandsRequest, TranscriptChunk, UnreportedCommand,
+    UpdateCredentialRequest,
 };
 
 use crate::commands::{CommandState, JournaledCommand};
@@ -122,6 +123,21 @@ pub trait BackendClient: Send + Sync {
     /// the streamed chunks. Returns an empty `Vec` when no transcript is stored
     /// yet.
     async fn download_transcript(&self, task_id: &str) -> Result<Vec<u8>, tonic::Status>;
+
+    /// Download one of the task's plugins as the gzip tar `FetchPlugin`
+    /// describes, reassembled from its chunks, unless it is still at
+    /// `known_version`.
+    ///
+    /// Default impl reports the RPC unsupported, so test doubles that start no
+    /// plugins need not implement it.
+    async fn fetch_plugin(
+        &self,
+        _task_id: &str,
+        _plugin_name: &str,
+        _known_version: Option<&str>,
+    ) -> Result<PluginFetch, tonic::Status> {
+        Err(tonic::Status::unimplemented("plugin fetch not supported"))
+    }
 
     /// Mint short-lived presigned S3 PUT/GET URLs for this task's workspace
     /// archive, so the backend never sees the tar's bytes.
@@ -249,6 +265,17 @@ pub trait BackendClient: Send + Sync {
     fn update_auth_token(&self, _token: String) {}
 }
 
+/// What [`BackendClient::fetch_plugin`] answered.
+#[derive(Debug)]
+pub enum PluginFetch {
+    /// The plugin is still at the version the caller named.
+    Unchanged,
+    Archive {
+        version: String,
+        data: Vec<u8>,
+    },
+}
+
 /// Auth interceptor that injects a Bearer token on every outbound gRPC call.
 ///
 /// The token lives behind a shared `RwLock` so it can be swapped at runtime:
@@ -290,6 +317,11 @@ const RPC_TIMEOUT: Duration = Duration::from_secs(10);
 /// is worth waiting past [`RPC_TIMEOUT`] for.
 const WORKSPACE_RPC_TIMEOUT: Duration = Duration::from_mins(1);
 
+/// Deadline for `FetchPlugin`, on [`BackendGrpcClient::plugins`]: past the
+/// backend's 2-minute archive download, which a cold cache waits on before
+/// the response starts.
+const PLUGIN_RPC_TIMEOUT: Duration = Duration::from_mins(3);
+
 /// Wrapper around `BackendSandboxServiceClient` with auth interceptor.
 #[derive(Clone)]
 pub struct BackendGrpcClient {
@@ -300,6 +332,8 @@ pub struct BackendGrpcClient {
     /// to every request on the channel and a longer `grpc-timeout` header
     /// cannot outlive it.
     workspace: BackendSandboxServiceClient<InterceptedService<Channel, AuthInterceptor>>,
+    /// The same service over a channel carrying [`PLUGIN_RPC_TIMEOUT`].
+    plugins: BackendSandboxServiceClient<InterceptedService<Channel, AuthInterceptor>>,
     /// Shared handle to the interceptor's token so it can be swapped at
     /// runtime.
     auth_token: Arc<RwLock<Option<String>>>,
@@ -336,9 +370,17 @@ impl BackendGrpcClient {
             },
         );
 
+        let plugins = BackendSandboxServiceClient::with_interceptor(
+            endpoint(PLUGIN_RPC_TIMEOUT)?,
+            AuthInterceptor {
+                token: Arc::clone(&auth_token),
+            },
+        );
+
         Ok(Self {
             client,
             workspace,
+            plugins,
             auth_token,
         })
     }
@@ -533,6 +575,38 @@ impl BackendClient for BackendGrpcClient {
             .upload_transcript(futures::stream::iter(chunks))
             .await?;
         Ok(())
+    }
+
+    async fn fetch_plugin(
+        &self,
+        task_id: &str,
+        plugin_name: &str,
+        known_version: Option<&str>,
+    ) -> Result<PluginFetch, tonic::Status> {
+        use futures::StreamExt;
+
+        let mut client = self.plugins.clone();
+        let resp = client
+            .fetch_plugin(FetchPluginRequest {
+                task_id: task_id.to_string(),
+                plugin_name: plugin_name.to_string(),
+                known_version: known_version.unwrap_or_default().to_string(),
+            })
+            .await?;
+
+        let mut stream = resp.into_inner();
+        let (mut version, mut data) = (String::new(), Vec::new());
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+            if chunk.unchanged {
+                return Ok(PluginFetch::Unchanged);
+            }
+            if version.is_empty() {
+                version = chunk.version;
+            }
+            data.extend_from_slice(&chunk.data);
+        }
+        Ok(PluginFetch::Archive { version, data })
     }
 
     async fn download_transcript(&self, task_id: &str) -> Result<Vec<u8>, tonic::Status> {

@@ -67,7 +67,23 @@ pub trait SkillFetcher: Send + Sync {
         remote: &RepositoryRemote,
         token: Option<&str>,
     ) -> Result<Option<String>, SkillError>;
+
+    /// The whole repository at `version`, as the host's gzip tarball: every
+    /// entry sits under one top-level directory the host names.
+    ///
+    /// Fails past [`MAX_ARCHIVE_BYTES`], and on a 404, which is how GitHub
+    /// answers a private repository `token` cannot read.
+    async fn fetch_archive(
+        &self,
+        remote: &RepositoryRemote,
+        version: &str,
+        token: Option<&str>,
+    ) -> Result<Vec<u8>, SkillError>;
 }
+
+/// The largest repository archive [`SkillFetcher::fetch_archive`] reads, so a
+/// plugin that vendors something huge fails instead of filling backend memory.
+pub const MAX_ARCHIVE_BYTES: usize = 64 * 1024 * 1024;
 
 /// REST implementation of [`SkillFetcher`], over every host [`RepoApi`] reads.
 pub struct GitHostSkillFetcher {
@@ -104,14 +120,14 @@ struct PluginManifest {
 }
 
 #[derive(Debug, Deserialize)]
-struct PluginMarketplace {
+pub(crate) struct PluginMarketplace {
     #[serde(default)]
-    plugins: Vec<PluginMarketplaceEntry>,
+    pub(crate) plugins: Vec<PluginMarketplaceEntry>,
 }
 
 #[derive(Debug, Deserialize)]
-struct PluginMarketplaceEntry {
-    source: PluginMarketplaceSource,
+pub(crate) struct PluginMarketplaceEntry {
+    pub(crate) source: PluginMarketplaceSource,
 }
 
 /// Workspace skill roots, in precedence order. Both are listed and merged so a
@@ -128,7 +144,7 @@ const PLUGIN_MANIFEST_PATHS: [&str; 3] = [
     ".claude-plugin/plugin.json",
 ];
 
-const PLUGIN_MARKETPLACE_PATHS: [&str; 2] = [
+pub(crate) const PLUGIN_MARKETPLACE_PATHS: [&str; 2] = [
     ".agents/plugins/marketplace.json",
     ".claude-plugin/marketplace.json",
 ];
@@ -274,6 +290,46 @@ impl RepoApi {
         Ok(sha
             .map(|sha| sha.trim().to_string())
             .filter(|sha| !sha.is_empty()))
+    }
+
+    /// The repository at `version` as a gzip tarball, or `None` on a 404.
+    async fn tarball(
+        &self,
+        client: &Client,
+        version: &str,
+        token: Option<&str>,
+        git_url: &str,
+    ) -> Result<Option<Vec<u8>>, SkillError> {
+        let (url, accept) = match self.host {
+            // Redirects to codeload, which reqwest follows without the
+            // `Authorization` header; the redirect URL carries its own token.
+            SkillHost::Github => (
+                format!("{}/tarball/{version}", self.root),
+                "application/vnd.github+json",
+            ),
+            SkillHost::Forgejo => (format!("{}/archive/{version}.tar.gz", self.root), "*/*"),
+        };
+        let Some(mut resp) = self.send(client, &url, accept, token, git_url).await? else {
+            return Ok(None);
+        };
+        let fetch_error = |message: String| SkillError::Fetch {
+            git_url: git_url.to_string(),
+            message,
+        };
+        let mut data = Vec::new();
+        while let Some(chunk) = resp
+            .chunk()
+            .await
+            .map_err(|e| fetch_error(format!("failed to read archive body: {e}")))?
+        {
+            if data.len() + chunk.len() > MAX_ARCHIVE_BYTES {
+                return Err(fetch_error(format!(
+                    "archive exceeds {MAX_ARCHIVE_BYTES} bytes"
+                )));
+            }
+            data.extend_from_slice(&chunk);
+        }
+        Ok(Some(data))
     }
 
     fn contents_url(&self, path: &str) -> String {
@@ -450,6 +506,25 @@ impl SkillFetcher for GitHostSkillFetcher {
             return Ok(None);
         };
         api.head_sha(&self.client, token, remote.url.as_str()).await
+    }
+
+    async fn fetch_archive(
+        &self,
+        remote: &RepositoryRemote,
+        version: &str,
+        token: Option<&str>,
+    ) -> Result<Vec<u8>, SkillError> {
+        let git_url = remote.url.as_str();
+        let api = RepoApi::of(remote)?;
+        api.tarball(&self.client, version, token, git_url)
+            .await?
+            .ok_or_else(|| SkillError::Fetch {
+                git_url: git_url.to_string(),
+                message: format!(
+                    "{} has no archive at {version}, or it cannot be read without a token",
+                    api.host.label()
+                ),
+            })
     }
 }
 
@@ -743,7 +818,7 @@ async fn resolve_plugin_manifest_skills_prefix(
 /// Normalize a `plugin.json` `skills` value into a repo-relative contents API
 /// path segment — strips a leading `./` and trailing `/`, rejects absolute
 /// paths or any `..` segment.
-fn normalize_skills_path(raw: &str) -> Result<String, String> {
+pub(crate) fn normalize_skills_path(raw: &str) -> Result<String, String> {
     let trimmed = raw.trim();
     if trimmed.starts_with('/') {
         return Err("plugin.json skills path must be repo-relative".to_string());
@@ -802,6 +877,15 @@ mod tests {
             _token: Option<&str>,
         ) -> Result<Option<String>, SkillError> {
             Ok(None)
+        }
+
+        async fn fetch_archive(
+            &self,
+            _remote: &RepositoryRemote,
+            _version: &str,
+            _token: Option<&str>,
+        ) -> Result<Vec<u8>, SkillError> {
+            unimplemented!()
         }
     }
 
