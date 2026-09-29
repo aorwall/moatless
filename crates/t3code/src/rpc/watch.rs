@@ -1,13 +1,16 @@
+use crate::config::AgentModelDefaults;
 use crate::dao::ConversationDao;
 use crate::feed;
 use crate::reads::T3Reads;
 use crate::review;
+use crate::state::Deployment;
 use crate::subscription;
 use crate::subscription::StreamFailure;
 use crate::subscription::StreamResult;
 use crate::subscriptions::SHELL_POLL_INTERVAL;
 use crate::subscriptions::THREAD_POLL_INTERVAL;
 use crate::subscriptions::VCS_STATUS_POLL_INTERVAL;
+use crate::subscriptions::poll_thread;
 use feed::ShellFeed;
 use feed::ThreadFeed;
 use moatless_types::access_control::ScopeContext;
@@ -119,13 +122,16 @@ pub(crate) async fn watch_thread(
     mut feed: ThreadFeed,
     reads: T3Reads,
     frontend_url: Arc<str>,
+    model_defaults: Arc<AgentModelDefaults>,
     viewer: ScopeContext,
 ) -> StreamResult {
+    let deployment = Deployment {
+        model_defaults: &model_defaults,
+        frontend_url: &frontend_url,
+    };
     loop {
         tokio::time::sleep(THREAD_POLL_INTERVAL).await;
-        let polled = feed
-            .poll(reads.conversations(), &viewer, &frontend_url)
-            .await;
+        let polled = poll_thread(&mut feed, &reads, &deployment, &viewer).await;
         let values = match polled {
             Ok(Some(values)) => values,
             Ok(None) => {

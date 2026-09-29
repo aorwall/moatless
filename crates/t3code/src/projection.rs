@@ -23,6 +23,8 @@ mod tests;
 pub(crate) use detail::subtask;
 pub(crate) use detail::thread_detail;
 pub(crate) use events::change_events;
+pub(crate) use events::is_session_change;
+pub(crate) use events::turn_settled_events;
 pub(crate) use origin::OriginContext;
 pub(crate) use project::is_script_icon;
 pub(crate) use project::ui_script;

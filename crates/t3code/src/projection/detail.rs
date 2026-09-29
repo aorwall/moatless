@@ -56,18 +56,20 @@ pub(crate) fn thread_detail(
     Value::Object(row)
 }
 
-/// The turns a person may rewind this conversation to, oldest first.
+/// The settled turns a person may rewind to, oldest first.
 ///
-/// Moatless takes no per-turn snapshot, so `files` is empty and `checkpointRef`
-/// names the turn, not a tree; `status` is always `ready`, never `missing`,
-/// since the client's `resolveProactiveTurnDiffAction` defers forever on
-/// `missing`. `checkpointTurnCount` is `task_turns.turn_number` verbatim — the
-/// cut `TaskRewindService::rewind` takes — sourced from [`Transcript::turns`],
-/// not the Messages' turn numbers. The open turn is withheld and the completed
-/// turns below it are offered: the client greys its revert control out while
-/// the thread works, rather than hiding where a rewind would land.
+/// `checkpointTurnCount` is the [`Transcript::turns`] number
+/// `TaskRewindService::rewind` cuts at. `status` is never `missing`, on which
+/// `resolveProactiveTurnDiffAction` defers forever.
 pub(super) fn checkpoints(conversation: &Conversation, transcript: &Transcript) -> Vec<Value> {
     let open_turn = turn_is_open(conversation)
+        .then_some(conversation.turn_number)
+        .flatten();
+    let errored_turn = conversation
+        .turn_status
+        .as_deref()
+        .and_then(TurnStatus::parse)
+        .is_some_and(|status| matches!(status, TurnStatus::Error))
         .then_some(conversation.turn_number)
         .flatten();
 
@@ -109,7 +111,7 @@ pub(super) fn checkpoints(conversation: &Conversation, transcript: &Transcript) 
                 "turnId": turn_id(&conversation.task_id, number),
                 "checkpointTurnCount": number,
                 "checkpointRef": turn_id(&conversation.task_id, number),
-                "status": "ready",
+                "status": if Some(number) == errored_turn { "error" } else { "ready" },
                 "files": Value::Array(Vec::new()),
                 "assistantMessageId": closing.map_or(Value::Null, |message| json!(message.uuid)),
                 "completedAt": completed_at

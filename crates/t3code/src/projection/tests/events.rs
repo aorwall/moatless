@@ -583,3 +583,101 @@ fn a_change_holding_a_plan_call_with_no_plan_carries_no_card() {
         "nothing to render, nothing to send"
     );
 }
+
+// ── the settled turn's checkpoint ───────────────────────────────────
+
+/// The newest settled turn, as the conversation looks once turn 3 ended.
+fn settled_turn() -> (Conversation, Transcript) {
+    let mut conversation = running_conversation("task-a", "ws-a");
+    conversation.turn_status = Some("completed".to_string());
+    let turn = transcript(
+        vec![
+            message(1, MessageType::User, "do a thing"),
+            message(2, MessageType::Assistant, "did it"),
+        ],
+        Vec::new(),
+    );
+    (conversation, turn)
+}
+
+/// The checkpoint a live page is sent is the one a reload would show last, so
+/// the rewind control reaches a turn that ended while the page was open.
+#[test]
+fn a_settled_turn_is_sent_the_checkpoint_a_snapshot_ends_on() {
+    let (conversation, turn) = settled_turn();
+    let snapshot = detail_of(conversation.clone(), &turn)["checkpoints"][0].clone();
+    let sent = turn_settled_events(&conversation, &change(4, None), &turn);
+    let [(3, sent)] = sent.as_slice() else {
+        panic!("one checkpoint, for turn 3: {sent:#?}");
+    };
+    let sent = &sent["event"];
+    assert_keys(sent, "event", EVENT_REQUIRED, &[]);
+    assert_eq!(sent["type"], "thread.turn-diff-completed");
+    assert_eq!(sent["occurredAt"], snapshot["completedAt"]);
+    let mut expected = snapshot;
+    expected["threadId"] = json!("task-a");
+    assert_eq!(sent["payload"], expected);
+}
+
+/// Two turns settling between polls both reach the client, oldest first, in
+/// the slots above the session the same change carries.
+#[test]
+fn every_settled_turn_is_sent_after_the_session_event() {
+    let (conversation, _) = settled_turn();
+    let mut earlier = message(1, MessageType::Assistant, "first");
+    earlier.turn_number = Some(3);
+    let mut later = message(2, MessageType::Assistant, "second");
+    later.turn_number = Some(4);
+    let conversation = Conversation {
+        turn_number: Some(4),
+        ..conversation
+    };
+    let sent = turn_settled_events(
+        &conversation,
+        &change(4, None),
+        &transcript(vec![earlier, later], Vec::new()),
+    );
+    let turns: Vec<(i32, i64, &str)> = sent
+        .iter()
+        .map(|(turn, item)| {
+            (
+                *turn,
+                item["event"]["sequence"].as_i64().unwrap(),
+                item["event"]["payload"]["assistantMessageId"]
+                    .as_str()
+                    .unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        turns,
+        [
+            (3, 4 * EVENTS_PER_CHANGE + 1, "msg-1"),
+            (4, 4 * EVENTS_PER_CHANGE + 2, "msg-2"),
+        ]
+    );
+}
+
+/// A conversation with no settled turn, or only the open one, has no cut to
+/// offer.
+#[test]
+fn no_settled_turn_sends_no_checkpoint() {
+    let (conversation, _) = settled_turn();
+    let none = transcript(Vec::new(), Vec::new());
+    assert!(turn_settled_events(&conversation, &change(4, None), &none).is_empty());
+    let (_, turn) = settled_turn();
+    let running = running_conversation("task-a", "ws-a");
+    assert!(turn_settled_events(&running, &change(4, None), &turn).is_empty());
+}
+
+#[test]
+fn only_a_change_naming_nothing_is_a_session_change() {
+    assert!(is_session_change(&change(4, None)));
+    assert!(!is_session_change(&change(4, Some("msg-1"))));
+    assert!(!is_session_change(&activity_change(4, "act-1")));
+    let cut = ConversationChange {
+        reverted_to_turn: Some(1),
+        ..change(4, None)
+    };
+    assert!(!is_session_change(&cut));
+}

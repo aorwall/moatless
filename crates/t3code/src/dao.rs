@@ -451,6 +451,16 @@ pub trait ConversationDao: Send + Sync {
         activity_ids: &[String],
     ) -> Result<Transcript, sqlx::Error>;
 
+    /// The oldest `limit` settled turns numbered above `above` (from the first
+    /// for `None`), with their Messages. Unscoped for the reason
+    /// [`ConversationDao::transcript`] is.
+    async fn settled_turns(
+        &self,
+        task_id: &str,
+        above: Option<i32>,
+        limit: i64,
+    ) -> Result<Transcript, sqlx::Error>;
+
     /// The highest listing position this deployment has reached, and the
     /// identity of the database it reached it in.
     async fn listing_head(&self) -> Result<UiRpcListingHead, sqlx::Error>;
@@ -1459,6 +1469,15 @@ impl ConversationDao for PgConversationDao {
             activity_ids,
         )
         .await
+    }
+
+    async fn settled_turns(
+        &self,
+        task_id: &str,
+        above: Option<i32>,
+        limit: i64,
+    ) -> Result<Transcript, sqlx::Error> {
+        crate::transcript_dao::settled_turns(&self.pool, task_id, above, limit).await
     }
 
     async fn listing_head(&self) -> Result<UiRpcListingHead, sqlx::Error> {

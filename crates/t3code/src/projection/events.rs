@@ -2,6 +2,7 @@
 
 use serde_json::{Value, json};
 
+use super::detail::checkpoints;
 use super::detail::is_plan_call;
 use super::detail::proposed_plan;
 use super::origin::OriginContext;
@@ -165,6 +166,46 @@ fn session_set(conversation: &Conversation, change: &ConversationChange) -> Opti
         "thread.session-set",
         json!({ "threadId": conversation.task_id, "session": session }),
     ))
+}
+
+/// Each of `settled`'s turns' checkpoints, with its turn number, sent live so
+/// the rewind control reaches those turns without a reload.
+///
+/// Slots 1 onward: the client must settle `latestTurn` off slot 0's
+/// `thread.session-set` first.
+pub(crate) fn turn_settled_events(
+    conversation: &Conversation,
+    change: &ConversationChange,
+    settled: &Transcript,
+) -> Vec<(i32, Value)> {
+    checkpoints(conversation, settled)
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, mut payload)| {
+            let turn = i32::try_from(payload["checkpointTurnCount"].as_i64()?).ok()?;
+            let at = payload["completedAt"].as_str()?.to_owned();
+            payload
+                .as_object_mut()?
+                .insert("threadId".into(), json!(conversation.task_id));
+            let sequence = change.sequence(index + 1)?;
+            let event = event(
+                conversation,
+                sequence,
+                &at,
+                "thread.turn-diff-completed",
+                payload,
+            );
+            Some((turn, event))
+        })
+        .collect()
+}
+
+/// Whether `change` moved the conversation's own session rather than naming a
+/// row, which is the change a turn settling records.
+pub(crate) fn is_session_change(change: &ConversationChange) -> bool {
+    change.message_uuid.is_none()
+        && change.activity_id.is_none()
+        && change.reverted_to_turn.is_none()
 }
 
 /// The cut a rewind made, as the event that applies it to a client's copy.

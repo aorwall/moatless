@@ -127,21 +127,28 @@ pub async fn thread_snapshot(
             "T3 UI thread snapshot left out the oldest messages of a long conversation"
         );
     }
+    let thread = projection::thread_detail(
+        &conversation,
+        project_id,
+        deployment.model_defaults,
+        &transcript,
+        &projection::OriginContext {
+            frontend_url: deployment.frontend_url,
+            source_task_names: &source_task_names(conversations, viewer, &transcript).await,
+        },
+    );
+    let checkpointed = thread["checkpoints"]
+        .as_array()
+        .and_then(|checkpoints| checkpoints.last())
+        .and_then(|checkpoint| checkpoint["checkpointTurnCount"].as_i64())
+        .and_then(|turn| i32::try_from(turn).ok());
     Ok(Some(ThreadSnapshot {
         value: json!({
             "snapshotSequence": head.sequence(),
-            "thread": projection::thread_detail(
-                &conversation,
-                project_id,
-                deployment.model_defaults,
-                &transcript,
-                &projection::OriginContext {
-                    frontend_url: deployment.frontend_url,
-                    source_task_names: &source_task_names(conversations, viewer, &transcript).await,
-                },
-            )
+            "thread": thread
         }),
         head,
+        checkpointed,
     }))
 }
 
@@ -178,6 +185,8 @@ pub(crate) async fn source_task_names(
 pub struct ThreadSnapshot {
     pub value: Value,
     pub head: ConversationHead,
+    /// The newest turn `value` carries a checkpoint for.
+    pub checkpointed: Option<i32>,
 }
 
 /// A shell listing, the position it was read at, and the database it was read

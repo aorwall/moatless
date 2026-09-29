@@ -248,6 +248,15 @@ mod refusal {
             self.0.changed_messages(task_id, uuids, activity_ids).await
         }
 
+        async fn settled_turns(
+            &self,
+            task_id: &str,
+            above: Option<i32>,
+            limit: i64,
+        ) -> Result<Transcript, sqlx::Error> {
+            self.0.settled_turns(task_id, above, limit).await
+        }
+
         async fn interactive_call(
             &self,
             task_id: &str,

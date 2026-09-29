@@ -94,6 +94,7 @@ pub struct TranscriptMessage {
 }
 
 /// A Task's transcript, and whether it is all of it.
+#[derive(Default)]
 pub struct Transcript {
     /// Oldest first — the order a transcript is read in.
     pub messages: Vec<TranscriptMessage>,
@@ -416,6 +417,55 @@ pub(crate) async fn changed_messages(
         turns: Vec::new(),
         settled_requests,
         subagent_usage,
+    })
+}
+
+/// The oldest `limit` settled turns numbered above `above`, with their
+/// Messages, in the shape [`transcript`] returns.
+///
+/// Settled is `TurnStatus::is_open`'s complement, so these are the turns
+/// [`crate::projection`]'s `checkpoints` offers.
+pub(crate) async fn settled_turns(
+    pool: &UiRpcDbPool,
+    task_id: &str,
+    above: Option<i32>,
+    limit: i64,
+) -> Result<Transcript, sqlx::Error> {
+    let turns: Vec<i32> = sqlx::query_scalar(
+        r#"SELECT turn_number FROM task_turns
+           WHERE task_id = $1 AND status NOT IN ('active', 'interrupted')
+             AND turn_number > COALESCE($2, -1)
+           ORDER BY turn_number
+           LIMIT $3"#,
+    )
+    .bind(task_id)
+    .bind(above)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+    let messages = if turns.is_empty() {
+        Vec::new()
+    } else {
+        let sql = format!(
+            r#"SELECT {TRANSCRIPT_COLUMNS}
+               FROM ({} AND m.turn_number = ANY($2)) m
+               {TRANSCRIPT_ORIGIN_JOINS}
+               ORDER BY m.position"#,
+            transcript_rows!(),
+        );
+        sqlx::query_as::<_, TranscriptMessage>(AssertSqlSafe(sql))
+            .bind(task_id)
+            .bind(&turns)
+            .fetch_all(pool)
+            .await?
+    };
+    Ok(Transcript {
+        messages,
+        activities: Vec::new(),
+        omitted: 0,
+        turns,
+        settled_requests: HashSet::new(),
+        subagent_usage: HashMap::new(),
     })
 }
 

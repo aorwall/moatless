@@ -190,8 +190,9 @@ impl ProtocolSession {
         };
         let reads = state.reads.clone();
         let frontend_url = state.frontend_url.clone();
+        let model_defaults = state.model_defaults.clone();
         self.streams.start_produced(&id, Some(values), move |sink| {
-            watch::watch_thread(sink, feed, reads, frontend_url, viewer)
+            watch::watch_thread(sink, feed, reads, frontend_url, model_defaults, viewer)
         })
     }
 

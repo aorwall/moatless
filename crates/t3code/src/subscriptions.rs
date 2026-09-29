@@ -72,10 +72,7 @@ pub async fn thread_subscription(
             return Ok(None);
         }
         let mut feed = ThreadFeed::resuming_from(task_id.to_string(), cursor);
-        let Some(values) = feed
-            .poll(reads.conversations(), viewer, deployment.frontend_url)
-            .await?
-        else {
+        let Some(values) = poll_thread(&mut feed, reads, deployment, viewer).await? else {
             return Ok(None);
         };
         debug!(
@@ -104,7 +101,7 @@ pub async fn thread_subscription(
              sending the conversation afresh"
         );
     }
-    let feed = ThreadFeed::at(task_id.to_string(), snapshot.head);
+    let feed = ThreadFeed::at(task_id.to_string(), snapshot.head, snapshot.checkpointed);
     let values = vec![json!({
         "kind": "snapshot",
         "snapshot": snapshot.value
@@ -113,6 +110,39 @@ pub async fn thread_subscription(
         thread_initial_values(values, request_completion_marker),
         feed,
     )))
+}
+
+/// Poll `feed`, then answer with a fresh snapshot and restart `feed` from it
+/// when the poll found more settled turns than it could send checkpoints for.
+///
+/// A failed snapshot leaves [`ThreadFeed::needs_snapshot`] set, so the next
+/// poll retries it.
+pub(crate) async fn poll_thread(
+    feed: &mut ThreadFeed,
+    reads: &T3Reads,
+    deployment: &Deployment<'_>,
+    viewer: &ScopeContext,
+) -> Result<Option<Vec<Value>>, sqlx::Error> {
+    let Some(mut values) = feed
+        .poll(reads.conversations(), viewer, deployment.frontend_url)
+        .await?
+    else {
+        return Ok(None);
+    };
+    if feed.needs_snapshot() {
+        let task_id = feed.task_id().to_string();
+        let Some(snapshot) = thread_snapshot(reads, deployment, viewer, &task_id).await? else {
+            return Ok(None);
+        };
+        info!(
+            task_id,
+            "T3 UI thread subscription had more settled turns to send than one change holds; \
+             sending the conversation afresh"
+        );
+        *feed = ThreadFeed::at(task_id, snapshot.head, snapshot.checkpointed);
+        values.push(json!({ "kind": "snapshot", "snapshot": snapshot.value }));
+    }
+    Ok(Some(values))
 }
 
 pub(crate) fn thread_initial_values(

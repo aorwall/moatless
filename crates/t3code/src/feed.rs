@@ -18,7 +18,10 @@ use crate::listing::UiRpcEnvironmentIdentity;
 use crate::reads::T3Reads;
 use moatless_types::access_control::ScopeContext;
 
-use moatless_core::change_feed::conversation::{ConversationChange, ConversationHead};
+use crate::transcript_dao::Transcript;
+use moatless_core::change_feed::conversation::{
+    ConversationChange, ConversationHead, EVENTS_PER_CHANGE,
+};
 
 /// How many recorded changes one poll reads — a cap, not a limit.
 ///
@@ -270,6 +273,13 @@ pub struct ThreadFeed {
     /// The sequence the client has been sent, below which an event of a re-read
     /// change is dropped rather than sent again. See [`ThreadFeed::poll`].
     delivered: i64,
+    /// The newest turn the client holds a checkpoint for; a settling turn sends
+    /// every settled turn above it. `None` when unknown, as on a resume, which
+    /// sends them all.
+    checkpointed: Option<i32>,
+    /// Those turns outnumber one change's slots, so the caller must answer with
+    /// a fresh snapshot: see [`crate::subscriptions::poll_thread`].
+    needs_snapshot: bool,
 }
 
 /// How many recorded changes one poll reads: a cap, not a window — the rest is
@@ -281,11 +291,13 @@ impl ThreadFeed {
     /// Start from the position a snapshot was built at. The client holds
     /// everything that position covers, so the first live poll is looking for
     /// what came after it.
-    pub fn at(task_id: String, head: ConversationHead) -> Self {
+    pub fn at(task_id: String, head: ConversationHead, checkpointed: Option<i32>) -> Self {
         Self {
             task_id,
             cursor: head.position + 1,
             delivered: head.sequence(),
+            checkpointed,
+            needs_snapshot: false,
         }
     }
 
@@ -298,7 +310,19 @@ impl ThreadFeed {
             task_id,
             cursor: moatless_core::change_feed::conversation::position_of(after),
             delivered: after,
+            checkpointed: None,
+            needs_snapshot: false,
         }
+    }
+
+    pub(crate) fn task_id(&self) -> &str {
+        &self.task_id
+    }
+
+    /// Whether a poll found more settled turns than it could send; cleared
+    /// only by replacing the feed with one at a fresh snapshot.
+    pub(crate) fn needs_snapshot(&self) -> bool {
+        self.needs_snapshot
     }
 
     /// Everything recorded since this feed last read, as stream items — empty
@@ -360,9 +384,45 @@ impl ThreadFeed {
             source_task_names: &super::source_task_names(conversations, viewer, &window).await,
         };
 
+        // Read only when the batch holds a session change, the one a settling
+        // turn records, and sent after the last of them alone. A rewind before
+        // it lowers the floor first: the turns it cut are numbered again.
+        let last_session_change = changes.iter().rposition(projection::is_session_change);
+        let settled = match last_session_change {
+            Some(last) => {
+                let floor = changes[..last]
+                    .iter()
+                    .filter_map(|change| change.reverted_to_turn)
+                    .fold(self.checkpointed, |floor, turn| floor.min(Some(turn)));
+                let settled = settled_since(conversations, &self.task_id, floor).await?;
+                if settled.turns.len() > CHECKPOINT_SLOTS {
+                    self.needs_snapshot = true;
+                    None
+                } else {
+                    Some(settled)
+                }
+            }
+            None => None,
+        };
+
         let mut items = Vec::new();
-        for change in &changes {
-            for item in projection::change_events(&conversation, change, &window, &origins) {
+        for (index, change) in changes.iter().enumerate() {
+            if let Some(turn) = change.reverted_to_turn {
+                self.checkpointed = self.checkpointed.min(Some(turn));
+            }
+            let mut settled_events = Vec::new();
+            if let Some(settled) = settled
+                .as_ref()
+                .filter(|_| Some(index) == last_session_change)
+            {
+                for (turn, event) in projection::turn_settled_events(&conversation, change, settled)
+                {
+                    self.checkpointed = self.checkpointed.max(Some(turn));
+                    settled_events.push(event);
+                }
+            }
+            let events = projection::change_events(&conversation, change, &window, &origins);
+            for item in events.into_iter().chain(settled_events) {
                 // An event the client has already passed is dropped by it in
                 // silence, so it is dropped here instead: only a resuming feed
                 // ever produces one, and only for the change its cursor sits
@@ -383,6 +443,34 @@ impl ThreadFeed {
         // wrong on its screen except that the conversation has stopped.
         self.cursor = read_through + 1;
         Ok(Some(items))
+    }
+}
+
+/// How many settled turns [`settled_since`] reads per page.
+const SETTLED_TURNS_PAGE: i64 = 64;
+
+/// The slots one change has for checkpoints, after its `thread.session-set`.
+const CHECKPOINT_SLOTS: usize = EVENTS_PER_CHANGE.unsigned_abs() as usize - 1;
+
+/// Every settled turn above `floor`, oldest first, paged until the gap drains
+/// or outnumbers [`CHECKPOINT_SLOTS`].
+async fn settled_since(
+    conversations: &dyn ConversationDao,
+    task_id: &str,
+    mut floor: Option<i32>,
+) -> Result<Transcript, sqlx::Error> {
+    let mut settled = Transcript::default();
+    loop {
+        let page = conversations
+            .settled_turns(task_id, floor, SETTLED_TURNS_PAGE)
+            .await?;
+        let drained = page.turns.len() < usize::try_from(SETTLED_TURNS_PAGE).unwrap_or(0);
+        floor = page.turns.last().copied().or(floor);
+        settled.messages.extend(page.messages);
+        settled.turns.extend(page.turns);
+        if drained || settled.turns.len() > CHECKPOINT_SLOTS {
+            return Ok(settled);
+        }
     }
 }
 
@@ -503,7 +591,7 @@ mod tests {
     /// snapshot already showed may be sent again under a lower sequence.
     #[test]
     fn a_feed_started_from_a_snapshot_reads_past_the_position_it_was_built_at() {
-        let feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 7 });
+        let feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 7 }, None);
         assert_eq!(feed.cursor, 8);
         assert_eq!(feed.delivered, 7 * EVENTS_PER_CHANGE);
     }
@@ -613,7 +701,7 @@ mod tests {
     #[tokio::test]
     async fn a_poll_sends_events_rather_than_the_conversation_again() {
         let dao = a_dao(vec![change(9, Some("msg-a"))]);
-        let mut feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 8 });
+        let mut feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 8 }, None);
         let items = feed
             .poll(&dao, &viewer(), "http://localhost:3000")
             .await
@@ -630,6 +718,181 @@ mod tests {
             "numbered in the change log's own namespace"
         );
         assert_eq!(feed.cursor, 10, "the cursor advanced past the change read");
+    }
+
+    /// A feed over `changes` in a conversation whose turn `newest` has settled;
+    /// the caller sets what `settled_turns` answers.
+    fn settling_dao(changes: Vec<ConversationChange>, newest: i32) -> MockConversationDao {
+        let mut dao = MockConversationDao::new();
+        dao.expect_conversation_changes()
+            .returning(move |_, _, _| Ok(changes.clone()));
+        dao.expect_changed_messages()
+            .returning(|_, _, _| Ok(Transcript::default()));
+        dao.expect_readable_by_id().returning(move |_, _| {
+            Ok(Some(Conversation {
+                turn_number: Some(newest),
+                turn_status: Some("completed".into()),
+                ..a_conversation()
+            }))
+        });
+        dao
+    }
+
+    fn settled(turns: Vec<i32>, messages: Vec<TranscriptMessage>) -> Transcript {
+        Transcript {
+            messages,
+            turns,
+            ..Transcript::default()
+        }
+    }
+
+    fn reverted(position: i64, turn: i32) -> ConversationChange {
+        ConversationChange {
+            reverted_to_turn: Some(turn),
+            ..change(position, None)
+        }
+    }
+
+    /// Each checkpoint event's turn id, in the order sent.
+    fn checkpointed_turns(items: &[Value]) -> Vec<&str> {
+        items
+            .iter()
+            .filter(|item| item["event"]["type"] == "thread.turn-diff-completed")
+            .map(|item| item["event"]["payload"]["turnId"].as_str().unwrap())
+            .collect()
+    }
+
+    /// A turn settling records a session change, and a page open on it is sent
+    /// every turn settled above the one it holds a checkpoint for, after the
+    /// session — else the rewind control reaches those turns only on reload.
+    #[tokio::test]
+    async fn settling_turns_send_their_checkpoints_after_the_session() {
+        let mut dao = settling_dao(vec![change(8, None), change(9, None)], 4);
+        let answer = |id: i32, uuid: &str, turn: i32| {
+            let mut answer = a_message(id, uuid);
+            answer.message_type = MessageType::Assistant;
+            answer.message_role = MessageRole::Assistant;
+            answer.turn_number = Some(turn);
+            answer
+        };
+        let answers = vec![answer(12, "msg-b", 3), answer(13, "msg-c", 4)];
+        dao.expect_settled_turns()
+            .withf(|_, above, _| *above == Some(2))
+            .times(1)
+            .returning(move |_, _, _| Ok(settled(vec![3, 4], answers.clone())));
+        let mut feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 7 }, Some(2));
+        let items = feed
+            .poll(&dao, &viewer(), "http://localhost:3000")
+            .await
+            .unwrap()
+            .unwrap();
+
+        let sent: Vec<(&str, i64, &str)> = items
+            .iter()
+            .map(|item| {
+                let event = &item["event"];
+                (
+                    event["type"].as_str().unwrap(),
+                    event["sequence"].as_i64().unwrap(),
+                    event["payload"]["assistantMessageId"]
+                        .as_str()
+                        .unwrap_or_default(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            sent,
+            [
+                ("thread.session-set", 8 * EVENTS_PER_CHANGE, ""),
+                ("thread.session-set", 9 * EVENTS_PER_CHANGE, ""),
+                (
+                    "thread.turn-diff-completed",
+                    9 * EVENTS_PER_CHANGE + 1,
+                    "msg-b"
+                ),
+                (
+                    "thread.turn-diff-completed",
+                    9 * EVENTS_PER_CHANGE + 2,
+                    "msg-c"
+                ),
+            ]
+        );
+        assert_eq!(feed.checkpointed, Some(4));
+    }
+
+    /// A rewind deletes the turns above the one kept, and the next run numbers
+    /// its turns again from there: they are read from the kept turn, not from
+    /// the checkpoint the client held before the rewind.
+    #[tokio::test]
+    async fn a_rewind_lowers_the_floor_to_the_kept_turn() {
+        let mut dao = settling_dao(vec![reverted(8, 2), change(9, None)], 3);
+        dao.expect_settled_turns()
+            .withf(|_, above, _| *above == Some(2))
+            .times(1)
+            .returning(|_, _, _| Ok(settled(vec![3], Vec::new())));
+        let mut feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 7 }, Some(4));
+        let items = feed
+            .poll(&dao, &viewer(), "http://localhost:3000")
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(checkpointed_turns(&items), ["task-a:3"]);
+        assert_eq!(feed.checkpointed, Some(3));
+    }
+
+    /// A gap wider than one read is paged oldest first, so no turn below the
+    /// newest sent is skipped.
+    #[tokio::test]
+    async fn a_gap_wider_than_a_page_is_read_to_its_end() {
+        let first: Vec<i32> = (1..=i32::try_from(SETTLED_TURNS_PAGE).unwrap()).collect();
+        let last = *first.last().unwrap();
+        let mut dao = settling_dao(vec![change(9, None)], last + 2);
+        dao.expect_settled_turns()
+            .withf(|_, above, _| above.is_none())
+            .times(1)
+            .returning(move |_, _, _| Ok(settled(first.clone(), Vec::new())));
+        dao.expect_settled_turns()
+            .withf(move |_, above, _| *above == Some(last))
+            .times(1)
+            .returning(move |_, _, _| Ok(settled(vec![last + 1, last + 2], Vec::new())));
+        let mut feed = ThreadFeed::resuming_from("task-a".into(), 8 * EVENTS_PER_CHANGE);
+        let items = feed
+            .poll(&dao, &viewer(), "http://localhost:3000")
+            .await
+            .unwrap()
+            .unwrap();
+
+        let turns = checkpointed_turns(&items);
+        assert_eq!(turns.len(), usize::try_from(last + 2).unwrap());
+        assert_eq!(turns.first(), Some(&"task-a:1"));
+        assert_eq!(feed.checkpointed, Some(last + 2));
+    }
+
+    /// More settled turns than one change has slots for cannot all be sent as
+    /// checkpoints, and no later change is promised to carry the rest: the
+    /// feed sends none of them and asks for a fresh snapshot instead.
+    #[tokio::test]
+    async fn more_settled_turns_than_slots_ask_for_a_snapshot() {
+        let total = i32::try_from(EVENTS_PER_CHANGE).unwrap();
+        let mut dao = settling_dao(vec![change(9, None)], total);
+        dao.expect_settled_turns()
+            .returning(move |_, above, limit| {
+                let from = above.unwrap_or(0) + 1;
+                let to = (from + i32::try_from(limit).unwrap() - 1).min(total);
+                Ok(settled((from..=to).collect(), Vec::new()))
+            });
+        let mut feed = ThreadFeed::resuming_from("task-a".into(), 9 * EVENTS_PER_CHANGE);
+        let items = feed
+            .poll(&dao, &viewer(), "http://localhost:3000")
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(checkpointed_turns(&items).is_empty(), "{items:#?}");
+        assert!(feed.needs_snapshot());
+        assert_eq!(feed.checkpointed, None);
+        assert_eq!(feed.cursor, 10);
     }
 
     /// The client drops an event at or below the position it holds, in silence.
@@ -660,7 +923,7 @@ mod tests {
         dao.expect_conversation_changes()
             .returning(|_, _, _| Ok(vec![change(9, Some("msg-a"))]));
         dao.expect_readable_by_id().returning(|_, _| Ok(None));
-        let mut feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 8 });
+        let mut feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 8 }, None);
         assert!(
             feed.poll(&dao, &viewer(), "http://localhost:3000")
                 .await
@@ -678,7 +941,7 @@ mod tests {
             .returning(|_, _, _| Ok(Vec::new()));
         dao.expect_readable_by_id()
             .returning(|_, _| Ok(Some(a_conversation())));
-        let mut feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 8 });
+        let mut feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 8 }, None);
         assert_eq!(
             feed.poll(&dao, &viewer(), "http://localhost:3000")
                 .await
@@ -697,7 +960,7 @@ mod tests {
         dao.expect_conversation_changes()
             .returning(|_, _, _| Ok(Vec::new()));
         dao.expect_readable_by_id().returning(|_, _| Ok(None));
-        let mut feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 8 });
+        let mut feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 8 }, None);
         assert!(
             feed.poll(&dao, &viewer(), "http://localhost:3000")
                 .await
@@ -721,7 +984,7 @@ mod tests {
         dao.expect_changed_messages()
             .returning(|_, _, _| Err(sqlx::Error::PoolTimedOut));
 
-        let mut feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 8 });
+        let mut feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 8 }, None);
         assert!(
             feed.poll(&dao, &viewer(), "http://localhost:3000")
                 .await

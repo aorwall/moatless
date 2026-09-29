@@ -107,3 +107,17 @@ fn an_empty_conversation_still_decodes() {
     assert_eq!(detail["checkpoints"], json!([]));
     assert_eq!(detail["deletedAt"], Value::Null);
 }
+
+/// An errored newest turn is `error`, so the live event that repeats it settles
+/// `latestTurn` as failed rather than completed.
+#[test]
+fn an_errored_newest_turn_is_an_error_checkpoint() {
+    let mut earlier = message(1, MessageType::Assistant, "did it");
+    earlier.turn_number = Some(1);
+    let failed = message(2, MessageType::Assistant, "gave up");
+    let mut conversation = running_conversation("task-a", "ws-a");
+    conversation.turn_status = Some("error".to_string());
+    let detail = detail_of(conversation, &transcript(vec![earlier, failed], Vec::new()));
+    assert_eq!(detail["checkpoints"][0]["status"], "ready");
+    assert_eq!(detail["checkpoints"][1]["status"], "error");
+}
