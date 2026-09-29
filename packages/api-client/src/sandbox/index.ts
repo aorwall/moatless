@@ -4,6 +4,7 @@ export * from './agents/agents';
 export * from './api-keys/api-keys';
 export * from './app-administration/app-administration';
 export * from './auth/auth';
+export * from './decisions/decisions';
 export * from './feature-flags/feature-flags';
 export * from './feedback/feedback';
 export * from './file-storage/file-storage';

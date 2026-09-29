@@ -105,6 +105,12 @@ const FORBIDDEN: &[Forbidden] = &[
         transitive: false,
         why: "a provider owns no table",
     },
+    Forbidden {
+        source: "moatless-decisions",
+        target: "sqlx",
+        transitive: false,
+        why: "a provider owns no table",
+    },
 ];
 
 pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {

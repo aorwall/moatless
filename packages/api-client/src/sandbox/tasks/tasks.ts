@@ -550,10 +550,15 @@ export type updateTaskMetadataResponse404 = {
   status: 404
 }
 
+export type updateTaskMetadataResponse409 = {
+  data: ErrorBody
+  status: 409
+}
+
 export type updateTaskMetadataResponseSuccess = (updateTaskMetadataResponse200) & {
   headers: Headers;
 };
-export type updateTaskMetadataResponseError = (updateTaskMetadataResponse400 | updateTaskMetadataResponse404) & {
+export type updateTaskMetadataResponseError = (updateTaskMetadataResponse400 | updateTaskMetadataResponse404 | updateTaskMetadataResponse409) & {
   headers: Headers;
 };
 
@@ -568,7 +573,7 @@ export const getUpdateTaskMetadataUrl = (taskId: string,) => {
 }
 
 /**
- * @summary Update a task's name, description or model.
+ * @summary Update a task's name, description, model or Agent profile.
  */
 export const updateTaskMetadata = async (taskId: string,
     updateTaskMetadataRequest: UpdateTaskMetadataRequest, options?: Parameters<typeof customInstance>[1]): Promise<updateTaskMetadataResponse> => {
@@ -651,7 +656,7 @@ export function useUpdateTaskMetadata<TData = Awaited<ReturnType<typeof updateTa
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
- * @summary Update a task's name, description or model.
+ * @summary Update a task's name, description, model or Agent profile.
  */
 
 export function useUpdateTaskMetadata<TData = Awaited<ReturnType<typeof updateTaskMetadata>>, TError = ErrorType<ErrorBody>>(
@@ -668,7 +673,7 @@ export function useUpdateTaskMetadata<TData = Awaited<ReturnType<typeof updateTa
 }
 
 /**
- * @summary Update a task's name, description or model.
+ * @summary Update a task's name, description, model or Agent profile.
  */
 export const prefetchUpdateTaskMetadataQuery = async <TData = Awaited<ReturnType<typeof updateTaskMetadata>>, TError = ErrorType<ErrorBody>>(
  queryClient: QueryClient, taskId: string,

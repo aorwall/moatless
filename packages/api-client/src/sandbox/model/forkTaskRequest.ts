@@ -10,12 +10,17 @@ import type { AgentMode } from './agentMode';
 /**
  * Branch a Task off another Task at one of its completed turns.
  *
- * Everything the fork runs against (repository, workspace, branch, agent,
- * model) comes from the Task being forked; only what the fork is for is stated
- * here.
+ * Everything the fork runs against (repository, workspace, branch, Agent
+ * profile, model) comes from the Task being forked unless named here.
  */
 export interface ForkTaskRequest {
   agentMode?: null | AgentMode;
+  /**
+     * The Agent profile the fork runs; omit to run the source's. Another
+     * harness's profile transcodes the history up to the cut.
+     * @nullable
+     */
+  agentProfile?: string | null;
   /**
      * The source Task's turn the copy stops after. Omit to cut after its
      * newest turn that reached a terminal status.

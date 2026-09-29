@@ -2692,6 +2692,77 @@
         }
       }
     },
+    "/api/v1/decisions/pick": {
+      "post": {
+        "tags": [
+          "decisions"
+        ],
+        "summary": "Pick one option for a piece of text with the configured decision provider.",
+        "operationId": "pick_decision",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PickDecisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The picked option and its band",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PickDecisionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid question, options or state, or rejected by the provider",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The decision provider failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "No decision provider is configured, or it is overloaded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/feature-flags": {
       "get": {
         "tags": [
@@ -6735,7 +6806,7 @@
         "tags": [
           "tasks"
         ],
-        "summary": "Update a task's name, description or model.",
+        "summary": "Update a task's name, description, model or Agent profile.",
         "operationId": "update_task_metadata",
         "parameters": [
           {
@@ -6770,7 +6841,7 @@
             }
           },
           "400": {
-            "description": "Model belongs to another agentProfile",
+            "description": "Unknown agentProfile, missing credential, or a model the agentProfile does not offer",
             "content": {
               "application/json": {
                 "schema": {
@@ -6781,6 +6852,16 @@
           },
           "404": {
             "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The Task or its Sandbox cannot run the agentProfile",
             "content": {
               "application/json": {
                 "schema": {
@@ -10303,6 +10384,10 @@
           }
         }
       },
+      "AgentProfile": {
+        "type": "string",
+        "description": "A catalog entry: a harness plus transport, default model and credentials (e.g. \"claude-code-tui\")."
+      },
       "AgentStatus": {
         "type": "string",
         "description": "Observed Agent lifecycle while its Sandbox is ready.",
@@ -10319,7 +10404,6 @@
         "enum": [
           "started",
           "stopped",
-          "message",
           "completed",
           "error",
           "pending_response",
@@ -10334,10 +10418,6 @@
           "commands_changed",
           "recording_stopped"
         ]
-      },
-      "AgentProfile": {
-        "type": "string",
-        "description": "A catalog entry: a harness plus transport, default model and credentials (e.g. \"claude-code-tui\")."
       },
       "AllowedPrompt": {
         "type": "object",
@@ -12079,6 +12159,54 @@
           }
         }
       },
+      "DecisionBand": {
+        "type": "string",
+        "description": "What a caller should do with a decision, from the provider's own\nconfidence thresholds.",
+        "enum": [
+          "act",
+          "confirm",
+          "escalate"
+        ]
+      },
+      "DecisionOption": {
+        "type": "object",
+        "description": "One label a decision can pick.",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When this option applies. Sent to the decision provider as the option's\ncriterion; without it the provider gets the name alone."
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "DecisionUsage": {
+        "type": "object",
+        "description": "Tokens the decision provider billed for one decision.",
+        "required": [
+          "inputTokens",
+          "outputTokens"
+        ],
+        "properties": {
+          "inputTokens": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "outputTokens": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "EffectivePluginResponse": {
         "type": "object",
         "description": "What the calling user actually gets, after resolution.",
@@ -12675,7 +12803,7 @@
       },
       "ForkTaskRequest": {
         "type": "object",
-        "description": "Branch a Task off another Task at one of its completed turns.\n\nEverything the fork runs against (repository, workspace, branch, agent,\nmodel) comes from the Task being forked; only what the fork is for is stated\nhere.",
+        "description": "Branch a Task off another Task at one of its completed turns.\n\nEverything the fork runs against (repository, workspace, branch, Agent\nprofile, model) comes from the Task being forked unless named here.",
         "properties": {
           "agentMode": {
             "oneOf": [
@@ -12686,6 +12814,13 @@
                 "$ref": "#/components/schemas/AgentMode"
               }
             ]
+          },
+          "agentProfile": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The Agent profile the fork runs; omit to run the source's. Another\nharness's profile transcodes the history up to the cut."
           },
           "atTurn": {
             "type": [
@@ -14497,9 +14632,7 @@
           "cacheReadInputTokens",
           "cacheCreationInputTokens",
           "webSearchRequests",
-          "costUSD",
-          "contextWindow",
-          "maxOutputTokens"
+          "costUSD"
         ],
         "properties": {
           "cacheCreationInputTokens": {
@@ -14540,6 +14673,23 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          }
+        }
+      },
+      "OptionProbability": {
+        "type": "object",
+        "description": "One option's probability.",
+        "required": [
+          "name",
+          "probability"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "probability": {
+            "type": "number",
+            "format": "double"
           }
         }
       },
@@ -14749,6 +14899,85 @@
           },
           "tool_use_id": {
             "type": "string"
+          }
+        }
+      },
+      "PickDecisionRequest": {
+        "type": "object",
+        "description": "Request body for `POST /api/v1/decisions/pick`.",
+        "required": [
+          "question",
+          "options",
+          "state"
+        ],
+        "properties": {
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DecisionOption"
+            },
+            "description": "The labels to pick from, in the caller's order."
+          },
+          "question": {
+            "type": "string",
+            "description": "What to decide, e.g. \"Which repository owns this issue?\"."
+          },
+          "state": {
+            "type": "string",
+            "description": "The text the decision is about. It is sent to the decision provider."
+          },
+          "taskId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Task the caller runs in, used only to attribute the decision in logs."
+          }
+        }
+      },
+      "PickDecisionResponse": {
+        "type": "object",
+        "description": "Response body for `POST /api/v1/decisions/pick`.",
+        "required": [
+          "choice",
+          "band",
+          "provider",
+          "model",
+          "usage"
+        ],
+        "properties": {
+          "band": {
+            "$ref": "#/components/schemas/DecisionBand"
+          },
+          "choice": {
+            "type": "string",
+            "description": "The picked option's name."
+          },
+          "confidence": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "The provider's confidence in `choice`, 0–1. `None` from a provider that\nreports no calibrated probability."
+          },
+          "model": {
+            "type": "string",
+            "description": "Model version that answered, e.g. `jev-1.13.0`."
+          },
+          "probabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OptionProbability"
+            },
+            "description": "Per-option probabilities, most likely first; empty when the provider\nreports none."
+          },
+          "provider": {
+            "type": "string",
+            "description": "Decision provider that answered, e.g. `jev`."
+          },
+          "usage": {
+            "$ref": "#/components/schemas/DecisionUsage"
           }
         }
       },
@@ -15576,7 +15805,8 @@
           },
           "total_cost_usd": {
             "type": "number",
-            "format": "double"
+            "format": "double",
+            "description": "As [`ResultSuccess::total_cost_usd`]."
           },
           "usage": {
             "$ref": "#/components/schemas/Usage"
@@ -15644,7 +15874,8 @@
           },
           "total_cost_usd": {
             "type": "number",
-            "format": "double"
+            "format": "double",
+            "description": "This process's own cost, as `model_usage` is its own usage: the CLI\nreports the Session's running totals, and the subprocess backend\nsubtracts the ones it resumed with. The tmux backend reports 0.0."
           },
           "usage": {
             "$ref": "#/components/schemas/Usage"
@@ -17756,7 +17987,7 @@
       },
       "TaskRelationType": {
         "type": "string",
-        "description": "Type of a directional link between two tasks: the `from` task points at\nthe `to` task via this relation (e.g. a child `created_by` its parent).\n\n`CreatedBy` and `ForkedFrom` are both parent edges surfacing `from` as a\nchild, but only `CreatedBy` closes with its parent and reports agent\nerrors into the parent's conversation — a fork is often work that\ncontinued with nobody waiting on it.",
+        "description": "Type of a directional link between two tasks: the `from` task points at\nthe `to` task via this relation (e.g. a child `created_by` its parent).\n\nBoth `CreatedBy` and `ForkedFrom` surface `from` as a child, but only\n`CreatedBy` closes with its parent and notices it of each Turn's\ncompletion or error: nobody waits on a fork.",
         "enum": [
           "created_by",
           "related_to",
@@ -18098,7 +18329,9 @@
           "open",
           "closed",
           "updated",
-          "metadata.updated"
+          "metadata.updated",
+          "error",
+          "binding_reply_sent"
         ]
       },
       "TaskTokenTotals": {
@@ -18942,6 +19175,13 @@
       "UpdateTaskMetadataRequest": {
         "type": "object",
         "properties": {
+          "agentProfile": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The Agent profile the task's next turn runs. A running turn finishes\non the one it started with; another harness's profile transcodes the\nhistory into it."
+          },
           "description": {
             "type": [
               "string",
@@ -20120,6 +20360,10 @@
     {
       "name": "teams",
       "description": "Team management"
+    },
+    {
+      "name": "decisions",
+      "description": "Multiple-choice decisions from the configured decision provider"
     },
     {
       "name": "task-events",

@@ -3,6 +3,7 @@ pub mod agents;
 pub mod api;
 pub mod bots;
 pub mod cmd;
+pub mod decide;
 pub mod docker;
 pub mod events;
 pub mod feedback;

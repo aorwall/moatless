@@ -1346,6 +1346,9 @@ extraEnv:
   # AUTH0_CALLBACK_URL: "https://moatless.example.com/api/v1/auth/auth0/callback"
   # GitHub App configuration (when AUTH_PROVIDER=github_app)
   # GITHUB_APP_CALLBACK_URL: "https://moatless.example.com/api/v1/auth/github-app/callback"
+  # Decision provider for `moat decide`; needs TYPESAFE_API_KEY in extraSecretEnv
+  # DECISION_PROVIDER: "jev"
+  # DECISION_MODEL: "jev-1.13.0"
   # Feature flags
   FF_NETLIFY_PUBLISH: "false"
   FF_SHOW_CLAUDE_SETTINGS: "true"
@@ -1371,6 +1374,10 @@ extraSecretEnv: {}
   # GITHUB_APP_CLIENT_ID: ""
   # GITHUB_APP_CLIENT_SECRET: ""
   # GITHUB_APP_PRIVATE_KEY: ""
+  # Decision provider key (when DECISION_PROVIDER=jev). An empty value renders
+  # no env entry; with externalSecrets, set any placeholder such as "from-secret"
+  # and put the real key in that Secret.
+  # TYPESAFE_API_KEY: ""
 
 # Monitoring configuration
 monitoring:

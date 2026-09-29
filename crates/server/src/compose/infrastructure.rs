@@ -155,6 +155,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     use crate::file_storage::routes::FileStorageApiDoc;
     use crate::repository_sync::routes::RepositorySyncApiDoc;
     use crate::sandbox::routes::SandboxApiDoc;
+    use moatless_decisions::routes::DecisionApiDoc;
     use moatless_identity::auth::routes::AuthApiDoc;
     use moatless_identity::secret::routes::SecretApiDoc;
     use moatless_identity::team::routes::TeamApiDoc;
@@ -226,6 +227,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     merged.merge(AdapterApiDoc::openapi());
     merged.merge(LoopsApiDoc::openapi());
     merged.merge(TeamApiDoc::openapi());
+    merged.merge(DecisionApiDoc::openapi());
     merged.merge(EventsApiDoc::openapi());
     merged.merge(TaskEventApiDoc::openapi());
     merged.merge(FeatureFlagsApiDoc::openapi());

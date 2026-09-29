@@ -28,6 +28,7 @@ members = [
     "crates/adapter-slack",
     "crates/adapter-linear",
     "crates/adapter-github-pr",
+    "crates/decisions",
     "crates/t3code",
     "crates/types",
     "tooling/arch-rules",
@@ -69,6 +70,7 @@ moatless-backend = { path = "crates/server" }
 moatless-ports = { path = "crates/ports" }
 moatless-cli = { path = "crates/cli" }
 moatless-core = { path = "crates/core" }
+moatless-decisions = { path = "crates/decisions" }
 moatless-identity = { path = "crates/identity" }
 moatless-loops = { path = "crates/loops" }
 moatless-s3 = { path = "crates/s3" }

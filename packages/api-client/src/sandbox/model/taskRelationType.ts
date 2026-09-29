@@ -10,10 +10,9 @@
  * Type of a directional link between two tasks: the `from` task points at
  * the `to` task via this relation (e.g. a child `created_by` its parent).
  *
- * `CreatedBy` and `ForkedFrom` are both parent edges surfacing `from` as a
- * child, but only `CreatedBy` closes with its parent and reports agent
- * errors into the parent's conversation — a fork is often work that
- * continued with nobody waiting on it.
+ * Both `CreatedBy` and `ForkedFrom` surface `from` as a child, but only
+ * `CreatedBy` closes with its parent and notices it of each Turn's
+ * completion or error: nobody waits on a fork.
  */
 export type TaskRelationType = typeof TaskRelationType[keyof typeof TaskRelationType];
 

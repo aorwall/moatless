@@ -25,6 +25,7 @@ export interface ResultError {
   permission_denials: PermissionDenial[];
   session_id: string;
   subtype: string;
+  /** As [`ResultSuccess::total_cost_usd`]. */
   total_cost_usd: number;
   usage: Usage;
   uuid: string;

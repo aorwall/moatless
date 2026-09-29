@@ -30,6 +30,10 @@ pub(crate) fn domain_routes(app_state: &AppState) -> (Router, utoipa::openapi::O
             app_state.db.clone(),
             app_state.token_verifier.clone(),
         ),
+        moatless_decisions::compose::decisions_router(
+            &app_state.config.decision,
+            app_state.token_verifier.clone(),
+        ),
         task_event::routes::task_event_router(app_state.clone()),
         plugin::routes::plugin_router(app_state.clone()),
         skill::routes::skill_router(app_state.clone()),

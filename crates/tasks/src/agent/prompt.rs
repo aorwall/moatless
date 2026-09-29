@@ -46,6 +46,8 @@ pub struct PromptInputs<'a> {
     /// The workspace's `system_prompt`.
     pub repo_system_prompt: Option<&'a str>,
     pub frontend_url: Option<&'a str>,
+    /// Whether the backend has a decision provider, so `moat decide` answers.
+    pub decisions_enabled: bool,
 }
 
 /// Steers the agent toward `moat gh` and away from the (broken) hosted GitHub
@@ -141,6 +143,29 @@ Available `moat` commands:
 - `moat tasks logs $TASK_ID` — Stream the sandbox container's logs
 - `moat tasks diagnose $TASK_ID` — Diagnose sandbox issues (status + container diagnostics + recent errors)
 - `moat feedback --category <category> --comment \"<text>\"` — Record what cost you time that a fix would have prevented (see `# Feedback Inbox`)";
+
+/// Names `moat decide pick` where it pays off; sent only when a decision
+/// provider is configured.
+const DECISIONS_PROMPT: &str = "\
+# Cheap Decisions
+
+When you have to sort many items into a fixed set of labels (routing issues to
+repositories, labelling tickets, triaging failures), use `moat decide pick`
+rather than judging each one yourself:
+
+```
+moat decide pick \"Which repository owns this issue?\" --options api,web,infra --state \"<text>\"
+moat decide pick \"Bug or feature?\" --options bug,feature --each < items.jsonl
+```
+
+Describe an option with `--option name=\"when it applies\"`. `--each` reads JSONL
+or a JSON array of `{\"id\": ..., \"state\": \"...\"}` objects and prints one TSV row
+per item. Act on band `act`, double-check `confirm`, and decide `escalate`
+yourself.
+
+The question, options, descriptions and text all go to an external model
+provider: never send secrets, credentials or personal data. If `moat decide` is not a recognised command in this sandbox,
+skip it.";
 
 /// Asks the agent what cost it time this run that a fix would have prevented.
 /// Its own section, after the CLI list, so it reads as an instruction with a
@@ -252,6 +277,7 @@ pub async fn build_for_task(
         task_append_system_prompt: task.and_then(|t| t.append_system_prompt.as_deref()),
         repo_system_prompt: workspace.as_ref().and_then(|w| w.system_prompt.as_deref()),
         frontend_url,
+        decisions_enabled: config.is_some_and(|c| c.decision.provider.is_some()),
     })
 }
 
@@ -291,6 +317,9 @@ pub fn build_append_system_prompt(inputs: &PromptInputs<'_>) -> String {
 
     sections.push(GITHUB_CLI_HINT.to_string());
     sections.push(SANDBOX_TOOLS_PROMPT.to_string());
+    if inputs.decisions_enabled {
+        sections.push(DECISIONS_PROMPT.to_string());
+    }
     sections.push(FEEDBACK_PROMPT.to_string());
 
     sections.join("\n\n")
@@ -356,7 +385,29 @@ mod tests {
             task_append_system_prompt: None,
             repo_system_prompt: None,
             frontend_url: None,
+            decisions_enabled: false,
         }
+    }
+
+    #[test]
+    fn decisions_section_only_when_a_provider_is_configured() {
+        let off = build_append_system_prompt(&base_inputs("task-123"));
+        assert!(!off.contains("moat decide"), "{off}");
+
+        let on = build_append_system_prompt(&PromptInputs {
+            decisions_enabled: true,
+            ..base_inputs("task-123")
+        });
+        assert!(on.contains("moat decide pick"), "{on}");
+        assert!(on.contains("never send secrets, credentials"), "{on}");
+        assert!(
+            on.contains("not a recognised command in this sandbox"),
+            "{on}"
+        );
+        assert!(
+            on.find("\n# Cheap Decisions") < on.find("\n# Feedback Inbox"),
+            "{on}"
+        );
     }
 
     #[test]

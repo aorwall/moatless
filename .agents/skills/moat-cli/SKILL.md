@@ -101,6 +101,30 @@ own gRPC server stops the restart rather than replacing the pod silently. The
 command prints the failure. Ask a person to restart the task from outside when
 you see it.
 
+## Asking for a cheap Decision
+
+`moat decide pick` sends one multiple-choice question to the backend's Decision
+provider: a fraction of a cent and well under a second per item, for routing
+or labelling many items into a fixed set.
+
+```bash
+moat decide pick "Which repository owns this issue?" \
+  --option moatless="Backend, CLI and sandbox" --option t3code="The web UI" \
+  --state-file issue.md
+jq -c '.[] | {id: .identifier, state: (.title + "\n" + .description)}' issues.json \
+  | moat decide pick "Bug or feature?" --options bug,feature --each
+```
+
+**Read the band, not the choice alone.** Act on `act`, check `confirm`
+yourself, and decide `escalate` without the answer.
+
+**Everything you pass leaves the deployment**: the question, the options and
+their descriptions, and the state all go to an external model provider. Never
+send secrets, credentials or personal data.
+
+**A 503 means no provider is configured** on this backend. Do the work yourself.
+`--each` still prints every row when some fail, then exits non-zero.
+
 Read [command workflows](references/command-reference.md) for response shapes,
 workspace ownership, task reuse, and bounded diagnostics. Read
 [Loops](references/loops.md) when installing or operating automation.

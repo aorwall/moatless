@@ -98,6 +98,7 @@ moatless-workspaces = { workspace = true }
 moatless-s3 = { workspace = true, features = ["sts"] }
 moatless-tasks = { workspace = true }
 moatless-loops = { workspace = true }
+moatless-decisions = { workspace = true }
 moatless-adapter-webhook = { workspace = true }
 moatless-adapter-slack = { workspace = true }
 moatless-adapter-telegram = { workspace = true }

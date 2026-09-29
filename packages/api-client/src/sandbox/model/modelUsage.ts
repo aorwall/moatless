@@ -15,12 +15,12 @@ export interface ModelUsage {
   /** @minimum 0 */
   cacheReadInputTokens: number;
   /** @minimum 0 */
-  contextWindow: number;
+  contextWindow?: number;
   costUSD: number;
   /** @minimum 0 */
   inputTokens: number;
   /** @minimum 0 */
-  maxOutputTokens: number;
+  maxOutputTokens?: number;
   /** @minimum 0 */
   outputTokens: number;
   /** @minimum 0 */

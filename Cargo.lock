@@ -3952,6 +3952,7 @@ dependencies = [
  "moatless-adapter-webhook",
  "moatless-api-schemas",
  "moatless-core",
+ "moatless-decisions",
  "moatless-identity",
  "moatless-loops",
  "moatless-ports",
@@ -4049,6 +4050,28 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "moatless-decisions"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "http-body-util",
+ "metrics",
+ "moatless-api-schemas",
+ "moatless-core",
+ "moatless-types",
+ "reqwest 0.13.4",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tower",
+ "tracing",
+ "utoipa",
+ "utoipa-axum",
  "uuid",
 ]
 

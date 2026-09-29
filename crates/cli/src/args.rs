@@ -161,6 +161,12 @@ pub(super) enum SharedCommands {
     /// Record feedback about a task to be used for improving moatless logic,
     /// agent skills, or tooling — or, with `list`, read what has been recorded
     Feedback(commands::feedback::FeedbackInvocation),
+    /// Cheap multiple-choice decisions (routing, labelling, triage) from the
+    /// backend's decision provider
+    Decide {
+        #[command(subcommand)]
+        action: commands::decide::DecideAction,
+    },
 }
 
 // ---------------------------------------------------------------------------

@@ -475,3 +475,79 @@ fn slack_config_debug_redacts_secrets() {
     assert!(debug.contains("[REDACTED]"));
     assert!(debug.contains("U12345")); // bot_user_id should NOT be redacted
 }
+
+// =========================================================================
+// DecisionConfig
+// =========================================================================
+
+fn decision(
+    provider: Option<&str>,
+    key: Option<&str>,
+    base_url: Option<&str>,
+    model: Option<&str>,
+) -> Result<DecisionConfig, ConfigError> {
+    let owned = |value: Option<&str>| value.map(str::to_string);
+    DecisionConfig::parse(owned(provider), owned(key), owned(base_url), owned(model))
+}
+
+fn jev(config: DecisionConfig) -> JevConfig {
+    match config.provider {
+        Some(DecisionProviderConfig::Jev(jev)) => jev,
+        None => panic!("expected the Jev provider, got none"),
+    }
+}
+
+#[test]
+fn an_unset_or_blank_decision_provider_disables_decisions_even_with_a_key() {
+    for provider in [None, Some(""), Some("   ")] {
+        let config = decision(provider, Some("key"), None, None).expect("parses");
+        assert!(config.provider.is_none(), "{provider:?}");
+    }
+}
+
+#[test]
+fn jev_defaults_to_the_pinned_model_and_public_endpoint() {
+    let jev = jev(decision(Some(" JEV "), Some("key"), Some(""), Some("")).expect("parses"));
+    assert_eq!(jev.api_key, "key");
+    assert_eq!(jev.model, DEFAULT_JEV_MODEL);
+    assert_eq!(jev.base_url, "https://api.typesafe.ai");
+}
+
+#[test]
+fn jev_model_and_base_url_are_overridable() {
+    let jev = jev(decision(
+        Some("jev"),
+        Some("key"),
+        Some("http://127.0.0.1:9/"),
+        Some("jev-latest"),
+    )
+    .expect("parses"));
+    assert_eq!(jev.model, "jev-latest");
+    assert_eq!(jev.base_url, "http://127.0.0.1:9");
+}
+
+#[test]
+fn jev_without_a_key_refuses_to_boot() {
+    for key in [None, Some(" ")] {
+        let err = decision(Some("jev"), key, None, None).expect_err("needs a key");
+        assert!(err.to_string().contains("TYPESAFE_API_KEY"), "{err}");
+    }
+}
+
+#[test]
+fn an_unknown_decision_provider_refuses_to_boot() {
+    let err = decision(Some("oracle"), Some("key"), None, None).expect_err("unknown");
+    assert!(
+        err.to_string().contains("DECISION_PROVIDER 'oracle'"),
+        "{err}"
+    );
+}
+
+#[test]
+fn jev_config_debug_redacts_the_key() {
+    let config = decision(Some("jev"), Some("tsk-real-key"), None, None).expect("parses");
+    let debug = format!("{config:?}");
+    assert!(!debug.contains("tsk-real-key"), "{debug}");
+    assert!(debug.contains("[REDACTED]"));
+    assert!(debug.contains(DEFAULT_JEV_MODEL));
+}

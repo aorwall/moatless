@@ -136,7 +136,7 @@ matters — a Fork is a parent-edged Task, not a spawned subagent Task.
 
 ### Providers — always qualified
 
-"Provider" is never a domain term on its own: four unrelated concepts share the
+"Provider" is never a domain term on its own: five unrelated concepts share the
 word, so it must always be qualified.
 
 **Sandbox runtime**:
@@ -150,6 +150,11 @@ A stored OAuth or PAT credential for an external service (e.g. a GitHub token).
 **Git host**:
 The service hosting a Repository's git remote — GitHub, GitLab, or Gitness.
 _Avoid_: git provider, bare "provider"
+
+**Decision provider**:
+The external model the backend asks for a Decision, chosen by
+`DECISION_PROVIDER` (TypeSafe Jev today). Its credentials stay in the backend.
+_Avoid_: classifier, bare "provider"
 
 (The external-system integration is an **Adapter** — see Integrations — and is
 never called a "provider".)
@@ -323,6 +328,16 @@ Moatless surface folds them behind the spawning call (see **Subagent
 transcript**); the T3 surface, which has no nesting to fold into, reports that
 one call as a task it watches run — progress while the call is open, a completion
 when it settles, both on the one row.
+
+**Decision**:
+One multiple-choice pick an Agent asks for with `moat decide pick`: a question,
+a fixed set of options and a piece of text, answered by the Decision provider
+with a choice, a confidence and a Band.
+_Avoid_: classification, when naming the API
+
+**Band**:
+What to do with a Decision: `act`, `confirm` or `escalate`, from the Decision
+provider's own confidence thresholds.
 
 ### Plugins & skills
 

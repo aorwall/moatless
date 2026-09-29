@@ -907,6 +907,18 @@ impl ApiClient {
     }
 
     // ========================================================================
+    // Decisions
+    // ========================================================================
+
+    /// POST /api/v1/decisions/pick
+    pub async fn pick_decision(
+        &self,
+        req: &moatless_api_schemas::decisions::PickDecisionRequest,
+    ) -> Result<moatless_api_schemas::decisions::PickDecisionResponse, ApiError> {
+        self.post("/api/v1/decisions/pick", req).await
+    }
+
+    // ========================================================================
     // Feedback
     // ========================================================================
 

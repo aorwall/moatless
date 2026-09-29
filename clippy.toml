@@ -36,5 +36,5 @@ doc-valid-idents = [
     "..",
     "OpenAPI", "PostgreSQL", "OTel", "OpenAI", "ChatGPT", "OAuth2", "OpenID",
     "SQLx", "SELinux", "UUIDv4", "BotFather", "DoS", "SoapLabBot", "CloudWatch",
-    "SIGKILLed", "SIGTERMed", "ACKed", "ACKing",
+    "SIGKILLed", "SIGTERMed", "ACKed", "ACKing", "TypeSafe",
 ]

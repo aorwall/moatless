@@ -27,6 +27,11 @@ export interface ResultSuccess {
   session_id: string;
   /** @nullable */
   structured_output?: ResultSuccessStructuredOutput;
+  /**
+     * This process's own cost, as `model_usage` is its own usage: the CLI
+     * reports the Session's running totals, and the subprocess backend
+     * subtracts the ones it resumed with. The tmux backend reports 0.0.
+     */
   total_cost_usd: number;
   usage: Usage;
   uuid: string;

@@ -179,6 +179,9 @@ async fn run_shared(
         SharedCommands::Feedback(args) => {
             commands::feedback::dispatch(moat, cfg, args, json).await?;
         }
+        SharedCommands::Decide { action } => {
+            commands::decide::run(moat, action, cfg, json).await?;
+        }
     }
 
     Ok(())

@@ -7,6 +7,13 @@
  */
 
 export interface UpdateTaskMetadataRequest {
+  /**
+     * The Agent profile the task's next turn runs. A running turn finishes
+     * on the one it started with; another harness's profile transcodes the
+     * history into it.
+     * @nullable
+     */
+  agentProfile?: string | null;
   /** @nullable */
   description?: string | null;
   /**

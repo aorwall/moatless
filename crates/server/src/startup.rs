@@ -202,6 +202,7 @@ pub fn spawn_metrics_server(port: u16, cancel: CancellationToken) -> JoinHandle<
     moatless_loops::bindings::metrics::describe_binding_metrics();
     crate::event_handler::metrics::describe_agent_metrics();
     crate::sandbox::metrics::describe_sandbox_metrics();
+    moatless_decisions::metrics::describe_decision_metrics();
     let router = metrics::metrics_router(handle);
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     tokio::spawn(async move {
@@ -451,6 +452,14 @@ mod openapi_dump_tests {
             spec["paths"].get(p).is_some(),
             "build_merged_openapi() is missing {p}; its ApiDoc is not merged into the dump builder"
         );
+    }
+
+    #[test]
+    fn dump_includes_the_decision_endpoint() {
+        let spec = serde_json::to_value(build_merged_openapi()).unwrap();
+
+        assert!(spec["paths"]["/api/v1/decisions/pick"]["post"].is_object());
+        assert!(spec["components"]["schemas"]["PickDecisionResponse"].is_object());
     }
 
     #[test]

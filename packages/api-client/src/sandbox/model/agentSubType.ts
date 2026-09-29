@@ -15,7 +15,6 @@ export type AgentSubType = typeof AgentSubType[keyof typeof AgentSubType];
 export const AgentSubType = {
   started: 'started',
   stopped: 'stopped',
-  message: 'message',
   completed: 'completed',
   error: 'error',
   pending_response: 'pending_response',

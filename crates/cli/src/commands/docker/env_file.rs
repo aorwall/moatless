@@ -15,6 +15,7 @@ pub(super) const SECRET_KEYS: &[&str] = &[
     "CLAUDE_CODE_OAUTH_TOKEN",
     "TASK_TOKEN_SECRET",
     "SECRETS_ENCRYPTION_KEY",
+    "TYPESAFE_API_KEY",
 ];
 
 pub(super) fn is_secret(key: &str) -> bool {

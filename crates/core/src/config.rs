@@ -578,6 +578,96 @@ impl fmt::Debug for GithubPrConfig {
     }
 }
 
+/// Pinned so an upstream `jev-latest` bump never changes decisions silently.
+pub const DEFAULT_JEV_MODEL: &str = "jev-1.13.0";
+
+const DEFAULT_TYPESAFE_BASE_URL: &str = "https://api.typesafe.ai";
+
+/// The decision provider behind `POST /api/v1/decisions/pick`; `None` (env
+/// `DECISION_PROVIDER` unset or empty) disables the endpoint.
+#[derive(Debug, Clone)]
+pub struct DecisionConfig {
+    pub provider: Option<DecisionProviderConfig>,
+}
+
+/// One variant per decision provider, each carrying its own credentials.
+#[derive(Debug, Clone)]
+pub enum DecisionProviderConfig {
+    /// TypeSafe Jev, `DECISION_PROVIDER=jev`.
+    Jev(JevConfig),
+}
+
+/// TypeSafe Jev settings. Implements a custom `Debug` to redact the key.
+#[derive(Clone)]
+pub struct JevConfig {
+    /// Env `TYPESAFE_API_KEY`. Backend-only: no sandbox ever receives it.
+    pub api_key: String,
+    /// Env `TYPESAFE_API_BASE_URL` (default `https://api.typesafe.ai`).
+    pub base_url: String,
+    /// Env `DECISION_MODEL` (default [`DEFAULT_JEV_MODEL`]).
+    pub model: String,
+}
+
+impl fmt::Debug for JevConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("JevConfig")
+            .field("api_key", &"[REDACTED]")
+            .field("base_url", &self.base_url)
+            .field("model", &self.model)
+            .finish()
+    }
+}
+
+impl DecisionConfig {
+    fn from_env() -> Result<Self, ConfigError> {
+        Self::parse(
+            env_opt("DECISION_PROVIDER"),
+            env_opt("TYPESAFE_API_KEY"),
+            env_opt("TYPESAFE_API_BASE_URL"),
+            env_opt("DECISION_MODEL"),
+        )
+    }
+
+    /// An empty value counts as unset: docker-compose passes `${VAR:-}` as `""`.
+    fn parse(
+        provider: Option<String>,
+        api_key: Option<String>,
+        base_url: Option<String>,
+        model: Option<String>,
+    ) -> Result<Self, ConfigError> {
+        let set = |value: Option<String>| {
+            value
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty())
+        };
+        let Some(provider) = set(provider) else {
+            return Ok(Self { provider: None });
+        };
+        match provider.to_ascii_lowercase().as_str() {
+            "jev" => {
+                let api_key = set(api_key).ok_or_else(|| {
+                    ConfigError::Invalid("DECISION_PROVIDER=jev requires TYPESAFE_API_KEY".into())
+                })?;
+                let base_url = set(base_url).map_or_else(
+                    || DEFAULT_TYPESAFE_BASE_URL.to_string(),
+                    |url| url.trim_end_matches('/').to_string(),
+                );
+                let model = set(model).unwrap_or_else(|| DEFAULT_JEV_MODEL.to_string());
+                Ok(Self {
+                    provider: Some(DecisionProviderConfig::Jev(JevConfig {
+                        api_key,
+                        base_url,
+                        model,
+                    })),
+                })
+            }
+            other => Err(ConfigError::Invalid(format!(
+                "unknown DECISION_PROVIDER '{other}'; expected jev"
+            ))),
+        }
+    }
+}
+
 /// Docker-specific sandbox configuration.
 #[derive(Debug, Clone)]
 pub struct DockerConfig {
@@ -703,6 +793,7 @@ pub struct Config {
     pub telegram: TelegramConfig,
     pub github_pr: GithubPrConfig,
     pub linear: LinearConfig,
+    pub decision: DecisionConfig,
     pub skill: SkillConfig,
     pub secrets: SecretsConfig,
     pub codex_oauth: CodexOAuthConfig,
@@ -963,6 +1054,8 @@ impl Config {
                 oauth_callback_url: env_opt("LINEAR_OAUTH_CALLBACK_URL"),
                 api_base_url: env_opt("LINEAR_API_BASE_URL"),
             },
+
+            decision: DecisionConfig::from_env()?,
 
             skill: SkillConfig {
                 cache_ttl_secs: env_or("BACKEND_SKILL_CACHE_TTL_SECONDS", 3_600),
@@ -1376,6 +1469,7 @@ impl Config {
                 oauth_callback_url: None,
                 api_base_url: None,
             },
+            decision: DecisionConfig { provider: None },
             skill: SkillConfig { cache_ttl_secs: 60 },
             secrets: SecretsConfig {
                 encryption_key: Some("0123456789abcdef0123456789abcdef".to_string()),
