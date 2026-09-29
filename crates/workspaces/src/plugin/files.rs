@@ -12,7 +12,7 @@ use std::io::{self, Read};
 use flate2::Compression;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
-use tar::{Archive, Builder, EntryType};
+use tar::{Archive, Builder, EntryType, Header};
 use tracing::warn;
 
 use crate::skill::fetcher::{PLUGIN_MARKETPLACE_PATHS, PluginMarketplace, normalize_skills_path};
@@ -44,7 +44,7 @@ pub(crate) fn plugin_files(tarball: &[u8]) -> io::Result<Vec<u8>> {
         if !kept.contains(&path) {
             continue;
         }
-        let mut header = entry.header().clone();
+        let mut header = fresh_header(&entry);
         match header.entry_type() {
             EntryType::Symlink => {
                 let target = entry.link_name()?.unwrap_or_default().into_owned();
@@ -64,6 +64,26 @@ pub(crate) fn plugin_files(tarball: &[u8]) -> io::Result<Vec<u8>> {
         }
     }
     builder.into_inner()?.finish()
+}
+
+/// A header carrying only `entry`'s type, mode, mtime and size; an unreadable
+/// mode or mtime falls back to `0o644` or the epoch, as a clone would carry it.
+///
+/// Deliberately not a clone: GitHub writes ustar headers whose `prefix` holds
+/// `<top-level>/<dir>`, and `set_path` leaves that `prefix` in place when the
+/// new path fits `name`, so the entry would unpack under the old directory.
+fn fresh_header<R: Read>(entry: &tar::Entry<'_, R>) -> Header {
+    let source = entry.header();
+    let mut header = Header::new_gnu();
+    header.set_entry_type(source.entry_type());
+    header.set_mode(source.mode().unwrap_or(0o644));
+    header.set_mtime(source.mtime().unwrap_or(0));
+    header.set_size(if source.entry_type().is_file() {
+        entry.size()
+    } else {
+        0
+    });
+    header
 }
 
 /// What [`plugin_files`] decides from before it copies anything.
@@ -376,6 +396,58 @@ mod tests {
         assert_eq!(
             files,
             [".claude-plugin/marketplace.json", "skills/review/SKILL.md"]
+        );
+    }
+
+    #[test]
+    fn a_ustar_prefix_does_not_survive_the_repack() {
+        // GitHub splits a path past 100 bytes into ustar `prefix` and `name`.
+        let top = format!("acme-plugins-{}", "0123456789abcdef".repeat(3));
+        let repo_path = "plugins/general/skills/pr-review/scripts/review-scope.py";
+        let mut builder = Builder::new(GzEncoder::new(Vec::new(), Compression::default()));
+        for (path, kind) in [
+            (".claude-plugin/marketplace.json", EntryType::Regular),
+            (
+                "plugins/general/skills/pr-review/scripts",
+                EntryType::Directory,
+            ),
+            (repo_path, EntryType::Regular),
+        ] {
+            let body = if path.ends_with("marketplace.json") {
+                MARKETPLACE
+            } else if kind.is_file() {
+                "print()"
+            } else {
+                ""
+            };
+            let mut header = tar::Header::new_ustar();
+            header.set_entry_type(kind);
+            header.set_size(body.len() as u64);
+            header.set_mode(0o644);
+            builder
+                .append_data(&mut header, format!("{top}/{path}"), body.as_bytes())
+                .unwrap();
+        }
+        let archive = builder.into_inner().unwrap().finish().unwrap();
+        let prefixed = Archive::new(GzDecoder::new(archive.as_slice()))
+            .entries()
+            .unwrap()
+            .filter(|e| {
+                let e = e.as_ref().unwrap();
+                e.header().as_ustar().is_some_and(|h| h.prefix[0] != 0)
+            })
+            .count();
+        assert_eq!(prefixed, 2, "the fixture must set ustar prefixes");
+
+        let files = paths(&plugin_files(&archive).unwrap());
+
+        assert_eq!(
+            files,
+            [
+                ".claude-plugin/marketplace.json",
+                "plugins/general/skills/pr-review/scripts",
+                repo_path,
+            ]
         );
     }
 

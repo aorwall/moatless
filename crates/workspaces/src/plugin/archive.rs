@@ -21,11 +21,16 @@ use moatless_types::access_control::Actor;
 /// Bytes of archive held across all plugins before the least used are evicted.
 const CACHE_CAPACITY_BYTES: u64 = 512 * 1024 * 1024;
 
+/// Tags every served version, so a sandbox's copy unpacked from an archive an
+/// earlier [`plugin_files`] built is not taken as current at the same commit.
+/// Bump it whenever [`plugin_files`] builds a different archive from one tarball.
+const ARCHIVE_FORMAT: &str = "files-v2";
+
 /// One plugin's files at a commit, as a gzip tarball rooted at the repository
 /// root.
 #[derive(Debug, Clone)]
 pub struct PluginArchive {
-    /// The commit the archive was taken at.
+    /// The commit the archive was taken at, tagged with [`ARCHIVE_FORMAT`].
     pub version: String,
     pub data: Arc<Vec<u8>>,
 }
@@ -67,7 +72,7 @@ impl PluginArchives {
     ) -> Result<Option<PluginArchive>, SkillError> {
         let remote = plugin_remote(git_url);
         let token = plugin_token(self.git_host_tokens.as_ref(), actor, &remote).await;
-        let version = self
+        let commit = self
             .fetcher
             .fetch_version(&remote, token.as_deref())
             .await?
@@ -75,6 +80,7 @@ impl PluginArchives {
                 git_url: git_url.to_string(),
                 message: "the host reported no commit to pin the archive to".to_string(),
             })?;
+        let version = format!("{commit}+{ARCHIVE_FORMAT}");
         if known_version == Some(version.as_str()) {
             return Ok(None);
         }
@@ -86,7 +92,7 @@ impl PluginArchives {
                 debug!(git_url, version = %version, "Downloading plugin archive");
                 let tarball = self
                     .fetcher
-                    .fetch_archive(&remote, &version, token.as_deref())
+                    .fetch_archive(&remote, &commit, token.as_deref())
                     .await?;
                 tokio::task::spawn_blocking(move || plugin_files(&tarball))
                     .await
@@ -223,7 +229,7 @@ mod tests {
         );
         let c = archives.archive(&u1, GIT_URL, None).await.unwrap().unwrap();
 
-        assert_eq!(a.unwrap().unwrap().version, "sha-1");
+        assert_eq!(a.unwrap().unwrap().version, "sha-1+files-v2");
         assert_eq!(skill_body(&b.unwrap().unwrap()), "sha-1");
         assert_eq!(skill_body(&c), "sha-1");
         assert_eq!(fetcher.downloads.load(Ordering::SeqCst), 1);
@@ -240,12 +246,12 @@ mod tests {
 
         *fetcher.version.lock().unwrap() = Some("sha-2".to_string());
         let archive = archives
-            .archive(&Actor::of("u1"), GIT_URL, Some("sha-1"))
+            .archive(&Actor::of("u1"), GIT_URL, Some("sha-1+files-v2"))
             .await
             .unwrap()
             .unwrap();
 
-        assert_eq!(archive.version, "sha-2");
+        assert_eq!(archive.version, "sha-2+files-v2");
         assert_eq!(skill_body(&archive), "sha-2");
         assert_eq!(fetcher.downloads.load(Ordering::SeqCst), 2);
     }
@@ -256,12 +262,27 @@ mod tests {
         let archives = archives(fetcher.clone());
 
         let archive = archives
-            .archive(&Actor::of("u1"), GIT_URL, Some("sha-1"))
+            .archive(&Actor::of("u1"), GIT_URL, Some("sha-1+files-v2"))
             .await
             .unwrap();
 
         assert!(archive.is_none());
         assert_eq!(fetcher.downloads.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn a_copy_from_an_older_archive_format_is_downloaded_again() {
+        let fetcher = Arc::new(StubFetcher::at("sha-1"));
+        let archives = archives(fetcher.clone());
+
+        let archive = archives
+            .archive(&Actor::of("u1"), GIT_URL, Some("sha-1"))
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(archive.version, "sha-1+files-v2");
+        assert_eq!(fetcher.downloads.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

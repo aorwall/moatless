@@ -292,14 +292,15 @@ message FetchPluginRequest {
   string task_id = 1;
   // `PluginDelivery.name`, as the sandbox's REPO_CONFIG lists it.
   string plugin_name = 2;
-  // The commit the sandbox already holds, or empty. When it is still the
-  // head, the reply is one chunk with `unchanged` set and no data.
+  // The `PluginChunk.version` the sandbox already holds, or empty. When it is
+  // still current, the reply is one chunk with `unchanged` set and no data.
   string known_version = 3;
 }
 
 message PluginChunk {
   bytes data = 1;
-  // The commit the archive was taken at; set on the first chunk only.
+  // The commit the archive was taken at, tagged with the archive format; set
+  // on the first chunk only. Opaque to the sandbox.
   string version = 2;
   bool unchanged = 3;
 }
