@@ -9,7 +9,7 @@ use uuid::Uuid;
 use super::lineage::LineageRow;
 use super::models::{
     AppendError, AppendOutcome, AppendRequest, ChainError, CutAnchors, Head, LineProjection,
-    TrajectorySession,
+    NewEvent, TrajectorySession,
 };
 use crate::conversation::projector::Projector;
 
@@ -223,6 +223,7 @@ impl PgTrajectoryDao {
                 _ => {}
             }
         }
+        let fresh: Vec<_> = fresh.iter().map(NewEvent::jsonb_safe).collect();
         let ids: Vec<Uuid> = fresh.iter().map(|_| Uuid::now_v7()).collect();
         let mut parents = Vec::with_capacity(ids.len());
         parents.push(session.last_event_id.or(session.forked_from_event_id));
@@ -267,7 +268,10 @@ impl PgTrajectoryDao {
                 &mut tx,
                 &session,
                 session.last_seq + 1,
-                &ids.iter().copied().zip(fresh).collect::<Vec<_>>(),
+                &ids.iter()
+                    .copied()
+                    .zip(fresh.iter().map(|l| &**l))
+                    .collect::<Vec<_>>(),
                 turn_number,
             )
             .await?;

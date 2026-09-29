@@ -303,6 +303,31 @@ async fn an_empty_append_returns_the_tip_payload(pool: PgPool) {
     assert!(dao.find_session("never-recorded").await.unwrap().is_none());
 }
 
+#[sqlx::test]
+async fn a_nul_in_content_is_escaped_and_the_payload_kept(pool: PgPool) {
+    let mut nul = line(0);
+    nul.payload = r#"{"text":"a\u0000b"}"#.into();
+    nul.content = json!({"role": "user", "blocks": [
+        {"type": "text", "text": "a\0b", "k\0": 1, "k\\0": 2},
+    ]});
+    let dao = seeded(&pool, "s", vec![nul, line(1)]).await;
+
+    let (payload, content): (String, serde_json::Value) =
+        sqlx::query_as("SELECT payload, content FROM trajectory_events WHERE seq = 0")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(payload, r#"{"text":"a\u0000b"}"#);
+    let block = &content["blocks"][0];
+    assert_eq!(block["text"], "a\\0b");
+    assert_eq!((&block["k\\0"], &block["k\\\\0"]), (&json!(1), &json!(2)));
+    let next = dao
+        .append(req("source", Harness::ClaudeCode, "s", 2, &[], None))
+        .await
+        .unwrap();
+    assert_eq!(next.last_seq, 1, "the line after the NUL is recorded");
+}
+
 fn tool_call(id: &str) -> NewEvent {
     NewEvent {
         kind: "assistant".into(),

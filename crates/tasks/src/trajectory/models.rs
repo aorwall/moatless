@@ -1,6 +1,8 @@
 //! What the trajectory records and answers: sessions, events, cuts and their
 //! errors.
 
+use std::borrow::Cow;
+
 use moatless_types::agent::Harness;
 use serde_json::Value;
 use uuid::Uuid;
@@ -40,6 +42,51 @@ pub struct NewEvent {
     pub payload: String,
     /// `{role, blocks}`, as the sandbox's `SessionFormat` derived it.
     pub content: Value,
+}
+
+impl NewEvent {
+    /// This line with each NUL in `content` escaped as `\0`: `jsonb` rejects
+    /// `\u0000`, and a failed append holds back every later line of its
+    /// session. `payload` stays verbatim; `text` stores its escaped form.
+    pub(crate) fn jsonb_safe(&self) -> Cow<'_, Self> {
+        if !has_nul(&self.content) {
+            return Cow::Borrowed(self);
+        }
+        let mut line = self.clone();
+        line.content = escape_nuls(std::mem::take(&mut line.content));
+        Cow::Owned(line)
+    }
+}
+
+fn has_nul(value: &Value) -> bool {
+    match value {
+        Value::String(s) => s.contains('\0'),
+        Value::Array(items) => items.iter().any(has_nul),
+        Value::Object(map) => map.iter().any(|(k, v)| k.contains('\0') || has_nul(v)),
+        _ => false,
+    }
+}
+
+fn escape_nuls(value: Value) -> Value {
+    match value {
+        Value::String(s) => Value::String(s.replace('\0', "\\0")),
+        Value::Array(items) => Value::Array(items.into_iter().map(escape_nuls).collect()),
+        Value::Object(map) => {
+            let nul_key = map.keys().any(|k| k.contains('\0'));
+            Value::Object(
+                map.into_iter()
+                    .map(|(k, v)| (if nul_key { escape_key(&k) } else { k }, escape_nuls(v)))
+                    .collect(),
+            )
+        }
+        other => other,
+    }
+}
+
+// Doubling `\` first keeps `"a\0"` distinct from an escaped `"a\u{0}"`; a
+// plain replace merges the two and `collect` drops one value.
+fn escape_key(key: &str) -> String {
+    key.replace('\\', "\\\\").replace('\0', "\\0")
 }
 
 /// The reply to an append: `accepted` is false when the batch starts past
