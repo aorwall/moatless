@@ -101,9 +101,8 @@ pub struct AgentPromptBuilder<'a> {
     task_model: Option<String>,
     task_resume_session_id: Option<String>,
     task_skills: Vec<String>,
-    /// Logins already resolved for this fetch, under two key shapes that cannot
-    /// collide: a Moatless user id for an internal row's `<sent_by>`, and
-    /// [`sender_key`] for an external row's `<from>`.
+    /// Logins already resolved for this fetch, keyed by [`sender_key`], for an
+    /// external row's `<from>`.
     sender_logins: &'a HashMap<String, String>,
 }
 
@@ -347,11 +346,8 @@ fn build_message_header(row: &TaskMessage, login_cache: &HashMap<String, String>
         return header;
     }
 
-    if let Some(uid) = row.sent_by.as_deref() {
-        if let Some(login) = login_cache.get(uid) {
-            return format!("<sent_by>{login}</sent_by>\n\n");
-        }
-    }
+    // An internal row goes out bare, deliberately: a leading `/compact` or
+    // other slash command only runs when it is the first thing in the prompt.
     String::new()
 }
 
@@ -959,20 +955,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn internal_row_header_uses_resolved_sender() {
-        let mut cache = HashMap::new();
-        cache.insert("u1".to_string(), "alice".to_string());
-        let mut message = pending_message(1, "msg_abc", "hello");
+    async fn an_internal_row_is_delivered_without_a_header() {
+        let mut message = pending_message(1, "msg_abc", "/compact");
         message.sent_by = Some("u1".to_string());
 
-        let deliveries = prompt_builder(&cache, None)
+        let deliveries = prompt_builder(&HashMap::new(), None)
             .build_pending_deliveries(&[message], &HashMap::new())
             .await;
 
-        assert_eq!(
-            deliveries[0].prompt_text,
-            "<sent_by>alice</sent_by>\n\nhello"
-        );
+        assert_eq!(deliveries[0].prompt_text, "/compact");
     }
 
     #[tokio::test]

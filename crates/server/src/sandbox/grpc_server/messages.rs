@@ -187,10 +187,9 @@ pub(super) async fn get_pending_messages(
         }
     };
 
-    // Pre-resolve the logins the headers name. An internal row is keyed by
-    // its `sent_by` user id for `<sent_by>`; an external row is keyed by
-    // the writer's own Adapter id for `<from>`, which is the only field
-    // that names the writer rather than the trigger owner.
+    // Pre-resolve the logins `<from>` names, keyed by the writer's own
+    // Adapter id: the only field that names the writer rather than the
+    // trigger owner.
     let mut login_cache: std::collections::HashMap<String, String> =
         std::collections::HashMap::new();
     if let Some(handlers) = service.handlers.as_ref() {
@@ -221,25 +220,6 @@ pub(super) async fn get_pending_messages(
                         adapter, sender_id, error = %e,
                         "sender lookup failed, <from> names their handle"
                     ),
-                }
-                continue;
-            }
-            if let Some(uid) = row.sent_by.as_deref() {
-                if seen.insert(uid.to_string()) {
-                    let Ok(uuid) = uid.parse::<uuid::Uuid>() else {
-                        continue;
-                    };
-                    match handlers.user_logins.run_as_target(&uuid.to_string()).await {
-                        Ok(Some(user)) => {
-                            login_cache.insert(uid.to_string(), user.login);
-                        }
-                        Ok(None) => {
-                            debug!(user_id = %uid, "sent_by user not found, omitting <sent_by> tag");
-                        }
-                        Err(e) => {
-                            warn!(user_id = %uid, error = %e, "user lookup failed, omitting <sent_by> tag");
-                        }
-                    }
                 }
             }
         }
@@ -525,6 +505,7 @@ pub(super) async fn get_system_prompt(
         task.as_ref(),
         service.handlers.as_ref().map(|h| &h.workspace_resolver),
         service.handlers.as_ref().map(|h| h.task_relations.as_ref()),
+        service.handlers.as_ref().map(|h| h.user_logins.as_ref()),
         Some(&service.backend_config),
     )
     .await;

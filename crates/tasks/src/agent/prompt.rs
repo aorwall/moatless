@@ -9,6 +9,7 @@ use std::sync::Arc;
 use tracing::warn;
 
 use moatless_core::config::Config;
+use moatless_ports::identity::UserResolver;
 use moatless_workspace_ports::WorkspaceResolver;
 
 use crate::task::models::Task;
@@ -36,6 +37,8 @@ pub struct PromptInputs<'a> {
     pub task_id: &'a str,
     /// `Task.name` — `None` and whitespace-only treated as missing.
     pub task_name: Option<&'a str>,
+    /// Moatless login of the person the task runs for.
+    pub task_user: Option<&'a str>,
     /// Set when this task hangs off another one.
     pub parent: Option<ParentTask<'a>>,
     /// `Task.append_system_prompt` — trigger-set instructions.
@@ -77,7 +80,7 @@ a review or an issue comment is recorded for this task on your behalf.";
 const SANDBOX_TOOLS_PROMPT: &str = "\
 # Inbound Message Headers
 
-User messages may carry one of two header shapes so you can tell where they
+User messages from an external channel carry a header so you can tell where they
 came from and respond appropriately.
 
 ## External (message originated from an adapter — Slack, Telegram, Linear, GitHub PR)
@@ -107,19 +110,10 @@ acknowledge with a reaction instead of a reply.
 
 ## Internal (UI / CLI / scheduler — no external channel)
 
-```
-<sent_by>alice</sent_by>
-
-…the actual body…
-```
-
-`<sent_by>` is the moatless login of the user who initiated the message.
-There is no external channel to call back to — just emit a normal assistant
-response and the user sees it directly in the task UI. Internal messages need
-no `moat messages reply`.
-
-When neither header is present (e.g. system/scheduler-originated rows with
-no resolvable sender), treat the body as authoritative on its own.
+A message with no header came from the task UI, the CLI or the scheduler, and is
+authoritative on its own. There is no external channel to call back to — just
+emit a normal assistant response and the user sees it directly in the task UI.
+Internal messages need no `moat messages reply`.
 
 # Sandbox CLI Reference
 
@@ -188,6 +182,7 @@ pub async fn build_for_task(
     task: Option<&Task>,
     workspaces: Option<&Arc<dyn WorkspaceResolver>>,
     task_relations: Option<&TaskRelations>,
+    users: Option<&dyn UserResolver>,
     config: Option<&Arc<Config>>,
 ) -> String {
     let workspace = match (task, workspaces) {
@@ -230,11 +225,29 @@ pub async fn build_for_task(
             TaskRelationType::RelatedTo => None,
         });
 
+    let task_user = match (
+        task.and_then(|t| t.created_by.as_deref().or(t.owner_user_id.as_deref()))
+            .and_then(|id| id.parse::<uuid::Uuid>().ok()),
+        users,
+    ) {
+        // Parsed first because `run_as_target` also matches a login, which a
+        // legacy provider id could collide with.
+        (Some(user_id), Some(users)) => match users.run_as_target(&user_id.to_string()).await {
+            Ok(user) => user.map(|u| u.login),
+            Err(e) => {
+                warn!(error = %e, task_id, "Failed to resolve task user for prompt");
+                None
+            }
+        },
+        _ => None,
+    };
+
     let frontend_url = config.map(|c| c.auth.frontend_url.as_str());
 
     build_append_system_prompt(&PromptInputs {
         task_id,
         task_name: task.and_then(|t| t.name.as_deref()),
+        task_user: task_user.as_deref(),
         parent,
         task_append_system_prompt: task.and_then(|t| t.append_system_prompt.as_deref()),
         repo_system_prompt: workspace.as_ref().and_then(|w| w.system_prompt.as_deref()),
@@ -247,6 +260,14 @@ pub fn build_append_system_prompt(inputs: &PromptInputs<'_>) -> String {
     let mut sections: Vec<String> = Vec::new();
 
     sections.push(build_task_identity_section(inputs.task_name));
+
+    if let Some(login) = inputs.task_user {
+        sections.push(format!(
+            "# Task User\n\nThis task runs for the Moatless user `{login}`. A message \
+             without a header does not identify its sender: anyone with access to the \
+             task, or the scheduler, may have sent it."
+        ));
+    }
 
     if let Some(sp) = inputs.repo_system_prompt {
         sections.push(sp.to_string());
@@ -330,6 +351,7 @@ mod tests {
         PromptInputs {
             task_id,
             task_name: None,
+            task_user: None,
             parent: None,
             task_append_system_prompt: None,
             repo_system_prompt: None,
@@ -382,6 +404,20 @@ mod tests {
     }
 
     #[test]
+    fn task_user_named_when_resolved() {
+        let inputs = PromptInputs {
+            task_user: Some("alice"),
+            ..base_inputs("task-123")
+        };
+        let prompt = build_append_system_prompt(&inputs);
+        assert!(prompt.contains("# Task User"));
+        assert!(prompt.contains("Moatless user `alice`"));
+        assert!(prompt.contains("does not identify its sender"));
+        assert!(!prompt.contains("<sent_by>"));
+        assert!(!build_append_system_prompt(&base_inputs("task-123")).contains("# Task User"));
+    }
+
+    #[test]
     fn task_url_omitted_when_frontend_url_missing() {
         let inputs = base_inputs("task-123");
         let prompt = build_append_system_prompt(&inputs);
@@ -428,8 +464,6 @@ mod tests {
         // External-message header explanation
         assert!(prompt.contains("<message_id>"));
         assert!(prompt.contains("<source>"));
-        // Internal-message header explanation
-        assert!(prompt.contains("<sent_by>"));
         // The unified guidance lives in the base prompt, not tacked on
         // per-adapter.
         assert!(prompt.contains("Internal"));

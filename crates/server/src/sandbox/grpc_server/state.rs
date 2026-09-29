@@ -57,8 +57,7 @@ pub struct HandlerDbPorts {
     /// The moatless login behind an inbound writer, for the `<from>` header on
     /// a pending message.
     pub provider_link: Arc<dyn ProviderIdentityLink>,
-    /// The moatless login behind a `sent_by` user id, for the `<sent_by>`
-    /// header on a pending message.
+    /// The moatless login of the user a task's system prompt names.
     pub user_logins: Arc<dyn UserResolver>,
     /// The git author identity the pod's commits attribute to.
     pub commit_identity: Arc<dyn CommitIdentity>,
