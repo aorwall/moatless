@@ -218,6 +218,11 @@ fn test_config() -> Config {
         workspace_sync_enabled: false,
         workspace_restore_if_empty: false,
         headless: false,
+        credential_refresh_interval: std::time::Duration::from_mins(15),
+        transcript_sync_interval: None,
+        workspace_sync_interval: None,
+        workspace_limit: None,
+        shell: "/bin/bash".to_string(),
     }
 }
 
@@ -295,6 +300,7 @@ fn test_state_with_config(backend: Arc<dyn BackendClient>, config: Config) -> Sa
         init_phase: Arc::new(RwLock::new(InitPhase::Ready)),
         setup_gate: moatless_sandbox::init::SetupGate::opened(),
         workspace_origin: Default::default(),
+        git_credentials: Default::default(),
         credentials,
         lifecycle_cancel: CancellationToken::new(),
         credential_dispatcher,

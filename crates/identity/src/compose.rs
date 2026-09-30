@@ -51,10 +51,11 @@ pub fn credentials(
     db: DbPool,
     secrets: Arc<SecretService>,
     codex_http: Arc<reqwest::Client>,
+    codex_refresh_url: String,
 ) -> Arc<CredentialService> {
     Arc::new(
         CredentialService::new(Arc::new(PgProviderTokenDao(db)))
-            .with_codex_refresh(codex_http)
+            .with_codex_refresh(codex_http, codex_refresh_url)
             .with_secrets(secrets),
     )
 }
@@ -173,6 +174,7 @@ pub fn github_app_registry(
         GitHubAppService::from_config(config).map(Arc::new),
         db.map(|db| Arc::new(PgAdapterAppDao(db)) as Arc<dyn AdapterAppDao>),
         cipher,
+        config.github_api_base.clone(),
     ))
 }
 

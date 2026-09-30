@@ -68,6 +68,12 @@ pub struct Workspace {
     role_index: OnceCell<Result<crate::source_index::Index, String>>,
 }
 
+/// arch-allow(env-read-owner): cargo names itself in `CARGO` for the tests it
+/// runs, which have no caller to pass it in.
+fn cargo() -> String {
+    std::env::var("CARGO").unwrap_or_else(|_| "cargo".into())
+}
+
 impl Workspace {
     /// Read the workspace by shelling out to `cargo metadata`.
     ///
@@ -76,7 +82,7 @@ impl Workspace {
     /// test invocation.
     pub fn load(root: impl AsRef<Path>) -> Result<Self> {
         let root = root.as_ref().to_path_buf();
-        let out = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
+        let out = Command::new(cargo())
             .args(["metadata", "--no-deps", "--format-version", "1"])
             .current_dir(&root)
             .output()

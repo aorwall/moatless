@@ -174,6 +174,7 @@ pub fn build_options(
             config.permission_mode.clone()
         }),
         cwd: Some(config.workspace_dir.clone()),
+        config_dir: Some(config.claude_config_dir.clone()),
         cli_path: Some(config.claude_cli_path.clone()),
         plugins: if plugins.is_empty() {
             None
@@ -274,7 +275,7 @@ pub fn build_prompt_append(config: &Config, request: &AgentRunRequest) -> String
     let mut sections = vec![layout_note];
     if let Some(note) = build_resource_limits_note(
         crate::limits::memory_limit_bytes(),
-        crate::limits::workspace_limit(),
+        config.workspace_limit.clone(),
     ) {
         sections.push(note);
     }

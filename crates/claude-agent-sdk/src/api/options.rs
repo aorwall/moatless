@@ -52,6 +52,9 @@ pub struct ClaudeOptions {
 
     // -- Directories --
     pub cwd: Option<String>,
+    /// Claude's config directory, where the CLI writes its transcripts; pinned
+    /// onto the CLI as `CLAUDE_CONFIG_DIR`. `$HOME/.claude` when unset.
+    pub config_dir: Option<String>,
     pub additional_directories: Option<Vec<String>>,
 
     // -- MCP & Plugins --

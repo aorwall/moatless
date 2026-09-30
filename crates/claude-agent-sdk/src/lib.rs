@@ -47,7 +47,7 @@
 
 pub mod api;
 pub mod client;
-pub mod config_dir;
+mod config_dir;
 pub mod error;
 pub mod mcp;
 pub mod query;
@@ -67,7 +67,6 @@ pub use api::messages::{MessagePriority, SdkMessage};
 pub use api::options::ClaudeOptions;
 pub use api::permissions::{PermissionHandler, PermissionMode, PermissionResult};
 pub use client::ClaudeClient;
-pub use config_dir::resolve_claude_config_dir;
 pub use error::{Result, SdkError};
 pub use query::{QueryHandle, query, query_streaming};
 pub use tmux::{has_resumable_transcript, query_tmux, query_tmux_streaming, transcript_dir};

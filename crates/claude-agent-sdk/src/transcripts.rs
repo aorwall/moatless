@@ -21,20 +21,20 @@ fn lexical_cwd(c: &str) -> String {
 }
 
 /// Thin wrapper around [`resolve_project_dir`], exposed for the sandbox's
-/// fork path.
-pub fn transcript_dir(cwd: Option<&str>) -> Result<PathBuf> {
+/// fork path. `config_dir` is [`ClaudeOptions::config_dir`].
+pub fn transcript_dir(cwd: Option<&str>, config_dir: Option<&str>) -> Result<PathBuf> {
     let options = ClaudeOptions {
         cwd: cwd.map(ToString::to_string),
+        config_dir: config_dir.map(ToString::to_string),
         ..Default::default()
     };
     resolve_project_dir(&options)
 }
 
-/// Resolves `<claude-config-dir>/projects/<dashed-cwd>/`. Config dir
-/// precedence: `CLAUDE_CONFIG_DIR` → `CLAUDE_HOME` → `$HOME/.claude`; cwd is
-/// dashed by replacing `/` with `-`. `canonicalize` failures fall back to a
-/// lexically-normalised cwd instead of erroring, since a transient failure on a
-/// good path must not be fatal.
+/// Resolves `<claude-config-dir>/projects/<dashed-cwd>/`: the config dir is
+/// [`ClaudeOptions::config_dir`], else `~/.claude`, and the cwd has `/` as `-`. A
+/// `canonicalize` failure falls back to a lexically-normalised cwd, since a
+/// transient failure on a good path must not be fatal.
 pub(crate) fn resolve_project_dir(options: &ClaudeOptions) -> Result<PathBuf> {
     let cwd_str = if let Some(c) = &options.cwd {
         match std::path::PathBuf::from(c).canonicalize() {
@@ -57,16 +57,9 @@ pub(crate) fn resolve_project_dir(options: &ClaudeOptions) -> Result<PathBuf> {
 
     let dashed = cwd_str.replace('/', "-");
 
-    // Claude writes transcripts under its config dir. We resolve it via the
-    // shared helper that mirrors the CLI (`CLAUDE_CONFIG_DIR`, then its
-    // `CLAUDE_HOME` alias, then `$HOME/.claude`). The sandbox sets
-    // `CLAUDE_CONFIG_DIR` (e.g. `/opt/moatless/.claude`) while `$HOME` is a
-    // different path, so honouring it here keeps JSONL discovery pointed at the
-    // directory the CLI actually writes to.
-    let home = std::env::var("HOME").unwrap_or_default();
-    let config_dir = crate::config_dir::resolve_claude_config_dir(&home);
-
-    Ok(config_dir.join("projects").join(dashed))
+    Ok(crate::config_dir::claude_config_dir(options)
+        .join("projects")
+        .join(dashed))
 }
 
 /// Handles resume shapes that append to an EXISTING transcript: `--resume <id>`
@@ -155,9 +148,10 @@ pub(crate) async fn has_transcript_in(dir: &Path) -> bool {
 /// A cwd canonicalize failure falls back to the lexical path rather than
 /// erroring, so this returns `Ok(false)` (start fresh) instead of `Err`;
 /// `Result` is kept for the remaining I/O-error surface.
-pub async fn has_resumable_transcript(cwd: Option<&str>) -> Result<bool> {
+pub async fn has_resumable_transcript(cwd: Option<&str>, config_dir: Option<&str>) -> Result<bool> {
     let options = ClaudeOptions {
         cwd: cwd.map(ToString::to_string),
+        config_dir: config_dir.map(ToString::to_string),
         ..Default::default()
     };
     let project_dir = resolve_project_dir(&options)?;
@@ -168,29 +162,22 @@ pub async fn has_resumable_transcript(cwd: Option<&str>) -> Result<bool> {
 mod tests {
     use super::*;
 
-    // The env-var precedence itself is covered by `crate::config_dir` tests;
-    // here we only assert that `resolve_project_dir` joins `projects/<dashed-cwd>`
-    // under the resolved config dir. Mutating process-global env vars must run
-    // serially, so this is a single test.
     #[test]
     fn project_dir_joins_projects_under_config_dir() {
-        let _guard = crate::config_dir::ENV_LOCK.lock().expect("env lock");
         // Use an existing directory so canonicalize() succeeds — tempdir works.
         let tmp = std::env::temp_dir();
         let canonical = tmp.canonicalize().expect("temp_dir should canonicalize");
         let cwd_str = canonical.to_string_lossy().into_owned();
         let dashed = cwd_str.replace('/', "-");
+        let config_dir = tmp.join("tmux-test-config");
         let options = ClaudeOptions {
             cwd: Some(cwd_str.clone()),
+            config_dir: Some(config_dir.to_string_lossy().into_owned()),
             ..Default::default()
         };
 
-        let config_dir = tmp.join("tmux-test-config");
-        std::env::set_var("CLAUDE_CONFIG_DIR", &config_dir);
         let resolved = resolve_project_dir(&options).expect("resolve");
         assert_eq!(resolved, config_dir.join("projects").join(&dashed));
-
-        std::env::remove_var("CLAUDE_CONFIG_DIR");
     }
 
     // When `canonicalize(cwd)` fails (here `ENOENT` on a nonexistent path,
@@ -199,21 +186,18 @@ mod tests {
     // cwd so transcript discovery still targets `projects/<dashed-cwd>`.
     #[test]
     fn project_dir_falls_back_when_cwd_not_canonicalizable() {
-        let _guard = crate::config_dir::ENV_LOCK.lock().expect("env lock");
+        let config_dir = std::env::temp_dir().join("tmux-test-config-fallback");
         let options = ClaudeOptions {
             cwd: Some("/nonexistent/abc".into()),
+            config_dir: Some(config_dir.to_string_lossy().into_owned()),
             ..Default::default()
         };
 
-        let config_dir = std::env::temp_dir().join("tmux-test-config-fallback");
-        std::env::set_var("CLAUDE_CONFIG_DIR", &config_dir);
         let resolved = resolve_project_dir(&options).expect("resolve falls back, not errors");
         assert_eq!(
             resolved,
             config_dir.join("projects").join("-nonexistent-abc")
         );
-
-        std::env::remove_var("CLAUDE_CONFIG_DIR");
     }
 
     #[tokio::test]
@@ -238,20 +222,17 @@ mod tests {
         assert!(!has_transcript_in(&tmp.path().join("does-not-exist")).await);
     }
 
-    // Asserts the probe resolves the same `projects/<dashed-cwd>` dir under
-    // `CLAUDE_CONFIG_DIR` that the tmux transport polls. Mutates process-global
-    // env, so it runs under the shared env lock — a sync test with `block_on`
-    // rather than `#[tokio::test]`, to avoid holding the guard across awaits.
+    // Asserts the probe resolves the same `projects/<dashed-cwd>` dir under the
+    // config dir that the tmux transport polls.
     #[test]
-    fn has_resumable_transcript_resolves_env_config_dir() {
-        let _guard = crate::config_dir::ENV_LOCK.lock().expect("env lock");
+    fn has_resumable_transcript_resolves_the_config_dir() {
         // Use an existing directory so canonicalize() succeeds — tempdir works.
         let cwd = std::env::temp_dir();
         let canonical = cwd.canonicalize().expect("temp_dir should canonicalize");
         let dashed = canonical.to_string_lossy().replace('/', "-");
 
         let config_dir = tempfile::tempdir().expect("create tempdir");
-        std::env::set_var("CLAUDE_CONFIG_DIR", config_dir.path());
+        let config_dir_str = config_dir.path().to_string_lossy().into_owned();
 
         let project_dir = config_dir.path().join("projects").join(&dashed);
         std::fs::create_dir_all(&project_dir).expect("create project dir");
@@ -263,13 +244,12 @@ mod tests {
             .build()
             .expect("build runtime");
         let cwd_str = cwd.to_string_lossy().into_owned();
-        let probe = |cwd: &str| rt.block_on(has_resumable_transcript(Some(cwd)));
+        let probe =
+            |cwd: &str| rt.block_on(has_resumable_transcript(Some(cwd), Some(&config_dir_str)));
         assert!(probe(&cwd_str).expect("probe"));
 
         std::fs::remove_file(&transcript).expect("remove transcript");
         assert!(!probe(&cwd_str).expect("probe"));
-
-        std::env::remove_var("CLAUDE_CONFIG_DIR");
     }
 
     #[tokio::test]

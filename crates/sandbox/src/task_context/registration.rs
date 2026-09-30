@@ -41,10 +41,15 @@ pub(crate) async fn register(
         }
     }
 
-    let (workspace_dir, checkout_dir) =
-        super::checkout::materialize_checkout(&state.config, &task_id, checkout_mode)
-            .await
-            .map_err(RegisterTaskContextError::CheckoutMaterialization)?;
+    let git_credentials = state.git_credentials.read().await.clone();
+    let (workspace_dir, checkout_dir) = super::checkout::materialize_checkout(
+        &state.config,
+        &git_credentials,
+        &task_id,
+        checkout_mode,
+    )
+    .await
+    .map_err(RegisterTaskContextError::CheckoutMaterialization)?;
     // Before the insert below: `run_command` resolves this Member's registry
     // from `task_contexts`, and the first `run` mirrors absolutely over both
     // copies this reads.

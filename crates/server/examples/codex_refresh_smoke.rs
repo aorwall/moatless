@@ -47,7 +47,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let client = reqwest::Client::new();
     println!("Calling refresh_chatgpt_tokens (this rotates the refresh_token!)...");
-    let new = refresh_chatgpt_tokens(&client, &refresh_token).await?;
+    let refresh_url = moatless_core::config::codex_refresh_url_from_env();
+    let new = refresh_chatgpt_tokens(&client, &refresh_url, &refresh_token).await?;
 
     println!("id_token:      {}", new.id_token.is_some());
     println!("access_token:  {}", new.access_token.is_some());

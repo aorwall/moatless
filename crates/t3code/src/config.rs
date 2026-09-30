@@ -1,7 +1,6 @@
 use crate::listing::UiRpcEnvironmentIdentity;
 use moatless_types::agent::Harness;
 use moatless_types::auth::AllowedOrigin;
-use std::env;
 
 /// The T3 Code client release this module's surface matches; a client refuses a
 /// server reporting a different version.
@@ -92,25 +91,5 @@ impl UiRpcConfig {
             ));
         }
         Ok(())
-    }
-}
-
-pub(crate) fn env_enabled(key: &str) -> Result<bool, UiRpcConfigError> {
-    match env::var(key) {
-        Err(env::VarError::NotPresent) => Ok(false),
-        Err(error) => Err(UiRpcConfigError::Invalid(format!(
-            "{key} could not be read: {error}"
-        ))),
-        Ok(value) => parse_enabled(key, &value),
-    }
-}
-
-pub(crate) fn parse_enabled(key: &str, value: &str) -> Result<bool, UiRpcConfigError> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "1" | "true" | "yes" | "on" => Ok(true),
-        "0" | "false" | "no" | "off" | "" => Ok(false),
-        _ => Err(UiRpcConfigError::Invalid(format!(
-            "{key} must be true or false"
-        ))),
     }
 }

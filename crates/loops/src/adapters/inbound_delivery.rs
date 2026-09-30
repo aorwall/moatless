@@ -319,7 +319,7 @@ mod db_tests {
         );
 
         let cancel = CancellationToken::new();
-        let handle = AdapterDeliveryWorker::new(Arc::clone(&store))
+        let handle = AdapterDeliveryWorker::new(Arc::clone(&store), "test-worker".to_string())
             .spawn(Arc::new(handlers), cancel.clone());
         let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
         while tokio::time::Instant::now() < deadline && runs.load(Ordering::SeqCst) < 3 {

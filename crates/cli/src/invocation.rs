@@ -56,7 +56,7 @@ async fn dispatch_sandbox(
         }
         SandboxCommands::Cmd { action } => {
             let task_id = cfg.require_task_id()?;
-            commands::cmd::run(action, task_id, json).await?;
+            commands::cmd::run(action, task_id, json, &cfg.sandbox_grpc_port).await?;
         }
     }
 
@@ -113,7 +113,7 @@ async fn run_shared(
             commands::agents::run(moat, action, json).await?;
         }
         SharedCommands::Repos { action } => {
-            commands::repos::run(moat, *action, json).await?;
+            commands::repos::run(moat, *action, json, cfg.github_token_set).await?;
         }
         SharedCommands::Workspaces { action } => {
             commands::workspaces::run(moat, action, json).await?;

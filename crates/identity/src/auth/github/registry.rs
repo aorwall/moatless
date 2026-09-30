@@ -31,7 +31,6 @@ struct CachedApp {
 }
 
 /// Lookup for every GitHub App this installation can use.
-#[derive(Default)]
 pub struct GitHubAppRegistry {
     /// The deployment-configured login App, if configured.
     login_app: Option<Arc<GitHubAppService>>,
@@ -44,6 +43,20 @@ pub struct GitHubAppRegistry {
     /// Services built from stored records, held against the record they came
     /// from.
     cache: RwLock<HashMap<String, CachedApp>>,
+    /// GitHub REST API root every App built here calls, from
+    /// `Config::github_api_base`.
+    api_base: String,
+}
+
+impl Default for GitHubAppRegistry {
+    fn default() -> Self {
+        Self::new(
+            None,
+            None,
+            None,
+            moatless_core::config::DEFAULT_GITHUB_API_BASE.to_string(),
+        )
+    }
 }
 
 impl GitHubAppRegistry {
@@ -56,12 +69,14 @@ impl GitHubAppRegistry {
         login_app: Option<Arc<GitHubAppService>>,
         store: Option<Arc<dyn AdapterAppDao>>,
         cipher: Option<Arc<dyn SecretCipher>>,
+        api_base: String,
     ) -> Self {
         Self {
             login_app,
             store,
             cipher,
             cache: RwLock::new(HashMap::new()),
+            api_base,
         }
     }
 
@@ -128,7 +143,7 @@ impl GitHubAppRegistry {
             )));
         };
         let pem = record.private_key_pem(cipher.as_ref())?;
-        GitHubAppService::from_record(record, &pem).ok_or_else(|| {
+        GitHubAppService::from_record(record, &pem, &self.api_base).ok_or_else(|| {
             AuthError::Config(format!(
                 "The stored signing key for GitHub App '{}' could not be read",
                 record.app_key
@@ -235,7 +250,7 @@ impl GitHubAppRegistry {
         // move as done.
         let mut records = Vec::new();
         for entry in entries {
-            let Some(service) = GitHubAppService::from_app_config(entry) else {
+            let Some(service) = GitHubAppService::from_app_config(entry, &self.api_base) else {
                 warn!(
                     app_key = %entry.key,
                     "Not carrying over GitHub App: its private key does not parse"
@@ -350,6 +365,7 @@ mod tests {
             store: Some(store),
             cipher: Some(cipher),
             cache: RwLock::new(HashMap::new()),
+            api_base: moatless_core::config::DEFAULT_GITHUB_API_BASE.to_string(),
         }
     }
 
@@ -489,6 +505,7 @@ mod tests {
             store: Some(store),
             cipher: None,
             cache: RwLock::new(HashMap::new()),
+            api_base: moatless_core::config::DEFAULT_GITHUB_API_BASE.to_string(),
         };
 
         let Err(err) = registry.get("reviewer").await else {

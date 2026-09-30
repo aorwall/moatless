@@ -58,6 +58,9 @@ pub struct SandboxState {
     /// `ClaudeOptions.env`, except keys in
     /// [`crate::credentials::fetch::AGENT_EXCLUDED_KEYS`].
     pub credentials: Arc<RwLock<HashMap<String, String>>>,
+    /// The git credentials from the latest fetch, handed to git setup and
+    /// clones; never exported into the process env.
+    pub git_credentials: Arc<RwLock<crate::init::git::GitCredentials>>,
     /// Cancellation token tied to the sandbox lifecycle.
     ///
     /// Used by background tasks (e.g. the credential refresher) to shut down
@@ -339,6 +342,7 @@ pub(crate) mod test_support {
             init_phase: Arc::new(RwLock::new(InitPhase::Ready)),
             setup_gate: crate::init::SetupGate::opened(),
             workspace_origin: Default::default(),
+            git_credentials: Default::default(),
             credentials: Arc::new(RwLock::new(HashMap::new())),
             lifecycle_cancel,
             credential_dispatcher: Arc::new(Dispatcher::new()),

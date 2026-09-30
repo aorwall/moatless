@@ -30,11 +30,10 @@ pub fn spawn_codex_refresher(
     codex_scopes: Arc<dyn CodexScopeReader>,
     credential_sync: Arc<CredentialSync>,
     leader_guard: Arc<dyn LeaderGuard>,
+    identity: String,
     interval: Duration,
     cancel: CancellationToken,
 ) -> JoinHandle<()> {
-    let identity = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
-
     tokio::spawn(async move {
         loop {
             if cancel.is_cancelled() {

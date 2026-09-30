@@ -13,12 +13,8 @@ pub struct FeatureFlags {
 }
 
 impl FeatureFlags {
-    /// Read every feature flag once from the process environment.
-    pub fn from_env() -> Self {
-        Self::from_lookup(|name| std::env::var(name).ok())
-    }
-
-    fn from_lookup(mut lookup: impl FnMut(&str) -> Option<String>) -> Self {
+    /// Read every feature flag once through `lookup`.
+    pub(crate) fn from_lookup(mut lookup: impl FnMut(&str) -> Option<String>) -> Self {
         Self {
             netlify_publish: flag_value(lookup("FF_NETLIFY_PUBLISH").as_deref(), false),
             show_claude_settings: flag_value(lookup("FF_SHOW_CLAUDE_SETTINGS").as_deref(), true),

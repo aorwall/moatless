@@ -175,6 +175,11 @@ impl RealEnv {
             workspace_sync_enabled: false,
             workspace_restore_if_empty: false,
             headless: false,
+            credential_refresh_interval: std::time::Duration::from_mins(15),
+            transcript_sync_interval: None,
+            workspace_sync_interval: None,
+            workspace_limit: None,
+            shell: "/bin/bash".to_string(),
         };
         Self {
             kind,

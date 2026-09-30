@@ -35,12 +35,6 @@ const FORMAT: &str = "tar";
 
 /// Default periodic-upload interval; `WORKSPACE_SYNC_INTERVAL_SECS` overrides.
 ///
-/// Bounds the loss from an involuntary mid-turn kill, the one stop neither turn
-/// completion nor the shutdown flush covers. Affordable because a snapshot
-/// ships only the delta and an unchanged tree never leaves the gate in
-/// [`WorkspaceSyncTracker::upload_if_changed`].
-const DEFAULT_INTERVAL_SECS: u64 = 60;
-
 /// Snapshots between prunes, counted down from `0` so a pod's first one prunes.
 ///
 /// A pod killed by a reclaim, an eviction or a SIGKILL never answers the
@@ -904,20 +898,6 @@ async fn upload_from_config(
         synced: true,
         bytes,
     })
-}
-
-/// Read the upload interval from `WORKSPACE_SYNC_INTERVAL_SECS` (default
-/// [`DEFAULT_INTERVAL_SECS`]). `0` yields `None`, disabling the periodic loop;
-/// turn-boundary and shutdown uploads still run.
-pub fn read_interval_from_env() -> Option<Duration> {
-    match std::env::var("WORKSPACE_SYNC_INTERVAL_SECS") {
-        Ok(v) => match v.parse::<u64>() {
-            Ok(0) => None,
-            Ok(secs) => Some(Duration::from_secs(secs)),
-            Err(_) => Some(Duration::from_secs(DEFAULT_INTERVAL_SECS)),
-        },
-        Err(_) => Some(Duration::from_secs(DEFAULT_INTERVAL_SECS)),
-    }
 }
 
 /// Periodically upload the workspace when the tracked file set has changed.

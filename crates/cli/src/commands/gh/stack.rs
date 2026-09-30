@@ -28,8 +28,8 @@ pub(super) async fn run_stack(
     invocation: StackInvocation,
     json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let token = github_token_for_gh();
-    let gh_repo = super::repo::origin_gh_repo(client).await;
+    let token = github_token_for_gh(cfg.github_token_set);
+    let gh_repo = super::repo::origin_gh_repo(client, cfg).await;
     let status = gh_command(&invocation.args, token.as_deref(), gh_repo.as_deref())
         .status()
         .map_err(|e| format!("failed to run gh: {e} (is the gh CLI installed?)"))?;

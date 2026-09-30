@@ -23,9 +23,6 @@ const EXPIRES_IN_SECS: u64 = 900;
 /// need to bump this constant.
 pub const CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 
-const REFRESH_URL_DEFAULT: &str = "https://auth.openai.com/oauth/token";
-const REFRESH_URL_OVERRIDE_ENV: &str = "CODEX_REFRESH_TOKEN_URL_OVERRIDE";
-
 /// Recognized OAuth error codes that indicate the refresh token will never
 /// succeed again — caller must surface a "reconnect Codex" message.
 const ERROR_CODE_EXPIRED: &str = "refresh_token_expired";
@@ -134,10 +131,6 @@ struct RefreshResponse {
     refresh_token: Option<String>,
 }
 
-fn refresh_endpoint() -> String {
-    std::env::var(REFRESH_URL_OVERRIDE_ENV).unwrap_or_else(|_| REFRESH_URL_DEFAULT.to_string())
-}
-
 /// Extract a normalized lowercase OAuth error code from a response body.
 ///
 /// Checks `error.code`, then `error`, then top-level `code`, matching upstream
@@ -197,9 +190,9 @@ fn classify_refresh_error(status: StatusCode, body: String) -> RefreshTokenError
 /// else can race them.
 pub async fn refresh_chatgpt_tokens(
     client: &reqwest::Client,
+    refresh_url: &str,
     refresh_token: &str,
 ) -> Result<RefreshedTokens, RefreshTokenError> {
-    let url = refresh_endpoint();
     let body = serde_json::json!({
         "client_id": CODEX_CLIENT_ID,
         "grant_type": "refresh_token",
@@ -207,7 +200,7 @@ pub async fn refresh_chatgpt_tokens(
     });
 
     let resp = client
-        .post(&url)
+        .post(refresh_url)
         .header(reqwest::header::CONTENT_TYPE, "application/json")
         .json(&body)
         .send()

@@ -365,8 +365,11 @@ async fn count_records(pool: &PgPool, kind: &str, event_id: &str) -> i64 {
 #[sqlx::test]
 async fn every_admitted_kind_is_executed_by_the_process_that_comes_after_the_crash(pool: PgPool) {
     let (base_url, _stub) = default_branch_stub("trunk").await;
-    let _github_api = common::github_api_base(&base_url).await;
-    let credentialed = test_config;
+    let credentialed = || {
+        let mut config = test_config();
+        config.github_api_base.clone_from(&base_url);
+        config
+    };
     common::seed_github_token(&pool, "user-1").await;
 
     seed_connection(&pool, CONNECTION_ID, "github", "acme").await;

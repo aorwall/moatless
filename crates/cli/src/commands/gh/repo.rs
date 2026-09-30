@@ -5,6 +5,7 @@ use std::borrow::Cow;
 use moatless_workspace_types::workspace::proxy_clone_repository_id;
 
 use crate::client::MoatClient;
+use crate::config::Config;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) struct PullRequestRef {
@@ -218,8 +219,8 @@ async fn proxied_repo(
 
 /// The `owner/repo` to hand a spawned `gh` as `GH_REPO`, so a passthrough reads
 /// the repository [`origin_repo`] writes to.
-pub(super) async fn origin_gh_repo(client: &MoatClient) -> Option<String> {
-    if std::env::var_os("GH_REPO").is_some() {
+pub(super) async fn origin_gh_repo(client: &MoatClient, cfg: &Config) -> Option<String> {
+    if cfg.gh_repo_set {
         return None;
     }
     match origin_repo(client).await {

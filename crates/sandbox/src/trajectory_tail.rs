@@ -761,15 +761,15 @@ impl TurnTrajectory {
         home: &str,
         input: &Input,
     ) -> Option<Self> {
-        let env = input.env.as_ref();
-        let var = |key: &str| {
-            env.and_then(|e| e.get(key).cloned())
-                .or_else(|| std::env::var(key).ok())
-        };
+        let task_id = input
+            .env
+            .as_ref()
+            .and_then(|env| env.get("TASK_ID").cloned())
+            .unwrap_or_else(|| config.task_id.clone());
         Some(Self {
             recording: Arc::clone(recording?),
             format,
-            task_id: var("TASK_ID").unwrap_or_else(|| config.task_id.clone()),
+            task_id,
             home: PathBuf::from(home),
             cwd: PathBuf::from(&config.workspace_dir),
             written: None,

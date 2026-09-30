@@ -264,6 +264,7 @@ impl ClaudeProcess {
             if let Some(anchor) = &fork.source_message_uuid {
                 if let Some(new_session_id) = fork::write_forked_transcript(
                     &self.cfg.config.workspace_dir,
+                    &self.cfg.config.claude_config_dir,
                     &fork.source_session_id,
                     anchor,
                 )
@@ -280,9 +281,10 @@ impl ClaudeProcess {
         match &input.resume {
             Some(ResumeSession::WithId(id)) => Some(ResumeSession::WithId(id.clone())),
             Some(ResumeSession::Last) => {
-                match claude_agent_sdk::has_resumable_transcript(Some(
-                    &self.cfg.config.workspace_dir,
-                ))
+                match claude_agent_sdk::has_resumable_transcript(
+                    Some(&self.cfg.config.workspace_dir),
+                    Some(&self.cfg.config.claude_config_dir),
+                )
                 .await
                 {
                     Ok(false) => None,

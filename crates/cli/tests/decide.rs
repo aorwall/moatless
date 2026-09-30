@@ -126,6 +126,10 @@ async fn each_fails_the_command_after_every_row_when_an_item_failed() {
         auth_mode: AuthMode::Standalone { api_key: None },
         session_file: String::new(),
         cookie_name: "session".to_string(),
+        login: moatless_cli::config::LoginEnv::default(),
+        sandbox_grpc_port: "50052".to_string(),
+        gh_repo_set: false,
+        github_token_set: false,
     };
     let dir = tempfile::tempdir().expect("temp dir");
     let batch = dir.path().join("batch.jsonl");

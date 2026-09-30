@@ -1,22 +1,27 @@
 use super::models::CheckoutMode;
 use crate::config::Config;
+use crate::init::git::GitCredentials;
 use moatless_workspace_types::workspace::sanitize_mount_name;
 use std::path::Path;
 use tracing::warn;
 
 pub(super) async fn materialize_checkout(
     config: &Config,
+    git_credentials: &GitCredentials,
     task_id: &str,
     checkout_mode: CheckoutMode,
 ) -> Result<(String, String), String> {
     match checkout_mode {
         CheckoutMode::Shared => Ok((config.workspace_dir.clone(), config.repo_dir.clone())),
-        CheckoutMode::Isolated => materialize_isolated_checkout(config, task_id).await,
+        CheckoutMode::Isolated => {
+            materialize_isolated_checkout(config, git_credentials, task_id).await
+        }
     }
 }
 
 async fn materialize_isolated_checkout(
     config: &Config,
+    git_credentials: &GitCredentials,
     task_id: &str,
 ) -> Result<(String, String), String> {
     let workspace_dir = isolated_workspace_dir(&config.workspace_dir, task_id)?;
@@ -30,7 +35,7 @@ async fn materialize_isolated_checkout(
     task_config.repo_dir = primary_repo_dir_for_workspace(&task_config);
 
     if !task_config.repos.is_empty() {
-        if let Err(e) = crate::init::git::clone_repositories(&task_config).await {
+        if let Err(e) = crate::init::git::clone_repositories(&task_config, git_credentials).await {
             if let Err(cleanup) = tokio::fs::remove_dir_all(&workspace_dir).await {
                 warn!(
                     task_id = %task_id,

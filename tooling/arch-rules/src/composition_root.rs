@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use syn::visit::Visit;
 
 pub const RULE: &str = "composition-root";
-fn root(file: &str) -> bool {
+pub(crate) fn root(file: &str) -> bool {
     file == "crates/server/src/compose.rs"
         || (file.starts_with("crates/server/src/compose/") && !file.ends_with("/mod.rs"))
 }

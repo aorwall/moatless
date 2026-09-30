@@ -7,13 +7,13 @@ use tracing::info;
 
 pub(crate) fn leader(
     k8s: &sandbox::k8s::client::K8sClient,
+    config: &Config,
     name: &str,
     lease_duration_secs: i32,
 ) -> Arc<dyn LeaderGuard> {
-    let identity = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
     let election = sandbox::k8s::leader_election::LeaderElection::new_with_name(
         k8s,
-        identity,
+        config.server.worker_identity.clone(),
         name.to_string(),
     )
     .with_lease_duration(lease_duration_secs);
@@ -42,7 +42,12 @@ pub(crate) fn task_reaper(
         return None;
     }
     let lease_duration_secs = (app_state.config.sandbox.idle_check_interval_secs * 2) as i32;
-    let leader = leader(&k8s, "moatless-task-reaper", lease_duration_secs);
+    let leader = leader(
+        &k8s,
+        &app_state.config,
+        "moatless-task-reaper",
+        lease_duration_secs,
+    );
     let reaper = reaper::TaskReaper::new(
         connector,
         leader,
@@ -70,5 +75,6 @@ pub(crate) fn schedule_runner(
         adapters: app_state.adapters.clone(),
         task_creation: app_state.task_creation.clone(),
         sandbox_waker: app_state.sandbox_waker.clone(),
+        worker_id: app_state.config.server.worker_identity.clone(),
     })
 }

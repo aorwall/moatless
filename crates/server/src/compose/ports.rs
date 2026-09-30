@@ -213,8 +213,12 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
                 reqwest::Client::new()
             }),
     );
-    let credentials =
-        moatless_identity::compose::credentials(pool.clone(), secrets.clone(), codex_http.clone());
+    let credentials = moatless_identity::compose::credentials(
+        pool.clone(),
+        secrets.clone(),
+        codex_http.clone(),
+        config.codex_oauth.refresh_url.clone(),
+    );
     let harness_credentials = moatless_identity::compose::harness_credentials(pool.clone());
     let forgejo_instances = moatless_identity::compose::forgejo_instances(pool.clone(), cipher);
     let forgejo_access = moatless_identity::compose::forgejo_access(
@@ -245,8 +249,9 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
     let loops = loop_graph.loops();
     let loop_reader = loop_graph.loop_reader();
     let adapter_delivery = loop_graph.delivery_admission();
-    let adapter_delivery_worker = loop_graph.delivery_worker();
-    let message_buffer_worker = loop_graph.message_buffer_worker();
+    let adapter_delivery_worker = loop_graph.delivery_worker(config.server.worker_identity.clone());
+    let message_buffer_worker =
+        loop_graph.message_buffer_worker(config.server.worker_identity.clone());
     let activities = task_graph.activities();
     let pending_work = task_graph.pending_work();
     let task_events = task_graph.task_events();

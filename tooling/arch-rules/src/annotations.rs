@@ -106,6 +106,7 @@ pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
                         | "transport-direction"
                         | "persistence-sql-location"
                         | "process-exit"
+                        | "env-read-owner"
                         | "store-privacy"
                         | "table-ownership"
                         | "adapter-boundaries"

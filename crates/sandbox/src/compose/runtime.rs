@@ -111,6 +111,7 @@ pub(crate) async fn compose_runtime(config: &Config) -> (SandboxState, Superviso
         init_phase: Arc::new(RwLock::new(InitPhase::Starting)),
         setup_gate: crate::init::SetupGate::closed(),
         workspace_origin: Default::default(),
+        git_credentials: Default::default(),
         credentials,
         lifecycle_cancel,
         credential_dispatcher,
@@ -119,7 +120,8 @@ pub(crate) async fn compose_runtime(config: &Config) -> (SandboxState, Superviso
         terminals: crate::terminal::TerminalManager::with_repo_dir(
             config.workspace_dir.clone(),
             config.repo_dir.clone(),
-        ),
+        )
+        .with_shell(&config.shell),
         workspace_sync,
         writer_admission: Default::default(),
     };

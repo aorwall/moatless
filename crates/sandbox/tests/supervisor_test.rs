@@ -598,6 +598,11 @@ fn test_config(dir: &std::path::Path) -> Config {
         workspace_sync_enabled: false,
         workspace_restore_if_empty: false,
         headless: false,
+        credential_refresh_interval: std::time::Duration::from_mins(15),
+        transcript_sync_interval: None,
+        workspace_sync_interval: None,
+        workspace_limit: None,
+        shell: "/bin/bash".to_string(),
     }
 }
 
@@ -673,6 +678,7 @@ fn test_state(backend: Arc<dyn BackendClient>, dir: &tempfile::TempDir) -> Sandb
         init_phase: Arc::new(RwLock::new(InitPhase::Ready)),
         setup_gate: moatless_sandbox::init::SetupGate::opened(),
         workspace_origin: Default::default(),
+        git_credentials: Default::default(),
         credentials,
         lifecycle_cancel,
         credential_dispatcher,

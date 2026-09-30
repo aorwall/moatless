@@ -6,17 +6,13 @@ use std::io::Write;
 /// path that script bakes in, and the one `moatless-sandbox` binds.
 const BROKER_SOCKET: &str = "/run/moatless/credentials.sock";
 
-pub(crate) fn github_token_for_gh() -> Option<String> {
+/// `env_token_set` is [`Config::github_token_set`](crate::config::Config::github_token_set).
+pub(crate) fn github_token_for_gh(env_token_set: bool) -> Option<String> {
     resolve_gh_token(
         std::path::Path::new(BROKER_SOCKET).exists(),
-        env_github_token_is_set(),
+        env_token_set,
         || git_credential_password("github.com").ok(),
     )
-}
-
-fn env_github_token_is_set() -> bool {
-    std::env::var("GH_TOKEN").is_ok_and(|v| !v.trim().is_empty())
-        || std::env::var("GITHUB_TOKEN").is_ok_and(|v| !v.trim().is_empty())
 }
 
 /// Pick the token to hand `gh`, or `None` to let `gh` resolve its own.

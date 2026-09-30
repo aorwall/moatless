@@ -18,22 +18,30 @@ pub async fn run(
         Some(TypedInvocation::Comment(a)) => typed::run_comment(client, cfg, a, json).await,
         Some(TypedInvocation::PrReply(a)) => typed::run_pr_reply(client, cfg, a, json).await,
         Some(TypedInvocation::PrView(a)) => {
-            let gh_repo = origin_gh_repo(client).await;
-            pr_view::run(&a, github_token_for_gh().as_deref(), gh_repo.as_deref())
+            let gh_repo = origin_gh_repo(client, cfg).await;
+            pr_view::run(
+                &a,
+                github_token_for_gh(cfg.github_token_set).as_deref(),
+                gh_repo.as_deref(),
+            )
         }
         Some(TypedInvocation::RunLog(a)) => {
-            let gh_repo = origin_gh_repo(client).await;
-            run_logs::run(&a, github_token_for_gh().as_deref(), gh_repo.as_deref())
+            let gh_repo = origin_gh_repo(client, cfg).await;
+            run_logs::run(
+                &a,
+                github_token_for_gh(cfg.github_token_set).as_deref(),
+                gh_repo.as_deref(),
+            )
         }
         Some(TypedInvocation::Stack(a)) => stack::run_stack(client, cfg, a, json).await,
         None if args.first().is_some_and(|a| a == "api") => {
             let args = run_logs::allow_escape_sequences(&args).unwrap_or(args);
-            let gh_repo = origin_gh_repo(client).await;
+            let gh_repo = origin_gh_repo(client, cfg).await;
             api::run_api(client, cfg, &args, gh_repo.as_deref()).await
         }
         None => {
-            let gh_repo = origin_gh_repo(client).await;
-            process::passthrough(&args, gh_repo.as_deref())
+            let gh_repo = origin_gh_repo(client, cfg).await;
+            process::passthrough(cfg, &args, gh_repo.as_deref())
         }
     }
 }

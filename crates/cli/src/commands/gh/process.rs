@@ -1,6 +1,7 @@
 //! Spawning the real `gh`, and the exit status its failure travels on.
 
 use super::token::github_token_for_gh;
+use crate::config::Config;
 
 /// A subprocess status returned to the executable entry point.
 #[derive(Debug, thiserror::Error)]
@@ -18,13 +19,14 @@ pub(super) fn command_status(code: i32) -> Result<(), Box<dyn std::error::Error>
 /// Exec the local `gh` binary with the original args, inheriting stdio, and
 /// propagate its exit code.
 pub(super) fn passthrough(
+    cfg: &Config,
     args: &[String],
     gh_repo: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Thread the git-credential token exactly as the typed and stack paths do,
     // so a passthrough (`pr view`, `api`, `run watch`, …) authenticates the
     // same way. See [`super::token::resolve_gh_token`] for which source wins.
-    let token = github_token_for_gh();
+    let token = github_token_for_gh(cfg.github_token_set);
     let status = gh_command(args, token.as_deref(), gh_repo)
         .status()
         .map_err(|e| format!("failed to run gh: {e} (is the gh CLI installed?)"))?;

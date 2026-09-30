@@ -1,54 +1,17 @@
-//! Shared resolution of Claude's config directory, mirroring the Claude CLI.
+//! Where Claude's config directory and the user's home directory are.
 
+use crate::api::options::ClaudeOptions;
 use std::path::PathBuf;
 
-/// Resolves Claude's config directory.
-///
-/// Precedence: `CLAUDE_CONFIG_DIR` > `CLAUDE_HOME` (alias) >
-/// `<home_dir>/.claude`. Callers pass their own resolved HOME.
-pub fn resolve_claude_config_dir(home_dir: &str) -> PathBuf {
-    std::env::var("CLAUDE_CONFIG_DIR")
-        .or_else(|_| std::env::var("CLAUDE_HOME"))
-        .map_or_else(|_| PathBuf::from(home_dir).join(".claude"), PathBuf::from)
+/// The user's home directory, empty when the platform names none.
+pub(crate) fn home_dir() -> PathBuf {
+    std::env::home_dir().unwrap_or_default()
 }
 
-/// Serializes tests across the crate that mutate the process-global
-/// `CLAUDE_CONFIG_DIR` / `CLAUDE_HOME` env vars (here and in `transcripts`),
-/// since cargo runs them concurrently in one binary.
-#[cfg(test)]
-pub(crate) static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn resolve_claude_config_dir_follows_cli_precedence() {
-        let _guard = ENV_LOCK.lock().expect("env lock");
-        std::env::remove_var("CLAUDE_CONFIG_DIR");
-        std::env::remove_var("CLAUDE_HOME");
-
-        // 1. Neither set → `<home>/.claude`.
-        assert_eq!(
-            resolve_claude_config_dir("/home/moatless"),
-            PathBuf::from("/home/moatless/.claude")
-        );
-
-        // 2. CLAUDE_HOME used as an alias when CLAUDE_CONFIG_DIR is unset.
-        std::env::set_var("CLAUDE_HOME", "/opt/claude-home");
-        assert_eq!(
-            resolve_claude_config_dir("/home/moatless"),
-            PathBuf::from("/opt/claude-home")
-        );
-
-        // 3. CLAUDE_CONFIG_DIR (what the Claude CLI uses) wins over CLAUDE_HOME.
-        std::env::set_var("CLAUDE_CONFIG_DIR", "/opt/moatless/.claude");
-        assert_eq!(
-            resolve_claude_config_dir("/home/moatless"),
-            PathBuf::from("/opt/moatless/.claude")
-        );
-
-        std::env::remove_var("CLAUDE_CONFIG_DIR");
-        std::env::remove_var("CLAUDE_HOME");
-    }
+/// Claude's config directory: `options.config_dir`, else `<home>/.claude`.
+pub(crate) fn claude_config_dir(options: &ClaudeOptions) -> PathBuf {
+    options
+        .config_dir
+        .as_ref()
+        .map_or_else(|| home_dir().join(".claude"), PathBuf::from)
 }

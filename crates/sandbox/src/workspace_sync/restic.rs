@@ -73,10 +73,9 @@ const SHUTDOWN_TAG: &str = "shutdown-flush";
 
 /// Snapshots kept when a task prunes.
 ///
-/// Enough to step back past a bad turn, few enough that a long-lived task does
-/// not accumulate indefinitely. Scaled with `sync::DEFAULT_INTERVAL_SECS`: the
-/// periodic loop is what writes most of these, so a count is only worth as much
-/// history as the interval gives it.
+/// Enough to step back past a bad turn, bounded for a long-lived task. Scaled
+/// with `config::DEFAULT_SYNC_INTERVAL_SECS`, since the periodic loop writes
+/// most of them.
 const KEEP_SNAPSHOTS: i32 = 50;
 
 /// One repository: where its files are and what decrypts them.

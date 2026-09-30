@@ -271,7 +271,7 @@ async fn test_resumed_result_reports_the_runs_own_cost() {
         .await
         .expect("Test timed out");
 
-    let path = transcript_dir(Some(&tmp.to_string_lossy()))
+    let path = transcript_dir(Some(&tmp.to_string_lossy()), None)
         .expect("transcript dir")
         .join(format!("{session_id}.jsonl"));
     let body = std::fs::read_to_string(&path).expect("read transcript");

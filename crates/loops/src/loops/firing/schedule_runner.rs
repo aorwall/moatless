@@ -55,6 +55,7 @@ pub struct ScheduleRunner {
     adapters: Option<Arc<Adapters>>,
     task_creation: Arc<dyn TaskOpener>,
     sandbox_waker: Arc<dyn SandboxWaker>,
+    worker_id: String,
 }
 
 impl ScheduleRunner {
@@ -66,6 +67,7 @@ impl ScheduleRunner {
         adapters: Option<Arc<Adapters>>,
         task_creation: Arc<dyn TaskOpener>,
         sandbox_waker: Arc<dyn SandboxWaker>,
+        worker_id: String,
     ) -> Self {
         Self {
             loops,
@@ -74,6 +76,7 @@ impl ScheduleRunner {
             adapters,
             task_creation,
             sandbox_waker,
+            worker_id,
         }
     }
 
@@ -88,7 +91,7 @@ impl ScheduleRunner {
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
             info!("Schedule firing runner started");
-            let worker_id = std::env::var("HOSTNAME").unwrap_or_else(|_| "local".to_string());
+            let worker_id = self.worker_id.clone();
 
             loop {
                 tokio::select! {

@@ -267,24 +267,21 @@ pub(super) fn tmux_command(socket: &Path) -> tokio::process::Command {
 
 /// Build the env vars to set on the tmux CLIENT process before `new-session`.
 ///
-/// The new tmux SERVER inherits them into the pane's `claude` process. Sent via
-/// `Command::env`, not `new-session` argv, since `options.env` alone can exceed
-/// tmux's `MAX_IMSGSIZE` control-socket cap (16384 bytes). Pins
-/// `CLAUDE_CONFIG_DIR`/`HOME` with the same resolver JSONL discovery uses
-/// ([`crate::config_dir::resolve_claude_config_dir`]), so a mismatch can't
-/// misdirect claude's transcript and trigger `JsonlNotFound`; `options.env`
-/// applies after, so callers can still override.
+/// The tmux server passes them to the pane's `claude`. They go through
+/// `Command::env` because `new-session` argv caps at tmux's 16384-byte
+/// `MAX_IMSGSIZE`. `CLAUDE_CONFIG_DIR` matches JSONL discovery's
+/// [`crate::config_dir::claude_config_dir`]; `options.env` applies after.
 fn child_env_vars(options: &ClaudeOptions) -> Vec<(String, String)> {
     let mut vars = Vec::new();
 
-    let home = std::env::var("HOME").unwrap_or_default();
-    let config_dir = crate::config_dir::resolve_claude_config_dir(&home);
+    let config_dir = crate::config_dir::claude_config_dir(options);
     vars.push((
         "CLAUDE_CONFIG_DIR".to_string(),
         config_dir.to_string_lossy().into_owned(),
     ));
-    if !home.is_empty() {
-        vars.push(("HOME".to_string(), home));
+    let home = crate::config_dir::home_dir();
+    if !home.as_os_str().is_empty() {
+        vars.push(("HOME".to_string(), home.to_string_lossy().into_owned()));
     }
 
     if let Some(env) = &options.env {
@@ -310,10 +307,9 @@ fn resolve_cli_path(options: &ClaudeOptions) -> String {
             }
         }
     }
-    let home = std::env::var("HOME").unwrap_or_default();
-    let default = format!("{home}/.claude/local/claude");
-    if std::path::Path::new(&default).exists() {
-        return default;
+    let default = crate::config_dir::home_dir().join(".claude/local/claude");
+    if default.exists() {
+        return default.to_string_lossy().into_owned();
     }
     "claude".to_string()
 }
@@ -326,14 +322,13 @@ mod tests {
     // the dir the SDK polls instead of relying on tmux-server env inheritance.
     #[test]
     fn child_env_vars_pins_config_dir_and_home() {
-        let _guard = crate::config_dir::ENV_LOCK.lock().expect("env lock");
-        let saved_home = std::env::var("HOME").ok();
-
-        std::env::set_var("HOME", "/home/tester");
-        std::env::set_var("CLAUDE_CONFIG_DIR", "/opt/moatless/.claude");
+        let pinned_options = || ClaudeOptions {
+            config_dir: Some("/opt/moatless/.claude".to_string()),
+            ..Default::default()
+        };
 
         // No options.env: vars are exactly the two pinned assignments.
-        let vars = child_env_vars(&ClaudeOptions::default());
+        let vars = child_env_vars(&pinned_options());
         assert!(
             vars.contains(&(
                 "CLAUDE_CONFIG_DIR".to_string(),
@@ -341,8 +336,9 @@ mod tests {
             )),
             "vars should pin CLAUDE_CONFIG_DIR: {vars:?}"
         );
+        let home = crate::config_dir::home_dir().to_string_lossy().into_owned();
         assert!(
-            vars.contains(&("HOME".to_string(), "/home/tester".to_string())),
+            home.is_empty() || vars.contains(&("HOME".to_string(), home.clone())),
             "vars should pin HOME: {vars:?}"
         );
 
@@ -356,7 +352,7 @@ mod tests {
         );
         let options = ClaudeOptions {
             env: Some(env),
-            ..Default::default()
+            ..pinned_options()
         };
         let vars = child_env_vars(&options);
         let pinned = vars
@@ -371,12 +367,6 @@ mod tests {
             override_pos > pinned,
             "caller override must come after the pin (Command::env: later wins): {vars:?}"
         );
-
-        std::env::remove_var("CLAUDE_CONFIG_DIR");
-        match saved_home {
-            Some(h) => std::env::set_var("HOME", h),
-            None => std::env::remove_var("HOME"),
-        }
     }
 
     // Works whether or not tmux is installed: a missing binary and a missing

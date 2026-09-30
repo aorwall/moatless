@@ -58,6 +58,8 @@ pub struct TerminalManager {
     /// status/diff, the file API, setup commands and dev servers all target, so
     /// a terminal opens where the code is.
     repo_dir: Arc<PathBuf>,
+    /// The program each terminal runs; `/bin/bash` unless [`Self::with_shell`].
+    shell: Arc<str>,
 }
 
 struct Inner {
@@ -125,7 +127,15 @@ impl TerminalManager {
             })),
             workspace_dir: Arc::new(workspace_dir.into()),
             repo_dir: Arc::new(repo_dir.into()),
+            shell: Arc::from("/bin/bash"),
         }
+    }
+
+    /// Run `shell` in each terminal this manager opens.
+    #[must_use]
+    pub fn with_shell(mut self, shell: &str) -> Self {
+        self.shell = Arc::from(shell);
+        self
     }
 
     /// Whether any session still holds a shell that can write the workspace;
@@ -292,9 +302,15 @@ impl TerminalManager {
             }
         }
 
-        let spawned = spawn_terminal(real_cwd.clone(), input.cols, input.rows, &input.env)
-            .await
-            .map_err(|error| TerminalError::Operation(error.to_string()))?;
+        let spawned = spawn_terminal(
+            Arc::clone(&self.shell),
+            real_cwd.clone(),
+            input.cols,
+            input.rows,
+            &input.env,
+        )
+        .await
+        .map_err(|error| TerminalError::Operation(error.to_string()))?;
         let SpawnedTerminal {
             master,
             writer,
@@ -571,6 +587,7 @@ enum TerminalStartKind {
 }
 
 async fn spawn_terminal(
+    shell: Arc<str>,
     cwd: PathBuf,
     cols: u16,
     rows: u16,
@@ -587,8 +604,7 @@ async fn spawn_terminal(
                 pixel_height: 0,
             })
             .map_err(|error| TerminalError::Operation(error.to_string()))?;
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
-        let mut command = CommandBuilder::new(shell);
+        let mut command = CommandBuilder::new(&*shell);
         command.cwd(&cwd);
         command.env("TERM", "xterm-256color");
         for (key, value) in env {

@@ -125,7 +125,7 @@ fn is_exempt(path: &str) -> bool {
             // Bootstrap, not public: the pairing code in the body is the
             // credential, and a caller that had another one would not be here.
             // Mounted only when the T3 compatibility routes are (see
-            // `moatless_t3code::router_from_env`); a 404 otherwise.
+            // `moatless_t3code::router_if_enabled`); a 404 otherwise.
             | "/oauth/token"
             | "/api/v1/feature-flags"
             | "/api/v1/adapters"

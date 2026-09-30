@@ -34,12 +34,17 @@ impl CredentialService {
         let _guard = lock.lock().await;
 
         // Require HTTP. Without it we fall back to a raw read.
-        let Some(http) = self.http.as_ref() else {
+        let Some((http, refresh_url)) = self.http.as_ref().zip(self.codex_refresh_url.as_deref())
+        else {
             let blob = self.read_raw_codex(scope).await?;
             return Ok(CodexRefreshOutcome::Unchanged { blob });
         };
 
-        let refresher = CodexRefresher { http, scope };
+        let refresher = CodexRefresher {
+            http,
+            refresh_url,
+            scope,
+        };
         let outcome = self
             .provider_tokens
             .refresh_codex_blob(scope, &refresher)
@@ -136,6 +141,7 @@ impl CodexRefreshOutcome {
 /// The staleness rule and the OpenAI call, behind the store's refresh port.
 struct CodexRefresher<'a> {
     http: &'a reqwest::Client,
+    refresh_url: &'a str,
     scope: &'a CodexScope,
 }
 
@@ -165,7 +171,7 @@ impl CodexBlobRefresher for CodexRefresher<'_> {
         };
 
         info!(scope = %self.scope.display(), "ensure_fresh_codex: refreshing Codex tokens");
-        match oauth::refresh_chatgpt_tokens(self.http, refresh_token).await {
+        match oauth::refresh_chatgpt_tokens(self.http, self.refresh_url, refresh_token).await {
             Ok(new_tokens) => CodexBlobRefresh::Rotated {
                 blob: merge_refreshed_blob(&existing, &new_tokens).to_string(),
                 refresh_token: new_tokens.refresh_token,

@@ -67,7 +67,7 @@ pub(crate) async fn ui_rpc(
     app_state: &AppState,
     inputs: UiRpcInputs,
 ) -> Result<Option<moatless_t3code::UiRpc>, Box<dyn std::error::Error>> {
-    moatless_t3code::router_from_env(
+    moatless_t3code::router_if_enabled(
         &ports.t3_graph,
         moatless_t3code::UiRpcDependencies {
             session_cookie_name: config.auth.session_cookie_name.clone(),
@@ -114,6 +114,7 @@ pub(crate) async fn ui_rpc(
             otlp_traces_enabled: config.otel.otlp_endpoint.is_some(),
             frontend_url: config.auth.frontend_url.clone(),
         },
+        config.t3_ui_rpc.clone(),
     )
     .await
     .map_err(Into::into)

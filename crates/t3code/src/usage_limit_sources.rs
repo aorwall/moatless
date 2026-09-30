@@ -12,11 +12,11 @@
 //! Anthropic states a used fraction, so both providers draw a real bar.
 
 use std::collections::BTreeMap;
-use std::env;
 use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{DateTime, SecondsFormat, TimeZone, Utc};
+use moatless_types::ui_rpc::T3UiRpcConfig;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::{RwLock, broadcast};
@@ -46,10 +46,9 @@ struct HubConfig {
 }
 
 impl HubConfig {
-    fn from_env() -> Option<Self> {
-        let url = non_empty(env::var("T3_UI_RPC_CLIPROXY_URL").ok())?;
-        let Some(management_key) = non_empty(env::var("T3_UI_RPC_CLIPROXY_MANAGEMENT_KEY").ok())
-        else {
+    fn from_settings(settings: &T3UiRpcConfig) -> Option<Self> {
+        let url = non_empty(settings.cliproxy_url.clone())?;
+        let Some(management_key) = non_empty(settings.cliproxy_management_key.clone()) else {
             // Without a key every management route answers 404, so a URL on its
             // own would publish a source that can only ever report an error.
             warn!(
@@ -58,8 +57,8 @@ impl HubConfig {
             );
             return None;
         };
-        let label = non_empty(env::var("T3_UI_RPC_CLIPROXY_LABEL").ok())
-            .unwrap_or_else(|| "CLIProxyAPI".to_string());
+        let label =
+            non_empty(settings.cliproxy_label.clone()).unwrap_or_else(|| "CLIProxyAPI".to_string());
         Some(Self {
             url: url.trim_end_matches('/').to_string(),
             management_key,
@@ -84,11 +83,10 @@ pub struct UsageLimitSources {
 }
 
 impl UsageLimitSources {
-    /// Reads the hub out of the environment and starts the poller. A deployment
-    /// with no hub configured gets an inert value: no task, no capability, and
-    /// no event.
-    pub fn from_env(client: reqwest::Client) -> Self {
-        let hub = HubConfig::from_env().map(Arc::new);
+    /// Starts the poller for the configured hub. A deployment with no hub
+    /// configured gets an inert value: no task, no capability, and no event.
+    pub(crate) fn start(client: reqwest::Client, settings: &T3UiRpcConfig) -> Self {
+        let hub = HubConfig::from_settings(settings).map(Arc::new);
         let (changes, _) = broadcast::channel(8);
         let sources = Self {
             hub: hub.clone(),

@@ -7,8 +7,6 @@
 //! `emptyDir` and fails the write when it is a PVC — so both numbers are read
 //! here and handed to the agent and its children.
 
-use moatless_workspace_types::workspace::WORKSPACE_LIMIT_ENV;
-
 /// cgroup v2 memory ceiling for this container. v1's `memory.limit_in_bytes` is
 /// deliberately not read: every runtime this sandbox ships on is v2, and a
 /// missing file already means "no cap we can name".
@@ -22,15 +20,6 @@ pub const MEMORY_LIMIT_ENV: &str = "SANDBOX_MEMORY_LIMIT";
 /// (`max`) or there is no cgroup file to read.
 pub fn memory_limit_bytes() -> Option<u64> {
     parse_memory_max(&std::fs::read_to_string(MEMORY_MAX_PATH).ok()?)
-}
-
-/// The workspace volume's size limit as the pod builder wrote it (`20Gi`), or
-/// `None` in a runtime that caps nothing.
-pub fn workspace_limit() -> Option<String> {
-    std::env::var(WORKSPACE_LIMIT_ENV)
-        .ok()
-        .map(|raw| raw.trim().to_string())
-        .filter(|raw| !raw.is_empty())
 }
 
 /// `max` — the cgroup's word for uncapped — parses to `None`, same as garbage.
@@ -50,15 +39,14 @@ pub fn node_max_old_space_mb(limit_bytes: u64) -> u64 {
 /// The env pairs carrying this pod's memory cap to every child process, empty
 /// where the cgroup names no cap.
 ///
-/// `NODE_OPTIONS` is included only when nothing set it already, so a repo's own
-/// value still wins; the caller exports these into the sandbox's own
-/// environment, which every spawn inherits.
-pub fn memory_env_exports() -> Vec<(&'static str, String)> {
+/// `NODE_OPTIONS` is left out when `node_options_set`, so a repo's own value
+/// wins. The caller exports these into the sandbox's environment.
+pub fn memory_env_exports(node_options_set: bool) -> Vec<(&'static str, String)> {
     let Some(bytes) = memory_limit_bytes() else {
         return Vec::new();
     };
     let mut exports = vec![(MEMORY_LIMIT_ENV, bytes.to_string())];
-    if std::env::var_os("NODE_OPTIONS").is_none() {
+    if !node_options_set {
         exports.push((
             "NODE_OPTIONS",
             format!("--max-old-space-size={}", node_max_old_space_mb(bytes)),

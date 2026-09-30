@@ -10,9 +10,9 @@ use sandbox_proto::sandbox_service_client::SandboxServiceClient;
 
 /// Connect to the sandbox's own gRPC server. It listens on loopback inside this
 /// container, so there is nothing to authenticate against.
-pub async fn connect()
--> Result<SandboxServiceClient<tonic::transport::Channel>, Box<dyn std::error::Error>> {
-    let port = std::env::var("GRPC_PORT").unwrap_or_else(|_| "50052".to_string());
+pub async fn connect(
+    port: &str,
+) -> Result<SandboxServiceClient<tonic::transport::Channel>, Box<dyn std::error::Error>> {
     let endpoint = format!("http://127.0.0.1:{port}");
     let channel = tonic::transport::Endpoint::new(endpoint.clone())?
         .connect_timeout(Duration::from_secs(5))

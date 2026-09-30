@@ -52,6 +52,7 @@ fn adapter() -> moatless_adapter_github_pr::adapter::GithubPrAdapter {
     moatless_adapter_github_pr::adapter::GithubPrAdapter::new(
         None,
         "https://app.example.com".to_string(),
+        moatless_core::config::DEFAULT_GITHUB_API_BASE.to_string(),
         moatless_identity::git_host_tokens::seam_over(Arc::new(
             moatless_identity::auth::test_support::StubProviderTokens::default(),
         )),

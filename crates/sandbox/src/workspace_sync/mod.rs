@@ -5,4 +5,4 @@ mod restic;
 mod sync;
 pub use sync::*;
 mod rescue;
-pub use rescue::rescue_from_env;
+pub use rescue::rescue;

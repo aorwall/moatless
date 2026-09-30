@@ -211,6 +211,7 @@ impl GithubPrInstallation {
             GithubPrAdapter::new(
                 config.github_pr.webhook_secret.clone(),
                 config.auth.frontend_url.clone(),
+                config.github_api_base.clone(),
                 ports.git_host_tokens.clone(),
             )
             .with_ingress_ports(

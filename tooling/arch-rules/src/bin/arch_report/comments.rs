@@ -17,7 +17,8 @@ use moatless_arch_rules::{
 };
 
 /// Prints the oversize blocks in scope, and writes them to `findings` if given.
-pub(super) fn run(since: Option<&str>, findings: Option<&Path>) -> Result<()> {
+/// `annotate` also prints each block as a GitHub Actions `::warning`.
+pub(super) fn run(since: Option<&str>, findings: Option<&Path>, annotate: bool) -> Result<()> {
     let root = workspace_root();
     let ws = Workspace::load(&root)?;
     let mut found = comment_block_size::blocks(&ws)?;
@@ -27,12 +28,8 @@ pub(super) fn run(since: Option<&str>, findings: Option<&Path>) -> Result<()> {
         found.retain(|block| touched(block, &added));
     }
 
-    // An annotation flags the block on the diff line that added it, which only
-    // GitHub renders. Off elsewhere, where it would double the length of the
-    // whole-workspace cleanup list for no gain. `warning`, not `error`: this
-    // exits 0, and a red annotation on a green step reads as a broken check.
-    let annotate = std::env::var_os("GITHUB_ACTIONS").is_some();
-
+    // `warning`, not `error`: this exits 0, and a red annotation on a green
+    // step reads as a broken check.
     for block in &found {
         if annotate {
             println!(

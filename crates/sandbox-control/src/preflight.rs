@@ -143,7 +143,10 @@ pub trait GitHostValidator: Send + Sync {
 
 /// Production validator — delegates to the per-provider clients in
 /// `moatless_core`.
-pub struct RealGitHostValidator;
+pub struct RealGitHostValidator {
+    /// GitHub REST API root, from `Config::github_api_base`.
+    pub github_api_base: String,
+}
 
 #[async_trait]
 impl GitHostValidator for RealGitHostValidator {
@@ -151,6 +154,7 @@ impl GitHostValidator for RealGitHostValidator {
         match repo.provider() {
             GitHostProvider::Github => {
                 moatless_core::github_client::check_github_repo_access(
+                    &self.github_api_base,
                     token,
                     repo.owner(),
                     repo.name(),

@@ -126,7 +126,13 @@ pub enum RepoAction {
     },
 }
 
-pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<(), ClientError> {
+/// `env_token_set` is [`Config::github_token_set`](crate::config::Config::github_token_set).
+pub async fn run(
+    client: &MoatClient,
+    action: RepoAction,
+    json: bool,
+    env_token_set: bool,
+) -> Result<(), ClientError> {
     match action {
         RepoAction::List {
             provider,
@@ -251,8 +257,15 @@ pub async fn run(client: &MoatClient, action: RepoAction, json: bool) -> Result<
                     "Invalid --scope '{scope}' (expected: global or user)"
                 ))
             })?;
-            let (report, outcome) =
-                import_org(client, &org, scope, include_archived, dry_run).await;
+            let (report, outcome) = import_org(
+                client,
+                env_token_set,
+                &org,
+                scope,
+                include_archived,
+                dry_run,
+            )
+            .await;
             if json {
                 output::print_json_typed(&report);
             } else {
@@ -543,6 +556,7 @@ fn plan_import(
 
 async fn import_org(
     client: &MoatClient,
+    env_token_set: bool,
     org: &str,
     scope: Scope,
     include_archived: bool,
@@ -558,7 +572,7 @@ async fn import_org(
         entries: Vec::new(),
     };
 
-    let remote = match fetch_org_repos(org) {
+    let remote = match fetch_org_repos(org, env_token_set) {
         Ok(remote) => remote,
         Err(e) => return (report, Err(e)),
     };
@@ -653,7 +667,7 @@ async fn import_org(
     (report, Ok(()))
 }
 
-fn fetch_org_repos(org: &str) -> Result<Vec<GhRepo>, ClientError> {
+fn fetch_org_repos(org: &str, env_token_set: bool) -> Result<Vec<GhRepo>, ClientError> {
     let args: Vec<String> = [
         "repo",
         "list",
@@ -666,7 +680,7 @@ fn fetch_org_repos(org: &str) -> Result<Vec<GhRepo>, ClientError> {
     .iter()
     .map(ToString::to_string)
     .collect();
-    let token = super::gh::github_token_for_gh();
+    let token = super::gh::github_token_for_gh(env_token_set);
     let stdout = super::gh::gh_command_output(&args, token.as_deref(), None)
         .map_err(|e| ClientError::Other(e.to_string()))?;
     let mut remote: Vec<GhRepo> = serde_json::from_slice(&stdout)

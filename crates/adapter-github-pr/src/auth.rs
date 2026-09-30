@@ -20,12 +20,9 @@ pub(super) struct GithubPrAuth {
     /// The one way to a git-host token. This Adapter holds no credential of its
     /// own: every use case below names an identity and a repository.
     git_host_tokens: Arc<dyn GitHostTokenIssuer>,
-    /// REST root every client below is built against, when a test injected one.
-    ///
-    /// Test-only: a token is selected per call, so the injection point is the
-    /// base URL rather than a shared client.
-    #[cfg(test)]
-    api_base: Option<String>,
+    /// REST root every client below is built against. A token is selected per
+    /// call, so the root is held rather than a shared client.
+    api_base: String,
 }
 
 pub(super) struct AuthenticatedGithub {
@@ -34,35 +31,21 @@ pub(super) struct AuthenticatedGithub {
 }
 
 impl GithubPrAuth {
-    pub(super) fn new(git_host_tokens: Arc<dyn GitHostTokenIssuer>) -> Self {
+    pub(super) fn new(git_host_tokens: Arc<dyn GitHostTokenIssuer>, api_base: String) -> Self {
         Self {
             git_host_tokens,
-            #[cfg(test)]
-            api_base: None,
+            api_base,
         }
     }
 
     #[cfg(test)]
     pub(super) fn set_api_base(&mut self, base_url: impl Into<String>) {
-        self.api_base = Some(base_url.into());
+        self.api_base = base_url.into();
     }
 
-    /// The one place a REST client is built, so the injected root reaches every
-    /// use case without each of them knowing a test root exists.
-    #[cfg_attr(
-        not(test),
-        expect(
-            clippy::unused_self,
-            reason = "the injected base URL is the only state read here, and it \
-                      exists only in test builds"
-        )
-    )]
+    /// The one place a REST client is built, so the root reaches every use case.
     fn client(&self, token: &str) -> GithubPrApi {
-        #[cfg(test)]
-        if let Some(base_url) = &self.api_base {
-            return GithubPrApi::with_base_url(token, base_url);
-        }
-        GithubPrApi::new(token)
+        GithubPrApi::new(token, &self.api_base)
     }
 
     /// Mint a client for durable work `github_login` triggered.
@@ -265,9 +248,10 @@ mod tests {
     use moatless_types::adapter::AdapterKind;
 
     fn auth_with_tokens(provider_tokens: Arc<StubProviderTokens>) -> GithubPrAuth {
-        GithubPrAuth::new(moatless_identity::git_host_tokens::seam_over(
-            provider_tokens,
-        ))
+        GithubPrAuth::new(
+            moatless_identity::git_host_tokens::seam_over(provider_tokens),
+            moatless_core::config::DEFAULT_GITHUB_API_BASE.to_string(),
+        )
     }
 
     fn binding_with_filter(filter_user_id: Option<&str>) -> TaskBinding {

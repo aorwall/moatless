@@ -27,9 +27,9 @@ pub(super) struct WatcherDeps {
 ///
 /// Loops leadership acquisition (K8s Lease) and pod watching; re-enters the
 /// loop on watch-stream error or lost leadership.
-// reason: the watcher wires seven collaborators (client, publisher, cancel, the
-// crash threshold, archive feature gate, the lifecycle handle, and the storage
-// fallback) into one spawned task.
+// reason: the watcher wires eight collaborators (client, publisher, cancel, the
+// crash threshold, archive feature gate, the lifecycle handle, the storage
+// fallback, and its lease identity) into one spawned task.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_pod_lifecycle_watcher(
     k8s: K8sClient,
@@ -39,8 +39,8 @@ pub fn spawn_pod_lifecycle_watcher(
     node_archive_enabled: bool,
     lifecycle: Option<Arc<Lifecycle>>,
     storage_fallback: Option<Arc<dyn StorageFallback>>,
+    identity: String,
 ) -> JoinHandle<()> {
-    let identity = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
     metrics::describe_counter!(
         "sandbox_container_terminations_total",
         "Non-intentional sandbox container terminations, labelled by lifecycle_event, K8s reason, and exit_code"

@@ -167,7 +167,9 @@ impl AppState {
                 credential_sync: credential_sync.clone(),
                 workspace_credentials: workspace_credentials.clone(),
             },
-            Arc::new(RealGitHostValidator),
+            Arc::new(RealGitHostValidator {
+                github_api_base: config.github_api_base.clone(),
+            }),
         ));
 
         let sandbox_joiner: Arc<dyn SandboxJoiner> =
@@ -213,7 +215,9 @@ impl AppState {
         let git_host_access = moatless_identity::compose::git_host_access(
             pool.clone(),
             secrets.clone(),
-            Arc::new(ProviderGitHostTokenValidator::default()),
+            Arc::new(ProviderGitHostTokenValidator::new(
+                config.github_api_base.clone(),
+            )),
             config.auth.github_app_oauth().is_some(),
         );
         let git_proxy = Arc::new(crate::git_proxy::GitProxy::new(
@@ -234,7 +238,9 @@ impl AppState {
         let app_administration = Arc::new(AppAdministration::new(
             github_apps.clone(),
             user_directory.clone(),
-            Arc::new(ProviderGitHubAppProver),
+            Arc::new(ProviderGitHubAppProver {
+                github_api_base: config.github_api_base.clone(),
+            }),
         ));
 
         // The wake port, implemented in sandbox-control. Built here because it
@@ -258,6 +264,7 @@ impl AppState {
             message_send: message_send.clone(),
             sandbox_waker: sandbox_waker.clone(),
             adapters: adapters.clone(),
+            message_buffer: config.message_buffer.clone(),
         });
 
         // Outbound reply delivery owns the ports its send path reads. The

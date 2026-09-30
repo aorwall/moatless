@@ -233,42 +233,6 @@ pub async fn seed_telegram_app(pool: &sqlx::PgPool, config: &Config, bot_token: 
     .expect("seed Telegram adapter app");
 }
 
-/// Exclusive, restoring ownership of `GITHUB_API_BASE_URL` for the caller.
-///
-/// The GitHub REST base is resolved from that env var on every client build, so
-/// pointing the backend at a stub writes a process-global; the lock lives here,
-/// not per test file, so one file's stub cannot answer another's calls in a
-/// one-process `cargo test` run.
-#[allow(dead_code)]
-pub async fn github_api_base(base_url: &str) -> GithubApiBaseGuard {
-    static LOCK: std::sync::LazyLock<tokio::sync::Mutex<()>> =
-        std::sync::LazyLock::new(|| tokio::sync::Mutex::new(()));
-
-    let guard = LOCK.lock().await;
-    let previous = std::env::var_os("GITHUB_API_BASE_URL");
-    std::env::set_var("GITHUB_API_BASE_URL", base_url);
-    GithubApiBaseGuard {
-        _lock: guard,
-        previous,
-    }
-}
-
-#[allow(dead_code)]
-pub struct GithubApiBaseGuard {
-    _lock: tokio::sync::MutexGuard<'static, ()>,
-    previous: Option<std::ffi::OsString>,
-}
-
-impl Drop for GithubApiBaseGuard {
-    fn drop(&mut self) {
-        if let Some(value) = self.previous.take() {
-            std::env::set_var("GITHUB_API_BASE_URL", value);
-        } else {
-            std::env::remove_var("GITHUB_API_BASE_URL");
-        }
-    }
-}
-
 /// Minimal Config for tests — no env vars needed.
 #[allow(dead_code)]
 pub fn test_config() -> Config {

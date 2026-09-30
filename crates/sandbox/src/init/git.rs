@@ -4,6 +4,7 @@
 //! pod's own `GIT_PROVIDER`, while each of the workspace's checkouts
 //! ([`Config::repos`]) clones with the token for its own provider.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -16,7 +17,7 @@ use crate::config::Config;
 
 /// Configure git authentication: `gh auth setup-git` (plus `gh api user` for
 /// identity) on GitHub, a token-based credential helper on other providers.
-pub async fn configure_git(config: &Config) -> Result<(), String> {
+pub async fn configure_git(config: &Config, credentials: &GitCredentials) -> Result<(), String> {
     let is_ssh = crate::config::primary_checkout(&config.repos).is_some_and(|repo| repo.uses_ssh);
     let is_github = config.git_provider == "github";
 
@@ -44,7 +45,7 @@ pub async fn configure_git(config: &Config) -> Result<(), String> {
         info!("SSH remote detected — using SSH key auth from ~/.ssh");
     } else if is_github {
         // GitHub-specific: use gh CLI for credential management
-        if std::env::var("GIT_TOKEN").is_err() {
+        if credentials.get(GIT_TOKEN).is_none() {
             info!("No git token set — skipping gh's helper and the git identity");
             return Ok(());
         }
@@ -73,14 +74,14 @@ pub async fn configure_git(config: &Config) -> Result<(), String> {
             ],
         )
         .await;
-    } else if std::env::var("GIT_TOKEN").is_err() && proxy_origin.is_none() {
+    } else if credentials.get(GIT_TOKEN).is_none() && proxy_origin.is_none() {
         info!(provider = %config.git_provider, "No git token set — skipping the provider helper and the git identity");
         return Ok(());
     }
 
     // Resolve git user info
-    let user_name = std::env::var("GIT_USER_NAME").ok();
-    let user_email = std::env::var("GIT_USER_EMAIL").ok();
+    let user_name = credentials.get("GIT_USER_NAME");
+    let user_email = credentials.get("GIT_USER_EMAIL");
 
     // Try to resolve user info from GitHub API (GitHub HTTPS only — an SSH
     // remote has no `gh` token to query the API with).
@@ -104,7 +105,7 @@ pub async fn configure_git(config: &Config) -> Result<(), String> {
         }
     }
 
-    // Set explicit user name/email if provided via env vars
+    // Set explicit user name/email if the credentials carry them
     if let Some(ref name) = user_name {
         run_command("git", &["config", "--global", "user.name", name]).await?;
     }
@@ -147,7 +148,10 @@ pub struct CloneSummary {
 /// Uses each repo's own provider token; a dir already holding `.git` is left
 /// alone (safe across a restart), and every repo is required, so the first
 /// failure aborts.
-pub async fn clone_repositories(config: &Config) -> Result<CloneSummary, CloneFailure> {
+pub async fn clone_repositories(
+    config: &Config,
+    credentials: &GitCredentials,
+) -> Result<CloneSummary, CloneFailure> {
     let deadline = Instant::now() + CLONE_RETRY_BUDGET;
     let mut summary = CloneSummary {
         cloned: Vec::new(),
@@ -164,7 +168,7 @@ pub async fn clone_repositories(config: &Config) -> Result<CloneSummary, CloneFa
             info!(mount = %repo.mount_name, "Repository already cloned, skipping");
             continue;
         }
-        clone_with_retry(repo, &dest, &config.git_provider, deadline).await?;
+        clone_with_retry(repo, &dest, &config.git_provider, credentials, deadline).await?;
         summary.cloned.push(repo.mount_name.clone());
         summary.primary_recloned |= repo.is_primary;
     }
@@ -210,17 +214,18 @@ async fn clone_with_retry(
     repo: &RepoCheckout,
     dest: &str,
     pod_provider: &str,
+    credentials: &GitCredentials,
     deadline: Instant,
 ) -> Result<(), CloneFailure> {
     let mut delay = Duration::from_secs(2);
     loop {
-        let error = match clone_checkout(repo, dest, pod_provider).await {
+        let error = match clone_checkout(repo, dest, pod_provider, credentials).await {
             Ok(()) => return Ok(()),
             Err(e) => e,
         };
         let message = format!("{} ({}): {error}", repo.mount_name, repo.clone_url);
 
-        if !failure_is_retryable(repo, pod_provider).await {
+        if !failure_is_retryable(repo, pod_provider, credentials).await {
             return Err(CloneFailure {
                 message,
                 retryable: false,
@@ -256,13 +261,17 @@ async fn clone_with_retry(
 ///
 /// Two measured signals, never git's stderr: the service's status for this
 /// repo, and whether the host answers a TCP connect.
-async fn failure_is_retryable(repo: &RepoCheckout, pod_provider: &str) -> bool {
+async fn failure_is_retryable(
+    repo: &RepoCheckout,
+    pod_provider: &str,
+    credentials: &GitCredentials,
+) -> bool {
     // A 5xx is the service having its own outage, which a reachable host would
     // otherwise be read as a verdict on the repo. This can only ever promote a
     // failure to retryable: a 4xx falls through to the reachability check rather
     // than deciding by itself, so a provider whose endpoint answers differently
     // cannot turn a working repo into a permanent config error.
-    if let Some(status) = repo_advertisement_status(repo, pod_provider).await {
+    if let Some(status) = repo_advertisement_status(repo, pod_provider, credentials).await {
         if status.is_server_error() {
             return true;
         }
@@ -275,6 +284,7 @@ async fn failure_is_retryable(repo: &RepoCheckout, pod_provider: &str) -> bool {
 async fn repo_advertisement_status(
     repo: &RepoCheckout,
     pod_provider: &str,
+    credentials: &GitCredentials,
 ) -> Option<reqwest::StatusCode> {
     if repo.uses_ssh {
         return None;
@@ -288,7 +298,7 @@ async fn repo_advertisement_status(
         .build()
         .ok()?;
     let mut request = client.get(format!("{base}/info/refs?service=git-upload-pack"));
-    if let Some(token) = provider_git_token(&repo.provider, pod_provider) {
+    if let Some(token) = credentials.provider_token(&repo.provider, pod_provider) {
         request = request.basic_auth("x-access-token", Some(token));
     }
     request.send().await.ok().map(|response| response.status())
@@ -384,7 +394,12 @@ fn git_clone_args<'a>(url: &'a str, dest: &'a str, branch: Option<&'a str>) -> V
 ///
 /// GitHub repos try `gh repo clone` first, falling back to `git clone`; other
 /// providers use `git clone` with a token-authenticated HTTPS URL.
-async fn clone_checkout(repo: &RepoCheckout, dest: &str, pod_provider: &str) -> Result<(), String> {
+async fn clone_checkout(
+    repo: &RepoCheckout,
+    dest: &str,
+    pod_provider: &str,
+    credentials: &GitCredentials,
+) -> Result<(), String> {
     let clone_url = &repo.clone_url;
     let is_ssh = repo.uses_ssh;
     let is_github = repo.provider == "github";
@@ -445,7 +460,7 @@ async fn clone_checkout(repo: &RepoCheckout, dest: &str, pod_provider: &str) -> 
     // Try git clone with the token for *this* repo's provider (works for all
     // providers), so a workspace mixing e.g. a GitHub and a GitLab repo
     // authenticates each with the right credential.
-    if let Some(token) = provider_git_token(&repo.provider, pod_provider) {
+    if let Some(token) = credentials.provider_token(&repo.provider, pod_provider) {
         let auth_url = inject_token_into_url(clone_url, &token);
         let git_args = git_clone_args(&auth_url, dest, branch);
         match run_command("git", &git_args).await {
@@ -471,43 +486,68 @@ async fn clone_checkout(repo: &RepoCheckout, dest: &str, pod_provider: &str) -> 
     }
 }
 
-/// Resolve one provider's clone token from the credentials fetched at init.
-///
-/// `GITHUB_TOKEN`/`GH_TOKEN` are deliberately kept out of the env so `gh` reads
-/// `hosts.yml`; `GIT_TOKEN` backs GitHub only when this checkout matches the
-/// *pod's own* provider, never lending it to a foreign host.
-fn provider_git_token(provider: &str, pod_provider: &str) -> Option<String> {
-    resolve_provider_git_token(provider, pod_provider, |key| {
-        std::env::var(key).ok().filter(|value| !value.is_empty())
-    })
-}
+/// `GIT_TOKEN`: the pod provider's token under one name, which
+/// `credentials::fetch` derives into the map.
+pub(crate) const GIT_TOKEN: &str = "GIT_TOKEN";
 
-/// The env-free half of [`provider_git_token`], so the "never lend the pod
-/// token to a foreign host" rule is testable without touching the process env.
-fn resolve_provider_git_token(
-    provider: &str,
-    pod_provider: &str,
-    lookup: impl Fn(&str) -> Option<String>,
-) -> Option<String> {
-    // A proxied checkout addresses the backend, which holds the credential and
-    // attaches it upstream. Injecting the pod's own provider token into that URL
-    // would hand it to a host that never asked for it.
-    if provider == PROXIED_PROVIDER {
-        return None;
+/// The git keys of one credential fetch: provider tokens, `GIT_TOKEN` and the
+/// author identity.
+///
+/// Handed to [`configure_git`] and [`clone_repositories`] rather than exported
+/// into the process env, where a value would freeze at spawn time.
+#[derive(Clone, Debug, Default)]
+pub struct GitCredentials(HashMap<String, String>);
+
+impl GitCredentials {
+    const KEYS: [&str; 6] = [
+        "GITHUB_TOKEN",
+        "GITLAB_TOKEN",
+        "GITNESS_TOKEN",
+        GIT_TOKEN,
+        "GIT_USER_NAME",
+        "GIT_USER_EMAIL",
+    ];
+
+    /// Keep the git keys of a fetched credential map, dropping empty values.
+    pub fn from_credentials(credentials: &HashMap<String, String>) -> Self {
+        Self(
+            Self::KEYS
+                .iter()
+                .filter_map(|key| {
+                    let value = credentials.get(*key).filter(|value| !value.is_empty())?;
+                    Some(((*key).to_string(), value.clone()))
+                })
+                .collect(),
+        )
     }
-    let key = match provider {
-        "gitlab" => "GITLAB_TOKEN",
-        "gitness" => "GITNESS_TOKEN",
-        "github" => "GITHUB_TOKEN",
-        _ => return None,
-    };
-    lookup(key).or_else(|| {
-        if provider == pod_provider {
-            lookup("GIT_TOKEN")
-        } else {
-            None
+
+    fn get(&self, key: &str) -> Option<String> {
+        self.0.get(key).cloned()
+    }
+
+    /// One provider's clone token. `GIT_TOKEN` backs a checkout only when it
+    /// matches the *pod's own* provider, never lending it to a foreign host.
+    fn provider_token(&self, provider: &str, pod_provider: &str) -> Option<String> {
+        // A proxied checkout addresses the backend, which holds the credential and
+        // attaches it upstream. Injecting the pod's own provider token into that URL
+        // would hand it to a host that never asked for it.
+        if provider == PROXIED_PROVIDER {
+            return None;
         }
-    })
+        let key = match provider {
+            "gitlab" => "GITLAB_TOKEN",
+            "gitness" => "GITNESS_TOKEN",
+            "github" => "GITHUB_TOKEN",
+            _ => return None,
+        };
+        self.get(key).or_else(|| {
+            if provider == pod_provider {
+                self.get(GIT_TOKEN)
+            } else {
+                None
+            }
+        })
+    }
 }
 
 /// Remove the workspace directory's contents but keep the directory itself.
@@ -716,7 +756,9 @@ mod tests {
         config.repo_dir = format!("{workspace}/api");
         std::fs::create_dir_all(format!("{workspace}/api/.git")).unwrap();
 
-        let summary = clone_repositories(&config).await.unwrap();
+        let summary = clone_repositories(&config, &GitCredentials::default())
+            .await
+            .unwrap();
         assert!(summary.cloned.is_empty());
         assert!(!summary.primary_recloned);
     }
@@ -762,7 +804,9 @@ mod tests {
             },
         ];
 
-        let summary = clone_repositories(&config).await.unwrap();
+        let summary = clone_repositories(&config, &GitCredentials::default())
+            .await
+            .unwrap();
 
         assert_eq!(summary.cloned, vec!["secondary"]);
         assert!(!summary.primary_recloned);
@@ -814,7 +858,9 @@ mod tests {
             is_primary: true,
         }];
 
-        clone_repositories(&config).await.unwrap();
+        clone_repositories(&config, &GitCredentials::default())
+            .await
+            .unwrap();
 
         let clone = workspace.join("api");
         let read = |args: &[&str]| {
@@ -845,34 +891,37 @@ mod tests {
     /// a third party.
     #[test]
     fn each_checkout_uses_its_own_providers_token() {
-        let env = |key: &str| match key {
-            "GITLAB_TOKEN" => Some("glpat".to_string()),
-            "GIT_TOKEN" => Some("pod-github-token".to_string()),
-            _ => None,
-        };
+        let credentials =
+            credentials(&[("GITLAB_TOKEN", "glpat"), (GIT_TOKEN, "pod-github-token")]);
         assert_eq!(
-            resolve_provider_git_token("gitlab", "github", env),
+            credentials.provider_token("gitlab", "github"),
             Some("glpat".to_string())
         );
-        // GitHub has no env token (kept out for `gh`), so it uses the pod's.
+        // No `GITHUB_TOKEN` was delivered, so GitHub uses the pod's.
         assert_eq!(
-            resolve_provider_git_token("github", "github", env),
+            credentials.provider_token("github", "github"),
             Some("pod-github-token".to_string())
         );
         // A foreign provider with no token of its own gets nothing.
-        assert_eq!(resolve_provider_git_token("gitness", "github", env), None);
+        assert_eq!(credentials.provider_token("gitness", "github"), None);
     }
 
     /// A proxied checkout's URL points at the backend, so no provider token may
     /// be injected into it — not even the pod's own.
     #[test]
     fn a_proxied_checkout_is_given_no_provider_token() {
-        let env = |key: &str| match key {
-            "GITHUB_TOKEN" | "GIT_TOKEN" => Some("pod-token".to_string()),
-            _ => None,
-        };
-        assert_eq!(resolve_provider_git_token("forgejo", "forgejo", env), None);
-        assert_eq!(resolve_provider_git_token("forgejo", "github", env), None);
+        let credentials = credentials(&[("GITHUB_TOKEN", "pod-token"), (GIT_TOKEN, "pod-token")]);
+        assert_eq!(credentials.provider_token("forgejo", "forgejo"), None);
+        assert_eq!(credentials.provider_token("forgejo", "github"), None);
+    }
+
+    fn credentials(pairs: &[(&str, &str)]) -> GitCredentials {
+        GitCredentials::from_credentials(
+            &pairs
+                .iter()
+                .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
+                .collect(),
+        )
     }
 
     /// The probe answers from the resolver and the TCP stack, so both verdicts
@@ -931,6 +980,7 @@ mod tests {
             &repo,
             &tmp.path().join("api").display().to_string(),
             "local",
+            &GitCredentials::default(),
             started + budget,
         )
         .await
@@ -982,7 +1032,7 @@ mod tests {
     #[tokio::test]
     async fn service_side_5xx_stays_retryable() {
         let port = serve_status("503 Service Unavailable").await;
-        assert!(failure_is_retryable(&repo_at(port), "local").await);
+        assert!(failure_is_retryable(&repo_at(port), "local", &GitCredentials::default()).await);
     }
 
     /// A 4xx never decides on its own — it falls through to reachability — but
@@ -990,7 +1040,7 @@ mod tests {
     #[tokio::test]
     async fn client_error_from_a_reachable_host_is_not_retryable() {
         let port = serve_status("404 Not Found").await;
-        assert!(!failure_is_retryable(&repo_at(port), "local").await);
+        assert!(!failure_is_retryable(&repo_at(port), "local", &GitCredentials::default()).await);
     }
 
     /// A URL with no host to probe teaches nothing about the pod's network, so
@@ -1055,6 +1105,7 @@ mod tests {
             &repo,
             &tmp.path().join("api").display().to_string(),
             "local",
+            &GitCredentials::default(),
             Instant::now(),
         )
         .await
@@ -1085,6 +1136,7 @@ mod tests {
             &repo,
             &tmp.path().join("api").display().to_string(),
             "local",
+            &GitCredentials::default(),
             Instant::now() + Duration::from_mins(1),
         )
         .await

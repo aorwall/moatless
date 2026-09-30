@@ -187,7 +187,7 @@ impl TaskReaper {
             "task_turns_disagreed_total",
             "Heartbeats reporting a run the turn row says already ended — a coordinator defect, not a lost event"
         );
-        let identity = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
+        let identity = self.config.server.worker_identity.clone();
         let interval = Duration::from_secs(self.config.sandbox.idle_check_interval_secs);
         let default_ttl_minutes = self.config.sandbox.idle_timeout_minutes as i32;
         let default_inactive_ttl_days = self.config.sandbox.inactive_task_timeout_days as i32;

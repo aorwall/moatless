@@ -3,9 +3,8 @@
 //! Proves what a unit test cannot: a registration made through one registry
 //! instance is visible to another sharing the database (the two-replica case),
 //! and the one-time carry-over of `GITHUB_APPS_JSON` converges to a single
-//! record when several backends run it at once. GitHub is stubbed through
-//! `GITHUB_API_BASE_URL`; since that variable is process-global,
-//! [`stub_github`] holds a lock while the stub answers.
+//! record when several backends run it at once. GitHub is stubbed at the
+//! REST root [`stub_github`] returns.
 
 use std::net::SocketAddr;
 use std::sync::{Arc, OnceLock};
@@ -27,38 +26,10 @@ const TEST_PEM: &str = include_str!("../auth/github/testdata/github_app_test_key
 
 static STUB: OnceLock<SocketAddr> = OnceLock::new();
 
-/// Takes exclusive, restoring ownership of `GITHUB_API_BASE_URL`, pointed at a
-/// stub for GitHub's `GET /app`, on its own thread and runtime so the address
-/// outlives the test that started it.
-async fn stub_github() -> GithubApiBaseGuard {
-    static LOCK: std::sync::LazyLock<tokio::sync::Mutex<()>> =
-        std::sync::LazyLock::new(|| tokio::sync::Mutex::new(()));
-
-    let guard = LOCK.lock().await;
-    let previous = std::env::var_os("GITHUB_API_BASE_URL");
-    std::env::set_var(
-        "GITHUB_API_BASE_URL",
-        format!("http://{}", stub_github_addr()),
-    );
-    GithubApiBaseGuard {
-        _lock: guard,
-        previous,
-    }
-}
-
-struct GithubApiBaseGuard {
-    _lock: tokio::sync::MutexGuard<'static, ()>,
-    previous: Option<std::ffi::OsString>,
-}
-
-impl Drop for GithubApiBaseGuard {
-    fn drop(&mut self) {
-        if let Some(value) = self.previous.take() {
-            std::env::set_var("GITHUB_API_BASE_URL", value);
-        } else {
-            std::env::remove_var("GITHUB_API_BASE_URL");
-        }
-    }
+/// The REST root of a stub for GitHub's `GET /app`, on its own thread and
+/// runtime so the address outlives the test that started it.
+fn stub_github() -> String {
+    format!("http://{}", stub_github_addr())
 }
 
 fn stub_github_addr() -> SocketAddr {
@@ -103,6 +74,7 @@ fn registry(pool: &PgPool) -> GitHubAppRegistry {
         None,
         Some(Arc::new(PgAdapterAppDao(pool.clone()))),
         Some(cipher()),
+        stub_github(),
     )
 }
 
@@ -119,9 +91,8 @@ fn app_config(key: &str, app_id: u64) -> GitHubAppConfig {
 
 /// Prove and store an App the way the register handler does.
 async fn register(pool: &PgPool, key: &str, app_id: u64) -> GitHubAppRecord {
-    let _github_api = stub_github().await;
     let cipher = cipher();
-    let proved = GitHubAppService::from_app_config(&app_config(key, app_id))
+    let proved = GitHubAppService::from_app_config(&app_config(key, app_id), &stub_github())
         .expect("key parses")
         .prove()
         .await
@@ -168,10 +139,9 @@ async fn a_proved_app_is_stored_with_the_identity_github_reported(pool: PgPool) 
 
 #[sqlx::test]
 async fn a_key_that_names_a_different_app_is_refused_and_nothing_is_stored(pool: PgPool) {
-    let _github_api = stub_github().await;
     // The stub always answers as App 4242; claiming 9999 is the "this key
     // belongs to a different App" case.
-    let error = GitHubAppService::from_app_config(&app_config("review-bot", 9999))
+    let error = GitHubAppService::from_app_config(&app_config("review-bot", 9999), &stub_github())
         .expect("key parses")
         .prove()
         .await
@@ -302,7 +272,6 @@ async fn removing_an_app_stops_it_answering_everywhere(pool: PgPool) {
 
 #[sqlx::test]
 async fn the_carry_over_produces_one_record_when_several_backends_run_it(pool: PgPool) {
-    let _github_api = stub_github().await;
     let entries = vec![app_config("env-bot", 4242)];
 
     let backends: Vec<GitHubAppRegistry> = (0..3).map(|_| registry(&pool)).collect();
@@ -325,7 +294,6 @@ async fn the_carry_over_produces_one_record_when_several_backends_run_it(pool: P
 
 #[sqlx::test]
 async fn a_deleted_carried_over_app_is_not_resurrected_by_a_restart(pool: PgPool) {
-    let _github_api = stub_github().await;
     let entries = vec![app_config("env-bot", 4242)];
 
     registry(&pool).carry_over_env_apps(&entries).await;

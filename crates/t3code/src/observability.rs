@@ -54,14 +54,13 @@ impl std::fmt::Debug for ClientTraceForwarder {
 }
 
 impl ClientTraceForwarder {
-    /// Read the endpoint from `T3_CLIENT_OTLP_TRACES_ENDPOINT`, which names an
-    /// OTLP/HTTP traces URL such as `http://otel-collector:4318/v1/traces`.
-    pub(crate) fn from_env() -> Self {
+    /// Forward to `endpoint`, and describe the forwarding metric.
+    pub(crate) fn configured(endpoint: Option<String>) -> Self {
         metrics::describe_counter!(
             CLIENT_TRACES,
             "T3 client OTLP trace batches received, by outcome"
         );
-        Self::new(std::env::var("T3_CLIENT_OTLP_TRACES_ENDPOINT").ok())
+        Self::new(endpoint)
     }
 
     fn new(endpoint: Option<String>) -> Self {

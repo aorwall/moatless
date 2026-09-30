@@ -79,7 +79,7 @@ aws-sdk-sts = { workspace = true }
 axum-extra = { version = "0.12", features = ["multipart"] }
 
 # CLI parsing (secrets subcommand on the backend binary)
-clap = { workspace = true, features = ["derive"] }
+clap = { workspace = true, features = ["derive", "env"] }
 
 # Shared type definitions
 moatless-types = { workspace = true, features = ["openapi"] }

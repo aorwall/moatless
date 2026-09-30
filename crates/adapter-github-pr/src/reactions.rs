@@ -260,6 +260,7 @@ mod tests {
         GithubPrAdapter::new(
             None,
             "https://app.example.com".to_string(),
+            moatless_core::config::DEFAULT_GITHUB_API_BASE.to_string(),
             moatless_identity::git_host_tokens::seam_over(Arc::new(
                 StubProviderTokens::with_user_row_for(
                     "owner-user",

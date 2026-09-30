@@ -58,12 +58,13 @@ impl GithubPrAdapter {
     pub fn new(
         global_webhook_secret: Option<String>,
         frontend_url: String,
+        api_base: String,
         git_host_tokens: Arc<dyn GitHostTokenIssuer>,
     ) -> Self {
         Self {
             global_webhook_secret,
             frontend_url,
-            auth: GithubPrAuth::new(git_host_tokens),
+            auth: GithubPrAuth::new(git_host_tokens, api_base),
             adapter_connections: None,
             loops: None,
             task_bindings: None,
@@ -132,9 +133,6 @@ impl GithubPrAdapter {
 
     /// Point every REST client this Adapter builds at a caller-supplied root
     /// (test-only).
-    ///
-    /// [`Self::new`] pulls the root from the process environment, which has no
-    /// per-test injection point otherwise.
     #[cfg(test)]
     #[must_use]
     pub(super) fn with_api_base(mut self, base_url: impl Into<String>) -> Self {
@@ -309,6 +307,7 @@ mod tests {
         GithubPrAdapter::new(
             None,
             "https://app.example.com".to_string(),
+            moatless_core::config::DEFAULT_GITHUB_API_BASE.to_string(),
             moatless_identity::git_host_tokens::seam_over(Arc::new(StubProviderTokens::default())),
         )
     }

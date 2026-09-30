@@ -10,19 +10,6 @@ use moatless_workspace_types::workspace::WORKSPACE_REPOS_ENV;
 
 use super::naming::TaskPaths;
 
-/// Env vars the backend's own process may hold credentials/settings under,
-/// passed through to the sandbox process only when the plan doesn't already
-/// supply them.
-const PASSTHROUGH_ENV_VARS: &[&str] = &[
-    "ANTHROPIC_API_KEY",
-    "ANTHROPIC_BASE_URL",
-    "CLAUDE_CODE_OAUTH_TOKEN",
-    "OPENAI_API_KEY",
-    "OPENAI_BASE_URL",
-    "CODEX_AUTH_JSON",
-    "PATH",
-];
-
 #[allow(clippy::too_many_arguments)]
 pub fn build_env(
     config: &Config,
@@ -127,12 +114,9 @@ pub fn build_env(
         paths.runtime_dir.display().to_string(),
     ));
 
-    for key in PASSTHROUGH_ENV_VARS {
-        if env.iter().any(|(k, _)| k == key) {
-            continue;
-        }
-        if let Ok(value) = std::env::var(key) {
-            env.push(((*key).to_string(), value));
+    for (key, value) in &config.sandbox.local_passthrough_env {
+        if !env.iter().any(|(k, _)| k == key) {
+            env.push((key.clone(), value.clone()));
         }
     }
 

@@ -37,7 +37,7 @@ pub async fn record_change(tx: &mut PgConnection, task_id: &str) -> Result<i64, 
 /// so `MAX` can silently go stale on a deployment older than it.
 pub async fn current_head(pool: &PgPool) -> Result<ListingHead, sqlx::Error> {
     // `pg_control_system()` carries no ACL, so an ordinary application role can
-    // call it. Verified rather than assumed — `router_from_env` fails startup
+    // call it. Verified rather than assumed — `router_if_enabled` fails startup
     // rather than inventing an identity, so the reverse would be a deployment
     // blocker. Decision 7, and
     // `the_identity_is_readable_by_a_least_privilege_application_role`.

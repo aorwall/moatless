@@ -185,7 +185,8 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
 
     // 3. Configure git authentication (non-fatal). Writes a config file in
     //    milliseconds, so only the failure is worth saying anything about.
-    if let Err(e) = git::configure_git(&state.config).await {
+    let git_credentials = state.git_credentials.read().await.clone();
+    if let Err(e) = git::configure_git(&state.config, &git_credentials).await {
         warn!(error = %e, "Git configuration failed (non-fatal)");
     }
 
@@ -235,7 +236,7 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
             *state.init_phase.write().await = InitPhase::CloningRepository;
         }
 
-        match git::clone_repositories(&state.config).await {
+        match git::clone_repositories(&state.config, &git_credentials).await {
             Ok(summary) => {
                 workspace_recloned = summary.primary_recloned && !restored_full_repo;
                 if !summary.cloned.is_empty() {

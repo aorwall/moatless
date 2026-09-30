@@ -232,6 +232,7 @@ pub(super) async fn run_pr_create(
         .map_err(|e| target.failed("", e))?;
     if !args.labels.is_empty() {
         apply_labels(
+            cfg.github_token_set,
             &target.owner,
             &target.repo,
             resp.number,
@@ -262,6 +263,7 @@ pub(super) async fn run_pr_create(
 /// response lists what the issue now has, and a label the repository does not
 /// define is a 404 there rather than a silent drop.
 fn apply_labels(
+    env_token_set: bool,
     owner: &str,
     repo: &str,
     number: u64,
@@ -278,7 +280,7 @@ fn apply_labels(
         args.push("-f".to_string());
         args.push(format!("labels[]={label}"));
     }
-    let token = github_token_for_gh();
+    let token = github_token_for_gh(env_token_set);
     match gh_command_output(&args, token.as_deref(), None) {
         Ok(body) => match labels_missing_from(&body, labels) {
             missing if missing.is_empty() => Ok(()),
@@ -383,13 +385,14 @@ pub(super) async fn run_pr_reply(
     let classified = {
         let (owner, repo) = (target.owner.clone(), target.repo.clone());
         let (pr_number, comment_id) = (args.pr_number, args.comment_id);
+        let env_token_set = cfg.github_token_set;
         tokio::task::spawn_blocking(move || {
             reply_target::classify(
                 &owner,
                 &repo,
                 pr_number,
                 comment_id,
-                github_token_for_gh().as_deref(),
+                github_token_for_gh(env_token_set).as_deref(),
             )
         })
         .await?

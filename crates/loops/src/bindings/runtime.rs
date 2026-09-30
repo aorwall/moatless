@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use moatless_types::adapter::MessageBufferConfig;
 use tracing::{debug, info, warn};
 
 use crate::bindings::buffer::dao::{BufferedBatch, MessageBufferStore};
@@ -60,6 +61,7 @@ pub struct RoutingService {
     sandbox_waker: Arc<dyn SandboxWaker>,
     adapters: Option<Arc<Adapters>>,
     message_buffer: Arc<MessageBufferStore>,
+    buffer_defaults: MessageBufferConfig,
 }
 
 /// Meter events a flush gave up on, so a batch lost after admission is visible
@@ -93,7 +95,7 @@ struct Vanished {
 impl RoutingService {
     #[expect(
         clippy::too_many_arguments,
-        reason = "eleven independent ports the inbound-routing subgraph reads; they \
+        reason = "twelve independent inputs the inbound-routing subgraph reads; they \
                   are exactly the AppState fields this service absorbs, wired in \
                   from the composition root, and there is no narrower grouping \
                   that is not itself an AppState-shaped bag"
@@ -110,6 +112,7 @@ impl RoutingService {
         sandbox_waker: Arc<dyn SandboxWaker>,
         adapters: Option<Arc<Adapters>>,
         message_buffer: Arc<MessageBufferStore>,
+        buffer_defaults: MessageBufferConfig,
     ) -> Self {
         Self {
             adapter_connections,
@@ -123,6 +126,7 @@ impl RoutingService {
             sandbox_waker,
             adapters,
             message_buffer,
+            buffer_defaults,
         }
     }
 
@@ -773,7 +777,7 @@ impl RoutingService {
         adapter_label: &str,
         is_new_task: bool,
     ) -> Result<(), AdapterError> {
-        let window = buffer_window(subscription, msg.adapter_kind);
+        let window = buffer_window(subscription, msg.adapter_kind, &self.buffer_defaults);
         if window.is_zero() || is_new_task {
             return self
                 .deliver_now(

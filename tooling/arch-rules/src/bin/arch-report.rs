@@ -27,6 +27,9 @@ fn main() -> anyhow::Result<()> {
         return comments::run(
             value("--since"),
             value("--findings").map(std::path::Path::new),
+            // An annotation flags the block on the diff line that added it,
+            // which only GitHub renders; elsewhere it would double the list.
+            std::env::var_os("GITHUB_ACTIONS").is_some(),
         );
     }
     // Both flags only mean anything above, and a typo there writes no file

@@ -15,20 +15,6 @@ use tracing::{info, warn};
 use super::fetch::{self as credentials, PersistMode};
 use crate::state::SandboxState;
 
-/// Default refresh interval when the env var isn't set.
-const DEFAULT_INTERVAL_SECS: u64 = 900;
-
-/// Read the refresh interval from `CREDENTIAL_REFRESH_INTERVAL_SECS` (default
-/// 900s).
-pub fn read_interval_from_env() -> Duration {
-    let secs = std::env::var("CREDENTIAL_REFRESH_INTERVAL_SECS")
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .filter(|v| *v > 0)
-        .unwrap_or(DEFAULT_INTERVAL_SECS);
-    Duration::from_secs(secs)
-}
-
 /// Periodically refresh credentials until cancelled.
 pub async fn run_credential_refresher(
     state: SandboxState,
@@ -273,6 +259,7 @@ mod tests {
             init_phase: Arc::new(RwLock::new(InitPhase::Ready)),
             setup_gate: crate::init::SetupGate::opened(),
             workspace_origin: Default::default(),
+            git_credentials: Default::default(),
             credentials,
             lifecycle_cancel: CancellationToken::new(),
             credential_dispatcher,

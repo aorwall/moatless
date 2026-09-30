@@ -87,9 +87,9 @@ enum ClientAuthMode {
 }
 
 impl MoatClient {
-    /// Create a client with no auth headers. Reads `MOATLESS_API_URL` from env.
-    pub fn new_unauthenticated() -> Result<Self, ClientError> {
-        Self::from_headers(HeaderMap::new())
+    /// Create a client with no auth headers against `base_url`.
+    pub fn new_unauthenticated(base_url: &str) -> Result<Self, ClientError> {
+        Self::from_headers(base_url, HeaderMap::new())
     }
 
     /// Create a client authenticated with an `mvk_` API key against `base_url`.
@@ -119,11 +119,8 @@ impl MoatClient {
         }
     }
 
-    fn from_headers(headers: HeaderMap) -> Result<Self, ClientError> {
-        let base_url = std::env::var("MOATLESS_API_URL")
-            .unwrap_or_else(|_| "http://localhost:8080".into())
-            .trim_end_matches('/')
-            .to_string();
+    fn from_headers(base_url: &str, headers: HeaderMap) -> Result<Self, ClientError> {
+        let base_url = base_url.trim_end_matches('/').to_string();
         let http = reqwest::Client::builder()
             .default_headers(headers)
             .build()?;

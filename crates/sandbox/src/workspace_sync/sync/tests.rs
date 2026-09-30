@@ -1083,29 +1083,6 @@ fn git_commit(dir: &std::path::Path, message: &str) {
         .unwrap();
 }
 
-#[test]
-fn read_interval_defaults_and_disables() {
-    std::env::remove_var("WORKSPACE_SYNC_INTERVAL_SECS");
-    assert_eq!(
-        read_interval_from_env(),
-        Some(Duration::from_secs(DEFAULT_INTERVAL_SECS))
-    );
-
-    std::env::set_var("WORKSPACE_SYNC_INTERVAL_SECS", "0");
-    assert_eq!(read_interval_from_env(), None);
-
-    std::env::set_var("WORKSPACE_SYNC_INTERVAL_SECS", "30");
-    assert_eq!(read_interval_from_env(), Some(Duration::from_secs(30)));
-
-    std::env::set_var("WORKSPACE_SYNC_INTERVAL_SECS", "garbage");
-    assert_eq!(
-        read_interval_from_env(),
-        Some(Duration::from_secs(DEFAULT_INTERVAL_SECS))
-    );
-
-    std::env::remove_var("WORKSPACE_SYNC_INTERVAL_SECS");
-}
-
 #[tokio::test]
 async fn fingerprint_tracks_snapshot_content_and_ignores_build_churn() {
     let tmp = tempfile::TempDir::new().unwrap();

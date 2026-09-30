@@ -193,13 +193,14 @@ impl GitHubAppService {
             config.auth.github_app_client_id.clone(),
             config.auth.github_app_client_secret.clone(),
             config.auth.github_app_default_installation_id,
+            config.github_api_base.clone(),
         )
     }
 
     /// Create from a structured `GitHubAppConfig` entry. Returns `None` if the
     /// PEM private key fails to parse — the caller logs and continues with the
     /// remaining apps.
-    pub fn from_app_config(entry: &GitHubAppConfig) -> Option<Self> {
+    pub fn from_app_config(entry: &GitHubAppConfig, api_base: &str) -> Option<Self> {
         Self::build(
             entry.key.clone(),
             entry.app_id,
@@ -207,6 +208,7 @@ impl GitHubAppService {
             entry.client_id.clone(),
             entry.client_secret.clone(),
             entry.default_installation_id,
+            api_base.to_string(),
         )
     }
 
@@ -216,7 +218,11 @@ impl GitHubAppService {
     ///
     /// Returns `None` only when the stored key no longer parses — the record
     /// was written by a version that didn't prove keys.
-    pub(crate) fn from_record(record: &GitHubAppRecord, private_key_pem: &str) -> Option<Self> {
+    pub(crate) fn from_record(
+        record: &GitHubAppRecord,
+        private_key_pem: &str,
+        api_base: &str,
+    ) -> Option<Self> {
         Self::build(
             record.app_key.clone(),
             record.app_id,
@@ -224,6 +230,7 @@ impl GitHubAppService {
             None,
             None,
             record.default_installation_id,
+            api_base.to_string(),
         )
     }
 
@@ -234,6 +241,7 @@ impl GitHubAppService {
         client_id: Option<String>,
         client_secret: Option<String>,
         default_installation_id: Option<u64>,
+        api_base: String,
     ) -> Option<Self> {
         let private_key = match EncodingKey::from_rsa_pem(pem.as_bytes()) {
             Ok(k) => k,
@@ -257,7 +265,7 @@ impl GitHubAppService {
             client_id,
             client_secret,
             default_installation_id,
-            api_base: moatless_core::config::api_base(),
+            api_base,
             http,
             token_cache: RwLock::new(HashMap::new()),
             repository_token_cache: RwLock::new(HashMap::new()),
@@ -951,7 +959,8 @@ mod tests {
             client_secret: None,
             default_installation_id: None,
         };
-        GitHubAppService::from_app_config(&config).expect("test key parses")
+        GitHubAppService::from_app_config(&config, moatless_core::config::DEFAULT_GITHUB_API_BASE)
+            .expect("test key parses")
     }
 
     fn token_response(token: &str) -> serde_json::Value {

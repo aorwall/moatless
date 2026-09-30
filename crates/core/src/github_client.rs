@@ -2,12 +2,15 @@
 
 use crate::git_provider::GitProviderError;
 
-/// Validate a GitHub token by calling the user endpoint. Returns the login
-/// (username) on success.
-pub async fn validate_github_token(token: &str) -> Result<String, GitProviderError> {
+/// Validate a GitHub token by calling the user endpoint under `api_base`.
+/// Returns the login (username) on success.
+pub async fn validate_github_token(
+    api_base: &str,
+    token: &str,
+) -> Result<String, GitProviderError> {
     let client = reqwest::Client::new();
     let resp = client
-        .get(format!("{}/user", crate::config::api_base()))
+        .get(format!("{api_base}/user"))
         .header("Authorization", format!("Bearer {token}"))
         .header("User-Agent", "moatless-vibe")
         .header("Accept", "application/vnd.github+json")
@@ -47,16 +50,14 @@ pub async fn validate_github_token(token: &str) -> Result<String, GitProviderErr
 /// Check whether a GitHub token has access to a specific repository. Returns
 /// `Ok(())` if accessible, `Err` with a classified failure otherwise.
 pub async fn check_github_repo_access(
+    api_base: &str,
     token: &str,
     owner: &str,
     repo: &str,
 ) -> Result<(), GitProviderError> {
     let client = reqwest::Client::new();
     let resp = client
-        .get(format!(
-            "{}/repos/{owner}/{repo}",
-            crate::config::api_base()
-        ))
+        .get(format!("{api_base}/repos/{owner}/{repo}"))
         .header("Authorization", format!("Bearer {token}"))
         .header("User-Agent", "moatless-vibe")
         .header("Accept", "application/vnd.github+json")

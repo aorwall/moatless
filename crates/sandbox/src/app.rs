@@ -14,12 +14,7 @@ use tracing_subscriber::EnvFilter;
 const CREDENTIAL_BROKER_SOCKET_FILE: &str = "credentials.sock";
 
 /// Configure structured logging from the process environment.
-pub fn initialize_logging() {
-    // Read the log level directly rather than through `Config::from_env()`:
-    // that call panics if `BACKEND_GRPC_URL` is unset, and a one-shot mode
-    // carries no such thing (see below), so it must not be built yet.
-    let log_level = std::env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
-
+pub fn initialize_logging(log_level: &str) {
     // Initialize logging
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| {
@@ -259,7 +254,7 @@ async fn start_background_tasks(state: &SandboxState, registrar: &crate::supervi
     // them; an immediate process exit would kill the turn that is still working.
     let refresher_state = state.clone();
     let refresher_cancel = state.lifecycle_cancel.clone();
-    let refresher_interval = crate::credentials::refresher::read_interval_from_env();
+    let refresher_interval = state.config.credential_refresh_interval;
     registrar.supervise(
         "credential-refresher",
         Criticality::Liveness,
@@ -282,7 +277,7 @@ async fn start_background_tasks(state: &SandboxState, registrar: &crate::supervi
     // `flush_on_shutdown` is driven by the shutdown driver rather than by this
     // task and keeps working either way. That final flush is unchanged;
     // supervision only makes the loop's death visible.
-    if let Some(interval) = crate::transcript_sync::read_interval_from_env() {
+    if let Some(interval) = state.config.transcript_sync_interval {
         let transcript_state = state.clone();
         let transcript_cancel = state.lifecycle_cancel.clone();
         registrar.supervise(
@@ -310,7 +305,7 @@ async fn start_background_tasks(state: &SandboxState, registrar: &crate::supervi
     // an ungraceful kill to fall back to the last turn boundary — supervision
     // makes the loop's death visible rather than fixing it.
     if crate::workspace_sync::is_periodic_enabled(&state.config) {
-        if let Some(interval) = crate::workspace_sync::read_interval_from_env() {
+        if let Some(interval) = state.config.workspace_sync_interval {
             let workspace_state = state.clone();
             let workspace_cancel = state.lifecycle_cancel.clone();
             registrar.supervise(

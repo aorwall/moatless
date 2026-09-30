@@ -555,12 +555,12 @@ pub async fn run(
         TaskAction::Restart { task_id, yes } => {
             let task_id = resolve_task_id(client, &task_id).await?;
             let note = self_restart_note(config, &task_id, yes, SandboxOperation::Restart)?;
-            record_wake_note(&task_id, note.as_deref()).await?;
+            record_wake_note(&config.sandbox_grpc_port, &task_id, note.as_deref()).await?;
             match client.api().restart_sandbox(&task_id).await {
                 Ok(()) => println!("Sandbox for {task_id} restarted."),
                 Err(e) => {
                     let e = ClientError::from(e);
-                    cancel_wake_note(&task_id, note.is_some(), &e).await;
+                    cancel_wake_note(&config.sandbox_grpc_port, &task_id, note.is_some(), &e).await;
                     return Err(e);
                 }
             }
@@ -568,7 +568,7 @@ pub async fn run(
         TaskAction::Redeploy { task_id, yes } => {
             let task_id = resolve_task_id(client, &task_id).await?;
             let note = self_restart_note(config, &task_id, yes, SandboxOperation::Redeploy)?;
-            record_wake_note(&task_id, note.as_deref()).await?;
+            record_wake_note(&config.sandbox_grpc_port, &task_id, note.as_deref()).await?;
             match client.api().redeploy_sandbox(&task_id).await {
                 Ok(resp) => println!(
                     "Sandbox for {task_id} redeployed (status: {:?}).",
@@ -576,7 +576,7 @@ pub async fn run(
                 ),
                 Err(e) => {
                     let e = ClientError::from(e);
-                    cancel_wake_note(&task_id, note.is_some(), &e).await;
+                    cancel_wake_note(&config.sandbox_grpc_port, &task_id, note.is_some(), &e).await;
                     return Err(e);
                 }
             }

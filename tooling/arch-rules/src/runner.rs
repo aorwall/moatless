@@ -3,8 +3,8 @@ use crate::{
     Violation, adapter_boundaries, agents_md_budget, agents_symlink, annotations, band_order,
     base_surface, clippy_fence, closed_dependency_list, composition_root, conversation_writer,
     declaration_only_roots, dependency_privacy, duplicate_comment_prose, duplicate_names,
-    file_size, floor_type_admission, manifest_inheritance, module_names, persistence_export,
-    persistence_sql_location, port_admission, process_exit, route_registration,
+    env_read_owner, file_size, floor_type_admission, manifest_inheritance, module_names,
+    persistence_export, persistence_sql_location, port_admission, process_exit, route_registration,
     row_stays_with_query, session_line_parsing, single_implementation_trait, store_privacy,
     table_ownership, transport_direction,
 };
@@ -40,6 +40,7 @@ rules!(
     persistence_sql_location => "SQL execution stays with persistence owners.",
     persistence_export => "Domain persistence stays inside the crate that owns its tables.",
     process_exit => "Process termination stays in executable entry functions.",
+    env_read_owner => "Environment reads stay in a binary's Config, and each name in one crate.",
     adapter_boundaries => "Bindings and providers keep their Adapter module boundaries.",
     store_privacy => "Store types and drivers stay with table owners.",
     table_ownership => "Production SQL names only tables its crate owns.",

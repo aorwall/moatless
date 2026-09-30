@@ -657,7 +657,7 @@ mod tests {
     #[tokio::test]
     async fn direct_non_admin_calls_refuse_before_store_or_provider_access() {
         let administration = AppAdministration::new(
-            Arc::new(GitHubAppRegistry::new(None, None, None)),
+            Arc::new(GitHubAppRegistry::default()),
             user_directory_over_bot_users(HashMap::new()),
             Arc::new(RefusingProver),
         );
@@ -744,7 +744,12 @@ mod tests {
                 kms_key_id: None,
             })
             .expect("test cipher");
-        let registry = Arc::new(GitHubAppRegistry::new(None, Some(store_port), Some(cipher)));
+        let registry = Arc::new(GitHubAppRegistry::new(
+            None,
+            Some(store_port),
+            Some(cipher),
+            moatless_core::config::DEFAULT_GITHUB_API_BASE.to_string(),
+        ));
         let administration = AppAdministration::new(
             registry,
             user_directory_over_bot_users(HashMap::new()),
@@ -803,7 +808,12 @@ mod tests {
         .expect("record should seal");
         store.put(record);
         let store_port: Arc<dyn AdapterAppDao> = store.clone();
-        let registry = Arc::new(GitHubAppRegistry::new(None, Some(store_port), Some(cipher)));
+        let registry = Arc::new(GitHubAppRegistry::new(
+            None,
+            Some(store_port),
+            Some(cipher),
+            moatless_core::config::DEFAULT_GITHUB_API_BASE.to_string(),
+        ));
         let users = user_directory_over_bot_users(HashMap::from([(
             "reviewer".to_string(),
             "bot-user-id".to_string(),

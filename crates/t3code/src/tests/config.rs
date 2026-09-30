@@ -4,31 +4,6 @@
 use super::fixtures::*;
 use super::*;
 
-#[test]
-fn gate_parser_accepts_enabled_values() {
-    for value in ["1", "true", "TRUE", "yes", "on", " on "] {
-        assert!(parse_enabled("T3_UI_RPC_ENABLED", value).unwrap());
-    }
-}
-
-#[test]
-fn gate_parser_accepts_disabled_values() {
-    for value in ["0", "false", "FALSE", "no", "off", "", "  "] {
-        assert!(!parse_enabled("T3_UI_RPC_ENABLED", value).unwrap());
-    }
-}
-
-#[test]
-fn gate_parser_rejects_invalid_values() {
-    let error = parse_enabled("T3_UI_RPC_ENABLED", "sometimes").unwrap_err();
-
-    assert!(matches!(
-        error,
-        UiRpcConfigError::Invalid(message)
-            if message == "T3_UI_RPC_ENABLED must be true or false"
-    ));
-}
-
 #[tokio::test]
 async fn get_config_returns_minimal_decodable_wire_shape() {
     let mut connection = connection();

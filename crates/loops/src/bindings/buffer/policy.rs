@@ -1,28 +1,22 @@
 //! How long an Adapter's inbound events are held before they are combined.
 //!
 //! Three authorities, narrowest first: the Loop's own
-//! `loop_configs.message_buffer_seconds`, the deployment's environment, then the
-//! built-in default per [`AdapterKind`]. All three belong to a Loop, so a
-//! subject routed without one is not buffered at all. [`buffer_window`] owns
-//! which Adapter the latter two are keyed on.
+//! `loop_configs.message_buffer_seconds`, the deployment's
+//! [`MessageBufferConfig`](moatless_types::adapter::MessageBufferConfig), then the built-in default per [`AdapterKind`]. All
+//! three belong to a Loop, so a subject routed without one is not buffered at
+//! all. [`buffer_window`] owns which Adapter the latter two are keyed on.
 
 use std::time::Duration;
 
 use moatless_types::adapter::AdapterKind;
+use moatless_types::adapter::MessageBufferConfig;
 use moatless_types::loops::SubscriptionMatch;
-
-/// Global default, overriding [`builtin_window`] for every Adapter kind.
-const GLOBAL_ENV: &str = "ADAPTER_MESSAGE_BUFFER_SECONDS";
-
-/// Per-kind default: `ADAPTER_MESSAGE_BUFFER_SECONDS_GITHUB_PR`,
-/// `..._SLACK`, and so on. Outranks [`GLOBAL_ENV`].
-const KIND_ENV_PREFIX: &str = "ADAPTER_MESSAGE_BUFFER_SECONDS_";
 
 /// Upper bound on any configured window. A Loop that asks for more is clamped
 /// rather than refused, so a typo cannot park a review out of reach for a day.
 const MAX_WINDOW: Duration = Duration::from_hours(1);
 
-/// Built-in window for `adapter`, before the environment and the Loop.
+/// Built-in window for `adapter`, before the deployment and the Loop.
 ///
 /// Only GitHub PR buffers by default: a single review posts one webhook per
 /// comment within a second or two, and each one used to become its own agent
@@ -41,43 +35,45 @@ fn builtin_window(adapter: AdapterKind) -> Duration {
 /// `subscription.adapter_kind`, which holds the connection's kind: a GitHub PR
 /// Loop reads `github` there and never reaches the `github_pr` default. A
 /// delivery-only Subscription has no Loop and so no window: never buffered.
-pub(crate) fn buffer_window(subscription: &SubscriptionMatch, event_kind: AdapterKind) -> Duration {
+pub(crate) fn buffer_window(
+    subscription: &SubscriptionMatch,
+    event_kind: AdapterKind,
+    deployment: &MessageBufferConfig,
+) -> Duration {
     if subscription.is_delivery_only() {
         return Duration::ZERO;
     }
-    configured_window(subscription.message_buffer_seconds, event_kind)
+    configured_window(subscription.message_buffer_seconds, event_kind, deployment)
 }
 
 /// The window for an event on `adapter`, under `loop_override`.
 ///
 /// `Duration::ZERO` means "deliver this event on its own", which is what every
 /// caller treats as buffering being off.
-fn configured_window(loop_override: Option<i32>, adapter: AdapterKind) -> Duration {
-    let seconds = loop_override.or_else(|| env_default(adapter)).map_or_else(
-        || builtin_window(adapter),
-        |seconds| Duration::from_secs(u64::from(seconds.max(0).unsigned_abs())),
-    );
+fn configured_window(
+    loop_override: Option<i32>,
+    adapter: AdapterKind,
+    deployment: &MessageBufferConfig,
+) -> Duration {
+    let seconds = loop_override
+        .or_else(|| deployment_default(adapter, deployment))
+        .map_or_else(
+            || builtin_window(adapter),
+            |seconds| Duration::from_secs(u64::from(seconds.max(0).unsigned_abs())),
+        );
     seconds.min(MAX_WINDOW)
 }
 
-/// The environment's default for `adapter`.
+/// The deployment's default for `adapter`.
 ///
-/// `None` is "the environment says nothing", so the built-in applies; `Some(0)`
+/// `None` is "the deployment says nothing", so the built-in applies; `Some(0)`
 /// is an operator explicitly turning buffering off for that kind.
-fn env_default(adapter: AdapterKind) -> Option<i32> {
-    let key = format!("{KIND_ENV_PREFIX}{}", adapter.as_str().to_uppercase());
-    read_seconds(&key).or_else(|| read_seconds(GLOBAL_ENV))
-}
-
-fn read_seconds(key: &str) -> Option<i32> {
-    let raw = std::env::var(key).ok()?;
-    match raw.trim().parse::<i32>() {
-        Ok(seconds) if seconds >= 0 => Some(seconds),
-        _ => {
-            tracing::warn!(key, value = %raw, "Ignoring unparseable inbound buffer window");
-            None
-        }
-    }
+fn deployment_default(adapter: AdapterKind, deployment: &MessageBufferConfig) -> Option<i32> {
+    deployment
+        .per_kind_seconds
+        .get(&adapter.as_str().to_uppercase())
+        .copied()
+        .or(deployment.global_seconds)
 }
 
 #[cfg(test)]
@@ -88,6 +84,10 @@ mod tests {
     use moatless_types::adapter::AdapterConnection;
 
     use super::*;
+
+    fn none() -> MessageBufferConfig {
+        MessageBufferConfig::default()
+    }
 
     fn connection() -> AdapterConnection {
         let now = Utc::now();
@@ -126,23 +126,21 @@ mod tests {
             delivery_only_subscription(&connection(), AdapterKind::GithubPr, "acme/widget");
 
         assert_eq!(
-            buffer_window(&delivery_only, AdapterKind::GithubPr),
+            buffer_window(&delivery_only, AdapterKind::GithubPr, &none()),
             Duration::ZERO
         );
     }
 
     /// The window follows the event's Adapter, so a `github_pr` event buffers
-    /// under a Loop whose Subscription says `github`. Compared against
-    /// `configured_window` rather than a minute, so an environment that sets a
-    /// default does not fail it.
+    /// under a Loop whose Subscription says `github`.
     #[test]
     fn a_pr_event_takes_the_pr_window_under_a_github_subscription() {
         assert_eq!(
-            buffer_window(&loop_subscription(None), AdapterKind::GithubPr),
-            configured_window(None, AdapterKind::GithubPr)
+            buffer_window(&loop_subscription(None), AdapterKind::GithubPr, &none()),
+            Duration::from_mins(1)
         );
         assert_eq!(
-            buffer_window(&loop_subscription(Some(5)), AdapterKind::GithubPr),
+            buffer_window(&loop_subscription(Some(5)), AdapterKind::GithubPr, &none()),
             Duration::from_secs(5)
         );
     }
@@ -160,15 +158,15 @@ mod tests {
     #[test]
     fn a_loop_override_outranks_the_builtin_in_both_directions() {
         assert_eq!(
-            configured_window(Some(5), AdapterKind::GithubPr),
+            configured_window(Some(5), AdapterKind::GithubPr, &none()),
             Duration::from_secs(5)
         );
         assert_eq!(
-            configured_window(Some(0), AdapterKind::GithubPr),
+            configured_window(Some(0), AdapterKind::GithubPr, &none()),
             Duration::ZERO
         );
         assert_eq!(
-            configured_window(Some(30), AdapterKind::Slack),
+            configured_window(Some(30), AdapterKind::Slack, &none()),
             Duration::from_secs(30)
         );
     }
@@ -176,26 +174,31 @@ mod tests {
     #[test]
     fn a_window_is_clamped_rather_than_refused() {
         assert_eq!(
-            configured_window(Some(i32::MAX), AdapterKind::Slack),
+            configured_window(Some(i32::MAX), AdapterKind::Slack, &none()),
             MAX_WINDOW
         );
         assert_eq!(
-            configured_window(Some(-7), AdapterKind::Slack),
+            configured_window(Some(-7), AdapterKind::Slack, &none()),
             Duration::ZERO
         );
     }
 
-    /// The per-kind key is derived from the kind string, so `github_pr` must
-    /// reach `ADAPTER_MESSAGE_BUFFER_SECONDS_GITHUB_PR` and not some hand-kept
-    /// second spelling of the same name.
+    /// The per-kind default is keyed by the kind string upcased, so `github_pr`
+    /// reads `ADAPTER_MESSAGE_BUFFER_SECONDS_GITHUB_PR`, and it outranks the
+    /// global default.
     #[test]
-    fn the_per_kind_env_key_is_the_kind_string_upcased() {
+    fn the_per_kind_default_outranks_the_global_one() {
+        let deployment = MessageBufferConfig {
+            global_seconds: Some(20),
+            per_kind_seconds: [("GITHUB_PR".to_string(), 7)].into(),
+        };
         assert_eq!(
-            format!(
-                "{KIND_ENV_PREFIX}{}",
-                AdapterKind::GithubPr.as_str().to_uppercase()
-            ),
-            "ADAPTER_MESSAGE_BUFFER_SECONDS_GITHUB_PR"
+            configured_window(None, AdapterKind::GithubPr, &deployment),
+            Duration::from_secs(7)
+        );
+        assert_eq!(
+            configured_window(None, AdapterKind::Slack, &deployment),
+            Duration::from_secs(20)
         );
     }
 }

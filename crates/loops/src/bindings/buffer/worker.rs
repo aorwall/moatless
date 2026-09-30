@@ -13,7 +13,6 @@ use tracing::{error, info, warn};
 
 use super::dao::{BufferedBatch, MessageBufferStore};
 use crate::bindings::runtime::RoutingService;
-use crate::worker_identity::worker_owner_id;
 
 /// How often the flusher looks for a closed window. The window itself is
 /// measured in tens of seconds, so this only bounds the overshoot.
@@ -33,11 +32,12 @@ const BATCH_BINDINGS: i64 = 16;
 #[derive(Clone)]
 pub struct MessageBufferWorker {
     store: Arc<MessageBufferStore>,
+    owner: String,
 }
 
 impl MessageBufferWorker {
-    pub(crate) fn new(store: Arc<MessageBufferStore>) -> Self {
-        Self { store }
+    pub(crate) fn new(store: Arc<MessageBufferStore>, owner: String) -> Self {
+        Self { store, owner }
     }
 
     /// Run the flusher until the root token is cancelled.
@@ -50,7 +50,7 @@ impl MessageBufferWorker {
         routing: Arc<RoutingService>,
         cancel: CancellationToken,
     ) -> tokio::task::JoinHandle<()> {
-        let owner = worker_owner_id();
+        let owner = self.owner.clone();
         info!(owner = %owner, "Inbound message buffer flusher spawned");
         tokio::spawn(run(Arc::clone(&self.store), routing, owner, cancel))
     }

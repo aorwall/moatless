@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use crate::client::{ClientError, MoatClient};
-use crate::config::{AuthMode, Config};
+use crate::config::{AuthMode, Config, LoginEnv};
 
 // ============================================================================
 // Sandbox mode: token exchange
@@ -82,7 +82,7 @@ pub async fn login(config: &Config, url_override: Option<String>) -> Result<(), 
         .to_string();
 
     match probe_auth_mode(&url).await {
-        ProbedAuthMode::Password => login_password(&url).await,
+        ProbedAuthMode::Password => login_password(&url, &config.login).await,
         ProbedAuthMode::OAuth => login_browser(&url).await,
     }
 }
@@ -121,21 +121,20 @@ async fn probe_auth_mode(url: &str) -> ProbedAuthMode {
 /// Composes two existing endpoints — no server-side CLI flow needed: password
 /// login for a session cookie, then that cookie mints an `mvk_` API key. Only
 /// the key is persisted; the password never touches disk.
-async fn login_password(url: &str) -> Result<(), ClientError> {
-    let email =
-        match std::env::var("MOATLESS_EMAIL").or_else(|_| std::env::var("MOATLESS_USERNAME")) {
-            Ok(value) if !value.is_empty() => value,
-            _ => dialoguer::Input::<String>::new()
-                .with_prompt("Email")
-                .interact_text()
-                .map_err(|e| ClientError::Api {
-                    status: 0,
-                    body: format!("Failed to read email: {e}"),
-                })?,
-        };
-    let password = match std::env::var("MOATLESS_PASSWORD") {
-        Ok(p) if !p.is_empty() => p,
-        _ => dialoguer::Password::new()
+async fn login_password(url: &str, login: &LoginEnv) -> Result<(), ClientError> {
+    let email = match login.email.clone() {
+        Some(value) => value,
+        None => dialoguer::Input::<String>::new()
+            .with_prompt("Email")
+            .interact_text()
+            .map_err(|e| ClientError::Api {
+                status: 0,
+                body: format!("Failed to read email: {e}"),
+            })?,
+    };
+    let password = match login.password.clone() {
+        Some(p) => p,
+        None => dialoguer::Password::new()
             .with_prompt("Password")
             .interact()
             .map_err(|e| ClientError::Api {

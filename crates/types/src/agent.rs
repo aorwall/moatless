@@ -20,6 +20,8 @@ pub struct CodexOAuthConfig {
     pub issuer: String,
     /// OAuth `client_id` (default: Codex CLI's `app_EMoamEEZ73f0CkXaXp7hrann`).
     pub client_id: String,
+    /// The refresh-token endpoint a stored Codex login is rotated against.
+    pub refresh_url: String,
 }
 
 // ---------------------------------------------------------------------------

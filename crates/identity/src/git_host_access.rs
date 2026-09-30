@@ -84,11 +84,14 @@ pub trait GitHostTokenValidator: Send + Sync {
 
 pub struct ProviderGitHostTokenValidator {
     client: reqwest::Client,
+    /// GitHub REST API root, from `Config::github_api_base`.
+    github_api_base: String,
 }
 
-impl Default for ProviderGitHostTokenValidator {
-    fn default() -> Self {
+impl ProviderGitHostTokenValidator {
+    pub fn new(github_api_base: String) -> Self {
         Self {
+            github_api_base,
             // `validate_gitness` reaches a self-hosted host. See
             // `moatless_core::USER_AGENT`.
             client: reqwest::Client::builder()
@@ -105,7 +108,7 @@ impl Default for ProviderGitHostTokenValidator {
 #[async_trait]
 impl GitHostTokenValidator for ProviderGitHostTokenValidator {
     async fn validate_github(&self, token: &str) -> Result<String, GitProviderError> {
-        moatless_core::github_client::validate_github_token(token).await
+        moatless_core::github_client::validate_github_token(&self.github_api_base, token).await
     }
 
     async fn validate_gitness(

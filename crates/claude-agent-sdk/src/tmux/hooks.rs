@@ -36,8 +36,7 @@ impl HookHarness {
     /// Build a fresh harness: create the temp dir, mkfifo, write the relay
     /// script, and assemble the inline settings JSON.
     pub(crate) fn create() -> Result<Self> {
-        let tmp_root =
-            std::env::var_os("TMPDIR").map_or_else(|| PathBuf::from("/tmp"), PathBuf::from);
+        let tmp_root = std::env::temp_dir();
 
         let pid = std::process::id();
         let uuid = uuid::Uuid::new_v4().simple().to_string();

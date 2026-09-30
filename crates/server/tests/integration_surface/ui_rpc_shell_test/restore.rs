@@ -255,7 +255,7 @@ async fn the_identity_is_readable_by_a_least_privilege_application_role(pool: Pg
     let ordinary = ordinary.unwrap_or_else(|error| {
         panic!(
             "an ordinary application role cannot read the environment identity, \
-             so `router_from_env` fails to start on a least-privilege \
+             so `router_if_enabled` fails to start on a least-privilege \
              deployment: {error}"
         )
     });

@@ -5,11 +5,12 @@
 
 use std::env;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use claude_agent_sdk::PermissionMode;
 use moatless_workspace_types::plugin::PluginDelivery;
 use moatless_workspace_types::workspace::{
-    PROXIED_PROVIDER, RepoCheckout, WORKSPACE_REPOS_ENV, proxy_clone_url,
+    PROXIED_PROVIDER, RepoCheckout, WORKSPACE_LIMIT_ENV, WORKSPACE_REPOS_ENV, proxy_clone_url,
 };
 use serde::Deserialize;
 
@@ -187,6 +188,20 @@ pub struct Config {
     /// unwatched. Removes tools that would park the turn on an answer nobody
     /// can give (`AskUserQuestion`, `EnterPlanMode`, `ExitPlanMode`).
     pub headless: bool,
+    /// Credential refresh period (env: `CREDENTIAL_REFRESH_INTERVAL_SECS`,
+    /// default 900s; `0` or garbage keeps the default).
+    pub credential_refresh_interval: Duration,
+    /// Transcript upload period (env: `TRANSCRIPT_SYNC_INTERVAL_SECS`, default
+    /// 60s); `None` when set to `0`, which disables only the periodic loop.
+    pub transcript_sync_interval: Option<Duration>,
+    /// Workspace upload period (env: `WORKSPACE_SYNC_INTERVAL_SECS`, default
+    /// 60s); `None` when set to `0`, which disables only the periodic loop.
+    pub workspace_sync_interval: Option<Duration>,
+    /// The workspace volume's size limit as the pod builder wrote it (`20Gi`),
+    /// or `None` in a runtime that caps nothing.
+    pub workspace_limit: Option<String>,
+    /// The shell a terminal runs (env: `SHELL`, default `/bin/bash`).
+    pub shell: String,
 
     // ── Init-related fields ────────────────────────────────────────
     /// Home directory (default: "/home/moatless")
@@ -328,6 +343,52 @@ fn resolve_agent_profile_env() -> Option<String> {
     Some(raw.to_string())
 }
 
+/// The default credential refresh period.
+const DEFAULT_REFRESH_INTERVAL_SECS: u64 = 900;
+
+/// The default transcript and workspace upload period.
+///
+/// For the workspace it bounds the loss from an involuntary mid-turn kill, the
+/// one stop neither turn completion nor the shutdown flush covers. Affordable
+/// because a snapshot ships only the delta, and an unchanged tree is not sent.
+pub const DEFAULT_SYNC_INTERVAL_SECS: u64 = 60;
+
+fn refresh_interval(raw: Option<&str>) -> Duration {
+    Duration::from_secs(
+        raw.and_then(|v| v.parse::<u64>().ok())
+            .filter(|v| *v > 0)
+            .unwrap_or(DEFAULT_REFRESH_INTERVAL_SECS),
+    )
+}
+
+/// `0` yields `None`; unset or garbage yields the default.
+fn sync_interval(raw: Option<&str>) -> Option<Duration> {
+    match raw.map(str::parse::<u64>) {
+        Some(Ok(0)) => None,
+        Some(Ok(secs)) => Some(Duration::from_secs(secs)),
+        _ => Some(Duration::from_secs(DEFAULT_SYNC_INTERVAL_SECS)),
+    }
+}
+
+/// What a `SANDBOX_ONESHOT=sync` rescue pod reads: no backend connection, so
+/// none of [`Config`]'s required fields.
+pub struct RescueConfig {
+    pub task_id: String,
+    pub workspace_dir: String,
+    pub put_url: String,
+}
+
+impl RescueConfig {
+    pub fn from_env() -> Result<Self, String> {
+        Ok(Self {
+            task_id: env::var("TASK_ID").map_err(|_| "SANDBOX_ONESHOT=sync requires TASK_ID")?,
+            workspace_dir: env::var("WORKSPACE_DIR").unwrap_or_else(|_| "/workspace".to_string()),
+            put_url: env::var("WORKSPACE_SYNC_PUT_URL")
+                .map_err(|_| "SANDBOX_ONESHOT=sync requires WORKSPACE_SYNC_PUT_URL")?,
+        })
+    }
+}
+
 /// Where uploads go when the backend supplied no `UPLOAD_DIR`.
 ///
 /// Inside the workspace (so `workspace_sync` restores it) but a sibling of the
@@ -402,12 +463,11 @@ impl Config {
 
         let home_dir = env::var("HOME").unwrap_or_else(|_| "/home/moatless".to_string());
 
-        // Resolve via the shared helper so the sandbox mirrors the Claude CLI
-        // and SDK: `CLAUDE_CONFIG_DIR`, then its `CLAUDE_HOME` alias, then
-        // `{home_dir}/.claude` (home_dir keeps the `/home/moatless` fallback).
-        let claude_config_dir = claude_agent_sdk::resolve_claude_config_dir(&home_dir)
-            .display()
-            .to_string();
+        // Mirrors the Claude CLI: `CLAUDE_CONFIG_DIR`, then its `CLAUDE_HOME`
+        // alias, then `{home_dir}/.claude`.
+        let claude_config_dir = env::var("CLAUDE_CONFIG_DIR")
+            .or_else(|_| env::var("CLAUDE_HOME"))
+            .unwrap_or_else(|_| format!("{home_dir}/.claude"));
         let codex_home_dir =
             env::var("CODEX_HOME").unwrap_or_else(|_| format!("{home_dir}/.codex"));
 
@@ -506,6 +566,20 @@ impl Config {
             workspace_sync_enabled: env_flag_enabled("WORKSPACE_SYNC_ENABLED"),
             workspace_restore_if_empty: env_flag_enabled("WORKSPACE_RESTORE_IF_EMPTY"),
             headless: env_flag_enabled("SANDBOX_HEADLESS"),
+            credential_refresh_interval: refresh_interval(
+                env::var("CREDENTIAL_REFRESH_INTERVAL_SECS").ok().as_deref(),
+            ),
+            transcript_sync_interval: sync_interval(
+                env::var("TRANSCRIPT_SYNC_INTERVAL_SECS").ok().as_deref(),
+            ),
+            workspace_sync_interval: sync_interval(
+                env::var("WORKSPACE_SYNC_INTERVAL_SECS").ok().as_deref(),
+            ),
+            workspace_limit: env::var(WORKSPACE_LIMIT_ENV)
+                .ok()
+                .map(|raw| raw.trim().to_string())
+                .filter(|raw| !raw.is_empty()),
+            shell: env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string()),
 
             home_dir,
             codex_home_dir,
@@ -565,7 +639,11 @@ impl Config {
 /// Test-only helpers for constructing a [`Config`] without env vars.
 #[cfg(test)]
 pub(crate) mod test_support {
-    use super::{AgentConfig, Config, PermissionMode};
+    use super::{
+        AgentConfig, Config, DEFAULT_REFRESH_INTERVAL_SECS, DEFAULT_SYNC_INTERVAL_SECS,
+        PermissionMode,
+    };
+    use std::time::Duration;
 
     /// A minimal [`Config`] with empty/default values, suitable for unit tests
     /// that only exercise a few fields. Callers override what they need.
@@ -599,6 +677,11 @@ pub(crate) mod test_support {
             workspace_sync_enabled: false,
             workspace_restore_if_empty: false,
             headless: false,
+            credential_refresh_interval: Duration::from_secs(DEFAULT_REFRESH_INTERVAL_SECS),
+            transcript_sync_interval: Some(Duration::from_secs(DEFAULT_SYNC_INTERVAL_SECS)),
+            workspace_sync_interval: Some(Duration::from_secs(DEFAULT_SYNC_INTERVAL_SECS)),
+            workspace_limit: None,
+            shell: "/bin/bash".to_string(),
             home_dir: "/tmp/home".to_string(),
             codex_home_dir: "/tmp/home/.codex".to_string(),
             claude_config_dir: "/tmp/home/.claude".to_string(),
@@ -685,6 +768,21 @@ mod tests {
         env_flag_value_enabled, is_safe_mount_name, parse_permission_mode, parse_repo_checkouts,
         primary_checkout, resolve_agent_config,
     };
+    use std::time::Duration;
+
+    #[test]
+    fn sync_intervals_default_and_disable() {
+        let default = Some(Duration::from_secs(super::DEFAULT_SYNC_INTERVAL_SECS));
+        assert_eq!(super::sync_interval(None), default);
+        assert_eq!(super::sync_interval(Some("0")), None);
+        assert_eq!(
+            super::sync_interval(Some("30")),
+            Some(Duration::from_secs(30))
+        );
+        assert_eq!(super::sync_interval(Some("garbage")), default);
+        assert_eq!(super::refresh_interval(Some("0")), Duration::from_mins(15));
+        assert_eq!(super::refresh_interval(Some("5")), Duration::from_secs(5));
+    }
 
     /// Unset and empty are "no opinion", so a default-on setting falls through
     /// to the next source instead of being switched off by absence.

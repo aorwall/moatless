@@ -31,6 +31,7 @@ fn registry_with_all_current_adapters() -> Adapters {
         crate::adapters::providers::github_pr::adapter::GithubPrAdapter::new(
             None,
             "http://localhost".to_string(),
+            moatless_core::config::DEFAULT_GITHUB_API_BASE.to_string(),
             moatless_identity::git_host_tokens::seam_over(Arc::new(StubProviderTokens::default())),
         ),
     )

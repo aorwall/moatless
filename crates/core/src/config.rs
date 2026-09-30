@@ -8,28 +8,27 @@ use std::env;
 use std::fmt;
 use std::str::FromStr;
 
-use moatless_types::adapter::LinearConfig;
+use moatless_types::adapter::{LinearConfig, MessageBufferConfig};
 use moatless_types::agent::CodexOAuthConfig;
 use moatless_types::auth::{AllowedOrigin, AuthConfig, AuthProvider, GitHubAppConfig, OidcConfig};
 use moatless_types::sandbox::SandboxProviderType;
 use moatless_types::secret::SecretsConfig;
+use moatless_types::ui_rpc::T3UiRpcConfig;
+
+use crate::feature_flags::FeatureFlags;
 
 /// Default Codex model forwarded to sandbox agents when the deployment does not
 /// override `DEFAULT_CODEX_MODEL`.
 pub const DEFAULT_CODEX_MODEL: &str = "gpt-6-astra";
 
 /// Default GitHub REST API base URL.
-const DEFAULT_API_BASE: &str = "https://api.github.com";
+pub const DEFAULT_GITHUB_API_BASE: &str = "https://api.github.com";
 
-/// Resolve the GitHub API base URL. `GITHUB_API_BASE_URL` overrides the
-/// default, for an E2E mock server or a GitHub Enterprise host. An empty value
-/// is treated as unset.
-pub fn api_base() -> String {
-    env::var("GITHUB_API_BASE_URL")
-        .ok()
+fn github_api_base_from_env() -> String {
+    env_opt("GITHUB_API_BASE_URL")
         .map(|v| v.trim().trim_end_matches('/').to_string())
         .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| DEFAULT_API_BASE.to_string())
+        .unwrap_or_else(|| DEFAULT_GITHUB_API_BASE.to_string())
 }
 
 /// Minimum length accepted for an operator-supplied `ADMIN_PASSWORD`.
@@ -108,6 +107,49 @@ fn env_str(key: &str, default: &str) -> String {
     env::var(key).unwrap_or_else(|_| default.to_string())
 }
 
+const MESSAGE_BUFFER_ENV: &str = "ADAPTER_MESSAGE_BUFFER_SECONDS";
+
+fn message_buffer_from_env() -> MessageBufferConfig {
+    let seconds = |key: &str, raw: &str| match raw.trim().parse::<i32>() {
+        Ok(seconds) if seconds >= 0 => Some(seconds),
+        _ => {
+            tracing::warn!(key, value = %raw, "Ignoring unparseable inbound buffer window");
+            None
+        }
+    };
+    let mut config = MessageBufferConfig::default();
+    // `vars_os`, not `vars`: `vars` panics on any non-Unicode entry, even an
+    // unrelated one, and would stop the backend starting.
+    for (key, raw) in env::vars_os() {
+        let Some(key) = key.to_str().filter(|k| k.starts_with(MESSAGE_BUFFER_ENV)) else {
+            continue;
+        };
+        let raw = raw.to_string_lossy();
+        if key == MESSAGE_BUFFER_ENV {
+            config.global_seconds = seconds(key, &raw);
+        } else if let Some(kind) = key
+            .strip_prefix(MESSAGE_BUFFER_ENV)
+            .and_then(|k| k.strip_prefix('_'))
+        {
+            if let Some(value) = seconds(key, &raw) {
+                config.per_kind_seconds.insert(kind.to_string(), value);
+            }
+        }
+    }
+    config
+}
+
+/// OpenAI's Codex refresh-token endpoint.
+pub const CODEX_REFRESH_URL_DEFAULT: &str = "https://auth.openai.com/oauth/token";
+
+/// `CODEX_REFRESH_TOKEN_URL_OVERRIDE` (a local mock), else the default.
+pub fn codex_refresh_url_from_env() -> String {
+    env_str(
+        "CODEX_REFRESH_TOKEN_URL_OVERRIDE",
+        CODEX_REFRESH_URL_DEFAULT,
+    )
+}
+
 /// Origins the CSRF check trusts beyond `FRONTEND_URL`, from
 /// `CSRF_TRUSTED_ORIGINS`.
 ///
@@ -170,6 +212,11 @@ pub struct ServerConfig {
     pub metrics_port: u16,
     /// gRPC port for sandbox communication (default: 50051)
     pub grpc_port: u16,
+    /// This replica's claim and lease identity: `HOSTNAME`, else unique per
+    /// process. A restarted pod keeps its hostname and so releases its claims at
+    /// once; the fallback is unique because a shared one lets replicas steal
+    /// live claims.
+    pub worker_identity: String,
 }
 
 /// Kubernetes compute substrate used for dynamically created sandbox pods.
@@ -452,7 +499,21 @@ pub struct SandboxConfig {
     /// Env `SANDBOX_EGRESS_PROXY_NO_PROXY` (default covers localhost, the
     /// cluster domain, RFC-1918, and the link-local metadata IP).
     pub egress_proxy_no_proxy: String,
+    /// The backend's own values for [`LOCAL_PASSTHROUGH_ENV`], which a local
+    /// sandbox process (`SANDBOX_PROVIDER=local`) inherits.
+    pub local_passthrough_env: Vec<(String, String)>,
 }
+
+/// The credentials and `PATH` a local sandbox process takes from the backend.
+const LOCAL_PASSTHROUGH_ENV: &[&str] = &[
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_BASE_URL",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "OPENAI_API_KEY",
+    "OPENAI_BASE_URL",
+    "CODEX_AUTH_JSON",
+    "PATH",
+];
 
 /// Proxy / Traefik `IngressRoute` settings.
 #[derive(Debug, Clone)]
@@ -767,6 +828,28 @@ impl OtelConfig {
     }
 }
 
+/// The `T3_*` settings; a non-boolean `T3_UI_RPC_ENABLED` fails startup.
+fn t3_ui_rpc_from_env() -> Result<T3UiRpcConfig, ConfigError> {
+    Ok(T3UiRpcConfig {
+        enabled: parse_enabled("T3_UI_RPC_ENABLED", &env_str("T3_UI_RPC_ENABLED", ""))?,
+        allowed_origins: moatless_types::auth::parse_allowed_origins(
+            &env_opt("T3_UI_RPC_ALLOWED_ORIGINS").unwrap_or_default(),
+        ),
+        client_traces_endpoint: env_opt("T3_CLIENT_OTLP_TRACES_ENDPOINT"),
+        cliproxy_url: env_opt("T3_UI_RPC_CLIPROXY_URL"),
+        cliproxy_management_key: env_opt("T3_UI_RPC_CLIPROXY_MANAGEMENT_KEY"),
+        cliproxy_label: env_opt("T3_UI_RPC_CLIPROXY_LABEL"),
+    })
+}
+
+fn parse_enabled(key: &str, value: &str) -> Result<bool, ConfigError> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Ok(true),
+        "0" | "false" | "no" | "off" | "" => Ok(false),
+        _ => Err(ConfigError::Invalid(format!("{key} must be true or false"))),
+    }
+}
+
 // =========================================================================
 // Top-level Config
 // =========================================================================
@@ -796,12 +879,19 @@ pub struct Config {
     pub slack: SlackConfig,
     pub telegram: TelegramConfig,
     pub github_pr: GithubPrConfig,
+    /// GitHub REST API root, without a trailing `/`. `GITHUB_API_BASE_URL`
+    /// overrides [`DEFAULT_GITHUB_API_BASE`], for an E2E mock server or a
+    /// GitHub Enterprise host; an empty value counts as unset.
+    pub github_api_base: String,
     pub linear: LinearConfig,
     pub decision: DecisionConfig,
     pub skill: SkillConfig,
     pub secrets: SecretsConfig,
     pub codex_oauth: CodexOAuthConfig,
     pub otel: OtelConfig,
+    pub t3_ui_rpc: T3UiRpcConfig,
+    pub feature_flags: FeatureFlags,
+    pub message_buffer: MessageBufferConfig,
 }
 
 /// Configuration validation errors.
@@ -849,6 +939,8 @@ impl Config {
                 port: env_or("PORT", 8080),
                 metrics_port: env_or("METRICS_PORT", 9090),
                 grpc_port: env_or("GRPC_PORT", 50051),
+                worker_identity: env_opt("HOSTNAME")
+                    .unwrap_or_else(|| format!("unknown-host-{}", uuid::Uuid::new_v4())),
             },
 
             sandbox_provider,
@@ -934,6 +1026,10 @@ impl Config {
                     "localhost,127.0.0.1,::1,.svc,.svc.cluster.local,.cluster.local,\
                      10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.169.254,kubernetes.default",
                 ),
+                local_passthrough_env: LOCAL_PASSTHROUGH_ENV
+                    .iter()
+                    .filter_map(|key| Some(((*key).to_string(), env::var(key).ok()?)))
+                    .collect(),
             },
 
             proxy: ProxyConfig {
@@ -1051,6 +1147,7 @@ impl Config {
             github_pr: GithubPrConfig {
                 webhook_secret: env_opt("GITHUB_CHANNEL_WEBHOOK_SECRET"),
             },
+            github_api_base: github_api_base_from_env(),
 
             linear: LinearConfig {
                 webhook_secret: env_opt("LINEAR_CHANNEL_WEBHOOK_SECRET"),
@@ -1074,9 +1171,13 @@ impl Config {
             codex_oauth: CodexOAuthConfig {
                 issuer: env_str("CODEX_OAUTH_ISSUER", "https://auth.openai.com"),
                 client_id: env_str("CODEX_OAUTH_CLIENT_ID", "app_EMoamEEZ73f0CkXaXp7hrann"),
+                refresh_url: codex_refresh_url_from_env(),
             },
 
             otel: OtelConfig::from_env(),
+            t3_ui_rpc: t3_ui_rpc_from_env()?,
+            feature_flags: FeatureFlags::from_lookup(env_opt),
+            message_buffer: message_buffer_from_env(),
         };
 
         config.validate()?;
@@ -1320,6 +1421,7 @@ impl Config {
                 port: 8080,
                 metrics_port: 9090,
                 grpc_port: 50051,
+                worker_identity: "test-worker".into(),
             },
             sandbox_provider: SandboxProviderType::Kubernetes,
             sandbox: SandboxConfig {
@@ -1382,6 +1484,7 @@ impl Config {
                 egress_proxy_url: None,
                 egress_proxy_profiles: vec![],
                 egress_proxy_no_proxy: "localhost,.svc.cluster.local".into(),
+                local_passthrough_env: vec![],
             },
             proxy: ProxyConfig {
                 domain: None,
@@ -1468,6 +1571,7 @@ impl Config {
             github_pr: GithubPrConfig {
                 webhook_secret: None,
             },
+            github_api_base: DEFAULT_GITHUB_API_BASE.to_string(),
             linear: LinearConfig {
                 webhook_secret: None,
                 oauth_client_id: None,
@@ -1484,12 +1588,16 @@ impl Config {
             codex_oauth: CodexOAuthConfig {
                 issuer: "https://auth.openai.com".into(),
                 client_id: "test-codex-client".into(),
+                refresh_url: CODEX_REFRESH_URL_DEFAULT.into(),
             },
             otel: OtelConfig {
                 otlp_endpoint: None,
                 sampling_ratio: 0.1,
                 service_name: "test".into(),
             },
+            t3_ui_rpc: T3UiRpcConfig::default(),
+            feature_flags: FeatureFlags::default(),
+            message_buffer: MessageBufferConfig::default(),
         }
     }
 }

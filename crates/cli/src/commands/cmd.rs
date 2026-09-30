@@ -66,12 +66,14 @@ pub enum CmdAction {
     Kill { id: String },
 }
 
+/// `grpc_port` is [`Config::sandbox_grpc_port`](crate::config::Config::sandbox_grpc_port).
 pub async fn run(
     action: CmdAction,
     task_id: String,
     json: bool,
+    grpc_port: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut client = crate::commands::local_sandbox::connect().await?;
+    let mut client = crate::commands::local_sandbox::connect(grpc_port).await?;
 
     match action {
         CmdAction::Run {

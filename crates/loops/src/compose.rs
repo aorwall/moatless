@@ -19,6 +19,7 @@ use moatless_ports::task::TagResolver;
 use moatless_ports::task::{
     MessageAcceptor, TaskOpener, TaskReader, TranscriptAppend, TurnCounter,
 };
+use moatless_types::adapter::MessageBufferConfig;
 use moatless_types::auth::AuthConfig;
 use moatless_workspace_ports::WorkspaceResolver;
 
@@ -98,17 +99,17 @@ impl LoopGraph {
         self.delivery.clone()
     }
 
-    /// The worker that owns admitted deliveries. A host starts it last, once
-    /// every delivery handler is registered.
-    pub fn delivery_worker(&self) -> AdapterDeliveryWorker {
-        AdapterDeliveryWorker::new(self.delivery.clone())
+    /// The worker that owns admitted deliveries, claiming them as `owner`. A
+    /// host starts it last, once every delivery handler is registered.
+    pub fn delivery_worker(&self, owner: String) -> AdapterDeliveryWorker {
+        AdapterDeliveryWorker::new(self.delivery.clone(), owner)
     }
 
     /// The flusher that turns each Binding's closed buffer window into one
     /// combined Task message. A host supervises it beside the delivery worker,
     /// since a delivery that buffered is only half-done until this runs.
-    pub fn message_buffer_worker(&self) -> MessageBufferWorker {
-        MessageBufferWorker::new(self.message_buffer.clone())
+    pub fn message_buffer_worker(&self, owner: String) -> MessageBufferWorker {
+        MessageBufferWorker::new(self.message_buffer.clone(), owner)
     }
 
     /// Reconciles a repository's git-declared Loops, over the four ports the
@@ -139,6 +140,7 @@ impl LoopGraph {
             inputs.adapters,
             inputs.task_creation,
             inputs.sandbox_waker,
+            inputs.worker_id,
         )
     }
 
@@ -157,6 +159,7 @@ impl LoopGraph {
             inputs.sandbox_waker,
             inputs.adapters,
             self.message_buffer.clone(),
+            inputs.message_buffer,
         ))
     }
 
@@ -216,6 +219,8 @@ pub struct ScheduleRunnerInputs {
     pub adapters: Option<Arc<Adapters>>,
     pub task_creation: Arc<dyn TaskOpener>,
     pub sandbox_waker: Arc<dyn SandboxWaker>,
+    /// The claim identity written onto the schedules this replica fires.
+    pub worker_id: String,
 }
 
 /// The foreign ports the inbound-routing subgraph reads.
@@ -227,6 +232,8 @@ pub struct RoutingInputs {
     pub message_send: Arc<dyn MessageAcceptor>,
     pub sandbox_waker: Arc<dyn SandboxWaker>,
     pub adapters: Option<Arc<Adapters>>,
+    /// The deployment's default buffer windows.
+    pub message_buffer: MessageBufferConfig,
 }
 
 /// The foreign ports the outbound send path reads.

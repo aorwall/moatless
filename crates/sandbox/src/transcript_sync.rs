@@ -17,31 +17,11 @@ use crate::agent::harness::trajectory::ClaudeSessionFormat;
 use crate::config::Config;
 use crate::state::SandboxState;
 
-/// Default periodic-upload interval when `TRANSCRIPT_SYNC_INTERVAL_SECS` is
-/// unset.
-const DEFAULT_INTERVAL_SECS: u64 = 60;
-
 /// Bound on the sync-on-shutdown flush so it stays within the pod's 30s grace
 /// period — a stuck upload must never block the drain.
 const SHUTDOWN_FLUSH_TIMEOUT: Duration = Duration::from_secs(12);
 const CLAUDE_ARCHIVE_PREFIX: &str = "claude";
 const CODEX_SESSIONS_ARCHIVE_PREFIX: &str = "codex/sessions";
-
-/// Read the periodic upload interval from `TRANSCRIPT_SYNC_INTERVAL_SECS`
-/// (default 60s).
-///
-/// Returns `None` when set to `0`, which disables the periodic loop (download-
-/// on-start and sync-on-shutdown still run).
-pub fn read_interval_from_env() -> Option<Duration> {
-    match std::env::var("TRANSCRIPT_SYNC_INTERVAL_SECS") {
-        Ok(v) => match v.parse::<u64>() {
-            Ok(0) => None,
-            Ok(secs) => Some(Duration::from_secs(secs)),
-            Err(_) => Some(Duration::from_secs(DEFAULT_INTERVAL_SECS)),
-        },
-        Err(_) => Some(Duration::from_secs(DEFAULT_INTERVAL_SECS)),
-    }
-}
 
 /// Resolve the transcript dir: `<claude_config_dir>/projects/<dashed-cwd>`.
 ///
@@ -295,30 +275,6 @@ fn safe_join(base: &Path, rel: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn read_interval_defaults_and_disables() {
-        // Serialize via a single test since env is process-global.
-        std::env::remove_var("TRANSCRIPT_SYNC_INTERVAL_SECS");
-        assert_eq!(
-            read_interval_from_env(),
-            Some(Duration::from_secs(DEFAULT_INTERVAL_SECS))
-        );
-
-        std::env::set_var("TRANSCRIPT_SYNC_INTERVAL_SECS", "0");
-        assert_eq!(read_interval_from_env(), None);
-
-        std::env::set_var("TRANSCRIPT_SYNC_INTERVAL_SECS", "30");
-        assert_eq!(read_interval_from_env(), Some(Duration::from_secs(30)));
-
-        std::env::set_var("TRANSCRIPT_SYNC_INTERVAL_SECS", "garbage");
-        assert_eq!(
-            read_interval_from_env(),
-            Some(Duration::from_secs(DEFAULT_INTERVAL_SECS))
-        );
-
-        std::env::remove_var("TRANSCRIPT_SYNC_INTERVAL_SECS");
-    }
 
     #[tokio::test]
     async fn tar_round_trip_preserves_claude_transcripts_and_codex_sessions() {

@@ -29,6 +29,33 @@ pub struct Config {
     pub session_file: String,
     /// Session cookie name.
     pub cookie_name: String,
+    /// What `moat login` fills its prompts from instead of asking.
+    pub login: LoginEnv,
+    /// The loopback port of this sandbox's own gRPC server: `GRPC_PORT`, else
+    /// 50052.
+    pub sandbox_grpc_port: String,
+    /// Whether the caller already names a repository for `gh` through `GH_REPO`.
+    pub gh_repo_set: bool,
+    /// Whether `GH_TOKEN` or `GITHUB_TOKEN` holds a non-blank token.
+    pub github_token_set: bool,
+}
+
+/// `moat login`'s non-interactive inputs, each `None` when unset or empty.
+#[derive(Clone, Default)]
+pub struct LoginEnv {
+    /// `MOATLESS_EMAIL`, else `MOATLESS_USERNAME`.
+    pub email: Option<String>,
+    /// `MOATLESS_PASSWORD`.
+    pub password: Option<String>,
+}
+
+impl std::fmt::Debug for LoginEnv {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoginEnv")
+            .field("email", &self.email)
+            .field("password", &self.password.as_ref().map(|_| "[REDACTED]"))
+            .finish()
+    }
 }
 
 impl Config {
@@ -80,6 +107,19 @@ impl Config {
             auth_mode,
             session_file,
             cookie_name,
+            login: LoginEnv {
+                email: std::env::var("MOATLESS_EMAIL")
+                    .or_else(|_| std::env::var("MOATLESS_USERNAME"))
+                    .ok()
+                    .filter(|value| !value.is_empty()),
+                password: std::env::var("MOATLESS_PASSWORD")
+                    .ok()
+                    .filter(|value| !value.is_empty()),
+            },
+            sandbox_grpc_port: std::env::var("GRPC_PORT").unwrap_or_else(|_| "50052".to_string()),
+            gh_repo_set: std::env::var_os("GH_REPO").is_some(),
+            github_token_set: std::env::var("GH_TOKEN").is_ok_and(|v| !v.trim().is_empty())
+                || std::env::var("GITHUB_TOKEN").is_ok_and(|v| !v.trim().is_empty()),
         }
     }
 

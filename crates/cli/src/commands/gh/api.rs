@@ -79,19 +79,19 @@ pub(super) async fn run_api(
     let (args, skip_record) = strip_no_record(args);
     let args = args.as_slice();
     let Some(created) = parse_api_creation(&args[1..]) else {
-        return passthrough(args, gh_repo);
+        return passthrough(cfg, args, gh_repo);
     };
     let Some(task_id) = cfg.task_id().map(str::to_string) else {
-        return passthrough(args, gh_repo);
+        return passthrough(cfg, args, gh_repo);
     };
     if skip_record {
-        return passthrough(args, gh_repo);
+        return passthrough(cfg, args, gh_repo);
     }
     if let Some(flag) = output_replacing_flag(&args[1..]) {
         return Err(refuse_filtered_write(&flag, created.kind).into());
     }
 
-    let token = github_token_for_gh();
+    let token = github_token_for_gh(cfg.github_token_set);
     let output = gh_command(args, token.as_deref(), gh_repo)
         .stderr(std::process::Stdio::inherit())
         .output()

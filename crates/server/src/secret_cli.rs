@@ -122,6 +122,9 @@ pub struct MigrateArgs {
     /// global.
     #[arg(long, default_value_t = 3)]
     pub global_threshold: usize,
+    /// Must be `yes` for a run that writes.
+    #[arg(long, env = "MOATLESS_CLI_CONFIRM")]
+    pub confirm: Option<String>,
 }
 
 const CLI_ACTOR: &str = "cli";
@@ -137,8 +140,7 @@ pub async fn run(cli: SecretsCli) -> Result<(), Box<dyn std::error::Error>> {
         SecretsCommand::Put(args) => put(&service, args).await?,
         SecretsCommand::Delete(args) => delete(&service, args).await?,
         SecretsCommand::MigrateRepoEnvVars(args) => {
-            if !args.dry_run && std::env::var("MOATLESS_CLI_CONFIRM").ok().as_deref() != Some("yes")
-            {
+            if !args.dry_run && args.confirm.as_deref() != Some("yes") {
                 return Err(
                     "refusing to run without MOATLESS_CLI_CONFIRM=yes (or pass --dry-run)".into(),
                 );

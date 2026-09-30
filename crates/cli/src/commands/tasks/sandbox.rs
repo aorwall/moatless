@@ -78,11 +78,15 @@ pub(super) fn self_restart_note(
 ///
 /// Runs before the operation, because the operation never returns — the pod
 /// dies while the request is in flight, taking this process with it.
-pub(super) async fn record_wake_note(task_id: &str, text: Option<&str>) -> Result<(), ClientError> {
+pub(super) async fn record_wake_note(
+    grpc_port: &str,
+    task_id: &str,
+    text: Option<&str>,
+) -> Result<(), ClientError> {
     let Some(text) = text else {
         return Ok(());
     };
-    let mut client = crate::commands::local_sandbox::connect()
+    let mut client = crate::commands::local_sandbox::connect(grpc_port)
         .await
         .map_err(|e| ClientError::Other(e.to_string()))?;
     client
@@ -105,7 +109,12 @@ pub(super) async fn record_wake_note(task_id: &str, text: Option<&str>) -> Resul
 /// Only a backend refusal (`Api`, `Unauthorized`, `NotLoggedIn`) cancels it; a
 /// transport error keeps it, since it can't be told apart from a pod already
 /// going down.
-pub(super) async fn cancel_wake_note(task_id: &str, recorded: bool, error: &ClientError) {
+pub(super) async fn cancel_wake_note(
+    grpc_port: &str,
+    task_id: &str,
+    recorded: bool,
+    error: &ClientError,
+) {
     let refused = matches!(
         error,
         ClientError::Api { .. } | ClientError::Unauthorized | ClientError::NotLoggedIn
@@ -114,7 +123,7 @@ pub(super) async fn cancel_wake_note(task_id: &str, recorded: bool, error: &Clie
         return;
     }
     let outcome = async {
-        crate::commands::local_sandbox::connect()
+        crate::commands::local_sandbox::connect(grpc_port)
             .await
             .map_err(|e| e.to_string())?
             .cancel_wake_note(sandbox_proto::CancelWakeNoteRequest {
@@ -368,6 +377,10 @@ mod tests {
             },
             session_file: "/tmp/.moat_session".to_string(),
             cookie_name: "moatless_session".to_string(),
+            login: crate::config::LoginEnv::default(),
+            sandbox_grpc_port: "50052".to_string(),
+            gh_repo_set: false,
+            github_token_set: false,
         }
     }
 

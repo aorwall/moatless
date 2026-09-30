@@ -14,7 +14,6 @@ use tracing::{error, info, warn};
 
 use super::dao::AdapterDeliveryStore;
 use super::metrics::{record_backlog, record_execution};
-use crate::worker_identity::worker_owner_id;
 use moatless_adapter_model::delivery::AdapterDeliveryHandlers;
 use moatless_adapter_model::delivery::{AdapterDelivery, AdapterDeliveryFailure};
 
@@ -25,11 +24,12 @@ use moatless_adapter_model::delivery::{AdapterDelivery, AdapterDeliveryFailure};
 #[derive(Clone)]
 pub struct AdapterDeliveryWorker {
     store: Arc<AdapterDeliveryStore>,
+    owner: String,
 }
 
 impl AdapterDeliveryWorker {
-    pub(crate) fn new(store: Arc<AdapterDeliveryStore>) -> Self {
-        Self { store }
+    pub(crate) fn new(store: Arc<AdapterDeliveryStore>, owner: String) -> Self {
+        Self { store, owner }
     }
 
     /// Run the Adapter delivery worker until the root token is cancelled.
@@ -42,7 +42,7 @@ impl AdapterDeliveryWorker {
         handlers: Arc<AdapterDeliveryHandlers>,
         cancel: CancellationToken,
     ) -> tokio::task::JoinHandle<()> {
-        let owner = worker_owner_id();
+        let owner = self.owner.clone();
         info!(
             owner = %owner,
             kinds = handlers.kinds().len(),
@@ -416,10 +416,6 @@ mod db_tests {
     }
 
     /// The claim identity a restart-recovery test pins its worker to.
-    ///
-    /// Fixed rather than derived, since `worker_owner_id`'s HOSTNAME-unset
-    /// fallback is per-process random, which would make owner-matched recovery
-    /// depend on the environment the suite runs in.
     const TEST_OWNER: &str = "test-worker";
 
     /// Drive the worker until `done` holds or `budget` elapses, then cancel it
@@ -431,15 +427,15 @@ mod db_tests {
         done: impl Fn() -> bool + Send,
     ) {
         let cancel = CancellationToken::new();
-        let handle = AdapterDeliveryWorker::new(Arc::clone(store)).spawn(handlers, cancel.clone());
+        let handle = AdapterDeliveryWorker::new(Arc::clone(store), TEST_OWNER.to_string())
+            .spawn(handlers, cancel.clone());
         drive(handle, cancel, budget, done).await;
     }
 
     /// As [`run_worker_until`], but with the worker's claim identity pinned.
     ///
     /// Only for tests that seed a `claimed` row and expect the worker to
-    /// recognise it as its own; `run` takes the owner explicitly here so
-    /// recovery isn't left to depend on the environment's `HOSTNAME`.
+    /// recognise it as its own.
     async fn run_worker_until_as(
         store: &Arc<AdapterDeliveryStore>,
         handlers: Arc<AdapterDeliveryHandlers>,

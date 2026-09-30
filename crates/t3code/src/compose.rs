@@ -1,7 +1,6 @@
 use crate::config::AgentModelDefaults;
 use crate::config::UiRpcConfig;
 use crate::config::UiRpcConfigError;
-use crate::config::env_enabled;
 use crate::config::environment_id;
 use crate::dao::PgConversationDao;
 use crate::observability;
@@ -30,31 +29,24 @@ use moatless_ports::sandbox::SandboxPortPublisher;
 use moatless_ports::sandbox::SandboxStarter;
 use moatless_ports::sandbox::SandboxStopper;
 use moatless_ports::sandbox::WorkspaceSnapshotSource;
-use moatless_types::auth::AllowedOrigin;
+use moatless_types::ui_rpc::T3UiRpcConfig;
 use sandbox_proto::client::SandboxConnector;
-use std::env;
 use std::sync::Arc;
 use tracing::info;
 
-/// Read `T3_UI_RPC_ENABLED` and `T3_UI_RPC_ALLOWED_ORIGINS`, and [`mount`] the
-/// T3 compatibility router when the gate is enabled.
-///
-/// Configuration stays at this HTTP boundary rather than becoming part of
-/// sandbox or pod configuration.
-pub async fn router_from_env(
+/// [`mount`] the T3 compatibility router when `settings.enabled` turns it on.
+pub async fn router_if_enabled(
     graph: &T3Graph,
     dependencies: UiRpcDependencies,
+    settings: T3UiRpcConfig,
 ) -> Result<Option<UiRpc>, UiRpcConfigError> {
-    if !env_enabled("T3_UI_RPC_ENABLED")? {
+    if !settings.enabled {
         return Ok(None);
     }
-    let allowed_origins = moatless_types::auth::parse_allowed_origins(
-        &env::var("T3_UI_RPC_ALLOWED_ORIGINS").unwrap_or_default(),
-    );
-    mount(graph, dependencies, allowed_origins).await.map(Some)
+    mount(graph, dependencies, settings).await.map(Some)
 }
 
-/// Build the T3 compatibility router for `allowed_origins`.
+/// Build the T3 compatibility router for `settings`, enabled or not.
 ///
 /// The global Moatless auth middleware protects every route except the public
 /// discovery descriptor.
@@ -64,7 +56,7 @@ pub async fn router_from_env(
 pub async fn mount(
     graph: &T3Graph,
     dependencies: UiRpcDependencies,
-    allowed_origins: Vec<AllowedOrigin>,
+    settings: T3UiRpcConfig,
 ) -> Result<UiRpc, UiRpcConfigError> {
     let UiRpcDependencies {
         session_cookie_name,
@@ -96,17 +88,18 @@ pub async fn mount(
     let reads = graph.reads.clone();
     let environment = reads.listing_head().await?.identity;
     let usage_limit_sources =
-        crate::usage_limit_sources::UsageLimitSources::from_env(reqwest::Client::new());
+        crate::usage_limit_sources::UsageLimitSources::start(reqwest::Client::new(), &settings);
     let config = UiRpcConfig {
         environment_id: environment_id(&environment),
-        allowed_origins,
+        allowed_origins: settings.allowed_origins,
         otlp_traces_enabled,
         attachment_uploads: session_jwt_secret.is_some(),
         usage_limit_sources: usage_limit_sources.configured(),
     };
     config.validate()?;
     crate::rpc::metrics::describe();
-    let client_traces = observability::ClientTraceForwarder::from_env();
+    let client_traces =
+        observability::ClientTraceForwarder::configured(settings.client_traces_endpoint);
     info!(
         environment_id = %config.environment_id,
         // Absent means the T3 client's own spans are dropped rather than

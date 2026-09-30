@@ -32,6 +32,8 @@ pub struct CredentialService {
     /// Shared HTTP client for the Codex refresh path. Reused so connection
     /// pools are warm across refreshes.
     pub(in crate::credentials) http: Option<Arc<reqwest::Client>>,
+    /// The endpoint `http` posts a Codex refresh to; set with it.
+    pub(in crate::credentials) codex_refresh_url: Option<String>,
 }
 
 impl CredentialService {
@@ -49,6 +51,7 @@ impl CredentialService {
             secrets: None,
             locks,
             http: None,
+            codex_refresh_url: None,
         }
     }
 
@@ -59,13 +62,18 @@ impl CredentialService {
         self
     }
 
-    /// Wire in the HTTP client the Codex refresh path calls OpenAI with.
+    /// Wire in the HTTP client the Codex refresh path calls `refresh_url` with.
     ///
     /// Left unset (e.g. unit tests), `refresh_codex_locked` falls back to a raw
     /// read.
     #[must_use]
-    pub(crate) fn with_codex_refresh(mut self, http: Arc<reqwest::Client>) -> Self {
+    pub(crate) fn with_codex_refresh(
+        mut self,
+        http: Arc<reqwest::Client>,
+        refresh_url: String,
+    ) -> Self {
         self.http = Some(http);
+        self.codex_refresh_url = Some(refresh_url);
         self
     }
 

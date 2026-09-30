@@ -20,6 +20,7 @@ pub mod declaration_only_roots;
 pub mod dependency_privacy;
 pub mod duplicate_comment_prose;
 pub mod duplicate_names;
+pub mod env_read_owner;
 pub mod file_size;
 pub mod floor_type_admission;
 pub mod manifest_inheritance;

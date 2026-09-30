@@ -35,8 +35,7 @@ use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;
 
 use common::{
-    github_api_base, make_repository_row, make_task_row, seed_team, test_app_state_with_adapters,
-    test_config,
+    make_repository_row, make_task_row, seed_team, test_app_state_with_adapters, test_config,
 };
 
 const CONNECTION_ID: &str = "conn-github-redelivery";
@@ -160,6 +159,14 @@ async fn registered_replica(pool: &PgPool, webhook_secret: Option<&str>) -> AppS
     let mut config = test_config();
     config.auth.frontend_url = "https://app.example.com".to_string();
     config.github_pr.webhook_secret = webhook_secret.map(str::to_string);
+    test_app_state_with_adapters(pool.clone(), config)
+}
+
+/// A replica whose GitHub REST calls go to the stub at `base_url`.
+async fn stubbed_replica(pool: &PgPool, base_url: &str) -> AppState {
+    let mut config = test_config();
+    config.auth.frontend_url = "https://app.example.com".to_string();
+    config.github_api_base = base_url.to_string();
     test_app_state_with_adapters(pool.clone(), config)
 }
 
@@ -929,10 +936,9 @@ async fn partial_pr_payload_projects_status_before_current_acknowledged_no_effec
     pool: PgPool,
 ) {
     let (base_url, requests) = request_counting_github_stub().await;
-    let _github_api = github_api_base(&base_url).await;
 
     seed_fixtures(&pool, "task-partial-status").await;
-    let state = registered_replica(&pool, None).await;
+    let state = stubbed_replica(&pool, &base_url).await;
     let payload = serde_json::json!({
         "action": "ready_for_review",
         "repository": {
@@ -983,10 +989,9 @@ async fn rejected_post_merge_candidate_spends_zero_github_calls_during_webhook_n
     pool: PgPool,
 ) {
     let (base_url, requests) = request_counting_github_stub().await;
-    let _github_api = github_api_base(&base_url).await;
 
     seed_fixtures(&pool, "task-rejected-post-merge-webhook").await;
-    let state = registered_replica(&pool, None).await;
+    let state = stubbed_replica(&pool, &base_url).await;
     let accepted = webhook_response(
         &state,
         headers("workflow_run", "delivery-rejected-post-merge-webhook"),
@@ -1013,7 +1018,6 @@ async fn rejected_post_merge_candidate_spends_zero_github_calls_during_webhook_n
 #[sqlx::test]
 async fn build_result_routes_to_producer_then_shared_fallback(pool: PgPool) {
     let (base_url, requests) = request_counting_github_stub().await;
-    let _github_api = github_api_base(&base_url).await;
 
     let producer = "task-build-producer";
     let responder = "task-build-responder";
@@ -1023,7 +1027,7 @@ async fn build_result_routes_to_producer_then_shared_fallback(pool: PgPool) {
         .execute(&pool)
         .await
         .expect("suppress unrelated conflict transition notices");
-    let state = registered_replica(&pool, None).await;
+    let state = stubbed_replica(&pool, &base_url).await;
 
     let accepted = webhook_response(
         &state,
@@ -1089,13 +1093,12 @@ async fn durable_workflows_preserve_audience_fallback_and_github_call_budgets(po
     common::seed_github_token(&pool, CONNECTION_USER).await;
     common::seed_github_token(&pool, TASK_USER).await;
     let (base_url, requests) = request_counting_github_stub().await;
-    let _github_api = github_api_base(&base_url).await;
 
     let producer = "task-pr-producer";
     let responder = "task-pr-responder";
     seed_fixtures(&pool, producer).await;
     seed_bound_task(&pool, responder, "binding-responder", "ingress").await;
-    let state = registered_replica(&pool, None).await;
+    let state = stubbed_replica(&pool, &base_url).await;
 
     assert_eq!(
         state
@@ -1344,14 +1347,13 @@ async fn a_redelivery_on_a_different_replica_does_no_second_effect(pool: PgPool)
     // is clean, which keeps the check a no-op past the read: the one message on
     // the task stays the comment.
     let (base_url, _requests) = request_counting_github_stub_with_mergeable_state("clean").await;
-    let _github_api = github_api_base(&base_url).await;
 
     let task_id = "task-gh-redelivery";
     seed_fixtures(&pool, task_id).await;
 
     let payload = issue_comment_payload(9001, "octocat");
-    let state_a = registered_replica(&pool, None).await;
-    let state_b = registered_replica(&pool, None).await;
+    let state_a = stubbed_replica(&pool, &base_url).await;
+    let state_b = stubbed_replica(&pool, &base_url).await;
 
     let first = deliver(&state_a, "issue_comment", "delivery-1", &payload).await;
     let redelivery = deliver(&state_b, "issue_comment", "delivery-1", &payload).await;

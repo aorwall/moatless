@@ -17,7 +17,6 @@ use crate::state::AppState;
 use crate::supervisor::{Criticality, Supervisor};
 use crate::t3code;
 use moatless_core::config::Config;
-use moatless_core::feature_flags::FeatureFlags;
 use moatless_identity::auth;
 use moatless_tasks::agent_event::EventKey;
 use moatless_tasks::task_listing;
@@ -83,7 +82,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         config
     };
-    let feature_flags = FeatureFlags::from_env();
+    let feature_flags = config.feature_flags;
     // Set only if `ui_rpc` below mounts the T3 compatibility routes; reported
     // as-is in the feature-flags response.
     let mut device_pairing = false;
@@ -228,6 +227,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     config.sandbox.node_archive_enabled,
                     lifecycle.clone(),
                     storage_fallback.clone(),
+                    config.server.worker_identity.clone(),
                 ),
             );
             info!(
@@ -481,15 +481,15 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         );
 
         // Build cron leader guard before reaper_k8s is moved
-        let cron_leader = reaper_k8s
-            .as_ref()
-            .map(|k8s| crate::compose::workers::leader(k8s, "moatless-cron-scheduler", 120));
+        let cron_leader = reaper_k8s.as_ref().map(|k8s| {
+            crate::compose::workers::leader(k8s, &config, "moatless-cron-scheduler", 120)
+        });
 
         // The desired-state reconciler runs in both modes: lease-elected on K8s,
         // lease-free single-replica on Docker (a `None` guard always reconciles).
-        let reconciler_leader = reaper_k8s
-            .as_ref()
-            .map(|k8s| crate::compose::workers::leader(k8s, "moatless-sandbox-reconciler", 120));
+        let reconciler_leader = reaper_k8s.as_ref().map(|k8s| {
+            crate::compose::workers::leader(k8s, &config, "moatless-sandbox-reconciler", 120)
+        });
         let reconciler = ports.sandbox_graph.reconciler(
             app_state.sandbox.clone(),
             moatless_sandbox_control::compose::ReconcilerInputs {
@@ -697,12 +697,17 @@ fn spawn_codex_refresher(
     }
     let interval = std::time::Duration::from_secs(interval_secs);
     let lease_duration_secs: i32 = (interval.as_secs() * 2).try_into().unwrap_or(i32::MAX);
-    let leader_guard =
-        crate::compose::workers::leader(&k8s, "moatless-codex-refresher", lease_duration_secs);
+    let leader_guard = crate::compose::workers::leader(
+        &k8s,
+        &app_state.config,
+        "moatless-codex-refresher",
+        lease_duration_secs,
+    );
     let handle = moatless_tasks::credential_sync::refresher::spawn_codex_refresher(
         app_state.harness_credentials.clone(),
         Arc::clone(&app_state.credential_sync),
         leader_guard,
+        app_state.config.server.worker_identity.clone(),
         interval,
         cancel,
     );

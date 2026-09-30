@@ -17,10 +17,11 @@ use tracing::warn;
 /// to start the fork fresh rather than resume something unintended.
 pub(super) async fn write_forked_transcript(
     cwd: &str,
+    config_dir: &str,
     source_session_id: &str,
     through_message_uuid: &str,
 ) -> Option<String> {
-    let dir = match transcript_dir(Some(cwd)) {
+    let dir = match transcript_dir(Some(cwd), Some(config_dir)) {
         Ok(dir) => dir,
         Err(error) => {
             warn!(%error, "fork: could not resolve the transcript dir; starting fresh");

@@ -273,36 +273,18 @@ pub fn is_platform_owned_key(key: &str) -> bool {
     is_reserved_key(key) || is_git_auth_key(key)
 }
 
-/// `GH_TOKEN` and `GIT_TOKEN`: not secret-store keys, so they are not in
-/// `moatless_core::secret_keys`. `credentials::fetch` derives both inside the
-/// pod from a resolved provider token — `GIT_TOKEN` so `init::git` has one env
-/// var to clone with whatever the pod's provider is, `GH_TOKEN` as the name
-/// `gh` reads. Named here because a Workspace must not be able to supply
-/// either.
+/// Derived inside the pod by `credentials::fetch` from a resolved provider
+/// token, so not in `moatless_core::secret_keys`: `GIT_TOKEN` is the one name
+/// `init::git` clones with, `GH_TOKEN` the name `gh` reads.
 const GH_TOKEN: &str = "GH_TOKEN";
 const GIT_TOKEN: &str = "GIT_TOKEN";
 
-/// Every key that carries git authentication into a sandbox.
+/// Every git-authentication key minted for a task's run-as identity.
 ///
-/// All five are minted for the task's run-as identity — the first three by
-/// [`fill_git_host_tokens`], against the task's own repository; the other two
-/// derived from those by `credentials::fetch` once inside the pod. None is
-/// configuration, and a value a Workspace supplied under one of these names
-/// would be used as the clone/push credential:
-///
-/// - `fill_git_host_tokens` fills only a key that is still unset, so a
-///   Workspace-supplied provider token would not merely outrank the validated
-///   resolver, it would suppress it. Preflight and runtime delivery would then
-///   disagree about which token the sandbox holds.
-/// - `credentials::fetch` sets `GIT_TOKEN` in the process env only *if* a
-///   provider token resolved (`crates/sandbox/src/credentials/fetch.rs:190`). With
-///   none, a Workspace `GIT_TOKEN` that arrived in the pod spec is still
-///   sitting there, and `init::git::provider_git_token` and `init::workspace`
-///   read it straight out of the environment.
-/// - `GH_TOKEN` is deliberately never `set_var`'d (`ENV_SET_BLOCKLIST`) so `gh`
-///   authenticates from the refresher-owned `hosts.yml`. `gh` checks the
-///   environment first, so a Workspace `GH_TOKEN` in the pod spec defeats that
-///   outright — it is in the environment from the pod's first process.
+/// A Workspace value under one would win: [`fill_git_host_tokens`] fills only
+/// unset keys, `credentials::fetch` keeps a Workspace `GIT_TOKEN` when no
+/// provider token resolves, and `gh` reads `GH_TOKEN` before the
+/// refresher-owned `hosts.yml` (`ENV_SET_BLOCKLIST`).
 pub fn is_git_auth_key(key: &str) -> bool {
     matches!(
         key,

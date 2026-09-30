@@ -19,6 +19,7 @@ use tracing::{info, warn};
 use super::gh_hosts;
 use super::ssh;
 use crate::config::Config;
+use crate::init::git::{GIT_TOKEN, GitCredentials};
 use crate::state::SandboxState;
 
 /// Outcome of a failed credential fetch, so init can pick the right exit code.
@@ -43,17 +44,20 @@ impl std::fmt::Display for CredentialFetchError {
 
 /// Keys that must NOT be set in the sandbox process environment via `set_var`.
 ///
-/// `gh` checks env vars before `~/.config/gh/hosts.yml`; setting these would
-/// freeze a stale value for the pod's lifetime — auth for these stays
-/// exclusively in hosts.yml, which the refresher rewrites each cycle.
-const ENV_SET_BLOCKLIST: &[&str] = &["GITHUB_TOKEN", "GH_TOKEN"];
+/// A value set there freezes for the pod's lifetime. `gh` checks env vars
+/// before `~/.config/gh/hosts.yml`, which the refresher rewrites each cycle,
+/// and git setup takes its tokens from `SandboxState::git_credentials`.
+const ENV_SET_BLOCKLIST: &[&str] = &[
+    "GITHUB_TOKEN",
+    "GH_TOKEN",
+    "GITLAB_TOKEN",
+    "GITNESS_TOKEN",
+    GIT_TOKEN,
+];
 
-/// Keys that must NOT be inherited by the agent subprocess.
-///
-/// `GIT_TOKEN` stays set in the sandbox process env for init-time git clone,
-/// but must not reach the long-lived agent subprocess — same staleness reason
-/// as the keys above.
-const AGENT_EXCLUDED_KEYS: &[&str] = &["GITHUB_TOKEN", "GH_TOKEN", "GIT_TOKEN"];
+/// Keys that must NOT be inherited by the agent subprocess, which would
+/// snapshot a stale value at spawn time.
+const AGENT_EXCLUDED_KEYS: &[&str] = ENV_SET_BLOCKLIST;
 
 /// Credential key for the long-lived user auth token.
 ///
@@ -145,9 +149,8 @@ pub async fn fetch_and_apply_credentials_with_mode(
                     persist_user_auth_token(&state.config, &user_token).await;
                 }
 
-                // Set each credential as an env var for the sandbox process itself
-                // (init-time git clone, `gh` invocations, etc.).
-                // GITHUB_TOKEN and GH_TOKEN are skipped — see ENV_SET_BLOCKLIST.
+                // Set each credential as an env var for the sandbox process itself,
+                // except the git-auth keys in ENV_SET_BLOCKLIST.
                 for (key, value) in &resp.credentials {
                     if ENV_SET_BLOCKLIST.contains(&key.as_str()) {
                         continue;
@@ -161,7 +164,7 @@ pub async fn fetch_and_apply_credentials_with_mode(
                 }
 
                 // Map provider-specific token to GIT_TOKEN based on GIT_PROVIDER
-                // so git.rs can use a single env var for clone authentication.
+                // so git.rs has one name for the pod provider's token.
                 let git_provider = state.config.git_provider.as_str();
                 let provider_token_key = match git_provider {
                     "gitlab" => "GITLAB_TOKEN",
@@ -169,13 +172,10 @@ pub async fn fetch_and_apply_credentials_with_mode(
                     _ => "GITHUB_TOKEN", // default to GitHub
                 };
                 if let Some(token) = resp.credentials.get(provider_token_key).cloned() {
-                    resp.credentials
-                        .insert("GIT_TOKEN".to_string(), token.clone());
-                    // SAFETY: see note at top of this file.
-                    unsafe {
-                        std::env::set_var("GIT_TOKEN", &token);
-                    }
+                    resp.credentials.insert(GIT_TOKEN.to_string(), token);
                 }
+                *state.git_credentials.write().await =
+                    GitCredentials::from_credentials(&resp.credentials);
 
                 // Alias GITHUB_TOKEN → GH_TOKEN in the credentials map for
                 // filter_agent_credentials to strip. Neither is set in the process
@@ -727,6 +727,8 @@ mod tests {
         credentials.insert("GITHUB_TOKEN".to_string(), "gh".to_string());
         credentials.insert("GH_TOKEN".to_string(), "gh2".to_string());
         credentials.insert("GIT_TOKEN".to_string(), "git".to_string());
+        credentials.insert("GITLAB_TOKEN".to_string(), "gl".to_string());
+        credentials.insert("GITNESS_TOKEN".to_string(), "gn".to_string());
         credentials.insert("ANTHROPIC_API_KEY".to_string(), "anth".to_string());
         credentials.insert("CLAUDE_CODE_OAUTH_TOKEN".to_string(), "claude".to_string());
 
@@ -735,6 +737,8 @@ mod tests {
         assert!(!filtered.contains_key("GITHUB_TOKEN"));
         assert!(!filtered.contains_key("GH_TOKEN"));
         assert!(!filtered.contains_key("GIT_TOKEN"));
+        assert!(!filtered.contains_key("GITLAB_TOKEN"));
+        assert!(!filtered.contains_key("GITNESS_TOKEN"));
         assert_eq!(filtered.get("ANTHROPIC_API_KEY"), Some(&"anth".to_string()));
         assert_eq!(
             filtered.get("CLAUDE_CODE_OAUTH_TOKEN"),

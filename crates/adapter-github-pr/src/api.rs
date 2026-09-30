@@ -140,18 +140,8 @@ pub(super) struct GithubPrApi {
 }
 
 impl GithubPrApi {
-    pub(super) fn new(token: &str) -> Self {
-        Self {
-            client: Client::new(),
-            token: token.to_string(),
-            base_url: moatless_core::config::api_base(),
-        }
-    }
-
-    /// Point the client at a caller-supplied REST root so tests can drive the
-    /// real request path against a local address.
-    #[cfg(test)]
-    pub(super) fn with_base_url(token: &str, base_url: impl Into<String>) -> Self {
+    /// A client for `token` against the REST root `base_url`.
+    pub(super) fn new(token: &str, base_url: impl Into<String>) -> Self {
         Self {
             client: Client::new(),
             token: token.to_string(),
@@ -719,7 +709,7 @@ mod error_source_tests {
 
     #[tokio::test]
     async fn unreachable_github_keeps_transport_source() {
-        let api = GithubPrApi::with_base_url("ghp_test", UNREACHABLE_BASE);
+        let api = GithubPrApi::new("ghp_test", UNREACHABLE_BASE);
 
         let err = api
             .post_comment("acme", "widgets", 7, "hi")
@@ -741,7 +731,7 @@ mod error_source_tests {
     #[tokio::test]
     async fn undecodable_github_body_keeps_decode_source() {
         let base = stub_provider(StatusCode::CREATED, "<html>not json</html>").await;
-        let api = GithubPrApi::with_base_url("ghp_test", base);
+        let api = GithubPrApi::new("ghp_test", base);
 
         let err = api
             .post_comment("acme", "widgets", 7, "hi")
@@ -762,7 +752,7 @@ mod error_source_tests {
     #[tokio::test]
     async fn github_rejection_stays_a_synthesized_message() {
         let base = stub_provider(StatusCode::FORBIDDEN, r#"{"message":"Bad credentials"}"#).await;
-        let api = GithubPrApi::with_base_url("ghp_test", base);
+        let api = GithubPrApi::new("ghp_test", base);
 
         let err = api
             .post_comment("acme", "widgets", 7, "hi")
@@ -824,7 +814,7 @@ mod request_budget_tests {
                 .expect("GitHub stub serves");
         });
 
-        let api = GithubPrApi::with_base_url("ghp_test", format!("http://{address}"));
+        let api = GithubPrApi::new("ghp_test", format!("http://{address}"));
         let pr = api
             .get_pr_mergeable("acme", "widgets", 42)
             .await
@@ -884,7 +874,7 @@ mod find_open_pr_tests {
             axum::serve(listener, app).await.expect("stub serves");
         });
 
-        let api = GithubPrApi::with_base_url("ghp_test", format!("http://{address}"));
+        let api = GithubPrApi::new("ghp_test", format!("http://{address}"));
         let found = api
             .find_open_pr_for_head("acme", "widgets", "feature")
             .await
@@ -910,7 +900,7 @@ mod find_open_pr_tests {
             axum::serve(listener, app).await.expect("stub serves");
         });
 
-        let api = GithubPrApi::with_base_url("ghp_test", format!("http://{address}"));
+        let api = GithubPrApi::new("ghp_test", format!("http://{address}"));
         let found = api
             .find_open_pr_for_head("o", "r", "feature")
             .await
@@ -998,7 +988,7 @@ mod check_annotation_tests {
             }
         })
         .await;
-        let api = GithubPrApi::with_base_url("ghp_test", stub.base_url().to_string());
+        let api = GithubPrApi::new("ghp_test", stub.base_url().to_string());
 
         let annotations = api
             .get_check_run_annotations("acme", "widgets", 31)
@@ -1029,7 +1019,7 @@ mod check_annotation_tests {
             )
         })
         .await;
-        let api = GithubPrApi::with_base_url("ghp_test", stub.base_url().to_string());
+        let api = GithubPrApi::new("ghp_test", stub.base_url().to_string());
 
         let err = api
             .get_check_run_annotations("acme", "widgets", 31)

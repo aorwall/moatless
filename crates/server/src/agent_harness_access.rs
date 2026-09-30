@@ -407,6 +407,7 @@ mod tests {
             Arc::new(CodexOAuthConfig {
                 issuer: "https://auth.example".to_string(),
                 client_id: "client".to_string(),
+                refresh_url: moatless_core::config::CODEX_REFRESH_URL_DEFAULT.to_string(),
             }),
             Arc::new(FakeDeviceLogin {
                 poll: Mutex::new(Some(poll)),

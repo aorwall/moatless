@@ -2,6 +2,8 @@
 //! with, the messages that cross its boundary in either direction, and the
 //! values that cross its delivery seam.
 
+use std::collections::BTreeMap;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -661,4 +663,15 @@ pub struct TaskBinding {
     pub active: bool,
     /// When this binding was deactivated; `None` while active.
     pub deactivated_at: Option<DateTime<Utc>>,
+}
+
+/// Deployment defaults for how long an Adapter's inbound events are buffered, in
+/// seconds. A Loop's own `message_buffer_seconds` outranks both.
+#[derive(Debug, Clone, Default)]
+pub struct MessageBufferConfig {
+    /// `ADAPTER_MESSAGE_BUFFER_SECONDS`: the default for every Adapter kind.
+    pub global_seconds: Option<i32>,
+    /// `ADAPTER_MESSAGE_BUFFER_SECONDS_<KIND>`, keyed by the upper-cased
+    /// `AdapterKind` string; outranks `global_seconds`.
+    pub per_kind_seconds: BTreeMap<String, i32>,
 }

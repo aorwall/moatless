@@ -189,7 +189,11 @@ pub(super) async fn mounted_router(pool: &PgPool) -> axum::Router {
     moatless_t3code::mount(
         &moatless_backend::t3code::t3_graph_over(pool),
         mounted_dependencies(pool),
-        moatless_types::auth::parse_allowed_origins("http://localhost:5733"),
+        moatless_types::ui_rpc::T3UiRpcConfig {
+            enabled: true,
+            allowed_origins: moatless_types::auth::parse_allowed_origins("http://localhost:5733"),
+            ..Default::default()
+        },
     )
     .await
     .unwrap()

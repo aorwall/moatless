@@ -23,12 +23,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Exported here rather than onto one child's env map so that every
         // spawn inherits the cap — the agent CLI, a `moat cmd` build, a
         // terminal — since any of them can be the process that hits it.
-        for (key, value) in moatless_sandbox::limits::memory_env_exports() {
+        for (key, value) in
+            moatless_sandbox::limits::memory_env_exports(std::env::var_os("NODE_OPTIONS").is_some())
+        {
             std::env::set_var(key, value);
         }
     }
 
-    moatless_sandbox::app::initialize_logging();
+    // Read here rather than through `Config::from_env()`: that call panics if
+    // `BACKEND_GRPC_URL` is unset, and a one-shot mode carries no such thing.
+    let log_level = std::env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
+    moatless_sandbox::app::initialize_logging(&log_level);
     // Rescue pods omit BACKEND_GRPC_URL; select this path before app::run
     // loads Config::from_env(), which requires the backend connection.
     let mode = std::env::var("SANDBOX_ONESHOT")
@@ -40,7 +45,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let result = runtime.block_on(async {
         match mode.as_deref() {
             None => moatless_sandbox::app::run().await,
-            Some("sync") => moatless_sandbox::workspace_sync::rescue_from_env().await,
+            Some("sync") => {
+                let config = moatless_sandbox::config::RescueConfig::from_env()?;
+                moatless_sandbox::workspace_sync::rescue(config).await
+            }
             Some(other) => Err(format!("unknown SANDBOX_ONESHOT mode: {other}").into()),
         }
     });

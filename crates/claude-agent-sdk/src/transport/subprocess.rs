@@ -53,6 +53,11 @@ impl SubprocessTransport {
             cmd.current_dir(cwd);
         }
 
+        // Pinned so the CLI writes where transcript discovery looks.
+        cmd.env(
+            "CLAUDE_CONFIG_DIR",
+            crate::config_dir::claude_config_dir(options),
+        );
         if let Some(env) = &options.env {
             cmd.envs(env);
         }
@@ -246,10 +251,9 @@ fn resolve_cli_path(options: &ClaudeOptions) -> Result<String> {
     }
 
     // Try default location
-    let home = std::env::var("HOME").unwrap_or_default();
-    let default_path = format!("{home}/.claude/local/claude");
-    if std::path::Path::new(&default_path).exists() {
-        return Ok(default_path);
+    let default_path = crate::config_dir::home_dir().join(".claude/local/claude");
+    if default_path.exists() {
+        return Ok(default_path.to_string_lossy().into_owned());
     }
 
     // Fall back to just "claude" and let PATH resolution handle it

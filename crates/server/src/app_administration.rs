@@ -5,7 +5,10 @@ use moatless_identity::adapter_apps::administration::{AppAdministrationError, Gi
 use moatless_identity::auth::github::service::{GitHubAppService, ProvedApp};
 
 /// Proves a signing key by asking GitHub to confirm the App it signs for.
-pub struct ProviderGitHubAppProver;
+pub struct ProviderGitHubAppProver {
+    /// GitHub REST API root, from `Config::github_api_base`.
+    pub github_api_base: String,
+}
 
 #[async_trait]
 impl GitHubAppProver for ProviderGitHubAppProver {
@@ -24,12 +27,13 @@ impl GitHubAppProver for ProviderGitHubAppProver {
             client_secret: None,
             default_installation_id,
         };
-        let service = GitHubAppService::from_app_config(&entry).ok_or_else(|| {
-            AppAdministrationError::BadRequest(
-                "The signing key could not be read as a private key. Nothing was stored."
-                    .to_string(),
-            )
-        })?;
+        let service =
+            GitHubAppService::from_app_config(&entry, &self.github_api_base).ok_or_else(|| {
+                AppAdministrationError::BadRequest(
+                    "The signing key could not be read as a private key. Nothing was stored."
+                        .to_string(),
+                )
+            })?;
         Ok(service.prove().await?)
     }
 }
