@@ -26,6 +26,7 @@ use rustic_core::{
 };
 use tracing::warn;
 
+use crate::S3Storage;
 use crate::error::S3Error;
 use crate::objects::{
     delete_object, get_object, get_object_range, head_object_size, list_objects_with_size,
@@ -59,7 +60,7 @@ fn runtime() -> &'static tokio::runtime::Runtime {
 /// A restic repository stored under one S3 prefix.
 #[derive(Debug, Clone)]
 pub struct ResticS3Backend {
-    client: aws_sdk_s3::Client,
+    storage: S3Storage,
     bucket: String,
     /// Repository root inside the bucket, with no trailing slash.
     prefix: String,
@@ -70,9 +71,9 @@ impl ResticS3Backend {
     ///
     /// `prefix` must be non-empty: an empty one roots every key at `/config`,
     /// `/data/…`, which S3 accepts as a segment with no name.
-    pub fn new(client: aws_sdk_s3::Client, bucket: impl Into<String>, prefix: &str) -> Self {
+    pub fn new(storage: S3Storage, bucket: impl Into<String>, prefix: &str) -> Self {
         Self {
-            client,
+            storage,
             bucket: bucket.into(),
             prefix: prefix.trim_end_matches('/').to_string(),
         }
@@ -157,7 +158,7 @@ impl ReadBackend for ResticS3Backend {
         if tpe == FileType::Config {
             let key = self.key(FileType::Config, &Id::default());
             let size = runtime()
-                .block_on(head_object_size(&self.client, &self.bucket, &key))
+                .block_on(head_object_size(&self.storage, &self.bucket, &key))
                 .map_err(|err| backend_error("head", key, err))?;
             return Ok(match size {
                 Some(size) => vec![(Id::default(), u32::try_from(size).unwrap_or(u32::MAX))],
@@ -167,7 +168,7 @@ impl ReadBackend for ResticS3Backend {
 
         let prefix = self.type_prefix(tpe);
         let objects = read_retrying("list", &prefix, || {
-            list_objects_with_size(&self.client, &self.bucket, &prefix)
+            list_objects_with_size(&self.storage, &self.bucket, &prefix)
         })?;
 
         Ok(objects
@@ -186,7 +187,7 @@ impl ReadBackend for ResticS3Backend {
     fn read_full(&self, tpe: FileType, id: &Id) -> RusticResult<Bytes> {
         let key = self.key(tpe, id);
         let bytes = read_retrying("get", &key, || async {
-            get_object(&self.client, &self.bucket, &key)
+            get_object(&self.storage, &self.bucket, &key)
                 .await
                 .map(|(bytes, _)| bytes)
         })?;
@@ -204,7 +205,7 @@ impl ReadBackend for ResticS3Backend {
         let key = self.key(tpe, id);
         let bytes = read_retrying("get-range", &key, || {
             get_object_range(
-                &self.client,
+                &self.storage,
                 &self.bucket,
                 &key,
                 u64::from(offset),
@@ -237,7 +238,7 @@ impl WriteBackend for ResticS3Backend {
         }
         runtime()
             .block_on(put_object(
-                &self.client,
+                &self.storage,
                 &self.bucket,
                 &key,
                 body,
@@ -250,7 +251,7 @@ impl WriteBackend for ResticS3Backend {
     fn remove(&self, tpe: FileType, id: &Id, _cacheable: bool) -> RusticResult<()> {
         let key = self.key(tpe, id);
         runtime()
-            .block_on(delete_object(&self.client, &self.bucket, &key))
+            .block_on(delete_object(&self.storage, &self.bucket, &key))
             .map_err(|err| backend_error("delete", key, err))?;
         Ok(())
     }

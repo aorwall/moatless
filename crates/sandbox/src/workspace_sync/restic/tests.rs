@@ -7,7 +7,6 @@
 //! cargo test -p moatless-sandbox --lib restic -- --ignored --nocapture
 //! ```
 
-use aws_sdk_s3::config::retry::RetryMode;
 use bytes::Bytes;
 
 use super::*;
@@ -22,33 +21,6 @@ fn a_metacharacter_in_a_filename_is_escaped_rather_than_matched() {
     assert_eq!(escape_glob("/w/repo/{a,b}"), r"/w/repo/\{a,b\}");
     assert_eq!(escape_glob("/w/repo/back\\slash"), r"/w/repo/back\\slash");
     assert_eq!(escape_glob("/w/repo/plain.rs"), "/w/repo/plain.rs");
-}
-
-/// A connect that never completes is the fleet's dominant snapshot failure,
-/// and the SDK's own defaults move with its version, so the client states
-/// both itself.
-#[test]
-fn the_repository_client_retries_a_request_that_cannot_connect() {
-    let config = s3_config(
-        "eu-north-1".into(),
-        Credentials::new("key", "secret", None, None, "test"),
-    );
-    assert_eq!(
-        config.retry_config().map(RetryConfig::max_attempts),
-        Some(MAX_ATTEMPTS)
-    );
-    // `adaptive()` would satisfy the count above and be a different client:
-    // it adds a client-side rate limiter that throttles ahead of the request.
-    assert_eq!(
-        config.retry_config().map(RetryConfig::mode),
-        Some(RetryMode::Standard)
-    );
-    assert_eq!(
-        config
-            .timeout_config()
-            .and_then(TimeoutConfig::connect_timeout),
-        Some(CONNECT_TIMEOUT)
-    );
 }
 
 /// The glob file must not land in the tree it describes, or it would appear
@@ -485,20 +457,16 @@ async fn a_fork_with_no_repository_of_its_own_restores_the_source_s() {
 /// A repository on the local `MinIO`, addressed by a prefix of its own so
 /// repeated runs do not share state.
 async fn minio_access(prefix: &str) -> RepoAccess {
-    let credentials = Credentials::new("spikeadmin", "spikeadmin123", None, None, "test");
-    let config = aws_sdk_s3::Config::builder()
-        .behavior_version_latest()
-        .region(Region::new("us-east-1"))
-        .credentials_provider(credentials)
-        .endpoint_url("http://127.0.0.1:19000")
-        .force_path_style(true)
-        .build();
-    let client = aws_sdk_s3::Client::from_conf(config);
-    _ = client
-        .create_bucket()
-        .bucket("moatless-restic-test")
-        .send()
-        .await;
+    let client = S3Storage::at_endpoint(
+        "http://127.0.0.1:19000",
+        "us-east-1",
+        S3Credentials {
+            access_key_id: "spikeadmin".into(),
+            secret_access_key: "spikeadmin123".into(),
+            session_token: None,
+        },
+    );
+    client.ensure_bucket("moatless-restic-test").await;
     RepoAccess {
         backend: ResticS3Backend::new(client, "moatless-restic-test", prefix),
         password: "fidelity".to_string(),

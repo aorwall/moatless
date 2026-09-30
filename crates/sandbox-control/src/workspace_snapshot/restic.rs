@@ -14,7 +14,7 @@ use moatless_core::workspace_repository::derive_repository_password;
 use moatless_ports::sandbox::{
     SnapshotError, SnapshotFile, SnapshotListing, WorkspaceSnapshotSource,
 };
-use moatless_s3::ResticS3Backend;
+use moatless_s3::{ResticS3Backend, S3Storage};
 use moatless_sandbox_runtime::storage::{SNAPSHOT_ROOT, workspace_repository_prefix};
 use rustic_core::repofile::{NodeType, SnapshotFile as ResticSnapshot};
 use rustic_core::{
@@ -73,7 +73,7 @@ impl Entry {
 
 /// [`WorkspaceSnapshotSource`] over the per-task `restic` repository.
 pub struct ResticWorkspaceSnapshots {
-    client: aws_sdk_s3::Client,
+    storage: S3Storage,
     bucket: String,
     prefix: String,
     master_secret: String,
@@ -85,14 +85,9 @@ pub struct ResticWorkspaceSnapshots {
 }
 
 impl ResticWorkspaceSnapshots {
-    pub fn new(
-        client: aws_sdk_s3::Client,
-        bucket: String,
-        prefix: String,
-        master_secret: String,
-    ) -> Self {
+    pub fn new(storage: S3Storage, bucket: String, prefix: String, master_secret: String) -> Self {
         Self {
-            client,
+            storage,
             bucket,
             prefix,
             master_secret,
@@ -131,7 +126,7 @@ impl ResticWorkspaceSnapshots {
         }
 
         let backend = ResticS3Backend::new(
-            self.client.clone(),
+            self.storage.clone(),
             self.bucket.clone(),
             &workspace_repository_prefix(&self.prefix, task_id),
         );

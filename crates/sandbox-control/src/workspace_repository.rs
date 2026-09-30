@@ -61,7 +61,7 @@ pub enum GrantError {
 
 /// Mints per-task access to the workspace repositories in one bucket.
 pub struct WorkspaceRepositoryAccess {
-    sts: aws_sdk_sts::Client,
+    sts: moatless_s3::RoleAssumer,
     role_arn: String,
     /// Every task's password is derived from this. Rotating it makes every
     /// existing repository unreadable.
@@ -76,7 +76,7 @@ impl WorkspaceRepositoryAccess {
     /// has no repository to grant, and answering with a partial grant would
     /// fail later and further from the cause.
     pub fn new(
-        sts: Option<aws_sdk_sts::Client>,
+        sts: Option<moatless_s3::RoleAssumer>,
         role_arn: Option<String>,
         master_secret: Option<String>,
         bucket: Option<String>,
@@ -149,13 +149,8 @@ mod tests {
 
     /// Constructed, never called: every assertion here is about what a grant
     /// would be scoped to, not about reaching STS.
-    fn sts_client() -> aws_sdk_sts::Client {
-        aws_sdk_sts::Client::from_conf(
-            aws_sdk_sts::Config::builder()
-                .behavior_version_latest()
-                .region(aws_sdk_sts::config::Region::new("eu-north-1"))
-                .build(),
-        )
+    fn sts_client() -> moatless_s3::RoleAssumer {
+        moatless_s3::RoleAssumer::unconnected("eu-north-1")
     }
 
     #[test]

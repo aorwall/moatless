@@ -60,7 +60,7 @@ pub struct K8sSandboxAdapter {
     ///
     /// The backend owns the credentials (sandbox uploads via proxied gRPC), so
     /// cleanup of `<prefix>/<task_id>/` lives here; `None` skips the delete.
-    pub s3: Option<Arc<aws_sdk_s3::Client>>,
+    pub s3: Option<Arc<moatless_s3::S3Storage>>,
 }
 
 async fn wait_absent<F>(

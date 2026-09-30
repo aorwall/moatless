@@ -102,7 +102,7 @@ impl BackendSandboxServiceImpl {
             .ok_or_else(|| Status::not_found("File metadata not found"))?;
 
         let s3_key = format!("{}/{}", self.s3_key_prefix, file_id);
-        let (data, _content_type) = file_s3::get_object(&s3_client.client, bucket, &s3_key)
+        let (data, _content_type) = file_s3::get_object(s3_client, bucket, &s3_key)
             .await
             .map_err(|e| {
                 warn!(error = %e, file_id, "S3 get_object failed");

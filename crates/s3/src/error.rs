@@ -1,39 +1,30 @@
-use aws_sdk_s3::error::{BoxError, BuildError, SdkError};
-use aws_sdk_s3::operation::{
-    delete_object::DeleteObjectError, delete_objects::DeleteObjectsError,
-    get_object::GetObjectError, head_object::HeadObjectError, list_objects_v2::ListObjectsV2Error,
-    put_object::PutObjectError,
-};
-use aws_sdk_s3::presigning::PresigningConfigError;
-use aws_sdk_s3::primitives::ByteStreamError;
+/// The SDK error behind a failed call, kept for its message and source chain.
+type Cause = Box<dyn std::error::Error + Send + Sync>;
 
 /// An object-storage or signing failure with its original cause.
 #[derive(Debug, thiserror::Error)]
 pub enum S3Error {
     #[error("S3 put_object failed: {0}")]
-    PutObject(#[source] Box<SdkError<PutObjectError>>),
+    PutObject(#[source] Cause),
     #[error("S3 get_object failed: {0}")]
-    GetObject(#[source] Box<SdkError<GetObjectError>>),
+    GetObject(#[source] Cause),
     #[error("Failed to read S3 body: {0}")]
-    ReadBody(#[source] ByteStreamError),
+    ReadBody(#[source] Cause),
     #[error("S3 head_object failed: {0}")]
-    HeadObject(#[source] Box<SdkError<HeadObjectError>>),
+    HeadObject(#[source] Cause),
     #[error("S3 delete_object failed: {0}")]
-    DeleteObject(#[source] Box<SdkError<DeleteObjectError>>),
+    DeleteObject(#[source] Cause),
     #[error("S3 list_objects_v2 failed: {0}")]
-    ListObjects(#[source] Box<SdkError<ListObjectsV2Error>>),
+    ListObjects(#[source] Cause),
     #[error("S3 delete_objects failed: {0}")]
-    DeleteObjects(#[source] Box<SdkError<DeleteObjectsError>>),
+    DeleteObjects(#[source] Cause),
     #[error("S3 delete identifier invalid: {0}")]
-    InvalidDeleteIdentifier(#[source] BuildError),
+    InvalidDeleteIdentifier(#[source] Cause),
     #[error("S3 delete request invalid: {0}")]
-    InvalidDeleteRequest(#[source] BuildError),
+    InvalidDeleteRequest(#[source] Cause),
     #[cfg(feature = "sts")]
     #[error("STS assume_role failed: {0}")]
-    AssumeRole(
-        #[source]
-        Box<aws_sdk_sts::error::SdkError<aws_sdk_sts::operation::assume_role::AssumeRoleError>>,
-    ),
+    AssumeRole(#[source] Cause),
     #[cfg(feature = "sts")]
     #[error("STS assume_role returned no credentials")]
     SessionWithoutKeys,
@@ -47,15 +38,15 @@ pub enum S3Error {
     #[error("S3 LastModified out of range for {key}")]
     InvalidLastModified { key: String },
     #[error("presign config invalid: {0}")]
-    InvalidPresignConfig(#[source] PresigningConfigError),
+    InvalidPresignConfig(#[source] Cause),
     #[error("S3 presign put_object failed: {0}")]
-    PresignPut(#[source] Box<SdkError<PutObjectError>>),
+    PresignPut(#[source] Cause),
     #[error("S3 presign get_object failed: {0}")]
-    PresignGet(#[source] Box<SdkError<GetObjectError>>),
+    PresignGet(#[source] Cause),
     #[error("S3 presign delete_object failed: {0}")]
-    PresignDelete(#[source] Box<SdkError<DeleteObjectError>>),
+    PresignDelete(#[source] Cause),
     #[error("failed to load AWS credentials for presign TTL: {0}")]
-    Credentials(#[source] BoxError),
+    Credentials(#[source] Cause),
     #[error("AWS credentials expired before S3 presign")]
     CredentialsExpired,
     #[error("AWS credentials expire too soon for S3 presign")]
@@ -63,18 +54,37 @@ pub enum S3Error {
     #[error("S3 delete_objects left {} of {attempted} keys: {}", failures.len(), first_failure(failures))]
     BatchDelete {
         attempted: usize,
-        failures: Vec<aws_sdk_s3::types::Error>,
+        failures: Vec<DeleteFailure>,
     },
 }
 
-fn first_failure(failures: &[aws_sdk_s3::types::Error]) -> String {
+/// One key a `delete_objects` batch reported it could not delete.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeleteFailure {
+    pub key: Option<String>,
+    /// The S3 error code, such as `AccessDenied`.
+    pub code: Option<String>,
+    pub message: Option<String>,
+}
+
+impl DeleteFailure {
+    pub(crate) fn from_sdk(error: &aws_sdk_s3::types::Error) -> Self {
+        Self {
+            key: error.key().map(str::to_string),
+            code: error.code().map(str::to_string),
+            message: error.message().map(str::to_string),
+        }
+    }
+}
+
+fn first_failure(failures: &[DeleteFailure]) -> String {
     failures
         .first()
         .map(|failure| {
             format!(
                 "{}: {}",
-                failure.key().unwrap_or("?"),
-                failure.message().unwrap_or("?")
+                failure.key.as_deref().unwrap_or("?"),
+                failure.message.as_deref().unwrap_or("?")
             )
         })
         .unwrap_or_default()

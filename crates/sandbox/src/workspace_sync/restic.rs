@@ -12,10 +12,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use aws_sdk_s3::config::retry::RetryConfig;
-use aws_sdk_s3::config::timeout::TimeoutConfig;
-use aws_sdk_s3::config::{Credentials, Region};
-use moatless_s3::ResticS3Backend;
+use moatless_s3::{ResticS3Backend, S3Credentials, S3Storage};
 use rustic_core::repofile::{SnapshotFile, SnapshotId, StringList};
 use rustic_core::{
     BackupOptions, Credentials as RepoCredentials, ForgetGroups, Grouped, KeepOptions,
@@ -144,20 +141,20 @@ impl AccessCache {
             .await?;
         let expires_at = chrono::DateTime::parse_from_rfc3339(&granted.expires_at)
             .map(|at| at.with_timezone(&chrono::Utc));
-        let credentials = Credentials::new(
-            granted.access_key_id,
-            granted.secret_access_key,
-            Some(granted.session_token),
-            None,
-            "moatless-workspace",
-        );
         // One client for both repositories: the session policy scopes the
         // credentials, and the prefix is what tells the two apart.
-        let client = aws_sdk_s3::Client::from_conf(s3_config(granted.region, credentials));
+        let storage = S3Storage::with_credentials(
+            granted.region,
+            S3Credentials {
+                access_key_id: granted.access_key_id,
+                secret_access_key: granted.secret_access_key,
+                session_token: Some(granted.session_token),
+            },
+        );
         let access = Access {
             own: RepoAccess {
                 backend: ResticS3Backend::new(
-                    client.clone(),
+                    storage.clone(),
                     granted.bucket.clone(),
                     &granted.prefix,
                 ),
@@ -165,7 +162,7 @@ impl AccessCache {
             },
             source: match (granted.source_prefix, granted.source_password) {
                 (Some(prefix), Some(password)) => Some(RepoAccess {
-                    backend: ResticS3Backend::new(client, granted.bucket, &prefix),
+                    backend: ResticS3Backend::new(storage, granted.bucket, &prefix),
                     password,
                 }),
                 (None, None) => None,
@@ -205,33 +202,6 @@ impl AccessCache {
     pub(super) async fn invalidate(&self) {
         *self.0.lock().await = None;
     }
-}
-
-/// How many times one S3 request is attempted before the operation carrying it
-/// fails. Above `RetryConfig::standard()`'s own 3: a snapshot is hundreds of
-/// requests and fails on the first one that runs out of attempts.
-const MAX_ATTEMPTS: u32 = 5;
-
-/// How long one attempt may spend reaching the endpoint.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
-
-/// The client every repository operation speaks through.
-///
-/// Retries and connect timeout are explicit (`behavior_version_latest()`
-/// disables retries today): unretried, a connect failure fails the whole
-/// snapshot. No attempt timeout, since a pack upload is unbounded.
-fn s3_config(region: String, credentials: Credentials) -> aws_sdk_s3::Config {
-    aws_sdk_s3::Config::builder()
-        .behavior_version_latest()
-        .region(Region::new(region))
-        .credentials_provider(credentials)
-        .retry_config(RetryConfig::standard().with_max_attempts(MAX_ATTEMPTS))
-        .timeout_config(
-            TimeoutConfig::builder()
-                .connect_timeout(CONNECT_TIMEOUT)
-                .build(),
-        )
-        .build()
 }
 
 fn options() -> RepositoryOptions {

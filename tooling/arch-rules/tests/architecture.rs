@@ -15,7 +15,7 @@ use std::collections::BTreeSet;
 use moatless_arch_rules::workspace::{Workspace, workspace_root};
 use moatless_arch_rules::{
     Violation, agents_md_budget, baseline, dependency_privacy, duplicate_comment_prose,
-    duplicate_names, module_names,
+    duplicate_names, module_names, vendor_crate_owner, vendor_type_export,
 };
 
 fn strict() -> bool {
@@ -164,3 +164,13 @@ enforce!(
     conversation_writer,
     session_line_parsing
 );
+
+#[test]
+fn a_vendor_sdk_is_declared_only_by_its_owner() {
+    assert_rule(vendor_crate_owner::RULE, cached_violations());
+}
+
+#[test]
+fn no_public_api_names_a_vendor_sdk_type() {
+    assert_rule(vendor_type_export::RULE, cached_violations());
+}

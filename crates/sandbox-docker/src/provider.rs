@@ -44,7 +44,7 @@ pub struct DockerSandboxAdapter {
     client: DockerClient,
     status_resolver: DockerStatusResolver,
     plan: Option<ProvisionDeps>,
-    s3: Option<Arc<aws_sdk_s3::Client>>,
+    s3: Option<Arc<moatless_s3::S3Storage>>,
 }
 
 async fn apply_disk_archive_retention(
@@ -80,7 +80,7 @@ impl DockerSandboxAdapter {
         config: Arc<Config>,
         client: DockerClient,
         plan: Option<ProvisionDeps>,
-        s3: Option<Arc<aws_sdk_s3::Client>>,
+        s3: Option<Arc<moatless_s3::S3Storage>>,
     ) -> Self {
         let status_resolver = DockerStatusResolver::new(client.clone(), config.clone());
         Self {

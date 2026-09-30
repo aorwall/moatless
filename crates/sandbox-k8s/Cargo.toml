@@ -9,8 +9,6 @@ authors.workspace = true
 moatless-workspace-types = { workspace = true, features = ["openapi"] }
 async-stream = "0.3"
 async-trait = { workspace = true }
-# S3 client type for the node-archive upload path (held as Option<Arc<Client>>).
-aws-sdk-s3 = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 futures = { workspace = true }
 # Node-archive digest hex encoding.
@@ -27,6 +25,7 @@ serde_json = { workspace = true }
 sha2 = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tokio-util = { workspace = true, features = ["rt"] }
+thiserror = { workspace = true }
 tracing = { workspace = true }
 
 moatless-ports = { workspace = true, features = ["openapi"] }

@@ -44,21 +44,14 @@ impl WorkspaceProbe {
     ) -> Result<bool, moatless_s3::S3Error> {
         match self {
             Self::Object(key_for) => {
-                let modified = file_s3::head_object_modified_at(
-                    &s3_client.client,
-                    bucket,
-                    &key_for(prefix, task_id),
-                )
-                .await?;
+                let modified =
+                    file_s3::head_object_modified_at(s3_client, bucket, &key_for(prefix, task_id))
+                        .await?;
                 Ok(modified.is_some())
             }
             Self::AnyUnder(prefix_for) => {
-                file_s3::prefix_has_any_object(
-                    &s3_client.client,
-                    bucket,
-                    &prefix_for(prefix, task_id),
-                )
-                .await
+                file_s3::prefix_has_any_object(s3_client, bucket, &prefix_for(prefix, task_id))
+                    .await
             }
         }
     }

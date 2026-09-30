@@ -60,6 +60,27 @@ fn dependency_exceptions_cover_exactly_one_edge() {
 }
 
 #[test]
+fn a_vendor_exception_covers_a_dev_only_edge() {
+    let mut f = Fixture::new();
+    f.member("aws-sdk-s3", "", "");
+    f.member("moatless-sandbox", "[dev-dependencies]\naws-sdk-s3 = { path = '../aws-sdk-s3' }\n[[package.metadata.arch.allow]]\nrule = 'vendor-crate-owner'\ndependency = 'aws-sdk-s3'\nreason = 'Fixture exception'", "");
+    f.member(
+        "moatless-cli",
+        "[dev-dependencies]\naws-sdk-s3 = { path = '../aws-sdk-s3' }",
+        "",
+    );
+    let ws = f.load();
+    assert!(
+        crate::annotations::check(&ws)
+            .expect("annotations")
+            .is_empty()
+    );
+    let found = crate::vendor_crate_owner::check(&ws).expect("vendor crate owner");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].key, "moatless-cli -> aws-sdk-s3");
+}
+
+#[test]
 fn dev_and_build_edges_do_not_change_production_bands() {
     let mut f = Fixture::new();
     f.member("moatless-loops", "", "");
@@ -254,4 +275,43 @@ fn schema_shared_values_still_need_an_external_consumer() {
         let found = crate::floor_type_admission::check(&f.load()).expect("value admission");
         assert_eq!(found.is_empty(), consumed);
     }
+}
+
+#[test]
+fn a_vendor_type_in_an_exported_signature_is_caught_in_its_owner() {
+    let mut f = Fixture::new();
+    f.member("aws-sdk-s3", "", "pub mod error { pub struct SdkError; }");
+    f.member(
+        "moatless-s3",
+        "aws-sdk-s3 = { path = '../aws-sdk-s3' }",
+        "use aws_sdk_s3::error::SdkError;\n\
+         pub enum S3Error { Put(Box<SdkError>) }\n\
+         pub struct S3Storage { client: aws_sdk_s3::error::SdkError, pub region: String }\n\
+         impl S3Storage { pub fn raw(&self) -> &SdkError { todo!() } fn inner(&self) -> SdkError { todo!() } }\n\
+         struct Hidden;\n\
+         impl Hidden { pub fn raw(&self) -> SdkError { todo!() } }\n\
+         pub fn fine(key: &str) -> String { let _e: SdkError; todo!() }\n\
+         pub use aws_sdk_s3::error::SdkError as Leaked;\n\
+         pub trait Store { type Error; }\n\
+         impl Store for S3Storage { type Error = SdkError; }\n\
+         pub struct Clean;\n\
+         impl Store for Clean { type Error = String; }\n\
+         impl From<SdkError> for S3Storage { fn from(e: SdkError) -> Self { todo!() } }\n\
+         impl Store for Hidden { type Error = SdkError; }",
+    );
+    let found: Vec<String> = crate::vendor_type_export::check(&f.load())
+        .expect("vendor type export")
+        .into_iter()
+        .map(|v| v.key)
+        .collect();
+    assert_eq!(
+        found,
+        [
+            "moatless-s3 moatless_s3::Leaked -> aws-sdk-s3",
+            "moatless-s3 moatless_s3::S3Error -> aws-sdk-s3",
+            "moatless-s3 moatless_s3::S3Storage as From -> aws-sdk-s3",
+            "moatless-s3 moatless_s3::S3Storage as Store -> aws-sdk-s3",
+            "moatless-s3 moatless_s3::S3Storage::raw -> aws-sdk-s3",
+        ]
+    );
 }

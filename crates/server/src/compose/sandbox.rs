@@ -53,7 +53,7 @@ pub(crate) async fn build(
             .map(|((s3, bucket), secret)| {
                 Arc::new(
                     crate::sandbox::workspace_snapshot::ResticWorkspaceSnapshots::new(
-                        s3.client.clone(),
+                        s3,
                         bucket,
                         config.s3.workspace_prefix.clone(),
                         secret,
@@ -93,9 +93,7 @@ pub(crate) async fn build(
             let adapter = infrastructure::build_k8s_sandbox_adapter(
                 config,
                 k8s.clone(),
-                s3_client
-                    .clone()
-                    .map(|storage| std::sync::Arc::new(storage.client)),
+                s3_client.clone().map(std::sync::Arc::new),
                 provision_deps.clone(),
             );
             sandbox_runtime = adapter.clone();
@@ -124,9 +122,7 @@ pub(crate) async fn build(
             let adapter = infrastructure::build_docker_sandbox_adapter(
                 config,
                 docker_client.clone(),
-                s3_client
-                    .clone()
-                    .map(|storage| std::sync::Arc::new(storage.client)),
+                s3_client.clone().map(std::sync::Arc::new),
                 provision_deps.clone(),
             );
             sandbox_runtime = adapter.clone();

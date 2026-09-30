@@ -2,16 +2,20 @@ use std::error::Error;
 use std::time::Duration;
 
 use aws_sdk_s3::config::{Credentials, Region, retry::RetryConfig};
+use aws_sdk_s3::error::SdkError;
+use aws_sdk_s3::operation::get_object::GetObjectError;
+use aws_sdk_s3::primitives::ByteStreamError;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
 use crate::{
-    S3Error, delete_objects_by_prefix, get_object, get_object_opt, head_object_modified_at,
+    S3Error, S3Storage, delete_objects_by_prefix, get_object, get_object_opt,
+    head_object_modified_at,
 };
 
 pub(crate) async fn endpoint(
     exchanges: Vec<(&'static str, String)>,
-) -> (aws_sdk_s3::Client, tokio::task::JoinHandle<()>) {
+) -> (S3Storage, tokio::task::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move {
@@ -49,7 +53,10 @@ pub(crate) async fn endpoint(
         .force_path_style(true)
         .retry_config(RetryConfig::standard().with_max_attempts(1))
         .build();
-    (aws_sdk_s3::Client::from_conf(config), server)
+    (
+        S3Storage::new(aws_sdk_s3::Client::from_conf(config), None),
+        server,
+    )
 }
 
 pub(crate) fn response(status: &str, body: &str) -> String {
@@ -90,7 +97,9 @@ async fn absent_objects_are_distinct_from_failed_reads() {
     let error = get_object_opt(&client, "bucket", "denied")
         .await
         .unwrap_err();
-    assert!(matches!(&error, S3Error::GetObject(source) if source.as_service_error().is_some()));
+    assert!(matches!(&error, S3Error::GetObject(source) if source
+        .downcast_ref::<SdkError<GetObjectError>>()
+        .is_some_and(|e| e.as_service_error().is_some())));
     assert!(error.source().is_some());
     assert!(matches!(
         head_object_modified_at(&client, "bucket", "denied").await,
@@ -127,16 +136,18 @@ async fn pagination_retains_every_batch_failure() {
     };
     assert_eq!(attempted, 2);
     assert_eq!(failures.len(), 2);
-    assert_eq!(failures[0].key(), Some("second"));
-    assert_eq!(failures[0].code(), Some("AccessDenied"));
-    assert_eq!(failures[1].key(), Some("third"));
-    assert_eq!(failures[1].code(), Some("InternalError"));
+    assert_eq!(failures[0].key.as_deref(), Some("second"));
+    assert_eq!(failures[0].code.as_deref(), Some("AccessDenied"));
+    assert_eq!(failures[1].key.as_deref(), Some("third"));
+    assert_eq!(failures[1].code.as_deref(), Some("InternalError"));
     server.await.unwrap();
 }
 
 #[test]
 fn body_and_credentials_failures_keep_their_sources() {
-    let body = S3Error::ReadBody(std::io::Error::other("body interrupted").into());
+    let body = S3Error::ReadBody(Box::new(ByteStreamError::from(std::io::Error::other(
+        "body interrupted",
+    ))));
     assert!(body.source().unwrap().source().is_some());
     let credentials = S3Error::Credentials(Box::new(std::io::Error::other("provider unavailable")));
     assert_eq!(

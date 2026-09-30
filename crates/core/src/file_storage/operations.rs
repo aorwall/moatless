@@ -94,15 +94,9 @@ impl Files {
         // was actually stored rather than what the sender said the size was.
         let size = upload.data.len() as i64;
 
-        moatless_s3::put_object(
-            &s3_client.client,
-            bucket,
-            &s3_key,
-            upload.data,
-            &upload.mime_type,
-        )
-        .await
-        .map_err(FileStorageError::from)?;
+        moatless_s3::put_object(s3_client, bucket, &s3_key, upload.data, &upload.mime_type)
+            .await
+            .map_err(FileStorageError::from)?;
 
         let meta = FileMetadata {
             file_id,
@@ -120,9 +114,7 @@ impl Files {
         // of them can clean up. Undo the put before surfacing the error, and
         // report the row failure rather than the compensation's.
         if let Err(error) = self.store.insert_metadata(&meta).await {
-            if let Err(cleanup) =
-                moatless_s3::delete_object(&s3_client.client, bucket, &s3_key).await
-            {
+            if let Err(cleanup) = moatless_s3::delete_object(s3_client, bucket, &s3_key).await {
                 tracing::warn!(%cleanup, file_id = %meta.file_id, "Upload object outlived the row that failed");
             }
             return Err(error.into());
@@ -145,7 +137,7 @@ impl Files {
             .ok_or_else(|| FileStorageError::NotFound(file_id.to_owned()))?;
         authorize_read(viewer, &meta)?;
         let (data, content_type) =
-            moatless_s3::get_object(&s3_client.client, bucket, &self.key(file_id)).await?;
+            moatless_s3::get_object(s3_client, bucket, &self.key(file_id)).await?;
         Ok(Download {
             data,
             content_type,
@@ -174,7 +166,7 @@ impl Files {
         };
         authorize_read(viewer, &meta)?;
 
-        moatless_s3::delete_object(&s3_client.client, bucket, &self.key(file_id))
+        moatless_s3::delete_object(s3_client, bucket, &self.key(file_id))
             .await
             .map_err(FileStorageError::from)?;
 
@@ -251,7 +243,7 @@ impl Files {
                 }
             };
 
-            match moatless_s3::get_object(&s3_client.client, bucket, &self.key(file_id)).await {
+            match moatless_s3::get_object(s3_client, bucket, &self.key(file_id)).await {
                 Ok((data, _content_type)) => resolved.push(Attachment {
                     filename: meta.filename,
                     mime_type: meta.mime_type,

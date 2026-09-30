@@ -14,16 +14,18 @@ use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 use kube::api::{Api, ListParams};
 use tracing::warn;
 
-use super::client::K8sClient;
+use super::client::{K8sClient, K8sError};
 
 /// Sandbox-ids whose Deployment is meant to be running.
 ///
 /// Not the set of running Tasks: a Sandbox is named for the Task that created
 /// it, but other Tasks can attach to it.
-pub async fn list_running_sandbox_ids(k8s: &K8sClient) -> Result<Vec<String>, kube::Error> {
+pub async fn list_running_sandbox_ids(k8s: &K8sClient) -> Result<Vec<String>, K8sError> {
     // The replica filter is k8s-spec semantics, so it lives here; the caller
     // sees only the running sandbox-ids it needs.
-    let deployments = list_sandbox_deployments(k8s).await?;
+    let deployments = list_sandbox_deployments(k8s)
+        .await
+        .map_err(|e| K8sError::new("listing sandbox deployments", e))?;
     Ok(deployments
         .into_iter()
         .filter(|d| d.desired_replicas > 0)

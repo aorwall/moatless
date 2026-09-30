@@ -23,6 +23,39 @@ pub struct ScopedSession {
     pub expires_at: chrono::DateTime<chrono::Utc>,
 }
 
+/// Assumes roles as the backend's own identity.
+#[derive(Clone, Debug)]
+pub struct RoleAssumer {
+    client: aws_sdk_sts::Client,
+}
+
+impl RoleAssumer {
+    /// Assume roles in `region` on the default credential chain, so in-cluster
+    /// it is the backend's IRSA identity that does the assuming.
+    pub async fn from_default_chain(region: impl Into<String>) -> Self {
+        let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+            .region(aws_config::Region::new(region.into()))
+            .load()
+            .await;
+        Self {
+            client: aws_sdk_sts::Client::new(&config),
+        }
+    }
+
+    /// A handle with no credentials, for a test that never reaches STS.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn unconnected(region: &str) -> Self {
+        Self {
+            client: aws_sdk_sts::Client::from_conf(
+                aws_sdk_sts::Config::builder()
+                    .behavior_version_latest()
+                    .region(aws_sdk_sts::config::Region::new(region.to_string()))
+                    .build(),
+            ),
+        }
+    }
+}
+
 /// Assume `role_arn`, narrowed by a session policy to read, write, delete and
 /// list under `prefix` in `bucket`, plus read and list under
 /// `read_only_prefix`.
@@ -30,7 +63,7 @@ pub struct ScopedSession {
 /// The role itself stays bucket-wide; a session policy can only subtract, so a
 /// bug here fails closed.
 pub async fn assume_role_for_prefix(
-    client: &aws_sdk_sts::Client,
+    assumer: &RoleAssumer,
     role_arn: &str,
     session_name: &str,
     bucket: &str,
@@ -39,7 +72,8 @@ pub async fn assume_role_for_prefix(
 ) -> Result<ScopedSession, S3Error> {
     let policy = prefix_policy(bucket, prefix, read_only_prefix);
 
-    let response = client
+    let response = assumer
+        .client
         .assume_role()
         .role_arn(role_arn)
         .role_session_name(sanitize_session_name(session_name))

@@ -32,8 +32,6 @@ moatless-core = { workspace = true, features = ["openapi"] }
 moatless-s3 = { workspace = true, features = ["restic-backend", "sts"] }
 # Opens the per-task workspace repository for the read calls.
 rustic_core = { workspace = true }
-aws-sdk-s3 = { workspace = true }
-aws-sdk-sts = { workspace = true }
 moatless-types = { workspace = true, features = ["openapi"] }
 # What a runtime implements and the machinery it reuses — the band below.
 moatless-sandbox-runtime = { workspace = true }
@@ -50,6 +48,8 @@ db-tests = []
 workspace = true
 
 [dev-dependencies]
+# `RoleAssumer::unconnected`, for grant tests that never reach STS.
+moatless-s3 = { workspace = true, features = ["restic-backend", "sts", "test-support"] }
 moatless-workspace-ports = { workspace = true, features = ["test-support"] }
 http-body-util = { workspace = true }
 # Test-only. The orchestrator test that pins where a detached operation's span

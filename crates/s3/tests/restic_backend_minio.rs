@@ -20,8 +20,7 @@
 
 use std::sync::Arc;
 
-use aws_sdk_s3::config::{Credentials, Region};
-use moatless_s3::ResticS3Backend;
+use moatless_s3::{ResticS3Backend, S3Credentials, S3Storage};
 use rustic_core::{
     BackupOptions, Credentials as RepoCredentials, LocalDestination, LsOptions, PathList,
     Repository, RepositoryBackends, RepositoryOptions, RestoreOptions, SnapshotOptions,
@@ -30,32 +29,22 @@ use rustic_core::{
 const ENDPOINT: &str = "http://127.0.0.1:19000";
 const BUCKET: &str = "moatless-restic-test";
 
-fn client() -> aws_sdk_s3::Client {
-    let config = aws_sdk_s3::Config::builder()
-        .behavior_version_latest()
-        .region(Region::new("us-east-1"))
-        .credentials_provider(Credentials::new(
-            "spikeadmin",
-            "spikeadmin123",
-            None,
-            None,
-            "test",
-        ))
-        .endpoint_url(ENDPOINT)
-        .force_path_style(true)
-        .build();
-    aws_sdk_s3::Client::from_conf(config)
-}
-
-/// Create the bucket, ignoring the "it is already there" answer.
-async fn ensure_bucket(client: &aws_sdk_s3::Client) {
-    _ = client.create_bucket().bucket(BUCKET).send().await;
+fn storage() -> S3Storage {
+    S3Storage::at_endpoint(
+        ENDPOINT,
+        "us-east-1",
+        S3Credentials {
+            access_key_id: "spikeadmin".into(),
+            secret_access_key: "spikeadmin123".into(),
+            session_token: None,
+        },
+    )
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "needs an S3 endpoint at 127.0.0.1:19000"]
 async fn a_repository_round_trips_through_the_backend() {
-    ensure_bucket(&client()).await;
+    storage().ensure_bucket(BUCKET).await;
 
     let source = tempdir();
     std::fs::create_dir_all(source.join("nested")).unwrap();
@@ -69,7 +58,7 @@ async fn a_repository_round_trips_through_the_backend() {
     // The production shape: every `rustic_core` call inside one `spawn_blocking`,
     // with the backend blocking on its own runtime underneath.
     let outcome = tokio::task::spawn_blocking(move || {
-        let backend = ResticS3Backend::new(client(), BUCKET, &prefix);
+        let backend = ResticS3Backend::new(storage(), BUCKET, &prefix);
         let backends = RepositoryBackends::new(Arc::new(backend), None);
         let options = RepositoryOptions::default().cache_dir(cache.clone());
         let password = RepoCredentials::password("round-trip");

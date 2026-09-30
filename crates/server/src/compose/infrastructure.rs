@@ -76,34 +76,23 @@ pub async fn init_s3(config: &Config) -> Option<moatless_s3::S3Storage> {
         info!("S3_BUCKET_NAME not set — file uploads disabled");
         return None;
     }
-    let aws_config = aws_config::defaults(aws_config::BehaviorVersion::latest())
-        .region(aws_config::Region::new(config.s3.region.clone()))
-        .load()
-        .await;
-    let credentials_provider = aws_config.credentials_provider();
-    let client = aws_sdk_s3::Client::new(&aws_config);
+    let storage = moatless_s3::S3Storage::from_default_chain(config.s3.region.clone()).await;
     info!("S3 client initialized");
-    Some(moatless_s3::S3Storage::new(client, credentials_provider))
+    Some(storage)
 }
 
-/// The STS client the workspace-repository grant assumes its role through.
-///
-/// Built off the same default chain as the S3 client, so in-cluster it's the
-/// backend's IRSA identity that does the assuming.
-pub async fn init_sts(config: &Config) -> Option<aws_sdk_sts::Client> {
+/// What the workspace-repository grant assumes its role through.
+pub async fn init_sts(config: &Config) -> Option<moatless_s3::RoleAssumer> {
     _ = config.sandbox.workspace_repository_role_arn.as_ref()?;
-    let aws_config = aws_config::defaults(aws_config::BehaviorVersion::latest())
-        .region(aws_config::Region::new(config.s3.region.clone()))
-        .load()
-        .await;
+    let assumer = moatless_s3::RoleAssumer::from_default_chain(config.s3.region.clone()).await;
     info!("STS client initialized for workspace repository grants");
-    Some(aws_sdk_sts::Client::new(&aws_config))
+    Some(assumer)
 }
 
 pub fn build_k8s_sandbox_adapter(
     config: &Config,
     k8s: K8sClient,
-    s3: Option<Arc<aws_sdk_s3::Client>>,
+    s3: Option<Arc<moatless_s3::S3Storage>>,
     plan: Option<crate::sandbox::lifecycle::ProvisionDeps>,
 ) -> Arc<crate::sandbox::k8s::provider::K8sSandboxAdapter> {
     use crate::sandbox::k8s::provider::K8sSandboxAdapter;
@@ -123,7 +112,7 @@ pub fn build_k8s_sandbox_adapter(
 pub fn build_docker_sandbox_adapter(
     config: &Config,
     client: crate::sandbox::docker::client::DockerClient,
-    s3: Option<Arc<aws_sdk_s3::Client>>,
+    s3: Option<Arc<moatless_s3::S3Storage>>,
     plan: Option<crate::sandbox::lifecycle::ProvisionDeps>,
 ) -> Arc<crate::sandbox::docker::provider::DockerSandboxAdapter> {
     use crate::sandbox::docker::provider::DockerSandboxAdapter;

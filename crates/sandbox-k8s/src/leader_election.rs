@@ -10,7 +10,7 @@ use k8s_openapi::jiff;
 use kube::api::{Api, PostParams};
 use tracing::{debug, info};
 
-use super::client::K8sClient;
+use super::client::{K8sClient, K8sError};
 
 /// Leader election via K8s Lease objects.
 pub struct LeaderElection {
@@ -55,7 +55,13 @@ impl LeaderElection {
     /// Try to acquire or renew the lease.
     ///
     /// Returns `true` if this instance is the leader after the call.
-    pub async fn try_acquire_or_renew(&self) -> Result<bool, kube::Error> {
+    pub async fn try_acquire_or_renew(&self) -> Result<bool, K8sError> {
+        self.acquire_or_renew()
+            .await
+            .map_err(|e| K8sError::new("renewing the leader lease", e))
+    }
+
+    async fn acquire_or_renew(&self) -> Result<bool, kube::Error> {
         let now = jiff::Timestamp::now();
 
         match self.leases.get(&self.lease_name).await {

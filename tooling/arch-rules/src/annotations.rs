@@ -42,7 +42,11 @@ fn parse(line: &str) -> Result<Option<Allow<'_>>, &'static str> {
 fn dependency_rule(rule: &str) -> bool {
     matches!(
         rule,
-        "band-order" | "dependency-privacy" | "closed-dependency-list" | "base-surface"
+        "band-order"
+            | "dependency-privacy"
+            | "closed-dependency-list"
+            | "base-surface"
+            | "vendor-crate-owner"
     )
 }
 
@@ -72,6 +76,16 @@ pub fn permits_dependency(member: &Member, rule: &str, dependency: &str) -> bool
                 && a["reason"].as_str().is_some_and(|r| !r.trim().is_empty())
                 && dependency_rule(rule)
         })
+}
+
+/// Whether `member` declares `dependency` in a kind `rule` checks: only
+/// `vendor-crate-owner` reads dev and build edges.
+fn declares(member: &Member, rule: &str, dependency: &str) -> bool {
+    if rule == crate::vendor_crate_owner::RULE {
+        member.dependencies.iter().any(|d| d.name == dependency)
+    } else {
+        member.normal_deps.contains(dependency)
+    }
 }
 
 pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
@@ -142,7 +156,7 @@ pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
                 let dependency = a["dependency"].as_str().unwrap_or_default();
                 if !RULES.iter().any(|r| r.name == rule)
                     || !dependency_rule(rule)
-                    || !member.normal_deps.contains(dependency)
+                    || !declares(member, rule, dependency)
                     || a["reason"].as_str().is_none_or(|r| r.trim().is_empty())
                 {
                     out.push(Violation::at(RULE, format!("{}: {rule} -> {dependency}", member.name),

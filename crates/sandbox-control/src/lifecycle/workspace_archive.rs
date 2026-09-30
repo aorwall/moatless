@@ -49,7 +49,7 @@ impl S3WorkspaceArchive {
 #[async_trait]
 impl WorkspaceArchivePort for S3WorkspaceArchive {
     async fn archived_at(&self, task_id: &str) -> Result<Option<DateTime<Utc>>, String> {
-        file_s3::head_object_modified_at(&self.s3.client, &self.bucket, &self.key(task_id))
+        file_s3::head_object_modified_at(&self.s3, &self.bucket, &self.key(task_id))
             .await
             .map_err(|error| error.to_string())
     }

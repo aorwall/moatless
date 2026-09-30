@@ -35,7 +35,6 @@ bytes = "1"
 # it, and the S3 client it speaks through.
 moatless-s3 = { workspace = true, features = ["restic-backend"] }
 rustic_core = { workspace = true }
-aws-sdk-s3 = { workspace = true }
 
 # Serialization
 serde = { workspace = true, features = ["derive"] }
@@ -94,6 +93,8 @@ base64 = { workspace = true }
 reqwest = { workspace = true, features = ["rustls"] }
 
 [dev-dependencies]
+# `S3Storage::at_endpoint`, for the MinIO round trip.
+moatless-s3 = { workspace = true, features = ["restic-backend", "test-support"] }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full", "test-util"] }
 

@@ -92,7 +92,8 @@ async fn presign_one(
     op: PresignOp,
     ttl: Duration,
 ) -> Result<String, S3Error> {
-    let cfg = PresigningConfig::expires_in(ttl).map_err(S3Error::InvalidPresignConfig)?;
+    let cfg = PresigningConfig::expires_in(ttl)
+        .map_err(|e| S3Error::InvalidPresignConfig(Box::new(e)))?;
     let req = match op {
         PresignOp::Get => storage
             .client

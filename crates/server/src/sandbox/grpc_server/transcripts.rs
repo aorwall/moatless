@@ -71,7 +71,7 @@ impl BackendSandboxServiceImpl {
         };
 
         let key = transcript_key(&self.transcript_s3_prefix, &source_task_id);
-        match file_s3::get_object_opt(&s3_client.client, bucket, &key).await {
+        match file_s3::get_object_opt(s3_client, bucket, &key).await {
             Ok(Some(bytes)) => {
                 debug!(
                     task_id = %task_id,
@@ -131,7 +131,7 @@ pub(super) async fn upload_transcript(
 
     let bytes_received = data.len() as i64;
     let key = transcript_key(&service.transcript_s3_prefix, &task_id);
-    file_s3::put_object(&s3_client.client, bucket, &key, data, "application/x-tar")
+    file_s3::put_object(s3_client, bucket, &key, data, "application/x-tar")
         .await
         .map_err(|e| {
             warn!(error = %e, task_id = %task_id, "S3 put_object for transcript failed");
@@ -164,7 +164,7 @@ pub(super) async fn download_transcript(
     };
 
     let key = transcript_key(&service.transcript_s3_prefix, &req.task_id);
-    let own = file_s3::get_object_opt(&s3_client.client, bucket, &key)
+    let own = file_s3::get_object_opt(s3_client, bucket, &key)
         .await
         .map_err(|e| {
             warn!(error = %e, task_id = %req.task_id, "S3 get_object for transcript failed");

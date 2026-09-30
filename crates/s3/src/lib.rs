@@ -4,7 +4,8 @@
 //! S3 object operations and presigning.
 //!
 //! A leaf over `aws-sdk-s3` with no in-workspace dependency, so the SDK
-//! compiles in parallel with the band graph instead of gating it.
+//! compiles in parallel with the band graph instead of gating it. The only
+//! crate that declares an AWS SDK crate; `vendor-crate-owner` holds that.
 
 mod error;
 mod objects;
@@ -20,7 +21,7 @@ mod objects_test;
 #[cfg(all(test, feature = "restic-backend"))]
 mod restic_backend_test;
 
-pub use error::S3Error;
+pub use error::{DeleteFailure, S3Error};
 pub use objects::{
     delete_object, delete_objects_by_prefix, get_object, get_object_opt, get_object_range,
     head_object_modified_at, head_object_size, list_objects_with_size, prefix_has_any_object,
@@ -32,5 +33,5 @@ pub use presign::{
 #[cfg(feature = "restic-backend")]
 pub use restic_backend::ResticS3Backend;
 #[cfg(feature = "sts")]
-pub use session::{ScopedSession, assume_role_for_prefix};
-pub use storage::S3Storage;
+pub use session::{RoleAssumer, ScopedSession, assume_role_for_prefix};
+pub use storage::{S3Credentials, S3Storage};

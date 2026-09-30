@@ -39,6 +39,8 @@ mod sql;
 pub mod store_privacy;
 pub mod table_ownership;
 pub mod transport_direction;
+pub mod vendor_crate_owner;
+pub mod vendor_type_export;
 pub mod workspace;
 
 mod runner;

@@ -8,14 +8,13 @@ authors.workspace = true
 [dependencies]
 moatless-workspace-types = { workspace = true, features = ["openapi"] }
 async-trait = { workspace = true }
-# S3 client type for the transcript-archive cleanup path (held as Option<Arc<Client>>).
-aws-sdk-s3 = { workspace = true }
 bollard = "0.21"
 chrono = { workspace = true, features = ["serde"] }
 futures = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tokio-util = { workspace = true, features = ["rt"] }
+thiserror = { workspace = true }
 tracing = { workspace = true }
 
 moatless-ports = { workspace = true, features = ["openapi"] }
