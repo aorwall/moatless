@@ -14,7 +14,7 @@ use moatless_types::agent::Harness;
 /// The last resort of the model chain, and the only invented value in the row.
 ///
 /// Deliberately not a plausible model name, so a sidebar never shows a
-/// real-looking model nobody chose; every arrival here is logged.
+/// real-looking model nobody chose; every arrival with a Turn is logged.
 const UNKNOWN_MODEL: &str = "unknown";
 
 /// The model the conversation is running, on the provider instance that runs
@@ -53,7 +53,12 @@ pub(super) fn model_name(conversation: &Conversation, defaults: &AgentModelDefau
     if let Some(model) = defaults.for_harness(harness(conversation)) {
         return model.to_string();
     }
-    // 4. The invention, logged so it is visible rather than silent.
+    // 4. The invention, logged so it is visible rather than silent — except
+    //    for a conversation with no Turn, which has no model to find and is
+    //    re-listed on every shell listing.
+    if conversation.turn_number.is_none() {
+        return UNKNOWN_MODEL.to_string();
+    }
     warn!(
         task_id = %conversation.task_id,
         agent_profile = %conversation.agent_profile,

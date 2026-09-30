@@ -2,6 +2,7 @@
 
 use super::fixtures::*;
 use super::*;
+use crate::tests::logs::CapturedLogs;
 
 /// The chain has to end in an answer, because the contract refuses an empty one
 /// and supplies no default of its own.
@@ -55,6 +56,26 @@ fn a_reported_model_id_is_named_by_the_slug_t3_knows() {
 fn a_deployment_that_configures_no_default_still_reports_a_model() {
     let row = conversation("task-a", "ws-a");
     assert_eq!(model_name(&row, &AgentModelDefaults::default()), "unknown");
+}
+
+/// A conversation that never ran has no model to find, and every shell listing
+/// re-reads it, so its placeholder is not a warning.
+#[test]
+fn only_a_conversation_with_a_turn_warns_about_its_placeholder() {
+    let defaults = AgentModelDefaults::default();
+    let mut row = conversation("task-a", "ws-a");
+
+    let (model, warnings) = CapturedLogs::warnings_from(|| model_name(&row, &defaults));
+    assert_eq!(model, "unknown");
+    assert_eq!(warnings, "");
+
+    row.turn_number = Some(1);
+    let (model, warnings) = CapturedLogs::warnings_from(|| model_name(&row, &defaults));
+    assert_eq!(model, "unknown");
+    assert!(
+        warnings.contains("No model could be resolved"),
+        "{warnings}"
+    );
 }
 
 #[test]

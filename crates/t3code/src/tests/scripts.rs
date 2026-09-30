@@ -2,16 +2,13 @@
 //! on, or a defect. Plus what a Task's Scripts resolve to when its Sandbox
 //! cannot be reached.
 
-use std::io::Write;
-use std::sync::Mutex;
-
 use super::fixtures::*;
+use super::logs::CapturedLogs;
 use super::*;
 use crate::authentication::viewer_scope;
 use crate::scripts::resolve;
 use crate::startup_scripts::StartupScripts;
 use moatless_workspace_types::schemas::repository::ScriptConfig;
-use tracing_subscriber::fmt::MakeWriter;
 
 /// A `ScriptsState` over `workspaces`, with every other seam unreachable: the
 /// cases below stop at the resolve.
@@ -160,39 +157,6 @@ async fn listing_the_scripts_of_a_thread_the_viewer_cannot_read_is_empty() {
 
     assert_eq!(output.frames[0]["exit"]["_tag"], "Success");
     assert_eq!(output.frames[0]["exit"]["value"]["scripts"], json!([]));
-}
-
-/// A subscriber's output, for a test asserting on a log line rather than a
-/// return value.
-#[derive(Clone, Default)]
-struct CapturedLogs(Arc<Mutex<Vec<u8>>>);
-
-impl CapturedLogs {
-    fn text(&self) -> String {
-        String::from_utf8_lossy(&self.0.lock().expect("the capture is not poisoned")).into_owned()
-    }
-}
-
-impl Write for CapturedLogs {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.0
-            .lock()
-            .expect("the capture is not poisoned")
-            .extend_from_slice(buf);
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-impl<'a> MakeWriter<'a> for CapturedLogs {
-    type Writer = Self;
-
-    fn make_writer(&'a self) -> Self::Writer {
-        self.clone()
-    }
 }
 
 /// A `run_on_start` Task Script whose record could not be read is the failure

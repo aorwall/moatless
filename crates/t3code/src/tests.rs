@@ -85,6 +85,7 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 mod fixtures;
+pub(crate) mod logs;
 
 mod assets;
 mod attachment_uploads;
