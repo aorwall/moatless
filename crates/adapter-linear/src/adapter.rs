@@ -26,6 +26,7 @@ use moatless_ports::task::TaskReader;
 use moatless_types::adapter::AdapterConnection;
 use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::{AdapterKind, ExternalStatus, InboundMessage};
+use moatless_types::http::HttpTimeouts;
 use moatless_types::loops::LoopContext;
 use moatless_types::loops::SubscriptionMatch;
 
@@ -43,6 +44,8 @@ pub struct LinearAdapter {
     /// reach. Owned by [`auth`](super::auth), which is the only module that
     /// reads them.
     credentials: LinearCredentials,
+    /// The bounds every Linear client this Adapter builds is given.
+    http: HttpTimeouts,
     /// The app-level OAuth row this Adapter authenticates with.
     app_tokens: Arc<dyn AppCredentials>,
     /// Runtime config the webhook route and the binding follow-up read.
@@ -113,10 +116,12 @@ impl LinearAdapter {
     pub fn new(
         config: &moatless_types::adapter::LinearConfig,
         app_tokens: Arc<dyn AppCredentials>,
+        http: HttpTimeouts,
     ) -> Self {
         Self {
             global_webhook_secret: config.webhook_secret.clone(),
             credentials: LinearCredentials::from(config),
+            http,
             app_tokens,
             config: None,
             apps: None,
@@ -136,6 +141,7 @@ impl LinearAdapter {
         Self {
             global_webhook_secret: config.linear.webhook_secret.clone(),
             credentials: LinearCredentials::from(&config.linear),
+            http: config.http.linear,
             app_tokens,
             config: Some(config),
             apps: Some(apps),
@@ -225,9 +231,14 @@ impl LinearAdapter {
         &self.app_tokens
     }
 
+    /// The bounds a Linear client this Adapter builds is given.
+    pub(crate) fn http_timeouts(&self) -> HttpTimeouts {
+        self.http
+    }
+
     pub(crate) fn agent_api_for_org(&self, org_id: &str) -> LinearAgentApi {
         self.credentials
-            .api_for_org(self.app_tokens.clone(), org_id)
+            .api_for_org(self.http, self.app_tokens.clone(), org_id)
     }
 
     pub(crate) async fn agent_api_for_connection(
@@ -253,7 +264,7 @@ impl LinearAdapter {
             ))
             .into());
         };
-        Ok(LinearCredentials::from(app).api_for_org(self.app_tokens.clone(), org_id))
+        Ok(LinearCredentials::from(app).api_for_org(self.http, self.app_tokens.clone(), org_id))
     }
 
     /// Exposed accessor for the dispatcher in `handlers.rs`.

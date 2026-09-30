@@ -6,6 +6,8 @@
 //! `Authorization: Bearer <key>` for non-interactive contexts; else the API key
 //! comes from `~/.config/moatless/credentials.json` (set by `moat login`).
 
+pub use crate::http_config::HttpConfig;
+
 /// Authentication mode.
 #[derive(Debug, Clone)]
 pub enum AuthMode {
@@ -38,6 +40,8 @@ pub struct Config {
     pub gh_repo_set: bool,
     /// Whether `GH_TOKEN` or `GITHUB_TOKEN` holds a non-blank token.
     pub github_token_set: bool,
+    /// Every HTTP client's timeouts.
+    pub http: HttpConfig,
 }
 
 /// `moat login`'s non-interactive inputs, each `None` when unset or empty.
@@ -120,6 +124,7 @@ impl Config {
             gh_repo_set: std::env::var_os("GH_REPO").is_some(),
             github_token_set: std::env::var("GH_TOKEN").is_ok_and(|v| !v.trim().is_empty())
                 || std::env::var("GITHUB_TOKEN").is_ok_and(|v| !v.trim().is_empty()),
+            http: HttpConfig::from_vars(|key| std::env::var(key).ok()),
         }
     }
 

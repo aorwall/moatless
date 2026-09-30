@@ -253,6 +253,8 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
         )),
         model_defaults: defaults(),
         frontend_url: "http://localhost:3000".into(),
+        client_traces_http: moatless_core::config::HttpConfig::default().client_traces,
+        usage_limits_http: moatless_core::config::HttpConfig::default().usage_limits,
         otlp_traces_enabled: false,
     }
 }

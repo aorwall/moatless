@@ -170,7 +170,7 @@ async fn snapshot_diff_for_new(
 /// `SessionStart` before pasting the first prompt, before the supervisor's
 /// `TailTarget` is known.
 pub(crate) fn spawn_hook_listener(
-    hook_rx: mpsc::UnboundedReceiver<HookLine>,
+    hook_rx: mpsc::Receiver<HookLine>,
     cancellation_token: CancellationToken,
 ) -> (tokio::task::JoinHandle<()>, watch::Receiver<HookState>) {
     let (state_tx, state_rx) = watch::channel(HookState::Pending);
@@ -470,7 +470,7 @@ async fn stop_fallback_loop(
 /// `watch::Sender<HookState>` so consumers can react. Exits on cancellation or
 /// when the upstream sender (the FIFO reader thread) closes.
 async fn hook_listener(
-    mut hook_rx: mpsc::UnboundedReceiver<HookLine>,
+    mut hook_rx: mpsc::Receiver<HookLine>,
     state_tx: watch::Sender<HookState>,
     cancellation_token: CancellationToken,
 ) {

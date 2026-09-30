@@ -8,6 +8,7 @@ use std::sync::Arc;
 use moatless_core::db::DbPool;
 use moatless_core::http_auth::UserTokenVerifier;
 use moatless_types::auth::AuthConfig;
+use moatless_types::http::HttpTimeouts;
 
 use crate::adapter_apps::dao::{AdapterAppDao, PgAdapterAppDao};
 use crate::auth::api_keys_dao::PgApiKeyDao;
@@ -93,6 +94,7 @@ pub fn git_host_tokens(
     secrets: Arc<SecretService>,
     credential_overrides: Option<Arc<dyn GitCredentialOverrides>>,
     forgejo: Arc<ForgejoInstances>,
+    self_hosted_git: HttpTimeouts,
 ) -> Arc<GitHostTokens> {
     let tokens = GitHostTokens::new(
         Arc::new(PgProviderTokenDao(db.clone())),
@@ -101,7 +103,7 @@ pub fn git_host_tokens(
         github_apps,
         secrets,
     )
-    .with_forgejo(forgejo);
+    .with_forgejo(forgejo, self_hosted_git);
     Arc::new(match credential_overrides {
         Some(reader) => tokens.with_credential_overrides(reader),
         None => tokens,
@@ -124,11 +126,13 @@ pub fn forgejo_access(
     db: DbPool,
     secrets: Arc<SecretService>,
     instances: Arc<ForgejoInstances>,
+    self_hosted_git: HttpTimeouts,
 ) -> Arc<ForgejoAccess> {
     Arc::new(ForgejoAccess::new(
         Arc::new(PgProviderTokenDao(db)),
         secrets,
         instances,
+        self_hosted_git,
     ))
 }
 
@@ -175,6 +179,7 @@ pub fn github_app_registry(
         db.map(|db| Arc::new(PgAdapterAppDao(db)) as Arc<dyn AdapterAppDao>),
         cipher,
         config.github_api_base.clone(),
+        config.http.github,
     ))
 }
 

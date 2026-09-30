@@ -29,7 +29,7 @@ async fn request_for(kind: LookupKind, team_id: Option<&str>) -> (String, serde_
         }))
     });
     let api = LinearAgentApi::with_base_url(
-        Client::new(),
+        crate::agent_api::http_client(moatless_core::config::HttpConfig::default().linear),
         Arc::new(tokens),
         "test-org".to_string(),
         None,

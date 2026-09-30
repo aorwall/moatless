@@ -28,7 +28,7 @@ async fn ask(base_url: &str, within: Duration) -> Result<ProviderPick, ProviderE
         options: &options,
         state: "The login button does nothing",
     };
-    JevClient::new(&jev_config(base_url))
+    JevClient::new(&jev_config(base_url), timeouts())
         .pick(&question, Instant::now() + within)
         .await
 }
@@ -227,7 +227,7 @@ fn retry_delay_backs_off_honours_retry_after_and_respects_the_deadline() {
 
 #[test]
 fn the_client_debug_never_shows_the_key() {
-    let rendered = format!("{:?}", JevClient::new(&jev_config(UNREACHABLE)));
+    let rendered = format!("{:?}", JevClient::new(&jev_config(UNREACHABLE), timeouts()));
 
     assert!(!rendered.contains(API_KEY), "{rendered}");
     assert!(rendered.contains("[REDACTED]"), "{rendered}");
@@ -244,4 +244,8 @@ async fn a_confidence_outside_zero_to_one_is_dropped() {
 
         assert_eq!(pick.confidence, None, "{out_of_range}");
     }
+}
+
+fn timeouts() -> moatless_types::http::HttpTimeouts {
+    moatless_core::config::HttpConfig::default().decision
 }

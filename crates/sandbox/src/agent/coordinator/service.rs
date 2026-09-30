@@ -230,7 +230,7 @@ impl CoordinatorService {
     pub(crate) async fn run_after(
         self,
         setup_gate: crate::init::SetupGate,
-        command_rx: mpsc::UnboundedReceiver<AgentCommand>,
+        command_rx: mpsc::Receiver<AgentCommand>,
         heartbeat: Heartbeat,
     ) {
         setup_gate.wait().await;
@@ -247,7 +247,7 @@ impl CoordinatorService {
     )]
     pub(crate) async fn run(
         mut self,
-        mut command_rx: mpsc::UnboundedReceiver<AgentCommand>,
+        mut command_rx: mpsc::Receiver<AgentCommand>,
         heartbeat: Heartbeat,
     ) {
         let task_id = self.config.task_id.clone();

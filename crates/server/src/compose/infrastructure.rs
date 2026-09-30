@@ -278,11 +278,6 @@ pub fn grpc_service(
         task_turns: p.task_turns.clone(),
         task_events: p.task_events.clone(),
     });
-    // Longer than the skill fetcher's 30s: an archive is a whole repository.
-    let plugin_http = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_mins(2))
-        .build()
-        .unwrap_or_default();
     let handlers = ports.map(|p| {
         // Tasks-band orchestrator — guard + fan-out over the pure service.
         let credential_sync = p.task_graph.credential_sync(
@@ -311,7 +306,7 @@ pub fn grpc_service(
             trajectory: p.task_graph.trajectory(),
             tags: p.tags.clone(),
             plugin_archives: moatless_workspaces::compose::plugin_archives(
-                Arc::new(GitHostSkillFetcher::new(plugin_http.clone())),
+                Arc::new(GitHostSkillFetcher::new(config.http.plugin_archive)),
                 p.git_host_tokens.clone(),
             ),
         }

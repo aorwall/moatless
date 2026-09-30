@@ -74,12 +74,13 @@ impl CredentialSink for CodexAuthJsonSink {
 /// `gh_hosts::write_github_token` flow.
 pub struct GitTokenSink {
     pub home_dir: String,
+    pub github: moatless_types::http::HttpTimeouts,
 }
 
 #[async_trait]
 impl CredentialSink for GitTokenSink {
     async fn apply(&self, value: &str) -> Result<(), String> {
-        gh_hosts::write_github_token(&self.home_dir, value)
+        gh_hosts::write_github_token(&self.home_dir, value, self.github)
             .await
             .map_err(|e| format!("write gh hosts.yml: {e}"))?;
 

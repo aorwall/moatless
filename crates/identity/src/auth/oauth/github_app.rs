@@ -4,8 +4,6 @@
 //! permissions are configured on the App itself (not via scopes), and the token
 //! response includes refresh tokens.
 
-use std::time::Duration;
-
 use async_trait::async_trait;
 
 use crate::auth::error::AuthError;
@@ -23,6 +21,10 @@ pub struct GitHubAppOAuthProvider {
 
 impl GitHubAppOAuthProvider {
     /// Create from config. Returns None if GitHub App OAuth is not configured.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "sets the timeouts `Config::http` holds"
+    )]
     pub fn from_config(config: &Config) -> Option<Self> {
         let (client_id, client_secret, callback_url) = config.auth.github_app_oauth()?;
         let (client_id, client_secret, callback_url) = (
@@ -31,7 +33,8 @@ impl GitHubAppOAuthProvider {
             callback_url.to_string(),
         );
         let http = reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
+            .connect_timeout(config.http.github.connect)
+            .timeout(config.http.github.total)
             .build()
             .ok()?;
         Some(Self {

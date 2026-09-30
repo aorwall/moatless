@@ -1,7 +1,6 @@
 //! `moat docker status` — health check the running stack.
 
 use std::path::Path;
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -11,6 +10,7 @@ use super::docker_compose::{
 };
 use crate::client::ClientError;
 use crate::output;
+use moatless_types::http::HttpTimeouts;
 
 #[derive(Serialize, Deserialize)]
 pub(super) struct StatusReport {
@@ -36,7 +36,11 @@ pub(super) struct EndpointStatus {
     pub(super) detail: String,
 }
 
-pub(super) async fn run(args: StatusArgs, json: bool) -> Result<(), ClientError> {
+pub(super) async fn run(
+    args: StatusArgs,
+    json: bool,
+    local_stack: HttpTimeouts,
+) -> Result<(), ClientError> {
     let (compose_dir, source) = resolve_compose_dir(args.compose_dir.as_deref())?;
 
     let services = gather_services(&compose_dir).await.unwrap_or_default();
@@ -48,7 +52,7 @@ pub(super) async fn run(args: StatusArgs, json: bool) -> Result<(), ClientError>
                     .is_none_or(|h| h == "healthy" || h == "none" || h.is_empty())
         });
 
-    let endpoints = gather_endpoints().await;
+    let endpoints = gather_endpoints(local_stack).await;
     let endpoints_healthy = endpoints.iter().all(|e| e.ok);
 
     let report = StatusReport {
@@ -144,13 +148,13 @@ fn parse_service(v: &serde_json::Value) -> Option<ServiceStatus> {
     })
 }
 
-async fn gather_endpoints() -> Vec<EndpointStatus> {
+async fn gather_endpoints(local_stack: HttpTimeouts) -> Vec<EndpointStatus> {
     let mut out = Vec::new();
 
     // Backend /health
-    out.push(http_probe("backend", "http://localhost:8080/health").await);
+    out.push(http_probe("backend", "http://localhost:8080/health", local_stack).await);
     // Frontend root
-    out.push(http_probe("frontend", "http://localhost:3000/").await);
+    out.push(http_probe("frontend", "http://localhost:3000/", local_stack).await);
 
     // Postgres — pg_isready inside the container (avoids needing psql on host)
     out.push(
@@ -164,9 +168,14 @@ async fn gather_endpoints() -> Vec<EndpointStatus> {
     out
 }
 
-async fn http_probe(name: &str, url: &str) -> EndpointStatus {
+#[expect(
+    clippy::disallowed_methods,
+    reason = "sets the timeouts `Config::http` holds"
+)]
+async fn http_probe(name: &str, url: &str, probe: HttpTimeouts) -> EndpointStatus {
     let client = match reqwest::Client::builder()
-        .timeout(Duration::from_secs(3))
+        .connect_timeout(probe.connect)
+        .timeout(probe.total)
         .build()
     {
         Ok(c) => c,

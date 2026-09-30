@@ -29,7 +29,7 @@ mod tests {
         sdk_rx: mpsc::Receiver<Result<SdkMessage>>,
         /// Receive JSON lines written by the orchestrator (captures stdin
         /// writes)
-        stdin_rx: mpsc::UnboundedReceiver<String>,
+        stdin_rx: mpsc::Receiver<String>,
         /// Request tracker for outgoing control requests
         request_tracker: Arc<Mutex<RequestTracker>>,
         /// Cancellation token

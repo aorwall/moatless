@@ -300,7 +300,10 @@ mod tests {
 
     #[tokio::test]
     async fn direct_destination_rejects_non_chat_destination_shape() {
-        let provider = TelegramAdapter::new("fake_token");
+        let provider = TelegramAdapter::new(
+            "fake_token",
+            moatless_core::config::HttpConfig::default().telegram,
+        );
         let err = provider
             .post_to_destination("999", &reply("hello", None))
             .await
@@ -390,7 +393,10 @@ mod tests {
 
     #[tokio::test]
     async fn dm_destination_addresses_the_user_private_chat() {
-        let provider = TelegramAdapter::new("fake_token");
+        let provider = TelegramAdapter::new(
+            "fake_token",
+            moatless_core::config::HttpConfig::default().telegram,
+        );
 
         assert_eq!(
             provider.dm_destination("999").await.unwrap(),

@@ -8,12 +8,9 @@
 //! than merging.
 
 use std::path::PathBuf;
-use std::time::Duration;
 
+use moatless_types::http::HttpTimeouts;
 use tracing::{debug, warn};
-
-/// Ceiling on the `GET /user` lookup that resolves the token's login.
-const LOGIN_LOOKUP_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Username recorded when the token's own login can't be resolved.
 ///
@@ -25,8 +22,13 @@ const FALLBACK_LOGIN: &str = "x-access-token";
 /// Write `token` into the gh CLI's `hosts.yml`.
 ///
 /// `home_dir` locates the file. Idempotent — safe to call every refresh cycle.
-pub async fn write_github_token(home_dir: &str, token: &str) -> Result<(), String> {
-    let login = resolve_login(token).await.unwrap_or_else(|| {
+/// `github` bounds the `GET /user` lookup that resolves the token's login.
+pub async fn write_github_token(
+    home_dir: &str,
+    token: &str,
+    github: HttpTimeouts,
+) -> Result<(), String> {
+    let login = resolve_login(token, github).await.unwrap_or_else(|| {
         debug!("Could not resolve GitHub login for token; recording it as {FALLBACK_LOGIN}");
         FALLBACK_LOGIN.to_string()
     });
@@ -121,9 +123,14 @@ async fn write_new_private(path: &std::path::Path, contents: &str) -> std::io::R
 ///
 /// Returns `None` on any failure — a wrong username in `hosts.yml` is cosmetic
 /// (`gh` reads the token back out regardless), never a reason to fail.
-async fn resolve_login(token: &str) -> Option<String> {
+#[expect(
+    clippy::disallowed_methods,
+    reason = "sets the timeouts `Config::http` holds"
+)]
+async fn resolve_login(token: &str, github: HttpTimeouts) -> Option<String> {
     let client = reqwest::Client::builder()
-        .timeout(LOGIN_LOOKUP_TIMEOUT)
+        .connect_timeout(github.connect)
+        .timeout(github.total)
         .build()
         .map_err(|e| warn!(error = %e, "Failed to build HTTP client for GitHub login lookup"))
         .ok()?;

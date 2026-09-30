@@ -10,9 +10,10 @@ pub async fn rescue(config: RescueConfig) -> Result<(), Box<dyn std::error::Erro
         task_id,
         workspace_dir,
         put_url,
+        http,
     } = config;
     info!(task_id = %task_id, workspace_dir = %workspace_dir, "Rescuing workspace to S3");
-    let bytes = super::rescue_upload(&workspace_dir, &put_url).await?;
+    let bytes = super::rescue_upload(&workspace_dir, &put_url, http.workspace_transfer).await?;
     info!(task_id = %task_id, bytes, "Workspace rescued");
     Ok(())
 }

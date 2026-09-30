@@ -16,6 +16,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{DateTime, SecondsFormat, TimeZone, Utc};
+use moatless_types::http::HttpTimeouts;
 use moatless_types::ui_rpc::T3UiRpcConfig;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -25,7 +26,6 @@ use tracing::{debug, warn};
 /// Read cadence. Matches the client's own provider health-check default, so the
 /// hub rows age at the same rate as the local provider rows beside them.
 const REFRESH_INTERVAL: Duration = Duration::from_mins(1);
-const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 const AUTH_FILES_PATH: &str = "/v0/management/auth-files";
 
 /// The `id` of the one source this backend publishes. A T3 environment keys its
@@ -85,7 +85,12 @@ pub struct UsageLimitSources {
 impl UsageLimitSources {
     /// Starts the poller for the configured hub. A deployment with no hub
     /// configured gets an inert value: no task, no capability, and no event.
-    pub(crate) fn start(client: reqwest::Client, settings: &T3UiRpcConfig) -> Self {
+    #[expect(
+        clippy::disallowed_methods,
+        clippy::expect_used,
+        reason = "sets the timeouts `Config::http` holds, and fails as `Client::new` would"
+    )]
+    pub(crate) fn start(settings: &T3UiRpcConfig, timeouts: HttpTimeouts) -> Self {
         let hub = HubConfig::from_settings(settings).map(Arc::new);
         let (changes, _) = broadcast::channel(8);
         let sources = Self {
@@ -95,6 +100,11 @@ impl UsageLimitSources {
         };
         if let Some(hub) = hub {
             let poller = sources.clone();
+            let client = reqwest::Client::builder()
+                .connect_timeout(timeouts.connect)
+                .timeout(timeouts.total)
+                .build()
+                .expect("the TLS backend initialises");
             tokio::spawn(async move { poller.poll_forever(client, hub).await });
         }
         sources
@@ -229,7 +239,6 @@ async fn fetch_auth_files(
     let response = client
         .get(format!("{}{AUTH_FILES_PATH}", hub.url))
         .bearer_auth(&hub.management_key)
-        .timeout(FETCH_TIMEOUT)
         .send()
         .await
         .map_err(|error| {

@@ -11,7 +11,7 @@ pub(super) fn service_with_script(
     agent_state: Arc<AgentState>,
     cancel: CancellationToken,
 ) -> (
-    mpsc::UnboundedSender<AgentCommand>,
+    mpsc::Sender<AgentCommand>,
     Arc<Mutex<Vec<PublishEventRequest>>>,
     GrpcEventPublisher,
 ) {
@@ -31,7 +31,7 @@ pub(super) fn service_with_harness(
     agent_state: Arc<AgentState>,
     cancel: CancellationToken,
 ) -> (
-    mpsc::UnboundedSender<AgentCommand>,
+    mpsc::Sender<AgentCommand>,
     Arc<Mutex<Vec<PublishEventRequest>>>,
     GrpcEventPublisher,
 ) {
@@ -52,7 +52,7 @@ pub(super) fn service_with_commands(
     cancel: CancellationToken,
     commands: Arc<crate::commands::CommandRegistry>,
 ) -> (
-    mpsc::UnboundedSender<AgentCommand>,
+    mpsc::Sender<AgentCommand>,
     Arc<Mutex<Vec<PublishEventRequest>>>,
     GrpcEventPublisher,
 ) {
@@ -73,7 +73,7 @@ pub(super) fn service_with_commands(
         Arc::new(Dispatcher::new()),
         crate::workspace_sync::WorkspaceSyncTracker::new(),
     );
-    let (tx, rx) = mpsc::unbounded_channel::<AgentCommand>();
+    let (tx, rx) = mpsc::channel::<AgentCommand>(64);
     let heartbeat = Heartbeat::new();
     tokio::spawn(service.run(rx, heartbeat));
     (tx, received, events)
@@ -112,12 +112,12 @@ pub(super) fn recording_publisher_with_cancel(
 /// Drive a Send whose execution parks on `WaitForCancel`, then wait until the
 /// Turn is running (its `session_init` event is delivered).
 pub(super) async fn start_turn_and_wait_running(
-    tx: &mpsc::UnboundedSender<AgentCommand>,
+    tx: &mpsc::Sender<AgentCommand>,
     received: &Arc<Mutex<Vec<PublishEventRequest>>>,
     events: &GrpcEventPublisher,
 ) {
     let (ack_tx, _ack_rx) = oneshot::channel();
-    tx.send(AgentCommand::Send {
+    tx.try_send(AgentCommand::Send {
         text: "go".to_string(),
         model: None,
         agent_mode: None,

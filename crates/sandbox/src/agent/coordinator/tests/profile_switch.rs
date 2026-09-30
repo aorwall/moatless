@@ -111,10 +111,10 @@ async fn a_new_profile_waits_for_the_running_turn() {
         cancel.clone(),
         counting_factory(&builds),
     );
-    let (tx, rx) = mpsc::unbounded_channel::<AgentCommand>();
+    let (tx, rx) = mpsc::channel::<AgentCommand>(64);
     tokio::spawn(service.run(rx, Heartbeat::new()));
     let (ack_tx, _first_ack) = oneshot::channel();
-    tx.send(send("go", None, ack_tx)).expect("channel open");
+    tx.try_send(send("go", None, ack_tx)).expect("channel open");
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     while agent_state.status().await != AgentStatus::Running {
         assert!(tokio::time::Instant::now() < deadline, "turn never ran");
@@ -122,7 +122,7 @@ async fn a_new_profile_waits_for_the_running_turn() {
     }
 
     let (ack_tx, ack_rx) = oneshot::channel();
-    tx.send(send("switch", Some("codex"), ack_tx))
+    tx.try_send(send("switch", Some("codex"), ack_tx))
         .expect("channel open");
     assert!(ack_rx.await.is_err(), "the ack is dropped, not resolved");
     assert_eq!(builds.load(Ordering::SeqCst), 0);

@@ -749,6 +749,7 @@ mod tests {
             Some(store_port),
             Some(cipher),
             moatless_core::config::DEFAULT_GITHUB_API_BASE.to_string(),
+            moatless_core::config::HttpConfig::default().github,
         ));
         let administration = AppAdministration::new(
             registry,
@@ -813,6 +814,7 @@ mod tests {
             Some(store_port),
             Some(cipher),
             moatless_core::config::DEFAULT_GITHUB_API_BASE.to_string(),
+            moatless_core::config::HttpConfig::default().github,
         ));
         let users = user_directory_over_bot_users(HashMap::from([(
             "reviewer".to_string(),

@@ -14,6 +14,7 @@ use moatless_loops::bindings::operations::Bindings;
 use moatless_ports::identity::GitHostTokenIssuer;
 use moatless_ports::identity::ProviderIdentityLink;
 use moatless_types::adapter::AdapterKind;
+use moatless_types::http::HttpTimeouts;
 
 use super::auth::GithubPrAuth;
 
@@ -60,11 +61,12 @@ impl GithubPrAdapter {
         frontend_url: String,
         api_base: String,
         git_host_tokens: Arc<dyn GitHostTokenIssuer>,
+        github: HttpTimeouts,
     ) -> Self {
         Self {
             global_webhook_secret,
             frontend_url,
-            auth: GithubPrAuth::new(git_host_tokens, api_base),
+            auth: GithubPrAuth::new(git_host_tokens, api_base, github),
             adapter_connections: None,
             loops: None,
             task_bindings: None,
@@ -309,6 +311,7 @@ mod tests {
             "https://app.example.com".to_string(),
             moatless_core::config::DEFAULT_GITHUB_API_BASE.to_string(),
             moatless_identity::git_host_tokens::seam_over(Arc::new(StubProviderTokens::default())),
+            moatless_core::config::HttpConfig::default().github,
         )
     }
 }

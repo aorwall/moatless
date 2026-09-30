@@ -90,6 +90,7 @@ impl LinearEventSubscriber {
             return;
         }
         tokio::spawn(notify_linear_message_posts(
+            self.config.http.linear,
             self.app_tokens.clone(),
             self.task_bindings.clone(),
             self.adapter_connections.clone(),
@@ -193,6 +194,7 @@ impl LinearEventSubscriber {
     /// status replaces the previous one in Linear's UI instead of piling up.
     fn spawn_action(&self, task_id: &str, action: &str, parameter: &str) {
         tokio::spawn(notify_linear_action(
+            self.config.http.linear,
             self.app_tokens.clone(),
             self.task_bindings.clone(),
             self.adapter_connections.clone(),
@@ -207,6 +209,7 @@ impl LinearEventSubscriber {
 
     fn spawn_status(&self, task_id: &str, kind: ActivityKind, body: String) {
         tokio::spawn(notify_linear_status(
+            self.config.http.linear,
             self.app_tokens.clone(),
             self.task_bindings.clone(),
             self.adapter_connections.clone(),

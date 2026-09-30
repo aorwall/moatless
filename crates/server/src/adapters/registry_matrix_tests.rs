@@ -22,17 +22,24 @@ fn registry_with_all_current_adapters() -> Adapters {
             "xoxb-test",
             "slack-secret",
             Some("U_BOT".to_string()),
+            moatless_core::config::HttpConfig::default().slack,
         ),
     )
     .register_into(&mut providers);
-    Arc::new(crate::adapters::providers::telegram::adapter::TelegramAdapter::new("telegram-token"))
-        .register_into(&mut providers);
+    Arc::new(
+        crate::adapters::providers::telegram::adapter::TelegramAdapter::new(
+            "telegram-token",
+            moatless_core::config::HttpConfig::default().telegram,
+        ),
+    )
+    .register_into(&mut providers);
     Arc::new(
         crate::adapters::providers::github_pr::adapter::GithubPrAdapter::new(
             None,
             "http://localhost".to_string(),
             moatless_core::config::DEFAULT_GITHUB_API_BASE.to_string(),
             moatless_identity::git_host_tokens::seam_over(Arc::new(StubProviderTokens::default())),
+            moatless_core::config::HttpConfig::default().github,
         ),
     )
     .register_into(&mut providers);
@@ -42,11 +49,16 @@ fn registry_with_all_current_adapters() -> Adapters {
             moatless_identity::compose::harness_over(std::sync::Arc::new(
                 moatless_identity::auth::test_support::StubProviderTokens::default(),
             )),
+            moatless_core::config::HttpConfig::default().linear,
         ),
     )
     .register_into(&mut providers);
-    Arc::new(crate::adapters::providers::webhook::adapter::WebhookAdapter::new())
-        .register_into(&mut providers);
+    Arc::new(
+        crate::adapters::providers::webhook::adapter::WebhookAdapter::new(
+            moatless_core::config::HttpConfig::default().webhook,
+        ),
+    )
+    .register_into(&mut providers);
     providers
 }
 

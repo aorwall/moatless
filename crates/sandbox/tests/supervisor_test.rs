@@ -588,6 +588,7 @@ fn test_config(dir: &std::path::Path) -> Config {
         repo_config_raw: None,
         setup_commands: vec![],
         plugins: vec![],
+        http: moatless_sandbox::config::SandboxHttpConfig::default(),
         frontend_url: None,
         use_tmux: false,
         command_default_timeout_secs: moatless_sandbox::config::DEFAULT_COMMAND_TIMEOUT_SECS,

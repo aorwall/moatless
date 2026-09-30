@@ -1,7 +1,5 @@
 //! Linear OAuth exchanges and workspace identity lookup for app installation.
 
-use std::time::Duration;
-
 use async_trait::async_trait;
 use reqwest::Client;
 
@@ -40,12 +38,17 @@ pub struct LinearOAuthProvider {
 impl LinearOAuthProvider {
     /// Build from config. Returns `None` when `client_id` / `client_secret` /
     /// `callback_url` are not set.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "sets the timeouts `Config::http` holds"
+    )]
     pub fn from_config(config: &Config) -> Option<Self> {
         let client_id = config.linear.oauth_client_id.clone()?;
         let client_secret = config.linear.oauth_client_secret.clone()?;
         let callback_url = config.linear.oauth_callback_url.clone()?;
         let http = Client::builder()
-            .timeout(Duration::from_secs(30))
+            .connect_timeout(config.http.linear.connect)
+            .timeout(config.http.linear.total)
             .build()
             .ok()?;
         Some(Self {

@@ -86,6 +86,7 @@ pub(crate) async fn compose_runtime(config: &Config) -> (SandboxState, Superviso
         "GITHUB_TOKEN",
         Arc::new(GitTokenSink {
             home_dir: config.home_dir.clone(),
+            github: config.http.github,
         }),
     );
     dispatcher.register("CLAUDE_CODE_OAUTH_TOKEN", Arc::new(ClaudeOauthSink));

@@ -30,6 +30,7 @@ pub mod persistence_sql_location;
 pub mod port_admission;
 pub mod process_exit;
 mod public_api;
+pub mod reqwest_default;
 pub mod route_registration;
 pub mod row_stays_with_query;
 pub mod session_line_parsing;

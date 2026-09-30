@@ -38,7 +38,7 @@ struct CountingBackend {
 /// then parks until the test hands out a permit, so an upload can be held in
 /// flight while the test drives more turns at the tracker.
 struct UploadGate {
-    started: tokio::sync::mpsc::UnboundedSender<()>,
+    started: tokio::sync::mpsc::Sender<()>,
     release: tokio::sync::Semaphore,
 }
 
@@ -52,8 +52,8 @@ impl CountingBackend {
     ///
     /// Mints so a released upload answers `NotStored::Failed` and the baseline
     /// stays where a queued upload still reaches the gate.
-    fn gated() -> (Arc<Self>, tokio::sync::mpsc::UnboundedReceiver<()>) {
-        let (started, rx) = tokio::sync::mpsc::unbounded_channel();
+    fn gated() -> (Arc<Self>, tokio::sync::mpsc::Receiver<()>) {
+        let (started, rx) = tokio::sync::mpsc::channel(64);
         let backend = Arc::new(Self {
             gate: Some(UploadGate {
                 started,
@@ -184,7 +184,7 @@ impl BackendClient for CountingBackend {
             return Err(tonic::Status::new(code, "configured failure"));
         }
         if let Some(gate) = &self.gate {
-            let _ = gate.started.send(());
+            let _ = gate.started.try_send(());
             let _permit = gate.release.acquire().await.unwrap();
         }
         if self.mint_urls {
@@ -1469,9 +1469,13 @@ async fn rescue_upload_fails_when_there_is_nothing_to_archive() {
     let tmp = tempfile::TempDir::new().unwrap();
     let missing = tmp.path().join("no-such-workspace");
 
-    let err = rescue_upload(missing.to_str().unwrap(), "http://127.0.0.1:1/put")
-        .await
-        .expect_err("an unarchivable workspace is an error, not an empty success");
+    let err = rescue_upload(
+        missing.to_str().unwrap(),
+        "http://127.0.0.1:1/put",
+        crate::config::SandboxHttpConfig::default().workspace_transfer,
+    )
+    .await
+    .expect_err("an unarchivable workspace is an error, not an empty success");
 
     // The caller deletes the volume on Ok, so "nothing to send" must not
     // read as "sent" — and the message has to name the directory, since the
@@ -1490,9 +1494,13 @@ async fn rescue_upload_fails_when_the_transfer_does() {
     git_add(&repo, &["main.rs"]);
 
     // Port 1 is reserved and unbound: the PUT cannot land.
-    rescue_upload(repo.to_str().unwrap(), "http://127.0.0.1:1/put")
-        .await
-        .expect_err("a rejected transfer must surface, not be swallowed");
+    rescue_upload(
+        repo.to_str().unwrap(),
+        "http://127.0.0.1:1/put",
+        crate::config::SandboxHttpConfig::default().workspace_transfer,
+    )
+    .await
+    .expect_err("a rejected transfer must surface, not be swallowed");
 }
 
 /// The framing regression behind `411 Length Required`.
@@ -1538,7 +1546,8 @@ async fn framing_seen_by_a_server(body: Vec<u8>) -> Option<String> {
             .find(|l| l.starts_with("content-length") || l.starts_with("transfer-encoding"))
     });
 
-    let client = http_client(Duration::from_secs(5)).expect("client");
+    let client = http_client(crate::config::SandboxHttpConfig::default().workspace_transfer)
+        .expect("client");
     http_put(&client, &format!("http://127.0.0.1:{port}/obj"), body)
         .await
         .expect("the throwaway server answers 200");

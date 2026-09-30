@@ -28,12 +28,13 @@ impl Transport for MockTransport {
 
 /// A mock stdin writer that captures all written lines.
 pub(crate) struct MockStdinWriter {
-    tx: mpsc::UnboundedSender<String>,
+    tx: mpsc::Sender<String>,
 }
 
 impl MockStdinWriter {
-    pub(crate) fn new() -> (Self, mpsc::UnboundedReceiver<String>) {
-        let (tx, rx) = mpsc::unbounded_channel();
+    /// Holds 64 undrained lines; a test that writes more fails on the write.
+    pub(crate) fn new() -> (Self, mpsc::Receiver<String>) {
+        let (tx, rx) = mpsc::channel(64);
         (Self { tx }, rx)
     }
 }
@@ -41,7 +42,9 @@ impl MockStdinWriter {
 #[async_trait]
 impl StdinWriter for MockStdinWriter {
     async fn write_json_line(&self, json: &str) -> Result<()> {
-        let _ = self.tx.send(json.to_string());
+        if let Err(mpsc::error::TrySendError::Full(_)) = self.tx.try_send(json.to_string()) {
+            panic!("MockStdinWriter holds 64 undrained lines");
+        }
         Ok(())
     }
 }

@@ -145,6 +145,7 @@ enforce!(
     persistence_export,
     process_exit,
     env_read_owner,
+    reqwest_default,
     annotations,
     clippy_fence,
     row_stays_with_query,

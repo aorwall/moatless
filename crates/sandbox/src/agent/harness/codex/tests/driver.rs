@@ -77,12 +77,12 @@ async fn fresh_turn_orders_started_accepted_source_finished() {
         .send(Input::text("in-1", "hi"))
         .await
         .expect("submit");
-    tx.send(Ok(thread_started("thread-A"))).expect("feed");
-    tx.send(Ok(item_completed(
+    tx.try_send(Ok(thread_started("thread-A"))).expect("feed");
+    tx.try_send(Ok(item_completed(
         json!({ "type": "agentMessage", "id": "item_0", "text": "4" }),
     )))
     .expect("feed");
-    tx.send(Ok(turn_completed("completed", None)))
+    tx.try_send(Ok(turn_completed("completed", None)))
         .expect("feed");
 
     assert!(matches!(
@@ -122,7 +122,7 @@ async fn queued_input_opens_the_next_turn_and_is_accepted_against_it() {
         .send(Input::text("in-1", "one"))
         .await
         .expect("submit 1");
-    tx1.send(Ok(thread_started("thread-A"))).expect("feed");
+    tx1.try_send(Ok(thread_started("thread-A"))).expect("feed");
     assert!(matches!(
         next_signal(&mut signal_rx).await,
         Signal::ExecutionStarted { cause: Cause::Input(id), .. } if id.0 == "in-1"
@@ -139,7 +139,7 @@ async fn queued_input_opens_the_next_turn_and_is_accepted_against_it() {
         .expect("submit 2");
 
     // First Turn terminates; its result block then a Completed terminal.
-    tx1.send(Ok(turn_completed("completed", None)))
+    tx1.try_send(Ok(turn_completed("completed", None)))
         .expect("feed");
     assert!(matches!(
         next_signal(&mut signal_rx).await,
@@ -153,7 +153,7 @@ async fn queued_input_opens_the_next_turn_and_is_accepted_against_it() {
     ));
 
     // Only now does the queued input open a replacement Turn and get accepted.
-    tx2.send(Ok(thread_started("thread-A"))).expect("feed");
+    tx2.try_send(Ok(thread_started("thread-A"))).expect("feed");
     assert!(matches!(
         next_signal(&mut signal_rx).await,
         Signal::ExecutionStarted { cause: Cause::Input(id), .. } if id.0 == "in-2"
@@ -178,9 +178,9 @@ async fn a_message_submitted_mid_execution_joins_it_and_opens_no_second_one() {
         .send(Input::text("in-1", "one"))
         .await
         .expect("submit 1");
-    tx.send(Ok(thread_started("thread-A"))).expect("feed");
-    tx.send(Ok(turn_started("turn-1"))).expect("feed");
-    tx.send(Ok(item_completed(
+    tx.try_send(Ok(thread_started("thread-A"))).expect("feed");
+    tx.try_send(Ok(turn_started("turn-1"))).expect("feed");
+    tx.try_send(Ok(item_completed(
         json!({ "type": "agentMessage", "id": "item_0", "text": "working" }),
     )))
     .expect("feed");
@@ -200,7 +200,7 @@ async fn a_message_submitted_mid_execution_joins_it_and_opens_no_second_one() {
     let request = server.answer_next(json!({ "turnId": "turn-1" })).await;
     assert_eq!(request["method"], "turn/steer");
 
-    tx.send(Ok(turn_completed("completed", None)))
+    tx.try_send(Ok(turn_completed("completed", None)))
         .expect("feed");
     loop {
         let signal = next_signal(&mut signal_rx).await;
@@ -246,7 +246,7 @@ async fn messages_held_for_the_gate_are_delivered_in_submit_order() {
         .send(Input::text("in-1", "one"))
         .await
         .expect("submit 1");
-    tx.send(Ok(thread_started("thread-A"))).expect("feed");
+    tx.try_send(Ok(thread_started("thread-A"))).expect("feed");
     assert!(matches!(
         next_signal(&mut signal_rx).await,
         Signal::ExecutionStarted { .. }
@@ -268,7 +268,7 @@ async fn messages_held_for_the_gate_are_delivered_in_submit_order() {
     let early = timeout(Duration::from_millis(100), server.next_request()).await;
     assert!(early.is_err(), "nothing may be steered before turn/started");
 
-    tx.send(Ok(turn_started("turn-1"))).expect("feed");
+    tx.try_send(Ok(turn_started("turn-1"))).expect("feed");
     for _ in 0..2 {
         let request = server.answer_next(json!({ "turnId": "turn-1" })).await;
         assert_eq!(request["method"], "turn/steer");
@@ -339,7 +339,7 @@ async fn a_stop_reaches_the_driver_while_a_message_waits_on_the_gate() {
     );
 
     // And the message it interrupted is still owed an answer.
-    tx2.send(Ok(thread_started("thread-A"))).expect("feed");
+    tx2.try_send(Ok(thread_started("thread-A"))).expect("feed");
     assert!(matches!(
         next_signal(&mut signal_rx).await,
         Signal::ExecutionStarted { cause: Cause::Input(id), .. } if id.0 == "in-2"
@@ -365,9 +365,9 @@ async fn a_rejected_steer_leaves_the_message_for_the_next_turn() {
         .send(Input::text("in-1", "one"))
         .await
         .expect("submit 1");
-    tx1.send(Ok(thread_started("thread-A"))).expect("feed");
-    tx1.send(Ok(turn_started("turn-1"))).expect("feed");
-    tx1.send(Ok(item_completed(
+    tx1.try_send(Ok(thread_started("thread-A"))).expect("feed");
+    tx1.try_send(Ok(turn_started("turn-1"))).expect("feed");
+    tx1.try_send(Ok(item_completed(
         json!({ "type": "agentMessage", "id": "item_0", "text": "working" }),
     )))
     .expect("feed");
@@ -399,11 +399,11 @@ async fn a_rejected_steer_leaves_the_message_for_the_next_turn() {
 
     // The running execution is undisturbed: it finishes on its own terms, with
     // no acceptance of the refused message against it.
-    tx1.send(Ok(item_completed(
+    tx1.try_send(Ok(item_completed(
         json!({ "type": "agentMessage", "id": "item_1", "text": "done" }),
     )))
     .expect("feed");
-    tx1.send(Ok(turn_completed("completed", None)))
+    tx1.try_send(Ok(turn_completed("completed", None)))
         .expect("feed");
     loop {
         match next_signal(&mut signal_rx).await {
@@ -417,7 +417,7 @@ async fn a_rejected_steer_leaves_the_message_for_the_next_turn() {
     }
 
     // And it opens the next Turn on the same thread instead of being lost.
-    tx2.send(Ok(thread_started("thread-A"))).expect("feed");
+    tx2.try_send(Ok(thread_started("thread-A"))).expect("feed");
     assert!(matches!(
         next_signal(&mut signal_rx).await,
         Signal::ExecutionStarted { cause: Cause::Input(id), .. } if id.0 == "in-2"
@@ -437,7 +437,7 @@ async fn cancellation_finishes_the_turn_as_cancelled() {
         .send(Input::text("in-1", "hi"))
         .await
         .expect("submit");
-    tx.send(Ok(thread_started("thread-A"))).expect("feed");
+    tx.try_send(Ok(thread_started("thread-A"))).expect("feed");
     assert!(matches!(
         next_signal(&mut signal_rx).await,
         Signal::ExecutionStarted { .. }
@@ -471,7 +471,7 @@ async fn a_turn_interrupted_after_cancel_still_finishes_as_cancelled() {
         .send(Input::text("in-1", "hi"))
         .await
         .expect("submit");
-    tx.send(Ok(thread_started("thread-A"))).expect("feed");
+    tx.try_send(Ok(thread_started("thread-A"))).expect("feed");
     assert!(matches!(
         next_signal(&mut signal_rx).await,
         Signal::ExecutionStarted { .. }
@@ -482,7 +482,7 @@ async fn a_turn_interrupted_after_cancel_still_finishes_as_cancelled() {
     ));
 
     cancel_tx.send(()).await.expect("cancel");
-    tx.send(Ok(turn_completed("interrupted", None)))
+    tx.try_send(Ok(turn_completed("interrupted", None)))
         .expect("feed");
 
     loop {
@@ -542,7 +542,7 @@ async fn eof_mid_turn_is_an_unexpected_exit() {
         .send(Input::text("in-1", "hi"))
         .await
         .expect("submit");
-    tx.send(Ok(thread_started("thread-A"))).expect("feed");
+    tx.try_send(Ok(thread_started("thread-A"))).expect("feed");
     assert!(matches!(
         next_signal(&mut signal_rx).await,
         Signal::ExecutionStarted { .. }
@@ -576,7 +576,7 @@ async fn a_stream_error_ends_the_turn_as_a_failure() {
         .send(Input::text("in-1", "hi"))
         .await
         .expect("submit");
-    tx.send(Ok(thread_started("thread-A"))).expect("feed");
+    tx.try_send(Ok(thread_started("thread-A"))).expect("feed");
     assert!(matches!(
         next_signal(&mut signal_rx).await,
         Signal::ExecutionStarted { .. }
@@ -586,7 +586,7 @@ async fn a_stream_error_ends_the_turn_as_a_failure() {
         Signal::InputAccepted { .. }
     ));
 
-    tx.send(Err("Codex app-server exited with status 1".to_string()))
+    tx.try_send(Err("Codex app-server exited with status 1".to_string()))
         .expect("feed");
     match next_signal(&mut signal_rx).await {
         Signal::ExecutionFinished {

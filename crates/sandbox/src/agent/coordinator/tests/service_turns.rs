@@ -32,7 +32,7 @@ async fn coordinator_service_submits_this_members_task_id_to_the_harness() {
     );
 
     let (ack_tx, _ack_rx) = oneshot::channel();
-    tx.send(AgentCommand::Send {
+    tx.try_send(AgentCommand::Send {
         text: "do the thing".to_string(),
         model: None,
         agent_mode: None,
@@ -91,7 +91,7 @@ async fn coordinator_service_submit_completed_sets_idle_and_publishes_completed(
 
     // Send a Submit command with a throwaway ack.
     let (ack_tx, _ack_rx) = oneshot::channel();
-    tx.send(AgentCommand::Send {
+    tx.try_send(AgentCommand::Send {
         text: "do the thing".to_string(),
         model: None,
         agent_mode: None,
@@ -152,7 +152,7 @@ async fn coordinator_service_sends_during_active_turn_into_running_harness() {
     );
 
     let (first_ack, first_rx) = oneshot::channel();
-    tx.send(AgentCommand::Send {
+    tx.try_send(AgentCommand::Send {
         text: "open pr".to_string(),
         model: None,
         agent_mode: None,
@@ -171,7 +171,7 @@ async fn coordinator_service_sends_during_active_turn_into_running_harness() {
         .expect("first ack delivered");
 
     let (second_ack, second_rx) = oneshot::channel();
-    tx.send(AgentCommand::Send {
+    tx.try_send(AgentCommand::Send {
         text: "merge conflict notice".to_string(),
         model: None,
         agent_mode: None,
@@ -232,7 +232,7 @@ async fn coordinator_service_send_without_model_reuses_last_model() {
     );
 
     let (first_ack, _first_rx) = oneshot::channel();
-    tx.send(AgentCommand::Send {
+    tx.try_send(AgentCommand::Send {
         text: "first".to_string(),
         model: Some("gpt-5.6-sol".to_string()),
         agent_mode: None,
@@ -260,7 +260,7 @@ async fn coordinator_service_send_without_model_reuses_last_model() {
     }
 
     let (second_ack, _second_rx) = oneshot::channel();
-    tx.send(AgentCommand::Send {
+    tx.try_send(AgentCommand::Send {
         text: "synthetic".to_string(),
         model: None,
         agent_mode: None,
@@ -319,7 +319,7 @@ async fn coordinator_service_recover_replays_the_interrupted_turns_model() {
         cancel.clone(),
     );
 
-    tx.send(AgentCommand::Recover {
+    tx.try_send(AgentCommand::Recover {
         text: "continue".to_string(),
         agent_mode: None,
         effort: None,
@@ -366,7 +366,7 @@ async fn completed_payload(commands: Arc<crate::commands::CommandRegistry>) -> s
         commands,
     );
     let (ack_tx, _ack_rx) = oneshot::channel();
-    tx.send(AgentCommand::Send {
+    tx.try_send(AgentCommand::Send {
         text: "go".to_string(),
         model: None,
         agent_mode: None,

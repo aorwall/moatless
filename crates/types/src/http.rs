@@ -1,4 +1,4 @@
-//! The standard JSON error body every API module returns.
+//! The standard JSON error body, and the timeouts an HTTP client is built with.
 
 use serde::Serialize;
 
@@ -7,4 +7,22 @@ use serde::Serialize;
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ErrorBody {
     pub error: String,
+}
+
+/// Connect and whole-exchange bounds for one integration's HTTP client.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HttpTimeouts {
+    /// How long opening the connection, TLS included, may take.
+    pub connect: std::time::Duration,
+    /// How long one request may take, from sending it to reading the last byte.
+    pub total: std::time::Duration,
+}
+
+/// Bounds for a client whose response body streams for as long as it moves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HttpStreamTimeouts {
+    /// How long opening the connection, TLS included, may take.
+    pub connect: std::time::Duration,
+    /// The longest silence allowed between two reads of the body.
+    pub idle: std::time::Duration,
 }

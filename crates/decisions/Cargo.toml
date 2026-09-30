@@ -20,13 +20,13 @@ uuid = { workspace = true }
 
 moatless-api-schemas = { workspace = true, features = ["openapi"] }
 moatless-core = { workspace = true }
+moatless-types = { workspace = true }
 
 [lints]
 workspace = true
 
 [dev-dependencies]
 http-body-util = { workspace = true }
-moatless-types = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net"] }
 tower = { version = "0.5", features = ["util"] }
 uuid = { workspace = true, features = ["v4"] }

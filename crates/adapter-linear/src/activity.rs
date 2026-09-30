@@ -25,6 +25,7 @@ use moatless_ports::identity::AppCredentials;
 
 use moatless_adapter_model::connections::ConnectionLookup;
 use moatless_ports::task::TranscriptAppend;
+use moatless_types::http::HttpTimeouts;
 
 use super::agent_api::LinearAgentApi;
 
@@ -35,6 +36,7 @@ pub use super::agent_api::ActivityKind;
 /// Returns an empty vec on any DB error (logged) so callers can skip emission
 /// silently without bubbling errors into the event-handler hot path.
 async fn resolve_linear_sessions_for_task(
+    timeouts: HttpTimeouts,
     app_tokens: &Arc<dyn AppCredentials>,
     task_bindings: &Bindings,
     adapter_connections: &dyn ConnectionLookup,
@@ -65,9 +67,14 @@ async fn resolve_linear_sessions_for_task(
             continue;
         };
 
-        let Some(api) =
-            super::auth::api_for_binding(adapter_connections, app_tokens.clone(), apps, &binding)
-                .await
+        let Some(api) = super::auth::api_for_binding(
+            timeouts,
+            adapter_connections,
+            app_tokens.clone(),
+            apps,
+            &binding,
+        )
+        .await
         else {
             continue;
         };
@@ -88,6 +95,7 @@ async fn resolve_linear_sessions_for_task(
               take by value, plus its four activity fields"
 )]
 pub async fn notify_linear_status(
+    timeouts: HttpTimeouts,
     app_tokens: Arc<dyn AppCredentials>,
     task_bindings: Arc<Bindings>,
     adapter_connections: Arc<dyn ConnectionLookup>,
@@ -98,6 +106,7 @@ pub async fn notify_linear_status(
     ephemeral: bool,
 ) {
     for (api, session_id) in resolve_linear_sessions_for_task(
+        timeouts,
         &app_tokens,
         task_bindings.as_ref(),
         adapter_connections.as_ref(),
@@ -131,6 +140,7 @@ pub async fn notify_linear_status(
               take by value, plus its four activity fields"
 )]
 pub async fn notify_linear_action(
+    timeouts: HttpTimeouts,
     app_tokens: Arc<dyn AppCredentials>,
     task_bindings: Arc<Bindings>,
     adapter_connections: Arc<dyn ConnectionLookup>,
@@ -142,6 +152,7 @@ pub async fn notify_linear_action(
     ephemeral: bool,
 ) {
     for (api, session_id) in resolve_linear_sessions_for_task(
+        timeouts,
         &app_tokens,
         task_bindings.as_ref(),
         adapter_connections.as_ref(),
@@ -269,7 +280,12 @@ pub fn message_posts(message: &serde_json::Value) -> Vec<MessagePost> {
 ///
 /// A [`MessagePost::Result`] reads the full call back from its Activity, since
 /// the upsert carries only previews; one not yet readable posts nothing.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the client bounds, five owned downward ports, the task and its posts"
+)]
 pub async fn notify_linear_message_posts(
+    timeouts: HttpTimeouts,
     app_tokens: Arc<dyn AppCredentials>,
     task_bindings: Arc<Bindings>,
     adapter_connections: Arc<dyn ConnectionLookup>,
@@ -282,6 +298,7 @@ pub async fn notify_linear_message_posts(
         return;
     }
     let sessions = resolve_linear_sessions_for_task(
+        timeouts,
         &app_tokens,
         task_bindings.as_ref(),
         adapter_connections.as_ref(),

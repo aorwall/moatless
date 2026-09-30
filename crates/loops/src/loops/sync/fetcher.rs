@@ -15,6 +15,7 @@ use serde::Deserialize;
 use tracing::debug;
 
 use super::error::LoopError;
+use moatless_types::http::HttpTimeouts;
 use moatless_workspace_types::repository::RepositoryProvider;
 use moatless_workspace_types::repository::RepositoryRemote;
 
@@ -48,7 +49,22 @@ pub struct GitHubLoopFetcher {
 }
 
 impl GitHubLoopFetcher {
-    pub fn new(client: Client) -> Self {
+    /// A fetcher whose client is bounded by `timeouts`.
+    ///
+    /// Panics when the TLS backend cannot be loaded, as `reqwest::Client::new`
+    /// does.
+    #[expect(
+        clippy::disallowed_methods,
+        clippy::expect_used,
+        reason = "sets the timeouts `Config::http` holds, and fails as `Client::new` would"
+    )]
+    pub fn new(timeouts: HttpTimeouts) -> Self {
+        let client = Client::builder()
+            .connect_timeout(timeouts.connect)
+            .timeout(timeouts.total)
+            .user_agent("moatless-vibe-backend")
+            .build()
+            .expect("the TLS backend initialises");
         Self { client }
     }
 }
@@ -271,7 +287,8 @@ mod tests {
 
     #[tokio::test]
     async fn non_github_url_returns_empty() {
-        let fetcher = GitHubLoopFetcher::new(Client::new());
+        let fetcher =
+            GitHubLoopFetcher::new(moatless_core::config::HttpConfig::default().git_content);
         let files = fetcher
             .fetch_loop_files(
                 &RepositoryRemote {

@@ -7,7 +7,6 @@
 //!    email for use as git author / committer when running "act-as-App" mode.
 
 use std::collections::{BTreeMap, HashMap};
-use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use jsonwebtoken::{EncodingKey, Header, encode};
@@ -20,6 +19,7 @@ use crate::auth::error::AuthError;
 use crate::auth::models::OAuthTokens;
 use moatless_core::config::Config;
 use moatless_types::auth::GitHubAppConfig;
+use moatless_types::http::HttpTimeouts;
 
 /// Cached installation access token.
 struct CachedToken {
@@ -194,13 +194,18 @@ impl GitHubAppService {
             config.auth.github_app_client_secret.clone(),
             config.auth.github_app_default_installation_id,
             config.github_api_base.clone(),
+            config.http.github,
         )
     }
 
     /// Create from a structured `GitHubAppConfig` entry. Returns `None` if the
     /// PEM private key fails to parse — the caller logs and continues with the
     /// remaining apps.
-    pub fn from_app_config(entry: &GitHubAppConfig, api_base: &str) -> Option<Self> {
+    pub fn from_app_config(
+        entry: &GitHubAppConfig,
+        api_base: &str,
+        timeouts: HttpTimeouts,
+    ) -> Option<Self> {
         Self::build(
             entry.key.clone(),
             entry.app_id,
@@ -209,6 +214,7 @@ impl GitHubAppService {
             entry.client_secret.clone(),
             entry.default_installation_id,
             api_base.to_string(),
+            timeouts,
         )
     }
 
@@ -222,6 +228,7 @@ impl GitHubAppService {
         record: &GitHubAppRecord,
         private_key_pem: &str,
         api_base: &str,
+        timeouts: HttpTimeouts,
     ) -> Option<Self> {
         Self::build(
             record.app_key.clone(),
@@ -231,9 +238,14 @@ impl GitHubAppService {
             None,
             record.default_installation_id,
             api_base.to_string(),
+            timeouts,
         )
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the App's stored fields, its API base and the client bounds"
+    )]
     fn build(
         key: String,
         app_id: u64,
@@ -242,6 +254,7 @@ impl GitHubAppService {
         client_secret: Option<String>,
         default_installation_id: Option<u64>,
         api_base: String,
+        timeouts: HttpTimeouts,
     ) -> Option<Self> {
         let private_key = match EncodingKey::from_rsa_pem(pem.as_bytes()) {
             Ok(k) => k,
@@ -251,8 +264,13 @@ impl GitHubAppService {
             }
         };
 
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "sets the timeouts `Config::http` holds"
+        )]
         let http = reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
+            .connect_timeout(timeouts.connect)
+            .timeout(timeouts.total)
             .build()
             .ok()?;
 
@@ -959,8 +977,12 @@ mod tests {
             client_secret: None,
             default_installation_id: None,
         };
-        GitHubAppService::from_app_config(&config, moatless_core::config::DEFAULT_GITHUB_API_BASE)
-            .expect("test key parses")
+        GitHubAppService::from_app_config(
+            &config,
+            moatless_core::config::DEFAULT_GITHUB_API_BASE,
+            moatless_core::config::HttpConfig::default().github,
+        )
+        .expect("test key parses")
     }
 
     fn token_response(token: &str) -> serde_json::Value {

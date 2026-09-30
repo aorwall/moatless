@@ -19,7 +19,7 @@ jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
 # `MockUserDao` / `MockProviderTokenAuthDao` across the crate boundary.
 mockall = { workspace = true, optional = true }
 moka = { workspace = true, features = ["future"] }
-openidconnect = "4.0.1"
+openidconnect = { version = "4.0.1", default-features = false }
 rand = { workspace = true }
 reqwest = { workspace = true, features = ["json", "query", "form", "rustls"] }
 serde = { workspace = true, features = ["derive"] }

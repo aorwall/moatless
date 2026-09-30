@@ -11,7 +11,7 @@ use crate::error::Result;
 use crate::query::QueryHandle;
 use crate::transport::StdinWriter;
 
-use super::hooks::{HookHarness, HookLine, spawn_reader};
+use super::hooks::{HookHarness, hook_channel, spawn_reader};
 use super::session::TmuxSession;
 use super::startup::await_readiness;
 use super::tailer::{
@@ -57,7 +57,7 @@ pub async fn query_tmux(prompt: &str, mut options: ClaudeOptions) -> Result<Quer
 
     // Open the FIFO reader BEFORE spawning claude — otherwise the child's
     // first hook write blocks waiting for a reader to attach.
-    let (hook_tx, hook_rx) = mpsc::unbounded_channel::<HookLine>();
+    let (hook_tx, hook_rx) = hook_channel();
     let _reader_handle = spawn_reader(
         harness.fifo_path.clone(),
         hook_tx,
@@ -182,7 +182,7 @@ pub async fn query_tmux_streaming(mut options: ClaudeOptions) -> Result<QueryHan
 
     // Open the FIFO reader BEFORE spawning claude — otherwise the child's
     // first hook write blocks waiting for a reader to attach.
-    let (hook_tx, hook_rx) = mpsc::unbounded_channel::<HookLine>();
+    let (hook_tx, hook_rx) = hook_channel();
     let _reader_handle = spawn_reader(
         harness.fifo_path.clone(),
         hook_tx,

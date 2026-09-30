@@ -639,7 +639,10 @@ pub(super) fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore
         usage: Arc::new(UnreachableUsage),
         model_defaults: Arc::new(AgentModelDefaults::default()),
         terminal: terminal::TerminalHub::default(),
-        client_traces: observability::ClientTraceForwarder::default(),
+        client_traces: observability::ClientTraceForwarder::new(
+            None,
+            moatless_core::config::HttpConfig::default().client_traces,
+        ),
         usage_limit_sources: crate::usage_limit_sources::UsageLimitSources::disabled(),
     }
 }

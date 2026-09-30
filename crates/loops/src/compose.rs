@@ -21,6 +21,7 @@ use moatless_ports::task::{
 };
 use moatless_types::adapter::MessageBufferConfig;
 use moatless_types::auth::AuthConfig;
+use moatless_types::http::HttpTimeouts;
 use moatless_workspace_ports::WorkspaceResolver;
 
 use crate::adapters::delivery::AdapterDeliveryWorker;
@@ -113,13 +114,14 @@ impl LoopGraph {
     }
 
     /// Reconciles a repository's git-declared Loops, over the four ports the
-    /// reconcile tree reads.
+    /// reconcile tree reads, fetching Loop files within `git_content`.
     pub fn loop_sync(
         &self,
         adapter_connections: Arc<ConnectionRouting>,
         tags: Arc<dyn TagResolver>,
         workspaces: Arc<dyn WorkspaceResolver>,
         git_host_tokens: Arc<dyn GitHostTokenIssuer>,
+        git_content: HttpTimeouts,
     ) -> Arc<LoopSyncService> {
         Arc::new(LoopSyncService::new(
             adapter_connections,
@@ -127,6 +129,7 @@ impl LoopGraph {
             tags,
             workspaces,
             git_host_tokens,
+            git_content,
         ))
     }
 

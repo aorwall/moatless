@@ -7,7 +7,7 @@
 //! Auth: workspace OAuth token lives in the global `provider_tokens` row;
 //! expired tokens refresh against `https://api.linear.app/oauth/token`.
 
-use std::time::Duration;
+use moatless_types::http::HttpTimeouts;
 
 use chrono::{DateTime, Utc};
 use reqwest::Client;
@@ -147,6 +147,7 @@ impl LinearAgentApi {
     /// `base_url` defaults to [`LINEAR_API_BASE`] here, so a caller that forgot
     /// it doesn't silently reach the real API from a test.
     pub(crate) fn for_org(
+        timeouts: HttpTimeouts,
         tokens: Arc<dyn AppCredentials>,
         org_id: &str,
         oauth_client_id: Option<&str>,
@@ -154,7 +155,7 @@ impl LinearAgentApi {
         base_url: Option<&str>,
     ) -> Self {
         Self::with_base_url(
-            default_http_client(),
+            http_client(timeouts),
             tokens,
             org_id.to_string(),
             oauth_client_id.map(str::to_string),
@@ -1266,13 +1267,19 @@ fn needs_refresh(expires_at: Option<DateTime<Utc>>) -> bool {
     expires_at <= margin
 }
 
-/// Build the default HTTP client used by the Linear Agents API.
-pub fn default_http_client() -> Client {
+/// The HTTP client the Linear Agents API is called with, bounded by `timeouts`.
+#[expect(
+    clippy::disallowed_methods,
+    clippy::expect_used,
+    reason = "sets the timeouts `Config::http` holds, and fails as `Client::new` would"
+)]
+pub fn http_client(timeouts: HttpTimeouts) -> Client {
     Client::builder()
-        .timeout(Duration::from_secs(30))
+        .connect_timeout(timeouts.connect)
+        .timeout(timeouts.total)
         .user_agent("moatless-vibe")
         .build()
-        .unwrap_or_default()
+        .expect("the TLS backend initialises")
 }
 
 #[derive(Debug, Clone, Deserialize)]

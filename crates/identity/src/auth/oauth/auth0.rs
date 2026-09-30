@@ -1,7 +1,5 @@
 //! Auth0 OAuth provider implementation.
 
-use std::time::Duration;
-
 use async_trait::async_trait;
 use tracing::{debug, info, warn};
 
@@ -22,13 +20,18 @@ pub struct Auth0OAuthProvider {
 
 impl Auth0OAuthProvider {
     /// Create from config. Returns None if Auth0 is not configured.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "sets the timeouts `Config::http` holds"
+    )]
     pub fn from_config(config: &Config) -> Option<Self> {
         let domain = config.auth.auth0_domain.clone()?;
         let client_id = config.auth.auth0_client_id.clone()?;
         let client_secret = config.auth.auth0_client_secret.clone()?;
         let callback_url = config.auth.auth0_callback_url.clone()?;
         let http = reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
+            .connect_timeout(config.http.identity_provider.connect)
+            .timeout(config.http.identity_provider.total)
             .build()
             .ok()?;
         Some(Self {

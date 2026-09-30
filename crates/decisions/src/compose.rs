@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use moatless_core::config::DecisionConfig;
 use moatless_core::http_auth::UserTokenVerifier;
+use moatless_types::http::HttpTimeouts;
 
 use crate::provider::{Decider, DecisionProvider};
 use crate::state::DecisionsState;
@@ -17,11 +18,12 @@ const MAX_IN_FLIGHT: usize = 16;
 /// a caller learns why rather than getting a 404.
 pub fn decisions_router(
     config: &DecisionConfig,
+    timeouts: HttpTimeouts,
     token_verifier: Arc<dyn UserTokenVerifier>,
 ) -> (axum::Router, utoipa::openapi::OpenApi) {
     let decider = config.provider.as_ref().map(|provider| {
         Arc::new(Decider::new(
-            DecisionProvider::from_config(provider),
+            DecisionProvider::from_config(provider, timeouts),
             MAX_IN_FLIGHT,
         ))
     });

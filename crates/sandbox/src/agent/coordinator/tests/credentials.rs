@@ -136,7 +136,7 @@ fn service_with_credentials(
     dispatcher: Arc<Dispatcher>,
     cancel: CancellationToken,
 ) -> (
-    mpsc::UnboundedSender<AgentCommand>,
+    mpsc::Sender<AgentCommand>,
     Arc<Mutex<Vec<PublishEventRequest>>>,
     GrpcEventPublisher,
 ) {
@@ -155,15 +155,15 @@ fn service_with_credentials(
         dispatcher,
         crate::workspace_sync::WorkspaceSyncTracker::new(),
     );
-    let (tx, rx) = mpsc::unbounded_channel::<AgentCommand>();
+    let (tx, rx) = mpsc::channel::<AgentCommand>(64);
     tokio::spawn(service.run(rx, Heartbeat::new()));
     (tx, received, events)
 }
 
 /// A `Send` with a throwaway ack.
-fn send_text(tx: &mpsc::UnboundedSender<AgentCommand>, text: &str) {
+fn send_text(tx: &mpsc::Sender<AgentCommand>, text: &str) {
     let (ack_tx, _ack_rx) = oneshot::channel();
-    tx.send(AgentCommand::Send {
+    tx.try_send(AgentCommand::Send {
         text: text.to_string(),
         model: None,
         agent_mode: None,

@@ -3,17 +3,11 @@
 //! Every call names the instance the repository's remote carried: Forgejo is
 //! self-hosted, so there is no one API root to address.
 
-use std::time::Duration;
+use moatless_types::http::HttpTimeouts;
 
 use crate::git_provider::GitProviderError;
 
 const OPERATION: &str = "Forgejo API";
-
-/// Ceiling on one access check, covering the body read as well as the connect.
-/// Task creation and task start await this call, so an instance that accepts
-/// the connection and then answers at its leisure would hold admission open for
-/// as long as it likes rather than resolving to a rejection.
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Bound on the error body kept from an unsuccessful answer. The repository's
 /// own remote names the host, so its response is not ours to read unbounded.
@@ -25,15 +19,21 @@ const MAX_ERROR_BODY_BYTES: usize = 8 * 1024;
 /// A repository the token cannot see answers 404 rather than 403, so both are
 /// [`GitProviderError::RepositoryForbidden`]. An instance behind a filtering
 /// proxy requires the [`crate::USER_AGENT`] this sends.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "sets the connect and total timeouts `Config::http` holds"
+)]
 pub async fn check_forgejo_repo_access(
+    timeouts: HttpTimeouts,
     host: &str,
     token: &str,
     owner: &str,
     repo: &str,
 ) -> Result<(), GitProviderError> {
     let client = reqwest::Client::builder()
+        .connect_timeout(timeouts.connect)
+        .timeout(timeouts.total)
         .user_agent(crate::USER_AGENT)
-        .timeout(REQUEST_TIMEOUT)
         .build()
         .map_err(|source| GitProviderError::Unreachable {
             operation: OPERATION,

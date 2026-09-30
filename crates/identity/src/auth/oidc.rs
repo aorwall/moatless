@@ -23,6 +23,7 @@ use tokio::sync::RwLock;
 
 use moatless_core::db::DbPool;
 use moatless_types::auth::OidcConfig;
+use moatless_types::http::HttpTimeouts;
 
 use super::error::AuthError;
 use super::users::User;
@@ -93,15 +94,13 @@ pub struct OidcAuthentication {
 pub struct OidcService {
     config: OidcConfig,
     db: DbPool,
-    http: openidconnect::reqwest::Client,
+    http: super::oidc_http::OidcHttp,
     metadata: RwLock<Option<CoreProviderMetadata>>,
 }
 
 impl OidcService {
-    pub fn new(config: OidcConfig, db: DbPool) -> Result<Self, AuthError> {
-        let http = openidconnect::reqwest::ClientBuilder::new()
-            .redirect(openidconnect::reqwest::redirect::Policy::none())
-            .build()
+    pub fn new(config: OidcConfig, db: DbPool, timeouts: HttpTimeouts) -> Result<Self, AuthError> {
+        let http = super::oidc_http::OidcHttp::new(timeouts)
             .map_err(|error| AuthError::Config(format!("OIDC HTTP client: {error}")))?;
         Ok(Self {
             config,

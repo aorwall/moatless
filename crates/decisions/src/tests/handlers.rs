@@ -16,7 +16,12 @@ use super::stub::{JevStub, Reply};
 
 fn router(config: &DecisionConfig) -> axum::Router {
     let verifier: Arc<dyn UserTokenVerifier> = Arc::new(JwtUserTokenVerifier::new(None));
-    crate::compose::decisions_router(config, verifier).0
+    crate::compose::decisions_router(
+        config,
+        moatless_core::config::HttpConfig::default().decision,
+        verifier,
+    )
+    .0
 }
 
 fn configured(stub: &JevStub) -> DecisionConfig {

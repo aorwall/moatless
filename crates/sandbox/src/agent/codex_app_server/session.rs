@@ -100,6 +100,11 @@ impl ServerEvent {
     }
 }
 
+/// Notifications read from stdout that the harness has yet to take. The reader
+/// fills all but the last slot, kept for the error that fails the Turn when the
+/// harness falls this far behind; see [`forward`].
+const NOTIFICATION_CAPACITY: usize = 4096;
+
 /// Why a request did not produce a result.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum RpcError {
@@ -119,7 +124,7 @@ pub(crate) enum RpcError {
 /// Request methods take `&self` so a running Turn can be steered while the
 /// caller still owns `notifications`.
 pub(crate) struct AppServerSession {
-    pub(crate) notifications: mpsc::UnboundedReceiver<Result<ServerEvent, String>>,
+    pub(crate) notifications: mpsc::Receiver<Result<ServerEvent, String>>,
     rpc: Arc<Rpc>,
     cancel_token: CancellationToken,
 }
@@ -318,7 +323,7 @@ fn connect(
     reader: impl AsyncRead + Send + Unpin + 'static,
     writer: impl AsyncWrite + Send + Unpin + 'static,
     cancel: CancellationToken,
-    events: mpsc::UnboundedSender<Result<ServerEvent, String>>,
+    events: mpsc::Sender<Result<ServerEvent, String>>,
 ) -> Arc<Rpc> {
     let rpc = Arc::new(Rpc {
         stdin: tokio::sync::Mutex::new(Box::new(writer)),
@@ -342,7 +347,7 @@ fn connect(
 async fn read_loop(
     reader: impl AsyncRead + Unpin,
     rpc: &Arc<Rpc>,
-    events: &mpsc::UnboundedSender<Result<ServerEvent, String>>,
+    events: &mpsc::Sender<Result<ServerEvent, String>>,
 ) {
     let mut lines = BufReader::new(reader).lines();
 
@@ -354,7 +359,7 @@ async fn read_loop(
                 break;
             }
             Err(error) => {
-                let _ = events.send(Err(format!(
+                let _ = events.try_send(Err(format!(
                     "Failed to read Codex app-server stdout: {error}"
                 )));
                 break;
@@ -369,7 +374,7 @@ async fn read_loop(
             Err(error) => {
                 // A frame we cannot parse means the stream is no longer
                 // trustworthy: stop rather than resynchronize on guesswork.
-                let _ = events.send(Err(format!(
+                let _ = events.try_send(Err(format!(
                     "Failed to parse Codex app-server message: {error}"
                 )));
                 break;
@@ -386,14 +391,13 @@ async fn read_loop(
                 let params = message.params.unwrap_or(serde_json::Value::Null);
                 match ServerEvent::parse(&method, params) {
                     Ok(Some(event)) => {
-                        if events.send(Ok(event)).is_err() {
-                            info!("Codex app-server event channel closed by receiver");
+                        if !forward(events, event) {
                             break;
                         }
                     }
                     Ok(None) => info!(%method, "Ignoring Codex app-server notification"),
                     Err(error) => {
-                        let _ = events.send(Err(format!(
+                        let _ = events.try_send(Err(format!(
                             "Failed to parse Codex app-server {method} notification: {error}"
                         )));
                         break;
@@ -413,6 +417,30 @@ async fn read_loop(
             (None, None) => warn!(line, "Unrecognized Codex app-server message"),
         }
     }
+}
+
+/// Queue a notification for the harness; `false` stops the read loop.
+///
+/// The reader never waits on the queue, since a response behind a blocked
+/// reader would deadlock the caller awaiting it. When only the reserved slot is
+/// left it queues an error there instead, which fails the Turn.
+fn forward(events: &mpsc::Sender<Result<ServerEvent, String>>, event: ServerEvent) -> bool {
+    if events.capacity() <= 1 {
+        warn!(
+            capacity = NOTIFICATION_CAPACITY,
+            "Codex app-server notification queue is full; failing the Turn"
+        );
+        let _ = events.try_send(Err(format!(
+            "The harness fell {} Codex app-server notifications behind",
+            NOTIFICATION_CAPACITY - 1
+        )));
+        return false;
+    }
+    if events.try_send(Ok(event)).is_err() {
+        info!("Codex app-server event channel closed by receiver");
+        return false;
+    }
+    true
 }
 
 /// Spawn `codex app-server --stdio`, complete the `initialize` → `initialized`
@@ -471,7 +499,7 @@ pub(crate) async fn start(
         });
     }
 
-    let (events_tx, events_rx) = mpsc::unbounded_channel();
+    let (events_tx, events_rx) = mpsc::channel(NOTIFICATION_CAPACITY);
     let rpc = connect(stdout, stdin, cancel_token.clone(), events_tx.clone());
 
     // The client owns the process for the whole Turn, so an exit that was not
@@ -485,12 +513,12 @@ pub(crate) async fn start(
             status = child.wait() => match status {
                 Ok(status) => {
                     info!(%status, "Codex app-server exited");
-                    let _ = events_tx.send(Err(format!(
+                    let _ = events_tx.try_send(Err(format!(
                         "Codex app-server exited with status {status}"
                     )));
                 }
                 Err(error) => {
-                    let _ = events_tx.send(Err(format!(
+                    let _ = events_tx.try_send(Err(format!(
                         "Failed to wait for the Codex app-server process: {error}"
                     )));
                 }
@@ -642,8 +670,8 @@ impl ScriptedServer {
 #[cfg(test)]
 type ScriptedPipe = (
     Arc<Rpc>,
-    mpsc::UnboundedSender<Result<ServerEvent, String>>,
-    mpsc::UnboundedReceiver<Result<ServerEvent, String>>,
+    mpsc::Sender<Result<ServerEvent, String>>,
+    mpsc::Receiver<Result<ServerEvent, String>>,
     ScriptedServer,
     CancellationToken,
 );
@@ -653,7 +681,7 @@ type ScriptedPipe = (
 fn scripted_pipe() -> ScriptedPipe {
     let (client_read, server_write) = tokio::io::duplex(64 * 1024);
     let (server_read, client_write) = tokio::io::duplex(64 * 1024);
-    let (tx, rx) = mpsc::unbounded_channel();
+    let (tx, rx) = mpsc::channel(NOTIFICATION_CAPACITY);
     let cancel = CancellationToken::new();
     let rpc = connect(client_read, client_write, cancel.clone(), tx.clone());
     (
@@ -677,7 +705,7 @@ impl AppServerSession {
     /// (EOF). [`ScriptedServer`] is the other end, for requests the harness
     /// makes.
     pub(crate) fn scripted() -> (
-        mpsc::UnboundedSender<Result<ServerEvent, String>>,
+        mpsc::Sender<Result<ServerEvent, String>>,
         ScriptedServer,
         Self,
     ) {

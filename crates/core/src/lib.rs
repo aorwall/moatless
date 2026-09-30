@@ -23,6 +23,7 @@ pub mod forgejo_client;
 pub mod git_provider;
 pub mod github_client;
 pub mod http_auth;
+pub mod http_config;
 pub mod leader;
 pub mod metrics;
 pub mod secret_keys;

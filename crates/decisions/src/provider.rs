@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use moatless_api_schemas::decisions::{DecisionBand, DecisionOption, DecisionUsage};
 use moatless_core::config::DecisionProviderConfig;
+use moatless_types::http::HttpTimeouts;
 use tokio::sync::{Semaphore, SemaphorePermit};
 use tokio::time::Instant;
 
@@ -56,9 +57,9 @@ pub(crate) enum DecisionProvider {
 }
 
 impl DecisionProvider {
-    pub(crate) fn from_config(config: &DecisionProviderConfig) -> Self {
+    pub(crate) fn from_config(config: &DecisionProviderConfig, timeouts: HttpTimeouts) -> Self {
         match config {
-            DecisionProviderConfig::Jev(jev) => Self::Jev(JevClient::new(jev)),
+            DecisionProviderConfig::Jev(jev) => Self::Jev(JevClient::new(jev, timeouts)),
         }
     }
 

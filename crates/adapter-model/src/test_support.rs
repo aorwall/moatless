@@ -88,8 +88,16 @@ impl DeliveryAdmission for FakeAdmission {
 pub const UNREACHABLE_BASE: &str = "http://127.0.0.1:1";
 
 /// A genuine [`reqwest::Error`] from a refused connection.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "sets both timeouts; a refused loopback connection never reaches either"
+)]
 pub async fn transport_error() -> reqwest::Error {
-    reqwest::Client::new()
+    reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .expect("the TLS backend initialises")
         .get(UNREACHABLE_BASE)
         .send()
         .await

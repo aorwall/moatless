@@ -6,6 +6,7 @@ use tracing::warn;
 
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_types::adapter::SlackBlock;
+use moatless_types::http::HttpTimeouts;
 
 /// Slack API client wrapping reqwest.
 #[derive(Clone)]
@@ -130,12 +131,33 @@ impl PostMessage<'_> {
     }
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    clippy::expect_used,
+    reason = "sets the timeouts `Config::http` holds, and fails as `Client::new` would"
+)]
+fn http_client(timeouts: HttpTimeouts) -> reqwest::Client {
+    reqwest::Client::builder()
+        .connect_timeout(timeouts.connect)
+        .timeout(timeouts.total)
+        .build()
+        .expect("the TLS backend initialises")
+}
+
 impl SlackApi {
-    pub fn new(token: &str) -> Self {
+    pub fn new(token: &str, timeouts: HttpTimeouts) -> Self {
         Self {
             token: token.to_string(),
-            client: reqwest::Client::new(),
+            client: http_client(timeouts),
             base_url: SLACK_API_BASE.to_string(),
+        }
+    }
+
+    /// The same client and root, calling as `token`.
+    pub(crate) fn with_token(&self, token: &str) -> Self {
+        Self {
+            token: token.to_string(),
+            ..self.clone()
         }
     }
 
@@ -143,7 +165,7 @@ impl SlackApi {
     pub(crate) fn with_base_url(token: &str, base_url: impl Into<String>) -> Self {
         Self {
             token: token.to_string(),
-            client: reqwest::Client::new(),
+            client: http_client(moatless_core::config::HttpConfig::default().slack),
             base_url: base_url.into(),
         }
     }

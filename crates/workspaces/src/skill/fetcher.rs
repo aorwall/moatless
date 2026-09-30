@@ -17,6 +17,7 @@ use serde::Deserialize;
 use tracing::{debug, warn};
 
 use super::error::SkillError;
+use moatless_types::http::HttpTimeouts;
 use moatless_workspace_types::plugin::{PluginMarketplaceSource, marketplace_local_path};
 use moatless_workspace_types::repository::RepositoryProvider;
 use moatless_workspace_types::repository::RepositoryRemote;
@@ -91,7 +92,22 @@ pub struct GitHostSkillFetcher {
 }
 
 impl GitHostSkillFetcher {
-    pub fn new(client: Client) -> Self {
+    /// A fetcher whose client is bounded by `timeouts`.
+    ///
+    /// Panics when the TLS backend cannot be loaded, as `reqwest::Client::new`
+    /// does.
+    #[expect(
+        clippy::disallowed_methods,
+        clippy::expect_used,
+        reason = "sets the timeouts `Config::http` holds, and fails as `Client::new` would"
+    )]
+    pub fn new(timeouts: HttpTimeouts) -> Self {
+        let client = Client::builder()
+            .connect_timeout(timeouts.connect)
+            .timeout(timeouts.total)
+            .user_agent("moatless-vibe-backend")
+            .build()
+            .expect("the TLS backend initialises");
         Self { client }
     }
 }
@@ -934,7 +950,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_host_with_no_contents_surface_is_unsupported() {
-        let fetcher = GitHostSkillFetcher::new(Client::new());
+        let fetcher =
+            GitHostSkillFetcher::new(moatless_core::config::HttpConfig::default().git_content);
         let err = fetcher
             .fetch_skill_files(
                 &crate::repository::remote::resolve_remote(
@@ -1013,7 +1030,8 @@ mod tests {
 
     #[tokio::test]
     async fn only_github_answers_a_cheap_version_probe() {
-        let fetcher = GitHostSkillFetcher::new(Client::new());
+        let fetcher =
+            GitHostSkillFetcher::new(moatless_core::config::HttpConfig::default().git_content);
         let remote = crate::repository::remote::resolve_remote(
             Some(RepositoryProvider::Forgejo),
             "https://git.example.com/juni/config-juni-dev.git".to_string(),

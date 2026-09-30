@@ -14,4 +14,5 @@ pub mod commands;
 pub mod config;
 pub mod credentials;
 pub mod events;
+pub mod http_config;
 pub mod output;

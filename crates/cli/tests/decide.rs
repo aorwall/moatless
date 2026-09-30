@@ -16,7 +16,7 @@ use futures_util::StreamExt;
 use moatless_api_schemas::decisions::{DecisionOption, PickDecisionRequest};
 use moatless_cli::client::MoatClient;
 use moatless_cli::commands::decide::{BatchItem, DecideAction, PickArgs, pick_each, run};
-use moatless_cli::config::{AuthMode, Config};
+use moatless_cli::config::{AuthMode, Config, HttpConfig};
 use serde_json::{Value, json};
 
 /// Answers with the state as the choice; `slow` answers late, `fail` is refused.
@@ -73,7 +73,7 @@ fn item(id: &str, state: &str) -> BatchItem {
 #[tokio::test]
 async fn each_keeps_input_order_and_reports_a_failed_item_in_place() {
     let (base_url, recorded) = stub_backend().await;
-    let client = MoatClient::new_with_api_key(&base_url, "test-key");
+    let client = MoatClient::new_with_api_key(&base_url, "test-key", HttpConfig::default());
     let template = PickDecisionRequest {
         question: "Which?".to_string(),
         options: vec![DecisionOption {
@@ -120,7 +120,7 @@ async fn each_keeps_input_order_and_reports_a_failed_item_in_place() {
 #[tokio::test]
 async fn each_fails_the_command_after_every_row_when_an_item_failed() {
     let (base_url, recorded) = stub_backend().await;
-    let client = MoatClient::new_with_api_key(&base_url, "test-key");
+    let client = MoatClient::new_with_api_key(&base_url, "test-key", HttpConfig::default());
     let config = Config {
         api_url: base_url,
         auth_mode: AuthMode::Standalone { api_key: None },
@@ -130,6 +130,7 @@ async fn each_fails_the_command_after_every_row_when_an_item_failed() {
         sandbox_grpc_port: "50052".to_string(),
         gh_repo_set: false,
         github_token_set: false,
+        http: HttpConfig::default(),
     };
     let dir = tempfile::tempdir().expect("temp dir");
     let batch = dir.path().join("batch.jsonl");

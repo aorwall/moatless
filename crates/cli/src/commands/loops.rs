@@ -1166,7 +1166,11 @@ mod tests {
     #[tokio::test]
     async fn resolve_update_clear_with_ops_errors() {
         // clear is checked first, so this short-circuits before any fetch.
-        let client = MoatClient::new_unauthenticated("http://localhost:8080").unwrap();
+        let client = MoatClient::new_unauthenticated(
+            "http://localhost:8080",
+            crate::config::HttpConfig::default(),
+        )
+        .unwrap();
         let err = resolve_update_adapter_config(
             &client,
             "loop-1",

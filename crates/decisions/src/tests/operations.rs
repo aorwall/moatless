@@ -26,7 +26,10 @@ fn request(names: &[&str], state: &str) -> PickDecisionRequest {
 }
 
 fn jev() -> DecisionProvider {
-    DecisionProvider::Jev(JevClient::new(&jev_config(UNREACHABLE)))
+    DecisionProvider::Jev(JevClient::new(
+        &jev_config(UNREACHABLE),
+        moatless_core::config::HttpConfig::default().decision,
+    ))
 }
 
 fn invalid_message(req: &PickDecisionRequest) -> String {

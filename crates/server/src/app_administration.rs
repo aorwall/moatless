@@ -8,6 +8,8 @@ use moatless_identity::auth::github::service::{GitHubAppService, ProvedApp};
 pub struct ProviderGitHubAppProver {
     /// GitHub REST API root, from `Config::github_api_base`.
     pub github_api_base: String,
+    /// From `Config::http`.
+    pub github: moatless_types::http::HttpTimeouts,
 }
 
 #[async_trait]
@@ -27,8 +29,8 @@ impl GitHubAppProver for ProviderGitHubAppProver {
             client_secret: None,
             default_installation_id,
         };
-        let service =
-            GitHubAppService::from_app_config(&entry, &self.github_api_base).ok_or_else(|| {
+        let service = GitHubAppService::from_app_config(&entry, &self.github_api_base, self.github)
+            .ok_or_else(|| {
                 AppAdministrationError::BadRequest(
                     "The signing key could not be read as a private key. Nothing was stored."
                         .to_string(),

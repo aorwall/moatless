@@ -10,7 +10,7 @@ use axum::extract::State;
 use axum::routing::post;
 use moatless_cli::client::MoatClient;
 use moatless_cli::commands::tasks::{TaskAction, run};
-use moatless_cli::config::{AuthMode, Config};
+use moatless_cli::config::{AuthMode, Config, HttpConfig};
 
 /// What the stub backend was asked to do, in call order.
 #[derive(Default)]
@@ -106,7 +106,7 @@ async fn a_context_file_is_uploaded_and_its_id_is_what_create_attaches() {
     std::fs::write(&path, "# brief").expect("write the context file");
 
     let (base_url, recorded) = stub_backend().await;
-    let client = MoatClient::new_with_api_key(&base_url, "test-key");
+    let client = MoatClient::new_with_api_key(&base_url, "test-key", HttpConfig::default());
     let config = Config {
         api_url: base_url,
         auth_mode: AuthMode::Standalone { api_key: None },
@@ -116,6 +116,7 @@ async fn a_context_file_is_uploaded_and_its_id_is_what_create_attaches() {
         sandbox_grpc_port: "50052".to_string(),
         gh_repo_set: false,
         github_token_set: false,
+        http: HttpConfig::default(),
     };
 
     run(

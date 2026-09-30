@@ -241,6 +241,7 @@ fn test_config(tmp: &TempDir, use_tmux: bool, agent_profile: &str) -> Config {
         repo_config_raw: None,
         setup_commands: vec![],
         plugins: vec![],
+        http: moatless_sandbox::config::SandboxHttpConfig::default(),
         permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
         workspace_sync_enabled: false,
         workspace_restore_if_empty: false,
@@ -428,7 +429,7 @@ async fn run_agent_roundtrip(use_tmux: bool) {
         "first turn must not report lost session context: {published:?}"
     );
 
-    handle.stop(StopSource::User);
+    drop(handle.stop(StopSource::User).await);
 }
 
 /// Drives `spawn_agent` with `agent_profile = "codex"`, routing through the real
@@ -471,7 +472,7 @@ async fn run_codex_roundtrip() {
     );
     assert_eq!(agent_state.status().await, AgentStatus::Idle);
 
-    handle.stop(StopSource::User);
+    drop(handle.stop(StopSource::User).await);
 }
 
 /// Restart-resume body: turn 1 runs on actor A, A is stopped (pod-restart
@@ -507,7 +508,7 @@ async fn run_agent_resume(use_tmux: bool) {
     assert!(error.is_none(), "turn 1 finished with error: {error:?}");
 
     // ── Simulated pod restart: stop actor A, spawn actor B on the same dirs ──
-    handle.stop(StopSource::User);
+    drop(handle.stop(StopSource::User).await);
     let (handle, agent_state, _events2) = spawn_test_agent_in(&tmp, use_tmux, "claude-code");
 
     // ── Turn 2: resume the turn-1 session by id on actor B ───────────────────
@@ -541,7 +542,7 @@ async fn run_agent_resume(use_tmux: bool) {
     );
     assert_eq!(agent_state.status().await, AgentStatus::Idle);
 
-    handle.stop(StopSource::User);
+    drop(handle.stop(StopSource::User).await);
 }
 
 /// Multi-turn persistent-session body (tmux): one lifecycle task, two sends.
@@ -603,7 +604,7 @@ async fn run_agent_multi_turn(use_tmux: bool) {
     assert!(error.is_none(), "turn 2 finished with error: {error:?}");
     assert_eq!(agent_state.status().await, AgentStatus::Idle);
 
-    handle.stop(StopSource::User);
+    drop(handle.stop(StopSource::User).await);
 }
 
 /// CLI-internal wakeup body (tmux): the actor must detect and publish a turn
@@ -685,7 +686,7 @@ async fn run_agent_internal_wakeup(use_tmux: bool) {
     );
     assert_eq!(agent_state.status().await, AgentStatus::Idle);
 
-    handle.stop(StopSource::User);
+    drop(handle.stop(StopSource::User).await);
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────

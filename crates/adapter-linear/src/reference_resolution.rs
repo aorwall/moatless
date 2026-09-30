@@ -438,7 +438,6 @@ mod tests {
         AppToken, MockAppCredentials, MockProviderIdentityLink, MockUserDisplay,
     };
     use moatless_types::store::StoreError;
-    use reqwest::Client;
     use serde_json::json;
 
     use super::super::agent_api::LinearAgentApi;
@@ -468,7 +467,7 @@ mod tests {
             }))
         });
         LinearAgentApi::with_base_url(
-            Client::new(),
+            crate::agent_api::http_client(moatless_core::config::HttpConfig::default().linear),
             Arc::new(tokens),
             "test-org".to_string(),
             None,

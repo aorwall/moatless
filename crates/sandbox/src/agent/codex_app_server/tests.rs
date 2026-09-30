@@ -437,7 +437,7 @@ fn unrecognized_codex_error_info_keeps_its_raw_value() {
 /// itself live in the parent module so the harness's driver tests share them.
 fn scripted() -> (
     Arc<Rpc>,
-    mpsc::UnboundedReceiver<Result<ServerEvent, String>>,
+    mpsc::Receiver<Result<ServerEvent, String>>,
     ScriptedServer,
 ) {
     let (rpc, _tx, rx, server, _cancel) = scripted_pipe();
@@ -556,6 +556,43 @@ async fn a_closed_stream_fails_the_requests_in_flight() {
     }
 }
 
+/// A harness that stops draining fails the Turn at capacity, and the reader
+/// stops so an outstanding request fails rather than waits.
+#[tokio::test]
+async fn a_stalled_harness_fails_the_turn_at_capacity() {
+    let (rpc, mut events, mut server) = scripted();
+    let steer = {
+        let rpc = Arc::clone(&rpc);
+        tokio::spawn(async move { rpc.request("turn/steer", serde_json::json!({})).await })
+    };
+    server.next_request().await;
+
+    for _ in 0..NOTIFICATION_CAPACITY {
+        server
+            .write(serde_json::json!({
+                "method": "turn/started",
+                "params": {"threadId": "t", "turn": {"id": "turn-1", "status": "inProgress", "items": []}},
+            }))
+            .await;
+    }
+    server.writer.flush().await.expect("flush");
+
+    let steered = steer.await.expect("join");
+    assert!(
+        matches!(steered, Err(RpcError::Transport(_))),
+        "{steered:?}"
+    );
+    for _ in 1..NOTIFICATION_CAPACITY {
+        events.recv().await.expect("event").expect("a notification");
+    }
+    let error = events
+        .recv()
+        .await
+        .expect("event")
+        .expect_err("the overload");
+    assert!(error.contains("notifications behind"), "{error}");
+}
+
 /// Losing the handle has to kill the server: an idle session that is simply
 /// dropped, or a handshake that fails after `start` spawned the child, must not
 /// leave `codex app-server` running with nobody left to talk to it.
@@ -563,7 +600,7 @@ async fn a_closed_stream_fails_the_requests_in_flight() {
 async fn dropping_a_session_tears_the_server_down() {
     let (client_read, _server_write) = tokio::io::duplex(1024);
     let (_server_read, client_write) = tokio::io::duplex(1024);
-    let (events_tx, events_rx) = mpsc::unbounded_channel();
+    let (events_tx, events_rx) = mpsc::channel(NOTIFICATION_CAPACITY);
     let cancel_token = CancellationToken::new();
     let rpc = connect(client_read, client_write, cancel_token.clone(), events_tx);
     let session = AppServerSession {

@@ -24,6 +24,7 @@ pub mod events;
 pub mod files;
 mod git_push_watcher;
 pub mod grpc_server;
+pub mod http_config;
 pub mod init;
 pub mod limits;
 pub mod outbox;

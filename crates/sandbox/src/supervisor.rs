@@ -28,6 +28,24 @@ use tracing::{error, info, warn};
 /// the deadline are reported by name, not waited for.
 pub const SHUTDOWN_JOIN_DEADLINE: Duration = Duration::from_secs(2);
 
+/// Every task the sandbox supervises, each registered once per process and
+/// possibly all before [`Supervisor::run`] drains one, so the registration
+/// queue holds exactly this many. A test pins it to the `supervise` calls.
+const REGISTRANTS: &[&str] = &[
+    "codex-auth-watcher",
+    "credential-broker",
+    "credential-refresher",
+    "event-outbox-drainer",
+    "git-push-watcher",
+    "grpc-server",
+    "http-server",
+    "init",
+    "preview-proxy",
+    "shutdown-driver",
+    "transcript-sync",
+    "workspace-sync",
+];
+
 /// What the root supervisor does when a supervised task terminates before
 /// shutdown was requested. Declared at registration, not inferred from a
 /// dropped handle.
@@ -86,7 +104,7 @@ type Supervised = moatless_supervisor::Supervised<Criticality>;
 /// once the workspace exists — after `main` hands off to [`Supervisor::run`].
 #[derive(Clone)]
 pub struct Registrar {
-    tx: mpsc::UnboundedSender<Supervised>,
+    tx: mpsc::Sender<Supervised>,
     health: Arc<SupervisorHealth>,
 }
 
@@ -124,23 +142,28 @@ impl Registrar {
         handle: JoinHandle<()>,
     ) {
         info!(task = name, ?criticality, ?completion, "Supervising task");
-        if self
-            .tx
-            .send(Supervised {
-                name,
-                criticality,
-                completion,
-                handle,
-            })
-            .is_err()
-        {
+        let task = Supervised {
+            name,
+            criticality,
+            completion,
+            handle,
+        };
+        match self.tx.try_send(task) {
+            Ok(()) => {}
             // The supervisor has finished its drain, which only happens once the
             // process is exiting. The task stays detached for the moments it has
             // left; say so rather than pretending it is owned.
-            warn!(
+            Err(mpsc::error::TrySendError::Closed(_)) => warn!(
                 task = name,
                 "Root supervisor is gone; task left unsupervised"
-            );
+            ),
+            // `REGISTRANTS` sizes the queue, so only a registrant missing from it
+            // gets here: fail startup rather than run the task unsupervised.
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                panic!(
+                    "supervised task `{name}` overflowed the registration queue; add it to `REGISTRANTS`"
+                )
+            }
         }
     }
 }
@@ -150,7 +173,7 @@ impl Registrar {
 pub struct Supervisor {
     cancel: CancellationToken,
     registrar: Registrar,
-    rx: mpsc::UnboundedReceiver<Supervised>,
+    rx: mpsc::Receiver<Supervised>,
 }
 
 impl Supervisor {
@@ -159,7 +182,7 @@ impl Supervisor {
     /// The same token must be handed to every supervised task so root
     /// cancellation reaches all of them.
     pub fn new(cancel: CancellationToken) -> Self {
-        let (tx, rx) = mpsc::unbounded_channel();
+        let (tx, rx) = mpsc::channel(REGISTRANTS.len());
         Self {
             cancel,
             registrar: Registrar {
@@ -246,5 +269,43 @@ impl Supervisor {
             Some(exit) => Err(exit),
             None => Ok(()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::REGISTRANTS;
+    use std::path::Path;
+
+    /// The name literal after each `.supervise(` / `.supervise_finite(` call.
+    fn registered_names(dir: &Path, names: &mut Vec<String>) {
+        for entry in std::fs::read_dir(dir).expect("read src") {
+            let path = entry.expect("entry").path();
+            if path.is_dir() {
+                registered_names(&path, names);
+                continue;
+            }
+            // This file holds the calls' definitions and this scanner.
+            if path.extension().is_none_or(|e| e != "rs") || path.ends_with("supervisor.rs") {
+                continue;
+            }
+            let source = std::fs::read_to_string(&path).expect("read source");
+            for call in [".supervise(", ".supervise_finite("] {
+                for (at, _) in source.match_indices(call) {
+                    let rest = &source[at + call.len()..];
+                    let name = rest.split('"').nth(1).expect("a name literal");
+                    names.push(name.to_string());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_registration_queue_holds_every_registrant() {
+        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut names = Vec::new();
+        registered_names(&src, &mut names);
+        names.sort();
+        assert_eq!(names, REGISTRANTS, "update `REGISTRANTS` to match");
     }
 }

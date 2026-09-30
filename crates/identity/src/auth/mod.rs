@@ -21,6 +21,7 @@ pub mod models;
 pub mod oauth;
 pub mod oidc;
 mod oidc_dao;
+mod oidc_http;
 pub mod pairing;
 pub(crate) mod pairing_dao;
 pub mod password;

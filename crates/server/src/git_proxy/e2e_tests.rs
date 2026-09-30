@@ -108,7 +108,21 @@ async fn proxy(env: &Env, repository_id: &str) -> GitProxy {
         Arc::new(users),
         Arc::new(tokens),
         Some(SECRET.to_string()),
+        moatless_core::config::HttpConfig::default().git_proxy,
     )
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "sets the default git proxy timeouts"
+)]
+fn client() -> reqwest::Client {
+    let timeouts = moatless_core::config::HttpConfig::default().git_proxy;
+    reqwest::Client::builder()
+        .connect_timeout(timeouts.connect)
+        .read_timeout(timeouts.idle)
+        .build()
+        .unwrap()
 }
 
 /// The three routes as [`super::routes::git_proxy_router`] mounts them, over a
@@ -193,7 +207,7 @@ async fn a_repository_outside_the_workspace_is_not_found() {
     let base = serve(proxy(&env, "e2e-forgejo-repository").await).await;
     let token = generate_user_auth_token("e2e-user", "e2e", &env.sandbox_id, SECRET, 600).unwrap();
 
-    let response = reqwest::Client::new()
+    let response = client()
         .get(format!(
             "{base}/git/some-other-repository/info/refs?service=git-upload-pack"
         ))
@@ -217,7 +231,7 @@ async fn a_token_this_deployment_did_not_sign_is_refused() {
         generate_user_auth_token("e2e-user", "e2e", &env.sandbox_id, "another-secret", 600)
             .unwrap();
 
-    let response = reqwest::Client::new()
+    let response = client()
         .get(format!(
             "{base}/git/{repository_id}/info/refs?service=git-upload-pack"
         ))

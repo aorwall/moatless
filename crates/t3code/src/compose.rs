@@ -29,6 +29,7 @@ use moatless_ports::sandbox::SandboxPortPublisher;
 use moatless_ports::sandbox::SandboxStarter;
 use moatless_ports::sandbox::SandboxStopper;
 use moatless_ports::sandbox::WorkspaceSnapshotSource;
+use moatless_types::http::HttpTimeouts;
 use moatless_types::ui_rpc::T3UiRpcConfig;
 use sandbox_proto::client::SandboxConnector;
 use std::sync::Arc;
@@ -84,11 +85,13 @@ pub async fn mount(
         attachments,
         otlp_traces_enabled,
         frontend_url,
+        client_traces_http,
+        usage_limits_http,
     } = dependencies;
     let reads = graph.reads.clone();
     let environment = reads.listing_head().await?.identity;
     let usage_limit_sources =
-        crate::usage_limit_sources::UsageLimitSources::start(reqwest::Client::new(), &settings);
+        crate::usage_limit_sources::UsageLimitSources::start(&settings, usage_limits_http);
     let config = UiRpcConfig {
         environment_id: environment_id(&environment),
         allowed_origins: settings.allowed_origins,
@@ -98,8 +101,10 @@ pub async fn mount(
     };
     config.validate()?;
     crate::rpc::metrics::describe();
-    let client_traces =
-        observability::ClientTraceForwarder::configured(settings.client_traces_endpoint);
+    let client_traces = observability::ClientTraceForwarder::configured(
+        settings.client_traces_endpoint,
+        client_traces_http,
+    );
     info!(
         environment_id = %config.environment_id,
         // Absent means the T3 client's own spans are dropped rather than
@@ -310,4 +315,8 @@ pub struct UiRpcDependencies {
     /// This deployment's own web address (`config.frontend_url`), for the link
     /// a Task origin carries back into the Moatless UI.
     pub frontend_url: String,
+    /// Bounds the forward of a client's trace batch to the collector.
+    pub client_traces_http: HttpTimeouts,
+    /// Bounds each read of the usage-limit hub.
+    pub usage_limits_http: HttpTimeouts,
 }

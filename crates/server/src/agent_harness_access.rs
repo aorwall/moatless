@@ -17,6 +17,7 @@ use moatless_ports::identity::UserDisplay;
 use moatless_tasks::credential_sync::CredentialSync;
 use moatless_types::agent::CodexOAuthConfig;
 use moatless_types::agent::CodexScope;
+use moatless_types::http::HttpTimeouts;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AgentHarnessCredentialStatus {
@@ -76,10 +77,21 @@ pub struct ProviderCodexDeviceLogin {
     client: reqwest::Client,
 }
 
-impl Default for ProviderCodexDeviceLogin {
-    fn default() -> Self {
+impl ProviderCodexDeviceLogin {
+    /// Panics when the TLS backend cannot be loaded, as `reqwest::Client::new`
+    /// does.
+    #[expect(
+        clippy::disallowed_methods,
+        clippy::expect_used,
+        reason = "sets the timeouts `Config::http` holds, and fails as `Client::new` would"
+    )]
+    pub fn new(timeouts: HttpTimeouts) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .connect_timeout(timeouts.connect)
+                .timeout(timeouts.total)
+                .build()
+                .expect("the TLS backend initialises"),
         }
     }
 }
@@ -374,7 +386,7 @@ mod tests {
 
     struct PersistObservingBroadcast {
         tokens: Arc<StubProviderTokens>,
-        observed: mpsc::UnboundedSender<bool>,
+        observed: mpsc::Sender<bool>,
     }
 
     #[async_trait]
@@ -387,7 +399,7 @@ mod tests {
         ) -> Result<(), SandboxError> {
             let _ = self
                 .observed
-                .send(self.tokens.writes.load(Ordering::Acquire) > 0);
+                .try_send(self.tokens.writes.load(Ordering::Acquire) > 0);
             Err(SandboxError::NotReady("test broadcast".to_string()))
         }
     }
@@ -419,7 +431,7 @@ mod tests {
     #[tokio::test]
     async fn save_persists_before_sandbox_fan_out() {
         let tokens = Arc::new(StubProviderTokens::default());
-        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (tx, mut rx) = mpsc::channel(8);
         let broadcast = Arc::new(PersistObservingBroadcast {
             tokens: Arc::clone(&tokens),
             observed: tx,
@@ -459,7 +471,7 @@ mod tests {
             Vec::new(),
             Arc::new(PersistObservingBroadcast {
                 tokens: Arc::clone(&tokens),
-                observed: mpsc::unbounded_channel().0,
+                observed: mpsc::channel(1).0,
             }),
         );
         let ctx = ScopeContext {
@@ -501,7 +513,7 @@ mod tests {
                 Vec::new(),
                 Arc::new(PersistObservingBroadcast {
                     tokens: Arc::clone(&tokens),
-                    observed: mpsc::unbounded_channel().0,
+                    observed: mpsc::channel(1).0,
                 }),
             );
 
@@ -529,7 +541,7 @@ mod tests {
             Vec::new(),
             Arc::new(PersistObservingBroadcast {
                 tokens: Arc::clone(&tokens),
-                observed: mpsc::unbounded_channel().0,
+                observed: mpsc::channel(1).0,
             }),
         );
         access

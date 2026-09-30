@@ -155,8 +155,8 @@ impl SandboxService for SandboxServiceImpl {
         // ack resolves once exactly one `agent.stopped` has been published and the
         // Turn closed, so returning Ok means the stop was processed, not queued.
         let source = crate::agent::types::StopSource::from(request.get_ref().source());
-        let ack_rx = context.agent_handle.stop(source);
-        match tokio::time::timeout(std::time::Duration::from_secs(30), ack_rx).await {
+        let stop = async { context.agent_handle.stop(source).await.await };
+        match tokio::time::timeout(std::time::Duration::from_secs(30), stop).await {
             Ok(Ok(())) => {}
             Ok(Err(_)) => {
                 // The lifecycle owner dropped the ack (e.g. the loop exited

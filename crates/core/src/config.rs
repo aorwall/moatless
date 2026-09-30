@@ -17,6 +17,8 @@ use moatless_types::ui_rpc::T3UiRpcConfig;
 
 use crate::feature_flags::FeatureFlags;
 
+pub use crate::http_config::HttpConfig;
+
 /// Default Codex model forwarded to sandbox agents when the deployment does not
 /// override `DEFAULT_CODEX_MODEL`.
 pub const DEFAULT_CODEX_MODEL: &str = "gpt-6-astra";
@@ -198,10 +200,6 @@ fn env_bool(key: &str, default: bool) -> bool {
         Err(_) => default,
     }
 }
-
-// =========================================================================
-// Sub-structs
-// =========================================================================
 
 /// HTTP and gRPC server ports.
 #[derive(Debug, Clone)]
@@ -850,10 +848,6 @@ fn parse_enabled(key: &str, value: &str) -> Result<bool, ConfigError> {
     }
 }
 
-// =========================================================================
-// Top-level Config
-// =========================================================================
-
 /// Top-level configuration grouping all sub-configs.
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -892,6 +886,7 @@ pub struct Config {
     pub t3_ui_rpc: T3UiRpcConfig,
     pub feature_flags: FeatureFlags,
     pub message_buffer: MessageBufferConfig,
+    pub http: HttpConfig,
 }
 
 /// Configuration validation errors.
@@ -1178,6 +1173,7 @@ impl Config {
             t3_ui_rpc: t3_ui_rpc_from_env()?,
             feature_flags: FeatureFlags::from_lookup(env_opt),
             message_buffer: message_buffer_from_env(),
+            http: HttpConfig::from_vars(|key| env::var(key).ok()),
         };
 
         config.validate()?;
@@ -1598,6 +1594,7 @@ impl Config {
             t3_ui_rpc: T3UiRpcConfig::default(),
             feature_flags: FeatureFlags::default(),
             message_buffer: MessageBufferConfig::default(),
+            http: HttpConfig::default(),
         }
     }
 }

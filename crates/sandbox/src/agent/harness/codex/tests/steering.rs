@@ -68,7 +68,7 @@ async fn a_message_that_arrives_before_the_gate_opens_is_held_until_it_does() {
         "a message must not be steered before turn/started, got {early:?}"
     );
 
-    tx.send(Ok(turn_started("turn-1"))).expect("feed");
+    tx.try_send(Ok(turn_started("turn-1"))).expect("feed");
     let request = server.answer_next(json!({ "turnId": "turn-1" })).await;
     let (mut p, outcome) = steering.await.expect("the steering task joins");
 

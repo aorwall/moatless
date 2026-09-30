@@ -14,6 +14,7 @@ use moatless_adapter_model::registry::Adapters;
 use moatless_core::config::Config;
 use moatless_core::db::DbPool;
 use moatless_types::adapter::AdapterKind;
+use moatless_types::http::HttpTimeouts;
 
 use super::api::TelegramApi;
 
@@ -51,9 +52,9 @@ impl TelegramAdapter {
         adapters.register_inbound_presentation(kind, self);
     }
 
-    pub fn new(bot_token: &str) -> Self {
+    pub fn new(bot_token: &str, telegram: HttpTimeouts) -> Self {
         Self {
-            api: TelegramApi::new(bot_token),
+            api: TelegramApi::new(bot_token, telegram),
             db: None,
             apps: None,
             adapter_connections: None,
@@ -65,7 +66,7 @@ impl TelegramAdapter {
     pub fn from_db(config: &Config, db: DbPool, apps: Arc<dyn AdapterAppReader>) -> Self {
         let bot_token = config.telegram.bot_token.as_deref().unwrap_or("");
         Self {
-            api: TelegramApi::new(bot_token),
+            api: TelegramApi::new(bot_token, config.http.telegram),
             db: Some(db),
             apps: Some(apps),
             adapter_connections: None,
@@ -164,7 +165,7 @@ impl TelegramAdapter {
             ))
             .into());
         };
-        Ok(TelegramApi::new(&bot_token))
+        Ok(self.api.with_token(&bot_token))
     }
 }
 

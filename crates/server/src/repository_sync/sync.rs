@@ -110,8 +110,16 @@ mod tests {
             moatless_tasks::compose::task_graph(pool.clone()).tag_catalog(),
             compose::workspace_resolver(pool.clone()),
             tokens.clone(),
+            moatless_core::config::HttpConfig::default().git_content,
         );
-        (loops, compose::git_sync(pool, tokens))
+        (
+            loops,
+            compose::git_sync(
+                pool,
+                tokens,
+                moatless_core::config::HttpConfig::default().git_content,
+            ),
+        )
     }
 
     #[tokio::test]

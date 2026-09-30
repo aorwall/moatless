@@ -328,7 +328,12 @@ mod tests {
     /// message. The two are mutually exclusive, and that is the whole rule.
     #[test]
     fn a_mention_is_prefixed_and_everything_else_is_hinted() {
-        let adapter = SlackAdapter::new("token", "secret", None);
+        let adapter = SlackAdapter::new(
+            "token",
+            "secret",
+            None,
+            moatless_core::config::HttpConfig::default().slack,
+        );
         let mentioned = message(serde_json::json!({"is_bot_mentioned": true}));
         let not_mentioned = message(serde_json::json!({"is_bot_mentioned": false}));
 

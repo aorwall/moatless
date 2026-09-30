@@ -9,14 +9,33 @@ use tracing::{debug, warn};
 
 use super::error::RepositoryError;
 use crate::repository::remote::require_host_repo;
+use moatless_types::http::HttpTimeouts;
 use moatless_workspace_types::repository::RepositoryProvider;
 use moatless_workspace_types::repository::RepositoryRemote;
+
+/// The client every read here takes, each one small file or directory probe.
+///
+/// Panics when the TLS backend cannot be loaded, as `reqwest::Client::new`
+/// does.
+#[expect(
+    clippy::disallowed_methods,
+    clippy::expect_used,
+    reason = "sets the timeouts `Config::http` holds, and fails as `Client::new` would"
+)]
+pub(crate) fn client(timeouts: HttpTimeouts) -> reqwest::Client {
+    reqwest::Client::builder()
+        .connect_timeout(timeouts.connect)
+        .timeout(timeouts.total)
+        .build()
+        .expect("the TLS backend initialises")
+}
 
 /// Fetch a repository file's raw contents via the provider API.
 ///
 /// Returns `Ok(None)` on a 404 (file absent). Gitness is not wired (needs a
 /// `base_url`).
 pub(crate) async fn fetch_provider_file(
+    http: &reqwest::Client,
     remote: &RepositoryRemote,
     path: &str,
     branch: Option<&str>,
@@ -24,16 +43,16 @@ pub(crate) async fn fetch_provider_file(
 ) -> Result<Option<String>, RepositoryError> {
     let provider = require_host_repo(remote)?.provider();
     match provider {
-        RepositoryProvider::Github => fetch_github_file(remote, path, branch, token).await,
+        RepositoryProvider::Github => fetch_github_file(http, remote, path, branch, token).await,
         RepositoryProvider::Gitlab => {
             let token = token.ok_or_else(|| {
                 RepositoryError::BadRequest(
                     "GitLab requires an access token to fetch config".to_string(),
                 )
             })?;
-            fetch_gitlab_file(remote, path, branch, token).await
+            fetch_gitlab_file(http, remote, path, branch, token).await
         }
-        RepositoryProvider::Forgejo => fetch_forgejo_file(remote, path, branch, token).await,
+        RepositoryProvider::Forgejo => fetch_forgejo_file(http, remote, path, branch, token).await,
         RepositoryProvider::Gitness => {
             // Gitness needs a base_url; skip for now – callers can pass it later.
             Ok(None)
@@ -47,6 +66,7 @@ pub(crate) async fn fetch_provider_file(
 /// 404 returns `false`; any other error returns `true` so the caller still
 /// attempts the sync rather than silently skipping a repo that has config.
 pub async fn moatless_dir_exists(
+    http: &reqwest::Client,
     remote: &RepositoryRemote,
     branch: Option<&str>,
     token: Option<&str>,
@@ -55,8 +75,10 @@ pub async fn moatless_dir_exists(
         return true;
     };
     match host.provider() {
-        RepositoryProvider::Github => github_moatless_dir_exists(remote, branch, token).await,
-        RepositoryProvider::Forgejo => forgejo_moatless_dir_exists(remote, branch, token).await,
+        RepositoryProvider::Github => github_moatless_dir_exists(http, remote, branch, token).await,
+        RepositoryProvider::Forgejo => {
+            forgejo_moatless_dir_exists(http, remote, branch, token).await
+        }
         // GitLab and Gitness have no cheap check wired — don't skip them.
         RepositoryProvider::Gitlab | RepositoryProvider::Gitness => true,
     }
@@ -66,6 +88,7 @@ pub async fn moatless_dir_exists(
 /// /repos/{owner}/{repo}/contents/.moatless?ref={branch}`. Only a 404 is
 /// treated as "no directory"; everything else fails open to `true`.
 async fn github_moatless_dir_exists(
+    http: &reqwest::Client,
     remote: &RepositoryRemote,
     branch: Option<&str>,
     token: Option<&str>,
@@ -81,7 +104,7 @@ async fn github_moatless_dir_exists(
         let _ = write!(url, "?ref={r}");
     }
 
-    let client = reqwest::Client::new();
+    let client = http;
     let mut req = client
         .get(&url)
         .header("User-Agent", "moatless-vibe-backend")
@@ -104,6 +127,7 @@ async fn github_moatless_dir_exists(
 /// /api/v1/repos/{owner}/{repo}/contents/.moatless?ref={branch}`. Only a 404 is
 /// treated as "no directory"; everything else fails open to `true`.
 async fn forgejo_moatless_dir_exists(
+    http: &reqwest::Client,
     remote: &RepositoryRemote,
     branch: Option<&str>,
     token: Option<&str>,
@@ -111,7 +135,7 @@ async fn forgejo_moatless_dir_exists(
     let Ok(url) = forgejo_api_url(remote, "contents/.moatless", branch) else {
         return true;
     };
-    let mut req = reqwest::Client::new().get(&url);
+    let mut req = http.get(&url);
     if let Some(token) = token {
         req = req.header("Authorization", format!("token {token}"));
     }
@@ -129,6 +153,7 @@ async fn forgejo_moatless_dir_exists(
 /// /api/v1/repos/{owner}/{repo}/raw/{path}?ref={branch}`. Returns the raw file
 /// body, or `Ok(None)` on 404.
 async fn fetch_forgejo_file(
+    http: &reqwest::Client,
     remote: &RepositoryRemote,
     path: &str,
     branch: Option<&str>,
@@ -136,7 +161,7 @@ async fn fetch_forgejo_file(
 ) -> Result<Option<String>, RepositoryError> {
     let remote_url = remote.url.as_str();
     let url = forgejo_api_url(remote, &format!("raw/{path}"), branch)?;
-    let mut req = reqwest::Client::new().get(&url);
+    let mut req = http.get(&url);
     if let Some(token) = token {
         req = req.header("Authorization", format!("token {token}"));
     }
@@ -189,6 +214,7 @@ fn forgejo_api_url(
 /// /repos/{owner}/{repo}/contents/{path}?ref={branch}`. Returns the raw file
 /// body, or `Ok(None)` on 404.
 async fn fetch_github_file(
+    http: &reqwest::Client,
     remote: &RepositoryRemote,
     path: &str,
     branch: Option<&str>,
@@ -203,7 +229,7 @@ async fn fetch_github_file(
         let _ = write!(url, "?ref={r}");
     }
 
-    let client = reqwest::Client::new();
+    let client = http;
     let mut req = client
         .get(&url)
         .header("User-Agent", "moatless-vibe-backend")
@@ -240,6 +266,7 @@ async fn fetch_github_file(
 /// /api/v4/projects/{id}/repository/files/{encoded_path}/raw?ref={branch}`.
 /// Returns the raw file body, or `Ok(None)` on 404.
 async fn fetch_gitlab_file(
+    http: &reqwest::Client,
     remote: &RepositoryRemote,
     path: &str,
     branch: Option<&str>,
@@ -262,7 +289,7 @@ async fn fetch_gitlab_file(
         "https://gitlab.com/api/v4/projects/{encoded_path}/repository/files/{encoded_file}/raw?ref={ref_param}"
     );
 
-    let client = reqwest::Client::new();
+    let client = http;
     let resp = client
         .get(&api_url)
         .header("PRIVATE-TOKEN", token)
@@ -300,6 +327,7 @@ mod tests {
         // skip them, so the check reports the directory as present.
         assert!(
             moatless_dir_exists(
+                &client(moatless_core::config::HttpConfig::default().git_content),
                 &crate::repository::remote::resolve_remote(
                     Some(RepositoryProvider::Gitness),
                     "https://gitness.example.com/x/y.git".to_string()

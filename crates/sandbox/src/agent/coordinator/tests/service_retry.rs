@@ -28,7 +28,7 @@ async fn coordinator_service_failed_execution_sets_error_on_agent_state() {
     );
 
     let (ack_tx, _ack_rx) = oneshot::channel();
-    tx.send(AgentCommand::Send {
+    tx.try_send(AgentCommand::Send {
         text: "do the thing".to_string(),
         model: None,
         agent_mode: None,
@@ -107,7 +107,7 @@ async fn coordinator_service_retryable_failure_retries_then_completes() {
     );
 
     let (ack_tx, _ack_rx) = oneshot::channel();
-    tx.send(AgentCommand::Send {
+    tx.try_send(AgentCommand::Send {
         text: "do the thing".to_string(),
         model: None,
         agent_mode: None,
@@ -207,7 +207,7 @@ async fn coordinator_service_circuit_breaker_trips_after_consecutive_errors() {
     // processed the previous failure has incremented the breaker counter.
     for _ in 0..3 {
         let (ack_tx, ack_rx) = oneshot::channel();
-        tx.send(AgentCommand::Send {
+        tx.try_send(AgentCommand::Send {
             text: "do the thing".to_string(),
             model: None,
             agent_mode: None,
@@ -228,7 +228,7 @@ async fn coordinator_service_circuit_breaker_trips_after_consecutive_errors() {
 
     // The fourth Send trips the breaker: its ack is dropped without executing.
     let (ack_tx, ack_rx) = oneshot::channel();
-    tx.send(AgentCommand::Send {
+    tx.try_send(AgentCommand::Send {
         text: "one more".to_string(),
         model: None,
         agent_mode: None,

@@ -42,7 +42,7 @@ impl AdapterInstallations {
         let runtime_config = Arc::new(config.clone());
 
         let slack = SlackInstallation::install(runtime_config.clone(), ports, &mut adapters);
-        WebhookInstallation::install(&mut adapters);
+        WebhookInstallation::install(config, &mut adapters);
         let telegram = TelegramInstallation::install(runtime_config.clone(), ports, &mut adapters);
         let github_pr = GithubPrInstallation::install(config, ports, &mut adapters);
         let linear = LinearInstallation::install(runtime_config, ports, &mut adapters);
@@ -154,8 +154,8 @@ impl SlackInstallation {
 struct WebhookInstallation;
 
 impl WebhookInstallation {
-    fn install(adapters: &mut Adapters) {
-        Arc::new(WebhookAdapter::new()).register_into(adapters);
+    fn install(config: &Config, adapters: &mut Adapters) {
+        Arc::new(WebhookAdapter::new(config.http.webhook)).register_into(adapters);
         tracing::info!("Webhook Adapter installed");
     }
 
@@ -213,6 +213,7 @@ impl GithubPrInstallation {
                 config.auth.frontend_url.clone(),
                 config.github_api_base.clone(),
                 ports.git_host_tokens.clone(),
+                config.http.github,
             )
             .with_ingress_ports(
                 ports.connection_routing.clone(),

@@ -156,7 +156,7 @@ async fn run_shared(
             commands::k8s::run(action, json).await?;
         }
         SharedCommands::Docker { action } => {
-            commands::docker::run(action, json).await?;
+            commands::docker::run(action, json, cfg.http.local_stack).await?;
         }
         SharedCommands::User { action } => {
             commands::users::run(moat, action, json).await?;

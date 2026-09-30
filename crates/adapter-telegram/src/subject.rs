@@ -169,7 +169,10 @@ mod tests {
 
     #[test]
     fn binding_destination_from_existing_thread_uses_topic_subject_when_present() {
-        let provider = TelegramAdapter::new("fake_token");
+        let provider = TelegramAdapter::new(
+            "fake_token",
+            moatless_core::config::HttpConfig::default().telegram,
+        );
         let destination = provider
             .binding_destination_from_existing_thread(
                 "-100123",

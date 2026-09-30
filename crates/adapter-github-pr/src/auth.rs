@@ -10,6 +10,7 @@ use moatless_ports::identity::ProviderIdentityLink;
 use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer};
 use moatless_types::access_control::Actor;
 use moatless_types::adapter::TaskBinding;
+use moatless_types::http::HttpTimeouts;
 use moatless_types::loops::SubscriptionMatch;
 use moatless_workspace_types::repository::GitHostRepo;
 
@@ -23,6 +24,7 @@ pub(super) struct GithubPrAuth {
     /// REST root every client below is built against. A token is selected per
     /// call, so the root is held rather than a shared client.
     api_base: String,
+    http: reqwest::Client,
 }
 
 pub(super) struct AuthenticatedGithub {
@@ -31,10 +33,15 @@ pub(super) struct AuthenticatedGithub {
 }
 
 impl GithubPrAuth {
-    pub(super) fn new(git_host_tokens: Arc<dyn GitHostTokenIssuer>, api_base: String) -> Self {
+    pub(super) fn new(
+        git_host_tokens: Arc<dyn GitHostTokenIssuer>,
+        api_base: String,
+        github: HttpTimeouts,
+    ) -> Self {
         Self {
             git_host_tokens,
             api_base,
+            http: super::api::http_client(github),
         }
     }
 
@@ -45,7 +52,7 @@ impl GithubPrAuth {
 
     /// The one place a REST client is built, so the root reaches every use case.
     fn client(&self, token: &str) -> GithubPrApi {
-        GithubPrApi::new(token, &self.api_base)
+        GithubPrApi::new(self.http.clone(), token, &self.api_base)
     }
 
     /// Mint a client for durable work `github_login` triggered.
@@ -251,6 +258,7 @@ mod tests {
         GithubPrAuth::new(
             moatless_identity::git_host_tokens::seam_over(provider_tokens),
             moatless_core::config::DEFAULT_GITHUB_API_BASE.to_string(),
+            moatless_core::config::HttpConfig::default().github,
         )
     }
 

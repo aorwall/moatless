@@ -186,8 +186,12 @@ pub async fn fetch_and_apply_credentials_with_mode(
 
                     // Write into `~/.config/gh/hosts.yml` — the sole source of truth
                     // for GitHub auth inside this pod.
-                    if let Err(e) =
-                        gh_hosts::write_github_token(&state.config.home_dir, &token).await
+                    if let Err(e) = gh_hosts::write_github_token(
+                        &state.config.home_dir,
+                        &token,
+                        state.config.http.github,
+                    )
+                    .await
                     {
                         warn!(error = %e, "Failed to refresh gh hosts.yml");
                     }

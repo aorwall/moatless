@@ -1,9 +1,9 @@
-use crate::agent::handle::{AgentCommand, AgentHandle};
+use crate::agent::handle::AgentHandle;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use moatless_types::agent::AgentSubType;
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::RwLock;
 
 use crate::backend_client::BackendClient;
 use crate::config::Config;
@@ -116,7 +116,7 @@ pub fn spawn_agent(
     workspace_sync: crate::workspace_sync::WorkspaceSyncTracker,
     setup_gate: crate::init::SetupGate,
 ) -> AgentHandle {
-    let (command_tx, command_rx) = mpsc::unbounded_channel::<AgentCommand>();
+    let (handle, command_rx) = AgentHandle::channel();
     let agent_profile = config.agent_profile.as_deref().unwrap_or("");
     let trajectory = TrajectoryRecording::new(Arc::clone(&backend_client));
 
@@ -186,7 +186,7 @@ pub fn spawn_agent(
         }
     }
 
-    AgentHandle { command_tx }
+    handle
 }
 
 /// Truncate a string to at most `max` characters (on a char boundary).

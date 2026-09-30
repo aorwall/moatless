@@ -22,12 +22,17 @@ use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::outbound::OutboundReply;
 use moatless_adapter_model::registry::Adapters;
 use moatless_types::adapter::AdapterKind;
+use moatless_types::http::HttpTimeouts;
 use moatless_types::loops::LoopContext;
 
 pub use moatless_api_schemas::webhook::{WebhookAccepted, WebhookAdmission, WebhookPayload};
 
 /// Webhook adapter.
-pub struct WebhookAdapter;
+pub struct WebhookAdapter {
+    /// Posts each callback to a third party's endpoint, so a stalled one fails
+    /// the reply rather than holding it open.
+    http: reqwest::Client,
+}
 
 impl WebhookAdapter {
     /// Register `WebhookAdapter`'s capabilities into `adapters`.
@@ -40,14 +45,19 @@ impl WebhookAdapter {
         adapters.register_message_reply(self);
     }
 
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl Default for WebhookAdapter {
-    fn default() -> Self {
-        Self::new()
+    #[expect(
+        clippy::disallowed_methods,
+        clippy::expect_used,
+        reason = "sets the timeouts `Config::http` holds, and fails as `Client::new` would"
+    )]
+    pub fn new(timeouts: HttpTimeouts) -> Self {
+        Self {
+            http: reqwest::Client::builder()
+                .connect_timeout(timeouts.connect)
+                .timeout(timeouts.total)
+                .build()
+                .expect("the TLS backend initialises"),
+        }
     }
 }
 
@@ -93,8 +103,7 @@ impl AdapterBindingReply for WebhookAdapter {
             "is_error": message.is_error,
         });
 
-        let client = reqwest::Client::new();
-        let mut req = client.post(callback_url).json(&body);
+        let mut req = self.http.post(callback_url).json(&body);
         for (key, value) in &callback_headers {
             req = req.header(key.as_str(), value.as_str());
         }

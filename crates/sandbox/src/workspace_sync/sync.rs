@@ -18,6 +18,7 @@ use std::time::{Duration, Instant, UNIX_EPOCH};
 use flate2::Compression;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
+use moatless_types::http::HttpTimeouts;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
@@ -61,11 +62,6 @@ const FORMAT_UNKNOWN: &str = "unknown";
 /// Leading bytes of a gzip member, used to tell a compressed archive from a
 /// plain tar on restore.
 const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
-
-/// Per-transfer HTTP timeout for the direct-to-S3 PUT/GET. Generous enough for
-/// a large tar on a slow in-cluster link, but bounded so a stuck transfer can't
-/// wedge the upload path.
-const HTTP_TIMEOUT: Duration = Duration::from_mins(5);
 
 /// What one upload attempt did, for the caller that has to report it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -570,7 +566,7 @@ pub async fn restore_on_start(state: &SandboxState) -> RestoreDecision {
     };
 
     let started = Instant::now();
-    let client = match http_client(HTTP_TIMEOUT) {
+    let client = match http_client(state.config.http.workspace_transfer) {
         Ok(client) => client,
         Err(e) => {
             warn!(task_id = %task_id, error = %e, "Workspace restore client build failed (non-fatal); will clone");
@@ -674,7 +670,7 @@ pub async fn download_on_start(state: &SandboxState) {
     };
 
     let started = Instant::now();
-    let client = match http_client(HTTP_TIMEOUT) {
+    let client = match http_client(state.config.http.workspace_transfer) {
         Ok(client) => client,
         Err(e) => {
             warn!(task_id = %task_id, error = %e, "Workspace overlay client build failed (non-fatal)");
@@ -828,12 +824,16 @@ pub async fn sync_on_request(state: &SandboxState) -> SyncOutcome {
 /// Unlike every other path here, not best-effort: the caller is a short-lived
 /// pod with no task token or gRPC channel, only the presigned URL, and it
 /// deletes the volume on success, so a silent failure here loses work.
-pub async fn rescue_upload(workspace_dir: &str, put_url: &str) -> Result<u64, String> {
+pub async fn rescue_upload(
+    workspace_dir: &str,
+    put_url: &str,
+    transfer: HttpTimeouts,
+) -> Result<u64, String> {
     let tar = build_tar(PathBuf::from(workspace_dir))
         .await
         .ok_or_else(|| format!("no workspace archive could be built from {workspace_dir}"))?;
     let bytes = tar.len() as u64;
-    http_put(&http_client(HTTP_TIMEOUT)?, put_url, tar).await?;
+    http_put(&http_client(transfer)?, put_url, tar).await?;
     Ok(bytes)
 }
 
@@ -864,7 +864,7 @@ async fn upload_from_config(
 
     let bytes = tar.len() as u64;
     let started = Instant::now();
-    let error = match http_client(HTTP_TIMEOUT) {
+    let error = match http_client(config.http.workspace_transfer) {
         Ok(client) => match http_put(&client, &urls.put_url, tar).await {
             Ok(()) => {
                 debug!(task_id = %task_id, bytes = bytes, "Uploaded workspace to S3");
@@ -1064,13 +1064,18 @@ pub(super) fn primary_prefix(workspace_dir: &str, repo_dir: &str) -> String {
     }
 }
 
-/// Build a reqwest client for transfers bounded by `timeout`.
+/// Build a reqwest client for transfers bounded by `timeouts`.
 ///
 /// One built per transfer — cheap at the sync cadence — keeps no long-lived
 /// connection open against the presigned host.
-pub(super) fn http_client(timeout: Duration) -> Result<reqwest::Client, String> {
+#[expect(
+    clippy::disallowed_methods,
+    reason = "sets the timeouts `Config::http` holds"
+)]
+pub(super) fn http_client(timeouts: HttpTimeouts) -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
-        .timeout(timeout)
+        .connect_timeout(timeouts.connect)
+        .timeout(timeouts.total)
         .build()
         .map_err(|e| format!("failed to build HTTP client: {e}"))
 }

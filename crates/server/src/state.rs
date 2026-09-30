@@ -521,6 +521,7 @@ impl axum::extract::FromRef<AppState> for ProviderApps {
             forgejo_instances: state.forgejo_instances.clone(),
             app_administration: state.app_administration.clone(),
             frontend_url: state.config.auth.frontend_url.clone(),
+            self_hosted_git: state.config.http.self_hosted_git,
         }
     }
 }

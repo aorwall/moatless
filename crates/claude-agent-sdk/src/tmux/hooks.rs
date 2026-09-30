@@ -190,13 +190,22 @@ fn extract_string_field(payload_json: &str, field: &str) -> Option<String> {
         .map(std::string::ToString::to_string)
 }
 
+/// Hook lines read but not yet applied. A full queue parks the reader, which
+/// in turn holds Claude's hook relay on its FIFO write.
+const HOOK_LINE_CAPACITY: usize = 64;
+
+/// The channel [`spawn_reader`] feeds.
+pub(crate) fn hook_channel() -> (mpsc::Sender<HookLine>, mpsc::Receiver<HookLine>) {
+    mpsc::channel(HOOK_LINE_CAPACITY)
+}
+
 /// Opens `O_RDONLY | O_RDWR` so reads block on data, not EOF, since the relay
 /// writes one payload per connection; exits when `cancellation_token` fires.
 /// MUST be called BEFORE spawning the child process, or its first hook write
 /// blocks waiting for a reader.
 pub(crate) fn spawn_reader(
     fifo_path: PathBuf,
-    tx: mpsc::UnboundedSender<HookLine>,
+    tx: mpsc::Sender<HookLine>,
     cancellation_token: CancellationToken,
 ) -> Result<tokio::task::JoinHandle<()>> {
     use std::io::{BufRead, BufReader};
@@ -231,7 +240,7 @@ pub(crate) fn spawn_reader(
                 }
                 Ok(_n) => {
                     if let Some(line) = parse_line(&line_buf) {
-                        if tx.send(line).is_err() {
+                        if tx.blocking_send(line).is_err() {
                             debug!("hook FIFO reader: consumer dropped, exiting");
                             return;
                         }
@@ -256,7 +265,7 @@ pub(crate) fn spawn_reader(
 /// recognized event. Used by tests.
 #[cfg(test)]
 pub(crate) async fn for_each_line(
-    rx: &mut mpsc::UnboundedReceiver<HookLine>,
+    rx: &mut mpsc::Receiver<HookLine>,
     mut on_line: impl FnMut(HookLine),
 ) {
     while let Some(line) = rx.recv().await {
@@ -415,7 +424,7 @@ mod tests {
     async fn reader_round_trips_a_line_written_to_fifo() {
         let harness = HookHarness::create().expect("create harness");
         let token = CancellationToken::new();
-        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (tx, mut rx) = hook_channel();
 
         let _handle =
             spawn_reader(harness.fifo_path.clone(), tx, token.clone()).expect("spawn reader");

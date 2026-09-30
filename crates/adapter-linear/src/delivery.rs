@@ -452,6 +452,7 @@ impl LinearInboundRouter {
             // no work left to redo on this record, so a credential failure must not
             // turn a settled no-op into a retry.
             match super::auth::api_for_connection(
+                self.config.http.linear,
                 self.app_tokens.clone(),
                 self.apps.as_ref(),
                 &connection,
@@ -476,6 +477,7 @@ impl LinearInboundRouter {
         }
 
         let api = super::auth::api_for_connection(
+            self.config.http.linear,
             self.app_tokens.clone(),
             self.apps.as_ref(),
             &connection,
@@ -506,6 +508,7 @@ impl LinearInboundRouter {
         payload: SessionPromptDelivery,
     ) -> Result<(), AdapterDeliveryFailure> {
         let api = super::auth::api_for_connection(
+            self.config.http.linear,
             self.app_tokens.clone(),
             self.apps.as_ref(),
             &connection,
@@ -554,6 +557,7 @@ impl LinearInboundRouter {
         }
 
         let api = super::auth::api_for_connection(
+            self.config.http.linear,
             self.app_tokens.clone(),
             self.apps.as_ref(),
             &connection,
@@ -588,6 +592,7 @@ impl LinearInboundRouter {
         payload: CommentDelivery,
     ) -> Result<(), AdapterDeliveryFailure> {
         let api = super::auth::api_for_connection(
+            self.config.http.linear,
             self.app_tokens.clone(),
             self.apps.as_ref(),
             &connection,
@@ -632,6 +637,7 @@ impl LinearInboundRouter {
         }
 
         let api = super::auth::api_for_connection(
+            self.config.http.linear,
             self.app_tokens.clone(),
             self.apps.as_ref(),
             &connection,

@@ -71,7 +71,11 @@ async fn a_repository_shipping_no_workspaces_json_removes_nothing(pool: PgPool) 
     declared.source_key = Some("ws-git".to_string());
     workspaces.insert_workspace(&declared).await.unwrap();
 
-    let git_sync = crate::compose::git_sync(pool.clone(), Arc::new(NoGitTokens));
+    let git_sync = crate::compose::git_sync(
+        pool.clone(),
+        Arc::new(NoGitTokens),
+        moatless_core::config::HttpConfig::default().git_content,
+    );
     let summary = git_sync
         .sync_repo_workspaces_for(&repo, &scope_ctx(USER), &SyncForce::RespectOverrides)
         .await

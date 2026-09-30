@@ -24,6 +24,7 @@ use moatless_adapter_model::delivery::DeliveryAdmission;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::loops::LoopReader;
 use moatless_types::adapter::AdapterConnection;
+use moatless_types::http::HttpTimeouts;
 
 use crate::adapter::LinearAdapter;
 use crate::agent_api::ActivityKind;
@@ -248,11 +249,25 @@ async fn dispatch(
         // terminal activity — close the session here instead. The heartbeat is
         // deliberately skipped: it would only keep the panel `active` before
         // the `error` that immediately follows.
-        decline_sessions(app_tokens, apps, &connection, &effects).await;
+        decline_sessions(
+            provider.http_timeouts(),
+            app_tokens,
+            apps,
+            &connection,
+            &effects,
+        )
+        .await;
         return Ok(ignored(envelope, reason::NO_SUBSCRIPTION));
     }
 
-    apply(app_tokens, apps, &connection, &effects).await;
+    apply(
+        provider.http_timeouts(),
+        app_tokens,
+        apps,
+        &connection,
+        &effects,
+    )
+    .await;
 
     let mut kinds = Vec::with_capacity(requests.len());
     for request in requests {
@@ -322,6 +337,7 @@ async fn requirement_met(
 /// Best-effort: a failure to post an effect is logged and the delivery carries
 /// on.
 async fn apply(
+    timeouts: HttpTimeouts,
     app_tokens: &Arc<dyn AppCredentials>,
     apps: &dyn AdapterAppReader,
     connection: &AdapterConnection,
@@ -330,7 +346,9 @@ async fn apply(
     if effects.is_empty() {
         return;
     }
-    let api = match crate::auth::api_for_connection(app_tokens.clone(), apps, connection).await {
+    let api = match crate::auth::api_for_connection(timeouts, app_tokens.clone(), apps, connection)
+        .await
+    {
         Ok(api) => api,
         Err(e) => {
             warn!(error = %e, "Failed to resolve Linear app config for webhook effect");
@@ -353,6 +371,7 @@ async fn apply(
 /// Linear infers session state from the last activity, so without one the panel
 /// stays `active` indefinitely. Best-effort, like [`apply`].
 async fn decline_sessions(
+    timeouts: HttpTimeouts,
     app_tokens: &Arc<dyn AppCredentials>,
     apps: &dyn AdapterAppReader,
     connection: &AdapterConnection,
@@ -361,7 +380,9 @@ async fn decline_sessions(
     if effects.is_empty() {
         return;
     }
-    let api = match crate::auth::api_for_connection(app_tokens.clone(), apps, connection).await {
+    let api = match crate::auth::api_for_connection(timeouts, app_tokens.clone(), apps, connection)
+        .await
+    {
         Ok(api) => api,
         Err(e) => {
             warn!(error = %e, "Failed to resolve Linear app config to decline session");

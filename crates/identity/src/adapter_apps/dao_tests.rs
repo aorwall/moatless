@@ -75,6 +75,7 @@ fn registry(pool: &PgPool) -> GitHubAppRegistry {
         Some(Arc::new(PgAdapterAppDao(pool.clone()))),
         Some(cipher()),
         stub_github(),
+        moatless_core::config::HttpConfig::default().github,
     )
 }
 
@@ -92,11 +93,15 @@ fn app_config(key: &str, app_id: u64) -> GitHubAppConfig {
 /// Prove and store an App the way the register handler does.
 async fn register(pool: &PgPool, key: &str, app_id: u64) -> GitHubAppRecord {
     let cipher = cipher();
-    let proved = GitHubAppService::from_app_config(&app_config(key, app_id), &stub_github())
-        .expect("key parses")
-        .prove()
-        .await
-        .expect("stub accepts the key");
+    let proved = GitHubAppService::from_app_config(
+        &app_config(key, app_id),
+        &stub_github(),
+        moatless_core::config::HttpConfig::default().github,
+    )
+    .expect("key parses")
+    .prove()
+    .await
+    .expect("stub accepts the key");
     let record = GitHubAppRecord::seal(
         NewGitHubApp {
             app_key: key.to_string(),
@@ -141,11 +146,15 @@ async fn a_proved_app_is_stored_with_the_identity_github_reported(pool: PgPool) 
 async fn a_key_that_names_a_different_app_is_refused_and_nothing_is_stored(pool: PgPool) {
     // The stub always answers as App 4242; claiming 9999 is the "this key
     // belongs to a different App" case.
-    let error = GitHubAppService::from_app_config(&app_config("review-bot", 9999), &stub_github())
-        .expect("key parses")
-        .prove()
-        .await
-        .expect_err("a mismatched App id must be refused");
+    let error = GitHubAppService::from_app_config(
+        &app_config("review-bot", 9999),
+        &stub_github(),
+        moatless_core::config::HttpConfig::default().github,
+    )
+    .expect("key parses")
+    .prove()
+    .await
+    .expect_err("a mismatched App id must be refused");
 
     assert!(error.to_string().contains("different App"), "{error}");
     assert!(

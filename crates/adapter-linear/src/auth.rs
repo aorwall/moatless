@@ -16,6 +16,7 @@ use moatless_types::access_control::ScopeContext;
 use moatless_types::adapter::LinearConfig;
 use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::{AdapterConnection, AdapterKind};
+use moatless_types::http::HttpTimeouts;
 use std::sync::Arc;
 
 use moatless_ports::identity::AppCredentials;
@@ -63,10 +64,12 @@ impl LinearCredentials {
     /// A client for `org_id`. The one place any of these fields is read.
     pub(super) fn api_for_org(
         &self,
+        timeouts: HttpTimeouts,
         tokens: Arc<dyn AppCredentials>,
         org_id: &str,
     ) -> LinearAgentApi {
         LinearAgentApi::for_org(
+            timeouts,
             tokens,
             org_id,
             self.oauth_client_id.as_deref(),
@@ -77,6 +80,7 @@ impl LinearCredentials {
 }
 
 pub(super) async fn api_for_connection(
+    timeouts: HttpTimeouts,
     tokens: Arc<dyn AppCredentials>,
     apps: &dyn AdapterAppReader,
     connection: &AdapterConnection,
@@ -89,7 +93,7 @@ pub(super) async fn api_for_connection(
         );
     };
     let credentials = LinearCredentials::from(app);
-    Ok(credentials.api_for_org(tokens, &connection.scope_value))
+    Ok(credentials.api_for_org(timeouts, tokens, &connection.scope_value))
 }
 
 /// A client for the workspace a Binding belongs to.
@@ -99,6 +103,7 @@ pub(super) async fn api_for_connection(
 /// event-consumer hot path, where the alternative is bubbling a database error
 /// into event handling.
 pub(super) async fn api_for_binding(
+    timeouts: HttpTimeouts,
     adapter_connections: &dyn ConnectionLookup,
     tokens: Arc<dyn AppCredentials>,
     apps: &dyn AdapterAppReader,
@@ -108,7 +113,8 @@ pub(super) async fn api_for_binding(
         .by_id_trusted(&binding.connection_id)
         .await;
     match connection {
-        Ok(Some(connection)) => match api_for_connection(tokens, apps, &connection).await {
+        Ok(Some(connection)) => match api_for_connection(timeouts, tokens, apps, &connection).await
+        {
             Ok(api) => Some(api),
             Err(e) => {
                 tracing::warn!(

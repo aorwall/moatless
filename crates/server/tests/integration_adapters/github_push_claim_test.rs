@@ -56,6 +56,7 @@ fn adapter() -> moatless_adapter_github_pr::adapter::GithubPrAdapter {
         moatless_identity::git_host_tokens::seam_over(Arc::new(
             moatless_identity::auth::test_support::StubProviderTokens::default(),
         )),
+        moatless_core::config::HttpConfig::default().github,
     )
 }
 

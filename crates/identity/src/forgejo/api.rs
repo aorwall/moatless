@@ -53,8 +53,14 @@ mod tests {
         let host = std::env::var("FORGEJO_HOST").expect("FORGEJO_HOST");
         let token = std::env::var("FORGEJO_TOKEN").expect("FORGEJO_TOKEN");
 
-        validate_token(&crate::forgejo::http_client(), &host, &token)
-            .await
-            .expect("the instance rejected the request");
+        validate_token(
+            &crate::forgejo::http_client(
+                moatless_core::config::HttpConfig::default().self_hosted_git,
+            ),
+            &host,
+            &token,
+        )
+        .await
+        .expect("the instance rejected the request");
     }
 }

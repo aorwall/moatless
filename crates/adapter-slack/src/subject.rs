@@ -248,7 +248,12 @@ mod tests {
     use crate::adapter::SlackAdapter;
 
     fn adapter() -> SlackAdapter {
-        SlackAdapter::new("token", "secret", None)
+        SlackAdapter::new(
+            "token",
+            "secret",
+            None,
+            moatless_core::config::HttpConfig::default().slack,
+        )
     }
 
     #[test]

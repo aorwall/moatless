@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use moatless_core::git_provider::GitProviderError;
 use moatless_core::secret_keys::GITHUB_TOKEN;
 use moatless_types::access_control::ScopeContext;
+use moatless_types::http::HttpTimeouts;
 
 use crate::auth::credentials::{
     GITHUB_OAUTH_STASH_KEY, StashedOAuthCredential, read_oauth_stash, stash_oauth_credential,
@@ -86,21 +87,36 @@ pub struct ProviderGitHostTokenValidator {
     client: reqwest::Client,
     /// GitHub REST API root, from `Config::github_api_base`.
     github_api_base: String,
+    github: HttpTimeouts,
 }
 
 impl ProviderGitHostTokenValidator {
-    pub fn new(github_api_base: String) -> Self {
+    /// Validates against GitHub within `github`, and against a self-hosted
+    /// host within `self_hosted_git`.
+    ///
+    /// Panics when the TLS backend cannot be loaded, as `reqwest::Client::new`
+    /// does.
+    #[expect(
+        clippy::disallowed_methods,
+        clippy::expect_used,
+        reason = "sets the timeouts `Config::http` holds, and fails as `Client::new` would"
+    )]
+    pub fn new(
+        github_api_base: String,
+        github: HttpTimeouts,
+        self_hosted_git: HttpTimeouts,
+    ) -> Self {
         Self {
             github_api_base,
+            github,
             // `validate_gitness` reaches a self-hosted host. See
             // `moatless_core::USER_AGENT`.
             client: reqwest::Client::builder()
+                .connect_timeout(self_hosted_git.connect)
+                .timeout(self_hosted_git.total)
                 .user_agent(moatless_core::USER_AGENT)
                 .build()
-                .unwrap_or_else(|error| {
-                    tracing::warn!(%error, "Failed to build the git host validator's HTTP client");
-                    reqwest::Client::new()
-                }),
+                .expect("the TLS backend initialises"),
         }
     }
 }
@@ -108,7 +124,12 @@ impl ProviderGitHostTokenValidator {
 #[async_trait]
 impl GitHostTokenValidator for ProviderGitHostTokenValidator {
     async fn validate_github(&self, token: &str) -> Result<String, GitProviderError> {
-        moatless_core::github_client::validate_github_token(&self.github_api_base, token).await
+        moatless_core::github_client::validate_github_token(
+            self.github,
+            &self.github_api_base,
+            token,
+        )
+        .await
     }
 
     async fn validate_gitness(

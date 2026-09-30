@@ -1,5 +1,10 @@
 use crate::agent::types::StopSource;
 use tokio::sync::{mpsc, oneshot};
+use tracing::warn;
+
+/// Commands the lifecycle owner has yet to take, including every one sent
+/// before the setup gate opens.
+const COMMAND_CAPACITY: usize = 64;
 
 /// What the dispatcher needs to acknowledge a batch of messages: session and
 /// run ids.
@@ -63,12 +68,30 @@ pub(crate) enum AgentCommand {
 
 /// Handle to the agent lifecycle owner — the only interface the outside world
 /// needs.
+///
+/// A `send` or `recover` made while [`COMMAND_CAPACITY`] are queued is
+/// refused: its ack closes unresolved, which the dispatcher redelivers.
 #[derive(Clone)]
 pub struct AgentHandle {
-    pub(in crate::agent) command_tx: mpsc::UnboundedSender<AgentCommand>,
+    command_tx: mpsc::Sender<AgentCommand>,
 }
 
 impl AgentHandle {
+    /// A handle and the receiver its lifecycle owner drains.
+    pub(in crate::agent) fn channel() -> (Self, mpsc::Receiver<AgentCommand>) {
+        let (command_tx, command_rx) = mpsc::channel(COMMAND_CAPACITY);
+        (Self { command_tx }, command_rx)
+    }
+
+    fn submit(&self, command: AgentCommand) {
+        if let Err(mpsc::error::TrySendError::Full(_)) = self.command_tx.try_send(command) {
+            warn!(
+                capacity = COMMAND_CAPACITY,
+                "Agent command queue is full; refusing the command"
+            );
+        }
+    }
+
     /// Send a message to the agent.
     ///
     /// The returned receiver resolves with the running run's id on injection
@@ -87,7 +110,7 @@ impl AgentHandle {
         switch_harness: bool,
     ) -> oneshot::Receiver<RunAck> {
         let (ack_tx, ack_rx) = oneshot::channel();
-        let _ = self.command_tx.send(AgentCommand::Send {
+        self.submit(AgentCommand::Send {
             text,
             model,
             agent_mode,
@@ -102,17 +125,20 @@ impl AgentHandle {
         ack_rx
     }
 
-    /// Stop the agent.
+    /// Stop the agent, waiting for room in the queue rather than refusing.
     ///
     /// The returned receiver resolves only after the terminal `Stopped` event
     /// and Turn close, so a caller (e.g. gRPC `stop_agent`) can wait for the
-    /// stop to be processed, not merely queued.
-    pub fn stop(&self, source: StopSource) -> oneshot::Receiver<()> {
+    /// stop to be processed, not merely queued. It closes unresolved only when
+    /// the lifecycle owner has exited.
+    pub async fn stop(&self, source: StopSource) -> oneshot::Receiver<()> {
         let (ack_tx, ack_rx) = oneshot::channel();
-        let _ = self.command_tx.send(AgentCommand::Stop {
+        let command = AgentCommand::Stop {
             source,
             ack: Some(ack_tx),
-        });
+        };
+        // A closed channel drops the command and its ack: the owner is gone.
+        let _ = self.command_tx.send(command).await;
         ack_rx
     }
 
@@ -139,7 +165,7 @@ impl AgentHandle {
         resume_session_id: String,
         run_id: Option<String>,
     ) {
-        let _ = self.command_tx.send(AgentCommand::Recover {
+        self.submit(AgentCommand::Recover {
             text,
             agent_mode,
             effort,
@@ -157,8 +183,34 @@ impl AgentHandle {
     ///
     /// This channel is the single FIFO seam the lifecycle owner drains into the
     /// harness, so command order is the order the harness accepts input.
-    pub(crate) fn test_channel() -> (Self, mpsc::UnboundedReceiver<AgentCommand>) {
-        let (command_tx, command_rx) = mpsc::unbounded_channel();
-        (Self { command_tx }, command_rx)
+    pub(crate) fn test_channel() -> (Self, mpsc::Receiver<AgentCommand>) {
+        Self::channel()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn stop_waits_for_room_in_a_full_queue() {
+        let (handle, mut command_rx) = AgentHandle::channel();
+        for _ in 0..COMMAND_CAPACITY {
+            handle.recover(String::new(), None, None, None, String::new(), None);
+        }
+        let stopper = handle.clone();
+        let stop = tokio::spawn(async move { stopper.stop(StopSource::User).await.await });
+        tokio::task::yield_now().await;
+        assert!(!stop.is_finished(), "stop must wait, not be refused");
+
+        let mut acked = None;
+        while let Some(command) = command_rx.recv().await {
+            if let AgentCommand::Stop { ack, .. } = command {
+                acked = ack.map(|ack| ack.send(()));
+                break;
+            }
+        }
+        assert_eq!(acked, Some(Ok(())));
+        assert_eq!(stop.await.unwrap(), Ok(()));
     }
 }

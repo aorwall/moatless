@@ -43,7 +43,7 @@ fn offline_pool() -> Arc<dyn AppCredentials> {
 /// one — same constructor, same fields, only the host replaced.
 fn api_at(base: impl AsRef<str>) -> LinearAgentApi {
     LinearAgentApi::with_base_url(
-        Client::new(),
+        crate::agent_api::http_client(moatless_core::config::HttpConfig::default().linear),
         offline_pool(),
         "test-org".to_string(),
         None,

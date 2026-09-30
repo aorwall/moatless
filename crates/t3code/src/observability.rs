@@ -13,8 +13,9 @@ use axum::{
     http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
+use moatless_types::http::HttpTimeouts;
 use moatless_types::ui_rpc::UiRpcAuthIdentity;
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 use tracing::warn;
 
 use crate::UiRpcState;
@@ -28,11 +29,6 @@ const CLIENT_TRACES: &str = "moatless_ui_rpc_client_trace_batches_total";
 /// The largest batch accepted, matching the 4 MiB the collector's own gRPC
 /// receiver caps a message at — a larger body could not be forwarded anyway.
 const MAX_BATCH_BYTES: usize = 4 * 1024 * 1024;
-
-/// Bounds how long a browser's export can hold a backend task. The client
-/// batches on its own interval and drops what it could not send, so a slow
-/// collector must not become a slow request.
-const FORWARD_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Where a client's spans go, or `None` when this deployment collects none.
 ///
@@ -55,21 +51,33 @@ impl std::fmt::Debug for ClientTraceForwarder {
 
 impl ClientTraceForwarder {
     /// Forward to `endpoint`, and describe the forwarding metric.
-    pub(crate) fn configured(endpoint: Option<String>) -> Self {
+    pub(crate) fn configured(endpoint: Option<String>, timeouts: HttpTimeouts) -> Self {
         metrics::describe_counter!(
             CLIENT_TRACES,
             "T3 client OTLP trace batches received, by outcome"
         );
-        Self::new(endpoint)
+        Self::new(endpoint, timeouts)
     }
 
-    fn new(endpoint: Option<String>) -> Self {
+    /// `timeouts` bounds how long a browser's export can hold a backend task:
+    /// the client drops what it could not send, so a slow collector must not
+    /// become a slow request.
+    #[expect(
+        clippy::disallowed_methods,
+        clippy::expect_used,
+        reason = "sets the timeouts `Config::http` holds, and fails as `Client::new` would"
+    )]
+    pub(crate) fn new(endpoint: Option<String>, timeouts: HttpTimeouts) -> Self {
         Self {
             endpoint: endpoint
                 .map(|value| value.trim().to_string())
                 .filter(|value| !value.is_empty())
                 .map(Arc::from),
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .connect_timeout(timeouts.connect)
+                .timeout(timeouts.total)
+                .build()
+                .expect("the TLS backend initialises"),
         }
     }
 
@@ -77,12 +85,6 @@ impl ClientTraceForwarder {
     /// the Settings panel names where its own spans go.
     pub(crate) fn endpoint(&self) -> Option<&str> {
         self.endpoint.as_deref()
-    }
-}
-
-impl Default for ClientTraceForwarder {
-    fn default() -> Self {
-        Self::new(None)
     }
 }
 
@@ -118,7 +120,6 @@ pub(crate) async fn receive(
         .client
         .post(endpoint)
         .header(header::CONTENT_TYPE, "application/json")
-        .timeout(FORWARD_TIMEOUT)
         .body(batch)
         .send()
         .await
@@ -152,10 +153,16 @@ pub(crate) async fn receive(
 mod tests {
     use super::*;
 
+    fn forwarder(endpoint: Option<String>) -> ClientTraceForwarder {
+        ClientTraceForwarder::new(
+            endpoint,
+            moatless_core::config::HttpConfig::default().client_traces,
+        )
+    }
+
     #[test]
     fn an_unset_endpoint_collects_nothing() {
-        assert_eq!(ClientTraceForwarder::default().endpoint(), None);
-        assert_eq!(ClientTraceForwarder::new(None).endpoint(), None);
+        assert_eq!(forwarder(None).endpoint(), None);
     }
 
     /// An empty Helm value reaches a container as an empty or whitespace-only
@@ -163,21 +170,14 @@ mod tests {
     /// otherwise every batch fails against an unparseable endpoint.
     #[test]
     fn a_blank_endpoint_reads_as_unset() {
-        assert_eq!(
-            ClientTraceForwarder::new(Some(String::new())).endpoint(),
-            None
-        );
-        assert_eq!(
-            ClientTraceForwarder::new(Some("  \n ".to_string())).endpoint(),
-            None
-        );
+        assert_eq!(forwarder(Some(String::new())).endpoint(), None);
+        assert_eq!(forwarder(Some("  \n ".to_string())).endpoint(), None);
     }
 
     #[test]
     fn a_configured_endpoint_is_trimmed_and_reported() {
         assert_eq!(
-            ClientTraceForwarder::new(Some(" http://otel-collector:4318/v1/traces ".to_string()))
-                .endpoint(),
+            forwarder(Some(" http://otel-collector:4318/v1/traces ".to_string())).endpoint(),
             Some("http://otel-collector:4318/v1/traces")
         );
     }

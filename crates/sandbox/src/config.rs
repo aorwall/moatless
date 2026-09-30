@@ -14,6 +14,8 @@ use moatless_workspace_types::workspace::{
 };
 use serde::Deserialize;
 
+pub use crate::http_config::SandboxHttpConfig;
+
 /// Sandbox-private runtime directory.
 ///
 /// Outside `workspace_dir`: holds the credential broker socket and the
@@ -225,6 +227,8 @@ pub struct Config {
     /// The plugins to clone, each with the skills to keep, from
     /// `REPO_CONFIG.plugins`
     pub plugins: Vec<PluginDelivery>,
+    /// The timeouts each HTTP client this sandbox builds is given.
+    pub http: SandboxHttpConfig,
 }
 
 /// Read the resolved checkouts supplied by the backend.
@@ -376,6 +380,7 @@ pub struct RescueConfig {
     pub task_id: String,
     pub workspace_dir: String,
     pub put_url: String,
+    pub http: SandboxHttpConfig,
 }
 
 impl RescueConfig {
@@ -385,6 +390,7 @@ impl RescueConfig {
             workspace_dir: env::var("WORKSPACE_DIR").unwrap_or_else(|_| "/workspace".to_string()),
             put_url: env::var("WORKSPACE_SYNC_PUT_URL")
                 .map_err(|_| "SANDBOX_ONESHOT=sync requires WORKSPACE_SYNC_PUT_URL")?,
+            http: SandboxHttpConfig::from_vars(|key| env::var(key).ok()),
         })
     }
 }
@@ -591,6 +597,7 @@ impl Config {
             repo_config_raw: env::var("REPO_CONFIG").ok(),
             setup_commands: parsed.setup_commands,
             plugins: parsed.plugins,
+            http: SandboxHttpConfig::from_vars(|key| env::var(key).ok()),
         })
     }
 
@@ -692,6 +699,7 @@ pub(crate) mod test_support {
             repo_config_raw: None,
             setup_commands: Vec::new(),
             plugins: Vec::new(),
+            http: super::SandboxHttpConfig::default(),
         }
     }
 }

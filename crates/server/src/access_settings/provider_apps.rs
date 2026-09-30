@@ -30,6 +30,7 @@ pub struct ProviderApps {
     pub forgejo_instances: Arc<ForgejoInstances>,
     pub app_administration: Arc<AppAdministration>,
     pub frontend_url: String,
+    pub self_hosted_git: moatless_types::http::HttpTimeouts,
 }
 
 pub const FORGEJO: &str = "forgejo";
@@ -422,7 +423,7 @@ async fn save_forgejo(
         client_secret: required(fields, "clientSecret")?,
     };
     let redirect_uri = callback_url(&apps_state.frontend_url);
-    ForgejoOAuth::default()
+    ForgejoOAuth::new(apps_state.self_hosted_git)
         .verify_client_credentials(&app, &redirect_uri)
         .await
         .map_err(|error| forgejo_rejection(error, &host, &redirect_uri))?;

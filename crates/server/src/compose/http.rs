@@ -33,6 +33,7 @@ pub(crate) fn domain_routes(app_state: &AppState) -> (Router, utoipa::openapi::O
         ),
         moatless_decisions::compose::decisions_router(
             &app_state.config.decision,
+            app_state.config.http.decision,
             app_state.token_verifier.clone(),
         ),
         task_event::routes::task_event_router(app_state.clone()),
@@ -113,6 +114,8 @@ pub(crate) async fn ui_rpc(
             },
             otlp_traces_enabled: config.otel.otlp_endpoint.is_some(),
             frontend_url: config.auth.frontend_url.clone(),
+            client_traces_http: config.http.client_traces,
+            usage_limits_http: config.http.usage_limits,
         },
         config.t3_ui_rpc.clone(),
     )

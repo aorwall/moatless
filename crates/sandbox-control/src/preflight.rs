@@ -18,6 +18,7 @@ use moatless_ports::identity::CommitIdentity;
 use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer};
 use moatless_ports::sandbox::{CodexCredentials, PreflightPort, PreflightRejection};
 use moatless_types::access_control::{Scope, ScopeContext, ScopedResource};
+use moatless_types::http::HttpTimeouts;
 use moatless_types::task::Task;
 use moatless_workspace_ports::{WorkspaceCredentialReader, WorkspaceResolver};
 use moatless_workspace_types::repository::RepositoryProvider as GitHostProvider;
@@ -146,6 +147,10 @@ pub trait GitHostValidator: Send + Sync {
 pub struct RealGitHostValidator {
     /// GitHub REST API root, from `Config::github_api_base`.
     pub github_api_base: String,
+    /// From `Config::http`.
+    pub github: HttpTimeouts,
+    /// From `Config::http`.
+    pub self_hosted_git: HttpTimeouts,
 }
 
 #[async_trait]
@@ -154,6 +159,7 @@ impl GitHostValidator for RealGitHostValidator {
         match repo.provider() {
             GitHostProvider::Github => {
                 moatless_core::github_client::check_github_repo_access(
+                    self.github,
                     &self.github_api_base,
                     token,
                     repo.owner(),
@@ -163,6 +169,7 @@ impl GitHostValidator for RealGitHostValidator {
             }
             GitHostProvider::Forgejo => {
                 moatless_core::forgejo_client::check_forgejo_repo_access(
+                    self.self_hosted_git,
                     repo.host(),
                     token,
                     repo.owner(),

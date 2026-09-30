@@ -89,10 +89,14 @@ impl GitHostTokens {
 
     /// Wire the registry a Forgejo OAuth credential is renewed through.
     #[must_use]
-    pub(crate) fn with_forgejo(mut self, instances: Arc<ForgejoInstances>) -> Self {
+    pub(crate) fn with_forgejo(
+        mut self,
+        instances: Arc<ForgejoInstances>,
+        timeouts: moatless_types::http::HttpTimeouts,
+    ) -> Self {
         self.forgejo = Some(ForgejoRefresh {
             instances,
-            oauth: ForgejoOAuth::default(),
+            oauth: ForgejoOAuth::new(timeouts),
         });
         self
     }

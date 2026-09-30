@@ -17,6 +17,7 @@ use crate::auth::error::AuthError;
 use crate::auth::github::service::GitHubAppService;
 use crate::secret::service::SecretCipher;
 use moatless_types::auth::GitHubAppConfig;
+use moatless_types::http::HttpTimeouts;
 
 /// A live App service, and which stored record it was built from.
 ///
@@ -46,6 +47,9 @@ pub struct GitHubAppRegistry {
     /// GitHub REST API root every App built here calls, from
     /// `Config::github_api_base`.
     api_base: String,
+    /// Bounds every App built here calls `api_base` within, from
+    /// `Config::http`.
+    http: HttpTimeouts,
 }
 
 impl Default for GitHubAppRegistry {
@@ -55,6 +59,7 @@ impl Default for GitHubAppRegistry {
             None,
             None,
             moatless_core::config::DEFAULT_GITHUB_API_BASE.to_string(),
+            moatless_core::config::HttpConfig::default().github,
         )
     }
 }
@@ -70,6 +75,7 @@ impl GitHubAppRegistry {
         store: Option<Arc<dyn AdapterAppDao>>,
         cipher: Option<Arc<dyn SecretCipher>>,
         api_base: String,
+        http: HttpTimeouts,
     ) -> Self {
         Self {
             login_app,
@@ -77,6 +83,7 @@ impl GitHubAppRegistry {
             cipher,
             cache: RwLock::new(HashMap::new()),
             api_base,
+            http,
         }
     }
 
@@ -143,7 +150,7 @@ impl GitHubAppRegistry {
             )));
         };
         let pem = record.private_key_pem(cipher.as_ref())?;
-        GitHubAppService::from_record(record, &pem, &self.api_base).ok_or_else(|| {
+        GitHubAppService::from_record(record, &pem, &self.api_base, self.http).ok_or_else(|| {
             AuthError::Config(format!(
                 "The stored signing key for GitHub App '{}' could not be read",
                 record.app_key
@@ -250,7 +257,8 @@ impl GitHubAppRegistry {
         // move as done.
         let mut records = Vec::new();
         for entry in entries {
-            let Some(service) = GitHubAppService::from_app_config(entry, &self.api_base) else {
+            let Some(service) = GitHubAppService::from_app_config(entry, &self.api_base, self.http)
+            else {
                 warn!(
                     app_key = %entry.key,
                     "Not carrying over GitHub App: its private key does not parse"
@@ -366,6 +374,7 @@ mod tests {
             cipher: Some(cipher),
             cache: RwLock::new(HashMap::new()),
             api_base: moatless_core::config::DEFAULT_GITHUB_API_BASE.to_string(),
+            http: moatless_core::config::HttpConfig::default().github,
         }
     }
 
@@ -506,6 +515,7 @@ mod tests {
             cipher: None,
             cache: RwLock::new(HashMap::new()),
             api_base: moatless_core::config::DEFAULT_GITHUB_API_BASE.to_string(),
+            http: moatless_core::config::HttpConfig::default().github,
         };
 
         let Err(err) = registry.get("reviewer").await else {

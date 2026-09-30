@@ -57,13 +57,14 @@ impl ForgejoAccess {
         provider_tokens: Arc<dyn ProviderTokenDao>,
         secrets: Arc<SecretService>,
         instances: Arc<ForgejoInstances>,
+        timeouts: moatless_types::http::HttpTimeouts,
     ) -> Self {
         Self {
             provider_tokens,
             secrets,
             instances,
-            oauth: ForgejoOAuth::default(),
-            http: super::http_client(),
+            oauth: ForgejoOAuth::new(timeouts),
+            http: super::http_client(timeouts),
         }
     }
 

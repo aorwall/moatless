@@ -437,6 +437,7 @@ mod tests {
                     github_row("manual", "owner-token"),
                 ),
             )),
+            moatless_core::config::HttpConfig::default().github,
         )
         .with_api_base(stub.base_url());
         let status = provider

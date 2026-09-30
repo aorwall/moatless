@@ -7,6 +7,7 @@ use moatless_core::sandbox_jwt::verify_user_auth_token;
 use moatless_ports::identity::{CommitIdentity, GitHostTokenError, GitHostTokenIssuer};
 use moatless_sandbox_control::secrets::{resolve_task_actor, resolve_task_git_token};
 use moatless_types::access_control::{ScopeContext, ScopedResource};
+use moatless_types::http::HttpStreamTimeouts;
 use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
 use moatless_workspace_types::repository::{GitHostRepo, Repository};
 use tracing::warn;
@@ -56,6 +57,24 @@ pub struct GitProxy {
     pub(crate) http: reqwest::Client,
 }
 
+/// Idle, not total: a pack streams for as long as the repository is big.
+///
+/// Panics when the TLS backend cannot be loaded, as `reqwest::Client::new`
+/// does.
+#[expect(
+    clippy::disallowed_methods,
+    clippy::expect_used,
+    reason = "sets the timeouts `Config::http` holds, and fails as `Client::new` would"
+)]
+fn http_client(timeouts: HttpStreamTimeouts) -> reqwest::Client {
+    reqwest::Client::builder()
+        .connect_timeout(timeouts.connect)
+        .read_timeout(timeouts.idle)
+        .user_agent(moatless_core::USER_AGENT)
+        .build()
+        .expect("the TLS backend initialises")
+}
+
 impl GitProxy {
     pub(crate) fn new(
         sandboxes: Arc<SandboxIngress>,
@@ -64,6 +83,7 @@ impl GitProxy {
         users: Arc<dyn CommitIdentity>,
         git_host_tokens: Arc<dyn GitHostTokenIssuer>,
         task_token_secret: Option<String>,
+        timeouts: HttpStreamTimeouts,
     ) -> Self {
         Self {
             sandboxes,
@@ -75,13 +95,7 @@ impl GitProxy {
             // `FORWARDED_REQUEST_HEADERS` copies git's own `User-Agent` over
             // this default, so it covers only a client that sends none. See
             // `moatless_core::USER_AGENT`.
-            http: reqwest::Client::builder()
-                .user_agent(moatless_core::USER_AGENT)
-                .build()
-                .unwrap_or_else(|error| {
-                    warn!(%error, "Failed to build the git proxy's HTTP client");
-                    reqwest::Client::new()
-                }),
+            http: http_client(timeouts),
         }
     }
 

@@ -1,9 +1,12 @@
 //! Telegram Bot API client.
 
+use std::time::Duration;
+
 use reqwest::Client;
 use tracing::warn;
 
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
+use moatless_types::http::HttpTimeouts;
 
 /// Maximum message length for Telegram's sendMessage API.
 const MAX_MESSAGE_LENGTH: usize = 4096;
@@ -15,11 +18,37 @@ pub struct TelegramApi {
     base_url: String,
 }
 
+/// `getUpdates` sets its own longer per-request timeout over this one.
+#[expect(
+    clippy::disallowed_methods,
+    clippy::expect_used,
+    reason = "sets the timeouts `Config::http` holds, and fails as `Client::new` would"
+)]
+fn http_client(timeouts: HttpTimeouts) -> Client {
+    Client::builder()
+        .connect_timeout(timeouts.connect)
+        .timeout(timeouts.total)
+        .build()
+        .expect("the TLS backend initialises")
+}
+
+fn bot_base(bot_token: &str) -> String {
+    format!("https://api.telegram.org/bot{bot_token}")
+}
+
 impl TelegramApi {
-    pub fn new(bot_token: &str) -> Self {
+    pub fn new(bot_token: &str, timeouts: HttpTimeouts) -> Self {
         Self {
-            client: Client::new(),
-            base_url: format!("https://api.telegram.org/bot{bot_token}"),
+            client: http_client(timeouts),
+            base_url: bot_base(bot_token),
+        }
+    }
+
+    /// The same client, calling as the bot `bot_token` names.
+    pub(crate) fn with_token(&self, bot_token: &str) -> Self {
+        Self {
+            client: self.client.clone(),
+            base_url: bot_base(bot_token),
         }
     }
 
@@ -28,7 +57,7 @@ impl TelegramApi {
     #[cfg(test)]
     pub(crate) fn with_base_url(base_url: impl Into<String>) -> Self {
         Self {
-            client: Client::new(),
+            client: http_client(moatless_core::config::HttpConfig::default().telegram),
             base_url: base_url.into(),
         }
     }
@@ -198,7 +227,7 @@ impl TelegramApi {
             .post(format!("{}/getUpdates", self.base_url))
             .json(&body)
             // Client-side timeout must exceed the long-poll timeout
-            .timeout(std::time::Duration::from_secs(u64::from(timeout) + 10))
+            .timeout(Duration::from_secs(u64::from(timeout) + 10))
             .send()
             .await
             .map_err(|e| SharedAdapterError::provider_unreachable("Telegram getUpdates", e))?;

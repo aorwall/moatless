@@ -3,7 +3,8 @@
 use std::path::Path;
 
 use crate::client::{ClientError, MoatClient};
-use crate::config::{AuthMode, Config, LoginEnv};
+use crate::config::{AuthMode, Config};
+use moatless_types::http::HttpTimeouts;
 
 // ============================================================================
 // Sandbox mode: token exchange
@@ -81,8 +82,8 @@ pub async fn login(config: &Config, url_override: Option<String>) -> Result<(), 
         .trim_end_matches('/')
         .to_string();
 
-    match probe_auth_mode(&url).await {
-        ProbedAuthMode::Password => login_password(&url, &config.login).await,
+    match probe_auth_mode(&url, config.http.auth_probe).await {
+        ProbedAuthMode::Password => login_password(&url, config).await,
         ProbedAuthMode::OAuth => login_browser(&url).await,
     }
 }
@@ -97,9 +98,14 @@ enum ProbedAuthMode {
 ///
 /// Fails closed to the browser/OAuth flow: an older server lacking `/auth/mode`
 /// returns 404, and OAuth is the only thing it can do.
-async fn probe_auth_mode(url: &str) -> ProbedAuthMode {
+#[expect(
+    clippy::disallowed_methods,
+    reason = "sets the timeouts `Config::http` holds"
+)]
+async fn probe_auth_mode(url: &str, probe: HttpTimeouts) -> ProbedAuthMode {
     let Ok(http) = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
+        .connect_timeout(probe.connect)
+        .timeout(probe.total)
         .build()
     else {
         return ProbedAuthMode::OAuth;
@@ -121,7 +127,8 @@ async fn probe_auth_mode(url: &str) -> ProbedAuthMode {
 /// Composes two existing endpoints — no server-side CLI flow needed: password
 /// login for a session cookie, then that cookie mints an `mvk_` API key. Only
 /// the key is persisted; the password never touches disk.
-async fn login_password(url: &str, login: &LoginEnv) -> Result<(), ClientError> {
+async fn login_password(url: &str, config: &Config) -> Result<(), ClientError> {
+    let login = &config.login;
     let email = match login.email.clone() {
         Some(value) => value,
         None => dialoguer::Input::<String>::new()
@@ -143,10 +150,10 @@ async fn login_password(url: &str, login: &LoginEnv) -> Result<(), ClientError> 
             })?,
     };
 
-    let cookie = password_login_cookie(url, &email, &password).await?;
+    let cookie = password_login_cookie(url, &email, &password, config.http.api).await?;
 
     // Mint a long-lived API key using the freshly minted session.
-    let client = MoatClient::new_with_session_cookie(url, &cookie);
+    let client = MoatClient::new_with_session_cookie(url, &cookie, config.http.clone());
     let key = client
         .api()
         .create_api_key(&moatless_api_schemas::auth::CreateApiKeyRequest {
@@ -173,9 +180,15 @@ async fn password_login_cookie(
     url: &str,
     email: &str,
     password: &str,
+    api: HttpTimeouts,
 ) -> Result<String, ClientError> {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "sets the timeouts `Config::http` holds"
+    )]
     let http = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
+        .connect_timeout(api.connect)
+        .timeout(api.total)
         .build()
         .map_err(|e| ClientError::Api {
             status: 500,

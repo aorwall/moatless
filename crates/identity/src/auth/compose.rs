@@ -40,7 +40,10 @@ impl Authentication {
             .auth
             .oidc
             .clone()
-            .map(|oidc| oidc::OidcService::new(oidc, db.clone()).map(Arc::new))
+            .map(|oidc| {
+                oidc::OidcService::new(oidc, db.clone(), config.http.identity_provider)
+                    .map(Arc::new)
+            })
             .transpose()?;
         let cache = cache::AuthCache::new(config.auth.cache_ttl_secs);
         let login_throttle = password::throttle::LoginThrottle::new(db.clone());

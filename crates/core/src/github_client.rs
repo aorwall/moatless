@@ -1,14 +1,34 @@
 //! GitHub API client helpers for token validation and repository access.
 
+use moatless_types::http::HttpTimeouts;
+
 use crate::git_provider::GitProviderError;
+
+/// Sandbox preflight and token validation await these checks inline, so a
+/// stalled GitHub has to resolve to an error.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "sets the connect and total timeouts `Config::http` holds"
+)]
+fn http_client(timeouts: HttpTimeouts) -> Result<reqwest::Client, GitProviderError> {
+    reqwest::Client::builder()
+        .connect_timeout(timeouts.connect)
+        .timeout(timeouts.total)
+        .build()
+        .map_err(|source| GitProviderError::Unreachable {
+            operation: "GitHub API",
+            source,
+        })
+}
 
 /// Validate a GitHub token by calling the user endpoint under `api_base`.
 /// Returns the login (username) on success.
 pub async fn validate_github_token(
+    timeouts: HttpTimeouts,
     api_base: &str,
     token: &str,
 ) -> Result<String, GitProviderError> {
-    let client = reqwest::Client::new();
+    let client = http_client(timeouts)?;
     let resp = client
         .get(format!("{api_base}/user"))
         .header("Authorization", format!("Bearer {token}"))
@@ -50,12 +70,13 @@ pub async fn validate_github_token(
 /// Check whether a GitHub token has access to a specific repository. Returns
 /// `Ok(())` if accessible, `Err` with a classified failure otherwise.
 pub async fn check_github_repo_access(
+    timeouts: HttpTimeouts,
     api_base: &str,
     token: &str,
     owner: &str,
     repo: &str,
 ) -> Result<(), GitProviderError> {
-    let client = reqwest::Client::new();
+    let client = http_client(timeouts)?;
     let resp = client
         .get(format!("{api_base}/repos/{owner}/{repo}"))
         .header("Authorization", format!("Bearer {token}"))

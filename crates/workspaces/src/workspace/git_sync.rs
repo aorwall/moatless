@@ -29,6 +29,7 @@ use moatless_core::http_auth::AuthUser;
 use moatless_ports::identity::GitHostTokenIssuer;
 use moatless_types::access_control::Actor;
 use moatless_types::access_control::ScopeContext;
+use moatless_types::http::HttpTimeouts;
 use moatless_workspace_types::repository::RepositoryKind;
 use moatless_workspace_types::repository::{GitHostRepo, RepositoryRemote};
 use moatless_workspace_types::schemas::workspace::{
@@ -122,11 +123,12 @@ const RETIRED_CONFIG_PATH: &str = ".moatless/config.json";
 /// failure answers `None`: the warning exists to explain an empty sync, and
 /// inventing one from an unreachable provider would explain the wrong thing.
 async fn retired_config_warning(
+    http: &reqwest::Client,
     remote: &RepositoryRemote,
     branch: Option<&str>,
     token: Option<&str>,
 ) -> Option<WorkspaceSyncWarning> {
-    fetch_provider_file(remote, RETIRED_CONFIG_PATH, branch, token)
+    fetch_provider_file(http, remote, RETIRED_CONFIG_PATH, branch, token)
         .await
         .ok()
         .flatten()
@@ -186,12 +188,13 @@ fn commentless(unknown: &UnknownKeys) -> impl Iterator<Item = &String> {
 ///
 /// Returns `Ok(None)` when the file does not exist.
 pub async fn fetch_moatless_workspaces(
+    http: &reqwest::Client,
     remote: &RepositoryRemote,
     branch: Option<&str>,
     token: Option<&str>,
 ) -> Result<Option<MoatlessWorkspacesFile>, RepositoryError> {
     let Some(body) =
-        fetch_provider_file(remote, ".moatless/workspaces.json", branch, token).await?
+        fetch_provider_file(http, remote, ".moatless/workspaces.json", branch, token).await?
     else {
         return Ok(None);
     };
@@ -247,6 +250,7 @@ pub struct GitSyncService {
     workspaces: Arc<dyn WorkspaceDao>,
     repositories: Arc<dyn RepositoryDao>,
     git_host_tokens: Arc<dyn GitHostTokenIssuer>,
+    http: reqwest::Client,
 }
 
 impl GitSyncService {
@@ -255,12 +259,14 @@ impl GitSyncService {
         workspaces: Arc<dyn WorkspaceDao>,
         repositories: Arc<dyn RepositoryDao>,
         git_host_tokens: Arc<dyn GitHostTokenIssuer>,
+        git_content: HttpTimeouts,
     ) -> Self {
         Self {
             db,
             workspaces,
             repositories,
             git_host_tokens,
+            http: crate::repository::config_reader::client(git_content),
         }
     }
 
@@ -285,9 +291,12 @@ impl GitSyncService {
         let token_str = token.as_deref();
         let branch = repo.default_branch.as_deref();
 
-        let Some(file) = fetch_moatless_workspaces(remote, branch, token_str).await? else {
+        let Some(file) = fetch_moatless_workspaces(&self.http, remote, branch, token_str).await?
+        else {
             debug!(repository_id = %repo.id, "No .moatless/workspaces.json; nothing to sync");
-            if let Some(warning) = retired_config_warning(remote, branch, token_str).await {
+            if let Some(warning) =
+                retired_config_warning(&self.http, remote, branch, token_str).await
+            {
                 warn!(
                     repository_id = %repo.id,
                     path = %warning.path,
@@ -399,7 +408,11 @@ impl GitSyncService {
         let token_str = token.as_deref();
         let branch = repo.default_branch.as_deref();
 
-        if !crate::repository::config_reader::moatless_dir_exists(remote, branch, token_str).await {
+        if !crate::repository::config_reader::moatless_dir_exists(
+            &self.http, remote, branch, token_str,
+        )
+        .await
+        {
             debug!(repository_id = %repo.id, "Config auto-sync: no .moatless directory, skipping");
             return;
         }

@@ -361,7 +361,7 @@ pub(super) async fn run_diagnose(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::AuthMode;
+    use crate::config::{AuthMode, HttpConfig};
 
     const OWN: &str = "11111111-2222-3333-4444-555555555555";
     const OTHER: &str = "99999999-8888-7777-6666-555555555555";
@@ -381,6 +381,7 @@ mod tests {
             sandbox_grpc_port: "50052".to_string(),
             gh_repo_set: false,
             github_token_set: false,
+            http: HttpConfig::default(),
         }
     }
 

@@ -7,6 +7,7 @@ use serde::Deserialize;
 use tracing::warn;
 
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
+use moatless_types::http::HttpTimeouts;
 
 /// Maximum comment length for GitHub's API (64 KB).
 pub(super) const MAX_COMMENT_LENGTH: usize = 65_536;
@@ -139,11 +140,25 @@ pub(super) struct GithubPrApi {
     base_url: String,
 }
 
+/// The client every [`GithubPrApi`] shares, bounded by `timeouts`.
+#[expect(
+    clippy::disallowed_methods,
+    clippy::expect_used,
+    reason = "sets the timeouts `Config::http` holds, and fails as `Client::new` would"
+)]
+pub(super) fn http_client(timeouts: HttpTimeouts) -> Client {
+    Client::builder()
+        .connect_timeout(timeouts.connect)
+        .timeout(timeouts.total)
+        .build()
+        .expect("the TLS backend initialises")
+}
+
 impl GithubPrApi {
     /// A client for `token` against the REST root `base_url`.
-    pub(super) fn new(token: &str, base_url: impl Into<String>) -> Self {
+    pub(super) fn new(client: Client, token: &str, base_url: impl Into<String>) -> Self {
         Self {
-            client: Client::new(),
+            client,
             token: token.to_string(),
             base_url: base_url.into(),
         }
@@ -709,7 +724,7 @@ mod error_source_tests {
 
     #[tokio::test]
     async fn unreachable_github_keeps_transport_source() {
-        let api = GithubPrApi::new("ghp_test", UNREACHABLE_BASE);
+        let api = GithubPrApi::new(test_client(), "ghp_test", UNREACHABLE_BASE);
 
         let err = api
             .post_comment("acme", "widgets", 7, "hi")
@@ -731,7 +746,7 @@ mod error_source_tests {
     #[tokio::test]
     async fn undecodable_github_body_keeps_decode_source() {
         let base = stub_provider(StatusCode::CREATED, "<html>not json</html>").await;
-        let api = GithubPrApi::new("ghp_test", base);
+        let api = GithubPrApi::new(test_client(), "ghp_test", base);
 
         let err = api
             .post_comment("acme", "widgets", 7, "hi")
@@ -752,7 +767,7 @@ mod error_source_tests {
     #[tokio::test]
     async fn github_rejection_stays_a_synthesized_message() {
         let base = stub_provider(StatusCode::FORBIDDEN, r#"{"message":"Bad credentials"}"#).await;
-        let api = GithubPrApi::new("ghp_test", base);
+        let api = GithubPrApi::new(test_client(), "ghp_test", base);
 
         let err = api
             .post_comment("acme", "widgets", 7, "hi")
@@ -814,7 +829,7 @@ mod request_budget_tests {
                 .expect("GitHub stub serves");
         });
 
-        let api = GithubPrApi::new("ghp_test", format!("http://{address}"));
+        let api = GithubPrApi::new(test_client(), "ghp_test", format!("http://{address}"));
         let pr = api
             .get_pr_mergeable("acme", "widgets", 42)
             .await
@@ -874,7 +889,7 @@ mod find_open_pr_tests {
             axum::serve(listener, app).await.expect("stub serves");
         });
 
-        let api = GithubPrApi::new("ghp_test", format!("http://{address}"));
+        let api = GithubPrApi::new(test_client(), "ghp_test", format!("http://{address}"));
         let found = api
             .find_open_pr_for_head("acme", "widgets", "feature")
             .await
@@ -900,7 +915,7 @@ mod find_open_pr_tests {
             axum::serve(listener, app).await.expect("stub serves");
         });
 
-        let api = GithubPrApi::new("ghp_test", format!("http://{address}"));
+        let api = GithubPrApi::new(test_client(), "ghp_test", format!("http://{address}"));
         let found = api
             .find_open_pr_for_head("o", "r", "feature")
             .await
@@ -988,7 +1003,7 @@ mod check_annotation_tests {
             }
         })
         .await;
-        let api = GithubPrApi::new("ghp_test", stub.base_url().to_string());
+        let api = GithubPrApi::new(test_client(), "ghp_test", stub.base_url().to_string());
 
         let annotations = api
             .get_check_run_annotations("acme", "widgets", 31)
@@ -1019,7 +1034,7 @@ mod check_annotation_tests {
             )
         })
         .await;
-        let api = GithubPrApi::new("ghp_test", stub.base_url().to_string());
+        let api = GithubPrApi::new(test_client(), "ghp_test", stub.base_url().to_string());
 
         let err = api
             .get_check_run_annotations("acme", "widgets", 31)
@@ -1030,4 +1045,9 @@ mod check_annotation_tests {
             "got {err:?}"
         );
     }
+}
+
+#[cfg(test)]
+fn test_client() -> Client {
+    http_client(moatless_core::config::HttpConfig::default().github)
 }

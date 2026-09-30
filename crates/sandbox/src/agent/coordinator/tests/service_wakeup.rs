@@ -55,11 +55,11 @@ async fn coordinator_service_arms_and_fires_scheduled_wakeup() {
         Arc::new(Dispatcher::new()),
         crate::workspace_sync::WorkspaceSyncTracker::new(),
     );
-    let (tx, rx) = mpsc::unbounded_channel::<AgentCommand>();
+    let (tx, rx) = mpsc::channel::<AgentCommand>(64);
     tokio::spawn(service.run(rx, Heartbeat::new()));
 
     let (ack_tx, _ack_rx) = oneshot::channel();
-    tx.send(AgentCommand::Send {
+    tx.try_send(AgentCommand::Send {
         text: "go".to_string(),
         model: None,
         agent_mode: None,

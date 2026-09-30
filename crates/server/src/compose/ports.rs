@@ -37,6 +37,7 @@ use moatless_tasks::task::operations::TaskCommands;
 use moatless_tasks::task::relations::TaskRelations;
 use moatless_tasks::task_event::operations::TaskEvents;
 use moatless_tasks::task_turn::operations::TaskTurns;
+use moatless_types::http::HttpTimeouts;
 use moatless_workspaces::plugin::Plugins;
 use moatless_workspaces::repository::Repositories;
 use moatless_workspaces::workspace::Workspaces;
@@ -198,21 +199,7 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
         moatless_identity::compose::github_app_registry(config, Some(pool.clone()), cipher.clone());
     let github_app_service = github_apps.default_service();
 
-    let codex_http = Arc::new(
-        reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(15))
-            // Branch listing shares this client, so it reaches a self-hosted
-            // Forgejo. See `moatless_core::USER_AGENT`.
-            .user_agent(moatless_core::USER_AGENT)
-            .build()
-            .unwrap_or_else(|e| {
-                tracing::warn!(
-                    error = %e,
-                    "Failed to build reqwest client for Codex refresh, falling back to default"
-                );
-                reqwest::Client::new()
-            }),
-    );
+    let codex_http = Arc::new(codex_http(config.http.codex));
     let credentials = moatless_identity::compose::credentials(
         pool.clone(),
         secrets.clone(),
@@ -225,6 +212,7 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
         pool.clone(),
         secrets.clone(),
         forgejo_instances.clone(),
+        config.http.self_hosted_git,
     );
     let git_host_tokens = moatless_identity::compose::git_host_tokens(
         pool.clone(),
@@ -233,6 +221,7 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
         secrets.clone(),
         Some(workspace_credentials.clone()),
         forgejo_instances.clone(),
+        config.http.self_hosted_git,
     );
 
     // The tasks band's own construction root owns its stores; this process takes
@@ -365,4 +354,23 @@ impl Ports {
             },
         )
     }
+}
+
+/// Codex refresh and branch listing's client. Branch listing reaches a
+/// self-hosted Forgejo, so it sends `moatless_core::USER_AGENT`.
+///
+/// Panics when the TLS backend cannot be loaded, as `reqwest::Client::new`
+/// does.
+#[expect(
+    clippy::disallowed_methods,
+    clippy::expect_used,
+    reason = "sets the timeouts `Config::http` holds, and fails as `Client::new` would"
+)]
+fn codex_http(timeouts: HttpTimeouts) -> reqwest::Client {
+    reqwest::Client::builder()
+        .connect_timeout(timeouts.connect)
+        .timeout(timeouts.total)
+        .user_agent(moatless_core::USER_AGENT)
+        .build()
+        .expect("the TLS backend initialises")
 }

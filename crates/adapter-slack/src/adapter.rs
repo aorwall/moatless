@@ -12,6 +12,7 @@ use moatless_adapter_model::registry::Adapters;
 use moatless_core::config::Config;
 use moatless_ports::identity::ProviderIdentityLink;
 use moatless_types::adapter::AdapterKind;
+use moatless_types::http::HttpTimeouts;
 
 use super::api::SlackApi;
 
@@ -24,10 +25,9 @@ pub(super) struct ResolvedSlackApp {
     pub(super) bot_user_id: Option<String>,
 }
 
-impl TryFrom<AdapterAppSecrets> for ResolvedSlackApp {
-    type Error = AdapterError;
-
-    fn try_from(app: AdapterAppSecrets) -> Result<Self, Self::Error> {
+impl ResolvedSlackApp {
+    /// `app`, calling through `api`'s client as the app's own bot.
+    fn resolve(app: AdapterAppSecrets, api: &SlackApi) -> Result<Self, AdapterError> {
         let (Some(bot_token), Some(signing_secret)) =
             (app.secret("bot_token"), app.secret("signing_secret"))
         else {
@@ -38,7 +38,7 @@ impl TryFrom<AdapterAppSecrets> for ResolvedSlackApp {
             .into());
         };
         Ok(Self {
-            api: SlackApi::new(&bot_token),
+            api: api.with_token(&bot_token),
             signing_secret,
             bot_user_id: app.setting("bot_user_id"),
         })
@@ -80,9 +80,14 @@ impl SlackAdapter {
         adapters.register_inbound_presentation(kind, self);
     }
 
-    pub fn new(bot_token: &str, signing_secret: &str, bot_user_id: Option<String>) -> Self {
+    pub fn new(
+        bot_token: &str,
+        signing_secret: &str,
+        bot_user_id: Option<String>,
+        slack: HttpTimeouts,
+    ) -> Self {
         Self {
-            api: SlackApi::new(bot_token),
+            api: SlackApi::new(bot_token, slack),
             signing_secret: signing_secret.to_string(),
             bot_user_id,
             apps: None,
@@ -99,7 +104,7 @@ impl SlackAdapter {
     ) -> Self {
         let bot_token = config.slack.bot_token.as_deref().unwrap_or("");
         Self {
-            api: SlackApi::new(bot_token),
+            api: SlackApi::new(bot_token, config.http.slack),
             signing_secret: config.slack.signing_secret.clone().unwrap_or_default(),
             bot_user_id: config.slack.bot_user_id.clone(),
             apps: Some(apps),
@@ -151,7 +156,7 @@ impl SlackAdapter {
                 SharedAdapterError::AdapterNotConfigured(format!("slack app '{app_key}'")).into(),
             );
         };
-        ResolvedSlackApp::try_from(app)
+        ResolvedSlackApp::resolve(app, &self.api)
     }
 
     /// Return the default Slack workspace (team) ID, calling `auth.test` once

@@ -3,10 +3,11 @@
 //! Wraps `moatless_api_client::ApiClient` with auth header injection.
 
 use moatless_api_client::{ApiClient, ApiError};
+use moatless_types::http::{HttpStreamTimeouts, HttpTimeouts};
 use reqwest::header::{AUTHORIZATION, COOKIE, HeaderMap, HeaderValue};
 use thiserror::Error;
 
-use crate::config::{AuthMode, Config};
+use crate::config::{AuthMode, Config, HttpConfig};
 
 #[derive(Debug, Error)]
 pub enum ClientError {
@@ -56,15 +57,11 @@ pub struct MoatClient {
     base_url: String,
     auth_mode: ClientAuthMode,
     verbose: bool,
-    /// How long to wait for a response before giving up.
-    http_timeout: std::time::Duration,
+    /// The timeouts every client this builds is bounded by.
+    http: HttpConfig,
     /// Typed API client.
     typed_client: ApiClient,
 }
-
-/// Long enough for a person at a terminal, short enough to notice a hang.
-/// Endpoints that provision a sandbox before answering need `--timeout`.
-const DEFAULT_HTTP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// A response whose status is part of the answer, not an error to raise.
 pub struct RawResponse {
@@ -88,48 +85,57 @@ enum ClientAuthMode {
 
 impl MoatClient {
     /// Create a client with no auth headers against `base_url`.
-    pub fn new_unauthenticated(base_url: &str) -> Result<Self, ClientError> {
-        Self::from_headers(base_url, HeaderMap::new())
+    pub fn new_unauthenticated(base_url: &str, http: HttpConfig) -> Result<Self, ClientError> {
+        Self::from_headers(base_url, HeaderMap::new(), http)
     }
 
     /// Create a client authenticated with an `mvk_` API key against `base_url`.
-    pub fn new_with_api_key(base_url: &str, api_key: &str) -> Self {
+    pub fn new_with_api_key(base_url: &str, api_key: &str, http: HttpConfig) -> Self {
         let auth_mode = ClientAuthMode::ApiKey(api_key.to_string());
-        Self::from_auth_mode(base_url, auth_mode)
+        Self::from_auth_mode(base_url, auth_mode, http)
     }
 
     /// Create a client authenticated with a session cookie against `base_url`.
     ///
     /// `cookie` is the raw `name=value` pair from a `Set-Cookie` header.
-    pub fn new_with_session_cookie(base_url: &str, cookie: &str) -> Self {
+    pub fn new_with_session_cookie(base_url: &str, cookie: &str, http: HttpConfig) -> Self {
         let auth_mode = ClientAuthMode::SessionCookie(cookie.to_string());
-        Self::from_auth_mode(base_url, auth_mode)
+        Self::from_auth_mode(base_url, auth_mode, http)
     }
 
-    fn from_auth_mode(base_url: &str, auth_mode: ClientAuthMode) -> Self {
+    fn from_auth_mode(base_url: &str, auth_mode: ClientAuthMode, http: HttpConfig) -> Self {
         let base_url = base_url.trim_end_matches('/').to_string();
-        let http = Self::build_http_client(&auth_mode, DEFAULT_HTTP_TIMEOUT);
-        let typed_client = ApiClient::new(&base_url, http);
+        let typed_client = ApiClient::new(&base_url, Self::build_http_client(&auth_mode, http.api));
         Self {
             base_url,
             auth_mode,
             verbose: false,
-            http_timeout: DEFAULT_HTTP_TIMEOUT,
+            http,
             typed_client,
         }
     }
 
-    fn from_headers(base_url: &str, headers: HeaderMap) -> Result<Self, ClientError> {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "sets the timeouts `Config::http` holds"
+    )]
+    fn from_headers(
+        base_url: &str,
+        headers: HeaderMap,
+        http: HttpConfig,
+    ) -> Result<Self, ClientError> {
         let base_url = base_url.trim_end_matches('/').to_string();
-        let http = reqwest::Client::builder()
+        let client = reqwest::Client::builder()
+            .connect_timeout(http.api.connect)
+            .timeout(http.api.total)
             .default_headers(headers)
             .build()?;
-        let typed_client = ApiClient::new(&base_url, http);
+        let typed_client = ApiClient::new(&base_url, client);
         Ok(Self {
             base_url,
             auth_mode: ClientAuthMode::ApiKey(String::new()),
             verbose: false,
-            http_timeout: DEFAULT_HTTP_TIMEOUT,
+            http,
             typed_client,
         })
     }
@@ -149,14 +155,14 @@ impl MoatClient {
         };
 
         let base_url = config.api_url.trim_end_matches('/').to_string();
-        let http = Self::build_http_client(&auth_mode, DEFAULT_HTTP_TIMEOUT);
-        let typed_client = ApiClient::new(&base_url, http);
+        let http = config.http.clone();
+        let typed_client = ApiClient::new(&base_url, Self::build_http_client(&auth_mode, http.api));
 
         Self {
             base_url,
             auth_mode,
             verbose,
-            http_timeout: DEFAULT_HTTP_TIMEOUT,
+            http,
             typed_client,
         }
     }
@@ -167,16 +173,18 @@ impl MoatClient {
     /// its sandbox, messaging a stopped one provisions a replacement — and can
     /// outrun the default against a remote cluster.
     pub fn set_http_timeout(&mut self, timeout: std::time::Duration) {
-        self.http_timeout = timeout;
-        let http = Self::build_http_client(&self.auth_mode, timeout);
+        self.http.api.total = timeout;
+        let http = Self::build_http_client(&self.auth_mode, self.http.api);
         self.typed_client = ApiClient::new(&self.base_url, http);
     }
 
     /// Build a `reqwest::Client` with default auth headers baked in.
-    fn build_http_client(
-        auth_mode: &ClientAuthMode,
-        timeout: std::time::Duration,
-    ) -> reqwest::Client {
+    #[expect(
+        clippy::disallowed_methods,
+        clippy::expect_used,
+        reason = "sets the timeouts `Config::http` holds, and fails as `Client::new` would"
+    )]
+    fn build_http_client(auth_mode: &ClientAuthMode, timeouts: HttpTimeouts) -> reqwest::Client {
         let mut default_headers = HeaderMap::new();
 
         match auth_mode {
@@ -213,10 +221,11 @@ impl MoatClient {
         }
 
         reqwest::Client::builder()
-            .timeout(timeout)
+            .connect_timeout(timeouts.connect)
+            .timeout(timeouts.total)
             .default_headers(default_headers)
             .build()
-            .unwrap_or_default()
+            .expect("the TLS backend initialises")
     }
 
     pub fn set_session_token(&mut self, token: String) {
@@ -227,7 +236,7 @@ impl MoatClient {
         {
             *session_token = Some(token);
             // Rebuild HTTP client and typed client with new session cookie.
-            let http = Self::build_http_client(&self.auth_mode, self.http_timeout);
+            let http = Self::build_http_client(&self.auth_mode, self.http.api);
             self.typed_client = ApiClient::new(&self.base_url, http);
         }
     }
@@ -246,7 +255,7 @@ impl MoatClient {
         if self.verbose {
             eprintln!("GET {url}");
         }
-        let http = Self::build_http_client(&self.auth_mode, self.http_timeout);
+        let http = Self::build_http_client(&self.auth_mode, self.http.api);
         let resp = http.get(&url).send().await?;
         self.handle_response(resp).await
     }
@@ -258,7 +267,7 @@ impl MoatClient {
         if self.verbose {
             eprintln!("GET {url}");
         }
-        let http = Self::build_http_client(&self.auth_mode, self.http_timeout);
+        let http = Self::build_http_client(&self.auth_mode, self.http.api);
         let resp = http.get(url).send().await?;
         let status = resp.status().as_u16();
         if status == 401 {
@@ -283,7 +292,7 @@ impl MoatClient {
         if self.verbose {
             eprintln!("POST {url}");
         }
-        let http = Self::build_http_client(&self.auth_mode, self.http_timeout);
+        let http = Self::build_http_client(&self.auth_mode, self.http.api);
         let resp = http.post(&url).json(body).send().await?;
         self.handle_response(resp).await
     }
@@ -298,7 +307,7 @@ impl MoatClient {
         if self.verbose {
             eprintln!("PUT {url}");
         }
-        let http = Self::build_http_client(&self.auth_mode, self.http_timeout);
+        let http = Self::build_http_client(&self.auth_mode, self.http.api);
         let resp = http.put(&url).json(body).send().await?;
         self.handle_response(resp).await
     }
@@ -313,7 +322,7 @@ impl MoatClient {
         if self.verbose {
             eprintln!("PATCH {url}");
         }
-        let http = Self::build_http_client(&self.auth_mode, self.http_timeout);
+        let http = Self::build_http_client(&self.auth_mode, self.http.api);
         let resp = http.patch(&url).json(body).send().await?;
         self.handle_response(resp).await
     }
@@ -324,7 +333,7 @@ impl MoatClient {
         if self.verbose {
             eprintln!("DELETE {url}");
         }
-        let http = Self::build_http_client(&self.auth_mode, self.http_timeout);
+        let http = Self::build_http_client(&self.auth_mode, self.http.api);
         let resp = http.delete(&url).send().await?;
         self.handle_response(resp).await
     }
@@ -357,7 +366,7 @@ impl MoatClient {
             eprintln!("{verb} {url}");
         }
 
-        let http = Self::build_http_client(&self.auth_mode, self.http_timeout);
+        let http = Self::build_http_client(&self.auth_mode, self.http.api);
         let mut request = http.request(verb, &url);
         if let Some(body) = body {
             request = request.json(body);
@@ -404,15 +413,14 @@ impl MoatClient {
         })
     }
 
-    /// Start a streaming GET request (no timeout, returns raw response for
-    /// SSE/NDJSON).
+    /// Start a streaming GET request (idle timeout only, returns raw response
+    /// for SSE/NDJSON).
     pub async fn raw_get_stream(&self, path: &str) -> Result<reqwest::Response, ClientError> {
         let url = format!("{}{path}", self.base_url);
         if self.verbose {
             eprintln!("GET (stream) {url}");
         }
-        // Build a client with no timeout for long-lived SSE connections.
-        let http = Self::build_streaming_http_client(&self.auth_mode);
+        let http = Self::build_streaming_http_client(&self.auth_mode, self.http.api_stream);
         let resp = http.get(&url).send().await?;
         let status = resp.status().as_u16();
         if status == 401 {
@@ -425,8 +433,17 @@ impl MoatClient {
         Ok(resp)
     }
 
-    /// Build a `reqwest::Client` with no timeout (for SSE streaming).
-    fn build_streaming_http_client(auth_mode: &ClientAuthMode) -> reqwest::Client {
+    /// Build a `reqwest::Client` for SSE streaming, bounded by
+    /// the longest silence `stream` allows rather than a total deadline.
+    #[expect(
+        clippy::disallowed_methods,
+        clippy::expect_used,
+        reason = "sets the timeouts `Config::http` holds, and fails as `Client::new` would"
+    )]
+    fn build_streaming_http_client(
+        auth_mode: &ClientAuthMode,
+        stream: HttpStreamTimeouts,
+    ) -> reqwest::Client {
         let mut default_headers = HeaderMap::new();
         match auth_mode {
             ClientAuthMode::ApiKey(key) => {
@@ -459,9 +476,11 @@ impl MoatClient {
             }
         }
         reqwest::Client::builder()
+            .connect_timeout(stream.connect)
+            .read_timeout(stream.idle)
             .default_headers(default_headers)
             .build()
-            .unwrap_or_default()
+            .expect("the TLS backend initialises")
     }
 }
 

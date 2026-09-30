@@ -171,6 +171,7 @@ impl RealEnv {
             repo_config_raw: None,
             setup_commands: vec![],
             plugins: vec![],
+            http: moatless_sandbox::config::SandboxHttpConfig::default(),
             permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
             workspace_sync_enabled: false,
             workspace_restore_if_empty: false,

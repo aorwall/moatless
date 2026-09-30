@@ -35,7 +35,7 @@ async fn coordinator_service_active_stop_publishes_exactly_one_stopped() {
     start_turn_and_wait_running(&tx, &received, &events).await;
 
     let (stop_tx, stop_rx) = oneshot::channel::<()>();
-    tx.send(AgentCommand::Stop {
+    tx.try_send(AgentCommand::Stop {
         source: StopSource::User,
         ack: Some(stop_tx),
     })
@@ -83,7 +83,7 @@ async fn coordinator_service_idle_stop_publishes_exactly_one_stopped() {
     );
 
     let (stop_tx, stop_rx) = oneshot::channel::<()>();
-    tx.send(AgentCommand::Stop {
+    tx.try_send(AgentCommand::Stop {
         source: StopSource::IdleReaper,
         ack: Some(stop_tx),
     })
@@ -135,12 +135,12 @@ async fn coordinator_service_duplicate_stop_emits_exactly_one_stopped() {
     // Two Stops arrive before the first resolves.
     let (stop_tx1, stop_rx1) = oneshot::channel::<()>();
     let (stop_tx2, stop_rx2) = oneshot::channel::<()>();
-    tx.send(AgentCommand::Stop {
+    tx.try_send(AgentCommand::Stop {
         source: StopSource::User,
         ack: Some(stop_tx1),
     })
     .expect("channel open");
-    tx.send(AgentCommand::Stop {
+    tx.try_send(AgentCommand::Stop {
         source: StopSource::User,
         ack: Some(stop_tx2),
     })

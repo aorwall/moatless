@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use moatless_api_schemas::decisions::{DecisionOption, DecisionUsage};
 use moatless_core::config::JevConfig;
+use moatless_types::http::HttpTimeouts;
 use reqwest::StatusCode;
 use reqwest::header::{HeaderMap, RETRY_AFTER};
 use serde::ser::SerializeMap;
@@ -46,17 +47,18 @@ impl fmt::Debug for JevClient {
 }
 
 impl JevClient {
-    pub(crate) fn new(config: &JevConfig) -> Self {
+    #[expect(
+        clippy::disallowed_methods,
+        clippy::expect_used,
+        reason = "sets the timeouts `Config::http` holds, and fails as `Client::new` would"
+    )]
+    pub(crate) fn new(config: &JevConfig, timeouts: HttpTimeouts) -> Self {
         let http = reqwest::Client::builder()
+            .connect_timeout(timeouts.connect)
+            .timeout(timeouts.total)
             .user_agent(moatless_core::USER_AGENT)
             .build()
-            .unwrap_or_else(|e| {
-                tracing::warn!(
-                    error = %e,
-                    "Failed to build reqwest client for Jev, falling back to default"
-                );
-                reqwest::Client::new()
-            });
+            .expect("the TLS backend initialises");
         Self {
             http,
             api_key: config.api_key.clone(),

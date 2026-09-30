@@ -28,6 +28,20 @@ disallowed-methods = [
     # `SystemTime` stays for a value an external API hands back, which has to be
     # compared in its own clock.
     { path = "std::time::SystemTime::now", reason = "read the wall clock with chrono::Utc::now() — timestamp(), timestamp_millis(), timestamp_nanos_opt() or timestamp_subsec_nanos()" },
+
+    # Timeout fence. A client built without a timeout waits on a stalled remote
+    # forever. Build each one with `reqwest::Client::builder()` under an
+    # `expect` saying it sets the connect and total (or idle) timeouts its
+    # binary's `Config` holds.
+    { path = "reqwest::Client::new", reason = "build with reqwest::Client::builder() and set connect_timeout and timeout or read_timeout from the binary's Config" },
+    { path = "reqwest::Client::builder", reason = "set connect_timeout and timeout or read_timeout from the binary's Config, then expect this lint naming them" },
+    { path = "reqwest::ClientBuilder::new", reason = "build with reqwest::Client::builder() and set connect_timeout and timeout or read_timeout from the binary's Config" },
+
+    # Capacity fence. An unbounded channel grows until the process runs out of
+    # memory when its consumer stalls. Use `tokio::sync::mpsc::channel` with a
+    # deliberate capacity; keep an unbounded one only with an allow naming what
+    # bounds it instead.
+    { path = "tokio::sync::mpsc::unbounded_channel", reason = "use tokio::sync::mpsc::channel with a deliberate capacity and full-buffer behaviour" },
 ]
 
 # Product names and acronym verbs that `doc_markdown` would otherwise ask to

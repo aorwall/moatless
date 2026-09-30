@@ -267,6 +267,7 @@ mod tests {
                     github_row("manual", "owner-token"),
                 ),
             )),
+            moatless_core::config::HttpConfig::default().github,
         )
         .with_api_base(api_base)
     }

@@ -117,31 +117,25 @@ impl AppState {
             )),
         );
 
-        let git_sync =
-            moatless_workspaces::compose::git_sync(pool.clone(), git_host_tokens.clone());
+        let git_sync = moatless_workspaces::compose::git_sync(
+            pool.clone(),
+            git_host_tokens.clone(),
+            config.http.git_content,
+        );
 
         let loop_sync = loop_graph.loop_sync(
             connection_routing.clone(),
             tag_resolver.clone(),
             workspace_resolver.clone(),
             git_host_tokens.clone(),
+            config.http.git_content,
         );
 
         // Hoisted so the self-echo filter and the struct literal share one cache.
         let recently_sent = Arc::new(RecentlySent::new());
 
-        let skill_http = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .user_agent("moatless-vibe-backend")
-            .build()
-            .unwrap_or_else(|e| {
-                tracing::warn!(
-                    error = %e,
-                    "Failed to build reqwest client for skill fetcher, falling back to default"
-                );
-                reqwest::Client::new()
-            });
-        let skill_fetcher: Arc<dyn SkillFetcher> = Arc::new(GitHostSkillFetcher::new(skill_http));
+        let skill_fetcher: Arc<dyn SkillFetcher> =
+            Arc::new(GitHostSkillFetcher::new(config.http.git_content));
         let plugin_sync = moatless_workspaces::compose::plugin_sync(
             pool.clone(),
             skill_fetcher.clone(),
@@ -169,6 +163,8 @@ impl AppState {
             },
             Arc::new(RealGitHostValidator {
                 github_api_base: config.github_api_base.clone(),
+                github: config.http.github,
+                self_hosted_git: config.http.self_hosted_git,
             }),
         ));
 
@@ -217,6 +213,8 @@ impl AppState {
             secrets.clone(),
             Arc::new(ProviderGitHostTokenValidator::new(
                 config.github_api_base.clone(),
+                config.http.github,
+                config.http.self_hosted_git,
             )),
             config.auth.github_app_oauth().is_some(),
         );
@@ -227,12 +225,13 @@ impl AppState {
             user_directory.clone(),
             git_host_tokens.clone(),
             config.sandbox.task_token_secret.clone(),
+            config.http.git_proxy,
         ));
         let agent_harness_access = Arc::new(AgentHarnessAccess::new(
             credentials.clone(),
             credential_sync.clone(),
             codex_oauth_config.clone(),
-            Arc::new(ProviderCodexDeviceLogin::default()),
+            Arc::new(ProviderCodexDeviceLogin::new(config.http.codex)),
             user_directory.clone(),
         ));
         let app_administration = Arc::new(AppAdministration::new(
@@ -240,6 +239,7 @@ impl AppState {
             user_directory.clone(),
             Arc::new(ProviderGitHubAppProver {
                 github_api_base: config.github_api_base.clone(),
+                github: config.http.github,
             }),
         ));
 

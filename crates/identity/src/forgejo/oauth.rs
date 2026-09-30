@@ -6,6 +6,7 @@
 
 use chrono::{DateTime, Duration, Utc};
 use moatless_core::git_provider::GitProviderError;
+use moatless_types::http::HttpTimeouts;
 use serde::Deserialize;
 
 use crate::forgejo::instances::{ForgejoOAuthApp, base_url};
@@ -35,15 +36,13 @@ pub struct ForgejoOAuth {
     client: reqwest::Client,
 }
 
-impl Default for ForgejoOAuth {
-    fn default() -> Self {
+impl ForgejoOAuth {
+    pub fn new(timeouts: HttpTimeouts) -> Self {
         Self {
-            client: super::http_client(),
+            client: super::http_client(timeouts),
         }
     }
-}
 
-impl ForgejoOAuth {
     /// Where to send somebody to authorize `app`.
     ///
     /// No `scope` parameter: Forgejo's OAuth2 has none, and sending one is a

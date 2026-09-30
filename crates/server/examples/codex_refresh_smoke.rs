@@ -45,7 +45,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .ok_or("no tokens.refresh_token in auth.json")?
         .to_string();
 
-    let client = reqwest::Client::new();
+    let timeouts = moatless_core::config::Config::from_env()?.http.codex;
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "sets the timeouts `Config::http` holds"
+    )]
+    let client = reqwest::Client::builder()
+        .connect_timeout(timeouts.connect)
+        .timeout(timeouts.total)
+        .build()?;
     println!("Calling refresh_chatgpt_tokens (this rotates the refresh_token!)...");
     let refresh_url = moatless_core::config::codex_refresh_url_from_env();
     let new = refresh_chatgpt_tokens(&client, &refresh_url, &refresh_token).await?;

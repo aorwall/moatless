@@ -208,6 +208,7 @@ fn test_config() -> Config {
         repo_config_raw: None,
         setup_commands: vec![],
         plugins: vec![],
+        http: moatless_sandbox::config::SandboxHttpConfig::default(),
         frontend_url: None,
         use_tmux: false,
         command_default_timeout_secs: moatless_sandbox::config::DEFAULT_COMMAND_TIMEOUT_SECS,
@@ -696,7 +697,8 @@ async fn agent_handle_stop_exits_cleanly() {
     test_task_context(&state)
         .await
         .agent_handle
-        .stop(StopSource::User);
+        .stop(StopSource::User)
+        .await;
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -738,7 +740,8 @@ async fn agent_handle_rapid_fire_send_no_panic() {
     test_task_context(&state)
         .await
         .agent_handle
-        .stop(StopSource::User);
+        .stop(StopSource::User)
+        .await;
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     assert_eq!(
@@ -756,7 +759,8 @@ async fn agent_handle_send_after_stop_does_not_panic() {
     test_task_context(&state)
         .await
         .agent_handle
-        .stop(StopSource::User);
+        .stop(StopSource::User)
+        .await;
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     // A stop terminates the active turn, not the lifecycle service. A later send
@@ -830,7 +834,8 @@ async fn agent_handle_concurrent_send_from_multiple_tasks() {
     test_task_context(&state)
         .await
         .agent_handle
-        .stop(StopSource::User);
+        .stop(StopSource::User)
+        .await;
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     assert_eq!(
