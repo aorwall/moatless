@@ -650,18 +650,18 @@ fn parity_request() -> AgentRunRequest {
 #[test]
 fn thread_params_carry_the_exec_spawn_parity_set() {
     let config = parity_config();
-    let params = thread_start_params(&config, &parity_request());
+    let params = thread_start_params(&config, &parity_request(), "gpt-test");
     assert_eq!(params.cwd.as_deref(), Some("/workspace"));
     assert_eq!(params.model.as_deref(), Some("gpt-test"));
     assert_eq!(params.sandbox, Some(SandboxMode::DangerFullAccess));
     assert_eq!(params.approval_policy, Some(AskForApproval::Never));
     assert!(params.developer_instructions.is_some());
 
-    let resumed = thread_resume_params(&config, &parity_request(), "thread-1");
+    let resumed = thread_resume_params(&config, &parity_request(), "gpt-test", "thread-1");
     assert_eq!(resumed.thread_id, "thread-1");
     assert_eq!(resumed.sandbox, Some(SandboxMode::DangerFullAccess));
 
-    let turn = turn_start_params("thread-1", "do the thing", &config, &parity_request());
+    let turn = turn_start_params("thread-1", "do the thing", &parity_request(), "gpt-test");
     assert_eq!(turn.effort.as_deref(), Some("high"));
     assert!(matches!(
         turn.input.as_slice(),
@@ -675,7 +675,7 @@ fn thread_params_carry_the_exec_spawn_parity_set() {
 fn turn_params_carry_the_requested_effort() {
     let mut request = parity_request();
     request.effort = Some("minimal".to_string());
-    let turn = turn_start_params("thread-1", "do the thing", &parity_config(), &request);
+    let turn = turn_start_params("thread-1", "do the thing", &request, "gpt-test");
     assert_eq!(turn.effort.as_deref(), Some("minimal"));
 }
 
@@ -710,6 +710,7 @@ fn params_serialize_as_camel_case() {
     let value = serde_json::to_value(thread_resume_params(
         &parity_config(),
         &parity_request(),
+        "gpt-test",
         "thread-1",
     ))
     .expect("serialize");
@@ -751,9 +752,6 @@ fn e2e_config(workspace_name: &str) -> crate::config::Config {
     }
     if let Ok(home) = std::env::var("HOME") {
         config.home_dir = home;
-    }
-    if let Ok(model) = std::env::var("DEFAULT_CODEX_MODEL") {
-        config.default_codex_model = Some(model);
     }
     config
 }
@@ -836,9 +834,9 @@ async fn e2e_a_turn_runs_to_completion_and_answers() {
     }
 
     let (config, mut session) = e2e_session("codex-app-server-e2e-turn").await;
-    let request = parity_request_without_model();
+    let request = e2e_request();
     let thread_id = session
-        .start_thread(thread_start_params(&config, &request))
+        .start_thread(thread_start_params(&config, &request, e2e_model(&request)))
         .await
         .expect("thread/start");
     assert!(!thread_id.is_empty());
@@ -847,8 +845,8 @@ async fn e2e_a_turn_runs_to_completion_and_answers() {
         .start_turn(turn_start_params(
             &thread_id,
             "Run the shell command `echo hello-from-codex` and then tell me its output.",
-            &config,
             &request,
+            e2e_model(&request),
         ))
         .await
         .expect("turn/start");
@@ -880,9 +878,9 @@ async fn e2e_a_steered_message_changes_the_running_turn() {
     }
 
     let (config, mut session) = e2e_session("codex-app-server-e2e-steer").await;
-    let request = parity_request_without_model();
+    let request = e2e_request();
     let thread_id = session
-        .start_thread(thread_start_params(&config, &request))
+        .start_thread(thread_start_params(&config, &request, e2e_model(&request)))
         .await
         .expect("thread/start");
     let turn_id = session
@@ -890,8 +888,8 @@ async fn e2e_a_steered_message_changes_the_running_turn() {
             &thread_id,
             "Do these steps in order. 1. Run `echo step-one` in the shell. \
              2. Run `sleep 25` in the shell. 3. Reply with the word ALPHA.",
-            &config,
             &request,
+            e2e_model(&request),
         ))
         .await
         .expect("turn/start");
@@ -966,17 +964,17 @@ async fn e2e_an_interrupted_turn_terminates() {
     }
 
     let (config, mut session) = e2e_session("codex-app-server-e2e-interrupt").await;
-    let request = parity_request_without_model();
+    let request = e2e_request();
     let thread_id = session
-        .start_thread(thread_start_params(&config, &request))
+        .start_thread(thread_start_params(&config, &request, e2e_model(&request)))
         .await
         .expect("thread/start");
     let turn_id = session
         .start_turn(turn_start_params(
             &thread_id,
             "Run `sleep 120` in the shell, then tell me it finished. Do nothing else.",
-            &config,
             &request,
+            e2e_model(&request),
         ))
         .await
         .expect("turn/start");
@@ -1004,10 +1002,36 @@ async fn e2e_an_interrupted_turn_terminates() {
     session.cancel();
 }
 
-/// The E2E runs take the model from the environment, not from the request.
-fn parity_request_without_model() -> AgentRunRequest {
+/// The E2E runs take the model from `CODEX_TEST_MODEL`, else the model the
+/// backend delivers by default.
+fn e2e_request() -> AgentRunRequest {
     AgentRunRequest {
-        model: None,
+        model: Some(std::env::var("CODEX_TEST_MODEL").unwrap_or_else(|_| {
+            moatless_types::model::CodexModel::Gpt6Astra
+                .id()
+                .to_string()
+        })),
         ..parity_request()
     }
+}
+
+fn e2e_model(request: &AgentRunRequest) -> &str {
+    require_codex_model(request).expect("e2e_request carries a model")
+}
+
+#[test]
+fn a_request_without_a_model_is_refused_rather_than_defaulted() {
+    let request = AgentRunRequest {
+        model: None,
+        ..parity_request()
+    };
+    let err = require_codex_model(&request).expect_err("no model to default to");
+    assert!(err.contains("Codex turn carries no model"), "{err}");
+
+    let blank = AgentRunRequest {
+        model: Some("  ".to_string()),
+        ..parity_request()
+    };
+    assert!(require_codex_model(&blank).is_err());
+    assert_eq!(require_codex_model(&parity_request()), Ok("gpt-test"));
 }

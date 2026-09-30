@@ -336,7 +336,7 @@ fn route_to_config(route: &LoopSpawnConfig, schedule: &Schedule) -> LoopContext 
             .run_as_user_id
             .clone()
             .or_else(|| route.run_as_user_id.clone()),
-        agent_profile: route.agent_profile.clone(),
+        agent_profile: route.agent_profile,
         model: route.model.clone(),
         inactive_ttl_days: route.inactive_ttl_days,
         node_selector: route.node_selector.clone(),
@@ -393,7 +393,7 @@ mod tests {
             tag_ids: vec![],
             skills: vec![],
             run_as_user_id: Some("user-1".to_string()),
-            agent_profile: AgentProfile::from(AgentProfile::CLAUDE_CODE),
+            agent_profile: AgentProfile::ClaudeCode,
             model: None,
             inactive_ttl_days: None,
             created_by: "user-1".to_string(),

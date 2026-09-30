@@ -2,6 +2,7 @@
 //! and command values it runs one against.
 
 use super::*;
+use crate::agent::catalog;
 
 /// What the sink was asked to do. Every assertion about the command table is an
 /// assertion about this list, because the table's whole job is deciding which
@@ -382,9 +383,8 @@ struct StubAgents;
 impl AgentCatalogSource for StubAgents {
     async fn list(&self, _viewer: &ScopeContext) -> Vec<crate::agent::schemas::AgentDescriptor> {
         catalog::catalog()
-            .iter()
             .map(|entry| crate::agent::schemas::AgentDescriptor {
-                id: entry.id.to_string(),
+                id: entry.id().to_string(),
                 label: entry.label.to_string(),
                 installed: true,
                 default_model: entry.default_model.to_string(),
@@ -402,13 +402,13 @@ impl AgentCatalogSource for StubAgents {
     }
 }
 
-pub(super) fn conversation(agent_profile: &str) -> Conversation {
+pub(super) fn conversation(agent_profile: AgentProfile) -> Conversation {
     Conversation {
         task_id: "task-1".to_string(),
         workspace_id: Some("ws-1".to_string()),
         name: None,
         branch: None,
-        agent_profile: AgentProfile(agent_profile.to_string()),
+        agent_profile: agent_profile.into(),
         created_at: "2026-07-01T09:00:00.000Z".to_string(),
         created_at_db: None,
         updated_at: None,
@@ -441,7 +441,7 @@ pub(super) fn conversation(agent_profile: &str) -> Conversation {
 pub(super) fn named(name: &str) -> Conversation {
     Conversation {
         name: Some(name.to_string()),
-        ..conversation(AgentProfile::CLAUDE_CODE)
+        ..conversation(AgentProfile::ClaudeCode)
     }
 }
 
@@ -483,7 +483,7 @@ pub(super) fn viewer() -> ScopeContext {
 
 /// Run one command against a Claude thread that exists.
 pub(super) async fn run(command: Value) -> (Result<Value, CommandRefusal>, Vec<Call>) {
-    run_against(command, Some(conversation(AgentProfile::CLAUDE_CODE))).await
+    run_against(command, Some(conversation(AgentProfile::ClaudeCode))).await
 }
 
 /// Run one command against a thread whose stored call is `call`.
@@ -491,7 +491,7 @@ pub(super) async fn run_answering(
     command: Value,
     call: Option<InteractiveCall>,
 ) -> (Result<Value, CommandRefusal>, Vec<Call>) {
-    let mut dao = conversations(Some(conversation(AgentProfile::CLAUDE_CODE)));
+    let mut dao = conversations(Some(conversation(AgentProfile::ClaudeCode)));
     dao.expect_interactive_call()
         .returning(move |_, _| Ok(call.clone()));
     dispatch_against(dao, command).await

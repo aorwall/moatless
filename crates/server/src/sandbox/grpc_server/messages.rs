@@ -69,10 +69,9 @@ pub(super) async fn get_pending_messages(
         }));
     }
 
-    let task_agent_profile = task.as_ref().map_or_else(
-        || AgentProfile::CLAUDE_CODE.to_string(),
-        |t| t.agent_profile.0.clone(),
-    );
+    let task_agent_profile = task
+        .as_ref()
+        .map_or(AgentProfile::ClaudeCode, |t| t.agent_profile);
     let task_model = task.as_ref().and_then(|t| t.model.clone());
     let task_skills = task.as_ref().map(|t| t.skills.clone()).unwrap_or_default();
 
@@ -126,10 +125,10 @@ pub(super) async fn get_pending_messages(
     // Trajectory but continues nothing.
     let switch = match (&fork, &latest_agent_session_id, service.handlers.as_ref()) {
         (Some(_), _, Some(handlers)) => {
-            fork_switch(&handlers.trajectory, fork_cut, &task_agent_profile).await?
+            fork_switch(&handlers.trajectory, fork_cut, task_agent_profile).await?
         }
         (None, Some(_), Some(handlers)) => {
-            harness_switch(&handlers.trajectory, &req.task_id, &task_agent_profile).await?
+            harness_switch(&handlers.trajectory, &req.task_id, task_agent_profile).await?
         }
         _ => HarnessSwitch::None,
     };
@@ -301,11 +300,9 @@ enum HarnessSwitch {
 async fn harness_switch(
     trajectories: &moatless_tasks::trajectory::operations::Trajectories,
     task_id: &str,
-    agent_profile: &str,
+    agent_profile: AgentProfile,
 ) -> Result<HarnessSwitch, Status> {
-    let Some(harness) = moatless_tasks::agent::catalog::harness_of(agent_profile) else {
-        return Ok(HarnessSwitch::None);
-    };
+    let harness = agent_profile.harness();
     let Some(head) = trajectories
         .head(task_id)
         .await
@@ -325,14 +322,12 @@ async fn harness_switch(
 async fn fork_switch(
     trajectories: &moatless_tasks::trajectory::operations::Trajectories,
     cut: Option<uuid::Uuid>,
-    agent_profile: &str,
+    agent_profile: AgentProfile,
 ) -> Result<HarnessSwitch, Status> {
-    let (Some(cut), Some(harness)) = (
-        cut,
-        moatless_tasks::agent::catalog::harness_of(agent_profile),
-    ) else {
+    let Some(cut) = cut else {
         return Ok(HarnessSwitch::None);
     };
+    let harness = agent_profile.harness();
     let cut_harness = trajectories
         .event_harness(cut)
         .await
@@ -530,7 +525,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_failed_head_read_fails_the_delivery() {
-        let refused = harness_switch(&unreachable(), "t", AgentProfile::CODEX)
+        let refused = harness_switch(&unreachable(), "t", AgentProfile::Codex)
             .await
             .err()
             .expect("the pod retries rather than resume by the Messages");
@@ -542,7 +537,7 @@ mod tests {
         let refused = fork_switch(
             &unreachable(),
             Some(uuid::Uuid::nil()),
-            AgentProfile::CLAUDE_CODE,
+            AgentProfile::ClaudeCode,
         )
         .await
         .err()

@@ -18,13 +18,13 @@ pub(crate) async fn sandbox_tmux(
 pub(crate) async fn write_profile(
     pool: &DbPool,
     task_id: &str,
-    profile: &str,
+    profile: moatless_types::agent::AgentProfile,
     model: Option<&str>,
 ) -> Result<(), sqlx::Error> {
     let mut tx = pool.begin().await?;
     sqlx::query("UPDATE tasks SET agent_profile = $2, model = $3 WHERE task_id = $1")
         .bind(task_id)
-        .bind(profile)
+        .bind(profile.as_str())
         .bind(model)
         .execute(&mut *tx)
         .await?;
@@ -32,7 +32,7 @@ pub(crate) async fn write_profile(
     // owner's.
     sqlx::query("UPDATE sandboxes SET agent_profile = $2 WHERE sandbox_id = $1")
         .bind(task_id)
-        .bind(profile)
+        .bind(profile.as_str())
         .execute(&mut *tx)
         .await?;
     tx.commit().await

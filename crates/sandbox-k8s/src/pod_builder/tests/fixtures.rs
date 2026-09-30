@@ -42,7 +42,6 @@ pub(super) fn test_config() -> Config {
     let mut config = Config::test_minimal();
     config.sandbox.image = "sandbox:latest".into();
     config.sandbox.task_token_secret = Some("secret".into());
-    config.sandbox.default_codex_model = None;
     config
 }
 

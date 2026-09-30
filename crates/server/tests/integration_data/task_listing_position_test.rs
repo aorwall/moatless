@@ -558,7 +558,7 @@ async fn a_writer_blocked_on_a_task_row_is_not_holding_the_counter(pool: PgPool)
                 event_type: "agent".to_string(),
                 sub_type: "completed".to_string(),
                 is_error: false,
-                agent_profile: Some("claude_code".to_string()),
+                agent_profile: Some("claude-code".to_string()),
                 turn_number: 1,
                 payload: serde_json::json!({}),
                 timestamp: "2026-01-01T00:00:00Z".to_string(),

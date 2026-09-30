@@ -26,6 +26,7 @@ pub mod git_host;
 pub mod http;
 pub mod loops;
 pub mod message;
+pub mod model;
 pub mod sandbox;
 pub mod secret;
 pub mod store;

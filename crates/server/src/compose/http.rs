@@ -110,7 +110,7 @@ pub(crate) async fn ui_rpc(
             )),
             model_defaults: moatless_t3code::AgentModelDefaults {
                 claude_code: config.sandbox.default_model.clone(),
-                codex: config.sandbox.default_codex_model.clone(),
+                codex: Some(config.sandbox.default_codex_model.clone()),
             },
             otlp_traces_enabled: config.otel.otlp_endpoint.is_some(),
             frontend_url: config.auth.frontend_url.clone(),

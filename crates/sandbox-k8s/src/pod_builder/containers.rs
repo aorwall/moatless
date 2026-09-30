@@ -326,9 +326,6 @@ pub(super) fn build_sandbox_container(
     if let Some(ref model) = config.sandbox.default_model {
         env.push(env_var("DEFAULT_CLAUDE_CODE_MODEL", model));
     }
-    if let Some(ref model) = config.sandbox.default_codex_model {
-        env.push(env_var("DEFAULT_CODEX_MODEL", model));
-    }
 
     // Auth tokens. The short-lived bootstrap token is the only auth secret on
     // the pod spec; it authenticates the initial GetCredentials call, after which

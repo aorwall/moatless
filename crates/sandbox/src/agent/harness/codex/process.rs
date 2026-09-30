@@ -182,12 +182,21 @@ impl CodexProcess {
             model: input.model.clone(),
             system_prompt: input.system_prompt.clone(),
             resume: resume.clone(),
-            agent_profile: Some("codex".to_string()),
+            agent_profile: Some(moatless_types::agent::AgentProfile::Codex.to_string()),
             agent_mode: input.mode.clone(),
             effort: input.effort.clone(),
         };
         let config = Arc::clone(&self.cfg.config);
-        let model = codex_app_server::resolve_codex_model(&config, &request);
+        let model = codex_app_server::require_codex_model(&request)
+            .map_err(|diagnostic| {
+                HarnessError::new(
+                    FailureStage::Startup,
+                    ErrorClass::InvalidConfiguration,
+                    SessionImpact::Intact,
+                    diagnostic,
+                )
+            })?
+            .to_string();
 
         let session =
             codex_app_server::start(&config, input.env.clone(), self.cancel_token.clone())
@@ -210,7 +219,8 @@ impl CodexProcess {
             // under a new id, so it resumes like any other thread.
             _ if fork_session.is_some() => {
                 let thread_id = fork_session.as_deref().unwrap_or_default();
-                let params = codex_app_server::thread_resume_params(&config, &request, thread_id);
+                let params =
+                    codex_app_server::thread_resume_params(&config, &request, &model, thread_id);
                 session
                     .resume_thread(params)
                     .await
@@ -230,7 +240,8 @@ impl CodexProcess {
                     .map_err(|error| classify::classify_request_error("thread/fork", &error))?
             }
             (None, Some(ResumeSession::WithId(thread_id))) => {
-                let params = codex_app_server::thread_resume_params(&config, &request, thread_id);
+                let params =
+                    codex_app_server::thread_resume_params(&config, &request, &model, thread_id);
                 session
                     .resume_thread(params)
                     .await
@@ -243,7 +254,7 @@ impl CodexProcess {
                 if other.is_some() {
                     warn!("Codex cannot resume the last thread by name; starting a fresh one");
                 }
-                let params = codex_app_server::thread_start_params(&config, &request);
+                let params = codex_app_server::thread_start_params(&config, &request, &model);
                 session
                     .start_thread(params)
                     .await
@@ -251,8 +262,7 @@ impl CodexProcess {
             }
         };
 
-        let params =
-            codex_app_server::turn_start_params(&thread_id, &input.text, &config, &request);
+        let params = codex_app_server::turn_start_params(&thread_id, &input.text, &request, &model);
         let turn_id = session
             .start_turn(params)
             .await

@@ -57,7 +57,7 @@ async fn a_link_naming_no_pull_request_is_rejected_before_any_write() {
 /// write, and linking a pull request is a write.
 #[tokio::test]
 async fn a_link_into_a_thread_the_viewer_does_not_control_is_refused() {
-    let found = conversation(AgentProfile::CLAUDE_CODE);
+    let found = conversation(AgentProfile::ClaudeCode);
     let mut dao = MockConversationDao::new();
     dao.expect_readable_by_id()
         .returning(move |_, _| Ok(Some(found.clone())));

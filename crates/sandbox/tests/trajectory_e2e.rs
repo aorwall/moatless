@@ -155,9 +155,6 @@ impl RealEnv {
                 .unwrap_or_else(|_| "/usr/local/bin/codex".to_string()),
             frontend_url: None,
             default_model: None,
-            default_codex_model: std::env::var("CODEX_TEST_MODEL")
-                .or_else(|_| std::env::var("DEFAULT_CODEX_MODEL"))
-                .ok(),
             openai_base_url: base_url,
             use_tmux: false,
             command_default_timeout_secs: moatless_sandbox::config::DEFAULT_COMMAND_TIMEOUT_SECS,
@@ -417,7 +414,11 @@ impl<'a> TestTask<'a> {
                 std::env::var("CLAUDE_TEST_MODEL")
                     .unwrap_or_else(|_| "claude-haiku-4-5-20251001".to_string()),
             ),
-            Kind::Codex => self.env.config.default_codex_model.clone(),
+            Kind::Codex => Some(std::env::var("CODEX_TEST_MODEL").unwrap_or_else(|_| {
+                moatless_types::model::CodexModel::Gpt6Astra
+                    .id()
+                    .to_string()
+            })),
         };
         let switch_harness = std::mem::take(&mut self.switch);
         Input {

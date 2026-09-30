@@ -5,6 +5,7 @@
 //! transcript scan that has no counterpart here, and [`source_for`] documents
 //! what they report instead.
 
+use moatless_types::model::{ClaudeModel, CodexModel, ModelPrice, price_for};
 use serde_json::{Value, json};
 
 use crate::ports::{UsageBucketRow, UsageWindow};
@@ -14,23 +15,6 @@ use crate::ports::{UsageBucketRow, UsageWindow};
 /// older version renders partial coverage rather than failing the page.
 const CONTRACT_VERSION: u32 = 5;
 
-/// Rate table for `cache_savings_usd`, in USD per 1M tokens, keyed by model-id
-/// substring.
-///
-/// Ordering matters: a specific generation must precede the family name it
-/// contains, so `sonnet-5` is not billed at `sonnet-4-6`'s rate (same rule as
-/// `event_handler::pricing`).
-const RATES: &[(&str, f64, f64)] = &[
-    // (model substring, input, cache read)
-    ("opus", 5.0, 0.5),
-    ("fable", 10.0, 1.0),
-    ("sonnet-5", 2.0, 0.2),
-    ("sonnet", 3.0, 0.3),
-    ("haiku", 1.0, 0.1),
-    ("gpt-5", 1.25, 0.125),
-    ("codex", 1.25, 0.125),
-];
-
 /// What the cached input would have cost at full input rates, minus what it did
 /// cost. Zero for a model with no known rate, which keeps an unpriced model out
 /// of the savings total rather than guessing at it.
@@ -38,8 +22,10 @@ fn cache_savings_usd(model: &str, cached_input_tokens: i64) -> f64 {
     if cached_input_tokens <= 0 {
         return 0.0;
     }
-    let lower = model.to_ascii_lowercase();
-    let Some((_, input, cache_read)) = RATES.iter().find(|(key, _, _)| lower.contains(key)) else {
+    let Some(ModelPrice {
+        input, cache_read, ..
+    }) = price_for(model)
+    else {
         return 0.0;
     };
     #[allow(clippy::cast_precision_loss)]
@@ -149,7 +135,7 @@ pub(crate) fn summary(
             "status": "cached",
             "source": "moatless-builtin",
             "fetchedAt": Value::Null,
-            "knownModels": RATES.len(),
+            "knownModels": ClaudeModel::ALL.len() + CodexModel::ALL.len(),
         },
         "scanDurationMs": scan_duration_ms,
     })

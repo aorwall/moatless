@@ -9,13 +9,16 @@ use crate::agent::catalog;
 use crate::dao::Conversation;
 use crate::providers;
 use crate::workspace::WorkspaceView as Workspace;
-use moatless_types::agent::Harness;
 
 /// The last resort of the model chain, and the only invented value in the row.
 ///
 /// Deliberately not a plausible model name, so a sidebar never shows a
 /// real-looking model nobody chose; every arrival with a Turn is logged.
 const UNKNOWN_MODEL: &str = "unknown";
+
+/// The provider instance of a conversation whose agent this build does not
+/// know. No instance is published under it, so the thread reads as unavailable.
+const UNKNOWN_INSTANCE: &str = "unknown";
 
 /// The model the conversation is running, on the provider instance that runs
 /// it.
@@ -50,7 +53,11 @@ pub(super) fn model_name(conversation: &Conversation, defaults: &AgentModelDefau
     }
     // 3. The deployment's default for this kind of agent. Optional
     //    configuration: a deployment that sets none falls through.
-    if let Some(model) = defaults.for_harness(harness(conversation)) {
+    if let Some(model) = conversation
+        .agent_profile
+        .harness()
+        .and_then(|harness| defaults.for_harness(harness))
+    {
         return model.to_string();
     }
     // 4. The invention, logged so it is visible rather than silent — except
@@ -67,21 +74,16 @@ pub(super) fn model_name(conversation: &Conversation, defaults: &AgentModelDefau
     UNKNOWN_MODEL.to_string()
 }
 
-/// Which driver family backs this conversation's agent.
-fn harness(conversation: &Conversation) -> Harness {
-    catalog::find(conversation.agent_profile.as_str())
-        .map_or(Harness::ClaudeCode, |entry| entry.harness)
-}
-
 /// The provider instance a model is resolved against.
 ///
-/// The routing key, not part of the model name. An instance a build does not
-/// recognize is marked unavailable at runtime rather than refusing to decode.
+/// The routing key, not part of the model name. An agent this build does not
+/// know reports [`UNKNOWN_INSTANCE`], which T3 marks unavailable rather than
+/// refusing to decode.
 pub(super) fn provider_instance(conversation: &Conversation) -> &'static str {
-    match harness(conversation) {
-        Harness::ClaudeCode => "claudeAgent",
-        Harness::Codex => "codex",
-    }
+    conversation
+        .agent_profile
+        .harness()
+        .map_or(UNKNOWN_INSTANCE, providers::instance_for)
 }
 
 /// The Workspace's default model, in the `ModelSelection` shape T3 sends back.

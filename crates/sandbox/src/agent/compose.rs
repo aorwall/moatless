@@ -2,7 +2,7 @@ use crate::agent::handle::AgentHandle;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use moatless_types::agent::AgentSubType;
+use moatless_types::agent::{AgentProfile, AgentSubType};
 use tokio::sync::RwLock;
 
 use crate::backend_client::BackendClient;
@@ -19,20 +19,6 @@ use crate::agent::harness::{
 };
 use crate::agent::scheduled_job::ScheduledJobRegistry;
 
-const AGENT_PROFILE_CLAUDE_CODE: &str = "claude-code";
-/// Claude Code over the tmux (interactive TUI) transport. Same executor family
-/// as claude-code; the tmux transport is selected backend-side via the
-/// `SANDBOX_USE_TMUX` env var.
-const AGENT_PROFILE_CLAUDE_CODE_TUI: &str = "claude-code-tui";
-/// Claude Code over the subprocess/NDJSON transport (the explicit non-tmux CLI
-/// variant). Treated as the claude-code family for everything except the
-/// transport selection inside the Claude harness.
-const AGENT_PROFILE_CLAUDE_CODE_CLI: &str = "claude-code-cli";
-/// Claude Code pinned to the `fable` model. Same executor family as
-/// claude-code; the model is forced backend-side when the message carries none.
-const AGENT_PROFILE_CLAUDE_CODE_FABLE: &str = "claude-code-fable";
-const AGENT_PROFILE_CODEX: &str = "codex";
-
 /// Resolve an Agent profile id into the harness that runs it,
 /// rejecting values this Sandbox has no harness for.
 ///
@@ -40,18 +26,9 @@ const AGENT_PROFILE_CODEX: &str = "codex";
 /// to Claude; the Claude transport, model, and mode variants all resolve to the
 /// one Claude harness.
 pub(crate) fn resolve_agent_harness(raw: &str) -> Result<moatless_types::agent::Harness, String> {
-    match raw {
-        AGENT_PROFILE_CODEX => Ok(moatless_types::agent::Harness::Codex),
-        AGENT_PROFILE_CLAUDE_CODE
-        | AGENT_PROFILE_CLAUDE_CODE_TUI
-        | AGENT_PROFILE_CLAUDE_CODE_CLI
-        | AGENT_PROFILE_CLAUDE_CODE_FABLE => Ok(moatless_types::agent::Harness::ClaudeCode),
-        other => Err(format!(
-            "unsupported Agent harness '{other}' (expected one of: \
-             {AGENT_PROFILE_CLAUDE_CODE}, {AGENT_PROFILE_CLAUDE_CODE_TUI}, \
-             {AGENT_PROFILE_CLAUDE_CODE_CLI}, {AGENT_PROFILE_CLAUDE_CODE_FABLE}, {AGENT_PROFILE_CODEX})"
-        )),
-    }
+    raw.parse::<AgentProfile>()
+        .map(AgentProfile::harness)
+        .map_err(|error| format!("unsupported Agent harness: {error}"))
 }
 
 /// Constructs the single Agent harness fixed for one Member (the fixed-harness

@@ -733,13 +733,13 @@ async fn reissues_join_task_for_all_running_sandbox_members(pool: PgPool) {
                 task_id: "t1".to_string(),
                 sandbox_id: "t1".to_string(),
                 checkout_mode: moatless_types::task::CheckoutMode::Shared,
-                agent_profile: AgentProfile::CLAUDE_CODE.into(),
+                agent_profile: AgentProfile::ClaudeCode,
             },
             SandboxMember {
                 task_id: "t2".to_string(),
                 sandbox_id: "t1".to_string(),
                 checkout_mode: moatless_types::task::CheckoutMode::Shared,
-                agent_profile: AgentProfile::CODEX.into(),
+                agent_profile: AgentProfile::Codex,
             },
         ],
         "reconciler rebuilds in-pod members from DB membership after restart, each under \

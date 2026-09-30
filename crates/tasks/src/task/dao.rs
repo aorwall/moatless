@@ -344,9 +344,7 @@ impl TaskDao for PgTaskDao {
             .bind(row.agent_profile.as_str())
             // The catalog is the authority for which harness runs over tmux, and
             // it lives in this band. The control plane reads the answer.
-            .bind(crate::agent::catalog::use_tmux_for(
-                row.agent_profile.as_str(),
-            ))
+            .bind(crate::agent::catalog::use_tmux_for(row.agent_profile))
             .bind(&workspace_id)
             .bind(&row.run_as_user_id)
             .bind(placement.node_selector.as_ref().map(sqlx::types::Json))
@@ -616,7 +614,7 @@ impl TaskDao for PgTaskDao {
                     short_id: self.short_id,
                     created_at: timestamp(&self.created_at?)?,
                     last_message_at: timestamp(&self.last_message_at?)?,
-                    agent_profile: AgentProfile::from(self.agent_profile?),
+                    agent_profile: AgentProfile::parse(&self.agent_profile?)?,
                     repository_id: self.repository_id?,
                     workspace_id: self.workspace_id,
                     sandbox_id: self.sandbox_id,

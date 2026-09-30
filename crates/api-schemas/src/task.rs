@@ -42,7 +42,9 @@ pub struct CreateTaskRequest {
     /// Omit for the shared checkout, which is also the single-member behavior.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub checkout_mode: Option<CheckoutMode>,
-    pub agent_profile: Option<AgentProfile>,
+    /// An `AgentProfile` id, parsed by the task service so an unknown one is a
+    /// 400 listing the options rather than a JSON extraction error.
+    pub agent_profile: Option<String>,
     pub name: Option<String>,
     pub description: Option<String>,
     pub branch: Option<String>,

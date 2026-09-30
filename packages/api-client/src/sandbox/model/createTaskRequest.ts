@@ -6,13 +6,17 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AgentMode } from './agentMode';
-import type { AgentProfile } from './agentProfile';
 import type { CheckoutMode } from './checkoutMode';
 import type { MessageContextInput } from './messageContextInput';
 
 export interface CreateTaskRequest {
   agentMode?: null | AgentMode;
-  agentProfile?: null | AgentProfile;
+  /**
+     * An `AgentProfile` id, parsed by the task service so an unknown one is a
+     * 400 listing the options rather than a JSON extraction error.
+     * @nullable
+     */
+  agentProfile?: string | null;
   /** @nullable */
   branch?: string | null;
   checkoutMode?: null | CheckoutMode;

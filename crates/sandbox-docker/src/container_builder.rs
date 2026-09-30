@@ -115,9 +115,6 @@ pub fn build_container_config(
     if let Some(ref model) = config.sandbox.default_model {
         env.push(format!("DEFAULT_CLAUDE_CODE_MODEL={model}"));
     }
-    if let Some(ref model) = config.sandbox.default_codex_model {
-        env.push(format!("DEFAULT_CODEX_MODEL={model}"));
-    }
 
     // Custom env vars from repo config
     if let Some(ref env_vars) = plan.env_vars {
@@ -278,7 +275,6 @@ mod tests {
         config.docker.image = "sandbox:latest".into();
         config.docker.network = "moatless".into();
         config.sandbox.task_token_secret = Some("secret".into());
-        config.sandbox.default_codex_model = None;
         config
     }
 

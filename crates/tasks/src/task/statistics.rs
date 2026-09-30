@@ -134,7 +134,7 @@ pub(crate) fn build_task_statistics(
 
     TaskStatisticsResponse {
         task_id: task.task_id.clone(),
-        agent_profile: task.agent_profile.clone(),
+        agent_profile: task.agent_profile,
         model: latest_model,
         token_totals: totals_from_turn_metrics(turn_metrics).unwrap_or(token_totals),
         message_token_usage,
@@ -184,7 +184,7 @@ mod tests {
             last_message_at: chrono::DateTime::parse_from_rfc3339("2026-01-01T00:00:00.000Z")
                 .expect("fixture timestamp")
                 .with_timezone(&chrono::Utc),
-            agent_profile: AgentProfile("codex".to_string()),
+            agent_profile: AgentProfile::Codex,
             repository_id: "repo-1".to_string(),
             status: TaskStatus::Open,
             total_cost_usd: 0.0,

@@ -19,7 +19,6 @@ use moatless_tasks::activities::mapping::BlockContext;
 use moatless_tasks::activities::mapping::map_content;
 use moatless_tasks::message::models::MessageType;
 use moatless_tasks::message::service as message_service;
-use moatless_types::agent::AgentProfile;
 use moatless_workspaces::compose;
 use serde_json::Value;
 use serde_json::json;
@@ -283,7 +282,7 @@ async fn a_codex_conversation_reports_the_codex_instance_and_default(pool: PgPoo
         .unwrap();
     let mut task = make_task_row("t-codex", "user-1");
     task.workspace_id = Some("ws-a".to_string());
-    task.agent_profile = AgentProfile(moatless_tasks::agent::catalog::CODEX.id.to_string());
+    task.agent_profile = moatless_tasks::agent::catalog::CODEX.profile;
     moatless_tasks::task::test_support::seed_task(&pool, &task)
         .await
         .unwrap();

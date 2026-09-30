@@ -322,7 +322,7 @@ pub(crate) fn build_task_response(
         name: row.name.clone(),
         description: row.description.clone(),
         status: row.status,
-        agent_profile: row.agent_profile.clone(),
+        agent_profile: row.agent_profile,
         repository_id: row.repository_id.clone(),
         repository_name: names.repository,
         workspace_id: row.workspace_id.clone(),

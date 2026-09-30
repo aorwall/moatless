@@ -944,7 +944,6 @@ fn build_config(tmp: &TempDir, agent: EvalAgent) -> Config {
             .unwrap_or_else(|_| "/usr/local/bin/codex".to_string()),
         frontend_url: None,
         default_model: None,
-        default_codex_model: None,
         openai_base_url: None,
         use_tmux: false,
         command_default_timeout_secs: DEFAULT_COMMAND_TIMEOUT_SECS,
@@ -1106,6 +1105,14 @@ async fn run_trial(
     );
     input.env = Some(env);
     input.system_prompt = Some(scenario.system_instruction.clone());
+    // The backend delivers every Codex turn with a model; the sandbox has none.
+    if agent == EvalAgent::Codex {
+        input.model = Some(
+            moatless_types::model::CodexModel::Gpt6Astra
+                .id()
+                .to_string(),
+        );
+    }
     let mut trajectory = TrajectoryRecorder::new(started, ReportRedactor::from_environment());
 
     let terminal = match harness.submit(input).await {

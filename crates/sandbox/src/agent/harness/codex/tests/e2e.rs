@@ -16,7 +16,7 @@ fn skip_unless_e2e() -> bool {
 
 /// Config for a real-CLI E2E run: a throwaway workspace named `workspace_name`.
 ///
-/// CLI path, credentials home, and model come from the environment, so the
+/// CLI path and credentials home come from the environment, so the
 /// subprocess authenticates instead of hanging on an interactive login against
 /// the throwaway test home.
 fn e2e_config(workspace_name: &str) -> CodexConfig {
@@ -33,9 +33,6 @@ fn e2e_config(workspace_name: &str) -> CodexConfig {
     }
     if let Ok(home) = std::env::var("HOME") {
         config.home_dir = home;
-    }
-    if let Ok(model) = std::env::var("DEFAULT_CODEX_MODEL") {
-        config.default_codex_model = Some(model);
     }
 
     CodexConfig {
@@ -57,10 +54,17 @@ async fn e2e_codex_turn_through_the_harness() {
 
     let mut harness = HarnessRuntime::codex(e2e_config("harness-codex-e2e"));
     harness
-        .submit(Input::text(
-            "in-1",
-            "Run the shell command `echo hello-from-codex` and then tell me its output.",
-        ))
+        .submit(Input {
+            model: Some(std::env::var("CODEX_TEST_MODEL").unwrap_or_else(|_| {
+                moatless_types::model::CodexModel::Gpt6Astra
+                    .id()
+                    .to_string()
+            })),
+            ..Input::text(
+                "in-1",
+                "Run the shell command `echo hello-from-codex` and then tell me its output.",
+            )
+        })
         .await
         .expect("submit input");
 

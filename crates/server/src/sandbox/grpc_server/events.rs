@@ -129,7 +129,7 @@ impl BackendSandboxServiceImpl {
             .await
             .ok()
             .flatten()
-            .map(|task| task.agent_profile.0)
+            .map(|task| task.agent_profile.to_string())
     }
 
     /// Resolve the turn an inbound event belongs to and, for a state-bearing

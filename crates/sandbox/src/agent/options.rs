@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use claude_agent_sdk::api::options::{PluginConfig, SystemPrompt};
 use claude_agent_sdk::{ClaudeOptions, PermissionMode};
-use moatless_types::agent::claude_model_id;
+use moatless_types::model::{ClaudeModel, claude_model_id};
 use moatless_workspace_types::plugin::{PluginMarketplaceSource, marketplace_local_path};
 use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
@@ -27,7 +27,7 @@ use super::permission_handler::InteractivePermissionHandler;
 pub const CLAUDE_ENV_DEFAULTS: &[(&str, &str)] = &[
     ("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "300000"),
     ("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1"),
-    ("CLAUDE_CODE_SUBAGENT_MODEL", "claude-sonnet-5"),
+    ("CLAUDE_CODE_SUBAGENT_MODEL", ClaudeModel::Sonnet.api_id()),
     // No telemetry leaves the pod. The first two also stop feature-flag
     // fetching, which holds every flag at its code default.
     ("DISABLE_TELEMETRY", "1"),

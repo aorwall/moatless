@@ -181,10 +181,11 @@ impl LoopSyncService {
             // pass-through to the agent CLI, so it warns here; one another agent
             // offers is a `Skipped` from `resolve_loop`.
             if let Some(model) = parsed.frontmatter.model.as_deref() {
-                let agent_profile = declared_agent_profile(&parsed.frontmatter);
-                if !catalog::offers_model(&agent_profile, model)
-                    && !catalog::model_conflicts(&agent_profile, model)
-                {
+                let agent_profile = declared_agent_profile(&parsed.frontmatter).ok();
+                if let Some(agent_profile) = agent_profile.filter(|profile| {
+                    !catalog::offers_model(*profile, model)
+                        && !catalog::model_conflicts(*profile, model)
+                }) {
                     summary.warnings.push(LoopSyncWarning {
                         loop_name: parsed.dir_name.clone(),
                         field: "model".to_string(),

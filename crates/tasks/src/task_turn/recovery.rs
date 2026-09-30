@@ -167,7 +167,7 @@ pub async fn recover_interrupted_turn(
         }
     };
 
-    let task_agent_profile = task.as_ref().map(|t| t.agent_profile.0.clone());
+    let task_agent_profile = task.as_ref().map(|t| t.agent_profile.to_string());
 
     if let Some(publisher) = events {
         publisher
@@ -241,7 +241,7 @@ mod tests {
             last_message_at: chrono::DateTime::parse_from_rfc3339("2026-01-01T00:00:00.000Z")
                 .expect("fixture timestamp")
                 .with_timezone(&chrono::Utc),
-            agent_profile: AgentProfile("codex".to_string()),
+            agent_profile: AgentProfile::Codex,
             repository_id: "repo-1".to_string(),
             status: TaskStatus::Closed,
             total_cost_usd: 0.0,

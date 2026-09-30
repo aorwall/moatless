@@ -157,10 +157,6 @@ pub struct Config {
     /// Global default Claude model (env: `DEFAULT_CLAUDE_CODE_MODEL`), used
     /// when neither request nor repo config set one
     pub default_model: Option<String>,
-    /// Global default Codex model (env: `DEFAULT_CODEX_MODEL`); falls through
-    /// to [`crate::agent::codex_app_server::resolve_codex_model`] at call time
-    /// when unset.
-    pub default_codex_model: Option<String>,
     /// Base URL of an OpenAI-compatible proxy to route Codex through (env:
     /// `OPENAI_BASE_URL`), including the `/v1` suffix.
     ///
@@ -556,7 +552,6 @@ impl Config {
 
             frontend_url: env::var("FRONTEND_URL").ok(),
             default_model: env::var("DEFAULT_CLAUDE_CODE_MODEL").ok(),
-            default_codex_model: env::var("DEFAULT_CODEX_MODEL").ok(),
             openai_base_url: env::var("OPENAI_BASE_URL")
                 .ok()
                 .filter(|u| !u.trim().is_empty()),
@@ -676,7 +671,6 @@ pub(crate) mod test_support {
             codex_cli_path: "/usr/local/bin/codex".to_string(),
             frontend_url: None,
             default_model: None,
-            default_codex_model: None,
             openai_base_url: None,
             use_tmux: false,
             command_default_timeout_secs: crate::config::DEFAULT_COMMAND_TIMEOUT_SECS,

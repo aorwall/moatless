@@ -146,7 +146,7 @@ fn member(task_id: &str, sandbox_id: &str) -> SandboxMember {
         task_id: task_id.to_string(),
         sandbox_id: sandbox_id.to_string(),
         checkout_mode: CheckoutMode::Shared,
-        agent_profile: AgentProfile::CLAUDE_CODE.into(),
+        agent_profile: AgentProfile::ClaudeCode,
     }
 }
 

@@ -8,6 +8,7 @@ use crate::loops::schedule::next_fire_at;
 use chrono::{DateTime, Utc};
 use moatless_tasks::agent::catalog;
 use moatless_types::access_control::{Actor, ScopeContext};
+use moatless_types::agent::AgentProfile;
 use moatless_types::loops::{LoopKind, RoutingMode};
 use moatless_workspace_types::repository::{
     Repository, RepositoryProvider as GitHostProvider, RepositoryRemote,
@@ -22,7 +23,7 @@ pub(super) struct ResolvedLoop {
     routing_mode: RoutingMode,
     /// See [`moatless_types::loops::LoopContext::workspace_id`].
     workspace_id: String,
-    agent_profile: String,
+    agent_profile: AgentProfile,
     model: Option<String>,
     prompt: Option<String>,
     tag_ids: Vec<String>,
@@ -55,10 +56,10 @@ pub(super) enum ResolveOutcome {
 }
 
 /// The agent a Loop declaration runs on: its `agentProfile`, else the default.
-pub(super) fn declared_agent_profile(fm: &LoopFrontmatter) -> String {
+pub(super) fn declared_agent_profile(fm: &LoopFrontmatter) -> Result<AgentProfile, String> {
     fm.agent_profile
-        .clone()
-        .unwrap_or_else(|| "claude-code".to_string())
+        .as_deref()
+        .map_or(Ok(AgentProfile::ClaudeCode), str::parse)
 }
 
 impl LoopSyncService {
@@ -107,9 +108,12 @@ impl LoopSyncService {
             }
         };
 
-        let agent_profile = declared_agent_profile(fm);
+        let agent_profile = match declared_agent_profile(fm) {
+            Ok(profile) => profile,
+            Err(e) => return Ok(ResolveOutcome::Skipped(e)),
+        };
         let model = fm.model.clone();
-        if let Err(e) = catalog::validate_agent_model(&agent_profile, model.as_deref()) {
+        if let Err(e) = catalog::validate_agent_model(agent_profile, model.as_deref()) {
             return Ok(ResolveOutcome::Skipped(e));
         }
         let prompt = if parsed.prompt_body.is_empty() {
@@ -387,7 +391,7 @@ pub(super) fn managed_loop_input(
         prompt: resolved.prompt.clone(),
         tag_ids: resolved.tag_ids.clone(),
         skills: resolved.skills.clone(),
-        agent_profile: resolved.agent_profile.clone(),
+        agent_profile: resolved.agent_profile,
         model: resolved.model.clone(),
         inactive_ttl_days: resolved.inactive_ttl_days,
         stop_when_done: resolved.stop_when_done,

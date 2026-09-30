@@ -2,6 +2,7 @@
 
 use super::fixtures::*;
 use super::*;
+use crate::dao::ConversationAgent;
 use crate::tests::logs::CapturedLogs;
 
 /// The chain has to end in an answer, because the contract refuses an empty one
@@ -28,7 +29,7 @@ fn the_model_chain_ends_in_an_answer() {
     row.assistant_model = Some("claude-opus-4-5-20260115".to_string());
     assert_eq!(model_name(&row, &defaults), "claude-opus-4-5-20260115");
 
-    row.agent_profile = AgentProfile("codex".to_string());
+    row.agent_profile = AgentProfile::Codex.into();
     assert_eq!(
         model_name(&conversation("task-b", "ws-a"), &defaults),
         "claude-opus-4-5"
@@ -82,9 +83,10 @@ fn only_a_conversation_with_a_turn_warns_about_its_placeholder() {
 fn the_provider_instance_follows_the_agent_kind() {
     let mut row = conversation("task-a", "ws-a");
     assert_eq!(provider_instance(&row), "claudeAgent");
-    row.agent_profile = AgentProfile("codex".to_string());
+    row.agent_profile = AgentProfile::Codex.into();
     assert_eq!(provider_instance(&row), "codex");
-    // An agent this build does not know is not a reason to refuse a row.
-    row.agent_profile = AgentProfile("from-a-newer-backend".to_string());
-    assert_eq!(provider_instance(&row), "claudeAgent");
+    // An agent this build does not know lists, on no instance it could run on.
+    row.agent_profile = "from-a-newer-backend".to_string().into();
+    assert_eq!(provider_instance(&row), "unknown");
+    assert!(matches!(row.agent_profile, ConversationAgent::Unknown(_)));
 }

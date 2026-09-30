@@ -20,7 +20,7 @@ use moatless_tasks::task::service as task_service;
 use moatless_tasks::task::switch::SwitchCredentials;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::access_control::ScopedResource;
-use moatless_types::agent::{AgentProfile, Harness};
+use moatless_types::agent::Harness;
 use moatless_types::task::Visibility;
 use std::sync::Arc;
 
@@ -257,7 +257,7 @@ impl ThreadCommandSink for AppStateCommands {
             workspace_id: Some(thread.workspace_id),
             sandbox_id: None,
             checkout_mode: None,
-            agent_profile: Some(agent_profile),
+            agent_profile: Some(agent_profile.to_string()),
             // Created unnamed: the agent names it on its first turn, and the
             // client's create title is a placeholder.
             name: None,
@@ -364,10 +364,10 @@ impl ThreadCommandSink for AppStateCommands {
                     .await
                     .map_err(|e| create_refusal(&fork.source_task_id, e))?;
                 // The source's model belongs to its own harness.
-                (AgentProfile::from(profile), fork.model.clone())
+                (profile, fork.model.clone())
             }
             None => (
-                source.agent_profile.clone(),
+                source.agent_profile,
                 fork.model.clone().or_else(|| source.model.clone()),
             ),
         };
@@ -388,7 +388,7 @@ impl ThreadCommandSink for AppStateCommands {
             checkout_mode: fork
                 .same_sandbox
                 .then_some(moatless_types::task::CheckoutMode::Shared),
-            agent_profile: Some(agent_profile),
+            agent_profile: Some(agent_profile.to_string()),
             name: None,
             description: None,
             branch: source.branch.clone(),
@@ -829,13 +829,11 @@ fn pull_request_subject(reference: &ThreadPullRequestRef) -> String {
 
 /// The agent a thread created from T3 runs.
 pub(super) fn default_agent_for(instance: &str) -> moatless_types::agent::AgentProfile {
-    let id = moatless_tasks::agent::catalog::catalog()
-        .iter()
-        .find(|entry| agent_instance_for(entry.harness) == instance)
-        .map_or(moatless_types::agent::AgentProfile::CLAUDE_CODE, |entry| {
-            entry.id
-        });
-    moatless_types::agent::AgentProfile(id.to_string())
+    moatless_tasks::agent::catalog::catalog()
+        .find(|entry| agent_instance_for(entry.harness()) == instance)
+        .map_or(moatless_types::agent::AgentProfile::ClaudeCode, |entry| {
+            entry.profile
+        })
 }
 
 fn agent_instance_for(kind: moatless_types::agent::Harness) -> &'static str {

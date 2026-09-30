@@ -61,9 +61,6 @@ pub fn build_env(
     if let Some(ref model) = config.sandbox.default_model {
         env.push(("DEFAULT_CLAUDE_CODE_MODEL".to_string(), model.clone()));
     }
-    if let Some(ref model) = config.sandbox.default_codex_model {
-        env.push(("DEFAULT_CODEX_MODEL".to_string(), model.clone()));
-    }
 
     if let Some(ref env_vars) = plan.env_vars {
         for (key, value) in env_vars {

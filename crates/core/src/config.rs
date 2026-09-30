@@ -11,6 +11,7 @@ use std::str::FromStr;
 use moatless_types::adapter::{LinearConfig, MessageBufferConfig};
 use moatless_types::agent::CodexOAuthConfig;
 use moatless_types::auth::{AllowedOrigin, AuthConfig, AuthProvider, GitHubAppConfig, OidcConfig};
+use moatless_types::model::CodexModel;
 use moatless_types::sandbox::SandboxProviderType;
 use moatless_types::secret::SecretsConfig;
 use moatless_types::ui_rpc::T3UiRpcConfig;
@@ -19,9 +20,9 @@ use crate::feature_flags::FeatureFlags;
 
 pub use crate::http_config::HttpConfig;
 
-/// Default Codex model forwarded to sandbox agents when the deployment does not
-/// override `DEFAULT_CODEX_MODEL`.
-pub const DEFAULT_CODEX_MODEL: &str = "gpt-6-astra";
+/// Codex model a turn runs when neither its message nor its task names one,
+/// unless env `DEFAULT_CODEX_MODEL` overrides it.
+pub const DEFAULT_CODEX_MODEL: &str = CodexModel::Gpt6Astra.id();
 
 /// Default GitHub REST API base URL.
 pub const DEFAULT_GITHUB_API_BASE: &str = "https://api.github.com";
@@ -437,9 +438,8 @@ pub struct SandboxConfig {
     /// Default Claude model for sandbox agents (forwarded as
     /// `DEFAULT_CLAUDE_CODE_MODEL` env var)
     pub default_model: Option<String>,
-    /// Default Codex model for sandbox agents (forwarded as
-    /// `DEFAULT_CODEX_MODEL` env var)
-    pub default_codex_model: Option<String>,
+    /// Delivered with every Codex turn naming no model: the sandbox has none.
+    pub default_codex_model: String,
     /// Extra env vars injected into every sandbox pod (parsed from
     /// `K8S_SANDBOX_EXTRA_ENV` JSON)
     pub extra_env: Vec<(String, String)>,
@@ -991,7 +991,7 @@ impl Config {
                 node_selector_json: env_opt("K8S_SANDBOX_NODE_SELECTOR"),
                 service_account_name: env_opt("K8S_SANDBOX_SERVICE_ACCOUNT"),
                 default_model: env_opt("DEFAULT_CLAUDE_CODE_MODEL"),
-                default_codex_model: Some(env_str("DEFAULT_CODEX_MODEL", DEFAULT_CODEX_MODEL)),
+                default_codex_model: env_str("DEFAULT_CODEX_MODEL", DEFAULT_CODEX_MODEL),
                 extra_env: parse_extra_env("K8S_SANDBOX_EXTRA_ENV"),
                 cache_host_root: env_str("K8S_SANDBOX_CACHE_HOST_ROOT", "/mnt/cache"),
                 docker_dind_image: env_str(
@@ -1468,7 +1468,7 @@ impl Config {
                 tolerations_json: None,
                 service_account_name: None,
                 default_model: None,
-                default_codex_model: Some(DEFAULT_CODEX_MODEL.to_string()),
+                default_codex_model: DEFAULT_CODEX_MODEL.to_string(),
                 extra_env: vec![],
                 cache_host_root: "/mnt/cache".into(),
                 docker_dind_image: "docker:dind".into(),

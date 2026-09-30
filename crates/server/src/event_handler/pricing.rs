@@ -5,94 +5,7 @@
 //! its per-tier token counts. Prices are USD per 1M tokens.
 
 use super::models::UsageInfo;
-
-/// Per-1M-token USD prices for one model's tiers. `cache_write` prices the
-/// cache-creation input; `cache_read` prices the cached-prefix reads.
-struct ModelPrice {
-    input: f64,
-    cache_write: f64,
-    cache_read: f64,
-    output: f64,
-}
-
-/// Prices for the model, matched by substrings in its published id. `None` for
-/// an unrecognised model, leaving the run unpriced.
-///
-/// `cache_write` assumes the 5m-TTL tier; a run that used the pricier 1h TTL
-/// prices low here, since `UsageInfo` carries no TTL split.
-fn price_for(model: &str) -> Option<ModelPrice> {
-    let m = model.to_ascii_lowercase();
-    // The GPT-6 and GPT-5.6 families come first: every one of their ids also
-    // contains a broader family name below and would be billed at that rate.
-    // Their short-context (<272K input) rates apply throughout.
-    let tiered = |input: f64, output: f64| ModelPrice {
-        input,
-        cache_write: input * 1.25,
-        cache_read: input / 10.0,
-        output,
-    };
-    if m.contains("gpt-6-astra") {
-        Some(tiered(10.0, 50.0))
-    } else if m.contains("gpt-6-sol") {
-        Some(tiered(2.0, 10.0))
-    } else if m.contains("gpt-6-luna") {
-        Some(tiered(0.1, 0.5))
-    } else if m.contains("gpt-5.6-sol") {
-        Some(tiered(4.0, 20.0))
-    } else if m.contains("gpt-5.6-terra") {
-        Some(tiered(2.0, 12.0))
-    } else if m.contains("gpt-5.6-luna") {
-        Some(tiered(0.2, 1.2))
-    } else if m.contains("codex") || m.contains("gpt-5") {
-        // Older Codex ids: cache-write is not a tier here (the cache-creation
-        // count is always 0), so it rides the input rate.
-        Some(ModelPrice {
-            input: 1.25,
-            cache_write: 1.25,
-            cache_read: 0.125,
-            output: 10.0,
-        })
-    } else if m.contains("opus") {
-        Some(ModelPrice {
-            input: 5.0,
-            cache_write: 6.25,
-            cache_read: 0.5,
-            output: 25.0,
-        })
-    } else if m.contains("fable") {
-        Some(ModelPrice {
-            input: 10.0,
-            cache_write: 12.5,
-            cache_read: 1.0,
-            output: 50.0,
-        })
-    } else if m.contains("sonnet-5") {
-        // Ahead of the plain "sonnet" arm: Sonnet 5 costs two thirds of
-        // Sonnet 4.6, and the family name alone would bill it as the older one.
-        Some(ModelPrice {
-            input: 2.0,
-            cache_write: 2.5,
-            cache_read: 0.2,
-            output: 10.0,
-        })
-    } else if m.contains("sonnet") {
-        Some(ModelPrice {
-            input: 3.0,
-            cache_write: 3.75,
-            cache_read: 0.3,
-            output: 15.0,
-        })
-    } else if m.contains("haiku") {
-        Some(ModelPrice {
-            input: 1.0,
-            cache_write: 1.25,
-            cache_read: 0.1,
-            output: 5.0,
-        })
-    } else {
-        None
-    }
-}
+use moatless_types::model::{ModelPrice, price_for};
 
 /// Estimated USD cost of a run from its `model` and per-tier token counts.
 ///
@@ -100,16 +13,22 @@ fn price_for(model: &str) -> Option<ModelPrice> {
 /// this at the seam); `output_tokens` already includes reasoning tokens, so
 /// reasoning isn't priced twice. `None` when the model is unrecognised.
 pub fn estimate_cost_usd(model: &str, usage: &UsageInfo) -> Option<f64> {
-    let Some(price) = price_for(model) else {
+    let Some(ModelPrice {
+        input,
+        cache_write,
+        cache_read,
+        output,
+    }) = price_for(model)
+    else {
         tracing::warn!(model, "No price for model; the run is stored unpriced");
         return None;
     };
     let tok = |v: Option<i64>| f64::from(i32::try_from(v.unwrap_or(0).max(0)).unwrap_or(i32::MAX));
     Some(
-        (tok(usage.input_tokens) * price.input
-            + tok(usage.cache_creation_input_tokens) * price.cache_write
-            + tok(usage.cache_read_input_tokens) * price.cache_read
-            + tok(usage.output_tokens) * price.output)
+        (tok(usage.input_tokens) * input
+            + tok(usage.cache_creation_input_tokens) * cache_write
+            + tok(usage.cache_read_input_tokens) * cache_read
+            + tok(usage.output_tokens) * output)
             / 1_000_000.0,
     )
 }

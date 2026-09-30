@@ -12,7 +12,7 @@ use moatless_types::agent::{AgentProfile, Harness};
 use super::dao::TaskDao;
 use super::error::TaskError;
 use super::switch_dao;
-use crate::agent::catalog::{self, harness_of, use_tmux_for};
+use crate::agent::catalog::{self, use_tmux_for};
 use crate::credential_sync::CredentialSync;
 use crate::message::dao::MessageDao;
 use crate::trajectory::operations::Trajectories;
@@ -70,20 +70,19 @@ impl TaskSwitchService {
         &self,
         sandbox_id: Option<&str>,
         harness: Harness,
-    ) -> Result<&'static str, TaskError> {
+    ) -> Result<AgentProfile, TaskError> {
         let sandbox_tmux = match sandbox_id {
             Some(id) => switch_dao::sandbox_tmux(&self.db, id).await?,
             None => None,
         };
         let entry = catalog::catalog()
-            .iter()
-            .filter(|e| e.harness == harness)
+            .filter(|e| e.harness() == harness)
             .find(|e| {
                 harness != Harness::ClaudeCode || e.params.use_tmux == sandbox_tmux.unwrap_or(false)
             })
-            .or_else(|| catalog::catalog().iter().find(|e| e.harness == harness));
+            .or_else(|| catalog::catalog().find(|e| e.harness() == harness));
         entry
-            .map(|e| e.id)
+            .map(|e| e.profile)
             .ok_or_else(|| TaskError::BadRequest(format!("no agentProfile runs {harness}")))
     }
 
@@ -94,7 +93,7 @@ impl TaskSwitchService {
         &self,
         scope_ctx: &ScopeContext,
         task_id: &str,
-        profile: &str,
+        profile: AgentProfile,
         model: Option<&str>,
         credentials: SwitchCredentials<'_>,
     ) -> Result<SwitchOutcome, TaskError> {
@@ -113,12 +112,10 @@ impl TaskSwitchService {
             return Err(TaskError::NotFound(task_id.to_string()));
         }
         catalog::validate_agent_model(profile, model).map_err(TaskError::BadRequest)?;
-        if task.agent_profile.as_str() == profile {
+        if task.agent_profile == profile {
             return Ok(SwitchOutcome::Unchanged);
         }
-        let Some(entry) = catalog::find(profile) else {
-            unreachable!("validate_agent_model accepted {profile}");
-        };
+        let entry = catalog::entry(profile);
 
         if !crate::agent::service::is_installed(
             credentials.secrets,
@@ -134,7 +131,7 @@ impl TaskSwitchService {
         }
         // A Codex secret needs no refresh; only a ChatGPT connection can have
         // expired while still counting as installed.
-        if profile == AgentProfile::CODEX
+        if profile == AgentProfile::Codex
             && !holds_a_key(credentials.secrets, scope_ctx, entry).await
         {
             if let Err(moatless_identity::credentials::CredentialError::NotFound(_)) = credentials
@@ -146,7 +143,7 @@ impl TaskSwitchService {
             }
         }
 
-        let harness_changes = harness_of(task.agent_profile.as_str()) != Some(entry.harness);
+        let harness_changes = task.agent_profile.harness() != profile.harness();
         if harness_changes
             && self.trajectories.head(task_id).await?.is_none()
             && self.messages.is_frozen(task_id).await?
@@ -156,7 +153,7 @@ impl TaskSwitchService {
 
         let sandbox_id = task.sandbox_id.as_deref().unwrap_or(task_id);
         let sandbox_tmux = switch_dao::sandbox_tmux(&self.db, sandbox_id).await?;
-        if entry.harness == Harness::ClaudeCode
+        if profile.harness() == Harness::ClaudeCode
             && sandbox_tmux.is_some_and(|tmux| tmux != use_tmux_for(profile))
         {
             return Err(TaskError::Conflict(format!(
@@ -169,7 +166,7 @@ impl TaskSwitchService {
         tracing::info!(
             task_id,
             from = %task.agent_profile,
-            to = profile,
+            to = %profile,
             harness_changes,
             "Task agent profile switched"
         );

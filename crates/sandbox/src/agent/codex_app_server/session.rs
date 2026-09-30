@@ -22,24 +22,25 @@ use super::protocol::{
 use crate::agent::options::build_prompt_append;
 use crate::agent::types::AgentRunRequest;
 
-/// Final fallback model for Codex sessions, when no other source supplies one.
-///
-/// Must be a slug the pinned Codex CLI serves from `model/list`; an older CLI
-/// in an un-rebuilt image rejects it.
-pub(crate) const DEFAULT_CODEX_MODEL: &str = "gpt-6-astra";
-
 /// Default Codex reasoning effort, sent as `TurnStartParams.effort`.
 pub(crate) const DEFAULT_CODEX_REASONING_EFFORT: &str = "high";
 
-/// Resolve the Codex model with the same priority as Claude: request > repo
-/// `agent_config.model` > `DEFAULT_CODEX_MODEL` env > hardcoded default.
-pub(crate) fn resolve_codex_model(config: &Config, request: &AgentRunRequest) -> String {
+/// The model a Codex turn runs, which the backend resolves and delivers with
+/// every turn.
+///
+/// Refuses a request without one rather than guessing: the backend owns the
+/// default (`DEFAULT_CODEX_MODEL` in `moatless-core`'s config, and its env
+/// override).
+pub(crate) fn require_codex_model(request: &AgentRunRequest) -> Result<&str, String> {
     request
         .model
-        .clone()
-        .or_else(|| config.agent_config.model.clone())
-        .or_else(|| config.default_codex_model.clone())
-        .unwrap_or_else(|| DEFAULT_CODEX_MODEL.to_string())
+        .as_deref()
+        .filter(|model| !model.trim().is_empty())
+        .ok_or_else(|| {
+            "Codex turn carries no model; the backend must deliver the resolved model with \
+             every Codex turn"
+                .to_string()
+        })
 }
 
 /// The `params` of one server notification the harness consumes. Every other
@@ -563,10 +564,14 @@ pub(crate) async fn start(
 }
 
 /// `thread/start` params carrying the `codex exec` spawn parity set.
-pub(crate) fn thread_start_params(config: &Config, request: &AgentRunRequest) -> ThreadStartParams {
+pub(crate) fn thread_start_params(
+    config: &Config,
+    request: &AgentRunRequest,
+    model: &str,
+) -> ThreadStartParams {
     ThreadStartParams {
         cwd: Some(config.workspace_dir.clone()),
-        model: Some(resolve_codex_model(config, request)),
+        model: Some(model.to_string()),
         sandbox: Some(SandboxMode::DangerFullAccess),
         approval_policy: Some(AskForApproval::Never),
         developer_instructions: Some(build_prompt_append(config, request)),
@@ -579,12 +584,13 @@ pub(crate) fn thread_start_params(config: &Config, request: &AgentRunRequest) ->
 pub(crate) fn thread_resume_params(
     config: &Config,
     request: &AgentRunRequest,
+    model: &str,
     thread_id: &str,
 ) -> ThreadResumeParams {
     ThreadResumeParams {
         thread_id: thread_id.to_string(),
         cwd: Some(config.workspace_dir.clone()),
-        model: Some(resolve_codex_model(config, request)),
+        model: Some(model.to_string()),
         sandbox: Some(SandboxMode::DangerFullAccess),
         approval_policy: Some(AskForApproval::Never),
         developer_instructions: Some(build_prompt_append(config, request)),
@@ -610,13 +616,13 @@ pub(crate) fn thread_fork_params(
 pub(crate) fn turn_start_params(
     thread_id: &str,
     prompt: &str,
-    config: &Config,
     request: &AgentRunRequest,
+    model: &str,
 ) -> TurnStartParams {
     TurnStartParams {
         thread_id: thread_id.to_string(),
         input: vec![UserInput::text(prompt)],
-        model: Some(resolve_codex_model(config, request)),
+        model: Some(model.to_string()),
         effort: Some(
             request
                 .effort

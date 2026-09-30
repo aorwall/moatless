@@ -10,8 +10,12 @@ use super::contexts::task_message_context_to_input;
 use super::models::{TaskMessage, TaskMessageContext};
 use crate::task::schemas::MessageContextInput;
 use moatless_core::config::Config;
+use moatless_core::config::DEFAULT_CODEX_MODEL;
 use moatless_core::file_storage::Files;
 use moatless_types::adapter::SCHEDULED_ORIGIN;
+use moatless_types::agent::AgentProfile;
+
+use crate::agent::catalog::{self, UNRESOLVED_MODEL_CHOICE};
 
 /// Content block for agent request.
 #[derive(Debug, serde::Serialize)]
@@ -97,7 +101,7 @@ impl PromptResponse {
 pub struct AgentPromptBuilder<'a> {
     files: Option<&'a Files>,
     config: Option<&'a Config>,
-    task_agent_profile: String,
+    task_agent_profile: AgentProfile,
     task_model: Option<String>,
     task_resume_session_id: Option<String>,
     task_skills: Vec<String>,
@@ -110,7 +114,7 @@ impl<'a> AgentPromptBuilder<'a> {
     pub fn new(
         files: Option<&'a Files>,
         config: Option<&'a Config>,
-        task_agent_profile: String,
+        task_agent_profile: AgentProfile,
         task_model: Option<String>,
         task_resume_session_id: Option<String>,
         task_skills: Vec<String>,
@@ -182,7 +186,10 @@ impl<'a> AgentPromptBuilder<'a> {
             model = effective_model(
                 row.model.clone(),
                 self.task_model.clone(),
-                &self.task_agent_profile,
+                self.task_agent_profile,
+                self.config.map_or(DEFAULT_CODEX_MODEL, |config| {
+                    config.sandbox.default_codex_model.as_str()
+                }),
             )
             .or(model);
             if row.agent_mode_raw.is_some() {
@@ -215,7 +222,7 @@ impl<'a> AgentPromptBuilder<'a> {
             prompt_text: parts.join("\n"),
             file_ids,
             model,
-            agent_profile: Some(self.task_agent_profile.clone()),
+            agent_profile: Some(self.task_agent_profile.to_string()),
             agent_mode,
             effort,
             skills,
@@ -273,18 +280,29 @@ fn delivery_slice(pending: &[TaskMessage]) -> Option<(&[TaskMessage], usize)> {
 
 /// Resolve the model to deliver for a pending message.
 ///
-/// An explicit per-message model always wins; otherwise agents that pin a model
-/// (e.g. `claude-code-fable` -> `fable`) get it forced here, since the
-/// catalog's `default_model` is only a UI hint, never applied at runtime.
+/// An explicit per-message model wins. Otherwise `claude-code-fable` gets its
+/// pinned model and Codex `default_codex_model`, since the sandbox refuses a
+/// Codex turn without one; Claude passes [`UNRESOLVED_MODEL_CHOICE`] through.
 pub fn effective_model(
     row_model: Option<String>,
     task_model: Option<String>,
-    agent_profile: &str,
+    agent_profile: AgentProfile,
+    default_codex_model: &str,
 ) -> Option<String> {
-    row_model.or(task_model).or_else(|| match agent_profile {
-        "claude-code-fable" => Some("fable".to_string()),
-        _ => None,
-    })
+    let chosen = row_model.or(task_model);
+    match agent_profile {
+        AgentProfile::ClaudeCode | AgentProfile::ClaudeCodeTui | AgentProfile::ClaudeCodeCli => {
+            chosen
+        }
+        AgentProfile::ClaudeCodeFable => {
+            chosen.or_else(|| Some(catalog::CLAUDE_CODE_FABLE.default_model.to_string()))
+        }
+        AgentProfile::Codex => Some(
+            chosen
+                .filter(|model| model != UNRESOLVED_MODEL_CHOICE)
+                .unwrap_or_else(|| default_codex_model.to_string()),
+        ),
+    }
 }
 
 /// The key a resolved sender is cached under. Two Adapters could hand out the
@@ -525,7 +543,7 @@ mod tests {
         AgentPromptBuilder::new(
             None,
             None,
-            "claude-code".to_string(),
+            AgentProfile::ClaudeCode,
             None,
             resume_session_id,
             task_skills,
@@ -750,7 +768,7 @@ mod tests {
     #[test]
     fn effective_model_forces_fable_when_unset() {
         assert_eq!(
-            effective_model(None, None, "claude-code-fable"),
+            effective_model(None, None, AgentProfile::ClaudeCodeFable, "gpt-test"),
             Some("fable".to_string())
         );
     }
@@ -758,7 +776,12 @@ mod tests {
     #[test]
     fn effective_model_uses_task_model_when_message_omits_one() {
         assert_eq!(
-            effective_model(None, Some("claude-sonnet-4-6".to_string()), "claude-code"),
+            effective_model(
+                None,
+                Some("claude-sonnet-4-6".to_string()),
+                AgentProfile::ClaudeCode,
+                "gpt-test",
+            ),
             Some("claude-sonnet-4-6".to_string())
         );
     }
@@ -769,16 +792,34 @@ mod tests {
             effective_model(
                 Some("claude-opus-4-6".to_string()),
                 Some("fable".to_string()),
-                "claude-code-fable",
+                AgentProfile::ClaudeCodeFable,
+                "gpt-test",
             ),
             Some("claude-opus-4-6".to_string())
         );
     }
 
     #[test]
-    fn effective_model_leaves_other_agents_unset() {
-        assert_eq!(effective_model(None, None, "claude-code"), None);
-        assert_eq!(effective_model(None, None, "codex"), None);
+    fn effective_model_leaves_claude_unset() {
+        let claude = AgentProfile::ClaudeCode;
+        assert_eq!(effective_model(None, None, claude, "gpt-test"), None);
+    }
+
+    #[test]
+    fn effective_model_resolves_the_codex_default() {
+        let codex = AgentProfile::Codex;
+        let resolved = Some("gpt-test".to_string());
+        assert_eq!(effective_model(None, None, codex, "gpt-test"), resolved);
+        let unresolved = Some(UNRESOLVED_MODEL_CHOICE.to_string());
+        assert_eq!(
+            effective_model(unresolved, None, codex, "gpt-test"),
+            resolved
+        );
+        let pinned = Some("gpt-5.5".to_string());
+        assert_eq!(
+            effective_model(pinned.clone(), None, codex, "gpt-test"),
+            pinned
+        );
     }
 
     #[tokio::test]

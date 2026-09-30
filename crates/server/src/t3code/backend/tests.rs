@@ -18,12 +18,9 @@ use std::sync::Arc;
 fn each_instance_maps_to_the_first_catalog_agent_of_its_kind() {
     assert_eq!(
         default_agent_for("claudeAgent"),
-        moatless_types::agent::AgentProfile(catalog::CLAUDE_CODE.id.to_string())
+        catalog::CLAUDE_CODE.profile
     );
-    assert_eq!(
-        default_agent_for("codex"),
-        moatless_types::agent::AgentProfile(catalog::CODEX.id.to_string())
-    );
+    assert_eq!(default_agent_for("codex"), catalog::CODEX.profile);
 }
 
 /// An instance this server never published cannot arrive from a client that
@@ -33,9 +30,7 @@ fn each_instance_maps_to_the_first_catalog_agent_of_its_kind() {
 fn an_unknown_instance_falls_back_to_claude() {
     assert_eq!(
         default_agent_for("somethingElse"),
-        moatless_types::agent::AgentProfile(
-            moatless_types::agent::AgentProfile::CLAUDE_CODE.to_string()
-        )
+        moatless_types::agent::AgentProfile::ClaudeCode
     );
 }
 
@@ -122,9 +117,7 @@ mod thread_ids {
             short_id: None,
             created_at: chrono::Utc::now(),
             last_message_at: chrono::Utc::now(),
-            agent_profile: moatless_types::agent::AgentProfile(
-                moatless_types::agent::AgentProfile::CLAUDE_CODE.to_string(),
-            ),
+            agent_profile: moatless_types::agent::AgentProfile::ClaudeCode,
             repository_id: "repo-1".to_string(),
             status,
             total_cost_usd: 0.0,

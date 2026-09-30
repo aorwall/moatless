@@ -100,8 +100,25 @@ async fn codex_reads_its_effort_off_its_own_descriptor_id() {
         "gpt-5.6-sol",
         json!([{ "id": "reasoningEffort", "value": "minimal" }]),
     );
-    let (_, calls) = run_against(command, Some(conversation(AgentProfile::CODEX))).await;
+    let (_, calls) = run_against(command, Some(conversation(AgentProfile::Codex))).await;
     assert_eq!(sent_effort(&calls).as_deref(), Some("minimal"));
+}
+
+/// A thread whose stored agent this build does not know has no harness to keep
+/// or switch from, so a model picked on it is refused rather than dispatched.
+#[tokio::test]
+async fn a_selection_on_a_thread_running_an_unknown_agent_is_refused() {
+    let found = Conversation {
+        agent_profile: "from-a-newer-backend".to_string().into(),
+        ..conversation(AgentProfile::ClaudeCode)
+    };
+    let (result, calls) =
+        run_against(turn(Some(("claudeAgent", "claude-sonnet-5"))), Some(found)).await;
+    assert!(
+        matches!(result, Err(CommandRefusal::Rejected { .. })),
+        "{result:?}"
+    );
+    assert!(calls.is_empty(), "{calls:?}");
 }
 
 /// A selection keyed by an id this server never published for the instance

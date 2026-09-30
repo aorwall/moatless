@@ -29,10 +29,57 @@ use moatless_core::change_feed::conversation::{ConversationChange, ConversationH
 use moatless_ports::activity::ActivitySource;
 use moatless_types::access_control::{ScopeContext, ScopedEntity};
 use moatless_types::activity::{PLAN_TOOL, QUESTION_TOOL};
-use moatless_types::agent::AgentProfile;
+use moatless_types::agent::{AgentProfile, Harness};
 use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
 use moatless_types::task::{TaskStatus, Visibility};
 use moatless_workspace_types::schemas::workspace::ScriptConfig;
+
+/// The agent a [`Conversation`] runs, as stored.
+///
+/// `Unknown` keeps an id this build does not know, such as one a newer backend
+/// wrote during a rollout: the row still lists, and names no agent it is not.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConversationAgent {
+    Known(AgentProfile),
+    Unknown(String),
+}
+
+impl ConversationAgent {
+    /// The stored `agent_profile` id.
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Known(profile) => profile.as_str(),
+            Self::Unknown(id) => id,
+        }
+    }
+
+    /// The driver family behind the agent; `None` when this build does not
+    /// know the agent.
+    pub fn harness(&self) -> Option<Harness> {
+        match self {
+            Self::Known(profile) => Some(profile.harness()),
+            Self::Unknown(_) => None,
+        }
+    }
+}
+
+impl From<AgentProfile> for ConversationAgent {
+    fn from(profile: AgentProfile) -> Self {
+        Self::Known(profile)
+    }
+}
+
+impl From<String> for ConversationAgent {
+    fn from(id: String) -> Self {
+        AgentProfile::parse(&id).map_or(Self::Unknown(id), Self::Known)
+    }
+}
+
+impl std::fmt::Display for ConversationAgent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
 
 /// One Task, with the derived values a sidebar row is assembled from.
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -45,7 +92,7 @@ pub struct Conversation {
     pub name: Option<String>,
     pub branch: Option<String>,
     #[sqlx(try_from = "String")]
-    pub agent_profile: AgentProfile,
+    pub agent_profile: ConversationAgent,
     /// Creation time as the caller recorded it (RFC 3339 text, `NOT NULL`).
     pub created_at: String,
     /// Creation time as the database recorded it. `None` for rows written

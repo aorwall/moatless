@@ -188,7 +188,7 @@ pub struct NewLoopConfig {
     pub tag_ids: Vec<String>,
     pub skills: Vec<String>,
     pub run_as_user_id: Option<String>,
-    pub agent_profile: String,
+    pub agent_profile: AgentProfile,
     pub model: Option<String>,
     pub inactive_ttl_days: Option<i32>,
     /// See [`moatless_types::loops::LoopContext::node_selector`].
@@ -267,7 +267,7 @@ pub struct ManagedLoopUpsert {
     pub prompt: Option<String>,
     pub tag_ids: Vec<String>,
     pub skills: Vec<String>,
-    pub agent_profile: String,
+    pub agent_profile: AgentProfile,
     pub model: Option<String>,
     pub inactive_ttl_days: Option<i32>,
     /// See [`moatless_types::loops::LoopContext::stop_when_done`]. Unlike

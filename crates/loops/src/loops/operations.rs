@@ -22,6 +22,7 @@ use moatless_api_schemas::loops::{
 use moatless_ports::identity::UserResolver;
 use moatless_tasks::agent::catalog;
 use moatless_types::access_control::ScopeContext;
+use moatless_types::agent::AgentProfile;
 use moatless_types::loops::LoopKind as DomainLoopKind;
 use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
 
@@ -36,9 +37,16 @@ fn require_admin(ctx: &ScopeContext) -> Result<(), AdapterError> {
     }
 }
 
-fn require_agent_and_model(agent_profile: &str, model: Option<&str>) -> Result<(), AdapterError> {
-    catalog::validate_agent_model(agent_profile, model)
-        .map_err(|e| SharedAdapterError::BadRequest(e).into())
+/// Parse `agent_profile` (default `claude-code`) and check `model` against it.
+fn require_agent_and_model(
+    agent_profile: Option<&str>,
+    model: Option<&str>,
+) -> Result<AgentProfile, AdapterError> {
+    let agent_profile = agent_profile
+        .map_or(Ok(AgentProfile::ClaudeCode), str::parse)
+        .map_err(SharedAdapterError::BadRequest)?;
+    catalog::validate_agent_model(agent_profile, model).map_err(SharedAdapterError::BadRequest)?;
+    Ok(agent_profile)
 }
 
 fn require_name(name: &str) -> Result<String, AdapterError> {
@@ -146,12 +154,10 @@ impl Loops {
     ) -> Result<LoopRecord, AdapterError> {
         require_admin(ctx)?;
         let name = require_name(&req.name)?;
-        let agent_profile = req
-            .config
-            .agent_profile
-            .clone()
-            .unwrap_or_else(|| "claude-code".to_string());
-        require_agent_and_model(&agent_profile, req.config.model.as_deref())?;
+        let agent_profile = require_agent_and_model(
+            req.config.agent_profile.as_deref(),
+            req.config.model.as_deref(),
+        )?;
         ensure_workspace_usable(workspaces, ctx, &req.config.workspace_id).await?;
         let run_as_user_id = match req.config.run_as_user_id.as_deref() {
             Some(requested) => Some(resolve_run_as_user(users, requested).await?),
@@ -581,22 +587,22 @@ fn next_config(
     rule: UpdateLoopConfig,
 ) -> Result<NewLoopConfig, AdapterError> {
     // Both read `rule` before `unwrap_or_else` below moves it.
-    let agent_changed = rule
-        .agent_profile
-        .as_deref()
-        .is_some_and(|next| next != current.config.agent_profile.as_str());
     let named_model = rule.model.as_ref().and_then(|m| m.as_deref());
-
-    let agent_profile = rule
-        .agent_profile
-        .unwrap_or_else(|| current.config.agent_profile.as_str().to_string());
-    require_agent_and_model(&agent_profile, named_model)?;
+    let agent_profile = require_agent_and_model(
+        Some(
+            rule.agent_profile
+                .as_deref()
+                .unwrap_or(current.config.agent_profile.as_str()),
+        ),
+        named_model,
+    )?;
+    let agent_changed = agent_profile != current.config.agent_profile;
     let model = rule.model.unwrap_or_else(|| {
         current
             .config
             .model
             .clone()
-            .filter(|m| !(agent_changed && catalog::model_conflicts(&agent_profile, m)))
+            .filter(|m| !(agent_changed && catalog::model_conflicts(agent_profile, m)))
     });
     Ok(NewLoopConfig {
         workspace_id: rule
@@ -692,7 +698,7 @@ mod tests {
                 tag_ids: vec![],
                 skills: vec![],
                 run_as_user_id: Some("runner".into()),
-                agent_profile: moatless_types::agent::AgentProfile(agent_profile.into()),
+                agent_profile: agent_profile.parse().expect("a catalog agent_profile"),
                 model: model.map(ToString::to_string),
                 inactive_ttl_days: None,
                 node_selector: None,
@@ -711,7 +717,7 @@ mod tests {
         )
         .expect("no change is valid");
         assert_eq!(next.model.as_deref(), Some("opus"));
-        assert_eq!(next.agent_profile, "claude-code");
+        assert_eq!(next.agent_profile, AgentProfile::ClaudeCode);
     }
 
     #[test]
@@ -728,7 +734,7 @@ mod tests {
         )
         .expect("changing agent drops the model it belonged to");
         assert_eq!(next.model, None);
-        assert_eq!(next.agent_profile, "codex");
+        assert_eq!(next.agent_profile, AgentProfile::Codex);
     }
 
     /// Sync wrote `model` without validating it before this change, so a row
@@ -777,7 +783,7 @@ mod tests {
         )
         .expect("cleared model imposes nothing on codex");
         assert_eq!(next.model, None);
-        assert_eq!(next.agent_profile, "codex");
+        assert_eq!(next.agent_profile, AgentProfile::Codex);
     }
 
     /// `model` reaches the agent CLI as written, so a model no catalog entry

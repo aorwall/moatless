@@ -760,7 +760,7 @@ fn schedule_upsert(repo: &Repository) -> ManagedLoopUpsert {
         prompt: Some("Daily health check.".to_string()),
         tag_ids: Vec::new(),
         skills: Vec::new(),
-        agent_profile: "claude-code".into(),
+        agent_profile: moatless_types::agent::AgentProfile::ClaudeCode,
         model: None,
         inactive_ttl_days: None,
         stop_when_done: None,

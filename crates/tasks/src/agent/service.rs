@@ -17,7 +17,6 @@ pub async fn list_agents(
     let present_providers = collect_provider_token_providers(provider_tokens, ctx).await;
 
     catalog()
-        .iter()
         .map(|entry| build_descriptor(entry, &present_keys, &present_providers))
         .collect()
 }
@@ -37,7 +36,7 @@ fn build_descriptor(
             .any(|p| present_providers.contains(*p));
 
     AgentDescriptor {
-        id: entry.id.to_string(),
+        id: entry.id().to_string(),
         label: entry.label.to_string(),
         installed,
         default_model: entry.default_model.to_string(),
@@ -89,7 +88,6 @@ async fn collect_provider_token_providers(
     let mut providers: HashSet<String> = HashSet::new();
 
     let relevant: HashSet<&'static str> = catalog()
-        .iter()
         .flat_map(|e| e.provider_token_providers.iter().copied())
         .collect();
 

@@ -505,6 +505,7 @@ pub async fn update_task_metadata(
     let scope_ctx = auth.scope_context();
     let switched = match req.agent_profile.as_deref() {
         Some(profile) => {
+            let profile = profile.parse().map_err(TaskError::BadRequest)?;
             task_switch
                 .switch_profile(
                     &scope_ctx,
@@ -529,7 +530,7 @@ pub async fn update_task_metadata(
             .find_by_id(&task_id, &scope_ctx)
             .await?
             .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
-        crate::agent::catalog::validate_agent_model(row.agent_profile.as_str(), Some(model))
+        crate::agent::catalog::validate_agent_model(row.agent_profile, Some(model))
             .map_err(TaskError::BadRequest)?;
     }
     let updated = tasks

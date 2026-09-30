@@ -7,7 +7,9 @@
 //! Publishes T3's canonical slugs and names (its alias table maps only towards
 //! them); the `default` sentinel, naming no model, is never published.
 
-use moatless_types::agent::{claude_model_alias, claude_model_id};
+use moatless_types::model::{
+    ClaudeModel, claude_model_alias, claude_model_id, codex_effort_levels,
+};
 use serde_json::{Value, json};
 
 use crate::AgentModelDefaults;
@@ -53,35 +55,6 @@ pub fn effort_option_id(instance: &str) -> &'static str {
 /// warns-and-ignores anything else, and does not vary them per model.
 const CLAUDE_EFFORT_LEVELS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
 
-/// The effort levels a Codex model accepts beyond the base set, weakest first.
-///
-/// Codex fails the whole turn on an unknown level rather than falling back, so
-/// a row must not publish one its model rejects.
-const CODEX_EFFORT_LEVELS: &[(&str, &[&str])] = &[
-    (
-        "gpt-6-astra",
-        &["low", "medium", "high", "xhigh", "max", "ultra"],
-    ),
-    (
-        "gpt-6-sol",
-        &["low", "medium", "high", "xhigh", "max", "ultra"],
-    ),
-    ("gpt-6-luna", &["low", "medium", "high", "xhigh", "max"]),
-    (
-        "gpt-5.6-sol",
-        &["low", "medium", "high", "xhigh", "max", "ultra"],
-    ),
-    (
-        "gpt-5.6-terra",
-        &["low", "medium", "high", "xhigh", "max", "ultra"],
-    ),
-    ("gpt-5.6-luna", &["low", "medium", "high", "xhigh", "max"]),
-];
-
-/// What every Codex model accepts, and so what a model not named in
-/// [`CODEX_EFFORT_LEVELS`] offers.
-const CODEX_BASE_EFFORT_LEVELS: &[&str] = &["low", "medium", "high", "xhigh"];
-
 /// The level that runs when nobody chooses one — what the Sandbox sends for
 /// both agents. It is valid on every model published here, which is what lets
 /// one constant serve them all.
@@ -92,15 +65,12 @@ fn effort_levels(instance: &str, catalog_model: &str) -> &'static [&'static str]
     if instance != CODEX_INSTANCE {
         return CLAUDE_EFFORT_LEVELS;
     }
-    CODEX_EFFORT_LEVELS
-        .iter()
-        .find(|(model, _)| *model == catalog_model)
-        .map_or(CODEX_BASE_EFFORT_LEVELS, |(_, levels)| *levels)
+    codex_effort_levels(catalog_model)
 }
 
 /// Whether a published model row offers `level`.
 ///
-/// See [`CODEX_EFFORT_LEVELS`]: a rejected level fails the turn rather than
+/// See [`codex_effort_levels`]: a rejected level fails the turn rather than
 /// falling back, so a stored default naming one is dropped, not offered.
 pub fn publishes_effort(instance: &str, catalog_model: &str, level: &str) -> bool {
     effort_levels(instance, catalog_model).contains(&level)
@@ -143,23 +113,21 @@ fn capabilities(instance: &str, catalog_model: &str) -> Value {
     })
 }
 
-/// `(catalog id, published slug, published name)` for the Claude instance.
-///
-/// Slugs and names are both T3's own, copied from its Claude driver, so a model
-/// reads the same here as in a standalone T3. A slug is not always the id the
-/// model answers to — [`published_slug_for_reported`] translates one back.
-const CLAUDE_MODELS: &[(&str, &str, &str)] = &[
-    ("opus", "claude-opus-5-5", "Claude Opus 5.5"),
-    ("sonnet", "claude-sonnet-5", "Claude Sonnet 5"),
-    ("haiku", "claude-haiku-4-5", "Claude Haiku 4.5"),
-    ("fable", "claude-fable-5-1", "Claude Fable 5.1"),
-];
+/// The slug T3's own Claude driver publishes for a model, so a model reads the
+/// same here as in a standalone T3. It is the API id except for Haiku, whose
+/// dated id T3 does not use; [`published_slug_for_reported`] translates back.
+fn t3_claude_slug(model: ClaudeModel) -> &'static str {
+    match model {
+        ClaudeModel::Haiku => "claude-haiku-4-5",
+        ClaudeModel::Opus | ClaudeModel::Sonnet | ClaudeModel::Fable => model.api_id(),
+    }
+}
 
 /// The slug we publish for a catalog model id.
 fn published_slug(instance: &str, catalog_model: &str) -> String {
     if instance == CLAUDE_INSTANCE {
-        if let Some((_, slug, _)) = CLAUDE_MODELS.iter().find(|(id, _, _)| *id == catalog_model) {
-            return (*slug).to_string();
+        if let Some(model) = ClaudeModel::from_alias(catalog_model) {
+            return t3_claude_slug(model).to_string();
         }
     }
     catalog_model.to_string()
@@ -178,19 +146,6 @@ pub fn published_slug_for_reported(instance: &str, reported: &str) -> String {
         }
     }
     reported.to_string()
-}
-
-/// The display name we publish for a catalog model id.
-///
-/// T3 renders this verbatim and matches a stored selection against it —
-/// contract, not decoration.
-fn published_name(instance: &str, catalog_model: &str, catalog_label: &str) -> String {
-    if instance == CLAUDE_INSTANCE {
-        if let Some((_, _, name)) = CLAUDE_MODELS.iter().find(|(id, _, _)| *id == catalog_model) {
-            return (*name).to_string();
-        }
-    }
-    catalog_label.to_string()
 }
 
 /// The catalog model id behind a slug T3 sent back, or `None` when we never
@@ -220,10 +175,9 @@ pub fn publish_model(catalog_model: &str) -> Option<(&'static str, String)> {
         return None;
     }
     catalog()
-        .iter()
         .find(|agent| agent.models.iter().any(|m| m.id == catalog_model))
         .map(|agent| {
-            let instance = instance_for(agent.harness);
+            let instance = instance_for(agent.harness());
             (instance, published_slug(instance, catalog_model))
         })
 }
@@ -250,7 +204,7 @@ fn models_for(agents: &[AgentDescriptor], instance: &str) -> Vec<(String, String
 /// The instance a descriptor belongs to, looked up through the catalog.
 fn kind_of(agent: &AgentDescriptor) -> &'static str {
     crate::agent::catalog::find(&agent.id)
-        .map_or(CLAUDE_INSTANCE, |entry| instance_for(entry.harness))
+        .map_or(CLAUDE_INSTANCE, |entry| instance_for(entry.harness()))
 }
 
 /// The catalog id of the model to mark `isDefault` for an instance.
@@ -315,7 +269,8 @@ pub fn providers(
             .map(|(id, label)| {
                 json!({
                     "slug": published_slug(instance, &id),
-                    "name": published_name(instance, &id, &label),
+                    // T3 renders this verbatim and matches a stored selection against it.
+                    "name": label,
                     "isCustom": false,
                     "isDefault": Some(&id) == default_model.as_ref(),
                     "capabilities": capabilities(instance, &id),
@@ -372,9 +327,8 @@ mod tests {
     /// The full catalog with every agent installed.
     fn agents(installed: bool) -> Vec<AgentDescriptor> {
         catalog::catalog()
-            .iter()
             .map(|entry| AgentDescriptor {
-                id: entry.id.to_string(),
+                id: entry.id().to_string(),
                 label: entry.label.to_string(),
                 installed,
                 default_model: entry.default_model.to_string(),

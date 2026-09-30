@@ -220,7 +220,7 @@ pub fn make_task_row(task_id: &str, user_id: &str) -> Task {
         short_id: Some(format!("s-{task_id}")),
         created_at: now,
         last_message_at: now,
-        agent_profile: AgentProfile(AgentProfile::CLAUDE_CODE.into()),
+        agent_profile: AgentProfile::ClaudeCode,
         repository_id: "repo-1".to_string(),
         status: TaskStatus::Open,
         total_cost_usd: 0.0,

@@ -46,7 +46,7 @@ async fn create(
             "taskId": "task-1",
             "title": "t",
             "status": "open",
-            "agentProfile": "claude_code",
+            "agentProfile": "claude-code",
             "repositoryId": "repo-1",
             "createdAt": "2026-01-01T00:00:00Z",
             "lastMessageAt": "2026-01-01T00:00:00Z",
@@ -93,7 +93,7 @@ fn create_action(context_file: &str) -> TaskAction {
         message: Some("read the attached brief".to_string()),
         context_files: vec![context_file.to_string()],
         branch: None,
-        agent_profile: "claude_code".to_string(),
+        agent_profile: moatless_types::agent::AgentProfile::ClaudeCode,
         model: None,
         headless: false,
     }

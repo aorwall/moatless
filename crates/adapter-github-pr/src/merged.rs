@@ -273,7 +273,7 @@ mod tests {
             tag_ids: vec![],
             skills: Vec::new(),
             run_as_user_id: Some("alice".into()),
-            agent_profile: "claude-code".into(),
+            agent_profile: moatless_types::agent::AgentProfile::ClaudeCode,
             model: None,
             inactive_ttl_days: None,
             node_selector: None,

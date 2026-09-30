@@ -152,37 +152,6 @@ pub struct AgentEventPayload {
     pub agent_session_id: Option<String>,
 }
 
-/// The Anthropic model id each Claude catalog alias names.
-///
-/// What the Sandbox passes to the Claude CLI, since a proxy routing on the id
-/// answers an alias with `unknown provider for model opus`. These are ids such
-/// an API accepts, not the slugs T3 publishes — `haiku` is the one that
-/// differs, since `claude-haiku-4-5` is refused.
-const CLAUDE_MODEL_IDS: &[(&str, &str)] = &[
-    ("opus", "claude-opus-5-5"),
-    ("sonnet", "claude-sonnet-5"),
-    ("haiku", "claude-haiku-4-5-20251001"),
-    ("fable", "claude-fable-5-1"),
-];
-
-/// The model id a Claude catalog alias names, or `None` for anything that is
-/// not an alias — an id already, or a choice naming no model.
-pub fn claude_model_id(alias: &str) -> Option<&'static str> {
-    CLAUDE_MODEL_IDS
-        .iter()
-        .find(|(name, _)| *name == alias)
-        .map(|(_, id)| *id)
-}
-
-/// The Claude catalog alias a model id belongs to, or `None` for an id no
-/// catalog entry names.
-pub fn claude_model_alias(model_id: &str) -> Option<&'static str> {
-    CLAUDE_MODEL_IDS
-        .iter()
-        .find(|(_, id)| *id == model_id)
-        .map(|(alias, _)| *alias)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -251,6 +220,16 @@ mod tests {
         );
         assert!(AgentSubType::try_from("bogus").is_err());
     }
+
+    #[test]
+    fn agent_profile_wire_form_is_its_column_value() {
+        for profile in AgentProfile::ALL {
+            let wire = serde_json::to_string(&profile).unwrap();
+            assert_eq!(wire, format!("\"{}\"", profile.as_str()));
+            assert_eq!(AgentProfile::parse(profile.as_str()), Some(profile));
+        }
+        assert!(AgentProfile::try_from("claude-kode").is_err());
+    }
 }
 
 /// The executable family that runs an Agent. The only harness type.
@@ -288,27 +267,55 @@ impl std::fmt::Display for Harness {
 }
 
 /// A catalog entry: a harness plus transport, default model and credentials (e.g. "claude-code-tui").
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(transparent)]
-pub struct AgentProfile(pub String);
+#[serde(rename_all = "kebab-case")]
+pub enum AgentProfile {
+    ClaudeCode,
+    /// Claude Code over the tmux (interactive TUI) transport.
+    ClaudeCodeTui,
+    /// Claude Code over the subprocess/NDJSON transport.
+    ClaudeCodeCli,
+    /// Claude Code pinned to the `fable` model.
+    ClaudeCodeFable,
+    Codex,
+}
 
 impl AgentProfile {
-    pub const CLAUDE_CODE: &str = "claude-code";
-    pub const CLAUDE_CODE_TUI: &str = "claude-code-tui";
-    pub const CLAUDE_CODE_CLI: &str = "claude-code-cli";
-    pub const CLAUDE_CODE_FABLE: &str = "claude-code-fable";
-    pub const CODEX: &str = "codex";
-    pub const SUPPORTED: &'static [&'static str] = &[
-        Self::CLAUDE_CODE,
-        Self::CLAUDE_CODE_TUI,
-        Self::CLAUDE_CODE_CLI,
-        Self::CLAUDE_CODE_FABLE,
-        Self::CODEX,
+    /// Every profile, in catalog display order.
+    pub const ALL: [Self; 5] = [
+        Self::ClaudeCode,
+        Self::ClaudeCodeTui,
+        Self::ClaudeCodeCli,
+        Self::ClaudeCodeFable,
+        Self::Codex,
     ];
 
-    pub fn as_str(&self) -> &str {
-        &self.0
+    /// The wire and column value, e.g. `claude-code-tui`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ClaudeCode => "claude-code",
+            Self::ClaudeCodeTui => "claude-code-tui",
+            Self::ClaudeCodeCli => "claude-code-cli",
+            Self::ClaudeCodeFable => "claude-code-fable",
+            Self::Codex => "codex",
+        }
+    }
+
+    /// Parse a wire or column value; `None` for anything else.
+    pub fn parse(value: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|p| p.as_str() == value)
+    }
+
+    /// The harness this profile runs on.
+    pub fn harness(self) -> Harness {
+        match self {
+            Self::ClaudeCode
+            | Self::ClaudeCodeTui
+            | Self::ClaudeCodeCli
+            | Self::ClaudeCodeFable => Harness::ClaudeCode,
+            Self::Codex => Harness::Codex,
+        }
     }
 }
 
@@ -318,15 +325,31 @@ impl std::fmt::Display for AgentProfile {
     }
 }
 
-impl From<String> for AgentProfile {
-    fn from(value: String) -> Self {
-        Self(value)
+impl std::str::FromStr for AgentProfile {
+    type Err = String;
+
+    /// The `Err` names the valid options, so a caller can surface it verbatim.
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::parse(value).ok_or_else(|| {
+            let options = Self::ALL.map(Self::as_str).join(", ");
+            format!("unknown agentProfile `{value}`. Available options: {options}")
+        })
     }
 }
 
-impl From<&str> for AgentProfile {
-    fn from(value: &str) -> Self {
-        Self(value.to_string())
+impl TryFrom<String> for AgentProfile {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+
+impl TryFrom<&str> for AgentProfile {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        value.parse()
     }
 }
 

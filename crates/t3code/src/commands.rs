@@ -22,7 +22,6 @@ use super::ports::{
     SkillCatalog, ThreadCommandSink, ThreadMeta, ThreadPullRequestRef, ThreadTurn, TurnAttachment,
 };
 use super::providers;
-use crate::agent::catalog;
 use crate::scripts::{self, ScriptsWriteError};
 use crate::skills;
 use moatless_types::activity as mapping;
@@ -874,9 +873,17 @@ fn selection_for_existing(
         message: format!("`{instance}` is not an agent this server offers."),
     })?;
     let thread_harness =
-        catalog::find(conversation.agent_profile.as_str()).map(|entry| entry.harness);
+        conversation
+            .agent_profile
+            .harness()
+            .ok_or_else(|| CommandRefusal::Rejected {
+                message: format!(
+                    "This thread runs `{}`, an agent this server does not know.",
+                    conversation.agent_profile
+                ),
+            })?;
     Ok(Selection {
-        harness: (thread_harness != Some(harness)).then_some(harness),
+        harness: (thread_harness != harness).then_some(harness),
         model: translate_model(agents, &instance, command)?,
     })
 }

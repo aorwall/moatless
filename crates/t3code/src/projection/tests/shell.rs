@@ -175,7 +175,7 @@ fn background_liveness_reports_the_axis_not_the_count() {
 fn the_provider_instance_is_a_well_formed_slug() {
     for agent_profile in ["claude-code", "codex", "claude-code-fable", "made-up"] {
         let mut row = running_conversation("task-a", "ws-a");
-        row.agent_profile = AgentProfile(agent_profile.to_string());
+        row.agent_profile = agent_profile.to_string().into();
         let instance = one_thread(&row)["modelSelection"]["instanceId"]
             .as_str()
             .unwrap()

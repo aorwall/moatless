@@ -41,7 +41,7 @@ async fn seed_local_repository(pool: &PgPool, repository_id: &str) {
 fn loop_task(workspace_id: &str) -> NewTask {
     NewTask {
         workspace_id: workspace_id.to_string(),
-        agent_profile: AgentProfile::from("claude-code"),
+        agent_profile: AgentProfile::ClaudeCode,
         model: None,
         name: Some("loop task".to_string()),
         description: None,

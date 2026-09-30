@@ -11,7 +11,6 @@
 use std::sync::Arc;
 
 use moatless_types::access_control::{ScopeContext, ScopedResource};
-use moatless_types::agent::AgentProfile;
 
 use super::dao::TaskDao;
 use super::error::TaskError;
@@ -263,7 +262,7 @@ impl TaskForkService {
             agent_profile: Some(
                 req.agent_profile
                     .clone()
-                    .map_or_else(|| source.agent_profile.clone(), AgentProfile),
+                    .unwrap_or_else(|| source.agent_profile.to_string()),
             ),
             name: None,
             description: None,

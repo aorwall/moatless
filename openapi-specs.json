@@ -10600,7 +10600,14 @@
       },
       "AgentProfile": {
         "type": "string",
-        "description": "A catalog entry: a harness plus transport, default model and credentials (e.g. \"claude-code-tui\")."
+        "description": "A catalog entry: a harness plus transport, default model and credentials (e.g. \"claude-code-tui\").",
+        "enum": [
+          "claude-code",
+          "claude-code-tui",
+          "claude-code-cli",
+          "claude-code-fable",
+          "codex"
+        ]
       },
       "AgentStatus": {
         "type": "string",
@@ -12038,14 +12045,11 @@
             ]
           },
           "agentProfile": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/AgentProfile"
-              }
-            ]
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "An `AgentProfile` id, parsed by the task service so an unknown one is a\n400 listing the options rather than a JSON extraction error."
           },
           "branch": {
             "type": [

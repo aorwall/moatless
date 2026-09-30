@@ -20,6 +20,7 @@ use crate::client::{ClientError, MoatClient};
 use crate::config::Config;
 use crate::output;
 use clap::Subcommand;
+use clap::builder::TypedValueParser as _;
 use moatless_api_schemas::enums::CheckoutMode;
 use moatless_api_schemas::task::{
     CloseTaskRequest, CreateTaskRequest, ForkTaskRequest, ListTasksQuery,
@@ -126,9 +127,10 @@ pub enum TaskAction {
         #[arg(
             long,
             required = true,
-            value_parser = clap::builder::PossibleValuesParser::new(AgentProfile::SUPPORTED)
+            value_parser = clap::builder::PossibleValuesParser::new(AgentProfile::ALL.map(AgentProfile::as_str))
+                .map(|id| id.parse::<AgentProfile>().expect("a possible value"))
         )]
-        agent_profile: String,
+        agent_profile: AgentProfile,
         /// Model for the chosen harness, e.g. `haiku` or `gpt-5.5`
         #[arg(long)]
         model: Option<String>,
@@ -353,7 +355,7 @@ pub async fn run(
                 run_as_user_id: run_as,
                 // The CLI always drives the agent in edit mode; plan mode is a UI affordance.
                 agent_mode: Some(AgentMode("edit".to_string())),
-                agent_profile: Some(AgentProfile(agent_profile)),
+                agent_profile: Some(agent_profile.to_string()),
                 contexts: Vec::new(),
                 description: None,
                 file_ids,

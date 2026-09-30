@@ -622,7 +622,7 @@ mod tests {
             workspace_id: Some("ws-a".into()),
             name: Some("Fix the build".into()),
             branch: None,
-            agent_profile: AgentProfile(AgentProfile::CLAUDE_CODE.to_string()),
+            agent_profile: AgentProfile::ClaudeCode.into(),
             created_at: "2026-07-01T09:00:00.000Z".into(),
             created_at_db: None,
             updated_at: None,

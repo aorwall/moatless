@@ -54,11 +54,14 @@ fn claude_test_model() -> String {
 /// entirely, so a tool-using prompt would stall on a permission gate.
 const TEST_PROMPT: &str = "What is 2+2? Reply with only the number.";
 
-/// Codex model under test. `None` lets `codex_app_server::resolve_codex_model`
-/// fall through to `DEFAULT_CODEX_MODEL`; override with `CODEX_TEST_MODEL` to
-/// pin a cheaper model.
-fn codex_test_model() -> Option<String> {
-    std::env::var("CODEX_TEST_MODEL").ok()
+/// Codex model under test: the backend's default unless `CODEX_TEST_MODEL`
+/// pins a cheaper one. The sandbox refuses a Codex turn without a model.
+fn codex_test_model() -> String {
+    std::env::var("CODEX_TEST_MODEL").unwrap_or_else(|_| {
+        moatless_types::model::CodexModel::Gpt6Astra
+            .id()
+            .to_string()
+    })
 }
 
 /// The proxy Codex routes through, read the way `Config::from_env` reads it.
@@ -223,7 +226,6 @@ fn test_config(tmp: &TempDir, use_tmux: bool, agent_profile: &str) -> Config {
             .unwrap_or_else(|_| "/usr/local/bin/codex".to_string()),
         frontend_url: None,
         default_model: None,
-        default_codex_model: None,
         openai_base_url: codex_base_url(),
         use_tmux,
         command_default_timeout_secs: moatless_sandbox::config::DEFAULT_COMMAND_TIMEOUT_SECS,
@@ -443,7 +445,7 @@ async fn run_codex_roundtrip() {
 
     let ack = handle.send(
         TEST_PROMPT.to_string(),
-        codex_test_model(),
+        Some(codex_test_model()),
         Some("codex".to_string()),
         None,  // agent_mode
         None,  // effort

@@ -292,7 +292,7 @@ impl TaskCreationService {
             short_id: Some(short_id),
             created_at: now,
             last_message_at: now,
-            agent_profile: req.agent_profile.clone(),
+            agent_profile: req.agent_profile,
             repository_id: req.repository_id.clone(),
             status: TaskStatus::Open,
             total_cost_usd: 0.0,
@@ -685,7 +685,7 @@ mod tests {
         NewTaskRequest {
             sandbox_placement: crate::task::models::SandboxPlacement::default(),
             repository_id: "repo1".into(),
-            agent_profile: AgentProfile(AgentProfile::CLAUDE_CODE.into()),
+            agent_profile: AgentProfile::ClaudeCode,
             name: Some("t".into()),
             description: None,
             branch: None,
@@ -1303,7 +1303,7 @@ mod tests {
                 !task_id.is_empty()
                     && *checkout_mode == CheckoutMode::Shared
                     // The joining Task's own harness, not the shared pod's.
-                    && agent_profile.as_str() == AgentProfile::CLAUDE_CODE
+                    && *agent_profile == AgentProfile::ClaudeCode
             })
             .times(1)
             .returning(move |_, _, _| {

@@ -9,4 +9,13 @@
 /**
  * A catalog entry: a harness plus transport, default model and credentials (e.g. "claude-code-tui").
  */
-export type AgentProfile = string;
+export type AgentProfile = typeof AgentProfile[keyof typeof AgentProfile];
+
+
+export const AgentProfile = {
+  'claude-code': 'claude-code',
+  'claude-code-tui': 'claude-code-tui',
+  'claude-code-cli': 'claude-code-cli',
+  'claude-code-fable': 'claude-code-fable',
+  codex: 'codex',
+} as const;

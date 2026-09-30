@@ -9,7 +9,7 @@ pub(super) fn conversation(task_id: &str, workspace_id: &str) -> Conversation {
         workspace_id: Some(workspace_id.to_string()),
         name: Some("Fix the checkout".to_string()),
         branch: Some("feat/checkout".to_string()),
-        agent_profile: AgentProfile(AgentProfile::CLAUDE_CODE.to_string()),
+        agent_profile: AgentProfile::ClaudeCode.into(),
         created_at: "2026-07-01T09:00:00.000Z".to_string(),
         created_at_db: Some(Utc::now()),
         updated_at: Some(Utc::now()),

@@ -31,7 +31,7 @@ fn viewer() -> ScopeContext {
 async fn seed_task(pool: &PgPool, task_id: &str, profile: &str) {
     let mut task = make_task_row(task_id, USER_1);
     task.workspace_id = Some("ws-switch".to_string());
-    task.agent_profile = profile.into();
+    task.agent_profile = profile.parse().unwrap();
     moatless_tasks::task::test_support::seed_task(pool, &task)
         .await
         .unwrap();
@@ -72,6 +72,8 @@ async fn switch(
     profile: &str,
     model: Option<&str>,
 ) -> Result<SwitchOutcome, TaskError> {
+    // The handler parses the id before it switches; an unknown one is its 400.
+    let profile = profile.parse().map_err(TaskError::BadRequest)?;
     state
         .task_switch
         .switch_profile(

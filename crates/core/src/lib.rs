@@ -13,6 +13,7 @@
 //! the error and event vocabularies, and the core-clean scope and shared-model
 //! vocabularies every higher band depends on.
 
+pub mod agent_catalog;
 pub mod config;
 pub mod db;
 pub mod error;

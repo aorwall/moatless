@@ -191,9 +191,8 @@ impl ports::AgentCatalogSource for StubAgents {
         _viewer: &ScopeContext,
     ) -> Vec<moatless_api_schemas::agent::AgentDescriptor> {
         crate::agent::catalog::catalog()
-            .iter()
             .map(|entry| moatless_api_schemas::agent::AgentDescriptor {
-                id: entry.id.to_string(),
+                id: entry.id().to_string(),
                 label: entry.label.to_string(),
                 installed: true,
                 default_model: entry.default_model.to_string(),

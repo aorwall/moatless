@@ -144,7 +144,7 @@ mod tests {
             workspace_id: None,
             name: Some(name.to_string()),
             branch: None,
-            agent_profile: AgentProfile::from(AgentProfile::CLAUDE_CODE),
+            agent_profile: AgentProfile::ClaudeCode.into(),
             created_at: created_at.to_string(),
             created_at_db: None,
             updated_at: None,

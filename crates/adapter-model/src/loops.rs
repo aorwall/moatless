@@ -93,7 +93,7 @@ pub fn delivery_only_subscription(
                 .clone()
                 .unwrap_or_else(|| connection.created_by.clone()),
         ),
-        agent_profile: moatless_types::agent::AgentProfile(String::new()),
+        agent_profile: moatless_types::agent::AgentProfile::ClaudeCode,
         model: None,
         inactive_ttl_days: None,
         node_selector: None,
@@ -133,7 +133,7 @@ pub fn subscription_context(subscription: &SubscriptionMatch) -> LoopContext {
         tag_ids: subscription.tag_ids.clone(),
         skills: subscription.skills.clone(),
         run_as_user_id: subscription.run_as_user_id.clone(),
-        agent_profile: subscription.agent_profile.clone(),
+        agent_profile: subscription.agent_profile,
         model: subscription.model.clone(),
         inactive_ttl_days: subscription.inactive_ttl_days,
         node_selector: subscription.node_selector.clone(),

@@ -233,7 +233,7 @@ pub async fn normalize(
         provision,
         first_message_uuid,
     } = intent;
-    let agent_profile = validate_agent_profile(req.agent_profile.clone(), req.model.as_deref())?;
+    let agent_profile = validate_agent_profile(req.agent_profile.as_deref(), req.model.as_deref())?;
 
     let workspace_id = resolve_workspace_id(tasks, scope_ctx, &req).await?;
     let workspace = workspaces
@@ -281,7 +281,7 @@ pub async fn normalize(
     // a sandbox that dies on sign-in. Transient refresh errors (upstream
     // outage) do NOT block creation — the sandbox retries with the stored
     // blob.
-    if agent_profile.as_str() == "codex" {
+    if agent_profile == AgentProfile::Codex {
         if let Err(moatless_identity::credentials::CredentialError::NotFound(reason)) =
             credential_sync.ensure_fresh_codex_for(user_id, None).await
         {
@@ -432,20 +432,20 @@ pub(super) fn validate_task_name(name: &str) -> Result<(), TaskError> {
 }
 
 fn validate_agent_profile(
-    agent_profile: Option<AgentProfile>,
+    agent_profile: Option<&str>,
     model: Option<&str>,
 ) -> Result<AgentProfile, TaskError> {
     let Some(agent_profile) = agent_profile else {
         return Err(agent_profile_error("agentProfile is required"));
     };
-    catalog::validate_agent_model(agent_profile.as_str(), model).map_err(TaskError::BadRequest)?;
+    let agent_profile = agent_profile.parse().map_err(TaskError::BadRequest)?;
+    catalog::validate_agent_model(agent_profile, model).map_err(TaskError::BadRequest)?;
     Ok(agent_profile)
 }
 
 fn agent_profile_error(reason: &str) -> TaskError {
     let options = catalog::catalog()
-        .iter()
-        .map(|entry| entry.id)
+        .map(catalog::AgentProfileEntry::id)
         .collect::<Vec<_>>()
         .join(", ");
     TaskError::BadRequest(format!("{reason}. Available options: {options}"))
@@ -562,6 +562,20 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn an_unknown_agent_profile_is_a_bad_request_listing_the_options() {
+        let req: CreateTaskRequest =
+            serde_json::from_str(r#"{"agentProfile":"gemini"}"#).expect("the request deserializes");
+        let err = validate_agent_profile(req.agent_profile.as_deref(), None).unwrap_err();
+        let TaskError::BadRequest(message) = err else {
+            panic!("expected a bad request, got {err:?}");
+        };
+        assert!(
+            message.contains("gemini") && message.contains("codex"),
+            "{message}"
+        );
+    }
+
     const ADMIN: &str = "11111111-1111-1111-1111-111111111111";
     const BOT: &str = "22222222-2222-2222-2222-222222222222";
     const OTHER: &str = "33333333-3333-3333-3333-333333333333";
@@ -671,7 +685,7 @@ mod tests {
                 short_id: None,
                 created_at: now,
                 last_message_at: now,
-                agent_profile: AgentProfile(AgentProfile::CLAUDE_CODE.into()),
+                agent_profile: AgentProfile::ClaudeCode,
                 repository_id: "repo-1".to_string(),
                 workspace_id: workspace_id.map(str::to_string),
                 sandbox_id: None,
