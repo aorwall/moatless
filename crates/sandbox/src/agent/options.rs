@@ -6,8 +6,10 @@ use std::sync::Arc;
 
 use claude_agent_sdk::api::options::{PluginConfig, SystemPrompt};
 use claude_agent_sdk::{ClaudeOptions, PermissionMode};
-use moatless_types::model::{ClaudeModel, claude_model_id};
-use moatless_workspace_types::plugin::{PluginMarketplaceSource, marketplace_local_path};
+use moatless_types::model::{CLAUDE_EFFORT_LEVELS, ClaudeModel, claude_model_id};
+use moatless_workspace_types::plugin::{
+    PLUGIN_MARKETPLACE_PATHS, PluginMarketplaceSource, marketplace_local_path,
+};
 use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
@@ -240,10 +242,6 @@ fn build_system_prompt(config: &Config, request: &AgentRunRequest) -> Option<Sys
         append: Some(build_prompt_append(config, request)),
     })
 }
-
-/// The effort levels the Claude CLI's `--effort` accepts. Anything else it
-/// warns about and ignores, so this module filters instead of forwarding.
-const CLAUDE_EFFORT_LEVELS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
 
 /// The `--effort` value for a requested effort, or `None` to leave the CLI on
 /// its own default.
@@ -606,11 +604,6 @@ struct PluginMarketplaceEntry {
     name: String,
     source: PluginMarketplaceSource,
 }
-
-const PLUGIN_MARKETPLACE_PATHS: [&str; 2] = [
-    ".agents/plugins/marketplace.json",
-    ".claude-plugin/marketplace.json",
-];
 
 fn plugin_dirs_for_repo(repo_path: &Path) -> Vec<PathBuf> {
     let Some((marketplace_path, raw)) = read_first_marketplace(repo_path) else {

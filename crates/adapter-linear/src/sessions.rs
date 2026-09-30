@@ -33,7 +33,7 @@ use super::issues::{insert_event_task, transition_issue_state};
 use super::subject::{ADAPTER, SUBJECT_KIND_SESSION as SUBJECT_KIND};
 use super::webhook_payloads::AgentSession;
 
-const ADAPTER_LABEL: &str = "linear";
+const ADAPTER_LABEL: &str = moatless_types::adapter::AdapterKind::Linear.as_str();
 
 /// Body of the terminal `error` activity posted when a created session reaches
 /// no task (no active Subscription for the team, or one disabled between

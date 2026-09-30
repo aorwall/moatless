@@ -7,7 +7,8 @@ use moatless_types::http::HttpTimeouts;
 
 use crate::git_provider::GitProviderError;
 
-const OPERATION: &str = "Forgejo API";
+/// The `operation` a Forgejo API call reports in a [`GitProviderError`].
+pub const OPERATION: &str = "Forgejo API";
 
 /// Bound on the error body kept from an unsuccessful answer. The repository's
 /// own remote names the host, so its response is not ours to read unbounded.

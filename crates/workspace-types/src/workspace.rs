@@ -202,7 +202,7 @@ impl RepoCheckout {
 /// A Forgejo token is never delivered into a pod: the pod addresses the
 /// backend, which attaches the credential. Every other provider's `clone_url`
 /// reaches its host directly.
-pub const PROXIED_PROVIDER: &str = "forgejo";
+pub const PROXIED_PROVIDER: &str = moatless_types::git_host::RepositoryProvider::Forgejo.as_str();
 
 /// The proxied remote for `repository_id`:
 /// `{backend_api_url}/git/{repository_id}`.

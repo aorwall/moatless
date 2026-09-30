@@ -25,4 +25,4 @@ mod workspace_path;
 
 pub use event_conversion::UnrepresentableEventType;
 pub use moatless_types::event;
-pub use workspace_path::SNAPSHOT_ROOT;
+pub use workspace_path::{RESTIC_CACHE_DIR, SNAPSHOT_ROOT, UNBROWSABLE_DIRS};

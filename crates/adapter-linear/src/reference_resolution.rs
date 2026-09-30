@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 use tracing::warn;
 
 /// The `provider` a Linear user id is stored under in `user_provider_ids`.
-pub(super) const LINEAR_PROVIDER: &str = "linear";
+pub(super) const LINEAR_PROVIDER: &str = moatless_types::adapter::AdapterKind::Linear.as_str();
 
 /// Heuristic: a Linear UUID is 36 chars with dashes at positions 8/13/18/23.
 /// Identifiers like `SP-123` start with letters and a dash. Anything that

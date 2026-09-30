@@ -7,7 +7,7 @@
 //! rest of this crate reads: the adapter name and its one delivery kind.
 
 /// Adapter name on `adapter_delivery` rows, metrics, and bindings.
-pub const ADAPTER: &str = "slack";
+pub const ADAPTER: &str = moatless_types::adapter::AdapterKind::Slack.as_str();
 
 /// Routing one inbound Slack message.
 ///

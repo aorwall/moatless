@@ -19,14 +19,6 @@ pub use moatless_types::message::{MessageRole, MessageType};
 // with the exit code, terminated reason, node, disruption cause and container
 // logs. The Message row would duplicate an event the design stores anyway.
 
-/// `user_type` on a `user` row that exists only to hand a tool response to the
-/// agent — the person's answer to `AskUserQuestion` or `ExitPlanMode`.
-///
-/// The answer renders under the call it settled, not as its own bubble; this
-/// names the case explicitly rather than leaving readers to infer and drop the
-/// row silently.
-pub const TOOL_RESPONSE_USER_TYPE: &str = "tool_response";
-
 // =============================================================================
 // Query shapes
 // =============================================================================

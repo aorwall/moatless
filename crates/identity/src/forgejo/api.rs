@@ -1,10 +1,9 @@
 //! Forgejo's REST API v1, as far as a credential check needs it.
 
+use moatless_core::forgejo_client::OPERATION;
 use moatless_core::git_provider::GitProviderError;
 
 use crate::forgejo::instances::base_url;
-
-const OPERATION: &str = "Forgejo API";
 
 /// Check that `token` still authenticates against `host`.
 ///

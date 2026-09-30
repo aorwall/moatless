@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 
+use sandbox_proto::UNBROWSABLE_DIRS;
 use tokio::fs;
 
 use super::git::{self, GitFileInfo};
@@ -56,9 +57,6 @@ pub struct GitSummary {
 }
 
 // ─── Directory walking ──────────────────────────────────────────
-
-/// Skip these directories when walking the file tree.
-const SKIP_DIRS: &[&str] = &[".git", "node_modules"];
 
 /// `recursive` walks subdirectories (dirs get a trailing `/`,
 /// `.git`/`node_modules` skipped).
@@ -121,7 +119,7 @@ fn walk_respecting_ignores(
         .git_global(true)
         .git_exclude(true)
         .parents(true)
-        .filter_entry(|entry| !SKIP_DIRS.contains(&&*entry.file_name().to_string_lossy()));
+        .filter_entry(|entry| !UNBROWSABLE_DIRS.contains(&&*entry.file_name().to_string_lossy()));
     if !recursive {
         builder.max_depth(Some(1));
     }
@@ -160,7 +158,7 @@ fn walk_dir<'a>(
         while let Some(entry) = entries.next_entry().await? {
             let name = entry.file_name().to_string_lossy().to_string();
 
-            if SKIP_DIRS.contains(&name.as_str()) {
+            if UNBROWSABLE_DIRS.contains(&name.as_str()) {
                 continue;
             }
 

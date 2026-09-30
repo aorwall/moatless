@@ -13,6 +13,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use moatless_types::credential_key::{GH_TOKEN, USER_AUTH_TOKEN};
 use tokio::fs;
 use tracing::{info, warn};
 
@@ -49,7 +50,7 @@ impl std::fmt::Display for CredentialFetchError {
 /// and git setup takes its tokens from `SandboxState::git_credentials`.
 const ENV_SET_BLOCKLIST: &[&str] = &[
     "GITHUB_TOKEN",
-    "GH_TOKEN",
+    GH_TOKEN,
     "GITLAB_TOKEN",
     "GITNESS_TOKEN",
     GIT_TOKEN,
@@ -58,13 +59,6 @@ const ENV_SET_BLOCKLIST: &[&str] = &[
 /// Keys that must NOT be inherited by the agent subprocess, which would
 /// snapshot a stale value at spawn time.
 const AGENT_EXCLUDED_KEYS: &[&str] = ENV_SET_BLOCKLIST;
-
-/// Credential key for the long-lived user auth token.
-///
-/// Delivered over `GetCredentials`; consumed here (swapped into the gRPC
-/// client, persisted) and stripped from the map so it never reaches agent env
-/// or files.
-const USER_AUTH_TOKEN_KEY: &str = "USER_AUTH_TOKEN";
 
 /// Wall-clock ceiling on the credential-fetch retry loop.
 ///
@@ -144,7 +138,7 @@ pub async fn fetch_and_apply_credentials_with_mode(
                 // container restart can reuse it even after the bootstrap token
                 // has expired. Removed from the map so it is never set as a
                 // process/agent env var or written to server.env.
-                if let Some(user_token) = resp.credentials.remove(USER_AUTH_TOKEN_KEY) {
+                if let Some(user_token) = resp.credentials.remove(USER_AUTH_TOKEN) {
                     backend_client.update_auth_token(user_token.clone());
                     persist_user_auth_token(&state.config, &user_token).await;
                 }
@@ -181,8 +175,7 @@ pub async fn fetch_and_apply_credentials_with_mode(
                 // filter_agent_credentials to strip. Neither is set in the process
                 // env — see ENV_SET_BLOCKLIST above.
                 if let Some(token) = resp.credentials.get("GITHUB_TOKEN").cloned() {
-                    resp.credentials
-                        .insert("GH_TOKEN".to_string(), token.clone());
+                    resp.credentials.insert(GH_TOKEN.to_string(), token.clone());
 
                     // Write into `~/.config/gh/hosts.yml` — the sole source of truth
                     // for GitHub auth inside this pod.

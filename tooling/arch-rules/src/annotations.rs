@@ -88,6 +88,37 @@ fn declares(member: &Member, rule: &str, dependency: &str) -> bool {
     }
 }
 
+/// Whether an item exception to `rule` may sit on this declaration.
+fn applicable(rule: &str, r: &Record) -> bool {
+    match rule {
+        "port-admission" => matches!(
+            r.package.as_str(),
+            "moatless-ports" | "moatless-workspace-ports"
+        ),
+        "floor-type-admission" => matches!(
+            r.package.as_str(),
+            "moatless-types" | "moatless-workspace-types"
+        ),
+        "single-implementation-trait" => matches!(r.item, syn::Item::Trait(_)),
+        // Deliberately not an `impl` or `fn`: that would excuse every constant nested in it.
+        "duplicate-constant-value" => {
+            matches!(r.item, syn::Item::Const(_) | syn::Item::Static(_))
+        }
+        "composition-root"
+        | "declaration-only-roots"
+        | "route-registration"
+        | "transport-direction"
+        | "persistence-sql-location"
+        | "process-exit"
+        | "env-read-owner"
+        | "store-privacy"
+        | "table-ownership"
+        | "adapter-boundaries"
+        | "row-stays-with-query" => true,
+        _ => false,
+    }
+}
+
 pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
     let mut out = Vec::new();
     for r in &ws.role_index()?.records {
@@ -104,30 +135,7 @@ pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
                     &r.file,
                 )),
                 Ok(Some(a)) => {
-                    let applicable = match a.rule {
-                        "port-admission" => matches!(
-                            r.package.as_str(),
-                            "moatless-ports" | "moatless-workspace-ports"
-                        ),
-                        "floor-type-admission" => matches!(
-                            r.package.as_str(),
-                            "moatless-types" | "moatless-workspace-types"
-                        ),
-                        "single-implementation-trait" => matches!(r.item, syn::Item::Trait(_)),
-                        "composition-root"
-                        | "declaration-only-roots"
-                        | "route-registration"
-                        | "transport-direction"
-                        | "persistence-sql-location"
-                        | "process-exit"
-                        | "env-read-owner"
-                        | "store-privacy"
-                        | "table-ownership"
-                        | "adapter-boundaries"
-                        | "row-stays-with-query" => true,
-                        _ => false,
-                    };
-                    if !applicable {
+                    if !applicable(a.rule, r) {
                         out.push(Violation::at(
                             RULE,
                             format!("{}: {}", r.id, a.rule),
@@ -195,5 +203,33 @@ mod tests {
     #[test]
     fn a_doc_tag_cannot_excuse_a_cargo_edge() {
         assert!(parse("arch-allow(band-order): deliberate").is_err());
+    }
+
+    fn record(src: &str) -> Record {
+        Record {
+            id: "moatless-core::X".to_string(),
+            package: "moatless-core".to_string(),
+            module: "moatless_core".to_string(),
+            file: "crates/core/src/lib.rs".to_string(),
+            test: false,
+            exported: true,
+            item: syn::parse_str(src).unwrap(),
+            references: Vec::new(),
+            imports: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_duplicate_constant_exception_sits_on_the_constant_only() {
+        let rule = crate::duplicate_constant_value::RULE;
+        let tag = "/// arch-allow(duplicate-constant-value): a wire literal both ends pin\n";
+        let constant = record(&format!("{tag}pub const A: &str = \"shared value\";"));
+        assert!(permits(&constant, rule));
+        assert!(applicable(rule, &constant));
+        assert!(applicable(
+            rule,
+            &record(&format!("{tag}static A: u64 = 9000;"))
+        ));
+        assert!(!applicable(rule, &record(&format!("{tag}impl X {{}}"))));
     }
 }

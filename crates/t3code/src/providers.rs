@@ -8,7 +8,7 @@
 //! them); the `default` sentinel, naming no model, is never published.
 
 use moatless_types::model::{
-    ClaudeModel, claude_model_alias, claude_model_id, codex_effort_levels,
+    CLAUDE_EFFORT_LEVELS, ClaudeModel, claude_model_alias, claude_model_id, codex_effort_levels,
 };
 use serde_json::{Value, json};
 
@@ -50,10 +50,6 @@ pub fn effort_option_id(instance: &str) -> &'static str {
         "effort"
     }
 }
-
-/// The effort levels the Claude CLI's `--effort` accepts, weakest first. It
-/// warns-and-ignores anything else, and does not vary them per model.
-const CLAUDE_EFFORT_LEVELS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
 
 /// The level that runs when nobody chooses one — what the Sandbox sends for
 /// both agents. It is valid on every model published here, which is what lets

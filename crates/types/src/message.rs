@@ -1,7 +1,8 @@
-//! Message vocabulary: the derived, UI-only events the live Chat renders.
+//! Message vocabulary: the `user_type` values a Message row carries, and the
+//! derived, UI-only events the live Chat renders.
 //!
-//! These are assembled server-side and relayed to clients, never persisted to
-//! `task_events`.
+//! The events are assembled server-side and relayed to clients, never persisted
+//! to `task_events`.
 
 crate::string_enum!(
     /// Message sub-types — derived, UI-only events for the live Chat.
@@ -46,6 +47,14 @@ crate::string_enum!(
         System => "system",
     }
 );
+
+/// `user_type` on a `user` row that exists only to hand a tool response to the
+/// agent — the person's answer to `AskUserQuestion` or `ExitPlanMode`.
+///
+/// The answer renders under the call it settled, not as its own bubble; this
+/// names the case explicitly rather than leaving readers to infer and drop the
+/// row silently.
+pub const TOOL_RESPONSE_USER_TYPE: &str = "tool_response";
 
 #[cfg(test)]
 mod wire_contract {

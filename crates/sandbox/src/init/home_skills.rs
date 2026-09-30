@@ -13,11 +13,7 @@ use tracing::{debug, warn};
 
 use super::dirs::copy_dir_contents;
 
-/// Repo-relative skill roots, in precedence order; both are scanned and merged.
-///
-/// `.agents/skills` is found whether or not `.claude/skills` symlinks exist;
-/// mirrors `WORKSPACE_SKILL_PREFIXES` in the backend's skill fetcher.
-pub(crate) const REPO_SKILL_ROOTS: [&str; 2] = [".claude/skills", ".agents/skills"];
+use moatless_workspace_types::plugin::REPO_SKILL_ROOTS;
 
 /// Copy the repo's `<root>/<name>` skill subdirs, for each root in
 /// [`REPO_SKILL_ROOTS`], into the home-level skill directories for Claude and

@@ -42,7 +42,7 @@ use super::webhook_payloads::{
 };
 
 /// Adapter name on every record this module admits.
-pub const ADAPTER: &str = "linear";
+pub const ADAPTER: &str = moatless_types::adapter::AdapterKind::Linear.as_str();
 
 /// Provision the task behind a newly created Linear agent session.
 pub const SESSION_PROVISION: &str = "linear.session_provision";

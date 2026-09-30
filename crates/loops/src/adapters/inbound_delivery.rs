@@ -259,7 +259,7 @@ mod db_tests {
     use super::*;
     use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 
-    const KIND: &str = "slack.inbound_message";
+    const KIND: &str = "test.inbound_message";
 
     /// Fails the way `route_inbound_message` fails when the backend, not the
     /// event, is at fault, classified through the same `From<AdapterError>` the

@@ -3,7 +3,7 @@
 pub const NO_SIGNATURE: &str = "no_signature";
 /// The envelope names no organization, or names one with no
 /// `adapter_connections` row.
-pub const NO_CONNECTION: &str = "no_connection";
+pub use moatless_adapter_model::metrics::inbound_reason::NO_CONNECTION;
 /// An `type` this Adapter does not handle.
 pub const UNSUPPORTED_EVENT: &str = "unsupported_event";
 /// A handled `type` with an `action` this Adapter does not act on — a

@@ -18,7 +18,10 @@ use tracing::{debug, warn};
 
 use super::error::SkillError;
 use moatless_types::http::HttpTimeouts;
-use moatless_workspace_types::plugin::{PluginMarketplaceSource, marketplace_local_path};
+use moatless_workspace_types::plugin::{
+    PLUGIN_MANIFEST_PATHS, PLUGIN_MARKETPLACE_PATHS, PluginMarketplaceSource, REPO_SKILL_ROOTS,
+    marketplace_local_path,
+};
 use moatless_workspace_types::repository::RepositoryProvider;
 use moatless_workspace_types::repository::RepositoryRemote;
 
@@ -145,25 +148,6 @@ pub(crate) struct PluginMarketplace {
 pub(crate) struct PluginMarketplaceEntry {
     pub(crate) source: PluginMarketplaceSource,
 }
-
-/// Workspace skill roots, in precedence order. Both are listed and merged so a
-/// repo that stores its real skills under `.agents/skills` (Codex) is picked up
-/// whether or not it also exposes them via `.claude/skills` (Claude) symlinks.
-const WORKSPACE_SKILL_PREFIXES: [&str; 2] = [".claude/skills", ".agents/skills"];
-
-/// Plugin manifest paths, in precedence order. `.codex-plugin` is the Codex
-/// repo-local plugin format; `.claude-plugin` remains supported for existing
-/// Claude Code plugins.
-const PLUGIN_MANIFEST_PATHS: [&str; 3] = [
-    ".codex-plugin/plugin.json",
-    ".agents-plugin/plugin.json",
-    ".claude-plugin/plugin.json",
-];
-
-pub(crate) const PLUGIN_MARKETPLACE_PATHS: [&str; 2] = [
-    ".agents/plugins/marketplace.json",
-    ".claude-plugin/marketplace.json",
-];
 
 /// One repository's REST surface, on whichever host it lives on.
 ///
@@ -465,7 +449,7 @@ impl SkillFetcher for GitHostSkillFetcher {
         match layout {
             SkillLayout::Workspace => {
                 let mut groups: Vec<Vec<FetchedSkillFile>> = Vec::new();
-                for prefix in WORKSPACE_SKILL_PREFIXES {
+                for prefix in REPO_SKILL_ROOTS {
                     match self
                         .fetch_skills_at_prefix(&api, prefix, token, remote_url, true)
                         .await

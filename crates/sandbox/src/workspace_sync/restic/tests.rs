@@ -27,9 +27,12 @@ fn a_metacharacter_in_a_filename_is_escaped_rather_than_matched() {
 /// in the next snapshot and change the file set it defines.
 #[test]
 fn the_glob_file_and_the_cache_stay_out_of_the_workspace() {
-    for path in [glob_file(), cache_dir()] {
+    for (path, temp) in [
+        (glob_file(), std::env::temp_dir()),
+        (cache_dir(), PathBuf::from("/tmp")),
+    ] {
         assert!(
-            path.starts_with(std::env::temp_dir()),
+            path.starts_with(temp),
             "{} is not under the temp dir",
             path.display()
         );

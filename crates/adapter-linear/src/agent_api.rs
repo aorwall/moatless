@@ -23,7 +23,7 @@ use moatless_ports::identity::{AppCredentials, AppToken};
 /// Linear's API host. Replace via [`LinearAgentApi::with_base_url`] so tests
 /// can drive the real request path against a stub instead of the network.
 const LINEAR_API_BASE: &str = "https://api.linear.app";
-const PROVIDER: &str = "linear";
+const PROVIDER: &str = moatless_types::adapter::AdapterKind::Linear.as_str();
 /// Refresh tokens whose expiry is within this window.
 const REFRESH_LEEWAY_SECS: i64 = 5 * 60;
 

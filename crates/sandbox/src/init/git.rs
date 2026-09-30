@@ -496,9 +496,7 @@ async fn clone_checkout(
     }
 }
 
-/// `GIT_TOKEN`: the pod provider's token under one name, which
-/// `credentials::fetch` derives into the map.
-pub(crate) const GIT_TOKEN: &str = "GIT_TOKEN";
+pub(crate) use moatless_types::credential_key::GIT_TOKEN;
 
 /// The git keys of one credential fetch: provider tokens, `GIT_TOKEN` and the
 /// author identity.

@@ -21,8 +21,7 @@ use moatless_types::activity::Activity;
 use moatless_types::activity::ActivityKind;
 use moatless_types::activity::ActivityView;
 use moatless_types::message::MessageType;
-
-const TOOL_RESPONSE_USER_TYPE: &str = "tool_response";
+use moatless_types::message::TOOL_RESPONSE_USER_TYPE;
 
 /// `ChatAttachmentId`'s max length (`contracts/src/orchestration.ts:186-205`).
 ///

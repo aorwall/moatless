@@ -15,7 +15,8 @@ use std::collections::BTreeSet;
 use moatless_arch_rules::workspace::{Workspace, workspace_root};
 use moatless_arch_rules::{
     Violation, agents_md_budget, baseline, dependency_privacy, duplicate_comment_prose,
-    duplicate_names, module_names, vendor_crate_owner, vendor_type_export,
+    duplicate_constant_value, duplicate_names, module_names, vendor_crate_owner,
+    vendor_type_export,
 };
 
 fn strict() -> bool {
@@ -94,6 +95,11 @@ fn an_agents_md_stays_within_its_line_budget() {
 #[test]
 fn comment_prose_is_not_copied_between_files() {
     assert_rule(duplicate_comment_prose::RULE, cached_violations());
+}
+
+#[test]
+fn a_literal_constant_value_has_one_owning_crate() {
+    assert_rule(duplicate_constant_value::RULE, cached_violations());
 }
 
 /// A baseline entry that no longer occurs must be removed, or the file stops

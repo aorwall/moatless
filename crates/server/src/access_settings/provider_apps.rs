@@ -33,10 +33,10 @@ pub struct ProviderApps {
     pub self_hosted_git: moatless_types::http::HttpTimeouts,
 }
 
-pub const FORGEJO: &str = "forgejo";
-pub const SLACK: &str = "slack";
-pub const TELEGRAM: &str = "telegram";
-pub const LINEAR: &str = "linear";
+pub const FORGEJO: &str = moatless_types::git_host::RepositoryProvider::Forgejo.as_str();
+pub const SLACK: &str = moatless_adapter_slack::delivery::ADAPTER;
+pub const TELEGRAM: &str = moatless_adapter_telegram::delivery::ADAPTER;
+pub const LINEAR: &str = moatless_adapter_linear::delivery::ADAPTER;
 
 /// A [`ProviderAppSpec`] before the deployment's own URLs are filled into it.
 struct SpecEntry {

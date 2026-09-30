@@ -19,6 +19,7 @@ use moatless_core::sandbox_jwt as jwt;
 use moatless_core::secret_keys;
 use moatless_identity::credentials::WriteSource;
 use moatless_ports::sandbox::CodexCredentials;
+use moatless_types::credential_key;
 
 use super::state::BackendSandboxServiceImpl;
 
@@ -27,12 +28,9 @@ use super::state::BackendSandboxServiceImpl;
 pub(crate) struct CredentialKey;
 
 impl CredentialKey {
-    /// Long-lived user auth token the sandbox authenticates its gRPC calls back
-    /// to the backend with.
-    ///
-    /// Delivered over this channel, and re-minted every fetch, so the
-    /// sandbox's 15-minute refresh loop propagates a rotation.
-    pub const USER_AUTH_TOKEN: &str = "USER_AUTH_TOKEN";
+    /// Re-minted every fetch, so the sandbox's 15-minute refresh loop
+    /// propagates a rotation.
+    pub const USER_AUTH_TOKEN: &str = credential_key::USER_AUTH_TOKEN;
     pub const GITHUB_TOKEN: &str = secret_keys::GITHUB_TOKEN;
     pub const GITLAB_TOKEN: &str = secret_keys::GITLAB_TOKEN;
     pub const GITNESS_TOKEN: &str = secret_keys::GITNESS_TOKEN;

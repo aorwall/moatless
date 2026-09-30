@@ -15,7 +15,7 @@ use tracing::{debug, warn};
 
 use crate::agent::handle::resolve_agent_harness;
 use crate::config::Config;
-use crate::init::home_skills::REPO_SKILL_ROOTS;
+use moatless_workspace_types::plugin::REPO_SKILL_ROOTS;
 
 /// One place a skill can live, plus how the preamble names it.
 struct SkillRoot {

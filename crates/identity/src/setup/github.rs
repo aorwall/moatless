@@ -14,7 +14,7 @@ use moatless_types::access_control::Scope;
 use moatless_types::secret::SecretKind;
 
 /// Settings-dialog section holding the per-user GitHub connection.
-const SETTINGS_SECTION: &str = "github";
+const SETTINGS_SECTION: &str = moatless_types::git_host::RepositoryProvider::Github.as_str();
 
 /// Without a GitHub token the app can't read repositories, so nothing else
 /// works — repo listing and task creation both fail.

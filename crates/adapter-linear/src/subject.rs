@@ -19,7 +19,7 @@ use moatless_types::loops::SubscriptionMatch;
 
 use super::webhook_payloads::{AgentSession, IssuePayload};
 
-pub(super) const ADAPTER: &str = "linear";
+pub(super) use super::delivery::ADAPTER;
 /// `task_bindings.subject_kind` for a Binding that names a Linear agent
 /// session. Its `subject_key` is the session id.
 pub(super) const SUBJECT_KIND_SESSION: &str = "linear_agent_session";

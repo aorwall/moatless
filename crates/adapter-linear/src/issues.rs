@@ -34,7 +34,7 @@ use super::config::LinearRuleConfig;
 use super::subject::{ADAPTER, SUBJECT_KIND_SESSION as SUBJECT_KIND};
 use super::webhook_payloads::IssuePayload;
 
-const ADAPTER_LABEL: &str = "linear";
+const ADAPTER_LABEL: &str = moatless_types::adapter::AdapterKind::Linear.as_str();
 
 /// Handle an `Issue.update` payload.
 ///

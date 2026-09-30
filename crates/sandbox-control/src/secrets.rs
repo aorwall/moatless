@@ -11,6 +11,7 @@ use tracing::warn;
 
 use moatless_core::secret_keys::is_reserved_key;
 use moatless_types::access_control::Actor;
+use moatless_types::credential_key::{GH_TOKEN, GIT_TOKEN};
 use moatless_workspace_types::repository::GitHostRepo;
 use moatless_workspace_types::repository::RepositoryProvider as GitHostProvider;
 
@@ -272,12 +273,6 @@ pub async fn resolve_workspace_env_vars(
 pub fn is_platform_owned_key(key: &str) -> bool {
     is_reserved_key(key) || is_git_auth_key(key)
 }
-
-/// Derived inside the pod by `credentials::fetch` from a resolved provider
-/// token, so not in `moatless_core::secret_keys`: `GIT_TOKEN` is the one name
-/// `init::git` clones with, `GH_TOKEN` the name `gh` reads.
-const GH_TOKEN: &str = "GH_TOKEN";
-const GIT_TOKEN: &str = "GIT_TOKEN";
 
 /// Every git-authentication key minted for a task's run-as identity.
 ///

@@ -8,6 +8,7 @@
 use std::collections::BTreeMap;
 
 use moatless_ports::sandbox::SnapshotEntry;
+use sandbox_proto::UNBROWSABLE_DIRS;
 
 /// Hops a symlink chain is followed before giving up.
 ///
@@ -83,17 +84,13 @@ pub(super) fn dir_prefix(path: &str) -> String {
     }
 }
 
-/// `SKIP_DIRS` in `crates/sandbox/src/files/tree.rs`: directories a live walk
-/// skips. Both back a repo's whole `.git`, so restore skips the clone.
-///
-/// Unfiltered, a listing would be mostly loose objects, pushing past every
-/// caller's cap. A read is not filtered: only browsing has a cap to blow.
-const UNBROWSABLE: &[&str] = &[".git", "node_modules"];
-
+/// Whether a listing shows `path`. A snapshot backs a repo's whole `.git`, so
+/// restore skips the clone; a read is not filtered, since only browsing has a
+/// cap to blow.
 pub(super) fn browsable(path: &str) -> bool {
     !path
         .split('/')
-        .any(|segment| UNBROWSABLE.contains(&segment))
+        .any(|segment| UNBROWSABLE_DIRS.contains(&segment))
 }
 
 /// Entries under `prefix`, sorted by path: non-recursive collapses each subtree

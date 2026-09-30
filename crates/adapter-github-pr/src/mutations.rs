@@ -26,7 +26,7 @@ use super::text::truncate_on_char_boundary;
 
 /// Provider label recorded on an external event, and the `external_adapter` an
 /// inbound event is matched under.
-const ADAPTER_LABEL: &str = "github_pr";
+const ADAPTER_LABEL: &str = moatless_types::adapter::AdapterKind::GithubPr.as_str();
 
 fn require_provider(
     provider: Option<Arc<GithubPrAdapter>>,

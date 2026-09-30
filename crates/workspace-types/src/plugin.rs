@@ -2,6 +2,26 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Repo-relative skill roots, in precedence order; both are scanned and merged,
+/// so `.agents/skills` (Codex) is found whether or not `.claude/skills` (Claude)
+/// symlinks to it.
+pub const REPO_SKILL_ROOTS: [&str; 2] = [".claude/skills", ".agents/skills"];
+
+/// Plugin manifest paths, in precedence order. `.codex-plugin` is the Codex
+/// repo-local plugin format; `.claude-plugin` remains supported for existing
+/// Claude Code plugins.
+pub const PLUGIN_MANIFEST_PATHS: [&str; 3] = [
+    ".codex-plugin/plugin.json",
+    ".agents-plugin/plugin.json",
+    ".claude-plugin/plugin.json",
+];
+
+/// Plugin marketplace paths, in precedence order.
+pub const PLUGIN_MARKETPLACE_PATHS: [&str; 2] = [
+    ".agents/plugins/marketplace.json",
+    ".claude-plugin/marketplace.json",
+];
+
 /// One plugin as handed to a sandbox: where to get it, and which of its skills
 /// were picked.
 ///

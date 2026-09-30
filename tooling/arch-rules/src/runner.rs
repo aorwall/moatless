@@ -2,11 +2,12 @@ use crate::workspace::Workspace;
 use crate::{
     Violation, adapter_boundaries, agents_md_budget, agents_symlink, annotations, band_order,
     base_surface, clippy_fence, closed_dependency_list, composition_root, conversation_writer,
-    declaration_only_roots, dependency_privacy, duplicate_comment_prose, duplicate_names,
-    env_read_owner, file_size, floor_type_admission, manifest_inheritance, module_names,
-    persistence_export, persistence_sql_location, port_admission, process_exit, reqwest_default,
-    route_registration, row_stays_with_query, session_line_parsing, single_implementation_trait,
-    store_privacy, table_ownership, transport_direction, vendor_crate_owner, vendor_type_export,
+    declaration_only_roots, dependency_privacy, duplicate_comment_prose, duplicate_constant_value,
+    duplicate_names, env_read_owner, file_size, floor_type_admission, manifest_inheritance,
+    module_names, persistence_export, persistence_sql_location, port_admission, process_exit,
+    reqwest_default, route_registration, row_stays_with_query, session_line_parsing,
+    single_implementation_trait, store_privacy, table_ownership, transport_direction,
+    vendor_crate_owner, vendor_type_export,
 };
 use anyhow::{Context, Result};
 
@@ -67,6 +68,7 @@ rules!(
     duplicate_comment_prose => "Comment prose is not copied between files.",
     vendor_crate_owner => "A vendor SDK is declared only by the crate that adapts it.",
     vendor_type_export => "No public API names a vendor SDK type; its owner translates it.",
+    duplicate_constant_value => "A literal constant value is defined in more than one production crate.",
 );
 
 /// Run every registered rule against one workspace read.

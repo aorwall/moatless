@@ -9,13 +9,14 @@ use std::collections::{HashMap, HashSet};
 use moatless_api_schemas::codex::{CodexToolInput, CodexToolResult};
 
 use super::contexts::task_message_context_to_input;
-use super::models::{TOOL_RESPONSE_USER_TYPE, TaskMessage, TaskMessageContext};
+use super::models::{TaskMessage, TaskMessageContext};
 use crate::activities::dao::Activity;
 use crate::activities::mapping::{ActivityKind, ActivityStatus};
 use crate::activities::view::ActivityView;
 use crate::message::models::MessageType;
 use crate::task::schemas::{FileContextData, MessageContextInput};
 use moatless_core::file_storage::FileInfo;
+use moatless_types::message::TOOL_RESPONSE_USER_TYPE;
 
 use super::schemas::*;
 

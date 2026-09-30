@@ -20,6 +20,7 @@ pub mod access_control;
 pub mod adapter;
 pub mod agent;
 pub mod auth;
+pub mod credential_key;
 pub mod event;
 pub mod feedback;
 pub mod git_host;

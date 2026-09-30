@@ -26,13 +26,12 @@ use super::subject::GithubPrSubject;
 use super::webhook::PrCloseInfo;
 
 /// Adapter value used in adapter connections, trigger sources, and bindings.
-pub(super) const ADAPTER: &str = "github";
-/// Subject kind for GitHub PRs (`task_bindings.subject_kind`).
-pub(super) const SUBJECT_KIND: &str = "github_pr";
+pub(super) const ADAPTER: &str = AdapterKind::Github.as_str();
+pub(super) use super::subject::SUBJECT_KIND;
 /// Label written to `task_inbox.external_adapter`. Matches the
 /// `AdapterKind::GithubPr.as_str()` value so existing UI treats new rows the
 /// same as the legacy ones.
-pub(super) const ADAPTER_LABEL: &str = "github_pr";
+pub(super) const ADAPTER_LABEL: &str = AdapterKind::GithubPr.as_str();
 
 const ORIGIN_ADAPTER_EVENT: &str = ADAPTER_EVENT_BINDING_ORIGIN;
 const ORIGIN_CONNECTED_THREAD: &str = CONNECTED_THREAD_BINDING_ORIGIN;

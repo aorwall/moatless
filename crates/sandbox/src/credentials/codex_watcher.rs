@@ -17,12 +17,9 @@ use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
-use crate::backend_client::BackendClient;
+use moatless_types::credential_key::CODEX_AUTH_JSON;
 
-/// Credential key used by both `GetCredentialsResponse.credentials` and
-/// `UpdateCredentialRequest.key` for the Codex auth blob. Must match
-/// `moatless_core::secret_keys::CODEX_AUTH_JSON`, which this crate cannot name.
-const CODEX_AUTH_KEY: &str = "CODEX_AUTH_JSON";
+use crate::backend_client::BackendClient;
 
 /// Coalescing window for filesystem events. Codex may write `auth.json`
 /// multiple times during a single refresh (truncate + write, or rename-into);
@@ -191,7 +188,7 @@ async fn sync_if_changed(
     }
 
     match backend_client
-        .update_credential(task_id, CODEX_AUTH_KEY, &new_value)
+        .update_credential(task_id, CODEX_AUTH_JSON, &new_value)
         .await
     {
         Ok(()) => {

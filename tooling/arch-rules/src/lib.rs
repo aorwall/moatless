@@ -19,6 +19,7 @@ pub mod conversation_writer;
 pub mod declaration_only_roots;
 pub mod dependency_privacy;
 pub mod duplicate_comment_prose;
+pub mod duplicate_constant_value;
 pub mod duplicate_names;
 pub mod env_read_owner;
 pub mod file_size;

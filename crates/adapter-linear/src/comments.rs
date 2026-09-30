@@ -26,7 +26,7 @@ use super::agent_api::{ActivityKind, LinearAgentApi};
 use super::subject::{SUBJECT_KIND_ISSUE, SUBJECT_KIND_SESSION, origin_comment_id};
 use super::webhook_payloads::CommentPayloadData;
 
-const ADAPTER_LABEL: &str = "linear";
+const ADAPTER_LABEL: &str = moatless_types::adapter::AdapterKind::Linear.as_str();
 
 /// Route a `Comment.create` payload to the bound tasks listening on its issue.
 /// No recipient → no-op.

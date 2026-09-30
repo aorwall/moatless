@@ -20,6 +20,7 @@ use rustic_core::repofile::{NodeType, SnapshotFile as ResticSnapshot};
 use rustic_core::{
     Credentials, IndexedFullStatus, LsOptions, Repository, RepositoryBackends, RepositoryOptions,
 };
+use sandbox_proto::RESTIC_CACHE_DIR;
 use tokio::sync::Mutex;
 use tracing::{debug, warn};
 
@@ -36,13 +37,6 @@ const REPOSITORY_TTL: Duration = Duration::from_secs(30);
 /// [`Entry::Absent`] slots share the budget and rebuild free, so idle tasks can
 /// evict a live index — one repeated open, never a wrong answer.
 const REPOSITORY_CACHE_CAP: usize = 32;
-
-/// Where the local pack cache lives.
-///
-/// Mandatory, never `no_cache`: without it `rustic_core` issues one range GET
-/// per blob, measured in-cluster as 628 ms -> 15.6 s (listing) and 13 -> 1,222
-/// requests (restore).
-const CACHE_DIR: &str = "/tmp/rustic-cache";
 
 struct Cached {
     repo: Arc<Repository<IndexedFullStatus>>,
@@ -214,7 +208,7 @@ type Opened = (
 /// Open the repository and walk its latest snapshot into a flat file set.
 fn open_and_walk(backend: &ResticS3Backend, password: &str) -> Result<Opened, SnapshotError> {
     let backends = RepositoryBackends::new(Arc::new(backend.clone()), None);
-    let options = RepositoryOptions::default().cache_dir(CACHE_DIR);
+    let options = RepositoryOptions::default().cache_dir(RESTIC_CACHE_DIR);
     let repo = Repository::new(&options, &backends)
         .map_err(|err| SnapshotError::Unavailable(format!("repository is unusable: {err}")))?;
 

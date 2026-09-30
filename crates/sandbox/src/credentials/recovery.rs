@@ -11,9 +11,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// The Codex credential blob, written to `$CODEX_HOME/auth.json` by
-/// `CodexAuthJsonSink`. The only credential with a failure signal today.
-pub const CODEX_AUTH_JSON: &str = "CODEX_AUTH_JSON";
+/// Written to `$CODEX_HOME/auth.json` by `CodexAuthJsonSink`. The only
+/// credential with a failure signal today.
+pub use moatless_types::credential_key::CODEX_AUTH_JSON;
 
 /// Every credential that can be flagged. Keys the coordinator maps to a
 /// human-readable provider name (`coordinator.rs`).

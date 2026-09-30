@@ -1,0 +1,19 @@
+//! Credential key names the backend and the sandbox process both name.
+//!
+//! The sandbox depends on no backend crate, so a key crossing
+//! `GetCredentials` or `UpdateCredential` has its one definition here.
+
+/// Codex `auth.json` blob — a Codex agent's model credential, and the one
+/// credential a sandbox writes back after a token refresh.
+pub const CODEX_AUTH_JSON: &str = "CODEX_AUTH_JSON";
+
+/// Long-lived user auth token the sandbox authenticates its gRPC calls back to
+/// the backend with.
+pub const USER_AUTH_TOKEN: &str = "USER_AUTH_TOKEN";
+
+/// The pod provider's token under one name, derived by the sandbox's
+/// `credentials::fetch` and the name `init::git` clones with.
+pub const GIT_TOKEN: &str = "GIT_TOKEN";
+
+/// The provider token under the name `gh` reads, derived beside [`GIT_TOKEN`].
+pub const GH_TOKEN: &str = "GH_TOKEN";

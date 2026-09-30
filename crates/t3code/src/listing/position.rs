@@ -1,9 +1,6 @@
 use sha2::{Digest, Sha256};
 
-pub const RESUME_WINDOW: i64 = 5_000;
-pub const RETAINED_CHANGES: i64 = 2 * RESUME_WINDOW;
-
-const _: () = assert!(RETAINED_CHANGES > RESUME_WINDOW);
+pub use moatless_core::change_feed::listing::{RESUME_WINDOW, RETAINED_CHANGES};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UiRpcEnvironmentIdentity(String);

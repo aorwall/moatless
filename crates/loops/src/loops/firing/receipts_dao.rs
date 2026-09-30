@@ -169,7 +169,7 @@ mod tests {
     use sqlx::PgPool;
 
     const LOOP_ID: &str = "tr_claim_test";
-    const KIND: &str = "slack_thread";
+    const KIND: &str = "test_thread";
     const SUBJECT: &str = "T1:C1:1787469709.912279";
 
     fn dao(pool: PgPool) -> EventReceipts {

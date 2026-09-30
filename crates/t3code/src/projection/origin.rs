@@ -16,7 +16,7 @@ pub(crate) struct OriginContext<'a> {
 
 /// The one adapter whose URL is derived rather than joined: the GitHub PR
 /// adapter is GitHub-only and its subject key carries the coordinates.
-const GITHUB_PR_ADAPTER: &str = "github_pr";
+const GITHUB_PR_ADAPTER: &str = moatless_types::adapter::AdapterKind::GithubPr.as_str();
 
 /// Where one Message came from, or `None` when it came from inside T3.
 ///

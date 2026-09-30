@@ -78,8 +78,8 @@ pub const ANTHROPIC_API_KEY: &str = "ANTHROPIC_API_KEY";
 /// Claude Code OAuth token — a Claude agent's model credential.
 pub const CLAUDE_CODE_OAUTH_TOKEN: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 
-/// Codex `auth.json` blob — a Codex agent's model credential.
-pub const CODEX_AUTH_JSON: &str = "CODEX_AUTH_JSON";
+pub use moatless_types::credential_key::CODEX_AUTH_JSON;
+use moatless_types::credential_key::USER_AUTH_TOKEN;
 
 /// OpenAI API key — a Codex agent's model credential.
 pub const OPENAI_API_KEY: &str = "OPENAI_API_KEY";
@@ -89,7 +89,7 @@ pub const RESERVED_SECRET_KEYS: &[&str] = &[
     "TASK_ID",
     "BACKEND_GRPC_URL",
     "BACKEND_API_URL",
-    "USER_AUTH_TOKEN",
+    USER_AUTH_TOKEN,
     "TASK_TOKEN_SECRET",
     "SESSION_JWT_SECRET",
     "DATABASE_URL",

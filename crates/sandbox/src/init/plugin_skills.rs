@@ -10,7 +10,8 @@
 use std::path::{Path, PathBuf};
 
 use moatless_workspace_types::plugin::{
-    PluginDelivery, PluginMarketplaceSource, marketplace_local_path,
+    PLUGIN_MANIFEST_PATHS, PLUGIN_MARKETPLACE_PATHS, PluginDelivery, PluginMarketplaceSource,
+    marketplace_local_path,
 };
 use serde::Deserialize;
 use tracing::{debug, info, warn};
@@ -35,17 +36,6 @@ struct PluginMarketplaceEntry {
     name: String,
     source: PluginMarketplaceSource,
 }
-
-const PLUGIN_MANIFEST_PATHS: [&str; 3] = [
-    ".codex-plugin/plugin.json",
-    ".agents-plugin/plugin.json",
-    ".claude-plugin/plugin.json",
-];
-
-const PLUGIN_MARKETPLACE_PATHS: [&str; 2] = [
-    ".agents/plugins/marketplace.json",
-    ".claude-plugin/marketplace.json",
-];
 
 /// Scans `plugins_root/*` ([`crate::config::Config::plugins_dir`]) and copies
 /// every plugin's skills into `/etc/codex/skills/{plugin}--{skill}/`, honoring

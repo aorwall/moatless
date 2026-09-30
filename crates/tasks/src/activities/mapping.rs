@@ -7,6 +7,7 @@ pub use moatless_types::activity::{
     ActivityKind, ActivityStatus, PLAN_APPROVE, PLAN_QUESTION, PLAN_REJECT, PLAN_TOOL,
     QUESTION_TOOL, item_type, result_text,
 };
+use moatless_types::codex::CODEX_TOOL_TODO_LIST;
 use moatless_types::sandbox::SandboxEventPayload;
 use serde_json::{Map, Value, json};
 
@@ -280,7 +281,7 @@ fn joined_row(
                 "questions": [plan_question()],
             }),
         ),
-        TODO_TOOL | CODEX_TODO_TOOL => (
+        TODO_TOOL | CODEX_TOOL_TODO_LIST => (
             "plan",
             ActivityKind::PlanUpdated,
             "Plan updated",
@@ -320,11 +321,9 @@ fn joined_row(
     })
 }
 
-/// The plan trackers. `TodoWrite` is the Claude CLI's; `codex.todo_list` is
-/// what the Codex transport's `turn/plan/updated` notification is normalised
-/// into.
+/// The Claude CLI's plan tracker; [`CODEX_TOOL_TODO_LIST`] is what the Codex
+/// transport's `turn/plan/updated` notification is normalised into.
 const TODO_TOOL: &str = "TodoWrite";
-const CODEX_TODO_TOOL: &str = "codex.todo_list";
 
 /// The questions an `AskUserQuestion` call asked, filled to the shape the panel
 /// parses. The id **is** the question text the CLI answers by — a synthetic
@@ -1182,7 +1181,7 @@ mod tests {
             &json!({
                 "type": "tool_use",
                 "id": "tu-1",
-                "name": CODEX_TODO_TOOL,
+                "name": CODEX_TOOL_TODO_LIST,
                 "input": { "items": [
                     { "text": "first", "completed": true, "status": "completed" },
                     { "text": "second", "completed": false, "status": "inProgress" },

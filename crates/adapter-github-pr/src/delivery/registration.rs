@@ -29,7 +29,7 @@ use crate::webhook::PrCloseInfo;
 
 /// Adapter name on every record this module admits. Matches the value used for
 /// GitHub Adapter connections, trigger sources, and bindings.
-pub(crate) const ADAPTER: &str = "github";
+pub(crate) const ADAPTER: &str = moatless_types::adapter::AdapterKind::Github.as_str();
 
 /// Register every GitHub delivery handler on the process-wide registry.
 ///

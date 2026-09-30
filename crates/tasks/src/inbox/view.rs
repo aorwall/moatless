@@ -3,7 +3,8 @@
 
 use std::collections::HashMap;
 
-use crate::message::models::{TOOL_RESPONSE_USER_TYPE, TaskMessage, TaskMessageContext};
+use crate::message::models::{TaskMessage, TaskMessageContext};
+use moatless_types::message::TOOL_RESPONSE_USER_TYPE;
 
 use super::models::{InboxContext, InboxItem, InboxOrigin};
 

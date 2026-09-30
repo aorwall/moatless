@@ -7,7 +7,7 @@
 //! rest of this crate reads: the adapter name and its one delivery kind.
 
 /// Adapter name on `adapter_delivery` rows, metrics, and bindings.
-pub const ADAPTER: &str = "telegram";
+pub const ADAPTER: &str = moatless_types::adapter::AdapterKind::Telegram.as_str();
 
 /// Routing kind for one inbound Telegram message.
 ///

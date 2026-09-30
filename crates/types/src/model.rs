@@ -1,6 +1,10 @@
 //! The models the catalog offers, and what each one is: id, label, price and
 //! the effort levels it accepts.
 
+/// The effort levels the Claude CLI's `--effort` accepts, weakest first. It
+/// warns about and ignores anything else, and does not vary them per model.
+pub const CLAUDE_EFFORT_LEVELS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
+
 /// A Claude model the catalog offers, named by its catalog alias.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ClaudeModel {

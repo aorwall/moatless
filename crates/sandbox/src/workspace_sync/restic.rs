@@ -19,7 +19,7 @@ use rustic_core::{
     LocalDestination, LsOptions, PathList, PruneOptions, Repository, RepositoryBackends,
     RepositoryOptions, RestoreOptions, SnapshotGroupCriterion, SnapshotOptions,
 };
-use sandbox_proto::SNAPSHOT_ROOT;
+use sandbox_proto::{RESTIC_CACHE_DIR, SNAPSHOT_ROOT};
 use tracing::{debug, info, warn};
 
 use super::file_set;
@@ -35,14 +35,10 @@ use crate::state::SandboxState;
 /// The `format` label every transfer this module reports under.
 pub(super) const FORMAT: &str = "restic";
 
-/// Where the local pack cache lives.
-///
-/// Must be `/tmp`, never `no_cache` (`rustic_core` then issues one GET per
-/// blob), `WORKSPACE_DIR` (feeds on itself), `/opt/moatless/data` (capped), or
-/// `/run/moatless` (1Mi). `/tmp` is a `subPath` of the capped `workspace-data`
-/// volume, so this spends the workspace's own eviction headroom.
+/// [`RESTIC_CACHE_DIR`]. `/tmp` is a `subPath` of the capped `workspace-data`
+/// volume, so the cache spends the workspace's own eviction headroom.
 fn cache_dir() -> PathBuf {
-    std::env::temp_dir().join("rustic-cache")
+    PathBuf::from(RESTIC_CACHE_DIR)
 }
 
 /// Where the whitelist of paths to snapshot is written.

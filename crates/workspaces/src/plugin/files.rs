@@ -15,7 +15,8 @@ use flate2::write::GzEncoder;
 use tar::{Archive, Builder, EntryType, Header};
 use tracing::warn;
 
-use crate::skill::fetcher::{PLUGIN_MARKETPLACE_PATHS, PluginMarketplace, normalize_skills_path};
+use crate::skill::fetcher::{PluginMarketplace, normalize_skills_path};
+use moatless_workspace_types::plugin::PLUGIN_MARKETPLACE_PATHS;
 use moatless_workspace_types::plugin::marketplace_local_path;
 
 /// The most file content a plugin keeps, so a small archive that inflates to
