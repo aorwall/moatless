@@ -617,6 +617,10 @@ async fn normalize_check_run(
         .get("html_url")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("");
+    let head_sha = check_run
+        .get("head_sha")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
     let text = check_run_failed_text(&CheckRunFailedText {
         name,
         conclusion,
@@ -624,10 +628,7 @@ async fn normalize_check_run(
             .pointer("/app/name")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("CI"),
-        head_sha: check_run
-            .get("head_sha")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or(""),
+        head_sha,
         html_url,
         output_title: check_run
             .pointer("/output/title")
@@ -656,7 +657,17 @@ async fn normalize_check_run(
                 Some(pr_number.to_string()),
                 text,
                 Audience::SubjectProducer,
-                super::external_id::check_run(check_run_id),
+                super::external_id::check_run(&super::external_id::CheckRunKey {
+                    owner: context.owner,
+                    repo: context.repo,
+                    head_sha,
+                    app_id: check_run
+                        .pointer("/app/id")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0),
+                    name,
+                    run_id: check_run_id,
+                }),
             )
             .await,
         },

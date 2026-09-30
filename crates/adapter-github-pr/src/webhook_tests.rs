@@ -468,6 +468,7 @@ async fn failed_check_run_preserves_producer_audience_and_external_id() {
             "conclusion": "failure",
             "html_url": "https://github.com/soaplabs/repo/runs/31",
             "head_sha": "abcdef012345",
+            "app": {"id": 15368, "name": "GitHub Actions"},
             "pull_requests": [{"number": 42}],
             "output": {"summary": "1 test failed", "annotations_count": 4},
         }
@@ -482,8 +483,53 @@ async fn failed_check_run_preserves_producer_audience_and_external_id() {
     assert_eq!(execution.annotations_count, 4);
     let message = execution.message;
     assert_eq!(message.audience, Audience::SubjectProducer);
-    assert_eq!(message.external_event_id.as_deref(), Some("github:cr:31"));
+    assert_eq!(
+        message.external_event_id.as_deref(),
+        Some("github:cr:soaplabs/repo:abcdef012345:15368:CI")
+    );
     assert!(message.text.contains("## CI Check Failed: CI"));
+}
+
+/// A check that fails while it waits (a review gate) is rerun on every nudge;
+/// each rerun must land on the id the first failure on that commit took, so
+/// `task_inbox` drops it, while the next commit's failure, or another App's
+/// check of the same name, is new.
+#[tokio::test]
+async fn a_rerun_on_the_same_commit_shares_the_first_failures_id() {
+    let failure = |id: u64, head_sha: &str, app_id: u64| {
+        serde_json::json!({
+            "action": "completed",
+            "sender": {"login": "ci-bot"},
+            "check_run": {
+                "id": id,
+                "name": "review-gate",
+                "conclusion": "failure",
+                "head_sha": head_sha,
+                "app": {"id": app_id},
+                "pull_requests": [{"number": 42}],
+            }
+        })
+    };
+    let mut ids = Vec::new();
+    for (id, head_sha, app_id) in [
+        (31, "abcdef0", 15368),
+        (32, "abcdef0", 15368),
+        (33, "1234567", 15368),
+        // Another App's check of the same name on the same commit.
+        (34, "abcdef0", 9426),
+    ] {
+        let execution = check_run(
+            normalize_payload("check_run", &failure(id, head_sha, app_id), &fake_rule())
+                .await
+                .primary,
+        );
+        // The annotations fetch still reads the run that failed.
+        assert_eq!(execution.check_run_id, id);
+        ids.push(execution.message.external_event_id);
+    }
+    assert_eq!(ids[0], ids[1]);
+    assert_ne!(ids[0], ids[2]);
+    assert_ne!(ids[0], ids[3]);
 }
 
 #[tokio::test]

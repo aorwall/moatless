@@ -104,7 +104,14 @@ impl GithubPrInboundRouter {
         // states the subject rather than trusting the string to be unambiguous.
         let origin_task_id = match msg.source_task_id.clone() {
             Some(task_id) => Some(task_id),
-            None => match msg.external_event_id.as_deref() {
+            // Every rerun on one commit shares a check-run id, so its
+            // `task_inbox` row names the Task it reached, not an author: matching
+            // it would skip that Task as a self-echo and re-bind it if unbound.
+            None => match msg
+                .external_event_id
+                .as_deref()
+                .filter(|id| !super::external_id::is_check_run(id))
+            {
                 Some(ext_id) => {
                     let candidates = self.routing.external_id_aliases(ADAPTER_LABEL, ext_id);
                     self.messages

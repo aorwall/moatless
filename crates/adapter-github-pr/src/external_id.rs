@@ -72,9 +72,43 @@ pub(super) fn pr_merged(subject: &GithubPrSubject) -> String {
     pr_event("merged", subject, None)
 }
 
-/// `github:cr:<id>` - `check_run` completion.
-pub(super) fn check_run(id: u64) -> String {
-    format!("github:cr:{id}")
+/// A failed `check_run`: the check its run belongs to, on one commit.
+pub(super) struct CheckRunKey<'a> {
+    pub owner: &'a str,
+    pub repo: &'a str,
+    pub head_sha: &'a str,
+    /// `check_run.app.id`: a check name is unique only within its GitHub App.
+    pub app_id: u64,
+    pub name: &'a str,
+    /// The run itself, used only when there is no sha to key on.
+    pub run_id: u64,
+}
+
+/// `github:cr:<owner>/<repo>:<sha>:<app_id>:<name>` - a failed `check_run`.
+///
+/// Keyed by commit rather than run id, so a rerun of the same check on the
+/// same head collapses in `task_inbox` while a new commit's failure notifies.
+/// Without a sha it falls back to `github:cr:<run_id>`. The name goes last
+/// because it may itself contain `:`.
+pub(super) fn check_run(key: &CheckRunKey<'_>) -> String {
+    let CheckRunKey {
+        owner,
+        repo,
+        head_sha,
+        app_id,
+        name,
+        run_id,
+    } = key;
+    if head_sha.is_empty() {
+        format!("github:cr:{run_id}")
+    } else {
+        format!("github:cr:{owner}/{repo}:{head_sha}:{app_id}:{name}")
+    }
+}
+
+/// Whether `external_id` names a `check_run`, which no Task ever authors.
+pub(super) fn is_check_run(external_id: &str) -> bool {
+    external_id.starts_with("github:cr:")
 }
 
 /// `github:cs:<id>` - `check_suite` completion.
@@ -207,10 +241,40 @@ mod tests {
         );
     }
 
+    fn check(repo: &str, head_sha: &str, app_id: u64, name: &str, run_id: u64) -> String {
+        check_run(&CheckRunKey {
+            owner: "acme",
+            repo,
+            head_sha,
+            app_id,
+            name,
+            run_id,
+        })
+    }
+
     #[test]
     fn check_formats() {
-        assert_eq!(check_run(1), "github:cr:1");
+        assert_eq!(
+            check("widgets", "abcdef0", 15368, "review-gate", 1),
+            "github:cr:acme/widgets:abcdef0:15368:review-gate"
+        );
+        assert_eq!(check("widgets", "", 15368, "review-gate", 1), "github:cr:1");
+        assert!(is_check_run("github:cr:1"));
+        assert!(!is_check_run("github:cs:2"));
         assert_eq!(check_suite(2), "github:cs:2");
+    }
+
+    /// A rerun gets a new run id on the same commit and must collapse; the same
+    /// check on the next commit, another check, or another App's check of the
+    /// same name must not.
+    #[test]
+    fn a_check_run_id_names_the_check_and_commit_not_the_run() {
+        let first = check("widgets", "abcdef0", 15368, "review-gate", 1);
+        assert_eq!(first, check("widgets", "abcdef0", 15368, "review-gate", 2));
+        assert_ne!(first, check("widgets", "1234567", 15368, "review-gate", 3));
+        assert_ne!(first, check("widgets", "abcdef0", 15368, "build", 1));
+        assert_ne!(first, check("widgets", "abcdef0", 9426, "review-gate", 1));
+        assert_ne!(first, check("gadgets", "abcdef0", 15368, "review-gate", 1));
     }
 
     #[test]

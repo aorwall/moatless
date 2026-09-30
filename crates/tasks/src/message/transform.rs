@@ -678,7 +678,15 @@ fn format_github_label(kind: &str, rest: &[&str], raw: &str) -> String {
     match kind {
         "ic" => single.map_or_else(|| raw.to_string(), |n| format!("Comment #{n}")),
         "rc" | "rv" => single.map_or_else(|| raw.to_string(), |n| format!("Review #{n}")),
-        "cr" => single.map_or_else(|| raw.to_string(), |n| format!("Check #{n}")),
+        // `<owner>/<repo>:<sha>:<app_id>:<name>`, the name last since it may
+        // hold `:`; a row written before check runs were keyed by commit is `<id>`.
+        "cr" => match rest {
+            [id] => format!("Check #{id}"),
+            [_repo, sha, _app_id, name @ ..] if !name.is_empty() => {
+                format!("Check {} {}", name.join(":"), sha.get(..7).unwrap_or(sha))
+            }
+            _ => raw.to_string(),
+        },
         "cs" => single.map_or_else(|| raw.to_string(), |n| format!("Suite #{n}")),
         // `rest[1]` is the pull request: `owner/repo#607` since the ids began
         // naming their repository, a bare `607` in a row written before that.
@@ -897,6 +905,10 @@ mod tests {
     #[test]
     fn format_external_label_github_check_and_suite() {
         assert_eq!(format_external_label("github:cr:55"), "Check #55");
+        assert_eq!(
+            format_external_label("github:cr:acme/widgets:abcdef0123:15368:ci: lint"),
+            "Check ci: lint abcdef0"
+        );
         assert_eq!(format_external_label("github:cs:66"), "Suite #66");
     }
 
