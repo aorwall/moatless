@@ -396,18 +396,25 @@ impl BackendClient for MemoryTrajectoryBackend {
         }
         let parent = match &req.subagent_parent {
             Some(p) if !state.sessions.contains_key(&req.harness_session_id) => {
+                // As the dao, the call may sit in the root or a sibling subagent.
+                let root = &p.parent_harness_session_id;
+                let sibling = format!("{root}:agent-");
                 let spawning = state
                     .sessions
-                    .get(&p.parent_harness_session_id)
-                    .filter(|s| s.task_id == req.task_id)
-                    .and_then(|s| {
-                        s.own.iter().find(|e| {
-                            blocks(e).iter().any(|b| {
-                                b["type"] == "tool_use" && b["id"] == p.tool_use_id.as_str()
-                            })
-                        })
+                    .iter()
+                    .filter(|(id, s)| {
+                        s.task_id == req.task_id && (*id == root || id.starts_with(&sibling))
                     })
-                    .map(|e| (p.parent_harness_session_id.clone(), e.seq));
+                    .find_map(|(id, s)| {
+                        s.own
+                            .iter()
+                            .find(|e| {
+                                blocks(e).iter().any(|b| {
+                                    b["type"] == "tool_use" && b["id"] == p.tool_use_id.as_str()
+                                })
+                            })
+                            .map(|e| (id.clone(), e.seq))
+                    });
                 if spawning.is_none() {
                     return Err(Status::failed_precondition(
                         "spawning tool call not recorded",

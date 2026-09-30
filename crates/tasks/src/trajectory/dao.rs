@@ -116,20 +116,32 @@ impl PgTrajectoryDao {
         let mut tx = self.0.begin().await?;
         let parent_event_id: Option<Uuid> = match subagent_parent {
             Some(parent) => {
+                // `COALESCE` evaluates the sibling subquery only when the root
+                // holds no match, so the root wins a shared id and the
+                // `<root>:agent-*` sessions are scanned only for a nested subagent.
                 sqlx::query_scalar(
-                    r#"SELECT e.id
-                         FROM trajectory_events e
-                         JOIN trajectory_sessions s ON s.id = e.session_id
-                        WHERE s.harness_session_id = $1 AND s.task_id = $2
-                          AND e.content -> 'blocks'
-                              @> jsonb_build_array(jsonb_build_object('type', 'tool_use', 'id', $3::text))
-                        ORDER BY e.seq
-                        LIMIT 1"#,
+                    r#"SELECT COALESCE(
+                           (SELECT e.id
+                              FROM trajectory_events e
+                              JOIN trajectory_sessions s ON s.id = e.session_id
+                             WHERE s.harness_session_id = $1 AND s.task_id = $2
+                               AND e.content -> 'blocks'
+                                   @> jsonb_build_array(jsonb_build_object('type', 'tool_use', 'id', $3::text))
+                             ORDER BY e.seq
+                             LIMIT 1),
+                           (SELECT e.id
+                              FROM trajectory_events e
+                              JOIN trajectory_sessions s ON s.id = e.session_id
+                             WHERE s.task_id = $2 AND starts_with(s.harness_session_id, $1 || ':agent-')
+                               AND e.content -> 'blocks'
+                                   @> jsonb_build_array(jsonb_build_object('type', 'tool_use', 'id', $3::text))
+                             ORDER BY s.created_at, e.seq
+                             LIMIT 1))"#,
                 )
                 .bind(parent.harness_session_id)
                 .bind(task_id)
                 .bind(parent.tool_use_id)
-                .fetch_optional(&mut *tx)
+                .fetch_one(&mut *tx)
                 .await?
             }
             None => None,

@@ -399,6 +399,72 @@ async fn a_subagent_session_links_to_its_spawning_tool_call(pool: PgPool) {
 }
 
 #[sqlx::test]
+async fn a_subagent_spawned_by_a_subagent_links_to_the_call_in_its_sibling(pool: PgPool) {
+    let dao = seeded(&pool, "root", vec![line(0), tool_call("toolu_a")]).await;
+    let subagent = |session, lines, tool_use_id| AppendRequest {
+        subagent_parent: Some(SubagentParent {
+            harness_session_id: "root",
+            tool_use_id,
+        }),
+        ..req("source", Harness::ClaudeCode, session, 0, lines, None)
+    };
+    let spawns_b = [line(0), tool_call("toolu_b")];
+    let first = lines(0..1);
+    dao.append(subagent("root:agent-a", &spawns_b, "toolu_a"))
+        .await
+        .unwrap();
+    dao.append(subagent("root:agent-b", &first, "toolu_b"))
+        .await
+        .unwrap();
+
+    let parent_session: String = sqlx::query_scalar(
+        "SELECT p.harness_session_id FROM trajectory_sessions s
+           JOIN trajectory_events e ON e.id = s.parent_event_id
+           JOIN trajectory_sessions p ON p.id = e.session_id
+          WHERE s.harness_session_id = 'root:agent-b'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(parent_session, "root:agent-a");
+
+    let spawns_c = [line(0), tool_call("toolu_a")];
+    dao.append(subagent("root:agent-x", &spawns_c, "toolu_a"))
+        .await
+        .unwrap();
+    dao.append(subagent("root:agent-c", &first, "toolu_a"))
+        .await
+        .unwrap();
+    let root_wins: String = sqlx::query_scalar(
+        "SELECT p.harness_session_id FROM trajectory_sessions s
+           JOIN trajectory_events e ON e.id = s.parent_event_id
+           JOIN trajectory_sessions p ON p.id = e.session_id
+          WHERE s.harness_session_id = 'root:agent-c'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        root_wins, "root",
+        "the root's call wins an id a sibling repeats"
+    );
+
+    seeded(&pool, "other", vec![tool_call("toolu_c")]).await;
+    let other_root = AppendRequest {
+        subagent_parent: Some(SubagentParent {
+            harness_session_id: "other",
+            tool_use_id: "toolu_b",
+        }),
+        ..req("source", Harness::ClaudeCode, "other:agent-d", 0, &[], None)
+    };
+    let refused = dao.append(other_root).await;
+    assert!(
+        matches!(refused, Err(AppendError::ParentMissing(_))),
+        "another root's subagent sessions are not searched"
+    );
+}
+
+#[sqlx::test]
 async fn a_retried_switch_read_returns_the_same_session(pool: PgPool) {
     let dao = seeded(&pool, "claude-1", lines(0..3)).await;
     let trajectories =

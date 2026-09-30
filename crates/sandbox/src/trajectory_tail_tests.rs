@@ -432,6 +432,117 @@ async fn a_subagent_whose_call_is_not_recorded_leaves_recording_running() {
     assert!(backend.events_on(&format!("{ID}:agent-a1")).is_empty());
 }
 
+/// Writes the subagent `agent` spawned by `tool_use_id`, its lines `lines`.
+fn subagent_file(session: &std::path::Path, agent: &str, tool_use_id: &str, lines: &[String]) {
+    let subagents = session.with_extension("").join("subagents");
+    std::fs::create_dir_all(&subagents).unwrap();
+    std::fs::write(
+        subagents.join(format!("agent-{agent}.meta.json")),
+        format!(r#"{{"toolUseId":"{tool_use_id}"}}"#),
+    )
+    .unwrap();
+    let body: String = lines.iter().flat_map(|l| [l.as_str(), "\n"]).collect();
+    std::fs::write(subagents.join(format!("agent-{agent}.jsonl")), body).unwrap();
+}
+
+#[tokio::test]
+async fn a_subagent_a_subagent_spawned_links_to_the_call_in_its_spawner() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = session_file(dir.path(), dir.path());
+    let call =
+        |id: &str| format!(r#"{{"type":"tool_use","id":"{id}","name":"Agent","input":{{}}}}"#);
+    std::fs::write(
+        &path,
+        format!("{}\n", assistant_line("msg_1", "u1", &call("toolu_1"))),
+    )
+    .unwrap();
+    subagent_file(
+        &path,
+        "a1",
+        "toolu_1",
+        &[assistant_line("msg_2", "u2", &call("toolu_2"))],
+    );
+    let go = r#"{"type":"user","message":{"role":"user","content":"go"}}"#.to_string();
+    subagent_file(&path, "b1", "toolu_2", &[go]);
+    let backend = Arc::new(MemoryTrajectoryBackend::default());
+    let (main, recording) = recorder(backend.clone(), dir.path(), dir.path());
+    let mut files = ClaudeSessionFormat.subagents(&path);
+    files.sort_by(|a, b| b.harness_session_id.cmp(&a.harness_session_id));
+    let subagents = files
+        .into_iter()
+        .map(|file| {
+            let target = main.target.subagent(file);
+            SessionRecorder::start(
+                Arc::new(ClaudeSessionFormat),
+                Arc::clone(&recording),
+                target,
+                None,
+            )
+        })
+        .collect();
+    let mut sessions = LiveSessions {
+        main,
+        subagents,
+        warned: Vec::new(),
+        watcher: None,
+    };
+
+    // `b1` is flushed before the `a1` that spawned it.
+    sessions.flush(&mpsc::channel(1).0, true).await;
+
+    let nested = format!("{ID}:agent-b1");
+    assert_eq!(
+        backend.parent_of(&nested),
+        Some((format!("{ID}:agent-a1"), 0))
+    );
+    assert_eq!(backend.events_on(&nested).len(), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_subagent_whose_call_is_not_recorded_is_asked_after_a_growing_wait() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = session_file(dir.path(), dir.path());
+    let go = r#"{"type":"user","message":{"role":"user","content":"go"}}"#.to_string();
+    subagent_file(&path, "a1", "toolu_1", &[go]);
+    let backend = Arc::new(MemoryTrajectoryBackend::default());
+    let (main, recording) = recorder(backend.clone(), dir.path(), dir.path());
+    let file = ClaudeSessionFormat.subagents(&path).pop().unwrap();
+    let mut subagent = SessionRecorder::start(
+        Arc::new(ClaudeSessionFormat),
+        recording,
+        main.target.subagent(file),
+        None,
+    );
+    let asks = |n| {
+        let backend = Arc::clone(&backend);
+        move || assert_eq!(backend.append_calls(), n)
+    };
+
+    assert!(subagent.flush().await.is_err());
+    asks(1)();
+    subagent.flush().await.unwrap();
+    tokio::time::advance(Duration::from_millis(999)).await;
+    subagent.flush().await.unwrap();
+    asks(1)();
+    tokio::time::advance(Duration::from_millis(1)).await;
+    assert!(subagent.flush().await.is_err());
+    asks(2)();
+    tokio::time::advance(Duration::from_millis(1999)).await;
+    subagent.flush().await.unwrap();
+    asks(2)();
+
+    let call = r#"{"type":"tool_use","id":"toolu_1","name":"Agent","input":{}}"#;
+    std::fs::write(&path, format!("{}\n", assistant_line("msg_1", "u1", call))).unwrap();
+    let (mut main, _) = recorder(backend.clone(), dir.path(), dir.path());
+    main.flush().await.unwrap();
+    assert_eq!(
+        subagent.flush_all().await.unwrap(),
+        0,
+        "a release flush asks at once"
+    );
+    assert_eq!(backend.events_on(&format!("{ID}:agent-a1")).len(), 1);
+}
+
 fn turn(backend: &Arc<MemoryTrajectoryBackend>, home: &std::path::Path) -> TurnTrajectory {
     TurnTrajectory {
         recording: TrajectoryRecording::new(Arc::clone(backend) as Arc<dyn BackendClient>),

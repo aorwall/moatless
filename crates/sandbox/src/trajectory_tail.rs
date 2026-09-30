@@ -39,6 +39,12 @@ const MAX_BATCH_BYTES: usize = 1024 * 1024;
 /// Lines per `AppendTrajectory`.
 pub const MAX_BATCH_LINES: usize = 256;
 
+/// The wait after the backend first refuses a subagent session whose spawning
+/// call it has not recorded; each further refusal doubles it, up to
+/// [`PARENT_WAIT_MAX`].
+const PARENT_WAIT: Duration = Duration::from_secs(1);
+const PARENT_WAIT_MAX: Duration = Duration::from_mins(1);
+
 /// The backend every recorder in this sandbox ships to, and whether recording
 /// is off for the sandbox's life.
 pub struct TrajectoryRecording {
@@ -150,6 +156,9 @@ pub struct SessionRecorder {
     own_from_seq: Option<i64>,
     reseeded: bool,
     stopped: bool,
+    /// While the backend refuses this subagent session for its unrecorded
+    /// spawning call: when to ask again, and the wait that set it.
+    parent_wait: Option<(Instant, Duration)>,
 }
 
 impl SessionRecorder {
@@ -178,6 +187,7 @@ impl SessionRecorder {
             own_from_seq: None,
             reseeded: false,
             stopped: false,
+            parent_wait: None,
         }
     }
 
@@ -207,6 +217,11 @@ impl SessionRecorder {
     async fn flush_with(&mut self, release: bool) -> Result<i64, RecordError> {
         if self.stopped || self.recording.is_off() {
             return Err(RecordError::Off);
+        }
+        // A release flush asks anyway: the Turn's end may just have recorded
+        // the call.
+        if !release && self.parent_wait.is_some_and(|(at, _)| Instant::now() < at) {
+            return Ok(self.next_seq - 1);
         }
         let mut result = self.flush_inner(release).await;
         if matches!(
@@ -464,6 +479,7 @@ impl SessionRecorder {
         };
         match self.recording.backend.append_trajectory(request).await {
             Ok(reply) => {
+                self.parent_wait = None;
                 // A probe creates no session, so its reply may not show one.
                 self.created |= reply.last_seq >= 0;
                 if reply.accepted && has_lines {
@@ -476,6 +492,16 @@ impl SessionRecorder {
                     info!("Trajectory recording is off; stopping every recorder in this sandbox");
                 }
                 Err(RecordError::Off)
+            }
+            Err(status)
+                if status.code() == tonic::Code::FailedPrecondition
+                    && self.target.subagent.is_some() =>
+            {
+                let wait = self
+                    .parent_wait
+                    .map_or(PARENT_WAIT, |(_, wait)| (wait * 2).min(PARENT_WAIT_MAX));
+                self.parent_wait = Some((Instant::now() + wait, wait));
+                Err(status.into())
             }
             Err(status) => Err(status.into()),
         }
@@ -588,10 +614,26 @@ impl LiveSessions {
         }
         self.adopt_subagents(&path).await;
         self.warned.resize(1 + self.subagents.len(), false);
-        for (i, recorder) in self.subagents.iter_mut().enumerate() {
-            if let Err(error) = recorder.flush_with(release).await {
-                log_failure(recorder, &error, &mut self.warned[i + 1]);
+        // Files list in no parent-first order, so a subagent refused for its
+        // unrecorded call is asked again while the previous pass left fewer
+        // refused: a release flush records a nested subagent in one call.
+        let mut pending: Vec<usize> = (0..self.subagents.len()).collect();
+        loop {
+            let asked = pending.len();
+            let mut refused = Vec::new();
+            for i in pending {
+                let recorder = &mut self.subagents[i];
+                if let Err(error) = recorder.flush_with(release).await {
+                    log_failure(recorder, &error, &mut self.warned[i + 1]);
+                }
+                if recorder.parent_wait.is_some() {
+                    refused.push(i);
+                }
             }
+            if refused.is_empty() || refused.len() == asked {
+                return;
+            }
+            pending = refused;
         }
     }
 

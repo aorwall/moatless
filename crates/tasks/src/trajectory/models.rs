@@ -28,6 +28,8 @@ pub struct AppendRequest<'a> {
 /// subagent session.
 #[derive(Debug, Clone, Copy)]
 pub struct SubagentParent<'a> {
+    /// The root session. The call sits in it or, for a subagent a subagent
+    /// spawned, in one of its `<root>:agent-*` sessions.
     pub harness_session_id: &'a str,
     pub tool_use_id: &'a str,
 }
