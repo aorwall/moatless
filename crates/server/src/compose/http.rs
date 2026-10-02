@@ -7,7 +7,7 @@ use axum::{Json, Router};
 use moatless_core::{config::Config, feature_flags::FeatureFlags};
 use moatless_identity::{auth, secret};
 use moatless_loops::loops;
-use moatless_tasks::{agent, feedback, message, tag, task, task_event};
+use moatless_tasks::{agent, artifact, feedback, message, tag, task, task_event};
 use moatless_workspaces::{plugin, repository, skill, workspace};
 use std::sync::Arc;
 use tracing::info;
@@ -17,6 +17,7 @@ pub(crate) fn domain_routes(app_state: &AppState) -> (Router, utoipa::openapi::O
         agent::routes::agent_router(app_state.clone()),
         task::routes::task_router(app_state.clone()),
         feedback::routes::feedback_router(app_state.clone()),
+        artifact::routes::artifact_router(app_state.clone()),
         message::routes::message_router(app_state.clone()),
         file_storage::routes::file_storage_router(app_state.clone()),
         repository::routes::repository_router(app_state.clone()),

@@ -3,6 +3,7 @@ export * from './agent-harness-access/agent-harness-access';
 export * from './agents/agents';
 export * from './api-keys/api-keys';
 export * from './app-administration/app-administration';
+export * from './artifacts/artifacts';
 export * from './auth/auth';
 export * from './decisions/decisions';
 export * from './feature-flags/feature-flags';

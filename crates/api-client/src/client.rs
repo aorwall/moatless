@@ -1017,6 +1017,46 @@ impl ApiClient {
     }
 
     // ========================================================================
+    // Artifacts
+    // ========================================================================
+
+    /// POST `/api/v1/tasks/{task_id}/artifacts` — publish one HTML page,
+    /// named `file_name`, as the next version of an Artifact.
+    pub async fn publish_artifact(
+        &self,
+        task_id: &str,
+        title: &str,
+        slug: Option<&str>,
+        file_name: &str,
+        html: Vec<u8>,
+    ) -> Result<moatless_api_schemas::artifact::ArtifactResponse, ApiError> {
+        let url = format!(
+            "{}/api/v1/tasks/{}/artifacts",
+            self.base_url,
+            urlenc(task_id)
+        );
+        let mut form = reqwest::multipart::Form::new().text("title", title.to_string());
+        if let Some(slug) = slug {
+            form = form.text("slug", slug.to_string());
+        }
+        form = form.part(
+            "file",
+            reqwest::multipart::Part::bytes(html).file_name(file_name.to_string()),
+        );
+        let resp = self.http.post(&url).multipart(form).send().await?;
+        self.parse_response(resp).await
+    }
+
+    /// GET `/api/v1/tasks/{task_id}/artifacts`
+    pub async fn list_task_artifacts(
+        &self,
+        task_id: &str,
+    ) -> Result<moatless_api_schemas::artifact::ListArtifactsResponse, ApiError> {
+        self.get(&format!("/api/v1/tasks/{}/artifacts", urlenc(task_id)))
+            .await
+    }
+
+    // ========================================================================
     // Teams
     // ========================================================================
 

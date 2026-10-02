@@ -263,6 +263,13 @@ pub const CONCERNS: &[Concern] = &[
         slice: 9,
     },
     Concern {
+        name: "artifacts",
+        owner: "moatless-tasks",
+        roots: &["crates/tasks/src/artifact/dao"],
+        tables: &["task_artifacts"],
+        slice: 9,
+    },
+    Concern {
         name: "messages",
         owner: "moatless-tasks",
         roots: &[

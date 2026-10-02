@@ -48,6 +48,9 @@ pub struct PromptInputs<'a> {
     pub frontend_url: Option<&'a str>,
     /// Whether the backend has a decision provider, so `moat decide` answers.
     pub decisions_enabled: bool,
+    /// Whether the backend has object storage, so `moat artifact publish`
+    /// answers.
+    pub artifacts_enabled: bool,
 }
 
 /// Steers the agent toward `moat gh` and away from the (broken) hosted GitHub
@@ -197,6 +200,31 @@ or your reply to the user, not here. Things you simply had to think about do not
 belong here either. Say nothing if nothing comes to mind; an empty inbox is a
 fine result.";
 
+/// Names `moat artifact publish` and when to use it; sent only when the
+/// backend has object storage to keep Artifacts in.
+const ARTIFACTS_PROMPT: &str = "\
+# Artifacts
+
+`moat artifact publish <file.html> --title \"<title>\"` publishes an HTML page as
+an Artifact: a page stored outside the sandbox, so it stays available after the
+sandbox stops, and visible to anyone who can see the task. Use it when a page
+would be clearer than terminal text, or when the person or their team would use
+the page rather than only read it. An Artifact is one self-contained HTML file:
+inline the CSS and JavaScript, embed images as data URIs, and load libraries
+from a CDN. Write it in a scratch or gitignored directory, not the repository,
+and give the person the URL the command prints.
+
+When finished work is meant for other people, such as a report for a team or
+the case for a decision, publish it and give the link rather than leaving it in
+the conversation or a local file. Publish apps, dashboards and pages the person
+asks to view or share. When they ask for the file itself, give them the file.
+Advice they will act on right away in the code they are working on needs no
+page.
+
+Publishing again with `--slug <slug>` adds a version to the same Artifact, and
+its link always opens the latest one; `moat artifact list` shows what this task
+has published.";
+
 /// Build the append-system-prompt for a task.
 ///
 /// Loads the task's workspace and URL settings, then delegates to
@@ -278,6 +306,7 @@ pub async fn build_for_task(
         repo_system_prompt: workspace.as_ref().and_then(|w| w.system_prompt.as_deref()),
         frontend_url,
         decisions_enabled: config.is_some_and(|c| c.decision.provider.is_some()),
+        artifacts_enabled: config.is_some_and(|c| c.s3.bucket_name.is_some()),
     })
 }
 
@@ -319,6 +348,9 @@ pub fn build_append_system_prompt(inputs: &PromptInputs<'_>) -> String {
     sections.push(SANDBOX_TOOLS_PROMPT.to_string());
     if inputs.decisions_enabled {
         sections.push(DECISIONS_PROMPT.to_string());
+    }
+    if inputs.artifacts_enabled {
+        sections.push(ARTIFACTS_PROMPT.to_string());
     }
     sections.push(FEEDBACK_PROMPT.to_string());
 
@@ -386,7 +418,21 @@ mod tests {
             repo_system_prompt: None,
             frontend_url: None,
             decisions_enabled: false,
+            artifacts_enabled: false,
         }
+    }
+
+    #[test]
+    fn artifacts_section_only_when_object_storage_is_configured() {
+        let off = build_append_system_prompt(&base_inputs("task-123"));
+        assert!(!off.contains("moat artifact"), "{off}");
+
+        let on = build_append_system_prompt(&PromptInputs {
+            artifacts_enabled: true,
+            ..base_inputs("task-123")
+        });
+        assert!(on.contains("# Artifacts"), "{on}");
+        assert!(on.contains("moat artifact publish <file.html>"), "{on}");
     }
 
     #[test]

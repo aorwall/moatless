@@ -26,6 +26,7 @@ pub fn files_from(rows: Vec<FileInfo>) -> Arc<Files> {
             key_prefix: "uploads".to_string(),
             transcript_prefix: "transcripts".to_string(),
             workspace_prefix: "workspaces".to_string(),
+            artifact_prefix: "artifacts".to_string(),
             region: "us-east-1".to_string(),
         }),
     ))

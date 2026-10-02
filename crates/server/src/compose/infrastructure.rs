@@ -161,6 +161,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     use moatless_identity::team::routes::TeamApiDoc;
     use moatless_loops::loops::http::LoopsApiDoc;
     use moatless_tasks::agent::routes::AgentApiDoc;
+    use moatless_tasks::artifact::routes::ArtifactApiDoc;
     use moatless_tasks::feedback::routes::FeedbackApiDoc;
     use moatless_tasks::message::routes::MessageApiDoc;
     use moatless_tasks::tag::routes::TagApiDoc;
@@ -218,6 +219,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     merged.merge(TaskApiDoc::openapi());
     merged.merge(MessageApiDoc::openapi());
     merged.merge(FeedbackApiDoc::openapi());
+    merged.merge(ArtifactApiDoc::openapi());
     merged.merge(FileStorageApiDoc::openapi());
     merged.merge(RepositoryApiDoc::openapi());
     merged.merge(RepositorySyncApiDoc::openapi());

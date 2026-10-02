@@ -18,6 +18,8 @@ use moatless_ports::sandbox::{
 };
 use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
 
+use crate::artifact::dao::{ArtifactDao, PgArtifactDao};
+use crate::artifact::operations::Artifacts;
 use crate::credential_sync::CredentialSync;
 use crate::event_ingress::EventAdmission;
 use crate::feedback::dao::{FeedbackDao, PgFeedbackDao};
@@ -62,6 +64,7 @@ pub struct TaskGraph {
     events: Arc<dyn TaskEventDao>,
     tags: Arc<dyn TagDao>,
     feedback: Arc<dyn FeedbackDao>,
+    artifacts: Arc<dyn ArtifactDao>,
 }
 
 /// Build the tasks band's stores over `db`.
@@ -75,6 +78,7 @@ pub fn task_graph(db: DbPool) -> TaskGraph {
         events: Arc::new(PgTaskEventDao(db.clone())),
         tags: Arc::new(PgTagDao(db.clone())),
         feedback: Arc::new(PgFeedbackDao(db.clone())),
+        artifacts: Arc::new(PgArtifactDao(db.clone())),
         db,
     }
 }
@@ -165,6 +169,22 @@ impl TaskGraph {
     /// The `feedback` table, as a host reads and writes it.
     pub fn feedback(&self) -> Arc<FeedbackNotes> {
         Arc::new(FeedbackNotes::new(self.feedback.clone()))
+    }
+
+    /// The `task_artifacts` table and its objects in `s3`, with response URLs
+    /// under `public_url`.
+    pub fn artifacts(
+        &self,
+        s3: Option<moatless_s3::S3Storage>,
+        s3_config: Arc<moatless_core::config::S3Config>,
+        public_url: &str,
+    ) -> Arc<Artifacts> {
+        Arc::new(Artifacts::new(
+            self.artifacts.clone(),
+            s3,
+            s3_config,
+            public_url,
+        ))
     }
 
     /// The unclaimed-user-message predicate the desired-state reconciler reads.

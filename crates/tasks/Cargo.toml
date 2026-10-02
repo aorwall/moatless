@@ -10,6 +10,8 @@ moatless-workspace-types = { workspace = true, features = ["openapi"] }
 moatless-workspace-ports = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true, features = ["macros"] }
+# Multipart form parsing (artifact publish).
+axum-extra = { version = "0.12", features = ["multipart"] }
 chrono = { workspace = true, features = ["serde"] }
 # Counter/gauge instrumentation (event ingress, reaper).
 metrics = { workspace = true }
@@ -27,6 +29,7 @@ tokio-util = { workspace = true }
 # gRPC status type for the event-ingress admission return.
 tonic = { workspace = true }
 tracing = { workspace = true }
+# Artifact file names arrive percent-encoded (artifact publish).
 uuid = { workspace = true, features = ["v4", "v5", "v7", "serde"] }
 utoipa = { workspace = true, features = ["axum_extras"] }
 utoipa-axum = { workspace = true }
@@ -37,6 +40,8 @@ moatless-core = { workspace = true, features = ["openapi"] }
 moatless-types = { workspace = true }
 moatless-identity = { workspace = true }
 moatless-workspaces = { workspace = true }
+# Artifact objects.
+moatless-s3 = { workspace = true }
 
 [features]
 test-support = ["dep:mockall"]

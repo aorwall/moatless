@@ -27,6 +27,7 @@ use moatless_loops::bindings::ports::BindingDirectory;
 use moatless_loops::compose::LoopGraph;
 use moatless_loops::loops::operations::Loops;
 use moatless_sandbox_control::compose::SandboxGraph;
+use moatless_tasks::artifact::operations::Artifacts;
 use moatless_tasks::compose::TaskGraph;
 use moatless_tasks::feedback::operations::FeedbackNotes;
 use moatless_tasks::message::operations::Messages;
@@ -71,6 +72,8 @@ pub struct Ports {
     pub task_turns: Arc<TaskTurns>,
     pub messages: Arc<Messages>,
     pub feedback: Arc<FeedbackNotes>,
+    /// Artifacts: the `task_artifacts` rows and their objects in S3.
+    pub artifacts: Arc<Artifacts>,
     pub repositories: Arc<Repositories>,
     /// The narrowed read the task and loop bands take, over the same store.
     pub repository_reader: Arc<dyn moatless_workspace_ports::RepositoryReader>,
@@ -250,6 +253,11 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
     let task_turns = task_graph.task_turns();
     let turn_counter = task_graph.turn_ledger();
     let feedback = task_graph.feedback();
+    let artifacts = task_graph.artifacts(
+        s3.clone(),
+        Arc::new(config.s3.clone()),
+        &config.auth.frontend_url,
+    );
     let tags = task_graph.tags();
     let tag_resolver = task_graph.tag_catalog();
 
@@ -270,6 +278,7 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
         task_turns,
         turn_counter,
         feedback,
+        artifacts,
         repositories,
         repository_reader,
         workspaces,

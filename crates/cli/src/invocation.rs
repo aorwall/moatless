@@ -182,6 +182,9 @@ async fn run_shared(
         SharedCommands::Decide { action } => {
             commands::decide::run(moat, action, cfg, json).await?;
         }
+        SharedCommands::Artifact { action } => {
+            commands::artifact::run(moat, action, cfg, json).await?;
+        }
     }
 
     Ok(())

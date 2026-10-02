@@ -2158,6 +2158,88 @@
         }
       }
     },
+    "/api/v1/artifacts/{artifact_id}": {
+      "get": {
+        "tags": [
+          "artifacts"
+        ],
+        "summary": "Redirect to the page of the Artifact's latest version.",
+        "operationId": "open_latest_artifact",
+        "parameters": [
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "description": "Artifact identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to the latest version"
+          },
+          "404": {
+            "description": "Artifact not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/artifacts/{artifact_id}/{version}": {
+      "get": {
+        "tags": [
+          "artifacts"
+        ],
+        "summary": "Serve the page of a published Artifact version.",
+        "operationId": "serve_artifact_page",
+        "parameters": [
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "description": "Artifact identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "description": "Version, as in `v3`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The HTML page",
+            "content": {
+              "text/html": {}
+            }
+          },
+          "404": {
+            "description": "Artifact or version not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/auth/api-key/session": {
       "post": {
         "tags": [
@@ -6873,6 +6955,138 @@
         }
       }
     },
+    "/api/v1/tasks/{task_id}/artifacts": {
+      "get": {
+        "tags": [
+          "artifacts"
+        ],
+        "summary": "List a Task's published Artifacts, most recently updated first.",
+        "operationId": "list_task_artifacts",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Artifact list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListArtifactsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "artifacts"
+        ],
+        "summary": "Publish a new version of an Artifact from a multipart upload.",
+        "operationId": "publish_artifact",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishArtifactBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Version published",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Caller cannot change the Task",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Page too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Object storage not configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tasks/{task_id}/bindings": {
       "get": {
         "tags": [
@@ -10576,6 +10790,60 @@
           }
         }
       },
+      "ArtifactResponse": {
+        "type": "object",
+        "description": "One published version of an Artifact, as `POST\n/api/v1/tasks/{task_id}/artifacts` answers it.",
+        "required": [
+          "artifactId",
+          "taskId",
+          "slug",
+          "title",
+          "version",
+          "url",
+          "latestUrl",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "artifactId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "latestUrl": {
+            "type": "string",
+            "description": "Absolute URL that redirects to whichever version is latest."
+          },
+          "slug": {
+            "type": "string"
+          },
+          "taskId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "description": "Absolute URL of this version's page; never changes."
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The latest published version, starting at 1."
+          }
+        }
+      },
       "AskUserQuestionInput": {
         "type": "object",
         "description": "Input payload for the `AskUserQuestion` tool.",
@@ -13923,6 +14191,21 @@
           }
         }
       },
+      "ListArtifactsResponse": {
+        "type": "object",
+        "description": "Response for `GET /api/v1/tasks/{task_id}/artifacts`, newest first.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArtifactResponse"
+            }
+          }
+        }
+      },
       "ListFeedbackResponse": {
         "type": "object",
         "description": "Response wrapper for `GET /api/v1/tasks/{task_id}/feedback`.",
@@ -15219,6 +15502,31 @@
         "properties": {
           "status": {
             "$ref": "#/components/schemas/SandboxStatus"
+          }
+        }
+      },
+      "PublishArtifactBody": {
+        "type": "object",
+        "description": "Doc-only type for the multipart body of `POST\n/api/v1/tasks/{task_id}/artifacts`.",
+        "required": [
+          "title",
+          "file"
+        ],
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary",
+            "description": "One self-contained page, with a `.html` or `.htm` filename."
+          },
+          "slug": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Stable name that later publishes of the same page reuse; derived from\nthe title when omitted."
+          },
+          "title": {
+            "type": "string"
           }
         }
       },
@@ -20304,6 +20612,10 @@
     {
       "name": "feedback",
       "description": "Qualitative feedback on agent runs"
+    },
+    {
+      "name": "artifacts",
+      "description": "HTML pages published from a Task"
     },
     {
       "name": "file-storage",

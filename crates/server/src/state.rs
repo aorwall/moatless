@@ -32,6 +32,7 @@ use moatless_loops::loops::sync::LoopSyncService;
 use moatless_ports::identity::GitHostTokenIssuer;
 use moatless_ports::sandbox::PreflightPort;
 use moatless_ports::sandbox::SandboxLifecycle;
+use moatless_tasks::artifact::operations::Artifacts;
 use moatless_tasks::credential_sync::CredentialSync;
 use moatless_tasks::event_ingress::EventAdmission;
 use moatless_tasks::feedback::operations::FeedbackNotes;
@@ -198,6 +199,7 @@ pub struct AppState {
     /// The conversation behind the published `TranscriptAppend` seam.
     pub transcript: Arc<moatless_tasks::ports::Transcript>,
     pub feedback: Arc<FeedbackNotes>,
+    pub artifacts: Arc<Artifacts>,
     pub repositories: Arc<Repositories>,
     pub repository_branches:
         Arc<moatless_workspaces::repository::branches::RepositoryBranchService>,
@@ -312,6 +314,12 @@ impl axum::extract::FromRef<AppState> for Arc<Files> {
 impl axum::extract::FromRef<AppState> for Arc<FeedbackNotes> {
     fn from_ref(state: &AppState) -> Self {
         state.feedback.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<Artifacts> {
+    fn from_ref(state: &AppState) -> Self {
+        state.artifacts.clone()
     }
 }
 

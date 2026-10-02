@@ -1,6 +1,7 @@
 pub mod adapters;
 pub mod agents;
 pub mod api;
+pub mod artifact;
 pub mod bots;
 pub mod cmd;
 pub mod decide;

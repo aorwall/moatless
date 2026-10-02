@@ -134,6 +134,13 @@ shared checkout.
 _Avoid_: "child" for a Fork when the distinction from a `created_by` subtask
 matters — a Fork is a parent-edged Task, not a spawned subagent Task.
 
+**Artifact**:
+A single self-contained HTML page that an agent publishes from a Task with
+`moat artifact publish`. Stored in object storage, so it outlives the Sandbox
+and the Task's pod, and readable by anyone who can read the Task. Each publish
+under the same slug adds an immutable version; its link opens the latest.
+_Avoid_: asset (an uploaded attachment, not something the agent publishes)
+
 ### Providers — always qualified
 
 "Provider" is never a domain term on its own: five unrelated concepts share the

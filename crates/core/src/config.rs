@@ -505,6 +505,10 @@ pub struct S3Config {
     /// URLs scoped to this prefix. Env `WORKSPACE_S3_PREFIX` (default
     /// "workspaces").
     pub workspace_prefix: String,
+    /// S3 key prefix for published Artifacts, under
+    /// `<prefix>/<task_id>/<artifact_id>/v<n>.html`. Reuses the uploads
+    /// bucket. Env `ARTIFACT_S3_PREFIX` (default "artifacts").
+    pub artifact_prefix: String,
     /// S3 region (default: "us-east-1")
     pub region: String,
 }
@@ -1029,6 +1033,7 @@ impl Config {
                 key_prefix: env_str("S3_KEY_PREFIX", "uploads"),
                 transcript_prefix: env_str("TRANSCRIPT_S3_PREFIX", "transcripts"),
                 workspace_prefix: env_str("WORKSPACE_S3_PREFIX", "workspaces"),
+                artifact_prefix: env_str("ARTIFACT_S3_PREFIX", "artifacts"),
                 region: env_str("S3_REGION", "us-east-1"),
             },
 
@@ -1448,6 +1453,7 @@ impl Config {
                 key_prefix: "test".into(),
                 transcript_prefix: "transcripts".into(),
                 workspace_prefix: "workspaces".into(),
+                artifact_prefix: "artifacts".into(),
                 region: "us-east-1".into(),
             },
             slack: SlackConfig {

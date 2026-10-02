@@ -167,6 +167,12 @@ pub(super) enum SharedCommands {
         #[command(subcommand)]
         action: commands::decide::DecideAction,
     },
+    /// Publish HTML pages from a task so they outlive its sandbox, and list
+    /// what has been published
+    Artifact {
+        #[command(subcommand)]
+        action: commands::artifact::ArtifactAction,
+    },
 }
 
 // ---------------------------------------------------------------------------

@@ -5,6 +5,7 @@
 
 pub mod adapters;
 pub mod agent;
+pub mod artifact;
 pub mod auth;
 pub mod bindings;
 pub mod codex;
