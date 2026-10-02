@@ -65,12 +65,11 @@ pub async fn list(
     viewer: &ScopeContext,
     task_id: &str,
 ) -> Result<Value, SubtasksError> {
-    if state
+    if !state
         .conversations
-        .readable_by_id(viewer, task_id)
+        .can_read_conversation(viewer, task_id)
         .await
         .map_err(SubtasksError::Database)?
-        .is_none()
     {
         return Err(SubtasksError::NotFound);
     }
@@ -203,8 +202,8 @@ mod tests {
     async fn unreadable_parent_is_not_found_and_reads_no_relations() {
         let mut conversations = MockConversationDao::new();
         conversations
-            .expect_readable_by_id()
-            .returning(|_, _| Ok(None));
+            .expect_can_read_conversation()
+            .returning(|_, _| Ok(false));
         conversations.expect_readable_by_ids().never();
 
         let error = list(
@@ -224,13 +223,9 @@ mod tests {
     #[tokio::test]
     async fn lists_both_parent_edges_in_spawn_order_and_drops_peers() {
         let mut conversations = MockConversationDao::new();
-        conversations.expect_readable_by_id().returning(|_, _| {
-            Ok(Some(conversation(
-                "parent",
-                "2024-01-01T00:00:00Z",
-                "Parent",
-            )))
-        });
+        conversations
+            .expect_can_read_conversation()
+            .returning(|_, _| Ok(true));
         conversations.expect_readable_by_ids().returning(|_, ids| {
             // `related_to` must never reach the conversation read.
             assert_eq!(ids.len(), 2);
@@ -267,13 +262,9 @@ mod tests {
     #[tokio::test]
     async fn a_child_the_viewer_cannot_read_is_absent() {
         let mut conversations = MockConversationDao::new();
-        conversations.expect_readable_by_id().returning(|_, _| {
-            Ok(Some(conversation(
-                "parent",
-                "2024-01-01T00:00:00Z",
-                "Parent",
-            )))
-        });
+        conversations
+            .expect_can_read_conversation()
+            .returning(|_, _| Ok(true));
         conversations
             .expect_readable_by_ids()
             .returning(|_, _| Ok(vec![]));

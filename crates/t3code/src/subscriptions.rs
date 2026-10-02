@@ -60,17 +60,8 @@ pub async fn thread_subscription(
         None => Resume::Rebuild,
     };
     if let Resume::From(cursor) = resume {
-        // A replay reads nothing when nothing changed, and a poll that reads
-        // nothing checks nothing. So the visibility rule is applied here as
-        // well, or subscribing to a conversation this viewer may not see would
-        // succeed for as long as it stayed still.
-        if conversations
-            .readable_by_id(viewer, task_id)
-            .await?
-            .is_none()
-        {
-            return Ok(None);
-        }
+        // No access check of its own: the first poll below makes one, silent
+        // or not, and answers `None` for a conversation this viewer may not see.
         let mut feed = ThreadFeed::resuming_from(task_id.to_string(), cursor);
         let Some(values) = poll_thread(&mut feed, reads, deployment, viewer).await? else {
             return Ok(None);

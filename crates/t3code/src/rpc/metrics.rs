@@ -1,10 +1,8 @@
 //! UI-RPC request spans, bounded metric labels and outcome classification.
 //!
-//! Emitted at the one seam every request crosses — [`answered`], which wraps
-//! the handler on the frame loop and off it — by reading the frames the handler
-//! produced. [`CONNECTION_BLOCKED`] is the exception and is emitted from
-//! `serve_websocket`, because what it measures is the connection rather than
-//! the request. Nothing else in this crate increments them.
+//! Emitted at [`answered`], which wraps every handler, from the frames it
+//! produced. The exceptions say where they are emitted; nothing else in this
+//! crate increments any of them.
 //!
 //! The `tag` label is a method name the client chose, so it is bounded by
 //! [`Outcome::tag_label`] rather than by trust: only an outcome that proves the
@@ -32,8 +30,14 @@ pub(crate) const CONNECTION_DEFECTS: &str = "moatless_ui_rpc_connection_defects_
 /// socket.
 ///
 /// Unlabeled deliberately — this is how long a single frame holds the loop,
-/// not which method is slow.
+/// not which method is slow. Emitted from `serve_websocket` rather than
+/// [`answered`], since it measures the connection.
 pub(crate) const CONNECTION_BLOCKED: &str = "moatless_ui_rpc_connection_blocked_seconds";
+
+/// Thread subscriptions open on this process, each polling its conversation
+/// once per `THREAD_POLL_INTERVAL`. Held by `watch_thread` rather than
+/// [`answered`], since a stream outlives its request.
+pub(crate) const THREAD_SUBSCRIPTIONS: &str = "moatless_ui_rpc_thread_subscriptions_open";
 
 /// Register the descriptions during compatibility router assembly.
 pub(crate) fn describe() {
@@ -49,6 +53,10 @@ pub(crate) fn describe() {
     metrics::describe_histogram!(
         CONNECTION_BLOCKED,
         "T3 UI-RPC seconds a connection could not read its socket"
+    );
+    metrics::describe_gauge!(
+        THREAD_SUBSCRIPTIONS,
+        "T3 UI-RPC thread subscriptions currently open"
     );
 }
 

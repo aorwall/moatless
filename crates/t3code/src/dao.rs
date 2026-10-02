@@ -362,6 +362,14 @@ pub trait ConversationDao: Send + Sync {
         task_ids: &[String],
     ) -> Result<Vec<Conversation>, sqlx::Error>;
 
+    /// Whether [`Self::readable_by_id`] would return the named Task, read
+    /// from `tasks` alone: the same read and status rules, none of the row.
+    async fn can_read_conversation(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+    ) -> Result<bool, sqlx::Error>;
+
     /// Whether this viewer may *operate* the named Task — the `control_filter`
     /// rule: the write rule, widened by `visibility = 'public'`.
     ///
@@ -570,6 +578,15 @@ struct Page<'a> {
 /// from a re-read the same way one the viewer no longer follows does.
 const LISTED_STATUSES: &[TaskStatus] = &[TaskStatus::Open, TaskStatus::Closed];
 
+/// `statuses` as the operand of an `IN`, in the enum's own spelling.
+fn status_list(statuses: &[TaskStatus]) -> String {
+    statuses
+        .iter()
+        .map(|status| format!("'{}'", status.as_str()))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// How wide a conversation read reaches: both variants share the same read rule
 /// — `Readable` widens past the follow join only, never past access — so
 /// follower state (`settled_*`, `snoozed_*`) stays absent for a viewer who does
@@ -672,11 +689,7 @@ impl PgConversationDao {
         // rather than a literal typed twice: `tasks.status` is `text` with no
         // CHECK constraint, so a misspelling here would be a listing that is
         // always empty and a database that never complains.
-        let statuses = statuses
-            .iter()
-            .map(|status| format!("'{}'", status.as_str()))
-            .collect::<Vec<_>>()
-            .join(", ");
+        let statuses = status_list(statuses);
         let access = moatless_core::db::access_control::access_filter(ScopedEntity::Task, "t.", 1);
         let follower = access.next_param();
         let question_tool = follower + 1;
@@ -1289,6 +1302,26 @@ impl ConversationDao for PgConversationDao {
             None,
         )
         .await
+    }
+
+    async fn can_read_conversation(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let access = moatless_core::db::access_control::access_filter(ScopedEntity::Task, "t.", 2);
+        let sql = format!(
+            "SELECT 1 FROM tasks t WHERE t.task_id = $1 AND t.status IN ({}) AND {}",
+            status_list(LISTED_STATUSES),
+            access.sql()
+        );
+        let found = sqlx::query_scalar::<_, i32>(AssertSqlSafe(sql))
+            .bind(task_id)
+            .bind(viewer.is_admin)
+            .bind(&viewer.user_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(found.is_some())
     }
 
     async fn controls_conversation(

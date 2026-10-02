@@ -545,6 +545,9 @@ pub(super) fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore
     conversations
         .expect_readable_by_id()
         .returning(|_, _| Ok(None));
+    conversations
+        .expect_can_read_conversation()
+        .returning(|_, _| Ok(false));
     conversations.expect_listing_head().returning(|| {
         Ok(UiRpcListingHead {
             identity: stub_identity(),

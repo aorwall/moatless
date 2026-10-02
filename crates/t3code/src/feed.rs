@@ -315,6 +315,14 @@ impl ThreadFeed {
         }
     }
 
+    fn log_unreadable(&self, viewer: &ScopeContext) {
+        debug!(
+            task_id = %self.task_id,
+            user_id = %viewer.user_id,
+            "The conversation a T3 UI thread subscription watches is no longer visible to it"
+        );
+    }
+
     pub(crate) fn task_id(&self) -> &str {
         &self.task_id
     }
@@ -340,29 +348,30 @@ impl ThreadFeed {
             .conversation_changes(&self.task_id, self.cursor, THREAD_POLL_CHANGES)
             .await?;
 
-        // The conversation itself, through the same read the snapshot resolved
-        // it with — which is where this poll's access check lives, and why a
-        // conversation that left this viewer's reach needs no rule repeated
-        // here. By access rather than by Follow, or an open subscription would
-        // end on its first poll for every reader who opened a conversation they
-        // do not follow.
-        //
-        // Read on every poll, including the silent ones. Closing or deleting a
-        // Task records no *conversation* change — nothing about its Messages
-        // moved — so a check that ran only when something was recorded would
-        // never run at all on the conversation most likely to have ended, and
-        // its subscription would sit open on a thread that is gone.
-        let Some(conversation) = conversations.readable_by_id(viewer, &self.task_id).await? else {
-            debug!(
-                task_id = %self.task_id,
-                user_id = %viewer.user_id,
-                "The conversation a T3 UI thread subscription watches is no longer visible to it"
-            );
-            return Ok(None);
+        // A silent poll still checks access: closing or deleting a Task records
+        // no conversation change, so a check run only on changes would never end
+        // this subscription. It asks `can_read_conversation` rather than
+        // `readable_by_id`, whose listing query, once a second per open thread,
+        // held a large share of the pool.
+        let Some(last) = changes.last() else {
+            if !conversations
+                .can_read_conversation(viewer, &self.task_id)
+                .await?
+            {
+                self.log_unreadable(viewer);
+                return Ok(None);
+            }
+            return Ok(Some(Vec::new()));
         };
 
-        let Some(last) = changes.last() else {
-            return Ok(Some(Vec::new()));
+        // The conversation itself, through the same read the snapshot resolved
+        // it with, so a conversation that left this viewer's reach needs no rule
+        // repeated here. By access rather than by Follow, or an open
+        // subscription would end on its first poll for every reader who opened
+        // a conversation they do not follow.
+        let Some(conversation) = conversations.readable_by_id(viewer, &self.task_id).await? else {
+            self.log_unreadable(viewer);
+            return Ok(None);
         };
         let read_through = last.position;
 
@@ -933,14 +942,18 @@ mod tests {
     }
 
     /// An idle conversation is not a gone one, and a subscription that ended on
-    /// silence would end every one of them.
+    /// silence would end every one of them. The access check is the one-row
+    /// read: the full row costs the listing query, once a second per open
+    /// thread.
     #[tokio::test]
     async fn a_poll_over_a_conversation_that_did_not_move_says_nothing() {
         let mut dao = MockConversationDao::new();
         dao.expect_conversation_changes()
             .returning(|_, _, _| Ok(Vec::new()));
-        dao.expect_readable_by_id()
-            .returning(|_, _| Ok(Some(a_conversation())));
+        dao.expect_can_read_conversation()
+            .times(1)
+            .returning(|_, _| Ok(true));
+        dao.expect_readable_by_id().never();
         let mut feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 8 }, None);
         assert_eq!(
             feed.poll(&dao, &viewer(), "http://localhost:3000")
@@ -953,13 +966,15 @@ mod tests {
 
     /// Closing, deleting or unfollowing a Task records no change, so a check
     /// that only ran when something was recorded would never catch it — which
-    /// is why the silent poll above still reads the row.
+    /// is why the silent poll above still checks access.
     #[tokio::test]
     async fn an_idle_subscription_still_discovers_that_its_conversation_ended() {
         let mut dao = MockConversationDao::new();
         dao.expect_conversation_changes()
             .returning(|_, _, _| Ok(Vec::new()));
-        dao.expect_readable_by_id().returning(|_, _| Ok(None));
+        dao.expect_can_read_conversation()
+            .returning(|_, _| Ok(false));
+        dao.expect_readable_by_id().never();
         let mut feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 8 }, None);
         assert!(
             feed.poll(&dao, &viewer(), "http://localhost:3000")

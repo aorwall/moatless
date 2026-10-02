@@ -3,6 +3,7 @@ use crate::dao::ConversationDao;
 use crate::feed;
 use crate::reads::T3Reads;
 use crate::review;
+use crate::rpc::metrics::THREAD_SUBSCRIPTIONS;
 use crate::state::Deployment;
 use crate::subscription;
 use crate::subscription::StreamFailure;
@@ -125,6 +126,7 @@ pub(crate) async fn watch_thread(
     model_defaults: Arc<AgentModelDefaults>,
     viewer: ScopeContext,
 ) -> StreamResult {
+    let _open = OpenThreadSubscription::count();
     let deployment = Deployment {
         model_defaults: &model_defaults,
         frontend_url: &frontend_url,
@@ -155,6 +157,23 @@ pub(crate) async fn watch_thread(
         if !sink.send_values(values).await {
             return Ok(());
         }
+    }
+}
+
+/// One open thread subscription on [`THREAD_SUBSCRIPTIONS`], released on drop
+/// so a stream aborted mid-poll is uncounted too.
+struct OpenThreadSubscription;
+
+impl OpenThreadSubscription {
+    fn count() -> Self {
+        metrics::gauge!(THREAD_SUBSCRIPTIONS).increment(1.0);
+        Self
+    }
+}
+
+impl Drop for OpenThreadSubscription {
+    fn drop(&mut self) {
+        metrics::gauge!(THREAD_SUBSCRIPTIONS).decrement(1.0);
     }
 }
 

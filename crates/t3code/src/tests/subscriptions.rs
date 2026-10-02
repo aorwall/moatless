@@ -118,6 +118,27 @@ async fn a_thread_subscription_that_cannot_be_opened_fails_rather_than_hangs() {
     assert!(!session.streams.contains("6"));
 }
 
+/// The same refusal for a returning client, whose replay is the feed's first
+/// poll: a conversation that did not move is still checked for access.
+#[tokio::test]
+async fn a_resumed_thread_subscription_that_cannot_be_opened_fails() {
+    let mut session = session();
+    let output = session
+        .handle_json(
+            &request(
+                "6",
+                "orchestration.subscribeThread",
+                json!({ "threadId": "task-gone", "afterSequence": 0 }),
+            ),
+            &state(),
+            &viewer(),
+        )
+        .await;
+    assert_eq!(output.frames[0]["_tag"], "Exit");
+    assert_eq!(output.frames[0]["exit"]["cause"][0]["_tag"], "Die");
+    assert!(!session.streams.contains("6"));
+}
+
 #[tokio::test]
 async fn a_thread_subscription_without_a_thread_is_refused() {
     let mut session = session();

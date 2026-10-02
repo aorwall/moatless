@@ -865,3 +865,49 @@ async fn the_archive_pages_through_every_closed_task_newest_first(pool: PgPool) 
     );
     assert_eq!(second["nextCursor"], serde_json::Value::Null);
 }
+
+/// The one-row access check a silent thread poll asks gives the same answer
+/// as the full read it stands in for, across the read and status rules.
+#[sqlx::test(migrations = "../core/migrations")]
+async fn the_access_check_agrees_with_the_conversation_read(pool: PgPool) {
+    let repo = make_repository_row("repo-1", USER_1);
+    moatless_workspaces::compose::seed_repository(&pool, &repo)
+        .await
+        .expect("seed repo");
+    seed_browsable(&pool, "check-private", USER_1, &[]).await;
+    let mut public = make_task_row("check-public", USER_1);
+    public.visibility = Visibility::Public;
+    let mut closed = make_task_row("check-closed", USER_1);
+    closed.status = TaskStatus::Closed;
+    let mut errored = make_task_row("check-error", USER_1);
+    errored.status = TaskStatus::Error;
+    for task in [&public, &closed, &errored] {
+        moatless_tasks::task::test_support::seed_task(&pool, task)
+            .await
+            .expect("seed task");
+    }
+
+    let dao = conversations_over(&pool);
+    let owner = ScopeContext {
+        user_id: USER_1.to_string(),
+        is_admin: false,
+    };
+    let stranger = ScopeContext {
+        user_id: USER_2.to_string(),
+        is_admin: false,
+    };
+    let cases = [
+        (&owner, "check-private", true),
+        (&stranger, "check-private", false),
+        (&stranger, "check-public", true),
+        (&owner, "check-closed", true),
+        (&owner, "check-error", false),
+        (&owner, "check-missing", false),
+    ];
+    for (viewer, task_id, expected) in cases {
+        let read = dao.readable_by_id(viewer, task_id).await.unwrap().is_some();
+        let checked = dao.can_read_conversation(viewer, task_id).await.unwrap();
+        assert_eq!(read, expected, "{task_id} read by {}", viewer.user_id);
+        assert_eq!(checked, read, "{task_id} checked by {}", viewer.user_id);
+    }
+}
