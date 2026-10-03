@@ -28,6 +28,9 @@ pub struct HttpConfig {
     /// The git proxy's upstream, whose pack streams for as long as it moves.
     /// Prefix `GIT_PROXY`.
     pub git_proxy: HttpStreamTimeouts,
+    /// The GitHub API proxy's upstream, which streams a log or release asset
+    /// for as long as it moves. Prefix `GITHUB_PROXY`.
+    pub github_proxy: HttpStreamTimeouts,
     /// Linear's GraphQL and OAuth APIs. Prefix `LINEAR`.
     pub linear: HttpTimeouts,
     /// Slack's Web API. Prefix `SLACK`.
@@ -60,10 +63,8 @@ impl Default for HttpConfig {
             self_hosted_git: api,
             git_content: api,
             plugin_archive: timeouts(10, 120),
-            git_proxy: HttpStreamTimeouts {
-                connect: Duration::from_secs(10),
-                idle: Duration::from_mins(5),
-            },
+            git_proxy: stream_timeouts(10, 300),
+            github_proxy: stream_timeouts(10, 300),
             linear: api,
             slack: api,
             telegram: api,
@@ -87,14 +88,8 @@ impl HttpConfig {
             self_hosted_git: read(var, "SELF_HOSTED_GIT", d.self_hosted_git),
             git_content: read(var, "GIT_CONTENT", d.git_content),
             plugin_archive: read(var, "PLUGIN_ARCHIVE", d.plugin_archive),
-            git_proxy: HttpStreamTimeouts {
-                connect: secs(
-                    var,
-                    "GIT_PROXY_HTTP_CONNECT_TIMEOUT_SECS",
-                    d.git_proxy.connect,
-                ),
-                idle: secs(var, "GIT_PROXY_HTTP_IDLE_TIMEOUT_SECS", d.git_proxy.idle),
-            },
+            git_proxy: read_stream(var, "GIT_PROXY", d.git_proxy),
+            github_proxy: read_stream(var, "GITHUB_PROXY", d.github_proxy),
             linear: read(var, "LINEAR", d.linear),
             slack: read(var, "SLACK", d.slack),
             telegram: read(var, "TELEGRAM", d.telegram),
@@ -112,6 +107,32 @@ const fn timeouts(connect: u64, total: u64) -> HttpTimeouts {
     HttpTimeouts {
         connect: Duration::from_secs(connect),
         total: Duration::from_secs(total),
+    }
+}
+
+const fn stream_timeouts(connect: u64, idle: u64) -> HttpStreamTimeouts {
+    HttpStreamTimeouts {
+        connect: Duration::from_secs(connect),
+        idle: Duration::from_secs(idle),
+    }
+}
+
+fn read_stream(
+    var: &dyn Fn(&str) -> Option<String>,
+    prefix: &str,
+    default: HttpStreamTimeouts,
+) -> HttpStreamTimeouts {
+    HttpStreamTimeouts {
+        connect: secs(
+            var,
+            &format!("{prefix}_HTTP_CONNECT_TIMEOUT_SECS"),
+            default.connect,
+        ),
+        idle: secs(
+            var,
+            &format!("{prefix}_HTTP_IDLE_TIMEOUT_SECS"),
+            default.idle,
+        ),
     }
 }
 

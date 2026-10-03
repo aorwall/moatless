@@ -118,6 +118,14 @@ fn is_exempt(path: &str) -> bool {
         return true;
     }
 
+    // The GitHub API proxy. Not public: the route verifies the pod's task
+    // token from its Bearer header itself, because the GitHub token it resolves
+    // belongs to the sandbox that token names, which the `AuthIdentity` this
+    // middleware attaches does not carry.
+    if path.starts_with("/github/") {
+        return true;
+    }
+
     // Public endpoints
     matches!(
         path,

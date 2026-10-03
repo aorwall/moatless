@@ -17,7 +17,6 @@ use moatless_types::credential_key::{GH_TOKEN, USER_AUTH_TOKEN};
 use tokio::fs;
 use tracing::{info, warn};
 
-use super::gh_hosts;
 use super::ssh;
 use crate::config::Config;
 use crate::init::git::{GIT_TOKEN, GitCredentials};
@@ -45,9 +44,9 @@ impl std::fmt::Display for CredentialFetchError {
 
 /// Keys that must NOT be set in the sandbox process environment via `set_var`.
 ///
-/// A value set there freezes for the pod's lifetime. `gh` checks env vars
-/// before `~/.config/gh/hosts.yml`, which the refresher rewrites each cycle,
-/// and git setup takes its tokens from `SandboxState::git_credentials`.
+/// A value set there freezes for the pod's lifetime and outlives the token
+/// behind it. `gh` reaches GitHub through `github_proxy` instead, and git takes
+/// its tokens from `SandboxState::git_credentials` and the broker.
 const ENV_SET_BLOCKLIST: &[&str] = &[
     "GITHUB_TOKEN",
     GH_TOKEN,
@@ -170,25 +169,6 @@ pub async fn fetch_and_apply_credentials_with_mode(
                 }
                 *state.git_credentials.write().await =
                     GitCredentials::from_credentials(&resp.credentials);
-
-                // Alias GITHUB_TOKEN → GH_TOKEN in the credentials map for
-                // filter_agent_credentials to strip. Neither is set in the process
-                // env — see ENV_SET_BLOCKLIST above.
-                if let Some(token) = resp.credentials.get("GITHUB_TOKEN").cloned() {
-                    resp.credentials.insert(GH_TOKEN.to_string(), token.clone());
-
-                    // Write into `~/.config/gh/hosts.yml` — the sole source of truth
-                    // for GitHub auth inside this pod.
-                    if let Err(e) = gh_hosts::write_github_token(
-                        &state.config.home_dir,
-                        &token,
-                        state.config.http.github,
-                    )
-                    .await
-                    {
-                        warn!(error = %e, "Failed to refresh gh hosts.yml");
-                    }
-                }
 
                 // Store credentials in state for passing to agent subprocess.
                 // Filter out git-provider tokens so the long-running Claude CLI

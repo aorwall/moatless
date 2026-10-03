@@ -1,7 +1,7 @@
 use crate::backend_client::BackendGrpcClient;
 use crate::config::Config;
 use crate::credentials::Dispatcher;
-use crate::credentials::sinks::{ClaudeOauthSink, CodexAuthJsonSink, GitTokenSink};
+use crate::credentials::sinks::{ClaudeOauthSink, CodexAuthJsonSink};
 use crate::events::GrpcEventPublisher;
 use crate::init::InitPhase;
 use crate::state::SandboxState;
@@ -80,13 +80,6 @@ pub(crate) async fn compose_runtime(config: &Config) -> (SandboxState, Superviso
         Arc::new(CodexAuthJsonSink {
             codex_home_dir: config.codex_home_dir.clone(),
             watcher_handle: Arc::clone(&codex_watcher_handle),
-        }),
-    );
-    dispatcher.register(
-        "GITHUB_TOKEN",
-        Arc::new(GitTokenSink {
-            home_dir: config.home_dir.clone(),
-            github: config.http.github,
         }),
     );
     dispatcher.register("CLAUDE_CODE_OAUTH_TOKEN", Arc::new(ClaudeOauthSink));

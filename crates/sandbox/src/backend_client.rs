@@ -263,6 +263,14 @@ pub trait BackendClient: Send + Sync {
     /// Default no-op so test doubles need not implement it; see
     /// [`AuthInterceptor`] for the bootstrap-to-user-token swap this backs.
     fn update_auth_token(&self, _token: String) {}
+
+    /// The Bearer token the next gRPC call would carry: the pod's task token
+    /// once the first `GetCredentials` has swapped it in.
+    ///
+    /// Default `None` so test doubles need not implement it.
+    fn auth_token(&self) -> Option<String> {
+        None
+    }
 }
 
 /// What [`BackendClient::fetch_plugin`] answered.
@@ -388,6 +396,10 @@ impl BackendGrpcClient {
 
 #[async_trait::async_trait]
 impl BackendClient for BackendGrpcClient {
+    fn auth_token(&self) -> Option<String> {
+        self.auth_token.read().ok()?.clone()
+    }
+
     fn update_auth_token(&self, token: String) {
         if let Ok(mut guard) = self.auth_token.write() {
             *guard = Some(token);

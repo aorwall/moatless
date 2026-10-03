@@ -10,7 +10,6 @@ use tracing::{info, warn};
 
 use super::CredentialSink;
 use crate::credentials::codex_watcher::WatcherHandle;
-use crate::credentials::gh_hosts;
 
 /// Atomic-writes `~/.codex/auth.json`.
 ///
@@ -65,26 +64,6 @@ impl CredentialSink for CodexAuthJsonSink {
         }
 
         info!("Wrote rotated Codex auth.json from backend push");
-        Ok(())
-    }
-}
-
-/// Refresh the GitHub token used by `gh auth git-credential` (and therefore
-/// every `git push`/`gh` call inside the agent). Wraps the existing
-/// `gh_hosts::write_github_token` flow.
-pub struct GitTokenSink {
-    pub home_dir: String,
-    pub github: moatless_types::http::HttpTimeouts,
-}
-
-#[async_trait]
-impl CredentialSink for GitTokenSink {
-    async fn apply(&self, value: &str) -> Result<(), String> {
-        gh_hosts::write_github_token(&self.home_dir, value, self.github)
-            .await
-            .map_err(|e| format!("write gh hosts.yml: {e}"))?;
-
-        info!("Refreshed GitHub token via gh hosts.yml");
         Ok(())
     }
 }

@@ -227,6 +227,16 @@ impl AppState {
             config.sandbox.task_token_secret.clone(),
             config.http.git_proxy,
         ));
+        let github_proxy = Arc::new(crate::github_proxy::GitHubProxy::new(
+            ports.sandbox_graph.sandbox_ingress(),
+            workspace_resolver.clone(),
+            workspace_credentials.clone(),
+            git_host_tokens.clone(),
+            config.sandbox.task_token_secret.clone(),
+            &config.github_api_base,
+            crate::github_proxy::GITHUB_UPLOADS_BASE,
+            config.http.github_proxy,
+        ));
         let agent_harness_access = Arc::new(AgentHarnessAccess::new(
             credentials.clone(),
             credential_sync.clone(),
@@ -377,6 +387,7 @@ impl AppState {
             forgejo_access,
             forgejo_instances,
             git_proxy,
+            github_proxy,
             agent_harness_access,
             app_administration,
             recently_sent,

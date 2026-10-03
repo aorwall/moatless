@@ -2,9 +2,9 @@
 //!
 //! Wired into git via `docker/moatless-git-cred.sh`; pulls the freshest value
 //! from the backend on every request (no caching), so a rotation is visible to
-//! the next `git push` without waiting for the hosts.yml refresher cycle. `GET
-//! /credential?key=K` returns `value\n`; `GET /git-credential?host=H` returns
-//! git's credential-helper format.
+//! the next `git push` without waiting for the credential refresher's cycle.
+//! `GET /credential?key=K` returns `value\n`; `GET /git-credential?host=H`
+//! returns git's credential-helper format.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -111,14 +111,25 @@ pub fn router(state: BrokerState) -> Router {
 }
 
 /// Spawn the broker bound to a Unix domain socket at `socket_path`.
-///
-/// Sets the socket mode to `0o666` so a non-root credential helper can connect
-/// — safe because the socket lives in the per-pod filesystem namespace.
 #[cfg(unix)]
 pub fn spawn(
     state: BrokerState,
     socket_path: &Path,
     cancel: CancellationToken,
+) -> Result<tokio::task::JoinHandle<()>, String> {
+    serve_on_socket(router(state), socket_path, cancel, "Credential broker")
+}
+
+/// Serve `app` on a Unix domain socket at `socket_path` until `cancel` fires.
+///
+/// Sets the socket mode to `0o666` so a non-root client can connect — safe
+/// because the socket lives in the per-pod filesystem namespace.
+#[cfg(unix)]
+pub fn serve_on_socket(
+    app: Router,
+    socket_path: &Path,
+    cancel: CancellationToken,
+    name: &'static str,
 ) -> Result<tokio::task::JoinHandle<()>, String> {
     use std::os::unix::fs::PermissionsExt;
     use tokio::net::UnixListener;
@@ -134,22 +145,21 @@ pub fn spawn(
     let listener = UnixListener::bind(socket_path)
         .map_err(|e| format!("UnixListener::bind({}): {e}", socket_path.display()))?;
     if let Err(e) = std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o666)) {
-        warn!(error = %e, socket = %socket_path.display(), "Failed to chmod credential broker socket");
+        warn!(error = %e, socket = %socket_path.display(), name, "Failed to chmod a unix socket");
     }
-    let app = router(state);
     let socket_path = socket_path.to_path_buf();
 
     Ok(tokio::spawn(async move {
-        info!(socket = %socket_path.display(), "Credential broker started");
+        info!(socket = %socket_path.display(), name, "Unix socket server started");
         let serve = axum::serve(listener, app.into_make_service());
         tokio::select! {
             res = serve => {
                 if let Err(e) = res {
-                    warn!(error = %e, "Credential broker exited with error");
+                    warn!(error = %e, name, "Unix socket server exited with error");
                 }
             }
             () = cancel.cancelled() => {
-                info!("Credential broker shutting down");
+                info!(name, "Unix socket server shutting down");
             }
         }
     }))

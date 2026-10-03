@@ -278,8 +278,8 @@ pub fn is_platform_owned_key(key: &str) -> bool {
 ///
 /// A Workspace value under one would win: [`fill_git_host_tokens`] fills only
 /// unset keys, `credentials::fetch` keeps a Workspace `GIT_TOKEN` when no
-/// provider token resolves, and `gh` reads `GH_TOKEN` before the
-/// refresher-owned `hosts.yml` (`ENV_SET_BLOCKLIST`).
+/// provider token resolves, and a `GH_TOKEN` in a pod's env would hand the
+/// agent a GitHub token no resolver validated.
 pub fn is_git_auth_key(key: &str) -> bool {
     matches!(
         key,
@@ -848,9 +848,9 @@ mod tests {
                 (GITHUB_TOKEN.to_string(), "ghp_bypass".to_string()),
                 (GITLAB_TOKEN.to_string(), "glpat_bypass".to_string()),
                 (GITNESS_TOKEN.to_string(), "gitness_bypass".to_string()),
-                // The two the pod derives rather than resolves: `gh` reads
-                // GH_TOKEN before `hosts.yml`, and init::git clones with
-                // GIT_TOKEN whenever no provider token overwrote it.
+                // The two the pod derives rather than resolves: GH_TOKEN would
+                // reach the agent's env, and init::git clones with GIT_TOKEN
+                // whenever no provider token overwrote it.
                 (GH_TOKEN.to_string(), "ghp_bypass".to_string()),
                 (GIT_TOKEN.to_string(), "ghp_bypass".to_string()),
                 ("CARGO_BUILD_JOBS".to_string(), "4".to_string()),

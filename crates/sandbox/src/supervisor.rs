@@ -37,6 +37,7 @@ const REGISTRANTS: &[&str] = &[
     "credential-refresher",
     "event-outbox-drainer",
     "git-push-watcher",
+    "github-proxy",
     "grpc-server",
     "http-server",
     "init",

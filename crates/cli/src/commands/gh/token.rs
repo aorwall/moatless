@@ -6,9 +6,14 @@ use std::io::Write;
 /// path that script bakes in, and the one `moatless-sandbox` binds.
 const BROKER_SOCKET: &str = "/run/moatless/credentials.sock";
 
+/// The socket a sandbox's `gh` sends every request over, which the backend
+/// answers with a live token. Must match the one `moatless-sandbox` binds.
+const GITHUB_PROXY_SOCKET: &str = "/run/moatless/github.sock";
+
 /// `env_token_set` is [`Config::github_token_set`](crate::config::Config::github_token_set).
 pub(crate) fn github_token_for_gh(env_token_set: bool) -> Option<String> {
     resolve_gh_token(
+        std::path::Path::new(GITHUB_PROXY_SOCKET).exists(),
         std::path::Path::new(BROKER_SOCKET).exists(),
         env_token_set,
         || git_credential_password("github.com").ok(),
@@ -17,16 +22,17 @@ pub(crate) fn github_token_for_gh(env_token_set: bool) -> Option<String> {
 
 /// Pick the token to hand `gh`, or `None` to let `gh` resolve its own.
 ///
-/// With the broker present the credential helper wins over `GH_TOKEN`, which is
-/// a provision-time snapshot that 401s once its installation token expires
-/// while the helper mints a fresh one per call. Off the broker an exported
-/// `GH_TOKEN` keeps precedence.
+/// Behind the GitHub proxy `gh` needs none: its config sends every request over
+/// the socket, and the backend supplies the token. With only the broker the
+/// credential helper wins over `GH_TOKEN`, a provision-time snapshot that 401s
+/// once its installation token expires. Off both an exported `GH_TOKEN` wins.
 fn resolve_gh_token(
+    proxy_present: bool,
     broker_present: bool,
     env_token_set: bool,
     credential: impl FnOnce() -> Option<String>,
 ) -> Option<String> {
-    if env_token_set && !broker_present {
+    if proxy_present || (env_token_set && !broker_present) {
         return None;
     }
     credential()

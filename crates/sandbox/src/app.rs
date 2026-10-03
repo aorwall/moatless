@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::credentials::broker::{self, BrokerState};
+use crate::credentials::{gh_config, github_proxy};
 use crate::grpc_server::SandboxServiceImpl;
 use crate::state::SandboxState;
 use crate::supervisor::{Criticality, SHUTDOWN_JOIN_DEADLINE};
@@ -12,6 +13,9 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 const CREDENTIAL_BROKER_SOCKET_FILE: &str = "credentials.sock";
+
+/// `gh`'s socket in `RUNTIME_DIR`. `moat gh` looks for it under the same name.
+const GITHUB_PROXY_SOCKET_FILE: &str = "github.sock";
 
 /// Configure structured logging from the process environment.
 pub fn initialize_logging(log_level: &str) {
@@ -87,8 +91,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     // Spawn the credential broker on a unix socket. Git is configured to use
     // a helper script that hits this socket on every push/fetch, so tokens
-    // are pulled fresh from the backend instead of relying on hosts.yml staying
-    // current between 15-min refresh cycles.
+    // are pulled fresh from the backend on every request.
     //
     // Spawned BEFORE the init task so the socket exists by the time
     // `init/git.rs` wires the helper into git config.
@@ -99,9 +102,8 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         backend_client: Arc::clone(&state.backend_client),
         backend_host: state.config.backend_api_host(),
     };
-    // Optional: losing the broker degrades git auth to whatever
-    // `~/.config/gh/hosts.yml` last held — the same fallback a failed spawn
-    // already accepts below.
+    // Optional: losing the broker leaves git with no credential, which fails
+    // a push loudly rather than the pod.
     match broker::spawn(broker_state, &broker_socket, state.lifecycle_cancel.clone()) {
         Ok(broker_task) => {
             registrar.supervise("credential-broker", Criticality::Optional, broker_task);
@@ -109,9 +111,11 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         Err(e) => tracing::warn!(
             error = %e,
             socket = %broker_socket.display(),
-            "Failed to spawn credential broker — git operations will fall back to hosts.yml"
+            "Failed to spawn credential broker — git has no credential source"
         ),
     }
+
+    spawn_github_proxy(&state, &registrar).await;
 
     // Spawn init task — handles credential fetching, git clone, workspace setup.
     // After init completes, it triggers process_pending_messages() to pick up
@@ -226,6 +230,34 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     outcome?;
     Ok(())
+}
+
+/// Serve `gh`'s socket and point `gh` at it, before init runs `gh api user`.
+///
+/// Optional: without it `gh` finds no token and asks for `gh auth login`,
+/// while git and the agent carry on.
+async fn spawn_github_proxy(state: &SandboxState, registrar: &crate::supervisor::Registrar) {
+    let socket = std::path::Path::new(&state.config.runtime_dir).join(GITHUB_PROXY_SOCKET_FILE);
+    let proxy = github_proxy::GitHubProxyState::new(
+        Arc::clone(&state.backend_client),
+        state.config.backend_api_url.as_deref(),
+        state.config.http.github,
+    );
+    match broker::serve_on_socket(
+        github_proxy::router(proxy),
+        &socket,
+        state.lifecycle_cancel.clone(),
+        "GitHub proxy",
+    ) {
+        Ok(task) => registrar.supervise("github-proxy", Criticality::Optional, task),
+        Err(e) => {
+            tracing::warn!(error = %e, socket = %socket.display(), "Failed to spawn the GitHub proxy — gh is unauthenticated");
+            return;
+        }
+    }
+    if let Err(e) = gh_config::route_gh_through(&state.config.home_dir, &socket).await {
+        tracing::warn!(error = %e, "Failed to point gh at the GitHub proxy — gh is unauthenticated");
+    }
 }
 
 /// Initialize the workspace, then register the runtime loops it enables.

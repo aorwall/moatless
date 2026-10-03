@@ -1,17 +1,19 @@
 //! The timeouts each sandbox HTTP client is built with.
 //!
 //! Every bound reads `<PREFIX>_HTTP_CONNECT_TIMEOUT_SECS` and
-//! `<PREFIX>_HTTP_TIMEOUT_SECS`, with the prefix each field names.
+//! `<PREFIX>_HTTP_TIMEOUT_SECS` (`_IDLE_TIMEOUT_SECS` for a stream), with the
+//! prefix each field names.
 
 use std::time::Duration;
 
-use moatless_types::http::HttpTimeouts;
+use moatless_types::http::{HttpStreamTimeouts, HttpTimeouts};
 
 /// HTTP client timeouts, one entry per integration whose bounds can differ.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SandboxHttpConfig {
-    /// The `GET /user` lookup naming a GitHub token's login. Prefix `GITHUB`.
-    pub github: HttpTimeouts,
+    /// One `gh` request through the GitHub proxy socket, which streams a log
+    /// or release asset for as long as it moves. Prefix `GITHUB`.
+    pub github: HttpStreamTimeouts,
     /// One clone-host reachability probe, HTTP or TCP, so a black-holed host
     /// cannot spend the whole retry budget inside a single connect. Prefix
     /// `GIT_PROBE`.
@@ -25,7 +27,10 @@ pub struct SandboxHttpConfig {
 impl Default for SandboxHttpConfig {
     fn default() -> Self {
         Self {
-            github: timeouts(Duration::from_secs(10), Duration::from_secs(10)),
+            github: HttpStreamTimeouts {
+                connect: Duration::from_secs(10),
+                idle: Duration::from_mins(5),
+            },
             git_probe: timeouts(Duration::from_secs(5), Duration::from_secs(5)),
             workspace_transfer: timeouts(Duration::from_secs(10), Duration::from_mins(5)),
         }
@@ -38,7 +43,10 @@ impl SandboxHttpConfig {
         let var = &var;
         let d = Self::default();
         Self {
-            github: read(var, "GITHUB", d.github),
+            github: HttpStreamTimeouts {
+                connect: secs(var, "GITHUB_HTTP_CONNECT_TIMEOUT_SECS", d.github.connect),
+                idle: secs(var, "GITHUB_HTTP_IDLE_TIMEOUT_SECS", d.github.idle),
+            },
             git_probe: read(var, "GIT_PROBE", d.git_probe),
             workspace_transfer: read(var, "WORKSPACE_TRANSFER", d.workspace_transfer),
         }

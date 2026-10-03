@@ -288,6 +288,9 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         // Off the OpenAPI document: git's smart-HTTP protocol is not a JSON API,
         // and its only client is git.
         router = router.merge(crate::git_proxy::git_proxy_router(app_state.clone()));
+        // Off the OpenAPI document too: it forwards GitHub's own API, and its
+        // only client is a pod's `gh`.
+        router = router.merge(crate::github_proxy::github_proxy_router(app_state.clone()));
         // Held for the event-subscriber registration below: the Scripts this
         // starts run through the router's own state.
         let mut startup_scripts = None;

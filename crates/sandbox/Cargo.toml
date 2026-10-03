@@ -90,7 +90,7 @@ base64 = { workspace = true }
 # HTTP client for the `s3` storage backend's workspace sync: the sandbox
 # transfers the workspace tar directly to/from S3 via backend-minted presigned
 # URLs (rustls to match the rest of the workspace; no default features).
-reqwest = { workspace = true, features = ["rustls"] }
+reqwest = { workspace = true, features = ["rustls", "stream"] }
 
 [dev-dependencies]
 # `S3Storage::at_endpoint`, for the MinIO round trip.

@@ -2,10 +2,10 @@
 //!
 //! Background tokio task that re-runs `fetch_and_apply_credentials` every
 //! `CREDENTIAL_REFRESH_INTERVAL_SECS` seconds (default 900 = 15 min), keeping
-//! rotated GitHub App tokens (1h TTL) and user access tokens (8h TTL) fresh
-//! without a task restart. Each cycle updates the process env, refreshes
-//! `state.credentials`, and rewrites the credential files (`.credentials`,
-//! `auth.json`, `server.env`, `~/.config/gh/hosts.yml`).
+//! the task token, provider keys and git's clone tokens current without a task
+//! restart. Each cycle updates the process env, refreshes `state.credentials`,
+//! and rewrites the credential files (`.credentials`, `auth.json`). No GitHub
+//! token is written: `gh` asks the backend per request (`github_proxy`).
 
 use std::time::Duration;
 

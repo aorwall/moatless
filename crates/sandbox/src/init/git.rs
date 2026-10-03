@@ -16,8 +16,9 @@ use tracing::{info, warn};
 
 use crate::config::Config;
 
-/// Configure git authentication: `gh auth setup-git` (plus `gh api user` for
-/// identity) on GitHub, a token-based credential helper on other providers.
+/// Configure git authentication: the broker-backed credential helper (plus
+/// `gh api user` for identity on GitHub), a token-based helper on other
+/// providers.
 pub async fn configure_git(config: &Config, credentials: &GitCredentials) -> Result<(), String> {
     let is_ssh = crate::config::primary_checkout(&config.repos).is_some_and(|repo| repo.uses_ssh);
     let is_github = config.git_provider == "github";
@@ -34,8 +35,7 @@ pub async fn configure_git(config: &Config, credentials: &GitCredentials) -> Res
 
     // The broker answers github.com with the task's `GITHUB_TOKEN` whatever the
     // pod's own provider (`credentials::broker::get_git_credential`), so a
-    // Forgejo or SSH pod reaches `moat repos clone <github_id>` too. The GitHub
-    // branch below wires the same entry again: `gh auth setup-git` replaces it.
+    // Forgejo or SSH pod reaches `moat repos clone <github_id>` too.
     wire_broker_git_helper("https://github.com").await;
 
     if is_ssh {
@@ -45,24 +45,13 @@ pub async fn configure_git(config: &Config, credentials: &GitCredentials) -> Res
         // rewrite our SSH URL back to HTTPS) and fall through to git identity.
         info!("SSH remote detected — using SSH key auth from ~/.ssh");
     } else if is_github {
-        // GitHub-specific: use gh CLI for credential management
+        // Do not run `gh auth setup-git`: `gh` holds only a placeholder token
+        // (`credentials::gh_config`), and its helper would answer github.com
+        // with that instead of the broker's token.
         if credentials.get(GIT_TOKEN).is_none() {
-            info!("No git token set — skipping gh's helper and the git identity");
+            info!("No git token set — skipping the git identity");
             return Ok(());
         }
-
-        // Configure gh CLI to use git credential helper.
-        // hosts.yml is already written by credentials.rs; this wires git to use it.
-        if let Err(e) = run_command("gh", &["auth", "setup-git"]).await {
-            warn!(error = %e, "gh auth setup-git failed, continuing with manual config");
-        }
-
-        // Prepend the broker-backed helper ahead of `gh auth git-credential` so
-        // git/gh push always pull a freshly-rotated token instead of the
-        // up-to-15-min-stale value sitting in hosts.yml. The helper script
-        // itself falls back to gh's helper if the broker is unreachable, so
-        // worst case we degrade to today's behaviour.
-        wire_broker_git_helper("https://github.com").await;
 
         // SSH to HTTPS conversion (GitHub only)
         let _ = run_command(
@@ -652,16 +641,13 @@ async fn resolve_github_user() -> Result<(Option<String>, Option<String>), Strin
 /// sandbox image alongside the sandbox binary.
 const BROKER_HELPER_PATH: &str = "/usr/local/bin/moatless-git-cred";
 
-/// Sets the broker-backed credential helper as `origin`'s primary, via
-/// `--replace-all` (wiping e.g. any helper `gh auth setup-git` added).
-///
-/// The helper script itself falls back to `gh auth git-credential` when the
-/// broker is unreachable.
+/// Sets the broker-backed credential helper as `origin`'s only one, via
+/// `--replace-all`.
 async fn wire_broker_git_helper(origin: &str) {
     if !std::path::Path::new(BROKER_HELPER_PATH).exists() {
         info!(
             path = BROKER_HELPER_PATH,
-            "Broker credential helper script not present — leaving gh auth git-credential as the credential source"
+            "Broker credential helper script not present — git has no credential helper"
         );
         return;
     }
@@ -674,7 +660,7 @@ async fn wire_broker_git_helper(origin: &str) {
     )
     .await
     {
-        warn!(error = %e, origin, "Failed to wire moatless-git-cred — git push may use stale hosts.yml token");
+        warn!(error = %e, origin, "Failed to wire moatless-git-cred — git has no credential helper");
         return;
     }
 

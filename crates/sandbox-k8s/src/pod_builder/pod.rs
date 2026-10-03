@@ -97,10 +97,10 @@ pub fn build_pod(
         Volume {
             name: "run-moatless".to_string(),
             empty_dir: Some(EmptyDirVolumeSource {
-                // Memory-backed home for the credential-broker Unix socket at
-                // `/run/moatless`. `/run` itself is root-owned tmpfs, so under
-                // `run_as_non_root` the sandbox (uid 1000) can't mkdir there and
-                // the broker degrades to the on-disk hosts.yml fallback.
+                // Memory-backed home for the credential-broker and GitHub proxy
+                // Unix sockets at `/run/moatless`. `/run` itself is root-owned
+                // tmpfs, so under `run_as_non_root` the sandbox (uid 1000) could
+                // not mkdir there, leaving git and `gh` without credentials.
                 medium: Some("Memory".to_string()),
                 size_limit: Some(Quantity("1Mi".to_string())),
             }),
