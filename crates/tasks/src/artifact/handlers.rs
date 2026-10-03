@@ -140,7 +140,7 @@ pub async fn open_latest_artifact(
         ("version" = String, Path, description = "Version, as in `v3`")
     ),
     responses(
-        (status = 200, description = "The HTML page", content_type = "text/html"),
+        (status = 200, description = "The HTML page", body = String, content_type = "text/html"),
         (status = 404, description = "Artifact or version not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]

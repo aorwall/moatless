@@ -228,6 +228,69 @@ async fn a_version_below_the_latest_that_never_committed_is_not_found() {
 }
 
 #[tokio::test]
+async fn a_commit_error_after_the_commit_landed_answers_the_row() {
+    let row = recover_commit(
+        &artifacts(store_with(Some(row("task-1", 2)))),
+        "task-1",
+        "art-1",
+        2,
+        sqlx::Error::PoolTimedOut,
+    )
+    .await
+    .unwrap();
+    assert_eq!(row.latest_version, 2);
+}
+
+#[tokio::test]
+async fn a_commit_error_with_the_version_unpublished_is_an_error() {
+    let err = recover_commit(
+        &artifacts(store_with(Some(row("task-1", 1)))),
+        "task-1",
+        "art-1",
+        2,
+        sqlx::Error::PoolTimedOut,
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(err, ArtifactError::Db(_)), "{err:?}");
+}
+
+#[tokio::test]
+async fn a_commit_error_with_an_unreadable_row_keeps_the_commit_error() {
+    let mut store = MockArtifactDao::new();
+    store
+        .expect_find_by_id()
+        .returning(|_| Err(sqlx::Error::RowNotFound));
+    let err = recover_commit(
+        &artifacts(store),
+        "task-1",
+        "art-1",
+        2,
+        sqlx::Error::PoolTimedOut,
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        matches!(err, ArtifactError::Db(sqlx::Error::PoolTimedOut)),
+        "{err:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_commit_error_with_the_row_gone_is_task_not_found() {
+    let err = recover_commit(
+        &artifacts(store_with(None)),
+        "task-1",
+        "art-1",
+        2,
+        sqlx::Error::PoolTimedOut,
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(err, ArtifactError::TaskNotFound(_)), "{err:?}");
+}
+
+#[tokio::test]
 async fn list_answers_absolute_urls_for_the_latest_version() {
     let mut store = MockArtifactDao::new();
     store

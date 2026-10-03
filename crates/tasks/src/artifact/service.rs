@@ -66,12 +66,41 @@ pub async fn publish(
             artifacts.delete_page(task_id, &artifact_id, version).await;
             return Err(ArtifactError::TaskNotFound(task_id.to_string()));
         }
-        Err(e) => {
-            artifacts.delete_page(task_id, &artifact_id, version).await;
-            return Err(e.into());
-        }
+        Err(e) => recover_commit(artifacts, task_id, &artifact_id, version, e).await?,
     };
     Ok(to_response(&row, artifacts.public_url(), version, &title))
+}
+
+/// After `commit_version` failed: the row when the commit landed anyway, since
+/// the error can arrive after Postgres applied it. Deletes the page only when a
+/// read-back shows `version` unpublished, and keeps it when that read fails too.
+async fn recover_commit(
+    artifacts: &Artifacts,
+    task_id: &str,
+    artifact_id: &str,
+    version: i32,
+    err: sqlx::Error,
+) -> Result<Artifact, ArtifactError> {
+    match artifacts.find_by_id(artifact_id).await {
+        Ok(Some(row)) if row.published_versions.contains(&version) => Ok(row),
+        Ok(Some(_)) => {
+            artifacts.delete_page(task_id, artifact_id, version).await;
+            Err(err.into())
+        }
+        Ok(None) => {
+            artifacts.delete_page(task_id, artifact_id, version).await;
+            Err(ArtifactError::TaskNotFound(task_id.to_string()))
+        }
+        Err(read_err) => {
+            tracing::warn!(
+                error = %read_err,
+                %artifact_id,
+                version,
+                "Cannot tell whether an artifact version committed; keeping its page"
+            );
+            Err(err.into())
+        }
+    }
 }
 
 /// The Task's published Artifacts, most recently updated first.

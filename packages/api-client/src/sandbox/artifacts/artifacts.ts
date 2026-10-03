@@ -148,17 +148,24 @@ export const useOpenLatestArtifact = <TError = ErrorType<void | ErrorBody>,
       > => {
       return useMutation(getOpenLatestArtifactMutationOptions(options), queryClient);
     }
-    export type serveArtifactPageResponse404 = {
+    export type serveArtifactPageResponse200 = {
+  data: string
+  status: 200
+}
+
+export type serveArtifactPageResponse404 = {
   data: ErrorBody
   status: 404
 }
 
-;
+export type serveArtifactPageResponseSuccess = (serveArtifactPageResponse200) & {
+  headers: Headers;
+};
 export type serveArtifactPageResponseError = (serveArtifactPageResponse404) & {
   headers: Headers;
 };
 
-export type serveArtifactPageResponse = (serveArtifactPageResponseError)
+export type serveArtifactPageResponse = (serveArtifactPageResponseSuccess | serveArtifactPageResponseError)
 
 export const getServeArtifactPageUrl = (artifactId: string,
     version: string,) => {

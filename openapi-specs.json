@@ -2224,7 +2224,11 @@
           "200": {
             "description": "The HTML page",
             "content": {
-              "text/html": {}
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
             }
           },
           "404": {
