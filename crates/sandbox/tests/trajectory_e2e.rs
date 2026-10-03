@@ -1045,7 +1045,12 @@ fn copy_dir(from: &Path, to: &Path) {
 /// thinking and with runs of the same pair collapsed.
 fn content_shape(backend: &MemoryTrajectoryBackend, session: &str) -> Vec<(String, String)> {
     let mut shape: Vec<(String, String)> = Vec::new();
-    for event in backend.events_on(session) {
+    // A code-mode command's own call and result sit under its `exec` call.
+    let events = backend.events_on(session);
+    for event in events
+        .iter()
+        .filter(|e| e.content.get("derived_from").is_none())
+    {
         let role = event.content["role"].as_str().unwrap_or("").to_string();
         for block in event.content["blocks"].as_array().into_iter().flatten() {
             let kind = block["type"].as_str().unwrap_or("").to_string();
