@@ -43,6 +43,14 @@ impl InboxService {
         dao::pending(&self.0, task_id, limit).await
     }
 
+    pub(crate) async fn delivered_in_turn(
+        &self,
+        task_id: &str,
+        turn_number: i32,
+    ) -> Result<Vec<InboxItem>, sqlx::Error> {
+        dao::delivered_in_turn(&self.0, task_id, turn_number).await
+    }
+
     pub(crate) async fn find(&self, id: Uuid) -> Result<Option<InboxItem>, sqlx::Error> {
         dao::find(&self.0, id).await
     }

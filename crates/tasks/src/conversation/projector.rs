@@ -12,7 +12,8 @@ use super::dao::{self, MessageRow, Source};
 use super::ids;
 use crate::activities::mapping::{
     ActivityKind, ActivityRow, ActivityStatus, AdmittedUsage, BlockContext, ConversationWrite,
-    ToolOutcome, context_window_updated, map_content, sandbox_activity, user_input_resolved,
+    ToolOutcome, agent_switched, context_window_updated, map_content, sandbox_activity,
+    user_input_resolved,
 };
 use crate::inbox::{InboxItem, InboxOrigin, RunStamp};
 use crate::message::models::MessageType;
@@ -398,6 +399,14 @@ impl Projector {
                     self.system_message(tx, task_id, uuid, "error", text, event, None)
                         .await?;
                 }
+                Ok(TaskSubType::AgentSwitched) => {
+                    let summary = event.payload.get("summary").and_then(Value::as_str);
+                    let Some(summary) = summary.filter(|summary| !summary.is_empty()) else {
+                        return Ok(());
+                    };
+                    let row = agent_switched(&name, task_id, summary);
+                    dao::standalone_activity(tx, &row, event.event_id).await?;
+                }
                 Ok(TaskSubType::BindingReplySent) => {
                     let Some(reply) = super::payload::BindingReply::of(event.payload) else {
                         return Ok(());
@@ -613,7 +622,7 @@ fn answer_of(item: &InboxItem) -> Option<(ToolOutcome, ActivityRow)> {
 fn projects(event_type: &str, sub_type: &str) -> bool {
     matches!(
         (event_type, sub_type),
-        ("task", "error" | "binding_reply_sent")
+        ("task", "error" | "binding_reply_sent" | "agent_switched")
             | ("agent", "completed" | "context_window")
             | ("sandbox", "initializing" | "ready" | "stopped" | "error")
     )

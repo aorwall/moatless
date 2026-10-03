@@ -633,6 +633,7 @@ mod tests {
             turn_status: Some("active".into()),
             turn_started_at: None,
             turn_ended_at: None,
+            turn_error: None,
             sandbox_desired_state_raw: Some(SandboxDesiredState::Running.as_str().to_string()),
             sandbox_stop_reason_raw: None,
             sandbox_started_at: None,

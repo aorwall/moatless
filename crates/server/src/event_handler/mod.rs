@@ -5,6 +5,7 @@
 //! agent.error and task.metadata.updated events, and hands `message.*` events
 //! to the Adapters subscribed to them.
 
+pub mod agent_fallback;
 pub mod agent_handlers;
 pub mod dispatcher;
 pub mod metrics;

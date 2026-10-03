@@ -7,6 +7,8 @@
 
 use std::fmt;
 
+use chrono::{DateTime, SecondsFormat, Utc};
+
 /// The lifecycle stage at which a harness failure occurred.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FailureStage {
@@ -30,6 +32,19 @@ pub enum ErrorClass {
     Authentication,
     /// The provider rate-limited the request.
     RateLimit,
+    /// The account's usage allowance is spent until a reset hours or days
+    /// away. Distinct from [`Self::RateLimit`]: retrying inside that window
+    /// only repeats the refusal.
+    UsageLimit,
+    /// A 429 naming no cause: a transient throttle, or a hub's cooldown for a
+    /// pool whose every account is spent, which nothing here tells apart.
+    /// Retried like [`Self::RateLimit`], then reported as a usage limit, so a
+    /// Loop falls back only once the throttle outlasts the backoff.
+    ProviderThrottle,
+    /// The provider answered that it has nothing to serve the model with, such
+    /// as a hub's `auth_unavailable` when no pooled account is usable. Retried
+    /// like [`Self::RateLimit`].
+    ProviderUnavailable,
     /// The provider could not be reached at all: DNS resolution, TCP connect,
     /// or TLS failed before any request was served.
     ///
@@ -77,6 +92,8 @@ pub struct HarnessError {
     pub class: ErrorClass,
     pub session_impact: SessionImpact,
     pub diagnostic: String,
+    /// When the provider says a [`ErrorClass::UsageLimit`] lifts, if it said.
+    pub resets_at: Option<DateTime<Utc>>,
 }
 
 impl HarnessError {
@@ -91,8 +108,41 @@ impl HarnessError {
             class,
             session_impact,
             diagnostic: diagnostic.into(),
+            resets_at: None,
         }
     }
+
+    /// A usage-limit failure. The reset time, when known, is appended to the
+    /// diagnostic as well, because the diagnostic is the only text the task
+    /// and the UI show.
+    pub fn usage_limit(
+        stage: FailureStage,
+        session_impact: SessionImpact,
+        diagnostic: &str,
+        resets_at: Option<DateTime<Utc>>,
+    ) -> Self {
+        let diagnostic = match resets_at {
+            Some(at) => format!(
+                "{diagnostic} (usage limit resets at {})",
+                at.to_rfc3339_opts(SecondsFormat::Secs, true)
+            ),
+            None => diagnostic.to_string(),
+        };
+        Self {
+            resets_at,
+            ..Self::new(stage, ErrorClass::UsageLimit, session_impact, diagnostic)
+        }
+    }
+}
+
+/// Whether lowercased failure text is the provider declining the content.
+pub(crate) fn is_safety_refusal(lower: &str) -> bool {
+    lower.contains("safeguards flagged")
+}
+
+/// Whether lowercased failure text is a hub with no account to serve from.
+pub(crate) fn is_provider_unavailable(lower: &str) -> bool {
+    lower.contains("auth_unavailable") || lower.contains("no auth available")
 }
 
 impl fmt::Display for HarnessError {

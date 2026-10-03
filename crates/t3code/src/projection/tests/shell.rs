@@ -329,3 +329,19 @@ fn sandbox_intent_becomes_the_sessions_status() {
         "a removed sandbox has had its working copy reclaimed"
     );
 }
+
+/// The error a usage limit ends a turn with carries its reset time, and the
+/// client's error banner reads it from here.
+#[test]
+fn the_newest_turns_error_is_the_sessions_last_error() {
+    let mut row = running_conversation("task-a", "ws-a");
+    assert_eq!(one_thread(&row)["session"]["lastError"], Value::Null);
+
+    row.turn_status = Some("error".to_string());
+    row.turn_error =
+        Some("You've hit your usage limit. (usage limit resets at 2026-10-03T18:05:00Z)".into());
+    assert_eq!(
+        one_thread(&row)["session"]["lastError"],
+        "You've hit your usage limit. (usage limit resets at 2026-10-03T18:05:00Z)"
+    );
+}

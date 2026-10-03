@@ -16,7 +16,7 @@ use crate::agent::agent_state::AgentState;
 use super::super::classify::{classify_result, classify_startup_error, classify_stream_error};
 use super::{ClaudeConfig, ClaudeProcess};
 use crate::agent::harness::content::CanonicalContentBlock;
-use crate::agent::harness::error::{ErrorClass, FailureStage, SessionImpact};
+use crate::agent::harness::error::{ErrorClass, FailureStage, HarnessError, SessionImpact};
 use crate::agent::harness::process::{ProcessEvent, ProcessTermination};
 use crate::agent::harness::signal::{Input, InputId};
 
@@ -677,4 +677,99 @@ async fn e2e_persistent_claude_two_turns_share_a_session() {
         first_session,
         "the second Turn must run on the same persistent Session"
     );
+}
+
+fn failed_result(text: &str) -> HarnessError {
+    let result = ResultMessage::Success(ResultSuccess {
+        uuid: "u".to_string(),
+        session_id: "sess".to_string(),
+        duration_ms: 1,
+        duration_api_ms: 1,
+        is_error: true,
+        num_turns: 1,
+        result: text.to_string(),
+        total_cost_usd: 0.0,
+        usage: usage(),
+        model_usage: std::collections::HashMap::new(),
+        permission_denials: vec![],
+        structured_output: None,
+    });
+    match classify_result(&result) {
+        ProcessTermination::Failed(error) => error,
+        other => panic!("expected failure for {text:?}, got {other:?}"),
+    }
+}
+
+/// What the CLI prints when a subscription allowance is spent: the 2.1 wording
+/// per window, and the 2.0 sentinel with its unix reset time.
+#[test]
+fn a_subscription_limit_is_a_usage_limit() {
+    for text in [
+        "You've hit your session limit · resets 3pm (UTC)",
+        "You've hit your weekly limit · resets Oct 6, 9am (UTC)",
+        "You've hit your usage limit",
+        "You're out of extra usage · resets 3pm (UTC)",
+    ] {
+        let error = failed_result(text);
+        assert_eq!(error.class, ErrorClass::UsageLimit, "{text:?}");
+        assert!(!crate::agent::retry::is_retryable_harness_error(&error));
+    }
+
+    let error = failed_result("Claude AI usage limit reached|1791137100");
+    assert_eq!(error.class, ErrorClass::UsageLimit);
+    assert_eq!(
+        error.resets_at,
+        chrono::DateTime::from_timestamp(1_791_137_100, 0)
+    );
+}
+
+/// Behind a `CLIProxyAPI` hub the CLI runs on an API key, retries the 429 itself,
+/// then prints the hub's body: `model_cooldown` once every pooled account is
+/// spent, with the seconds until the first one is back.
+#[test]
+fn a_hub_cooldown_is_a_usage_limit_with_its_reset_time() {
+    let before = chrono::Utc::now();
+    let error = failed_result(
+        r#"API Error: 429 {"error":{"code":"model_cooldown","message":"All credentials for model claude-opus-4-7 are cooling down via provider claude","model":"claude-opus-4-7","reset_time":"4m30s","reset_seconds":270}}"#,
+    );
+    assert_eq!(error.class, ErrorClass::UsageLimit);
+    let resets_at = error.resets_at.expect("reset_seconds is a reset time");
+    assert!(resets_at >= before + chrono::Duration::seconds(270));
+    assert!(resets_at <= chrono::Utc::now() + chrono::Duration::seconds(270));
+}
+
+/// A plain `rate_limit_error` is a short throttle the CLI already retried; it
+/// stays retryable.
+#[test]
+fn a_plain_rate_limit_error_stays_a_rate_limit() {
+    let error = failed_result(
+        r#"API Error: 429 {"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed the rate limit for your organization."}}"#,
+    );
+    assert_eq!(error.class, ErrorClass::RateLimit);
+    assert!(crate::agent::retry::is_retryable_harness_error(&error));
+}
+
+/// A `CLIProxyAPI` hub answers 503 `auth_unavailable` when no pooled account
+/// can serve the model: retried, then a reason for a Loop to fall back.
+#[test]
+fn a_hub_with_no_account_is_provider_unavailable() {
+    let error = failed_result(
+        r#"API Error: 503 {"error":{"message":"auth_unavailable: no auth available (providers=claude)","type":"server_error"}}"#,
+    );
+    assert_eq!(error.class, ErrorClass::ProviderUnavailable);
+    assert!(crate::agent::retry::is_retryable_harness_error(&error));
+}
+
+/// A safety refusal is the provider declining the content, not failing to
+/// serve it: never retried, and never a class a Loop falls back on.
+#[test]
+fn a_safety_refusal_is_invalid_input_whatever_else_it_names() {
+    for text in [
+        "API Error: Our safeguards flagged this message as potentially violating our usage policy.",
+        r#"API Error: 503 {"error":{"message":"Our safeguards flagged this message.","type":"server_error"}}"#,
+    ] {
+        let error = failed_result(text);
+        assert_eq!(error.class, ErrorClass::InvalidInput, "{text:?}");
+        assert!(!crate::agent::retry::is_retryable_harness_error(&error));
+    }
 }

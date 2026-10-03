@@ -765,6 +765,7 @@ fn schedule_upsert(repo: &Repository) -> ManagedLoopUpsert {
         inactive_ttl_days: None,
         stop_when_done: None,
         message_buffer_seconds: None,
+        fallback_to_other_agent: true,
         adapter: None,
         schedule: Some(NewScheduleSource {
             cron_expression: "0 0 6 * * MON-FRI *".to_string(),

@@ -11689,6 +11689,13 @@
               "null"
             ]
           },
+          "fallbackToOtherAgent": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "See [`LoopConfig::fallback_to_other_agent`]. `None` is on."
+          },
           "inactiveTtlDays": {
             "type": [
               "integer",
@@ -14428,11 +14435,16 @@
           "routingMode",
           "tagIds",
           "skills",
-          "agentProfile"
+          "agentProfile",
+          "fallbackToOtherAgent"
         ],
         "properties": {
           "agentProfile": {
             "type": "string"
+          },
+          "fallbackToOtherAgent": {
+            "type": "boolean",
+            "description": "Re-run a spawned Task's failed turn once on the other agent (`codex` or\n`claude-code`), in the same Task, when the turn's error reason is\n`usage_limit`, `rate_limit` or `provider_unavailable`. The sandbox\nreports the last two only once its retries are spent."
           },
           "inactiveTtlDays": {
             "type": [
@@ -18647,7 +18659,8 @@
           "updated",
           "metadata.updated",
           "error",
-          "binding_reply_sent"
+          "binding_reply_sent",
+          "agent_switched"
         ]
       },
       "TaskTokenTotals": {
@@ -19213,6 +19226,13 @@
               "string",
               "null"
             ]
+          },
+          "fallbackToOtherAgent": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "See [`LoopConfig::fallback_to_other_agent`]. `None` keeps the current\nvalue."
           },
           "inactiveTtlDays": {
             "type": [

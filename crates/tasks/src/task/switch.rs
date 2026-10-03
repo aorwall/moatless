@@ -11,11 +11,15 @@ use moatless_types::agent::{AgentProfile, Harness};
 
 use super::dao::TaskDao;
 use super::error::TaskError;
+use super::models::Task;
 use super::switch_dao;
 use crate::agent::catalog::{self, use_tmux_for};
 use crate::credential_sync::CredentialSync;
 use crate::message::dao::MessageDao;
+use crate::task_event::models::InsertTaskEvent;
 use crate::trajectory::operations::Trajectories;
+use moatless_types::event::EventType;
+use moatless_types::task::TaskSubType;
 
 pub(crate) const FROZEN_SWITCH: &str =
     "This Task was created before recording and cannot switch harness";
@@ -28,6 +32,15 @@ pub struct SwitchCredentials<'a> {
     pub secrets: &'a dyn SecretCatalog,
     pub provider_tokens: &'a dyn HarnessCredentials,
     pub credential_sync: &'a CredentialSync,
+}
+
+/// Why the platform switched a Task, shown in its conversation.
+pub struct SwitchNote<'a> {
+    /// The sentence the conversation shows, e.g. "Switched from Codex to
+    /// Claude Code: Codex hit its usage limit".
+    pub summary: &'a str,
+    /// The turn that prompted the switch.
+    pub turn_number: Option<i32>,
 }
 
 /// The result of a switch request that was not refused.
@@ -111,6 +124,46 @@ impl TaskSwitchService {
         ) {
             return Err(TaskError::NotFound(task_id.to_string()));
         }
+        self.switch_task(task, profile, model, scope_ctx, credentials, None)
+            .await
+    }
+
+    /// Switch a Loop's Task to `profile` and `model` (else its default model),
+    /// after its provider refused a turn, and record `note` in its conversation. The
+    /// platform acts here, so no caller's control is checked; the credentials
+    /// checked are `run_as`'s, the account the Task runs as.
+    pub async fn switch_for_fallback(
+        &self,
+        task_id: &str,
+        profile: AgentProfile,
+        model: Option<&str>,
+        run_as: &ScopeContext,
+        credentials: SwitchCredentials<'_>,
+        note: &SwitchNote<'_>,
+    ) -> Result<SwitchOutcome, TaskError> {
+        // reason: an agent fallback is the platform reacting to an agent
+        // event; it has no caller, and `run_as` scopes the credential checks.
+        #[allow(clippy::disallowed_methods)]
+        let system = ScopeContext::system();
+        let task = self
+            .tasks
+            .find_by_id(task_id, &system)
+            .await?
+            .ok_or_else(|| TaskError::NotFound(task_id.to_string()))?;
+        self.switch_task(task, profile, model, run_as, credentials, Some(note))
+            .await
+    }
+
+    async fn switch_task(
+        &self,
+        task: Task,
+        profile: AgentProfile,
+        model: Option<&str>,
+        scope_ctx: &ScopeContext,
+        credentials: SwitchCredentials<'_>,
+        note: Option<&SwitchNote<'_>>,
+    ) -> Result<SwitchOutcome, TaskError> {
+        let task_id = task.task_id.as_str();
         catalog::validate_agent_model(profile, model).map_err(TaskError::BadRequest)?;
         if task.agent_profile == profile {
             return Ok(SwitchOutcome::Unchanged);
@@ -161,7 +214,8 @@ impl TaskSwitchService {
                 entry.label
             )));
         }
-        switch_dao::write_profile(&self.db, task_id, profile, model).await?;
+        let note = note.map(|note| switch_event(task_id, task.agent_profile, profile, note));
+        switch_dao::write_profile(&self.db, task_id, profile, model, note.as_ref()).await?;
 
         tracing::info!(
             task_id,
@@ -173,6 +227,25 @@ impl TaskSwitchService {
         Ok(SwitchOutcome::Switched {
             from: task.agent_profile,
         })
+    }
+}
+
+fn switch_event(
+    task_id: &str,
+    from: AgentProfile,
+    to: AgentProfile,
+    note: &SwitchNote<'_>,
+) -> InsertTaskEvent {
+    InsertTaskEvent {
+        event_id: uuid::Uuid::new_v4().to_string(),
+        task_id: task_id.to_string(),
+        event_type: EventType::Task.as_str().to_string(),
+        sub_type: TaskSubType::AgentSwitched.as_str().to_string(),
+        is_error: false,
+        agent_profile: Some(to.as_str().to_string()),
+        turn_number: note.turn_number,
+        payload: serde_json::json!({ "summary": note.summary, "from": from, "to": to }),
+        timestamp: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
     }
 }
 

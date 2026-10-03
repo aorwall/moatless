@@ -866,6 +866,62 @@ async fn the_archive_pages_through_every_closed_task_newest_first(pool: PgPool) 
     assert_eq!(second["nextCursor"], serde_json::Value::Null);
 }
 
+async fn record_turn(pool: &PgPool, turn: i32, status: &str, error: Option<&str>) {
+    sqlx::query(
+        "INSERT INTO task_turns (task_id, turn_number, status) VALUES ($1, $2, $3)
+         ON CONFLICT (task_id, turn_number) DO UPDATE SET status = EXCLUDED.status",
+    )
+    .bind(TASK)
+    .bind(turn)
+    .bind(status)
+    .execute(pool)
+    .await
+    .expect("record turn");
+    if let Some(error) = error {
+        sqlx::query(
+            "INSERT INTO task_events (event_id, task_id, type, sub_type, is_error, turn_number, payload, timestamp)
+             VALUES ($1, $2, 'agent', 'error', true, $3, $4, '')",
+        )
+        .bind(format!("{TASK}-error-{turn}"))
+        .bind(TASK)
+        .bind(turn)
+        .bind(serde_json::json!({ "error": error, "reason": "usage_limit" }))
+        .execute(pool)
+        .await
+        .expect("record error event");
+    }
+}
+
+/// A Turn's error stays the conversation's until the next Turn starts.
+#[sqlx::test(migrations = "../core/migrations")]
+async fn the_newest_turns_error_is_read_until_another_turn_starts(pool: PgPool) {
+    seed_task(&pool).await;
+    let dao = conversations_over(&pool);
+    let owner = ScopeContext {
+        user_id: USER_1.to_string(),
+        is_admin: false,
+    };
+    let turn_error = |row: Option<crate::dao::Conversation>| row.expect("readable").turn_error;
+
+    record_turn(&pool, 1, "error", Some("You've hit your usage limit.")).await;
+    assert_eq!(
+        turn_error(dao.readable_by_id(&owner, TASK).await.unwrap()).as_deref(),
+        Some("You've hit your usage limit.")
+    );
+
+    record_turn(&pool, 2, "active", None).await;
+    assert_eq!(
+        turn_error(dao.readable_by_id(&owner, TASK).await.unwrap()),
+        None
+    );
+
+    record_turn(&pool, 2, "completed", None).await;
+    assert_eq!(
+        turn_error(dao.readable_by_id(&owner, TASK).await.unwrap()),
+        None
+    );
+}
+
 /// The one-row access check a silent thread poll asks gives the same answer
 /// as the full read it stands in for, across the read and status rules.
 #[sqlx::test(migrations = "../core/migrations")]

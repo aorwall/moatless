@@ -1,21 +1,22 @@
-//! Failure classification for the Codex adapter.
+//! Failure classification for the Codex adapter: startup failures, stream
+//! transport errors, request rejections and failed Turns become stable
+//! [`HarnessError`] facts, so the coordinator never learns Codex error shapes.
 //!
-//! Maps Codex startup failures, stream transport errors, request rejections and
-//! failed Turns into stable [`HarnessError`] facts, so the coordinator drives
-//! retry/credential policy without learning Codex-native error shapes.
-//!
-//! A failed Turn is classified from the **named** `codexErrorInfo` the server
-//! reports, never by matching substrings: the message is free text that varies
-//! by provider (one steer rejection carries three different sentences), and a
-//! stderr scan for the same markers matched an unrelated background model
-//! refresh.
+//! A failed Turn is classified from its named `codexErrorInfo`, not its free
+//! text, which varies by provider. The texts read are a safety refusal and a
+//! hub's `auth_unavailable`, ahead of any cause, and a usage limit where no
+//! named cause says otherwise.
 
+use chrono::{DateTime, Local, NaiveDate, NaiveTime, TimeZone, Utc};
 use tracing::warn;
 
 use crate::agent::codex_app_server::RpcError;
 use crate::agent::codex_app_server::protocol::{CodexErrorInfo, TurnError};
 
-use super::super::error::{ErrorClass, FailureStage, HarnessError, SessionImpact};
+use super::super::error::{
+    ErrorClass, FailureStage, HarnessError, SessionImpact, is_provider_unavailable,
+    is_safety_refusal,
+};
 
 /// Upper bound on a diagnostic string carried in a [`HarnessError`].
 const MAX_DIAGNOSTIC: usize = 500;
@@ -93,15 +94,30 @@ pub(super) fn classify_request_error(method: &str, error: &RpcError) -> HarnessE
 /// A failed Turn, classified from its named cause.
 ///
 /// A missing or unknown `codexErrorInfo` takes the same conservative default as
-/// an explicit `other` (input rejected, Session still usable); an unrecognised
-/// value is logged with its raw JSON so a new upstream code stays visible
-/// instead of silently collapsing into that default.
+/// an explicit `other` (input rejected, Session still usable) unless its
+/// message names a usage limit; an unrecognised value is logged with its raw
+/// JSON so a new upstream code stays visible.
 pub(super) fn classify_turn_error(error: &TurnError) -> HarnessError {
+    let text = turn_error_text(error);
+    let lower = text.to_lowercase();
+    let usage_limit_text = lower.contains("usage limit");
     let (class, impact) = match &error.codex_error_info {
+        // Read ahead of every named cause: a refusal may quote a status, and
+        // a hub's `auth_unavailable` arrives under whichever one Codex picks.
         Some(CodexErrorInfo::Unauthorized) => (ErrorClass::Authentication, SessionImpact::Unknown),
+        _ if is_safety_refusal(&lower) => (ErrorClass::InvalidInput, SessionImpact::Intact),
+        _ if is_provider_unavailable(&lower) => {
+            (ErrorClass::ProviderUnavailable, SessionImpact::Intact)
+        }
+        Some(CodexErrorInfo::UsageLimitExceeded) => (ErrorClass::UsageLimit, SessionImpact::Intact),
+        // Any 429 Codex did not read as `usage_limit_reached`, unretried
+        // (`retry_429: false`) and with its body dropped, so a hub's
+        // `model_cooldown` and a passing throttle arrive alike.
+        Some(CodexErrorInfo::ResponseTooManyFailedAttempts {
+            http_status_code: Some(429),
+        }) => (ErrorClass::ProviderThrottle, SessionImpact::Intact),
         Some(
-            CodexErrorInfo::UsageLimitExceeded
-            | CodexErrorInfo::ServerOverloaded
+            CodexErrorInfo::ServerOverloaded
             | CodexErrorInfo::InternalServerError
             | CodexErrorInfo::ResponseTooManyFailedAttempts { .. },
         ) => (ErrorClass::RateLimit, SessionImpact::Intact),
@@ -126,6 +142,9 @@ pub(super) fn classify_turn_error(error: &TurnError) -> HarnessError {
         Some(CodexErrorInfo::ThreadRollbackFailed) => {
             (ErrorClass::UnavailableSession, SessionImpact::Lost)
         }
+        Some(CodexErrorInfo::Other) | None if usage_limit_text => {
+            (ErrorClass::UsageLimit, SessionImpact::Intact)
+        }
         Some(
             CodexErrorInfo::ActiveTurnNotSteerable { .. }
             | CodexErrorInfo::ContextWindowExceeded
@@ -138,17 +157,58 @@ pub(super) fn classify_turn_error(error: &TurnError) -> HarnessError {
         Some(CodexErrorInfo::Unrecognized(raw)) => {
             warn!(
                 codex_error_info = %raw,
-                "Unrecognized codexErrorInfo; classifying as invalid input"
+                "Unrecognized codexErrorInfo; classifying from its message"
             );
-            (ErrorClass::InvalidInput, SessionImpact::Intact)
+            if usage_limit_text {
+                (ErrorClass::UsageLimit, SessionImpact::Intact)
+            } else {
+                (ErrorClass::InvalidInput, SessionImpact::Intact)
+            }
         }
     };
+    if class == ErrorClass::UsageLimit {
+        return HarnessError::usage_limit(
+            FailureStage::Execution,
+            impact,
+            &truncate_diagnostic(&text),
+            try_again_at(&error.message, Local::now()),
+        );
+    }
     HarnessError::new(
         FailureStage::Execution,
         class,
         impact,
-        truncate_diagnostic(&turn_error_text(error)),
+        truncate_diagnostic(&text),
     )
+}
+
+/// The reset time in Codex's usage-limit sentence ("… try again at Oct 3rd,
+/// 2026 6:05 PM." or, the same day, "… at 6:05 PM."), which Codex renders in
+/// the pod's local zone; `now` supplies that zone and the same-day date.
+pub(super) fn try_again_at<Tz: TimeZone>(
+    message: &str,
+    now: DateTime<Tz>,
+) -> Option<DateTime<Utc>> {
+    const MARKER: &str = "try again at ";
+    let start = message.to_lowercase().find(MARKER)? + MARKER.len();
+    let stamp = message.get(start..)?.split('.').next()?.trim();
+    let zone = now.timezone();
+    let local = match stamp.split_once(", ") {
+        // "Oct 3rd" + "2026 6:05 PM": drop the ordinal suffix chrono cannot read.
+        Some((month_day, year_time)) => {
+            let month_day = month_day.trim_end_matches(char::is_alphabetic);
+            let (year, time) = year_time.split_once(' ')?;
+            let date =
+                NaiveDate::parse_from_str(&format!("{month_day} {year}"), "%b %d %Y").ok()?;
+            date.and_time(NaiveTime::parse_from_str(time, "%I:%M %p").ok()?)
+        }
+        None => now
+            .date_naive()
+            .and_time(NaiveTime::parse_from_str(stamp, "%I:%M %p").ok()?),
+    };
+    zone.from_local_datetime(&local)
+        .single()
+        .map(|at| at.with_timezone(&Utc))
 }
 
 /// A failed Turn's message, plus the `additionalDetails` the server sometimes

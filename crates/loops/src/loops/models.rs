@@ -113,6 +113,8 @@ pub(crate) struct LoopConfigRow {
     pub stop_when_done: Option<bool>,
     /// See [`moatless_types::loops::SubscriptionMatch::message_buffer_seconds`].
     pub message_buffer_seconds: Option<i32>,
+    /// See [`NewLoopConfig::fallback_to_other_agent`].
+    pub fallback_to_other_agent: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -197,6 +199,11 @@ pub struct NewLoopConfig {
     pub stop_when_done: Option<bool>,
     /// See [`moatless_types::loops::SubscriptionMatch::message_buffer_seconds`].
     pub message_buffer_seconds: Option<i32>,
+    /// Re-run a spawned Task's turn on the other harness once when the
+    /// provider will not serve it: a usage limit, or a rate limit or an
+    /// unavailable provider that outlasted retries. Read when the turn errors,
+    /// not at spawn, so a toggle reaches Tasks already running.
+    pub fallback_to_other_agent: bool,
 }
 
 pub enum NewLoopSource {
@@ -276,6 +283,8 @@ pub struct ManagedLoopUpsert {
     pub stop_when_done: Option<bool>,
     /// See [`moatless_types::loops::SubscriptionMatch::message_buffer_seconds`].
     pub message_buffer_seconds: Option<i32>,
+    /// See [`NewLoopConfig::fallback_to_other_agent`].
+    pub fallback_to_other_agent: bool,
     pub adapter: Option<NewAdapterEventSource>,
     pub schedule: Option<NewScheduleSource>,
 }

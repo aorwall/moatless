@@ -31,6 +31,7 @@ pub(super) struct ResolvedLoop {
     inactive_ttl_days: Option<i32>,
     stop_when_done: Option<bool>,
     message_buffer_seconds: Option<i32>,
+    fallback_to_other_agent: bool,
     adapter: Option<ResolvedAdapterSource>,
     schedule: Option<ResolvedScheduleSource>,
 }
@@ -341,6 +342,7 @@ impl LoopSyncService {
             inactive_ttl_days: fm.inactive_ttl_days,
             stop_when_done: fm.stop_when_done,
             message_buffer_seconds: fm.message_buffer_seconds,
+            fallback_to_other_agent: fm.fallback_to_other_agent.unwrap_or(true),
             adapter,
             schedule,
         })))
@@ -396,6 +398,7 @@ pub(super) fn managed_loop_input(
         inactive_ttl_days: resolved.inactive_ttl_days,
         stop_when_done: resolved.stop_when_done,
         message_buffer_seconds: resolved.message_buffer_seconds,
+        fallback_to_other_agent: resolved.fallback_to_other_agent,
         adapter,
         schedule,
     }
@@ -516,6 +519,7 @@ mod tests {
             inactive_ttl_days: None,
             stop_when_done: None,
             message_buffer_seconds: None,
+            fallback_to_other_agent: None,
             schedule: None,
         }
     }

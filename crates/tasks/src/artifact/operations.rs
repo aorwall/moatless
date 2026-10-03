@@ -83,7 +83,7 @@ impl Artifacts {
     ) -> Result<(), ArtifactError> {
         let (s3, bucket) = self.object_storage()?;
         let key = self.page_key(task_id, artifact_id, version);
-        moatless_s3::put_object(&s3.client, bucket, &key, html, PAGE_CONTENT_TYPE).await?;
+        moatless_s3::put_object(s3, bucket, &key, html, PAGE_CONTENT_TYPE).await?;
         Ok(())
     }
 
@@ -94,7 +94,7 @@ impl Artifacts {
             return;
         };
         let key = self.page_key(task_id, artifact_id, version);
-        if let Err(e) = moatless_s3::delete_object(&s3.client, bucket, &key).await {
+        if let Err(e) = moatless_s3::delete_object(s3, bucket, &key).await {
             tracing::warn!(
                 error = %moatless_core::error::causal_chain(&e),
                 %key,
@@ -112,7 +112,7 @@ impl Artifacts {
     ) -> Result<Option<Vec<u8>>, ArtifactError> {
         let (s3, bucket) = self.object_storage()?;
         let key = self.page_key(task_id, artifact_id, version);
-        Ok(moatless_s3::get_object_opt(&s3.client, bucket, &key).await?)
+        Ok(moatless_s3::get_object_opt(s3, bucket, &key).await?)
     }
 
     /// See [`ArtifactDao::reserve_version`].

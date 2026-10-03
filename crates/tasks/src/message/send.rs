@@ -23,6 +23,7 @@ use moatless_types::agent::AgentMode;
 
 use super::contexts::message_context_input_to_row;
 use super::error::MessageError;
+use super::replay::{TurnReplay, fallback_replay};
 use moatless_types::task::ExternalOrigin;
 
 /// The message domain's one question of the adapter registry.
@@ -502,6 +503,7 @@ impl MessageSendService {
                     .map(|context| InboxContext::from(&message_context_input_to_row(context)))
                     .collect(),
                 tool_response: None,
+                agent_fallback: false,
             },
             answers_tool_use_id: None,
             origin: inbox_origin(&origin, sent_by),
@@ -538,6 +540,28 @@ impl MessageSendService {
             .map_err(MessageError::AdvanceTaskClock)?;
 
         Ok(Some(queued.id.to_string()))
+    }
+
+    /// The item that re-runs `turn_number` on the other agent, from the items
+    /// it delivered. See [`fallback_replay`].
+    pub async fn turn_replay(
+        &self,
+        task_id: &str,
+        turn_number: i32,
+    ) -> Result<Option<TurnReplay>, MessageError> {
+        let items = self.inbox.delivered_in_turn(task_id, turn_number).await?;
+        Ok(fallback_replay(task_id, turn_number, &items))
+    }
+
+    /// Queue `replay`; `false` when a redelivered event already queued it.
+    pub async fn queue_replay(&self, replay: TurnReplay) -> Result<bool, MessageError> {
+        if self.task_is_closed(&replay.item.task_id).await {
+            return Err(MessageError::TaskClosed(replay.item.task_id));
+        }
+        let queued = queue(&self.inbox, replay.item)
+            .await
+            .map_err(MessageError::PersistMessage)?;
+        Ok(queued.is_some())
     }
 
     /// Persist an error result message visible in the chat.

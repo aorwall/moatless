@@ -17,7 +17,11 @@ const JITTER_FACTOR: f64 = 0.2;
 pub(crate) fn is_retryable_harness_error(err: &HarnessError) -> bool {
     matches!(
         err.class,
-        ErrorClass::RateLimit | ErrorClass::ProcessExit | ErrorClass::Connectivity
+        ErrorClass::RateLimit
+            | ErrorClass::ProviderThrottle
+            | ErrorClass::ProviderUnavailable
+            | ErrorClass::ProcessExit
+            | ErrorClass::Connectivity
     )
 }
 
@@ -67,6 +71,19 @@ mod tests {
             "unable to connect to API",
         );
         assert!(is_retryable_harness_error(&retryable));
+    }
+
+    /// A spent allowance lifts hours or days later; the 5–60 s backoff would
+    /// only repeat the refusal and bury the provider's reset time.
+    #[test]
+    fn a_usage_limit_is_not_retried() {
+        let err = HarnessError::usage_limit(
+            crate::agent::harness::FailureStage::Execution,
+            crate::agent::harness::SessionImpact::Intact,
+            "You've hit your usage limit.",
+            None,
+        );
+        assert!(!is_retryable_harness_error(&err));
     }
 
     #[test]

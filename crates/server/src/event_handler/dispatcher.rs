@@ -22,6 +22,7 @@ use crate::state::AppState;
 use moatless_tasks::task_event::models::InsertTaskEvent;
 use moatless_tasks::task_turn::models::classify_turn_transition;
 
+use super::agent_fallback;
 use super::agent_handlers;
 use moatless_tasks::agent_event::AgentEvent;
 use moatless_tasks::agent_event::EventKey;
@@ -224,6 +225,7 @@ impl EventDispatcher {
                 // handle_agent_error publishes task_turn.error; external
                 // notification is handled by the agent via `moat reply`.
                 agent_handlers::handle_agent_error(&(&self.state).into(), event).await;
+                agent_fallback::fall_back_to_other_agent(&(&self.state).into(), event).await;
             }
             EventKey::TaskTurn(TaskTurnSubType::Error) => {
                 // External notification is handled by the agent via `moat reply`.
@@ -275,7 +277,8 @@ impl EventDispatcher {
                 | TaskSubType::Updated
                 // Projected in the transaction that persisted them.
                 | TaskSubType::Error
-                | TaskSubType::BindingReplySent,
+                | TaskSubType::BindingReplySent
+                | TaskSubType::AgentSwitched,
             )
             | EventKey::TaskTurn(TaskTurnSubType::Active | TaskTurnSubType::Interrupted) => {
                 // `turn_interrupted` is an observability marker only — the turn

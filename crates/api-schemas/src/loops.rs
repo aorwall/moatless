@@ -66,6 +66,11 @@ pub struct LoopConfig {
     /// the deployment default for the Loop's adapter kind (60 for `github_pr`,
     /// off elsewhere); `0` delivers every event on its own.
     pub message_buffer_seconds: Option<i32>,
+    /// Re-run a spawned Task's failed turn once on the other agent (`codex` or
+    /// `claude-code`), in the same Task, when the turn's error reason is
+    /// `usage_limit`, `rate_limit` or `provider_unavailable`. The sandbox
+    /// reports the last two only once its retries are spent.
+    pub fallback_to_other_agent: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -92,6 +97,8 @@ pub struct CreateLoopConfig {
     pub stop_when_done: Option<bool>,
     /// See [`LoopConfig::message_buffer_seconds`].
     pub message_buffer_seconds: Option<i32>,
+    /// See [`LoopConfig::fallback_to_other_agent`]. `None` is on.
+    pub fallback_to_other_agent: Option<bool>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -128,6 +135,9 @@ pub struct UpdateLoopConfig {
     /// See [`LoopConfig::message_buffer_seconds`]. `Some(None)` clears the
     /// override.
     pub message_buffer_seconds: Option<Option<i32>>,
+    /// See [`LoopConfig::fallback_to_other_agent`]. `None` keeps the current
+    /// value.
+    pub fallback_to_other_agent: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

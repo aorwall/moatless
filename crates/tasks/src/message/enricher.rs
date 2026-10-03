@@ -343,7 +343,10 @@ fn sender_label(row: &TaskMessage, sender_logins: &HashMap<String, String>) -> O
     }
 }
 
-fn build_message_header(row: &TaskMessage, login_cache: &HashMap<String, String>) -> String {
+pub(crate) fn build_message_header(
+    row: &TaskMessage,
+    login_cache: &HashMap<String, String>,
+) -> String {
     // A schedule firing stores an `external_event_id` for dedup only; see
     // [`SCHEDULED_ORIGIN`] for why such a row carries no header.
     let external = row.external_event_id.is_some()

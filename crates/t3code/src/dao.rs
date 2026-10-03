@@ -20,6 +20,7 @@ use tokio::sync::Semaphore;
 use tracing::warn;
 
 use crate::UiRpcDbPool;
+pub use crate::archive_cursor::ArchiveCursor;
 use crate::listing::{UiRpcListingChange, UiRpcListingHead};
 use crate::task_dao::{T3TaskDao, TaskView};
 use crate::transcript_dao::Transcript;
@@ -116,6 +117,9 @@ pub struct Conversation {
     pub turn_status: Option<String>,
     pub turn_started_at: Option<DateTime<Utc>>,
     pub turn_ended_at: Option<DateTime<Utc>>,
+    /// The error text the newest Turn ended with: `None` unless its status is
+    /// `error`, so the next Turn starting or completing clears it.
+    pub turn_error: Option<String>,
 
     /// Durable Sandbox lifecycle intent; all four are `None` together when no
     /// Sandbox was ever requested — the lazy-absence model of `sandboxes`.
@@ -568,52 +572,6 @@ pub(crate) const BROWSE_LIMIT: i64 = 200;
 /// [`BROWSE_LIMIT`] is.
 pub(crate) const ARCHIVED_LIMIT: i64 = 200;
 
-/// Where an archive page resumes: the sort key of the last row the page
-/// before it returned, in the listing's `updated_at DESC NULLS LAST, task_id`
-/// order.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ArchiveCursor {
-    updated_at: Option<DateTime<Utc>>,
-    task_id: String,
-}
-
-impl ArchiveCursor {
-    /// The cursor resuming after `conversation`.
-    pub fn after(conversation: &Conversation) -> Self {
-        Self {
-            updated_at: conversation.updated_at,
-            task_id: conversation.task_id.clone(),
-        }
-    }
-
-    /// The opaque text a client echoes back: `<updated_at>|<task_id>`, the
-    /// time empty when absent. Microsecond precision, since that is what
-    /// Postgres stores and a coarser time would skip or repeat rows.
-    pub fn encode(&self) -> String {
-        let updated_at = self
-            .updated_at
-            .map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Micros, true))
-            .unwrap_or_default();
-        format!("{updated_at}|{}", self.task_id)
-    }
-
-    /// `None` for text [`Self::encode`] did not produce.
-    pub fn decode(text: &str) -> Option<Self> {
-        let (updated_at, task_id) = text.split_once('|')?;
-        if task_id.is_empty() {
-            return None;
-        }
-        let updated_at = match updated_at {
-            "" => None,
-            at => Some(DateTime::parse_from_rfc3339(at).ok()?.with_timezone(&Utc)),
-        };
-        Some(Self {
-            updated_at,
-            task_id: task_id.to_owned(),
-        })
-    }
-}
-
 /// A capped read: `cap` rows, newest first, after `before` when given.
 struct Page<'a> {
     cap: i64,
@@ -846,6 +804,7 @@ impl PgConversationDao {
                    turn.status                AS turn_status,
                    turn.started_at            AS turn_started_at,
                    turn.ended_at              AS turn_ended_at,
+                   failure.turn_error,
                    s.desired_state            AS sandbox_desired_state_raw,
                    s.stop_reason              AS sandbox_stop_reason_raw,
                    s.started_at               AS sandbox_started_at,
@@ -879,6 +838,17 @@ impl PgConversationDao {
                    ORDER BY tt.turn_number DESC
                    LIMIT 1
                ) turn ON TRUE
+               LEFT JOIN LATERAL (
+                   SELECT e.payload->>'error' AS turn_error
+                   FROM task_events e
+                   WHERE turn.status = 'error'
+                     AND e.task_id = t.task_id
+                     AND e.turn_number = turn.turn_number
+                     AND e.type IN ('agent', 'taskTurn')
+                     AND e.sub_type = 'error'
+                   ORDER BY e.id DESC
+                   LIMIT 1
+               ) failure ON TRUE
                LEFT JOIN LATERAL (
                    SELECT m.created_at AS latest_user_message_at
                    FROM conversation_messages m

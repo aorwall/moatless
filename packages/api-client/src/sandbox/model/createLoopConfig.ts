@@ -11,6 +11,11 @@ import type { RoutingMode } from './routingMode';
 export interface CreateLoopConfig {
   /** @nullable */
   agentProfile?: string | null;
+  /**
+     * See [`LoopConfig::fallback_to_other_agent`]. `None` is on.
+     * @nullable
+     */
+  fallbackToOtherAgent?: boolean | null;
   /** @nullable */
   inactiveTtlDays?: number | null;
   /**

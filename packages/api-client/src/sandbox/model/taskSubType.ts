@@ -20,4 +20,5 @@ export const TaskSubType = {
   metadataupdated: 'metadata.updated',
   error: 'error',
   binding_reply_sent: 'binding_reply_sent',
+  agent_switched: 'agent_switched',
 } as const;

@@ -132,3 +132,65 @@ async fn failed_execution_publishes_error_and_no_completion() {
     assert_eq!(error["error"], "boom");
     assert_eq!(error["reason"], "native_protocol");
 }
+
+/// The backend reads `reason` to decide a Loop's agent fallback, and the UI
+/// shows the reset time from the error text.
+#[test]
+fn a_usage_limit_error_names_its_reason_and_reset_time() {
+    let resets_at = chrono::DateTime::parse_from_rfc3339("2026-10-03T18:05:00Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    let error = HarnessError::usage_limit(
+        FailureStage::Execution,
+        SessionImpact::Intact,
+        "You've hit your usage limit.",
+        Some(resets_at),
+    );
+    let payload = super::super::seam::error_payload(&error);
+    assert_eq!(payload["reason"], "usage_limit");
+    assert_eq!(payload["resetsAt"], "2026-10-03T18:05:00Z");
+    assert_eq!(
+        payload["error"],
+        "You've hit your usage limit. (usage limit resets at 2026-10-03T18:05:00Z)"
+    );
+
+    let unknown_reset = HarnessError::usage_limit(
+        FailureStage::Execution,
+        SessionImpact::Intact,
+        "You've hit your usage limit.",
+        None,
+    );
+    let payload = super::super::seam::error_payload(&unknown_reset);
+    assert_eq!(payload["reason"], "usage_limit");
+    assert!(payload.get("resetsAt").is_none());
+}
+
+/// A throttle reaches `agent.error` only once its retries are spent, and a Loop
+/// falls back from it as from a spent allowance.
+#[test]
+fn a_throttle_that_outlasted_its_retries_is_reported_as_a_usage_limit() {
+    let error = HarnessError::new(
+        FailureStage::Execution,
+        ErrorClass::ProviderThrottle,
+        SessionImpact::Intact,
+        "exceeded retry limit, last status: 429 Too Many Requests",
+    );
+    assert!(crate::agent::retry::is_retryable_harness_error(&error));
+    let payload = super::super::seam::error_payload(&error);
+    assert_eq!(payload["reason"], "usage_limit");
+}
+
+/// An unavailable provider reaches `agent.error` only once its retries are
+/// spent, under its own reason.
+#[test]
+fn an_unavailable_provider_is_reported_under_its_own_reason() {
+    let error = HarnessError::new(
+        FailureStage::Execution,
+        ErrorClass::ProviderUnavailable,
+        SessionImpact::Intact,
+        "auth_unavailable: no auth available (providers=codex)",
+    );
+    assert!(crate::agent::retry::is_retryable_harness_error(&error));
+    let payload = super::super::seam::error_payload(&error);
+    assert_eq!(payload["reason"], "provider_unavailable");
+}

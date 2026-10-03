@@ -106,6 +106,10 @@ pub struct LoopFrontmatter {
     /// buffering off.
     #[serde(default)]
     pub message_buffer_seconds: Option<i32>,
+    /// See [`crate::loops::models::NewLoopConfig::fallback_to_other_agent`].
+    /// `None` is on.
+    #[serde(default)]
+    pub fallback_to_other_agent: Option<bool>,
     /// Schedule settings — only meaningful when `on: schedule`.
     #[serde(default)]
     pub schedule: Option<LoopSchedule>,

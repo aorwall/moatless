@@ -45,7 +45,8 @@ impl T3ActivityViewExt for ActivityView<'_> {
             | ActivityKind::UserInputRequested
             | ActivityKind::UserInputResolved
             | ActivityKind::PlanUpdated
-            | ActivityKind::ContextWindowUpdated => "info",
+            | ActivityKind::ContextWindowUpdated
+            | ActivityKind::AgentSwitched => "info",
         }
     }
 
@@ -68,7 +69,8 @@ impl T3ActivityViewExt for ActivityView<'_> {
             // colours a heading red, `runtime.warning` amber, and everything
             // else on `task.progress` is a plain running-agent row.
             ActivityKind::SandboxError => "runtime.error",
-            ActivityKind::SandboxWarning => "runtime.warning",
+            // Amber, like a recovered stall: the run goes on, on another agent.
+            ActivityKind::SandboxWarning | ActivityKind::AgentSwitched => "runtime.warning",
             ActivityKind::Thinking | ActivityKind::SandboxStatus => "task.progress",
             // The four the client derives a panel from rather than a work-log
             // row. Each spelling is the one that client's own deriver matches

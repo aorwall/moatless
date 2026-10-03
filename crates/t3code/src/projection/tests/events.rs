@@ -223,6 +223,25 @@ fn a_change_naming_an_activity_carries_that_row_and_no_session() {
     assert_eq!(sent[0]["sequence"], 6 * EVENTS_PER_CHANGE + 1);
 }
 
+/// The platform moving a Task to another agent reaches the client as an amber
+/// work-log row whose heading says why.
+#[test]
+fn an_agent_switch_is_a_warning_row_naming_its_reason() {
+    let summary = "Switched from Codex to Claude Code: Codex hit its usage limit";
+    let mut switched = activity("", 7, 0, ActivityKind::AgentSwitched, summary);
+    switched.activity_id = "evt-switch".to_string();
+    switched.message_uuid = None;
+    let window = transcript(Vec::new(), vec![switched]);
+
+    let sent = events(&activity_change(7, "evt-switch"), &window);
+    assert_eq!(sent.len(), 1, "{sent:#?}");
+    assert_eq!(sent[0]["type"], "thread.activity-appended");
+    let row = &sent[0]["payload"]["activity"];
+    assert_eq!(row["kind"], "runtime.warning");
+    assert_eq!(row["tone"], "info");
+    assert_eq!(row["summary"], summary);
+}
+
 /// A change naming an activity the window does not hold says nothing — a
 /// complete answer, the same one a change naming an absent Message gives.
 #[test]

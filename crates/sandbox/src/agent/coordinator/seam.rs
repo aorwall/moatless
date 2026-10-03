@@ -508,14 +508,7 @@ impl Coordinator {
 
     async fn publish_error(&self, error: &HarnessError) {
         self.run_events()
-            .publish_agent_event(
-                &self.task_id,
-                AgentSubType::Error,
-                json!({
-                    "error": error.diagnostic,
-                    "reason": error_reason(error.class),
-                }),
-            )
+            .publish_agent_event(&self.task_id, AgentSubType::Error, error_payload(error))
             .await;
     }
 
@@ -640,12 +633,29 @@ pub(super) fn extract_wakeup_from_block(block: &CanonicalContentBlock) -> Option
     WakeupJob::from_tool_use(id, input)
 }
 
+/// The `agent.error` payload. `resetsAt` (RFC 3339) is present only when the
+/// provider stated when a usage limit lifts.
+pub(super) fn error_payload(error: &HarnessError) -> Value {
+    let mut payload = json!({
+        "error": error.diagnostic,
+        "reason": error_reason(error.class),
+    });
+    if let Some(at) = error.resets_at {
+        payload["resetsAt"] = json!(at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true));
+    }
+    payload
+}
+
 /// A stable snake-case tag for the error class, carried on `agent.error` for
-/// observability alongside the diagnostic.
+/// observability alongside the diagnostic. The backend reads `usage_limit` to
+/// decide a Loop's agent fallback.
 fn error_reason(class: ErrorClass) -> &'static str {
     match class {
         ErrorClass::Authentication => "authentication",
         ErrorClass::RateLimit => "rate_limit",
+        // Published only once retries are spent: see the variant.
+        ErrorClass::UsageLimit | ErrorClass::ProviderThrottle => "usage_limit",
+        ErrorClass::ProviderUnavailable => "provider_unavailable",
         ErrorClass::Connectivity => "connectivity",
         ErrorClass::UnavailableSession => "unavailable_session",
         ErrorClass::InvalidConfiguration => "invalid_configuration",

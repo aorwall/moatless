@@ -84,6 +84,24 @@ pub(crate) async fn pending(
     rows.into_iter().map(InboxItem::try_from).collect()
 }
 
+/// The items `turn_number` delivered, oldest first.
+pub(crate) async fn delivered_in_turn(
+    pool: &DbPool,
+    task_id: &str,
+    turn_number: i32,
+) -> Result<Vec<InboxItem>, sqlx::Error> {
+    let rows: Vec<InboxRow> = sqlx::query_as(
+        r#"SELECT * FROM task_inbox
+            WHERE task_id = $1 AND turn_number = $2 AND status = 'delivered'
+            ORDER BY created_at, id"#,
+    )
+    .bind(task_id)
+    .bind(turn_number)
+    .fetch_all(pool)
+    .await?;
+    rows.into_iter().map(InboxItem::try_from).collect()
+}
+
 pub(crate) async fn find(pool: &DbPool, id: Uuid) -> Result<Option<InboxItem>, sqlx::Error> {
     let row: Option<InboxRow> = sqlx::query_as("SELECT * FROM task_inbox WHERE id = $1")
         .bind(id)

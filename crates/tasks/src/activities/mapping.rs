@@ -731,6 +731,23 @@ pub fn context_window_updated(
     }
 }
 
+/// The platform moving a Task to another agent, which happened on no Message.
+pub fn agent_switched(event_id: &str, task_id: &str, summary: &str) -> ActivityRow {
+    ActivityRow {
+        activity_id: event_id.to_string(),
+        task_id: task_id.to_string(),
+        ordinal: 0,
+        message_uuid: None,
+        parent_uuid: None,
+        kind: ActivityKind::AgentSwitched,
+        status: ActivityStatus::Completed,
+        tool_use_id: None,
+        summary: summary.to_string(),
+        payload: json!({ "summary": summary }),
+        is_error: false,
+    }
+}
+
 /// `{source}:{source_block}`, the name [`crate::conversation::ids::activity`]
 /// hashes.
 fn activity_id(context: BlockContext<'_>) -> String {

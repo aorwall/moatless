@@ -16,6 +16,7 @@
 pub mod agent_catalog;
 pub mod config;
 pub mod db;
+mod decision_config;
 pub mod error;
 pub mod events;
 pub mod feature_flags;

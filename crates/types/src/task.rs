@@ -71,6 +71,9 @@ crate::string_enum!(
         /// A message sent to a Binding's channel: the agent's reply, which the
         /// conversation shows, or a stub announcing a run, which it does not.
         BindingReplySent => "binding_reply_sent",
+        /// The platform moved the Task to another agent, or back; projected as
+        /// an activity whose payload `summary` says why.
+        AgentSwitched => "agent_switched",
     }
 );
 

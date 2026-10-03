@@ -104,6 +104,10 @@ pub struct DeliveryOptions {
     /// A tool response's structured answer, `{toolUseId, toolName, …}`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_response: Option<serde_json::Value>,
+    /// This item re-runs, on the other agent, a turn its provider would not
+    /// serve. A turn that delivered one never falls back again.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub agent_fallback: bool,
 }
 
 impl Default for DeliveryOptions {
@@ -117,6 +121,7 @@ impl Default for DeliveryOptions {
             start_fresh: false,
             contexts: Vec::new(),
             tool_response: None,
+            agent_fallback: false,
         }
     }
 }

@@ -456,6 +456,7 @@ mod tests {
             turn_status: None,
             turn_started_at: None,
             turn_ended_at: None,
+            turn_error: None,
             sandbox_desired_state_raw: Some(
                 moatless_types::sandbox::SandboxDesiredState::Running
                     .as_str()

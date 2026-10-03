@@ -690,6 +690,21 @@ impl From<&AppState> for crate::event_handler::agent_handlers::AgentErrorPorts {
     }
 }
 
+impl From<&AppState> for crate::event_handler::agent_fallback::FallbackPorts {
+    fn from(state: &AppState) -> Self {
+        Self {
+            tasks: state.tasks.clone(),
+            loops: state.loops.clone(),
+            task_switch: state.task_switch.clone(),
+            message_send: state.message_send.clone(),
+            sandbox_waker: state.sandbox_waker.clone(),
+            secrets: state.secrets.clone(),
+            harness_credentials: state.harness_credentials.clone(),
+            credential_sync: state.credential_sync.clone(),
+        }
+    }
+}
+
 impl axum::extract::FromRef<AppState> for Arc<TaskPresenter> {
     fn from_ref(state: &AppState) -> Self {
         state.task_presenter.clone()

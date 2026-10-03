@@ -11,6 +11,12 @@ import type { UpdateLoopConfigNodeSelector } from './updateLoopConfigNodeSelecto
 export interface UpdateLoopConfig {
   /** @nullable */
   agentProfile?: string | null;
+  /**
+     * See [`LoopConfig::fallback_to_other_agent`]. `None` keeps the current
+     * value.
+     * @nullable
+     */
+  fallbackToOtherAgent?: boolean | null;
   /** @nullable */
   inactiveTtlDays?: number | null;
   /**

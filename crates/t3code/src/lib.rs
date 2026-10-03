@@ -5,6 +5,7 @@
 pub mod activity;
 pub(crate) mod activity_dao;
 pub mod agent;
+mod archive_cursor;
 mod assets;
 mod attachments;
 pub mod auth;

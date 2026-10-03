@@ -4,10 +4,14 @@
 //! [`HarnessError`] facts (class + Session impact + stage) so the coordinator
 //! drives policy without learning Claude-native error shapes.
 
+use chrono::{DateTime, Utc};
 use claude_agent_sdk::SdkError;
 use claude_agent_sdk::api::messages::ResultMessage;
 
-use super::super::error::{ErrorClass, FailureStage, HarnessError, SessionImpact};
+use super::super::error::{
+    ErrorClass, FailureStage, HarnessError, SessionImpact, is_provider_unavailable,
+    is_safety_refusal,
+};
 use super::super::process::ProcessTermination;
 
 /// Upper bound on a diagnostic string carried in a [`HarnessError`].
@@ -125,6 +129,39 @@ pub(super) fn classify_result(result: &ResultMessage) -> ProcessTermination {
 fn result_failure(subtype: &str, text: &str) -> HarnessError {
     let haystack = format!("{subtype} {text}").to_lowercase();
     let matches_any = |patterns: &[&str]| patterns.iter().any(|p| haystack.contains(p));
+    // First: a refusal may quote a status or "usage", and must never be
+    // retried or handed to the other provider.
+    if is_safety_refusal(&haystack) {
+        return HarnessError::new(
+            FailureStage::Execution,
+            ErrorClass::InvalidInput,
+            SessionImpact::Intact,
+            truncate_diagnostic(text),
+        );
+    }
+    if is_provider_unavailable(&haystack) {
+        return HarnessError::new(
+            FailureStage::Execution,
+            ErrorClass::ProviderUnavailable,
+            SessionImpact::Intact,
+            truncate_diagnostic(text),
+        );
+    }
+    // Checked before the rate-limit patterns: a hub's cooldown body quotes the
+    // upstream `rate_limit_error` that started it.
+    if matches_any(&[
+        "you've hit your",
+        "you're out of extra usage",
+        "usage limit reached",
+        "model_cooldown",
+    ]) {
+        return HarnessError::usage_limit(
+            FailureStage::Execution,
+            SessionImpact::Intact,
+            &truncate_diagnostic(text),
+            usage_limit_reset(text),
+        );
+    }
     let class = if matches_any(&[
         "overloaded",
         "rate_limit",
@@ -172,4 +209,18 @@ fn result_failure(subtype: &str, text: &str) -> HarnessError {
         SessionImpact::Intact,
         truncate_diagnostic(text),
     )
+}
+
+/// The reset time a usage-limit result states in a machine-readable form: the
+/// 2.0 CLI's `Claude AI usage limit reached|<unix seconds>`, or a `CLIProxyAPI`
+/// `model_cooldown` body's `reset_seconds`. The 2.1 CLI's "resets 3pm (UTC)"
+/// is left in the text, where it already reads.
+fn usage_limit_reset(text: &str) -> Option<DateTime<Utc>> {
+    if let Some((_, seconds)) = text.split_once("usage limit reached|") {
+        let seconds: i64 = seconds.trim().parse().ok()?;
+        return DateTime::from_timestamp(seconds, 0);
+    }
+    let body: serde_json::Value = serde_json::from_str(&text[text.find('{')?..]).ok()?;
+    let seconds = body["error"]["reset_seconds"].as_i64()?;
+    Some(Utc::now() + chrono::Duration::seconds(seconds))
 }

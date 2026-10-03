@@ -49,9 +49,7 @@ pub(super) fn session(conversation: &Conversation) -> Value {
             (true, Some(turn_number)) => json!(turn_id(&conversation.task_id, turn_number)),
             _ => Value::Null,
         },
-        // Moatless records no durable last-error text for a Sandbox. The stop
-        // reason it does record is already carried by the status below.
-        "lastError": Value::Null,
+        "lastError": conversation.turn_error,
         "updatedAt": timestamp(conversation.sandbox_updated_at)
     })
 }

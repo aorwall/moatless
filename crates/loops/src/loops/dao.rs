@@ -61,6 +61,7 @@ struct JoinedLoopRecordRow {
     node_selector: Option<sqlx::types::Json<std::collections::BTreeMap<String, String>>>,
     stop_when_done: Option<bool>,
     message_buffer_seconds: Option<i32>,
+    fallback_to_other_agent: bool,
     adapter_kind: Option<String>,
     connection_id: Option<String>,
     source_matcher: Option<String>,
@@ -113,6 +114,7 @@ impl JoinedLoopRecordRow {
             node_selector: self.node_selector.map(|json| json.0),
             stop_when_done: self.stop_when_done,
             message_buffer_seconds: self.message_buffer_seconds,
+            fallback_to_other_agent: self.fallback_to_other_agent,
         };
         let source = match kind {
             LoopKind::AdapterEvent => LoopSourceRow::AdapterEvent(SubscriptionRow {
@@ -177,6 +179,7 @@ const LOOP_RECORD_SELECT: &str = r#"
            r.node_selector,
            r.stop_when_done,
            r.message_buffer_seconds,
+           r.fallback_to_other_agent,
            aes.adapter_kind,
            aes.connection_id,
            aes.source_matcher,
@@ -366,7 +369,8 @@ impl LoopDao {
                        workspace_id = $12,
                        node_selector = $13,
                        stop_when_done = $14,
-                       message_buffer_seconds = $15
+                       message_buffer_seconds = $15,
+                       fallback_to_other_agent = $16
                    WHERE loop_id = $1"#,
             )
             .bind(id)
@@ -384,6 +388,7 @@ impl LoopDao {
             .bind(config.node_selector.as_ref().map(sqlx::types::Json))
             .bind(config.stop_when_done)
             .bind(config.message_buffer_seconds)
+            .bind(config.fallback_to_other_agent)
             .execute(&mut *tx)
             .await?;
         }
@@ -1153,6 +1158,18 @@ impl LoopDao {
         Ok(())
     }
 
+    /// See [`crate::loops::models::NewLoopConfig::fallback_to_other_agent`];
+    /// `None` when `loop_id` has no config. Unscoped: the platform reads it.
+    pub async fn fallback_to_other_agent(
+        &self,
+        loop_id: &str,
+    ) -> Result<Option<bool>, sqlx::Error> {
+        sqlx::query_scalar("SELECT fallback_to_other_agent FROM loop_configs WHERE loop_id = $1")
+            .bind(loop_id)
+            .fetch_optional(&self.db)
+            .await
+    }
+
     /// Resolve the `LoopSpawnConfig` for a schedule firing.
     pub async fn find_loop_spawn_config(
         &self,
@@ -1331,6 +1348,7 @@ async fn replace_managed_loop_rows(
             node_selector: node_selector.map(|json| json.0),
             stop_when_done: input.stop_when_done,
             message_buffer_seconds: input.message_buffer_seconds,
+            fallback_to_other_agent: input.fallback_to_other_agent,
         },
     )
     .await?;
@@ -1354,8 +1372,8 @@ async fn insert_config(
            (loop_id, routing_mode, ongoing_task_id, prompt,
             task_name, tag_ids, skills, run_as_user_id, agent_profile,
             inactive_ttl_days, model, workspace_id, node_selector, stop_when_done,
-            message_buffer_seconds)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)"#,
+            message_buffer_seconds, fallback_to_other_agent)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)"#,
     )
     .bind(loop_id)
     .bind(config.routing_mode.as_str())
@@ -1372,6 +1390,7 @@ async fn insert_config(
     .bind(config.node_selector.as_ref().map(sqlx::types::Json))
     .bind(config.stop_when_done)
     .bind(config.message_buffer_seconds)
+    .bind(config.fallback_to_other_agent)
     .execute(&mut **tx)
     .await?;
     Ok(())

@@ -210,6 +210,7 @@ fn inbox_item(
                 })
                 .collect(),
             tool_response: msg.tool_response.clone(),
+            agent_fallback: false,
         },
         answers_tool_use_id: msg
             .tool_response

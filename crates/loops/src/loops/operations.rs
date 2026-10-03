@@ -87,6 +87,14 @@ impl Loops {
         &self.store
     }
 
+    /// See [`LoopDao::fallback_to_other_agent`].
+    pub async fn fallback_to_other_agent(
+        &self,
+        loop_id: &str,
+    ) -> Result<Option<bool>, sqlx::Error> {
+        self.store.fallback_to_other_agent(loop_id).await
+    }
+
     /// The Loops an access-filtered caller may see.
     pub(crate) async fn list(
         &self,
@@ -280,6 +288,7 @@ impl Loops {
                     node_selector: req.config.node_selector.clone(),
                     stop_when_done: req.config.stop_when_done,
                     message_buffer_seconds: req.config.message_buffer_seconds,
+                    fallback_to_other_agent: req.config.fallback_to_other_agent.unwrap_or(true),
                 },
                 source,
             })
@@ -633,6 +642,9 @@ fn next_config(
         message_buffer_seconds: rule
             .message_buffer_seconds
             .unwrap_or(current.config.message_buffer_seconds),
+        fallback_to_other_agent: rule
+            .fallback_to_other_agent
+            .unwrap_or(current.config.fallback_to_other_agent),
     })
 }
 
@@ -704,6 +716,7 @@ mod tests {
                 node_selector: None,
                 stop_when_done: None,
                 message_buffer_seconds: None,
+                fallback_to_other_agent: true,
             },
             source: LoopSourceRow::Manual,
         }
