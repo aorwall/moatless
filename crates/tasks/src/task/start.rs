@@ -87,7 +87,7 @@ pub async fn start_task(
                     &SandboxEventPayload {
                         message: e.user_message.clone(),
                         error: Some(e.detail.clone()),
-                        lifecycle_event: Some("preflight_failed".to_string()),
+                        lifecycle_event: Some(super::creation::PREFLIGHT_FAILED.to_string()),
                         ..Default::default()
                     },
                 )

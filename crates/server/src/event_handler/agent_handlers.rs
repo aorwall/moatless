@@ -11,6 +11,7 @@ use crate::sandbox::lifecycle::Lifecycle;
 use crate::state::AppState;
 use moatless_ports::sandbox::SandboxWaker;
 use moatless_tasks::message::send::MessageSendService;
+use moatless_tasks::task::creation::TASK_ERRORED_LIFECYCLE_EVENTS;
 use moatless_tasks::task::models::TaskPatch;
 use moatless_tasks::task::models::TaskStatus;
 use moatless_tasks::task::operations::TaskCommands;
@@ -407,8 +408,14 @@ pub struct AgentErrorPorts {
     pub task_turns: Arc<TaskTurns>,
 }
 
-/// Handle `agent.error` or `sandbox.fatal` event.
+/// Handle `agent.error` event.
 pub async fn handle_agent_error(ports: &AgentErrorPorts, event: &AgentEvent) {
+    finish_errored_run(ports, event, true).await;
+}
+
+/// Record an errored run; `reopen` returns the task to `Open` and tells a
+/// `created_by` parent.
+async fn finish_errored_run(ports: &AgentErrorPorts, event: &AgentEvent, reopen: bool) {
     // reason: agent-lifecycle event handler runs as background system with no caller identity
     #[allow(clippy::disallowed_methods)]
     let sys_ctx = ScopeContext::system();
@@ -453,17 +460,18 @@ pub async fn handle_agent_error(ports: &AgentErrorPorts, event: &AgentEvent) {
     // single guard also keeps the reaper from re-opening a closed task: the
     // synthetic error still publishes `taskTurn.error` (the UI unblocks), but
     // the status stays Closed.
-    let child_not_closed = match ports
-        .tasks
-        .update_status_if_not_closed(&event.task_id, TaskStatus::Open, &sys_ctx)
-        .await
-    {
-        Ok(changed) => changed,
-        Err(e) => {
-            tracing::warn!(task_id = %event.task_id, error = %e, "Failed to update task status after error");
-            false
-        }
-    };
+    let child_not_closed = reopen
+        && match ports
+            .tasks
+            .update_status_if_not_closed(&event.task_id, TaskStatus::Open, &sys_ctx)
+            .await
+        {
+            Ok(changed) => changed,
+            Err(e) => {
+                tracing::warn!(task_id = %event.task_id, error = %e, "Failed to update task status after error");
+                false
+            }
+        };
 
     if let Some(ref events) = ports.events {
         events
@@ -678,7 +686,12 @@ async fn completion_notice(
 /// an error result message when the sandbox crashes fatally (OOM, crash loop,
 /// etc.).
 pub async fn handle_sandbox_fatal(ports: &AgentErrorPorts, event: &AgentEvent) {
-    handle_agent_error(ports, event).await;
+    let marked_errored = event
+        .payload
+        .get("lifecycleEvent")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|e| TASK_ERRORED_LIFECYCLE_EVENTS.contains(&e));
+    finish_errored_run(ports, event, !marked_errored).await;
 }
 
 pub async fn handle_agent_session_context_lost(_state: &AppState, event: &AgentEvent) {

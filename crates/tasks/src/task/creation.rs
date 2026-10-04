@@ -33,6 +33,15 @@ use moatless_types::task::Visibility;
 use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
 use moatless_workspaces::repository::models::Repository;
 
+/// `lifecycleEvent` of the Sandbox error published when preflight refuses a task.
+pub const PREFLIGHT_FAILED: &str = "preflight_failed";
+/// `lifecycleEvent` of the Sandbox error published when a new task's first
+/// message cannot be delivered.
+pub const FIRST_MESSAGE_FAILED: &str = "first_message_failed";
+/// The `lifecycleEvent`s published only after the task was marked `Error`, which
+/// the Sandbox error handler must leave in place rather than reopen.
+pub const TASK_ERRORED_LIFECYCLE_EVENTS: &[&str] = &[PREFLIGHT_FAILED, FIRST_MESSAGE_FAILED];
+
 /// Normalised task-creation input; every call path translates its domain input
 /// into this. Scope/ownership are absent — derived from `created_by` in
 /// [`TaskCreationService::create`], not from the caller.
@@ -346,7 +355,7 @@ impl TaskCreationService {
             tracing::warn!(task_id = %task_id, error = %e, "Task creation preflight failed");
             row.status = TaskStatus::Error;
             self.tasks.insert_task(&row, &req.sandbox_placement).await?;
-            self.publish_sandbox_error(&task_id, &e.user_message, &e.detail, "preflight_failed")
+            self.publish_sandbox_error(&task_id, &e.user_message, &e.detail, PREFLIGHT_FAILED)
                 .await;
             return Err(TaskCreationError::Preflight(e.user_message));
         }
@@ -595,7 +604,7 @@ impl TaskCreationService {
             task_id,
             "The task's first message could not be delivered",
             &moatless_core::error::causal_chain(&error),
-            "first_message_failed",
+            FIRST_MESSAGE_FAILED,
         )
         .await;
         TaskCreationError::FirstMessage(error)

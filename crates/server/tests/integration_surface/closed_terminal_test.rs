@@ -22,7 +22,7 @@ use async_trait::async_trait;
 use crate::common;
 
 use moatless_backend::event_handler::agent_handlers::{
-    handle_agent_completed, handle_agent_error, handle_agent_stopped,
+    handle_agent_completed, handle_agent_error, handle_agent_stopped, handle_sandbox_fatal,
 };
 use moatless_backend::state::AppState;
 use moatless_ports::sandbox::SandboxWaker;
@@ -31,6 +31,7 @@ use moatless_tasks::agent_event::AgentEvent;
 use moatless_tasks::message::models::MessageRole;
 use moatless_tasks::message::models::MessageType;
 use moatless_tasks::message::test_support as message_fixtures;
+use moatless_tasks::task::creation::PREFLIGHT_FAILED;
 use moatless_tasks::task::models::TaskPatch;
 use moatless_tasks::task::models::TaskStatus;
 use moatless_tasks::task::relations::TaskRelation;
@@ -260,6 +261,42 @@ async fn completed_reopens_an_open_task(pool: PgPool) {
     handle_agent_completed(&state, &event).await;
 
     assert_eq!(status_of(&pool, "task-o").await, TaskStatus::Open);
+}
+
+fn sandbox_error_event(event_id: &str, task_id: &str, lifecycle_event: &str) -> AgentEvent {
+    let value = serde_json::json!({
+        "eventId": event_id,
+        "type": "sandbox",
+        "subType": "error",
+        "taskId": task_id,
+        "timestamp": "2026-04-30T00:00:00.000Z",
+        "isError": true,
+        "payload": { "message": "refused", "lifecycleEvent": lifecycle_event },
+    });
+    serde_json::from_value(value).unwrap()
+}
+
+#[sqlx::test]
+async fn preflight_failure_keeps_task_errored(pool: PgPool) {
+    seed_with_status(&pool, "task-p", TaskStatus::Error).await;
+    let state = test_app_state(pool.clone());
+
+    let event = sandbox_error_event("evt-p", "task-p", PREFLIGHT_FAILED);
+    handle_sandbox_fatal(&(&state).into(), &event).await;
+
+    assert_eq!(status_of(&pool, "task-p").await, TaskStatus::Error);
+}
+
+#[sqlx::test]
+async fn sandbox_crash_reopens_errored_task(pool: PgPool) {
+    // Control: a crash under a run still returns the task to Open.
+    seed_with_status(&pool, "task-f", TaskStatus::Error).await;
+    let state = test_app_state(pool.clone());
+
+    let event = sandbox_error_event("evt-f", "task-f", "fatal");
+    handle_sandbox_fatal(&(&state).into(), &event).await;
+
+    assert_eq!(status_of(&pool, "task-f").await, TaskStatus::Open);
 }
 
 /// Records the task ids it is woken with.
