@@ -839,7 +839,7 @@ impl PgConversationDao {
                    LIMIT 1
                ) turn ON TRUE
                LEFT JOIN LATERAL (
-                   SELECT e.payload->>'error' AS turn_error
+                   SELECT (e.payload::jsonb)->>'error' AS turn_error
                    FROM task_events e
                    WHERE turn.status = 'error'
                      AND e.task_id = t.task_id
