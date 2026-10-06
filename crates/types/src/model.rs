@@ -71,6 +71,7 @@ impl ClaudeModel {
 /// `model/list` returns it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CodexModel {
+    Gpt61Sol,
     Gpt6Astra,
     Gpt6Sol,
     Gpt6Luna,
@@ -87,7 +88,8 @@ const CODEX_ULTRA_EFFORT_LEVELS: &[&str] = &["low", "medium", "high", "xhigh", "
 
 impl CodexModel {
     /// Every Codex model, in catalog order.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
+        Self::Gpt61Sol,
         Self::Gpt6Astra,
         Self::Gpt6Sol,
         Self::Gpt6Luna,
@@ -100,6 +102,7 @@ impl CodexModel {
     /// The model id, the same in the catalog, on the wire and to the CLI.
     pub const fn id(self) -> &'static str {
         match self {
+            Self::Gpt61Sol => "gpt-6.1-sol",
             Self::Gpt6Astra => "gpt-6-astra",
             Self::Gpt6Sol => "gpt-6-sol",
             Self::Gpt6Luna => "gpt-6-luna",
@@ -112,6 +115,7 @@ impl CodexModel {
 
     pub const fn label(self) -> &'static str {
         match self {
+            Self::Gpt61Sol => "GPT-6.1 Sol",
             Self::Gpt6Astra => "GPT-6 Astra",
             Self::Gpt6Sol => "GPT-6 Sol",
             Self::Gpt6Luna => "GPT-6 Luna",
@@ -126,18 +130,22 @@ impl CodexModel {
     /// whole turn on a level its model rejects rather than falling back.
     pub const fn effort_levels(self) -> &'static [&'static str] {
         match self {
-            Self::Gpt6Astra | Self::Gpt6Sol | Self::Gpt56Sol | Self::Gpt56Terra => {
-                CODEX_ULTRA_EFFORT_LEVELS
-            }
+            Self::Gpt61Sol
+            | Self::Gpt6Astra
+            | Self::Gpt6Sol
+            | Self::Gpt56Sol
+            | Self::Gpt56Terra => CODEX_ULTRA_EFFORT_LEVELS,
             Self::Gpt6Luna | Self::Gpt56Luna => CODEX_MAX_EFFORT_LEVELS,
             Self::Gpt55 => CODEX_BASE_EFFORT_LEVELS,
         }
     }
 
-    /// The GPT-6 and GPT-5.6 families at their short-context (<272K input)
-    /// rates, which apply throughout.
+    /// The GPT-6.1, GPT-6 and GPT-5.6 families at their short-context (<272K
+    /// input) rates, which apply throughout.
     pub const fn price(self) -> ModelPrice {
         match self {
+            // Cached reads at a twentieth of input rather than `tiered`'s tenth.
+            Self::Gpt61Sol => ModelPrice::new(2.0, 2.5, 0.1, 10.0),
             Self::Gpt6Astra => ModelPrice::tiered(10.0, 50.0),
             Self::Gpt6Sol => ModelPrice::tiered(2.0, 10.0),
             Self::Gpt6Luna => ModelPrice::tiered(0.1, 0.5),

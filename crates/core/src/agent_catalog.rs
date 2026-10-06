@@ -128,6 +128,7 @@ pub const CODEX: AgentProfileEntry = AgentProfileEntry {
     // configured for.
     models: &[
         DEFAULT_MODEL,
+        codex_model(CodexModel::Gpt61Sol),
         codex_model(CodexModel::Gpt6Astra),
         codex_model(CodexModel::Gpt6Sol),
         codex_model(CodexModel::Gpt6Luna),
