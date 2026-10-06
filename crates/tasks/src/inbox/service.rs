@@ -34,13 +34,14 @@ impl InboxService {
         dao::submit(tx, &item).await
     }
 
-    /// Oldest first, at most `limit`.
+    /// See [`dao::pending`].
     pub(crate) async fn pending(
         &self,
         task_id: &str,
         limit: u32,
+        hold_queued: bool,
     ) -> Result<Vec<InboxItem>, sqlx::Error> {
-        dao::pending(&self.0, task_id, limit).await
+        dao::pending(&self.0, task_id, limit, hold_queued).await
     }
 
     pub(crate) async fn delivered_in_turn(
@@ -49,6 +50,19 @@ impl InboxService {
         turn_number: i32,
     ) -> Result<Vec<InboxItem>, sqlx::Error> {
         dao::delivered_in_turn(&self.0, task_id, turn_number).await
+    }
+
+    /// See [`dao::steer`].
+    pub(crate) async fn steer(&self, task_id: &str, id: Uuid) -> Result<bool, sqlx::Error> {
+        dao::steer(&self.0, task_id, id).await
+    }
+
+    /// See [`dao::dispose_pending`].
+    pub(crate) async fn dispose_pending(&self, task_ids: &[String]) -> Result<u64, sqlx::Error> {
+        let mut tx = self.0.begin().await?;
+        let disposed = dao::dispose_pending(&mut tx, task_ids).await?;
+        tx.commit().await?;
+        Ok(disposed)
     }
 
     pub(crate) async fn find(&self, id: Uuid) -> Result<Option<InboxItem>, sqlx::Error> {

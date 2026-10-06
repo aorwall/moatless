@@ -92,6 +92,7 @@ where
                         fm.sent_by.as_deref(),
                         &fm.skills,
                         fm.message_uuid,
+                        false,
                     )
                     .await
                     .map(|_| ())
@@ -169,7 +170,7 @@ async fn require_control(
     Ok(())
 }
 
-async fn publish_user_stop(events: Option<&dyn EventPublisher>, task_id: &str) {
+pub(crate) async fn publish_user_stop(events: Option<&dyn EventPublisher>, task_id: &str) {
     if let Some(events) = events {
         events
             .publish_agent_event(

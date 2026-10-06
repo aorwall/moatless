@@ -18,6 +18,7 @@ pub(super) enum Call {
         /// Each attachment as it reached the sink, in the order it was sent.
         attachments: Vec<Attached>,
         skills: Vec<String>,
+        queue: bool,
     },
     CreateThread {
         task_id: String,
@@ -75,6 +76,10 @@ pub(super) enum Call {
     },
     Unsettle {
         task_id: String,
+    },
+    SteerQueued {
+        task_id: String,
+        message_uuid: String,
     },
     Snooze {
         task_id: String,
@@ -151,6 +156,7 @@ impl ThreadCommandSink for RecordingSink {
             effort: turn.effort,
             attachments: turn.attachments.into_iter().map(Attached::from).collect(),
             skills: turn.skills,
+            queue: turn.queue,
         });
         Ok(())
     }
@@ -275,6 +281,18 @@ impl ThreadCommandSink for RecordingSink {
     async fn unsettle(&self, _viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
         self.0.lock().unwrap().push(Call::Unsettle {
             task_id: task_id.to_string(),
+        });
+        Ok(())
+    }
+    async fn steer_queued(
+        &self,
+        _viewer: &ScopeContext,
+        task_id: &str,
+        message_uuid: &str,
+    ) -> Result<(), CommandRefusal> {
+        self.0.lock().unwrap().push(Call::SteerQueued {
+            task_id: task_id.to_string(),
+            message_uuid: message_uuid.to_string(),
         });
         Ok(())
     }

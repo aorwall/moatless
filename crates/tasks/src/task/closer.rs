@@ -20,7 +20,10 @@ use super::error::TaskError;
 use super::models::TaskPatch;
 use super::models::TaskStatus;
 use super::relations::TaskRelationDao;
+use super::service::publish_user_stop;
+use crate::message::send::MessageSendService;
 use crate::task::bindings::TaskBindings;
+use crate::task::models::SandboxStopReason;
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
 use moatless_ports::sandbox::SandboxLifecycle;
@@ -165,36 +168,7 @@ impl TaskCloser {
         task_id: &str,
         visited: &mut HashSet<String>,
     ) -> Result<(), TaskError> {
-        let mut stack = vec![task_id.to_string()];
-        let mut close_order = Vec::new();
-
-        while let Some(current_task_id) = stack.pop() {
-            if !visited.insert(current_task_id.clone()) {
-                continue;
-            }
-
-            match self
-                .task_relations
-                .list_incoming(&current_task_id, Some(TaskRelationType::CreatedBy))
-                .await
-            {
-                Ok(relations) => {
-                    for relation in relations {
-                        stack.push(relation.from_task_id);
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        task_id = %current_task_id,
-                        error = %e,
-                        "Failed to list child tasks during close cascade"
-                    );
-                    return Err(TaskError::Db(e));
-                }
-            }
-
-            close_order.push(current_task_id);
-        }
+        let close_order = self.subtree(task_id, visited).await?;
 
         let neutral = CloseEvent::neutral();
         for current_task_id in close_order.into_iter().rev() {
@@ -242,6 +216,102 @@ impl TaskCloser {
 
         self.close_single(task_id, event).await
     }
+}
+
+impl TaskCloser {
+    /// `task_id` and its created-by descendants, each parent before its
+    /// children. `visited` guards against a cycle in the relations.
+    async fn subtree(
+        &self,
+        task_id: &str,
+        visited: &mut HashSet<String>,
+    ) -> Result<Vec<String>, TaskError> {
+        let mut stack = vec![task_id.to_string()];
+        let mut order = Vec::new();
+
+        while let Some(current_task_id) = stack.pop() {
+            if !visited.insert(current_task_id.clone()) {
+                continue;
+            }
+
+            match self
+                .task_relations
+                .list_incoming(&current_task_id, Some(TaskRelationType::CreatedBy))
+                .await
+            {
+                Ok(relations) => {
+                    for relation in relations {
+                        stack.push(relation.from_task_id);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        task_id = %current_task_id,
+                        error = %e,
+                        "Failed to list child tasks during cascade"
+                    );
+                    return Err(TaskError::Db(e));
+                }
+            }
+
+            order.push(current_task_id);
+        }
+
+        Ok(order)
+    }
+
+    /// Cancel a task's run and its created-by subtree's on `scope_ctx`'s behalf.
+    ///
+    /// Disposes the subtree's pending Messages before stopping each agent, so
+    /// no disposed Message opens a turn. Tasks and sandboxes stay open.
+    pub async fn cancel_requested(
+        &self,
+        scope_ctx: &ScopeContext,
+        task_id: &str,
+        messages: &MessageSendService,
+    ) -> Result<CancelOutcome, TaskError> {
+        let row = self
+            .tasks
+            .find_by_id(task_id, scope_ctx)
+            .await?
+            .ok_or_else(|| TaskError::NotFound(task_id.to_string()))?;
+        if !scope_ctx.can_write(&row.scoped_resource()) {
+            return Err(TaskError::NotFound(task_id.to_string())); // existence hiding
+        }
+
+        let subtree = self.subtree(task_id, &mut HashSet::new()).await?;
+        let disposed_messages = messages.dispose_pending(&subtree).await?;
+
+        // reason: the subtree reaches child tasks owned by other users, as in `close_single`.
+        #[allow(clippy::disallowed_methods)]
+        let sys_ctx = ScopeContext::system();
+        let mut stopped_task_ids = Vec::new();
+        for current_task_id in subtree {
+            match self.tasks.find_by_id(&current_task_id, &sys_ctx).await? {
+                Some(task) if task.status != TaskStatus::Closed => {}
+                _ => continue,
+            }
+            self.sandbox
+                .stop_agent(&current_task_id, SandboxStopReason::User)
+                .await;
+            publish_user_stop(self.events.as_deref(), &current_task_id).await;
+            stopped_task_ids.push(current_task_id);
+        }
+        tracing::info!(task_id, user_id = %scope_ctx.user_id, disposed_messages, "Task cancelled");
+
+        Ok(CancelOutcome {
+            stopped_task_ids,
+            disposed_messages,
+        })
+    }
+}
+
+/// What [`TaskCloser::cancel_requested`] did.
+pub struct CancelOutcome {
+    /// The open tasks whose agents it stopped, the cancelled one first.
+    pub stopped_task_ids: Vec<String>,
+    /// How many pending Messages it cancelled.
+    pub disposed_messages: u64,
 }
 
 impl TaskCloser {

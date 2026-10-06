@@ -60,7 +60,20 @@ impl Messages {
     /// The Task's pending inbox items, oldest first and at most
     /// [`PENDING_LIMIT`], as the Messages the enricher reads.
     pub async fn pending_user(&self, task_id: &str) -> Result<PendingView, sqlx::Error> {
-        let items = self.inbox.pending(task_id, PENDING_LIMIT).await?;
+        self.pending_deliverable(task_id, false).await
+    }
+
+    /// Pending items as Messages, less every `queue` item when `hold_queued`:
+    /// those stay pending until a fetch made between turns takes them.
+    pub async fn pending_deliverable(
+        &self,
+        task_id: &str,
+        hold_queued: bool,
+    ) -> Result<PendingView, sqlx::Error> {
+        let items = self
+            .inbox
+            .pending(task_id, PENDING_LIMIT, hold_queued)
+            .await?;
         Ok(PendingView::of(&items))
     }
 

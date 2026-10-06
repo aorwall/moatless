@@ -374,6 +374,10 @@ pub struct SendMessageRequest {
     /// one's `SKILL.md` on disk and frontloads its body ahead of the message.
     #[serde(default)]
     pub skills: Vec<String>,
+    /// When true, the message waits for the active turn to end and opens the
+    /// next one. Omit or false to steer it into the active turn.
+    #[serde(default)]
+    pub queue: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

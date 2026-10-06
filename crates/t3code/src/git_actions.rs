@@ -126,6 +126,7 @@ pub async fn run_stacked_action(
             // A button press composes its own prompt, so there is no `$name`
             // mention in it to activate anything.
             skills: Vec::new(),
+            queue: false,
         },
     )
     .await
@@ -592,6 +593,14 @@ mod tests {
         ) -> Result<(), crate::ports::CommandRefusal> {
             unreachable!("a git action never unsettles a thread")
         }
+        async fn steer_queued(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+            _message_uuid: &str,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!("a git action never steers a queued turn")
+        }
         async fn snooze(
             &self,
             _viewer: &ScopeContext,
@@ -743,6 +752,14 @@ mod tests {
             &self,
             _viewer: &ScopeContext,
             _task_id: &str,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!()
+        }
+        async fn steer_queued(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+            _message_uuid: &str,
         ) -> Result<(), crate::ports::CommandRefusal> {
             unreachable!()
         }

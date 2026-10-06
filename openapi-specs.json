@@ -7162,6 +7162,48 @@
         }
       }
     },
+    "/api/v1/tasks/{task_id}/cancel": {
+      "post": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Cancel a task's run and every created-by descendant's: dispose their\npending Messages, then stop each open one's agent.",
+        "operationId": "cancel_task",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Task cancelled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelTaskResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tasks/{task_id}/close": {
       "post": {
         "tags": [
@@ -11028,6 +11070,29 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "CancelTaskResponse": {
+        "type": "object",
+        "description": "What cancelling a task did.",
+        "required": [
+          "stoppedTaskIds",
+          "disposedMessages"
+        ],
+        "properties": {
+          "disposedMessages": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Pending Messages addressed to those tasks, cancelled before any turn\ntook them.",
+            "minimum": 0
+          },
+          "stoppedTaskIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The open tasks whose agents were stopped: the cancelled task, then its\ncreated-by descendants."
           }
         }
       },
@@ -17038,6 +17103,10 @@
               "string",
               "null"
             ]
+          },
+          "queue": {
+            "type": "boolean",
+            "description": "When true, the message waits for the active turn to end and opens the\nnext one. Omit or false to steer it into the active turn."
           },
           "resume": {
             "type": [

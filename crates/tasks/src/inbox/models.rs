@@ -108,6 +108,10 @@ pub struct DeliveryOptions {
     /// serve. A turn that delivered one never falls back again.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub agent_fallback: bool,
+    /// Wait for the active turn to end and open the next one, rather than
+    /// steering into it. A pod that does not ask to hold these steers them.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub queue: bool,
 }
 
 impl Default for DeliveryOptions {
@@ -122,6 +126,7 @@ impl Default for DeliveryOptions {
             contexts: Vec::new(),
             tool_response: None,
             agent_fallback: false,
+            queue: false,
         }
     }
 }

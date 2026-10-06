@@ -81,6 +81,15 @@ pub async fn dispatch(
         "thread.unfollow" => {
             ctx.sink.unfollow(viewer, thread_id(command)?).await?;
         }
+        "thread.queuedTurn.steer" => {
+            let task_id = thread_id(command)?;
+            let message_uuid = command
+                .get("messageId")
+                .and_then(Value::as_str)
+                .ok_or_else(|| missing("messageId"))?;
+            require_controllable(ctx, viewer, task_id).await?;
+            ctx.sink.steer_queued(viewer, task_id, message_uuid).await?;
+        }
         "thread.settle" => {
             ctx.sink.settle(viewer, thread_id(command)?).await?;
         }
@@ -209,6 +218,7 @@ async fn turn_start(
     let agent_mode = interaction_mode(command);
     let effort = selected_effort(command);
     let attachments = attachments(message)?;
+    let queue = command.get("dispatchMode").and_then(Value::as_str) == Some("queue");
 
     let bootstrap = command.get("bootstrap").and_then(|b| b.get("createThread"));
 
@@ -248,6 +258,7 @@ async fn turn_start(
                         effort,
                         attachments,
                         skills,
+                        queue,
                     }),
                     provision: false,
                 },
@@ -275,6 +286,7 @@ async fn turn_start(
                 effort,
                 attachments,
                 skills,
+                queue,
             },
         )
         .await

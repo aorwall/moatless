@@ -138,6 +138,9 @@ pub struct ThreadTurn {
     /// them. Read out of the `$name` mentions the composer leaves in
     /// [`Self::text`] — `skills::activated`.
     pub skills: Vec<String>,
+    /// Hold the turn until the active one ends rather than steering into it:
+    /// the command's `dispatchMode: "queue"`.
+    pub queue: bool,
 }
 
 /// A new Thread, as this surface understood it.
@@ -596,6 +599,15 @@ pub trait ThreadCommandSink: Send + Sync {
     async fn unfollow(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;
 
     async fn settle(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;
+
+    /// Steer a turn sent with `dispatchMode: "queue"` into the active turn. A
+    /// turn the agent has already taken is left as it is.
+    async fn steer_queued(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+        message_uuid: &str,
+    ) -> Result<(), CommandRefusal>;
 
     async fn unsettle(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;
 

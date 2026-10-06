@@ -211,6 +211,7 @@ fn inbox_item(
                 .collect(),
             tool_response: msg.tool_response.clone(),
             agent_fallback: false,
+            queue: false,
         },
         answers_tool_use_id: msg
             .tool_response
@@ -364,6 +365,19 @@ pub async fn pending_user_messages(
     task_id: &str,
 ) -> Result<Vec<TaskMessage>, sqlx::Error> {
     Ok(facade(pool).pending_user(task_id).await?.messages)
+}
+
+/// The pending user Messages a fetch takes, less `queue` ones when
+/// `hold_queued`.
+pub async fn deliverable_user_messages(
+    pool: &DbPool,
+    task_id: &str,
+    hold_queued: bool,
+) -> Result<Vec<TaskMessage>, sqlx::Error> {
+    Ok(facade(pool)
+        .pending_deliverable(task_id, hold_queued)
+        .await?
+        .messages)
 }
 
 /// The most recent `result` Message.

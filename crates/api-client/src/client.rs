@@ -223,6 +223,18 @@ impl ApiClient {
         self.get(&format!("/api/v1/tasks{qs}")).await
     }
 
+    /// POST `/api/v1/tasks/{task_id}/cancel`
+    pub async fn cancel_task(
+        &self,
+        task_id: &str,
+    ) -> Result<moatless_api_schemas::task::CancelTaskResponse, ApiError> {
+        self.post(
+            &format!("/api/v1/tasks/{task_id}/cancel"),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
     /// GET `/api/v1/tasks/{task_id}`
     pub async fn get_task(
         &self,

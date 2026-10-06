@@ -493,18 +493,59 @@ async fn fetch_or_redispatch(
     state: &SandboxState,
     context: &Arc<TaskContext>,
 ) -> Option<Vec<sandbox_proto::PendingAgentDelivery>> {
+    let hold_queued = context.agent.status().await.in_turn();
     match state
         .backend_client
-        .get_pending_messages(&context.task_id)
+        .get_deliverable_messages(&context.task_id, hold_queued)
         .await
     {
-        Ok(deliveries) => Some(deliveries),
+        Ok(deliveries) => {
+            if hold_queued {
+                dispatch_after_turn(state, context).await;
+            }
+            Some(deliveries)
+        }
         Err(e) => {
             warn!(error = %e, "Failed to fetch pending messages; retrying after a backoff");
             tokio::spawn(schedule_redispatch(state.clone(), Arc::clone(context)));
             None
         }
     }
+}
+
+/// Fetch again once the open turn ends, for the `queue` messages a mid-turn
+/// fetch may have left pending. One waiter per turn; an empty fetch is a no-op.
+async fn dispatch_after_turn(state: &SandboxState, context: &Arc<TaskContext>) {
+    if context.agent.set_messages_pending().await {
+        return;
+    }
+    spawn_supervised(
+        "queued-dispatch",
+        dispatch_when_turn_ends(state.clone(), Arc::clone(context)),
+    );
+}
+
+/// Boxed, as [`schedule_redispatch`] is: it re-enters the dispatch cycle that
+/// spawns it, and an unboxed recursive future cannot be proven `Send`.
+fn dispatch_when_turn_ends(
+    state: SandboxState,
+    context: Arc<TaskContext>,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
+    Box::pin(async move {
+        tokio::select! {
+            () = context.agent.turn_ended() => {}
+            () = state.lifecycle_cancel.cancelled() => return,
+        }
+        context.agent.take_messages_pending().await;
+        // A stop is a person's "no more turns", and an erroring agent is left to
+        // `schedule_redispatch`'s error cap; the rows stay pending for the next send.
+        if matches!(context.agent.status().await, AgentStatus::Stopped)
+            || context.agent.consecutive_errors().await >= MAX_REDISPATCH_CONSECUTIVE_ERRORS
+        {
+            return;
+        }
+        dispatch_pending_messages_for_context(state, context, None).await;
+    })
 }
 
 /// Resolve a pending interactive prompt with the first pending message.
@@ -790,6 +831,40 @@ mod tests {
             "the read is retried after the backoff"
         );
         assert!(context.context.agent.has_pending_prompt().await);
+    }
+
+    /// A stopped turn opens no queued turn, and a turn that ends normally does.
+    #[tokio::test(start_paused = true)]
+    async fn a_queued_message_waits_for_the_next_send_after_a_stop() {
+        let backend = Arc::new(crate::state::test_support::NoopBackend::default());
+        let state = crate::state::test_support::state_with(
+            crate::state::test_support::state_for_test()
+                .config
+                .as_ref()
+                .clone(),
+            backend.clone(),
+        );
+        let context = context_for(&state, Some("task-1")).await.expect("context");
+        let agent = &context.context.agent;
+        let fetches = || backend.fetches.load(std::sync::atomic::Ordering::SeqCst);
+
+        for (end_turn_with_stop, expected_fetches) in [(true, 0), (false, 1)] {
+            agent
+                .set_running(tokio_util::sync::CancellationToken::new())
+                .await;
+            let waiter = tokio::spawn(dispatch_when_turn_ends(
+                state.clone(),
+                Arc::clone(&context.context),
+            ));
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            if end_turn_with_stop {
+                agent.set_stopped().await;
+            } else {
+                agent.set_idle().await;
+            }
+            waiter.await.expect("join");
+            assert_eq!(fetches(), expected_fetches, "stop: {end_turn_with_stop}");
+        }
     }
 
     fn answer(

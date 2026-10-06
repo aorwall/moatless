@@ -56,6 +56,7 @@ pub fn fallback_replay(task_id: &str, turn_number: i32, items: &[InboxItem]) -> 
                 skills,
                 resume: last.options.resume,
                 start_fresh: last.options.start_fresh,
+                queue: false,
                 contexts: items
                     .iter()
                     .flat_map(|i| i.options.contexts.clone())

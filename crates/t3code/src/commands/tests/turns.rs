@@ -18,6 +18,7 @@ async fn a_turn_persists_under_the_id_the_client_minted() {
             effort: None,
             attachments: vec![],
             skills: vec![],
+            queue: false,
         }]
     );
 }
@@ -84,4 +85,34 @@ async fn a_bootstrapped_turn_activates_the_skills_it_mentions() {
 async fn a_successful_command_reports_the_listing_position() {
     let (result, _) = run(turn(None)).await;
     assert_eq!(result.unwrap(), json!({ "sequence": 42 }));
+}
+
+#[tokio::test]
+async fn a_turn_sent_to_queue_reaches_the_sink_queued() {
+    let mut command = turn(None);
+    command["dispatchMode"] = json!("queue");
+    let (_, calls) = run(command).await;
+    assert!(
+        matches!(calls.as_slice(), [Call::SendTurn { queue: true, .. }]),
+        "expected a queued turn, got {calls:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_queued_turn_is_steered_by_its_message_id() {
+    let (result, calls) = run(json!({
+        "type": "thread.queuedTurn.steer",
+        "commandId": "cmd-1",
+        "threadId": "task-1",
+        "messageId": "msg-1",
+    }))
+    .await;
+    assert!(result.is_ok());
+    assert_eq!(
+        calls,
+        vec![Call::SteerQueued {
+            task_id: "task-1".to_string(),
+            message_uuid: "msg-1".to_string(),
+        }]
+    );
 }

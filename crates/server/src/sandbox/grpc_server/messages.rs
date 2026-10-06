@@ -78,10 +78,13 @@ pub(super) async fn get_pending_messages(
     let moatless_tasks::inbox::view::PendingView {
         messages: pending,
         contexts: contexts_by_message,
-    } = messages.pending_user(&req.task_id).await.map_err(|e| {
-        warn!(error = %e, task_id = %req.task_id, "Failed to fetch pending messages");
-        Status::internal("Failed to fetch pending messages")
-    })?;
+    } = messages
+        .pending_deliverable(&req.task_id, req.hold_queued)
+        .await
+        .map_err(|e| {
+            warn!(error = %e, task_id = %req.task_id, "Failed to fetch pending messages");
+            Status::internal("Failed to fetch pending messages")
+        })?;
 
     // The session `--resume <id>` names when the Trajectory has no head in
     // this harness.

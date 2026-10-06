@@ -310,6 +310,26 @@ impl MessageSendService {
         attachments_or_refusal(attached, &known)
     }
 
+    /// Steer a Message sent to queue into the active turn instead. `false`
+    /// when it is no longer pending: the turn it waited for has taken it.
+    pub async fn steer_queued(
+        &self,
+        task_id: &str,
+        message_uuid: &str,
+    ) -> Result<bool, MessageError> {
+        let id = parse_message_id(message_uuid)?;
+        self.inbox
+            .steer(task_id, id)
+            .await
+            .map_err(MessageError::PersistMessage)
+    }
+
+    /// Cancel the pending Messages addressed to `task_ids`, so none of them
+    /// opens a turn. Returns how many it cancelled.
+    pub async fn dispose_pending(&self, task_ids: &[String]) -> Result<u64, sqlx::Error> {
+        self.inbox.dispose_pending(task_ids).await
+    }
+
     /// The main message flow — called by message handlers, task creation, and
     /// external inbound.
     #[allow(clippy::too_many_arguments)]
@@ -337,6 +357,9 @@ impl MessageSendService {
         // An id that arrives from a client is checked against the whole table
         // below before anything is written — see the guard on it.
         message_uuid: Option<String>,
+        // Hold the Message until the active turn ends rather than steering it
+        // in. See [`DeliveryOptions::queue`].
+        queue: bool,
     ) -> Result<Option<String>, MessageError> {
         // A closed task is terminal (no reopen path) so no send may persist a
         // message or wake the agent. Inbound external messages are dropped
@@ -504,11 +527,12 @@ impl MessageSendService {
                     .collect(),
                 tool_response: None,
                 agent_fallback: false,
+                queue,
             },
             answers_tool_use_id: None,
             origin: inbox_origin(&origin, sent_by),
         };
-        let Some(queued) = queue(&self.inbox, item)
+        let Some(queued) = self::queue(&self.inbox, item)
             .await
             .map_err(MessageError::PersistMessage)?
         else {

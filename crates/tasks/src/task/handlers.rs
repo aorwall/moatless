@@ -872,6 +872,35 @@ pub async fn stop_task(
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
+/// Cancel a task's run and every created-by descendant's: dispose their
+/// pending Messages, then stop each open one's agent.
+#[utoipa::path(
+    post,
+    path = "/api/v1/tasks/{task_id}/cancel",
+    tag = "tasks",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    responses(
+        (status = 200, description = "Task cancelled", body = CancelTaskResponse),
+        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody)
+    )
+)]
+pub async fn cancel_task(
+    State(task_closer): State<Arc<TaskCloser>>,
+    State(message_send): State<Arc<MessageSendService>>,
+    auth: AuthUser,
+    Path(task_id): Path<String>,
+) -> Result<Json<CancelTaskResponse>, TaskError> {
+    let outcome = task_closer
+        .cancel_requested(&auth.scope_context(), &task_id, &message_send)
+        .await?;
+    Ok(Json(CancelTaskResponse {
+        stopped_task_ids: outcome.stopped_task_ids,
+        disposed_messages: outcome.disposed_messages,
+    }))
+}
+
 /// Set tags for a task.
 #[utoipa::path(
     put,

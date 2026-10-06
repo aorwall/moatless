@@ -44,6 +44,7 @@ export * from './authModeResponse';
 export * from './backgroundWatchJobInfo';
 export * from './branchEntry';
 export * from './branchListResponse';
+export * from './cancelTaskResponse';
 export * from './changePasswordRequest';
 export * from './checkoutMode';
 export * from './clearPluginActivationParams';

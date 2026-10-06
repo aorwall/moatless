@@ -67,6 +67,11 @@ pub struct SendArgs {
     /// Task ID to bind the send to. Defaults to `$TASK_ID` for `--user`/`--to`.
     #[arg(long)]
     pub task_id: Option<String>,
+
+    /// With `--task`: wait for the agent's active turn to end and open the
+    /// next one, instead of steering the message into the turn.
+    #[arg(long, requires = "task")]
+    pub queue: bool,
 }
 
 pub async fn run(
@@ -101,6 +106,7 @@ pub async fn run(
             source_task_id: cfg.task_id().map(std::string::ToString::to_string),
             start_fresh: None,
             skills: Vec::new(),
+            queue: args.queue,
         };
         let resp = moat.api().send_message(&id, &req).await?;
         if json {

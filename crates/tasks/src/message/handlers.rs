@@ -73,6 +73,7 @@ pub async fn send_message(
             skills: req.skills,
             message_uuid: None,
             tool_response,
+            queue: req.queue,
         },
     )
     .await?;

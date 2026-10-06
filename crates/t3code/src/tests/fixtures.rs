@@ -477,6 +477,14 @@ impl ports::ThreadCommandSink for UnreachableCommands {
     ) -> Result<(), ports::CommandRefusal> {
         unreachable!("no test in this file unsettles a thread")
     }
+    async fn steer_queued(
+        &self,
+        _viewer: &ScopeContext,
+        _task_id: &str,
+        _message_uuid: &str,
+    ) -> Result<(), ports::CommandRefusal> {
+        unreachable!("no test in this file steers a queued turn")
+    }
     async fn snooze(
         &self,
         _viewer: &ScopeContext,

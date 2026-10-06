@@ -17,6 +17,7 @@ async fn a_published_slug_reaches_the_sink_as_a_catalog_id() {
             effort: None,
             attachments: vec![],
             skills: vec![],
+            queue: false,
         }]
     );
 }
@@ -42,6 +43,7 @@ async fn a_turn_on_the_other_instance_switches_its_harness_first() {
                 effort: None,
                 attachments: vec![],
                 skills: vec![],
+                queue: false,
             }
         ]
     );

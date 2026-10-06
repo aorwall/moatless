@@ -41,6 +41,8 @@ pub struct UserMessage {
     /// halves are required; one alone is treated as a plain message, matching
     /// what the HTTP path did before this was extracted.
     pub tool_response: Option<ToolResponse>,
+    /// Wait for the active turn to end rather than steering into it.
+    pub queue: bool,
 }
 
 /// A response to an `AskUserQuestion` / `ExitPlanMode` tool call.
@@ -131,6 +133,7 @@ pub async fn send_user_message(
                     Some(sender.user_id),
                     &message.skills,
                     message.message_uuid,
+                    message.queue,
                 )
                 .await?
         }
@@ -143,4 +146,27 @@ pub async fn send_user_message(
     tracing::info!(task_id = %task_id, user_id = %sender.user_id, "Message sent to agent");
 
     Ok(message_uuid)
+}
+
+/// Steer a Message `sender` sent to queue into `task_id`'s active turn, and
+/// wake the sandbox to fetch it. A Message already delivered is left alone.
+pub async fn steer_queued_message(
+    tasks: &TaskCommands,
+    message_send: &MessageSendService,
+    sandbox_waker: &dyn SandboxWaker,
+    sender: &Sender<'_>,
+    task_id: &str,
+    message_uuid: &str,
+) -> Result<(), MessageError> {
+    tasks
+        .find_by_id(task_id, sender.scope)
+        .await?
+        .ok_or_else(|| MessageError::NotFound(task_id.to_string()))?;
+    if !message_send.steer_queued(task_id, message_uuid).await? {
+        return Ok(());
+    }
+    if let Some(error_msg) = super::wake::wake_for_message(sandbox_waker, task_id).await {
+        message_send.persist_error_result(task_id, &error_msg).await;
+    }
+    Ok(())
 }

@@ -143,6 +143,8 @@ Available `moat` commands:
 - `moat gh issue comment <n> --body \"<text>\"` — Comment on an issue via the backend
 - `moat gh <any other gh args>` — Passthrough to the authenticated `gh` CLI
 - `moat tasks status $TASK_ID` — Show sandbox status
+- `moat tasks status <id> --result` — Where a task's work stands (working, waiting for children, done) and its latest result
+- `moat tasks cancel <id>` — Stop a task's run and its descendants', discarding the messages still waiting for them
 - `moat tasks logs $TASK_ID` — Stream the sandbox container's logs
 - `moat tasks diagnose $TASK_ID` — Diagnose sandbox issues (status + container diagnostics + recent errors)
 - `moat feedback --category <category> --comment \"<text>\"` — Record what cost you time that a fix would have prevented (see `# Feedback Inbox`)";

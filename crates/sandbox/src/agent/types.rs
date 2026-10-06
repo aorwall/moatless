@@ -139,6 +139,13 @@ pub enum AgentStatus {
     Waiting,
 }
 
+impl AgentStatus {
+    /// Whether a turn is open: running, or held open on a person's answer.
+    pub fn in_turn(self) -> bool {
+        matches!(self, Self::Running | Self::Waiting)
+    }
+}
+
 /// Who initiated an agent stop. Carried on the terminal `agent.stopped` event
 /// payload as `source` so the backend can attribute the stop instead of
 /// assuming every stop was user-requested.

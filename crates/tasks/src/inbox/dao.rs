@@ -66,19 +66,23 @@ pub(crate) async fn submit(
     InboxItem::try_from(row).map(Some)
 }
 
+/// Oldest first, at most `limit`, less every `queue` item when `hold_queued`.
 pub(crate) async fn pending(
     pool: &DbPool,
     task_id: &str,
     limit: u32,
+    hold_queued: bool,
 ) -> Result<Vec<InboxItem>, sqlx::Error> {
     let rows: Vec<InboxRow> = sqlx::query_as(
         r#"SELECT * FROM task_inbox
             WHERE task_id = $1 AND status = 'pending'
+              AND NOT ($3 AND COALESCE(delivery_options ? 'queue', false))
             ORDER BY created_at, id
             LIMIT $2"#,
     )
     .bind(task_id)
     .bind(i64::from(limit))
+    .bind(hold_queued)
     .fetch_all(pool)
     .await?;
     rows.into_iter().map(InboxItem::try_from).collect()
@@ -108,6 +112,50 @@ pub(crate) async fn find(pool: &DbPool, id: Uuid) -> Result<Option<InboxItem>, s
         .fetch_optional(pool)
         .await?;
     row.map(InboxItem::try_from).transpose()
+}
+
+/// Turn a pending `queue` item into one that steers. `false` when the item is
+/// not a pending `queue` item in `task_id`: delivered already, sent to steer, or
+/// never sent there.
+pub(crate) async fn steer(pool: &DbPool, task_id: &str, id: Uuid) -> Result<bool, sqlx::Error> {
+    let steered: Option<Uuid> = sqlx::query_scalar(
+        r#"UPDATE task_inbox
+              SET delivery_options = delivery_options - 'queue'
+            WHERE task_id = $1 AND id = $2 AND status = 'pending'
+              AND delivery_options ? 'queue'
+        RETURNING id"#,
+    )
+    .bind(task_id)
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(steered.is_some())
+}
+
+/// Cancel every pending item addressed to one of `task_ids`, and returns how
+/// many it cancelled. An item a task sent to an inbox outside `task_ids` stays:
+/// the caller is authorized for these tasks' inboxes only.
+pub(crate) async fn dispose_pending(
+    tx: &mut Transaction<'_, Postgres>,
+    task_ids: &[String],
+) -> Result<u64, sqlx::Error> {
+    let inboxes: Vec<String> = sqlx::query_scalar(
+        r#"UPDATE task_inbox
+              SET status = 'cancelled'
+            WHERE status = 'pending'
+              AND task_id = ANY($1)
+        RETURNING task_id"#,
+    )
+    .bind(task_ids)
+    .fetch_all(&mut **tx)
+    .await?;
+    let mut settled = inboxes.clone();
+    settled.sort();
+    settled.dedup();
+    for task_id in &settled {
+        clear_settled_pending_work(tx, task_id).await?;
+    }
+    Ok(inboxes.len() as u64)
 }
 
 /// Marks the pending items among `ids`; delivered ones are left as they are.

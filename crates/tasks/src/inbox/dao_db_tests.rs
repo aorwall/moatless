@@ -7,7 +7,8 @@ use uuid::Uuid;
 
 use super::*;
 use crate::message::test_support::{
-    acknowledge_messages, messages_for, pending_user_messages, queue_message, user_item,
+    acknowledge_messages, deliverable_user_messages, messages_for, pending_user_messages,
+    queue_message, user_item,
 };
 use crate::task::test_support::seed_bare_task;
 
@@ -237,7 +238,7 @@ async fn pending_reads_oldest_first_up_to_its_limit(pool: PgPool) {
     }
 
     let pending = InboxService::new(pool.clone())
-        .pending("t1", 2)
+        .pending("t1", 2, false)
         .await
         .unwrap();
 
@@ -288,4 +289,74 @@ async fn the_projector_shows_what_was_said_and_nothing_the_sandbox_wrote(pool: P
             .await
             .unwrap();
     assert_eq!(wake_turn, Some(4));
+}
+
+/// A mid-turn fetch leaves a `queue` item pending and still takes what was
+/// sent to steer; steering the queued one makes the next mid-turn fetch take it.
+#[sqlx::test]
+async fn a_queued_item_waits_out_the_turn_until_it_is_steered(pool: PgPool) {
+    seed_bare_task(&pool, "t1", "open").await;
+    let queued = Uuid::new_v4();
+    let mut item = user_item("t1", queued, "after this turn");
+    item.options.queue = true;
+    queue_message(&pool, item).await.unwrap();
+    queue_message(&pool, user_item("t1", Uuid::new_v4(), "right now"))
+        .await
+        .unwrap();
+    let texts = |messages: Vec<crate::message::models::TaskMessage>| {
+        messages
+            .into_iter()
+            .map(|m| m.message_text.unwrap_or_default())
+            .collect::<Vec<_>>()
+    };
+
+    let mid_turn = deliverable_user_messages(&pool, "t1", true).await.unwrap();
+    assert_eq!(texts(mid_turn), ["right now"]);
+    let between_turns = deliverable_user_messages(&pool, "t1", false).await.unwrap();
+    assert_eq!(texts(between_turns), ["after this turn", "right now"]);
+
+    let inbox = InboxService::new(pool.clone());
+    assert!(inbox.steer("t1", queued).await.unwrap());
+    let mid_turn = deliverable_user_messages(&pool, "t1", true).await.unwrap();
+    assert_eq!(texts(mid_turn), ["after this turn", "right now"]);
+    assert!(
+        !inbox.steer("t2", queued).await.unwrap(),
+        "another Task's id steers nothing"
+    );
+}
+
+#[sqlx::test]
+async fn disposing_a_subtree_leaves_what_it_sent_to_other_inboxes(pool: PgPool) {
+    seed_bare_task(&pool, "t1", "open").await;
+    seed_bare_task(&pool, "t2", "open").await;
+    queue_message(&pool, user_item("t1", Uuid::new_v4(), "to the subtree"))
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO task_inbox (id, task_id, text, origin, source_task_id) \
+         VALUES (gen_random_uuid(), 't2', 'from the subtree', 'task', 't1')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let mut tx = pool.begin().await.unwrap();
+    let cancelled = dao::dispose_pending(&mut tx, &["t1".to_string()])
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    assert_eq!(cancelled, 1);
+    let statuses: Vec<(String, String)> =
+        sqlx::query_as("SELECT task_id, status FROM task_inbox ORDER BY task_id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        statuses,
+        [
+            ("t1".to_string(), "cancelled".to_string()),
+            ("t2".to_string(), "pending".to_string()),
+        ]
+    );
 }

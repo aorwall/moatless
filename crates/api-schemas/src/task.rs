@@ -183,6 +183,19 @@ pub struct UpdateTaskMetadataRequest {
     pub agent_profile: Option<String>,
 }
 
+/// What cancelling a task did.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct CancelTaskResponse {
+    /// The open tasks whose agents were stopped: the cancelled task, then its
+    /// created-by descendants.
+    pub stopped_task_ids: Vec<String>,
+    /// Pending Messages addressed to those tasks, cancelled before any turn
+    /// took them.
+    pub disposed_messages: u64,
+}
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]

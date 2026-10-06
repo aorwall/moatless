@@ -11,6 +11,7 @@ use super::resolve::{
     resolve_parent_task_id, resolve_repo_id, resolve_same_sandbox, resolve_task_id,
     resolve_workspace_id,
 };
+use super::result::show_result;
 use super::sandbox::{
     SandboxOperation, cancel_wake_note, format_sandbox_status, record_wake_note, run_diagnose,
     self_restart_note,
@@ -160,6 +161,11 @@ pub enum TaskAction {
     Start { task_id: String },
     /// Stop a task
     Stop { task_id: String },
+    /// Cancel a task's run and every descendant's: stop their agents and
+    /// discard the messages still waiting for them, the cancelled parent's
+    /// pending child notices among them. The tasks and their sandboxes stay
+    /// open
+    Cancel { task_id: String },
     /// Close a task
     Close {
         task_id: String,
@@ -197,7 +203,13 @@ pub enum TaskAction {
         inactive_ttl_days: Option<i32>,
     },
     /// Show full task status (environment, agent)
-    Status { task_id: String },
+    Status {
+        task_id: String,
+        /// Show where the task's work stands — working, waiting for input or
+        /// for its children, done — and its latest result instead
+        #[arg(long)]
+        result: bool,
+    },
     /// Restart sandbox for a task
     Restart {
         task_id: String,
@@ -474,6 +486,19 @@ pub async fn run(
             client.api().stop_task(&task_id).await?;
             println!("Task {task_id} stopped.");
         }
+        TaskAction::Cancel { task_id } => {
+            let task_id = resolve_task_id(client, &task_id).await?;
+            let outcome = client.api().cancel_task(&task_id).await?;
+            if json {
+                output::print_json_typed(&outcome);
+            } else {
+                println!(
+                    "Task {task_id} cancelled: stopped {} task(s), discarded {} pending message(s).",
+                    outcome.stopped_task_ids.len(),
+                    outcome.disposed_messages
+                );
+            }
+        }
         TaskAction::Close {
             task_id,
             close_children,
@@ -545,8 +570,11 @@ pub async fn run(
                 );
             }
         }
-        TaskAction::Status { task_id } => {
+        TaskAction::Status { task_id, result } => {
             let task_id = resolve_task_id(client, &task_id).await?;
+            if result {
+                return show_result(client, &task_id, json).await;
+            }
             let status = client.api().sandbox_status(&task_id).await?;
             if json {
                 output::print_json_typed(&status);

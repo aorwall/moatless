@@ -381,6 +381,7 @@ impl MessageAcceptor for crate::message::send::MessageSendService {
             turn.sent_by.as_deref(),
             &turn.skills,
             None,
+            false,
         )
         .await
         .map(|_| ())

@@ -620,6 +620,9 @@ async fn notify_parent_of_child_outcome(
             None,
             &[],
             message_uuid,
+            // Notices that land during one parent turn open the next as one
+            // delivery, rather than each steering into the turn.
+            true,
         )
         .await
     {

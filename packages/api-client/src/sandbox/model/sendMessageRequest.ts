@@ -25,6 +25,11 @@ export interface SendMessageRequest {
   message: string;
   /** @nullable */
   model?: string | null;
+  /**
+     * When true, the message waits for the active turn to end and opens the
+     * next one. Omit or false to steer it into the active turn.
+     */
+  queue?: boolean;
   /** @nullable */
   resume?: boolean | null;
   /**

@@ -25,6 +25,7 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  CancelTaskResponse,
   CloseTaskRequest,
   CreateTaskRequest,
   CreateTaskResponse,
@@ -682,6 +683,142 @@ export const prefetchUpdateTaskMetadataQuery = async <TData = Awaited<ReturnType
   ): Promise<QueryClient> => {
 
   const queryOptions = getUpdateTaskMetadataQueryOptions(taskId,updateTaskMetadataRequest,options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+
+
+export type cancelTaskResponse200 = {
+  data: CancelTaskResponse
+  status: 200
+}
+
+export type cancelTaskResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type cancelTaskResponseSuccess = (cancelTaskResponse200) & {
+  headers: Headers;
+};
+export type cancelTaskResponseError = (cancelTaskResponse404) & {
+  headers: Headers;
+};
+
+export type cancelTaskResponse = (cancelTaskResponseSuccess | cancelTaskResponseError)
+
+export const getCancelTaskUrl = (taskId: string,) => {
+
+
+
+
+  return `/api/v1/tasks/${taskId}/cancel`
+}
+
+/**
+ * @summary Cancel a task's run and every created-by descendant's: dispose their
+pending Messages, then stop each open one's agent.
+ */
+export const cancelTask = async (taskId: string, options?: Parameters<typeof customInstance>[1]): Promise<cancelTaskResponse> => {
+
+  return customInstance<cancelTaskResponse>(getCancelTaskUrl(taskId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getCancelTaskQueryKey = (taskId: string,) => {
+    return [
+    'POST', `/api/v1/tasks/${taskId}/cancel`
+    ] as const;
+    }
+
+
+export const getCancelTaskQueryOptions = <TData = Awaited<ReturnType<typeof cancelTask>>, TError = ErrorType<ErrorBody>>(taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof cancelTask>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getCancelTaskQueryKey(taskId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof cancelTask>>> = ({ signal }) => cancelTask(taskId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: taskId !== null && taskId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof cancelTask>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type CancelTaskQueryResult = NonNullable<Awaited<ReturnType<typeof cancelTask>>>
+export type CancelTaskQueryError = ErrorType<ErrorBody>
+
+
+export function useCancelTask<TData = Awaited<ReturnType<typeof cancelTask>>, TError = ErrorType<ErrorBody>>(
+ taskId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof cancelTask>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof cancelTask>>,
+          TError,
+          Awaited<ReturnType<typeof cancelTask>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useCancelTask<TData = Awaited<ReturnType<typeof cancelTask>>, TError = ErrorType<ErrorBody>>(
+ taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof cancelTask>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof cancelTask>>,
+          TError,
+          Awaited<ReturnType<typeof cancelTask>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useCancelTask<TData = Awaited<ReturnType<typeof cancelTask>>, TError = ErrorType<ErrorBody>>(
+ taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof cancelTask>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Cancel a task's run and every created-by descendant's: dispose their
+pending Messages, then stop each open one's agent.
+ */
+
+export function useCancelTask<TData = Awaited<ReturnType<typeof cancelTask>>, TError = ErrorType<ErrorBody>>(
+ taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof cancelTask>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getCancelTaskQueryOptions(taskId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+/**
+ * @summary Cancel a task's run and every created-by descendant's: dispose their
+pending Messages, then stop each open one's agent.
+ */
+export const prefetchCancelTaskQuery = async <TData = Awaited<ReturnType<typeof cancelTask>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, taskId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof cancelTask>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getCancelTaskQueryOptions(taskId,options)
 
   await queryClient.prefetchQuery(queryOptions);
 

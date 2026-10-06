@@ -17,9 +17,18 @@ Create with `--agent-profile` plus `--repo`, `--workspace`, or `--same-sandbox`.
 `--same-sandbox` can take a task ID or use the ambient task; `--checkout-mode
 shared|isolated` only applies with it. `--parent` sets a parent explicitly.
 The backend sends a `created_by` parent a notice, and wakes it, each time a
-child's turn completes or errors. The notice carries no result, so a child still
-sends its result with `moat send --task <parent>`, and a parent needs no reply to
-a notice.
+child's turn completes or errors. A notice waits for the parent's active turn to
+end, and the notices that land during one turn open the next together. The
+notice carries no result, so a child still sends its result with `moat send
+--task <parent>`, and a parent needs no reply to a notice. `moat send --task <id>
+--queue` waits the same way; without `--queue` a message steers into the active
+turn.
+
+`moat tasks status <task-id> --result` reports where the work stands — working,
+waiting for input, running commands, waiting for children, done — and the latest
+result. `moat tasks cancel <task-id>` stops the task's and its descendants'
+agents and discards the messages still waiting for them; the tasks stay open,
+unlike `close`.
 
 `moat tasks fork <task-id>` supports `--at-turn`, `--message`, and `--same-sandbox`.
 Read its help before combining these. Stop/start controls the sandbox; close

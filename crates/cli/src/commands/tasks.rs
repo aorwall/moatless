@@ -8,6 +8,7 @@ mod format;
 mod logs;
 mod metadata;
 mod resolve;
+mod result;
 mod sandbox;
 mod scripts;
 

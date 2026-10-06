@@ -61,6 +61,17 @@ pub trait BackendClient: Send + Sync {
         task_id: &str,
     ) -> Result<Vec<PendingAgentDelivery>, tonic::Status>;
 
+    /// [`Self::get_pending_messages`], leaving `queue` messages pending when
+    /// `hold_queued`: a fetch made mid-turn steers only what was sent to steer.
+    async fn get_deliverable_messages(
+        &self,
+        task_id: &str,
+        hold_queued: bool,
+    ) -> Result<Vec<PendingAgentDelivery>, tonic::Status> {
+        let _ = hold_queued;
+        self.get_pending_messages(task_id).await
+    }
+
     /// `run_id` identifies the agent run that consumed the messages, so the
     /// backend can put them on that run's turn.
     ///
@@ -423,11 +434,20 @@ impl BackendClient for BackendGrpcClient {
         &self,
         task_id: &str,
     ) -> Result<Vec<PendingAgentDelivery>, tonic::Status> {
+        self.get_deliverable_messages(task_id, false).await
+    }
+
+    async fn get_deliverable_messages(
+        &self,
+        task_id: &str,
+        hold_queued: bool,
+    ) -> Result<Vec<PendingAgentDelivery>, tonic::Status> {
         let mut client = self.client.clone();
         let resp = client
             .get_pending_messages(GetPendingMessagesRequest {
                 task_id: task_id.to_string(),
                 auth_token: String::new(), // kept for proto compat, auth via interceptor
+                hold_queued,
             })
             .await?;
 

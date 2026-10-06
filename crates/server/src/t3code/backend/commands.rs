@@ -221,6 +221,7 @@ impl ThreadCommandSink for AppStateCommands {
                 message_uuid: Some(turn.message_uuid),
                 file_ids,
                 skills: turn.skills,
+                queue: turn.queue,
                 ..Default::default()
             },
         )
@@ -691,6 +692,24 @@ impl ThreadCommandSink for AppStateCommands {
             tracing::warn!(%error, task_id, "Sandbox stop on settle failed");
         }
         Ok(())
+    }
+
+    async fn steer_queued(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+        message_uuid: &str,
+    ) -> Result<(), CommandRefusal> {
+        message_service::steer_queued_message(
+            self.0.tasks.as_ref(),
+            self.0.message_send.as_ref(),
+            self.0.sandbox_waker.as_ref(),
+            &Self::sender(viewer),
+            task_id,
+            message_uuid,
+        )
+        .await
+        .map_err(|e| send_refusal(task_id, e))
     }
 
     async fn unsettle(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {

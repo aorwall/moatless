@@ -4,7 +4,7 @@
 //! Owned by the coordinator service (`coordinator.rs`); harness-neutral so any
 //! agent implementation can reuse it.
 
-use tokio::sync::RwLock;
+use tokio::sync::{Notify, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use super::prompt::PendingPrompt;
@@ -15,6 +15,8 @@ use crate::error::SandboxError;
 /// Shared agent execution state, protected by `RwLock` for concurrent reads.
 pub struct AgentState {
     inner: RwLock<AgentInner>,
+    /// Woken on every transition out of a turn: idle, error or stop.
+    turn_ended: Notify,
 }
 
 struct AgentInner {
@@ -51,6 +53,7 @@ impl AgentState {
                 consecutive_errors: 0,
                 messages_pending: false,
             }),
+            turn_ended: Notify::new(),
         }
     }
 
@@ -112,6 +115,8 @@ impl AgentState {
         inner.cancel_token = None;
         inner.pending_prompt = None;
         inner.consecutive_errors = 0;
+        drop(inner);
+        self.turn_ended.notify_waiters();
     }
 
     pub async fn set_stopped(&self) {
@@ -119,6 +124,8 @@ impl AgentState {
         inner.status = AgentStatus::Stopped;
         // Drop the pending prompt sender, which will cause the receiver to error
         inner.pending_prompt = None;
+        drop(inner);
+        self.turn_ended.notify_waiters();
     }
 
     pub async fn set_error(&self, error: String) {
@@ -128,6 +135,8 @@ impl AgentState {
         inner.cancel_token = None;
         inner.pending_prompt = None;
         inner.consecutive_errors += 1;
+        drop(inner);
+        self.turn_ended.notify_waiters();
     }
 
     /// Undo one error increment (saturating). Called when a retryable error
@@ -180,9 +189,23 @@ impl AgentState {
         self.inner.write().await.pending_prompt.take()
     }
 
-    /// Flag that messages arrived while the agent was busy.
-    pub async fn set_messages_pending(&self) {
-        self.inner.write().await.messages_pending = true;
+    /// Flag that messages arrived while the agent was busy. Returns whether
+    /// the flag was already set.
+    pub async fn set_messages_pending(&self) -> bool {
+        std::mem::replace(&mut self.inner.write().await.messages_pending, true)
+    }
+
+    /// Resolve once no turn is open: at once when the agent is neither running
+    /// nor parked on a prompt, otherwise on the next transition out of the turn.
+    pub async fn turn_ended(&self) {
+        let notified = self.turn_ended.notified();
+        let mut notified = std::pin::pin!(notified);
+        // Registered before the read, so a transition between the two wakes it.
+        notified.as_mut().enable();
+        if !self.status().await.in_turn() {
+            return;
+        }
+        notified.await;
     }
 
     /// Returns whether messages were pending and resets the flag.
