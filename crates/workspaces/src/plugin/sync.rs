@@ -3,13 +3,15 @@
 //! Every reader goes through [`PluginSyncService::skills`], the single place
 //! fetching is decided: compare the source's version against what's stored and
 //! fetch only on a difference, running as the caller so an unreadable repo
-//! fails naming authentication.
+//! fails naming authentication. The comparison runs at most once per
+//! [`CHECK_INTERVAL`] per plugin and gives up after [`CHECK_TIMEOUT`].
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use moka::future::Cache;
 use tokio::sync::Mutex;
+use tokio::time::Instant;
 use tracing::{debug, warn};
 
 use super::dao::PluginDao;
@@ -23,6 +25,14 @@ use moatless_types::access_control::Actor;
 use moatless_workspace_types::repository::RepositoryProvider;
 use moatless_workspace_types::repository::RepositoryRemote;
 
+/// How long a plugin's stored skills are served before its source is asked
+/// again whether it moved on.
+const CHECK_INTERVAL: Duration = Duration::from_mins(1);
+
+/// The most an update check (token mint plus HEAD lookup) may add to a read
+/// before the stored snapshot is served instead.
+const CHECK_TIMEOUT: Duration = Duration::from_secs(2);
+
 /// Syncs plugin content into stored skills, and reads them back.
 pub struct PluginSyncService {
     plugins: Arc<dyn PluginDao>,
@@ -32,6 +42,12 @@ pub struct PluginSyncService {
     /// Held in a bounded cache rather than a map that only ever grows; evicting
     /// an idle lock is harmless because nobody is waiting on it.
     locks: Cache<String, Arc<Mutex<()>>>,
+    /// When each plugin's source was last asked for its version, whatever the
+    /// answer: a source that failed or timed out is not asked again until
+    /// `check_interval` has passed either.
+    checked: Cache<String, Instant>,
+    check_interval: Duration,
+    check_timeout: Duration,
 }
 
 impl PluginSyncService {
@@ -39,6 +55,22 @@ impl PluginSyncService {
         plugins: Arc<dyn PluginDao>,
         fetcher: Arc<dyn SkillFetcher>,
         git_host_tokens: Arc<dyn GitHostTokenIssuer>,
+    ) -> Self {
+        Self::with_timing(
+            plugins,
+            fetcher,
+            git_host_tokens,
+            CHECK_INTERVAL,
+            CHECK_TIMEOUT,
+        )
+    }
+
+    fn with_timing(
+        plugins: Arc<dyn PluginDao>,
+        fetcher: Arc<dyn SkillFetcher>,
+        git_host_tokens: Arc<dyn GitHostTokenIssuer>,
+        check_interval: Duration,
+        check_timeout: Duration,
     ) -> Self {
         Self {
             plugins,
@@ -48,6 +80,9 @@ impl PluginSyncService {
                 .time_to_idle(Duration::from_mins(5))
                 .max_capacity(1024)
                 .build(),
+            checked: Cache::builder().max_capacity(1024).build(),
+            check_interval,
+            check_timeout,
         }
     }
 
@@ -74,9 +109,9 @@ impl PluginSyncService {
 
     /// Bring a plugin's stored skills up to date with its source.
     ///
-    /// Returns without fetching when the source reports the version already
-    /// stored. Errors are the caller's to decide about; [`Self::skills`]
-    /// downgrades them to a warning.
+    /// Returns without fetching when the source was checked within
+    /// `check_interval` or reports the version already stored. Errors are the
+    /// caller's to decide about; [`Self::skills`] downgrades them to a warning.
     pub async fn sync(&self, actor: &Actor, plugin: &Plugin) -> Result<(), SkillError> {
         let lock = self
             .locks
@@ -93,13 +128,41 @@ impl PluginSyncService {
             .map_err(SkillError::Db)?
             .unwrap_or_else(|| plugin.clone());
 
-        let remote = plugin_remote(&current.git_url);
-        let token = plugin_token(self.git_host_tokens.as_ref(), actor, &remote).await;
+        let recently_checked = self
+            .checked
+            .get(&current.id)
+            .await
+            .is_some_and(|at| at.elapsed() < self.check_interval);
+        if recently_checked {
+            return Ok(());
+        }
+        // Marked before the check so a failed one backs off too (see
+        // `checked`). A plugin with nothing stored has no snapshot to fall
+        // back on, so it is only marked once a sync succeeds.
+        if current.synced_version.is_some() {
+            self.checked
+                .insert(current.id.clone(), Instant::now())
+                .await;
+        }
 
-        let version = self
-            .fetcher
-            .fetch_version(&remote, token.as_deref())
-            .await?;
+        let remote = plugin_remote(&current.git_url);
+        let check = async {
+            let token = plugin_token(self.git_host_tokens.as_ref(), actor, &remote).await;
+            let version = self
+                .fetcher
+                .fetch_version(&remote, token.as_deref())
+                .await?;
+            Ok::<_, SkillError>((token, version))
+        };
+        let checked = tokio::time::timeout(self.check_timeout, check)
+            .await
+            .unwrap_or_else(|_| {
+                Err(SkillError::Fetch {
+                    git_url: current.git_url.clone(),
+                    message: format!("update check timed out after {:?}", self.check_timeout),
+                })
+            });
+        let (token, version) = checked?;
 
         if let (Some(fetched), Some(stored)) =
             (version.as_deref(), current.synced_version.as_deref())
@@ -150,6 +213,9 @@ impl PluginSyncService {
             .replace_skills(&current.id, version.clone(), &skills)
             .await
             .map_err(SkillError::Db)?;
+        self.checked
+            .insert(current.id.clone(), Instant::now())
+            .await;
 
         debug!(
             plugin_id = %current.id,
@@ -305,6 +371,7 @@ mod tests {
         versions_probed: AtomicUsize,
         files_fetched: AtomicUsize,
         fail_fetch: bool,
+        version_delay: Duration,
     }
 
     impl CountingFetcher {
@@ -314,6 +381,14 @@ mod tests {
                 versions_probed: AtomicUsize::new(0),
                 files_fetched: AtomicUsize::new(0),
                 fail_fetch: false,
+                version_delay: Duration::ZERO,
+            }
+        }
+
+        fn hanging_at(version: &str) -> Self {
+            Self {
+                version_delay: Duration::from_mins(1),
+                ..Self::at_version(version)
             }
         }
 
@@ -356,6 +431,7 @@ mod tests {
             _token: Option<&str>,
         ) -> Result<Option<String>, SkillError> {
             self.versions_probed.fetch_add(1, Ordering::SeqCst);
+            tokio::time::sleep(self.version_delay).await;
             Ok(Some(self.version.lock().unwrap().clone()))
         }
 
@@ -382,7 +458,16 @@ mod tests {
     }
 
     fn service(plugins: Arc<dyn PluginDao>, fetcher: Arc<dyn SkillFetcher>) -> PluginSyncService {
-        PluginSyncService::new(
+        timed_service(plugins, fetcher, CHECK_INTERVAL, CHECK_TIMEOUT)
+    }
+
+    fn timed_service(
+        plugins: Arc<dyn PluginDao>,
+        fetcher: Arc<dyn SkillFetcher>,
+        check_interval: Duration,
+        check_timeout: Duration,
+    ) -> PluginSyncService {
+        PluginSyncService::with_timing(
             plugins,
             fetcher,
             // No credential rows: the token resolves to None and the fetch
@@ -391,7 +476,18 @@ mod tests {
             moatless_identity::git_host_tokens::seam_over(Arc::new(
                 StubProviderTokens::with_user_row(None),
             )),
+            check_interval,
+            check_timeout,
         )
+    }
+
+    fn seeded_snapshot() -> Vec<PluginSkill> {
+        vec![PluginSkill {
+            plugin_id: "p1".to_string(),
+            name: "code-review".to_string(),
+            description: "Reviews code".to_string(),
+            path: "skills/code-review/SKILL.md".to_string(),
+        }]
     }
 
     fn actor() -> Actor {
@@ -415,10 +511,72 @@ mod tests {
         );
         assert_eq!(
             fetcher.versions_probed.load(Ordering::SeqCst),
-            2,
-            "both calls still ask the source what version it is at — that is \
-             the cheap call the design spends"
+            1,
+            "the second call falls inside the check interval and must not ask \
+             the source again"
         );
+    }
+
+    #[tokio::test]
+    async fn a_source_is_checked_again_once_the_interval_has_passed() {
+        let plugins = Arc::new(StubPlugins::with(plugin(None)));
+        let fetcher = Arc::new(CountingFetcher::at_version("sha-1"));
+        let sync = timed_service(
+            plugins.clone(),
+            fetcher.clone(),
+            Duration::ZERO,
+            CHECK_TIMEOUT,
+        );
+
+        sync.sync(&actor(), &plugin(None)).await.unwrap();
+        sync.sync(&actor(), &plugin(None)).await.unwrap();
+
+        assert_eq!(fetcher.versions_probed.load(Ordering::SeqCst), 2);
+        assert_eq!(fetcher.files_fetched.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn a_hanging_update_check_serves_the_stored_snapshot_and_backs_off() {
+        let plugins =
+            Arc::new(StubPlugins::with(plugin(Some("sha-old"))).seed_skills(seeded_snapshot()));
+        let fetcher = Arc::new(CountingFetcher::hanging_at("sha-new"));
+        let sync = timed_service(
+            plugins.clone(),
+            fetcher.clone(),
+            CHECK_INTERVAL,
+            Duration::from_millis(20),
+        );
+
+        let first = sync
+            .skills(&actor(), &plugin(Some("sha-old")))
+            .await
+            .unwrap();
+        let second = sync
+            .skills(&actor(), &plugin(Some("sha-old")))
+            .await
+            .unwrap();
+
+        assert_eq!(first, seeded_snapshot());
+        assert_eq!(second, seeded_snapshot());
+        assert_eq!(
+            fetcher.versions_probed.load(Ordering::SeqCst),
+            1,
+            "a timed-out check counts as a check, so the next read does not \
+             wait on the same unreachable host"
+        );
+        assert_eq!(fetcher.files_fetched.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn a_plugin_with_nothing_stored_retries_a_failed_sync_at_once() {
+        let plugins = Arc::new(StubPlugins::with(plugin(None)));
+        let fetcher = Arc::new(CountingFetcher::failing());
+        let sync = service(plugins.clone(), fetcher.clone());
+
+        assert!(sync.sync(&actor(), &plugin(None)).await.is_err());
+        assert!(sync.sync(&actor(), &plugin(None)).await.is_err());
+
+        assert_eq!(fetcher.versions_probed.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]
@@ -475,12 +633,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_failed_fetch_leaves_the_previous_snapshot_in_place() {
-        let previous = vec![PluginSkill {
-            plugin_id: "p1".to_string(),
-            name: "code-review".to_string(),
-            description: "Reviews code".to_string(),
-            path: "skills/code-review/SKILL.md".to_string(),
-        }];
+        let previous = seeded_snapshot();
         let plugins =
             Arc::new(StubPlugins::with(plugin(Some("sha-old"))).seed_skills(previous.clone()));
         let sync = service(plugins.clone(), Arc::new(CountingFetcher::failing()));
