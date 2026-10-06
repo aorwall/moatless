@@ -1,3 +1,4 @@
+use crate::config::OrchestrationProtocol;
 use crate::rpc::metrics::CONNECTION_BLOCKED;
 use crate::rpc::session::ProtocolSession;
 use crate::state::UiRpcState;
@@ -37,11 +38,13 @@ pub(crate) async fn serve_websocket(
     socket: WebSocket,
     state: UiRpcState,
     identity: UiRpcAuthIdentity,
+    protocol: OrchestrationProtocol,
 ) {
-    debug!(user_id = %identity.user_id, "T3 UI WebSocket connected");
+    debug!(user_id = %identity.user_id, ?protocol, "T3 UI WebSocket connected");
     let (mut sink, mut incoming) = socket.split();
     let (frames, mut pushed) = mpsc::channel::<Value>(OUTBOUND_FRAMES);
     let mut session = ProtocolSession::new(frames);
+    session.shared.protocol = protocol;
 
     'connection: loop {
         // Set the moment a client frame is in hand and cleared once it is

@@ -813,9 +813,15 @@ async fn the_archive_pages_through_every_closed_task_newest_first(pool: PgPool) 
     let page = |before: Option<crate::dao::ArchiveCursor>| {
         let (graph, defaults, viewer) = (&graph, &defaults, &viewer);
         async move {
-            crate::snapshots::archived_shell_page(graph.reads(), defaults, viewer, before)
-                .await
-                .unwrap()
+            crate::snapshots::archived_shell_page(
+                graph.reads(),
+                defaults,
+                viewer,
+                before,
+                crate::config::OrchestrationProtocol::V1,
+            )
+            .await
+            .unwrap()
         }
     };
     let ids = |snapshot: &serde_json::Value| -> Vec<String> {

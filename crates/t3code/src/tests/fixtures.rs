@@ -300,6 +300,13 @@ impl ports::TaskRelationSource for NoChildTasks {
     ) -> Result<Vec<ports::ChildTask>, moatless_types::store::StoreError> {
         Ok(Vec::new())
     }
+
+    async fn parent(
+        &self,
+        _child_task_id: &str,
+    ) -> Result<Option<ports::ParentTask>, moatless_types::store::StoreError> {
+        Ok(None)
+    }
 }
 
 /// What reached the attachment store, so the mint, the upload route and
@@ -590,6 +597,7 @@ pub(super) fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore
             otlp_traces_enabled: false,
             attachment_uploads: true,
             usage_limit_sources: false,
+            orchestration_protocol_version: 1,
         }),
         environment: Arc::new(stub_identity()),
         session_cookie_name: Arc::from("moatless_session"),

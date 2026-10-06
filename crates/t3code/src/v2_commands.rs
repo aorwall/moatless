@@ -1,0 +1,225 @@
+//! Orchestration V2's command union, rewritten onto the V1 commands
+//! [`commands::dispatch`] already carries out, so a V2 client reaches
+//! the same Moatless writes a V1 client does.
+//!
+//! Three outcomes per command: translated, discarded (the client keeps the
+//! state locally and nothing here records it), or refused with a reason.
+
+use serde_json::{Map, Value, json};
+
+use moatless_types::access_control::ScopeContext;
+
+use crate::commands;
+use crate::commands::CommandContext;
+use crate::ports::CommandRefusal;
+use crate::projection::queued_message_uuid;
+use crate::projection::turn_number_of_run;
+
+/// Answers one orchestration V2 command by way of the V1 command it
+/// [translates](translate) to.
+pub(crate) async fn dispatch(
+    ctx: &CommandContext<'_>,
+    viewer: &ScopeContext,
+    command: &Value,
+) -> Result<Value, CommandRefusal> {
+    match translate(command)? {
+        Translated::V1(v1) => commands::dispatch(ctx, viewer, &v1).await,
+        Translated::Discarded => commands::dispatch_result(ctx).await,
+    }
+}
+
+/// What one V2 command becomes.
+#[derive(Debug, PartialEq)]
+pub(crate) enum Translated {
+    /// The V1 command that carries it out.
+    V1(Value),
+    /// Accepted and dropped: nothing in Moatless records it.
+    Discarded,
+}
+
+/// Rewrite one V2 command, or refuse it.
+pub(crate) fn translate(command: &Value) -> Result<Translated, CommandRefusal> {
+    let tag = command
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let renamed = |v1: &str| Ok(Translated::V1(with_type(command, v1)));
+    match tag {
+        // Same name and the same fields on both sides.
+        "thread.create"
+        | "thread.archive"
+        | "thread.unarchive"
+        | "thread.delete"
+        | "thread.settle"
+        | "thread.unsettle"
+        | "thread.snooze"
+        | "thread.unsnooze"
+        | "thread.follow"
+        | "thread.unfollow"
+        | "thread.visibility.set"
+        | "thread.pull-request.link"
+        | "thread.pull-request.unlink" => renamed(tag),
+        "thread.metadata.update" | "thread.model-selection.set" => renamed("thread.meta.update"),
+        "run.interrupt" => renamed("thread.turn.interrupt"),
+        "provider-session.detach" => renamed("thread.session.stop"),
+        "message.dispatch" => message_dispatch(command),
+        "queued-message.promote-to-steer" => {
+            let queued = command
+                .get("queuedRunId")
+                .and_then(Value::as_str)
+                .ok_or_else(|| missing("queuedRunId"))?;
+            let message_uuid =
+                queued_message_uuid(queued).ok_or_else(|| CommandRefusal::Rejected {
+                    message: format!("`{queued}` is not a queued message on this server."),
+                })?;
+            Ok(Translated::V1(json!({
+                "type": "thread.queuedTurn.steer",
+                "threadId": command.get("threadId"),
+                "messageId": message_uuid,
+            })))
+        }
+        "runtime-request.respond" => {
+            if command
+                .get("decision")
+                .is_some_and(|value| !value.is_null())
+            {
+                return refused(tag, "Approvals are not part of this server.");
+            }
+            renamed("thread.user-input.respond")
+        }
+        "thread.fork" => fork(command),
+        // Kept by the client itself; Moatless has no column for any of them.
+        "thread.runtime-mode.set"
+        | "thread.interaction-mode.set"
+        | "thread.visit"
+        | "thread.mark-unread" => Ok(Translated::Discarded),
+        "thread.merge_back" => refused(tag, "Merge-back is not available on this server."),
+        other => refused(other, "This server does not implement that action."),
+    }
+}
+
+/// `message.dispatch` is V1's `thread.turn.start` without the bootstrap. A
+/// running turn is steered by any message it is sent, so `start_immediately`
+/// and `steer_active` are a plain send; `queue_after_active` is V1's queue mode.
+/// Restart and deferred start have no Moatless counterpart.
+fn message_dispatch(command: &Value) -> Result<Translated, CommandRefusal> {
+    let tag = "message.dispatch";
+    let mode = command
+        .get("dispatchMode")
+        .and_then(|mode| mode.get("type"))
+        .and_then(Value::as_str)
+        .unwrap_or("start_immediately");
+    let queue = match mode {
+        "start_immediately" | "steer_active" => false,
+        "queue_after_active" => true,
+        "restart_active" => {
+            return refused(
+                tag,
+                "A running turn cannot be restarted here; stop it first.",
+            );
+        }
+        _ => return refused(tag, "Deferred starts are not part of this server."),
+    };
+    if command.get("deliveryIntent").and_then(Value::as_str) == Some("restart") {
+        return refused(
+            tag,
+            "A running turn cannot be restarted here; stop it first.",
+        );
+    }
+    let mut v1 = Map::new();
+    v1.insert("type".into(), json!("thread.turn.start"));
+    copy(
+        command,
+        &mut v1,
+        &["commandId", "threadId", "modelSelection"],
+    );
+    v1.insert(
+        "message".into(),
+        json!({
+            "messageId": command.get("messageId").ok_or_else(|| missing("messageId"))?,
+            "text": command.get("text").cloned().unwrap_or_else(|| json!("")),
+            "attachments": command.get("attachments").cloned().unwrap_or_else(|| json!([])),
+        }),
+    );
+    if queue {
+        v1.insert("dispatchMode".into(), json!("queue"));
+    }
+    Ok(Translated::V1(Value::Object(v1)))
+}
+
+/// V2 names the fork's new thread `targetThreadId` and its cut point as a
+/// `sourcePoint`; V1 takes `threadId` and an `atTurn` turn number.
+fn fork(command: &Value) -> Result<Translated, CommandRefusal> {
+    let tag = "thread.fork";
+    let point = command.get("sourcePoint");
+    let at_turn = match point
+        .and_then(|point| point.get("type"))
+        .and_then(Value::as_str)
+    {
+        None | Some("latest_stable") => Value::Null,
+        Some("run") => {
+            let run_id = point
+                .and_then(|point| point.get("runId"))
+                .and_then(Value::as_str)
+                .ok_or_else(|| missing("sourcePoint.runId"))?;
+            json!(
+                turn_number_of_run(run_id).ok_or_else(|| CommandRefusal::Rejected {
+                    message: format!("`{run_id}` is not a completed turn to fork from."),
+                })?
+            )
+        }
+        Some(_) => return refused(tag, "This server takes no checkpoints to fork from."),
+    };
+    let mut v1 = Map::new();
+    v1.insert("type".into(), json!(tag));
+    copy(
+        command,
+        &mut v1,
+        &[
+            "commandId",
+            "sourceThreadId",
+            "sameSandbox",
+            "message",
+            "modelSelection",
+        ],
+    );
+    v1.insert(
+        "threadId".into(),
+        command
+            .get("targetThreadId")
+            .cloned()
+            .ok_or_else(|| missing("targetThreadId"))?,
+    );
+    v1.insert("atTurn".into(), at_turn);
+    Ok(Translated::V1(Value::Object(v1)))
+}
+
+fn with_type(command: &Value, v1_type: &str) -> Value {
+    let mut v1 = command.as_object().cloned().unwrap_or_default();
+    v1.insert("type".into(), json!(v1_type));
+    Value::Object(v1)
+}
+
+fn copy(from: &Value, to: &mut Map<String, Value>, keys: &[&str]) {
+    for key in keys {
+        if let Some(value) = from.get(*key) {
+            to.insert((*key).to_string(), value.clone());
+        }
+    }
+}
+
+fn refused(command: &str, reason: &str) -> Result<Translated, CommandRefusal> {
+    Err(CommandRefusal::Unsupported {
+        command: command.to_string(),
+        reason: reason.to_string(),
+    })
+}
+
+fn missing(field: &str) -> CommandRefusal {
+    CommandRefusal::Rejected {
+        message: format!("The command is missing `{field}`."),
+    }
+}
+
+#[cfg(test)]
+mod tests;

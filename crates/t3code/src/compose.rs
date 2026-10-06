@@ -94,6 +94,7 @@ pub async fn mount(
         crate::usage_limit_sources::UsageLimitSources::start(&settings, usage_limits_http);
     let config = UiRpcConfig {
         environment_id: environment_id(&environment),
+        orchestration_protocol_version: settings.orchestration_protocol_version,
         allowed_origins: settings.allowed_origins,
         otlp_traces_enabled,
         attachment_uploads: session_jwt_secret.is_some(),

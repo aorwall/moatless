@@ -16,6 +16,7 @@ mod session;
 mod shell;
 mod transcript;
 mod turn;
+mod v2;
 
 #[cfg(test)]
 mod tests;
@@ -34,3 +35,13 @@ pub(crate) use shell::shell_snapshot;
 pub(crate) use shell::thread_removed;
 pub(crate) use shell::thread_shell;
 pub(crate) use shell::thread_upserted;
+pub(crate) use v2::Lineage;
+pub(crate) use v2::archived_shell_snapshot_v2;
+pub(crate) use v2::listed_threads_v2;
+pub(crate) use v2::queued_message_uuid;
+pub(crate) use v2::shell_snapshot_v2;
+pub(crate) use v2::thread_projection;
+pub(crate) use v2::thread_removed_v2;
+pub(crate) use v2::thread_shell_v2;
+pub(crate) use v2::thread_updated_v2;
+pub(crate) use v2::turn_number_of_run;

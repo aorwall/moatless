@@ -5,6 +5,7 @@ use super::contract::{assert_decodable_item, assert_decodable_upsert};
 use super::harness::{defaults, reads};
 use chrono::Utc;
 use moatless_core::change_feed::listing::record_change;
+use moatless_t3code::OrchestrationProtocol;
 use moatless_t3code::ShellFeed;
 use moatless_t3code::listing::UiRpcEnvironmentIdentity;
 use moatless_t3code::shell_snapshot;
@@ -128,9 +129,16 @@ pub(super) async fn reconnect_to(
     viewer: &ScopeContext,
     after: Option<i64>,
 ) -> (Vec<Value>, ShellFeed) {
-    let subscription = shell_subscription(&reads(pool), &defaults(), viewer, environment, after)
-        .await
-        .unwrap();
+    let subscription = shell_subscription(
+        &reads(pool),
+        &defaults(),
+        viewer,
+        environment,
+        after,
+        OrchestrationProtocol::V1,
+    )
+    .await
+    .unwrap();
     (subscription.values, subscription.feed)
 }
 

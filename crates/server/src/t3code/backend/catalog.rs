@@ -6,8 +6,9 @@ use crate::state::AppState;
 use async_trait::async_trait;
 use moatless_api_schemas::agent::AgentDescriptor;
 use moatless_t3code::ports::{
-    AgentCatalogSource, BranchListError, ChildTask, GithubIdentity, RepositoryBranchSource,
-    SkillCatalog, SourceControlAuthSource, TaskRelationSource, WorkspaceSkill,
+    AgentCatalogSource, BranchListError, ChildTask, GithubIdentity, ParentTask,
+    RepositoryBranchSource, SkillCatalog, SourceControlAuthSource, TaskRelationSource,
+    WorkspaceSkill,
 };
 use moatless_types::access_control::Actor;
 use moatless_types::access_control::ScopeContext;
@@ -195,5 +196,23 @@ impl TaskRelationSource for AppStateTaskRelations {
                 relation: relation.relation_type,
             })
             .collect())
+    }
+
+    async fn parent(&self, child_task_id: &str) -> Result<Option<ParentTask>, StoreError> {
+        let relation = self
+            .0
+            .task_relations
+            .find_parent(child_task_id)
+            .await
+            .map_err(|cause| StoreError::with_source("find task parent", cause))?;
+        Ok(relation.map(|relation| ParentTask {
+            at_turn: relation
+                .context
+                .get("at_turn")
+                .and_then(serde_json::Value::as_i64)
+                .and_then(|turn| i32::try_from(turn).ok()),
+            task_id: relation.to_task_id,
+            relation: relation.relation_type,
+        }))
     }
 }

@@ -115,6 +115,12 @@ impl T3ActivityViewExt for ActivityView<'_> {
         } else if let Some(detail) = self.detail() {
             payload.insert("detail".into(), Value::String(detail.to_string()));
         }
+        // The thought itself renders only as a V2 reasoning item; this
+        // snapshot is re-sent whole on every move.
+        if self.kind() == ActivityKind::Thinking {
+            payload.remove("text");
+            payload.remove("truncated");
+        }
         payload.remove("input");
         payload.remove("result");
         payload.remove("typedResult");

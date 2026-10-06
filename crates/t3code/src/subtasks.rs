@@ -136,6 +136,13 @@ mod tests {
                 })
                 .collect())
         }
+
+        async fn parent(
+            &self,
+            _child_task_id: &str,
+        ) -> Result<Option<crate::ports::ParentTask>, StoreError> {
+            Ok(None)
+        }
     }
 
     fn conversation(task_id: &str, created_at: &str, name: &str) -> Conversation {

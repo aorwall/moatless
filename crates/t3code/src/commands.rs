@@ -188,6 +188,10 @@ pub async fn dispatch(
         }
     }
 
+    dispatch_result(ctx).await
+}
+
+pub(crate) async fn dispatch_result(ctx: &CommandContext<'_>) -> Result<Value, CommandRefusal> {
     let sequence = ctx
         .conversations
         .listing_head()

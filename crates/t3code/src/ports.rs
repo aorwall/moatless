@@ -249,6 +249,19 @@ pub struct ChildTask {
 #[async_trait]
 pub trait TaskRelationSource: Send + Sync {
     async fn children(&self, parent_task_id: &str) -> Result<Vec<ChildTask>, StoreError>;
+
+    /// The edge naming the Task `child_task_id` was spawned by or forked from;
+    /// `None` for a Task with neither.
+    async fn parent(&self, child_task_id: &str) -> Result<Option<ParentTask>, StoreError>;
+}
+
+/// One Task's parent edge, as [`TaskRelationSource::parent`] answers it.
+pub struct ParentTask {
+    pub task_id: String,
+    pub relation: TaskRelationType,
+    /// The source turn a fork was cut after, from the edge's context. `None`
+    /// for a fork of the whole thread, and for every other relation.
+    pub at_turn: Option<i32>,
 }
 
 /// One skill a Workspace's agent would load, as the composer's `/` menu needs

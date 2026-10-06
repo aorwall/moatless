@@ -134,6 +134,7 @@ fn a_deployment_that_cannot_sign_an_upload_url_omits_both_keys() {
         otlp_traces_enabled: false,
         attachment_uploads: false,
         usage_limit_sources: false,
+        orchestration_protocol_version: 1,
     };
     let capabilities = &descriptor(&config)["capabilities"];
 
@@ -152,6 +153,7 @@ fn a_deployment_with_a_hub_declares_the_usage_limit_source_capability() {
         otlp_traces_enabled: false,
         attachment_uploads: false,
         usage_limit_sources: true,
+        orchestration_protocol_version: 1,
     };
 
     assert_eq!(
@@ -170,6 +172,7 @@ fn the_descriptor_reports_the_contract_version_the_code_implements() {
         otlp_traces_enabled: false,
         attachment_uploads: true,
         usage_limit_sources: false,
+        orchestration_protocol_version: 1,
     };
 
     assert_eq!(
@@ -181,4 +184,66 @@ fn the_descriptor_reports_the_contract_version_the_code_implements() {
         env!("CARGO_PKG_VERSION"),
         "the contract version tracks the T3 client, not this crate"
     );
+}
+
+fn config_at(orchestration_protocol_version: u8) -> UiRpcConfig {
+    UiRpcConfig {
+        environment_id: "moatless".into(),
+        allowed_origins: vec![AllowedOrigin::parse("https://example.com")],
+        otlp_traces_enabled: false,
+        attachment_uploads: false,
+        usage_limit_sources: false,
+        orchestration_protocol_version,
+    }
+}
+
+/// A V2 client sends server-resolved dispatch modes only where the descriptor
+/// declares both keys; a V1 deployment declares neither.
+#[test]
+fn a_v2_deployment_declares_the_protocol_and_server_resolved_context() {
+    let v2 = descriptor(&config_at(2));
+    assert_eq!(v2["orchestrationProtocolVersion"], json!(2));
+    assert_eq!(
+        v2["capabilities"]["serverResolvedCommandContext"],
+        json!(true)
+    );
+
+    let v1 = descriptor(&config_at(1));
+    assert!(v1.get("orchestrationProtocolVersion").is_none());
+    assert!(
+        v1["capabilities"]
+            .get("serverResolvedCommandContext")
+            .is_none()
+    );
+}
+
+/// A V1 client keeps V1 against a V2 deployment, and no client gets V2 from a
+/// deployment that has not turned it on.
+#[test]
+fn a_connection_speaks_v2_only_when_both_sides_ask_for_it() {
+    use crate::config::OrchestrationProtocol;
+    assert_eq!(
+        config_at(2).protocol_for(Some("2")),
+        OrchestrationProtocol::V2
+    );
+    assert_eq!(config_at(2).protocol_for(None), OrchestrationProtocol::V1);
+    assert_eq!(
+        config_at(2).protocol_for(Some("1")),
+        OrchestrationProtocol::V1
+    );
+    assert_eq!(
+        config_at(1).protocol_for(Some("2")),
+        OrchestrationProtocol::V1
+    );
+}
+
+#[test]
+fn the_websocket_query_names_the_requested_protocol() {
+    use crate::handlers::requested_protocol;
+    assert_eq!(
+        requested_protocol(Some("ticket=abc&orchestrationProtocol=2")).as_deref(),
+        Some("2")
+    );
+    assert_eq!(requested_protocol(Some("ticket=abc")), None);
+    assert_eq!(requested_protocol(None), None);
 }

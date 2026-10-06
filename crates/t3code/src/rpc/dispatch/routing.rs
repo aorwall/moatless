@@ -12,6 +12,7 @@
 //! detaching a transition would take it away.
 
 use super::orchestration::*;
+use super::orchestration_v2::*;
 use super::preview::*;
 use super::projects::*;
 use super::sandbox::*;
@@ -19,6 +20,7 @@ use super::server::*;
 use super::terminal::*;
 use super::vcs::*;
 use crate::authentication::viewer_scope;
+use crate::config::OrchestrationProtocol;
 use crate::oauth;
 use crate::rpc::frames::RequestId;
 use crate::rpc::frames::authorization_error;
@@ -196,6 +198,25 @@ impl ProtocolSession {
         // Cloned so an arm can take `request`: a `match` holds its scrutinee
         // borrowed across every arm, and each arm here hands the request on.
         let tag = request.tag.clone();
+        if request.shared.protocol == OrchestrationProtocol::V2 {
+            match tag.as_str() {
+                "orchestration.dispatchCommand" => {
+                    return orchestration_dispatch_command_v2(request).await;
+                }
+                "orchestration.launchThread" => return orchestration_launch_thread(request).await,
+                "orchestration.subscribeThread" => {
+                    return self.orchestration_subscribe_thread_v2(request).await;
+                }
+                "orchestration.subscribeArchivedShell" => {
+                    return self.orchestration_subscribe_archived_shell(request).await;
+                }
+                // V1's event log has no V2 counterpart, and no V2 client asks.
+                "orchestration.replayEvents" => {
+                    return vec![unsupported_exit(&request.id, &request.tag)];
+                }
+                _ => {}
+            }
+        }
         match tag.as_str() {
             "server.probe" => server_probe(request),
             "server.getSettings" => server_get_settings(request),
@@ -274,6 +295,22 @@ fn detach(request: Request) -> Dispatch {
     // Cloned so an arm can take `request`: a `match` holds its scrutinee
     // borrowed across every arm, and each arm here moves the request into the
     // future that answers it.
+    let tag = request.tag.clone();
+    if request.shared.protocol == OrchestrationProtocol::V2 {
+        let detached: Pin<Box<dyn Future<Output = Vec<Value>> + Send>> = match tag.as_str() {
+            "orchestration.getThreadProjection" => {
+                Box::pin(orchestration_get_thread_projection(request))
+            }
+            "orchestration.getTurnItem" => Box::pin(orchestration_get_turn_item(request)),
+            _ => return detach_any(request),
+        };
+        return Dispatch::Detached(detached);
+    }
+    detach_any(request)
+}
+
+/// The methods detached in either protocol.
+fn detach_any(request: Request) -> Dispatch {
     let tag = request.tag.clone();
     let detached: Pin<Box<dyn Future<Output = Vec<Value>> + Send>> = match tag.as_str() {
         "server.getConfig" => Box::pin(server_get_config(request)),

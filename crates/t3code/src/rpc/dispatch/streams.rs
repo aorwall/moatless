@@ -111,6 +111,7 @@ impl ProtocolSession {
             payload,
             state,
             identity,
+            shared,
             ..
         } = request;
         let viewer = viewer_scope(&identity);
@@ -120,6 +121,7 @@ impl ProtocolSession {
             &viewer,
             &state.environment,
             after_sequence(&payload),
+            shared.protocol,
         )
         .await
         {

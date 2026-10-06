@@ -1,9 +1,13 @@
 use crate::config::AgentModelDefaults;
+use crate::config::OrchestrationProtocol;
 use crate::dao::ConversationDao;
 use crate::feed;
 use crate::reads::T3Reads;
 use crate::review;
 use crate::rpc::metrics::THREAD_SUBSCRIPTIONS;
+use crate::snapshots::ThreadDetailV2;
+use crate::snapshots::archived_shell_page;
+use crate::snapshots::thread_detail_v2_under;
 use crate::state::Deployment;
 use crate::subscription;
 use crate::subscription::StreamFailure;
@@ -14,8 +18,10 @@ use crate::subscriptions::VCS_STATUS_POLL_INTERVAL;
 use crate::subscriptions::poll_thread;
 use feed::ShellFeed;
 use feed::ThreadFeed;
+use moatless_core::change_feed::conversation::ConversationHead;
 use moatless_types::access_control::ScopeContext;
 use serde_json::Value;
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::warn;
@@ -155,6 +161,144 @@ pub(crate) async fn watch_thread(
             continue;
         }
         if !sink.send_values(values).await {
+            return Ok(());
+        }
+    }
+}
+
+/// What a V2 thread subscription re-reads on each pass.
+pub(crate) struct WatchedThreadV2 {
+    pub(crate) reads: T3Reads,
+    /// Resolved when the subscription opened; a thread's ancestry never moves.
+    pub(crate) lineage: crate::projection::Lineage,
+    pub(crate) frontend_url: Arc<str>,
+    pub(crate) model_defaults: Arc<AgentModelDefaults>,
+    pub(crate) viewer: ScopeContext,
+    pub(crate) task_id: String,
+    /// The head the client was last sent, or already held.
+    pub(crate) head: ConversationHead,
+}
+
+/// The `snapshot` stream item a V2 thread subscription sends.
+///
+/// Without the history keys: the client reads their absence as a whole
+/// projection and resets its history state, which is what this is.
+pub(crate) fn thread_snapshot_item(detail: &ThreadDetailV2) -> Value {
+    json!({
+        "kind": "snapshot",
+        "snapshotSequence": detail.snapshot["snapshotSequence"],
+        "projection": detail.snapshot["projection"],
+    })
+}
+
+/// Mirrors [`watch_thread`], answering every move of the conversation's head
+/// with the whole projection rather than the events between.
+pub(crate) async fn watch_thread_v2(
+    sink: subscription::StreamSink,
+    mut watched: WatchedThreadV2,
+) -> StreamResult {
+    let _open = OpenThreadSubscription::count();
+    let deployment = Deployment {
+        model_defaults: &watched.model_defaults,
+        frontend_url: &watched.frontend_url,
+    };
+    loop {
+        tokio::time::sleep(THREAD_POLL_INTERVAL).await;
+        let head = match watched
+            .reads
+            .conversations()
+            .conversation_head(&watched.task_id)
+            .await
+        {
+            Ok(head) => head,
+            Err(error) => {
+                warn!(%error, user_id = %watched.viewer.user_id, "Failed to poll the T3 UI conversation");
+                continue;
+            }
+        };
+        if head.position <= watched.head.position {
+            continue;
+        }
+        let detail = thread_detail_v2_under(
+            &watched.reads,
+            &deployment,
+            &watched.viewer,
+            &watched.task_id,
+            watched.lineage.clone(),
+        )
+        .await;
+        let detail = match detail {
+            Ok(Some(detail)) => detail,
+            Ok(None) => return Err(StreamFailure::message("Conversation not found")),
+            Err(error) => {
+                // As in `watch_thread`: the head is not advanced, so the next
+                // pass rebuilds the same snapshot.
+                warn!(%error, user_id = %watched.viewer.user_id, "Failed to assemble the T3 UI conversation");
+                continue;
+            }
+        };
+        watched.head = detail.head;
+        if !sink.send(thread_snapshot_item(&detail)).await {
+            return Ok(());
+        }
+    }
+}
+
+/// How often an open archive listing asks whether the listing moved. Longer
+/// than the shell's: a hit re-reads a whole page, and the archive changes only
+/// when a conversation is closed or reopened.
+const ARCHIVED_SHELL_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Re-sends the newest archived page whenever the listing head moves, starting
+/// from `initial`, the page the client was already sent. Its `snapshotSequence`
+/// is the listing position read before its rows, so no change is missed.
+pub(crate) async fn watch_archived_shell(
+    sink: subscription::StreamSink,
+    reads: T3Reads,
+    model_defaults: Arc<AgentModelDefaults>,
+    viewer: ScopeContext,
+    initial: Value,
+) -> StreamResult {
+    let mut last = initial["snapshotSequence"].as_i64();
+    let mut sent = Some(initial["threads"].clone());
+    loop {
+        tokio::time::sleep(ARCHIVED_SHELL_POLL_INTERVAL).await;
+        let position = match reads.conversations().listing_head().await {
+            Ok(head) => head.position,
+            Err(error) => {
+                warn!(%error, user_id = %viewer.user_id, "Failed to read the T3 UI listing head");
+                continue;
+            }
+        };
+        if last == Some(position) {
+            continue;
+        }
+        let snapshot = match archived_shell_page(
+            &reads,
+            &model_defaults,
+            &viewer,
+            None,
+            OrchestrationProtocol::V2,
+        )
+        .await
+        {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                warn!(%error, user_id = %viewer.user_id, "Failed to read the T3 UI archive");
+                continue;
+            }
+        };
+        last = Some(position);
+        // The sequence moves with every listing change; only the rows decide
+        // whether the client has anything new to render.
+        if sent.as_ref() == Some(&snapshot["threads"]) {
+            continue;
+        }
+        sent = Some(snapshot["threads"].clone());
+        if !sink
+            .send(json!({ "kind": "snapshot", "snapshot": snapshot }))
+            .await
+        {
             return Ok(());
         }
     }

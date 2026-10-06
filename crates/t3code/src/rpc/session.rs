@@ -132,6 +132,10 @@ impl WorkspaceSnapshots {
 pub(crate) struct SharedSession {
     pub(crate) config_stream: ConfigStream,
     pub(crate) workspace_snapshots: WorkspaceSnapshots,
+    /// Fixed when the socket opens; see [`UiRpcConfig::protocol_for`].
+    ///
+    /// [`UiRpcConfig::protocol_for`]: crate::config::UiRpcConfig::protocol_for
+    pub(crate) protocol: crate::config::OrchestrationProtocol,
 }
 
 #[derive(Debug)]

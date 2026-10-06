@@ -1,9 +1,12 @@
 use crate::config::AgentModelDefaults;
+use crate::config::OrchestrationProtocol;
 use crate::dao::ArchiveCursor;
 use crate::dao::Conversation;
 use crate::dao::ConversationBrowse;
 use crate::dao::ConversationDao;
+use crate::lineage;
 use crate::listing::UiRpcEnvironmentIdentity;
+use crate::ports::TaskRelationSource;
 use crate::projection;
 use crate::reads::T3Reads;
 use crate::state::Deployment;
@@ -24,6 +27,17 @@ pub async fn shell_snapshot(
     model_defaults: &AgentModelDefaults,
     viewer: &ScopeContext,
 ) -> Result<ShellSnapshot, sqlx::Error> {
+    shell_snapshot_in(reads, model_defaults, viewer, OrchestrationProtocol::V1).await
+}
+
+/// [`shell_snapshot`], in the wire shape `protocol` names. V2's
+/// `archivedThreads` is always empty: the archive is its own paged listing.
+pub(crate) async fn shell_snapshot_in(
+    reads: &T3Reads,
+    model_defaults: &AgentModelDefaults,
+    viewer: &ScopeContext,
+    protocol: OrchestrationProtocol,
+) -> Result<ShellSnapshot, sqlx::Error> {
     let conversations = reads.conversations();
     let workspaces = reads.workspaces();
     // Read position before rows: reading after risks the client discarding a
@@ -38,8 +52,20 @@ pub async fn shell_snapshot(
     let workspaces = workspaces
         .list_readable_including(viewer, &referenced_workspace_ids)
         .await?;
+    let value = match protocol {
+        OrchestrationProtocol::V1 => {
+            projection::shell_snapshot(&workspaces, &conversations, model_defaults, sequence)
+        }
+        OrchestrationProtocol::V2 => projection::shell_snapshot_v2(
+            &workspaces,
+            &conversations,
+            &[],
+            model_defaults,
+            sequence,
+        ),
+    };
     Ok(ShellSnapshot {
-        value: projection::shell_snapshot(&workspaces, &conversations, model_defaults, sequence),
+        value,
         sequence,
         identity: head.identity,
     })
@@ -93,11 +119,20 @@ pub async fn thread_shell(
     defaults: &AgentModelDefaults,
     viewer: &ScopeContext,
     task_id: &str,
+    protocol: OrchestrationProtocol,
 ) -> Result<Option<Value>, sqlx::Error> {
     Ok(readable_under_a_project(reads, viewer, task_id)
         .await?
-        .map(|(conversation, project_id)| {
-            projection::thread_shell(&conversation, &project_id, defaults)
+        .map(|(conversation, project_id)| match protocol {
+            OrchestrationProtocol::V1 => {
+                projection::thread_shell(&conversation, &project_id, defaults)
+            }
+            OrchestrationProtocol::V2 => projection::thread_shell_v2(
+                &conversation,
+                &project_id,
+                defaults,
+                &projection::Lineage::none(&conversation.task_id),
+            ),
         }))
 }
 
@@ -150,6 +185,71 @@ pub async fn thread_snapshot(
         head,
         checkpointed,
     }))
+}
+
+/// One conversation as an `OrchestrationV2ThreadDetailSnapshot`, with the
+/// position it was built at.
+///
+/// The whole transcript window, never a bounded page: `hasMoreHistory` is
+/// always `false`, so the client never asks for an older page this server
+/// has no route for.
+pub(crate) async fn thread_detail_v2(
+    reads: &T3Reads,
+    deployment: &Deployment<'_>,
+    relations: &dyn TaskRelationSource,
+    viewer: &ScopeContext,
+    task_id: &str,
+) -> Result<Option<ThreadDetailV2>, sqlx::Error> {
+    let lineage = lineage::resolve(reads, relations, viewer, task_id).await;
+    thread_detail_v2_under(reads, deployment, viewer, task_id, lineage).await
+}
+
+/// [`thread_detail_v2`] with the thread's lineage already resolved, which never
+/// changes for a thread once it exists.
+pub(crate) async fn thread_detail_v2_under(
+    reads: &T3Reads,
+    deployment: &Deployment<'_>,
+    viewer: &ScopeContext,
+    task_id: &str,
+    lineage: projection::Lineage,
+) -> Result<Option<ThreadDetailV2>, sqlx::Error> {
+    let conversations = reads.conversations();
+    let head = conversations.conversation_head(task_id).await?;
+    let Some((conversation, project_id)) = readable_under_a_project(reads, viewer, task_id).await?
+    else {
+        return Ok(None);
+    };
+    let transcript = conversations.transcript(task_id).await?;
+    let projection = projection::thread_projection(
+        &conversation,
+        &project_id,
+        deployment.model_defaults,
+        &transcript,
+        &projection::OriginContext {
+            frontend_url: deployment.frontend_url,
+            source_task_names: &source_task_names(conversations, viewer, &transcript).await,
+        },
+        &lineage,
+    );
+    Ok(Some(ThreadDetailV2 {
+        snapshot: json!({
+            "snapshotSequence": head.sequence(),
+            "projection": projection,
+            "historyCursor": Value::Null,
+            "hasMoreHistory": false
+        }),
+        head,
+        lineage,
+    }))
+}
+
+/// [`thread_detail_v2`]'s answer.
+pub(crate) struct ThreadDetailV2 {
+    /// The `OrchestrationV2ThreadDetailSnapshot`: `snapshotSequence`,
+    /// `projection` and the history keys.
+    pub(crate) snapshot: Value,
+    pub(crate) head: ConversationHead,
+    pub(crate) lineage: projection::Lineage,
 }
 
 /// The names of the Tasks a window's Messages came from, by task id.
@@ -259,6 +359,7 @@ pub async fn browse_snapshot(
     defaults: &AgentModelDefaults,
     viewer: &ScopeContext,
     filter: &ConversationBrowse,
+    protocol: OrchestrationProtocol,
 ) -> Result<Value, sqlx::Error> {
     let mut conversations = reads.conversations().list_browsable(viewer, filter).await?;
     let truncated = conversations.len() as i64 > crate::dao::BROWSE_LIMIT;
@@ -267,8 +368,16 @@ pub async fn browse_snapshot(
         .workspaces()
         .list_readable_including(viewer, &[])
         .await?;
+    let threads = match protocol {
+        OrchestrationProtocol::V1 => {
+            projection::listed_threads(&workspaces, &conversations, defaults)
+        }
+        OrchestrationProtocol::V2 => {
+            projection::listed_threads_v2(&workspaces, &conversations, defaults)
+        }
+    };
     Ok(json!({
-        "threads": projection::listed_threads(&workspaces, &conversations, defaults),
+        "threads": threads,
         "truncated": truncated,
     }))
 }
@@ -280,7 +389,7 @@ pub async fn archived_shell_snapshot(
     defaults: &AgentModelDefaults,
     viewer: &ScopeContext,
 ) -> Result<Value, sqlx::Error> {
-    archived_shell_page(reads, defaults, viewer, None).await
+    archived_shell_page(reads, defaults, viewer, None, OrchestrationProtocol::V1).await
 }
 
 /// One page of closed conversations the viewer follows, newest first.
@@ -293,6 +402,7 @@ pub(crate) async fn archived_shell_page(
     defaults: &AgentModelDefaults,
     viewer: &ScopeContext,
     before: Option<ArchiveCursor>,
+    protocol: OrchestrationProtocol,
 ) -> Result<Value, sqlx::Error> {
     let conversations = reads.conversations();
     let workspaces = reads.workspaces();
@@ -307,7 +417,14 @@ pub(crate) async fn archived_shell_page(
         .last()
         .filter(|_| truncated)
         .map(|last| ArchiveCursor::after(last).encode());
-    let mut snapshot = projection::shell_snapshot(&workspaces, &archived, defaults, sequence);
+    let mut snapshot = match protocol {
+        OrchestrationProtocol::V1 => {
+            projection::shell_snapshot(&workspaces, &archived, defaults, sequence)
+        }
+        OrchestrationProtocol::V2 => {
+            projection::archived_shell_snapshot_v2(&workspaces, &archived, defaults, sequence)
+        }
+    };
     snapshot["nextCursor"] = json!(next_cursor);
     Ok(snapshot)
 }

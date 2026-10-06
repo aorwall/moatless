@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 use tracing::{debug, warn};
 
 use super::{AgentModelDefaults, projection};
+use crate::config::OrchestrationProtocol;
 use crate::dao::ConversationDao;
 use crate::listing::UiRpcEnvironmentIdentity;
 use crate::reads::T3Reads;
@@ -40,6 +41,8 @@ pub struct ShellFeed {
     cursor: i64,
     threads: HashSet<String>,
     grouped: HashSet<String>,
+    /// The wire shape items are built in; positions are the same in both.
+    protocol: OrchestrationProtocol,
 }
 
 impl ShellFeed {
@@ -54,7 +57,14 @@ impl ShellFeed {
             cursor: position,
             threads: HashSet::new(),
             grouped: HashSet::new(),
+            protocol: OrchestrationProtocol::V1,
         }
+    }
+
+    /// Build this feed's items, and the listings it rebuilds, in `protocol`.
+    pub(crate) fn speaking(mut self, protocol: OrchestrationProtocol) -> Self {
+        self.protocol = protocol;
+        self
     }
 
     /// Seed the Tasks the client holds and the projects it can group them under
@@ -153,9 +163,14 @@ impl ShellFeed {
                         // the pair cannot go out at one position.
                         return self.resynchronize(reads, defaults, viewer).await;
                     }
-                    items.push(projection::thread_upserted(
-                        row, project_id, defaults, position,
-                    ));
+                    items.push(match self.protocol {
+                        OrchestrationProtocol::V1 => {
+                            projection::thread_upserted(row, project_id, defaults, position)
+                        }
+                        OrchestrationProtocol::V2 => {
+                            projection::thread_updated_v2(row, project_id, defaults, position)
+                        }
+                    });
                     delivered_threads.push(id);
                 }
                 // Followed and readable, but its project is not listable; the
@@ -168,7 +183,7 @@ impl ShellFeed {
                          not sending it to the T3 shell"
                     );
                     if self.threads.contains(id) {
-                        items.push(projection::thread_removed(id, position));
+                        items.push(self.removed(id, position));
                         dropped_threads.push(id);
                     }
                 }
@@ -179,7 +194,7 @@ impl ShellFeed {
                 // and would drop the removal.
                 (None, _) => {
                     if self.threads.contains(id) {
-                        items.push(projection::thread_removed(id, position));
+                        items.push(self.removed(id, position));
                         dropped_threads.push(id);
                     }
                 }
@@ -198,6 +213,13 @@ impl ShellFeed {
         Ok(items)
     }
 
+    fn removed(&self, task_id: &str, position: i64) -> Value {
+        match self.protocol {
+            OrchestrationProtocol::V1 => projection::thread_removed(task_id, position),
+            OrchestrationProtocol::V2 => projection::thread_removed_v2(task_id, position),
+        }
+    }
+
     /// Put a watching client back onto a listing built from the database that
     /// is actually there now.
     ///
@@ -210,7 +232,8 @@ impl ShellFeed {
         defaults: &AgentModelDefaults,
         viewer: &ScopeContext,
     ) -> Result<Vec<Value>, sqlx::Error> {
-        let snapshot = super::shell_snapshot(reads, defaults, viewer).await?;
+        let snapshot =
+            crate::snapshots::shell_snapshot_in(reads, defaults, viewer, self.protocol).await?;
         warn!(
             user_id = %viewer.user_id,
             cursor = self.cursor,
@@ -231,7 +254,8 @@ impl ShellFeed {
         defaults: &AgentModelDefaults,
         viewer: &ScopeContext,
     ) -> Result<Vec<Value>, sqlx::Error> {
-        let snapshot = super::shell_snapshot(reads, defaults, viewer).await?;
+        let snapshot =
+            crate::snapshots::shell_snapshot_in(reads, defaults, viewer, self.protocol).await?;
         debug!(
             user_id = %viewer.user_id,
             sequence = snapshot.sequence,

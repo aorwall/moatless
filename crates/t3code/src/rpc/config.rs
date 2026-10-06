@@ -125,6 +125,18 @@ pub(crate) fn descriptor(config: &UiRpcConfig) -> Value {
         }
     }
 
+    // `optionalKey` in the contract, so a V1 deployment omits it rather than
+    // sending `1`: a client that reads no key at all falls back to V1 the same
+    // way one that predates negotiation entirely does.
+    if config.serves_orchestration_v2() {
+        descriptor["orchestrationProtocolVersion"] = json!(2);
+        // Whether `message.dispatch` may omit the model and runtime context:
+        // a V2 client that reads this sends the server-resolved dispatch modes.
+        if let Some(capabilities) = descriptor["capabilities"].as_object_mut() {
+            capabilities.insert("serverResolvedCommandContext".into(), json!(true));
+        }
+    }
+
     descriptor
 }
 

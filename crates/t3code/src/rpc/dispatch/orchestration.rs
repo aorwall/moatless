@@ -128,6 +128,7 @@ pub(super) async fn orchestration_get_archived_shell_snapshot(request: Request) 
         payload,
         state,
         identity,
+        shared,
         ..
     } = request;
     let viewer = viewer_scope(&identity);
@@ -143,7 +144,15 @@ pub(super) async fn orchestration_get_archived_shell_snapshot(request: Request) 
             }
         },
     };
-    match archived_shell_page(&state.reads, &state.model_defaults, &viewer, before).await {
+    match archived_shell_page(
+        &state.reads,
+        &state.model_defaults,
+        &viewer,
+        before,
+        shared.protocol,
+    )
+    .await
+    {
         Ok(snapshot) => vec![success_exit(&id, snapshot)],
         Err(error) => vec![shell_failure_exit(&id, &error, &identity)],
     }
@@ -156,6 +165,7 @@ pub(super) async fn orchestration_get_archived_shell_snapshot(request: Request) 
 /// page, and a failure would take a rendered transcript off screen to report a
 /// missing title.
 pub(super) async fn threads_get_shell(request: Request) -> Vec<Value> {
+    let protocol = request.shared.protocol;
     let ThreadRequest {
         id,
         viewer,
@@ -167,7 +177,15 @@ pub(super) async fn threads_get_shell(request: Request) -> Vec<Value> {
         Ok(request) => request,
         Err(failure) => return failure,
     };
-    match thread_shell(&state.reads, &state.model_defaults, &viewer, &task_id).await {
+    match thread_shell(
+        &state.reads,
+        &state.model_defaults,
+        &viewer,
+        &task_id,
+        protocol,
+    )
+    .await
+    {
         Ok(thread) => vec![success_exit(
             &id,
             json!({ "thread": thread.unwrap_or(Value::Null) }),
@@ -188,6 +206,7 @@ pub(super) async fn threads_browse(request: Request) -> Vec<Value> {
         payload,
         state,
         identity,
+        shared,
         ..
     } = request;
     let viewer = viewer_scope(&identity);
@@ -209,7 +228,15 @@ pub(super) async fn threads_browse(request: Request) -> Vec<Value> {
             "threads.browse requires an ownerUserId or a tag",
         )];
     };
-    match browse_snapshot(&state.reads, &state.model_defaults, &viewer, &filter).await {
+    match browse_snapshot(
+        &state.reads,
+        &state.model_defaults,
+        &viewer,
+        &filter,
+        shared.protocol,
+    )
+    .await
+    {
         Ok(threads) => vec![success_exit(&id, threads)],
         Err(error) => vec![shell_failure_exit(&id, &error, &identity)],
     }

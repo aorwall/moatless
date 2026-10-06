@@ -14,6 +14,7 @@ use moatless_ports::sandbox::SandboxDiagnosticsEntry;
 use moatless_ports::sandbox::SandboxError;
 use moatless_ports::sandbox::SandboxPortPublisher;
 use moatless_t3code::AgentModelDefaults;
+use moatless_t3code::OrchestrationProtocol;
 use moatless_t3code::SandboxConnector;
 use moatless_t3code::SandboxIntentReader;
 use moatless_t3code::SandboxObserver;
@@ -332,9 +333,15 @@ pub(super) async fn thread_shell_row(
     viewer: &ScopeContext,
     id: &str,
 ) -> Option<Value> {
-    thread_shell(&reads(pool), &defaults(), viewer, id)
-        .await
-        .expect("the listing row query failed")
+    thread_shell(
+        &reads(pool),
+        &defaults(),
+        viewer,
+        id,
+        OrchestrationProtocol::V1,
+    )
+    .await
+    .expect("the listing row query failed")
 }
 
 pub(super) async fn thread(pool: &PgPool, viewer: &ScopeContext, id: &str) -> Value {

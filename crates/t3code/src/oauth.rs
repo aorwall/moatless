@@ -61,6 +61,7 @@ pub(super) fn required_scope(tag: &str) -> &'static str {
     match tag {
         // Writes.
         "orchestration.dispatchCommand"
+        | "orchestration.launchThread"
         | "server.refreshProviders"
         | "server.updateProvider"
         | "server.updateServer"

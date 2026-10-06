@@ -1,10 +1,11 @@
 use crate::config::AgentModelDefaults;
+use crate::config::OrchestrationProtocol;
 use crate::feed;
 use crate::listing;
 use crate::listing::UiRpcEnvironmentIdentity;
 use crate::listing::UiRpcResume;
 use crate::reads::T3Reads;
-use crate::snapshots::shell_snapshot;
+use crate::snapshots::shell_snapshot_in;
 use crate::snapshots::thread_snapshot;
 use crate::state::Deployment;
 use crate::workspace_dao::T3WorkspaceDao;
@@ -167,6 +168,7 @@ pub async fn shell_subscription(
     viewer: &ScopeContext,
     environment: &UiRpcEnvironmentIdentity,
     after: Option<i64>,
+    protocol: OrchestrationProtocol,
 ) -> Result<ShellSubscription, sqlx::Error> {
     let conversations = reads.conversations();
     let workspaces = reads.workspaces();
@@ -180,7 +182,9 @@ pub async fn shell_subscription(
             // Positioned, holding nothing it may take back, and grouping by the
             // projects this viewer can read. See `resume_grouping`.
             let grouping = resume_grouping(workspaces, viewer).await?;
-            let mut feed = ShellFeed::resuming_from(head.identity, cursor).grouping_by(grouping);
+            let mut feed = ShellFeed::resuming_from(head.identity, cursor)
+                .grouping_by(grouping)
+                .speaking(protocol);
             let values = feed.poll(reads, model_defaults, viewer).await?;
             debug!(
                 user_id = %viewer.user_id,
@@ -191,7 +195,7 @@ pub async fn shell_subscription(
             Ok(ShellSubscription { values, feed })
         }
         UiRpcResume::Rebuild => {
-            let snapshot = shell_snapshot(reads, model_defaults, viewer).await?;
+            let snapshot = shell_snapshot_in(reads, model_defaults, viewer, protocol).await?;
             if let Some(after) = after {
                 info!(
                     user_id = %viewer.user_id,
@@ -209,7 +213,8 @@ pub async fn shell_subscription(
             // [`ShellSnapshot::thread_ids`].
             let (threads, projects) = (snapshot.thread_ids(), snapshot.project_ids());
             let feed = ShellFeed::resuming_from(snapshot.identity, snapshot.sequence)
-                .holding(threads, projects);
+                .holding(threads, projects)
+                .speaking(protocol);
             Ok(ShellSubscription {
                 feed,
                 values: vec![json!({

@@ -167,7 +167,7 @@ pub fn map_block(context: BlockContext<'_>, block: &Value) -> BlockRow {
         Some("text") => text_part(context, block),
         Some("tool_use") => tool_call(context, block),
         Some("tool_result") => tool_outcome(context, block),
-        Some("thinking" | "redacted_thinking") => thinking(context),
+        Some("thinking" | "redacted_thinking") => thinking(context, block),
         // Silently, as `projection.rs` already does: an unrecognised block is an
         // SDK feature this conversation does not render, not a fault.
         _ => BlockRow::None,
@@ -473,9 +473,29 @@ fn tool_outcome(context: BlockContext<'_>, block: &Value) -> BlockRow {
 /// The label the work log shows for a stretch of thinking.
 pub const THINKING_SUMMARY: &str = "Thinking";
 
-/// Thinking keeps only its label: nothing renders the thought. Storing the full
-/// text was 301 MB nothing read; the label alone keeps `task.progress` usable.
-fn thinking(context: BlockContext<'_>) -> BlockRow {
+/// How much of one thought is stored. The full text was 301 MB across a
+/// deployment; a capped copy is what a reasoning row renders.
+pub const THINKING_TEXT_MAX_BYTES: usize = 16 * 1024;
+
+/// Thinking stores its label and the thought's first
+/// [`THINKING_TEXT_MAX_BYTES`]; `truncated` marks a cut copy.
+fn thinking(context: BlockContext<'_>, block: &Value) -> BlockRow {
+    let mut payload = Map::new();
+    payload.insert("summary".into(), json!(THINKING_SUMMARY));
+    if let Some(text) = block
+        .get("thinking")
+        .and_then(Value::as_str)
+        .filter(|text| !text.trim().is_empty())
+    {
+        let mut end = text.len().min(THINKING_TEXT_MAX_BYTES);
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        payload.insert("text".into(), json!(&text[..end]));
+        if end < text.len() {
+            payload.insert("truncated".into(), json!(true));
+        }
+    }
     BlockRow::Activities(vec![ActivityRow {
         activity_id: activity_id(context),
         task_id: context.task_id.to_string(),
@@ -486,7 +506,7 @@ fn thinking(context: BlockContext<'_>) -> BlockRow {
         status: ActivityStatus::Completed,
         tool_use_id: None,
         summary: THINKING_SUMMARY.to_string(),
-        payload: json!({ "summary": THINKING_SUMMARY }),
+        payload: Value::Object(payload),
         is_error: false,
     }])
 }
@@ -979,20 +999,31 @@ mod tests {
     }
 
     #[test]
-    fn thinking_keeps_only_its_label() {
+    fn thinking_stores_its_label_and_the_thought() {
         for kind in ["thinking", "redacted_thinking"] {
             let activity = only(map_block(
                 context(),
-                &json!({ "type": kind, "thinking": "a long private thought" }),
+                &json!({ "type": kind, "thinking": "a private thought" }),
             ));
             assert_eq!(activity.kind, ActivityKind::Thinking);
             assert_eq!(activity.summary, THINKING_SUMMARY);
-            assert_eq!(activity.payload, json!({ "summary": THINKING_SUMMARY }));
-            assert!(
-                !activity.payload.to_string().contains("private thought"),
-                "the thought itself is not stored"
+            assert_eq!(
+                activity.payload,
+                json!({ "summary": THINKING_SUMMARY, "text": "a private thought" })
             );
         }
+    }
+
+    #[test]
+    fn a_long_thought_is_cut_on_a_character_boundary() {
+        let long = "é".repeat(THINKING_TEXT_MAX_BYTES);
+        let activity = only(map_block(
+            context(),
+            &json!({ "type": "thinking", "thinking": long }),
+        ));
+        let text = activity.payload["text"].as_str().unwrap();
+        assert!(text.len() <= THINKING_TEXT_MAX_BYTES);
+        assert_eq!(activity.payload["truncated"], json!(true));
     }
 
     /// The four `UNRENDERED_BLOCK_TYPES`, and one type nothing has ever seen.
