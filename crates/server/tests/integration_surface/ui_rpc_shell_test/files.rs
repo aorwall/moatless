@@ -85,6 +85,9 @@ async fn the_listings_worktree_path_addresses_that_conversations_files(pool: PgP
     )
     .await
     .expect_err("a conversation they do not follow is not theirs to read");
+    let files::ReadFileError::Access(error) = error else {
+        panic!("an access refusal, not {error:?}");
+    };
     assert_eq!(
         error.message(),
         "This conversation's workspace is not available.",
