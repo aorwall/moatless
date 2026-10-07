@@ -50,24 +50,42 @@ fn message_dispatch_becomes_a_turn_start_and_queues_after_active() {
 }
 
 #[test]
-fn message_dispatch_refuses_restart_and_deferred_start() {
-    for mode in ["restart_active", "defer_start"] {
-        let refused = refusal(json!({
-            "type": "message.dispatch",
-            "messageId": "m1",
-            "dispatchMode": { "type": mode }
-        }));
-        assert!(
-            matches!(refused, CommandRefusal::Unsupported { .. }),
-            "{mode}"
-        );
-    }
-    let restart = refusal(json!({
+fn message_dispatch_refuses_a_deferred_start() {
+    let refused = refusal(json!({
         "type": "message.dispatch",
         "messageId": "m1",
-        "deliveryIntent": "restart"
+        "dispatchMode": { "type": "defer_start" }
     }));
-    assert!(matches!(restart, CommandRefusal::Unsupported { .. }));
+    assert!(matches!(refused, CommandRefusal::Unsupported { .. }));
+}
+
+#[test]
+fn a_restart_interrupts_the_turn_then_queues_the_message() {
+    for command in [
+        json!({
+            "type": "message.dispatch",
+            "threadId": "task-1",
+            "messageId": "m1",
+            "dispatchMode": { "type": "restart_active", "targetRunId": "task-1:3" }
+        }),
+        json!({
+            "type": "message.dispatch",
+            "threadId": "task-1",
+            "messageId": "m1",
+            "deliveryIntent": "restart",
+            "dispatchMode": { "type": "start_immediately" }
+        }),
+    ] {
+        let Ok(Translated::Sequence(steps)) = translate(&command) else {
+            panic!("expected a sequence for {command}");
+        };
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[0]["type"], json!("thread.turn.interrupt"));
+        assert_eq!(steps[0]["threadId"], json!("task-1"));
+        assert_eq!(steps[1]["type"], json!("thread.turn.start"));
+        assert_eq!(steps[1]["dispatchMode"], json!("queue"));
+        assert_eq!(steps[1]["message"]["messageId"], json!("m1"));
+    }
 }
 
 #[test]

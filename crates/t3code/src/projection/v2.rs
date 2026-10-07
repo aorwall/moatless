@@ -26,6 +26,19 @@ use super::turn::turn_id;
 use super::turn::turn_is_open;
 use super::turn::turn_reference;
 use super::turn::turn_state;
+use super::v2_items::layered;
+use super::v2_items::plan_nodes;
+use super::v2_items::plans;
+use super::v2_items::todo_list_item;
+use super::v2_items::tool_item;
+use super::v2_provider::attempt_id;
+use super::v2_provider::attempts;
+use super::v2_provider::provider_session;
+use super::v2_provider::provider_thread;
+use super::v2_provider::provider_thread_id;
+use super::v2_provider::provider_turns;
+use super::v2_provider::root_node_id;
+use super::v2_provider::root_nodes;
 use crate::AgentModelDefaults;
 use crate::dao::Conversation;
 use crate::transcript_dao::Transcript;
@@ -34,8 +47,6 @@ use crate::workspace::UiRpcListedWorkspace;
 use moatless_types::activity::Activity;
 use moatless_types::activity::ActivityKind;
 use moatless_types::activity::ActivityStatus;
-use moatless_types::activity::item_type;
-use moatless_types::activity::result_text;
 use moatless_types::message::MessageType;
 use moatless_types::message::TOOL_RESPONSE_USER_TYPE;
 use moatless_types::task::TaskRelationType;
@@ -475,16 +486,17 @@ fn run_for_turn(
     } else {
         last_at.map_or(Value::Null, |at| json!(instant(at)))
     };
+    let run_id = turn_id(&conversation.task_id, turn_number);
     json!({
-        "id": turn_id(&conversation.task_id, turn_number),
+        "id": run_id,
         "threadId": conversation.task_id,
         "ordinal": turn_number.max(1),
         "providerInstanceId": provider_instance(conversation),
         "modelSelection": model_selection(conversation, defaults),
-        "providerThreadId": Value::Null,
+        "providerThreadId": provider_thread_id(&conversation.task_id),
         "userMessageId": user_message_id,
-        "rootNodeId": Value::Null,
-        "activeAttemptId": Value::Null,
+        "rootNodeId": root_node_id(&run_id),
+        "activeAttemptId": attempt_id(&run_id),
         "status": status,
         "requestedAt": instant(requested_at),
         "startedAt": instant(requested_at),
@@ -494,35 +506,11 @@ fn run_for_turn(
     })
 }
 
-/// A shell command's exit code, derived rather than stored: Moatless records
-/// whether a tool call settled and whether it errored, not the process's own
-/// exit status. `0`/`1` are a defensible stand-in while the call is settled;
-/// `null` while it is still running, matching the contract's "fetch it with
-/// getTurnItem" note for output withheld rather than unknown.
-fn command_exit_code(activity: &Activity) -> Value {
-    match activity.status {
-        ActivityStatus::InProgress => Value::Null,
-        ActivityStatus::Completed => json!(0),
-        ActivityStatus::Failed => json!(1),
-    }
-}
-
 fn activity_item_status(activity: &Activity) -> &'static str {
     match activity.status {
         ActivityStatus::InProgress => "running",
         ActivityStatus::Completed => "completed",
         ActivityStatus::Failed => "failed",
-    }
-}
-
-/// Lay `extra`'s fields over `base`'s. A non-object `extra` adds nothing.
-fn layered(base: Value, extra: Value) -> Value {
-    match (base, extra) {
-        (Value::Object(mut base), Value::Object(extra)) => {
-            base.extend(extra);
-            Value::Object(base)
-        }
-        (base, _) => base,
     }
 }
 
@@ -664,23 +652,17 @@ pub(crate) fn turn_items_and_messages(
                     json!({ "type": "reasoning", "text": text, "streaming": false }),
                 )
             }
-            ActivityKind::ToolCall if item_type(&activity.summary) == "command_execution" => {
-                let input = activity
-                    .tool_input()
-                    .get("command")
-                    .and_then(Value::as_str)
-                    .map_or_else(|| activity.tool_input().to_string(), str::to_string);
-                let output = activity.result().and_then(result_text).map(str::to_string);
-                layered(
-                    base,
-                    json!({
-                        "type": "command_execution",
-                        "input": input,
-                        "output": output,
-                        "outputIndicatesFailure": activity.is_error,
-                        "exitCode": command_exit_code(activity)
-                    }),
-                )
+            ActivityKind::ToolCall => {
+                let Some(item) = tool_item(conversation, activity, base) else {
+                    continue;
+                };
+                item
+            }
+            ActivityKind::PlanUpdated => {
+                let Some(item) = todo_list_item(activity, base) else {
+                    continue;
+                };
+                item
             }
             ActivityKind::UserInputRequested => {
                 let Some(request_id) = request_id(activity) else {
@@ -860,8 +842,15 @@ pub(crate) fn thread_projection(
     origins: &OriginContext<'_>,
     lineage: &Lineage,
 ) -> Value {
-    let thread = app_thread(conversation, project_id, defaults, lineage);
+    let mut thread = app_thread(conversation, project_id, defaults, lineage);
     let runs = runs(conversation, transcript, defaults);
+    let updated_at = instant(
+        conversation
+            .updated_at
+            .unwrap_or_else(|| created_at(conversation)),
+    );
+    thread["activeProviderThreadId"] = json!(provider_thread_id(&conversation.task_id));
+    let model = model_selection(conversation, defaults)["model"].clone();
     let (mut turn_items, messages) = turn_items_and_messages(conversation, transcript, origins);
     if let Some(fork_item) = fork_turn_item(conversation, lineage) {
         for item in &mut turn_items {
@@ -872,25 +861,28 @@ pub(crate) fn thread_projection(
         turn_items.insert(0, fork_item);
     }
     let visible_turn_items = visible_turn_items(&conversation.task_id, &turn_items);
+    let plans = plans(conversation, transcript);
+    let mut nodes = root_nodes(&runs);
+    nodes.extend(plan_nodes(&plans, &runs));
     json!({
         "thread": thread,
         "runs": runs,
-        "attempts": [],
-        "nodes": [],
+        "attempts": attempts(&runs),
+        "nodes": nodes,
         "subagents": [],
-        "providerSessions": [],
-        "providerThreads": [],
-        "providerTurns": [],
+        "providerSessions": [provider_session(conversation, &model, &updated_at)],
+        "providerThreads": [provider_thread(conversation, &runs, &updated_at)],
+        "providerTurns": provider_turns(&runs),
         "runtimeRequests": runtime_requests(conversation, transcript),
         "messages": messages,
-        "plans": [],
+        "plans": plans,
         "turnItems": turn_items,
         "checkpointScopes": [],
         "checkpoints": [],
         "contextHandoffs": [],
         "contextTransfers": [],
         "visibleTurnItems": visible_turn_items,
-        "updatedAt": instant(conversation.updated_at.unwrap_or_else(|| created_at(conversation)))
+        "updatedAt": updated_at
     })
 }
 

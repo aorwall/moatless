@@ -17,6 +17,8 @@ mod shell;
 mod transcript;
 mod turn;
 mod v2;
+mod v2_items;
+mod v2_provider;
 
 #[cfg(test)]
 mod tests;

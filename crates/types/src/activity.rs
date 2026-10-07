@@ -133,6 +133,10 @@ impl Activity {
 pub const QUESTION_TOOL: &str = "AskUserQuestion";
 pub const PLAN_TOOL: &str = "ExitPlanMode";
 
+/// The Claude CLI's plan tracker; [`crate::codex::CODEX_TOOL_TODO_LIST`] is
+/// what the Codex transport's `turn/plan/updated` notification is normalised into.
+pub const TODO_TOOL: &str = "TodoWrite";
+
 /// The question in front of a proposed plan.
 ///
 /// A plan parks the run on a call only an answer releases, so it is *asked*

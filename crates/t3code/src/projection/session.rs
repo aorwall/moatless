@@ -60,7 +60,10 @@ pub(super) fn session(conversation: &Conversation) -> Value {
 /// route so the two surfaces cannot disagree; T3 has no separate word for a run
 /// parked on a person, and spends `ready` on a Sandbox that is up with nothing
 /// in flight.
-fn session_status(conversation: &Conversation, desired_state: SandboxDesiredState) -> &'static str {
+pub(super) fn session_status(
+    conversation: &Conversation,
+    desired_state: SandboxDesiredState,
+) -> &'static str {
     match derive_running(&running_inputs(conversation, desired_state)) {
         Working::Running | Working::Waiting => "running",
         Working::Starting => "starting",

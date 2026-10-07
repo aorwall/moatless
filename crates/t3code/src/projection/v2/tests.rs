@@ -1,4 +1,6 @@
 use super::*;
+use crate::projection::v2_items::command_exit_code;
+use crate::projection::v2_items::plans;
 use chrono::Utc;
 use moatless_types::agent::AgentProfile;
 use moatless_types::message::MessageRole;
@@ -293,25 +295,190 @@ fn turn_items_classify_bash_calls_as_command_execution_with_a_derived_exit_code(
     assert_eq!(items[0]["exitCode"], json!(0));
 }
 
-#[test]
-fn turn_items_skip_tool_calls_outside_the_supported_item_types() {
-    let conversation = open_turn(conversation("task-1"), 1, "active");
-    let mut edit = activity(
-        "edit-1",
+fn tool_call(id: &str, tool: &str, input: Value, result: Option<&str>) -> Activity {
+    let mut call = activity(
+        id,
         Some(1),
         ActivityKind::ToolCall,
         ActivityStatus::Completed,
     );
-    edit.summary = "Edit".to_string();
+    call.summary = tool.to_string();
+    call.payload = json!({ "input": input, "result": result });
+    call
+}
+
+fn items_for(activities: Vec<Activity>) -> Vec<Value> {
+    let conversation = open_turn(conversation("task-1"), 1, "active");
     let transcript = Transcript {
-        activities: vec![edit],
+        activities,
+        ..Transcript::default()
+    };
+    let names = HashMap::new();
+    turn_items_and_messages(&conversation, &transcript, &origins(&names)).0
+}
+
+#[test]
+fn tool_calls_render_as_the_item_their_kind_names() {
+    let items = items_for(vec![
+        tool_call(
+            "edit-1",
+            "Edit",
+            json!({ "file_path": "src/a.rs", "old_string": "a", "new_string": "b" }),
+            Some("ok"),
+        ),
+        tool_call(
+            "codex-edit-1",
+            "codex.edit",
+            json!({ "changes": [{ "path": "/w/b.rs", "kind": "add", "diff": "+b\n" }] }),
+            None,
+        ),
+        tool_call(
+            "agent-1",
+            "Task",
+            json!({ "description": "Look around", "prompt": "Find the bug" }),
+            Some("Found it"),
+        ),
+        tool_call("search-1", "WebSearch", json!({ "query": "rust" }), None),
+        tool_call(
+            "read-1",
+            "Read",
+            json!({ "file_path": "src/a.rs" }),
+            Some("text"),
+        ),
+        tool_call(
+            "shell-1",
+            "codex.shell",
+            json!({ "command": "ls" }),
+            Some("a"),
+        ),
+    ]);
+    let types: Vec<&str> = items
+        .iter()
+        .map(|item| item["type"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        types,
+        [
+            "file_change",
+            "file_change",
+            "subagent",
+            "web_search",
+            "dynamic_tool",
+            "command_execution"
+        ]
+    );
+    assert_eq!(items[0]["fileName"], json!("src/a.rs"));
+    assert_eq!(items[0]["oldStr"], json!("a"));
+    assert_eq!(items[0]["newStr"], json!("b"));
+    assert_eq!(items[1]["fileName"], json!("/w/b.rs"));
+    assert_eq!(items[1]["changes"][0]["operation"], json!("add"));
+    assert_eq!(items[1]["diffStr"], json!("+b\n"));
+    assert_eq!(items[2]["prompt"], json!("Find the bug"));
+    assert_eq!(items[2]["title"], json!("Look around"));
+    assert_eq!(items[2]["result"], json!("Found it"));
+    assert_eq!(items[3]["patterns"], json!(["rust"]));
+    assert_eq!(items[4]["toolName"], json!("Read"));
+    assert_eq!(items[5]["input"], json!("ls"));
+}
+
+#[test]
+fn a_question_or_todo_call_renders_through_its_own_row() {
+    let mut plan = activity(
+        "todo-1:plan",
+        Some(1),
+        ActivityKind::PlanUpdated,
+        ActivityStatus::Completed,
+    );
+    plan.payload = json!({ "plan": [
+        { "step": "Read", "status": "completed" },
+        { "step": "Write", "status": "inProgress" }
+    ] });
+    let items = items_for(vec![
+        tool_call("question-1", "AskUserQuestion", json!({}), None),
+        tool_call("todo-1", "TodoWrite", json!({ "todos": [] }), None),
+        plan,
+    ]);
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["type"], json!("todo_list"));
+    assert_eq!(items[0]["planId"], json!("todo-1:plan"));
+    assert_eq!(
+        items[0]["steps"][1],
+        json!({ "id": "2", "text": "Write", "status": "running" })
+    );
+}
+
+#[test]
+fn a_proposed_plan_is_an_item_and_an_artifact_active_until_answered() {
+    let mut call = tool_call("plan-1", "ExitPlanMode", json!({ "plan": "# Do it" }), None);
+    call.status = ActivityStatus::InProgress;
+    let conversation = open_turn(conversation("task-1"), 1, "active");
+    let transcript = Transcript {
+        activities: vec![call.clone()],
         ..Transcript::default()
     };
     let names = HashMap::new();
     let (items, _) = turn_items_and_messages(&conversation, &transcript, &origins(&names));
+    assert_eq!(items[0]["type"], json!("proposed_plan"));
+    assert_eq!(items[0]["markdown"], json!("# Do it"));
+    let artifacts = plans(&conversation, &transcript);
+    assert_eq!(artifacts[0]["kind"], json!("proposed_plan"));
+    assert_eq!(artifacts[0]["status"], json!("active"));
+
+    call.status = ActivityStatus::Completed;
+    let answered = Transcript {
+        activities: vec![call],
+        ..Transcript::default()
+    };
+    assert_eq!(
+        plans(&conversation, &answered)[0]["status"],
+        json!("completed")
+    );
+}
+
+#[test]
+fn a_running_turn_offers_steering_through_its_session_and_provider_turn() {
+    let conversation = open_turn(conversation("task-1"), 2, "active");
+    let names = HashMap::new();
+    let projection = thread_projection(
+        &conversation,
+        "ws-a",
+        &AgentModelDefaults::default(),
+        &Transcript::default(),
+        &origins(&names),
+        &Lineage::none("task-1"),
+    );
+    let run = projection["runs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|run| run["status"] == json!("running"))
+        .expect("a running run");
+    let attempt = run["activeAttemptId"].as_str().unwrap();
+    let thread_id = projection["thread"]["activeProviderThreadId"].clone();
+    assert_eq!(run["providerThreadId"], thread_id);
+    let provider_thread = &projection["providerThreads"][0];
+    assert_eq!(provider_thread["id"], thread_id);
+    let session = &projection["providerSessions"][0];
+    assert_eq!(provider_thread["providerSessionId"], session["id"]);
+    assert_eq!(
+        session["capabilities"]["turns"]["supportsActiveSteering"],
+        json!(true)
+    );
     assert!(
-        items.is_empty(),
-        "a file-change tool call is out of this module's scope"
+        projection["providerTurns"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(
+                |turn| turn["runAttemptId"] == json!(attempt) && turn["status"] == json!("running")
+            )
+    );
+    assert!(
+        projection["attempts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["id"] == json!(attempt))
     );
 }
 
@@ -568,4 +735,55 @@ fn instant_of(value: &str) -> chrono::DateTime<Utc> {
     chrono::DateTime::parse_from_rfc3339(value)
         .unwrap()
         .with_timezone(&Utc)
+}
+
+#[test]
+fn every_node_a_row_names_is_in_the_projection() {
+    let conversation = open_turn(conversation("task-1"), 2, "active");
+    let mut call = tool_call("plan-1", "ExitPlanMode", json!({ "plan": "# Do it" }), None);
+    call.status = ActivityStatus::InProgress;
+    let transcript = Transcript {
+        activities: vec![call],
+        ..Transcript::default()
+    };
+    let names = HashMap::new();
+    let projection = thread_projection(
+        &conversation,
+        "ws-a",
+        &AgentModelDefaults::default(),
+        &transcript,
+        &origins(&names),
+        &Lineage::none("task-1"),
+    );
+    let rows = |key: &str| projection[key].as_array().unwrap().clone();
+    let nodes: Vec<Value> = rows("nodes")
+        .iter()
+        .map(|node| node["id"].clone())
+        .collect();
+    let mut named: Vec<Value> = rows("runs")
+        .iter()
+        .map(|run| run["rootNodeId"].clone())
+        .filter(|id| !id.is_null())
+        .collect();
+    named.extend(rows("attempts").iter().map(|row| row["rootNodeId"].clone()));
+    named.extend(
+        rows("providerTurns")
+            .iter()
+            .map(|row| row["nodeId"].clone()),
+    );
+    named.extend(rows("plans").iter().map(|row| row["nodeId"].clone()));
+    named.extend(rows("nodes").iter().map(|row| row["rootNodeId"].clone()));
+    assert!(!rows("plans").is_empty());
+    for id in named {
+        assert!(nodes.contains(&id), "{id} names no node");
+    }
+    let run = rows("runs")
+        .into_iter()
+        .find(|run| run["status"] == json!("running"))
+        .expect("a running run");
+    let attempt = rows("attempts")
+        .into_iter()
+        .find(|row| row["id"] == run["activeAttemptId"])
+        .expect("the run's attempt");
+    assert_eq!(attempt["rootNodeId"], run["rootNodeId"]);
 }

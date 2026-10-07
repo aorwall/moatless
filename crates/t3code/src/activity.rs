@@ -184,7 +184,7 @@ fn tool_presentation(tool_name: &str, input: &Value) -> ToolPresentation {
 /// The provider normalization T3 applies before its canonical activity reaches
 /// persistence. Moatless keeps the provider-original call in storage and uses
 /// this classifier only while projecting the T3 wire representation.
-fn t3_item_type(tool_name: &str) -> &'static str {
+pub(crate) fn t3_item_type(tool_name: &str) -> &'static str {
     match tool_name {
         "codex.shell" => return "command_execution",
         "codex.edit" => return "file_change",

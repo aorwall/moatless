@@ -3,6 +3,7 @@
 //! A pure function from a block and its context to the row it changes. Both the
 //! live writer and the migration go through it, so they cannot diverge.
 
+use moatless_types::activity::TODO_TOOL;
 pub use moatless_types::activity::{
     ActivityKind, ActivityStatus, PLAN_APPROVE, PLAN_QUESTION, PLAN_REJECT, PLAN_TOOL,
     QUESTION_TOOL, item_type, result_text,
@@ -320,10 +321,6 @@ fn joined_row(
         is_error: false,
     })
 }
-
-/// The Claude CLI's plan tracker; [`CODEX_TOOL_TODO_LIST`] is what the Codex
-/// transport's `turn/plan/updated` notification is normalised into.
-const TODO_TOOL: &str = "TodoWrite";
 
 /// The questions an `AskUserQuestion` call asked, filled to the shape the panel
 /// parses. The id **is** the question text the CLI answers by — a synthetic

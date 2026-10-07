@@ -24,6 +24,16 @@ pub(crate) async fn dispatch(
 ) -> Result<Value, CommandRefusal> {
     match translate(command)? {
         Translated::V1(v1) => commands::dispatch(ctx, viewer, &v1).await,
+        Translated::Sequence(steps) => {
+            let mut result = None;
+            for step in &steps {
+                result = Some(commands::dispatch(ctx, viewer, step).await?);
+            }
+            match result {
+                Some(result) => Ok(result),
+                None => commands::dispatch_result(ctx).await,
+            }
+        }
         Translated::Discarded => commands::dispatch_result(ctx).await,
     }
 }
@@ -33,6 +43,9 @@ pub(crate) async fn dispatch(
 pub(crate) enum Translated {
     /// The V1 command that carries it out.
     V1(Value),
+    /// V1 commands carried out in order. The first refusal stops the rest and
+    /// answers the whole command, though the steps before it have taken effect.
+    Sequence(Vec<Value>),
     /// Accepted and dropped: nothing in Moatless records it.
     Discarded,
 }
@@ -98,10 +111,11 @@ pub(crate) fn translate(command: &Value) -> Result<Translated, CommandRefusal> {
     }
 }
 
-/// `message.dispatch` is V1's `thread.turn.start` without the bootstrap. A
-/// running turn is steered by any message it is sent, so `start_immediately`
-/// and `steer_active` are a plain send; `queue_after_active` is V1's queue mode.
-/// Restart and deferred start have no Moatless counterpart.
+/// `message.dispatch` is V1's `thread.turn.start` without the bootstrap. Any
+/// message steers a running turn, so `start_immediately` and `steer_active`
+/// are a plain send. A restart interrupts the thread's open turn, whatever
+/// `targetRunId` names, then queues the message so it waits for that turn to
+/// end. Deferred start has no Moatless counterpart.
 fn message_dispatch(command: &Value) -> Result<Translated, CommandRefusal> {
     let tag = "message.dispatch";
     let mode = command
@@ -109,23 +123,13 @@ fn message_dispatch(command: &Value) -> Result<Translated, CommandRefusal> {
         .and_then(|mode| mode.get("type"))
         .and_then(Value::as_str)
         .unwrap_or("start_immediately");
+    let restart = mode == "restart_active"
+        || command.get("deliveryIntent").and_then(Value::as_str) == Some("restart");
     let queue = match mode {
-        "start_immediately" | "steer_active" => false,
-        "queue_after_active" => true,
-        "restart_active" => {
-            return refused(
-                tag,
-                "A running turn cannot be restarted here; stop it first.",
-            );
-        }
+        "start_immediately" | "steer_active" => restart,
+        "queue_after_active" | "restart_active" => true,
         _ => return refused(tag, "Deferred starts are not part of this server."),
     };
-    if command.get("deliveryIntent").and_then(Value::as_str) == Some("restart") {
-        return refused(
-            tag,
-            "A running turn cannot be restarted here; stop it first.",
-        );
-    }
     let mut v1 = Map::new();
     v1.insert("type".into(), json!("thread.turn.start"));
     copy(
@@ -143,6 +147,15 @@ fn message_dispatch(command: &Value) -> Result<Translated, CommandRefusal> {
     );
     if queue {
         v1.insert("dispatchMode".into(), json!("queue"));
+    }
+    if restart {
+        // Waiting relies on the pod holding queued messages; one that does not
+        // ask to hold them (`inbox::models`) steers this into the dying turn.
+        let interrupt = json!({
+            "type": "thread.turn.interrupt",
+            "threadId": command.get("threadId"),
+        });
+        return Ok(Translated::Sequence(vec![interrupt, Value::Object(v1)]));
     }
     Ok(Translated::V1(Value::Object(v1)))
 }
