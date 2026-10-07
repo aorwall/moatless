@@ -7,11 +7,12 @@
 //! (`Content-Security-Policy: sandbox`), and the URL's path is the on-disk path
 //! so relative links resolve.
 
-use axum::extract::{Extension, Path, State};
+use axum::extract::{Extension, Path, Query, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use chrono::Utc;
 use moatless_ports::sandbox::SandboxError;
+use serde::Deserialize;
 use serde_json::{Value, json};
 use tracing::{debug, warn};
 
@@ -107,6 +108,9 @@ fn attachment_url(resource: &Value) -> Result<Value, AssetUrlError> {
 }
 
 /// A file in the conversation's checkout, whichever tag named it.
+///
+/// `disposition: "attachment"` mints a download of any file type; anything
+/// else is a preview, limited to [`PREVIEWABLE`].
 fn file_url(resource: &Value) -> Result<Value, AssetUrlError> {
     let (Some(thread_id), Some(path)) = (resource["threadId"].as_str(), resource["path"].as_str())
     else {
@@ -132,13 +136,18 @@ fn file_url(resource: &Value) -> Result<Value, AssetUrlError> {
     if relative.is_empty() || relative.contains("..") {
         return Err(AssetUrlError::NotFound);
     }
+    let download = resource["disposition"] == "attachment";
     let lowered = relative.to_ascii_lowercase();
-    if !PREVIEWABLE.iter().any(|suffix| lowered.ends_with(suffix)) {
+    if !download && !PREVIEWABLE.iter().any(|suffix| lowered.ends_with(suffix)) {
         return Err(AssetUrlError::NotPreviewable);
     }
 
+    let mut url = asset_url(thread_id, relative);
+    if download {
+        url.push_str("?download=1");
+    }
     Ok(json!({
-        "relativeUrl": asset_url(thread_id, relative),
+        "relativeUrl": url,
         "expiresAt": Utc::now().timestamp_millis() + URL_TTL_MS
     }))
 }
@@ -176,6 +185,12 @@ fn escape(segment: &str) -> String {
     escaped
 }
 
+/// The query string [`file_url`] appends to a download.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct AssetQuery {
+    download: Option<String>,
+}
+
 /// One workspace file, as a browser wants it.
 ///
 /// The viewer is checked here, not at mint time, through the same
@@ -184,6 +199,7 @@ pub(crate) async fn serve(
     State(state): State<UiRpcState>,
     Extension(identity): Extension<UiRpcAuthIdentity>,
     Path((thread_id, relative_path)): Path<(String, String)>,
+    Query(query): Query<AssetQuery>,
 ) -> Response {
     let viewer = viewer_scope(&identity);
     let cwd = nominal_path::nominal_worktree(&thread_id);
@@ -207,6 +223,10 @@ pub(crate) async fn serve(
     let body = content.body.into_bytes();
 
     debug!(task_id = %task_id, path = %relative_path, bytes = body.len(), "Serving a workspace asset");
+    let disposition = query
+        .download
+        .is_some()
+        .then(|| attachment_disposition(&content.path));
     (
         [
             (header::CONTENT_TYPE, HeaderValue::from_static(media_type)),
@@ -227,9 +247,21 @@ pub(crate) async fn serve(
                 HeaderValue::from_static("private, no-store"),
             ),
         ],
+        disposition.map(|value| [(header::CONTENT_DISPOSITION, value)]),
         body,
     )
         .into_response()
+}
+
+/// `Content-Disposition: attachment`, named after the file's last segment.
+///
+/// RFC 5987's `filename*`, because an agent names files in any script and a
+/// quoted `filename` carries only ASCII; [`escape`]'s allowlist is a subset of
+/// its `attr-char`.
+fn attachment_disposition(path: &str) -> HeaderValue {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    HeaderValue::from_str(&format!("attachment; filename*=UTF-8''{}", escape(name)))
+        .unwrap_or_else(|_| HeaderValue::from_static("attachment"))
 }
 
 /// What a browser is told when there is nothing to render.
@@ -343,6 +375,42 @@ mod tests {
             create_url(&workspace_file("/moatless/tasks/t-1")),
             Err(AssetUrlError::NotFound)
         ));
+    }
+
+    /// A download is not a frame, so any file type is minted, and the route is
+    /// told to answer it as an attachment.
+    #[test]
+    fn a_download_mints_any_file_type_with_the_download_flag() {
+        let minted = create_url(&json!({
+            "_tag": "workspace-file", "threadId": "t-1",
+            "path": "/moatless/tasks/t-1/scratch/Appendix F.xlsx",
+            "disposition": "attachment"
+        }))
+        .expect("a download of any file type");
+        assert_eq!(
+            minted["relativeUrl"],
+            "/api/assets/t-1/scratch/Appendix%20F.xlsx?download=1"
+        );
+        assert!(matches!(
+            create_url(&json!({
+                "_tag": "workspace-file", "threadId": "t-1",
+                "path": "/moatless/tasks/t-1/../etc/passwd",
+                "disposition": "attachment"
+            })),
+            Err(AssetUrlError::NotFound)
+        ));
+    }
+
+    #[test]
+    fn an_attachment_is_named_after_the_last_segment_in_any_script() {
+        assert_eq!(
+            attachment_disposition("scratch/Appendix F.xlsx"),
+            "attachment; filename*=UTF-8''Appendix%20F.xlsx"
+        );
+        assert_eq!(
+            attachment_disposition("rapport-å.pdf"),
+            "attachment; filename*=UTF-8''rapport-%C3%A5.pdf"
+        );
     }
 
     /// A `..` resolves to nothing in [`Checkout`] and the Sandbox refuses it

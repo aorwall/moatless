@@ -13,7 +13,6 @@ use tracing::warn;
 use super::checkout::{Body, Checkout, Sources};
 use super::workspace::{self, WorkspaceAccessError};
 use crate::reads::T3Reads;
-use moatless_ports::sandbox::SandboxError;
 use moatless_types::access_control::ScopeContext;
 use sandbox_proto::client::{SandboxConnector, classify_grpc_error};
 
@@ -225,6 +224,23 @@ pub async fn write_file(
     Ok(json!({ "relativePath": relative_path }))
 }
 
+/// Why [`read_file`] has no text to give.
+#[derive(Debug)]
+pub enum ReadFileError {
+    Access(WorkspaceAccessError),
+    /// The file holds bytes, not text, at `path` (the one actually read). The
+    /// client answers the contract's `binary_file` failure with a download.
+    Binary {
+        path: String,
+    },
+}
+
+impl From<WorkspaceAccessError> for ReadFileError {
+    fn from(error: WorkspaceAccessError) -> Self {
+        Self::Access(error)
+    }
+}
+
 /// One file's contents (`projects.readFile`).
 ///
 /// The returned path is the one actually read, not necessarily the one asked
@@ -235,7 +251,7 @@ pub async fn read_file(
     viewer: &ScopeContext,
     cwd: &str,
     relative_path: &str,
-) -> Result<Value, WorkspaceAccessError> {
+) -> Result<Value, ReadFileError> {
     let conversations = reads.conversations();
     let task_id = workspace::addressed_conversation(conversations, viewer, cwd).await?;
     let file = Checkout::open(sources, &task_id)
@@ -245,11 +261,8 @@ pub async fn read_file(
 
     let Body::Text(contents) = file.body else {
         // Returning the base64 as `contents` would put the encoding in the
-        // editor as if it were the file, so this is refused in the contract's
-        // own terms instead.
-        return Err(WorkspaceAccessError::Sandbox(SandboxError::BadRequest(
-            format!("{} is a binary file", file.path),
-        )));
+        // editor as if it were the file.
+        return Err(ReadFileError::Binary { path: file.path });
     };
 
     let byte_length = contents.len();
@@ -450,9 +463,11 @@ mod tests {
         async fn sandbox_client(
             &self,
             _task_id: &str,
-        ) -> Result<sandbox_proto::client::SandboxClient, SandboxError> {
-            sandbox_proto::client::SandboxClient::connect(&self.0)
-                .map_err(|error| SandboxError::GrpcClient(error.to_string()))
+        ) -> Result<sandbox_proto::client::SandboxClient, moatless_ports::sandbox::SandboxError>
+        {
+            sandbox_proto::client::SandboxClient::connect(&self.0).map_err(|error| {
+                moatless_ports::sandbox::SandboxError::GrpcClient(error.to_string())
+            })
         }
     }
 

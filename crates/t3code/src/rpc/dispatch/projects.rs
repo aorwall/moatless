@@ -78,7 +78,18 @@ pub(super) async fn projects_read_file(request: Request) -> Vec<Value> {
     .await
     {
         Ok(file) => vec![success_exit(&id, file)],
-        Err(error) => vec![file_failure_exit(&id, &tag, &error, &identity)],
+        Err(files::ReadFileError::Access(error)) => {
+            vec![file_failure_exit(&id, &tag, &error, &identity)]
+        }
+        Err(files::ReadFileError::Binary { path }) => vec![typed_failure_exit(
+            &id,
+            json!({
+                "_tag": "ProjectReadFileError",
+                "failure": "binary_file",
+                "relativePath": path,
+                "message": format!("{path} is a binary file, so it cannot be shown as text."),
+            }),
+        )],
     }
 }
 
