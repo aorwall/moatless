@@ -266,6 +266,10 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
         }
     }
 
+    // After the restore and the clone, so it reaches both a snapshot's
+    // `.git/config` and every other checkout under the workspace.
+    git::scrub_remote_credentials(&state.config).await;
+
     // 5. Fetch the task's plugins from the backend (non-fatal). Runs with none
     // picked too, so plugins a restored snapshot still holds are removed. The
     // event keeps its `PluginsCloned` reason, which clients match on.

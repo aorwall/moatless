@@ -22,21 +22,13 @@ use crate::config::Config;
 pub async fn configure_git(config: &Config, credentials: &GitCredentials) -> Result<(), String> {
     let is_ssh = crate::config::primary_checkout(&config.repos).is_some_and(|repo| repo.uses_ssh);
     let is_github = config.git_provider == "github";
-
-    // The broker answers the backend origin with the pod's task token. Wired
-    // wherever that origin is known, and not only where a checkout clones from
-    // it: `moat repos clone <id>` fetches a repository the Workspace places no
-    // checkout for. Ahead of the no-token exits below, which a pod holding only
-    // proxied repos would otherwise take before reaching this.
     let proxy_origin = config.backend_api_origin();
-    if let Some(origin) = &proxy_origin {
-        wire_broker_git_helper(origin).await;
-    }
 
-    // The broker answers github.com with the task's `GITHUB_TOKEN` whatever the
-    // pod's own provider (`credentials::broker::get_git_credential`), so a
-    // Forgejo or SSH pod reaches `moat repos clone <github_id>` too.
-    wire_broker_git_helper("https://github.com").await;
+    // Ahead of the no-token exits below, which a pod holding only proxied repos
+    // would otherwise take before reaching this.
+    for origin in broker_origins(config) {
+        wire_broker_git_helper(&origin).await;
+    }
 
     if is_ssh {
         // SSH remotes authenticate with the private key(s) materialized into
@@ -133,6 +125,25 @@ pub struct CloneSummary {
     pub primary_recloned: bool,
 }
 
+/// The origins git asks the credential broker about
+/// (`credentials::broker::get_git_credential`): github.com whatever the pod's
+/// own provider, and the backend wherever it is known, so `moat repos clone`
+/// reaches a repository the Workspace places no checkout for.
+pub(crate) fn broker_origins(config: &Config) -> Vec<String> {
+    let mut origins = vec![GITHUB_ORIGIN.to_string()];
+    origins.extend(config.backend_api_origin());
+    origins
+}
+
+const GITHUB_ORIGIN: &str = "https://github.com";
+
+/// Strip broker-origin credentials from every git config the sandbox can
+/// reach; see [`super::git_remotes`].
+pub async fn scrub_remote_credentials(config: &Config) {
+    super::git_remotes::scrub_workspace(Path::new(&config.workspace_dir), &broker_origins(config))
+        .await;
+}
+
 /// Clone every repository the task's workspace names, each into its own dir.
 ///
 /// Uses each repo's own provider token; a dir already holding `.git` is left
@@ -143,6 +154,7 @@ pub async fn clone_repositories(
     credentials: &GitCredentials,
 ) -> Result<CloneSummary, CloneFailure> {
     let deadline = Instant::now() + CLONE_RETRY_BUDGET;
+    let broker_origins = broker_origins(config);
     let mut summary = CloneSummary {
         cloned: Vec::new(),
         primary_recloned: false,
@@ -163,6 +175,7 @@ pub async fn clone_repositories(
             &dest,
             &config.git_provider,
             credentials,
+            &broker_origins,
             config.http.git_probe,
             deadline,
         )
@@ -209,15 +222,17 @@ async fn clone_with_retry(
     dest: &str,
     pod_provider: &str,
     credentials: &GitCredentials,
+    broker_origins: &[String],
     probe: HttpTimeouts,
     deadline: Instant,
 ) -> Result<(), CloneFailure> {
     let mut delay = Duration::from_secs(2);
     loop {
-        let error = match clone_checkout(repo, dest, pod_provider, credentials).await {
-            Ok(()) => return Ok(()),
-            Err(e) => e,
-        };
+        let error =
+            match clone_checkout(repo, dest, pod_provider, credentials, broker_origins).await {
+                Ok(()) => return Ok(()),
+                Err(e) => e,
+            };
         let message = format!("{} ({}): {error}", repo.mount_name, repo.clone_url);
 
         if !failure_is_retryable(repo, pod_provider, credentials, probe).await {
@@ -391,17 +406,18 @@ fn git_clone_args<'a>(url: &'a str, dest: &'a str, branch: Option<&'a str>) -> V
 
 /// Clone one repository into `dest`.
 ///
-/// GitHub repos try `gh repo clone` first, falling back to `git clone`; other
-/// providers use `git clone` with a token-authenticated HTTPS URL.
+/// A repo whose origin the broker answers clones from its plain URL, so the
+/// token never lands in `origin`; any other HTTPS repo clones with its
+/// provider token in the URL, since no helper would answer its host later.
 async fn clone_checkout(
     repo: &RepoCheckout,
     dest: &str,
     pod_provider: &str,
     credentials: &GitCredentials,
+    broker_origins: &[String],
 ) -> Result<(), String> {
     let clone_url = &repo.clone_url;
     let is_ssh = repo.uses_ssh;
-    let is_github = repo.provider == "github";
 
     // Normalize empty branch to None
     let branch = repo.branch.as_deref().filter(|b| !b.is_empty());
@@ -417,11 +433,11 @@ async fn clone_checkout(
 
     // SSH remote: clone the URL directly. Authentication and host-key checking
     // come from the identities/config written to ~/.ssh by credentials.rs — no
-    // token injection or `gh` involved (checked first so an SSH URL to a host
-    // with a configured provider still takes the SSH path). Clones into
-    // `repo_dir` like the other providers — `workspace_dir` is no longer empty
-    // at clone time (e.g. the persisted user token lives under it), and git
-    // refuses to clone into a non-empty directory.
+    // token involved (checked first so an SSH URL to a host with a configured
+    // provider still takes the SSH path). Clones into `repo_dir` like the other
+    // providers — `workspace_dir` is no longer empty at clone time (e.g. the
+    // persisted user token lives under it), and git refuses to clone into a
+    // non-empty directory.
     if is_ssh {
         let git_args = git_clone_args(clone_url, dest, branch);
         return match run_command("git", &git_args).await {
@@ -433,33 +449,29 @@ async fn clone_checkout(
         };
     }
 
-    // GitHub: try `gh repo clone` first (handles auth automatically)
-    if is_github {
-        let repo_path = extract_github_repo_path(clone_url);
-        let mut args = vec!["repo", "clone", &repo_path, dest, "--"];
-        args.push(CLONE_FILTER);
-
-        if let Some(b) = branch {
-            args.push("--branch");
-            args.push(b);
-        }
-
-        match run_command("gh", &args).await {
+    let token = credentials.provider_token(&repo.provider, pod_provider);
+    let broker_answers = super::git_remotes::url_origin(clone_url).is_some_and(|origin| {
+        broker_origins
+            .iter()
+            .any(|known| known.eq_ignore_ascii_case(&origin))
+    });
+    if broker_answers {
+        // Never fall back to a token in the URL: it outranks the broker's
+        // helper and keeps being sent after it expires.
+        let git_args = git_clone_args(clone_url, dest, branch);
+        return match clone_with_token_helper(&git_args, token.as_deref()).await {
             Ok(()) => {
-                info!("Repository cloned successfully via gh CLI");
-                return Ok(());
+                info!("Repository cloned successfully through the credential broker");
+                Ok(())
             }
-            Err(e) => {
-                warn!(error = %e, "gh repo clone failed, falling back to git clone");
-                clean_workspace_dir(dest).await;
-            }
-        }
+            Err(e) => Err(format!("git clone failed: {e}")),
+        };
     }
 
     // Try git clone with the token for *this* repo's provider (works for all
     // providers), so a workspace mixing e.g. a GitHub and a GitLab repo
     // authenticates each with the right credential.
-    if let Some(token) = credentials.provider_token(&repo.provider, pod_provider) {
+    if let Some(token) = token {
         let auth_url = inject_token_into_url(clone_url, &token);
         let git_args = git_clone_args(&auth_url, dest, branch);
         match run_command("git", &git_args).await {
@@ -574,16 +586,6 @@ async fn clean_workspace_dir(dir: &str) {
     info!(dir = %dir, "Cleaned workspace directory for next clone attempt");
 }
 
-/// Extract "owner/repo" from a GitHub URL, handling both the
-/// `https://github.com/owner/repo.git` and `git@github.com:owner/repo.git`
-/// forms.
-fn extract_github_repo_path(url: &str) -> String {
-    url.replace("https://github.com/", "")
-        .replace("git@github.com:", "")
-        .trim_end_matches(".git")
-        .to_string()
-}
-
 /// Inject a token into an HTTPS clone URL: `https://host/path` becomes
 /// `https://x-access-token:{token}@host/path`, replacing any embedded
 /// credentials.
@@ -670,6 +672,35 @@ async fn wire_broker_git_helper(origin: &str) {
     );
 }
 
+/// The variable [`CLONE_TOKEN_HELPER`] reads the clone token from.
+const CLONE_TOKEN_ENV: &str = "MOATLESS_CLONE_TOKEN";
+
+/// A helper answering with the token in [`CLONE_TOKEN_ENV`]. `-c` puts it after
+/// the configured helpers, so it answers only when the broker does not, and
+/// nothing writes it into the checkout's config.
+const CLONE_TOKEN_HELPER: &str = "credential.helper=!f() { test \"$1\" = get || exit 0; \
+     echo username=x-access-token; echo \"password=$MOATLESS_CLONE_TOKEN\"; }; f";
+
+/// Run `git <git_args>`, offering `token` to git only for this process.
+async fn clone_with_token_helper(git_args: &[&str], token: Option<&str>) -> Result<(), String> {
+    let mut command = Command::new("git");
+    command.env("GIT_TERMINAL_PROMPT", "0");
+    if let Some(token) = token {
+        command
+            .args(["-c", CLONE_TOKEN_HELPER])
+            .env(CLONE_TOKEN_ENV, token);
+    }
+    let output = command
+        .args(git_args)
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run git: {e}"))?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+    }
+    Ok(())
+}
+
 /// Run a command and return an error if it fails.
 pub(crate) async fn run_command(program: &str, args: &[&str]) -> Result<(), String> {
     let output = Command::new(program)
@@ -689,6 +720,9 @@ pub(crate) async fn run_command(program: &str, args: &[&str]) -> Result<(), Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
 
     use crate::config::test_support::minimal_config;
 
@@ -990,6 +1024,7 @@ mod tests {
             &tmp.path().join("api").display().to_string(),
             "local",
             &GitCredentials::default(),
+            &[],
             probe(),
             started + budget,
         )
@@ -1122,6 +1157,7 @@ mod tests {
             &tmp.path().join("api").display().to_string(),
             "local",
             &GitCredentials::default(),
+            &[],
             probe(),
             Instant::now(),
         )
@@ -1154,6 +1190,7 @@ mod tests {
             &tmp.path().join("api").display().to_string(),
             "local",
             &GitCredentials::default(),
+            &[],
             probe(),
             Instant::now() + Duration::from_mins(1),
         )
@@ -1163,19 +1200,180 @@ mod tests {
         assert!(!err.retryable);
     }
 
-    #[test]
-    fn extract_github_repo_path_https() {
-        assert_eq!(
-            extract_github_repo_path("https://github.com/owner/repo.git"),
-            "owner/repo"
-        );
+    /// A smart-HTTP git server over `git http-backend` serving `root`, which
+    /// accepts only the password currently in `token`.
+    async fn serve_git(root: PathBuf, token: Arc<Mutex<String>>) -> u16 {
+        use axum::body::Body;
+        use axum::extract::Request;
+        use axum::http::{Response, StatusCode};
+        use base64::Engine as _;
+        use tokio::io::AsyncWriteExt;
+
+        let handler = move |request: Request| {
+            let root = root.clone();
+            let token = Arc::clone(&token);
+            async move {
+                let (request, body) = request.into_parts();
+                let password = request
+                    .headers
+                    .get("authorization")
+                    .and_then(|value| value.to_str().ok()?.strip_prefix("Basic "))
+                    .and_then(|encoded| {
+                        base64::engine::general_purpose::STANDARD
+                            .decode(encoded)
+                            .ok()
+                    })
+                    .and_then(|decoded| {
+                        let decoded = String::from_utf8(decoded).ok()?;
+                        Some(decoded.split_once(':')?.1.to_string())
+                    });
+                let authorized = password.as_deref() == Some(token.lock().unwrap().as_str());
+                if !authorized {
+                    return Response::builder()
+                        .status(StatusCode::UNAUTHORIZED)
+                        .header("www-authenticate", "Basic realm=\"test\"")
+                        .body(Body::empty())
+                        .unwrap();
+                }
+                let header = |name: &str| {
+                    request
+                        .headers
+                        .get(name)
+                        .and_then(|value| value.to_str().ok())
+                        .unwrap_or_default()
+                        .to_string()
+                };
+                let mut child = tokio::process::Command::new("git")
+                    .arg("http-backend")
+                    .env("GIT_PROJECT_ROOT", &root)
+                    .env("GIT_HTTP_EXPORT_ALL", "1")
+                    .env("REMOTE_USER", "test")
+                    .env("REQUEST_METHOD", request.method.as_str())
+                    .env("PATH_INFO", request.uri.path())
+                    .env("QUERY_STRING", request.uri.query().unwrap_or_default())
+                    .env("CONTENT_TYPE", header("content-type"))
+                    .env("HTTP_CONTENT_ENCODING", header("content-encoding"))
+                    .env("GIT_PROTOCOL", header("git-protocol"))
+                    .stdin(std::process::Stdio::piped())
+                    .stdout(std::process::Stdio::piped())
+                    .spawn()
+                    .unwrap();
+                let body = axum::body::to_bytes(body, usize::MAX).await.unwrap();
+                let mut stdin = child.stdin.take().unwrap();
+                stdin.write_all(&body).await.unwrap();
+                drop(stdin);
+                let output = child.wait_with_output().await.unwrap();
+
+                // CGI output: headers, a blank line, then the body.
+                let split = output
+                    .stdout
+                    .windows(4)
+                    .position(|window| window == b"\r\n\r\n")
+                    .unwrap();
+                let mut response = Response::builder();
+                for line in String::from_utf8_lossy(&output.stdout[..split]).lines() {
+                    let (name, value) = line.split_once(": ").unwrap();
+                    if name.eq_ignore_ascii_case("status") {
+                        let code = value.split(' ').next().unwrap().parse::<u16>().unwrap();
+                        response = response.status(code);
+                    } else {
+                        response = response.header(name, value);
+                    }
+                }
+                response
+                    .body(Body::from(output.stdout[split + 4..].to_vec()))
+                    .unwrap()
+            }
+        };
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            axum::serve(listener, axum::Router::new().fallback(handler))
+                .await
+                .unwrap();
+        });
+        port
     }
 
-    #[test]
-    fn extract_github_repo_path_ssh() {
+    /// A bare `acme/api.git` under a fresh server root, served behind `token`.
+    async fn hosted_repo(tmp: &Path, token: &Arc<Mutex<String>>) -> String {
+        let source = tmp.join("source");
+        init_local_source_repo(&source);
+        let root = tmp.join("served");
+        std::fs::create_dir_all(root.join("acme")).unwrap();
+        run_git_sync(
+            tmp,
+            &[
+                "clone",
+                "--quiet",
+                "--bare",
+                &source.display().to_string(),
+                &root.join("acme/api.git").display().to_string(),
+            ],
+        );
+        let port = serve_git(root, Arc::clone(token)).await;
+        format!("http://127.0.0.1:{port}")
+    }
+
+    fn git_output(dir: &Path, args: &[&str]) -> std::process::Output {
+        std::process::Command::new("git")
+            .current_dir(dir)
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .args(args)
+            .output()
+            .expect("git command runs")
+    }
+
+    /// The incident: a GitHub checkout cloned with its token in `origin` sent
+    /// that token after it expired, and no helper was ever asked.
+    // Multi-threaded: the test's blocking `git` calls would otherwise starve
+    // the server it is talking to.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_broker_origin_clone_keeps_no_token_and_fetches_after_a_rotation() {
+        let tmp = tempfile::tempdir().unwrap();
+        let token = Arc::new(Mutex::new("ghs_first".to_string()));
+        let origin = hosted_repo(tmp.path(), &token).await;
+        let url = format!("{origin}/acme/api.git");
+        let dest = tmp.path().join("api");
+        let repo = RepoCheckout {
+            clone_url: url.clone(),
+            ..checkout("api", "github", true)
+        };
+
+        clone_checkout(
+            &repo,
+            &dest.display().to_string(),
+            "github",
+            &credentials(&[("GITHUB_TOKEN", "ghs_first")]),
+            std::slice::from_ref(&origin),
+        )
+        .await
+        .unwrap();
+
+        let config = std::fs::read_to_string(dest.join(".git/config")).unwrap();
+        assert!(!config.contains("ghs_first"), "{config}");
         assert_eq!(
-            extract_github_repo_path("git@github.com:owner/repo.git"),
-            "owner/repo"
+            String::from_utf8_lossy(&git_output(&dest, &["remote", "get-url", "origin"]).stdout)
+                .trim(),
+            url
+        );
+
+        // The broker answers with whatever token is live, as this helper does.
+        *token.lock().unwrap() = "ghs_second".to_string();
+        let fetch = git_output(
+            &dest,
+            &[
+                "-c",
+                "credential.helper=!f() { echo username=oauth2; echo password=ghs_second; }; f",
+                "fetch",
+                "origin",
+            ],
+        );
+        assert!(
+            fetch.status.success(),
+            "{}",
+            String::from_utf8_lossy(&fetch.stderr)
         );
     }
 

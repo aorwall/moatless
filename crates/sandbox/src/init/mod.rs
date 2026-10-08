@@ -6,6 +6,7 @@ pub mod codex_config;
 mod dirs;
 mod error;
 pub(crate) mod git;
+mod git_remotes;
 pub(crate) mod home_skills;
 mod initialization;
 mod models;
