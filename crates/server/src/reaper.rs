@@ -47,6 +47,13 @@ use sandbox_proto::client::SandboxConnector;
 /// genuinely lost (e.g. dropped during a database outage) gets force-closed.
 const RECONCILE_STUCK_TURN_THRESHOLD_SECS: i64 = 5 * 60;
 
+/// How long an orphaned turn stays `interrupted`, resumable by a replacement
+/// pod's `recover_interrupted_run`, before the reaper closes it as `error`.
+///
+/// Covers a node loss: node-controller grace, pod GC, a new node, and the
+/// workspace restore before the new sandbox asks to recover.
+const ORPHANED_TURN_RECOVERY_WINDOW_SECS: i64 = 15 * 60;
+
 /// The deployment-wide knobs one cycle runs against. Grouped because they are
 /// read once at spawn and threaded whole through the cycle; each is overridable
 /// per Task by a column, and the per-Task value wins.
@@ -178,6 +185,10 @@ impl TaskReaper {
         metrics::describe_counter!(
             "task_turns_reconciled_total",
             "Active task turns force-closed by the reaper after a lost terminal event"
+        );
+        metrics::describe_counter!(
+            "task_turns_interrupted_total",
+            "Orphaned task turns the reaper marked interrupted, leaving them for sandbox recovery"
         );
         metrics::describe_counter!(
             "task_turns_reopened_total",
@@ -806,8 +817,9 @@ fn log_reaper_stats(stats: ReaperStats) {
 /// Reconcile turns stuck open because their terminal event was lost.
 ///
 /// A pure backstop: reads `task_turns` directly rather than the event log, and
-/// closes a turn only when confirmed orphaned (task in no pod, or agent
+/// acts on a turn only when confirmed orphaned (task in no pod, or agent
 /// `idle`/`stopped`) — a still-`running` or undetermined agent is left alone.
+/// An unanswered orphan is interrupted first; see [`orphaned_turn_action`].
 impl TaskReaper {
     async fn reconcile_orphaned_turns(&self, live_task_ids: &[String], stuck: &[UnclosedTurn]) {
         if stuck.is_empty() {
@@ -824,24 +836,24 @@ impl TaskReaper {
                 );
                 continue;
             }
-            let orphaned = if running.contains(turn.task_id.as_str()) {
+            let in_live_sandbox = running.contains(turn.task_id.as_str());
+            let agent_status = if in_live_sandbox {
                 // Sandbox is up — only orphaned if the agent has gone terminal.
                 // Unknown status ⇒ conservative skip (treat as possibly live).
-                matches!(
-                    agent_is_terminal(self.connector.as_ref(), &turn.task_id).await,
-                    Some(true)
-                )
+                match agent_status_snapshot(self.connector.as_ref(), &turn.task_id).await {
+                    Some(resp) if agent_turn_is_over(&resp.status) => Some(resp.status),
+                    _ => {
+                        debug!(task_id = %turn.task_id, "reconcile: turn still live, skipping");
+                        continue;
+                    }
+                }
             } else {
                 // The task runs in no pod ⇒ nothing can still be driving the turn.
-                true
+                None
             };
 
-            if !orphaned {
-                debug!(task_id = %turn.task_id, "reconcile: turn still live, skipping");
-                continue;
-            }
-
-            self.close_orphaned_turn(turn).await;
+            self.close_orphaned_turn(turn, in_live_sandbox, agent_status.as_deref())
+                .await;
         }
     }
 
@@ -1032,14 +1044,33 @@ fn classify_live_run<'a>(
     }
 }
 
-/// Returns `Some(true)` if the sandbox agent is `idle`/`stopped`, `Some(false)`
-/// if it's still `running`, and `None` when the status can't be read (no
-/// client, gRPC error) — the caller treats `None` conservatively as "possibly
-/// live".
-async fn agent_is_terminal(connector: &dyn SandboxConnector, task_id: &str) -> Option<bool> {
-    agent_status_snapshot(connector, task_id)
-        .await
-        .map(|resp| agent_turn_is_over(&resp.status))
+/// What the reaper does with an orphaned turn the agent never answered.
+#[derive(Debug, PartialEq, Eq)]
+enum OrphanedTurnAction {
+    /// First sighting: mark the numbered turn `interrupted` for recovery.
+    Interrupt(i32),
+    /// Interrupted, and still inside the recovery window.
+    Wait,
+    /// Recovery had its window, or the turn has no number to resume by.
+    Close,
+}
+
+/// Decide an unanswered orphaned turn's fate from when it was interrupted.
+///
+/// An agent reporting `idle` under an open turn is not proof the run ended on
+/// its own: a pod shutting down stops its agent before its `turn_interrupted`
+/// event is delivered, so closing on first sight races the replacement pod.
+fn orphaned_turn_action(turn: &UnclosedTurn, now: DateTime<Utc>) -> OrphanedTurnAction {
+    let Some(turn_number) = turn.turn_number else {
+        return OrphanedTurnAction::Close;
+    };
+    match turn.interrupted_at {
+        None => OrphanedTurnAction::Interrupt(turn_number),
+        Some(at) if now - at < chrono::Duration::seconds(ORPHANED_TURN_RECOVERY_WINDOW_SECS) => {
+            OrphanedTurnAction::Wait
+        }
+        Some(_) => OrphanedTurnAction::Close,
+    }
 }
 
 /// Whether a live agent status means the turn it was running has ended.
@@ -1093,10 +1124,16 @@ fn decide_orphan(task_exists: bool) -> OrphanDecision {
 }
 
 /// Close a stuck turn: if the agent already delivered its final reply the
-/// terminal event was merely lost, so close as `completed`; otherwise deliver a
-/// synthetic `agent.error` through the sink.
+/// terminal event was merely lost, so close as `completed`; otherwise interrupt
+/// it first and deliver a synthetic `agent.error` once
+/// [`orphaned_turn_action`] says recovery had its chance.
 impl TaskReaper {
-    async fn close_orphaned_turn(&self, turn: &UnclosedTurn) {
+    async fn close_orphaned_turn(
+        &self,
+        turn: &UnclosedTurn,
+        in_live_sandbox: bool,
+        agent_status: Option<&str>,
+    ) {
         // False-negative guard: if the agent already delivered its final reply for
         // this turn, the terminal event was merely lost — not the result. Closing
         // such a turn as `error` surfaces a misleading "stopped without reporting a
@@ -1116,12 +1153,89 @@ impl TaskReaper {
                 warn!(
                     task_id = %turn.task_id,
                     error = %e,
-                    "reconcile: failed to inspect last message; closing turn as error"
+                    "reconcile: failed to inspect last message; treating the turn as unanswered"
                 );
             }
         }
 
-        close_orphaned_turn_as_error(&self.agent_error, turn).await;
+        match orphaned_turn_action(turn, Utc::now()) {
+            OrphanedTurnAction::Interrupt(turn_number) => {
+                self.interrupt_orphaned_turn(turn, turn_number, in_live_sandbox, agent_status)
+                    .await;
+            }
+            OrphanedTurnAction::Wait => {
+                debug!(
+                    task_id = %turn.task_id,
+                    turn_number = ?turn.turn_number,
+                    "reconcile: orphaned turn still inside its recovery window"
+                );
+            }
+            OrphanedTurnAction::Close => {
+                info!(
+                    task_id = %turn.task_id,
+                    turn_number = ?turn.turn_number,
+                    in_live_sandbox,
+                    agent_status = ?agent_status,
+                    "reconcile: no sandbox recovered the interrupted turn; closing it as error"
+                );
+                close_orphaned_turn_as_error(&self.agent_error, turn).await;
+            }
+        }
+    }
+
+    /// Mark an orphaned turn `interrupted` without a terminal event, so the
+    /// replacement pod's `find_interrupted_turn` still resumes it.
+    async fn interrupt_orphaned_turn(
+        &self,
+        turn: &UnclosedTurn,
+        turn_number: i32,
+        in_live_sandbox: bool,
+        agent_status: Option<&str>,
+    ) {
+        if let Err(e) = self
+            .task_turns
+            .project_turn(
+                &turn.task_id,
+                turn_number,
+                turn.agent_profile.clone(),
+                TurnTransition::Interrupted,
+                Utc::now(),
+            )
+            .await
+        {
+            warn!(
+                task_id = %turn.task_id,
+                turn_number,
+                error = %e,
+                "reconcile: failed to mark orphaned turn interrupted"
+            );
+            return;
+        }
+
+        if let Some(ref events) = self.events {
+            events
+                .publish_task_turn_event(
+                    &turn.task_id,
+                    TaskTurnSubType::Interrupted,
+                    turn.agent_profile.as_deref(),
+                    Some(turn_number),
+                    serde_json::json!({
+                        "message": "Turn interrupted — the agent stopped without reporting a result. \
+                                    It resumes if the sandbox restarts.",
+                        "reason": "reconciled_orphaned_turn",
+                    }),
+                )
+                .await;
+        }
+
+        metrics::counter!("task_turns_interrupted_total").increment(1);
+        info!(
+            task_id = %turn.task_id,
+            turn_number,
+            in_live_sandbox,
+            agent_status = ?agent_status,
+            "Interrupted orphaned active turn; leaving it for sandbox recovery"
+        );
     }
 
     /// Close a stuck turn whose agent already replied: project to `completed`,

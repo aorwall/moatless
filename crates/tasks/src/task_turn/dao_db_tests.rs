@@ -182,6 +182,72 @@ async fn interrupted_then_resumed(pool: PgPool) {
     assert!(!ended);
 }
 
+async fn interrupted_at(pool: &PgPool, task_id: &str) -> Option<chrono::DateTime<Utc>> {
+    sqlx::query_scalar(
+        "SELECT interrupted_at FROM task_turns WHERE task_id = $1 AND turn_number = 1",
+    )
+    .bind(task_id)
+    .fetch_one(pool)
+    .await
+    .expect("read interrupted_at")
+}
+
+/// The reaper's recovery window runs from the first interruption, so a repeat
+/// keeps the stamp, and a resume or a close clears it.
+#[sqlx::test]
+async fn interruption_is_stamped_once_and_cleared_on_resume_or_close(pool: PgPool) {
+    let repo = PgTaskTurnDao(pool.clone());
+    let task = "task-turn-stamp";
+    let first = Utc::now() - Duration::minutes(10);
+    let project = |transition, at| repo.project_turn(task, 1, None, transition, at);
+
+    project(TurnTransition::Open, first).await.unwrap();
+    assert_eq!(interrupted_at(&pool, task).await, None);
+
+    project(TurnTransition::Interrupted, first).await.unwrap();
+    project(TurnTransition::Interrupted, Utc::now())
+        .await
+        .unwrap();
+    let stamped = interrupted_at(&pool, task).await.expect("stamped");
+    assert_eq!(stamped.timestamp(), first.timestamp());
+    let stuck = repo.list_unclosed_active_turns(Utc::now()).await.unwrap();
+    assert_eq!(
+        stuck[0].interrupted_at.map(|t| t.timestamp()),
+        Some(first.timestamp())
+    );
+
+    project(TurnTransition::Open, Utc::now()).await.unwrap();
+    assert_eq!(interrupted_at(&pool, task).await, None);
+
+    project(TurnTransition::Interrupted, Utc::now())
+        .await
+        .unwrap();
+    project(TurnTransition::Terminal(TurnStatus::Error), Utc::now())
+        .await
+        .unwrap();
+    assert_eq!(interrupted_at(&pool, task).await, None);
+}
+
+/// A row interrupted before the column existed gets its window started.
+#[sqlx::test]
+async fn an_unstamped_interrupted_row_is_stamped(pool: PgPool) {
+    let repo = PgTaskTurnDao(pool.clone());
+    let task = "task-turn-legacy";
+    sqlx::query(
+        "INSERT INTO task_turns (task_id, turn_number, status) VALUES ($1, 1, 'interrupted')",
+    )
+    .bind(task)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    repo.project_turn(task, 1, None, TurnTransition::Interrupted, Utc::now())
+        .await
+        .unwrap();
+
+    assert!(interrupted_at(&pool, task).await.is_some());
+}
+
 #[sqlx::test]
 async fn terminal_without_open_inserts_row(pool: PgPool) {
     let repo = PgTaskTurnDao(pool.clone());

@@ -39,6 +39,7 @@ fn turn_projection_query<'a>(
                ON CONFLICT (task_id, turn_number) DO UPDATE
                  SET status = 'active',
                      ended_at = NULL,
+                     interrupted_at = NULL,
                      agent_profile = COALESCE(task_turns.agent_profile, EXCLUDED.agent_profile)
                  WHERE task_turns.status = 'interrupted'"#,
         )
@@ -46,19 +47,26 @@ fn turn_projection_query<'a>(
         .bind(turn_number)
         .bind(agent_profile)
         .bind(at),
+        // The second arm stamps a row interrupted before `interrupted_at`
+        // existed, so the reaper's recovery window has a start.
         TurnTransition::Interrupted => sqlx::query(
             r#"UPDATE task_turns
-                 SET status = 'interrupted'
-               WHERE task_id = $1 AND turn_number = $2 AND status = 'active'"#,
+                 SET status = 'interrupted',
+                     interrupted_at = $3
+               WHERE task_id = $1 AND turn_number = $2
+                 AND (status = 'active'
+                      OR (status = 'interrupted' AND interrupted_at IS NULL))"#,
         )
         .bind(task_id)
-        .bind(turn_number),
+        .bind(turn_number)
+        .bind(at),
         TurnTransition::Terminal(status) => sqlx::query(
             r#"INSERT INTO task_turns (task_id, turn_number, status, agent_profile, started_at, ended_at)
                VALUES ($1, $2, $3, $4, $5, $5)
                ON CONFLICT (task_id, turn_number) DO UPDATE
                  SET status = EXCLUDED.status,
                      ended_at = EXCLUDED.ended_at,
+                     interrupted_at = NULL,
                      agent_profile = COALESCE(task_turns.agent_profile, EXCLUDED.agent_profile)
                  WHERE task_turns.status IN ('active', 'interrupted')"#,
         )
@@ -359,8 +367,8 @@ impl TaskTurnDao for PgTaskTurnDao {
         &self,
         older_than: DateTime<Utc>,
     ) -> Result<Vec<UnclosedTurn>, sqlx::Error> {
-        let rows: Vec<(String, i32, Option<String>)> = sqlx::query_as(
-            r#"SELECT tt.task_id, tt.turn_number, tt.agent_profile
+        let rows: Vec<(String, i32, Option<String>, Option<DateTime<Utc>>)> = sqlx::query_as(
+            r#"SELECT tt.task_id, tt.turn_number, tt.agent_profile, tt.interrupted_at
                FROM task_turns tt
                WHERE tt.status IN ('active', 'interrupted')
                  AND tt.started_at < $1
@@ -383,11 +391,14 @@ impl TaskTurnDao for PgTaskTurnDao {
 
         Ok(rows
             .into_iter()
-            .map(|(task_id, turn_number, agent_profile)| UnclosedTurn {
-                task_id,
-                turn_number: Some(turn_number),
-                agent_profile,
-            })
+            .map(
+                |(task_id, turn_number, agent_profile, interrupted_at)| UnclosedTurn {
+                    task_id,
+                    turn_number: Some(turn_number),
+                    agent_profile,
+                    interrupted_at,
+                },
+            )
             .collect())
     }
 
@@ -472,6 +483,7 @@ impl TaskTurnDao for PgTaskTurnDao {
                 task_id,
                 turn_number: Some(turn_number),
                 agent_profile,
+                interrupted_at: None,
             })
             .collect())
     }

@@ -12,6 +12,7 @@ fn reconcile_error_event_is_deterministic_per_task_and_turn() {
         task_id: "task-9".to_string(),
         turn_number: Some(4),
         agent_profile: Some("claude".to_string()),
+        interrupted_at: None,
     };
 
     let event = reconcile_error_event(&turn);
@@ -38,10 +39,58 @@ fn reconcile_error_event_labels_a_numberless_turn() {
         task_id: "task-3".to_string(),
         turn_number: None,
         agent_profile: None,
+        interrupted_at: None,
     };
     assert_eq!(
         reconcile_error_event(&turn).event_id,
         "reconcile-task-3-unknown"
+    );
+}
+
+fn orphaned(turn_number: Option<i32>, interrupted_secs_ago: Option<i64>) -> UnclosedTurn {
+    UnclosedTurn {
+        task_id: "task-1".to_string(),
+        turn_number,
+        agent_profile: None,
+        interrupted_at: interrupted_secs_ago.map(ts),
+    }
+}
+
+/// A node loss leaves the turn open with an idle or unreachable agent; the
+/// first pass must leave it resumable rather than close it under the
+/// replacement pod.
+#[test]
+fn an_orphaned_turn_is_interrupted_before_it_is_closed() {
+    assert_eq!(
+        orphaned_turn_action(&orphaned(Some(78), None), Utc::now()),
+        OrphanedTurnAction::Interrupt(78)
+    );
+}
+
+#[test]
+fn an_interrupted_turn_waits_out_its_recovery_window() {
+    let inside = ORPHANED_TURN_RECOVERY_WINDOW_SECS - 60;
+    assert_eq!(
+        orphaned_turn_action(&orphaned(Some(78), Some(inside)), Utc::now()),
+        OrphanedTurnAction::Wait
+    );
+}
+
+#[test]
+fn an_interrupted_turn_no_sandbox_recovered_is_closed() {
+    let past = ORPHANED_TURN_RECOVERY_WINDOW_SECS + 60;
+    assert_eq!(
+        orphaned_turn_action(&orphaned(Some(78), Some(past)), Utc::now()),
+        OrphanedTurnAction::Close
+    );
+}
+
+/// Recovery finds a turn by its number, so a numberless one can never resume.
+#[test]
+fn a_numberless_orphaned_turn_is_closed_at_once() {
+    assert_eq!(
+        orphaned_turn_action(&orphaned(None, None), Utc::now()),
+        OrphanedTurnAction::Close
     );
 }
 

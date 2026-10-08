@@ -41,4 +41,6 @@ pub struct UnclosedTurn {
     pub task_id: String,
     pub turn_number: Option<i32>,
     pub agent_profile: Option<String>,
+    /// When the turn became `interrupted`; `None` while it is `active`.
+    pub interrupted_at: Option<DateTime<Utc>>,
 }
