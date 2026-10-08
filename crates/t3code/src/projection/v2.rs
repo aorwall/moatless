@@ -8,6 +8,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use chrono::{DateTime, Utc};
 use serde_json::{Map, Value, json};
 
 use super::model::model_selection;
@@ -238,6 +239,23 @@ pub(crate) fn thread_shell_v2(
     let (latest_run_id, active_run_id) = run_ids(conversation);
     row.insert("latestRunId".into(), latest_run_id);
     row.insert("activeRunId".into(), active_run_id);
+    let open = turn_is_open(conversation);
+    let started = conversation.turn_number.and(conversation.turn_started_at);
+    row.insert("latestRunRequestedAt".into(), nullable_instant(started));
+    row.insert("latestRunStartedAt".into(), nullable_instant(started));
+    row.insert(
+        "latestRunCompletedAt".into(),
+        // A settled turn without an end reads as settled at the row's update,
+        // as the client assumes when the field is absent.
+        nullable_instant(match (open, started) {
+            (false, Some(_)) => conversation.turn_ended_at.or(conversation.updated_at),
+            _ => None,
+        }),
+    );
+    row.insert(
+        "activityRunStartedAt".into(),
+        nullable_instant(activity_started_at(conversation)),
+    );
     row.insert("itemCount".into(), json!(0));
     row.insert("visibleItemCount".into(), json!(0));
     row.insert(
@@ -319,6 +337,20 @@ fn shell_status(conversation: &Conversation) -> &'static str {
         "interrupted" => "interrupted",
         _ => "completed",
     }
+}
+
+/// When the work a working row's sidebar timer counts from began: the open
+/// turn's start, or for a send owed a turn the newest inbox item that owes it.
+fn activity_started_at(conversation: &Conversation) -> Option<DateTime<Utc>> {
+    if turn_is_open(conversation) {
+        return conversation.turn_started_at;
+    }
+    if awaits_turn(conversation) {
+        return conversation
+            .latest_queued_message_at
+            .or(conversation.latest_user_message_at);
+    }
+    None
 }
 
 /// The newest turn's run id, twice: once unconditionally

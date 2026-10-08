@@ -574,6 +574,47 @@ fn a_pending_question_is_a_user_input_request_on_the_shell() {
     assert_eq!(shell["pendingRuntimeRequest"]["kind"], json!("user_input"));
 }
 
+fn shell(conversation: &Conversation) -> Value {
+    thread_shell_v2(
+        conversation,
+        "ws-a",
+        &AgentModelDefaults::default(),
+        &Lineage::root(&conversation.task_id),
+    )
+}
+
+#[test]
+fn a_working_shell_says_when_its_work_started() {
+    let started = Utc::now() - chrono::Duration::minutes(3);
+    let mut open = open_turn(conversation("task-1"), 2, "active");
+    open.turn_started_at = Some(started);
+    let row = shell(&open);
+    assert_eq!(row["activityRunStartedAt"], json!(instant(started)));
+    assert_eq!(row["latestRunStartedAt"], json!(instant(started)));
+    assert_eq!(row["latestRunCompletedAt"], Value::Null);
+
+    let mut owed = awake(open_turn(conversation("task-1"), 1, "completed"));
+    let ended = Utc::now() - chrono::Duration::minutes(1);
+    let sent = Utc::now();
+    owed.turn_ended_at = Some(ended);
+    owed.latest_queued_message_at = Some(sent);
+    let row = shell(&owed);
+    assert_eq!(row["status"], json!("starting"));
+    assert_eq!(row["activityRunStartedAt"], json!(instant(sent)));
+    assert_eq!(row["latestRunCompletedAt"], json!(instant(ended)));
+}
+
+#[test]
+fn a_settled_or_unrun_shell_has_no_activity_start() {
+    let mut settled = open_turn(conversation("task-1"), 1, "completed");
+    settled.turn_ended_at = Some(Utc::now());
+    assert_eq!(shell(&settled)["activityRunStartedAt"], Value::Null);
+    let never = shell(&conversation("task-1"));
+    assert_eq!(never["activityRunStartedAt"], Value::Null);
+    assert_eq!(never["latestRunStartedAt"], Value::Null);
+    assert_eq!(never["latestRunCompletedAt"], Value::Null);
+}
+
 #[test]
 fn thread_projection_prepends_the_fork_item_and_renumbers_the_rest() {
     let conversation = open_turn(conversation("task-1"), 1, "completed");
