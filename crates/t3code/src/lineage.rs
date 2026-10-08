@@ -62,3 +62,37 @@ async fn readable_parent(
         }
     }
 }
+
+/// The listing's `LEFT JOIN LATERAL … parent`: each row's first parent edge,
+/// picked as `TaskRelationSource::parent` picks it, named only when the viewer
+/// may read the parent (the listing's `$1`/`$2`) and follows it (`$follower`).
+/// A client hides a subagent under its parent, so a parent missing from this
+/// viewer's listing would hide the child too.
+pub(crate) fn listed_parent_join(follower: usize) -> String {
+    let access = moatless_core::db::access_control::access_filter(
+        moatless_types::access_control::ScopedEntity::Task,
+        "p.",
+        1,
+    );
+    let access = access.sql();
+    format!(
+        "LEFT JOIN LATERAL (
+            SELECT p.task_id, edge.relation_type,
+                   CASE WHEN jsonb_typeof(edge.context -> 'at_turn') = 'number'
+                         AND (edge.context ->> 'at_turn')::numeric BETWEEN 1 AND 2147483647
+                        THEN (edge.context ->> 'at_turn')::numeric::int
+                   END AS fork_at_turn
+            FROM (
+                SELECT r.to_task_id, r.relation_type, r.context
+                FROM task_relations r
+                WHERE r.from_task_id = t.task_id
+                  AND r.relation_type IN ('created_by', 'forked_from')
+                ORDER BY r.created_at ASC
+                LIMIT 1
+            ) edge
+            JOIN tasks p ON p.task_id = edge.to_task_id
+            JOIN task_follows pf ON pf.task_id = p.task_id AND pf.user_id = ${follower}
+            WHERE {access}
+        ) parent ON TRUE"
+    )
+}

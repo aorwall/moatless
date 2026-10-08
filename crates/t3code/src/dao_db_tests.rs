@@ -973,3 +973,89 @@ async fn the_access_check_agrees_with_the_conversation_read(pool: PgPool) {
         assert_eq!(checked, read, "{task_id} checked by {}", viewer.user_id);
     }
 }
+
+/// A listed row names its parent only when the viewer may read the parent and
+/// follows it, so a client never hides a child under a parent it cannot list.
+#[sqlx::test(migrations = "../core/migrations")]
+async fn a_listed_row_names_a_parent_the_viewer_reads_and_follows(pool: PgPool) {
+    let seed = |task_id: &'static str, owner: &'static str| {
+        let pool = pool.clone();
+        async move {
+            let mut task = make_task_row(task_id, owner);
+            task.workspace_id = Some("ws-lineage".to_string());
+            moatless_tasks::task::test_support::seed_task(&pool, &task)
+                .await
+                .expect("seed task");
+        }
+    };
+    for task_id in ["parent", "child", "fork", "orphan", "unfollowed", "stray"] {
+        seed(task_id, USER_1).await;
+    }
+    seed("foreign", USER_2).await;
+    let edges = [
+        ("child", "parent", "created_by", serde_json::json!({})),
+        (
+            "fork",
+            "parent",
+            "forked_from",
+            serde_json::json!({ "at_turn": 2 }),
+        ),
+        ("orphan", "foreign", "created_by", serde_json::json!({})),
+        ("stray", "unfollowed", "forked_from", serde_json::json!({})),
+    ];
+    for (from, to, relation, context) in edges {
+        sqlx::query(
+            "INSERT INTO task_relations (id, from_task_id, to_task_id, relation_type, context)
+             VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(format!("{from}->{to}"))
+        .bind(from)
+        .bind(to)
+        .bind(relation)
+        .bind(context)
+        .execute(&pool)
+        .await
+        .expect("seed relation");
+    }
+    sqlx::query(
+        "INSERT INTO task_follows (user_id, task_id)
+         SELECT $1, task_id FROM tasks ON CONFLICT DO NOTHING",
+    )
+    .bind(USER_1)
+    .execute(&pool)
+    .await
+    .expect("follow everything");
+    sqlx::query("DELETE FROM task_follows WHERE user_id = $1 AND task_id = 'unfollowed'")
+        .bind(USER_1)
+        .execute(&pool)
+        .await
+        .expect("unfollow");
+
+    let viewer = ScopeContext {
+        user_id: USER_1.to_string(),
+        is_admin: false,
+    };
+    let rows = conversations_over(&pool)
+        .list_followed(&viewer)
+        .await
+        .unwrap();
+    let parent_of = |task_id: &str| {
+        let row = rows
+            .iter()
+            .find(|row| row.task_id == task_id)
+            .expect("listed");
+        (
+            row.parent_task_id.clone(),
+            row.parent_relation.clone(),
+            row.fork_at_turn,
+        )
+    };
+    let named = |parent: &str, relation: &str, at: Option<i32>| {
+        (Some(parent.to_string()), Some(relation.to_string()), at)
+    };
+    assert_eq!(parent_of("child"), named("parent", "created_by", None));
+    assert_eq!(parent_of("fork"), named("parent", "forked_from", Some(2)));
+    assert_eq!(parent_of("orphan"), (None, None, None), "unreadable parent");
+    assert_eq!(parent_of("stray"), (None, None, None), "unfollowed parent");
+    assert_eq!(parent_of("parent"), (None, None, None));
+}

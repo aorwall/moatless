@@ -36,6 +36,9 @@ fn conversation(task_id: &str) -> Conversation {
         requested_model: None,
         pending_question: false,
         pending_plan: false,
+        parent_task_id: None,
+        parent_relation: None,
+        fork_at_turn: None,
         settled_override: None,
         settled_at: None,
         snoozed_until: None,
@@ -65,6 +68,7 @@ fn message(
         message_text: Some(text.to_string()),
         user_type: "default".to_string(),
         sandbox_wake: false,
+        held: false,
         turn_number,
         timestamp: "2026-07-01T09:05:00.000Z".to_string(),
         created_at: Some(Utc::now()),
@@ -118,7 +122,7 @@ fn origins(names: &HashMap<String, String>) -> OriginContext<'_> {
 
 #[test]
 fn lineage_none_is_its_own_root_with_no_relationship() {
-    let lineage = Lineage::none("task-1");
+    let lineage = Lineage::root("task-1");
     assert_eq!(
         lineage.to_value(),
         json!({ "parentThreadId": null, "relationshipToParent": null, "rootThreadId": "task-1" })
@@ -172,6 +176,13 @@ fn shell_status_is_idle_with_no_turn() {
 fn shell_status_running_turn_reports_running() {
     let conversation = open_turn(conversation("task-1"), 1, "active");
     assert_eq!(shell_status(&conversation), "running");
+}
+
+#[test]
+fn shell_status_closed_completed_turn_reports_completed() {
+    let mut conversation = open_turn(conversation("task-1"), 1, "completed");
+    conversation.turn_ended_at = Some(Utc::now());
+    assert_eq!(shell_status(&conversation), "completed");
 }
 
 #[test]
@@ -445,7 +456,7 @@ fn a_running_turn_offers_steering_through_its_session_and_provider_turn() {
         &AgentModelDefaults::default(),
         &Transcript::default(),
         &origins(&names),
-        &Lineage::none("task-1"),
+        &Lineage::root("task-1"),
     );
     let run = projection["runs"]
         .as_array()
@@ -485,7 +496,7 @@ fn a_running_turn_offers_steering_through_its_session_and_provider_turn() {
 #[test]
 fn fork_turn_item_is_none_without_a_fork_relationship() {
     let conversation = conversation("task-1");
-    assert!(fork_turn_item(&conversation, &Lineage::none("task-1")).is_none());
+    assert!(fork_turn_item(&conversation, &Lineage::root("task-1")).is_none());
 }
 
 #[test]
@@ -518,6 +529,49 @@ fn runs_reports_one_run_per_historical_turn_plus_the_current_one() {
     assert_eq!(ids, vec!["task-1:1", "task-1:2"]);
     assert_eq!(runs[0]["status"], json!("completed"));
     assert_eq!(runs[1]["status"], json!("running"));
+}
+
+#[test]
+fn checkpoints_mark_the_start_and_each_settled_run_but_not_the_open_one() {
+    let conversation = open_turn(conversation("task-1"), 2, "active");
+    let transcript = Transcript {
+        messages: vec![message("msg-1", Some(1), "first turn", MessageType::User)],
+        ..Transcript::default()
+    };
+    let runs = runs(&conversation, &transcript, &AgentModelDefaults::default());
+    let checkpoints = checkpoints(&conversation, &runs);
+    let ordinals: Vec<&Value> = checkpoints.iter().map(|c| &c["appRunOrdinal"]).collect();
+    assert_eq!(ordinals, vec![&Value::Null, &json!(1)]);
+    assert_eq!(checkpoints[0]["ordinalWithinScope"], json!(0));
+    assert_eq!(checkpoints[1]["runId"], json!("task-1:1"));
+    assert_eq!(checkpoints[1]["status"], json!("ready"));
+    assert_eq!(checkpoints[1]["parentCheckpointId"], checkpoints[0]["id"]);
+    let id = checkpoints[1]["id"].as_str().unwrap();
+    assert_eq!(turn_count_of_checkpoint(id), Some(1));
+    assert_eq!(
+        turn_count_of_checkpoint(checkpoints[0]["id"].as_str().unwrap()),
+        Some(0)
+    );
+}
+
+#[test]
+fn a_pending_question_is_a_user_input_request_on_the_shell() {
+    let mut conversation = conversation("task-1");
+    let shell = thread_shell_v2(
+        &conversation,
+        "ws-a",
+        &AgentModelDefaults::default(),
+        &Lineage::root("task-1"),
+    );
+    assert_eq!(shell["pendingRuntimeRequest"], Value::Null);
+    conversation.pending_question = true;
+    let shell = thread_shell_v2(
+        &conversation,
+        "ws-a",
+        &AgentModelDefaults::default(),
+        &Lineage::root("task-1"),
+    );
+    assert_eq!(shell["pendingRuntimeRequest"]["kind"], json!("user_input"));
 }
 
 #[test]
@@ -589,14 +643,44 @@ fn queued_run_ids_round_trip_and_never_parse_as_a_turn() {
     assert_eq!(queued_message_uuid("task-1:3"), None);
 }
 
+fn held(mut message: TranscriptMessage) -> TranscriptMessage {
+    message.held = true;
+    message
+}
+
+fn awake(mut conversation: Conversation) -> Conversation {
+    conversation.sandbox_desired_state_raw = Some(
+        moatless_types::sandbox::SandboxDesiredState::Running
+            .as_str()
+            .to_string(),
+    );
+    conversation.sandbox_started_at = Some(Utc::now());
+    conversation
+}
+
+fn timeline_runs(conversation: &Conversation, transcript: &Transcript) -> Vec<(String, Value)> {
+    let names = HashMap::new();
+    let (items, _) = turn_items_and_messages(conversation, transcript, &origins(&names));
+    items
+        .iter()
+        .filter(|item| item["type"] == json!("user_message"))
+        .map(|item| {
+            (
+                item["messageId"].as_str().unwrap().to_string(),
+                item["runId"].clone(),
+            )
+        })
+        .collect()
+}
+
 #[test]
-fn runs_append_one_queued_run_per_message_waiting_for_a_turn() {
-    let conversation = open_turn(conversation("task-1"), 1, "active");
+fn a_held_message_is_a_queued_run_and_stays_out_of_the_timeline() {
+    let conversation = awake(open_turn(conversation("task-1"), 1, "active"));
     let transcript = Transcript {
         messages: vec![
             message("msg-1", Some(1), "first", MessageType::User),
-            message("msg-2", None, "next", MessageType::User),
-            message("msg-3", None, "after", MessageType::User),
+            held(message("msg-2", None, "next", MessageType::User)),
+            held(message("msg-3", None, "after", MessageType::User)),
         ],
         ..Transcript::default()
     };
@@ -607,6 +691,89 @@ fn runs_append_one_queued_run_per_message_waiting_for_a_turn() {
     assert_eq!(runs[1]["queuePosition"], json!(1));
     assert_eq!(runs[1]["ordinal"], json!(2));
     assert_eq!(runs[2]["queuePosition"], json!(2));
+    assert_eq!(
+        timeline_runs(&conversation, &transcript),
+        vec![("msg-1".to_string(), json!("task-1:1"))]
+    );
+}
+
+#[test]
+fn a_send_during_an_open_turn_steers_into_that_turn() {
+    let conversation = awake(open_turn(conversation("task-1"), 1, "active"));
+    let transcript = Transcript {
+        messages: vec![
+            message("msg-1", Some(1), "first", MessageType::User),
+            message("msg-2", None, "also this", MessageType::User),
+        ],
+        ..Transcript::default()
+    };
+    let runs = runs(&conversation, &transcript, &AgentModelDefaults::default());
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0]["status"], json!("running"));
+    assert_eq!(
+        timeline_runs(&conversation, &transcript)[1],
+        ("msg-2".to_string(), json!("task-1:1"))
+    );
+}
+
+#[test]
+fn a_send_whose_turn_is_owed_is_a_starting_run_on_the_timeline() {
+    let mut conversation = awake(open_turn(conversation("task-1"), 1, "completed"));
+    conversation.turn_ended_at = Some(Utc::now() - chrono::Duration::minutes(1));
+    conversation.latest_queued_message_at = Some(Utc::now());
+    let transcript = Transcript {
+        messages: vec![
+            message("msg-1", Some(1), "first", MessageType::User),
+            message("msg-2", None, "next", MessageType::User),
+        ],
+        ..Transcript::default()
+    };
+    let runs = runs(&conversation, &transcript, &AgentModelDefaults::default());
+    assert_eq!(runs.len(), 2);
+    assert_eq!(runs[1]["id"], json!("task-1:starting:msg-2"));
+    assert_eq!(runs[1]["status"], json!("starting"));
+    assert_eq!(runs[1]["userMessageId"], json!("msg-2"));
+    assert_eq!(turn_number_of_run("task-1:starting:msg-2"), None);
+    assert_eq!(
+        timeline_runs(&conversation, &transcript)[1],
+        ("msg-2".to_string(), json!("task-1:starting:msg-2"))
+    );
+    assert_eq!(shell_status(&conversation), "starting");
+    // No attempt or provider turn until the Sandbox opens the turn.
+    assert_eq!(attempts(&runs).len(), 1);
+    assert_eq!(provider_turns(&runs).len(), 1);
+}
+
+#[test]
+fn a_first_send_is_a_starting_run_and_a_starting_shell() {
+    let mut conversation = awake(conversation("task-1"));
+    conversation.latest_queued_message_at = Some(Utc::now());
+    let transcript = Transcript {
+        messages: vec![message("msg-1", None, "hello", MessageType::User)],
+        ..Transcript::default()
+    };
+    let runs = runs(&conversation, &transcript, &AgentModelDefaults::default());
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0]["status"], json!("starting"));
+    assert_eq!(runs[0]["ordinal"], json!(1));
+    assert_eq!(shell_status(&conversation), "starting");
+}
+
+#[test]
+fn a_send_to_a_stopped_agent_waits_as_a_queued_run() {
+    let mut conversation = open_turn(conversation("task-1"), 1, "completed");
+    conversation.sandbox_desired_state_raw = Some(
+        moatless_types::sandbox::SandboxDesiredState::Stopped
+            .as_str()
+            .to_string(),
+    );
+    let transcript = Transcript {
+        messages: vec![message("msg-2", None, "next", MessageType::User)],
+        ..Transcript::default()
+    };
+    let runs = runs(&conversation, &transcript, &AgentModelDefaults::default());
+    assert_eq!(runs[1]["status"], json!("queued"));
+    assert!(timeline_runs(&conversation, &transcript).is_empty());
 }
 
 #[test]
@@ -753,7 +920,7 @@ fn every_node_a_row_names_is_in_the_projection() {
         &AgentModelDefaults::default(),
         &transcript,
         &origins(&names),
-        &Lineage::none("task-1"),
+        &Lineage::root("task-1"),
     );
     let rows = |key: &str| projection[key].as_array().unwrap().clone();
     let nodes: Vec<Value> = rows("nodes")
@@ -786,4 +953,59 @@ fn every_node_a_row_names_is_in_the_projection() {
         .find(|row| row["id"] == run["activeAttemptId"])
         .expect("the run's attempt");
     assert_eq!(attempt["rootNodeId"], run["rootNodeId"]);
+}
+
+fn listed_child(task_id: &str, parent: &str, relation: &str) -> Conversation {
+    let mut child = conversation(task_id);
+    child.parent_task_id = Some(parent.to_string());
+    child.parent_relation = Some(relation.to_string());
+    child
+}
+
+#[test]
+fn a_listed_subagent_and_fork_carry_their_parent_and_the_listed_root() {
+    let subagent = listed_child("child", "parent", "created_by");
+    let mut fork = listed_child("fork", "child", "forked_from");
+    fork.fork_at_turn = Some(3);
+    let parents = HashMap::from([("child", "parent"), ("fork", "child")]);
+
+    let lineage = Lineage::listed(&subagent, &parents).to_value();
+    assert_eq!(lineage["parentThreadId"], json!("parent"));
+    assert_eq!(lineage["relationshipToParent"], json!("subagent"));
+    assert_eq!(lineage["rootThreadId"], json!("parent"));
+
+    let fork_lineage = Lineage::listed(&fork, &parents);
+    assert_eq!(
+        fork_lineage.to_value()["relationshipToParent"],
+        json!("fork")
+    );
+    assert_eq!(fork_lineage.to_value()["rootThreadId"], json!("parent"));
+    assert_eq!(
+        fork_lineage.forked_from_value(),
+        json!({ "type": "run", "threadId": "child", "runId": "child:3" })
+    );
+}
+
+#[test]
+fn a_listed_row_without_a_known_parent_edge_is_its_own_root() {
+    let parents = HashMap::new();
+    let lineage = Lineage::listed(&conversation("solo"), &parents).to_value();
+    assert_eq!(lineage["parentThreadId"], Value::Null);
+    assert_eq!(lineage["rootThreadId"], json!("solo"));
+    let unknown = listed_child("odd", "parent", "related_to");
+    assert_eq!(
+        Lineage::listed(&unknown, &parents).to_value()["relationshipToParent"],
+        json!("subagent"),
+        "any parent edge the listing returns is a child edge"
+    );
+}
+
+#[test]
+fn a_parent_cycle_in_the_listing_stops_the_root_walk() {
+    let looped = listed_child("a", "b", "forked_from");
+    let parents = HashMap::from([("a", "b"), ("b", "a")]);
+    assert_eq!(
+        Lineage::listed(&looped, &parents).to_value()["rootThreadId"],
+        json!("b")
+    );
 }

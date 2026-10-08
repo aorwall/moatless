@@ -159,6 +159,13 @@ pub struct Conversation {
     /// An `ExitPlanMode` plan proposed by the agent that nothing has answered.
     pub pending_plan: bool,
 
+    /// The Task this one was spawned by (`created_by`) or forked from
+    /// (`forked_from`), when the viewer may read it and follows it; all three
+    /// are `None` otherwise. `fork_at_turn` is the fork edge's `at_turn`.
+    pub parent_task_id: Option<String>,
+    pub parent_relation: Option<String>,
+    pub fork_at_turn: Option<i32>,
+
     pub settled_override: Option<String>,
     pub settled_at: Option<DateTime<Utc>>,
     pub snoozed_until: Option<DateTime<Utc>>,
@@ -697,6 +704,7 @@ impl PgConversationDao {
         let statuses = status_list(statuses);
         let access = moatless_core::db::access_control::access_filter(ScopedEntity::Task, "t.", 1);
         let follower = access.next_param();
+        let parent_join = crate::lineage::listed_parent_join(follower);
         let question_tool = follower + 1;
         let plan_tool = follower + 2;
         // Every clause below allocates the next position in turn, and the binds
@@ -820,7 +828,10 @@ impl PgConversationDao {
                    t.settled_at,
                    t.snoozed_until,
                    t.snoozed_at,
-                   COALESCE(pr.pull_requests, '[]'::jsonb) AS pull_requests
+                   COALESCE(pr.pull_requests, '[]'::jsonb) AS pull_requests,
+                   parent.task_id AS parent_task_id,
+                   parent.relation_type AS parent_relation,
+                   parent.fork_at_turn
                FROM listed t
                LEFT JOIN sandboxes s ON s.sandbox_id = t.sandbox_id
                -- Whose Task this is, for the rows that are somebody else's. The
@@ -1001,6 +1012,7 @@ impl PgConversationDao {
                          AND b.subject_key ~ '^[^#]+#[0-9]+$'
                    ) bound
                ) pr ON TRUE
+               {parent_join}
                -- Determinism for this query's own output, and nothing more.
                -- This is *not* the sidebar's order: T3 sorts client-side, in
                -- `resolveSettledTimestamp` (`Sidebar.logic.ts:484-502`), from

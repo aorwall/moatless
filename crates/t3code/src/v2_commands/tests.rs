@@ -164,3 +164,26 @@ fn client_local_state_is_discarded_and_unknown_commands_refused() {
         CommandRefusal::Unsupported { .. }
     ));
 }
+
+#[test]
+fn checkpoint_rollback_reverts_the_conversation_unless_files_are_asked_for() {
+    let rollback = |restore: bool| {
+        v1(json!({
+            "type": "checkpoint.rollback",
+            "threadId": "task-1",
+            "scopeId": "task-1:checkpoints",
+            "checkpointId": "task-1:checkpoint:2",
+            "restoreFiles": restore
+        }))
+    };
+    let conversation = rollback(false);
+    assert_eq!(conversation["type"], json!("thread.conversation.revert"));
+    assert_eq!(conversation["turnCount"], json!(2));
+    assert_eq!(rollback(true)["type"], json!("thread.checkpoint.revert"));
+    assert!(matches!(
+        refusal(
+            json!({ "type": "checkpoint.rollback", "threadId": "task-1", "checkpointId": "nope" })
+        ),
+        CommandRefusal::Rejected { .. }
+    ));
+}

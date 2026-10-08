@@ -13,6 +13,7 @@ use crate::commands;
 use crate::commands::CommandContext;
 use crate::ports::CommandRefusal;
 use crate::projection::queued_message_uuid;
+use crate::projection::turn_count_of_checkpoint;
 use crate::projection::turn_number_of_run;
 
 /// Answers one orchestration V2 command by way of the V1 command it
@@ -100,6 +101,7 @@ pub(crate) fn translate(command: &Value) -> Result<Translated, CommandRefusal> {
             }
             renamed("thread.user-input.respond")
         }
+        "checkpoint.rollback" => checkpoint_rollback(command),
         "thread.fork" => fork(command),
         // Kept by the client itself; Moatless has no column for any of them.
         "thread.runtime-mode.set"
@@ -109,6 +111,32 @@ pub(crate) fn translate(command: &Value) -> Result<Translated, CommandRefusal> {
         "thread.merge_back" => refused(tag, "Merge-back is not available on this server."),
         other => refused(other, "This server does not implement that action."),
     }
+}
+
+/// A rollback to one of the projection's checkpoints is V1's conversation
+/// revert to that turn count. Asking for files back goes to V1's checkpoint
+/// revert, which refuses it: Moatless takes no worktree snapshots.
+fn checkpoint_rollback(command: &Value) -> Result<Translated, CommandRefusal> {
+    let checkpoint = command
+        .get("checkpointId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| missing("checkpointId"))?;
+    let turn_count =
+        turn_count_of_checkpoint(checkpoint).ok_or_else(|| CommandRefusal::Rejected {
+            message: format!("`{checkpoint}` is not a checkpoint on this server."),
+        })?;
+    let restore_files = command.get("restoreFiles").and_then(Value::as_bool) == Some(true);
+    let tag = if restore_files {
+        "thread.checkpoint.revert"
+    } else {
+        "thread.conversation.revert"
+    };
+    Ok(Translated::V1(json!({
+        "type": tag,
+        "commandId": command.get("commandId"),
+        "threadId": command.get("threadId"),
+        "turnCount": turn_count,
+    })))
 }
 
 /// `message.dispatch` is V1's `thread.turn.start` without the bootstrap. Any

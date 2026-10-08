@@ -131,7 +131,7 @@ pub async fn thread_shell(
                 &conversation,
                 &project_id,
                 defaults,
-                &projection::Lineage::none(&conversation.task_id),
+                &projection::Lineage::listed(&conversation, &Default::default()),
             ),
         }))
 }

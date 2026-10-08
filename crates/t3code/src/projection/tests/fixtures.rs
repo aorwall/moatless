@@ -32,6 +32,9 @@ pub(super) fn conversation(task_id: &str, workspace_id: &str) -> Conversation {
         requested_model: None,
         pending_question: false,
         pending_plan: false,
+        parent_task_id: None,
+        parent_relation: None,
+        fork_at_turn: None,
         settled_override: None,
         settled_at: None,
         snoozed_until: None,
@@ -144,6 +147,7 @@ pub(super) fn message(id: i32, message_type: MessageType, text: &str) -> Transcr
         message_text: Some(text.to_string()),
         user_type: "human".to_string(),
         sandbox_wake: false,
+        held: false,
         turn_number: Some(3),
         // Minute `id` past the hour, so the fixture's own order is legible
         // in an assertion failure.

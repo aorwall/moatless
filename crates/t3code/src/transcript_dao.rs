@@ -50,6 +50,9 @@ pub struct TranscriptMessage {
     pub sandbox_wake: bool,
     /// The Turn this Message was acknowledged into. `None` while it is queued.
     pub turn_number: Option<i32>,
+    /// Sent to wait for the active turn to end (`DeliveryOptions::queue`)
+    /// rather than steer into it.
+    pub held: bool,
     /// When the writer said it happened (RFC 3339 text, `NOT NULL`).
     pub timestamp: String,
     /// When the database recorded it. `None` is impossible under the current
@@ -157,6 +160,7 @@ macro_rules! transcript_rows {
                        ELSE 'system' END AS user_type,
                   COALESCE(i.origin = 'sandbox', false) AS sandbox_wake,
                   m.turn_number,
+                  COALESCE((i.delivery_options ->> 'queue')::boolean, false) AS held,
                   COALESCE(m.legacy ->> 'timestamp',
                            to_char(m.created_at AT TIME ZONE 'UTC',
                                    'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')) AS "timestamp",
@@ -191,7 +195,7 @@ macro_rules! transcript_rows {
 /// delivered it.
 const TRANSCRIPT_COLUMNS: &str = r#"m.id, m.uuid, m.message_type, m.message_role,
                       m.message_text, m.user_type, m.sandbox_wake, m.turn_number,
-                      m."timestamp",
+                      m.held, m."timestamp",
                       m.created_at, m.external_adapter, m.external_source_name,
                       m.external_subject_key, m.external_event_id,
                       m.external_author, m.source_task_id,

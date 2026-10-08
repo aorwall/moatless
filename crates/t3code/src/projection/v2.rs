@@ -6,7 +6,7 @@
 //! shell commands, questions the agent asked and the fork marker; other
 //! activity kinds are left out of the timeline rather than guessed at.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use serde_json::{Map, Value, json};
 
@@ -22,6 +22,7 @@ use super::shell::conversation_row;
 use super::transcript::activity_anchor;
 use super::transcript::message_bubble;
 use super::transcript::message_instant;
+use super::turn::running_inputs;
 use super::turn::turn_id;
 use super::turn::turn_is_open;
 use super::turn::turn_reference;
@@ -49,14 +50,15 @@ use moatless_types::activity::ActivityKind;
 use moatless_types::activity::ActivityStatus;
 use moatless_types::message::MessageType;
 use moatless_types::message::TOOL_RESPONSE_USER_TYPE;
+use moatless_types::running::{Working, derive_running};
 use moatless_types::task::TaskRelationType;
 
 /// Every V2 thread reports the contract's default interaction mode: Moatless
 /// has no state distinguishing a "plan" mode from the agent's own tool use.
 const DEFAULT_INTERACTION_MODE: &str = "default";
 
-/// One thread's resolved ancestry, read once per request rather than per shell
-/// row — see [`Lineage::none`] for the listing-scope default.
+/// One thread's ancestry: resolved per request for a single thread, read off
+/// the listing's own columns for a shell row (see [`Lineage::listed`]).
 #[derive(Clone)]
 pub(crate) struct Lineage {
     parent_task_id: Option<String>,
@@ -72,12 +74,38 @@ pub(crate) struct Lineage {
 }
 
 impl Lineage {
-    /// No ancestry resolved: the default for shell-listing rows, where
-    /// resolving every row's parent would cost one relations query per
-    /// conversation on every poll. The single-thread surfaces
-    /// (`getThreadProjection`/`subscribeThread`/`launchThread`) call
-    /// [`Lineage::root`] or [`Lineage::child`] instead.
-    pub(crate) fn none(task_id: &str) -> Self {
+    /// A listing row's lineage. `parents` maps listed Tasks to their parents;
+    /// the root is the furthest ancestor it reaches, else the parent, which is
+    /// what a single-row read's empty map gives. Nesting reads only the parent.
+    pub(crate) fn listed(conversation: &Conversation, parents: &HashMap<&str, &str>) -> Self {
+        let task_id = &conversation.task_id;
+        let edge = conversation.parent_task_id.as_deref().zip(
+            conversation
+                .parent_relation
+                .as_deref()
+                .and_then(|relation| TaskRelationType::try_from(relation).ok()),
+        );
+        let Some((parent, relation)) = edge else {
+            return Self::root(task_id);
+        };
+        let mut root = parent;
+        for _ in 0..parents.len() {
+            match parents.get(root) {
+                Some(next) if *next != task_id => root = next,
+                _ => break,
+            }
+        }
+        Self::child(
+            parent.to_string(),
+            relation,
+            root.to_string(),
+            conversation.fork_at_turn,
+        )
+    }
+
+    /// A thread with no parent edge, lineage fully resolved: it is its own
+    /// root.
+    pub(crate) fn root(task_id: &str) -> Self {
         Self {
             parent_task_id: None,
             relationship: None,
@@ -86,12 +114,6 @@ impl Lineage {
             created_by: "user",
             creation_source: "web",
         }
-    }
-
-    /// A thread with no parent edge, lineage fully resolved: it is its own
-    /// root.
-    pub(crate) fn root(task_id: &str) -> Self {
-        Self::none(task_id)
     }
 
     /// A thread with a resolved parent edge.
@@ -193,7 +215,10 @@ pub(crate) fn thread_shell_v2(
 ) -> Value {
     let mut row = v2_common_fields(conversation, project_id, defaults, lineage);
     row.insert("status".into(), json!(shell_status(conversation)));
-    row.insert("pendingRuntimeRequest".into(), Value::Null);
+    row.insert(
+        "pendingRuntimeRequest".into(),
+        pending_runtime_request(conversation),
+    );
     row.insert("latestVisibleMessage".into(), Value::Null);
     row.insert(
         "lastError".into(),
@@ -226,6 +251,23 @@ pub(crate) fn thread_shell_v2(
     Value::Object(row)
 }
 
+/// The shell's summary of a question the agent is waiting on, which the
+/// sidebar shows as Input. The client reads only `kind`; the listing has no
+/// transcript, so `id` names the thread rather than the question.
+fn pending_runtime_request(conversation: &Conversation) -> Value {
+    if !conversation.pending_question {
+        return Value::Null;
+    }
+    let at = conversation
+        .updated_at
+        .unwrap_or_else(|| created_at(conversation));
+    json!({
+        "id": format!("{}:pending-question", conversation.task_id),
+        "kind": "user_input",
+        "createdAt": instant(at)
+    })
+}
+
 /// One conversation's row changing, as a V2 shell stream item. A closed Task
 /// moves to the archive rather than leaving the listing.
 pub(crate) fn thread_updated_v2(
@@ -243,7 +285,7 @@ pub(crate) fn thread_updated_v2(
         "kind": "thread.updated",
         "sequence": sequence,
         "location": location,
-        "thread": thread_shell_v2(conversation, project_id, defaults, &Lineage::none(&conversation.task_id))
+        "thread": thread_shell_v2(conversation, project_id, defaults, &Lineage::listed(conversation, &HashMap::new()))
     })
 }
 
@@ -260,19 +302,22 @@ pub(crate) fn thread_removed_v2(task_id: &str, sequence: i64) -> Value {
 
 /// `OrchestrationV2ShellThreadStatus`: `idle` plus the run-status vocabulary.
 fn shell_status(conversation: &Conversation) -> &'static str {
-    let Some(status) = conversation.turn_status.as_deref() else {
-        return "idle";
-    };
-    let Some(state) = turn_state(status) else {
-        return "idle";
-    };
     if turn_is_open(conversation) {
         return "running";
     }
+    // Before the early `idle`: a first send has no turn status at all.
+    if awaits_turn(conversation) {
+        return "starting";
+    }
+    // `idle` only for a thread that never ran: the client reads `idle` on a
+    // thread with runs as parked on background work and labels it Waiting.
+    let Some(state) = conversation.turn_status.as_deref().and_then(turn_state) else {
+        return "idle";
+    };
     match state {
         "error" => "failed",
         "interrupted" => "interrupted",
-        _ => "idle",
+        _ => "completed",
     }
 }
 
@@ -333,6 +378,13 @@ pub(crate) fn listed_threads_v2(
         .iter()
         .map(|listed| listed.workspace.id.as_str())
         .collect();
+    let parents: HashMap<&str, &str> = conversations
+        .iter()
+        .filter_map(|conversation| {
+            let parent = conversation.parent_task_id.as_deref()?;
+            Some((conversation.task_id.as_str(), parent))
+        })
+        .collect();
     conversations
         .iter()
         .filter_map(|conversation| {
@@ -344,7 +396,7 @@ pub(crate) fn listed_threads_v2(
                 conversation,
                 project_id,
                 defaults,
-                &Lineage::none(&conversation.task_id),
+                &Lineage::listed(conversation, &parents),
             ))
         })
         .collect()
@@ -364,6 +416,76 @@ pub(crate) fn queued_message_uuid(run_id: &str) -> Option<&str> {
         .filter(|uuid| !uuid.is_empty())
 }
 
+fn checkpoint_id(task_id: &str, ordinal: i64) -> String {
+    format!("{task_id}:checkpoint:{ordinal}")
+}
+
+/// The turn count a [`checkpoint_id`] rewinds to: `0` for the thread's start.
+pub(crate) fn turn_count_of_checkpoint(checkpoint_id: &str) -> Option<i32> {
+    checkpoint_id
+        .rsplit_once(":checkpoint:")?
+        .1
+        .parse()
+        .ok()
+        .filter(|count| *count >= 0)
+}
+
+/// The points `checkpoint.rollback` can rewind the conversation to: the
+/// thread's start, then the end of each settled run, keyed by run `ordinal`.
+/// They restore no files: `files` is empty and a rollback that asks for files
+/// is refused (see `v2_commands`).
+fn checkpoints(conversation: &Conversation, runs: &[Value]) -> Vec<Value> {
+    let task_id = &conversation.task_id;
+    let scope = format!("{task_id}:checkpoints");
+    let start = instant(created_at(conversation));
+    let mut checkpoints = vec![json!({
+        "id": checkpoint_id(task_id, 0),
+        "threadId": task_id,
+        "scopeId": scope,
+        "runId": Value::Null,
+        "nodeId": format!("{task_id}:checkpoint:0:node"),
+        "parentCheckpointId": Value::Null,
+        "ordinalWithinScope": 0,
+        "appRunOrdinal": Value::Null,
+        "ref": checkpoint_id(task_id, 0),
+        "status": "ready",
+        "files": [],
+        "capturedAt": start
+    })];
+    for run in runs {
+        let status = match run["status"].as_str() {
+            Some("completed" | "interrupted") => "ready",
+            Some("failed") => "error",
+            _ => continue,
+        };
+        let (Some(ordinal), Some(node)) = (run["ordinal"].as_i64(), run.get("rootNodeId")) else {
+            continue;
+        };
+        let parent = checkpoints.last().map(|previous| previous["id"].clone());
+        let captured = run
+            .get("completedAt")
+            .filter(|at| !at.is_null())
+            .or_else(|| run.get("requestedAt"))
+            .cloned()
+            .unwrap_or_else(|| json!(start));
+        checkpoints.push(json!({
+            "id": checkpoint_id(task_id, ordinal),
+            "threadId": task_id,
+            "scopeId": scope,
+            "runId": run["id"],
+            "nodeId": node,
+            "parentCheckpointId": parent,
+            "ordinalWithinScope": ordinal,
+            "appRunOrdinal": ordinal,
+            "ref": checkpoint_id(task_id, ordinal),
+            "status": status,
+            "files": [],
+            "capturedAt": captured
+        }));
+    }
+    checkpoints
+}
+
 /// The Moatless turn number a run id names; `None` for a queued run or an id
 /// this server did not mint.
 pub(crate) fn turn_number_of_run(run_id: &str) -> Option<i32> {
@@ -378,18 +500,66 @@ pub(crate) fn turn_number_of_run(run_id: &str) -> Option<i32> {
         .filter(|turn| *turn > 0)
 }
 
+/// The run a send waits in while its turn is still owed. Like
+/// [`queued_run_id`], never `{taskId}:{n}`.
+fn starting_run_id(task_id: &str, message_uuid: &str) -> String {
+    format!("{task_id}:starting:{message_uuid}")
+}
+
 /// A message the person sent that no turn has taken yet.
-fn is_queued(message: &TranscriptMessage) -> bool {
+fn is_pending(message: &TranscriptMessage) -> bool {
     message.turn_number.is_none()
         && message.message_type == MessageType::User
         && message.user_type != TOOL_RESPONSE_USER_TYPE
         && !message.sandbox_wake
 }
 
+/// Whether the agent is working with no turn open yet: V1's session status
+/// reads the same rule, so a send shows as work before the Sandbox opens
+/// the turn that takes it.
+fn awaits_turn(conversation: &Conversation) -> bool {
+    !turn_is_open(conversation)
+        && conversation.sandbox_desired_state().is_some_and(|desired| {
+            matches!(
+                derive_running(&running_inputs(conversation, desired)),
+                Working::Running | Working::Waiting | Working::Starting
+            )
+        })
+}
+
+/// The run a pending, unheld send belongs to: the open turn it steers into,
+/// or the `starting` run of the turn it is owed. `None` when the agent is
+/// stopped, and the send waits as a queued run instead.
+fn steered_run_id(conversation: &Conversation, transcript: &Transcript) -> Option<String> {
+    if turn_is_open(conversation) {
+        return conversation
+            .turn_number
+            .map(|turn| turn_id(&conversation.task_id, turn));
+    }
+    if !awaits_turn(conversation) {
+        return None;
+    }
+    transcript
+        .messages
+        .iter()
+        .find(|message| is_pending(message) && !message.held)
+        .map(|message| starting_run_id(&conversation.task_id, &message.uuid))
+}
+
+/// The run a pending message is shown under, or `None` for a queued one. Only
+/// a send held for the active turn to end (or one a stopped agent cannot take)
+/// is queued: any other steers into the open turn or opens the next one.
+fn pending_run(message: &TranscriptMessage, steered: Option<&str>) -> Option<String> {
+    if message.held {
+        return None;
+    }
+    steered.map(str::to_string)
+}
+
 /// One `OrchestrationV2Run` per Moatless turn in the window plus the current
-/// turn, then one `queued` run per message no turn has taken yet. Every turn
-/// older than the current one reports `completed`: a turn's own status is not
-/// kept once a newer turn starts.
+/// turn, then a `starting` run for a turn an unheld send is owed and a `queued`
+/// run per send no turn will take (see [`pending_run`]). Every turn older than
+/// the current one reports `completed`: its own status is not kept.
 pub(crate) fn runs(
     conversation: &Conversation,
     transcript: &Transcript,
@@ -407,22 +577,48 @@ pub(crate) fn runs(
             turn_numbers.push(current);
         }
     }
-    let last_turn = turn_numbers.last().copied().unwrap_or(0);
+    let mut last_turn = turn_numbers.last().copied().unwrap_or(0).max(0);
     let mut runs: Vec<Value> = turn_numbers
         .into_iter()
         .map(|turn_number| run_for_turn(conversation, transcript, defaults, turn_number))
         .collect();
+    let steered = steered_run_id(conversation, transcript);
+    let starting = transcript.messages.iter().find(|message| {
+        steered.as_deref() == Some(&starting_run_id(&conversation.task_id, &message.uuid))
+    });
+    if let Some(message) = starting {
+        last_turn = last_turn.saturating_add(1);
+        let at = instant(message_instant(conversation, message));
+        runs.push(json!({
+            "id": starting_run_id(&conversation.task_id, &message.uuid),
+            "threadId": conversation.task_id,
+            "ordinal": last_turn,
+            "providerInstanceId": provider_instance(conversation),
+            "modelSelection": model_selection(conversation, defaults),
+            "providerThreadId": provider_thread_id(&conversation.task_id),
+            "userMessageId": message.uuid,
+            "rootNodeId": Value::Null,
+            "activeAttemptId": Value::Null,
+            "status": "starting",
+            "requestedAt": at,
+            "startedAt": Value::Null,
+            "completedAt": Value::Null,
+            "checkpointId": Value::Null,
+            "contextHandoffId": Value::Null
+        }));
+    }
     let queued = transcript
         .messages
         .iter()
-        .filter(|message| is_queued(message));
+        .filter(|message| is_pending(message))
+        .filter(|message| pending_run(message, steered.as_deref()).is_none());
     for (position, message) in queued.enumerate() {
         let at = instant(message_instant(conversation, message));
         let position = i32::try_from(position).unwrap_or(i32::MAX - 1) + 1;
         runs.push(json!({
             "id": queued_run_id(&conversation.task_id, &message.uuid),
             "threadId": conversation.task_id,
-            "ordinal": last_turn.max(0).saturating_add(position),
+            "ordinal": last_turn.saturating_add(position),
             "providerInstanceId": provider_instance(conversation),
             "modelSelection": model_selection(conversation, defaults),
             "providerThreadId": Value::Null,
@@ -528,12 +724,18 @@ pub(crate) fn turn_items_and_messages(
 ) -> (Vec<Value>, Vec<Value>) {
     let mut timeline: Vec<(TimelineKey, Value)> = Vec::new();
     let mut messages = Vec::new();
+    let steered = steered_run_id(conversation, transcript);
 
     for (index, message) in transcript.messages.iter().enumerate() {
-        let turn = if is_queued(message) {
-            json!(queued_run_id(&conversation.task_id, &message.uuid))
-        } else {
-            turn_reference(conversation, message)
+        let pending = is_pending(message);
+        let run = pending.then(|| pending_run(message, steered.as_deref()));
+        // A queued message is the queue's row, not the timeline's, until a
+        // turn takes it.
+        let queued = matches!(run, Some(None));
+        let turn = match run {
+            Some(Some(run_id)) => json!(run_id),
+            Some(None) => json!(queued_run_id(&conversation.task_id, &message.uuid)),
+            None => turn_reference(conversation, message),
         };
         let at = instant(message_instant(conversation, message));
         let Some(bubble) = message_bubble(message, &turn, &at, origins) else {
@@ -591,7 +793,9 @@ pub(crate) fn turn_items_and_messages(
             ),
             _ => layered(base, json!({ "type": "system_notice", "message": text })),
         };
-        timeline.push(((at.clone(), 1, index), item));
+        if !queued {
+            timeline.push(((at.clone(), 1, index), item));
+        }
         messages.push(json!({
             "createdBy": created_by,
             "creationSource": creation_source,
@@ -878,7 +1082,7 @@ pub(crate) fn thread_projection(
         "plans": plans,
         "turnItems": turn_items,
         "checkpointScopes": [],
-        "checkpoints": [],
+        "checkpoints": checkpoints(conversation, &runs),
         "contextHandoffs": [],
         "contextTransfers": [],
         "visibleTurnItems": visible_turn_items,

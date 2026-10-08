@@ -11,6 +11,7 @@ use serde_json::{Map, Value, json};
 use super::model::provider_instance;
 use super::scalar::instant;
 use super::transcript::activity_anchor;
+use super::v2_provider::has_started;
 use super::v2_provider::root_node_id;
 use crate::activity::t3_item_type;
 use crate::dao::Conversation;
@@ -148,8 +149,7 @@ pub(super) fn plan_nodes(plans: &[Value], runs: &[Value]) -> Vec<Value> {
                 .and_then(Value::as_str)
                 .filter(|run_id| {
                     runs.iter().any(|run| {
-                        run.get("id").and_then(Value::as_str) == Some(run_id)
-                            && run.get("status").and_then(Value::as_str) != Some("queued")
+                        run.get("id").and_then(Value::as_str) == Some(run_id) && has_started(run)
                     })
                 })
                 .map(root_node_id);

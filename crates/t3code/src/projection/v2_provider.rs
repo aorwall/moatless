@@ -258,10 +258,18 @@ pub(super) fn provider_turns(runs: &[Value]) -> Vec<Value> {
         .collect()
 }
 
-/// The runs a turn has taken: every run but a queued one.
+/// Whether a turn has taken this run: neither a queued one nor one still
+/// `starting`.
+pub(super) fn has_started(run: &Value) -> bool {
+    !matches!(
+        run.get("status").and_then(Value::as_str),
+        Some("queued" | "starting")
+    )
+}
+
+/// The runs a turn has taken.
 fn started(runs: &[Value]) -> impl Iterator<Item = &Value> {
-    runs.iter()
-        .filter(|run| run.get("status").and_then(Value::as_str) != Some("queued"))
+    runs.iter().filter(|run| has_started(run))
 }
 
 /// A run's status in the vocabulary attempts and provider turns share.

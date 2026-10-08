@@ -6,7 +6,7 @@ use moatless_types::auth::AllowedOrigin;
 /// server reporting a different version.
 ///
 /// Move it in the change that brings the surface up to a newer client.
-pub(crate) const T3_CLIENT_CONTRACT_VERSION: &str = "0.0.31";
+pub(crate) const T3_CLIENT_CONTRACT_VERSION: &str = "0.0.45";
 
 /// The readable half of the environment id, and the name the client displays.
 /// The digest [`environment_id`] appends is what tells environments apart.

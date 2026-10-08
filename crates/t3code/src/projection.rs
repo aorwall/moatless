@@ -46,4 +46,5 @@ pub(crate) use v2::thread_projection;
 pub(crate) use v2::thread_removed_v2;
 pub(crate) use v2::thread_shell_v2;
 pub(crate) use v2::thread_updated_v2;
+pub(crate) use v2::turn_count_of_checkpoint;
 pub(crate) use v2::turn_number_of_run;
