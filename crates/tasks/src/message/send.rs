@@ -324,6 +324,52 @@ impl MessageSendService {
             .map_err(MessageError::PersistMessage)
     }
 
+    /// Withdraw a Message sent with `queue` before a turn takes it. `false`
+    /// when it is not one still waiting.
+    pub async fn cancel_queued(
+        &self,
+        task_id: &str,
+        message_uuid: &str,
+    ) -> Result<bool, MessageError> {
+        let id = parse_message_id(message_uuid)?;
+        self.inbox
+            .cancel_queued(task_id, id)
+            .await
+            .map_err(MessageError::PersistMessage)
+    }
+
+    /// Replace a waiting `queue` Message's text, and its files when `file_ids`
+    /// is `Some`. `false` when it is not one still waiting.
+    pub async fn edit_queued(
+        &self,
+        task_id: &str,
+        message_uuid: &str,
+        text: &str,
+        file_ids: Option<&[String]>,
+    ) -> Result<bool, MessageError> {
+        let id = parse_message_id(message_uuid)?;
+        self.inbox
+            .edit_queued(task_id, id, text, file_ids)
+            .await
+            .map_err(MessageError::PersistMessage)
+    }
+
+    /// Move a waiting `queue` Message to just before `before`, or to the end.
+    /// `false` when it is not one still waiting.
+    pub async fn reorder_queued(
+        &self,
+        task_id: &str,
+        message_uuid: &str,
+        before: Option<&str>,
+    ) -> Result<bool, MessageError> {
+        let id = parse_message_id(message_uuid)?;
+        let before = before.map(parse_message_id).transpose()?;
+        self.inbox
+            .reorder_queued(task_id, id, before)
+            .await
+            .map_err(MessageError::PersistMessage)
+    }
+
     /// Cancel the pending Messages addressed to `task_ids`, so none of them
     /// opens a turn. Returns how many it cancelled.
     pub async fn dispose_pending(&self, task_ids: &[String]) -> Result<u64, sqlx::Error> {

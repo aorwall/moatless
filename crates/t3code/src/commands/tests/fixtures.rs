@@ -81,6 +81,22 @@ pub(super) enum Call {
         task_id: String,
         message_uuid: String,
     },
+    /// A [`QueueChange`] as `{kind} {message_uuid}`, with an edit's text and
+    /// a reorder's target after it.
+    ChangeQueue {
+        task_id: String,
+        change: String,
+    },
+    Visit {
+        task_id: String,
+        visited_at: String,
+    },
+    MarkUnread {
+        task_id: String,
+    },
+    Delete {
+        task_id: String,
+    },
     Snooze {
         task_id: String,
         snoozed_until: String,
@@ -361,6 +377,62 @@ impl ThreadCommandSink for RecordingSink {
             .push(pull_request_call(reference, false));
         Ok(())
     }
+    async fn change_queue(
+        &self,
+        _viewer: &ScopeContext,
+        task_id: &str,
+        change: QueueChange,
+    ) -> Result<(), CommandRefusal> {
+        let change = match change {
+            QueueChange::Cancel { message_uuid } => format!("cancel {message_uuid}"),
+            QueueChange::Edit {
+                message_uuid,
+                text,
+                attachments,
+            } => format!(
+                "edit {message_uuid} {text} files={:?}",
+                attachments.map(|a| a.len())
+            ),
+            QueueChange::Reorder {
+                message_uuid,
+                before,
+            } => format!("reorder {message_uuid} before={before:?}"),
+            QueueChange::Resume => "resume".to_string(),
+        };
+        self.0.lock().unwrap().push(Call::ChangeQueue {
+            task_id: task_id.to_string(),
+            change,
+        });
+        Ok(())
+    }
+    async fn visit(
+        &self,
+        _viewer: &ScopeContext,
+        task_id: &str,
+        visited_at: DateTime<Utc>,
+    ) -> Result<(), CommandRefusal> {
+        self.0.lock().unwrap().push(Call::Visit {
+            task_id: task_id.to_string(),
+            visited_at: visited_at.to_rfc3339(),
+        });
+        Ok(())
+    }
+    async fn mark_unread(
+        &self,
+        _viewer: &ScopeContext,
+        task_id: &str,
+    ) -> Result<(), CommandRefusal> {
+        self.0.lock().unwrap().push(Call::MarkUnread {
+            task_id: task_id.to_string(),
+        });
+        Ok(())
+    }
+    async fn delete(&self, _viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
+        self.0.lock().unwrap().push(Call::Delete {
+            task_id: task_id.to_string(),
+        });
+        Ok(())
+    }
 }
 
 fn pull_request_call(reference: ThreadPullRequestRef, linked: bool) -> Call {
@@ -458,6 +530,7 @@ pub(super) fn conversation(agent_profile: AgentProfile) -> Conversation {
         settled_at: None,
         snoozed_until: None,
         snoozed_at: None,
+        last_read_at: None,
         pull_requests: None,
     }
 }
@@ -495,6 +568,7 @@ pub(super) fn asked(tool_name: &str) -> InteractiveCall {
     InteractiveCall {
         tool_name: tool_name.to_string(),
         settled: false,
+        questions: vec!["q".to_string()],
     }
 }
 

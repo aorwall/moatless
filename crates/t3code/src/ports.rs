@@ -223,6 +223,26 @@ pub struct QuestionAnswer {
     pub payload: Option<serde_json::Value>,
 }
 
+/// One change to the turns a thread has queued, each named by its message id.
+pub enum QueueChange {
+    Cancel {
+        message_uuid: String,
+    },
+    /// `attachments` replaces the message's files when `Some`.
+    Edit {
+        message_uuid: String,
+        text: String,
+        attachments: Option<Vec<TurnAttachment>>,
+    },
+    /// Move before `before`, or to the end of the queue.
+    Reorder {
+        message_uuid: String,
+        before: Option<String>,
+    },
+    /// Deliver what a stop left waiting.
+    Resume,
+}
+
 /// The agent catalog, as this viewer can use it.
 #[async_trait]
 pub trait AgentCatalogSource: Send + Sync {
@@ -623,6 +643,32 @@ pub trait ThreadCommandSink: Send + Sync {
     ) -> Result<(), CommandRefusal>;
 
     async fn unsettle(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;
+
+    /// Change a turn still waiting in the queue, or release a queue a stop
+    /// held. A message the agent has already taken is refused, not changed.
+    async fn change_queue(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+        change: QueueChange,
+    ) -> Result<(), CommandRefusal>;
+
+    /// Record that the viewer has seen this thread up to `visited_at`. The
+    /// stored mark only moves forward.
+    async fn visit(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+        visited_at: DateTime<Utc>,
+    ) -> Result<(), CommandRefusal>;
+
+    /// Show this thread unread to the viewer again, until their next visit.
+    async fn mark_unread(&self, viewer: &ScopeContext, task_id: &str)
+    -> Result<(), CommandRefusal>;
+
+    /// Delete the thread and everything it owns. Refuses `NotWritable` for a
+    /// viewer who may not delete the Task in the Moatless UI either.
+    async fn delete(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;
 
     async fn snooze(
         &self,

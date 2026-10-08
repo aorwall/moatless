@@ -535,6 +535,36 @@ impl ports::ThreadCommandSink for UnreachableCommands {
     ) -> Result<(), ports::CommandRefusal> {
         unreachable!("no test in this file unlinks a pull request")
     }
+    async fn change_queue(
+        &self,
+        _viewer: &ScopeContext,
+        _task_id: &str,
+        _change: ports::QueueChange,
+    ) -> Result<(), ports::CommandRefusal> {
+        unreachable!("no test in this file changes a queue")
+    }
+    async fn visit(
+        &self,
+        _viewer: &ScopeContext,
+        _task_id: &str,
+        _visited_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), ports::CommandRefusal> {
+        unreachable!("no test in this file visits a thread")
+    }
+    async fn mark_unread(
+        &self,
+        _viewer: &ScopeContext,
+        _task_id: &str,
+    ) -> Result<(), ports::CommandRefusal> {
+        unreachable!("no test in this file marks a thread unread")
+    }
+    async fn delete(
+        &self,
+        _viewer: &ScopeContext,
+        _task_id: &str,
+    ) -> Result<(), ports::CommandRefusal> {
+        unreachable!("no test in this file deletes a thread")
+    }
 }
 
 /// These tests are about the envelope encoding, so the listing behind it is a

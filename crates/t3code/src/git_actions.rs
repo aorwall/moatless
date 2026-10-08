@@ -482,6 +482,7 @@ mod tests {
             settled_at: None,
             snoozed_until: None,
             snoozed_at: None,
+            last_read_at: None,
             pull_requests: None,
         }
     }
@@ -649,6 +650,36 @@ mod tests {
         ) -> Result<(), crate::ports::CommandRefusal> {
             unreachable!("a git action never unlinks a pull request")
         }
+        async fn change_queue(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+            _change: crate::ports::QueueChange,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!()
+        }
+        async fn visit(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+            _visited_at: chrono::DateTime<chrono::Utc>,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!()
+        }
+        async fn mark_unread(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!()
+        }
+        async fn delete(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!()
+        }
     }
 
     /// A sink that refuses every send, standing in for the write failing after
@@ -808,6 +839,36 @@ mod tests {
             &self,
             _viewer: &ScopeContext,
             _reference: crate::ports::ThreadPullRequestRef,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!()
+        }
+        async fn change_queue(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+            _change: crate::ports::QueueChange,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!()
+        }
+        async fn visit(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+            _visited_at: chrono::DateTime<chrono::Utc>,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!()
+        }
+        async fn mark_unread(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!()
+        }
+        async fn delete(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
         ) -> Result<(), crate::ports::CommandRefusal> {
             unreachable!()
         }

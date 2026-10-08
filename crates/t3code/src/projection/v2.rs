@@ -196,7 +196,10 @@ fn v2_common_fields(
     row.insert("activeProviderThreadId".into(), Value::Null);
     row.insert("lineage".into(), lineage.to_value());
     row.insert("forkedFrom".into(), lineage.forked_from_value());
-    row.insert("lastVisitedAt".into(), Value::Null);
+    row.insert(
+        "lastVisitedAt".into(),
+        nullable_instant(conversation.last_read_at),
+    );
     row.insert("deletedAt".into(), Value::Null);
     row
 }
@@ -696,12 +699,19 @@ pub(crate) fn runs(
             "contextHandoffId": Value::Null
         }));
     }
-    let queued = transcript
+    let mut queued: Vec<&TranscriptMessage> = transcript
         .messages
         .iter()
         .filter(|message| is_pending(message))
-        .filter(|message| pending_run(message, steered.as_deref()).is_none());
-    for (position, message) in queued.enumerate() {
+        .filter(|message| pending_run(message, steered.as_deref()).is_none())
+        .collect();
+    // Stable, so arrival order stands among the ones nobody moved.
+    queued.sort_by_key(|message| (message.queue_order.is_none(), message.queue_order));
+    // A stop leaves the queue waiting for the next send
+    // (`dispatcher::dispatch_when_turn_ends`); `queue.resume` releases it.
+    let held = !turn_is_open(conversation)
+        && conversation.turn_status.as_deref().and_then(turn_state) == Some("interrupted");
+    for (position, message) in queued.into_iter().enumerate() {
         let at = instant(message_instant(conversation, message));
         let position = i32::try_from(position).unwrap_or(i32::MAX - 1) + 1;
         runs.push(json!({
@@ -716,6 +726,7 @@ pub(crate) fn runs(
             "activeAttemptId": Value::Null,
             "status": "queued",
             "queuePosition": position,
+            "queueHeld": held,
             "requestedAt": at,
             "startedAt": Value::Null,
             "completedAt": Value::Null,
@@ -1098,8 +1109,8 @@ fn request_status<'a>(
 
 /// One `OrchestrationV2RuntimeRequest` per question the agent asked, joined to
 /// its `user_input_request` turn item by `requestId`. `responseCapability` is
-/// `live` because an answer reaches the agent while its turn waits; the session
-/// id is a stand-in the client only compares, never dials.
+/// `message` because an answer is delivered as a Message, which also reaches
+/// a turn that has ended; it is what makes the client offer Dismiss.
 pub(crate) fn runtime_requests(conversation: &Conversation, transcript: &Transcript) -> Vec<Value> {
     transcript
         .activities
@@ -1125,10 +1136,7 @@ pub(crate) fn runtime_requests(conversation: &Conversation, transcript: &Transcr
                 "nativeRequestRef": Value::Null,
                 "kind": "user_input",
                 "status": status,
-                "responseCapability": {
-                    "type": "live",
-                    "providerSessionId": format!("moatless:{}", conversation.task_id)
-                },
+                "responseCapability": { "type": "message" },
                 "createdAt": at,
                 "resolvedAt": resolved_at
             });

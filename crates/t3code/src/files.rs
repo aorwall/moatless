@@ -509,6 +509,7 @@ mod tests {
             settled_at: None,
             snoozed_until: None,
             snoozed_at: None,
+            last_read_at: None,
         }
     }
 

@@ -14,6 +14,7 @@ mod checkout;
 mod commands;
 mod compose;
 mod config;
+mod conversation_agent;
 pub(crate) mod dao;
 mod feed;
 pub mod files;

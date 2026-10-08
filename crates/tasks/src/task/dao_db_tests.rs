@@ -861,3 +861,102 @@ async fn insert_task_persists_the_workspace_it_was_given(pool: PgPool) {
         .expect("task present");
     assert_eq!(stored.workspace_id.as_deref(), Some("ws-explicit"));
 }
+
+async fn read_receipt(pool: &PgPool, user_id: &str, task_id: &str) -> Option<DateTime<Utc>> {
+    sqlx::query_scalar(
+        "SELECT last_read_at FROM task_read_receipts WHERE user_id = $1 AND task_id = $2",
+    )
+    .bind(user_id)
+    .bind(task_id)
+    .fetch_optional(pool)
+    .await
+    .unwrap()
+}
+
+async fn listing_changes(pool: &PgPool, task_id: &str) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM task_listing_changes WHERE task_id = $1")
+        .bind(task_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+#[sqlx::test]
+async fn mark_unread_rewinds_the_receipt_before_the_last_ended_turn(pool: PgPool) {
+    let user = "user-1";
+    seed_repo(&pool, "repo-1", user).await;
+    seed_task(&pool, &make_task_row("task-read", user))
+        .await
+        .unwrap();
+    let ended = Utc::now() - Duration::minutes(5);
+    sqlx::query(
+        "INSERT INTO task_turns (task_id, turn_number, status, ended_at) \
+         VALUES ('task-read', 1, 'completed', $1)",
+    )
+    .bind(ended)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let repo = store_over(&pool);
+
+    repo.mark_task_read(user, "task-read", Utc::now())
+        .await
+        .unwrap();
+    let before = listing_changes(&pool, "task-read").await;
+    repo.mark_task_unread(user, "task-read").await.unwrap();
+
+    let receipt = read_receipt(&pool, user, "task-read").await.unwrap();
+    assert!(receipt < ended);
+    assert_eq!(listing_changes(&pool, "task-read").await, before + 1);
+
+    // Already before the last turn: nothing moves and no change is recorded.
+    repo.mark_task_unread(user, "task-read").await.unwrap();
+    assert_eq!(read_receipt(&pool, user, "task-read").await, Some(receipt));
+    assert_eq!(listing_changes(&pool, "task-read").await, before + 1);
+}
+
+#[sqlx::test]
+async fn mark_unread_drops_the_receipt_when_no_turn_has_ended(pool: PgPool) {
+    let user = "user-1";
+    seed_repo(&pool, "repo-1", user).await;
+    seed_task(&pool, &make_task_row("task-fresh", user))
+        .await
+        .unwrap();
+    let repo = store_over(&pool);
+
+    repo.mark_task_read(user, "task-fresh", Utc::now())
+        .await
+        .unwrap();
+    repo.mark_task_unread(user, "task-fresh").await.unwrap();
+
+    assert_eq!(read_receipt(&pool, user, "task-fresh").await, None);
+}
+
+#[sqlx::test]
+async fn delete_task_removes_its_tags_follows_and_receipts(pool: PgPool) {
+    let user = "user-1";
+    seed_repo(&pool, "repo-1", user).await;
+    seed_task(&pool, &make_task_row("task-gone", user))
+        .await
+        .unwrap();
+    tag_task(&pool, "task-gone", &["bug"]).await;
+    let repo = store_over(&pool);
+    repo.follow_task(user, "task-gone").await.unwrap();
+    repo.mark_task_read(user, "task-gone", Utc::now())
+        .await
+        .unwrap();
+
+    remove_task(&pool, "task-gone", &scope_ctx(user))
+        .await
+        .unwrap();
+
+    for table in ["task_tags", "task_follows", "task_read_receipts"] {
+        let left: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT count(*) FROM {table} WHERE task_id = 'task-gone'"
+        )))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(left, 0, "{table} kept a row for the deleted task");
+    }
+}

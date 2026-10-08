@@ -19,7 +19,8 @@ use base64::Engine;
 use super::dao::{Conversation, ConversationDao};
 use super::ports::{
     AgentCatalogSource, AttachmentKind, CommandRefusal, ForkThread, NewThread, QuestionAnswer,
-    SkillCatalog, ThreadCommandSink, ThreadMeta, ThreadPullRequestRef, ThreadTurn, TurnAttachment,
+    QueueChange, SkillCatalog, ThreadCommandSink, ThreadMeta, ThreadPullRequestRef, ThreadTurn,
+    TurnAttachment,
 };
 use super::providers;
 use crate::scripts::{self, ScriptsWriteError};
@@ -90,6 +91,29 @@ pub async fn dispatch(
             require_controllable(ctx, viewer, task_id).await?;
             ctx.sink.steer_queued(viewer, task_id, message_uuid).await?;
         }
+        "thread.queuedTurn.cancel"
+        | "thread.queuedTurn.edit"
+        | "thread.queuedTurn.reorder"
+        | "thread.queue.resume" => change_queue(ctx, viewer, &tag, command).await?,
+        "thread.visit" => {
+            let visited_at = command
+                .get("visitedAt")
+                .and_then(Value::as_str)
+                .ok_or_else(|| missing("visitedAt"))?;
+            let visited_at = DateTime::parse_from_rfc3339(visited_at)
+                .map_err(|_| CommandRefusal::Rejected {
+                    message: format!("`{visited_at}` is not a timestamp."),
+                })?
+                .with_timezone(&Utc);
+            // A clock ahead of ours must not hide activity still to come.
+            let visited_at = visited_at.min(Utc::now());
+            ctx.sink
+                .visit(viewer, thread_id(command)?, visited_at)
+                .await?;
+        }
+        "thread.mark-unread" => {
+            ctx.sink.mark_unread(viewer, thread_id(command)?).await?;
+        }
         "thread.settle" => {
             ctx.sink.settle(viewer, thread_id(command)?).await?;
         }
@@ -143,10 +167,7 @@ pub async fn dispatch(
         "thread.runtime-mode.set" | "thread.interaction-mode.set" => {}
 
         "thread.delete" => {
-            return Err(CommandRefusal::Unsupported {
-                command: tag,
-                reason: "Archive it instead, or delete it from the Moatless UI.".to_string(),
-            });
+            ctx.sink.delete(viewer, thread_id(command)?).await?;
         }
         "project.meta.update" => project_meta_update(ctx, viewer, command).await?,
         "project.create" | "project.delete" => {
@@ -681,6 +702,10 @@ const PROJECT_FIELDS_MOATLESS_OWNS: [&str; 6] = [
     "projectIcon",
 ];
 
+/// What the agent reads when a person closes its question unanswered.
+const DISMISSED_QUESTION: &str = "The user dismissed this question without answering.";
+const DISMISSED_PLAN: &str = "The user dismissed this plan without a decision.";
+
 /// An answer to what the agent asked.
 ///
 /// `requestId` names the tool-use call that asked, and its stored tool decides
@@ -720,8 +745,18 @@ async fn respond(
         });
     }
 
+    let dismissed = command.get("dismissed").and_then(Value::as_bool) == Some(true);
     let answers = answers_by_question(command.get("answers"));
     let payload = match call.tool_name.as_str() {
+        mapping::QUESTION_TOOL if dismissed => {
+            let answers: serde_json::Map<String, Value> = call
+                .questions
+                .iter()
+                .map(|question| (question.clone(), json!(DISMISSED_QUESTION)))
+                .collect();
+            json!({ "answers": answers })
+        }
+        mapping::PLAN_TOOL if dismissed => json!({ "approved": false, "feedback": DISMISSED_PLAN }),
         mapping::QUESTION_TOOL => json!({ "answers": answers }),
         mapping::PLAN_TOOL => plan_verdict(&answers),
         other => {
@@ -742,6 +777,51 @@ async fn respond(
             },
         )
         .await
+}
+
+/// A queued-turn command as the [`QueueChange`] it asks for, on a thread the
+/// viewer may run turns on.
+async fn change_queue(
+    ctx: &CommandContext<'_>,
+    viewer: &ScopeContext,
+    tag: &str,
+    command: &Value,
+) -> Result<(), CommandRefusal> {
+    let task_id = thread_id(command)?;
+    let message_uuid = || {
+        command
+            .get("messageId")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| missing("messageId"))
+    };
+    let change = match tag {
+        "thread.queuedTurn.cancel" => QueueChange::Cancel {
+            message_uuid: message_uuid()?,
+        },
+        "thread.queuedTurn.edit" => QueueChange::Edit {
+            message_uuid: message_uuid()?,
+            text: command
+                .get("text")
+                .and_then(Value::as_str)
+                .ok_or_else(|| missing("text"))?
+                .to_string(),
+            attachments: match command.get("attachments") {
+                Some(Value::Array(_)) => Some(attachments(command)?),
+                _ => None,
+            },
+        },
+        "thread.queuedTurn.reorder" => QueueChange::Reorder {
+            message_uuid: message_uuid()?,
+            before: command
+                .get("beforeMessageId")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        },
+        _ => QueueChange::Resume,
+    };
+    require_controllable(ctx, viewer, task_id).await?;
+    ctx.sink.change_queue(viewer, task_id, change).await
 }
 
 /// The `ThreadPullRequestKey` a link or unlink command carries, on a Thread

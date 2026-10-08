@@ -67,6 +67,8 @@ pub(crate) async fn submit(
 }
 
 /// Oldest first, at most `limit`, less every `queue` item when `hold_queued`.
+/// A reordered `queue` item takes its `queue_order` place ahead of later
+/// arrivals.
 pub(crate) async fn pending(
     pool: &DbPool,
     task_id: &str,
@@ -77,7 +79,7 @@ pub(crate) async fn pending(
         r#"SELECT * FROM task_inbox
             WHERE task_id = $1 AND status = 'pending'
               AND NOT ($3 AND COALESCE(delivery_options ? 'queue', false))
-            ORDER BY created_at, id
+            ORDER BY queue_order NULLS LAST, created_at, id
             LIMIT $2"#,
     )
     .bind(task_id)
@@ -130,6 +132,94 @@ pub(crate) async fn steer(pool: &DbPool, task_id: &str, id: Uuid) -> Result<bool
     .fetch_optional(pool)
     .await?;
     Ok(steered.is_some())
+}
+
+/// Withdraw one pending `queue` item before any turn takes it. `false` when it
+/// is not a pending `queue` item in `task_id`.
+pub(crate) async fn cancel_queued(
+    tx: &mut Transaction<'_, Postgres>,
+    task_id: &str,
+    id: Uuid,
+) -> Result<bool, sqlx::Error> {
+    let cancelled: Option<Uuid> = sqlx::query_scalar(
+        r#"UPDATE task_inbox
+              SET status = 'cancelled'
+            WHERE task_id = $1 AND id = $2 AND status = 'pending'
+              AND delivery_options ? 'queue'
+        RETURNING id"#,
+    )
+    .bind(task_id)
+    .bind(id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    if cancelled.is_some() {
+        clear_settled_pending_work(tx, task_id).await?;
+    }
+    Ok(cancelled.is_some())
+}
+
+/// Replace a pending `queue` item's text, and its files when `file_ids` is
+/// `Some`. `false` when it is not a pending `queue` item in `task_id`.
+pub(crate) async fn edit_queued(
+    tx: &mut Transaction<'_, Postgres>,
+    task_id: &str,
+    id: Uuid,
+    text: &str,
+    file_ids: Option<&[String]>,
+) -> Result<bool, sqlx::Error> {
+    let edited: Option<Uuid> = sqlx::query_scalar(
+        r#"UPDATE task_inbox
+              SET text = $3, file_ids = COALESCE($4, file_ids)
+            WHERE task_id = $1 AND id = $2 AND status = 'pending'
+              AND delivery_options ? 'queue'
+        RETURNING id"#,
+    )
+    .bind(task_id)
+    .bind(id)
+    .bind(text)
+    .bind(file_ids)
+    .fetch_optional(&mut **tx)
+    .await?;
+    Ok(edited.is_some())
+}
+
+/// Move one pending `queue` item to just before `before`, or to the end when
+/// `before` is `None`, renumbering every pending `queue` item of `task_id`.
+/// Returns the renumbered ids, empty when `id` is not one of them.
+pub(crate) async fn reorder_queued(
+    tx: &mut Transaction<'_, Postgres>,
+    task_id: &str,
+    id: Uuid,
+    before: Option<Uuid>,
+) -> Result<Vec<Uuid>, sqlx::Error> {
+    // Locked, so two reorders of one queue cannot interleave their renumbering.
+    let mut order: Vec<Uuid> = sqlx::query_scalar(
+        r#"SELECT id FROM task_inbox
+            WHERE task_id = $1 AND status = 'pending' AND delivery_options ? 'queue'
+            ORDER BY queue_order NULLS LAST, created_at, id
+            FOR UPDATE"#,
+    )
+    .bind(task_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    let Some(from) = order.iter().position(|queued| *queued == id) else {
+        return Ok(Vec::new());
+    };
+    order.remove(from);
+    let to = before
+        .and_then(|before| order.iter().position(|queued| *queued == before))
+        .unwrap_or(order.len());
+    order.insert(to, id);
+    sqlx::query(
+        r#"UPDATE task_inbox i
+              SET queue_order = o.ordinality::int
+             FROM unnest($1::uuid[]) WITH ORDINALITY AS o(id, ordinality)
+            WHERE i.id = o.id"#,
+    )
+    .bind(&order)
+    .execute(&mut **tx)
+    .await?;
+    Ok(order)
 }
 
 /// Cancel every pending item addressed to one of `task_ids`, and returns how

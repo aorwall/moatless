@@ -360,3 +360,66 @@ async fn disposing_a_subtree_leaves_what_it_sent_to_other_inboxes(pool: PgPool) 
         ]
     );
 }
+
+/// A person changes what waits in the queue: removes one, rewrites one, and
+/// moves one ahead; a later arrival sorts after the ones they placed.
+#[sqlx::test]
+async fn a_waiting_queue_item_can_be_removed_edited_and_moved(pool: PgPool) {
+    seed_bare_task(&pool, "t1", "open").await;
+    let ids: Vec<Uuid> = (0..4).map(|_| Uuid::new_v4()).collect();
+    for (n, id) in ids[..3].iter().enumerate() {
+        let mut item = user_item("t1", *id, &n.to_string());
+        item.options.queue = true;
+        queue_message(&pool, item).await.unwrap();
+    }
+    let inbox = InboxService::new(pool.clone());
+    let texts = || async {
+        inbox
+            .pending("t1", 10, false)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|item| item.text)
+            .collect::<Vec<_>>()
+    };
+
+    assert!(inbox.cancel_queued("t1", ids[0]).await.unwrap());
+    assert!(
+        !inbox.cancel_queued("t1", ids[0]).await.unwrap(),
+        "a cancelled item is no longer waiting"
+    );
+    assert!(
+        inbox
+            .edit_queued("t1", ids[1], "one, again", None)
+            .await
+            .unwrap()
+    );
+    assert!(
+        inbox
+            .reorder_queued("t1", ids[2], Some(ids[1]))
+            .await
+            .unwrap()
+    );
+    assert_eq!(texts().await, ["2", "one, again"]);
+
+    let mut later = user_item("t1", ids[3], "3");
+    later.options.queue = true;
+    queue_message(&pool, later).await.unwrap();
+    assert!(inbox.reorder_queued("t1", ids[2], None).await.unwrap());
+    assert_eq!(texts().await, ["one, again", "3", "2"]);
+
+    assert!(
+        !inbox
+            .edit_queued("t2", ids[1], "elsewhere", None)
+            .await
+            .unwrap(),
+        "another Task's id changes nothing"
+    );
+    acknowledge_messages(&pool, "t1", &[ids[1].to_string()], "s", 1)
+        .await
+        .unwrap();
+    assert!(
+        !inbox.cancel_queued("t1", ids[1]).await.unwrap(),
+        "a delivered item is the agent's"
+    );
+}

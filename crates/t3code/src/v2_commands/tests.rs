@@ -152,7 +152,7 @@ fn approvals_are_refused_and_answers_become_user_input_responses() {
 #[test]
 fn client_local_state_is_discarded_and_unknown_commands_refused() {
     assert_eq!(
-        translate(&json!({ "type": "thread.visit", "threadId": "task-1" })).unwrap(),
+        translate(&json!({ "type": "thread.runtime-mode.set", "threadId": "task-1" })).unwrap(),
         Translated::Discarded
     );
     assert!(matches!(
@@ -210,4 +210,69 @@ fn a_project_update_is_a_meta_update_and_auto_pull_is_refused() {
 
     let delete = json!({ "type": "project.delete", "commandId": "c1", "projectId": "ws-1" });
     assert_eq!(project_mutation(&delete).expect("passed on"), delete);
+}
+
+#[test]
+fn queued_run_commands_name_the_message_their_run_waits_to_deliver() {
+    let cancel = v1(json!({
+        "type": "queued-run.cancel",
+        "threadId": "task-1",
+        "runId": "task-1:queued:msg-2"
+    }));
+    assert_eq!(cancel["type"], json!("thread.queuedTurn.cancel"));
+    assert_eq!(cancel["messageId"], json!("msg-2"));
+
+    let edit = v1(json!({
+        "type": "queued-run.edit",
+        "threadId": "task-1",
+        "runId": "task-1:queued:msg-2",
+        "text": "again",
+        "attachments": []
+    }));
+    assert_eq!(edit["type"], json!("thread.queuedTurn.edit"));
+    assert_eq!(edit["text"], json!("again"));
+    assert_eq!(edit["attachments"], json!([]));
+
+    let reorder = v1(json!({
+        "type": "queued-run.reorder",
+        "threadId": "task-1",
+        "runId": "task-1:queued:msg-2",
+        "beforeRunId": "task-1:queued:msg-1"
+    }));
+    assert_eq!(reorder["type"], json!("thread.queuedTurn.reorder"));
+    assert_eq!(reorder["beforeMessageId"], json!("msg-1"));
+    let to_end = v1(json!({
+        "type": "queued-run.reorder",
+        "threadId": "task-1",
+        "runId": "task-1:queued:msg-2",
+        "beforeRunId": null
+    }));
+    assert_eq!(to_end["beforeMessageId"], Value::Null);
+
+    assert!(matches!(
+        refusal(json!({ "type": "queued-run.cancel", "runId": "task-1:3" })),
+        CommandRefusal::Rejected { .. }
+    ));
+}
+
+#[test]
+fn resume_dismiss_and_read_marks_translate_to_their_v1_commands() {
+    assert_eq!(
+        v1(json!({ "type": "queue.resume", "threadId": "task-1" }))["type"],
+        json!("thread.queue.resume")
+    );
+    let dismiss = v1(json!({
+        "type": "thread.user-input.dismiss",
+        "threadId": "task-1",
+        "requestId": "req-1"
+    }));
+    assert_eq!(dismiss["type"], json!("thread.user-input.respond"));
+    assert_eq!(dismiss["requestId"], json!("req-1"));
+    assert_eq!(dismiss["dismissed"], json!(true));
+    for tag in ["thread.visit", "thread.mark-unread", "thread.delete"] {
+        assert_eq!(
+            v1(json!({ "type": tag, "threadId": "task-1" }))["type"],
+            json!(tag)
+        );
+    }
 }

@@ -45,6 +45,7 @@ fn conversation(task_id: &str) -> Conversation {
         settled_at: None,
         snoozed_until: None,
         snoozed_at: None,
+        last_read_at: None,
         pull_requests: None,
     }
 }
@@ -71,6 +72,7 @@ fn message(
         user_type: "default".to_string(),
         sandbox_wake: false,
         held: false,
+        queue_order: None,
         turn_number,
         timestamp: "2026-07-01T09:05:00.000Z".to_string(),
         created_at: Some(Utc::now()),
@@ -812,6 +814,45 @@ fn a_held_message_is_a_queued_run_and_stays_out_of_the_timeline() {
         timeline_runs(&conversation, &transcript),
         vec![("msg-1".to_string(), json!("task-1:1"))]
     );
+}
+
+#[test]
+fn a_moved_queued_message_runs_before_the_ones_nobody_moved() {
+    let conversation = awake(open_turn(conversation("task-1"), 1, "active"));
+    let moved = |mut message: TranscriptMessage, order: i32| {
+        message.queue_order = Some(order);
+        message
+    };
+    let transcript = Transcript {
+        messages: vec![
+            message("msg-1", Some(1), "first", MessageType::User),
+            held(message("msg-2", None, "arrived first", MessageType::User)),
+            moved(held(message("msg-3", None, "moved", MessageType::User)), 1),
+            held(message("msg-4", None, "arrived last", MessageType::User)),
+        ],
+        ..Transcript::default()
+    };
+    let runs = runs(&conversation, &transcript, &AgentModelDefaults::default());
+    let queued: Vec<&Value> = runs[1..].iter().map(|run| &run["userMessageId"]).collect();
+    assert_eq!(queued, [&json!("msg-3"), &json!("msg-2"), &json!("msg-4")]);
+    assert!(runs[1..].iter().all(|run| run["queueHeld"] == json!(false)));
+}
+
+/// A stop leaves what was queued waiting, so the client offers Resume.
+#[test]
+fn a_stopped_turn_holds_the_queue() {
+    let transcript = Transcript {
+        messages: vec![
+            message("msg-1", Some(1), "first", MessageType::User),
+            held(message("msg-2", None, "next", MessageType::User)),
+        ],
+        ..Transcript::default()
+    };
+    for (status, expected) in [("stopped", true), ("completed", false), ("error", false)] {
+        let conversation = open_turn(conversation("task-1"), 1, status);
+        let runs = runs(&conversation, &transcript, &AgentModelDefaults::default());
+        assert_eq!(runs[1]["queueHeld"], json!(expected), "{status}");
+    }
 }
 
 #[test]

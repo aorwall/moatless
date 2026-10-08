@@ -171,3 +171,22 @@ pub async fn steer_queued_message(
     }
     Ok(())
 }
+
+/// Release the Messages a stop left waiting in `task_id`'s queue: wake the
+/// sandbox, whose next fetch outside a turn delivers them.
+pub async fn resume_queue(
+    tasks: &TaskCommands,
+    message_send: &MessageSendService,
+    sandbox_waker: &dyn SandboxWaker,
+    sender: &Sender<'_>,
+    task_id: &str,
+) -> Result<(), MessageError> {
+    tasks
+        .find_by_id(task_id, sender.scope)
+        .await?
+        .ok_or_else(|| MessageError::NotFound(task_id.to_string()))?;
+    if let Some(error_msg) = super::wake::wake_for_message(sandbox_waker, task_id).await {
+        message_send.persist_error_result(task_id, &error_msg).await;
+    }
+    Ok(())
+}

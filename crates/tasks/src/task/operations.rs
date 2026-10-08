@@ -178,6 +178,11 @@ impl TaskCommands {
         self.store.mark_task_read(user_id, task_id, read_at).await
     }
 
+    /// See [`TaskDao::mark_task_unread`].
+    pub async fn mark_task_unread(&self, user_id: &str, task_id: &str) -> Result<(), sqlx::Error> {
+        self.store.mark_task_unread(user_id, task_id).await
+    }
+
     /// See [`TaskDao::get_read_receipts`].
     pub async fn get_read_receipts(
         &self,

@@ -678,6 +678,7 @@ mod tests {
             settled_at: None,
             snoozed_until: None,
             snoozed_at: None,
+            last_read_at: None,
             pull_requests: None,
         }
     }
@@ -692,6 +693,7 @@ mod tests {
             user_type: "human".into(),
             sandbox_wake: false,
             held: false,
+            queue_order: None,
             turn_number: Some(3),
             timestamp: "2026-07-01T10:00:00.000Z".into(),
             created_at: None,

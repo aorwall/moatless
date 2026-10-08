@@ -6,8 +6,8 @@ use super::pull_requests::github_owner_repo;
 use crate::state::AppState;
 use async_trait::async_trait;
 use moatless_t3code::ports::{
-    CommandRefusal, ForkThread, NewThread, QuestionAnswer, ThreadCommandSink, ThreadMeta,
-    ThreadPullRequestRef, ThreadTurn,
+    CommandRefusal, ForkThread, NewThread, QuestionAnswer, QueueChange, ThreadCommandSink,
+    ThreadMeta, ThreadPullRequestRef, ThreadTurn,
 };
 use moatless_tasks::message::error::MessageError;
 use moatless_tasks::message::service as message_service;
@@ -16,6 +16,7 @@ use moatless_tasks::task::models::Task;
 use moatless_tasks::task::models::TaskPatch;
 use moatless_tasks::task::models::TaskStatus;
 use moatless_tasks::task::operations::TaskCommands;
+use moatless_tasks::task::removal;
 use moatless_tasks::task::service as task_service;
 use moatless_tasks::task::switch::SwitchCredentials;
 use moatless_types::access_control::ScopeContext;
@@ -742,6 +743,100 @@ impl ThreadCommandSink for AppStateCommands {
             .unsnooze_task(&viewer.user_id, task_id)
             .await
             .map_err(|e| Self::state_refusal(task_id, e))
+    }
+
+    async fn change_queue(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+        change: QueueChange,
+    ) -> Result<(), CommandRefusal> {
+        let send = self.0.message_send.as_ref();
+        let changed = match change {
+            QueueChange::Resume => {
+                return message_service::resume_queue(
+                    self.0.tasks.as_ref(),
+                    send,
+                    self.0.sandbox_waker.as_ref(),
+                    &Self::sender(viewer),
+                    task_id,
+                )
+                .await
+                .map_err(|e| send_refusal(task_id, e));
+            }
+            QueueChange::Cancel { message_uuid } => {
+                send.cancel_queued(task_id, &message_uuid).await
+            }
+            QueueChange::Edit {
+                message_uuid,
+                text,
+                attachments,
+            } => {
+                let file_ids = match attachments {
+                    Some(attachments) => Some(
+                        self.resolve_attachments(viewer, &attachments)
+                            .await?
+                            .file_ids,
+                    ),
+                    None => None,
+                };
+                send.edit_queued(task_id, &message_uuid, &text, file_ids.as_deref())
+                    .await
+            }
+            QueueChange::Reorder {
+                message_uuid,
+                before,
+            } => {
+                send.reorder_queued(task_id, &message_uuid, before.as_deref())
+                    .await
+            }
+        }
+        .map_err(|e| send_refusal(task_id, e))?;
+        if !changed {
+            return Err(CommandRefusal::Rejected {
+                message: "That message is no longer waiting in the queue.".to_string(),
+            });
+        }
+        Ok(())
+    }
+
+    async fn visit(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+        visited_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), CommandRefusal> {
+        self.readable_task(viewer, task_id).await?;
+        self.0
+            .tasks
+            .mark_task_read(&viewer.user_id, task_id, visited_at)
+            .await
+            .map_err(|e| Self::state_refusal(task_id, e))
+    }
+
+    async fn mark_unread(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+    ) -> Result<(), CommandRefusal> {
+        self.readable_task(viewer, task_id).await?;
+        self.0
+            .tasks
+            .mark_task_unread(&viewer.user_id, task_id)
+            .await
+            .map_err(|e| Self::state_refusal(task_id, e))
+    }
+
+    async fn delete(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
+        removal::delete_task(
+            self.0.sandbox.as_ref(),
+            self.0.binding_directory.as_ref(),
+            self.0.tasks.as_ref(),
+            viewer,
+            task_id.to_string(),
+        )
+        .await
+        .map_err(|e| create_refusal(task_id, e))
     }
 
     async fn answer_question(

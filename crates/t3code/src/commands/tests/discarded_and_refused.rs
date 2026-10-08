@@ -34,7 +34,6 @@ async fn the_two_mode_commands_are_accepted_and_do_nothing() {
 #[tokio::test]
 async fn every_unsupported_command_is_refused_without_a_write() {
     for tag in [
-        "thread.delete",
         "project.create",
         "project.delete",
         "thread.approval.respond",

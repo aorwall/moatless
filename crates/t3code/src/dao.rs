@@ -21,6 +21,7 @@ use tracing::warn;
 
 use crate::UiRpcDbPool;
 pub use crate::archive_cursor::ArchiveCursor;
+pub use crate::conversation_agent::ConversationAgent;
 use crate::listing::{UiRpcListingChange, UiRpcListingHead};
 use crate::task_dao::{T3TaskDao, TaskView};
 use crate::transcript_dao::Transcript;
@@ -30,57 +31,9 @@ use moatless_core::change_feed::conversation::{ConversationChange, ConversationH
 use moatless_ports::activity::ActivitySource;
 use moatless_types::access_control::{ScopeContext, ScopedEntity};
 use moatless_types::activity::{PLAN_TOOL, QUESTION_TOOL};
-use moatless_types::agent::{AgentProfile, Harness};
 use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
 use moatless_types::task::{TaskStatus, Visibility};
 use moatless_workspace_types::schemas::workspace::ScriptConfig;
-
-/// The agent a [`Conversation`] runs, as stored.
-///
-/// `Unknown` keeps an id this build does not know, such as one a newer backend
-/// wrote during a rollout: the row still lists, and names no agent it is not.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ConversationAgent {
-    Known(AgentProfile),
-    Unknown(String),
-}
-
-impl ConversationAgent {
-    /// The stored `agent_profile` id.
-    pub fn as_str(&self) -> &str {
-        match self {
-            Self::Known(profile) => profile.as_str(),
-            Self::Unknown(id) => id,
-        }
-    }
-
-    /// The driver family behind the agent; `None` when this build does not
-    /// know the agent.
-    pub fn harness(&self) -> Option<Harness> {
-        match self {
-            Self::Known(profile) => Some(profile.harness()),
-            Self::Unknown(_) => None,
-        }
-    }
-}
-
-impl From<AgentProfile> for ConversationAgent {
-    fn from(profile: AgentProfile) -> Self {
-        Self::Known(profile)
-    }
-}
-
-impl From<String> for ConversationAgent {
-    fn from(id: String) -> Self {
-        AgentProfile::parse(&id).map_or(Self::Unknown(id), Self::Known)
-    }
-}
-
-impl std::fmt::Display for ConversationAgent {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
 
 /// One Task, with the derived values a sidebar row is assembled from.
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -174,6 +127,9 @@ pub struct Conversation {
     pub settled_at: Option<DateTime<Utc>>,
     pub snoozed_until: Option<DateTime<Utc>>,
     pub snoozed_at: Option<DateTime<Utc>>,
+    /// How far the viewer has read this Task (`task_read_receipts`), or
+    /// `None` when they never opened it.
+    pub last_read_at: Option<DateTime<Utc>>,
 
     /// Every GitHub pull request this Task is bound to, primary first.
     ///
@@ -273,6 +229,8 @@ pub struct InteractiveCall {
     /// Whether it has already come back. An answer to a settled call changes
     /// nothing, and saying so is more honest than reporting a send failure.
     pub settled: bool,
+    /// The text of each question an `AskUserQuestion` asked, in order.
+    pub questions: Vec<String>,
 }
 
 /// What narrows a browse of conversations the viewer does **not** follow.
@@ -834,6 +792,7 @@ impl PgConversationDao {
                    t.settled_at,
                    t.snoozed_until,
                    t.snoozed_at,
+                   receipt.last_read_at,
                    COALESCE(pr.pull_requests, '[]'::jsonb) AS pull_requests,
                    parent.task_id AS parent_task_id,
                    parent.relation_type AS parent_relation,
@@ -848,6 +807,8 @@ impl PgConversationDao {
                LEFT JOIN users owner
                  ON owner.id::text = COALESCE(t.owner_user_id, t.created_by)
                 AND COALESCE(t.owner_user_id, t.created_by) IS DISTINCT FROM ${follower}
+               LEFT JOIN task_read_receipts receipt
+                 ON receipt.task_id = t.task_id AND receipt.user_id = ${follower}
                LEFT JOIN LATERAL (
                    SELECT tt.turn_number, tt.status, tt.started_at, tt.ended_at
                    FROM task_turns tt
@@ -1482,6 +1443,15 @@ impl ConversationDao for PgConversationDao {
             .map(|activity| InteractiveCall {
                 settled: activity.is_settled(),
                 tool_name: activity.summary.clone(),
+                questions: activity
+                    .tool_input()
+                    .get("questions")
+                    .and_then(serde_json::Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|q| q.get("question").and_then(serde_json::Value::as_str))
+                    .map(str::to_string)
+                    .collect(),
             }))
     }
 

@@ -101,6 +101,7 @@ async fn an_answer_to_a_settled_call_is_refused() {
         Some(InteractiveCall {
             tool_name: mapping::QUESTION_TOOL.to_string(),
             settled: true,
+            questions: vec!["q".to_string()],
         }),
     )
     .await;
@@ -109,4 +110,35 @@ async fn an_answer_to_a_settled_call_is_refused() {
         "{result:?}"
     );
     assert!(calls.is_empty());
+}
+
+/// Dismissing answers the call so the agent can go on, saying that nobody
+/// chose: every question gets the same reply, and a plan is rejected.
+#[tokio::test]
+async fn a_dismissal_answers_every_question_and_rejects_a_plan() {
+    for (tool, expected) in [
+        (
+            mapping::QUESTION_TOOL,
+            json!({ "answers": { "q": DISMISSED_QUESTION } }),
+        ),
+        (
+            mapping::PLAN_TOOL,
+            json!({ "approved": false, "feedback": DISMISSED_PLAN }),
+        ),
+    ] {
+        let mut command = answer(json!({}));
+        command["dismissed"] = json!(true);
+        let (result, calls) = run_answering(command, Some(asked(tool))).await;
+        assert!(result.is_ok(), "{tool}");
+        assert_eq!(
+            calls,
+            vec![Call::AnswerQuestion {
+                task_id: "task-1".to_string(),
+                tool_use_id: "toolu_1".to_string(),
+                tool_name: tool.to_string(),
+                payload: Some(expected),
+            }],
+            "{tool}"
+        );
+    }
 }

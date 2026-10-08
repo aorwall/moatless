@@ -49,6 +49,7 @@ fn shell_and_detail_rows_carry_the_same_settlement_and_snooze_state() {
         settled_at: Some(settled_at),
         snoozed_until: Some(snoozed_until),
         snoozed_at: Some(snoozed_at),
+        last_read_at: None,
         ..running_conversation("task-a", "ws-a")
     };
 

@@ -20,6 +20,7 @@ mod lifecycle;
 mod meta;
 mod models;
 mod pull_requests;
+mod queue_and_visits;
 mod scope;
 mod scripts;
 mod turns;

@@ -25,6 +25,9 @@ pub(crate) fn descriptor(config: &UiRpcConfig) -> Value {
             "connectionProbe": true,
             "threadSettlement": true,
             "threadSnooze": true,
+            // `lastVisitedAt` is the viewer's read receipt, which
+            // `thread.visit` and `thread.mark-unread` move.
+            "threadVisitedTracking": true,
             // Whether `thread.visibility.set` is understood, and whether a
             // conversation row carries `visibility`. One flag for the pair: a
             // client that cannot read the current value has nothing to label

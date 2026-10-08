@@ -103,14 +103,61 @@ pub(crate) fn translate(command: &Value) -> Result<Translated, CommandRefusal> {
         }
         "checkpoint.rollback" => checkpoint_rollback(command),
         "thread.fork" => fork(command),
-        // Kept by the client itself; Moatless has no column for any of them.
-        "thread.runtime-mode.set"
-        | "thread.interaction-mode.set"
-        | "thread.visit"
-        | "thread.mark-unread" => Ok(Translated::Discarded),
+        "thread.visit" | "thread.mark-unread" => renamed(tag),
+        "queued-run.cancel" | "queued-run.edit" | "queued-run.reorder" => queued_run(command),
+        "queue.resume" => renamed("thread.queue.resume"),
+        "thread.user-input.dismiss" => {
+            let mut v1 = Map::new();
+            v1.insert("type".into(), json!("thread.user-input.respond"));
+            copy(command, &mut v1, &["commandId", "threadId", "requestId"]);
+            v1.insert("dismissed".into(), json!(true));
+            Ok(Translated::V1(Value::Object(v1)))
+        }
+        // Kept by the client itself; Moatless has no column for either.
+        "thread.runtime-mode.set" | "thread.interaction-mode.set" => Ok(Translated::Discarded),
         "thread.merge_back" => refused(tag, "Merge-back is not available on this server."),
         other => refused(other, "This server does not implement that action."),
     }
+}
+
+/// A queued-run command names its turn by the run id the projection minted for
+/// it; V1 names the message that run waits to deliver.
+fn queued_run(command: &Value) -> Result<Translated, CommandRefusal> {
+    let tag = command
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let message_of = |field: &str| -> Result<Value, CommandRefusal> {
+        let run_id = command
+            .get(field)
+            .and_then(Value::as_str)
+            .ok_or_else(|| missing(field))?;
+        queued_message_uuid(run_id)
+            .map(|uuid| json!(uuid))
+            .ok_or_else(|| CommandRefusal::Rejected {
+                message: format!("`{run_id}` is not a queued message on this server."),
+            })
+    };
+    let mut v1 = Map::new();
+    copy(command, &mut v1, &["commandId", "threadId"]);
+    v1.insert("messageId".into(), message_of("runId")?);
+    let v1_tag = match tag {
+        "queued-run.cancel" => "thread.queuedTurn.cancel",
+        "queued-run.edit" => {
+            copy(command, &mut v1, &["text", "attachments"]);
+            "thread.queuedTurn.edit"
+        }
+        _ => {
+            let before = match command.get("beforeRunId") {
+                None | Some(Value::Null) => Value::Null,
+                Some(_) => message_of("beforeRunId")?,
+            };
+            v1.insert("beforeMessageId".into(), before);
+            "thread.queuedTurn.reorder"
+        }
+    };
+    v1.insert("type".into(), json!(v1_tag));
+    Ok(Translated::V1(Value::Object(v1)))
 }
 
 /// A rollback to one of the projection's checkpoints is V1's conversation

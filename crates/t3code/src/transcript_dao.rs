@@ -53,6 +53,9 @@ pub struct TranscriptMessage {
     /// Sent to wait for the active turn to end (`DeliveryOptions::queue`)
     /// rather than steer into it.
     pub held: bool,
+    /// Where a person moved this queued Message among the others still
+    /// waiting. `None` keeps its arrival order, after every moved one.
+    pub queue_order: Option<i32>,
     /// When the writer said it happened (RFC 3339 text, `NOT NULL`).
     pub timestamp: String,
     /// When the database recorded it. `None` is impossible under the current
@@ -193,6 +196,7 @@ macro_rules! transcript_rows {
                   COALESCE(i.origin = 'sandbox', false) AS sandbox_wake,
                   m.turn_number,
                   COALESCE((i.delivery_options ->> 'queue')::boolean, false) AS held,
+                  i.queue_order,
                   COALESCE(m.legacy ->> 'timestamp',
                            to_char(m.created_at AT TIME ZONE 'UTC',
                                    'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')) AS "timestamp",
@@ -215,7 +219,9 @@ macro_rules! transcript_rows {
                   i.delivery_options ->> 'childOutcome' AS child_outcome
              FROM conversation_messages m
              LEFT JOIN task_inbox i ON i.id = m.inbox_id
-            WHERE m.task_id = $1 AND m.parent_tool_use_id IS NULL"#
+            WHERE m.task_id = $1 AND m.parent_tool_use_id IS NULL
+              -- A Message removed from the queue before any turn took it.
+              AND i.status IS DISTINCT FROM 'cancelled'"#
     };
 }
 
@@ -228,7 +234,7 @@ macro_rules! transcript_rows {
 /// delivered it.
 const TRANSCRIPT_COLUMNS: &str = r#"m.id, m.uuid, m.message_type, m.message_role,
                       m.message_text, m.user_type, m.sandbox_wake, m.turn_number,
-                      m.held, m."timestamp",
+                      m.held, m.queue_order, m."timestamp",
                       m.created_at, m.external_adapter, m.external_source_name,
                       m.external_subject_key, m.external_event_id,
                       m.external_author, m.source_task_id,

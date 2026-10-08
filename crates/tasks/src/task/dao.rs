@@ -186,6 +186,11 @@ pub(crate) trait TaskDao: Send + Sync {
         read_at: DateTime<Utc>,
     ) -> Result<(), sqlx::Error>;
 
+    /// Rewind a user's read marker to just before `task_id`'s latest turn
+    /// ended, so that turn reads as unseen; removes the marker when no turn
+    /// has ended.
+    async fn mark_task_unread(&self, user_id: &str, task_id: &str) -> Result<(), sqlx::Error>;
+
     /// Batch-fetch a user's `last_read_at` for the given tasks. Tasks the user
     /// has never opened are omitted (not present in the map).
     async fn get_read_receipts(
@@ -919,6 +924,19 @@ impl TaskDao for PgTaskDao {
         let did_delete = deleted.is_some();
         if let Some((deleted_task_id, sandbox_id)) = deleted {
             crate::conversation::dao::delete_task(&mut tx, &deleted_task_id).await?;
+            // No foreign key cascades these per-person rows.
+            sqlx::query("DELETE FROM task_tags WHERE task_id = $1")
+                .bind(&deleted_task_id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query("DELETE FROM task_follows WHERE task_id = $1")
+                .bind(&deleted_task_id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query("DELETE FROM task_read_receipts WHERE task_id = $1")
+                .bind(&deleted_task_id)
+                .execute(&mut *tx)
+                .await?;
             if let Some(sandbox_id) = sandbox_id {
                 let sandbox_exists: Option<String> = sqlx::query_scalar(
                     "SELECT sandbox_id FROM sandboxes WHERE sandbox_id = $1 FOR UPDATE",
@@ -1153,7 +1171,8 @@ impl TaskDao for PgTaskDao {
         task_id: &str,
         read_at: DateTime<Utc>,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        let mut tx = self.pool.begin().await?;
+        let moved = sqlx::query(
             r#"INSERT INTO task_read_receipts (user_id, task_id, last_read_at)
                VALUES ($1, $2, $3)
                ON CONFLICT (user_id, task_id)
@@ -1163,8 +1182,51 @@ impl TaskDao for PgTaskDao {
         .bind(user_id)
         .bind(task_id)
         .bind(read_at)
-        .execute(&self.pool)
-        .await?;
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        // The T3 shell carries the marker as `lastVisitedAt`.
+        if moved > 0 {
+            moatless_core::change_feed::listing::record_change(&mut tx, task_id).await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn mark_task_unread(&self, user_id: &str, task_id: &str) -> Result<(), sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+        let ended: Option<DateTime<Utc>> =
+            sqlx::query_scalar("SELECT max(ended_at) FROM task_turns WHERE task_id = $1")
+                .bind(task_id)
+                .fetch_one(&mut *tx)
+                .await?;
+        let changed = match ended {
+            Some(ended) => sqlx::query(
+                r#"INSERT INTO task_read_receipts (user_id, task_id, last_read_at)
+                   VALUES ($1, $2, $3)
+                   ON CONFLICT (user_id, task_id)
+                   DO UPDATE SET last_read_at = EXCLUDED.last_read_at
+                   WHERE task_read_receipts.last_read_at > EXCLUDED.last_read_at"#,
+            )
+            .bind(user_id)
+            .bind(task_id)
+            .bind(ended - chrono::Duration::milliseconds(1))
+            .execute(&mut *tx)
+            .await?
+            .rows_affected(),
+            None => {
+                sqlx::query("DELETE FROM task_read_receipts WHERE user_id = $1 AND task_id = $2")
+                    .bind(user_id)
+                    .bind(task_id)
+                    .execute(&mut *tx)
+                    .await?
+                    .rows_affected()
+            }
+        };
+        if changed > 0 {
+            moatless_core::change_feed::listing::record_change(&mut tx, task_id).await?;
+        }
+        tx.commit().await?;
         Ok(())
     }
 
