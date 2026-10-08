@@ -95,6 +95,9 @@ fn allowed(consumer: &str, table: &str, write: bool) -> bool {
         (consumer, table),
         ("moatless-tasks", "sandboxes") | ("moatless-sandbox-control", "tasks")
     ) || (consumer == "moatless-t3code" && !write)
+        // `record_change` records a changed Task's parents too, for every
+        // caller, including `sandbox-control`, which cannot reach `tasks`.
+        || (consumer == "moatless-core" && table == "task_relations" && !write)
 }
 
 pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
@@ -162,5 +165,7 @@ mod tests {
         assert!(!allowed("moatless-t3code", "tasks", true));
         assert!(allowed("moatless-tasks", "sandboxes", true));
         assert!(!allowed("moatless-identity", "sandboxes", false));
+        assert!(allowed("moatless-core", "task_relations", false));
+        assert!(!allowed("moatless-core", "task_relations", true));
     }
 }

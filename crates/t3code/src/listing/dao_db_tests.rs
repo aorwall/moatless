@@ -5,8 +5,8 @@ use sqlx::PgPool;
 
 const OWNER: &str = "11111111-1111-1111-1111-111111111111";
 
-/// A child's change is read as its parent's too, at the same position. A peer
-/// relation is not a parent.
+/// A child's change is read as its parent's too, at the next position: the
+/// shell stream drops an event whose sequence repeats. A peer is not a parent.
 #[sqlx::test(migrations = "../core/migrations")]
 async fn a_childs_change_is_read_for_its_parent(pool: PgPool) {
     for task_id in ["parent", "child", "peer"] {
@@ -27,6 +27,7 @@ async fn a_childs_change_is_read_for_its_parent(pool: PgPool) {
     let mut tx = pool.begin().await.expect("begin");
     let position = record_change(&mut tx, "child").await.expect("record");
     tx.commit().await.expect("commit");
+    assert_eq!(current_position(&pool).await.expect("head"), position + 1);
 
     let read: Vec<(i64, String)> = changes_after(&pool, start, 1000)
         .await
@@ -38,7 +39,7 @@ async fn a_childs_change_is_read_for_its_parent(pool: PgPool) {
         read,
         vec![
             (position, "child".to_string()),
-            (position, "parent".to_string())
+            (position + 1, "parent".to_string())
         ]
     );
 }

@@ -18,30 +18,19 @@ pub async fn current_head(pool: &UiRpcDbPool) -> Result<UiRpcListingHead, sqlx::
     })
 }
 
-/// The changes after `after`, each followed at its own position by the changed
-/// Task's `created_by` or `forked_from` parent: a parent's row counts its
-/// children and reads Waiting while one works. `limit` caps the changes read,
-/// not the rows returned.
+/// The changes after `after`, in position order; a changed Task's parents
+/// carry their own, per [`moatless_core::change_feed::listing::record_change`].
 pub async fn changes_after(
     pool: &UiRpcDbPool,
     after: i64,
     limit: i64,
 ) -> Result<Vec<UiRpcListingChange>, sqlx::Error> {
     sqlx::query_as(
-        r#"WITH changed AS (
-               SELECT position, task_id
-               FROM task_listing_changes
-               WHERE position > $1
-               ORDER BY position
-               LIMIT $2
-           )
-           SELECT position, task_id FROM changed
-           UNION
-           SELECT c.position, r.to_task_id
-           FROM changed c
-           JOIN task_relations r ON r.from_task_id = c.task_id
-           WHERE r.relation_type IN ('created_by', 'forked_from')
-           ORDER BY position, task_id"#,
+        r#"SELECT position, task_id
+           FROM task_listing_changes
+           WHERE position > $1
+           ORDER BY position
+           LIMIT $2"#,
     )
     .bind(after)
     .bind(limit)

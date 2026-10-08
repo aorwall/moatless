@@ -10,7 +10,7 @@ use sqlx::{AssertSqlSafe, PgConnection};
 pub(crate) trait TaskRelationDao: Send + Sync {
     /// Insert a relation. `ON CONFLICT (from, to, relation_type) DO NOTHING`.
     /// A new parent edge is recorded on the listing feed as a change to the
-    /// child, which the T3 listing reads as a change to its parent too.
+    /// child, which `record_change` records for its parent too.
     async fn insert(&self, row: &TaskRelation) -> Result<(), sqlx::Error>;
 
     /// All relations originating from `from_task_id`.

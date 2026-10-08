@@ -3,24 +3,41 @@
 use super::position::{EnvironmentIdentity, ListingChange, ListingHead, RETAINED_CHANGES};
 use sqlx::{PgConnection, PgPool};
 
-/// Record that `task_id`'s listing-visible state changed, returning the
-/// allocated position.
+/// Record that `task_id`'s listing-visible state changed, then each
+/// `created_by`/`forked_from` parent at its own next position (the shell stream
+/// drops a repeated one), returning `task_id`'s position.
 ///
-/// `tx` must be `&mut *tx`, never a pool, which would commit immediately and
-/// expose the record early. Take every other lock this transaction needs before
-/// calling this, none after — the counter is one row for the whole deployment,
-/// so calling it out of order deadlocks under load.
+/// Pass `&mut *tx`, never a pool. Call it last: the counter is one row, so a
+/// lock taken after it deadlocks under load.
 pub async fn record_change(tx: &mut PgConnection, task_id: &str) -> Result<i64, sqlx::Error> {
     let (position,): (i64,) = sqlx::query_as(
-        r#"WITH allocated AS (
-               INSERT INTO task_listing_position (id, position) VALUES (TRUE, 1)
+        r#"WITH targets AS (
+               SELECT $1::text AS task_id, 0::bigint AS ord
+               UNION ALL
+               SELECT to_task_id, row_number() OVER (ORDER BY to_task_id)
+               FROM (
+                   SELECT DISTINCT to_task_id
+                   FROM task_relations
+                   WHERE from_task_id = $1
+                     -- `moatless_tasks`'s `PARENT_RELATION_TYPES`.
+                     AND relation_type IN ('created_by', 'forked_from')
+               ) parents
+           ),
+           allocated AS (
+               INSERT INTO task_listing_position (id, position)
+               VALUES (TRUE, (SELECT count(*) FROM targets))
                ON CONFLICT (id) DO UPDATE
-                 SET position = task_listing_position.position + 1
+                 SET position = task_listing_position.position
+                              + (SELECT count(*) FROM targets)
                RETURNING position
+           ),
+           recorded AS (
+               INSERT INTO task_listing_changes (position, task_id)
+               SELECT a.position - (SELECT count(*) FROM targets) + 1 + t.ord, t.task_id
+               FROM allocated a CROSS JOIN targets t
+               RETURNING position, task_id
            )
-           INSERT INTO task_listing_changes (position, task_id)
-           SELECT position, $1 FROM allocated
-           RETURNING position"#,
+           SELECT min(position) FROM recorded"#,
     )
     .bind(task_id)
     .fetch_one(tx)
