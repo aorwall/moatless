@@ -73,7 +73,7 @@ pub(crate) fn is_script_icon(icon: &str) -> bool {
 /// The listing unions readable Workspaces with ones only referenced by a
 /// conversation; the widening is load-bearing, since a conversation whose
 /// project is absent is dropped by the client in silence.
-pub(super) fn project(listed: &UiRpcListedWorkspace) -> Value {
+pub(crate) fn project(listed: &UiRpcListedWorkspace) -> Value {
     let workspace = &listed.workspace;
     json!({
         "id": workspace.id,

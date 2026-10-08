@@ -30,6 +30,7 @@ pub(crate) use events::is_session_change;
 pub(crate) use events::turn_settled_events;
 pub(crate) use origin::OriginContext;
 pub(crate) use project::is_script_icon;
+pub(crate) use project::project;
 pub(crate) use project::ui_script;
 pub(crate) use search::thread_matches;
 pub(crate) use shell::listed_threads;

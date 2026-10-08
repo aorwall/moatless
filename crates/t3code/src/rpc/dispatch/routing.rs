@@ -248,6 +248,7 @@ impl ProtocolSession {
             "sandbox.subscribeStatus" => self.sandbox_subscribe_status(request).await,
             "sandbox.subscribeDetail" => self.sandbox_subscribe_detail(request).await,
             "projects.writeFile" => projects_write_file(request).await,
+            "projects.mutate" => projects_mutate(request).await,
             "assets.createUrl" => assets_create_url(request),
             "attachments.createUploadUrl" => attachments_create_upload_url(request),
             "attachments.delete" => attachments_delete(request).await,

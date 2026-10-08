@@ -76,6 +76,7 @@ pub(super) fn required_scope(tag: &str) -> &'static str {
         | "sourceControl.publishRepository"
         | "projects.add"
         | "projects.remove"
+        | "projects.mutate"
         | "projects.writeFile"
         | "shell.openInEditor"
         | "vcs.pull"

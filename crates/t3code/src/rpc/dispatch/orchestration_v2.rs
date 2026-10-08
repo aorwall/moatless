@@ -30,7 +30,10 @@ use tracing::error;
 use tracing::warn;
 use uuid::Uuid;
 
-fn command_context<'a>(state: &'a UiRpcState, identity: &UiRpcAuthIdentity) -> CommandContext<'a> {
+pub(super) fn command_context<'a>(
+    state: &'a UiRpcState,
+    identity: &UiRpcAuthIdentity,
+) -> CommandContext<'a> {
     CommandContext {
         conversations: state.reads.conversations(),
         agents: state.agents.as_ref(),

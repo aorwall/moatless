@@ -187,3 +187,27 @@ fn checkpoint_rollback_reverts_the_conversation_unless_files_are_asked_for() {
         CommandRefusal::Rejected { .. }
     ));
 }
+
+#[test]
+fn a_project_update_is_a_meta_update_and_auto_pull_is_refused() {
+    let update = json!({
+        "type": "project.update",
+        "commandId": "c1",
+        "projectId": "ws-1",
+        "scripts": [],
+    });
+    let v1 = project_mutation(&update).expect("an update is carried out");
+    assert_eq!(v1["type"], json!("project.meta.update"));
+    assert_eq!(v1["projectId"], json!("ws-1"));
+    assert_eq!(v1["scripts"], json!([]));
+
+    let mut auto_pull = update.clone();
+    auto_pull["autoPull"] = json!(true);
+    assert!(matches!(
+        project_mutation(&auto_pull),
+        Err(CommandRefusal::Unsupported { .. })
+    ));
+
+    let delete = json!({ "type": "project.delete", "commandId": "c1", "projectId": "ws-1" });
+    assert_eq!(project_mutation(&delete).expect("passed on"), delete);
+}

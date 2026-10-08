@@ -1,10 +1,13 @@
 //! Methods that read and write the Workspace's files and attachments.
 
+use super::orchestration_v2::command_context;
 use super::routing::Request;
 use crate::assets;
 use crate::attachments;
 use crate::authentication::viewer_scope;
+use crate::commands;
 use crate::files;
+use crate::projection;
 use crate::rpc::frames::failure_exit;
 use crate::rpc::frames::file_failure_exit;
 use crate::rpc::frames::success_exit;
@@ -12,6 +15,7 @@ use crate::rpc::frames::typed_failure_exit;
 use crate::rpc::session::SEARCH_ENTRIES_LIMIT;
 use crate::rpc::session::SEARCH_ENTRIES_MAX;
 use crate::snapshots::workspace_cwd;
+use crate::v2_commands;
 use crate::workspace::WorkspaceAccessError;
 use serde_json::Value;
 use serde_json::json;
@@ -248,4 +252,56 @@ pub(super) async fn attachments_delete(request: Request) -> Vec<Value> {
         Ok(()) => vec![success_exit(&id, Value::Null)],
         Err(message) => vec![failure_exit(&id, message)],
     }
+}
+
+/// `projects.mutate`: a project is a Moatless Workspace, so only an update of its
+/// Scripts is carried out, through the V1 command
+/// ([`v2_commands::project_mutation`]). Answers the updated `Project`.
+pub(super) async fn projects_mutate(request: Request) -> Vec<Value> {
+    let Request {
+        id,
+        payload,
+        state,
+        identity,
+        ..
+    } = request;
+    let viewer = viewer_scope(&identity);
+    let refusal = |message: String| {
+        vec![typed_failure_exit(
+            &id,
+            json!({
+                "_tag": "ProjectMutationError",
+                "commandId": payload.get("commandId").cloned().unwrap_or_else(|| json!("")),
+                "message": message,
+            }),
+        )]
+    };
+    let written = match v2_commands::project_mutation(&payload) {
+        Ok(command) => {
+            commands::dispatch(&command_context(&state, &identity), &viewer, &command).await
+        }
+        Err(refused) => Err(refused),
+    };
+    if let Err(refused) = written {
+        return refusal(refused.message());
+    }
+
+    let project_id = payload.get("projectId").and_then(Value::as_str);
+    let listed = state
+        .reads
+        .workspaces()
+        .list_readable_including(&viewer, &[])
+        .await;
+    let Some(workspace) = listed.ok().and_then(|workspaces| {
+        workspaces
+            .into_iter()
+            .find(|listed| Some(listed.workspace.id.as_str()) == project_id)
+    }) else {
+        return refusal("The project was saved but could not be read back.".to_string());
+    };
+    let mut project = projection::project(&workspace);
+    // The shell's project omits it; `Project` requires it, and a listed
+    // Workspace is live.
+    project["deletedAt"] = Value::Null;
+    vec![success_exit(&id, project)]
 }

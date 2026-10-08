@@ -235,6 +235,28 @@ fn fork(command: &Value) -> Result<Translated, CommandRefusal> {
     Ok(Translated::V1(Value::Object(v1)))
 }
 
+/// A `projects.mutate` mutation as the V1 command that carries it out. An update
+/// is `project.meta.update`, which writes `scripts` and refuses the fields a
+/// Workspace owns; `project.create` and `project.delete` are refused there too.
+pub(crate) fn project_mutation(mutation: &Value) -> Result<Value, CommandRefusal> {
+    match mutation.get("type").and_then(Value::as_str) {
+        Some("project.update") => {
+            // Not among V1's refused fields: no V1 command carries it.
+            if mutation
+                .get("autoPull")
+                .is_some_and(|value| !value.is_null())
+            {
+                return Err(CommandRefusal::Unsupported {
+                    command: "project.update (autoPull)".to_string(),
+                    reason: "A project is a Moatless workspace; change it there.".to_string(),
+                });
+            }
+            Ok(with_type(mutation, "project.meta.update"))
+        }
+        _ => Ok(mutation.clone()),
+    }
+}
+
 fn with_type(command: &Value, v1_type: &str) -> Value {
     let mut v1 = command.as_object().cloned().unwrap_or_default();
     v1.insert("type".into(), json!(v1_type));
