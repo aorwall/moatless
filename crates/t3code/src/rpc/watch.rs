@@ -171,6 +171,8 @@ pub(crate) struct WatchedThreadV2 {
     pub(crate) reads: T3Reads,
     /// Resolved when the subscription opened; a thread's ancestry never moves.
     pub(crate) lineage: crate::projection::Lineage,
+    /// Re-read on each pass: the thread's delegated Tasks are its subagents.
+    pub(crate) relations: Arc<dyn crate::ports::TaskRelationSource>,
     pub(crate) frontend_url: Arc<str>,
     pub(crate) model_defaults: Arc<AgentModelDefaults>,
     pub(crate) viewer: ScopeContext,
@@ -222,6 +224,7 @@ pub(crate) async fn watch_thread_v2(
         let detail = thread_detail_v2_under(
             &watched.reads,
             &deployment,
+            watched.relations.as_ref(),
             &watched.viewer,
             &watched.task_id,
             watched.lineage.clone(),

@@ -33,6 +33,7 @@ fn project(conversation: &Conversation, transcript: &Transcript) -> Value {
         transcript,
         &origins(&HashMap::new()),
         &Lineage::root(&conversation.task_id),
+        &[],
     )
 }
 

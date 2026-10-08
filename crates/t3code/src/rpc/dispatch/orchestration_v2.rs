@@ -350,6 +350,7 @@ impl ProtocolSession {
         let watched = watch::WatchedThreadV2 {
             reads: state.reads.clone(),
             lineage: detail.lineage,
+            relations: state.subtasks.relations.clone(),
             frontend_url: state.frontend_url.clone(),
             model_defaults: state.model_defaults.clone(),
             viewer,

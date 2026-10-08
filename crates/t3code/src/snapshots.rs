@@ -13,6 +13,7 @@ use crate::state::Deployment;
 use crate::transcript_dao::Transcript;
 use moatless_core::change_feed::conversation::ConversationHead;
 use moatless_types::access_control::ScopeContext;
+use moatless_types::task::TaskRelationType;
 use serde_json::Value;
 use serde_json::json;
 use tracing::info;
@@ -201,7 +202,7 @@ pub(crate) async fn thread_detail_v2(
     task_id: &str,
 ) -> Result<Option<ThreadDetailV2>, sqlx::Error> {
     let lineage = lineage::resolve(reads, relations, viewer, task_id).await;
-    thread_detail_v2_under(reads, deployment, viewer, task_id, lineage).await
+    thread_detail_v2_under(reads, deployment, relations, viewer, task_id, lineage).await
 }
 
 /// [`thread_detail_v2`] with the thread's lineage already resolved, which never
@@ -209,6 +210,7 @@ pub(crate) async fn thread_detail_v2(
 pub(crate) async fn thread_detail_v2_under(
     reads: &T3Reads,
     deployment: &Deployment<'_>,
+    relations: &dyn TaskRelationSource,
     viewer: &ScopeContext,
     task_id: &str,
     lineage: projection::Lineage,
@@ -220,6 +222,7 @@ pub(crate) async fn thread_detail_v2_under(
         return Ok(None);
     };
     let transcript = conversations.transcript(task_id).await?;
+    let delegated = delegated_tasks(conversations, relations, viewer, task_id).await;
     let projection = projection::thread_projection(
         &conversation,
         &project_id,
@@ -230,6 +233,7 @@ pub(crate) async fn thread_detail_v2_under(
             source_task_names: &source_task_names(conversations, viewer, &transcript).await,
         },
         &lineage,
+        &delegated,
     );
     Ok(Some(ThreadDetailV2 {
         snapshot: json!({
@@ -250,6 +254,38 @@ pub(crate) struct ThreadDetailV2 {
     pub(crate) snapshot: Value,
     pub(crate) head: ConversationHead,
     pub(crate) lineage: projection::Lineage,
+}
+
+/// The Tasks `task_id` delegated to (its `created_by` children) that this
+/// viewer may read, in no particular order.
+///
+/// Like [`source_task_names`], a failure costs the reader only the subagents:
+/// it is logged and answered with none.
+async fn delegated_tasks(
+    conversations: &dyn ConversationDao,
+    relations: &dyn TaskRelationSource,
+    viewer: &ScopeContext,
+    task_id: &str,
+) -> Vec<Conversation> {
+    let children = match relations.children(task_id).await {
+        Ok(children) => children,
+        Err(error) => {
+            warn!(%error, task_id, "T3 UI could not read a thread's child tasks; showing no subagents");
+            return Vec::new();
+        }
+    };
+    let ids: Vec<String> = children
+        .into_iter()
+        .filter(|child| child.relation == TaskRelationType::CreatedBy)
+        .map(|child| child.task_id)
+        .collect();
+    match conversations.readable_by_ids(viewer, &ids).await {
+        Ok(rows) => rows,
+        Err(error) => {
+            warn!(%error, task_id, "T3 UI could not read a thread's child tasks; showing no subagents");
+            Vec::new()
+        }
+    }
 }
 
 /// The names of the Tasks a window's Messages came from, by task id.

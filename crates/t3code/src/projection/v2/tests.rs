@@ -90,6 +90,7 @@ fn message(
         source_task_id: None,
         binding_url: None,
         binding_label: None,
+        loop_name: None,
         sent_by_name: None,
         file_contexts: None,
         child_outcome: None,
@@ -468,6 +469,7 @@ fn a_running_turn_offers_steering_through_its_session_and_provider_turn() {
         &Transcript::default(),
         &origins(&names),
         &Lineage::root("task-1"),
+        &[],
     );
     let run = projection["runs"]
         .as_array()
@@ -719,6 +721,7 @@ fn thread_projection_prepends_the_fork_item_and_renumbers_the_rest() {
         &transcript,
         &origins(&HashMap::new()),
         &lineage,
+        &[],
     );
     let items = projection["turnItems"].as_array().expect("turnItems array");
     assert_eq!(items.len(), 2);
@@ -1098,6 +1101,7 @@ fn every_node_a_row_names_is_in_the_projection() {
         &transcript,
         &origins(&names),
         &Lineage::root("task-1"),
+        &[],
     );
     let rows = |key: &str| projection[key].as_array().unwrap().clone();
     let nodes: Vec<Value> = rows("nodes")
@@ -1224,11 +1228,170 @@ fn background_work_is_reported_only_once_the_turn_has_ended() {
     );
 }
 
+fn delegated(task_id: &str, created: chrono::DateTime<Utc>) -> Conversation {
+    let mut child = conversation(task_id);
+    child.name = Some(format!("Delegated {task_id}"));
+    child.created_at_db = Some(created);
+    child.parent_task_id = Some("task-1".to_string());
+    child.parent_relation = Some("created_by".to_string());
+    child
+}
+
+fn delegating_projection(transcript: &Transcript, children: &[Conversation]) -> Value {
+    let mut parent = open_turn(conversation("task-1"), 1, "active");
+    parent.created_at_db = Some(Utc::now() - chrono::Duration::minutes(10));
+    thread_projection(
+        &parent,
+        "ws-a",
+        &AgentModelDefaults::default(),
+        transcript,
+        &origins(&HashMap::new()),
+        &Lineage::root("task-1"),
+        children,
+    )
+}
+
+#[test]
+fn a_created_by_child_appears_in_subagents_under_the_run_that_spawned_it() {
+    let mut running = delegated("child-run", Utc::now() - chrono::Duration::minutes(2));
+    running = open_turn(running, 1, "active");
+    let mut asking = open_turn(
+        delegated("child-ask", Utc::now() - chrono::Duration::minutes(1)),
+        1,
+        "active",
+    );
+    asking.pending_question = true;
+    let mut failed = open_turn(
+        delegated("child-failed", Utc::now() - chrono::Duration::minutes(3)),
+        1,
+        "error",
+    );
+    failed.turn_error = Some("boom".to_string());
+    failed.turn_ended_at = Some(Utc::now());
+
+    let projection = delegating_projection(&Transcript::default(), &[running, asking, failed]);
+
+    let subagents = projection["subagents"].as_array().expect("subagents");
+    let children: Vec<&str> = subagents
+        .iter()
+        .map(|subagent| subagent["childThreadId"].as_str().unwrap())
+        .collect();
+    assert_eq!(children, ["child-failed", "child-run", "child-ask"]);
+    let statuses: Vec<&str> = subagents
+        .iter()
+        .map(|subagent| subagent["status"].as_str().unwrap())
+        .collect();
+    assert_eq!(statuses, ["failed", "running", "waiting"]);
+    for subagent in subagents {
+        assert_eq!(subagent["origin"], json!("app_owned"));
+        assert_eq!(subagent["createdBy"], json!("agent"));
+        assert_eq!(subagent["runId"], json!("task-1:1"));
+        assert_eq!(subagent["parentNodeId"], json!(root_node_id("task-1:1")));
+        assert!(subagent["startedAt"].is_string());
+    }
+    assert_eq!(subagents[0]["result"], json!("boom"));
+    assert!(subagents[0]["completedAt"].is_string());
+    assert_eq!(subagents[1]["completedAt"], Value::Null);
+}
+
+#[test]
+fn each_delegated_task_is_a_thread_created_item_placed_by_its_creation() {
+    let child = delegated("child-1", Utc::now() - chrono::Duration::minutes(5));
+    let mut early = message("msg-1", Some(1), "start", MessageType::User);
+    early.timestamp = instant(Utc::now() - chrono::Duration::minutes(8));
+    let mut late = message("msg-2", Some(1), "done", MessageType::Assistant);
+    late.timestamp = instant(Utc::now() - chrono::Duration::minutes(1));
+    let transcript = Transcript {
+        messages: vec![early, late],
+        ..Transcript::default()
+    };
+
+    let projection = delegating_projection(&transcript, &[child]);
+
+    let items = projection["turnItems"].as_array().expect("turnItems");
+    let kinds: Vec<&str> = items
+        .iter()
+        .map(|item| item["type"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        kinds,
+        ["user_message", "thread_created", "assistant_message"]
+    );
+    let ordinals: Vec<i64> = items
+        .iter()
+        .map(|item| item["ordinal"].as_i64().unwrap())
+        .collect();
+    assert_eq!(ordinals, [0, 1, 2]);
+    assert_eq!(items[1]["targetThreadId"], json!("child-1"));
+    assert_eq!(items[1]["runId"], json!("task-1:1"));
+    assert_eq!(items[1]["title"], json!("Delegated child-1"));
+}
+
+#[test]
+fn a_moat_tasks_create_command_is_the_card_of_the_task_it_created() {
+    let child = delegated("child-1", Utc::now() - chrono::Duration::minutes(1));
+    let create = tool_call(
+        "call-create",
+        "Bash",
+        json!({ "command": "moat tasks create --repo app --text \"Fix it\"" }),
+        Some("Task child-1 created and started (status: open)."),
+    );
+    let other = tool_call(
+        "call-other",
+        "Bash",
+        json!({ "command": "moat tasks create --repo app" }),
+        Some("Task somebody-else created (status: open)."),
+    );
+    let transcript = Transcript {
+        activities: vec![create, other],
+        ..Transcript::default()
+    };
+
+    let projection = delegating_projection(&transcript, &[child]);
+
+    let items = projection["turnItems"].as_array().expect("turnItems");
+    let card = items
+        .iter()
+        .find(|item| item["id"] == json!("item:activity:call-create"))
+        .expect("the create call");
+    assert_eq!(card["type"], json!("subagent"));
+    assert_eq!(card["childThreadId"], json!("child-1"));
+    assert_eq!(card["subagentId"], projection["subagents"][0]["id"]);
+    assert_eq!(card["origin"], json!("app_owned"));
+    assert!(card.get("input").is_none());
+    let unmatched = items
+        .iter()
+        .find(|item| item["id"] == json!("item:activity:call-other"))
+        .expect("the other call");
+    assert_eq!(unmatched["type"], json!("command_execution"));
+    assert!(
+        items
+            .iter()
+            .all(|item| item["type"] != json!("thread_created")),
+        "the card is the child's one entry"
+    );
+}
+
 #[test]
 fn the_shell_carries_the_child_task_count() {
     let mut parent = conversation("task-1");
     parent.child_count = 3;
     assert_eq!(shell(&parent)["childCount"], json!(3));
+}
+
+#[test]
+fn a_shell_reports_what_its_activity_run_is_doing() {
+    let mut open = open_turn(conversation("task-1"), 1, "active");
+    assert_eq!(shell(&open)["activityRunStatus"], json!("running"));
+    open.pending_question = true;
+    assert_eq!(shell(&open)["activityRunStatus"], json!("waiting"));
+    let mut owed = awake(open_turn(conversation("task-1"), 1, "completed"));
+    owed.turn_ended_at = Some(Utc::now());
+    owed.latest_queued_message_at = Some(Utc::now());
+    assert_eq!(shell(&owed)["activityRunStatus"], json!("starting"));
+    let mut settled = open_turn(conversation("task-1"), 1, "completed");
+    settled.turn_ended_at = Some(Utc::now());
+    assert_eq!(shell(&settled)["activityRunStatus"], Value::Null);
 }
 
 mod lifecycle;

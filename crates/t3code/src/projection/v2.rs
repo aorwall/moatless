@@ -1,10 +1,11 @@
 //! Orchestration V2 projections, built from the V1 row builders beside it.
 //!
-//! Only `thread`, `runs`, `turnItems`, `messages`, `runtimeRequests` and
-//! `lineage` carry Moatless state; every other array has no Moatless
-//! counterpart and is always empty. Turn items cover messages, reasoning,
-//! shell commands, questions the agent asked and the fork marker; other
-//! activity kinds are left out of the timeline rather than guessed at.
+//! Only `thread`, `runs`, `turnItems`, `messages`, `runtimeRequests`,
+//! `subagents` and `lineage` carry Moatless state; every other array has no
+//! Moatless counterpart and is always empty. Turn items cover messages,
+//! reasoning, shell commands, questions the agent asked, the fork marker and
+//! the Tasks the thread delegated to; other activity kinds are left out of the
+//! timeline rather than guessed at.
 
 use std::collections::{HashMap, HashSet};
 
@@ -53,6 +54,10 @@ use super::v2_provider::provider_thread_id;
 use super::v2_provider::provider_turns;
 use super::v2_provider::root_node_id;
 use super::v2_provider::root_nodes;
+use super::v2_subagents::link_delegating_commands;
+use super::v2_subagents::subagents;
+use super::v2_subagents::thread_created_items;
+use super::v2_subagents::with_thread_created;
 use crate::AgentModelDefaults;
 use crate::dao::Conversation;
 use crate::transcript_dao::RewoundTurn;
@@ -282,6 +287,10 @@ pub(crate) fn thread_shell_v2(
         "activityRunStartedAt".into(),
         nullable_instant(activity_started_at(conversation)),
     );
+    row.insert(
+        "activityRunStatus".into(),
+        activity_run_status(conversation).map_or(Value::Null, |status| json!(status)),
+    );
     row.insert("itemCount".into(), json!(0));
     row.insert("visibleItemCount".into(), json!(0));
     row.insert(
@@ -345,7 +354,7 @@ pub(crate) fn thread_removed_v2(task_id: &str, sequence: i64) -> Value {
 }
 
 /// `OrchestrationV2ShellThreadStatus`: `idle` plus the run-status vocabulary.
-fn shell_status(conversation: &Conversation) -> &'static str {
+pub(super) fn shell_status(conversation: &Conversation) -> &'static str {
     if turn_is_open(conversation) {
         return "running";
     }
@@ -377,6 +386,19 @@ fn activity_started_at(conversation: &Conversation) -> Option<DateTime<Utc>> {
             .or(conversation.latest_user_message_at);
     }
     None
+}
+
+/// What the work [`activity_started_at`] times is doing, which the Lineage
+/// panel reads as a child's live status; `None` while no work is under way.
+fn activity_run_status(conversation: &Conversation) -> Option<&'static str> {
+    if turn_is_open(conversation) {
+        return Some(if conversation.pending_question {
+            "waiting"
+        } else {
+            "running"
+        });
+    }
+    awaits_turn(conversation).then_some("starting")
 }
 
 /// The newest turn's run id, twice: once unconditionally
@@ -1210,6 +1232,7 @@ pub(crate) fn thread_projection(
     transcript: &Transcript,
     origins: &OriginContext<'_>,
     lineage: &Lineage,
+    delegated: &[Conversation],
 ) -> Value {
     let mut thread = app_thread(conversation, project_id, defaults, lineage);
     let mut runs = runs(conversation, transcript, defaults);
@@ -1231,6 +1254,17 @@ pub(crate) fn thread_projection(
     thread["activeProviderThreadId"] = json!(provider_thread_id(&conversation.task_id));
     let model = model_selection(conversation, defaults)["model"].clone();
     let (mut turn_items, messages) = turn_items_and_messages(conversation, transcript, origins);
+    let subagents = subagents(conversation, delegated, &runs, defaults);
+    let carded = link_delegating_commands(&mut turn_items, &subagents);
+    let uncarded: Vec<Conversation> = delegated
+        .iter()
+        .filter(|child| !carded.contains(&child.task_id))
+        .cloned()
+        .collect();
+    let mut turn_items = with_thread_created(
+        turn_items,
+        thread_created_items(conversation, &uncarded, &runs, defaults),
+    );
     if let Some(fork_item) = fork_turn_item(conversation, lineage) {
         for item in &mut turn_items {
             if let Some(ordinal) = item.get("ordinal").and_then(Value::as_i64) {
@@ -1254,7 +1288,7 @@ pub(crate) fn thread_projection(
         "runs": runs,
         "attempts": attempts(&runs),
         "nodes": nodes,
-        "subagents": [],
+        "subagents": subagents,
         "providerSessions": [provider_session(conversation, &model, &updated_at)],
         "providerThreads": [provider_thread],
         "providerTurns": provider_turns(&runs, &token_usage_by_run(conversation, transcript)),

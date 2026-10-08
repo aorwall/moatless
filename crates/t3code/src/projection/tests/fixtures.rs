@@ -167,6 +167,7 @@ pub(super) fn message(id: i32, message_type: MessageType, text: &str) -> Transcr
         source_task_id: None,
         binding_url: None,
         binding_label: None,
+        loop_name: None,
         sent_by_name: None,
         file_contexts: None,
         child_outcome: None,

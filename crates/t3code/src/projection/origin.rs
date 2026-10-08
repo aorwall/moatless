@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use serde_json::{Value, json};
 
 use crate::transcript_dao::TranscriptMessage;
+use moatless_types::adapter::SCHEDULED_ORIGIN;
 
 /// What the projection needs to say where a Message came from, beyond the
 /// Message row itself: the deployment's own address, for a link back into
@@ -47,6 +48,20 @@ pub(super) fn message_origin(
         .external_author
         .as_deref()
         .or(message.sent_by_name.as_deref());
+    if adapter == SCHEDULED_ORIGIN {
+        // `external_source_name` is the Loop's id; without its name the Loop
+        // is gone, and so is the page a link would open.
+        let name = message.loop_name.as_deref();
+        return Some(json!({
+            "kind": adapter,
+            "label": name,
+            "url": name.and(message.external_source_name.as_deref()).map(|loop_id| format!(
+                "{}/settings/loops/{loop_id}",
+                origins.frontend_url.trim_end_matches('/')
+            )),
+            "user": author
+        }));
+    }
     if adapter == GITHUB_PR_ADAPTER {
         let label = message
             .external_subject_key

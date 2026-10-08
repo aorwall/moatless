@@ -87,6 +87,10 @@ pub struct TranscriptMessage {
     /// the subscription's team id rather than anything a reader would
     /// recognise.
     pub binding_label: Option<String>,
+    /// The name of the Loop a `scheduled` Message was fired by, joined in.
+    /// Such a row's `external_source_name` is the Loop's id; `None` once the
+    /// Loop is deleted.
+    pub loop_name: Option<String>,
     /// The display name of the Moatless user `sent_by` resolved to, joined in.
     /// The `user` fallback where no external author was recorded.
     pub sent_by_name: Option<String>,
@@ -243,12 +247,13 @@ const TRANSCRIPT_COLUMNS: &str = r#"m.id, m.uuid, m.message_type, m.message_role
                       COALESCE(b.destination_config ->> 'identifier',
                                b.destination_config ->> 'issue_identifier')
                           AS binding_label,
+                      lp.name AS loop_name,
                       COALESCE(u.name, u.login) AS sent_by_name,
                       files.file_contexts, m.child_outcome"#;
 
-/// The two joins carrying a Message's origin out of the database: what its
-/// Binding calls the subject and where it lives, and the display name `sent_by`
-/// resolves to.
+/// The joins carrying a Message's origin out of the database: what its Binding
+/// calls the subject and where it lives, the Loop that fired it, and the
+/// display name `sent_by` resolves to.
 ///
 /// Destination-config precedence matches
 /// `adapters::providers::linear::status::binding_label_and_url`; the subject
@@ -266,6 +271,9 @@ const TRANSCRIPT_ORIGIN_JOINS: &str = r#"LEFT JOIN LATERAL (
                           ORDER BY tb.created_at DESC
                           LIMIT 1
                       ) b ON true
+                      LEFT JOIN loops lp ON m.external_adapter = 'scheduled'
+                                        AND lp.id = m.external_source_name
+                                        AND NOT lp.deleted
                       LEFT JOIN users u ON u.id::text = m.sent_by
                       LEFT JOIN LATERAL (
                           SELECT jsonb_agg(
