@@ -310,7 +310,7 @@ pub const CONCERNS: &[Concern] = &[
         name: "task turns",
         owner: "moatless-tasks",
         roots: &["crates/tasks/src/task_turn/dao"],
-        tables: &["task_turns"],
+        tables: &["task_rewound_turns", "task_turns"],
         slice: 11,
     },
     Concern {

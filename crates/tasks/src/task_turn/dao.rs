@@ -234,13 +234,14 @@ pub trait TaskTurnDao: Send + Sync {
 
 /// The next free turn number for a task.
 ///
-/// `GREATEST` over both tables is required: migration 0071 seeded `task_turns`
-/// only for turns active at rollout, so an older Task's table is empty while
-/// its frozen `conversation_messages` hold its history.
+/// Migration 0071 seeded `task_turns` only for turns active at rollout, so an
+/// older Task's history is in `conversation_messages` alone. A rewound turn
+/// stays a T3 run under its number, so `task_rewound_turns` counts too.
 const NEXT_TURN_NUMBER_SQL: &str = r#"
     SELECT GREATEST(
         COALESCE((SELECT MAX(turn_number) FROM task_turns WHERE task_id = $1), 0),
-        COALESCE((SELECT MAX(turn_number) FROM conversation_messages WHERE task_id = $1), 0)
+        COALESCE((SELECT MAX(turn_number) FROM conversation_messages WHERE task_id = $1), 0),
+        COALESCE((SELECT MAX(turn_number) FROM task_rewound_turns WHERE task_id = $1), 0)
     ) + 1"#;
 
 /// PostgreSQL implementation of [`TaskTurnDao`].

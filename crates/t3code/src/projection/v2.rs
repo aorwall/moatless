@@ -43,6 +43,7 @@ use super::v2_provider::root_node_id;
 use super::v2_provider::root_nodes;
 use crate::AgentModelDefaults;
 use crate::dao::Conversation;
+use crate::transcript_dao::RewoundTurn;
 use crate::transcript_dao::Transcript;
 use crate::transcript_dao::TranscriptMessage;
 use crate::workspace::UiRpcListedWorkspace;
@@ -589,9 +590,10 @@ fn pending_run(message: &TranscriptMessage, steered: Option<&str>) -> Option<Str
 }
 
 /// One `OrchestrationV2Run` per Moatless turn in the window plus the current
-/// turn, then a `starting` run for a turn an unheld send is owed and a `queued`
-/// run per send no turn will take (see [`pending_run`]). Every turn older than
-/// the current one reports `completed`: its own status is not kept.
+/// turn and a `rolled_back` one per turn a rewind cut, in `ordinal` order, then
+/// a `starting` run for a turn an unheld send is owed and a `queued` run per
+/// send no turn will take (see [`pending_run`]). Every turn older than the
+/// current one reports `completed`: its own status is not kept.
 pub(crate) fn runs(
     conversation: &Conversation,
     transcript: &Transcript,
@@ -609,11 +611,28 @@ pub(crate) fn runs(
             turn_numbers.push(current);
         }
     }
-    let mut last_turn = turn_numbers.last().copied().unwrap_or(0).max(0);
+    let rewound: Vec<&RewoundTurn> = transcript
+        .rewound_turns
+        .iter()
+        .filter(|turn| !turn_numbers.contains(&turn.turn_number))
+        .collect();
+    let mut last_turn = turn_numbers
+        .iter()
+        .copied()
+        .chain(rewound.iter().map(|turn| turn.turn_number))
+        .max()
+        .unwrap_or(0)
+        .max(0);
     let mut runs: Vec<Value> = turn_numbers
         .into_iter()
         .map(|turn_number| run_for_turn(conversation, transcript, defaults, turn_number))
+        .chain(
+            rewound
+                .into_iter()
+                .map(|turn| rolled_back_run(conversation, defaults, turn)),
+        )
         .collect();
+    runs.sort_by_key(|run| run["ordinal"].as_i64());
     let steered = steered_run_id(conversation, transcript);
     let starting = transcript.messages.iter().find(|message| {
         steered.as_deref() == Some(&starting_run_id(&conversation.task_id, &message.uuid))
@@ -667,6 +686,35 @@ pub(crate) fn runs(
         }));
     }
     runs
+}
+
+/// A turn a rewind cut, as upstream T3 leaves a rolled-back run: under its
+/// own id, completed at the rewind. Its Messages are gone, so its user message
+/// id is the same placeholder [`run_for_turn`] uses for a turn without one.
+fn rolled_back_run(
+    conversation: &Conversation,
+    defaults: &AgentModelDefaults,
+    turn: &RewoundTurn,
+) -> Value {
+    let turn_number = turn.turn_number;
+    let run_id = turn_id(&conversation.task_id, turn_number);
+    json!({
+        "id": run_id,
+        "threadId": conversation.task_id,
+        "ordinal": turn_number.max(1),
+        "providerInstanceId": provider_instance(conversation),
+        "modelSelection": model_selection(conversation, defaults),
+        "providerThreadId": provider_thread_id(&conversation.task_id),
+        "userMessageId": format!("{}:{turn_number}:user-message", conversation.task_id),
+        "rootNodeId": root_node_id(&run_id),
+        "activeAttemptId": attempt_id(&run_id),
+        "status": "rolled_back",
+        "requestedAt": instant(turn.started_at),
+        "startedAt": instant(turn.started_at),
+        "completedAt": instant(turn.rewound_at),
+        "checkpointId": Value::Null,
+        "contextHandoffId": Value::Null
+    })
 }
 
 fn run_for_turn(

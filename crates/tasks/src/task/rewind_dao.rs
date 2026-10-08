@@ -1,5 +1,6 @@
 //! Cutting a Task's own conversation back to a turn, in place: every row of a
-//! later turn goes, frozen or not. A row with no `turn_number` is kept — a
+//! later turn goes, frozen or not, and its `task_turns` row moves to
+//! `task_rewound_turns`. A row with no `turn_number` is kept — a
 //! queued user Message not yet picked up is pending work, not history — and
 //! so is a Sandbox activity, since the Sandbox is not rewound.
 
@@ -50,6 +51,19 @@ pub(crate) async fn truncate_conversation(
     .execute(&mut *tx)
     .await?;
 
+    // Kept for readers that show what a rewind cut, and read by the next
+    // turn's number, which must not reuse theirs. A late terminal event can
+    // re-create a turn already recorded here, hence `DO NOTHING`.
+    sqlx::query(
+        r#"INSERT INTO task_rewound_turns (task_id, turn_number, run_id, status, started_at, ended_at)
+           SELECT task_id, turn_number, run_id, status, started_at, ended_at
+             FROM task_turns WHERE task_id = $1 AND turn_number > $2
+           ON CONFLICT (task_id, turn_number) DO NOTHING"#,
+    )
+    .bind(task_id)
+    .bind(keep_through)
+    .execute(&mut *tx)
+    .await?;
     let turns = sqlx::query("DELETE FROM task_turns WHERE task_id = $1 AND turn_number > $2")
         .bind(task_id)
         .bind(keep_through)

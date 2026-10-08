@@ -496,6 +496,30 @@ async fn resolve_turn_for_run_is_idempotent(pool: PgPool) {
     assert_eq!(count, 1, "one run must not create two turns");
 }
 
+/// T3 keeps a rewound turn as a rolled-back run under its number, so the next
+/// turn must not take that number again.
+#[sqlx::test]
+async fn resolve_turn_for_run_numbers_above_the_rewound_turns(pool: PgPool) {
+    seed_task(&pool, "task-a").await;
+    let repo = PgTaskTurnDao(pool.clone());
+    assert_eq!(
+        repo.resolve_turn_for_run("task-a", "run-1").await.unwrap(),
+        1
+    );
+    sqlx::query(
+        "INSERT INTO task_rewound_turns (task_id, turn_number, status, started_at) \
+         VALUES ('task-a', 2, 'completed', now()), ('task-a', 3, 'completed', now())",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(
+        repo.resolve_turn_for_run("task-a", "run-2").await.unwrap(),
+        4
+    );
+}
+
 #[sqlx::test]
 async fn resolve_turn_for_run_converges_whichever_signal_lands_first(pool: PgPool) {
     // The ack and `taskTurn.active` travel on unsynchronized channels, so the

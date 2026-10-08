@@ -167,7 +167,10 @@ pub(super) fn provider_thread(
     runs: &[Value],
     updated_at: &str,
 ) -> Value {
+    // A rolled-back run left the agent's conversation, as upstream's rollback
+    // moves `lastRunOrdinal` down to its target.
     let ordinals: Vec<i64> = started(runs)
+        .filter(|run| !is_rolled_back(run))
         .filter_map(|run| run.get("ordinal").and_then(Value::as_i64))
         .collect();
     json!({
@@ -224,7 +227,7 @@ pub(super) fn root_nodes(runs: &[Value]) -> Vec<Value> {
                 "parentNodeId": Value::Null,
                 "rootNodeId": root_node_id(run_id),
                 "kind": "root_turn",
-                "status": execution_status(run),
+                "status": if is_rolled_back(run) { "rolled_back" } else { execution_status(run) },
                 "countsForRun": true,
                 "providerThreadId": run.get("providerThreadId"),
                 "providerTurnId": provider_turn_id(run_id),
@@ -265,6 +268,12 @@ pub(super) fn has_started(run: &Value) -> bool {
         run.get("status").and_then(Value::as_str),
         Some("queued" | "starting")
     )
+}
+
+/// Whether a rewind cut this run. Upstream marks such a run and its root node
+/// `rolled_back`, and leaves its attempt and provider turn as they ended.
+fn is_rolled_back(run: &Value) -> bool {
+    run.get("status").and_then(Value::as_str) == Some("rolled_back")
 }
 
 /// The runs a turn has taken.

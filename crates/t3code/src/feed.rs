@@ -720,6 +720,7 @@ mod tests {
                 activities: Vec::new(),
                 omitted: 0,
                 turns: Vec::new(),
+                rewound_turns: Vec::new(),
                 settled_requests: HashSet::new(),
                 subagent_usage: HashMap::new(),
             })

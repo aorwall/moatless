@@ -531,6 +531,79 @@ fn runs_reports_one_run_per_historical_turn_plus_the_current_one() {
     assert_eq!(runs[1]["status"], json!("running"));
 }
 
+fn rewound(turn_number: i32) -> RewoundTurn {
+    RewoundTurn {
+        turn_number,
+        started_at: Utc::now() - chrono::Duration::minutes(5),
+        rewound_at: Utc::now(),
+    }
+}
+
+#[test]
+fn a_rewound_turn_is_a_rolled_back_run_between_the_live_ones() {
+    let conversation = open_turn(conversation("task-1"), 4, "active");
+    let transcript = Transcript {
+        messages: vec![message("msg-1", Some(1), "first turn", MessageType::User)],
+        rewound_turns: vec![rewound(2), rewound(3)],
+        ..Transcript::default()
+    };
+    let runs = runs(&conversation, &transcript, &AgentModelDefaults::default());
+    let shape: Vec<(&str, &str)> = runs
+        .iter()
+        .map(|run| (run["id"].as_str().unwrap(), run["status"].as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        shape,
+        vec![
+            ("task-1:1", "completed"),
+            ("task-1:2", "rolled_back"),
+            ("task-1:3", "rolled_back"),
+            ("task-1:4", "running"),
+        ]
+    );
+    assert_eq!(
+        runs[1]["completedAt"],
+        json!(instant(transcript.rewound_turns[0].rewound_at))
+    );
+
+    let nodes = root_nodes(&runs);
+    assert_eq!(nodes[1]["status"], json!("rolled_back"));
+    assert_eq!(attempts(&runs)[1]["status"], json!("completed"));
+    let checkpoints = checkpoints(&conversation, &runs);
+    let ordinals: Vec<&Value> = checkpoints.iter().map(|c| &c["appRunOrdinal"]).collect();
+    assert_eq!(ordinals, vec![&Value::Null, &json!(1)]);
+}
+
+#[test]
+fn after_a_rewind_the_agent_conversation_ends_at_the_cut_and_a_send_queues_above_it() {
+    let conversation = awake(open_turn(conversation("task-1"), 1, "completed"));
+    let transcript = Transcript {
+        messages: vec![
+            message("msg-1", Some(1), "first turn", MessageType::User),
+            held(message("msg-2", None, "again", MessageType::User)),
+        ],
+        rewound_turns: vec![rewound(2)],
+        ..Transcript::default()
+    };
+    let runs = runs(&conversation, &transcript, &AgentModelDefaults::default());
+    assert_eq!(runs[2]["id"], json!("task-1:queued:msg-2"));
+    assert_eq!(runs[2]["ordinal"], json!(3));
+    let thread = provider_thread(&conversation, &runs, "2026-01-01T00:00:00.000Z");
+    assert_eq!(thread["lastRunOrdinal"], json!(1));
+}
+
+#[test]
+fn a_rewound_turn_a_live_one_reuses_is_not_reported_twice() {
+    let conversation = open_turn(conversation("task-1"), 2, "completed");
+    let transcript = Transcript {
+        rewound_turns: vec![rewound(2)],
+        ..Transcript::default()
+    };
+    let runs = runs(&conversation, &transcript, &AgentModelDefaults::default());
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0]["status"], json!("completed"));
+}
+
 #[test]
 fn checkpoints_mark_the_start_and_each_settled_run_but_not_the_open_one() {
     let conversation = open_turn(conversation("task-1"), 2, "active");

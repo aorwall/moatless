@@ -142,6 +142,30 @@ async fn the_turns_above_the_cut_go_and_the_rest_stay(pool: PgPool) {
     assert_eq!(turn_numbers(&pool, "task-1").await, vec![1]);
 }
 
+#[sqlx::test]
+async fn the_cut_turns_are_kept_as_rewound(pool: PgPool) {
+    seed_a_task(&pool, "task-1").await;
+    seed_turn_message(&pool, "task-1", "msg-1", Some(1)).await;
+    seed_turn_message(&pool, "task-1", "msg-2", Some(2)).await;
+    seed_turn_message(&pool, "task-1", "msg-3", Some(3)).await;
+
+    truncate_conversation(&pool, "task-1", 1, None)
+        .await
+        .expect("rewind");
+
+    let rewound: Vec<(i32, String)> = sqlx::query_as(
+        "SELECT turn_number, status FROM task_rewound_turns WHERE task_id = $1 ORDER BY turn_number",
+    )
+    .bind("task-1")
+    .fetch_all(&pool)
+    .await
+    .expect("read rewound turns");
+    assert_eq!(
+        rewound,
+        vec![(2, "completed".to_string()), (3, "completed".to_string())]
+    );
+}
+
 /// A Message no turn has claimed is pending work rather than history, so the
 /// cut leaves it for the next turn to pick up.
 #[sqlx::test]

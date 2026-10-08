@@ -249,6 +249,7 @@ pub(super) fn transcript(
         // What `task_turns` holds for these rows. A test about a turn with
         // no Message of its own sets this itself.
         turns,
+        rewound_turns: Vec::new(),
         settled_requests,
         subagent_usage: HashMap::new(),
     }

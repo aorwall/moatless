@@ -116,6 +116,9 @@ pub struct Transcript {
     /// [`crate::dao::ConversationDao::changed_messages`], whose caller projects
     /// no checkpoints.
     pub turns: Vec<i32>,
+    /// The turns a rewind cut out of this Task, ascending. Read by
+    /// [`transcript`] alone, and empty from every other read.
+    pub rewound_turns: Vec<RewoundTurn>,
     /// Of the requests these rows ask, the ones whose call has come back.
     ///
     /// A panel row sits *beside* the call rather than being it — the call's
@@ -129,6 +132,15 @@ pub struct Transcript {
     /// Looked up rather than read out of the rows: a subagent's own Messages
     /// carry the spawning id as `parent_uuid` and are never among `activities`.
     pub subagent_usage: HashMap<String, SubagentUsage>,
+}
+
+/// A `task_rewound_turns` row: a turn a rewind cut, which T3 shows as a
+/// rolled-back run.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct RewoundTurn {
+    pub turn_number: i32,
+    pub started_at: DateTime<Utc>,
+    pub rewound_at: DateTime<Utc>,
 }
 
 /// How many of a Task's Messages one transcript read returns.
@@ -320,12 +332,20 @@ pub(crate) async fn transcript(
     .bind(task_id)
     .fetch_all(pool)
     .await?;
+    let rewound_turns: Vec<RewoundTurn> = sqlx::query_as(
+        r#"SELECT turn_number, started_at, rewound_at FROM task_rewound_turns
+           WHERE task_id = $1 ORDER BY turn_number"#,
+    )
+    .bind(task_id)
+    .fetch_all(pool)
+    .await?;
 
     Ok(Transcript {
         messages,
         activities,
         omitted,
         turns,
+        rewound_turns,
         settled_requests,
         subagent_usage,
     })
@@ -346,6 +366,7 @@ pub(crate) async fn changed_messages(
             activities: Vec::new(),
             omitted: 0,
             turns: Vec::new(),
+            rewound_turns: Vec::new(),
             settled_requests: HashSet::new(),
             subagent_usage: HashMap::new(),
         });
@@ -419,6 +440,7 @@ pub(crate) async fn changed_messages(
         activities,
         omitted: 0,
         turns: Vec::new(),
+        rewound_turns: Vec::new(),
         settled_requests,
         subagent_usage,
     })
@@ -468,6 +490,7 @@ pub(crate) async fn settled_turns(
         activities: Vec::new(),
         omitted: 0,
         turns,
+        rewound_turns: Vec::new(),
         settled_requests: HashSet::new(),
         subagent_usage: HashMap::new(),
     })
