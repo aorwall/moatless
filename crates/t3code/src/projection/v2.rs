@@ -1098,6 +1098,11 @@ fn request_status<'a>(
     if let Some(resolved) = resolved {
         return RequestStatus::Resolved(resolved);
     }
+    // A call that came back unanswered, e.g. cut off by a sandbox restart that
+    // resumed the same turn, would otherwise stay pending beside the re-ask.
+    if transcript.settled_requests.contains(request_id) {
+        return RequestStatus::Expired;
+    }
     let (turn, _) = activity_anchor(conversation, transcript, asked);
     let current = conversation
         .turn_number

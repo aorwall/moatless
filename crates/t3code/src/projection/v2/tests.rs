@@ -981,6 +981,19 @@ fn runtime_request_expires_when_its_turn_closed_unanswered() {
 }
 
 #[test]
+fn a_question_whose_call_came_back_unanswered_is_not_pending() {
+    let conversation = open_turn(conversation("task-1"), 1, "active");
+    let transcript = Transcript {
+        activities: vec![asked("act-1", "req-1"), asked("act-2", "req-2")],
+        settled_requests: ["req-1".to_string()].into(),
+        ..Transcript::default()
+    };
+    let requests = runtime_requests(&conversation, &transcript);
+    assert_eq!(requests[0]["status"], json!("expired"));
+    assert_eq!(requests[1]["status"], json!("pending"));
+}
+
+#[test]
 fn turn_items_render_a_pending_question_as_a_waiting_user_input_request() {
     let conversation = open_turn(conversation("task-1"), 1, "active");
     let transcript = Transcript {
