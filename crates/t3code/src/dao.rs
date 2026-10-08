@@ -92,6 +92,10 @@ pub struct Conversation {
     /// `moat cmd` commands the Sandbox is running, as its pod last reported.
     /// `0` for a Task with no Sandbox row, which can be running nothing.
     pub running_commands: i32,
+    /// See `lineage::listed_children_join`.
+    pub child_count: i64,
+    #[sqlx(json)]
+    pub running_children: Vec<crate::lineage::RunningChild>,
 
     /// When a person last wrote: the newest `user` row that is not a sandbox
     /// wake (inbox `origin = 'sandbox'`); the agent's tool results are `system`.
@@ -117,8 +121,8 @@ pub struct Conversation {
     pub pending_plan: bool,
 
     /// The Task this one was spawned by (`created_by`) or forked from
-    /// (`forked_from`), when the viewer may read it and follows it; all three
-    /// are `None` otherwise. `fork_at_turn` is the fork edge's `at_turn`.
+    /// (`forked_from`), when the viewer may read it; all three are `None`
+    /// otherwise. `fork_at_turn` is the fork edge's `at_turn`.
     pub parent_task_id: Option<String>,
     pub parent_relation: Option<String>,
     pub fork_at_turn: Option<i32>,
@@ -666,7 +670,8 @@ impl PgConversationDao {
         let statuses = status_list(statuses);
         let access = moatless_core::db::access_control::access_filter(ScopedEntity::Task, "t.", 1);
         let follower = access.next_param();
-        let parent_join = crate::lineage::listed_parent_join(follower);
+        let parent_join = crate::lineage::listed_parent_join();
+        let children_join = crate::lineage::listed_children_join();
         let question_tool = follower + 1;
         let plan_tool = follower + 2;
         // Every clause below allocates the next position in turn, and the binds
@@ -782,6 +787,8 @@ impl PgConversationDao {
                    s.started_at               AS sandbox_started_at,
                    s.desired_state_updated_at AS sandbox_updated_at,
                    COALESCE(s.running_commands, 0) AS running_commands,
+                   COALESCE(children.child_count, 0) AS child_count,
+                   COALESCE(children.running_children, '[]'::jsonb) AS running_children,
                    person.latest_user_message_at,
                    queued.latest_queued_message_at,
                    model.assistant_model,
@@ -982,6 +989,7 @@ impl PgConversationDao {
                    ) bound
                ) pr ON TRUE
                {parent_join}
+               {children_join}
                -- Determinism for this query's own output, and nothing more.
                -- This is *not* the sidebar's order: T3 sorts client-side, in
                -- `resolveSettledTimestamp` (`Sidebar.logic.ts:484-502`), from
@@ -1532,39 +1540,6 @@ impl ConversationDao for PgConversationDao {
         crate::listing::changes_after(&self.pool, after, limit).await
     }
 }
-/// Creator identity for a Task whose readability the caller has already
-/// checked.
-pub async fn task_creator(
-    pool: &sqlx::PgPool,
-    task_id: &str,
-) -> Result<Option<String>, sqlx::Error> {
-    Ok(
-        sqlx::query_scalar::<_, Option<String>>("SELECT created_by FROM tasks WHERE task_id = $1")
-            .bind(task_id)
-            .fetch_optional(pool)
-            .await?
-            .flatten(),
-    )
-}
-
-/// Whether a message has claimed an attachment that is no longer a draft.
-pub async fn attachment_is_on_message(
-    pool: &sqlx::PgPool,
-    attachment_id: &str,
-) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar::<_, bool>(
-        r#"SELECT EXISTS (
-               SELECT 1 FROM task_inbox i
-                WHERE $1 = ANY(i.file_ids)
-                   OR EXISTS (SELECT 1 FROM jsonb_array_elements(
-                                  COALESCE(i.delivery_options -> 'contexts', '[]'::jsonb)) c
-                               WHERE c ->> 'referenceId' = $1 AND c ->> 'type' = 'file'))"#,
-    )
-    .bind(attachment_id)
-    .fetch_one(pool)
-    .await
-}
-
 #[cfg(all(test, feature = "db-tests"))]
 #[path = "dao_db_tests.rs"]
 mod dao_db_tests;

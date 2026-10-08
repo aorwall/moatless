@@ -457,6 +457,7 @@ impl TaskDao for PgTaskDao {
             .execute(&mut *tx)
             .await?;
 
+        let parents = super::relations_dao::parent_ids(&mut tx, task_id).await?;
         let deleted: Option<String> =
             sqlx::query_scalar("DELETE FROM tasks WHERE task_id = $1 RETURNING task_id")
                 .bind(task_id)
@@ -465,7 +466,7 @@ impl TaskDao for PgTaskDao {
         let did_delete = deleted.is_some();
         if did_delete {
             crate::conversation::dao::delete_task(&mut tx, task_id).await?;
-            moatless_core::change_feed::listing::record_change(&mut tx, task_id).await?;
+            record_deletion(&mut tx, task_id, &parents).await?;
         }
         tx.commit().await?;
         Ok(did_delete)
@@ -488,6 +489,7 @@ impl TaskDao for PgTaskDao {
             ctrl.sql()
         );
         let mut tx = self.pool.begin().await?;
+        let parents = super::relations_dao::parent_ids(&mut tx, task_id).await?;
         let deleted: Option<(String, Option<String>)> = sqlx::query_as(AssertSqlSafe(sql))
             .bind(task_id)
             .bind(ctx.is_admin)
@@ -548,7 +550,7 @@ impl TaskDao for PgTaskDao {
             .execute(&mut *tx)
             .await?;
 
-        moatless_core::change_feed::listing::record_change(&mut tx, &deleted_task_id).await?;
+        record_deletion(&mut tx, &deleted_task_id, &parents).await?;
         tx.commit().await?;
         Ok(true)
     }
@@ -915,6 +917,7 @@ impl TaskDao for PgTaskDao {
             ctrl.sql()
         );
         let mut tx = self.pool.begin().await?;
+        let parents = super::relations_dao::parent_ids(&mut tx, task_id).await?;
         let deleted: Option<(String, Option<String>)> = sqlx::query_as(AssertSqlSafe(sql))
             .bind(task_id)
             .bind(ctx.is_admin)
@@ -964,7 +967,7 @@ impl TaskDao for PgTaskDao {
             // foreign key precisely so that a deletion is still replayable. A
             // watching client re-reads this id, finds nothing, and drops the row it
             // holds.
-            moatless_core::change_feed::listing::record_change(&mut tx, &deleted_task_id).await?;
+            record_deletion(&mut tx, &deleted_task_id, &parents).await?;
         }
         tx.commit().await?;
         Ok(did_delete)
@@ -1484,6 +1487,21 @@ pub(crate) async fn clear_settled_for_all_followers(
     .bind(task_id)
     .execute(tx)
     .await?;
+    Ok(())
+}
+
+/// Record a deleted Task on the listing feed, and each of its `parents` (read
+/// before the delete) so their child counts and Waiting state are re-read.
+/// Last in the transaction, per `record_change`'s rule.
+async fn record_deletion(
+    tx: &mut sqlx::PgConnection,
+    task_id: &str,
+    parents: &[String],
+) -> Result<(), sqlx::Error> {
+    moatless_core::change_feed::listing::record_change(tx, task_id).await?;
+    for parent in parents {
+        moatless_core::change_feed::listing::record_change(tx, parent).await?;
+    }
     Ok(())
 }
 

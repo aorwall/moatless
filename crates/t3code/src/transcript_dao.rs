@@ -581,3 +581,21 @@ async fn answered_calls(
     }
     Ok(calls)
 }
+
+/// Whether a message has claimed an attachment that is no longer a draft.
+pub async fn attachment_is_on_message(
+    pool: &sqlx::PgPool,
+    attachment_id: &str,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar::<_, bool>(
+        r#"SELECT EXISTS (
+               SELECT 1 FROM task_inbox i
+                WHERE $1 = ANY(i.file_ids)
+                   OR EXISTS (SELECT 1 FROM jsonb_array_elements(
+                                  COALESCE(i.delivery_options -> 'contexts', '[]'::jsonb)) c
+                               WHERE c ->> 'referenceId' = $1 AND c ->> 'type' = 'file'))"#,
+    )
+    .bind(attachment_id)
+    .fetch_one(pool)
+    .await
+}

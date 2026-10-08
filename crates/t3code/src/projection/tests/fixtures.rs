@@ -23,6 +23,8 @@ pub(super) fn conversation(task_id: &str, workspace_id: &str) -> Conversation {
         turn_error: None,
         turn_error_reason: None,
         turn_error_resets_at: None,
+        child_count: 0,
+        running_children: Vec::new(),
         sandbox_desired_state_raw: None,
         sandbox_stop_reason_raw: None,
         sandbox_started_at: None,

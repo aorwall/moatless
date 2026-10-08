@@ -324,6 +324,47 @@ async fn delete_task(pool: PgPool) {
 }
 
 #[sqlx::test]
+async fn deleting_a_child_records_a_change_for_its_parent(pool: PgPool) {
+    use crate::task::relations::{TaskRelation, TaskRelationType};
+    use crate::task::relations_dao::{PgTaskRelationDao, TaskRelationDao};
+
+    let user = "user-1";
+    seed_repo(&pool, "repo-1", user).await;
+    for id in ["task-parent", "task-child"] {
+        seed_task(&pool, &make_task_row(id, user)).await.unwrap();
+    }
+    PgTaskRelationDao(pool.clone())
+        .insert(&TaskRelation::new(
+            "task-child",
+            "task-parent",
+            TaskRelationType::CreatedBy,
+            serde_json::json!({}),
+        ))
+        .await
+        .unwrap();
+    let (before,): (i64,) =
+        sqlx::query_as("SELECT COALESCE(max(position), 0) FROM task_listing_changes")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+    assert!(
+        remove_task(&pool, "task-child", &scope_ctx(user))
+            .await
+            .unwrap()
+    );
+
+    let changed: Vec<String> = sqlx::query_scalar(
+        "SELECT task_id FROM task_listing_changes WHERE position > $1 ORDER BY position",
+    )
+    .bind(before)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(changed, ["task-child", "task-parent"]);
+}
+
+#[sqlx::test]
 async fn exists_by_short_id(pool: PgPool) {
     let user = "user-1";
     seed_repo(&pool, "repo-1", user).await;

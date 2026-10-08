@@ -44,12 +44,12 @@ impl T3Reads {
     /// Creator identity for a Task whose readability the caller has already
     /// checked.
     pub async fn task_creator(&self, task_id: &str) -> Result<Option<String>, sqlx::Error> {
-        crate::dao::task_creator(&self.pool, task_id).await
+        crate::task_dao::task_creator(&self.pool, task_id).await
     }
 
     /// Whether a message has claimed an attachment that is no longer a draft.
     pub async fn attachment_is_on_message(&self, attachment_id: &str) -> Result<bool, sqlx::Error> {
-        crate::dao::attachment_is_on_message(&self.pool, attachment_id).await
+        crate::transcript_dao::attachment_is_on_message(&self.pool, attachment_id).await
     }
 
     pub(crate) fn conversations(&self) -> &dyn ConversationDao {

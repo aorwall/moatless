@@ -252,6 +252,8 @@ pub(crate) fn thread_shell_v2(
         "pendingBackgroundTasks".into(),
         pending_background_tasks(conversation),
     );
+    // The same set `subtasks.list` answers with; the sidebar badge opens it.
+    row.insert("childCount".into(), json!(conversation.child_count));
     row.insert(
         "hasActionableProposedPlan".into(),
         json!(conversation.pending_plan),

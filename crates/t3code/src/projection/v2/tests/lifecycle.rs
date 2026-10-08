@@ -135,8 +135,8 @@ fn a_command_outliving_its_turn_is_pending_background_work() {
     assert_eq!(
         tasks,
         json!([
-            { "taskId": "task-1:command:1", "description": "Background command", "kind": "command" },
-            { "taskId": "task-1:command:2", "description": "Background command", "kind": "command" }
+            { "taskId": "task-1:command:1", "description": "Background command", "kind": "background_task" },
+            { "taskId": "task-1:command:2", "description": "Background command", "kind": "background_task" }
         ])
     );
     let projection = project(&idle, &Transcript::default());

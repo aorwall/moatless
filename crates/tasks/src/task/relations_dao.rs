@@ -3,12 +3,14 @@
 use super::relations::{TaskRelation, TaskRelationType};
 use async_trait::async_trait;
 use moatless_core::db::DbPool;
-use sqlx::AssertSqlSafe;
+use sqlx::{AssertSqlSafe, PgConnection};
 
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub(crate) trait TaskRelationDao: Send + Sync {
     /// Insert a relation. `ON CONFLICT (from, to, relation_type) DO NOTHING`.
+    /// A new parent edge is recorded on the listing feed as a change to the
+    /// child, which the T3 listing reads as a change to its parent too.
     async fn insert(&self, row: &TaskRelation) -> Result<(), sqlx::Error>;
 
     /// All relations originating from `from_task_id`.
@@ -42,7 +44,8 @@ const TASK_RELATION_SELECT: &str = r#"
 #[async_trait]
 impl TaskRelationDao for PgTaskRelationDao {
     async fn insert(&self, row: &TaskRelation) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        let mut tx = self.0.begin().await?;
+        let inserted = sqlx::query(
             r#"INSERT INTO task_relations
                    (id, from_task_id, to_task_id, relation_type, context, created_at)
                VALUES ($1, $2, $3, $4, $5, $6)
@@ -54,9 +57,14 @@ impl TaskRelationDao for PgTaskRelationDao {
         .bind(row.relation_type.as_str())
         .bind(&row.context)
         .bind(row.created_at)
-        .execute(&self.0)
-        .await?;
-        Ok(())
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if inserted > 0 && PARENT_RELATION_TYPES.contains(&row.relation_type.as_str()) {
+            // Last, per `record_change`'s rule.
+            moatless_core::change_feed::listing::record_change(&mut tx, &row.from_task_id).await?;
+        }
+        tx.commit().await
     }
 
     async fn list_outgoing(&self, from_task_id: &str) -> Result<Vec<TaskRelation>, sqlx::Error> {
@@ -95,4 +103,21 @@ impl TaskRelationDao for PgTaskRelationDao {
         .fetch_optional(&self.0)
         .await
     }
+}
+
+/// The tasks `from_task_id` is a child of. A delete reads them first: the
+/// `task_relations` cascade drops these edges with the child, so the listing
+/// feed can no longer reach the parent through them.
+pub(crate) async fn parent_ids(
+    tx: &mut PgConnection,
+    from_task_id: &str,
+) -> Result<Vec<String>, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT DISTINCT to_task_id FROM task_relations \
+         WHERE from_task_id = $1 AND relation_type = ANY($2)",
+    )
+    .bind(from_task_id)
+    .bind(&PARENT_RELATION_TYPES[..])
+    .fetch_all(tx)
+    .await
 }

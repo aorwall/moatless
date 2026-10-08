@@ -44,3 +44,18 @@ pub trait T3TaskDao: Send + Sync {
         ctx: &ScopeContext,
     ) -> Result<Option<TaskView>, sqlx::Error>;
 }
+
+/// Creator identity for a Task whose readability the caller has already
+/// checked.
+pub async fn task_creator(
+    pool: &sqlx::PgPool,
+    task_id: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    Ok(
+        sqlx::query_scalar::<_, Option<String>>("SELECT created_by FROM tasks WHERE task_id = $1")
+            .bind(task_id)
+            .fetch_optional(pool)
+            .await?
+            .flatten(),
+    )
+}

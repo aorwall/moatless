@@ -211,23 +211,39 @@ pub(super) fn run_ending_items(
         .collect()
 }
 
-/// The `moat cmd` commands still running once the turn that started them
-/// ended, as `command` background tasks. The Sandbox reports only how many,
-/// so each is named by its place in that count.
+/// The `moat cmd` commands and spawned children that will wake this Task once
+/// its Turn has ended, which the client shows as Waiting. Commands are
+/// `background_task` rather than `command`: the client lets a `command` finish
+/// the thread, and a `moat cmd` wakes the agent. The Sandbox reports only how
+/// many commands run, so each is named by its place in that count.
 pub(super) fn pending_background_tasks(conversation: &Conversation) -> Value {
-    if turn_is_open(conversation) || conversation.running_commands <= 0 {
+    if turn_is_open(conversation) {
         return json!([]);
     }
-    let tasks: Vec<Value> = (1..=conversation.running_commands)
-        .map(|index| {
-            json!({
-                "taskId": format!("{}:command:{index}", conversation.task_id),
-                "description": "Background command",
-                "kind": "command"
-            })
+    let commands = (1..=conversation.running_commands.max(0)).map(|index| {
+        json!({
+            "taskId": format!("{}:command:{index}", conversation.task_id),
+            "description": "Background command",
+            "kind": "background_task"
         })
-        .collect();
-    Value::Array(tasks)
+    });
+    let children = conversation.running_children.iter().map(|child| {
+        let mut entry = json!({
+            "taskId": child.task_id,
+            "kind": "subagent",
+            "childThreadId": child.task_id
+        });
+        if let Some(name) = child
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+        {
+            entry["description"] = json!(name);
+        }
+        entry
+    });
+    Value::Array(commands.chain(children).collect())
 }
 
 /// One context-window reading as V2's token usage. `None` for a reading with

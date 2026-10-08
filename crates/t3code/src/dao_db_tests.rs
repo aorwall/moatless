@@ -914,8 +914,20 @@ async fn the_newest_turns_error_is_read_until_another_turn_starts(pool: PgPool) 
         turn_error(dao.readable_by_id(&owner, TASK).await.unwrap()).as_deref(),
         Some("You've hit your usage limit.")
     );
+    let errored = dao
+        .readable_by_id(&owner, TASK)
+        .await
+        .unwrap()
+        .expect("readable");
+    assert_eq!(errored.turn_error_reason.as_deref(), Some("usage_limit"));
 
     record_turn(&pool, 2, "active", None).await;
+    let running = dao
+        .readable_by_id(&owner, TASK)
+        .await
+        .unwrap()
+        .expect("readable");
+    assert_eq!(running.turn_error_reason, None);
     assert_eq!(
         turn_error(dao.readable_by_id(&owner, TASK).await.unwrap()),
         None
@@ -974,10 +986,10 @@ async fn the_access_check_agrees_with_the_conversation_read(pool: PgPool) {
     }
 }
 
-/// A listed row names its parent only when the viewer may read the parent and
-/// follows it, so a client never hides a child under a parent it cannot list.
+/// A listed row names its parent whenever the viewer may read the parent,
+/// followed or not, and a parent counts the children the viewer may read.
 #[sqlx::test(migrations = "../core/migrations")]
-async fn a_listed_row_names_a_parent_the_viewer_reads_and_follows(pool: PgPool) {
+async fn a_listed_row_names_a_readable_parent_and_counts_its_children(pool: PgPool) {
     let seed = |task_id: &'static str, owner: &'static str| {
         let pool = pool.clone();
         async move {
@@ -1030,6 +1042,12 @@ async fn a_listed_row_names_a_parent_the_viewer_reads_and_follows(pool: PgPool) 
         .execute(&pool)
         .await
         .expect("unfollow");
+    sqlx::query(
+        "INSERT INTO task_turns (task_id, turn_number, status) VALUES ('child', 1, 'active')",
+    )
+    .execute(&pool)
+    .await
+    .expect("child runs a turn");
 
     let viewer = ScopeContext {
         user_id: USER_1.to_string(),
@@ -1056,6 +1074,28 @@ async fn a_listed_row_names_a_parent_the_viewer_reads_and_follows(pool: PgPool) 
     assert_eq!(parent_of("child"), named("parent", "created_by", None));
     assert_eq!(parent_of("fork"), named("parent", "forked_from", Some(2)));
     assert_eq!(parent_of("orphan"), (None, None, None), "unreadable parent");
-    assert_eq!(parent_of("stray"), (None, None, None), "unfollowed parent");
+    assert_eq!(
+        parent_of("stray"),
+        named("unfollowed", "forked_from", None),
+        "unfollowed parent"
+    );
     assert_eq!(parent_of("parent"), (None, None, None));
+
+    let row = |task_id: &str| rows.iter().find(|row| row.task_id == task_id).unwrap();
+    assert_eq!(
+        row("parent").child_count,
+        2,
+        "the spawned child and the fork"
+    );
+    assert_eq!(
+        row("parent")
+            .running_children
+            .iter()
+            .map(|child| child.task_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["child"],
+        "a fork is counted but never at work"
+    );
+    assert_eq!(row("child").child_count, 0);
+    assert!(row("child").running_children.is_empty());
 }
