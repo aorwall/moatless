@@ -17,9 +17,9 @@ use crate::agent::harness::trajectory::ClaudeSessionFormat;
 use crate::config::Config;
 use crate::state::SandboxState;
 
-/// Bound on the sync-on-shutdown flush so it stays within the pod's 30s grace
-/// period — a stuck upload must never block the drain.
-const SHUTDOWN_FLUSH_TIMEOUT: Duration = Duration::from_secs(12);
+/// Bound on the sync-on-shutdown flush, one of the steps `crate::shutdown`
+/// fits inside the pod's termination grace period.
+pub(crate) const SHUTDOWN_FLUSH_TIMEOUT: Duration = Duration::from_secs(12);
 const CLAUDE_ARCHIVE_PREFIX: &str = "claude";
 const CODEX_SESSIONS_ARCHIVE_PREFIX: &str = "codex/sessions";
 

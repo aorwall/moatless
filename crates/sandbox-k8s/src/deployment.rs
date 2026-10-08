@@ -413,8 +413,9 @@ async fn wait_for_pods_deleted_inner(
     use std::time::Duration;
 
     const POLL_INTERVAL: Duration = Duration::from_secs(2);
-    // Pods have a 30s termination grace period; allow headroom for detach.
-    const TIMEOUT: Duration = Duration::from_secs(90);
+    // The pod's whole termination grace period, plus headroom for detach.
+    const TIMEOUT: Duration =
+        Duration::from_secs(moatless_types::sandbox::SANDBOX_TERMINATION_GRACE_SECS as u64 + 60);
 
     let pods_api: Api<Pod> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));

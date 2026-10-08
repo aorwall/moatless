@@ -23,7 +23,7 @@ use tracing::{error, info, warn};
 
 /// Bounded time budget for joining every supervised task on shutdown.
 ///
-/// The last bounded step of the pod's ~30s teardown grace period — see
+/// The last bounded step of the pod's teardown grace period — see
 /// `crate::shutdown::OUTBOX_FLUSH_TIMEOUT` before changing it; stragglers past
 /// the deadline are reported by name, not waited for.
 pub const SHUTDOWN_JOIN_DEADLINE: Duration = Duration::from_secs(2);

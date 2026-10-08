@@ -2,7 +2,7 @@
 //!
 //! The sandbox runs one agent per pod. Without signal handling the process
 //! blocks on `axum::serve` and is SIGKILLed (exit 137) at the end of the pod's
-//! ~30s termination grace period on *every* teardown — idle-down, node drain,
+//! termination grace period on *every* teardown — idle-down, node drain,
 //! eviction, and PR-close. Installing a SIGTERM/SIGINT handler that stops the
 //! agent, flushes CLI session state, and cancels the lifecycle token lets the
 //! process drain and exit promptly instead.
@@ -18,7 +18,8 @@ use crate::agent::types::AgentStatus;
 use crate::state::SandboxState;
 
 /// 5s budget for draining the event send buffer on shutdown — one of several
-/// steps that must fit the pod's 30s termination grace period.
+/// steps that must fit the pod's termination grace period
+/// (`SANDBOX_TERMINATION_GRACE_SECS`).
 ///
 /// On timeout the drainer keeps retrying in the background until the process
 /// exits, best-effort only.
@@ -27,7 +28,7 @@ const OUTBOX_FLUSH_TIMEOUT: Duration = Duration::from_secs(5);
 /// 2s budget for the writers admitted before teardown began to finish starting.
 ///
 /// Overrunning it costs the pod its final-tree tag, not its flush, so this is
-/// deliberately small against the ~22s the two flushes below already budget.
+/// deliberately small against the two flushes below.
 const WRITER_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// 3s budget for a cancelled agent's harness to wind down.
@@ -129,8 +130,8 @@ async fn finish_shutdown(lifecycle_cancel: &CancellationToken, state: Option<&Sa
     // the lifecycle token (which stops the drainer). Stopping the agent above
     // emits the terminal `agent`/`taskTurn` events we most need delivered, so
     // this flush is what makes graceful teardown lose no lifecycle events.
-    // Bounded so it can't blow the pod's 30s grace period — the transcript and
-    // workspace flushes below already budget ~22s worst case.
+    // Bounded so it can't blow the pod's grace period; see
+    // `every_shutdown_step_fits_the_grace_period`.
     //
     // **This step's position is load-bearing, not just its duration.**
     // `EventOutbox::flush` early-returns the instant `drainer_stopped` is set —
@@ -150,7 +151,7 @@ async fn finish_shutdown(lifecycle_cancel: &CancellationToken, state: Option<&Sa
     // cancelling the lifecycle token (which stops the periodic syncs). On a
     // graceful kill — including a spot reclaim's 2-min drain → SIGTERM — this
     // persists the final delta with no loss. Each is bounded internally so the
-    // pair fits the pod's 30s grace period.
+    // pair fits the pod's grace period.
     if let Some(state) = state {
         // The working tree goes first, deliberately: for the `s3` storage
         // backend it is the durability the node-local emptyDir doesn't provide,
@@ -231,6 +232,32 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     use super::*;
+
+    /// Kubernetes SIGKILLs the pod when its grace period ends, and a flush cut
+    /// off there reports nothing. Each step is bounded on its own, so only their
+    /// sum against the grace period shows they still fit after one is raised.
+    #[test]
+    fn every_shutdown_step_fits_the_grace_period() {
+        let steps = [
+            WRITER_DRAIN_TIMEOUT,
+            // Per agent; a sandbox stops one agent per task it hosts.
+            AGENT_QUIESCE_TIMEOUT,
+            OUTBOX_FLUSH_TIMEOUT,
+            crate::workspace_sync::SHUTDOWN_FLUSH_TIMEOUT,
+            crate::workspace_sync::TIMEOUT_REPORT_TIMEOUT,
+            crate::transcript_sync::SHUTDOWN_FLUSH_TIMEOUT,
+            crate::supervisor::SHUTDOWN_JOIN_DEADLINE,
+        ];
+        let total: Duration = steps.iter().sum();
+        let grace = Duration::from_secs(u64::from(
+            moatless_types::sandbox::SANDBOX_TERMINATION_GRACE_SECS,
+        ));
+
+        assert!(
+            total + Duration::from_secs(5) <= grace,
+            "{total:?} of shutdown steps leaves under 5s of the {grace:?} grace period"
+        );
+    }
 
     #[tokio::test]
     async fn perform_shutdown_cancels_token_when_agent_idle() {

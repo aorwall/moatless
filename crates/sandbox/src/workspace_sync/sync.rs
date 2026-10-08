@@ -22,6 +22,7 @@ use moatless_types::http::HttpTimeouts;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
+use super::phases::Phases;
 use super::{file_set, restic};
 use crate::agent::types::AgentStatus;
 use crate::backend_client::BackendClient;
@@ -43,20 +44,15 @@ const FORMAT: &str = "tar";
 /// left. Keeps the repository between `KEEP_SNAPSHOTS` and twice that.
 const PRUNE_EVERY_SNAPSHOTS: u32 = 50;
 
-/// Bound on the sync-on-shutdown flush so it stays within the pod's 30s grace
-/// period (shared with the transcript flush) — a stuck upload must never block
-/// the drain.
-const SHUTDOWN_FLUSH_TIMEOUT: Duration = Duration::from_secs(10);
+/// Bound on the shutdown flush, one step `crate::shutdown` fits in the grace.
+pub(crate) const SHUTDOWN_FLUSH_TIMEOUT: Duration = Duration::from_secs(40);
 
 /// Bound on the one gRPC call [`flush_on_shutdown`] makes after its budget is
 /// already spent, so reporting the loss cannot itself overrun the grace period.
-const TIMEOUT_REPORT_TIMEOUT: Duration = Duration::from_secs(2);
+pub(crate) const TIMEOUT_REPORT_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// The `format` a timed-out shutdown flush reports under.
-///
-/// The cancelled future never says whether the repository or the tar was in
-/// flight, and `record_workspace_sync` buckets an unrecognised label as
-/// `other`, keeping this out of both formats' success rates.
+/// The `format` a timed-out shutdown flush reports under, which
+/// `record_workspace_sync` buckets as `other`, out of both formats' rates.
 const FORMAT_UNKNOWN: &str = "unknown";
 
 /// Leading bytes of a gzip member, used to tell a compressed archive from a
@@ -167,6 +163,7 @@ impl WorkspaceSyncTracker {
         backend_client: &dyn BackendClient,
         prune: Prune,
         capture: Capture,
+        phases: &Arc<Phases>,
     ) -> SyncOutcome {
         if self.uploads_held.load(Ordering::Relaxed) {
             warn!(task_id = %config.task_id, "Upload held: the stored snapshot could not be read on start, and this tree would overwrite it");
@@ -179,7 +176,9 @@ impl WorkspaceSyncTracker {
         // snapshot object for no data: 1114 of 3095 snapshots on 2026-09-08 did
         // exactly that. Agent work always moves the fingerprint, so what the
         // gate skips is only a tree init produced and its source still holds.
+        phases.enter("lock");
         let mut last = self.last_uploaded.lock().await;
+        phases.enter("fingerprint");
         let current = workspace_fingerprint(PathBuf::from(&config.workspace_dir)).await;
         if current.is_none() {
             debug!(task_id = %config.task_id, "Workspace is empty; nothing to upload");
@@ -194,7 +193,9 @@ impl WorkspaceSyncTracker {
             return SyncOutcome::default();
         }
 
-        let stored = self.store_current(config, backend_client, capture).await;
+        let stored = self
+            .store_current(config, backend_client, capture, phases)
+            .await;
         if stored.complete {
             *last = current;
         }
@@ -233,13 +234,15 @@ impl WorkspaceSyncTracker {
         config: &Config,
         backend_client: &dyn BackendClient,
         capture: Capture,
+        phases: &Arc<Phases>,
     ) -> Stored {
         // The repository is incremental and atomic, so it runs first and its
         // outcome is what a caller sees.
         let mut stored = None;
         let mut missed = false;
         let mut snapshotted = false;
-        match restic::upload(config, backend_client, &self.repository_access, capture).await {
+        let access = &self.repository_access;
+        match restic::upload(config, backend_client, access, capture, phases).await {
             Ok(outcome) => {
                 snapshotted = true;
                 stored = Some(outcome);
@@ -255,6 +258,7 @@ impl WorkspaceSyncTracker {
         // lands stands in for the repository that missed and does not repair it,
         // so it does not clear `missed`.
         if stored.is_none() {
+            phases.enter("tar");
             match upload_from_config(config, backend_client).await {
                 Ok(outcome) => stored = Some(outcome),
                 Err(NotStored::Absent) => {}
@@ -740,6 +744,7 @@ pub async fn upload(state: &SandboxState) -> SyncOutcome {
             state.backend_client.as_ref(),
             Prune::WhenDue,
             Capture::Periodic,
+            &Phases::start(),
         )
         .await
 }
@@ -784,7 +789,13 @@ async fn upload_after_turn(
 ) {
     if config.workspace_sync_enabled {
         tracker
-            .upload_if_changed(config, backend_client, Prune::WhenDue, Capture::Periodic)
+            .upload_if_changed(
+                config,
+                backend_client,
+                Prune::WhenDue,
+                Capture::Periodic,
+                &Phases::start(),
+            )
             .await;
     }
 }
@@ -808,6 +819,7 @@ pub async fn sync_on_request(state: &SandboxState) -> SyncOutcome {
             // Not `ShutdownFlush`: the backend asks for this while the agent is
             // still free to write, so the tree it stores is not a final one.
             Capture::Periodic,
+            &Phases::start(),
         )
         .await;
     restic::forget_and_prune(
@@ -1008,7 +1020,7 @@ async fn flush_workspace(
     tracker: &WorkspaceSyncTracker,
     writers_quiet: bool,
 ) {
-    let started = Instant::now();
+    let phases = Phases::start();
     if tokio::time::timeout(
         SHUTDOWN_FLUSH_TIMEOUT,
         tracker.upload_if_changed(
@@ -1016,20 +1028,24 @@ async fn flush_workspace(
             backend_client,
             Prune::Never,
             Capture::ShutdownFlush { writers_quiet },
+            &phases,
         ),
     )
     .await
     .is_ok()
     {
-        info!("Shutdown: flushed workspace to S3");
+        info!(phases = %phases.summary(), "Shutdown: flushed workspace to S3");
         return;
     }
 
-    // The cancelled upload reported nothing — it never reached its own
-    // `report_workspace_sync` — so this is the only thing that tells the task
-    // its last turn's work is not stored. Without it the loss is visible only
-    // in a pod log that a node reclaim destroys with the pod.
-    warn!("Shutdown: workspace flush timed out, continuing");
+    // The cancelled upload never reached its own `report_workspace_sync`, so
+    // this is all that tells the task its last turn's work is not stored.
+    let error = format!(
+        "the shutdown flush exceeded its budget in {} ({}); the workspace was not stored",
+        phases.current().unwrap_or("start"),
+        phases.summary()
+    );
+    warn!(%error, "Shutdown: workspace flush timed out, continuing");
     let _ = tokio::time::timeout(
         TIMEOUT_REPORT_TIMEOUT,
         backend_client.report_workspace_sync(
@@ -1037,8 +1053,8 @@ async fn flush_workspace(
             "upload",
             FORMAT_UNKNOWN,
             0,
-            started.elapsed().as_millis() as u64,
-            Some("the shutdown flush exceeded its budget; the workspace was not stored"),
+            phases.elapsed().as_millis() as u64,
+            Some(&error),
         ),
     )
     .await;

@@ -7,24 +7,33 @@
 
 use std::path::{Path, PathBuf};
 
-/// Every file under `workspace_dir` a sync stores, unsorted and rooted at
-/// `workspace_dir`.
+/// What a sync stores under a workspace, and the directories its walk may skip.
+#[derive(Default)]
+pub(super) struct FileSet {
+    /// Every file a sync stores, unsorted and rooted at the workspace dir.
+    pub(super) files: Vec<PathBuf>,
+    /// Directories git ignores whole, such as `target/` and `node_modules/`.
+    /// May still hold a stored file; `restic::write_glob_file` checks.
+    pub(super) ignored_dirs: Vec<PathBuf>,
+}
+
+/// The [`FileSet`] of `workspace_dir`.
 ///
 /// Runs `git` as a subprocess and blocks on `std::fs`, so the caller belongs on
 /// a blocking thread.
-pub(super) fn collect(workspace_dir: &Path) -> Vec<PathBuf> {
-    let mut files = Vec::new();
+pub(super) fn collect(workspace_dir: &Path) -> FileSet {
+    let mut set = FileSet::default();
     if workspace_dir.is_dir() {
-        collect_tree(&mut files, workspace_dir);
+        collect_tree(&mut set, workspace_dir);
     }
-    files
+    set
 }
 
 /// A git repo root is enumerated through git and not descended into; every
 /// other directory is walked.
-fn collect_tree(files: &mut Vec<PathBuf>, dir: &Path) {
+fn collect_tree(set: &mut FileSet, dir: &Path) {
     if is_repo_root(dir) {
-        collect_repo(files, dir);
+        collect_repo(set, dir);
         return;
     }
     let Ok(dir_entries) = std::fs::read_dir(dir) else {
@@ -35,9 +44,9 @@ fn collect_tree(files: &mut Vec<PathBuf>, dir: &Path) {
             continue;
         };
         if meta.is_dir() {
-            collect_tree(files, &path);
+            collect_tree(set, &path);
         } else if meta.is_file() {
-            files.push(path);
+            set.files.push(path);
         }
     }
 }
@@ -45,39 +54,56 @@ fn collect_tree(files: &mut Vec<PathBuf>, dir: &Path) {
 /// The working-tree file set from `git ls-files -c -o --exclude-standard` plus
 /// the whole `.git`, so ignored build output stays out while HEAD, the index
 /// and the dirty tree come back exactly.
-fn collect_repo(files: &mut Vec<PathBuf>, repo_dir: &Path) {
-    if let Ok(output) = std::process::Command::new("git")
-        .arg("-C")
-        .arg(repo_dir)
-        .args(["ls-files", "-c", "-o", "--exclude-standard", "-z"])
-        .output()
-    {
-        if output.status.success() {
-            for rel in output.stdout.split(|b| *b == 0) {
-                if rel.is_empty() {
-                    continue;
-                }
-                let Ok(rel) = std::str::from_utf8(rel) else {
-                    continue;
-                };
-                let full = repo_dir.join(rel);
-                let Ok(meta) = std::fs::symlink_metadata(&full) else {
-                    // `ls-files` lists paths, not on-disk state, so a
-                    // tracked-but-deleted file has nothing to store.
-                    continue;
-                };
-                if meta.is_file() || meta.is_symlink() {
-                    files.push(full);
-                }
-            }
+fn collect_repo(set: &mut FileSet, repo_dir: &Path) {
+    for rel in git_ls_files(repo_dir, &["-c", "-o", "--exclude-standard"]) {
+        let full = repo_dir.join(rel);
+        let Ok(meta) = std::fs::symlink_metadata(&full) else {
+            // `ls-files` lists paths, not on-disk state, so a
+            // tracked-but-deleted file has nothing to store.
+            continue;
+        };
+        if meta.is_file() || meta.is_symlink() {
+            set.files.push(full);
+        }
+    }
+    // `--directory` names a wholly ignored directory once, with a trailing `/`,
+    // rather than listing what is inside it.
+    for rel in git_ls_files(repo_dir, &["-o", "-i", "--exclude-standard", "--directory"]) {
+        if let Some(dir) = rel.strip_suffix('/') {
+            set.ignored_dirs.push(repo_dir.join(dir));
         }
     }
     let git = repo_dir.join(".git");
     if git.is_file() {
-        files.push(git);
+        set.files.push(git);
     } else {
-        collect_dir(files, &git);
+        collect_dir(&mut set.files, &git);
     }
+}
+
+/// The paths `git ls-files <args>` prints, relative to `repo_dir`; none when git
+/// fails.
+fn git_ls_files(repo_dir: &Path, args: &[&str]) -> Vec<String> {
+    let Ok(output) = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo_dir)
+        .arg("ls-files")
+        .args(args)
+        .arg("-z")
+        .output()
+    else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    output
+        .stdout
+        .split(|b| *b == 0)
+        .filter(|rel| !rel.is_empty())
+        .filter_map(|rel| std::str::from_utf8(rel).ok())
+        .map(str::to_string)
+        .collect()
 }
 
 /// Whether `dir` is a git repo root: its `.git` is a directory, or a linked
@@ -189,6 +215,7 @@ mod tests {
         std::fs::write(git.join("refs/heads/main.lock"), b"").unwrap();
 
         let names: Vec<String> = collect(tmp.path())
+            .files
             .iter()
             .map(|path| path.display().to_string())
             .collect();
@@ -270,7 +297,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         repo_with_worktree(tmp.path());
 
-        let names = names_under(tmp.path(), &collect(tmp.path()));
+        let names = names_under(tmp.path(), &collect(tmp.path()).files);
 
         for stored in ["wt/.git", "wt/main.rs", "wt/src.rs", "repo/main.rs"] {
             assert!(
@@ -290,6 +317,18 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_wholly_ignored_directory_is_named_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        let wt = repo_with_worktree(tmp.path());
+        std::fs::create_dir_all(wt.join("target/debug/deps")).unwrap();
+        std::fs::write(wt.join("target/debug/deps/a.rlib"), b"build output").unwrap();
+
+        let set = collect(tmp.path());
+
+        assert_eq!(names_under(tmp.path(), &set.ignored_dirs), ["wt/target"]);
+    }
+
     /// `git ls-files` fails without the gitdir, so the worktree is kept whole
     /// rather than stored as nothing.
     #[test]
@@ -302,7 +341,7 @@ mod tests {
         std::fs::write(wt.join("target/big.bin"), b"build output").unwrap();
         std::fs::write(wt.join("main.rs"), b"fn main() {}\n").unwrap();
 
-        let mut names = names_under(tmp.path(), &collect(tmp.path()));
+        let mut names = names_under(tmp.path(), &collect(tmp.path()).files);
         names.sort();
 
         assert_eq!(

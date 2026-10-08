@@ -1,6 +1,7 @@
 //! Workspace durability shared by startup, Turn completion and shutdown.
 
 mod file_set;
+mod phases;
 mod restic;
 mod sync;
 pub use sync::*;

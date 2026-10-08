@@ -212,7 +212,9 @@ pub fn build_pod(
                 containers: all_containers,
                 volumes: Some(volumes),
                 restart_policy: Some("Always".to_string()),
-                termination_grace_period_seconds: Some(30),
+                termination_grace_period_seconds: Some(i64::from(
+                    moatless_types::sandbox::SANDBOX_TERMINATION_GRACE_SECS,
+                )),
                 tolerations,
                 node_selector,
                 // Per-repo override (opt-in) wins over the global default SA.

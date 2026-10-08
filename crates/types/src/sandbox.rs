@@ -21,6 +21,13 @@ pub fn sandbox_intent_epoch() -> DateTime<Utc> {
     DateTime::<Utc>::from(std::time::UNIX_EPOCH)
 }
 
+/// Seconds a sandbox gets between SIGTERM and SIGKILL: the pod's
+/// `terminationGracePeriodSeconds` and the Docker stop timeout.
+///
+/// The sandbox's shutdown steps are budgeted to fit inside it, which a test in
+/// `moatless_sandbox::shutdown` checks; raise them together.
+pub const SANDBOX_TERMINATION_GRACE_SECS: u16 = 75;
+
 /// Which sandbox provider implementation to use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SandboxProviderType {

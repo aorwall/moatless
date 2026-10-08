@@ -366,7 +366,13 @@ impl SandboxRuntime for DockerSandboxAdapter {
                     .docker
                     .stop_container(
                         &container_name,
-                        Some(StopContainerOptionsBuilder::new().t(30).build()),
+                        Some(
+                            StopContainerOptionsBuilder::new()
+                                .t(i32::from(
+                                    moatless_types::sandbox::SANDBOX_TERMINATION_GRACE_SECS,
+                                ))
+                                .build(),
+                        ),
                     )
                     .await
                     .map_err(|source| {

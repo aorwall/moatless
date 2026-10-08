@@ -6,6 +6,7 @@
 //! mixed from two generations. `rustic_core` is synchronous throughout, so
 //! every call here runs inside one `spawn_blocking`.
 
+use std::collections::HashSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -23,6 +24,7 @@ use sandbox_proto::{RESTIC_CACHE_DIR, SNAPSHOT_ROOT};
 use tracing::{debug, info, warn};
 
 use super::file_set;
+use super::phases::Phases;
 use super::sync::{
     Capture, NotStored, RestoreAttempt, RestoreDecision, SyncOutcome, clear_dir_contents,
     fingerprint_now, is_feature_disabled, primary_repo_is_usable,
@@ -210,29 +212,52 @@ fn options() -> RepositoryOptions {
 /// index, so it drops a file that is tracked **and** ignored (`git add -f`),
 /// and restore then reports it deleted.
 fn write_glob_file(workspace_dir: &Path) -> Result<usize, String> {
-    let files = file_set::collect(workspace_dir);
+    let set = file_set::collect(workspace_dir);
     let mut out = String::new();
     let mut written = 0usize;
-    for file in &files {
-        let path = file.to_string_lossy();
-        // A line-oriented glob file cannot carry either of these, and both are
-        // legal on Linux. A newline splits one entry into two patterns; a
-        // trailing space is stripped by the gitignore line parser, so the
-        // pattern names a different file. Refusing is loud where mis-storing is
-        // silent — a mis-stored path restores as a deleted file.
-        if path.contains('\n') || path.ends_with(' ') {
-            warn!(path = %path, "Path is not expressible as a glob; not snapshotted");
+    for file in &set.files {
+        let Some(path) = glob_line(file) else {
+            warn!(path = %file.display(), "Path is not expressible as a glob; not snapshotted");
             continue;
-        }
-        out.push_str(&escape_glob(&path));
+        };
+        out.push_str(&path);
         out.push('\n');
         written += 1;
+    }
+    // The whitelist cannot prune a directory — `ignore` returns `Match::None`
+    // for one whatever it says — so without these the walk descends into every
+    // `target/` and `node_modules/` and stats each file there.
+    let stored_dirs: HashSet<&Path> = set.files.iter().flat_map(|f| f.ancestors()).collect();
+    for dir in &set.ignored_dirs {
+        // A tracked file under an ignored directory (`git add -f`) still has to
+        // be reached.
+        if stored_dirs.contains(dir.as_path()) {
+            continue;
+        }
+        if let Some(path) = glob_line(dir) {
+            out.push('!');
+            out.push_str(&path);
+            out.push_str("/\n");
+        }
     }
     let mut handle = std::fs::File::create(glob_file()).map_err(|e| e.to_string())?;
     handle
         .write_all(out.as_bytes())
         .map_err(|e| e.to_string())?;
     Ok(written)
+}
+
+/// `path` as one literal glob-file line, or `None` when a line cannot carry it.
+///
+/// A newline splits one entry into two patterns; a trailing space is stripped
+/// by the gitignore line parser, so the pattern names a different path. Both
+/// are legal on Linux, and refusing is loud where mis-storing is silent.
+fn glob_line(path: &Path) -> Option<String> {
+    let path = path.to_string_lossy();
+    if path.contains('\n') || path.ends_with(' ') {
+        return None;
+    }
+    Some(escape_glob(&path))
 }
 
 /// A path becomes a literal glob only once globset's metacharacters are
@@ -257,10 +282,12 @@ pub(super) async fn upload(
     backend_client: &dyn BackendClient,
     cache: &AccessCache,
     capture: Capture,
+    phases: &Arc<Phases>,
 ) -> Result<SyncOutcome, NotStored> {
     let task_id = config.task_id.clone();
     let workspace_dir = PathBuf::from(&config.workspace_dir);
 
+    phases.enter("access");
     let access = match cache.get(&task_id, backend_client).await {
         Ok(access) => access,
         Err(status) if is_feature_disabled(&status) => {
@@ -274,9 +301,13 @@ pub(super) async fn upload(
     };
 
     let started = Instant::now();
-    let outcome =
-        tokio::task::spawn_blocking(move || snapshot(&access.own, &workspace_dir, capture)).await;
+    let snapshot_phases = Arc::clone(phases);
+    let outcome = tokio::task::spawn_blocking(move || {
+        snapshot(&access.own, &workspace_dir, capture, &snapshot_phases)
+    })
+    .await;
     let elapsed = started.elapsed().as_millis() as u64;
+    phases.enter("report");
 
     let result = match outcome {
         Ok(Ok(bytes)) => Ok(bytes),
@@ -319,7 +350,9 @@ fn snapshot(
     access: &RepoAccess,
     workspace_dir: &Path,
     capture: Capture,
+    phases: &Phases,
 ) -> Result<Option<u64>, String> {
+    phases.enter("file set");
     let check = FinalTreeCheck::start(workspace_dir, capture);
     let count = write_glob_file(workspace_dir)?;
     // Not an error: the mirror answers the same state with an empty delta, and
@@ -332,21 +365,12 @@ fn snapshot(
     // Reopened per snapshot, never reused: the parent snapshot is resolved
     // against the index the handle was opened with, so a handle held across two
     // snapshots cannot see the first one's tree and re-reads every file as new.
+    phases.enter("index");
     let repo = open(access)?
         .to_indexed_ids()
         .map_err(|e| format!("repository index is unusable: {e}"))?;
 
-    let mut backup = BackupOptions::default();
-    // The default sizes the source for a progress ETA before backing it up,
-    // which is a second full walk. The whitelist cannot prune a directory —
-    // `ignore` returns `Match::None` for one whatever the patterns say — so
-    // both walks descend into `target/` and `node_modules/` regardless.
-    backup.no_scan = true;
-    backup.excludes.glob_files = vec![glob_file().display().to_string()];
-    backup.as_path = Some(PathBuf::from(SNAPSHOT_ROOT));
-    backup.ignore_filter_opts.git_ignore = false;
-    backup.parent_opts.force = false;
-
+    let backup = backup_options();
     let paths = PathList::from_string(&workspace_dir.to_string_lossy())
         .map_err(|e| format!("workspace path is unusable: {e}"))?;
     let snapshot = SnapshotOptions::default()
@@ -354,13 +378,28 @@ fn snapshot(
         .to_snapshot()
         .map_err(|e| format!("snapshot metadata is unusable: {e}"))?;
 
+    phases.enter("backup");
     let written = repo
         .backup(&backup, &paths, snapshot)
         .map_err(|e| format!("backup failed: {e}"))?;
+    phases.enter("tag");
     if check.holds(workspace_dir) {
         certify_final_tree(&repo, &written);
     }
     Ok(Some(written.summary.as_ref().map_or(0, |s| s.data_added)))
+}
+
+/// How every snapshot walks the workspace: through [`glob_file`] alone.
+fn backup_options() -> BackupOptions {
+    let mut backup = BackupOptions::default();
+    // The default sizes the source for a progress ETA before backing it up,
+    // which is a second full walk.
+    backup.no_scan = true;
+    backup.excludes.glob_files = vec![glob_file().display().to_string()];
+    backup.as_path = Some(PathBuf::from(SNAPSHOT_ROOT));
+    backup.ignore_filter_opts.git_ignore = false;
+    backup.parent_opts.force = false;
+    backup
 }
 
 /// A last denial of the final-tree tag, over the tree the capture stored.

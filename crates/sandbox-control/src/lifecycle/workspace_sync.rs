@@ -20,7 +20,7 @@ use super::orchestrator::WorkspaceSyncPort;
 /// Deadline for the pre-stop push.
 ///
 /// Sized for a real transfer, not just the fingerprint check that usually
-/// answers it; well beyond the pod's own 30s termination grace, since this runs
+/// answers it; well beyond the pod's own termination grace, since this runs
 /// before the runtime effect and is not competing with the drain.
 const SYNC_TIMEOUT: Duration = Duration::from_mins(2);
 

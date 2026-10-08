@@ -82,6 +82,52 @@ fn a_periodic_capture_never_certifies_a_final_tree() {
     }
 }
 
+/// The walk never enters a directory git ignores whole, so a `target/` costs
+/// the snapshot nothing, and still reaches a tracked file inside one.
+#[tokio::test]
+async fn the_walk_skips_an_ignored_directory_but_not_a_tracked_file_in_it() {
+    use rustic_core::{LocalSource, ReadSource};
+
+    let _snapshotting = SNAPSHOTTING.lock().await;
+    let root = scratch("ignored-dirs");
+    build_fixture(&root);
+    let repo = root.join("repo");
+    std::fs::create_dir_all(repo.join("vendor/deep")).expect("vendor");
+    std::fs::write(repo.join("vendor/kept.rs"), "// kept").expect("kept");
+    std::fs::write(repo.join("vendor/deep/noise.rs"), "// noise").expect("noise");
+    std::fs::write(repo.join(".gitignore"), "*.log\ntarget/\nvendor/\n").expect("gitignore");
+    git(&repo, &["add", "-f", "vendor/kept.rs"]);
+
+    write_glob_file(&root).expect("glob file");
+    let backup = backup_options();
+    let walked: Vec<String> = LocalSource::new(
+        backup.ignore_save_opts,
+        &backup.excludes,
+        &backup.ignore_filter_opts,
+        &[&root],
+    )
+    .expect("source")
+    .entries()
+    .map(|entry| super::super::sync::rel_from(&root, &entry.expect("entry").path))
+    .collect();
+
+    assert!(
+        walked.contains(&"repo/vendor/kept.rs".to_string()),
+        "{walked:?}"
+    );
+    assert!(
+        walked.contains(&"repo/src/main.rs".to_string()),
+        "{walked:?}"
+    );
+    for pruned in ["repo/target", "repo/vendor/deep"] {
+        assert!(
+            !walked.iter().any(|path| path.starts_with(pruned)),
+            "{pruned}: {walked:?}"
+        );
+    }
+    _ = std::fs::remove_dir_all(&root);
+}
+
 // =========================================================================
 // Fidelity against a real S3 server
 // =========================================================================
@@ -114,7 +160,7 @@ async fn a_snapshot_restores_the_file_set_byte_for_byte() {
         let source = source.clone();
         let restored = restored.clone();
         move || {
-            let added = snapshot(&access, &source, Capture::Periodic)?;
+            let added = snapshot(&access, &source, Capture::Periodic, &Phases::start())?;
             let bytes = restore(&access, &restored, UnreadableSnapshot::Refuse)?
                 .map(|restored| restored.bytes);
             Ok::<_, String>((added, bytes))
@@ -132,6 +178,7 @@ async fn a_snapshot_restores_the_file_set_byte_for_byte() {
     // The production walk is the reference: whatever it names is what the
     // snapshot had to carry.
     let expected: BTreeMap<String, std::fs::Metadata> = file_set::collect(&source)
+        .files
         .into_iter()
         .filter_map(|file| {
             let meta = std::fs::symlink_metadata(&file).ok()?;
@@ -224,7 +271,7 @@ async fn only_the_shutdown_flush_tags_its_snapshot_and_the_restore_reads_it_back
         let after_periodic = after_periodic.clone();
         let after_flush = after_flush.clone();
         move || {
-            _ = snapshot(&access, &source, Capture::Periodic)?;
+            _ = snapshot(&access, &source, Capture::Periodic, &Phases::start())?;
             let periodic = restore(&access, &after_periodic, UnreadableSnapshot::Refuse)?
                 .expect("the periodic snapshot restores");
             // The tree has to move, or the second snapshot is the first one.
@@ -236,6 +283,7 @@ async fn only_the_shutdown_flush_tags_its_snapshot_and_the_restore_reads_it_back
                 Capture::ShutdownFlush {
                     writers_quiet: true,
                 },
+                &Phases::start(),
             )?;
             let flushed = restore(&access, &after_flush, UnreadableSnapshot::Refuse)?
                 .expect("the shutdown snapshot restores");
@@ -293,6 +341,7 @@ async fn a_fork_never_inherits_the_source_s_shutdown_tag() {
                 Capture::ShutdownFlush {
                     writers_quiet: true,
                 },
+                &Phases::start(),
             )?;
             restore_own_or_source(&fork, &restored, UnreadableSnapshot::Refuse)
         }
@@ -433,7 +482,8 @@ async fn a_fork_with_no_repository_of_its_own_restores_the_source_s() {
         let source_tree = source_tree.clone();
         let restored = restored.clone();
         move || {
-            snapshot(&source, &source_tree, Capture::Periodic).expect("the source snapshotted");
+            snapshot(&source, &source_tree, Capture::Periodic, &Phases::start())
+                .expect("the source snapshotted");
             let own_only = Access {
                 own: fork.own.clone(),
                 source: None,

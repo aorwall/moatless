@@ -845,6 +845,12 @@ async fn a_timed_out_shutdown_flush_reports_the_loss() {
         error.as_deref().is_some_and(|e| e.contains("budget")),
         "the report carries the loss as an error: {error:?}"
     );
+    assert!(
+        error
+            .as_deref()
+            .is_some_and(|e| e.contains("budget in tar (")),
+        "the report names the phase the budget ran out in: {error:?}"
+    );
     assert_eq!(
         tracker.baseline().await,
         None,
