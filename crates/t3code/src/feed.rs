@@ -658,6 +658,8 @@ mod tests {
             turn_started_at: None,
             turn_ended_at: None,
             turn_error: None,
+            turn_error_reason: None,
+            turn_error_resets_at: None,
             sandbox_desired_state_raw: Some(SandboxDesiredState::Running.as_str().to_string()),
             sandbox_stop_reason_raw: None,
             sandbox_started_at: None,
@@ -703,6 +705,7 @@ mod tests {
             binding_label: None,
             sent_by_name: None,
             file_contexts: None,
+            child_outcome: None,
         }
     }
 
@@ -720,6 +723,7 @@ mod tests {
                 activities: Vec::new(),
                 omitted: 0,
                 turns: Vec::new(),
+                turn_outcomes: Vec::new(),
                 rewound_turns: Vec::new(),
                 settled_requests: HashSet::new(),
                 subagent_usage: HashMap::new(),

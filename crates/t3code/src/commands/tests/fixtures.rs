@@ -438,6 +438,8 @@ pub(super) fn conversation(agent_profile: AgentProfile) -> Conversation {
         turn_started_at: None,
         turn_ended_at: None,
         turn_error: None,
+        turn_error_reason: None,
+        turn_error_resets_at: None,
         sandbox_desired_state_raw: None,
         sandbox_stop_reason_raw: None,
         sandbox_started_at: None,

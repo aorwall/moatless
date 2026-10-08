@@ -307,15 +307,15 @@ pub(crate) async fn turn_usage(
 pub(crate) async fn standalone_activity(
     tx: &mut PgConnection,
     row: &ActivityRow,
-    task_event_id: &str,
+    source: Source<'_>,
 ) -> Result<bool, sqlx::Error> {
     let id = ids::activity(&row.activity_id);
     let position = record_activity_change(tx, &row.task_id, &id.to_string()).await?;
     let written = sqlx::query(
         r#"INSERT INTO conversation_activities (
                activity_id, task_id, position, ordinal, kind, status, summary, payload,
-               is_error, task_event_id
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+               is_error, trajectory_event_id, task_event_id
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
            ON CONFLICT (activity_id) DO NOTHING"#,
     )
     .bind(id)
@@ -327,7 +327,8 @@ pub(crate) async fn standalone_activity(
     .bind(&row.summary)
     .bind(&row.payload)
     .bind(row.is_error)
-    .bind(task_event_id)
+    .bind(source.line())
+    .bind(source.task_event())
     .execute(tx)
     .await?
     .rows_affected();

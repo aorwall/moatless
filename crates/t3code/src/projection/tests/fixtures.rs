@@ -21,6 +21,8 @@ pub(super) fn conversation(task_id: &str, workspace_id: &str) -> Conversation {
         turn_started_at: None,
         turn_ended_at: None,
         turn_error: None,
+        turn_error_reason: None,
+        turn_error_resets_at: None,
         sandbox_desired_state_raw: None,
         sandbox_stop_reason_raw: None,
         sandbox_started_at: None,
@@ -160,6 +162,7 @@ pub(super) fn message(id: i32, message_type: MessageType, text: &str) -> Transcr
         binding_label: None,
         sent_by_name: None,
         file_contexts: None,
+        child_outcome: None,
         external_event_id: None,
         external_adapter: None,
         external_source_name: None,
@@ -249,6 +252,7 @@ pub(super) fn transcript(
         // What `task_turns` holds for these rows. A test about a turn with
         // no Message of its own sets this itself.
         turns,
+        turn_outcomes: Vec::new(),
         rewound_turns: Vec::new(),
         settled_requests,
         subagent_usage: HashMap::new(),

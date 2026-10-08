@@ -749,7 +749,16 @@ pub fn context_window_updated(
 }
 
 /// The platform moving a Task to another agent, which happened on no Message.
-pub fn agent_switched(event_id: &str, task_id: &str, summary: &str) -> ActivityRow {
+/// `from` and `to` are the Agent profiles the switch left and took; `chosen`
+/// is a person's pick rather than a fallback.
+pub fn agent_switched(
+    event_id: &str,
+    task_id: &str,
+    summary: &str,
+    from: Option<&str>,
+    to: Option<&str>,
+    chosen: bool,
+) -> ActivityRow {
     ActivityRow {
         activity_id: event_id.to_string(),
         task_id: task_id.to_string(),
@@ -760,6 +769,24 @@ pub fn agent_switched(event_id: &str, task_id: &str, summary: &str) -> ActivityR
         status: ActivityStatus::Completed,
         tool_use_id: None,
         summary: summary.to_string(),
+        payload: json!({ "summary": summary, "from": from, "to": to, "chosen": chosen }),
+        is_error: false,
+    }
+}
+
+/// The harness compacting its context, from the line that carries the summary
+/// it kept.
+pub fn compaction(name: &str, task_id: &str, summary: &str) -> ActivityRow {
+    ActivityRow {
+        activity_id: name.to_string(),
+        task_id: task_id.to_string(),
+        ordinal: 0,
+        message_uuid: None,
+        parent_uuid: None,
+        kind: ActivityKind::Compaction,
+        status: ActivityStatus::Completed,
+        tool_use_id: None,
+        summary: "Context compacted".to_string(),
         payload: json!({ "summary": summary }),
         is_error: false,
     }

@@ -212,6 +212,7 @@ fn inbox_item(
             tool_response: msg.tool_response.clone(),
             agent_fallback: false,
             queue: false,
+            child_outcome: None,
         },
         answers_tool_use_id: msg
             .tool_response
@@ -455,8 +456,12 @@ pub async fn record_standalone_activity(
     activity: &ActivityRow,
 ) -> Result<bool, sqlx::Error> {
     let mut tx = pool.begin().await?;
-    let written =
-        conversation::standalone_activity(&mut tx, activity, &activity.activity_id).await?;
+    let written = conversation::standalone_activity(
+        &mut tx,
+        activity,
+        conversation::Source::TaskEvent(&activity.activity_id),
+    )
+    .await?;
     tx.commit().await?;
     Ok(written)
 }
@@ -471,8 +476,12 @@ pub async fn record_sandbox_activity(
     if conversation::restates_sandbox(&mut tx, activity).await? {
         return Ok(false);
     }
-    let written =
-        conversation::standalone_activity(&mut tx, activity, &activity.activity_id).await?;
+    let written = conversation::standalone_activity(
+        &mut tx,
+        activity,
+        conversation::Source::TaskEvent(&activity.activity_id),
+    )
+    .await?;
     tx.commit().await?;
     Ok(written)
 }

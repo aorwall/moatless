@@ -25,6 +25,8 @@ fn conversation(task_id: &str) -> Conversation {
         turn_started_at: None,
         turn_ended_at: None,
         turn_error: None,
+        turn_error_reason: None,
+        turn_error_resets_at: None,
         sandbox_desired_state_raw: None,
         sandbox_stop_reason_raw: None,
         sandbox_started_at: None,
@@ -82,6 +84,7 @@ fn message(
         binding_label: None,
         sent_by_name: None,
         file_contexts: None,
+        child_outcome: None,
     }
 }
 
@@ -855,7 +858,7 @@ fn a_send_whose_turn_is_owed_is_a_starting_run_on_the_timeline() {
     assert_eq!(shell_status(&conversation), "starting");
     // No attempt or provider turn until the Sandbox opens the turn.
     assert_eq!(attempts(&runs).len(), 1);
-    assert_eq!(provider_turns(&runs).len(), 1);
+    assert_eq!(provider_turns(&runs, &HashMap::new()).len(), 1);
 }
 
 #[test]
@@ -1123,3 +1126,5 @@ fn a_parent_cycle_in_the_listing_stops_the_root_walk() {
         json!("b")
     );
 }
+
+mod lifecycle;

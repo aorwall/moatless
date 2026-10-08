@@ -214,8 +214,25 @@ impl TaskSwitchService {
                 entry.label
             )));
         }
-        let note = note.map(|note| switch_event(task_id, task.agent_profile, profile, note));
-        switch_dao::write_profile(&self.db, task_id, profile, model, note.as_ref()).await?;
+        // A person's switch gets a note too: every switch is a handoff row in
+        // the conversation.
+        let chosen = format!(
+            "Switched from {} to {}",
+            catalog::entry(task.agent_profile).label,
+            entry.label
+        );
+        let chosen = SwitchNote {
+            summary: &chosen,
+            turn_number: None,
+        };
+        let event = switch_event(
+            task_id,
+            task.agent_profile,
+            profile,
+            note.unwrap_or(&chosen),
+            note.is_none(),
+        );
+        switch_dao::write_profile(&self.db, task_id, profile, model, Some(&event)).await?;
 
         tracing::info!(
             task_id,
@@ -235,6 +252,7 @@ fn switch_event(
     from: AgentProfile,
     to: AgentProfile,
     note: &SwitchNote<'_>,
+    chosen: bool,
 ) -> InsertTaskEvent {
     InsertTaskEvent {
         event_id: uuid::Uuid::new_v4().to_string(),
@@ -244,7 +262,9 @@ fn switch_event(
         is_error: false,
         agent_profile: Some(to.as_str().to_string()),
         turn_number: note.turn_number,
-        payload: serde_json::json!({ "summary": note.summary, "from": from, "to": to }),
+        payload: serde_json::json!({
+            "summary": note.summary, "from": from, "to": to, "chosen": chosen
+        }),
         timestamp: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
     }
 }

@@ -382,6 +382,7 @@ impl MessageAcceptor for crate::message::send::MessageSendService {
             &turn.skills,
             None,
             false,
+            None,
         )
         .await
         .map(|_| ())

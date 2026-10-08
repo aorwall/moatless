@@ -33,6 +33,18 @@ use super::v2_items::plan_nodes;
 use super::v2_items::plans;
 use super::v2_items::todo_list_item;
 use super::v2_items::tool_item;
+use super::v2_lifecycle::compaction_fields;
+use super::v2_lifecycle::context_handoffs;
+use super::v2_lifecycle::context_usage;
+use super::v2_lifecycle::handoff_fields;
+use super::v2_lifecycle::handoff_turn;
+use super::v2_lifecycle::notification;
+use super::v2_lifecycle::pending_background_tasks;
+use super::v2_lifecycle::run_ending_items;
+use super::v2_lifecycle::settled_run_status;
+use super::v2_lifecycle::shell_error_fields;
+use super::v2_lifecycle::token_usage_by_run;
+use super::v2_lifecycle::turn_outcomes;
 use super::v2_provider::attempt_id;
 use super::v2_provider::attempts;
 use super::v2_provider::provider_session;
@@ -46,6 +58,7 @@ use crate::dao::Conversation;
 use crate::transcript_dao::RewoundTurn;
 use crate::transcript_dao::Transcript;
 use crate::transcript_dao::TranscriptMessage;
+use crate::transcript_dao::TurnOutcome;
 use crate::workspace::UiRpcListedWorkspace;
 use moatless_types::activity::Activity;
 use moatless_types::activity::ActivityKind;
@@ -228,6 +241,13 @@ pub(crate) fn thread_shell_v2(
             .turn_error
             .as_deref()
             .map_or(Value::Null, |error| json!(error)),
+    );
+    let (error_class, usage_limit_reset_at) = shell_error_fields(conversation);
+    row.insert("lastErrorClass".into(), error_class);
+    row.insert("usageLimitResetAt".into(), usage_limit_reset_at);
+    row.insert(
+        "pendingBackgroundTasks".into(),
+        pending_background_tasks(conversation),
     );
     row.insert(
         "hasActionableProposedPlan".into(),
@@ -539,12 +559,19 @@ fn starting_run_id(task_id: &str, message_uuid: &str) -> String {
     format!("{task_id}:starting:{message_uuid}")
 }
 
-/// A message the person sent that no turn has taken yet.
+/// A message the person sent that no turn has taken yet. A child-outcome
+/// notice is a notification, never a queued run.
 fn is_pending(message: &TranscriptMessage) -> bool {
-    message.turn_number.is_none()
-        && message.message_type == MessageType::User
+    message.turn_number.is_none() && is_user_message(message)
+}
+
+/// A message somebody sent the agent: not a tool response, a Sandbox wake or
+/// a child-outcome notice.
+fn is_user_message(message: &TranscriptMessage) -> bool {
+    message.message_type == MessageType::User
         && message.user_type != TOOL_RESPONSE_USER_TYPE
         && !message.sandbox_wake
+        && message.child_outcome.is_none()
 }
 
 /// Whether the agent is working with no turn open yet: V1's session status
@@ -589,16 +616,9 @@ fn pending_run(message: &TranscriptMessage, steered: Option<&str>) -> Option<Str
     steered.map(str::to_string)
 }
 
-/// One `OrchestrationV2Run` per Moatless turn in the window plus the current
-/// turn and a `rolled_back` one per turn a rewind cut, in `ordinal` order, then
-/// a `starting` run for a turn an unheld send is owed and a `queued` run per
-/// send no turn will take (see [`pending_run`]). Every turn older than the
-/// current one reports `completed`: its own status is not kept.
-pub(crate) fn runs(
-    conversation: &Conversation,
-    transcript: &Transcript,
-    defaults: &AgentModelDefaults,
-) -> Vec<Value> {
+/// The turns [`runs`] reports as runs of their own: each in the window, plus
+/// the current one.
+fn run_turns(conversation: &Conversation, transcript: &Transcript) -> Vec<i32> {
     let mut turn_numbers: Vec<i32> = transcript
         .messages
         .iter()
@@ -611,6 +631,21 @@ pub(crate) fn runs(
             turn_numbers.push(current);
         }
     }
+    turn_numbers
+}
+
+/// One `OrchestrationV2Run` per Moatless turn in the window plus the current
+/// turn and a `rolled_back` one per turn a rewind cut, in `ordinal` order, then
+/// a `starting` run for a turn an unheld send is owed and a `queued` run per
+/// send no turn will take (see [`pending_run`]). A turn older than the current
+/// one reports its own `task_turns` status.
+pub(crate) fn runs(
+    conversation: &Conversation,
+    transcript: &Transcript,
+    defaults: &AgentModelDefaults,
+) -> Vec<Value> {
+    let turn_numbers = run_turns(conversation, transcript);
+    let outcomes = turn_outcomes(conversation, transcript);
     let rewound: Vec<&RewoundTurn> = transcript
         .rewound_turns
         .iter()
@@ -625,7 +660,10 @@ pub(crate) fn runs(
         .max(0);
     let mut runs: Vec<Value> = turn_numbers
         .into_iter()
-        .map(|turn_number| run_for_turn(conversation, transcript, defaults, turn_number))
+        .map(|turn_number| {
+            let outcome = outcomes.get(&turn_number);
+            run_for_turn(conversation, transcript, defaults, turn_number, outcome)
+        })
         .chain(
             rewound
                 .into_iter()
@@ -722,6 +760,7 @@ fn run_for_turn(
     transcript: &Transcript,
     defaults: &AgentModelDefaults,
     turn_number: i32,
+    outcome: Option<&TurnOutcome>,
 ) -> Value {
     let in_turn: Vec<&TranscriptMessage> = transcript
         .messages
@@ -743,15 +782,11 @@ fn run_for_turn(
             _ => "completed",
         }
     } else {
-        "completed"
+        settled_run_status(outcome)
     };
     let user_message_id = in_turn
         .iter()
-        .find(|message| {
-            message.message_type == MessageType::User
-                && message.user_type != TOOL_RESPONSE_USER_TYPE
-                && !message.sandbox_wake
-        })
+        .find(|message| is_user_message(message))
         .map_or_else(
             || format!("{}:{turn_number}:user-message", conversation.task_id),
             |message| message.uuid.clone(),
@@ -760,7 +795,10 @@ fn run_for_turn(
     let completed_at = if is_latest {
         nullable_instant(conversation.turn_ended_at)
     } else {
-        last_at.map_or(Value::Null, |at| json!(instant(at)))
+        outcome
+            .and_then(|outcome| outcome.ended_at)
+            .or(last_at)
+            .map_or(Value::Null, |at| json!(instant(at)))
     };
     let run_id = turn_id(&conversation.task_id, turn_number);
     json!({
@@ -847,8 +885,13 @@ pub(crate) fn turn_items_and_messages(
             "completedAt": at,
             "updatedAt": at
         });
-        let item = match role.as_str() {
-            "user" => layered(
+        let notice = notification(message, &text);
+        let item = match (&notice, role.as_str()) {
+            (Some(notice), _) => layered(
+                layered(base, json!({ "type": "notification" })),
+                notice.clone(),
+            ),
+            (None, "user") => layered(
                 base,
                 json!({
                     "createdBy": created_by,
@@ -861,7 +904,7 @@ pub(crate) fn turn_items_and_messages(
                     "attachments": attachments
                 }),
             ),
-            "assistant" => layered(
+            (None, "assistant") => layered(
                 base,
                 json!({
                     "type": "assistant_message",
@@ -876,7 +919,7 @@ pub(crate) fn turn_items_and_messages(
         if !queued {
             timeline.push(((at.clone(), 1, index), item));
         }
-        messages.push(json!({
+        let mut conversation_message = json!({
             "createdBy": created_by,
             "creationSource": creation_source,
             "id": message.uuid,
@@ -890,7 +933,11 @@ pub(crate) fn turn_items_and_messages(
             "streaming": false,
             "createdAt": at,
             "updatedAt": at
-        }));
+        });
+        if let Some(notice) = notice {
+            conversation_message["notification"] = notice;
+        }
+        messages.push(conversation_message);
     }
 
     for (index, activity) in transcript.activities.iter().enumerate() {
@@ -948,6 +995,19 @@ pub(crate) fn turn_items_and_messages(
                 };
                 item
             }
+            ActivityKind::Compaction => layered(base, compaction_fields(conversation, activity)),
+            ActivityKind::AgentSwitched => {
+                let turn = handoff_turn(conversation, transcript, activity);
+                // A switch before the first run hands no history over.
+                if turn.is_some_and(|turn| turn <= 1) {
+                    continue;
+                }
+                let mut item = layered(base, handoff_fields(conversation, activity));
+                if let Some(turn) = turn {
+                    item["runId"] = json!(turn_id(&conversation.task_id, turn));
+                }
+                item
+            }
             ActivityKind::UserInputRequested => {
                 let Some(request_id) = request_id(activity) else {
                     continue;
@@ -972,6 +1032,16 @@ pub(crate) fn turn_items_and_messages(
         };
         let rank = if anchored { 0 } else { 2 };
         timeline.push(((at, rank, index), item));
+    }
+
+    let outcomes = turn_outcomes(conversation, transcript);
+    let endings = run_ending_items(
+        conversation,
+        &run_turns(conversation, transcript),
+        &outcomes,
+    );
+    for (index, (at, item)) in endings.into_iter().enumerate() {
+        timeline.push(((at, 3, index), item));
     }
 
     timeline.sort_by(|(left, _), (right, _)| left.cmp(right));
@@ -1127,7 +1197,17 @@ pub(crate) fn thread_projection(
     lineage: &Lineage,
 ) -> Value {
     let mut thread = app_thread(conversation, project_id, defaults, lineage);
-    let runs = runs(conversation, transcript, defaults);
+    let mut runs = runs(conversation, transcript, defaults);
+    let context_handoffs = context_handoffs(conversation, transcript, &runs);
+    for handoff in &context_handoffs {
+        let target = handoff.get("targetRunId").and_then(Value::as_str);
+        if let Some(run) = runs
+            .iter_mut()
+            .find(|run| run.get("id").and_then(Value::as_str) == target)
+        {
+            run["contextHandoffId"] = handoff["id"].clone();
+        }
+    }
     let updated_at = instant(
         conversation
             .updated_at
@@ -1148,6 +1228,12 @@ pub(crate) fn thread_projection(
     let plans = plans(conversation, transcript);
     let mut nodes = root_nodes(&runs);
     nodes.extend(plan_nodes(&plans, &runs));
+    let mut provider_thread = provider_thread(conversation, &runs, &updated_at);
+    provider_thread["contextUsage"] = context_usage(transcript);
+    provider_thread["handoffIds"] = context_handoffs
+        .iter()
+        .map(|handoff| handoff["id"].clone())
+        .collect();
     json!({
         "thread": thread,
         "runs": runs,
@@ -1155,15 +1241,15 @@ pub(crate) fn thread_projection(
         "nodes": nodes,
         "subagents": [],
         "providerSessions": [provider_session(conversation, &model, &updated_at)],
-        "providerThreads": [provider_thread(conversation, &runs, &updated_at)],
-        "providerTurns": provider_turns(&runs),
+        "providerThreads": [provider_thread],
+        "providerTurns": provider_turns(&runs, &token_usage_by_run(conversation, transcript)),
         "runtimeRequests": runtime_requests(conversation, transcript),
         "messages": messages,
         "plans": plans,
         "turnItems": turn_items,
         "checkpointScopes": [],
         "checkpoints": checkpoints(conversation, &runs),
-        "contextHandoffs": [],
+        "contextHandoffs": context_handoffs,
         "contextTransfers": [],
         "visibleTurnItems": visible_turn_items,
         "updatedAt": updated_at

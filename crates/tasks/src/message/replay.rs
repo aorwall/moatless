@@ -63,6 +63,7 @@ pub fn fallback_replay(task_id: &str, turn_number: i32, items: &[InboxItem]) -> 
                     .collect(),
                 tool_response: None,
                 agent_fallback: true,
+                child_outcome: None,
             },
             answers_tool_use_id: None,
             // An Adapter channel is keyed on its external message id, which the

@@ -31,6 +31,9 @@ pub enum ActivityKind {
     ContextWindowUpdated,
     /// The platform moved the Task to another agent, and why.
     AgentSwitched,
+    /// The harness compacted its context; the payload's `summary` is what it
+    /// kept.
+    Compaction,
 }
 
 // `ALL` is used by the SQL narrowing in `dao::known_kinds`, which a test
@@ -47,6 +50,7 @@ crate::string_enum_mapping!(
         PlanUpdated => "plan_updated",
         ContextWindowUpdated => "context_window_updated",
         AgentSwitched => "agent_switched",
+        Compaction => "compaction",
     }
 );
 

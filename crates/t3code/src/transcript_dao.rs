@@ -94,6 +94,9 @@ pub struct TranscriptMessage {
     /// Read from the inbox item's contexts rather than its `file_ids`, which
     /// are ids alone; `None` on a Message with no uploads.
     pub file_contexts: Option<serde_json::Value>,
+    /// `completed` or `errored` on the notice a child Task's run ending sent
+    /// this, its parent; `None` on every other Message.
+    pub child_outcome: Option<String>,
 }
 
 /// A Task's transcript, and whether it is all of it.
@@ -116,6 +119,9 @@ pub struct Transcript {
     /// [`crate::dao::ConversationDao::changed_messages`], whose caller projects
     /// no checkpoints.
     pub turns: Vec<i32>,
+    /// How each of [`Self::turns`] ended, ascending. Read by [`transcript`]
+    /// alone, and empty from every other read.
+    pub turn_outcomes: Vec<TurnOutcome>,
     /// The turns a rewind cut out of this Task, ascending. Read by
     /// [`transcript`] alone, and empty from every other read.
     pub rewound_turns: Vec<RewoundTurn>,
@@ -132,6 +138,20 @@ pub struct Transcript {
     /// Looked up rather than read out of the rows: a subagent's own Messages
     /// carry the spawning id as `parent_uuid` and are never among `activities`.
     pub subagent_usage: HashMap<String, SubagentUsage>,
+}
+
+/// One `task_turns` row's ending: its status, and for an `error` turn the
+/// `agent.error` it ended with.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct TurnOutcome {
+    pub turn_number: i32,
+    pub status: String,
+    pub started_at: Option<DateTime<Utc>>,
+    pub ended_at: Option<DateTime<Utc>>,
+    pub error: Option<String>,
+    pub reason: Option<String>,
+    /// RFC 3339 text, as the event carried it.
+    pub resets_at: Option<String>,
 }
 
 /// A `task_rewound_turns` row: a turn a rewind cut, which T3 shows as a
@@ -191,7 +211,8 @@ macro_rules! transcript_rows {
                        ELSE COALESCE(i.source_task_id, m.legacy ->> 'source_task_id')
                   END AS source_task_id,
                   COALESCE(i.sent_by, m.legacy ->> 'sent_by') AS sent_by,
-                  i.delivery_options -> 'contexts' AS contexts
+                  i.delivery_options -> 'contexts' AS contexts,
+                  i.delivery_options ->> 'childOutcome' AS child_outcome
              FROM conversation_messages m
              LEFT JOIN task_inbox i ON i.id = m.inbox_id
             WHERE m.task_id = $1 AND m.parent_tool_use_id IS NULL"#
@@ -217,7 +238,7 @@ const TRANSCRIPT_COLUMNS: &str = r#"m.id, m.uuid, m.message_type, m.message_role
                                b.destination_config ->> 'issue_identifier')
                           AS binding_label,
                       COALESCE(u.name, u.login) AS sent_by_name,
-                      files.file_contexts"#;
+                      files.file_contexts, m.child_outcome"#;
 
 /// The two joins carrying a Message's origin out of the database: what its
 /// Binding calls the subject and where it lives, and the display name `sent_by`
@@ -326,12 +347,30 @@ pub(crate) async fn transcript(
     // Uncapped, unlike the Messages above: one `i32` per turn, and a
     // checkpoint the rewind will refuse is a control that refuses when
     // pressed.
-    let turns: Vec<i32> = sqlx::query_scalar(
-        "SELECT turn_number FROM task_turns WHERE task_id = $1 ORDER BY turn_number",
+    let turn_outcomes: Vec<TurnOutcome> = sqlx::query_as(
+        r#"SELECT tt.turn_number, tt.status, tt.started_at, tt.ended_at,
+                  failure.error, failure.reason, failure.resets_at
+             FROM task_turns tt
+             LEFT JOIN LATERAL (
+                 SELECT (e.payload::jsonb)->>'error' AS error,
+                        (e.payload::jsonb)->>'reason' AS reason,
+                        (e.payload::jsonb)->>'resetsAt' AS resets_at
+                 FROM task_events e
+                 WHERE tt.status = 'error'
+                   AND e.task_id = tt.task_id
+                   AND e.turn_number = tt.turn_number
+                   AND e.type IN ('agent', 'taskTurn')
+                   AND e.sub_type = 'error'
+                 ORDER BY e.id DESC
+                 LIMIT 1
+             ) failure ON TRUE
+            WHERE tt.task_id = $1
+            ORDER BY tt.turn_number"#,
     )
     .bind(task_id)
     .fetch_all(pool)
     .await?;
+    let turns = turn_outcomes.iter().map(|turn| turn.turn_number).collect();
     let rewound_turns: Vec<RewoundTurn> = sqlx::query_as(
         r#"SELECT turn_number, started_at, rewound_at FROM task_rewound_turns
            WHERE task_id = $1 ORDER BY turn_number"#,
@@ -345,6 +384,7 @@ pub(crate) async fn transcript(
         activities,
         omitted,
         turns,
+        turn_outcomes,
         rewound_turns,
         settled_requests,
         subagent_usage,
@@ -366,6 +406,7 @@ pub(crate) async fn changed_messages(
             activities: Vec::new(),
             omitted: 0,
             turns: Vec::new(),
+            turn_outcomes: Vec::new(),
             rewound_turns: Vec::new(),
             settled_requests: HashSet::new(),
             subagent_usage: HashMap::new(),
@@ -440,6 +481,7 @@ pub(crate) async fn changed_messages(
         activities,
         omitted: 0,
         turns: Vec::new(),
+        turn_outcomes: Vec::new(),
         rewound_turns: Vec::new(),
         settled_requests,
         subagent_usage,
@@ -490,6 +532,7 @@ pub(crate) async fn settled_turns(
         activities: Vec::new(),
         omitted: 0,
         turns,
+        turn_outcomes: Vec::new(),
         rewound_turns: Vec::new(),
         settled_requests: HashSet::new(),
         subagent_usage: HashMap::new(),

@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use crate::conversation::projector::Projector;
 use crate::inbox::{
-    AdapterChannel, DeliveryOptions, ExternalSender, InboxContext, InboxItem, InboxOrigin,
-    InboxService, NewInboxItem,
+    AdapterChannel, ChildOutcome, DeliveryOptions, ExternalSender, InboxContext, InboxItem,
+    InboxOrigin, InboxService, NewInboxItem,
 };
 use crate::message::dao::MessageDao;
 use crate::message::models::MessageType;
@@ -360,6 +360,7 @@ impl MessageSendService {
         // Hold the Message until the active turn ends rather than steering it
         // in. See [`DeliveryOptions::queue`].
         queue: bool,
+        child_outcome: Option<ChildOutcome>,
     ) -> Result<Option<String>, MessageError> {
         // A closed task is terminal (no reopen path) so no send may persist a
         // message or wake the agent. Inbound external messages are dropped
@@ -528,6 +529,7 @@ impl MessageSendService {
                 tool_response: None,
                 agent_fallback: false,
                 queue,
+                child_outcome,
             },
             answers_tool_use_id: None,
             origin: inbox_origin(&origin, sent_by),

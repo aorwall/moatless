@@ -11,7 +11,7 @@ mod trigger_db_tests;
 pub mod view;
 
 pub use models::{
-    AdapterChannel, DeliveryOptions, ExternalSender, InboxContext, InboxItem, InboxOrigin,
-    InboxStatus, NewInboxItem, RunStamp,
+    AdapterChannel, ChildOutcome, DeliveryOptions, ExternalSender, InboxContext, InboxItem,
+    InboxOrigin, InboxStatus, NewInboxItem, RunStamp,
 };
 pub(crate) use service::{InboxService, PENDING_LIMIT};

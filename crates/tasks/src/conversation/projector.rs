@@ -12,7 +12,7 @@ use super::dao::{self, MessageRow, Source};
 use super::ids;
 use crate::activities::mapping::{
     ActivityKind, ActivityRow, ActivityStatus, AdmittedUsage, BlockContext, ConversationWrite,
-    ToolOutcome, agent_switched, context_window_updated, map_content, sandbox_activity,
+    ToolOutcome, agent_switched, compaction, context_window_updated, map_content, sandbox_activity,
     user_input_resolved,
 };
 use crate::inbox::{InboxItem, InboxOrigin, RunStamp};
@@ -234,6 +234,15 @@ impl Projector {
                         .await?;
                 }
             }
+            if content.get("compaction").and_then(Value::as_bool) == Some(true) {
+                // A subagent's compaction is its own; only the Task's shows.
+                if parent.is_none() {
+                    let name = format!("{}:compaction", ids::scope(task_id, &line.id.to_string()));
+                    let row = compaction(&name, task_id, &compaction_summary(content));
+                    dao::standalone_activity(tx, &row, Source::Line(line.id)).await?;
+                }
+                continue;
+            }
             let first = match line.harness_item_id {
                 Some(item) => dao::first_line_of_item(tx, session.id, item)
                     .await?
@@ -400,12 +409,14 @@ impl Projector {
                         .await?;
                 }
                 Ok(TaskSubType::AgentSwitched) => {
-                    let summary = event.payload.get("summary").and_then(Value::as_str);
-                    let Some(summary) = summary.filter(|summary| !summary.is_empty()) else {
-                        return Ok(());
-                    };
-                    let row = agent_switched(&name, task_id, summary);
-                    dao::standalone_activity(tx, &row, event.event_id).await?;
+                    let field = |key: &str| event.payload.get(key).and_then(Value::as_str);
+                    let summary = field("summary")
+                        .filter(|summary| !summary.is_empty())
+                        .unwrap_or("Switched agent");
+                    let chosen = event.payload.get("chosen").and_then(Value::as_bool) == Some(true);
+                    let row =
+                        agent_switched(&name, task_id, summary, field("from"), field("to"), chosen);
+                    dao::standalone_activity(tx, &row, Source::TaskEvent(event.event_id)).await?;
                 }
                 Ok(TaskSubType::BindingReplySent) => {
                     let Some(reply) = super::payload::BindingReply::of(event.payload) else {
@@ -460,7 +471,7 @@ impl Projector {
                         .and_then(Value::as_i64)
                         .filter(|max| *max > 0);
                     let row = context_window_updated(&name, task_id, used, max);
-                    dao::standalone_activity(tx, &row, event.event_id).await?;
+                    dao::standalone_activity(tx, &row, Source::TaskEvent(event.event_id)).await?;
                 }
                 _ => {}
             },
@@ -478,7 +489,7 @@ impl Projector {
                     serde_json::from_value(event.payload.clone()).unwrap_or_default();
                 let row = sandbox_activity(&name, task_id, coarse, is_error, &payload);
                 if !dao::restates_sandbox(tx, &row).await? {
-                    dao::standalone_activity(tx, &row, event.event_id).await?;
+                    dao::standalone_activity(tx, &row, Source::TaskEvent(event.event_id)).await?;
                 }
             }
             _ => {}
@@ -566,6 +577,19 @@ fn touch(projection: &mut LineProjection, parent: Option<&str>, uuid: &str) {
         Some(parent) => projection.touch_subagent(parent),
         None => projection.touch_message(uuid),
     }
+}
+
+/// The text a compaction line kept, its text blocks joined.
+fn compaction_summary(content: &Value) -> String {
+    content
+        .get("blocks")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))
+        .filter_map(|block| block.get("text").and_then(Value::as_str))
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 /// Section 4.1's `usage`, as the conversation admits it.

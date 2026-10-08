@@ -134,6 +134,7 @@ pub async fn send_user_message(
                     &message.skills,
                     message.message_uuid,
                     message.queue,
+                    None,
                 )
                 .await?
         }

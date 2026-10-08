@@ -589,14 +589,16 @@ async fn notify_parent_of_child_outcome(
         );
         Some(uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, key.as_bytes()).to_string())
     };
-    let (message, message_uuid) = match outcome {
+    let (message, message_uuid, delivered_outcome) = match outcome {
         ChildOutcome::Errored { error } => (
             format!("Child task `{}` errored.\n\nError: {error}", event.task_id),
             turn_key("errored", outcome_turn),
+            moatless_tasks::inbox::ChildOutcome::Errored,
         ),
         ChildOutcome::Completed { turn_number } => (
             completion_notice(ports, &event.task_id, turn_number).await,
             turn_key("completed", turn_number),
+            moatless_tasks::inbox::ChildOutcome::Completed,
         ),
     };
 
@@ -623,6 +625,7 @@ async fn notify_parent_of_child_outcome(
             // Notices that land during one parent turn open the next as one
             // delivery, rather than each steering into the turn.
             true,
+            Some(delivered_outcome),
         )
         .await
     {

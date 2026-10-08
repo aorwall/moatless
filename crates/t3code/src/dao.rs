@@ -120,6 +120,10 @@ pub struct Conversation {
     /// The error text the newest Turn ended with: `None` unless its status is
     /// `error`, so the next Turn starting or completing clears it.
     pub turn_error: Option<String>,
+    /// The `agent.error` reason that error carried (`usage_limit`, …).
+    pub turn_error_reason: Option<String>,
+    /// When a usage limit lifts (RFC 3339 text), as the provider stated it.
+    pub turn_error_resets_at: Option<String>,
 
     /// Durable Sandbox lifecycle intent; all four are `None` together when no
     /// Sandbox was ever requested — the lazy-absence model of `sandboxes`.
@@ -813,6 +817,8 @@ impl PgConversationDao {
                    turn.started_at            AS turn_started_at,
                    turn.ended_at              AS turn_ended_at,
                    failure.turn_error,
+                   failure.turn_error_reason,
+                   failure.turn_error_resets_at,
                    s.desired_state            AS sandbox_desired_state_raw,
                    s.stop_reason              AS sandbox_stop_reason_raw,
                    s.started_at               AS sandbox_started_at,
@@ -850,7 +856,9 @@ impl PgConversationDao {
                    LIMIT 1
                ) turn ON TRUE
                LEFT JOIN LATERAL (
-                   SELECT (e.payload::jsonb)->>'error' AS turn_error
+                   SELECT (e.payload::jsonb)->>'error' AS turn_error,
+                          (e.payload::jsonb)->>'reason' AS turn_error_reason,
+                          (e.payload::jsonb)->>'resetsAt' AS turn_error_resets_at
                    FROM task_events e
                    WHERE turn.status = 'error'
                      AND e.task_id = t.task_id

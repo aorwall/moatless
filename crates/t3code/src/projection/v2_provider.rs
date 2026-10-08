@@ -6,6 +6,8 @@
 //! per conversation, one attempt and one provider turn per started run. The
 //! client reads them to offer promote-to-steer and to know what may be forked.
 
+use std::collections::HashMap;
+
 use serde_json::{Value, json};
 
 use super::model::provider_instance;
@@ -13,6 +15,7 @@ use super::scalar::created_at;
 use super::scalar::instant;
 use super::session::session_status;
 use super::turn::turn_is_open;
+use super::v2_lifecycle::pending_background_tasks;
 use crate::dao::Conversation;
 use crate::nominal_path;
 
@@ -187,6 +190,7 @@ pub(super) fn provider_thread(
         "lastRunOrdinal": ordinals.iter().max(),
         "handoffIds": [],
         "forkedFrom": Value::Null,
+        "pendingBackgroundTasks": pending_background_tasks(conversation),
         "createdAt": instant(created_at(conversation)),
         "updatedAt": updated_at
     })
@@ -241,12 +245,13 @@ pub(super) fn root_nodes(runs: &[Value]) -> Vec<Value> {
         .collect()
 }
 
-/// One provider turn per started run, the one its attempt ran as.
-pub(super) fn provider_turns(runs: &[Value]) -> Vec<Value> {
+/// One provider turn per started run, the one its attempt ran as, carrying
+/// the run's newest context-window reading from `token_usage` (by run id).
+pub(super) fn provider_turns(runs: &[Value], token_usage: &HashMap<String, Value>) -> Vec<Value> {
     started(runs)
         .filter_map(|run| {
             let run_id = run.get("id")?.as_str()?;
-            Some(json!({
+            let mut turn = json!({
                 "id": provider_turn_id(run_id),
                 "providerThreadId": run.get("providerThreadId"),
                 "nodeId": root_node_id(run_id),
@@ -256,7 +261,11 @@ pub(super) fn provider_turns(runs: &[Value]) -> Vec<Value> {
                 "status": execution_status(run),
                 "startedAt": run.get("startedAt"),
                 "completedAt": run.get("completedAt")
-            }))
+            });
+            if let Some(usage) = token_usage.get(run_id) {
+                turn["tokenUsage"] = usage.clone();
+            }
+            Some(turn)
         })
         .collect()
 }

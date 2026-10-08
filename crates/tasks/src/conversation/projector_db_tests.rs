@@ -850,3 +850,53 @@ async fn a_line_that_supersedes_a_reply_removes_its_message(pool: PgPool) {
     .unwrap();
     assert_eq!(recorded, 1, "the reply stays in the Trajectory");
 }
+
+/// A compaction line is one `compaction` activity carrying the kept summary,
+/// with the same id after a rebuild; it opens no Message.
+#[sqlx::test]
+async fn a_compaction_line_is_a_compaction_activity(pool: PgPool) {
+    let dao = seed(&pool).await;
+    append(
+        &dao,
+        Harness::ClaudeCode,
+        "s",
+        0,
+        &[
+            said("msg_0", "assistant", json!([text("Done.")])),
+            event(
+                Some("u_c"),
+                json!({
+                    "role": "user",
+                    "blocks": [text("We fixed the checkout."), text("Tests pass.")],
+                    "compaction": true,
+                }),
+            ),
+        ],
+    )
+    .await;
+    let compactions = || async {
+        sqlx::query_as::<_, (Uuid, Option<Uuid>, String, Value)>(
+            "SELECT activity_id, trajectory_event_id, status, payload FROM conversation_activities
+              WHERE task_id = $1 AND kind = 'compaction'",
+        )
+        .bind(TASK)
+        .fetch_all(&pool)
+        .await
+        .unwrap()
+    };
+    let live = compactions().await;
+    assert_eq!(live.len(), 1, "{live:?}");
+    assert!(live[0].1.is_some(), "sourced from its line");
+    assert_eq!(live[0].2, "completed");
+    assert_eq!(
+        live[0].3["summary"],
+        json!("We fixed the checkout.\n\nTests pass.")
+    );
+    assert_eq!(messages(&pool).await.len(), 1);
+
+    PgMessageDao(pool.clone())
+        .rebuild_conversation(TASK)
+        .await
+        .unwrap();
+    assert_eq!(compactions().await, live);
+}

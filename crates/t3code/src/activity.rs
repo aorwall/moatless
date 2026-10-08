@@ -46,7 +46,8 @@ impl T3ActivityViewExt for ActivityView<'_> {
             | ActivityKind::UserInputResolved
             | ActivityKind::PlanUpdated
             | ActivityKind::ContextWindowUpdated
-            | ActivityKind::AgentSwitched => "info",
+            | ActivityKind::AgentSwitched
+            | ActivityKind::Compaction => "info",
         }
     }
 
@@ -70,8 +71,12 @@ impl T3ActivityViewExt for ActivityView<'_> {
             // else on `task.progress` is a plain running-agent row.
             ActivityKind::SandboxError => "runtime.error",
             // Amber, like a recovered stall: the run goes on, on another agent.
+            // A person's own pick is no warning.
+            ActivityKind::AgentSwitched if self.payload()["chosen"] == true => "task.progress",
             ActivityKind::SandboxWarning | ActivityKind::AgentSwitched => "runtime.warning",
-            ActivityKind::Thinking | ActivityKind::SandboxStatus => "task.progress",
+            ActivityKind::Thinking | ActivityKind::SandboxStatus | ActivityKind::Compaction => {
+                "task.progress"
+            }
             // The four the client derives a panel from rather than a work-log
             // row. Each spelling is the one that client's own deriver matches
             // on, which is why they are dotted where the column is not.
@@ -521,6 +526,8 @@ mod tests {
             (ActivityKind::UserInputResolved, "user-input.resolved"),
             (ActivityKind::PlanUpdated, "turn.plan.updated"),
             (ActivityKind::ContextWindowUpdated, "context-window.updated"),
+            (ActivityKind::Compaction, "task.progress"),
+            (ActivityKind::AgentSwitched, "runtime.warning"),
         ] {
             let row = stored(kind, json!({}));
             assert_eq!(ActivityView::new(&row).t3_kind(), expected);
@@ -531,6 +538,15 @@ mod tests {
         assert_eq!(ActivityView::new(&call).t3_kind(), "tool.updated");
         call.status = ActivityStatus::Completed;
         assert_eq!(ActivityView::new(&call).t3_kind(), "tool.completed");
+    }
+
+    /// A fallback's switch is amber; a person's own pick is a plain row.
+    #[test]
+    fn a_chosen_agent_switch_is_no_warning() {
+        let chosen = stored(ActivityKind::AgentSwitched, json!({ "chosen": true }));
+        assert_eq!(ActivityView::new(&chosen).t3_kind(), "task.progress");
+        let fallback = stored(ActivityKind::AgentSwitched, json!({ "chosen": false }));
+        assert_eq!(ActivityView::new(&fallback).t3_kind(), "runtime.warning");
     }
 
     /// A tool call's raw input/result never reach this contract since it

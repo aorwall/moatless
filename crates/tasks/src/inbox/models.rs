@@ -112,6 +112,18 @@ pub struct DeliveryOptions {
     /// steering into it. A pod that does not ask to hold these steers them.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub queue: bool,
+    /// This item is the notice that a child Task's run ended, sent to its
+    /// parent; T3 shows it as a notification rather than a message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub child_outcome: Option<ChildOutcome>,
+}
+
+/// How a child Task's run ended, as its parent's notice records it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChildOutcome {
+    Completed,
+    Errored,
 }
 
 impl Default for DeliveryOptions {
@@ -127,6 +139,7 @@ impl Default for DeliveryOptions {
             tool_response: None,
             agent_fallback: false,
             queue: false,
+            child_outcome: None,
         }
     }
 }
