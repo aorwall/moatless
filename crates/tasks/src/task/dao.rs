@@ -10,6 +10,7 @@ use super::models::{
     CheckoutMode, SandboxDesiredState, SandboxIntentView, SandboxPlacement, Task, TaskFilter,
     TaskPatch, TaskRow, TaskStatus, Visibility, sandbox_intent_epoch,
 };
+use super::pin_dao::{self, OrderSlot};
 use moatless_core::db::DbPool;
 use moatless_core::db_enum::decode_optional;
 use moatless_types::access_control::{Scope, ScopeContext, ScopedEntity};
@@ -225,6 +226,29 @@ pub(crate) trait TaskDao: Send + Sync {
     ) -> Result<(), sqlx::Error>;
 
     async fn unsnooze_task(&self, user_id: &str, task_id: &str) -> Result<(), sqlx::Error>;
+
+    /// Pin `task_id` in `user_id`'s listing. Pinning promotes: it also
+    /// un-settles the Task and clears its snooze. `order_key` is taken only
+    /// by a fresh pin, so a repeated pin keeps the slot the user arranged.
+    async fn pin_task(
+        &self,
+        user_id: &str,
+        task_id: &str,
+        order_key: Option<String>,
+        at: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error>;
+
+    /// Unpin, dropping the pinned slot with the pin.
+    async fn unpin_task(&self, user_id: &str, task_id: &str) -> Result<(), sqlx::Error>;
+
+    /// Set the fractional-index key `user_id`'s `slot` block sorts by.
+    async fn set_order_key(
+        &self,
+        user_id: &str,
+        task_id: &str,
+        slot: OrderSlot,
+        order_key: &str,
+    ) -> Result<(), sqlx::Error>;
 
     async fn clear_snoozed_for_follower(
         &self,
@@ -1303,11 +1327,20 @@ impl TaskDao for PgTaskDao {
     ) -> Result<(), sqlx::Error> {
         let mut tx = self.pool.begin().await?;
         let res = sqlx::query(
+            // Settling is "I'm done with this", so it also drops the pin and
+            // both arranged slots, as T3's own server does.
             r#"UPDATE task_follows
-                  SET settled_override = 'settled',
-                      settled_at = $3
+                  SET settled_at = CASE WHEN settled_override = 'settled'
+                                        THEN settled_at ELSE $3 END,
+                      settled_override = 'settled',
+                      pinned_at = NULL,
+                      pin_order_key = NULL,
+                      active_order_key = NULL
                 WHERE user_id = $1 AND task_id = $2
-                  AND settled_override IS DISTINCT FROM 'settled'"#,
+                  AND (settled_override IS DISTINCT FROM 'settled'
+                       OR pinned_at IS NOT NULL
+                       OR pin_order_key IS NOT NULL
+                       OR active_order_key IS NOT NULL)"#,
         )
         .bind(user_id)
         .bind(task_id)
@@ -1387,6 +1420,30 @@ impl TaskDao for PgTaskDao {
         }
         tx.commit().await?;
         Ok(())
+    }
+
+    async fn pin_task(
+        &self,
+        user_id: &str,
+        task_id: &str,
+        order_key: Option<String>,
+        at: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
+        pin_dao::pin(&self.pool, user_id, task_id, order_key, at).await
+    }
+
+    async fn unpin_task(&self, user_id: &str, task_id: &str) -> Result<(), sqlx::Error> {
+        pin_dao::unpin(&self.pool, user_id, task_id).await
+    }
+
+    async fn set_order_key(
+        &self,
+        user_id: &str,
+        task_id: &str,
+        slot: OrderSlot,
+        order_key: &str,
+    ) -> Result<(), sqlx::Error> {
+        pin_dao::set_order_key(&self.pool, user_id, task_id, slot, order_key).await
     }
 
     async fn clear_snoozed_for_follower(

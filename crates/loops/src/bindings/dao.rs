@@ -102,7 +102,8 @@ const TASK_BINDING_SELECT: &str = r#"
            external_review_decision,
            external_mergeable_state,
            active,
-           deactivated_at
+           deactivated_at,
+           watching
     FROM task_bindings
 "#;
 
@@ -252,7 +253,8 @@ impl PgTaskBindingDao {
                          created_at,
                          last_event_at,
                          active,
-                         deactivated_at"#,
+                         deactivated_at,
+                         watching"#,
         )
         .bind(&row.id)
         .bind(&row.task_id)
@@ -310,6 +312,53 @@ impl PgTaskBindingDao {
         }
         tx.commit().await?;
         Ok(changed)
+    }
+
+    /// Set whether the Binding joining one Task to one subject wakes the Task;
+    /// `None` when no such Binding exists, else whether the row changed.
+    pub(crate) async fn set_watching_for_subject(
+        &self,
+        task_id: &str,
+        adapter_kind: &str,
+        subject_kind: &str,
+        subject_key: &str,
+        watching: bool,
+    ) -> Result<Option<bool>, sqlx::Error> {
+        let mut tx = self.0.begin().await?;
+        let previous: Option<bool> = sqlx::query_scalar(
+            "SELECT watching FROM task_bindings \
+             WHERE task_id = $1 AND adapter_kind = $2 AND subject_kind = $3 \
+               AND subject_key = $4 \
+             FOR UPDATE",
+        )
+        .bind(task_id)
+        .bind(adapter_kind)
+        .bind(subject_kind)
+        .bind(subject_key)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(previous) = previous else {
+            return Ok(None);
+        };
+        let changed = previous != watching;
+        if changed {
+            sqlx::query(
+                "UPDATE task_bindings SET watching = $5 \
+                 WHERE task_id = $1 AND adapter_kind = $2 AND subject_kind = $3 \
+                   AND subject_key = $4",
+            )
+            .bind(task_id)
+            .bind(adapter_kind)
+            .bind(subject_kind)
+            .bind(subject_key)
+            .bind(watching)
+            .execute(&mut *tx)
+            .await?;
+            // Ordered as in [`Self::upsert`].
+            moatless_core::change_feed::listing::record_change(&mut tx, task_id).await?;
+        }
+        tx.commit().await?;
+        Ok(Some(changed))
     }
 
     /// Delete the Binding joining one Task to one subject; reports whether a

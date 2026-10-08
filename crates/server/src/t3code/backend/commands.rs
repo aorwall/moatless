@@ -839,6 +839,62 @@ impl ThreadCommandSink for AppStateCommands {
         .map_err(|e| create_refusal(task_id, e))
     }
 
+    async fn pin(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+        order_key: Option<String>,
+    ) -> Result<(), CommandRefusal> {
+        self.ensure_followed_open(viewer, task_id).await?;
+        self.0
+            .tasks
+            .pin_task(
+                &viewer.user_id,
+                task_id,
+                order_key.as_deref(),
+                chrono::Utc::now(),
+            )
+            .await
+            .map_err(|e| Self::state_refusal(task_id, e))
+    }
+
+    async fn unpin(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
+        self.ensure_followed_open(viewer, task_id).await?;
+        self.0
+            .tasks
+            .unpin_task(&viewer.user_id, task_id)
+            .await
+            .map_err(|e| Self::state_refusal(task_id, e))
+    }
+
+    async fn set_pin_order_key(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+        order_key: String,
+    ) -> Result<(), CommandRefusal> {
+        self.ensure_followed_open(viewer, task_id).await?;
+        self.0
+            .tasks
+            .set_pin_order_key(&viewer.user_id, task_id, &order_key)
+            .await
+            .map_err(|e| Self::state_refusal(task_id, e))
+    }
+
+    async fn set_active_order_key(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+        order_key: String,
+    ) -> Result<(), CommandRefusal> {
+        self.ensure_followed_open(viewer, task_id).await?;
+        self.0
+            .tasks
+            .set_active_order_key(&viewer.user_id, task_id, &order_key)
+            .await
+            .map_err(|e| Self::state_refusal(task_id, e))
+    }
+
     async fn answer_question(
         &self,
         viewer: &ScopeContext,
@@ -933,6 +989,44 @@ impl ThreadCommandSink for AppStateCommands {
                     message: "That pull request could not be unlinked.".to_string(),
                 }
             })
+    }
+
+    async fn watch_pull_request(
+        &self,
+        _viewer: &ScopeContext,
+        reference: ThreadPullRequestRef,
+        watching: bool,
+    ) -> Result<(), CommandRefusal> {
+        github_owner_repo(&reference)?;
+        let subject_key = pull_request_subject(&reference);
+        let found = self
+            .0
+            .task_bindings
+            .set_watching(
+                &reference.task_id,
+                "github",
+                "github_pr",
+                &subject_key,
+                watching,
+            )
+            .await
+            .map_err(|error| {
+                tracing::warn!(
+                    %error,
+                    task_id = %reference.task_id,
+                    subject_key,
+                    "T3 pull request watch could not be updated"
+                );
+                CommandRefusal::Failed {
+                    message: "That pull request could not be updated.".to_string(),
+                }
+            })?;
+        if found.is_none() {
+            return Err(CommandRefusal::Rejected {
+                message: format!("{subject_key} is not linked to this thread."),
+            });
+        }
+        Ok(())
     }
 }
 

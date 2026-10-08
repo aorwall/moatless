@@ -7,6 +7,7 @@ use chrono::{DateTime, Utc};
 
 use super::dao::TaskDao;
 use super::models::{SandboxIntentView, Task, TaskFilter, TaskPatch, TaskStatus};
+use super::pin_dao::OrderSlot;
 use moatless_types::access_control::ScopeContext;
 
 /// The `tasks`, `task_follows` and `task_read_receipts` tables, as the backend
@@ -231,6 +232,48 @@ impl TaskCommands {
     /// See [`TaskDao::unsnooze_task`].
     pub async fn unsnooze_task(&self, user_id: &str, task_id: &str) -> Result<(), sqlx::Error> {
         self.store.unsnooze_task(user_id, task_id).await
+    }
+
+    /// See [`TaskDao::pin_task`].
+    pub async fn pin_task(
+        &self,
+        user_id: &str,
+        task_id: &str,
+        order_key: Option<&str>,
+        at: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
+        self.store
+            .pin_task(user_id, task_id, order_key.map(str::to_string), at)
+            .await
+    }
+
+    /// See [`TaskDao::unpin_task`].
+    pub async fn unpin_task(&self, user_id: &str, task_id: &str) -> Result<(), sqlx::Error> {
+        self.store.unpin_task(user_id, task_id).await
+    }
+
+    /// See [`TaskDao::set_order_key`].
+    pub async fn set_pin_order_key(
+        &self,
+        user_id: &str,
+        task_id: &str,
+        order_key: &str,
+    ) -> Result<(), sqlx::Error> {
+        self.store
+            .set_order_key(user_id, task_id, OrderSlot::Pinned, order_key)
+            .await
+    }
+
+    /// See [`TaskDao::set_order_key`].
+    pub async fn set_active_order_key(
+        &self,
+        user_id: &str,
+        task_id: &str,
+        order_key: &str,
+    ) -> Result<(), sqlx::Error> {
+        self.store
+            .set_order_key(user_id, task_id, OrderSlot::Active, order_key)
+            .await
     }
 
     /// See [`TaskDao::clear_snoozed_for_follower`].

@@ -225,9 +225,19 @@ pub(super) fn conversation_row(
         "settledAt": nullable_instant(conversation.settled_at),
         "snoozedUntil": nullable_instant(conversation.snoozed_until),
         "snoozedAt": nullable_instant(conversation.snoozed_at),
+        "pinnedAt": nullable_instant(conversation.pinned_at),
+        "pinOrderKey": nullable_order_key(conversation.pin_order_key.as_deref()),
+        "activeOrderKey": nullable_order_key(conversation.active_order_key.as_deref()),
         "visibility": conversation.visibility.as_str()
     }) else {
         unreachable!("a json! object literal is an object")
     };
     row
+}
+
+/// An order key as the contract's trimmed non-empty string, or null. The
+/// client mints the keys, so a blank one is a stored value the contract would
+/// refuse to decode.
+fn nullable_order_key(key: Option<&str>) -> Value {
+    key.and_then(non_empty).map_or(Value::Null, Value::String)
 }

@@ -152,6 +152,7 @@ impl Bindings {
             external_status_updated_at: None,
             active: true,
             deactivated_at: None,
+            watching: true,
         };
         Ok(self.store.upsert(&binding).await?)
     }
@@ -239,6 +240,21 @@ impl Bindings {
     ) -> Result<bool, sqlx::Error> {
         self.store
             .activate_for_subject(task_id, adapter_kind, subject_kind, subject_key)
+            .await
+    }
+
+    /// Set whether this Task's Binding to this subject wakes it. `None` when
+    /// the Task is not bound to the subject, else whether the row changed.
+    pub async fn set_watching(
+        &self,
+        task_id: &str,
+        adapter_kind: &str,
+        subject_kind: &str,
+        subject_key: &str,
+        watching: bool,
+    ) -> Result<Option<bool>, sqlx::Error> {
+        self.store
+            .set_watching_for_subject(task_id, adapter_kind, subject_kind, subject_key, watching)
             .await
     }
 

@@ -791,6 +791,50 @@ async fn a_pull_request_closed_without_merging_admits_no_merge_notice(pool: PgPo
     );
 }
 
+/// A Binding whose watch was turned off in T3 stays linked but hears nothing;
+/// a sibling still watching the same pull request gets the comment.
+#[sqlx::test]
+async fn a_muted_binding_receives_no_event_and_its_sibling_still_does(pool: PgPool) {
+    let watched = "task-watch-on";
+    let muted = "task-watch-off";
+    seed_fixtures(&pool, watched).await;
+    seed_bound_task(&pool, muted, "binding-watch-off", "connected_thread").await;
+    sqlx::query("UPDATE task_bindings SET watching = FALSE WHERE id = 'binding-watch-off'")
+        .execute(&pool)
+        .await
+        .expect("mute the binding");
+    let state = replica(&pool).await;
+
+    deliver(
+        &state,
+        "issue_comment",
+        "delivery-muted-watch",
+        &issue_comment_payload(9250, "octocat"),
+    )
+    .await;
+    let pool_for_check = pool.clone();
+    run_worker_until(&state, Duration::from_secs(30), async || {
+        matches!(
+            status_of(&pool_for_check, GITHUB_PR_MESSAGE, "delivery-muted-watch").await,
+            Some((ref status, _)) if status == "succeeded" || status == "failed"
+        )
+    })
+    .await;
+
+    assert_eq!(message_count(&pool, watched).await, 1);
+    assert_eq!(
+        message_count(&pool, muted).await,
+        0,
+        "a muted watch wakes nothing"
+    );
+    let still_muted: bool =
+        sqlx::query_scalar("SELECT watching FROM task_bindings WHERE id = 'binding-watch-off'")
+            .fetch_one(&pool)
+            .await
+            .expect("read the muted binding");
+    assert!(!still_muted, "routing leaves the muted binding as it was");
+}
+
 #[sqlx::test]
 async fn footer_echo_skips_only_its_authoring_task(pool: PgPool) {
     let author = "task-footer-author";

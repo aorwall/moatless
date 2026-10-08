@@ -663,6 +663,10 @@ pub struct TaskBinding {
     pub active: bool,
     /// When this binding was deactivated; `None` while active.
     pub deactivated_at: Option<DateTime<Utc>>,
+    /// Whether inbound events on the subject wake the Task's agent. Off mutes
+    /// the binding without releasing it, unlike [`Self::active`]: status
+    /// refreshes still land on the row.
+    pub watching: bool,
 }
 
 /// Deployment defaults for how long an Adapter's inbound events are buffered, in

@@ -115,3 +115,27 @@ async fn a_meta_update_with_an_unpublished_model_is_refused() {
     assert!(matches!(result, Err(CommandRefusal::Rejected { .. })));
     assert!(calls.is_empty());
 }
+
+/// Regeneration is a queued turn asking the agent to rename; its `moat
+/// set-name` is the answer, so nothing else is recorded.
+#[tokio::test]
+async fn a_title_regeneration_queues_a_turn() {
+    let command = json!({
+        "type": "thread.meta.update",
+        "commandId": "cmd-regen",
+        "threadId": "task-1",
+        "regenerateTitle": true
+    });
+    let (result, calls) = run_against(command, Some(named("Checkout bug"))).await;
+    assert!(result.is_ok());
+    assert!(
+        matches!(
+            calls.as_slice(),
+            [
+                Call::UpdateMeta { title: None, model: None, .. },
+                Call::SendTurn { task_id, queue: true, model: None, .. },
+            ] if task_id == "task-1"
+        ),
+        "got {calls:?}"
+    );
+}

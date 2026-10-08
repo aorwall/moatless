@@ -318,6 +318,7 @@ async fn seed_binding(
             external_status_updated_at: None,
             active: true,
             deactivated_at: None,
+            watching: true,
         },
     )
     .await
@@ -930,6 +931,7 @@ async fn a_task_bound_twice_to_one_issue_receives_a_comment_once(pool: PgPool) {
             external_status_updated_at: None,
             active: true,
             deactivated_at: None,
+            watching: true,
         },
     )
     .await
@@ -1210,6 +1212,7 @@ async fn a_task_with_another_binding_is_not_closed(pool: PgPool) {
             external_status_updated_at: None,
             active: true,
             deactivated_at: None,
+            watching: true,
         },
     )
     .await

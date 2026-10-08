@@ -485,6 +485,9 @@ mod tests {
             snoozed_until: None,
             snoozed_at: None,
             last_read_at: None,
+            pinned_at: None,
+            pin_order_key: None,
+            active_order_key: None,
             pull_requests: None,
         }
     }
@@ -682,6 +685,45 @@ mod tests {
         ) -> Result<(), crate::ports::CommandRefusal> {
             unreachable!()
         }
+        async fn pin(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+            _order_key: Option<String>,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!()
+        }
+        async fn unpin(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!()
+        }
+        async fn set_pin_order_key(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+            _order_key: String,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!()
+        }
+        async fn set_active_order_key(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+            _order_key: String,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!()
+        }
+        async fn watch_pull_request(
+            &self,
+            _viewer: &ScopeContext,
+            _reference: crate::ports::ThreadPullRequestRef,
+            _watching: bool,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!()
+        }
     }
 
     /// A sink that refuses every send, standing in for the write failing after
@@ -871,6 +913,45 @@ mod tests {
             &self,
             _viewer: &ScopeContext,
             _task_id: &str,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!()
+        }
+        async fn pin(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+            _order_key: Option<String>,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!()
+        }
+        async fn unpin(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!()
+        }
+        async fn set_pin_order_key(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+            _order_key: String,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!()
+        }
+        async fn set_active_order_key(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+            _order_key: String,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!()
+        }
+        async fn watch_pull_request(
+            &self,
+            _viewer: &ScopeContext,
+            _reference: crate::ports::ThreadPullRequestRef,
+            _watching: bool,
         ) -> Result<(), crate::ports::CommandRefusal> {
             unreachable!()
         }

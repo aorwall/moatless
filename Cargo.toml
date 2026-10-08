@@ -169,6 +169,9 @@ too_many_lines = "allow"
 needless_raw_string_hashes = "allow"
 # HashMap<String, _> is idiomatic; requiring &str generics adds noise
 implicit_hasher = "allow"
+# `sqlx::migrate!` and every `#[sqlx::test]` expand to a local array of all
+# migrations, which passed the lint's 16 KiB threshold at migration 187
+large_stack_arrays = "allow"
 # Wildcards in `use super::schemas::*` are intentional in handler modules
 wildcard_imports = "allow"
 # cast_sign_loss and cast_possible_truncation fire on i32↔u32/usize conversions

@@ -13,7 +13,6 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use sqlx::AssertSqlSafe;
 use sqlx::types::Json;
 use tokio::sync::Semaphore;
@@ -135,6 +134,12 @@ pub struct Conversation {
     /// `None` when they never opened it.
     pub last_read_at: Option<DateTime<Utc>>,
 
+    /// When the viewer pinned this Task; `None` while it is not pinned.
+    pub pinned_at: Option<DateTime<Utc>>,
+    /// The viewer's fractional-index slots in the pinned and active blocks.
+    pub pin_order_key: Option<String>,
+    pub active_order_key: Option<String>,
+
     /// Every GitHub pull request this Task is bound to, primary first.
     ///
     /// Empty rather than `None` when there's no active binding — `None` is only
@@ -145,40 +150,7 @@ pub struct Conversation {
     pub pull_requests: Option<Json<Vec<ConversationPullRequest>>>,
 }
 
-/// One GitHub pull request bound to a Task, as the listing query aggregates it.
-///
-/// `subject_key` alone makes a row reportable, linking from the moment it's
-/// written; `title`, `base_ref` and `head_ref` come from a refresh's status
-/// blob and are `None` together until one runs.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConversationPullRequest {
-    pub repository: String,
-    pub number: i64,
-    pub url: String,
-    pub title: Option<String>,
-    pub base_ref: Option<String>,
-    pub head_ref: Option<String>,
-    /// The binding's normalized state kind, in its own column rather than the
-    /// blob: `open`, `draft`, `merged` or `closed`, and `None` until the
-    /// adapter has classified one. Read by `t3_pr_state` in [`crate::ports`].
-    pub state_kind: Option<String>,
-    /// When this deployment last read the pull request's state from GitHub,
-    /// falling back to the binding's `NOT NULL` `last_event_at` so it resolves
-    /// for an unrefreshed binding too.
-    ///
-    /// The column [`crate::ports::BoundPullRequest::status_read_at`] reports.
-    pub status_read_at: DateTime<Utc>,
-    /// When the binding was written. T3's `linkedAt`, and what orders links of
-    /// equal standing there.
-    pub linked_at: DateTime<Utc>,
-    /// `task_bindings.origin`, translated to a T3 link source by
-    /// [`crate::projection::pull_request::thread_pull_request_source`].
-    pub origin: String,
-    /// Latest review verdict, GitHub's spelling. `None` until one is recorded.
-    pub review_decision: Option<String>,
-    /// GitHub's coarse mergeable state. `None` until it is computed.
-    pub mergeable_state: Option<String>,
-}
+pub use crate::pull_request_row::ConversationPullRequest;
 
 impl Conversation {
     /// Persisted intent for this conversation's Sandbox.
@@ -759,7 +731,8 @@ impl PgConversationDao {
         };
         let sql = format!(
             r#"WITH listed AS MATERIALIZED (
-                   SELECT t.*, tf.settled_override, tf.settled_at, tf.snoozed_until, tf.snoozed_at
+                   SELECT t.*, tf.settled_override, tf.settled_at, tf.snoozed_until, tf.snoozed_at,
+                          tf.pinned_at, tf.pin_order_key, tf.active_order_key
                    {follows} t.status IN ({statuses})
                      AND {}{narrowed}{predicates}{capped}
                )
@@ -800,6 +773,9 @@ impl PgConversationDao {
                    t.snoozed_until,
                    t.snoozed_at,
                    receipt.last_read_at,
+                   t.pinned_at,
+                   t.pin_order_key,
+                   t.active_order_key,
                    COALESCE(pr.pull_requests, '[]'::jsonb) AS pull_requests,
                    parent.task_id AS parent_task_id,
                    parent.relation_type AS parent_relation,
@@ -955,7 +931,8 @@ impl PgConversationDao {
                                   'linked_at', bound.linked_at,
                                   'origin', bound.origin,
                                   'review_decision', bound.review_decision,
-                                  'mergeable_state', bound.mergeable_state
+                                  'mergeable_state', bound.mergeable_state,
+                                  'watching', bound.watching
                               )
                               ORDER BY bound.live DESC, bound.number DESC
                           ) AS pull_requests
@@ -978,6 +955,7 @@ impl PgConversationDao {
                            b.origin AS origin,
                            b.external_review_decision AS review_decision,
                            b.external_mergeable_state AS mergeable_state,
+                           b.watching,
                            (COALESCE(b.external_state_kind, 'open')
                                 NOT IN ('merged', 'closed')) AS live
                        FROM task_bindings b

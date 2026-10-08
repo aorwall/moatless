@@ -679,6 +679,36 @@ pub trait ThreadCommandSink: Send + Sync {
 
     async fn unsnooze(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;
 
+    /// Pin this thread in the viewer's own listing, un-settling it and
+    /// clearing its snooze. `order_key` places a fresh pin; a repeated pin
+    /// keeps the slot it already has.
+    async fn pin(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+        order_key: Option<String>,
+    ) -> Result<(), CommandRefusal>;
+
+    async fn unpin(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;
+
+    /// Move this thread within the viewer's pinned block, to the slot the
+    /// client's fractional-index `order_key` names.
+    async fn set_pin_order_key(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+        order_key: String,
+    ) -> Result<(), CommandRefusal>;
+
+    /// Move this thread within the viewer's active block, as
+    /// [`ThreadCommandSink::set_pin_order_key`] does in the pinned one.
+    async fn set_active_order_key(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+        order_key: String,
+    ) -> Result<(), CommandRefusal>;
+
     async fn answer_question(
         &self,
         viewer: &ScopeContext,
@@ -692,6 +722,15 @@ pub trait ThreadCommandSink: Send + Sync {
         &self,
         viewer: &ScopeContext,
         reference: ThreadPullRequestRef,
+    ) -> Result<(), CommandRefusal>;
+
+    /// Start or stop a linked pull request's events waking the Thread's agent.
+    /// Refuses a pull request the Thread has not linked.
+    async fn watch_pull_request(
+        &self,
+        viewer: &ScopeContext,
+        reference: ThreadPullRequestRef,
+        watching: bool,
     ) -> Result<(), CommandRefusal>;
 
     /// Release a Thread's pull request, removing the Binding that joined them

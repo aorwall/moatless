@@ -276,3 +276,64 @@ fn resume_dismiss_and_read_marks_translate_to_their_v1_commands() {
         );
     }
 }
+
+#[test]
+fn pin_and_reorder_commands_keep_their_names_and_order_keys() {
+    for tag in [
+        "thread.pin",
+        "thread.unpin",
+        "thread.pin.reorder",
+        "thread.active.reorder",
+    ] {
+        let command = v1(json!({ "type": tag, "threadId": "task-1", "orderKey": "a0" }));
+        assert_eq!(command["type"], json!(tag));
+        assert_eq!(command["orderKey"], json!("a0"));
+    }
+}
+
+/// Starting a watch on a pull request the thread has not linked links it
+/// first. Stopping one never links, whatever `link` carries.
+#[test]
+fn a_watch_that_asks_to_link_links_first() {
+    let watch = |watching: bool| {
+        json!({
+            "type": "thread.pull-request.watch",
+            "commandId": "cmd-1",
+            "threadId": "task-1",
+            "host": "github.com",
+            "repository": "acme/web",
+            "number": 42,
+            "watching": watching,
+            "link": { "url": "https://github.com/acme/web/pull/42", "source": "manual" }
+        })
+    };
+    let Ok(Translated::Sequence(steps)) = translate(&watch(true)) else {
+        panic!("expected a link and then the watch");
+    };
+    assert_eq!(steps.len(), 2);
+    assert_eq!(steps[0]["type"], json!("thread.pull-request.link"));
+    assert_eq!(steps[0]["repository"], json!("acme/web"));
+    assert_eq!(steps[0]["number"], json!(42));
+    assert_eq!(
+        steps[0]["url"],
+        json!("https://github.com/acme/web/pull/42")
+    );
+    assert_eq!(steps[0]["source"], json!("manual"));
+    assert_eq!(steps[1]["type"], json!("thread.pull-request.watch"));
+
+    let stop = v1(watch(false));
+    assert_eq!(stop["type"], json!("thread.pull-request.watch"));
+    assert_eq!(stop["watching"], json!(false));
+}
+
+#[test]
+fn completing_a_title_regeneration_is_refused() {
+    assert!(matches!(
+        refusal(json!({
+            "type": "thread.title.regeneration.complete",
+            "threadId": "task-1",
+            "requestId": "cmd-1"
+        })),
+        CommandRefusal::Unsupported { .. }
+    ));
+}

@@ -197,6 +197,7 @@ async fn seed_bound_session(state: &AppState, pool: &PgPool) {
         external_status_updated_at: None,
         active: true,
         deactivated_at: None,
+        watching: true,
     };
     upsert_binding(&state.task_bindings, &binding)
         .await

@@ -93,7 +93,18 @@ pub(crate) fn descriptor(config: &UiRpcConfig) -> Value {
             // for the set: a client that cannot read the current links has
             // nothing to unlink, and `linkedPullRequest` beside them is the
             // single reference a client from before this key reads instead.
-            "threadPullRequests": true
+            "threadPullRequests": true,
+            // `thread.pin`, `thread.unpin`, `thread.pin.reorder` and
+            // `thread.active.reorder`, stored per viewer on their follow.
+            "threadPinning": true,
+            "threadPinReorder": true,
+            "threadActiveReorder": true,
+            // `regenerateTitle` on `thread.meta.update`, which asks the agent
+            // to rename the Task. Absent, a client hides the action.
+            "threadTitleRegeneration": true,
+            // `thread.pull-request.watch`. Every linked pull request wakes the
+            // agent until a watch is turned off.
+            "threadPullRequestWatch": true
         }
     });
 

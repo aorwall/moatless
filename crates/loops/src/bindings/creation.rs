@@ -81,6 +81,7 @@ pub(crate) async fn create_task_binding(
         external_status_updated_at: None,
         active: true,
         deactivated_at: None,
+        watching: true,
     };
     let saved = task_bindings.upsert(&row).await?;
     Ok(saved)

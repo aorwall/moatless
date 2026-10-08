@@ -269,6 +269,21 @@ impl GithubPrInboundRouter {
             }
         }
 
+        // A Binding whose watch was turned off in T3 stays linked and keeps its
+        // status, but no event on the pull request wakes its Task. Filtered
+        // here, after the origin attach above, so a muted origin is not bound
+        // a second time.
+        let bound = bindings.len();
+        bindings.retain(|b| b.watching);
+        if bindings.is_empty() && bound > 0 {
+            debug!(
+                subject_key = %subject_key,
+                muted = bound,
+                "Every binding on this pull request has its watch off; nothing to deliver"
+            );
+            return Ok(());
+        }
+
         // A pull request nothing is bound to expects nothing of this event — every
         // task that was working it has closed. Unlike an empty recipient set on a
         // subject that *does* carry bindings, this is not a loss, so it is not a

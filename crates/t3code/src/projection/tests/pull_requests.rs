@@ -20,6 +20,7 @@ fn bound(repository: &str, number: i64) -> ConversationPullRequest {
         origin: "connected_thread".to_string(),
         review_decision: None,
         mergeable_state: None,
+        watching: true,
     }
 }
 
@@ -223,4 +224,37 @@ fn a_thread_row_drops_a_pull_request_it_cannot_name() {
     let thread = one_thread(&row);
     assert_eq!(thread["pullRequests"].as_array().map(Vec::len), Some(1));
     assert_eq!(thread["linkedPullRequest"]["number"], 7);
+}
+
+/// Every active Binding wakes the agent, so a link is watched until someone
+/// turns the watch off.
+#[test]
+fn a_linked_pull_request_is_watched_from_the_time_it_was_linked() {
+    let mut row = conversation("task-a", "ws-a");
+    row.pull_requests = Some(Json(vec![ConversationPullRequest {
+        mergeable_state: Some("dirty".to_string()),
+        ..fetched(bound("acme/web", 42), "open")
+    }]));
+
+    let watch = first_link(&row)["watch"].clone();
+    assert_eq!(watch["startedAt"], json!("2026-02-03T04:00:00.000Z"));
+    assert_eq!(watch["remarksThrough"], watch["startedAt"]);
+    assert_eq!(watch["conflicting"], json!(true));
+    assert_eq!(watch["wakes"], json!(0));
+    assert_eq!(watch["failedChecks"], json!([]));
+}
+
+#[test]
+fn a_muted_or_finished_pull_request_carries_no_watch() {
+    let muted = ConversationPullRequest {
+        watching: false,
+        ..fetched(bound("acme/web", 42), "open")
+    };
+    let merged = fetched(bound("acme/web", 43), "merged");
+    for pr in [muted, merged] {
+        let mut row = conversation("task-a", "ws-a");
+        let number = pr.number;
+        row.pull_requests = Some(Json(vec![pr]));
+        assert!(first_link(&row).get("watch").is_none(), "#{number}");
+    }
 }

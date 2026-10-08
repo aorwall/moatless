@@ -67,3 +67,30 @@ async fn a_link_into_a_thread_the_viewer_does_not_control_is_refused() {
     assert!(matches!(result, Err(CommandRefusal::NotWritable { .. })));
     assert!(calls.is_empty());
 }
+
+#[tokio::test]
+async fn a_watch_reaches_the_sink_with_its_state() {
+    for watching in [true, false] {
+        let mut command = pull_request_command("watch");
+        command["watching"] = json!(watching);
+        let (result, calls) = run(command).await;
+        assert!(result.is_ok(), "{watching}");
+        assert_eq!(
+            calls,
+            vec![Call::WatchPullRequest {
+                task_id: "task-1".to_string(),
+                repository: "acme/web".to_string(),
+                number: 42,
+                watching,
+            }],
+            "{watching}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_watch_that_says_neither_on_nor_off_is_rejected() {
+    let (result, calls) = run(pull_request_command("watch")).await;
+    assert!(matches!(result, Err(CommandRefusal::Rejected { .. })));
+    assert!(calls.is_empty());
+}

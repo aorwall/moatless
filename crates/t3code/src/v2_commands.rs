@@ -68,6 +68,10 @@ pub(crate) fn translate(command: &Value) -> Result<Translated, CommandRefusal> {
         | "thread.unsettle"
         | "thread.snooze"
         | "thread.unsnooze"
+        | "thread.pin"
+        | "thread.unpin"
+        | "thread.pin.reorder"
+        | "thread.active.reorder"
         | "thread.follow"
         | "thread.unfollow"
         | "thread.visibility.set"
@@ -113,6 +117,11 @@ pub(crate) fn translate(command: &Value) -> Result<Translated, CommandRefusal> {
             v1.insert("dismissed".into(), json!(true));
             Ok(Translated::V1(Value::Object(v1)))
         }
+        "thread.pull-request.watch" => Ok(pull_request_watch(command)),
+        "thread.title.regeneration.complete" => refused(
+            tag,
+            "The agent's own rename completes a title regeneration on this server.",
+        ),
         // Kept by the client itself; Moatless has no column for either.
         "thread.runtime-mode.set" | "thread.interaction-mode.set" => Ok(Translated::Discarded),
         "thread.merge_back" => refused(tag, "Merge-back is not available on this server."),
@@ -233,6 +242,26 @@ fn message_dispatch(command: &Value) -> Result<Translated, CommandRefusal> {
         return Ok(Translated::Sequence(vec![interrupt, Value::Object(v1)]));
     }
     Ok(Translated::V1(Value::Object(v1)))
+}
+
+/// A watch that asks to link the pull request first is the link and then the
+/// watch, so a refused link leaves the watch unset.
+fn pull_request_watch(command: &Value) -> Translated {
+    let watch = command.clone();
+    let link = command.get("link").filter(|link| !link.is_null());
+    let starting = command.get("watching").and_then(Value::as_bool) == Some(true);
+    let Some(link) = link.filter(|_| starting) else {
+        return Translated::V1(watch);
+    };
+    let mut v1 = Map::new();
+    v1.insert("type".into(), json!("thread.pull-request.link"));
+    copy(
+        command,
+        &mut v1,
+        &["commandId", "threadId", "host", "repository", "number"],
+    );
+    copy(link, &mut v1, &["url", "source"]);
+    Translated::Sequence(vec![Value::Object(v1), watch])
 }
 
 /// V2 names the fork's new thread `targetThreadId` and its cut point as a

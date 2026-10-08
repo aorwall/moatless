@@ -176,6 +176,7 @@ mod tests {
             external_status_updated_at: updated_at,
             active: true,
             deactivated_at: None,
+            watching: true,
         }
     }
 

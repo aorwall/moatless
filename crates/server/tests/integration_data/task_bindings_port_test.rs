@@ -90,6 +90,7 @@ fn binding(id: &str, task_id: &str, connection_id: &str, subject_key: &str) -> T
         external_status_updated_at: None,
         active: true,
         deactivated_at: None,
+        watching: true,
     }
 }
 
@@ -194,6 +195,43 @@ async fn a_bind_routes_again_after_unbind_but_not_after_deactivate(pool: PgPool)
         !is_active(&pool, "tb-parked").await,
         "the parked row is upserted onto and stays out of routing"
     );
+}
+
+/// A muted watch survives the agent re-binding the same pull request, and a
+/// subject the Task is not bound to reports `None` rather than a no-op.
+#[sqlx::test]
+async fn a_muted_watch_holds_across_a_rebind(pool: PgPool) {
+    seed_task(&pool, "task-muted", USER_1).await;
+    let state = test_app_state(pool.clone());
+    let connection_id = seed_connection(&state, "pc-1", USER_1).await;
+    let row = binding("tb-muted", "task-muted", &connection_id, "acme/web#7");
+    upsert_binding(&state.task_bindings, &row)
+        .await
+        .expect("upsert binding through the port");
+
+    let set = |watching: bool, subject: &'static str| {
+        let bindings = state.task_bindings.clone();
+        async move {
+            bindings
+                .set_watching("task-muted", "github", "github_pr", subject, watching)
+                .await
+                .expect("set watching through the port")
+        }
+    };
+    assert_eq!(set(false, "acme/web#7").await, Some(true));
+    assert_eq!(set(false, "acme/web#7").await, Some(false));
+    assert_eq!(set(false, "acme/web#8").await, None);
+
+    let rebound = upsert_binding(&state.task_bindings, &row)
+        .await
+        .expect("re-bind the same subject through the port");
+    assert!(!rebound.watching);
+    let listed = state
+        .task_bindings
+        .for_subject("github", "github_pr", "acme/web#7")
+        .await
+        .expect("list the subject's bindings");
+    assert!(listed.iter().all(|binding| !binding.watching));
 }
 
 /// The adapter-connection port resolves the row it just wrote by both of the

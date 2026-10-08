@@ -44,6 +44,9 @@ pub(super) fn conversation(task_id: &str, workspace_id: &str) -> Conversation {
         snoozed_until: None,
         snoozed_at: None,
         last_read_at: None,
+        pinned_at: None,
+        pin_order_key: None,
+        active_order_key: None,
         pull_requests: None,
     }
 }

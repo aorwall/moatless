@@ -159,6 +159,7 @@ async fn seed_bound_thread(state: &AppState, pool: &PgPool, window: i32) {
         external_status_updated_at: None,
         active: true,
         deactivated_at: None,
+        watching: true,
     };
     upsert_binding(&state.task_bindings, &binding)
         .await

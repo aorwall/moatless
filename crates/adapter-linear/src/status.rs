@@ -127,6 +127,7 @@ mod tests {
             external_status_updated_at: None,
             active: true,
             deactivated_at: None,
+            watching: true,
         }
     }
 

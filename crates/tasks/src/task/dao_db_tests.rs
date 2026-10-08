@@ -3,6 +3,7 @@
 use crate::task::dao::{TaskDao, store_over};
 use crate::task::models::{SandboxPlacement, TaskFilter, TaskPatch};
 use crate::task::models::{TaskStatus, Visibility};
+use crate::task::pin_dao::OrderSlot;
 use chrono::{DateTime, Duration, Utc};
 use moatless_types::access_control::ScopeContext;
 use sqlx::PgPool;
@@ -534,6 +535,111 @@ async fn refollow_after_settle_and_unfollow_starts_with_null_state(pool: PgPool)
         follow_state(&pool, follower, "task-state-refollow").await,
         Some((None, None, None, None))
     );
+}
+
+async fn pin_state(
+    pool: &PgPool,
+    user_id: &str,
+    task_id: &str,
+) -> (Option<DateTime<Utc>>, Option<String>, Option<String>) {
+    sqlx::query_as(
+        r#"SELECT pinned_at, pin_order_key, active_order_key
+           FROM task_follows
+           WHERE user_id = $1 AND task_id = $2"#,
+    )
+    .bind(user_id)
+    .bind(task_id)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+/// Pinning puts the thread on top now, so a settle and a snooze it outranks
+/// are spent; a repeated pin keeps the slot the user already arranged.
+#[sqlx::test]
+async fn pin_unsettles_and_unsnoozes_and_a_repin_keeps_its_slot(pool: PgPool) {
+    let user = "user-1";
+    seed_repo(&pool, "repo-1", user).await;
+    seed_task(&pool, &make_task_row("task-pin", user))
+        .await
+        .unwrap();
+    let repo = store_over(&pool);
+    repo.follow_task(user, "task-pin").await.unwrap();
+    repo.settle_task(user, "task-pin", Utc::now())
+        .await
+        .unwrap();
+    repo.snooze_task(
+        user,
+        "task-pin",
+        Utc::now() + Duration::hours(1),
+        Utc::now(),
+    )
+    .await
+    .unwrap();
+
+    repo.pin_task(user, "task-pin", Some("a0".to_string()), Utc::now())
+        .await
+        .unwrap();
+    let (settled_override, settled_at, snoozed_until, snoozed_at) =
+        follow_state(&pool, user, "task-pin").await.unwrap();
+    assert_eq!(settled_override.as_deref(), Some("active"));
+    assert_eq!((settled_at, snoozed_until, snoozed_at), (None, None, None));
+    let (pinned_at, pin_order_key, _) = pin_state(&pool, user, "task-pin").await;
+    assert!(pinned_at.is_some());
+    assert_eq!(pin_order_key.as_deref(), Some("a0"));
+
+    repo.pin_task(user, "task-pin", Some("b0".to_string()), Utc::now())
+        .await
+        .unwrap();
+    assert_eq!(
+        pin_state(&pool, user, "task-pin").await,
+        (pinned_at, Some("a0".to_string()), None)
+    );
+
+    repo.set_order_key(user, "task-pin", OrderSlot::Pinned, "a5")
+        .await
+        .unwrap();
+    repo.set_order_key(user, "task-pin", OrderSlot::Active, "Zz")
+        .await
+        .unwrap();
+    assert_eq!(
+        pin_state(&pool, user, "task-pin").await,
+        (pinned_at, Some("a5".to_string()), Some("Zz".to_string()))
+    );
+
+    repo.unpin_task(user, "task-pin").await.unwrap();
+    assert_eq!(
+        pin_state(&pool, user, "task-pin").await,
+        (None, None, Some("Zz".to_string()))
+    );
+}
+
+#[sqlx::test]
+async fn settle_drops_the_pin_and_both_slots(pool: PgPool) {
+    let user = "user-1";
+    seed_repo(&pool, "repo-1", user).await;
+    seed_task(&pool, &make_task_row("task-pin-settle", user))
+        .await
+        .unwrap();
+    let repo = store_over(&pool);
+    repo.follow_task(user, "task-pin-settle").await.unwrap();
+    repo.pin_task(user, "task-pin-settle", Some("a0".to_string()), Utc::now())
+        .await
+        .unwrap();
+    repo.set_order_key(user, "task-pin-settle", OrderSlot::Active, "Zz")
+        .await
+        .unwrap();
+
+    repo.settle_task(user, "task-pin-settle", Utc::now())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        pin_state(&pool, user, "task-pin-settle").await,
+        (None, None, None)
+    );
+    let (settled_override, ..) = follow_state(&pool, user, "task-pin-settle").await.unwrap();
+    assert_eq!(settled_override.as_deref(), Some("settled"));
 }
 
 // =========================================================================

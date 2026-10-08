@@ -104,6 +104,27 @@ pub(super) enum Call {
     Unsnooze {
         task_id: String,
     },
+    Pin {
+        task_id: String,
+        order_key: Option<String>,
+    },
+    Unpin {
+        task_id: String,
+    },
+    SetPinOrderKey {
+        task_id: String,
+        order_key: String,
+    },
+    SetActiveOrderKey {
+        task_id: String,
+        order_key: String,
+    },
+    WatchPullRequest {
+        task_id: String,
+        repository: String,
+        number: i64,
+        watching: bool,
+    },
     SetVisibility {
         task_id: String,
         visibility: Visibility,
@@ -330,6 +351,48 @@ impl ThreadCommandSink for RecordingSink {
         });
         Ok(())
     }
+    async fn pin(
+        &self,
+        _viewer: &ScopeContext,
+        task_id: &str,
+        order_key: Option<String>,
+    ) -> Result<(), CommandRefusal> {
+        self.0.lock().unwrap().push(Call::Pin {
+            task_id: task_id.to_string(),
+            order_key,
+        });
+        Ok(())
+    }
+    async fn unpin(&self, _viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
+        self.0.lock().unwrap().push(Call::Unpin {
+            task_id: task_id.to_string(),
+        });
+        Ok(())
+    }
+    async fn set_pin_order_key(
+        &self,
+        _viewer: &ScopeContext,
+        task_id: &str,
+        order_key: String,
+    ) -> Result<(), CommandRefusal> {
+        self.0.lock().unwrap().push(Call::SetPinOrderKey {
+            task_id: task_id.to_string(),
+            order_key,
+        });
+        Ok(())
+    }
+    async fn set_active_order_key(
+        &self,
+        _viewer: &ScopeContext,
+        task_id: &str,
+        order_key: String,
+    ) -> Result<(), CommandRefusal> {
+        self.0.lock().unwrap().push(Call::SetActiveOrderKey {
+            task_id: task_id.to_string(),
+            order_key,
+        });
+        Ok(())
+    }
     async fn set_visibility(
         &self,
         _viewer: &ScopeContext,
@@ -433,6 +496,20 @@ impl ThreadCommandSink for RecordingSink {
         });
         Ok(())
     }
+    async fn watch_pull_request(
+        &self,
+        _viewer: &ScopeContext,
+        reference: ThreadPullRequestRef,
+        watching: bool,
+    ) -> Result<(), CommandRefusal> {
+        self.0.lock().unwrap().push(Call::WatchPullRequest {
+            task_id: reference.task_id,
+            repository: reference.repository,
+            number: reference.number,
+            watching,
+        });
+        Ok(())
+    }
 }
 
 fn pull_request_call(reference: ThreadPullRequestRef, linked: bool) -> Call {
@@ -533,6 +610,9 @@ pub(super) fn conversation(agent_profile: AgentProfile) -> Conversation {
         snoozed_until: None,
         snoozed_at: None,
         last_read_at: None,
+        pinned_at: None,
+        pin_order_key: None,
+        active_order_key: None,
         pull_requests: None,
     }
 }

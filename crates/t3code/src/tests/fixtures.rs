@@ -565,6 +565,45 @@ impl ports::ThreadCommandSink for UnreachableCommands {
     ) -> Result<(), ports::CommandRefusal> {
         unreachable!("no test in this file deletes a thread")
     }
+    async fn pin(
+        &self,
+        _viewer: &ScopeContext,
+        _task_id: &str,
+        _order_key: Option<String>,
+    ) -> Result<(), ports::CommandRefusal> {
+        unreachable!("no test in this file changes per-viewer thread state")
+    }
+    async fn unpin(
+        &self,
+        _viewer: &ScopeContext,
+        _task_id: &str,
+    ) -> Result<(), ports::CommandRefusal> {
+        unreachable!("no test in this file changes per-viewer thread state")
+    }
+    async fn set_pin_order_key(
+        &self,
+        _viewer: &ScopeContext,
+        _task_id: &str,
+        _order_key: String,
+    ) -> Result<(), ports::CommandRefusal> {
+        unreachable!("no test in this file changes per-viewer thread state")
+    }
+    async fn set_active_order_key(
+        &self,
+        _viewer: &ScopeContext,
+        _task_id: &str,
+        _order_key: String,
+    ) -> Result<(), ports::CommandRefusal> {
+        unreachable!("no test in this file changes per-viewer thread state")
+    }
+    async fn watch_pull_request(
+        &self,
+        _viewer: &ScopeContext,
+        _reference: ports::ThreadPullRequestRef,
+        _watching: bool,
+    ) -> Result<(), ports::CommandRefusal> {
+        unreachable!("no test in this file watches a pull request")
+    }
 }
 
 /// These tests are about the envelope encoding, so the listing behind it is a

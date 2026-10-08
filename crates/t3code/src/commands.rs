@@ -140,6 +140,25 @@ pub async fn dispatch(
         "thread.unsnooze" => {
             ctx.sink.unsnooze(viewer, thread_id(command)?).await?;
         }
+        "thread.pin" => {
+            let order_key = optional_order_key(command)?;
+            ctx.sink.pin(viewer, thread_id(command)?, order_key).await?;
+        }
+        "thread.unpin" => {
+            ctx.sink.unpin(viewer, thread_id(command)?).await?;
+        }
+        "thread.pin.reorder" => {
+            let order_key = optional_order_key(command)?.ok_or_else(|| missing("orderKey"))?;
+            ctx.sink
+                .set_pin_order_key(viewer, thread_id(command)?, order_key)
+                .await?;
+        }
+        "thread.active.reorder" => {
+            let order_key = optional_order_key(command)?.ok_or_else(|| missing("orderKey"))?;
+            ctx.sink
+                .set_active_order_key(viewer, thread_id(command)?, order_key)
+                .await?;
+        }
         "thread.visibility.set" => {
             let visibility = command
                 .get("visibility")
@@ -161,6 +180,16 @@ pub async fn dispatch(
         "thread.pull-request.unlink" => {
             let reference = pull_request_ref(ctx, viewer, command).await?;
             ctx.sink.unlink_pull_request(viewer, reference).await?;
+        }
+        "thread.pull-request.watch" => {
+            let watching = command
+                .get("watching")
+                .and_then(Value::as_bool)
+                .ok_or_else(|| missing("watching"))?;
+            let reference = pull_request_ref(ctx, viewer, command).await?;
+            ctx.sink
+                .watch_pull_request(viewer, reference, watching)
+                .await?;
         }
 
         // Accepted and discarded — see the module comment.
@@ -626,10 +655,44 @@ async fn meta_update(
         .update_meta(
             viewer,
             ThreadMeta {
-                task_id,
+                task_id: task_id.clone(),
                 title: rename(&conversation, command),
                 model,
                 harness,
+            },
+        )
+        .await?;
+    if command.get("regenerateTitle").and_then(Value::as_bool) == Some(true) {
+        regenerate_title(ctx, viewer, &task_id).await?;
+    }
+    Ok(())
+}
+
+/// What a title regeneration asks the agent; its `moat set-name` answers it.
+const REGENERATE_TITLE_PROMPT: &str =
+    "Please rename this task to reflect the conversation so far, with `moat set-name`.";
+
+/// Ask the agent to rename the Task, the way the git toolbar asks it to open
+/// a pull request (`git_actions`). Queued, so work in progress finishes first.
+async fn regenerate_title(
+    ctx: &CommandContext<'_>,
+    viewer: &ScopeContext,
+    task_id: &str,
+) -> Result<(), CommandRefusal> {
+    ctx.sink
+        .send_turn(
+            viewer,
+            ThreadTurn {
+                task_id: task_id.to_string(),
+                text: REGENERATE_TITLE_PROMPT.to_string(),
+                message_uuid: Uuid::new_v4().to_string(),
+                model: None,
+                harness: None,
+                agent_mode: None,
+                effort: None,
+                attachments: Vec::new(),
+                skills: Vec::new(),
+                queue: true,
             },
         )
         .await
@@ -858,6 +921,21 @@ async fn pull_request_ref(
         repository: field("repository")?,
         number,
     })
+}
+
+/// A pin command's `orderKey`, trimmed; `None` when absent. A blank key is
+/// refused: the contract types it as a non-empty string, and storing one
+/// would fail the next listing's decode.
+fn optional_order_key(command: &Value) -> Result<Option<String>, CommandRefusal> {
+    match command.get("orderKey") {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => value
+            .as_str()
+            .map(str::trim)
+            .filter(|key| !key.is_empty())
+            .map(|key| Some(key.to_string()))
+            .ok_or_else(|| missing("orderKey")),
+    }
 }
 
 /// One answer per question, keyed on the question's full text.

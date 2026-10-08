@@ -8,6 +8,7 @@ pub mod fork;
 pub mod handlers;
 pub mod models;
 pub mod operations;
+pub(crate) mod pin_dao;
 pub mod presenter;
 pub mod relations;
 pub mod rewind;

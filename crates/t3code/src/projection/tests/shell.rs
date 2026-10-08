@@ -346,3 +346,36 @@ fn the_newest_turns_error_is_the_sessions_last_error() {
         "You've hit your usage limit. (usage limit resets at 2026-10-03T18:05:00Z)"
     );
 }
+
+#[test]
+fn pin_and_order_keys_are_null_when_unset() {
+    let thread = one_thread(&running_conversation("task-a", "ws-a"));
+    for key in ["pinnedAt", "pinOrderKey", "activeOrderKey"] {
+        assert_eq!(thread[key], Value::Null, "{key}");
+    }
+}
+
+#[test]
+fn a_row_carries_the_viewers_pin_and_order_keys() {
+    let conversation = Conversation {
+        pinned_at: Some(instant_at("2026-07-02T09:00:00.000Z")),
+        pin_order_key: Some("a0".to_string()),
+        active_order_key: Some("Zz".to_string()),
+        ..running_conversation("task-a", "ws-a")
+    };
+    let thread = one_thread(&conversation);
+    assert_eq!(thread["pinnedAt"], json!("2026-07-02T09:00:00.000Z"));
+    assert_eq!(thread["pinOrderKey"], json!("a0"));
+    assert_eq!(thread["activeOrderKey"], json!("Zz"));
+}
+
+/// The contract types a key as a trimmed non-empty string, and one that fails
+/// that fails the decode of the viewer's whole listing.
+#[test]
+fn a_blank_order_key_is_reported_as_none() {
+    let conversation = Conversation {
+        pin_order_key: Some("  ".to_string()),
+        ..running_conversation("task-a", "ws-a")
+    };
+    assert_eq!(one_thread(&conversation)["pinOrderKey"], Value::Null);
+}

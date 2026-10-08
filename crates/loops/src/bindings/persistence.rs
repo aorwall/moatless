@@ -40,6 +40,10 @@ pub struct TaskBindingRow {
     pub active: bool,
     #[sqlx(default)]
     pub deactivated_at: Option<DateTime<Utc>>,
+    /// `None` where a `SELECT` does not project it, read as watching: the
+    /// column's own default.
+    #[sqlx(default)]
+    pub watching: Option<bool>,
 }
 
 impl From<TaskBindingRow> for TaskBinding {
@@ -66,6 +70,7 @@ impl From<TaskBindingRow> for TaskBinding {
             external_status_updated_at: row.external_status_updated_at,
             active: row.active,
             deactivated_at: row.deactivated_at,
+            watching: row.watching.unwrap_or(true),
         }
     }
 }

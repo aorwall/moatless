@@ -82,6 +82,9 @@ const THREAD_OPTIONAL: &[&str] = &[
     "pullRequests",
     "visibility",
     "ownerName",
+    "pinnedAt",
+    "pinOrderKey",
+    "activeOrderKey",
 ];
 const THREAD_NON_EMPTY: &[&str] = &["id", "projectId", "title"];
 
@@ -273,6 +276,9 @@ pub(super) const DETAIL_OPTIONAL: &[&str] = &[
     "linkedPullRequest",
     "pullRequests",
     "visibility",
+    "pinnedAt",
+    "pinOrderKey",
+    "activeOrderKey",
 ];
 
 // `OrchestrationMessage` (`:227-236`).
