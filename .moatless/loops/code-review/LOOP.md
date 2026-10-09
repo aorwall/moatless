@@ -1,8 +1,8 @@
 ---
 on: github_pr
 name: Full-Repo Code Review
-agentProfile: codex
-model: gpt-6-sol
+agentProfile: claude-code
+model: opus
 inactiveTtlDays: 1
 # sourceMatcher defaults to soaplabs/moatless-vibe (owner/repo); the org's
 # GitHub App connection is resolved automatically.
