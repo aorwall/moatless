@@ -51,6 +51,19 @@ const id = s.metric.pod.match(/^moatless-ws-([0-9a-f-]{36})/)?.[1] ?? s.metric.p
 
 `digest.sandboxPods` carries `pods`, `sandboxes`, `multiPod`, `peakConcurrent` and `podsPerHour`. Verified 2026-09-16: 346 pods across 116 sandboxes, peak 54. On 2026-09-17: 300 across 172, peak 58 — the ratio is what moved, not the pod count.
 
+## Sandbox disruptions
+
+Two causes restart a sandbox under running work, and the pod count alone cannot tell them apart. Spot reclaims come from `NodeClaim` events, which carry no `namespace` label, so the sandbox pools are matched by name:
+
+```
+sum(count_over_time({service_name="integrations/kubernetes/eventhandler"} |~ "kind=NodeClaim "
+  |~ "name=moatless-egress-(fallback-)?[a-z0-9]{5} " |~ "reason=SpotInterrupted" [1h]))
+```
+
+Evictions are read as lines (`reason=Evicted`, `name=moatless-ws-`), because the cause is in the message: `Usage of EmptyDir volume "workspace-data" exceeds the limit "10Gi"` is the workspace's `resources.storage`, not node pressure. Every pod on a reclaimed node also logs a `NodeNotReady` warning, so that reason's peaks follow the reclaims.
+
+`digest.sandboxDisruptions` carries `spotReclaims`, `spotPerHour`, `evictions`, `evictedForVolume`, `evictedTasks` and `evictedPerHour`. Verified 2026-10-08: 17 reclaims, 12 evictions on 6 tasks, all for the volume limit.
+
 ## Log volume by level and service
 
 ```

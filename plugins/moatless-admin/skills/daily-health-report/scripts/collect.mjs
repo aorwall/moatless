@@ -60,7 +60,10 @@ async function paginate(base, key = "items", page = 200, cap = CAP) {
   const out = [];
   for (let offset = 0; offset < cap; offset += page) {
     const sep = base.includes("?") ? "&" : "?";
-    const r = await api(`${base}${sep}limit=${page}&offset=${offset}`);
+    let r = await api(`${base}${sep}limit=${page}&offset=${offset}`);
+    // One retry: a single failed page otherwise ends the walk, and every row
+    // past it silently drops out of the day.
+    if (r.status !== 200) r = await api(`${base}${sep}limit=${page}&offset=${offset}`);
     if (r.status !== 200) {
       console.error(`  ! ${base} offset=${offset} -> ${r.status} ${r.err ?? ""}`);
       break;
@@ -260,7 +263,12 @@ async function main() {
 
   if (run("stats")) {
     const rows = await pool(touched, 8, async (t) => {
-      const s = (await api(`/api/v1/tasks/${t.taskId}/statistics`)).body ?? {};
+      // A failed call read as `{}` would count the task's day as zero turns and
+      // zero tokens, so retry once and say so if it still fails.
+      let r = await api(`/api/v1/tasks/${t.taskId}/statistics`);
+      if (r.status !== 200) r = await api(`/api/v1/tasks/${t.taskId}/statistics`);
+      if (r.status !== 200) console.error(`  ! task ${t.taskId} statistics -> ${r.status} ${r.err ?? ""}`);
+      const s = r.body ?? {};
       const usage = (s.messageTokenUsage ?? []).filter((m) => inWindow(m.timestamp));
       const msgs = await agentMessagesInWindow(t.taskId);
       return {
@@ -273,7 +281,8 @@ async function main() {
         lastMessageHour: inWindow(t.lastMessageAt) ? new Date(t.lastMessageAt).getUTCHours() : null,
         totalCostUsd: t.totalCostUsd,
         msgsInWindow: msgs.length,
-        turnsInWindow: Math.max(0, ...usage.map((m) => m.turnNumber ?? 0)),
+        // Distinct, not max: `turnNumber` counts from the task's first turn (SKILL.md gotchas).
+        turnsInWindow: new Set(usage.map((m) => m.turnNumber).filter((n) => n != null)).size,
         tokensInWindow: sum(usage.map((m) => m.totalTokens ?? 0)),
         outputTokensInWindow: sum(usage.map((m) => m.outputTokens ?? 0)),
         cachedInWindow: sum(usage.map((m) => m.cachedInputTokens ?? 0)),
@@ -361,6 +370,40 @@ async function main() {
       podsPerHour,
     };
 
+    // NodeClaim events carry no namespace label, so the sandbox pools are picked
+    // by name: `moatless-egress` and its spot fallback, never `-od`.
+    const spot = hourly(
+      await loki(
+        `sum(count_over_time({service_name="integrations/kubernetes/eventhandler"} |~ "kind=NodeClaim " ` +
+          '|~ "name=moatless-egress-(fallback-)?[a-z0-9]{5} " |~ "reason=SpotInterrupted" [1h]))',
+      ),
+      null,
+    )._ ?? new Array(24).fill(0);
+    const evictions = (
+      await loki(
+        `{namespace="${NS}", service_name="integrations/kubernetes/eventhandler"} |~ "reason=Evicted" |~ "name=moatless-ws-"`,
+        { limit: 1000, start: DAY0 },
+      )
+    ).flatMap((s) =>
+      s.values.map(([ns, line]) => ({
+        hour: new Date(Number(ns) / 1e6).getUTCHours(),
+        taskId: line.match(/name=moatless-ws-([0-9a-f-]{36})/)?.[1],
+        volumeLimit: /EmptyDir volume .*exceeds the limit/.test(line),
+      })),
+    );
+    if (evictions.length >= 1000) console.error("  ! evictions: hit the 1000-line limit, the day is truncated");
+    const evictedPerHour = new Array(24).fill(0);
+    for (const e of evictions) evictedPerHour[e.hour]++;
+    await write("disruptions", { spotPerHour: spot, evictions });
+    digest.sandboxDisruptions = {
+      spotReclaims: sum(spot),
+      spotPerHour: spot,
+      evictions: evictions.length,
+      evictedForVolume: evictions.filter((e) => e.volumeLimit).length,
+      evictedTasks: new Set(evictions.map((e) => e.taskId).filter(Boolean)).size,
+      evictedPerHour,
+    };
+
     const levels = {};
     for (const svc of ["moatless", "moatless-sandbox"])
       levels[svc] = hourly(
@@ -410,7 +453,8 @@ async function main() {
     digest.noisePatterns = sortDesc(noise);
     console.log(
       `loki: ${digest.k8sWarnings.total} warning events, ${digest.http5xx.total} 5xx, ` +
-        `${digest.sandboxPods.pods} pods across ${digest.sandboxPods.sandboxes} sandboxes`,
+        `${digest.sandboxPods.pods} pods across ${digest.sandboxPods.sandboxes} sandboxes, ` +
+        `${digest.sandboxDisruptions.spotReclaims} spot reclaims, ${digest.sandboxDisruptions.evictions} evictions`,
     );
   }
 
