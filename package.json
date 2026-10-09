@@ -45,6 +45,7 @@
     "type:check": "./scripts/type-check-filtered.sh",
     "type:check:e2e": "tsc -p tests/tsconfig.json --noEmit",
     "test:e2e": "playwright test --config tests/api/playwright.config.ts",
+    "test:e2e:ui": "playwright test --config tests/ui/playwright.config.ts",
     "biome:check": "biome check --diagnostic-level=error",
     "biome:fix": "./scripts/biome-fix.sh",
     "lint:ratchet": "bun scripts/biome-ratchet.ts",

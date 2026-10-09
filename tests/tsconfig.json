@@ -3,7 +3,7 @@
 		"target": "ES2023",
 		"module": "ESNext",
 		"moduleResolution": "bundler",
-		"lib": ["ES2023"],
+		"lib": ["ES2023", "DOM"],
 		"types": ["node"],
 		"strict": true,
 		"esModuleInterop": true,
@@ -15,6 +15,6 @@
 		"noUnusedParameters": true,
 		"noImplicitReturns": true
 	},
-	"include": ["api/**/*.ts", "shared/**/*.ts"],
+	"include": ["api/**/*.ts", "shared/**/*.ts", "ui/**/*.ts"],
 	"exclude": ["sandbox-docker/**"]
 }
