@@ -1022,6 +1022,48 @@ pub(crate) async fn reseed_session(
     Some(read.line_count)
 }
 
+/// The raw text of the session `target` opens for `harness`: its lines, then
+/// any other-harness items rendered after them, unparsed. `None` when the
+/// trajectory cannot give a whole session.
+pub(crate) async fn session_text(
+    backend: &dyn BackendClient,
+    harness: &str,
+    task_id: &str,
+    target: &WriteTarget,
+) -> Option<String> {
+    let read = backend
+        .read_trajectory(trajectory_request(harness, task_id, target))
+        .await
+        .ok()?;
+    if read.lines.len() as i64 != read.header.line_count {
+        return None;
+    }
+    let transcode = read.transcode.iter().map(|item| item.content_json.as_str());
+    Some(
+        read.lines
+            .iter()
+            .map(String::as_str)
+            .chain(transcode)
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
+}
+
+/// The trajectory read that opens `target` for `harness`.
+fn trajectory_request(harness: &str, task_id: &str, target: &WriteTarget) -> ReadTrajectoryRequest {
+    ReadTrajectoryRequest {
+        task_id: task_id.to_string(),
+        harness: harness.to_string(),
+        target: Some(match target {
+            WriteTarget::Resume(id) => {
+                read_trajectory_request::Target::HarnessSessionId(id.clone())
+            }
+            WriteTarget::Fork => read_trajectory_request::Target::Fork(true),
+            WriteTarget::Switch => read_trajectory_request::Target::Switch(true),
+        }),
+    }
+}
+
 /// A session as [`read_session`] reads it.
 struct SessionRead {
     id: String,
@@ -1039,17 +1081,7 @@ async fn read_session(
     task_id: &str,
     target: &WriteTarget,
 ) -> Option<SessionRead> {
-    let request = ReadTrajectoryRequest {
-        task_id: task_id.to_string(),
-        harness: format.harness().to_string(),
-        target: Some(match target {
-            WriteTarget::Resume(id) => {
-                read_trajectory_request::Target::HarnessSessionId(id.clone())
-            }
-            WriteTarget::Fork => read_trajectory_request::Target::Fork(true),
-            WriteTarget::Switch => read_trajectory_request::Target::Switch(true),
-        }),
-    };
+    let request = trajectory_request(format.harness(), task_id, target);
     let read = match backend.read_trajectory(request).await {
         Ok(read) => read,
         Err(status) => {

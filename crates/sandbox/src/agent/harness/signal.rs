@@ -99,6 +99,17 @@ impl Input {
     }
 }
 
+/// Whether `text` opens with a slash command such as `/compact` or
+/// `/plugin:skill`, which the CLI runs only when it leads the prompt. A path
+/// like `/opt/app is down` is no command.
+pub fn is_slash_command(text: &str) -> bool {
+    let Some(rest) = text.trim_start().strip_prefix('/') else {
+        return false;
+    };
+    let name = rest.split(char::is_whitespace).next().unwrap_or_default();
+    name.starts_with(|c: char| c.is_ascii_alphabetic()) && !name.contains('/')
+}
+
 /// Why an execution started.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Cause {
@@ -245,4 +256,27 @@ pub enum Signal {
     ExecutionFinished { outcome: Outcome },
     /// A submitted input that never opened an execution.
     InputRejected { input: InputId, reason: Rejection },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_slash_command;
+
+    #[test]
+    fn slash_command_needs_a_leading_command_name() {
+        for text in ["/compact", "  /compact keep the plan", "/general:show-me x"] {
+            assert!(is_slash_command(text), "{text:?}");
+        }
+        for text in [
+            "",
+            "compact",
+            "/",
+            "/opt/app is down",
+            "/ space",
+            "/1x",
+            "see /compact",
+        ] {
+            assert!(!is_slash_command(text), "{text:?}");
+        }
+    }
 }

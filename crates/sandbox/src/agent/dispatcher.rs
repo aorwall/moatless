@@ -13,6 +13,9 @@ use crate::files::uploads::fetch_uploads_for_messages;
 use crate::state::{SandboxState, TaskContext};
 use crate::writer_admission::WriterPermit;
 
+use super::handle::resolve_agent_harness;
+use super::harness::signal::is_slash_command;
+use super::harness::trajectory::{WriteTarget, session_text};
 use super::prompt::{PromptResponse, PromptToolName};
 use super::types::AgentStatus;
 
@@ -286,10 +289,33 @@ async fn dispatch_pending_messages_for_context(
     // carries it, which is the rule the backend already applies to a task's own
     // skills. Applied after the gate above, so a standing skill cannot open a
     // turn on a delivery that has nothing in it.
-    let skills = if resume_session_id.is_some() {
+    let skills = if is_slash_command(&text) {
+        // A preamble ahead of `/compact` turns the command into plain text.
+        if !skills.is_empty() {
+            info!(
+                skill_count = skills.len(),
+                "Not frontloading skills ahead of a slash command"
+            );
+        }
+        Vec::new()
+    } else if resume_session_id.is_some() {
         skills
     } else {
-        crate::agent::skills::with_always_frontloaded(&state.config, skills)
+        let loaded = match continued_session_text(
+            &state,
+            task_id,
+            agent_profile.as_deref(),
+            fork.is_some(),
+            switch_harness,
+        )
+        .await
+        {
+            Some(text) => {
+                crate::agent::skills::standing_skills_loaded_in(&state.config, &text).await
+            }
+            None => Vec::new(),
+        };
+        crate::agent::skills::with_always_frontloaded(&state.config, skills, &loaded)
     };
 
     // Frontloading turns the requested skills into the prompt's leading preamble.
@@ -413,6 +439,35 @@ async fn dispatch_pending_messages_for_context(
 /// enough for a follow-up agent start attempt to succeed (and ack) or fail
 /// definitively, without hammering `GetPendingMessages` in a tight loop.
 const REDISPATCH_BACKOFF: Duration = Duration::from_secs(15);
+
+/// The raw text of the conversation a turn with no resume id continues — a
+/// fork's cut or a harness switch — read from the trajectory. `None` for a
+/// fresh session, or when the trajectory cannot give it.
+async fn continued_session_text(
+    state: &SandboxState,
+    task_id: &str,
+    agent_profile: Option<&str>,
+    fork: bool,
+    switch_harness: bool,
+) -> Option<String> {
+    let target = if fork {
+        WriteTarget::Fork
+    } else if switch_harness {
+        WriteTarget::Switch
+    } else {
+        return None;
+    };
+    let harness = agent_profile
+        .or(state.config.agent_profile.as_deref())
+        .and_then(|raw| resolve_agent_harness(raw).ok())?;
+    session_text(
+        state.backend_client.as_ref(),
+        harness.as_str(),
+        task_id,
+        &target,
+    )
+    .await
+}
 
 /// Post-acceptance ack retry backoff: exponential from the base, capped at the
 /// ceiling, with jitter seeded by `task_id` so a fleet doesn't retry in

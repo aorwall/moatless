@@ -68,19 +68,46 @@ pub(crate) async fn frontload_skills(config: &Config, skills: &[String], prompt:
 /// The standing skills lead: what somebody picked for this turn belongs closest
 /// to what they wrote. A name already requested is not repeated, nor one two
 /// plugins both deliver.
-pub(crate) fn with_always_frontloaded(config: &Config, requested: Vec<String>) -> Vec<String> {
+pub(crate) fn with_always_frontloaded(
+    config: &Config,
+    requested: Vec<String>,
+    already_loaded: &[String],
+) -> Vec<String> {
     let mut skills: Vec<String> = Vec::new();
-    for name in config
-        .plugins
-        .iter()
-        .flat_map(|plugin| plugin.frontload_skill_names.iter())
-    {
-        if !requested.contains(name) && !skills.contains(name) {
+    for name in standing_skill_names(config) {
+        if !requested.contains(name) && !skills.contains(name) && !already_loaded.contains(name) {
             skills.push(name.clone());
         }
     }
     skills.extend(requested);
     skills
+}
+
+fn standing_skill_names(config: &Config) -> impl Iterator<Item = &String> {
+    config
+        .plugins
+        .iter()
+        .flat_map(|plugin| plugin.frontload_skill_names.iter())
+}
+
+/// The standing skills whose preamble `conversation` already holds, so a turn
+/// continuing it without a resume id, such as a fork's first, need not repeat
+/// them. `conversation` is the session's raw text; a label holds no character
+/// JSON escapes.
+pub(crate) async fn standing_skills_loaded_in(config: &Config, conversation: &str) -> Vec<String> {
+    let roots = skill_roots(config).await;
+    let mut loaded = Vec::new();
+    for name in standing_skill_names(config) {
+        if !is_safe_skill_name(name) || loaded.contains(name) {
+            continue;
+        }
+        if let Some((label, _)) = read_skill(&roots, name).await {
+            if conversation.contains(&format!("Activated {label}:")) {
+                loaded.push(name.clone());
+            }
+        }
+    }
+    loaded
 }
 
 /// The roots to search, in precedence order.
@@ -501,7 +528,7 @@ mod tests {
         with_plugins(&mut config, &[("guidelines", &["house-style"])]);
 
         assert_eq!(
-            with_always_frontloaded(&config, vec!["e2e-testing".to_string()]),
+            with_always_frontloaded(&config, vec!["e2e-testing".to_string()], &[]),
             vec!["house-style".to_string(), "e2e-testing".to_string()],
             "what somebody picked for the turn belongs closest to what they wrote"
         );
@@ -520,7 +547,7 @@ mod tests {
         );
 
         assert_eq!(
-            with_always_frontloaded(&config, vec!["house-style".to_string()]),
+            with_always_frontloaded(&config, vec!["house-style".to_string()], &[]),
             vec!["house-style".to_string()],
             "a body repeated in the same prompt is cost without content"
         );
@@ -532,9 +559,32 @@ mod tests {
         let config = config_in(tmp.path(), "claude-code");
 
         assert_eq!(
-            with_always_frontloaded(&config, vec!["e2e-testing".to_string()]),
+            with_always_frontloaded(&config, vec!["e2e-testing".to_string()], &[]),
             vec!["e2e-testing".to_string()]
         );
-        assert!(with_always_frontloaded(&config, Vec::new()).is_empty());
+        assert!(with_always_frontloaded(&config, Vec::new(), &[]).is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_standing_skill_the_conversation_already_holds_is_not_repeated() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let mut config = config_in(tmp.path(), "claude-code");
+        with_plugins(
+            &mut config,
+            &[("guidelines", &["house-style", "e2e-testing"])],
+        );
+        let skills = tmp.path().join("workspace/repo/.agents/skills");
+        write_skill(&skills, "house-style", "Write plainly.");
+        write_skill(&skills, "e2e-testing", "Run the suite.");
+        let first_prompt = frontload_skills(&config, &["house-style".to_string()], "hi").await;
+        let conversation =
+            serde_json::json!({ "message": { "content": first_prompt } }).to_string();
+
+        let loaded = standing_skills_loaded_in(&config, &conversation).await;
+        assert_eq!(loaded, vec!["house-style".to_string()]);
+        assert_eq!(
+            with_always_frontloaded(&config, Vec::new(), &loaded),
+            vec!["e2e-testing".to_string()]
+        );
     }
 }

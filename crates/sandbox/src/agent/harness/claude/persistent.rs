@@ -279,7 +279,8 @@ impl ClaudePersistentProcess {
                 self.pending
                     .push_back(ProcessEvent::RunTotals(super::run_totals(&result)));
                 self.pending.push_back(ProcessEvent::ExecutionEnded {
-                    termination: classify_result(&result),
+                    // The TUI's synthesized results always count a turn.
+                    termination: classify_result(&result, false),
                 });
                 self.turn_in_flight = false;
             }

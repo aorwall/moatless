@@ -222,7 +222,7 @@ fn zero_turn_result_fails_as_retryable() {
         permission_denials: vec![],
         structured_output: None,
     });
-    match classify_result(&result) {
+    match classify_result(&result, false) {
         ProcessTermination::Failed(error) => {
             assert_eq!(error.stage, FailureStage::Execution);
             assert_eq!(error.class, ErrorClass::ProcessExit);
@@ -231,6 +231,30 @@ fn zero_turn_result_fails_as_retryable() {
         }
         other => panic!("expected failure, got {other:?}"),
     }
+}
+
+/// `/compact` answers with a zero-turn result after compacting; retrying it
+/// compacted the session again and then failed on "Not enough messages".
+#[test]
+fn zero_turn_result_of_a_slash_command_completes() {
+    let result = ResultMessage::Success(ResultSuccess {
+        uuid: "u".to_string(),
+        session_id: "sess".to_string(),
+        duration_ms: 45_500,
+        duration_api_ms: 0,
+        is_error: false,
+        num_turns: 0,
+        result: String::new(),
+        total_cost_usd: 0.0,
+        usage: usage(),
+        model_usage: HashMap::new(),
+        permission_denials: vec![],
+        structured_output: None,
+    });
+    assert!(matches!(
+        classify_result(&result, true),
+        ProcessTermination::Completed
+    ));
 }
 
 #[test]
@@ -249,7 +273,7 @@ fn rate_limited_error_result_classifies_as_rate_limit() {
         permission_denials: vec![],
         errors: vec!["HTTP 429 overloaded".to_string()],
     });
-    match classify_result(&result) {
+    match classify_result(&result, false) {
         ProcessTermination::Failed(error) => {
             assert_eq!(error.class, ErrorClass::RateLimit);
             assert_eq!(error.session_impact, SessionImpact::Intact);
@@ -274,7 +298,7 @@ fn success_with_is_error_is_invalid_input() {
         permission_denials: vec![],
         structured_output: None,
     });
-    match classify_result(&result) {
+    match classify_result(&result, false) {
         ProcessTermination::Failed(error) => assert_eq!(error.class, ErrorClass::InvalidInput),
         other => panic!("expected failure, got {other:?}"),
     }
@@ -306,7 +330,7 @@ fn unreachable_provider_is_connectivity_not_invalid_input() {
             permission_denials: vec![],
             structured_output: None,
         });
-        match classify_result(&result) {
+        match classify_result(&result, false) {
             ProcessTermination::Failed(error) => {
                 assert_eq!(
                     error.class,
@@ -694,7 +718,7 @@ fn failed_result(text: &str) -> HarnessError {
         permission_denials: vec![],
         structured_output: None,
     });
-    match classify_result(&result) {
+    match classify_result(&result, false) {
         ProcessTermination::Failed(error) => error,
         other => panic!("expected failure for {text:?}, got {other:?}"),
     }

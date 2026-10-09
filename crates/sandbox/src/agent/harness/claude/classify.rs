@@ -99,13 +99,18 @@ pub(super) fn classify_stream_error(error: &SdkError) -> HarnessError {
 
 /// Classify a terminal `ResultMessage`: a clean success completes the
 /// execution, any error result becomes a classified failure the coordinator
-/// maps to policy.
-pub(super) fn classify_result(result: &ResultMessage) -> ProcessTermination {
+/// maps to policy. `slash_command` says the Turn's prompt was a CLI command
+/// (see [`is_slash_command`](crate::agent::harness::signal::is_slash_command)).
+pub(super) fn classify_result(result: &ResultMessage, slash_command: bool) -> ProcessTermination {
     match result {
         // A success carrying no turns is the CLI ending the run without ever
         // reaching the model, so the person's message was consumed and answered
         // with nothing. Retrying re-drives the same text into the same session.
-        ResultMessage::Success(success) if !success.is_error && success.num_turns == 0 => {
+        // A command such as `/compact` runs without a model turn, so its result
+        // has none either; retrying it compacts again.
+        ResultMessage::Success(success)
+            if !success.is_error && success.num_turns == 0 && !slash_command =>
+        {
             ProcessTermination::Failed(HarnessError::new(
                 FailureStage::Execution,
                 ErrorClass::ProcessExit,

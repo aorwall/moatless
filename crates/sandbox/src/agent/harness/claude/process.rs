@@ -13,7 +13,9 @@ use crate::agent::types::{AgentRunRequest, ResumeSession};
 
 use crate::agent::harness::error::{ErrorClass, FailureStage, HarnessError, SessionImpact};
 use crate::agent::harness::process::{AgentProcess, ProcessEvent, ProcessTermination};
-use crate::agent::harness::signal::{ContextWindow, Input, InputId, RunTotals, SessionId};
+use crate::agent::harness::signal::{
+    ContextWindow, Input, InputId, RunTotals, SessionId, is_slash_command,
+};
 use crate::agent::harness::trajectory::ClaudeSessionFormat;
 use crate::trajectory_tail::TurnTrajectory;
 
@@ -102,6 +104,8 @@ pub(crate) struct ClaudeProcess {
     /// `InputAccepted`) waiting to be drained one at a time by [`Self::next`].
     pending: VecDeque<ProcessEvent>,
     input_id: Option<InputId>,
+    /// The Turn's prompt is a CLI command, whose result carries no model turn.
+    slash_command: bool,
     session_ready: bool,
     input_accepted: bool,
     /// Session id reported by the CLI's `System` init, needed to address a
@@ -165,6 +169,7 @@ impl ClaudeProcess {
             handle: None,
             pending: VecDeque::new(),
             input_id: None,
+            slash_command: false,
             session_ready: false,
             input_accepted: false,
             session_id: None,
@@ -239,7 +244,7 @@ impl ClaudeProcess {
                 self.pending
                     .push_back(ProcessEvent::RunTotals(run_totals(&result)));
                 self.pending.push_back(ProcessEvent::Terminated {
-                    termination: classify::classify_result(&result),
+                    termination: classify::classify_result(&result, self.slash_command),
                 });
             }
             // Partial streaming frames, replays, and system subtypes carry no
@@ -370,6 +375,7 @@ impl AgentProcess for ClaudeProcess {
         match query(&input.text, options).await {
             Ok(handle) => {
                 self.input_id = Some(input.id);
+                self.slash_command = is_slash_command(&input.text);
                 self.handle = Some(handle);
                 Ok(())
             }
