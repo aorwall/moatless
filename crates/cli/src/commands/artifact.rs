@@ -4,6 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use clap::Subcommand;
+use moatless_api_client::InlineArtifact;
 use moatless_api_schemas::artifact::MAX_PAGE_BYTES;
 
 use crate::client::MoatClient;
@@ -15,9 +16,9 @@ pub enum ArtifactAction {
     /// Publish one self-contained HTML file as the next version of an
     /// artifact.
     ///
-    /// Inline the CSS, scripts and images (as data URIs); only the page itself
-    /// is uploaded. Publishing again with the same slug adds a version, and the
-    /// link to the artifact always opens the latest one.
+    /// Inline the CSS, scripts and images (as data URIs). Publishing again
+    /// with the same slug adds a version, and the link opens the latest one.
+    #[command(after_long_help = inline_help())]
     Publish {
         /// The `.html` or `.htm` file to publish
         path: PathBuf,
@@ -28,6 +29,13 @@ pub enum ArtifactAction {
         /// omitted
         #[arg(long)]
         slug: Option<String>,
+        /// Show the page in the task's thread, with the thread's theme
+        #[arg(long)]
+        inline: bool,
+        /// Inline frame height in CSS pixels, 80 to 2000; the page shrinks it
+        /// to fit its content
+        #[arg(long, requires = "inline")]
+        height: Option<i32>,
         /// Task to publish on; defaults to `$TASK_ID`
         #[arg(long)]
         task: Option<String>,
@@ -38,6 +46,49 @@ pub enum ArtifactAction {
         #[arg(long)]
         task: Option<String>,
     },
+}
+
+/// The rules for writing an `--inline` page, which the agent prompt sends the
+/// agent here to read.
+const INLINE_HELP: &str = "\
+Inline pages (--inline)
+
+The page is shown in the task's conversation in a borderless frame, on the
+conversation's own background. The frame is as wide as the reply column (728px
+on desktop by default, wider if the reader widens the chat, about 360px on
+phones), and its left edge lines up with the reply text.
+
+Layout:
+- Leave html, body and the outermost element without a background colour. This
+  overrides general style preferences such as a fixed dark page.
+- Use a fluid width with no horizontal padding on the outermost element, and no
+  outer card, border or banner title: the page is part of the reply.
+- Give a box that needs its own background (a mock of a specific screen, a
+  panel that must stand apart) at least 16px of padding on every side and
+  var(--radius) corners.
+- Give charts fixed pixel heights rather than heights that scale with width.
+- Let the content set the page's height. Do not use 100vh, or height:100% on
+  html or body: the frame grows to fit the page, so those make it grow again
+  and again.
+
+Height: the frame fits the page's height at each reader's width. --height <px>
+(80 to 2000, default 1200) caps it, and content past the cap scrolls inside
+the frame.
+
+Theme: these CSS custom properties are set on :root and follow the reader's
+theme and light/dark mode live:
+{THEME_VARIABLES}
+Use them rather than fixed colours. A base stylesheet sets the html background,
+colour and font from them, sets the body margin to 0 and hides the page's
+scrollbar; your own CSS overrides it. The page looks the same when it is opened
+from its link.";
+
+/// The variables T3's bootstrap defines; `scripts/vendor-html-render-bootstrap.sh`
+/// writes it from the same t3code source as the bootstrap.
+const THEME_VARIABLES: &str = include_str!("html_render_theme_variables.txt");
+
+fn inline_help() -> String {
+    INLINE_HELP.replace("{THEME_VARIABLES}", THEME_VARIABLES.trim_end())
 }
 
 pub async fn run(
@@ -51,13 +102,23 @@ pub async fn run(
             path,
             title,
             slug,
+            inline,
+            height,
             task,
         } => {
             let task_id = task.map_or_else(|| cfg.require_task_id(), Ok)?;
             let (file_name, html) = read_page(&path)?;
+            let inline = inline.then_some(InlineArtifact { height });
             let resp = moat
                 .api()
-                .publish_artifact(&task_id, &title, slug.as_deref(), &file_name, html)
+                .publish_artifact(
+                    &task_id,
+                    &title,
+                    slug.as_deref(),
+                    inline.as_ref(),
+                    &file_name,
+                    html,
+                )
                 .await?;
             if json {
                 output::print_json_typed(&resp);
@@ -143,6 +204,18 @@ mod tests {
         std::fs::write(&css, "p{}").unwrap();
         assert!(read_page(dir.path()).is_err());
         assert!(read_page(&css).is_err());
+    }
+
+    /// The prompt sends the agent to `--help` for these rules, and `-h` omits them.
+    #[test]
+    fn publish_long_help_carries_the_inline_rules() {
+        use clap::Subcommand as _;
+        let mut cmd = ArtifactAction::augment_subcommands(clap::Command::new("artifact"));
+        let publish = cmd.find_subcommand_mut("publish").unwrap();
+        let help = publish.render_long_help().to_string();
+        assert!(help.contains("100vh"), "{help}");
+        assert!(help.contains("--chart-1"), "{help}");
+        assert!(!help.contains("{THEME_VARIABLES}"), "{help}");
     }
 
     #[test]

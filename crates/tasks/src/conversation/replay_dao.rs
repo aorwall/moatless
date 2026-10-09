@@ -200,7 +200,8 @@ pub(crate) async fn task_events(
                   t.payload::jsonb AS payload, t.created_at
              FROM task_events t
             WHERE t.task_id = $1
-              AND ((t.type = 'task' AND t.sub_type IN ('error', 'binding_reply_sent'))
+              AND ((t.type = 'task' AND t.sub_type IN ('error', 'binding_reply_sent', 'agent_switched',
+                                                            'artifact_shown'))
                    OR (t.type = 'agent' AND t.sub_type IN ('completed', 'context_window'))
                    OR (t.type = 'sandbox' AND t.sub_type IN ('initializing', 'ready', 'stopped', 'error')))
               AND ($2::int IS NULL

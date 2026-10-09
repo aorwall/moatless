@@ -19,6 +19,7 @@ use crate::inbox::{InboxItem, InboxOrigin, RunStamp};
 use crate::message::models::MessageType;
 use crate::task_event::models::InsertTaskEvent;
 use crate::trajectory::models::{LineProjection, NewEvent, TrajectorySession};
+use moatless_types::activity::ArtifactShown;
 use moatless_types::event::EventType;
 use moatless_types::sandbox::SandboxStatus;
 use moatless_types::task::TaskSubType;
@@ -418,6 +419,14 @@ impl Projector {
                         agent_switched(&name, task_id, summary, field("from"), field("to"), chosen);
                     dao::standalone_activity(tx, &row, Source::TaskEvent(event.event_id)).await?;
                 }
+                Ok(TaskSubType::ArtifactShown) => {
+                    let Ok(shown) = serde_json::from_value::<ArtifactShown>(event.payload.clone())
+                    else {
+                        return Ok(());
+                    };
+                    let row = artifact_shown(&name, task_id, &shown);
+                    dao::standalone_activity(tx, &row, Source::TaskEvent(event.event_id)).await?;
+                }
                 Ok(TaskSubType::BindingReplySent) => {
                     let Some(reply) = super::payload::BindingReply::of(event.payload) else {
                         return Ok(());
@@ -556,6 +565,24 @@ impl<'a> From<&'a InsertTaskEvent> for EventSource<'a> {
     }
 }
 
+/// An Artifact version shown inline in the thread, which happened on no
+/// Message.
+fn artifact_shown(event_id: &str, task_id: &str, shown: &ArtifactShown) -> ActivityRow {
+    ActivityRow {
+        activity_id: event_id.to_string(),
+        task_id: task_id.to_string(),
+        ordinal: 0,
+        message_uuid: None,
+        parent_uuid: None,
+        kind: ActivityKind::ArtifactShown,
+        status: ActivityStatus::Completed,
+        tool_use_id: None,
+        summary: shown.title.clone(),
+        payload: serde_json::to_value(shown).unwrap_or(Value::Null),
+        is_error: false,
+    }
+}
+
 /// The skills an assistant line's `Skill` calls load, for the Task's
 /// `skill-<name>` tags.
 fn skills_in(blocks: &Value) -> Vec<String> {
@@ -646,8 +673,10 @@ fn answer_of(item: &InboxItem) -> Option<(ToolOutcome, ActivityRow)> {
 fn projects(event_type: &str, sub_type: &str) -> bool {
     matches!(
         (event_type, sub_type),
-        ("task", "error" | "binding_reply_sent" | "agent_switched")
-            | ("agent", "completed" | "context_window")
+        (
+            "task",
+            "error" | "binding_reply_sent" | "agent_switched" | "artifact_shown"
+        ) | ("agent", "completed" | "context_window")
             | ("sandbox", "initializing" | "ready" | "stopped" | "error")
     )
 }

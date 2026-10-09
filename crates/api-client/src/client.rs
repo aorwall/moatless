@@ -8,6 +8,12 @@ pub struct ApiClient {
     http: reqwest::Client,
 }
 
+/// The inline fields of [`ApiClient::publish_artifact`].
+#[derive(Debug, Clone, Default)]
+pub struct InlineArtifact {
+    pub height: Option<i32>,
+}
+
 impl ApiClient {
     pub fn new(base_url: &str, http: reqwest::Client) -> Self {
         Self {
@@ -1033,12 +1039,14 @@ impl ApiClient {
     // ========================================================================
 
     /// POST `/api/v1/tasks/{task_id}/artifacts` — publish one HTML page,
-    /// named `file_name`, as the next version of an Artifact.
+    /// named `file_name`, as the next version of an Artifact. `inline` shows
+    /// it in the Task's thread.
     pub async fn publish_artifact(
         &self,
         task_id: &str,
         title: &str,
         slug: Option<&str>,
+        inline: Option<&InlineArtifact>,
         file_name: &str,
         html: Vec<u8>,
     ) -> Result<moatless_api_schemas::artifact::ArtifactResponse, ApiError> {
@@ -1050,6 +1058,12 @@ impl ApiClient {
         let mut form = reqwest::multipart::Form::new().text("title", title.to_string());
         if let Some(slug) = slug {
             form = form.text("slug", slug.to_string());
+        }
+        if let Some(inline) = inline {
+            form = form.text("inline", "true");
+            if let Some(height) = inline.height {
+                form = form.text("height", height.to_string());
+            }
         }
         form = form.part(
             "file",

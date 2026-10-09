@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use axum::Json;
-use axum::extract::{DefaultBodyLimit, Path, State};
-use axum::http::{HeaderValue, StatusCode, header};
+use axum::extract::{DefaultBodyLimit, Path, Query, State};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum_extra::extract::Multipart;
 use axum_extra::extract::multipart::MultipartError;
@@ -13,7 +13,7 @@ use crate::task::operations::TaskCommands;
 use moatless_core::http_auth::AuthUser;
 
 use super::error::ArtifactError;
-use super::models::PublishRequest;
+use super::models::{InlineRequest, PublishRequest};
 use super::operations::{Artifacts, PAGE_CONTENT_TYPE};
 use super::schemas::{ArtifactResponse, ListArtifactsResponse, PublishArtifactBody};
 use super::service::MAX_PAGE_BYTES;
@@ -130,6 +130,14 @@ pub async fn open_latest_artifact(
         .into_response())
 }
 
+/// Query parameters of [`serve_artifact_page`].
+#[derive(Debug, Default, serde::Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct ServePageQuery {
+    /// Any value serves the page as published, as a download.
+    pub download: Option<String>,
+}
+
 /// Serve the page of a published Artifact version.
 #[utoipa::path(
     get,
@@ -137,7 +145,8 @@ pub async fn open_latest_artifact(
     tag = "artifacts",
     params(
         ("artifact_id" = String, Path, description = "Artifact identifier"),
-        ("version" = String, Path, description = "Version, as in `v3`")
+        ("version" = String, Path, description = "Version, as in `v3`"),
+        ServePageQuery
     ),
     responses(
         (status = 200, description = "The HTML page", body = String, content_type = "text/html"),
@@ -149,8 +158,9 @@ pub async fn serve_artifact_page(
     State(artifacts): State<Arc<Artifacts>>,
     auth: AuthUser,
     Path((artifact_id, version)): Path<(String, String)>,
+    Query(query): Query<ServePageQuery>,
 ) -> Result<Response, ArtifactError> {
-    let bytes = super::service::read_page(
+    let page = super::service::read_page(
         tasks.as_ref(),
         artifacts.as_ref(),
         &auth.scope_context(),
@@ -158,40 +168,80 @@ pub async fn serve_artifact_page(
         &version,
     )
     .await?;
-    Ok((
-        [
-            (
-                header::CONTENT_TYPE,
-                HeaderValue::from_static(PAGE_CONTENT_TYPE),
-            ),
-            // Agent-written and served from the application's own origin. No
-            // `allow-same-origin`, so it renders in an opaque one.
-            (
-                header::CONTENT_SECURITY_POLICY,
-                HeaderValue::from_static("sandbox allow-scripts allow-forms allow-popups"),
-            ),
-            (
-                header::X_CONTENT_TYPE_OPTIONS,
-                HeaderValue::from_static("nosniff"),
-            ),
-            (
-                header::CACHE_CONTROL,
-                HeaderValue::from_static("private, max-age=31536000, immutable"),
-            ),
-        ],
-        bytes,
-    )
-        .into_response())
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static(PAGE_CONTENT_TYPE),
+    );
+    // Agent-written and served from the application's own origin. No
+    // `allow-same-origin`, so it renders in an opaque one.
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(
+            "sandbox allow-scripts allow-forms allow-popups; frame-ancestors 'self'",
+        ),
+    );
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    let (cache, body) = if query.download.is_some() {
+        let disposition = format!("attachment; filename=\"{}\"", download_name(&page.title));
+        if let Ok(value) = HeaderValue::try_from(disposition) {
+            headers.insert(header::CONTENT_DISPOSITION, value);
+        }
+        ("no-store", page.html)
+    } else if page.inline {
+        // Not immutable: the injected bootstrap changes with a t3code upgrade.
+        (
+            "private, max-age=3600",
+            super::bootstrap::inject(&page.html),
+        )
+    } else {
+        ("private, max-age=31536000, immutable", page.html)
+    };
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
+    Ok((headers, body).into_response())
+}
+
+/// `title` reduced to a file name that needs no quoting in a header.
+fn download_name(title: &str) -> String {
+    let stem: String = title
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let stem = stem.trim_matches('-');
+    format!("{}.html", if stem.is_empty() { "artifact" } else { stem })
 }
 
 /// Collect the multipart form, refusing it as soon as the page passes
 /// [`MAX_PAGE_BYTES`] rather than after buffering all of it.
 async fn read_publish(mut multipart: Multipart) -> Result<PublishRequest, ArtifactError> {
     let mut req = PublishRequest::default();
+    let mut inline_fields = InlineRequest::default();
     while let Some(mut field) = multipart.next_field().await.map_err(multipart_error)? {
         match field.name().unwrap_or_default() {
             "title" => req.title = field.text().await.map_err(multipart_error)?,
             "slug" => req.slug = Some(field.text().await.map_err(multipart_error)?),
+            "inline" => {
+                let value = field.text().await.map_err(multipart_error)?;
+                if value == "true" {
+                    req.inline.get_or_insert_with(InlineRequest::default);
+                }
+            }
+            "height" => {
+                let value = field.text().await.map_err(multipart_error)?;
+                let height = value.trim().parse().map_err(|_| {
+                    ArtifactError::BadRequest(format!("height {value:?} is not a number"))
+                })?;
+                inline_fields.height = Some(height);
+            }
             "file" => {
                 if req.file_name.is_some() {
                     return Err(ArtifactError::BadRequest(
@@ -215,6 +265,10 @@ async fn read_publish(mut multipart: Multipart) -> Result<PublishRequest, Artifa
                 )));
             }
         }
+    }
+    // `height` means nothing without `inline`, in either order.
+    if let Some(inline) = req.inline.as_mut() {
+        *inline = inline_fields;
     }
     Ok(req)
 }

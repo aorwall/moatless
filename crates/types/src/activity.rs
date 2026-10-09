@@ -34,6 +34,9 @@ pub enum ActivityKind {
     /// The harness compacted its context; the payload's `summary` is what it
     /// kept.
     Compaction,
+    /// An Artifact version published with `--inline`, shown in the thread as
+    /// the page itself; the payload is an [`ArtifactShown`].
+    ArtifactShown,
 }
 
 // `ALL` is used by the SQL narrowing in `dao::known_kinds`, which a test
@@ -51,6 +54,7 @@ crate::string_enum_mapping!(
         ContextWindowUpdated => "context_window_updated",
         AgentSwitched => "agent_switched",
         Compaction => "compaction",
+        ArtifactShown => "artifact_shown",
     }
 );
 
@@ -129,6 +133,18 @@ impl Activity {
     pub fn is_settled(&self) -> bool {
         self.status != ActivityStatus::InProgress
     }
+}
+
+/// The payload of an `ArtifactShown` activity and of the `artifact_shown` task
+/// event it is projected from.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtifactShown {
+    pub artifact_id: String,
+    pub version: i32,
+    pub title: String,
+    /// The frame height in CSS pixels, which caps the height the page reports.
+    pub height: i32,
 }
 
 /// The tool calls that hand the conversation back to a person. Keep in sync

@@ -58,6 +58,7 @@ fn row(task_id: &str, latest_version: i32) -> Artifact {
         reserved_version: latest_version.max(1),
         latest_version,
         published_versions: (1..=latest_version).collect(),
+        inline_versions: Vec::new(),
         created_by: Some("user-1".to_string()),
         created_at: Utc::now(),
         updated_at: Utc::now(),

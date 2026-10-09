@@ -31,6 +31,7 @@ pub(crate) const ASSET_ROUTE_PATTERN: &str = "/api/assets/{thread_id}/{*relative
 /// by the root backend, not this module — see `backend/src/t3code/backend.rs`.
 /// Nothing here serves it.
 const UPLOAD_ROUTE_PREFIX: &str = "/api/v1/uploads";
+const ARTIFACT_ROUTE_PREFIX: &str = "/api/v1/artifacts";
 
 /// How long a minted URL is reported to be good for — a re-mint interval, not
 /// an enforced lifetime, since the URL holds no credential and the route
@@ -93,7 +94,8 @@ pub(crate) fn create_url(resource: &Value) -> Result<Value, AssetUrlError> {
     }
 }
 
-/// An upload, addressed where uploads already are.
+/// An upload, addressed where uploads already are, or a shown Artifact
+/// version's page, named as `html_render_item` names it.
 fn attachment_url(resource: &Value) -> Result<Value, AssetUrlError> {
     let Some(attachment_id) = resource["attachmentId"]
         .as_str()
@@ -101,10 +103,31 @@ fn attachment_url(resource: &Value) -> Result<Value, AssetUrlError> {
     else {
         return Err(AssetUrlError::NotFound);
     };
+    let relative_url = match artifact_version(attachment_id) {
+        Some((artifact_id, version)) => {
+            let download = if resource["disposition"] == "attachment" {
+                "?download=1"
+            } else {
+                ""
+            };
+            format!(
+                "{ARTIFACT_ROUTE_PREFIX}/{}/v{version}{download}",
+                escape(artifact_id)
+            )
+        }
+        None => format!("{UPLOAD_ROUTE_PREFIX}/{}", escape(attachment_id)),
+    };
     Ok(json!({
-        "relativeUrl": format!("{UPLOAD_ROUTE_PREFIX}/{}", escape(attachment_id)),
+        "relativeUrl": relative_url,
         "expiresAt": Utc::now().timestamp_millis() + URL_TTL_MS
     }))
+}
+
+/// The artifact id and version of an `artifact:<id>:v<n>` attachment id.
+fn artifact_version(attachment_id: &str) -> Option<(&str, u32)> {
+    let (artifact_id, version) = attachment_id.strip_prefix("artifact:")?.rsplit_once(":v")?;
+    (!artifact_id.is_empty()).then_some(())?;
+    Some((artifact_id, version.parse().ok()?))
 }
 
 /// A file in the conversation's checkout, whichever tag named it.
@@ -451,6 +474,32 @@ mod tests {
         let minted =
             create_url(&json!({ "_tag": "attachment", "attachmentId": "a-1" })).expect("minted");
         assert_eq!(minted["relativeUrl"], "/api/v1/uploads/a-1");
+    }
+
+    /// A shown Artifact's page loads from the version's own route, which serves
+    /// it with the bootstrap; a download asks that route for the raw page.
+    #[test]
+    fn an_artifact_attachment_is_addressed_at_its_version() {
+        let id = "artifact:4b1c:v3";
+        let minted = create_url(&json!({ "_tag": "attachment", "attachmentId": id })).unwrap();
+        assert_eq!(minted["relativeUrl"], "/api/v1/artifacts/4b1c/v3");
+        let download = create_url(
+            &json!({ "_tag": "attachment", "attachmentId": id, "disposition": "attachment" }),
+        )
+        .unwrap();
+        assert_eq!(
+            download["relativeUrl"],
+            "/api/v1/artifacts/4b1c/v3?download=1"
+        );
+        let malformed =
+            create_url(&json!({ "_tag": "attachment", "attachmentId": "artifact:4b1c:vx" }))
+                .unwrap();
+        assert!(
+            malformed["relativeUrl"]
+                .as_str()
+                .unwrap()
+                .starts_with("/api/v1/uploads/")
+        );
     }
 
     /// An id that would leave the route it is a segment of cannot be one.

@@ -19,6 +19,7 @@ use crate::transcript_dao::Transcript;
 use moatless_types::activity::Activity;
 use moatless_types::activity::ActivityKind;
 use moatless_types::activity::ActivityStatus;
+use moatless_types::activity::ArtifactShown;
 use moatless_types::activity::PLAN_TOOL;
 use moatless_types::activity::QUESTION_TOOL;
 use moatless_types::activity::TODO_TOOL;
@@ -255,6 +256,36 @@ fn file_change(input: &Value) -> Option<Value> {
         fields.insert("newStr".into(), json!(new));
     }
     Some(Value::Object(fields))
+}
+
+/// An `ArtifactShown` row as the `html_render` tool item T3 draws as the page
+/// itself, or `None` when its payload is not an [`ArtifactShown`].
+pub(super) fn html_render_item(activity: &Activity, base: Value) -> Option<Value> {
+    let shown: ArtifactShown = serde_json::from_value(activity.payload.clone()).ok()?;
+    Some(layered(
+        base,
+        json!({
+            "type": "dynamic_tool",
+            "toolName": "html_render",
+            "input": {
+                "artifactId": shown.artifact_id,
+                "version": shown.version,
+            },
+            "output": {
+                "htmlRender": {
+                    "attachmentId": artifact_attachment_id(&shown.artifact_id, shown.version),
+                    "title": shown.title,
+                    "height": shown.height,
+                }
+            }
+        }),
+    ))
+}
+
+/// The attachment id T3 asks `assets.createUrl` for to load a shown page;
+/// `assets::attachment_url` maps it to the version's URL.
+fn artifact_attachment_id(artifact_id: &str, version: i32) -> String {
+    format!("artifact:{artifact_id}:v{version}")
 }
 
 fn dynamic_tool(activity: &Activity) -> Value {

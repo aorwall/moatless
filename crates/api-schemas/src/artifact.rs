@@ -42,6 +42,12 @@ pub struct PublishArtifactBody {
     /// Stable name that later publishes of the same page reuse; derived from
     /// the title when omitted.
     pub slug: Option<String>,
+    /// `true` shows this version in the Task's thread as the page itself, served
+    /// with T3's theme and height bootstrap.
+    pub inline: Option<bool>,
+    /// The inline frame's height in CSS pixels, clamped to 80..=2000; 1200 when
+    /// omitted. Ignored without `inline`.
+    pub height: Option<i32>,
     /// One self-contained page, with a `.html` or `.htm` filename.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "binary"))]
     pub file: Vec<u8>,

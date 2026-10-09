@@ -29,6 +29,7 @@ use super::turn::turn_id;
 use super::turn::turn_is_open;
 use super::turn::turn_reference;
 use super::turn::turn_state;
+use super::v2_items::html_render_item;
 use super::v2_items::layered;
 use super::v2_items::plan_nodes;
 use super::v2_items::plans;
@@ -1031,6 +1032,12 @@ pub(crate) fn turn_items_and_messages(
                 item
             }
             ActivityKind::Compaction => layered(base, compaction_fields(conversation, activity)),
+            ActivityKind::ArtifactShown => {
+                let Some(item) = html_render_item(activity, base) else {
+                    continue;
+                };
+                item
+            }
             ActivityKind::AgentSwitched => {
                 let turn = handoff_turn(conversation, transcript, activity);
                 // A switch before the first run hands no history over.

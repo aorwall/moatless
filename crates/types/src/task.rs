@@ -74,6 +74,9 @@ crate::string_enum!(
         /// The platform moved the Task to another agent, or back; projected as
         /// an activity whose payload `summary` says why.
         AgentSwitched => "agent_switched",
+        /// An Artifact version published to be shown inline in the thread;
+        /// projected as an `ArtifactShown` activity.
+        ArtifactShown => "artifact_shown",
     }
 );
 

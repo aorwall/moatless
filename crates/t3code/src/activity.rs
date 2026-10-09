@@ -47,6 +47,7 @@ impl T3ActivityViewExt for ActivityView<'_> {
             | ActivityKind::PlanUpdated
             | ActivityKind::ContextWindowUpdated
             | ActivityKind::AgentSwitched
+            | ActivityKind::ArtifactShown
             | ActivityKind::Compaction => "info",
         }
     }
@@ -74,9 +75,10 @@ impl T3ActivityViewExt for ActivityView<'_> {
             // A person's own pick is no warning.
             ActivityKind::AgentSwitched if self.payload()["chosen"] == true => "task.progress",
             ActivityKind::SandboxWarning | ActivityKind::AgentSwitched => "runtime.warning",
-            ActivityKind::Thinking | ActivityKind::SandboxStatus | ActivityKind::Compaction => {
-                "task.progress"
-            }
+            ActivityKind::Thinking
+            | ActivityKind::SandboxStatus
+            | ActivityKind::Compaction
+            | ActivityKind::ArtifactShown => "task.progress",
             // The four the client derives a panel from rather than a work-log
             // row. Each spelling is the one that client's own deriver matches
             // on, which is why they are dotted where the column is not.
@@ -528,6 +530,7 @@ mod tests {
             (ActivityKind::ContextWindowUpdated, "context-window.updated"),
             (ActivityKind::Compaction, "task.progress"),
             (ActivityKind::AgentSwitched, "runtime.warning"),
+            (ActivityKind::ArtifactShown, "task.progress"),
         ] {
             let row = stored(kind, json!({}));
             assert_eq!(ActivityView::new(&row).t3_kind(), expected);

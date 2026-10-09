@@ -3,7 +3,7 @@
 mod client;
 mod error;
 
-pub use client::ApiClient;
+pub use client::{ApiClient, InlineArtifact};
 pub use error::ApiError;
 /// Wire contracts used by the Rust client.
 pub mod types {

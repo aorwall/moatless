@@ -2,15 +2,19 @@
 //! reserve → upload → commit sequence that keeps a version immutable.
 
 use super::error::ArtifactError;
-use super::models::{Artifact, PublishRequest};
+use super::models::{Artifact, DEFAULT_INLINE_HEIGHT, PublishRequest};
 use super::operations::Artifacts;
 use super::schemas::ArtifactResponse;
 use crate::task::operations::TaskCommands;
 use moatless_types::access_control::ScopeContext;
+use moatless_types::activity::ArtifactShown;
 
 pub use moatless_api_schemas::artifact::MAX_PAGE_BYTES;
 const MAX_TITLE_LEN: usize = 200;
 const MAX_SLUG_LEN: usize = 63;
+/// The frame heights T3 clamps an HTML render to.
+const MIN_INLINE_HEIGHT: i32 = 80;
+const MAX_INLINE_HEIGHT: i32 = 2000;
 
 /// Publish `req` as the next version of its slug on `task_id`.
 pub async fn publish(
@@ -57,8 +61,17 @@ pub async fn publish(
         .put_page(task_id, &artifact_id, version, req.html)
         .await?;
 
+    let shown = req.inline.map(|inline| ArtifactShown {
+        artifact_id: artifact_id.clone(),
+        version,
+        title: title.clone(),
+        height: inline
+            .height
+            .unwrap_or(DEFAULT_INLINE_HEIGHT)
+            .clamp(MIN_INLINE_HEIGHT, MAX_INLINE_HEIGHT),
+    });
     let row = match artifacts
-        .commit_version(&artifact_id, version, &title)
+        .commit_version(&artifact_id, version, &title, shown)
         .await
     {
         Ok(Some(row)) => row,
@@ -132,6 +145,16 @@ pub async fn latest_location(
     Ok(version_path(&row.artifact_id, row.latest_version))
 }
 
+/// A published version's HTML page as it was uploaded.
+#[derive(Debug)]
+pub struct Page {
+    pub html: Vec<u8>,
+    pub title: String,
+    /// Whether the version was shown inline, and so is served with T3's
+    /// bootstrap injected.
+    pub inline: bool,
+}
+
 /// The HTML page of a published version. `version` is the URL segment, as in
 /// `v3`.
 pub async fn read_page(
@@ -140,16 +163,21 @@ pub async fn read_page(
     scope: &ScopeContext,
     artifact_id: &str,
     version: &str,
-) -> Result<Vec<u8>, ArtifactError> {
+) -> Result<Page, ArtifactError> {
     let not_found = || ArtifactError::NotFound(format!("{artifact_id}/{version}"));
     let row = find_readable(tasks, artifacts, scope, artifact_id).await?;
     let version = parse_version(version)
         .filter(|v| row.published_versions.contains(v))
         .ok_or_else(not_found)?;
-    artifacts
+    let html = artifacts
         .read_page(&row.task_id, &row.artifact_id, version)
         .await?
-        .ok_or_else(not_found)
+        .ok_or_else(not_found)?;
+    Ok(Page {
+        html,
+        title: row.title,
+        inline: row.inline_versions.contains(&version),
+    })
 }
 
 /// The Artifact, when it is published on a Task `scope` can read.

@@ -225,7 +225,14 @@ page.
 
 Publishing again with `--slug <slug>` adds a version to the same Artifact, and
 its link always opens the latest one; `moat artifact list` shows what this task
-has published.";
+has published.
+
+Add `--inline` to show a finished page in this conversation itself: a chart, a
+table, a diagram, a mockup. Run it before you write your final reply, and the
+page appears above that reply. The person already sees the page, so do not
+announce it, say where it is, paste its URL or restate it; add only what the
+page does not say. An inline page has its own layout and theme rules: read
+`moat artifact publish --help` before you write one.";
 
 /// Build the append-system-prompt for a task.
 ///

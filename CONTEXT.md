@@ -138,7 +138,9 @@ matters — a Fork is a parent-edged Task, not a spawned subagent Task.
 A single self-contained HTML page that an agent publishes from a Task with
 `moat artifact publish`. Stored in object storage, so it outlives the Sandbox
 and the Task's pod, and readable by anyone who can read the Task. Each publish
-under the same slug adds an immutable version; its link opens the latest.
+under the same slug adds an immutable version; its link opens the latest. A
+version published with `--inline` is also shown in the Task's thread as the page
+itself.
 _Avoid_: asset (an uploaded attachment, not something the agent publishes)
 
 ### Providers — always qualified

@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use moatless_core::config::S3Config;
 use moatless_s3::S3Storage;
+use moatless_types::activity::ArtifactShown;
 
 use super::dao::ArtifactDao;
 use super::error::ArtifactError;
@@ -135,8 +136,11 @@ impl Artifacts {
         artifact_id: &str,
         version: i32,
         title: &str,
+        shown: Option<ArtifactShown>,
     ) -> Result<Option<Artifact>, sqlx::Error> {
-        self.store.commit_version(artifact_id, version, title).await
+        self.store
+            .commit_version(artifact_id, version, title, shown)
+            .await
     }
 
     /// See [`ArtifactDao::find_by_id`].

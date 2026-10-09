@@ -278,7 +278,8 @@ impl EventDispatcher {
                 // Projected in the transaction that persisted them.
                 | TaskSubType::Error
                 | TaskSubType::BindingReplySent
-                | TaskSubType::AgentSwitched,
+                | TaskSubType::AgentSwitched
+                | TaskSubType::ArtifactShown,
             )
             | EventKey::TaskTurn(TaskTurnSubType::Active | TaskTurnSubType::Interrupted) => {
                 // `turn_interrupted` is an observability marker only — the turn
