@@ -287,6 +287,7 @@ async fn failure_is_retryable(
         }
         let branch = repo.branch.as_deref().filter(|b| !b.is_empty());
         if advertisement.status.is_success()
+            && advertisement.is_upload_pack()
             && branch.is_none_or(|branch| advertisement.names_ref(branch))
         {
             return true;
@@ -295,7 +296,7 @@ async fn failure_is_retryable(
     !host_reachable(&repo.clone_url, repo.uses_ssh, probe).await
 }
 
-/// What the repo's git smart-HTTP endpoint answered.
+/// What `GET <repo>/info/refs?service=git-upload-pack` answered.
 struct RepoAdvertisement {
     status: reqwest::StatusCode,
     /// The `info/refs` body: one pkt-line per ref, or empty when the body
@@ -304,6 +305,13 @@ struct RepoAdvertisement {
 }
 
 impl RepoAdvertisement {
+    /// Whether the body is git's ref list, which opens with the
+    /// `# service=git-upload-pack` line, rather than an SSO login page a
+    /// redirect landed on with a 200.
+    fn is_upload_pack(&self) -> bool {
+        self.body.starts_with("001e# service=git-upload-pack")
+    }
+
     /// Whether the advertisement lists `name` as a branch or a tag, the two
     /// kinds `git clone --branch` accepts.
     fn names_ref(&self, name: &str) -> bool {
@@ -318,8 +326,8 @@ impl RepoAdvertisement {
     }
 }
 
-/// The repo's git smart-HTTP advertisement, or `None` when there is nothing
-/// to ask — an SSH remote, or a request that never completed.
+/// The repo's [`RepoAdvertisement`], or `None` when there is nothing to ask:
+/// an SSH remote, or a request that never completed.
 async fn repo_advertisement(
     repo: &RepoCheckout,
     pod_provider: &str,
@@ -348,7 +356,10 @@ async fn repo_advertisement(
     }
     let response = request.send().await.ok()?;
     let status = response.status();
-    let body = response.text().await.unwrap_or_default();
+    let body = response.text().await.unwrap_or_else(|error| {
+        warn!(mount = %repo.mount_name, %error, "Could not read the repo's ref advertisement");
+        String::new()
+    });
     Some(RepoAdvertisement { status, body })
 }
 
@@ -1154,6 +1165,17 @@ mod tests {
 
         repo.branch = Some("main".to_string());
         assert!(failure_is_retryable(&repo, "local", &GitCredentials::default(), probe()).await);
+    }
+
+    /// A 2xx that is not a git advertisement, such as a login page a redirect
+    /// landed on, proves nothing about the repo or its credentials.
+    #[tokio::test]
+    async fn success_with_a_non_git_body_is_not_retryable() {
+        let port = serve_response("200 OK", "<html>Sign in</html>").await;
+        assert!(
+            !failure_is_retryable(&repo_at(port), "local", &GitCredentials::default(), probe())
+                .await
+        );
     }
 
     /// A 2xx says nothing about a branch the repo does not have, and no retry
