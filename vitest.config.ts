@@ -24,11 +24,6 @@ export default defineConfig({
 		testTimeout: 10000, // 10s default
 		// Concurrent execution for independent tests
 		pool: "threads",
-		poolOptions: {
-			threads: {
-				singleThread: false,
-			},
-		},
 	},
 	resolve: {
 		alias: {
