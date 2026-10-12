@@ -279,8 +279,34 @@ pub(crate) async fn response_usage(
     task_id: &str,
 ) -> Result<Vec<ResponseUsage>, sqlx::Error> {
     // A Codex usage line names no model: the session's latest one up to it does.
+    // `COALESCE` runs a subquery only when every argument before it is NULL, and
+    // the turn is split on NULL because `IS NOT DISTINCT FROM` is no index
+    // condition: either way `trajectory_events_session_turn_seq_idx` is scanned.
     let rows: Vec<UsageRow> = sqlx::query_as(
-        r#"SELECT COALESCE(u.message_uuid, r.uuid),
+        r#"SELECT COALESCE(
+                      u.message_uuid,
+                      (SELECT rm.uuid FROM trajectory_events re
+                         JOIN conversation_messages rm ON rm.trajectory_event_id = re.id
+                        WHERE re.session_id = e.session_id
+                          AND re.harness_item_id = e.harness_item_id
+                          AND re.turn_number IS NOT DISTINCT FROM e.turn_number
+                          AND rm.task_id = u.task_id AND rm.author = 'agent'
+                        ORDER BY re.seq DESC LIMIT 1),
+                      CASE WHEN e.turn_number IS NULL THEN
+                          (SELECT rm.uuid FROM trajectory_events re
+                             JOIN conversation_messages rm ON rm.trajectory_event_id = re.id
+                            WHERE re.session_id = e.session_id AND re.turn_number IS NULL
+                              AND re.seq <= e.seq
+                              AND rm.task_id = u.task_id AND rm.author = 'agent'
+                            ORDER BY re.seq DESC LIMIT 1)
+                      ELSE
+                          (SELECT rm.uuid FROM trajectory_events re
+                             JOIN conversation_messages rm ON rm.trajectory_event_id = re.id
+                            WHERE re.session_id = e.session_id
+                              AND re.turn_number = e.turn_number AND re.seq <= e.seq
+                              AND rm.task_id = u.task_id AND rm.author = 'agent'
+                            ORDER BY re.seq DESC LIMIT 1)
+                      END),
                   COALESCE(e.created_at, m.created_at, now()),
                   COALESCE(e.turn_number, m.turn_number),
                   COALESCE(
@@ -295,16 +321,6 @@ pub(crate) async fn response_usage(
              LEFT JOIN trajectory_events e ON e.id = u.trajectory_event_id
              LEFT JOIN trajectory_sessions s ON s.id = e.session_id
              LEFT JOIN conversation_messages m ON m.uuid = u.message_uuid
-             LEFT JOIN LATERAL (
-                 SELECT rm.uuid FROM conversation_messages rm
-                   JOIN trajectory_events re ON re.id = rm.trajectory_event_id
-                  WHERE rm.task_id = u.task_id AND rm.author = 'agent'
-                    AND re.session_id = e.session_id
-                    AND re.turn_number IS NOT DISTINCT FROM e.turn_number
-                    AND (re.seq <= e.seq OR re.harness_item_id = e.harness_item_id)
-                  ORDER BY (re.harness_item_id = e.harness_item_id) IS TRUE DESC,
-                           re.seq DESC
-                  LIMIT 1) r ON true
             WHERE u.task_id = $1 AND u.parent_tool_use_id IS NULL
               AND (u.trajectory_event_id IS NULL OR s.parent_event_id IS NULL)
             ORDER BY 3, e.seq, m.position"#,

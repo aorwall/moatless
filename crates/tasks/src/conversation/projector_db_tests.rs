@@ -583,6 +583,59 @@ async fn a_turn_without_a_message_names_no_message_for_its_usage(pool: PgPool) {
     assert_eq!(named, [(Some(1), rs_1), (Some(2), None)]);
 }
 
+/// A usage line names its own response's Message even when another one opened
+/// after it, and a line of no turn takes the latest Message of no turn.
+#[sqlx::test]
+async fn usage_names_its_response_or_the_latest_message_of_its_turn(pool: PgPool) {
+    let dao = seed(&pool).await;
+    let lines = [
+        said("msg_1", "assistant", json!([text("Looking.")])),
+        said("msg_2", "assistant", json!([text("Done.")])),
+        event(
+            Some("msg_1"),
+            json!({ "role": null, "blocks": [],
+                    "usage": { "input_tokens": 2, "output_tokens": 1,
+                               "cache_read_tokens": 0, "cache_write_tokens": 0 } }),
+        ),
+    ];
+    append(&dao, Harness::ClaudeCode, "s", 0, &lines).await;
+    let untracked = [
+        event(
+            Some("rs_1"),
+            json!({ "role": "assistant", "blocks": [text("Resumed.")], "model": "gpt-5" }),
+        ),
+        event(
+            Some("tok_1"),
+            json!({ "role": null, "blocks": [],
+                    "usage": { "input_tokens": 3, "output_tokens": 1,
+                               "cache_read_tokens": 0, "cache_write_tokens": 0 } }),
+        ),
+    ];
+    dao.append(AppendRequest {
+        task_id: TASK,
+        harness: Harness::Codex,
+        harness_session_id: "rollout",
+        first_seq: 0,
+        lines: &untracked,
+        turn_number: None,
+        subagent_parent: None,
+        own_from_seq: None,
+    })
+    .await
+    .unwrap();
+
+    let stats = response_usage(&pool, TASK).await.unwrap();
+    let uuids: Vec<String> = stats
+        .iter()
+        .map(|r| r.message_uuid.unwrap().to_string())
+        .collect();
+    assert_eq!(items(&pool, &uuids).await, ["msg_1", "rs_1"]);
+    assert_eq!(
+        stats.iter().map(|r| r.turn_number).collect::<Vec<_>>(),
+        [Some(1), None]
+    );
+}
+
 /// A `Skill` call names the skill its Task is tagged with.
 #[sqlx::test]
 async fn a_skill_call_is_reported_for_tagging(pool: PgPool) {
