@@ -190,9 +190,9 @@ pub async fn clone_repositories(
 #[derive(Debug)]
 pub struct CloneFailure {
     message: String,
-    /// Another attempt could get past this: the failure reflects reachability,
-    /// not the service's verdict on the repo or its credentials — so init
-    /// retries instead of reporting a permanent error.
+    /// Another attempt could get past this: the failure reflects reachability
+    /// or the transfer, not the service's verdict on the repo or its
+    /// credentials — so init retries instead of reporting a permanent error.
     pub retryable: bool,
 }
 
@@ -212,11 +212,11 @@ const CLONE_RETRY_BUDGET: Duration = Duration::from_secs(45);
 /// Longest single backoff between clone attempts.
 const MAX_CLONE_RETRY_DELAY: Duration = Duration::from_secs(8);
 
-/// Clone one repo, retrying while its host is unreachable and `deadline`
-/// allows.
+/// Clone one repo, retrying while [`failure_is_retryable`] holds and
+/// `deadline` allows.
 ///
-/// A reachable host means the failure is the repo's own, so this returns at
-/// once — retrying a 404 only burns the startup budget.
+/// Any other failure is the repo's own, so this returns at once — retrying a
+/// 404 only burns the startup budget.
 async fn clone_with_retry(
     repo: &RepoCheckout,
     dest: &str,
@@ -269,35 +269,63 @@ async fn clone_with_retry(
 
 /// Whether a failed clone is worth another attempt.
 ///
-/// Two measured signals, never git's stderr: the service's status for this
-/// repo, and whether the host answers a TCP connect.
+/// Two measured signals, never git's stderr: the service's advertisement for
+/// this repo, and whether the host answers a TCP connect.
 async fn failure_is_retryable(
     repo: &RepoCheckout,
     pod_provider: &str,
     credentials: &GitCredentials,
     probe: HttpTimeouts,
 ) -> bool {
-    // A 5xx is the service having its own outage, which a reachable host would
-    // otherwise be read as a verdict on the repo. This can only ever promote a
-    // failure to retryable: a 4xx falls through to the reachability check rather
-    // than deciding by itself, so a provider whose endpoint answers differently
-    // cannot turn a working repo into a permanent config error.
-    if let Some(status) = repo_advertisement_status(repo, pod_provider, credentials, probe).await {
-        if status.is_server_error() {
+    // A 5xx is the service's own outage; a 2xx advertising the branch leaves only
+    // the transfer to blame, such as GitHub cancelling the stream mid-pack. This
+    // only ever promotes a failure: a 4xx falls through to reachability, so an
+    // endpoint that answers differently cannot make a working repo permanent.
+    if let Some(advertisement) = repo_advertisement(repo, pod_provider, credentials, probe).await {
+        if advertisement.status.is_server_error() {
+            return true;
+        }
+        let branch = repo.branch.as_deref().filter(|b| !b.is_empty());
+        if advertisement.status.is_success()
+            && branch.is_none_or(|branch| advertisement.names_ref(branch))
+        {
             return true;
         }
     }
     !host_reachable(&repo.clone_url, repo.uses_ssh, probe).await
 }
 
-/// The status the repo's git smart-HTTP endpoint answers with, or `None` when
-/// there is nothing to ask — an SSH remote, or a request that never completed.
-async fn repo_advertisement_status(
+/// What the repo's git smart-HTTP endpoint answered.
+struct RepoAdvertisement {
+    status: reqwest::StatusCode,
+    /// The `info/refs` body: one pkt-line per ref, or empty when the body
+    /// could not be read.
+    body: String,
+}
+
+impl RepoAdvertisement {
+    /// Whether the advertisement lists `name` as a branch or a tag, the two
+    /// kinds `git clone --branch` accepts.
+    fn names_ref(&self, name: &str) -> bool {
+        let wanted = [format!("refs/heads/{name}"), format!("refs/tags/{name}")];
+        self.body.lines().any(|line| {
+            // A ref line is `<len><oid> <ref>`, optionally followed by `\0`
+            // and the capability list on the first one.
+            let line = line.split('\0').next().unwrap_or(line);
+            line.rsplit_once(' ')
+                .is_some_and(|(_, refname)| wanted.iter().any(|w| w == refname))
+        })
+    }
+}
+
+/// The repo's git smart-HTTP advertisement, or `None` when there is nothing
+/// to ask — an SSH remote, or a request that never completed.
+async fn repo_advertisement(
     repo: &RepoCheckout,
     pod_provider: &str,
     credentials: &GitCredentials,
     probe: HttpTimeouts,
-) -> Option<reqwest::StatusCode> {
+) -> Option<RepoAdvertisement> {
     if repo.uses_ssh {
         return None;
     }
@@ -318,7 +346,10 @@ async fn repo_advertisement_status(
     if let Some(token) = credentials.provider_token(&repo.provider, pod_provider) {
         request = request.basic_auth("x-access-token", Some(token));
     }
-    request.send().await.ok().map(|response| response.status())
+    let response = request.send().await.ok()?;
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+    Some(RepoAdvertisement { status, body })
 }
 
 /// Whether the pod can currently reach the host `clone_url` points at.
@@ -1043,6 +1074,11 @@ mod tests {
     /// Answer every request with `status`, so a clone failure can be classified
     /// against a service whose behaviour the test controls.
     async fn serve_status(status: &'static str) -> u16 {
+        serve_response(status, "").await
+    }
+
+    /// Answer every request with `status` and `body`.
+    async fn serve_response(status: &'static str, body: &'static str) -> u16 {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1051,8 +1087,10 @@ mod tests {
             while let Ok((mut socket, _)) = listener.accept().await {
                 let mut discard = [0u8; 1024];
                 let _ = socket.read(&mut discard).await;
-                let response =
-                    format!("HTTP/1.1 {status}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n");
+                let response = format!(
+                    "HTTP/1.1 {status}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
                 let _ = socket.write_all(response.as_bytes()).await;
             }
         });
@@ -1092,6 +1130,77 @@ mod tests {
             !failure_is_retryable(&repo_at(port), "local", &GitCredentials::default(), probe())
                 .await
         );
+    }
+
+    /// An `info/refs` body as GitHub sends it: the service banner, then `HEAD`
+    /// carrying the capabilities, then one line per ref.
+    const ADVERTISEMENT: &str = concat!(
+        "001e# service=git-upload-pack\n0000",
+        "0155a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2 HEAD\0multi_ack side-band-64k ",
+        "symref=HEAD:refs/heads/main agent=git/github-1\n",
+        "003fa1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2 refs/heads/main\n",
+        "003ea1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2 refs/tags/v1.0\n",
+        "0000",
+    );
+
+    /// The incident shape: GitHub answers for the repo, then cancels the pack
+    /// stream mid-transfer. Nothing about the repo is wrong, so the failure is
+    /// retried rather than stopping the sandbox for good.
+    #[tokio::test]
+    async fn success_from_the_service_marks_the_failure_as_the_transfer() {
+        let port = serve_response("200 OK", ADVERTISEMENT).await;
+        let mut repo = repo_at(port);
+        assert!(failure_is_retryable(&repo, "local", &GitCredentials::default(), probe()).await);
+
+        repo.branch = Some("main".to_string());
+        assert!(failure_is_retryable(&repo, "local", &GitCredentials::default(), probe()).await);
+    }
+
+    /// A 2xx says nothing about a branch the repo does not have, and no retry
+    /// makes it appear.
+    #[tokio::test]
+    async fn success_without_the_requested_branch_is_not_retryable() {
+        let port = serve_response("200 OK", ADVERTISEMENT).await;
+        let mut repo = repo_at(port);
+        repo.branch = Some("deleted-feature".to_string());
+        assert!(!failure_is_retryable(&repo, "local", &GitCredentials::default(), probe()).await);
+    }
+
+    #[test]
+    fn advertisement_names_branches_and_tags_only() {
+        let advertisement = RepoAdvertisement {
+            status: reqwest::StatusCode::OK,
+            body: ADVERTISEMENT.to_string(),
+        };
+        assert!(advertisement.names_ref("main"));
+        assert!(advertisement.names_ref("v1.0"));
+        assert!(!advertisement.names_ref("HEAD"));
+        assert!(!advertisement.names_ref("mai"));
+        // A capability on the `HEAD` line is not a ref.
+        assert!(!advertisement.names_ref("side-band-64k"));
+    }
+
+    /// A transfer failure that outlasts the budget exits as transient, so the
+    /// container restart retries the clone.
+    #[tokio::test]
+    async fn exhausted_budget_after_a_transfer_failure_stays_retryable() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Every request, the pack fetch included, answers with the ref
+        // advertisement: the service answered, the transfer did not.
+        let port = serve_response("200 OK", ADVERTISEMENT).await;
+        let err = clone_with_retry(
+            &repo_at(port),
+            &tmp.path().join("api").display().to_string(),
+            "local",
+            &GitCredentials::default(),
+            &[],
+            probe(),
+            Instant::now(),
+        )
+        .await
+        .expect_err("a clone against a server that sends no pack must fail");
+
+        assert!(err.retryable);
     }
 
     /// A URL with no host to probe teaches nothing about the pod's network, so
