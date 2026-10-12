@@ -41,7 +41,9 @@ const write = async (name, data) => {
 
 async function api(path) {
   try {
-    const { stdout } = await exec("moat", ["api", "GET", path, "--json"], {
+    // `moat api` gives up after 30 s, and `/statistics` on a task with a few
+    // thousand responses takes about 29 s, so a busy backend drops the task.
+    const { stdout } = await exec("moat", ["api", "GET", path, "--json", "--timeout", "150"], {
       timeout: 180_000,
       maxBuffer: 64 * 1024 * 1024,
     });
