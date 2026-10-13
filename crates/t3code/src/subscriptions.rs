@@ -8,7 +8,7 @@ use crate::reads::T3Reads;
 use crate::snapshots::shell_snapshot_in;
 use crate::snapshots::thread_snapshot;
 use crate::state::Deployment;
-use crate::workspace_dao::T3WorkspaceDao;
+use crate::workspace_listing::WorkspaceListing;
 use feed::ShellFeed;
 use feed::ThreadFeed;
 use moatless_core::change_feed::conversation::Resume;
@@ -231,7 +231,7 @@ pub async fn shell_subscription(
 /// **Not the set of ids it may be sent a removal for** — see [`ShellFeed`]. A
 /// project held only because a listed conversation references it is left out.
 pub(crate) async fn resume_grouping(
-    workspaces: &dyn T3WorkspaceDao,
+    workspaces: &dyn WorkspaceListing,
     viewer: &ScopeContext,
 ) -> Result<Vec<String>, sqlx::Error> {
     Ok(workspaces

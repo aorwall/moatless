@@ -20,7 +20,7 @@ use super::session::worktree_path;
 use super::turn::latest_turn;
 use crate::AgentModelDefaults;
 use crate::dao::Conversation;
-use crate::workspace::UiRpcListedWorkspace;
+use moatless_workspaces::workspace::models::ListedWorkspace;
 
 /// The shell listing: the viewer's projects, and the conversations in them.
 ///
@@ -29,7 +29,7 @@ use crate::workspace::UiRpcListedWorkspace;
 /// dropping an event the rows already reflect. A conversation whose project
 /// is absent from `workspaces` is dropped, with a warning.
 pub(crate) fn shell_snapshot(
-    workspaces: &[UiRpcListedWorkspace],
+    workspaces: &[ListedWorkspace],
     conversations: &[Conversation],
     defaults: &AgentModelDefaults,
     sequence: i64,
@@ -45,7 +45,7 @@ pub(crate) fn shell_snapshot(
 /// The rows of a listing, dropping each conversation whose project `workspaces`
 /// does not carry — see [`shell_snapshot`] for why that drop is here.
 pub(crate) fn listed_threads(
-    workspaces: &[UiRpcListedWorkspace],
+    workspaces: &[ListedWorkspace],
     conversations: &[Conversation],
     defaults: &AgentModelDefaults,
 ) -> Vec<Value> {

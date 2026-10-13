@@ -63,7 +63,6 @@
   "floor-type-admission::moatless_workspace_types::workspace::QuantityParseError read by ",
   "floor-type-admission::moatless_workspace_types::workspace::WorkspaceKind read by moatless-workspaces",
   "floor-type-admission::moatless_workspace_types::workspace::WorkspaceRepo read by moatless-workspaces",
-  "floor-type-admission::moatless_workspace_types::workspace::WorkspaceSource read by moatless-workspaces",
   "generic-module-name::crates/sandbox-runtime/src/schemas",
   "port-admission::moatless_ports::identity::credentials::AppCredentials read by moatless-adapter-linear",
   "port-admission::moatless_ports::identity::credentials::CodexScopeReader read by moatless-tasks",

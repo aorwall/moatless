@@ -128,7 +128,7 @@ pub async fn mount(
     // the same two: a Script started at Sandbox Ready has to land in the hub
     // the RPC surface serves terminal reads from.
     let scripts = ScriptsState {
-        workspaces: reads.workspaces_arc(),
+        tasks: reads.tasks_arc(),
         ports,
         preview: preview.clone(),
     };
@@ -191,8 +191,8 @@ pub async fn mount(
 
 /// The T3 band's own persistence, built once at the composition root.
 ///
-/// One [`PgConversationDao`] serves the conversation, workspace and task read
-/// views, so a request spanning them shares one pool and one access filter.
+/// One [`PgConversationDao`] serves the conversation and task read views, so a
+/// request spanning them shares one pool and one access filter.
 #[derive(Clone)]
 pub struct T3Graph {
     /// The one write this crate makes for itself: the preview relay records an
@@ -214,7 +214,7 @@ pub fn t3_graph(db: UiRpcDbPool, activities: Arc<dyn ActivitySource>) -> T3Graph
         reads: T3Reads::new(
             db.clone(),
             conversations.clone(),
-            conversations.clone(),
+            moatless_workspaces::compose::workspaces(db.clone()),
             conversations,
         ),
         usage: Arc::new(PgUsageDao::new(db)),

@@ -72,7 +72,7 @@ pub(super) fn running_conversation(task_id: &str, workspace_id: &str) -> Convers
 }
 
 pub(super) fn threads(
-    workspaces: &[UiRpcListedWorkspace],
+    workspaces: &[ListedWorkspace],
     conversations: &[Conversation],
 ) -> Vec<Value> {
     shell_snapshot(workspaces, conversations, &AgentModelDefaults::default(), 0)["threads"]
@@ -93,44 +93,25 @@ pub(super) fn one_thread(conversation: &Conversation) -> Value {
 /// A workspace this viewer may read. The widened half of the union — a
 /// workspace listed only because a conversation references it — is
 /// [`a_referenced_workspace`].
-pub(super) fn workspace(id: &str, name: &str) -> UiRpcListedWorkspace {
-    UiRpcListedWorkspace {
+pub(super) fn workspace(id: &str, name: &str) -> ListedWorkspace {
+    let mut workspace = make_workspace_row(id, "user-1");
+    workspace.name = name.to_string();
+    ListedWorkspace {
         readable: true,
-        workspace: Workspace {
-            id: id.to_string(),
-            name: name.to_string(),
-            description: None,
-            icon: None,
-            default_model: None,
-            default_effort: None,
-            kind: "blank".to_string(),
-            docker_image: None,
-            docker_access: None,
-            sandbox_service_account: None,
-            system_prompt: None,
-            setup_commands: None,
-            env_vars: None,
-            scripts: None,
-            resources: None,
-            network_profile: None,
-            source: "manual".to_string(),
-            source_repository_id: None,
-            source_key: None,
-            source_config_path: None,
-            scope: Scope::User,
-            owner_user_id: Some("user-1".to_string()),
-            created_by: Some("user-1".to_string()),
-            deleted: Some(false),
-            created_at: Some(Utc::now()),
-            updated_at: Some(Utc::now()),
-        },
+        workspace,
     }
+}
+
+/// A stored JSONB run-config value as the workspaces decoder reads it: whole,
+/// or `None` when any part of it fails to decode.
+pub(super) fn decoded<T: serde::de::DeserializeOwned>(stored: Value) -> Option<T> {
+    serde_json::from_value(stored).ok()
 }
 
 /// The same row, listed only because something the viewer follows runs in it.
 /// The read rule refused it.
-pub(super) fn a_referenced_workspace(id: &str, name: &str) -> UiRpcListedWorkspace {
-    UiRpcListedWorkspace {
+pub(super) fn a_referenced_workspace(id: &str, name: &str) -> ListedWorkspace {
+    ListedWorkspace {
         readable: false,
         ..workspace(id, name)
     }

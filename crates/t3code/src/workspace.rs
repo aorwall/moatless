@@ -12,50 +12,9 @@
 
 use super::dao::ConversationDao;
 use super::nominal_path;
-use chrono::{DateTime, Utc};
 use moatless_ports::sandbox::SandboxError;
-use moatless_types::access_control::Scope;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::sandbox::SandboxDesiredState;
-use serde_json::Value;
-
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub struct WorkspaceView {
-    pub id: String,
-    pub name: String,
-    pub description: Option<String>,
-    pub icon: Option<Value>,
-    pub kind: String,
-    pub docker_image: Option<String>,
-    pub docker_access: Option<bool>,
-    pub sandbox_service_account: Option<String>,
-    pub system_prompt: Option<String>,
-    pub setup_commands: Option<Value>,
-    pub env_vars: Option<Value>,
-    pub scripts: Option<Value>,
-    pub resources: Option<Value>,
-    pub network_profile: Option<String>,
-    pub default_model: Option<String>,
-    pub default_effort: Option<String>,
-    pub source: String,
-    pub source_repository_id: Option<String>,
-    pub source_key: Option<String>,
-    pub source_config_path: Option<String>,
-    #[sqlx(try_from = "String")]
-    pub scope: Scope,
-    pub owner_user_id: Option<String>,
-    pub created_by: Option<String>,
-    pub deleted: Option<bool>,
-    pub created_at: Option<DateTime<Utc>>,
-    pub updated_at: Option<DateTime<Utc>>,
-}
-
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub struct UiRpcListedWorkspace {
-    #[sqlx(flatten)]
-    pub workspace: WorkspaceView,
-    pub readable: bool,
-}
 
 /// Why a conversation's workspace could not be read.
 ///

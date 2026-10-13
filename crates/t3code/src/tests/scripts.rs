@@ -10,11 +10,11 @@ use crate::scripts::resolve;
 use crate::startup_scripts::StartupScripts;
 use moatless_workspace_types::schemas::repository::ScriptConfig;
 
-/// A `ScriptsState` over `workspaces`, with every other seam unreachable: the
+/// A `ScriptsState` over `tasks`, with every other seam unreachable: the
 /// cases below stop at the resolve.
-fn scripts_state(workspaces: MockT3WorkspaceDao) -> ScriptsState {
+fn scripts_state(tasks: MockT3TaskDao) -> ScriptsState {
     ScriptsState {
-        workspaces: Arc::new(workspaces),
+        tasks: Arc::new(tasks),
         ports: unreachable_ports(),
         preview: PreviewState {
             tabs: Arc::new(preview_tabs::PreviewTabs::new(preview_tabs::PreviewTabTtl(
@@ -65,8 +65,8 @@ fn a_reserved_port_is_still_reported_rather_than_retried() {
 /// a name that is absent.
 #[tokio::test]
 async fn a_stopped_sandbox_leaves_the_workspace_scripts_listed_and_says_so() {
-    let mut workspaces = MockT3WorkspaceDao::new();
-    workspaces.expect_scripts_for_task().returning(|_, _| {
+    let mut tasks = MockT3TaskDao::new();
+    tasks.expect_scripts_for_task().returning(|_, _| {
         Ok(Some(vec![ScriptConfig {
             name: "dev".to_string(),
             label: None,
@@ -77,7 +77,7 @@ async fn a_stopped_sandbox_leaves_the_workspace_scripts_listed_and_says_so() {
             run_on_start: false,
         }]))
     });
-    let state = scripts_state(workspaces);
+    let state = scripts_state(tasks);
 
     let resolved = resolve(
         &state,
@@ -101,8 +101,8 @@ async fn a_stopped_sandbox_leaves_the_workspace_scripts_listed_and_says_so() {
 /// header's Run control offering the Workspace's Scripts rather than nothing.
 #[tokio::test]
 async fn listing_a_threads_scripts_answers_over_an_unreachable_sandbox() {
-    let mut workspaces = MockT3WorkspaceDao::new();
-    workspaces.expect_scripts_for_task().returning(|_, _| {
+    let mut tasks = MockT3TaskDao::new();
+    tasks.expect_scripts_for_task().returning(|_, _| {
         Ok(Some(vec![ScriptConfig {
             name: "dev".to_string(),
             label: Some("Dev server".to_string()),
@@ -114,7 +114,7 @@ async fn listing_a_threads_scripts_answers_over_an_unreachable_sandbox() {
         }]))
     });
     let mut state = state();
-    state.scripts = scripts_state(workspaces);
+    state.scripts = scripts_state(tasks);
 
     let frame = request(
         "1",
@@ -140,12 +140,10 @@ async fn listing_a_threads_scripts_answers_over_an_unreachable_sandbox() {
 /// otherwise working.
 #[tokio::test]
 async fn listing_the_scripts_of_a_thread_the_viewer_cannot_read_is_empty() {
-    let mut workspaces = MockT3WorkspaceDao::new();
-    workspaces
-        .expect_scripts_for_task()
-        .returning(|_, _| Ok(None));
+    let mut tasks = MockT3TaskDao::new();
+    tasks.expect_scripts_for_task().returning(|_, _| Ok(None));
     let mut state = state();
-    state.scripts = scripts_state(workspaces);
+    state.scripts = scripts_state(tasks);
 
     let frame = request(
         "1",
@@ -165,8 +163,8 @@ async fn listing_the_scripts_of_a_thread_the_viewer_cannot_read_is_empty() {
 /// Workspace's Scripts alone.
 #[tokio::test]
 async fn a_startup_run_says_when_a_tasks_own_scripts_were_not_read() {
-    let mut workspaces = MockT3WorkspaceDao::new();
-    workspaces.expect_scripts_for_task().returning(|_, _| {
+    let mut tasks = MockT3TaskDao::new();
+    tasks.expect_scripts_for_task().returning(|_, _| {
         Ok(Some(vec![ScriptConfig {
             name: "dev".to_string(),
             label: None,
@@ -178,7 +176,7 @@ async fn a_startup_run_says_when_a_tasks_own_scripts_were_not_read() {
         }]))
     });
     let startup = StartupScripts::new(
-        scripts_state(workspaces),
+        scripts_state(tasks),
         state().reads,
         unreachable_sandboxes(),
         terminal::TerminalHub::default(),
@@ -212,11 +210,9 @@ async fn a_startup_run_says_when_a_tasks_own_scripts_were_not_read() {
 /// read is `NotFound` before the Sandbox is touched at all.
 #[tokio::test]
 async fn a_task_the_viewer_cannot_read_resolves_to_not_found() {
-    let mut workspaces = MockT3WorkspaceDao::new();
-    workspaces
-        .expect_scripts_for_task()
-        .returning(|_, _| Ok(None));
-    let state = scripts_state(workspaces);
+    let mut tasks = MockT3TaskDao::new();
+    tasks.expect_scripts_for_task().returning(|_, _| Ok(None));
+    let state = scripts_state(tasks);
 
     let refusal = resolve(
         &state,

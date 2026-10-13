@@ -18,8 +18,8 @@ use crate::dao::ConversationDao;
 use crate::nominal_path;
 use crate::preview::{self, PreviewState};
 use crate::projection;
+use crate::task_dao::T3TaskDao;
 use crate::terminal::{self, TerminalError, TerminalHub};
-use crate::workspace_dao::T3WorkspaceDao;
 use moatless_ports::sandbox::{SandboxError, SandboxPortPublisher};
 use moatless_types::access_control::ScopeContext;
 use moatless_workspace_types::schemas::repository::ScriptConfig;
@@ -32,7 +32,7 @@ use sandbox_proto::client::{SandboxConnector, classify_grpc_error};
 #[derive(Clone)]
 pub(crate) struct ScriptsState {
     /// Reads a Task's Workspace scripts, scoped to the viewer.
-    pub(crate) workspaces: Arc<dyn T3WorkspaceDao>,
+    pub(crate) tasks: Arc<dyn T3TaskDao>,
     /// Publishes a Script's port on the running sandbox. A no-op that returns
     /// `None` where the runtime cannot publish ports (Docker), and refuses a
     /// reserved infrastructure port.
@@ -134,7 +134,7 @@ pub(crate) async fn resolve(
     task_id: &str,
 ) -> Result<Resolved, ScriptsError> {
     let workspace = state
-        .workspaces
+        .tasks
         .scripts_for_task(viewer, task_id)
         .await?
         .ok_or(ScriptsError::NotFound)?;
@@ -430,7 +430,7 @@ async fn authorize(
     task_id: &str,
 ) -> Result<(), ScriptsError> {
     state
-        .workspaces
+        .tasks
         .scripts_for_task(viewer, task_id)
         .await?
         .ok_or(ScriptsError::NotFound)?;

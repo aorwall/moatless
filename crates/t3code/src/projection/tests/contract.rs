@@ -204,7 +204,7 @@ fn the_conversation_wire_shape_matches_the_contract_field_for_field() {
 #[test]
 fn the_wire_shape_matches_the_contract_field_for_field() {
     let mut ws = workspace("ws-a", "Alpha");
-    ws.workspace.scripts = Some(json!([{
+    ws.workspace.scripts = decoded(json!([{
         "name": "dev",
         "command": "bun run dev",
         "icon": "play",

@@ -53,7 +53,7 @@ mod usage;
 pub mod usage_limit_sources;
 mod v2_commands;
 pub mod workspace;
-pub(crate) mod workspace_dao;
+pub(crate) mod workspace_listing;
 
 pub(crate) use authentication::viewer_scope;
 pub use checkout::Sources;

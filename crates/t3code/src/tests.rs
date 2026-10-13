@@ -44,7 +44,7 @@ use crate::subtasks::SubtasksState;
 use crate::task_dao::{MockT3TaskDao, TaskView};
 use crate::terminal;
 use crate::workspace::WorkspaceAccessError;
-use crate::workspace_dao::MockT3WorkspaceDao;
+use crate::workspace_listing::MockWorkspaceListing;
 use async_trait::async_trait;
 use axum::extract::Extension;
 use axum::http::HeaderMap;

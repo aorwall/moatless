@@ -614,7 +614,7 @@ pub(super) fn state() -> UiRpcState {
 }
 
 pub(super) fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore>) -> UiRpcState {
-    let mut workspaces = MockT3WorkspaceDao::new();
+    let mut workspaces = MockWorkspaceListing::new();
     workspaces
         .expect_list_readable_including()
         .returning(|_, _| Ok(Vec::new()));
@@ -683,7 +683,7 @@ pub(super) fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore
         sandboxes: Arc::new(UnreachableSandboxes),
         snapshots: None,
         scripts: ScriptsState {
-            workspaces: Arc::new(MockT3WorkspaceDao::new()),
+            tasks: Arc::new(MockT3TaskDao::new()),
             ports: Arc::new(UnreachableSandboxes),
             preview: PreviewState {
                 tabs: Arc::new(preview_tabs::PreviewTabs::new(preview_tabs::PreviewTabTtl(

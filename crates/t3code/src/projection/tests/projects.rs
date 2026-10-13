@@ -34,10 +34,9 @@ fn a_blank_workspace_name_falls_back_to_the_id() {
 #[test]
 fn a_script_that_cannot_fill_the_required_fields_is_left_out() {
     let mut ws = workspace("ws-a", "Alpha");
-    ws.workspace.scripts = Some(json!([
+    ws.workspace.scripts = decoded(json!([
         { "name": "  ", "command": "bun run dev" },
-        { "name": "blank-command", "command": "  " },
-        { "name": "no-command" }
+        { "name": "blank-command", "command": "  " }
     ]));
     assert!(project(&ws)["scripts"].as_array().unwrap().is_empty());
 }
@@ -61,7 +60,7 @@ fn each_workspace_gets_a_distinct_root_so_groups_do_not_collapse() {
 #[test]
 fn the_workspace_defaults_reach_the_client_as_an_icon_and_a_model_selection() {
     let mut ws = workspace("ws-a", "Alpha");
-    ws.workspace.icon = Some(json!({ "kind": "lucide", "name": "rocket", "color": "blue" }));
+    ws.workspace.icon = decoded(json!({ "kind": "lucide", "name": "rocket", "color": "blue" }));
     ws.workspace.default_model = Some("opus".to_string());
     ws.workspace.default_effort = Some("max".to_string());
 
@@ -93,7 +92,7 @@ fn a_model_this_catalog_does_not_publish_selects_nothing() {
 #[test]
 fn the_widened_half_of_the_listing_discloses_neither_default() {
     let mut ws = a_referenced_workspace("ws-a", "Alpha");
-    ws.workspace.icon = Some(json!({ "kind": "emoji", "emoji": "🚀" }));
+    ws.workspace.icon = decoded(json!({ "kind": "emoji", "emoji": "🚀" }));
     ws.workspace.default_model = Some("opus".to_string());
 
     let project = project(&ws);
@@ -140,7 +139,7 @@ fn an_icon_the_clients_schema_rejects_is_not_published() {
         json!({ "kind": "sticker", "sticker": "rocket" }),
         json!("rocket"),
     ] {
-        ws.workspace.icon = Some(icon.clone());
+        ws.workspace.icon = decoded(icon.clone());
         assert_eq!(
             project(&ws)["projectIcon"],
             Value::Null,
@@ -148,7 +147,7 @@ fn an_icon_the_clients_schema_rejects_is_not_published() {
         );
     }
 
-    ws.workspace.icon = Some(json!({ "kind": "emoji", "emoji": " 🚀 " }));
+    ws.workspace.icon = decoded(json!({ "kind": "emoji", "emoji": " 🚀 " }));
     assert_eq!(
         project(&ws)["projectIcon"],
         json!({ "kind": "emoji", "emoji": "🚀" }),
@@ -159,8 +158,8 @@ fn an_icon_the_clients_schema_rejects_is_not_published() {
 #[test]
 fn declared_scripts_become_scripts() {
     let mut ws = workspace("ws-a", "Alpha");
-    ws.workspace.setup_commands = Some(json!(["bun install"]));
-    ws.workspace.scripts = Some(json!([
+    ws.workspace.setup_commands = decoded(json!(["bun install"]));
+    ws.workspace.scripts = decoded(json!([
         {
             "name": "test",
             "label": "Run tests",
@@ -171,13 +170,12 @@ fn declared_scripts_become_scripts() {
             "name": "storybook",
             "command": "bun run storybook",
             "port": 6006
-        },
-        { "name": "no-command" }
+        }
     ]));
 
     let scripts = project(&ws)["scripts"].as_array().unwrap().clone();
 
-    assert_eq!(scripts.len(), 2, "a script with no command is left out");
+    assert_eq!(scripts.len(), 2);
     assert_eq!(scripts[0]["id"], "test");
     assert_eq!(scripts[0]["name"], "Run tests");
     assert_eq!(scripts[0]["command"], "bun test");
@@ -202,10 +200,22 @@ fn declared_scripts_become_scripts() {
     );
 }
 
+/// Every write path requires `command`, so only a hand-edited row lacks one;
+/// the workspaces decoder then reads the whole column as unset.
+#[test]
+fn a_stored_script_with_no_command_leaves_the_workspace_with_none() {
+    let mut ws = workspace("ws-a", "Alpha");
+    ws.workspace.scripts = decoded(json!([
+        { "name": "dev", "command": "bun run dev" },
+        { "name": "no-command" }
+    ]));
+    assert!(project(&ws)["scripts"].as_array().unwrap().is_empty());
+}
+
 #[test]
 fn an_unknown_icon_falls_back_rather_than_failing_the_listing() {
     let mut ws = workspace("ws-a", "Alpha");
-    ws.workspace.scripts = Some(json!([
+    ws.workspace.scripts = decoded(json!([
         { "name": "weird", "command": "echo hi", "icon": "rocket" }
     ]));
     let scripts = project(&ws)["scripts"].as_array().unwrap().clone();
@@ -225,9 +235,9 @@ fn a_project_the_viewer_may_not_read_carries_no_scripts() {
         "command": "bun run dev --config /home/them/secret.toml"
     }]);
     let mut readable = workspace("ws-a", "Alpha");
-    readable.workspace.scripts = Some(scripts.clone());
+    readable.workspace.scripts = decoded(scripts.clone());
     let mut referenced = a_referenced_workspace("ws-a", "Alpha");
-    referenced.workspace.scripts = Some(scripts);
+    referenced.workspace.scripts = decoded(scripts);
 
     assert_eq!(
         project(&readable)["scripts"][0]["command"],
@@ -246,6 +256,6 @@ fn a_project_the_viewer_may_not_read_carries_no_scripts() {
 #[test]
 fn an_unreadable_scripts_config_reports_no_scripts() {
     let mut ws = workspace("ws-a", "Alpha");
-    ws.workspace.scripts = Some(json!({ "not": "a list" }));
+    ws.workspace.scripts = decoded(json!({ "not": "a list" }));
     assert!(project(&ws)["scripts"].as_array().unwrap().is_empty());
 }

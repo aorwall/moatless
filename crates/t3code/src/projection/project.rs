@@ -1,52 +1,15 @@
 //! A Workspace as the project T3 groups conversations under.
 
 use serde_json::{Value, json};
-use tracing::warn;
 
 use super::model::default_model_selection;
 use super::scalar::non_empty;
 use super::scalar::timestamp;
 use crate::nominal_path;
-use crate::workspace::{UiRpcListedWorkspace, WorkspaceView as Workspace};
 use moatless_workspace_types::schemas::repository::ScriptConfig;
-
-/// The fields a script is read out of, narrowed from the workspace's stored
-/// config.
-///
-/// Every field the canonical `ScriptConfig` defaults is optional here too,
-/// since one required field merely usually present costs the whole workspace
-/// its scripts.
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct UiRpcScriptConfig {
-    name: String,
-    #[serde(default)]
-    label: Option<String>,
-    #[serde(default)]
-    command: String,
-    #[serde(default)]
-    icon: Option<String>,
-    #[serde(default)]
-    port: Option<u16>,
-    #[serde(default)]
-    run_on_start: bool,
-}
-
-impl From<UiRpcScriptConfig> for ScriptConfig {
-    fn from(script: UiRpcScriptConfig) -> Self {
-        ScriptConfig {
-            name: script.name,
-            label: script.label,
-            command: script.command,
-            icon: script.icon,
-            port: script.port,
-            // No wire field decodes into it, and [`ui_script`] shapes nothing
-            // out of it: a Script's environment is the Sandbox's business.
-            env_vars: None,
-            run_on_start: script.run_on_start,
-        }
-    }
-}
+use moatless_workspaces::workspace::models::{
+    ListedWorkspace, Workspace, WorkspaceIcon, WorkspaceSource,
+};
 
 /// The icons the contract accepts, and the one anything else becomes.
 ///
@@ -73,7 +36,7 @@ pub(crate) fn is_script_icon(icon: &str) -> bool {
 /// The listing unions readable Workspaces with ones only referenced by a
 /// conversation; the widening is load-bearing, since a conversation whose
 /// project is absent is dropped by the client in silence.
-pub(crate) fn project(listed: &UiRpcListedWorkspace) -> Value {
+pub(crate) fn project(listed: &ListedWorkspace) -> Value {
     let workspace = &listed.workspace;
     json!({
         "id": workspace.id,
@@ -106,9 +69,7 @@ pub(crate) fn project(listed: &UiRpcListedWorkspace) -> Value {
         // would be undone by the next sync — the client hides the controls
         // instead. The widened half of the union isn't editable either (no
         // scripts projected), nor is a deleted one.
-        "scriptsEditable": listed.readable
-            && !is_git_synced(workspace)
-            && workspace.deleted != Some(true),
+        "scriptsEditable": listed.readable && !is_git_synced(workspace) && !workspace.deleted,
         "createdAt": timestamp(workspace.created_at),
         "updatedAt": timestamp(workspace.updated_at)
     })
@@ -127,28 +88,21 @@ const PROJECT_ICON_COLORS: &[&str] = &[
 /// The Workspace's icon as a `ProjectIconOverride`, or `Null` when the stored
 /// value is not one.
 ///
-/// `workspaces.icon` is open jsonb any `PATCH` may write, but the client
-/// decodes it strictly: a rejected shape takes the project off the client, so
-/// it's checked here against the same bounds.
-fn project_icon(icon: Option<&Value>) -> Value {
-    let icon = icon.unwrap_or(&Value::Null);
-    let field = |name: &str| {
-        icon.get(name)
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .unwrap_or_default()
-    };
-    match icon.get("kind").and_then(Value::as_str) {
-        Some("lucide") => {
-            let (name, color) = (field("name"), field("color"));
+/// [`WorkspaceIcon`] holds any string, but the client decodes it strictly: a
+/// rejected shape takes the project off the client, so it's checked here
+/// against the same bounds.
+fn project_icon(icon: Option<&WorkspaceIcon>) -> Value {
+    match icon {
+        Some(WorkspaceIcon::Lucide { name, color }) => {
+            let (name, color) = (name.trim(), color.trim());
             if is_lucide_icon_name(name) && PROJECT_ICON_COLORS.contains(&color) {
                 json!({ "kind": "lucide", "name": name, "color": color })
             } else {
                 Value::Null
             }
         }
-        Some("emoji") => {
-            let emoji = field("emoji");
+        Some(WorkspaceIcon::Emoji { emoji }) => {
+            let emoji = emoji.trim();
             // `isMaxLength` counts what JS counts, so the bound is UTF-16 units.
             if emoji.is_empty() || emoji.encode_utf16().count() > 32 {
                 Value::Null
@@ -156,7 +110,7 @@ fn project_icon(icon: Option<&Value>) -> Value {
                 json!({ "kind": "emoji", "emoji": emoji })
             }
         }
-        _ => Value::Null,
+        None => Value::Null,
     }
 }
 
@@ -179,7 +133,7 @@ fn is_lucide_icon_name(name: &str) -> bool {
 /// git-synced Workspace is read-only everywhere, since the file it reconciles
 /// from is the thing to edit.
 fn is_git_synced(workspace: &Workspace) -> bool {
-    workspace.source == "git"
+    workspace.source == WorkspaceSource::Git
 }
 
 /// The workspace's declared Scripts.
@@ -188,24 +142,11 @@ fn is_git_synced(workspace: &Workspace) -> bool {
 /// entry for it would start a second process on a bound port. Setup commands
 /// are provisioning, not scripts either.
 pub(super) fn scripts(workspace: &Workspace) -> Vec<Value> {
-    let Some(scripts) = workspace.scripts.as_ref() else {
-        return Vec::new();
-    };
-    let scripts: Vec<UiRpcScriptConfig> = match serde_json::from_value(scripts.clone()) {
-        Ok(scripts) => scripts,
-        Err(error) => {
-            warn!(
-                %error,
-                workspace_id = %workspace.id,
-                "Workspace scripts config is unreadable; reporting no scripts"
-            );
-            return Vec::new();
-        }
-    };
-
-    scripts
-        .into_iter()
-        .filter_map(|script| ui_script(&script.into(), None))
+    workspace
+        .scripts
+        .iter()
+        .flatten()
+        .filter_map(|script| ui_script(script, None))
         .collect()
 }
 

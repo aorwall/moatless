@@ -8,7 +8,7 @@ use crate::AgentModelDefaults;
 use crate::agent::catalog;
 use crate::dao::Conversation;
 use crate::providers;
-use crate::workspace::WorkspaceView as Workspace;
+use moatless_workspaces::workspace::models::Workspace;
 
 /// The last resort of the model chain, and the only invented value in the row.
 ///

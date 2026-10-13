@@ -6,7 +6,7 @@ use crate::dao::ConversationDao;
 use crate::listing::UiRpcListingHead;
 use crate::state::UiRpcDbPool;
 use crate::task_dao::T3TaskDao;
-use crate::workspace_dao::T3WorkspaceDao;
+use crate::workspace_listing::WorkspaceListing;
 
 /// The three projections and the pool behind them.
 ///
@@ -16,7 +16,7 @@ use crate::workspace_dao::T3WorkspaceDao;
 pub struct T3Reads {
     pool: UiRpcDbPool,
     conversations: Arc<dyn ConversationDao>,
-    workspaces: Arc<dyn T3WorkspaceDao>,
+    workspaces: Arc<dyn WorkspaceListing>,
     tasks: Arc<dyn T3TaskDao>,
 }
 
@@ -24,7 +24,7 @@ impl T3Reads {
     pub(crate) fn new(
         pool: UiRpcDbPool,
         conversations: Arc<dyn ConversationDao>,
-        workspaces: Arc<dyn T3WorkspaceDao>,
+        workspaces: Arc<dyn WorkspaceListing>,
         tasks: Arc<dyn T3TaskDao>,
     ) -> Self {
         Self {
@@ -56,16 +56,12 @@ impl T3Reads {
         self.conversations.as_ref()
     }
 
-    pub(crate) fn workspaces(&self) -> &dyn T3WorkspaceDao {
+    pub(crate) fn workspaces(&self) -> &dyn WorkspaceListing {
         self.workspaces.as_ref()
     }
 
     pub(crate) fn conversations_arc(&self) -> Arc<dyn ConversationDao> {
         self.conversations.clone()
-    }
-
-    pub(crate) fn workspaces_arc(&self) -> Arc<dyn T3WorkspaceDao> {
-        self.workspaces.clone()
     }
 
     pub(crate) fn tasks_arc(&self) -> Arc<dyn T3TaskDao> {

@@ -18,7 +18,7 @@ use super::ports::{
     primary_pull_request, t3_pr_state,
 };
 use super::workspace::{self, WorkspaceAccessError};
-use crate::workspace_dao::T3WorkspaceDao;
+use crate::workspace_listing::WorkspaceListing;
 use moatless_ports::sandbox::SandboxError;
 use moatless_types::access_control::ScopeContext;
 use moatless_workspace_types::schemas::repository::{BranchEntry, BranchListResponse};
@@ -351,7 +351,7 @@ fn shadows_a_local_branch(
 /// the project root instead of a checkout; an unreadable project root
 /// answers as an empty list.
 pub async fn workspace_branches(
-    workspaces: &dyn T3WorkspaceDao,
+    workspaces: &dyn WorkspaceListing,
     branches: &dyn RepositoryBranchSource,
     viewer: &ScopeContext,
     cwd: &str,
@@ -905,7 +905,7 @@ mod tests {
 
     use crate::dao::{Conversation, MockConversationDao};
     use crate::ports::{PullRequestError, ResolvedPullRequest};
-    use crate::workspace_dao::MockT3WorkspaceDao;
+    use crate::workspace_listing::MockWorkspaceListing;
     use async_trait::async_trait;
     use moatless_types::agent::AgentProfile;
     use std::sync::Mutex;
@@ -948,9 +948,9 @@ mod tests {
     /// picker would list. `None` covers every reason there is nothing to list —
     /// unreadable, gone, or repository-less — answered alike so none discloses
     /// which.
-    fn workspaces(primary: Option<&str>) -> MockT3WorkspaceDao {
+    fn workspaces(primary: Option<&str>) -> MockWorkspaceListing {
         let primary = primary.map(str::to_string);
-        let mut dao = MockT3WorkspaceDao::new();
+        let mut dao = MockWorkspaceListing::new();
         dao.expect_primary_repository()
             .returning(move |_, _| Ok(primary.clone()));
         dao

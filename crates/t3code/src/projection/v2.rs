@@ -65,7 +65,6 @@ use crate::transcript_dao::RewoundTurn;
 use crate::transcript_dao::Transcript;
 use crate::transcript_dao::TranscriptMessage;
 use crate::transcript_dao::TurnOutcome;
-use crate::workspace::UiRpcListedWorkspace;
 use moatless_types::activity::Activity;
 use moatless_types::activity::ActivityKind;
 use moatless_types::activity::ActivityStatus;
@@ -73,6 +72,7 @@ use moatless_types::message::MessageType;
 use moatless_types::message::TOOL_RESPONSE_USER_TYPE;
 use moatless_types::running::{Working, derive_running};
 use moatless_types::task::TaskRelationType;
+use moatless_workspaces::workspace::models::ListedWorkspace;
 
 /// Every V2 thread reports the contract's default interaction mode: Moatless
 /// has no state distinguishing a "plan" mode from the agent's own tool use.
@@ -419,7 +419,7 @@ fn run_ids(conversation: &Conversation) -> (Value, Value) {
 /// The V2 shell snapshot: open and archived rows share one listing, split by
 /// which array a project's threads are dropped into.
 pub(crate) fn shell_snapshot_v2(
-    workspaces: &[UiRpcListedWorkspace],
+    workspaces: &[ListedWorkspace],
     conversations: &[Conversation],
     archived: &[Conversation],
     defaults: &AgentModelDefaults,
@@ -437,7 +437,7 @@ pub(crate) fn shell_snapshot_v2(
 /// The archived-only snapshot `getArchivedShellSnapshot`/
 /// `subscribeArchivedShell` answer with.
 pub(crate) fn archived_shell_snapshot_v2(
-    workspaces: &[UiRpcListedWorkspace],
+    workspaces: &[ListedWorkspace],
     archived: &[Conversation],
     defaults: &AgentModelDefaults,
     sequence: i64,
@@ -451,7 +451,7 @@ pub(crate) fn archived_shell_snapshot_v2(
 }
 
 pub(crate) fn listed_threads_v2(
-    workspaces: &[UiRpcListedWorkspace],
+    workspaces: &[ListedWorkspace],
     conversations: &[Conversation],
     defaults: &AgentModelDefaults,
 ) -> Vec<Value> {

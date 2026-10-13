@@ -398,3 +398,46 @@ async fn kind_of(repo: &PgWorkspaceDao, id: &str) -> WorkspaceKind {
         .unwrap()
         .kind
 }
+
+#[sqlx::test]
+async fn readable_primary_repository_is_scoped_and_skips_deleted(pool: PgPool) {
+    let repo = PgWorkspaceDao(pool.clone());
+    repo.insert_workspace(&make_workspace_row("ws-1", "user-1"))
+        .await
+        .unwrap();
+    repo.add_repo(
+        &make_workspace_repo_row("wsr-1b", "ws-1", "repo-b", false, 0),
+        &scope_ctx("user-1"),
+    )
+    .await
+    .unwrap();
+    repo.add_repo(
+        &make_workspace_repo_row("wsr-1a", "ws-1", "repo-a", true, 1),
+        &scope_ctx("user-1"),
+    )
+    .await
+    .unwrap();
+
+    let owner = repo
+        .readable_primary_repository(&scope_ctx("user-1"), "ws-1")
+        .await
+        .unwrap();
+    assert_eq!(owner.as_deref(), Some("repo-a"));
+
+    let stranger = repo
+        .readable_primary_repository(&scope_ctx("user-2"), "ws-1")
+        .await
+        .unwrap();
+    assert_eq!(stranger, None);
+
+    assert!(
+        repo.soft_delete("ws-1", &scope_ctx("user-1"))
+            .await
+            .unwrap()
+    );
+    let deleted = repo
+        .readable_primary_repository(&scope_ctx("user-1"), "ws-1")
+        .await
+        .unwrap();
+    assert_eq!(deleted, None);
+}

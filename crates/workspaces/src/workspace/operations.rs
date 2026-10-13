@@ -38,6 +38,18 @@ impl Workspaces {
         self.store.find_primary_repo(workspace_id).await
     }
 
+    /// The repository a Workspace's branch picker lists. See
+    /// [`WorkspaceDao::readable_primary_repository`] for when it is `None`.
+    pub async fn readable_primary_repository(
+        &self,
+        ctx: &ScopeContext,
+        workspace_id: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
+        self.store
+            .readable_primary_repository(ctx, workspace_id)
+            .await
+    }
+
     /// Every workspace the caller may read, widened by the ids in
     /// `also_include`. See [`WorkspaceDao::list_readable_including`] for what
     /// each row states about the half it came from.

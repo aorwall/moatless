@@ -91,6 +91,17 @@ pub(crate) trait WorkspaceDao: Send + Sync {
         workspace_id: &str,
     ) -> Result<Option<WorkspaceRepo>, sqlx::Error>;
 
+    /// The repository id of [`Self::find_primary_repo`]'s placement, read only
+    /// when the caller may read the live Workspace.
+    ///
+    /// `None` when the Workspace is unreadable, deleted, missing or places no
+    /// repository: one statement, so the scope check and the pick cannot drift.
+    async fn readable_primary_repository(
+        &self,
+        ctx: &ScopeContext,
+        workspace_id: &str,
+    ) -> Result<Option<String>, sqlx::Error>;
+
     /// Insert a workspace row.
     async fn insert_workspace(&self, row: &Workspace) -> Result<(), sqlx::Error>;
 
@@ -267,6 +278,31 @@ impl WorkspaceDao for PgWorkspaceDao {
         .fetch_optional(&self.0)
         .await?;
         Ok(row.map(WorkspaceRepo::from))
+    }
+
+    async fn readable_primary_repository(
+        &self,
+        ctx: &ScopeContext,
+        workspace_id: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
+        let access =
+            moatless_core::db::access_control::access_filter(ScopedEntity::Resource, "w.", 2);
+        let sql = format!(
+            "SELECT r.repository_id FROM workspace_repos r \
+             JOIN workspaces w ON w.id = r.workspace_id \
+             WHERE r.workspace_id = $1 \
+             AND (w.deleted IS NULL OR w.deleted = false) \
+             AND {} \
+             ORDER BY r.is_primary DESC, r.position ASC, r.id ASC \
+             LIMIT 1",
+            access.sql()
+        );
+        sqlx::query_scalar::<_, String>(AssertSqlSafe(sql))
+            .bind(workspace_id)
+            .bind(ctx.is_admin)
+            .bind(&ctx.user_id)
+            .fetch_optional(&self.0)
+            .await
     }
 
     async fn insert_workspace(&self, row: &Workspace) -> Result<(), sqlx::Error> {

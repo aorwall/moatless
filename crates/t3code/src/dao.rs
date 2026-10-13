@@ -24,8 +24,6 @@ pub use crate::conversation_agent::ConversationAgent;
 use crate::listing::{UiRpcListingChange, UiRpcListingHead};
 use crate::task_dao::{T3TaskDao, TaskView};
 use crate::transcript_dao::Transcript;
-use crate::workspace::UiRpcListedWorkspace;
-use crate::workspace_dao::T3WorkspaceDao;
 use moatless_core::change_feed::conversation::{ConversationChange, ConversationHead};
 use moatless_ports::activity::ActivitySource;
 use moatless_types::access_control::{ScopeContext, ScopedEntity};
@@ -1002,54 +1000,32 @@ impl PgConversationDao {
 }
 
 #[async_trait]
-impl T3WorkspaceDao for PgConversationDao {
-    async fn list_readable_including(
+impl T3TaskDao for PgConversationDao {
+    async fn find_by_id(
         &self,
+        task_id: &str,
         viewer: &ScopeContext,
-        also_include: &[String],
-    ) -> Result<Vec<UiRpcListedWorkspace>, sqlx::Error> {
-        let access =
-            moatless_core::db::access_control::access_filter(ScopedEntity::Resource, "", 1);
-        let ids_param = access.next_param();
-        // `deleted` narrows the readable half only. A git sync tombstones a
-        // Workspace while open Tasks still name it, and excluding it there
-        // takes those Tasks out of the sidebar and refuses their links.
-        let sql = format!(
-            "SELECT *, {} AS readable FROM workspaces \
-             WHERE ((deleted IS NULL OR deleted = false) AND {}) \
-             OR id = ANY(${ids_param}) \
-             ORDER BY name ASC",
-            access.sql(),
-            access.sql()
-        );
-        sqlx::query_as::<_, UiRpcListedWorkspace>(AssertSqlSafe(sql))
-            .bind(viewer.is_admin)
-            .bind(&viewer.user_id)
-            .bind(also_include)
-            .fetch_all(&self.pool)
-            .await
+    ) -> Result<Option<TaskView>, sqlx::Error> {
+        let access = moatless_core::db::access_control::access_filter(ScopedEntity::Task, "", 2);
+        self.task_view(task_id, viewer, &access).await
     }
 
-    async fn primary_repository(
+    async fn controlled_by_id(
         &self,
+        task_id: &str,
         viewer: &ScopeContext,
-        workspace_id: &str,
-    ) -> Result<Option<String>, sqlx::Error> {
-        // Joined rather than read in two steps so the scoped read and the pick
-        // are one statement: a Workspace the viewer cannot be shown returns no
-        // row, which is the same answer as one that declares no repository.
-        let access =
-            moatless_core::db::access_control::access_filter(ScopedEntity::Resource, "w.", 2);
-        let sql = format!(
-            "SELECT r.repository_id FROM workspace_repos r              JOIN workspaces w ON w.id = r.workspace_id              WHERE r.workspace_id = $1              AND (w.deleted IS NULL OR w.deleted = false)              AND {}              ORDER BY r.is_primary DESC, r.position ASC, r.id ASC              LIMIT 1",
-            access.sql()
-        );
-        sqlx::query_scalar::<_, String>(AssertSqlSafe(sql))
-            .bind(workspace_id)
-            .bind(viewer.is_admin)
-            .bind(&viewer.user_id)
-            .fetch_optional(&self.pool)
-            .await
+    ) -> Result<Option<TaskView>, sqlx::Error> {
+        let control = moatless_core::db::access_control::control_filter(ScopedEntity::Task, "", 2);
+        self.task_view(task_id, viewer, &control).await
+    }
+
+    async fn written_by_id(
+        &self,
+        task_id: &str,
+        viewer: &ScopeContext,
+    ) -> Result<Option<TaskView>, sqlx::Error> {
+        let write = moatless_core::db::access_control::write_filter("", 2);
+        self.task_view(task_id, viewer, &write).await
     }
 
     async fn scripts_for_task(
@@ -1082,36 +1058,6 @@ impl T3WorkspaceDao for PgConversationDao {
         // A stored value that will not decode is reported as no scripts rather
         // than failing the run — the same tolerance the projection applies.
         Ok(Some(serde_json::from_value(raw).unwrap_or_default()))
-    }
-}
-
-#[async_trait]
-impl T3TaskDao for PgConversationDao {
-    async fn find_by_id(
-        &self,
-        task_id: &str,
-        viewer: &ScopeContext,
-    ) -> Result<Option<TaskView>, sqlx::Error> {
-        let access = moatless_core::db::access_control::access_filter(ScopedEntity::Task, "", 2);
-        self.task_view(task_id, viewer, &access).await
-    }
-
-    async fn controlled_by_id(
-        &self,
-        task_id: &str,
-        viewer: &ScopeContext,
-    ) -> Result<Option<TaskView>, sqlx::Error> {
-        let control = moatless_core::db::access_control::control_filter(ScopedEntity::Task, "", 2);
-        self.task_view(task_id, viewer, &control).await
-    }
-
-    async fn written_by_id(
-        &self,
-        task_id: &str,
-        viewer: &ScopeContext,
-    ) -> Result<Option<TaskView>, sqlx::Error> {
-        let write = moatless_core::db::access_control::write_filter("", 2);
-        self.task_view(task_id, viewer, &write).await
     }
 }
 

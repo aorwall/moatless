@@ -18,7 +18,7 @@ use crate::ports::{
 };
 use crate::workspace;
 use crate::workspace::WorkspaceAccessError;
-use crate::workspace_dao::T3WorkspaceDao;
+use crate::workspace_listing::WorkspaceListing;
 
 /// A stacked action that reached the agent, echoed back so the caller can stamp
 /// the identifiers the client pressed onto the frames it answers with.
@@ -231,7 +231,7 @@ pub enum PreparedThread {
 /// primary repository of the Workspace the `cwd` names. Answers T3's
 /// `GitResolvePullRequestResult` (`{pullRequest}`).
 pub async fn resolve_pull_request(
-    workspaces: &dyn T3WorkspaceDao,
+    workspaces: &dyn WorkspaceListing,
     conversations: &dyn ConversationDao,
     pull_requests: &dyn BoundPullRequestSource,
     viewer: &ScopeContext,
@@ -256,7 +256,7 @@ pub async fn resolve_pull_request(
 /// Worktree mode is refused by name, since this surface materializes nothing on
 /// disk; each mode is answered explicitly.
 pub async fn prepare_pull_request_thread(
-    workspaces: &dyn T3WorkspaceDao,
+    workspaces: &dyn WorkspaceListing,
     conversations: &dyn ConversationDao,
     pull_requests: &dyn BoundPullRequestSource,
     viewer: &ScopeContext,
@@ -324,7 +324,7 @@ fn normalize_reference(reference: &str) -> String {
 /// Resolve the primary repository the `cwd` names and ask the port to resolve
 /// the reference against it.
 async fn resolve_reference(
-    workspaces: &dyn T3WorkspaceDao,
+    workspaces: &dyn WorkspaceListing,
     conversations: &dyn ConversationDao,
     pull_requests: &dyn BoundPullRequestSource,
     viewer: &ScopeContext,
@@ -340,7 +340,7 @@ async fn resolve_reference(
 /// The primary repository of the Workspace a `cwd` names — a draft thread's
 /// project root, or an existing conversation's worktree.
 async fn repository_for_cwd(
-    workspaces: &dyn T3WorkspaceDao,
+    workspaces: &dyn WorkspaceListing,
     conversations: &dyn ConversationDao,
     viewer: &ScopeContext,
     cwd: &str,
