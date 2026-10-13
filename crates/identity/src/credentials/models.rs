@@ -44,7 +44,6 @@ pub(crate) fn credential_key_to_provider(key: &str) -> Option<&'static str> {
         "OPENAI_API_KEY" => Some("openai"),
         "GITHUB_TOKEN" => Some("github"),
         "GITLAB_TOKEN" => Some("gitlab"),
-        "GITNESS_TOKEN" => Some("gitness"),
         "CLAUDE_CODE_OAUTH_TOKEN" | "ANTHROPIC_API_KEY" => Some("claude"),
         _ => None,
     }

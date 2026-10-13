@@ -47,13 +47,6 @@ pub struct GitHubProviderTokenStatus {
     pub app_connect_available: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct GitnessProviderTokenStatus {
-    pub connected: bool,
-    pub login: Option<String>,
-    pub base_url: Option<String>,
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum GitHostAccessError {
     #[error("Not found: {0}")]
@@ -76,47 +69,20 @@ pub enum GitHostAccessError {
 #[async_trait]
 pub trait GitHostTokenValidator: Send + Sync {
     async fn validate_github(&self, token: &str) -> Result<String, GitProviderError>;
-    async fn validate_gitness(
-        &self,
-        base_url: &str,
-        token: &str,
-    ) -> Result<String, GitProviderError>;
 }
 
 pub struct ProviderGitHostTokenValidator {
-    client: reqwest::Client,
     /// GitHub REST API root, from `Config::github_api_base`.
     github_api_base: String,
     github: HttpTimeouts,
 }
 
 impl ProviderGitHostTokenValidator {
-    /// Validates against GitHub within `github`, and against a self-hosted
-    /// host within `self_hosted_git`.
-    ///
-    /// Panics when the TLS backend cannot be loaded, as `reqwest::Client::new`
-    /// does.
-    #[expect(
-        clippy::disallowed_methods,
-        clippy::expect_used,
-        reason = "sets the timeouts `Config::http` holds, and fails as `Client::new` would"
-    )]
-    pub fn new(
-        github_api_base: String,
-        github: HttpTimeouts,
-        self_hosted_git: HttpTimeouts,
-    ) -> Self {
+    /// Validates against GitHub within `github`.
+    pub fn new(github_api_base: String, github: HttpTimeouts) -> Self {
         Self {
             github_api_base,
             github,
-            // `validate_gitness` reaches a self-hosted host. See
-            // `moatless_core::USER_AGENT`.
-            client: reqwest::Client::builder()
-                .connect_timeout(self_hosted_git.connect)
-                .timeout(self_hosted_git.total)
-                .user_agent(moatless_core::USER_AGENT)
-                .build()
-                .expect("the TLS backend initialises"),
         }
     }
 }
@@ -130,52 +96,6 @@ impl GitHostTokenValidator for ProviderGitHostTokenValidator {
             token,
         )
         .await
-    }
-
-    async fn validate_gitness(
-        &self,
-        base_url: &str,
-        token: &str,
-    ) -> Result<String, GitProviderError> {
-        let base = base_url.trim_end_matches('/');
-        let response = self
-            .client
-            .get(format!("{base}/api/v1/user"))
-            .header("Authorization", format!("Bearer {token}"))
-            .send()
-            .await
-            .map_err(|source| GitProviderError::Unreachable {
-                operation: "Gitness API",
-                source,
-            })?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            return Err(GitProviderError::Rejected {
-                operation: "Gitness API",
-                status,
-                body,
-            });
-        }
-
-        let data: serde_json::Value =
-            response
-                .json()
-                .await
-                .map_err(|source| GitProviderError::UndecodableResponse {
-                    operation: "Gitness",
-                    source,
-                })?;
-        data.get("login")
-            .or_else(|| data.get("uid"))
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_string)
-            .ok_or_else(|| {
-                GitProviderError::MalformedResponse(
-                    "Gitness response missing login/uid field".to_string(),
-                )
-            })
     }
 }
 
@@ -422,71 +342,6 @@ impl GitHostAccess {
         })
     }
 
-    pub async fn gitness_status(
-        &self,
-        user_id: &str,
-    ) -> Result<GitnessProviderTokenStatus, GitHostAccessError> {
-        let token = self
-            .provider_tokens
-            .find_provider_token_full(user_id, "gitness")
-            .await?;
-        Ok(match token {
-            Some(row) => GitnessProviderTokenStatus {
-                connected: true,
-                login: metadata_string(row.metadata.as_ref(), "login"),
-                base_url: metadata_string(row.metadata.as_ref(), "base_url"),
-            },
-            None => GitnessProviderTokenStatus {
-                connected: false,
-                login: None,
-                base_url: None,
-            },
-        })
-    }
-
-    pub async fn save_gitness_provider_token(
-        &self,
-        user_id: &str,
-        base_url: String,
-        token: String,
-    ) -> Result<GitnessProviderTokenStatus, GitHostAccessError> {
-        let login = self
-            .validator
-            .validate_gitness(&base_url, &token)
-            .await
-            .map_err(GitHostAccessError::Provider)?;
-        let metadata = serde_json::json!({ "login": login, "base_url": base_url });
-        self.provider_tokens
-            .upsert_token(
-                user_id,
-                "gitness",
-                &token,
-                None,
-                Some("pat"),
-                Some(&metadata),
-            )
-            .await?;
-        Ok(GitnessProviderTokenStatus {
-            connected: true,
-            login: Some(login),
-            base_url: Some(base_url),
-        })
-    }
-
-    pub async fn disconnect_gitness(
-        &self,
-        user_id: &str,
-    ) -> Result<GitnessProviderTokenStatus, GitHostAccessError> {
-        self.provider_tokens
-            .delete_token(user_id, "gitness")
-            .await?;
-        Ok(GitnessProviderTokenStatus {
-            connected: false,
-            login: None,
-            base_url: None,
-        })
-    }
-
     async fn cleanup_github_secrets(&self, user_id: &str, action: &str) {
         for (key, kind) in [
             (GITHUB_TOKEN, SecretKind::ProviderToken),
@@ -549,16 +404,6 @@ mod tests {
                 "invalid token".to_string(),
             ))
         }
-
-        async fn validate_gitness(
-            &self,
-            _base_url: &str,
-            _token: &str,
-        ) -> Result<String, GitProviderError> {
-            Err(GitProviderError::MalformedResponse(
-                "invalid token".to_string(),
-            ))
-        }
     }
 
     /// Accepts any token as `ada`'s, so a test can reach the write path.
@@ -567,14 +412,6 @@ mod tests {
     #[async_trait]
     impl GitHostTokenValidator for AcceptingValidator {
         async fn validate_github(&self, _token: &str) -> Result<String, GitProviderError> {
-            Ok("ada".to_string())
-        }
-
-        async fn validate_gitness(
-            &self,
-            _base_url: &str,
-            _token: &str,
-        ) -> Result<String, GitProviderError> {
             Ok("ada".to_string())
         }
     }
@@ -877,20 +714,5 @@ mod tests {
 
     fn expiry() -> chrono::DateTime<chrono::Utc> {
         chrono::DateTime::from_timestamp(1_800_000_000, 0).expect("a valid time")
-    }
-
-    #[tokio::test]
-    async fn gitness_validation_failure_writes_nothing() {
-        let tokens = Arc::new(StubProviderTokens::default());
-        let result = access(Arc::clone(&tokens))
-            .save_gitness_provider_token(
-                "u1",
-                "https://gitness.example".to_string(),
-                "bad".to_string(),
-            )
-            .await;
-
-        assert!(matches!(result, Err(GitHostAccessError::Provider(_))));
-        assert_eq!(tokens.writes.load(Ordering::Relaxed), 0);
     }
 }

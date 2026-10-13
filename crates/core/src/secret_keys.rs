@@ -1,7 +1,7 @@
 //! Reserved secret-store key names that lower bands must name, and the
 //! predicates over them.
 //!
-//! A key lives here once a band below `sandbox` names it. The three git-host
+//! A key lives here once a band below `sandbox` names it. The git-host
 //! token keys are named by identity- and workspaces-band credential code; the
 //! four model-credential keys are named by the tasks-band agent catalog, which
 //! reads them to state each agent's required credentials. The git identity keys
@@ -12,9 +12,6 @@ pub const GITHUB_TOKEN: &str = "GITHUB_TOKEN";
 
 /// The reserved key name for a task's GitLab token secret.
 pub const GITLAB_TOKEN: &str = "GITLAB_TOKEN";
-
-/// The reserved key name for a task's Gitness token secret.
-pub const GITNESS_TOKEN: &str = "GITNESS_TOKEN";
 
 /// The reserved key name for the Forgejo token a Workspace pins.
 ///

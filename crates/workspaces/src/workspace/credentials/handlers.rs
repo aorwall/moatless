@@ -84,7 +84,7 @@ pub async fn list_workspace_credentials(
     tag = "workspaces",
     params(
         ("workspace_id" = String, Path, description = "Workspace id"),
-        ("provider" = String, Path, description = "github | gitlab | gitness | openai | anthropic"),
+        ("provider" = String, Path, description = "github | gitlab | forgejo | openai | anthropic"),
     ),
     request_body = SetWorkspaceCredentialRequest,
     responses(
@@ -114,7 +114,7 @@ pub async fn set_workspace_credential(
     tag = "workspaces",
     params(
         ("workspace_id" = String, Path, description = "Workspace id"),
-        ("provider" = String, Path, description = "github | gitlab | gitness | openai | anthropic"),
+        ("provider" = String, Path, description = "github | gitlab | forgejo | openai | anthropic"),
     ),
     responses(
         (status = 204, description = "Credential removed"),

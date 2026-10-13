@@ -545,10 +545,9 @@ pub(crate) use moatless_types::credential_key::GIT_TOKEN;
 pub struct GitCredentials(HashMap<String, String>);
 
 impl GitCredentials {
-    const KEYS: [&str; 6] = [
+    const KEYS: [&str; 5] = [
         "GITHUB_TOKEN",
         "GITLAB_TOKEN",
-        "GITNESS_TOKEN",
         GIT_TOKEN,
         "GIT_USER_NAME",
         "GIT_USER_EMAIL",
@@ -582,7 +581,6 @@ impl GitCredentials {
         }
         let key = match provider {
             "gitlab" => "GITLAB_TOKEN",
-            "gitness" => "GITNESS_TOKEN",
             "github" => "GITHUB_TOKEN",
             _ => return None,
         };
@@ -967,7 +965,7 @@ mod tests {
             Some("pod-github-token".to_string())
         );
         // A foreign provider with no token of its own gets nothing.
-        assert_eq!(credentials.provider_token("gitness", "github"), None);
+        assert_eq!(credentials.provider_token("forgejo", "github"), None);
     }
 
     /// A proxied checkout's URL points at the backend, so no provider token may
@@ -1240,8 +1238,8 @@ mod tests {
             Some(("gitlab.internal".into(), 80))
         );
         assert_eq!(
-            port("https://gitness.example.com:8443/org/repo.git"),
-            Some(("gitness.example.com".into(), 8443))
+            port("https://forgejo.example.com:8443/org/repo.git"),
+            Some(("forgejo.example.com".into(), 8443))
         );
         // scp-like: the ':' separates a path, not a port.
         assert_eq!(
@@ -1506,14 +1504,6 @@ mod tests {
         assert_eq!(
             inject_token_into_url("https://github.com/owner/repo.git", "tok123"),
             "https://x-access-token:tok123@github.com/owner/repo.git"
-        );
-    }
-
-    #[test]
-    fn inject_token_gitness() {
-        assert_eq!(
-            inject_token_into_url("https://gitness.example.com/org/repo.git", "eyJ"),
-            "https://x-access-token:eyJ@gitness.example.com/org/repo.git"
         );
     }
 

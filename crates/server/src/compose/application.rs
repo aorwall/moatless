@@ -105,7 +105,6 @@ impl AppState {
         let repository_branches = moatless_workspaces::compose::repository_branches(
             pool.clone(),
             git_host_tokens.clone(),
-            credentials.clone(),
             codex_http,
         );
         // Tasks-band orchestrator: the in-flight guard + sandbox fan-out over
@@ -213,7 +212,6 @@ impl AppState {
             Arc::new(ProviderGitHostTokenValidator::new(
                 config.github_api_base.clone(),
                 config.http.github,
-                config.http.self_hosted_git,
             )),
             config.auth.github_app_oauth().is_some(),
         );

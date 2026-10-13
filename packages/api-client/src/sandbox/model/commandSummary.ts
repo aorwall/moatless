@@ -8,13 +8,11 @@
 import type { ManagedCommandState } from './managedCommandState';
 
 /**
- * A registered command, narrowed to what a status reader needs to say one is
- * still running and name it (the full shape is
- * `moatless_api_schemas::sandbox::ManagedCommand`).
+ * A registered command narrowed to what a status reader needs: running
+ * state and a name (full shape: `moatless_api_schemas::sandbox::ManagedCommand`).
  *
- * Every time here is an instant, never an elapsed duration — a reader computes
- * "12m in" from `started_at_unix_ms` itself, since a duration recomputed
- * producer-side would change (and re-push) on every poll.
+ * Every time here is an instant, never an elapsed duration: a reader
+ * computes "12m in" from `started_at_unix_ms`; a producer value would re-push.
  */
 export interface CommandSummary {
   /** When the sandbox kills it for outliving its deadline. */

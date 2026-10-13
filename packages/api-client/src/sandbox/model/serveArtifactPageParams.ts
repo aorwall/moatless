@@ -6,10 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface GitnessProviderTokenStatusResponse {
-  /** @nullable */
-  baseUrl?: string | null;
-  connected: boolean;
-  /** @nullable */
-  login?: string | null;
-}
+export type ServeArtifactPageParams = {
+/**
+ * Any value serves the page as published, as a download.
+ */
+download?: string;
+};

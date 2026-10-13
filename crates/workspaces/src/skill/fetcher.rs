@@ -210,7 +210,7 @@ impl RepoApi {
                 host: SkillHost::Forgejo,
                 root: crate::repository::remote::forgejo_repo_api(repo),
             }),
-            RepositoryProvider::Gitlab | RepositoryProvider::Gitness => Err(unsupported),
+            RepositoryProvider::Gitlab => Err(unsupported),
         }
     }
 

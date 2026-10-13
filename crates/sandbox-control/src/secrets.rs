@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use moatless_core::secret_keys::{
     ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, CODEX_AUTH_JSON, GITHUB_TOKEN, GITLAB_TOKEN,
-    GITNESS_TOKEN, OPENAI_API_KEY, is_forgejo_credential_key,
+    OPENAI_API_KEY, is_forgejo_credential_key,
 };
 use tracing::warn;
 
@@ -280,10 +280,7 @@ pub fn is_platform_owned_key(key: &str) -> bool {
 /// provider token resolves, and a `GH_TOKEN` in a pod's env would hand the
 /// agent a GitHub token no resolver validated.
 pub fn is_git_auth_key(key: &str) -> bool {
-    matches!(
-        key,
-        GITHUB_TOKEN | GITLAB_TOKEN | GITNESS_TOKEN | GH_TOKEN | GIT_TOKEN
-    )
+    matches!(key, GITHUB_TOKEN | GITLAB_TOKEN | GH_TOKEN | GIT_TOKEN)
 }
 
 /// The identity a Task's sandbox acts as on a git host: `task_run_as` when set,
@@ -383,8 +380,8 @@ fn task_git_host_repo(repository: Option<&Repository>) -> Option<&GitHostRepo> {
 /// Resolve the git-host tokens this task's sandbox needs, from the actor's own
 /// rows or its Workspace's pin.
 ///
-/// `GITHUB_TOKEN` mints against the task's repo; `GITLAB_TOKEN`/`GITNESS_TOKEN`
-/// fill whenever held, since a workspace may mount several hosts' repos.
+/// `GITHUB_TOKEN` mints against the task's repo; `GITLAB_TOKEN` fills whenever
+/// held, since a workspace may mount several hosts' repos.
 async fn fill_git_host_tokens(
     credentials: &mut HashMap<String, String>,
     git_host_tokens: Option<&Arc<dyn GitHostTokenIssuer>>,
@@ -403,24 +400,14 @@ async fn fill_git_host_tokens(
         }
     }
 
-    for (host, key) in [
-        (
-            moatless_types::git_host::GitHostAccount::Gitlab,
-            GITLAB_TOKEN,
-        ),
-        (
-            moatless_types::git_host::GitHostAccount::Gitness,
-            GITNESS_TOKEN,
-        ),
-    ] {
-        if credentials.contains_key(key) {
-            continue;
-        }
+    if !credentials.contains_key(GITLAB_TOKEN) {
         insert_token(
             credentials,
-            key,
+            GITLAB_TOKEN,
             actor,
-            git_host_tokens.token(actor, &host).await,
+            git_host_tokens
+                .token(actor, &moatless_types::git_host::GitHostAccount::Gitlab)
+                .await,
         );
     }
 }
@@ -846,7 +833,6 @@ mod tests {
             Some(HashMap::from([
                 (GITHUB_TOKEN.to_string(), "ghp_bypass".to_string()),
                 (GITLAB_TOKEN.to_string(), "glpat_bypass".to_string()),
-                (GITNESS_TOKEN.to_string(), "gitness_bypass".to_string()),
                 // The two the pod derives rather than resolves: GH_TOKEN would
                 // reach the agent's env, and init::git clones with GIT_TOKEN
                 // whenever no provider token overwrote it.

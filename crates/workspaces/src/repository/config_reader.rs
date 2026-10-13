@@ -32,8 +32,7 @@ pub(crate) fn client(timeouts: HttpTimeouts) -> reqwest::Client {
 
 /// Fetch a repository file's raw contents via the provider API.
 ///
-/// Returns `Ok(None)` on a 404 (file absent). Gitness is not wired (needs a
-/// `base_url`).
+/// Returns `Ok(None)` on a 404 (file absent).
 pub(crate) async fn fetch_provider_file(
     http: &reqwest::Client,
     remote: &RepositoryRemote,
@@ -53,10 +52,6 @@ pub(crate) async fn fetch_provider_file(
             fetch_gitlab_file(http, remote, path, branch, token).await
         }
         RepositoryProvider::Forgejo => fetch_forgejo_file(http, remote, path, branch, token).await,
-        RepositoryProvider::Gitness => {
-            // Gitness needs a base_url; skip for now – callers can pass it later.
-            Ok(None)
-        }
     }
 }
 
@@ -79,8 +74,8 @@ pub async fn moatless_dir_exists(
         RepositoryProvider::Forgejo => {
             forgejo_moatless_dir_exists(http, remote, branch, token).await
         }
-        // GitLab and Gitness have no cheap check wired — don't skip them.
-        RepositoryProvider::Gitlab | RepositoryProvider::Gitness => true,
+        // GitLab has no cheap check wired — don't skip it.
+        RepositoryProvider::Gitlab => true,
     }
 }
 
@@ -329,8 +324,8 @@ mod tests {
             moatless_dir_exists(
                 &client(moatless_core::config::HttpConfig::default().git_content),
                 &crate::repository::remote::resolve_remote(
-                    Some(RepositoryProvider::Gitness),
-                    "https://gitness.example.com/x/y.git".to_string()
+                    Some(RepositoryProvider::Gitlab),
+                    "https://gitlab.example.com/x/y.git".to_string()
                 ),
                 None,
                 None,

@@ -23,7 +23,7 @@ use moatless_identity::forgejo::{
     ForgejoAccess, ForgejoInstances, ForgejoProviderTokenStatus, RegisteredForgejoInstance,
 };
 use moatless_identity::git_host_access::{
-    GitHostAccess, GitHostPrincipal, GitHubProviderTokenStatus, GitnessProviderTokenStatus,
+    GitHostAccess, GitHostPrincipal, GitHubProviderTokenStatus,
 };
 use moatless_types::agent::CodexScope;
 
@@ -118,64 +118,6 @@ pub async fn delete_github_pat_override(
 ) -> Result<Json<GitHubProviderTokenStatusResponse>, AccessSettingsError> {
     Ok(Json(github_status(
         access.restore_github_app_token(&principal(&auth)).await?,
-    )))
-}
-
-#[utoipa::path(
-    get,
-    path = "/api/v1/settings/gitness/config",
-    tag = "git-host-access",
-    responses(
-        (status = 200, description = "Gitness config", body = GitnessProviderTokenStatusResponse),
-        (status = 401, description = "Not authenticated", body = moatless_api_schemas::error::ErrorBody)
-    )
-)]
-pub async fn get_gitness_config(
-    State(access): State<Arc<GitHostAccess>>,
-    auth: AuthUser,
-) -> Result<Json<GitnessProviderTokenStatusResponse>, AccessSettingsError> {
-    Ok(Json(gitness_status(
-        access.gitness_status(&auth.user_id.to_string()).await?,
-    )))
-}
-
-#[utoipa::path(
-    put,
-    path = "/api/v1/settings/gitness/pat",
-    tag = "git-host-access",
-    request_body = SaveGitnessProviderTokenRequest,
-    responses(
-        (status = 200, description = "PAT saved", body = GitnessProviderTokenStatusResponse),
-        (status = 400, description = "Invalid token", body = moatless_api_schemas::error::ErrorBody)
-    )
-)]
-pub async fn save_gitness_pat(
-    State(access): State<Arc<GitHostAccess>>,
-    auth: AuthUser,
-    Json(request): Json<SaveGitnessProviderTokenRequest>,
-) -> Result<Json<GitnessProviderTokenStatusResponse>, AccessSettingsError> {
-    Ok(Json(gitness_status(
-        access
-            .save_gitness_provider_token(&auth.user_id.to_string(), request.base_url, request.token)
-            .await?,
-    )))
-}
-
-#[utoipa::path(
-    delete,
-    path = "/api/v1/settings/gitness/config",
-    tag = "git-host-access",
-    responses(
-        (status = 200, description = "Gitness disconnected", body = GitnessProviderTokenStatusResponse),
-        (status = 401, description = "Not authenticated", body = moatless_api_schemas::error::ErrorBody)
-    )
-)]
-pub async fn delete_gitness_config(
-    State(access): State<Arc<GitHostAccess>>,
-    auth: AuthUser,
-) -> Result<Json<GitnessProviderTokenStatusResponse>, AccessSettingsError> {
-    Ok(Json(gitness_status(
-        access.disconnect_gitness(&auth.user_id.to_string()).await?,
     )))
 }
 
@@ -881,14 +823,6 @@ fn github_status(status: GitHubProviderTokenStatus) -> GitHubProviderTokenStatus
         auth_method: status.auth_method,
         has_pat_override: status.has_pat_override,
         app_connect_available: status.app_connect_available,
-    }
-}
-
-fn gitness_status(status: GitnessProviderTokenStatus) -> GitnessProviderTokenStatusResponse {
-    GitnessProviderTokenStatusResponse {
-        connected: status.connected,
-        login: status.login,
-        base_url: status.base_url,
     }
 }
 

@@ -153,21 +153,6 @@ impl CredentialService {
         Ok(StoreOutcome::Persisted)
     }
 
-    /// The `metadata` object on a user's provider row, `None` when no row
-    /// exists. Carries the per-provider connection facts a caller needs to
-    /// reach that provider, such as a self-hosted Gitness `base_url`.
-    pub async fn provider_metadata(
-        &self,
-        user_id: &str,
-        provider: &str,
-    ) -> Result<Option<serde_json::Value>, CredentialError> {
-        Ok(self
-            .provider_tokens
-            .find_provider_token_full(user_id, provider)
-            .await?
-            .and_then(|row| row.metadata))
-    }
-
     /// What the caller's GitHub row says about itself: its `auth_method`, the
     /// `login` it was minted for, and whether a refresh gave up for good.
     pub async fn github_presence(

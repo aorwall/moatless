@@ -14,6 +14,18 @@ export interface PublishArtifactBody {
   /** One self-contained page, with a `.html` or `.htm` filename. */
   file: Blob;
   /**
+     * The inline frame's height in CSS pixels, clamped to 80..=2000; 1200 when
+     * omitted. Ignored without `inline`.
+     * @nullable
+     */
+  height?: number | null;
+  /**
+     * `true` shows this version in the Task's thread as the page itself, served
+     * with T3's theme and height bootstrap.
+     * @nullable
+     */
+  inline?: boolean | null;
+  /**
      * Stable name that later publishes of the same page reuse; derived from
      * the title when omitted.
      * @nullable

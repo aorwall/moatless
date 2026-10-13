@@ -157,7 +157,7 @@ A stored OAuth or PAT credential for an external service (e.g. a GitHub token).
 "Provider" appears here only as a qualifier of "token", never alone.
 
 **Git host**:
-The service hosting a Repository's git remote — GitHub, GitLab, or Gitness.
+The service hosting a Repository's git remote — GitHub, GitLab, or Forgejo.
 _Avoid_: git provider, bare "provider"
 
 **Decision provider**:
@@ -609,8 +609,8 @@ to `~/.ssh`. **SecretCatalog** — which secrets exist for a caller, by name
 alone, with nothing decrypted. **CodexScopeReader** — the Codex scopes a
 background refresh should sweep. **GitHostTokenIssuer** — the one way to a
 git-host token: an `Actor` — the identity the call is made as — plus a
-**GitHostAccount** selecting a GitHub owner, a Forgejo instance, GitLab, or
-Gitness. **GitCredentialOverrides** — the identity-owned interface through
+**GitHostAccount** selecting a GitHub owner, a Forgejo instance, or GitLab.
+**GitCredentialOverrides** — the identity-owned interface through
 which Workspaces supply pinned credentials.
 _Note_: each secret read walks `user > global` and marks the records it used, so
 the audit trail is part of the read.

@@ -1073,7 +1073,7 @@
           "adapters"
         ],
         "summary": "Take durable ownership of one inbound webhook delivery.",
-        "description": "A 200 means the backend owns the delivery, not that a Task exists yet;\nanything that failed to record reaches the caller as a failure so its retry\nis the recovery path. Deactivated loops are rejected before admission; a\nloop paused or resynced after admission is handled by the worker without\ncreating a Task.",
+        "description": "A 200 means the backend owns it, not that a Task exists; anything that\nfails to record reaches the caller as a failure, so retry is the recovery\npath. Deactivated loops are rejected before admission; one paused or\nresynced after is handled by the worker without creating a Task.",
         "operationId": "webhook_inbound",
         "parameters": [
           {
@@ -2215,6 +2215,15 @@
             "in": "path",
             "description": "Version, as in `v3`",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "download",
+            "in": "query",
+            "description": "Any value serves the page as published, as a download.",
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -5642,7 +5651,7 @@
           "skills"
         ],
         "summary": "List all skills discovered for a repository.",
-        "description": "Combines the repo's `.claude/skills/` with the caller's plugin activations\n(workspace shadows plugin, first plugin wins a clash) — the per-caller list\nalso delivered into their sandbox. `workspaceId` narrows the plugin half to\nthat Workspace's own records, which outrank the global default and the\ncaller's own.",
+        "description": "Combines the repo's `.claude/skills/` with the caller's plugin\nactivations (workspace shadows plugin, first wins a clash) — also\ndelivered into their sandbox. `workspaceId` narrows the plugin half to\nthat Workspace's records, outranking the global default and caller's own.",
         "operationId": "list_repository_skills",
         "parameters": [
           {
@@ -6494,104 +6503,6 @@
           },
           "401": {
             "description": "Not authenticated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/settings/gitness/config": {
-      "get": {
-        "tags": [
-          "git-host-access"
-        ],
-        "operationId": "get_gitness_config",
-        "responses": {
-          "200": {
-            "description": "Gitness config",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GitnessProviderTokenStatusResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Not authenticated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "git-host-access"
-        ],
-        "operationId": "delete_gitness_config",
-        "responses": {
-          "200": {
-            "description": "Gitness disconnected",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GitnessProviderTokenStatusResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Not authenticated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/settings/gitness/pat": {
-      "put": {
-        "tags": [
-          "git-host-access"
-        ],
-        "operationId": "save_gitness_pat",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SaveGitnessProviderTokenRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "PAT saved",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GitnessProviderTokenStatusResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid token",
             "content": {
               "application/json": {
                 "schema": {
@@ -9695,7 +9606,7 @@
           {
             "name": "provider",
             "in": "path",
-            "description": "github | gitlab | gitness | openai | anthropic",
+            "description": "github | gitlab | forgejo | openai | anthropic",
             "required": true,
             "schema": {
               "type": "string"
@@ -9783,7 +9694,7 @@
           {
             "name": "provider",
             "in": "path",
-            "description": "github | gitlab | gitness | openai | anthropic",
+            "description": "github | gitlab | forgejo | openai | anthropic",
             "required": true,
             "schema": {
               "type": "string"
@@ -11287,7 +11198,7 @@
       },
       "CommandSummary": {
         "type": "object",
-        "description": "A registered command, narrowed to what a status reader needs to say one is\nstill running and name it (the full shape is\n`moatless_api_schemas::sandbox::ManagedCommand`).\n\nEvery time here is an instant, never an elapsed duration — a reader computes\n\"12m in\" from `started_at_unix_ms` itself, since a duration recomputed\nproducer-side would change (and re-push) on every poll.",
+        "description": "A registered command narrowed to what a status reader needs: running\nstate and a name (full shape: `moatless_api_schemas::sandbox::ManagedCommand`).\n\nEvery time here is an instant, never an elapsed duration: a reader\ncomputes \"12m in\" from `started_at_unix_ms`; a producer value would re-push.",
         "required": [
           "id",
           "label",
@@ -13794,29 +13705,6 @@
           }
         }
       },
-      "GitnessProviderTokenStatusResponse": {
-        "type": "object",
-        "required": [
-          "connected"
-        ],
-        "properties": {
-          "baseUrl": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "connected": {
-            "type": "boolean"
-          },
-          "login": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
       "ImageSource": {
         "type": "object",
         "description": "Image source within a content block.",
@@ -15603,6 +15491,21 @@
             "format": "binary",
             "description": "One self-contained page, with a `.html` or `.htm` filename."
           },
+          "height": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The inline frame's height in CSS pixels, clamped to 80..=2000; 1200 when\nomitted. Ignored without `inline`."
+          },
+          "inline": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "`true` shows this version in the Task's thread as the page itself, served\nwith T3's theme and height bootstrap."
+          },
           "slug": {
             "type": [
               "string",
@@ -15862,7 +15765,6 @@
         "enum": [
           "github",
           "gitlab",
-          "gitness",
           "forgejo"
         ]
       },
@@ -16643,21 +16545,6 @@
           "token"
         ],
         "properties": {
-          "token": {
-            "type": "string"
-          }
-        }
-      },
-      "SaveGitnessProviderTokenRequest": {
-        "type": "object",
-        "required": [
-          "baseUrl",
-          "token"
-        ],
-        "properties": {
-          "baseUrl": {
-            "type": "string"
-          },
           "token": {
             "type": "string"
           }
@@ -18729,7 +18616,8 @@
           "metadata.updated",
           "error",
           "binding_reply_sent",
-          "agent_switched"
+          "agent_switched",
+          "artifact_shown"
         ]
       },
       "TaskTokenTotals": {
@@ -20199,7 +20087,6 @@
         "enum": [
           "github",
           "gitlab",
-          "gitness",
           "forgejo",
           "openai",
           "anthropic"
@@ -20732,7 +20619,7 @@
     },
     {
       "name": "git-host-access",
-      "description": "GitHub, Gitness and Forgejo provider-token access"
+      "description": "GitHub and Forgejo provider-token access"
     },
     {
       "name": "agent-harness-access",

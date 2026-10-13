@@ -14,7 +14,7 @@ pub struct HttpConfig {
     /// GitHub's REST API: token and repository checks, the PR adapter, GitHub
     /// sign-in and App installation. Prefix `GITHUB`.
     pub github: HttpTimeouts,
-    /// A self-hosted git host (Forgejo, Gitness): access checks, token
+    /// A self-hosted git host (Forgejo): access checks, token
     /// validation and instance calls. Task creation and start await the access
     /// check, so the total bounds a host that accepts and then stalls. Prefix
     /// `SELF_HOSTED_GIT`.

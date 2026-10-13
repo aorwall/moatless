@@ -28,7 +28,8 @@ import type {
   ArtifactResponse,
   ErrorBody,
   ListArtifactsResponse,
-  PublishArtifactBody
+  PublishArtifactBody,
+  ServeArtifactPageParams
 } from '../model';
 
 import { customInstance } from '../../../custom-instance';
@@ -168,21 +169,30 @@ export type serveArtifactPageResponseError = (serveArtifactPageResponse404) & {
 export type serveArtifactPageResponse = (serveArtifactPageResponseSuccess | serveArtifactPageResponseError)
 
 export const getServeArtifactPageUrl = (artifactId: string,
-    version: string,) => {
+    version: string,
+    params?: ServeArtifactPageParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/v1/artifacts/${artifactId}/${version}`
+  return stringifiedParams.length > 0 ? `/api/v1/artifacts/${artifactId}/${version}?${stringifiedParams}` : `/api/v1/artifacts/${artifactId}/${version}`
 }
 
 /**
  * @summary Serve the page of a published Artifact version.
  */
 export const serveArtifactPage = async (artifactId: string,
-    version: string, options?: Parameters<typeof customInstance>[1]): Promise<serveArtifactPageResponse> => {
+    version: string,
+    params?: ServeArtifactPageParams, options?: Parameters<typeof customInstance>[1]): Promise<serveArtifactPageResponse> => {
 
-  return customInstance<serveArtifactPageResponse>(getServeArtifactPageUrl(artifactId,version),
+  return customInstance<serveArtifactPageResponse>(getServeArtifactPageUrl(artifactId,version,params),
   {
     ...options,
     method: 'GET'
@@ -212,9 +222,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof serveArtifactPage>>, ServeArtifactPageMutationVariables> = (props) => {
-          const {artifactId,version} = props ?? {};
+          const {artifactId,version,params} = props ?? {};
 
-          return  serveArtifactPage(artifactId,version,requestOptions)
+          return  serveArtifactPage(artifactId,version,params,requestOptions)
         }
 
 
@@ -227,7 +237,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type ServeArtifactPageMutationResult = NonNullable<Awaited<ReturnType<typeof serveArtifactPage>>>
 
     export type ServeArtifactPageMutationError = ErrorType<ErrorBody>
-    export type ServeArtifactPageMutationVariables = {artifactId: string;version: string}
+    export type ServeArtifactPageMutationVariables = {artifactId: string;version: string;params?: ServeArtifactPageParams}
 
     /**
  * @summary Serve the page of a published Artifact version.
@@ -388,6 +398,12 @@ export const publishArtifact = async (taskId: string,
     publishArtifactBody: PublishArtifactBody, options?: Parameters<typeof customInstance>[1]): Promise<publishArtifactResponse> => {
     const formData = new FormData();
 formData.append(`file`, publishArtifactBody.file);
+if(publishArtifactBody.height !== undefined && publishArtifactBody.height !== null) {
+ formData.append(`height`, publishArtifactBody.height.toString())
+ }
+if(publishArtifactBody.inline !== undefined && publishArtifactBody.inline !== null) {
+ formData.append(`inline`, publishArtifactBody.inline.toString())
+ }
 if(publishArtifactBody.slug !== undefined && publishArtifactBody.slug !== null) {
  formData.append(`slug`, publishArtifactBody.slug);
  }

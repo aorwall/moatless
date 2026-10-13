@@ -212,7 +212,7 @@ pub struct Config {
     pub git_clone_url: Option<String>,
     /// Primary repo's branch (env `GIT_BRANCH`)
     pub git_branch: Option<String>,
-    /// Primary repo's git provider (github, gitlab, gitness)
+    /// Primary repo's git provider (github, gitlab, forgejo)
     pub git_provider: String,
     /// Resolved checkouts supplied in `WORKSPACE_REPOS`, primary first.
     pub repos: Vec<RepoCheckout>,

@@ -217,32 +217,6 @@ pub enum CodexDeviceCodePollResponse {
     Expired,
 }
 
-#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct GitnessProviderTokenStatusResponse {
-    pub connected: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub login: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub base_url: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct SaveGitnessProviderTokenRequest {
-    pub base_url: String,
-    pub token: String,
-}
-
-impl std::fmt::Debug for SaveGitnessProviderTokenRequest {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SaveGitnessProviderTokenRequest")
-            .field("base_url", &self.base_url)
-            .field("token", &"[REDACTED]")
-            .finish()
-    }
-}
-
 /// One person's connection to one Forgejo instance.
 ///
 /// There is no `login`, unlike every sibling here: a `read:repository` token
@@ -450,16 +424,6 @@ mod tests {
                     }
                 ),
                 "github-plaintext",
-            ),
-            (
-                format!(
-                    "{:?}",
-                    SaveGitnessProviderTokenRequest {
-                        base_url: "https://gitness.example".to_string(),
-                        token: "gitness-plaintext".to_string(),
-                    }
-                ),
-                "gitness-plaintext",
             ),
             (
                 format!(

@@ -6,7 +6,6 @@
 use std::sync::Arc;
 
 use moatless_core::db::DbPool;
-use moatless_identity::credentials::CredentialService;
 use moatless_identity::secret::audit::SecretAudit;
 use moatless_identity::secret::service::SecretCipher;
 use moatless_ports::identity::GitHostTokenIssuer;
@@ -81,14 +80,12 @@ pub fn git_sync(
 pub fn repository_branches(
     db: DbPool,
     git_host_tokens: Arc<dyn GitHostTokenIssuer>,
-    credentials: Arc<CredentialService>,
     http: Arc<reqwest::Client>,
 ) -> Arc<RepositoryBranchService> {
     Arc::new(RepositoryBranchService::new(
         Arc::new(PgRepositoryDao(db.clone())),
         Arc::new(PgWorkspaceDao(db)),
         git_host_tokens,
-        credentials,
         http,
     ))
 }

@@ -33,7 +33,6 @@ impl CredentialKey {
     pub const USER_AUTH_TOKEN: &str = credential_key::USER_AUTH_TOKEN;
     pub const GITHUB_TOKEN: &str = secret_keys::GITHUB_TOKEN;
     pub const GITLAB_TOKEN: &str = secret_keys::GITLAB_TOKEN;
-    pub const GITNESS_TOKEN: &str = secret_keys::GITNESS_TOKEN;
     pub const CODEX_AUTH_JSON: &str = secret_keys::CODEX_AUTH_JSON;
     pub const OPENAI_API_KEY: &str = secret_keys::OPENAI_API_KEY;
     pub const ANTHROPIC_API_KEY: &str = secret_keys::ANTHROPIC_API_KEY;
@@ -174,7 +173,6 @@ pub(super) async fn get_credentials(
         user_id = %grant.ctx.user_id,
         has_github = credentials.contains_key(CredentialKey::GITHUB_TOKEN),
         has_gitlab = credentials.contains_key(CredentialKey::GITLAB_TOKEN),
-        has_gitness = credentials.contains_key(CredentialKey::GITNESS_TOKEN),
         has_codex_auth = credentials.contains_key(CredentialKey::CODEX_AUTH_JSON),
         has_openai = credentials.contains_key(CredentialKey::OPENAI_API_KEY),
         has_anthropic = credentials.contains_key(CredentialKey::ANTHROPIC_API_KEY),

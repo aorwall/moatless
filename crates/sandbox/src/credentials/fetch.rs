@@ -47,13 +47,7 @@ impl std::fmt::Display for CredentialFetchError {
 /// A value set there freezes for the pod's lifetime and outlives the token
 /// behind it. `gh` reaches GitHub through `github_proxy` instead, and git takes
 /// its tokens from `SandboxState::git_credentials` and the broker.
-const ENV_SET_BLOCKLIST: &[&str] = &[
-    "GITHUB_TOKEN",
-    GH_TOKEN,
-    "GITLAB_TOKEN",
-    "GITNESS_TOKEN",
-    GIT_TOKEN,
-];
+const ENV_SET_BLOCKLIST: &[&str] = &["GITHUB_TOKEN", GH_TOKEN, "GITLAB_TOKEN", GIT_TOKEN];
 
 /// Keys that must NOT be inherited by the agent subprocess, which would
 /// snapshot a stale value at spawn time.
@@ -159,7 +153,6 @@ pub async fn fetch_and_apply_credentials_with_mode(
                 let git_provider = state.config.git_provider.as_str();
                 let provider_token_key = match git_provider {
                     "gitlab" => "GITLAB_TOKEN",
-                    "gitness" => "GITNESS_TOKEN",
                     _ => "GITHUB_TOKEN", // default to GitHub
                 };
                 if let Some(token) = resp.credentials.get(provider_token_key).cloned() {
@@ -700,7 +693,6 @@ mod tests {
         credentials.insert("GH_TOKEN".to_string(), "gh2".to_string());
         credentials.insert("GIT_TOKEN".to_string(), "git".to_string());
         credentials.insert("GITLAB_TOKEN".to_string(), "gl".to_string());
-        credentials.insert("GITNESS_TOKEN".to_string(), "gn".to_string());
         credentials.insert("ANTHROPIC_API_KEY".to_string(), "anth".to_string());
         credentials.insert("CLAUDE_CODE_OAUTH_TOKEN".to_string(), "claude".to_string());
 
@@ -710,7 +702,6 @@ mod tests {
         assert!(!filtered.contains_key("GH_TOKEN"));
         assert!(!filtered.contains_key("GIT_TOKEN"));
         assert!(!filtered.contains_key("GITLAB_TOKEN"));
-        assert!(!filtered.contains_key("GITNESS_TOKEN"));
         assert_eq!(filtered.get("ANTHROPIC_API_KEY"), Some(&"anth".to_string()));
         assert_eq!(
             filtered.get("CLAUDE_CODE_OAUTH_TOKEN"),

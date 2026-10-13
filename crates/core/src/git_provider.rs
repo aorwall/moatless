@@ -1,7 +1,7 @@
 //! The shared failure type for the HTTP git-provider credential clients
 //! (`github_client`, `forgejo_client`, `identity::git_host_access`).
 
-/// Failure from a git-provider credential check (GitHub, Forgejo or Gitness).
+/// Failure from a git-provider credential check (GitHub or Forgejo).
 ///
 /// Classification matters to the caller: a token the provider *rejected* is the
 /// user's problem, a provider we could not *reach* is ours; both keep the

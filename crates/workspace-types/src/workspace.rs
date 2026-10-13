@@ -298,7 +298,6 @@ crate::string_enum!(
     WorkspaceCredentialProvider [Hash] {
         Github => "github",
         Gitlab => "gitlab",
-        Gitness => "gitness",
         Forgejo => "forgejo",
         Openai => "openai",
         Anthropic => "anthropic",
@@ -311,8 +310,7 @@ impl WorkspaceCredentialProvider {
     /// A pin for one is the token every call against that host presents, so
     /// it's resolved by `moatless_identity::git_host_tokens::GitHostTokens`
     /// rather than only delivered as an environment variable.
-    pub const GIT_HOSTS: &'static [Self] =
-        &[Self::Github, Self::Gitlab, Self::Gitness, Self::Forgejo];
+    pub const GIT_HOSTS: &'static [Self] = &[Self::Github, Self::Gitlab, Self::Forgejo];
 
     /// A Forgejo pin is single-valued though a deployment may hold repositories
     /// on several Forgejo hosts, so it authenticates against all of them.
@@ -323,7 +321,6 @@ impl WorkspaceCredentialProvider {
         match self {
             Self::Github => "GITHUB_TOKEN",
             Self::Gitlab => "GITLAB_TOKEN",
-            Self::Gitness => "GITNESS_TOKEN",
             Self::Forgejo => "FORGEJO_TOKEN",
             Self::Openai => "OPENAI_API_KEY",
             Self::Anthropic => "ANTHROPIC_API_KEY",
@@ -345,7 +342,6 @@ impl From<crate::repository::RepositoryProvider> for WorkspaceCredentialProvider
         match provider {
             Host::Github => Self::Github,
             Host::Gitlab => Self::Gitlab,
-            Host::Gitness => Self::Gitness,
             Host::Forgejo => Self::Forgejo,
         }
     }

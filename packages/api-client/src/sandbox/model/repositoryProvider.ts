@@ -15,6 +15,5 @@ export type RepositoryProvider = typeof RepositoryProvider[keyof typeof Reposito
 export const RepositoryProvider = {
   github: 'github',
   gitlab: 'gitlab',
-  gitness: 'gitness',
   forgejo: 'forgejo',
 } as const;

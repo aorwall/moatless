@@ -21,7 +21,7 @@ pub enum RepoAction {
     /// List repositories
     List {
         /// Keep only repositories hosted by this provider (github, gitlab,
-        /// gitness, forgejo)
+        /// forgejo)
         #[arg(long)]
         provider: Option<String>,
         /// Keep only repositories at this scope: global or user
@@ -59,9 +59,9 @@ pub enum RepoAction {
         git_url: Option<String>,
         #[arg(long, default_value = "main")]
         branch: String,
-        /// Hosting provider (github, gitlab, gitness, forgejo). Name the one
-        /// serving the host in `--git-url`: `github` is refused for any other
-        /// host, while the self-hosted three parse any host. Ignored for SSH
+        /// Hosting provider (github, gitlab, forgejo). Name the one serving
+        /// the host in `--git-url`: `github` is refused for any other host,
+        /// while `gitlab` and `forgejo` parse any host. Ignored for SSH
         /// clone URLs, which authenticate via an `ssh_key` secret.
         #[arg(long, default_value = "github")]
         provider: String,
@@ -441,7 +441,6 @@ fn parse_repo_provider(s: &str) -> Option<RepositoryProvider> {
     match s {
         "github" => Some(RepositoryProvider::Github),
         "gitlab" => Some(RepositoryProvider::Gitlab),
-        "gitness" => Some(RepositoryProvider::Gitness),
         "forgejo" => Some(RepositoryProvider::Forgejo),
         _ => None,
     }
@@ -734,7 +733,7 @@ impl RepoFilter {
         let provider = match provider {
             Some(p) => Some(parse_repo_provider(p).ok_or_else(|| {
                 ClientError::Other(format!(
-                    "Invalid --provider '{p}' (expected: github, gitlab, gitness or forgejo)"
+                    "Invalid --provider '{p}' (expected: github, gitlab or forgejo)"
                 ))
             })?),
             None => None,
@@ -887,7 +886,7 @@ mod tests {
     #[test]
     fn an_ssh_remote_clones_from_its_own_host() {
         let remote = "ssh://git@git.example.com:2222/owner/repo.git";
-        let mut repo = repository(Some(RepositoryProvider::Gitness), Some(remote));
+        let mut repo = repository(Some(RepositoryProvider::Forgejo), Some(remote));
         repo.remote.as_mut().unwrap().uses_ssh = true;
         assert_eq!(clone_url(BASE_URL, &repo).unwrap(), remote);
     }

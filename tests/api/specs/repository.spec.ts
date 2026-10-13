@@ -158,13 +158,13 @@ test('REPO-10: Allow repositories with the same name', async ({ api }) => {
   const name = `Shared repository name ${suffix}`
   const first = await createRepository(api, {
     name,
-    remoteUrl: `https://gitness.invalid/acme/${suffix}`,
-    provider: 'gitness',
+    remoteUrl: `https://gitlab.invalid/acme/${suffix}`,
+    provider: 'gitlab',
   })
   const second = await createRepository(api, {
     name,
-    remoteUrl: `https://gitness.invalid/acme/${suffix}-other`,
-    provider: 'gitness',
+    remoteUrl: `https://gitlab.invalid/acme/${suffix}-other`,
+    provider: 'gitlab',
   })
 
   try {
@@ -180,16 +180,16 @@ test('REPO-11: Reject an equivalent repository URL', async ({ api }) => {
   const suffix = randomUUID()
   const first = await createRepository(api, {
     name: scopedName(`Canonical URL ${suffix}`),
-    remoteUrl: `https://gitness.invalid/acme/${suffix}`,
-    provider: 'gitness',
+    remoteUrl: `https://gitlab.invalid/acme/${suffix}`,
+    provider: 'gitlab',
   })
 
   try {
     const response = await api.createRepositoryRaw({
       name: scopedName(`Canonical duplicate ${suffix}`),
       kind: 'remote',
-      remoteUrl: `  HTTPS://GITNESS.INVALID/ACME/${suffix}.git/  `,
-      provider: 'gitness',
+      remoteUrl: `  HTTPS://GITLAB.INVALID/ACME/${suffix}.git/  `,
+      provider: 'gitlab',
     })
     expect(response.status).toBe(409)
     expect(JSON.stringify(response.body)).toContain('Repository URL already exists')
@@ -202,22 +202,22 @@ test('REPO-12: Reject a URL collision during update', async ({ api }) => {
   const suffix = randomUUID()
   const first = await createRepository(api, {
     name: scopedName(`Update target ${suffix}`),
-    remoteUrl: `https://gitness.invalid/acme/${suffix}`,
-    provider: 'gitness',
+    remoteUrl: `https://gitlab.invalid/acme/${suffix}`,
+    provider: 'gitlab',
   })
   const second = await createRepository(api, {
     name: scopedName(`Update source ${suffix}`),
-    remoteUrl: `https://gitness.invalid/acme/${suffix}-other`,
-    provider: 'gitness',
+    remoteUrl: `https://gitlab.invalid/acme/${suffix}-other`,
+    provider: 'gitlab',
   })
 
   try {
     const response = await api.updateRepositoryRaw(second.repositoryId, {
-      remoteUrl: ` HTTPS://GITNESS.INVALID/ACME/${suffix}.git/ `,
+      remoteUrl: ` HTTPS://GITLAB.INVALID/ACME/${suffix}.git/ `,
     })
     expect(response.status).toBe(409)
     const unchanged = await api.getRepository(second.repositoryId)
-    expect(unchanged.remote?.url).toBe(`https://gitness.invalid/acme/${suffix}-other`)
+    expect(unchanged.remote?.url).toBe(`https://gitlab.invalid/acme/${suffix}-other`)
   } finally {
     await api.deleteRepository(first.repositoryId)
     await api.deleteRepository(second.repositoryId)
@@ -228,15 +228,15 @@ test('REPO-13: Reuse a deleted repository URL', async ({ api }) => {
   const suffix = randomUUID()
   const first = await createRepository(api, {
     name: scopedName(`Deleted URL ${suffix}`),
-    remoteUrl: `https://gitness.invalid/acme/${suffix}`,
-    provider: 'gitness',
+    remoteUrl: `https://gitlab.invalid/acme/${suffix}`,
+    provider: 'gitlab',
   })
   await api.deleteRepository(first.repositoryId)
 
   const replacement = await createRepository(api, {
     name: scopedName(`Replacement URL ${suffix}`),
-    remoteUrl: ` HTTPS://GITNESS.INVALID/ACME/${suffix}.git/ `,
-    provider: 'gitness',
+    remoteUrl: ` HTTPS://GITLAB.INVALID/ACME/${suffix}.git/ `,
+    provider: 'gitlab',
   })
   try {
     expect(replacement.repositoryId).toBeTruthy()
@@ -247,19 +247,19 @@ test('REPO-13: Reuse a deleted repository URL', async ({ api }) => {
 
 test('REPO-14: Allow the same URL for a different access owner', async ({ api }) => {
   const suffix = randomUUID()
-  const remoteUrl = `https://gitness.invalid/acme/${suffix}`
+  const remoteUrl = `https://gitlab.invalid/acme/${suffix}`
   const userRepository = await api.createRepository({
     name: scopedName(`User URL ${suffix}`),
     kind: 'remote',
     remoteUrl,
-    provider: 'gitness',
+    provider: 'gitlab',
     scope: 'user',
   })
   const globalRepository = await api.createRepository({
     name: scopedName(`Global URL ${suffix}`),
     kind: 'remote',
-    remoteUrl: ` HTTPS://GITNESS.INVALID/ACME/${suffix}.git/ `,
-    provider: 'gitness',
+    remoteUrl: ` HTTPS://GITLAB.INVALID/ACME/${suffix}.git/ `,
+    provider: 'gitlab',
     scope: 'global',
   })
 

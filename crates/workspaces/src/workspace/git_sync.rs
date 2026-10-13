@@ -1144,7 +1144,3 @@ mod tests {
         assert!(unknown_key_warnings(&file).is_empty());
     }
 }
-
-#[cfg(all(test, feature = "db-tests"))]
-#[path = "git_sync_db_tests.rs"]
-mod git_sync_db_tests;

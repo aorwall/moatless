@@ -124,7 +124,7 @@ pub struct AppState {
     /// service with the in-flight guard and the rotation broadcast to running
     /// sandboxes (9c).
     pub credential_sync: Arc<CredentialSync>,
-    /// GitHub and Gitness provider-token workflows.
+    /// GitHub provider-token workflows.
     pub git_host_access: Arc<GitHostAccess>,
     /// Forgejo provider-token workflows, addressed per instance.
     pub forgejo_access: Arc<ForgejoAccess>,

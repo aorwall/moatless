@@ -3,12 +3,9 @@ use super::super::dao::RepositoryDao;
 use super::super::error::RepositoryError;
 use super::super::models::RepositoryPatch;
 use super::super::schemas::{BranchEntry, BranchListResponse};
-use super::providers::{
-    fetch_forgejo_branches, fetch_github_branches, fetch_gitlab_branches, fetch_gitness_branches,
-};
+use super::providers::{fetch_forgejo_branches, fetch_github_branches, fetch_gitlab_branches};
 use crate::repository::remote::require_host_repo;
 use crate::workspace::dao::WorkspaceDao;
-use moatless_identity::credentials::{CredentialError, CredentialService};
 use moatless_ports::identity::GitHostTokenIssuer;
 use moatless_types::access_control::{Actor, ScopeContext};
 use moatless_workspace_types::repository::RepositoryProvider;
@@ -20,7 +17,6 @@ pub struct RepositoryBranchService {
     repositories: Arc<dyn RepositoryDao>,
     workspaces: Arc<dyn WorkspaceDao>,
     git_host_tokens: Arc<dyn GitHostTokenIssuer>,
-    credentials: Arc<CredentialService>,
     http: Arc<reqwest::Client>,
 }
 
@@ -30,14 +26,12 @@ impl RepositoryBranchService {
         repositories: Arc<dyn RepositoryDao>,
         workspaces: Arc<dyn WorkspaceDao>,
         git_host_tokens: Arc<dyn GitHostTokenIssuer>,
-        credentials: Arc<CredentialService>,
         http: Arc<reqwest::Client>,
     ) -> Self {
         Self {
             repositories,
             workspaces,
             git_host_tokens,
-            credentials,
             http,
         }
     }
@@ -54,7 +48,6 @@ impl RepositoryBranchService {
             repositories,
             workspaces,
             git_host_tokens,
-            credentials,
             ..
         } = self;
         let repo = repositories
@@ -92,23 +85,6 @@ impl RepositoryBranchService {
             }
             RepositoryProvider::Forgejo => {
                 fetch_forgejo_branches(&self.http, remote, &access_token).await?
-            }
-            RepositoryProvider::Gitness => {
-                let metadata = credentials
-                    .provider_metadata(&ctx.user_id, "gitness")
-                    .await
-                    .map_err(credential_error)?;
-                let base_url = metadata
-                .as_ref()
-                .and_then(|m| m.get("base_url"))
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| {
-                    RepositoryError::BadRequest(
-                        "Gitness base URL not configured. Please reconnect your Gitness account in Settings.".to_string()
-                    )
-                })?
-                .to_string();
-                fetch_gitness_branches(&self.http, remote, &access_token, &base_url).await?
             }
         };
 
@@ -182,15 +158,6 @@ async fn branch_listing_actor(
     }
 
     Ok(caller.on_workspace(Some(workspace_id)))
-}
-
-/// A credential read failure, mapped to the status the branch listing answers
-/// with. A store error stays a 500 through [`RepositoryError::Db`].
-fn credential_error(error: CredentialError) -> RepositoryError {
-    match error {
-        CredentialError::Database(source) => RepositoryError::Db(source),
-        other => RepositoryError::ProviderError(other.to_string()),
-    }
 }
 
 #[cfg(test)]

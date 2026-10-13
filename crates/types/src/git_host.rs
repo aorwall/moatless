@@ -5,7 +5,6 @@ crate::string_enum!(
     RepositoryProvider {
         Github => "github",
         Gitlab => "gitlab",
-        Gitness => "gitness",
         Forgejo => "forgejo",
     }
 );
@@ -16,7 +15,6 @@ pub enum GitHostAccount {
     Github { owner: String },
     Forgejo { host: String },
     Gitlab,
-    Gitness,
 }
 
 impl GitHostAccount {
@@ -25,7 +23,6 @@ impl GitHostAccount {
             Self::Github { .. } => RepositoryProvider::Github,
             Self::Forgejo { .. } => RepositoryProvider::Forgejo,
             Self::Gitlab => RepositoryProvider::Gitlab,
-            Self::Gitness => RepositoryProvider::Gitness,
         }
     }
 }
@@ -36,7 +33,6 @@ impl std::fmt::Display for GitHostAccount {
             Self::Github { owner } => write!(f, "github account {owner}"),
             Self::Forgejo { host } => write!(f, "forgejo instance {host}"),
             Self::Gitlab => f.write_str("gitlab"),
-            Self::Gitness => f.write_str("gitness"),
         }
     }
 }

@@ -19,7 +19,7 @@ export async function createRepository(
     name: string
     remoteUrl: string
     kind?: 'remote' | 'template' | 'git'
-    provider?: 'github' | 'gitlab' | 'gitness'
+    provider?: 'github' | 'gitlab'
     description?: string
   },
 ): Promise<{ repositoryId: string; repository: RepositoryResponse }> {

@@ -9,7 +9,7 @@ use crate::state::AppState;
 #[derive(OpenApi)]
 #[openapi(
     tags(
-        (name = "git-host-access", description = "GitHub, Gitness and Forgejo provider-token access"),
+        (name = "git-host-access", description = "GitHub and Forgejo provider-token access"),
         (name = "agent-harness-access", description = "Agent harness credential access"),
         (name = "app-administration", description = "Adapter, GitHub App and Forgejo instance administration"),
     ),
@@ -28,9 +28,6 @@ use crate::state::AppState;
         handlers::admin_list_adapter_apps,
         handlers::admin_save_adapter_app,
         handlers::admin_delete_adapter_app,
-        handlers::get_gitness_config,
-        handlers::save_gitness_pat,
-        handlers::delete_gitness_config,
         handlers::get_forgejo_config,
         handlers::list_forgejo_connections,
         handlers::save_forgejo_pat,
@@ -77,11 +74,6 @@ pub fn access_settings_router(state: AppState) -> (axum::Router, utoipa::openapi
             handlers::admin_save_adapter_app,
             handlers::admin_delete_adapter_app
         ))
-        .routes(routes!(
-            handlers::get_gitness_config,
-            handlers::delete_gitness_config
-        ))
-        .routes(routes!(handlers::save_gitness_pat))
         .routes(routes!(
             handlers::get_forgejo_config,
             handlers::delete_forgejo_config

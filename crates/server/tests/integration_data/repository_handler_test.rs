@@ -58,8 +58,8 @@ async fn create_repository(pool: PgPool) {
 async fn create_allows_same_name_with_different_urls(pool: PgPool) {
     let app = build_router(pool);
     for remote_url in [
-        "https://gitness.invalid/acme/name-a",
-        "https://gitness.invalid/acme/name-b",
+        "https://gitlab.invalid/acme/name-a",
+        "https://gitlab.invalid/acme/name-b",
     ] {
         let req = authed_json_request(
             "POST",
@@ -68,7 +68,7 @@ async fn create_allows_same_name_with_different_urls(pool: PgPool) {
             serde_json::json!({
                 "name": "same-name",
                 "kind": "git",
-                "provider": "gitness",
+                "provider": "gitlab",
                 "remoteUrl": remote_url
             }),
         );
@@ -81,12 +81,9 @@ async fn create_allows_same_name_with_different_urls(pool: PgPool) {
 async fn create_rejects_canonical_duplicate_url(pool: PgPool) {
     let app = build_router(pool);
     for (remote_url, expected_status) in [
+        ("https://gitlab.invalid/acme/duplicate", StatusCode::CREATED),
         (
-            "https://gitness.invalid/acme/duplicate",
-            StatusCode::CREATED,
-        ),
-        (
-            "  HTTPS://GITNESS.INVALID/ACME/DUPLICATE.git/  ",
+            "  HTTPS://GITLAB.INVALID/ACME/DUPLICATE.git/  ",
             StatusCode::CONFLICT,
         ),
     ] {
@@ -97,7 +94,7 @@ async fn create_rejects_canonical_duplicate_url(pool: PgPool) {
             serde_json::json!({
                 "name": format!("repo-{expected_status}"),
                 "kind": "git",
-                "provider": "gitness",
+                "provider": "gitlab",
                 "remoteUrl": remote_url
             }),
         );

@@ -5,7 +5,7 @@
 //! `LOOP.md` with `Accept: application/vnd.github.raw+json`; a 404 on the
 //! parent directory means "no loops" and returns an empty vector.
 //!
-//! Loops are GitHub-only for v1 (matching skills); GitLab/Gitness fetching is a
+//! Loops are GitHub-only for v1 (matching skills); GitLab fetching is a
 //! follow-up, returning an empty list with a warning.
 
 use async_trait::async_trait;

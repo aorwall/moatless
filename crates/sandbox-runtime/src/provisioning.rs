@@ -25,7 +25,7 @@ pub struct ProvisionPlan {
     pub git_clone_url: String,
     /// The primary repository's branch. Mirrors `repos[0].branch`.
     pub git_branch: Option<String>,
-    /// The primary repository's git provider (e.g. "github", "gitlab", "gitness")
+    /// The primary repository's git provider (e.g. "github", "gitlab")
     #[serde(default)]
     pub git_provider: String,
     /// Custom environment variables

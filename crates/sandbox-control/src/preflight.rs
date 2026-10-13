@@ -179,7 +179,7 @@ impl GitHostValidator for RealGitHostValidator {
             }
             // No probe is defined for a provider `requires_credential_preflight`
             // exempts: resolving its credential is the whole check.
-            GitHostProvider::Gitlab | GitHostProvider::Gitness => Ok(()),
+            GitHostProvider::Gitlab => Ok(()),
         }
         .map_err(|e| e.to_string())
     }
@@ -359,7 +359,7 @@ pub async fn preflight_validate_git_credential(
 
 /// The provider whose credential a repo's sandbox must hold to start, if any.
 ///
-/// GitLab and Gitness are absent — a check that cannot fail is worse than none;
+/// GitLab is absent — a check that cannot fail is worse than none;
 /// templates are exempt despite `provider: Github` since the sandbox clones
 /// them anonymously.
 fn requires_credential_preflight(repo: &Repository) -> Option<RepositoryProvider> {
@@ -674,13 +674,9 @@ mod tests {
 
     #[test]
     fn unvalidated_and_provider_less_repos_are_exempt() {
-        // GitLab and Gitness have no validated preflight path, so a check here
-        // could only ever pass.
-        for provider in [
-            Some(RepositoryProvider::Gitlab),
-            Some(RepositoryProvider::Gitness),
-            None,
-        ] {
+        // GitLab has no validated preflight path, so a check here could only
+        // ever pass.
+        for provider in [Some(RepositoryProvider::Gitlab), None] {
             assert!(
                 requires_credential_preflight(&repo(RepositoryKind::Remote, provider)).is_none()
             );

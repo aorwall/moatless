@@ -96,7 +96,6 @@ impl GitHostRepo {
                 host: self.host.clone(),
             },
             RepositoryProvider::Gitlab => GitHostAccount::Gitlab,
-            RepositoryProvider::Gitness => GitHostAccount::Gitness,
         }
     }
 

@@ -21,4 +21,5 @@ export const TaskSubType = {
   error: 'error',
   binding_reply_sent: 'binding_reply_sent',
   agent_switched: 'agent_switched',
+  artifact_shown: 'artifact_shown',
 } as const;

@@ -535,10 +535,6 @@ impl GitHostTokenIssuer for GitHostTokens {
                 self.stored_host_token(actor, RepositoryProvider::Gitlab)
                     .await
             }
-            GitHostAccount::Gitness => {
-                self.stored_host_token(actor, RepositoryProvider::Gitness)
-                    .await
-            }
             GitHostAccount::Forgejo { host } => self.forgejo_token(actor, host).await,
         }
     }

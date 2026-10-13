@@ -20,7 +20,7 @@ pub(crate) fn resolve_remote(
 fn parse_host_repo(provider: RepositoryProvider, remote_url: &str) -> Option<GitHostRepo> {
     match provider {
         RepositoryProvider::Github => parse_github(remote_url),
-        RepositoryProvider::Gitlab | RepositoryProvider::Gitness | RepositoryProvider::Forgejo => {
+        RepositoryProvider::Gitlab | RepositoryProvider::Forgejo => {
             parse_hosted(provider, remote_url)
         }
     }
@@ -220,7 +220,7 @@ mod tests {
             message.contains("Provider github does not host"),
             "{message}"
         );
-        assert!(message.contains("gitlab, gitness, forgejo"), "{message}");
+        assert!(message.contains("gitlab, forgejo"), "{message}");
     }
 
     #[test]
@@ -323,11 +323,11 @@ mod tests {
         assert_eq!(repo.name(), "repo");
 
         let ssh = parse_host_repo(
-            RepositoryProvider::Gitness,
-            "git@gitness.internal:team/repo",
+            RepositoryProvider::Forgejo,
+            "git@forgejo.internal:team/repo",
         )
         .expect("parses");
-        assert_eq!(ssh.host(), "gitness.internal");
+        assert_eq!(ssh.host(), "forgejo.internal");
         assert_eq!(ssh.owner(), "team");
     }
 
@@ -363,6 +363,6 @@ mod tests {
             parse(RepositoryProvider::Gitlab, "https://gitlab.com/acme"),
             None
         );
-        assert_eq!(parse(RepositoryProvider::Gitness, "not-a-url"), None);
+        assert_eq!(parse(RepositoryProvider::Forgejo, "not-a-url"), None);
     }
 }
