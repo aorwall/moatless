@@ -35,3 +35,8 @@ Root `test` goes through Turbo; an extra bare pattern is interpreted as a Turbo
 task, not a Vitest filter. Name unit tests `*.unit.test.ts` or `*.test.ts` in
 nearby `__tests__` directories. Clean up timers, network servers, and processes
 even after a failed assertion.
+
+After bumping Vitest or a `@vitest/*` package, move the whole family to one
+version in every `package.json` and run `bun run test:coverage`. `bun run test`
+never loads the coverage provider, so a mismatched `@vitest/coverage-v8` passes
+it and fails only under `--coverage`.

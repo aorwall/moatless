@@ -1,5 +1,4 @@
 [
-  "agents-md-budget::AGENTS.md",
   "composition-root::moatless_backend::adapters::handlers::delete_adapter_connection names AppState",
   "composition-root::moatless_backend::adapters::handlers::list_adapter_connections names AppState",
   "composition-root::moatless_backend::adapters::handlers::list_adapters names AppState",

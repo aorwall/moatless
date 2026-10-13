@@ -4,7 +4,7 @@ name: Full-Repo Code Review
 agentProfile: claude-code
 model: opus
 inactiveTtlDays: 1
-# sourceMatcher defaults to soaplabs/moatless-vibe (owner/repo); the org's
+# sourceMatcher defaults to this repo's owner/repo; the org's
 # GitHub App connection is resolved automatically.
 adapterConfig:
   ignored_title_patterns:
@@ -111,15 +111,16 @@ Classify each changed file, load the matching guideline, and apply its checks.
 | Path pattern | Domain | Read for conventions | Key checks |
 |--------------|--------|----------------------|------------|
 | `apps/frontend/**` | Retired Moatless UI | root `AGENTS.md` | flag any change: the UI is T3 Code, and nothing builds or checks this code |
-| `packages/**/*.ts` | TypeScript packages | root `AGENTS.md` | strict TS (no `any` → use `unknown`) |
-| `crates/**/*.rs` (except `crates/cli`) | Rust backend | root `AGENTS.md`; `.agents/skills/rust-dev-guidelines/SKILL.md` | clippy-clean (`-D warnings`, no `unwrap`/`expect`/`panic!` on runtime paths); `thiserror` enums, not string errors; `Arc` for state shared across async tasks; `CancellationToken` for graceful shutdown; layered `routes → handlers → services → dao`; module layout (`mod/models/dao/schemas/handlers/routes/error.rs`); utoipa OpenAPI annotations on routes; `IntoResponse` for module errors; parameterized SQLx queries |
+| `packages/**/*.ts` | TypeScript packages | root `AGENTS.md` | strict TS (no `any` → use `unknown`); a touched file fixes its `biome-baseline.json` ratchet entries (`noFloatingPromises`, `noMisusedPromises`, `useExhaustiveSwitchCases`) and a new file has none |
+| `crates/**/*.rs` (except `crates/cli`) | Rust backend | root `AGENTS.md`; `.agents/skills/rust-dev-guidelines/SKILL.md` and its `references/` | clippy owns `unwrap`/`expect`/`print!` (CI fails them), so don't re-check them; no `panic!` on runtime paths; reusable and domain APIs keep typed errors with their sources (entry points and glue may box, per "Preserve error causes"); spawned work owned per "Own critical spawned work"; each file holds the responsibility `references/file-roles.md` assigns it, with no pass-through service or layer added to fill a template; write-path trait defaults fail loudly; utoipa OpenAPI annotations on routes; parameterized SQLx queries |
 | `crates/sandbox/src/**/*.rs` | Rust sandbox | same Rust rules (`AGENTS.md`) | plus gRPC / Claude-agent orchestration correctness; no blocking calls in async; graceful shutdown; state-machine transitions |
 | `crates/cli/src/**/*.rs` | moat CLI | `.agents/skills/moat-cli/SKILL.md` (+ `references/command-reference.md`) | clap command/flag semantics consistent with the docs; `--json` output; error handling |
 | `crates/sandbox-proto/**`, `**/*.proto` | gRPC contract | — | field changes are backward-compatible (no renumbering/repurposing tags); regenerate implications noted |
-| `**/*.test.{ts,tsx}`, `**/*.integration.test.ts`, `tests/**`, `**/tests/*.rs` | Tests | `.agents/skills/testing-guidelines/SKILL.md`; `.agents/skills/e2e-testing/SKILL.md` | test behavior, not implementation; mock only external deps (never your own code); tier-appropriate coverage. Rust tests are `cargo test` (`#[cfg(test)] mod tests`, `tests/`, env-gated E2E like `CLAUDE_SDK_E2E=1` / `SANDBOX_E2E=1`) — **not Vitest**. `any` is allowed in TS test files. |
-| `k8s/helm/moatless-vibe/**` | Helm / K8s | `.agents/skills/k8s-install/references/values-schema.md`; `.agents/skills/sandbox-troubleshooting/SKILL.md` | `values.yaml` ↔ template consistency; pod/container security contexts (backend and T3); sandbox isolation set (networkpolicy incl. Cilium, resourcequota, limitrange, per-task namespace/SA); RBAC least-privilege; **no hardcoded secrets** (use `secrets`/`externalSecrets`); probe / PDB / HPA sanity; bump `Chart.yaml` `version` when templates change |
+| `**/*.test.{ts,tsx}`, `**/*.integration.test.ts`, `tests/**`, `**/tests/*.rs` | Tests | `.agents/skills/testing-guidelines/SKILL.md`; `.agents/skills/e2e-testing/SKILL.md` | test behavior, not implementation; never mock the unit whose behaviour the test claims to verify (a mockall DAO port or a stub at an external boundary is fine, per `testing-guidelines/resources/strategic-mocking.md`); tier-appropriate coverage. Rust tests are `cargo test` (`#[cfg(test)] mod tests`, `tests/`, env-gated E2E like `CLAUDE_SDK_E2E=1` / `SANDBOX_E2E=1`) — **not Vitest**. `any` is allowed in TS test files. |
+| `k8s/helm/moatless-vibe/**` | Helm / K8s | `.agents/skills/k8s-install/references/values-schema.md`; `.agents/skills/sandbox-troubleshooting/SKILL.md` | `values.yaml` ↔ template consistency; pod/container security contexts (backend and T3); sandbox isolation set (networkpolicy incl. Cilium, resourcequota, limitrange, per-task namespace/SA); RBAC least-privilege; **no hardcoded secrets** (use `secrets`/`externalSecrets`); probe / PDB / HPA sanity. Do not ask for a `Chart.yaml` version bump: `release.yml` sets `version` and `appVersion` on every release |
 | `docker/**`, `docker-compose/**`, `Dockerfile*` | Docker | `.agents/skills/docker-testing/SKILL.md`; `.agents/skills/docker-install/SKILL.md` | multi-stage build correctness; no secrets baked into layers; pinned base images |
-| `Cargo.toml`, `Cargo.lock`, `package.json`, `bun.lock`, `drizzle/**` | Build / deps / migrations | — | suspicious or major version bumps; migration file naming and forward-safety |
+| `Cargo.toml`, `Cargo.lock`, `package.json`, `bun.lock` | Build / deps | `.agents/skills/testing-guidelines/SKILL.md` for Vitest bumps | suspicious or major version bumps; a bump moves its plugin family to the same version (`vitest` with every `@vitest/*`) |
+| `crates/core/migrations/**` | Migrations | — | next free number on `main`, no clash; forward-safe; a `CREATE INDEX CONCURRENTLY` file carries `-- no-transaction` |
 | anything else | General | root `AGENTS.md` | general code quality (below) |
 
 ## General Code Quality
@@ -142,6 +143,13 @@ Apply to every changed file, on top of the domain rules.
 - Exposed secrets/credentials in code, config, Helm values, or Docker layers.
 - SQL built by string concatenation (require parameterized queries).
 - Missing authorization on new endpoints; PII in logs or error responses.
+
+### Docs that must move with the code
+- A removed symbol or a changed domain concept: grep `.plans/` and `CONTEXT.md` for
+  it, and flag prose the diff made false.
+- A gap the PR body lists as not covered needs a `docs/deferred-changes.md` entry.
+- A shortened comment still carries its trap (code that looks redundant) and the
+  qualifiers that scope its claim.
 
 ### Readability & Maintainability
 - Functions far past their domain's norm — suggest extraction.
@@ -227,13 +235,13 @@ compliant or not applicable; `[ ]` = issue, with a `file:line` reference in ital
 - [x] No `any`; narrow with `unknown`
 
 #### Rust (backend / sandbox / crates)  <!-- only if *.rs changed -->
-- [x] Clippy-clean intent — no `unwrap`/`expect`/`panic!` on runtime paths
-- [x] `thiserror` errors, `IntoResponse` for HTTP; `Arc` + `CancellationToken`
-- [x] Layered routes→handlers→services→dao; module layout intact
+- [x] No `panic!` on runtime paths; typed errors on reusable and domain APIs
+- [x] Spawned work owned and cancellable where the diff spawns any
+- [x] Each file holds its assigned responsibility (`file-roles.md`)
 - [x] utoipa OpenAPI annotations; parameterized SQLx
 
 #### Tests  <!-- only if test files changed -->
-- [x] Behavior not implementation; only external deps mocked
+- [x] Behavior not implementation; the unit under test is not mocked
 - [x] Correct framework/tier (Vitest for TS, `cargo test` for Rust)
 
 #### Plans  <!-- only if PR implements, completes, or edits a .plans spec -->
@@ -242,7 +250,7 @@ compliant or not applicable; `[ ]` = issue, with a `file:line` reference in ital
 
 #### Helm / Docker  <!-- only if k8s/helm or docker changed -->
 - [x] values↔template consistency; security contexts; sandbox isolation intact
-- [x] No hardcoded secrets; Chart version bumped on template changes
+- [x] No hardcoded secrets
 
 ### Additional Feedback
 #### Code Quality
@@ -262,20 +270,29 @@ When everything is clean, keep the checklist for the touched domains, mark all `
 and write a one-line "Clean implementation" note under Additional Feedback.
 
 ### Inline comment format
-```
+````
 **<rule>**: <one-line statement of what's violated>
 
 <why it matters in this codebase>
 
+```<lang>
 // Current
 <problematic code>
 
 // Expected
 <corrected code>
 ```
+````
+Fence the code: unfenced, GitHub renders it as a paragraph and joins its lines.
 Keep each inline comment to a single issue. Don't flag pre-existing code the PR doesn't
-touch — the diff is the scope. Be constructive; if unsure whether something is
-intentional, ask rather than assert.
+touch — the diff is the scope.
+
+Write findings and summaries to `general:writing-style` when it is loaded. State a
+confirmed problem with its trigger and consequence, and give the fix as an
+instruction, not "I'd" or "Could we". For an uncertain finding, lead with the
+possible cause and one "may", then the evidence and the next check; don't phrase
+it as a question. Text you suggest for a code comment follows the comment rules
+in root `AGENTS.md`, and avoids filler such as "load-bearing".
 
 ## Execution
 

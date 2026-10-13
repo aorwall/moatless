@@ -27,15 +27,24 @@ tier; select the owning crate's feature when testing database behavior.
 ## Keep build artifacts bounded
 
 Different crate/feature/profile/flag combinations can create additional compiler
-artifacts. Run scoped tests, and observe the `cargo check` prohibition in root
-AGENTS.md. Keep each worktree's own `target/`; do not share it across
-checkouts. If an error names a field present in source, check for shared artifacts
-as one possible cause before assuming the source is wrong.
+artifacts. Run scoped tests, and never run `cargo check`. Keep each worktree's
+own `target/`; do not share it across checkouts. If an error names a field
+present in source, check for shared artifacts as one possible cause before
+assuming the source is wrong.
 
-Before a full sandbox build and between commits, check the workspace volume as
-specified in root AGENTS.md. Overflow can evict the pod. `task rust:gc` reclaims
-incremental units while retaining dependency artifacts; `cargo clean` forces a
-cold rebuild. The cache and GC implementation in `Taskfile.yml` owns thresholds.
+A build is bounded by memory before disk: a cold floor line peaks around 6 GiB
+of the sandbox's cgroup cap and leaves about 7 GiB in `target/`. Read
+`/sys/fs/cgroup/memory.peak` after a build, and lower `CARGO_BUILD_JOBS` when it
+nears `memory.max`.
+
+Before a full sandbox build and between commits, measure the workspace volume.
+Do not use `df`: the volume's limit (`SANDBOX_WORKSPACE_LIMIT`) is metered
+outside the pod, and `df` reports the node's device. Add up `du -sx` on each
+mount point the volume backs: `/opt/moatless`, `/tmp`, and `/opt/cargo/registry`
+plus `/opt/cargo/git` when the cargo cache is persisted. Overflow can evict the
+pod. `task rust:gc` reclaims incremental units while retaining dependency
+artifacts; `cargo clean` forces a cold rebuild. The cache and GC implementation
+in `Taskfile.yml` owns thresholds.
 
 Historical measurements from September 2026 illustrate the cost, not a timing
 promise for the current crate graph: a cold workspace floor took 6m37s and about

@@ -83,6 +83,14 @@ site. Use `#[allow(lint, reason = "...")]` only when conditional expansion or
 configuration means the lint may not fire. Remove obsolete suppressions; never
 add an unreasoned local suppression.
 
+### Fail loudly from a write-path trait default
+
+A default method that returns `Ok(())` turns a missed override into a silent
+no-op: events, acks or writes are dropped and nothing compiles differently. A
+default on a write path returns an error such as
+`Status::unimplemented("<method> not supported")`; a fake that needs success
+overrides it in one line. A read-path default may answer as an empty store.
+
 ### Keep visibility narrow
 
 Use the smallest visibility required by real consumers. Do not expose an item
@@ -111,6 +119,10 @@ The comment rules in the root `AGENTS.md` apply. Rust specifics:
   `ignore`. Tag it unless it should compile and run.
 - The `// reason:` comment on a `ScopeContext::system` call states the cause
   only.
+- After shortening a comment, re-read it against the code. Keep any clause
+  that defends code which looks redundant (a second `ORDER BY`, an extra
+  check), keep the qualifiers that scope a claim ("every other event a Task
+  produces", not "every event"), and confirm the sentence still parses.
 
 ### Format with `cargo fmt`
 

@@ -1,183 +1,118 @@
 # AGENTS.md
 
-Moatless Vibe runs coding agents (Claude Code, Codex) inside on-demand sandboxes
-against git repositories. People drive an agent directly, or a Loop runs one on
-a schedule. `CONTEXT.md` is the glossary, and it names every term this repo
-uses. The workspace holds the shared TypeScript packages (`packages/`), the
-Rust backend and sandbox (`crates/`), the E2E suite (`tests/`) and the
-deployment definitions (`docker/`, `docker-compose/`, `k8s/`).
+Moatless Vibe runs coding agents (Claude Code, Codex) in on-demand sandboxes
+against git repositories, driven by a person or on a schedule by a Loop.
+`CONTEXT.md` is the glossary. `packages/` holds the shared TypeScript packages,
+`crates/` the Rust backend and sandbox, `tests/` the E2E suite, and `docker/`,
+`docker-compose/` and `k8s/` the deployment definitions.
 
-The UI is T3 Code, built from the separate `soaplabs/t3code` repository. It
-talks to the backend over UI-RPC (`crates/t3code`); `t3-development` covers
-working on the pair. `apps/frontend` is the retired Moatless UI: it sits outside
-the bun workspace, and nothing builds, checks or deploys it. Do not change it.
+The UI is T3 Code, built from the separate `soaplabs/t3code` repository and
+served over UI-RPC (`crates/t3code`); see the `t3-development` skill. Do not
+change `apps/frontend`: it is the retired UI, and nothing builds or deploys it.
 
-## Running builds, tests and linters
+## Commands
 
-The `testing-guidelines` skill owns the test entry points these blocks omit and
-the Turbo filter trap. `e2e-testing` owns the E2E suite in `tests/`, which
-exercises the whole stack: its local harness, the CI job, and the sweeper that
-clears what a killed run left behind.
+`testing-guidelines` owns the other test entry points and `e2e-testing` the
+E2E suite.
 
-### TypeScript packages (bun 1.2.19+)
 ```bash
-bun install
-bun run build
+bun install && bun run build
 bun run test             # excludes E2E
-bun run type:check       # shared packages
-bun run biome:check      # lint/format (biome:fix to auto-fix)
-bun run check:turbo      # all checks (fastest full validation)
-```
+bun run check:turbo      # every TypeScript check
 
-### Rust backend and sandbox
-```bash
-cargo build -p moatless-backend        # or moatless-sandbox
-cargo fmt --all                             # CI fails an unformatted tree
-cargo clippy --workspace --all-targets -- -D warnings        # the floor: every member
+cargo fmt --all
+cargo clippy --workspace --all-targets -- -D warnings        # the floor
 cargo clippy -p moatless-core --all-targets --features openapi -- -D warnings
 cargo clippy -p moatless-core --all-targets -- -D warnings
 cargo clippy -p moatless-ports --all-targets --all-features -- -D warnings
 cargo clippy -p moatless-ports --all-targets --no-default-features -- -D warnings
-task rust:clippy:db-tests                   # every package declaring db-tests, nine today
-cargo test -p <crate>                       # scope to the crate you changed, never --workspace
-bash .github/scripts/test-workspace-contracts.sh # isolated Workspace contract features
+task rust:clippy:db-tests                   # every package declaring db-tests
+cargo test -p <crate>                       # never --workspace
+bash .github/scripts/test-workspace-contracts.sh
 task rust:gc                                # reclaim target/debug/incremental
-CLAUDE_SDK_E2E=1 cargo test -p moatless-sandbox --test agent_e2e -- --ignored --nocapture
+
+task deploy [TAG=v2.0.0]                    # also deploy:backend, status, logs
+git tag v0.1.21 && git push origin v0.1.21  # triggers release.yml
 ```
 
-Run those clippy lines verbatim; add no `-p` line for the crate you touched, and
-never run `cargo check`. `crates/codex-sdk` sits outside the workspace and
-carries its own build and clippy line in its `Cargo.toml`. Read
-`rust-dev-guidelines` before you change a cargo invocation. A full build is
-bounded by memory before disk — a cold floor line peaks around 6.0 GiB of the
-sandbox's 8 GiB cgroup cap, and leaves 7 GiB in `target/` — so read
-`/sys/fs/cgroup/memory.peak` after a build, and lower `CARGO_BUILD_JOBS` when it
-nears `memory.max`. Do not use `df` for either number: the workspace volume's
-size limit is metered outside the pod's filesystem (it is in
-`SANDBOX_WORKSPACE_LIMIT`), and `df` reports the node's device. Measure it by
-adding up `du -sx` on each mount point that volume backs: `/opt/moatless`,
-`/tmp`, and `/opt/cargo/registry` plus `/opt/cargo/git` when the cargo cache is
-persisted. Run `task rust:gc` when the total approaches the cap.
-
-### Building, deploying and releasing
-```bash
-task deploy [TAG=v2.0.0]                                        # also deploy:backend, status, logs, restart
-git tag v0.1.21 && git push origin v0.1.21                      # triggers release.yml
-```
+- Run the clippy lines verbatim. Add no `-p` line of your own, and never run
+  `cargo check`. `crates/codex-sdk` is outside the workspace; its `Cargo.toml`
+  carries its own lines.
+- Read `rust-dev-guidelines` before you change a cargo invocation, and its
+  `build-costs.md` before a full build: a build is bounded by memory and disk.
 
 ## Verifying a change
 
-Mandatory after every change.
+Run these after every change; pre-push runs only Biome and type-check.
 
-- **Rust:** `cargo fmt --all`, the floor line, plus any `-p` line above naming
-  the crate you touched, verbatim. Then `cargo test -p <crate>`, then
-  `cargo test -p moatless-arch-rules` (its own CI job, and the one a new trait
-  impl, a moved type or a dropped crate edge breaks — with `cargo test`, never
-  `cargo nextest run`) and `cargo run -p moatless-arch-rules --bin arch-report
-  -- --comments --since main` for the comment ceilings above.
-- **TypeScript:** `bun run type:check` and `bun run biome:check`, or
-  `bun run post-edit-hook` for a quick loop.
-- **Lint ratchet:** `noFloatingPromises`, `noMisusedPromises` and
-  `useExhaustiveSwitchCases` are baselined per file in `biome-baseline.json`.
-  Fix them in any file you touch, then run `bun run lint:ratchet:update`. A new
-  file must be clean, and the baseline only shrinks.
+- **Rust:** `cargo fmt --all`, the floor line plus any clippy line naming the
+  crate you touched, `cargo test -p <crate>`, and
+  `cargo test -p moatless-arch-rules` (never `cargo nextest`). Then run
+  `cargo run -p moatless-arch-rules --bin arch-report -- --comments --since main`
+  for the comment ceilings.
+- **TypeScript:** `bun run type:check` and `bun run biome:check`.
+- **Lint ratchet:** fix the `biome-baseline.json` entries in any file you touch,
+  then run `bun run lint:ratchet:update`. A new file must be clean.
+- **Docs:** when you remove a symbol or change a domain concept, grep `.plans/`
+  and `CONTEXT.md` for it, then run `./scripts/check-plan-assertions.sh`.
 
-## Writing pragmatic code
+## Writing code
 
-- Add no trait or interface with a single implementation. A test mock counts
-  only when a test uses it.
-- When the code you are changing sits in the wrong module, move it in the same
-  change and say so in the PR body, so a reviewer reads the rename apart from
-  the edits that follow it.
-- Define a verifiable success criterion before you start: a failing test, or a
+- Add no trait or interface with a single implementation, unless a test mocks
+  it.
+- Move code that sits in the wrong module in the same change, and say so in the
+  PR body.
+- Define a success criterion before you start: a failing test or a
   reproducible check.
 
-## Writing a commit and a pull request
+## Commits and pull requests
 
-Write conventional commits: `type(optional-scope): subject`, header 100
-characters or fewer. **`commitlint.config.ts` is the authority on which types
-and scopes are valid** — this file restates neither list, so settle a case by
-asking the linter: `printf 'feat: x\n' | bunx commitlint`.
-
-**Two checks run, over different commits.** `.husky/commit-msg` lints each local
-commit; `.github/workflows/pr-title.yml` lints the **pull request title**, which
-is what reaches `main`, because this repo squash-merges and GitHub composes the
-squash commit from the title where no git hook runs. That title check is
-advisory — absent from `main`'s required-status-check list, so a red one blocks
-no merge and a reviewer has to notice it.
-
-**Land one commit per pull request.** A branch's internal commits never reach
-`main`, so use the PR body to sequence anything a reader needs in order.
-Pre-push runs `bun check:pre-push` — Biome and type-check only, no tests — so
-run the verification above yourself.
+- Write conventional commits, header 100 characters or fewer.
+  `commitlint.config.ts` owns the types and scopes; test a header with
+  `printf 'feat: x\n' | bunx commitlint`.
+- The repo squash-merges, so the PR title becomes the commit on `main`. Lint the
+  title too: its CI check is advisory and blocks no merge.
+- Land one commit per PR, and sequence anything a reader needs in the PR body.
+- Record a real problem you are deliberately not fixing in
+  `docs/deferred-changes.md`, with an anchor and the condition that makes it
+  worth doing. That includes a gap the PR body lists as not covered. Read the
+  file before you start work in an area.
 
 ## Writing a comment
 
-A comment carries a fact the code cannot show. Work through this in order:
+A comment carries a fact the code cannot show, so it never restates the code.
+Write none unless the fact is an invariant, a "do not do X" with what breaks,
+a non-obvious mechanic, or a unit or ordering the signature omits. A public
+item gets a one-line doc.
 
-1. **Default to none — write only when the fact is** an invariant, a "do not do
-   X" with what breaks, a non-obvious mechanic, or a unit/ordering the
-   signature omits. A public item also gets a one-line doc saying what it is.
-2. **Stop at five lines for a comment, eight for a module doc; past that, name
-   the kind that needs the length, or cut back.** Unnamed excess gets deleted,
-   not argued for. A line counts as what it costs wrapped at 80 columns and a
-   blank line as nothing, so neither joining two lines nor deleting the
-   paragraph break buys anything.
-3. **Delete what no reader needs; do not relocate it** — never into an
-   `AGENTS.md`. Text moves to the commit or the pull request only when a
-   reviewer of that change needs it.
-
-Past the one-line summary:
-
-- **Do not restate the body**, and put a contract in a structured slot. A trait
-  method's, an interface member's or a props field's doc is the whole contract,
-  and stays.
-- **State a design fact once, on the symbol that owns it, never on a sibling**
-  — an enum its variants, a field its default and writers, the nearest
-  `AGENTS.md` a cross-cutting rule; elsewhere, link to the owner.
-- **End a rationale on what depends on it** — the caller or invariant that
-  breaks under the alternative. Name it with `deliberately`/`rather than`, and
-  leave the alternative itself in the pull request.
-- **Use the code's own names, in backticks**, and name the wrong assumption a
-  negative prevents: "No `Activated` row here: `active` was already true" stays,
-  "Not the same as `Pending`" goes.
-- **Put a trap in a `//` comment on the line it protects**: symptom, cause,
-  fix. A precondition binding every caller goes once, on the owning function's
-  doc, and each call site links back in one line.
-- **Narrate no change.** "Previously", "used to" and "no longer" go to the
-  commit or PR; a `legacy`/`deprecated` status word is a design fact stated
-  once.
-
-`rust-dev-guidelines` holds the Rust specifics.
-
-**Enforcement.** `clippy::too_long_first_doc_paragraph` caps a public item's
-first paragraph at 200 characters and reads no private item. In `arch-rules`,
-`agents-md-budget` holds this file's own budget and `duplicate-comment-prose`
-"state a design fact once", both across siblings and between an `AGENTS.md` and
-the rustdoc it describes; both run on a baseline that only shrinks. The two
-ceilings above are advisory: `arch-report --comments` is not a registered rule
-and has no baseline, and CI posts a review comment per block a change adds
-rather than failing on it. Every other rule here is unchecked.
+- Stop at five lines for a comment and eight for a module doc, counted wrapped
+  at 80 columns with blank lines free. Past that, name the kind of fact that
+  needs the length, or cut back.
+- Delete what no reader needs; never move it into an `AGENTS.md`. Text goes to
+  the commit or PR only when a reviewer of that change needs it.
+- State a design fact once, on the symbol that owns it, and link to it
+  elsewhere. A trait method's or props field's doc is its whole contract. A
+  precondition binding every caller goes on the owning function's doc, and each
+  call site links back in one line.
+- End a rationale on what breaks under the alternative, named with
+  `deliberately` or `rather than`; the alternative itself goes in the PR.
+- Put a trap on the line it protects: symptom, cause, fix.
+- Use the code's own names, in backticks. A negative names the wrong assumption
+  it prevents: "No `Activated` row here: `active` was already true", not "Not
+  the same as `Pending`".
+- Narrate no change: "previously" and "no longer" belong in the commit.
+- `rust-dev-guidelines` holds the Rust specifics. `arch-rules` enforces this
+  file's budget and duplicated prose; the comment ceilings are advisory.
 
 ## Finding conventions
 
-- `CONTEXT.md` is the domain glossary. Treat current code and tests as the
-  authority and a document as a routing aid. Read `.plans/` only when you are
-  asked to implement or review that plan; an unscoped feature idea no plan
-  covers goes in `docs/ideas/` (see `docs/ideas/README.md`).
-- Put a durable local guideline in the nearest relevant `AGENTS.md`. When you
-  edit a path, read the `AGENTS.md` files in that directory and its parents. A
-  rule stated in a parent is not restated in a child.
-- An `AGENTS.md` holds operational guidance only: what a future agent must do
-  and must not do, where the code does not already show it. Give a reason only
-  when the rule reads as arbitrary without one, and keep it to a clause. A
-  decision, a rejected alternative or a history note goes in the commit or the
-  pull request when a reviewer needs it, and nowhere when they do not.
-- Every `AGENTS.md` has a committed `CLAUDE.md` symlink beside it, and
-  `.claude/skills` is a committed symlink to `.agents/skills`. Nothing creates
-  either at runtime, so commit `ln -s AGENTS.md CLAUDE.md` when you add one.
-- Record a real problem you are deliberately not fixing in
-  `docs/deferred-changes.md`, with an anchor and the condition that makes it
-  worth doing. Read that file before you start work in an area.
-- `routeTree.gen.ts` is generated, and lint and format exclude it. Edit the
-  routes, never the tree.
+- Treat code and tests as the authority, and documents as routing aids. Read
+  `.plans/` only when asked to implement or review that plan; an unplanned idea
+  goes in `docs/ideas/`.
+- When you edit a path, read the `AGENTS.md` files in its directory and parents.
+  Put a durable local rule in the nearest one, and do not restate a parent's.
+- An `AGENTS.md` holds what an agent must and must not do, where the code does
+  not show it. History and rejected alternatives go in the commit or PR.
+- Every `AGENTS.md` has a committed `CLAUDE.md` symlink beside it
+  (`ln -s AGENTS.md CLAUDE.md`), and `.claude/skills` links to `.agents/skills`.
+- `routeTree.gen.ts` is generated. Edit the routes, never the tree.
