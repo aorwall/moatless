@@ -106,6 +106,21 @@ async fn the_descriptor_advertises_the_per_thread_script_listing() {
     );
 }
 
+/// One web build serves T3 servers too, and reads these two keys to tell this
+/// one apart: without them it shows every surface and no Moatless login.
+#[tokio::test]
+async fn the_descriptor_declares_the_moatless_api_and_the_surfaces_it_cannot_back() {
+    let frame = request("1", "server.getConfig", json!({}));
+    let mut connection = connection();
+    let output = connection.exchange(&frame, &state(), &viewer()).await;
+    let capabilities = &output.frames[0]["exit"]["value"]["environment"]["capabilities"];
+
+    assert_eq!(capabilities["moatlessApi"], json!(true));
+    let surfaces = capabilities["unsupportedSurfaces"].as_array().unwrap();
+    assert!(surfaces.contains(&json!("turnDiffs")));
+    assert!(surfaces.contains(&json!("worktreeSelection")));
+}
+
 /// The two keys the composer reads before choosing how to send a file.
 /// Reporting `attachmentUploads` also moves images off the inline data-URL
 /// path; report both or the attachment is lost.

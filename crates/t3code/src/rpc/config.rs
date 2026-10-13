@@ -11,6 +11,34 @@ use moatless_types::ui_rpc::UiRpcAuthMethod;
 use serde_json::Value;
 use serde_json::json;
 
+/// Client surfaces this server cannot back, by the web client's `FeatureName`
+/// in `apps/web/src/fork/features.ts`; the client hides each one listed. Drop a
+/// name here when the methods behind it are served.
+const UNSUPPORTED_SURFACES: &[&str] = &[
+    "turnDiffs",
+    "projectManagement",
+    "workspaceSearchContents",
+    "openInEditor",
+    "serverAdministration",
+    "providerConfiguration",
+    "diagnostics",
+    "connections",
+    "assistantStreaming",
+    "serverUpdateBanner",
+    "projectGrouping",
+    "accessMode",
+    "worktreeSelection",
+    "browserHistory",
+    "snapShots",
+    "checkpointFileRestore",
+    "pullRequestSurface",
+    "deviceHub",
+    "mergeBack",
+    "scheduledTasks",
+    "defaultModelSetting",
+    "serverBehaviorSettings",
+];
+
 pub(crate) fn descriptor(config: &UiRpcConfig) -> Value {
     let mut descriptor = json!({
         "environmentId": config.environment_id,
@@ -102,7 +130,11 @@ pub(crate) fn descriptor(config: &UiRpcConfig) -> Value {
             "threadTitleRegeneration": true,
             // `thread.pull-request.watch`. Every linked pull request wakes the
             // agent until a watch is turned off.
-            "threadPullRequestWatch": true
+            "threadPullRequestWatch": true,
+            // The `/api/v1` REST API and its cookie login share this origin.
+            // Absent, the client offers T3 pairing and no administration pages.
+            "moatlessApi": true,
+            "unsupportedSurfaces": UNSUPPORTED_SURFACES
         }
     });
 
