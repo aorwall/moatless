@@ -51,6 +51,12 @@ schedule a fallback wakeup.
 do, the sandbox still counts the command as owed to you. Killing it counts as
 reading it.
 
+**Queue work behind a running command** with
+`moat cmd run "moat cmd wait <id> && <next>"`. `wait` exits with the command's
+own code. Never loop on `moat cmd status <id> | grep running`: the status
+output ends with the command's log, and `cargo test` prints `running N tests`,
+so the loop never exits.
+
 **Only a registered command holds the sandbox open.** A process you fork from a
 Bash tool call with `&` is invisible to the idle reaper, which will stop the pod
 underneath it. Start anything that must outlive the turn through `moat cmd run`.

@@ -1,12 +1,8 @@
 //! Spawning the real `gh`, and the exit status its failure travels on.
 
 use super::token::github_token_for_gh;
+use crate::commands::CommandExit;
 use crate::config::Config;
-
-/// A subprocess status returned to the executable entry point.
-#[derive(Debug, thiserror::Error)]
-#[error("gh exited with status {0}")]
-pub struct CommandExit(pub i32);
 
 pub(super) fn command_status(code: i32) -> Result<(), Box<dyn std::error::Error>> {
     if code == 0 {

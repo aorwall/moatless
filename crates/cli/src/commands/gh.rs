@@ -20,6 +20,5 @@ mod token;
 mod typed;
 
 pub use dispatch::run;
-pub use process::CommandExit;
 pub(super) use process::gh_command_output;
 pub(super) use token::github_token_for_gh;

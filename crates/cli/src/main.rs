@@ -25,7 +25,7 @@ async fn main() {
     };
 
     if let Err(e) = result {
-        if let Some(status) = e.downcast_ref::<moatless_cli::commands::gh::CommandExit>() {
+        if let Some(status) = e.downcast_ref::<moatless_cli::commands::CommandExit>() {
             std::process::exit(status.0);
         }
         eprintln!("Error: {e}");

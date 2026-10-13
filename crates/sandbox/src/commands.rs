@@ -527,29 +527,34 @@ impl CommandRegistry {
     /// so the turn-end watch owes no wake; `None` reads every command.
     ///
     /// Separate from `list`, whose backend poll must never mark a command seen.
+    /// Mirrors only when a read reports something: `moat cmd wait` reads every
+    /// few seconds, and each mirror is a journal write plus a backend call.
     pub async fn read_for_agent(
         &self,
         id: Option<&str>,
     ) -> Result<Vec<CommandRecord>, CommandError> {
         let mut entries = self.entries.write().await;
+        let mut newly_reported = false;
+        let mut read = |e: &mut Entry| {
+            if !e.reported && e.command.state.is_terminal() {
+                e.reported = true;
+                newly_reported = true;
+            }
+            e.command.clone()
+        };
         let mut out: Vec<CommandRecord> = match id {
             Some(id) => {
                 let entry = entries
                     .get_mut(id)
                     .ok_or_else(|| CommandError::NotFound(id.to_string()))?;
-                entry.reported |= entry.command.state.is_terminal();
-                vec![entry.command.clone()]
+                vec![read(entry)]
             }
-            None => entries
-                .values_mut()
-                .map(|e| {
-                    e.reported |= e.command.state.is_terminal();
-                    e.command.clone()
-                })
-                .collect(),
+            None => entries.values_mut().map(read).collect(),
         };
         out.sort_by_key(|c| c.started_at_unix_ms);
-        self.persist(&entries).await;
+        if newly_reported {
+            self.persist(&entries).await;
+        }
         Ok(out)
     }
 
@@ -1441,6 +1446,32 @@ mod tests {
         assert!(
             journal_now(&path).await.is_empty(),
             "a reported command must not survive into the next pod"
+        );
+    }
+
+    /// `moat cmd wait` reads a running command every few seconds; a read that
+    /// reports nothing must not rewrite the journal or call the backend.
+    #[tokio::test]
+    async fn reading_a_running_command_does_not_rewrite_the_journal() {
+        let (reg, path) = journalled(Duration::from_mins(1));
+        let cmd = reg
+            .run(CommandSpec {
+                command: "sleep 30".into(),
+                cwd: None,
+                timeout: None,
+                label: None,
+            })
+            .await
+            .expect("spawn");
+        tokio::fs::remove_file(&path)
+            .await
+            .expect("journal written");
+
+        reg.read_for_agent(Some(&cmd.id)).await.expect("read");
+        reg.read_for_agent(None).await.expect("read all");
+        assert!(
+            !path.exists(),
+            "a read that reports nothing must not mirror"
         );
     }
 

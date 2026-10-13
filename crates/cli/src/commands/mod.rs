@@ -7,6 +7,7 @@ pub mod cmd;
 pub mod decide;
 pub mod docker;
 pub mod events;
+mod exit;
 pub mod feedback;
 pub mod gh;
 pub mod github_apps;
@@ -28,3 +29,5 @@ pub mod tasks;
 pub mod teams;
 pub mod users;
 pub mod workspaces;
+
+pub use exit::CommandExit;

@@ -14,6 +14,8 @@ use sandbox_proto::{
     KillCommandRequest, ListCommandsRequest, ManagedCommand, ManagedCommandState, RunCommandRequest,
 };
 
+use crate::commands::CommandExit;
+
 /// Lines of the log tail printed by `status` and `logs` when no `--lines` is
 /// given.
 const DEFAULT_LOG_LINES: usize = 50;
@@ -21,6 +23,9 @@ const DEFAULT_LOG_LINES: usize = 50;
 /// How long `run` waits before checking that the command is still alive, so an
 /// instant failure is reported here rather than only at the next wake.
 const EARLY_EXIT_GRACE: Duration = Duration::from_secs(1);
+
+/// How often `wait` re-reads the command's state.
+const WAIT_POLL_INTERVAL: Duration = Duration::from_secs(5);
 
 #[derive(clap::Subcommand)]
 pub enum CmdAction {
@@ -47,12 +52,22 @@ pub enum CmdAction {
     List,
 
     /// Show one command, with a tail of its log.
+    ///
+    /// The tail is the command's own output, so do not grep this for a state:
+    /// `cargo test` prints `running N tests`. Use `wait` or `--json` instead.
     Status {
         id: String,
-        /// Lines of log to show.
+        /// Lines of log to show. 0 shows none.
         #[arg(long, short = 'n', default_value_t = DEFAULT_LOG_LINES)]
         lines: usize,
     },
+
+    /// Block until a command finishes, then exit with its exit code.
+    ///
+    /// Queue work behind a running command with
+    /// `moat cmd run "moat cmd wait <id> && <next>"`. Counts as reading the
+    /// outcome back, as `status` does.
+    Wait { id: String },
 
     /// Print a command's combined stdout/stderr.
     Logs {
@@ -116,6 +131,10 @@ pub async fn run(
                     "The sandbox stays awake until this finishes; you will be woken when it does. \
                      End your turn — do not poll it or schedule a fallback wakeup."
                 );
+                println!(
+                    "To queue work behind it: moat cmd run \"moat cmd wait {} && <next>\"",
+                    cmd.id
+                );
             } else {
                 println!("{}", summary_line(&cmd));
                 println!("  log:     {}", cmd.log_path);
@@ -153,8 +172,26 @@ pub async fn run(
                 println!("{}", summary_line(&cmd));
                 println!("  command: {}", cmd.command);
                 println!("  log:     {}", cmd.log_path);
-                print_tail(&cmd.log_path, lines);
+                if lines > 0 {
+                    print_tail(&cmd.log_path, lines);
+                }
             }
+        }
+
+        CmdAction::Wait { id } => {
+            let cmd = loop {
+                let cmd = fetch_one(&mut client, &id, task_id.clone()).await?;
+                if cmd.state() != ManagedCommandState::Running {
+                    break cmd;
+                }
+                tokio::time::sleep(WAIT_POLL_INTERVAL).await;
+            };
+            if json {
+                print_json(&[&cmd]);
+            } else {
+                println!("{}", summary_line(&cmd));
+            }
+            wait_outcome(&cmd)?;
         }
 
         CmdAction::Logs { id, lines } => {
@@ -198,6 +235,15 @@ async fn fetch_one(
         .into_iter()
         .next()
         .ok_or_else(|| format!("no command with id {id}").into())
+}
+
+/// `wait`'s exit: the finished command's own code, and 1 for a command that
+/// left none, such as one killed by a signal.
+fn wait_outcome(cmd: &ManagedCommand) -> Result<(), CommandExit> {
+    match cmd.exit_code {
+        Some(0) => Ok(()),
+        code => Err(CommandExit(code.unwrap_or(1))),
+    }
 }
 
 fn summary_line(cmd: &ManagedCommand) -> String {
@@ -278,6 +324,31 @@ fn now_unix_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn finished(state: ManagedCommandState, exit_code: Option<i32>) -> ManagedCommand {
+        let mut cmd = ManagedCommand {
+            exit_code,
+            ..Default::default()
+        };
+        cmd.set_state(state);
+        cmd
+    }
+
+    #[test]
+    fn wait_exits_with_the_finished_commands_code() {
+        assert!(wait_outcome(&finished(ManagedCommandState::Exited, Some(0))).is_ok());
+        let failed = wait_outcome(&finished(ManagedCommandState::Exited, Some(101)));
+        assert_eq!(failed.map_err(|e| e.0), Err(101));
+        let timed_out = wait_outcome(&finished(ManagedCommandState::TimedOut, Some(124)));
+        assert_eq!(timed_out.map_err(|e| e.0), Err(124));
+    }
+
+    /// A `&&` after `wait` must not run behind a killed command.
+    #[test]
+    fn wait_fails_for_a_command_that_left_no_exit_code() {
+        let killed = wait_outcome(&finished(ManagedCommandState::Killed, None));
+        assert_eq!(killed.map_err(|e| e.0), Err(1));
+    }
 
     #[test]
     fn an_absent_cwd_is_the_callers_directory() {
