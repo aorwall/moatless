@@ -5,10 +5,11 @@
 //! that boxes it. The composition root builds these once and hands out the port
 //! a consumer needs.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use moatless_ports::activity::ActivitySource;
+use moatless_ports::activity::{ActivitySource, SubagentUsage};
 use moatless_ports::task::{
     AssistantReply, CloseReason, EventSubject, ExternalEvent, InboundTurn, MessageAcceptor,
     NewTask, PendingWorkReader, RelationRecorder, SandboxProvision, TagResolver, TaskDescriptor,
@@ -498,5 +499,26 @@ impl ActivitySource for Activities {
             .map_err(|e| {
                 StoreError::with_source(format!("read the {tool_use_id} call on {task_id}"), e)
             })
+    }
+
+    async fn settled_calls(
+        &self,
+        task_id: &str,
+        tool_use_ids: &[String],
+    ) -> Result<HashSet<String>, StoreError> {
+        crate::activities::dao::settled_calls(&self.pool, task_id, tool_use_ids)
+            .await
+            .map(|settled| settled.into_iter().collect())
+            .map_err(|e| StoreError::with_source(format!("read settled calls on {task_id}"), e))
+    }
+
+    async fn subagent_usage(
+        &self,
+        task_id: &str,
+        calls: &[String],
+    ) -> Result<Vec<SubagentUsage>, StoreError> {
+        crate::conversation::read_dao::subagent_usage(&self.pool, task_id, calls)
+            .await
+            .map_err(|e| StoreError::with_source(format!("read subagent usage on {task_id}"), e))
     }
 }

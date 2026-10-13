@@ -444,6 +444,18 @@ async fn a_subagent_line_hangs_under_its_spawning_call(pool: PgPool) {
         response_usage(&pool, TASK).await.unwrap().is_empty(),
         "the Task's own statistics leave the subagent out"
     );
+    assert_eq!(
+        crate::conversation::read_dao::subagent_usage(&pool, TASK, &["toolu_1".to_string()])
+            .await
+            .unwrap(),
+        [moatless_ports::activity::SubagentUsage {
+            tool_use_id: "toolu_1".to_string(),
+            responses: 1,
+            input_tokens: 5,
+            output_tokens: 2,
+        }],
+        "summed under the spawning call"
+    );
     let parent: Option<String> = sqlx::query_scalar(
         "SELECT m.parent_tool_use_id FROM conversation_messages m
            JOIN trajectory_events e ON e.id = m.trajectory_event_id

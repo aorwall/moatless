@@ -179,6 +179,29 @@ impl sqlx::FromRow<'_, PgRow> for StoredActivity {
     }
 }
 
+/// Of the tool calls `tool_use_ids` names, the ones no longer in progress.
+pub(crate) async fn settled_calls(
+    pool: &DbPool,
+    task_id: &str,
+    tool_use_ids: &[String],
+) -> Result<Vec<String>, sqlx::Error> {
+    if tool_use_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    sqlx::query_scalar(
+        r#"SELECT tool_use_id
+           FROM conversation_activities
+           WHERE task_id = $1
+             AND tool_use_id = ANY($2)
+             AND kind = 'tool_call'
+             AND status <> 'in_progress'"#,
+    )
+    .bind(task_id)
+    .bind(tool_use_ids)
+    .fetch_all(pool)
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use moatless_types::activity::ActivityKind;

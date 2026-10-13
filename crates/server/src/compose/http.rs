@@ -109,10 +109,7 @@ pub(crate) async fn ui_rpc(
                 git_host_tokens: app_state.git_host_tokens.clone(),
             }),
             commands: Arc::new(t3code::backend::AppStateCommands(app_state.clone())),
-            attachments: Arc::new(t3code::backend::AppStateAttachments(
-                app_state.clone(),
-                ports.t3_graph.reads().clone(),
-            )),
+            attachments: Arc::new(t3code::backend::AppStateAttachments(app_state.clone())),
             model_defaults: moatless_t3code::AgentModelDefaults {
                 claude_code: config.sandbox.default_model.clone(),
                 codex: Some(config.sandbox.default_codex_model.clone()),

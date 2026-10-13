@@ -207,6 +207,11 @@ pub(crate) trait MessageDao: Send + Sync {
     async fn file_id_used_in_task(&self, task_id: &str, file_id: &str)
     -> Result<bool, sqlx::Error>;
 
+    /// Whether any Task's Message carries `file_id`, sent or still queued: by
+    /// id, or as a `file` context. Once one does, the upload is no longer a
+    /// draft its uploader may delete.
+    async fn file_on_any_message(&self, file_id: &str) -> Result<bool, sqlx::Error>;
+
     /// Locate the most recent user-turn that was acknowledged by the sandbox,
     /// has this Task's own `task_turns` row, and has no terminal event
     /// (`completed/error/stopped`) on it or any later turn. Returns `None` when
@@ -524,10 +529,10 @@ impl MessageDao for PgMessageDao {
         Ok(read_dao::subagent_usage(&self.0, task_id, tool_use_ids)
             .await?
             .into_iter()
-            .map(|(parent_uuid, message_count, tokens)| SubagentAggregate {
-                parent_uuid,
-                message_count,
-                tokens,
+            .map(|usage| SubagentAggregate {
+                parent_uuid: usage.tool_use_id,
+                message_count: usage.responses,
+                tokens: usage.input_tokens + usage.output_tokens,
             })
             .collect())
     }
@@ -582,6 +587,10 @@ impl MessageDao for PgMessageDao {
         file_id: &str,
     ) -> Result<bool, sqlx::Error> {
         read_dao::file_attached(&self.0, task_id, file_id).await
+    }
+
+    async fn file_on_any_message(&self, file_id: &str) -> Result<bool, sqlx::Error> {
+        read_dao::file_on_any_message(&self.0, file_id).await
     }
 
     async fn find_interrupted_turn(

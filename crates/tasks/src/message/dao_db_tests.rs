@@ -950,3 +950,84 @@ async fn find_interrupted_turn_reads_recovery_attempts_from_task_turns(pool: PgP
     // The turn's run_id rides along so the recovery re-drive can reuse it.
     assert_eq!(interrupted.run_id.as_deref(), Some("run-orig"));
 }
+
+/// A queued item counts as soon as it names the upload, by id or as a `file`
+/// context, on any Task; an upload nothing names is still a draft.
+#[sqlx::test]
+async fn an_upload_is_on_a_message_once_any_item_names_it(pool: PgPool) {
+    seed_task(&pool, "task-1", "user-1").await;
+    let by_id = crate::inbox::NewInboxItem {
+        file_ids: vec!["file-by-id".to_string()],
+        ..crate::message::test_support::user_item("task-1", uuid::Uuid::new_v4(), "one")
+    };
+    let mut by_context =
+        crate::message::test_support::user_item("task-1", uuid::Uuid::new_v4(), "two");
+    by_context.options.contexts = vec![crate::inbox::InboxContext {
+        context_type: "file".to_string(),
+        reference_id: "file-by-context".to_string(),
+        data: serde_json::json!({}),
+    }];
+    for item in [by_id, by_context] {
+        crate::message::test_support::queue_message(&pool, item)
+            .await
+            .unwrap();
+    }
+
+    let repo = PgMessageDao(pool.clone());
+    assert!(repo.file_on_any_message("file-by-id").await.unwrap());
+    assert!(repo.file_on_any_message("file-by-context").await.unwrap());
+    assert!(!repo.file_on_any_message("file-nobody-sent").await.unwrap());
+}
+
+/// A call settles once its result arrives; an unanswered one stays out.
+#[sqlx::test]
+async fn only_a_call_with_its_result_is_settled(pool: PgPool) {
+    use moatless_ports::activity::ActivitySource;
+
+    seed_task(&pool, "task-1", "user-1").await;
+    let mut assistant = make_message_row("task-1", "assistant-uuid");
+    assistant.message_type = MessageType::Assistant;
+    assistant.message_role = MessageRole::Assistant;
+    let conversation = conversation_write(
+        "assistant-uuid",
+        assistant.message_type,
+        &serde_json::json!([
+            { "type": "tool_use", "id": "tu-answered", "name": "Bash", "input": {} },
+            { "type": "tool_use", "id": "tu-open", "name": "Bash", "input": {} }
+        ]),
+    );
+    crate::message::test_support::seed_message(&pool, &assistant, &[], &conversation)
+        .await
+        .unwrap();
+    crate::message::test_support::seed_activities(
+        &pool,
+        "task-1",
+        "assistant-uuid",
+        &conversation_write(
+            "result-uuid",
+            MessageType::User,
+            &serde_json::json!([
+                { "type": "tool_result", "tool_use_id": "tu-answered", "content": "ok" }
+            ]),
+        ),
+    )
+    .await
+    .unwrap();
+
+    let activities = crate::compose::task_graph(pool.clone()).activities();
+    let settled = activities
+        .settled_calls(
+            "task-1",
+            &["tu-answered".to_string(), "tu-open".to_string()],
+        )
+        .await
+        .unwrap();
+    assert_eq!(settled, ["tu-answered".to_string()].into());
+    assert!(
+        activities
+            .settled_calls("task-1", &[])
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}

@@ -157,7 +157,7 @@ impl AppStateCommands {
 
 /// Where a T3 chat attachment's bytes go: an ordinary Moatless upload, under
 /// the id `attachments.createUploadUrl` already handed the client.
-pub struct AppStateAttachments(pub AppState, pub moatless_t3code::T3Reads);
+pub struct AppStateAttachments(pub AppState);
 
 impl AppStateAttachments {
     /// Whether a sent message already carries this upload.
@@ -166,7 +166,7 @@ impl AppStateAttachments {
     /// no notion of messages: the rule that an attachment stops being a draft
     /// once a turn names it belongs to this surface.
     async fn is_on_a_message(&self, attachment_id: &str) -> Result<bool, AttachmentStoreError> {
-        self.1.attachment_is_on_message(attachment_id)
+        self.0.messages.file_on_any_message(attachment_id)
         .await
         .map_err(|error| {
             // Not knowing is not permission to delete: a read that failed is

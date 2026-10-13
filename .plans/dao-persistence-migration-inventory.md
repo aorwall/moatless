@@ -38,7 +38,6 @@ A consumer count is the number of `use` declarations naming the concern's module
 | [firing receipts](#firing-receipts) | moatless-loops | 15 | 0 | 0 |
 | [sandbox lifecycle](#sandbox-lifecycle) | moatless-sandbox-control | 16 | 0 | 0 |
 | [t3 conversation projection](#t3-conversation-projection) | moatless-t3code | 17 | 0 | 0 |
-| [t3 activity projection](#t3-activity-projection) | moatless-t3code | 17 | 0 | 0 |
 | [t3 task projection](#t3-task-projection) | moatless-t3code | 17 | 0 | 0 |
 | [task graph](#task-graph) | moatless-tasks | 09 | 0 | 0 |
 | [task relations](#task-relations) | moatless-tasks | 09 | 0 | 0 |
@@ -363,17 +362,6 @@ A consumer count is the number of `use` declarations naming the concern's module
 - **Owning tables:** none
 - **Exports:** none
 - **Constructors:** `ConversationBrowse::new`, `PgConversationDao::new`
-- **Peer consumers:** none
-- **Test-only consumers:** none
-
-## t3 activity projection
-
-- **Owner:** moatless-t3code
-- **Closing slice:** 17
-- **Persistence roots:** `crates/t3code/src/activity_dao.rs`
-- **Owning tables:** none
-- **Exports:** none
-- **Constructors:** none
 - **Peer consumers:** none
 - **Test-only consumers:** none
 

@@ -519,12 +519,7 @@ async fn an_attachment_a_message_carries_is_kept_when_the_composer_deletes_it(po
         .await
         .expect("the turn is accepted");
 
-    let attachments = AppStateAttachments(
-        test_app_state(pool.clone()),
-        moatless_backend::t3code::t3_graph_over(&pool)
-            .reads()
-            .clone(),
-    );
+    let attachments = AppStateAttachments(test_app_state(pool.clone()));
     attachments
         .delete(&viewer(USER_1), &attachment_id)
         .await
@@ -562,12 +557,7 @@ async fn an_attachment_a_message_carries_cannot_be_replaced(pool: PgPool) {
         .await
         .expect("the turn is accepted");
 
-    let attachments = AppStateAttachments(
-        test_app_state(pool.clone()),
-        moatless_backend::t3code::t3_graph_over(&pool)
-            .reads()
-            .clone(),
-    );
+    let attachments = AppStateAttachments(test_app_state(pool.clone()));
     let refused = attachments
         .store(
             &viewer(USER_1),

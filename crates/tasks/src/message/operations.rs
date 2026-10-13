@@ -238,6 +238,11 @@ impl Messages {
         self.store.file_id_used_in_task(task_id, file_id).await
     }
 
+    /// See [`MessageDao::file_on_any_message`].
+    pub async fn file_on_any_message(&self, file_id: &str) -> Result<bool, sqlx::Error> {
+        self.store.file_on_any_message(file_id).await
+    }
+
     /// See [`MessageDao::find_interrupted_turn`].
     pub async fn find_interrupted_turn(
         &self,

@@ -653,9 +653,8 @@ pub(super) fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore
         .expect_readable_by_ids()
         .returning(|_, _| Ok(Vec::new()));
     let conversations: Arc<dyn ConversationDao> = Arc::new(conversations);
-    // Lazy, so nothing connects. No route these tests drive reaches the two
-    // reads that take the pool; `task_creator` and `attachment_is_on_message`
-    // are asserted against PostgreSQL in `dao_db_tests.rs`.
+    // Lazy, so nothing connects. No route these tests drive reaches
+    // `task_creator`, the read that takes the pool.
     let pool = sqlx::postgres::PgPoolOptions::new()
         .connect_lazy("postgres://stub@stub/stub")
         .expect("a lazy pool parses its URL and connects to nothing");

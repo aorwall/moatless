@@ -193,7 +193,8 @@ fn a_subagent_row_carries_what_its_agent_has_spent() {
     conversation.subagent_usage.insert(
         "call-3".to_string(),
         SubagentUsage {
-            parent_uuid: "call-3".to_string(),
+            tool_use_id: "call-3".to_string(),
+            responses: 1,
             input_tokens: 900,
             output_tokens: 100,
         },

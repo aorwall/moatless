@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 use moatless_core::db::DbPool;
+use moatless_ports::activity::SubagentUsage;
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -209,17 +210,19 @@ pub(crate) async fn latest_times(
 }
 
 /// Per spawning call among `calls`: how many model responses its subagent
-/// reported usage for, and their input plus output tokens.
+/// reported usage for, and their input and output tokens.
 pub(crate) async fn subagent_usage(
     pool: &DbPool,
     task_id: &str,
     calls: &[String],
-) -> Result<Vec<(String, i64, i64)>, sqlx::Error> {
+) -> Result<Vec<SubagentUsage>, sqlx::Error> {
     if calls.is_empty() {
         return Ok(Vec::new());
     }
     sqlx::query_as(
-        r#"SELECT parent, COUNT(*)::bigint, COALESCE(SUM(input_tokens + output_tokens), 0)::bigint
+        r#"SELECT parent, COUNT(*)::bigint,
+                  COALESCE(SUM(input_tokens), 0)::bigint,
+                  COALESCE(SUM(output_tokens), 0)::bigint
              FROM (
                  SELECT u.parent_tool_use_id AS parent, u.input_tokens, u.output_tokens
                    FROM conversation_usage u
@@ -243,6 +246,18 @@ pub(crate) async fn subagent_usage(
     .bind(calls)
     .fetch_all(pool)
     .await
+    .map(|rows: Vec<(String, i64, i64, i64)>| {
+        rows.into_iter()
+            .map(
+                |(tool_use_id, responses, input_tokens, output_tokens)| SubagentUsage {
+                    tool_use_id,
+                    responses,
+                    input_tokens,
+                    output_tokens,
+                },
+            )
+            .collect()
+    })
 }
 
 /// One model response of a Task's own agent, as `conversation_usage` admitted
@@ -360,6 +375,22 @@ pub(crate) async fn file_attached(
                SELECT 1 FROM task_inbox i WHERE i.task_id = $1 AND $2 = ANY(i.file_ids))"#,
     )
     .bind(task_id)
+    .bind(file_id)
+    .fetch_one(pool)
+    .await
+}
+
+/// Whether any Task's inbox item carries `file_id`, by id or as a `file`
+/// context.
+pub(crate) async fn file_on_any_message(pool: &DbPool, file_id: &str) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar::<_, bool>(
+        r#"SELECT EXISTS (
+               SELECT 1 FROM task_inbox i
+                WHERE $1 = ANY(i.file_ids)
+                   OR EXISTS (SELECT 1 FROM jsonb_array_elements(
+                                  COALESCE(i.delivery_options -> 'contexts', '[]'::jsonb)) c
+                               WHERE c ->> 'referenceId' = $1 AND c ->> 'type' = 'file'))"#,
+    )
     .bind(file_id)
     .fetch_one(pool)
     .await

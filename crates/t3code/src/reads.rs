@@ -47,11 +47,6 @@ impl T3Reads {
         crate::task_dao::task_creator(&self.pool, task_id).await
     }
 
-    /// Whether a message has claimed an attachment that is no longer a draft.
-    pub async fn attachment_is_on_message(&self, attachment_id: &str) -> Result<bool, sqlx::Error> {
-        crate::transcript_dao::attachment_is_on_message(&self.pool, attachment_id).await
-    }
-
     pub(crate) fn conversations(&self) -> &dyn ConversationDao {
         self.conversations.as_ref()
     }

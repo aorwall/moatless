@@ -8,14 +8,13 @@
 use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
-use moatless_ports::activity::ActivitySource;
-use moatless_types::activity::{Activity, ActivityKind};
+use moatless_ports::activity::{ActivitySource, SubagentUsage};
+use moatless_types::activity::{Activity, ActivityKind, ActivityView};
 use moatless_types::message::{MessageRole, MessageType};
 use serde_json::Value;
 use sqlx::AssertSqlSafe;
 
 use crate::UiRpcDbPool;
-use crate::activity_dao::{self, SubagentUsage};
 use crate::dao::store_read;
 
 /// One Message of a Task's transcript, with the columns a transcript is
@@ -339,8 +338,8 @@ pub(crate) async fn transcript(
         .await
         .map_err(store_read)?;
 
-    let settled_requests = activity_dao::settled_requests(pool, task_id, &activities).await?;
-    let subagent_usage = activity_dao::subagent_usage(pool, task_id, &activities).await?;
+    let settled_requests = read_settled_requests(activity_source, task_id, &activities).await?;
+    let subagent_usage = read_subagent_usage(activity_source, task_id, &activities).await?;
 
     // Uncapped, unlike the Messages above: one `i32` per turn, and a
     // checkpoint the rewind will refuse is a control that refuses when
@@ -469,8 +468,8 @@ pub(crate) async fn changed_messages(
         .fetch_all(pool)
         .await?;
 
-    let settled_requests = activity_dao::settled_requests(pool, task_id, &activities).await?;
-    let subagent_usage = activity_dao::subagent_usage(pool, task_id, &activities).await?;
+    let settled_requests = read_settled_requests(activity_source, task_id, &activities).await?;
+    let subagent_usage = read_subagent_usage(activity_source, task_id, &activities).await?;
 
     Ok(Transcript {
         messages,
@@ -572,20 +571,43 @@ async fn answered_calls(
     Ok(calls)
 }
 
-/// Whether a message has claimed an attachment that is no longer a draft.
-pub async fn attachment_is_on_message(
-    pool: &sqlx::PgPool,
-    attachment_id: &str,
-) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar::<_, bool>(
-        r#"SELECT EXISTS (
-               SELECT 1 FROM task_inbox i
-                WHERE $1 = ANY(i.file_ids)
-                   OR EXISTS (SELECT 1 FROM jsonb_array_elements(
-                                  COALESCE(i.delivery_options -> 'contexts', '[]'::jsonb)) c
-                               WHERE c ->> 'referenceId' = $1 AND c ->> 'type' = 'file'))"#,
-    )
-    .bind(attachment_id)
-    .fetch_one(pool)
-    .await
+/// Of the requests `activities` ask, the ones whose call has come back.
+///
+/// See [`Transcript::settled_requests`] for why the call isn't found among the
+/// rows themselves.
+async fn read_settled_requests(
+    activity_source: &dyn ActivitySource,
+    task_id: &str,
+    activities: &[Activity],
+) -> Result<HashSet<String>, sqlx::Error> {
+    let asked: Vec<String> = activities
+        .iter()
+        .filter(|activity| activity.kind == ActivityKind::UserInputRequested)
+        .filter_map(|activity| activity.payload.get("requestId").and_then(Value::as_str))
+        .map(str::to_string)
+        .collect();
+    activity_source
+        .settled_calls(task_id, &asked)
+        .await
+        .map_err(store_read)
+}
+
+/// What each subagent these rows spawned has spent, keyed by the spawning call.
+async fn read_subagent_usage(
+    activity_source: &dyn ActivitySource,
+    task_id: &str,
+    activities: &[Activity],
+) -> Result<HashMap<String, SubagentUsage>, sqlx::Error> {
+    let spawned: Vec<String> = activities
+        .iter()
+        .filter(|activity| crate::activity::is_subagent_call(&ActivityView::new(activity)))
+        .filter_map(|activity| activity.tool_use_id.clone())
+        .collect();
+    Ok(activity_source
+        .subagent_usage(task_id, &spawned)
+        .await
+        .map_err(store_read)?
+        .into_iter()
+        .map(|usage| (usage.tool_use_id.clone(), usage))
+        .collect())
 }
