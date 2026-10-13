@@ -111,6 +111,18 @@ const FORBIDDEN: &[Forbidden] = &[
         transitive: false,
         why: "a provider owns no table",
     },
+    Forbidden {
+        source: "moatless-ports",
+        target: "sandbox-proto",
+        transitive: false,
+        why: "a shared port vocabulary names no transport",
+    },
+    Forbidden {
+        source: "moatless-core",
+        target: "moatless-api-schemas",
+        transitive: false,
+        why: "the lowest band names no wire schema",
+    },
 ];
 
 pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {

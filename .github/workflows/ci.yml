@@ -187,6 +187,14 @@ jobs:
           # The comment-block step below diffs against the PR base, which needs
           # that commit present. Depth 1 fetches neither it nor a merge base.
           fetch-depth: 0
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: ". -> target"
+          shared-key: rust-arch
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
       # libtest, not nextest — tooling/arch-rules/AGENTS.md says why.
       - name: Check architecture independently of changed packages
         run: cargo test -p moatless-arch-rules --locked
@@ -1448,6 +1456,7 @@ jobs:
       - rust-clippy
       - rust-test
       - build-rust
+      - architecture
     if: >-
       always() &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
@@ -1472,7 +1481,8 @@ jobs:
           for spec in \
             "rust-clippy 0" \
             "rust-test 2" \
-            "rust-ci 2"; do
+            "rust-ci 2" \
+            "rust-arch 1"; do
             set -- $spec
             shared_key=$1
             keep_count=$2
