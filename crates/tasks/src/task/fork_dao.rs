@@ -1,4 +1,5 @@
-//! `task_forks`: the cut a fork or rewound Task continues from.
+//! `task_forks`: the cut a fork, a rewound Task, or a subtask joining its
+//! parent's Sandbox continues from.
 
 use async_trait::async_trait;
 use moatless_core::db::DbPool;
@@ -19,6 +20,15 @@ pub(crate) trait TaskForkDao: Send + Sync {
     /// [`Self::find`], while the Task has recorded no top-level session event
     /// since the row was written: its next turn continues from the cut.
     async fn pending(&self, task_id: &str) -> Result<Option<TaskFork>, sqlx::Error>;
+
+    /// Cut `task_id` at `source_task_id`'s trajectory head, so its first turn
+    /// opens a session of its own continuing the source's. `false` when the
+    /// source has recorded nothing, or `task_id` already has a cut.
+    async fn insert_at_head(
+        &self,
+        task_id: &str,
+        source_task_id: &str,
+    ) -> Result<bool, sqlx::Error>;
 }
 
 /// Write the cut a rewind leaves behind, replacing whatever was there. Not
@@ -101,5 +111,27 @@ impl TaskForkDao for PgTaskForkDao {
         .bind(task_id)
         .fetch_optional(&self.0)
         .await
+    }
+
+    async fn insert_at_head(
+        &self,
+        task_id: &str,
+        source_task_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        // The source's own head, as `PgTrajectoryDao::head` reads it first.
+        let inserted = sqlx::query(
+            r#"INSERT INTO task_forks (task_id, source_task_id, at_turn, source_event_id)
+               SELECT $1, s.task_id, NULL, s.last_event_id
+                 FROM trajectory_sessions s
+                 JOIN trajectory_events e ON e.id = s.last_event_id
+                WHERE s.task_id = $2 AND s.parent_event_id IS NULL
+                ORDER BY e.ord DESC LIMIT 1
+               ON CONFLICT (task_id) DO NOTHING"#,
+        )
+        .bind(task_id)
+        .bind(source_task_id)
+        .execute(&self.0)
+        .await?;
+        Ok(inserted.rows_affected() > 0)
     }
 }

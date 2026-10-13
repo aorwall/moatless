@@ -133,6 +133,10 @@ error notifications skip it. Runs in its own Sandbox or, with `sameSandbox`, in 
 shared checkout.
 _Avoid_: "child" for a Fork when the distinction from a `created_by` subtask
 matters — a Fork is a parent-edged Task, not a spawned subagent Task.
+A `created_by` subtask that joins its parent's Sandbox also gets a `task_forks`
+row, cut at the parent's head, so its first Turn opens a Session of its own
+holding the parent's context. It is still not a Fork: it has no `forked_from`
+edge and inherits no projected conversation.
 
 **Artifact**:
 A single self-contained HTML page that an agent publishes from a Task with
