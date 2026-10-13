@@ -1,5 +1,5 @@
-//! Outbound projection from the backend's sandbox vocabulary to the T3
-//! contract.
+//! The [`core_sandbox::SandboxObserver`] port, answered from a runtime's
+//! [`SandboxStatusReader`].
 //!
 //! `SandboxStatusFullResponse` carries thirteen fields; the contract exposes
 //! only what each caller needs. [`sandbox_status`] narrows to the two-field
@@ -12,10 +12,12 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use moatless_ports::sandbox as core_sandbox;
 
-use crate::sandbox::error::SandboxError;
-use crate::sandbox::status_reader::SandboxStatusReader;
+use moatless_sandbox_runtime::error::SandboxError;
+use moatless_sandbox_runtime::status_reader::SandboxStatusReader;
+use moatless_types::sandbox::SandboxDesiredState;
+use moatless_types::task::TaskStatus;
 
-/// The T3 contract observer, built from the backend's rich status read.
+/// The [`core_sandbox::SandboxObserver`], built from the runtime's rich status read.
 ///
 /// `turns` folds into `live_status` here so T3's panel and the REST endpoint
 /// answer "is the agent working" from the same rule; the reader alone only sees
@@ -37,8 +39,8 @@ impl core_sandbox::SandboxObserver for ContractObserver {
     async fn sandbox_status(
         &self,
         task_id: &str,
-        task_status: moatless_tasks::task::models::TaskStatus,
-        desired_state: moatless_tasks::task::models::SandboxDesiredState,
+        task_status: TaskStatus,
+        desired_state: SandboxDesiredState,
     ) -> Result<core_sandbox::ContractSandboxStatus, core_sandbox::SandboxError> {
         self.reader
             .sandbox_status(task_id, task_status, desired_state)
@@ -50,8 +52,8 @@ impl core_sandbox::SandboxObserver for ContractObserver {
     async fn detail(
         &self,
         task_id: &str,
-        task_status: moatless_tasks::task::models::TaskStatus,
-        desired_state: moatless_tasks::task::models::SandboxDesiredState,
+        task_status: TaskStatus,
+        desired_state: SandboxDesiredState,
     ) -> Result<core_sandbox::SandboxDetail, core_sandbox::SandboxError> {
         self.reader
             .sandbox_status(task_id, task_status, desired_state)
@@ -63,8 +65,8 @@ impl core_sandbox::SandboxObserver for ContractObserver {
     async fn live_status(
         &self,
         task_id: &str,
-        task_status: moatless_tasks::task::models::TaskStatus,
-        desired_state: moatless_tasks::task::models::SandboxDesiredState,
+        task_status: TaskStatus,
+        desired_state: SandboxDesiredState,
     ) -> Result<core_sandbox::LiveStatus, core_sandbox::SandboxError> {
         let status = self
             .reader
@@ -99,7 +101,7 @@ impl core_sandbox::SandboxObserver for ContractObserver {
 }
 
 pub(crate) fn sandbox_status(
-    response: crate::sandbox::schemas::SandboxStatusFullResponse,
+    response: moatless_sandbox_runtime::schemas::SandboxStatusFullResponse,
 ) -> core_sandbox::ContractSandboxStatus {
     core_sandbox::ContractSandboxStatus {
         sandbox_status: response.sandbox_status,
@@ -107,7 +109,7 @@ pub(crate) fn sandbox_status(
 }
 
 pub(crate) fn sandbox_detail(
-    response: crate::sandbox::schemas::SandboxStatusFullResponse,
+    response: moatless_sandbox_runtime::schemas::SandboxStatusFullResponse,
 ) -> core_sandbox::SandboxDetail {
     core_sandbox::SandboxDetail {
         // `latest_sandbox_image` and `image_up_to_date` stay behind: every
@@ -131,7 +133,7 @@ pub(crate) fn sandbox_detail(
 }
 
 fn container(
-    diagnostics: crate::sandbox::schemas::ContainerDiagnostics,
+    diagnostics: moatless_sandbox_runtime::schemas::ContainerDiagnostics,
 ) -> core_sandbox::SandboxContainer {
     core_sandbox::SandboxContainer {
         name: diagnostics.name,
@@ -148,7 +150,7 @@ fn container(
 }
 
 fn runtime_event(
-    event: crate::sandbox::schemas::RuntimeEvent,
+    event: moatless_sandbox_runtime::schemas::RuntimeEvent,
 ) -> core_sandbox::SandboxRuntimeEvent {
     core_sandbox::SandboxRuntimeEvent {
         reason: event.reason,
@@ -160,15 +162,23 @@ fn runtime_event(
 }
 
 pub(crate) fn live_status(
-    status: crate::sandbox::live_status::LiveStatus,
+    status: moatless_sandbox_runtime::live_status::LiveStatus,
 ) -> core_sandbox::LiveStatus {
     core_sandbox::LiveStatus {
         sandbox_status: status.sandbox_status,
         agent_status: status.agent_status.map(|status| match status {
-            crate::sandbox::live_status::AgentStatus::Running => core_sandbox::AgentStatus::Running,
-            crate::sandbox::live_status::AgentStatus::Waiting => core_sandbox::AgentStatus::Waiting,
-            crate::sandbox::live_status::AgentStatus::Idle => core_sandbox::AgentStatus::Idle,
-            crate::sandbox::live_status::AgentStatus::Unknown => core_sandbox::AgentStatus::Unknown,
+            moatless_sandbox_runtime::live_status::AgentStatus::Running => {
+                core_sandbox::AgentStatus::Running
+            }
+            moatless_sandbox_runtime::live_status::AgentStatus::Waiting => {
+                core_sandbox::AgentStatus::Waiting
+            }
+            moatless_sandbox_runtime::live_status::AgentStatus::Idle => {
+                core_sandbox::AgentStatus::Idle
+            }
+            moatless_sandbox_runtime::live_status::AgentStatus::Unknown => {
+                core_sandbox::AgentStatus::Unknown
+            }
         }),
         sandbox_error: status.sandbox_error,
         // Carried, not narrowed away: the agent reports `idle` while a `moat
@@ -182,12 +192,11 @@ pub(crate) fn live_status(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sandbox::live_status::AgentStatus;
-    use crate::sandbox::schemas::{
+    use moatless_sandbox_runtime::live_status::AgentStatus;
+    use moatless_sandbox_runtime::schemas::{
         CommandSummary, ContainerDiagnostics, ManagedCommand, ManagedCommandState, RuntimeEvent,
         SandboxStatusFullResponse, ScheduledJobInfo, ScheduledJobKind, WakeupJobInfo,
     };
-    use moatless_api_schemas::enums::SandboxDesiredState;
     use moatless_types::sandbox::SandboxStatus;
 
     /// Every field populated with a distinguishable value, as an exhaustive
@@ -321,7 +330,7 @@ mod tests {
     /// narrowing.
     #[test]
     fn the_projected_live_status_carries_exactly_the_contract_field_set() {
-        let rich = crate::sandbox::live_status::LiveStatus {
+        let rich = moatless_sandbox_runtime::live_status::LiveStatus {
             sandbox_status: SandboxStatus::Error,
             agent_status: Some(AgentStatus::Running),
             sandbox_error: Some("image pull failed".to_string()),

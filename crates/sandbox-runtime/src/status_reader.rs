@@ -3,8 +3,9 @@
 //!
 //! `handlers` serves the thirteen-field `SandboxStatusFullResponse`, so it reads
 //! through this trait; the narrower `moatless_ports::sandbox::SandboxObserver`
-//! is projected from this read in `t3code::projection`. Errors are the sandbox
-//! module's `SandboxError`, which carries an axum `IntoResponse`.
+//! is projected from this read in
+//! `moatless_sandbox_control::observation::contract_observer`. Errors are the
+//! sandbox module's `SandboxError`, which carries an axum `IntoResponse`.
 
 use std::sync::Arc;
 

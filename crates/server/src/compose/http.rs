@@ -77,7 +77,7 @@ pub(crate) async fn ui_rpc(
             workspace_script_commands: app_state.workspaces.clone(),
             sandboxes: inputs.connector,
             snapshots: inputs.snapshots,
-            observer: t3code::projection::contract_observer(
+            observer: moatless_sandbox_control::observation::contract_observer(
                 inputs.observer,
                 Some(ports.turn_counter.clone()),
             ),

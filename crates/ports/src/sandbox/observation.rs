@@ -8,8 +8,8 @@ use moatless_types::task::TaskStatus;
 /// The narrowed sandbox status the T3 contract observer returns: the field the
 /// T3 surface was designed for.
 ///
-/// Distinct from the wire response body `SandboxStatusFullResponse`, which the
-/// backend projects down to this. See `t3code::projection`.
+/// Distinct from the wire response body `SandboxStatusFullResponse`, which
+/// `moatless_sandbox_control::observation` projects down to this.
 #[derive(Debug, Clone)]
 pub struct ContractSandboxStatus {
     pub sandbox_status: SandboxStatus,
@@ -18,9 +18,9 @@ pub struct ContractSandboxStatus {
 /// A Task's sandbox beyond its lifecycle state: what the T3 sandbox panel shows
 /// under Image, Containers and Runtime events.
 ///
-/// A second, wider narrowing of the same backend response
-/// [`ContractSandboxStatus`] narrows; kept separate so that type's two-field
-/// shape stays fixed. See `t3code::projection`.
+/// A second, wider narrowing of the same response, made in
+/// `moatless_sandbox_control::observation`; kept separate so
+/// [`ContractSandboxStatus`]'s two-field shape stays fixed.
 #[derive(Debug, Clone)]
 pub struct SandboxDetail {
     /// The image the sandbox is running. `None` where no sandbox is

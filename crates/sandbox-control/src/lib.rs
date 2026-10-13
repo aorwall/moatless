@@ -20,6 +20,7 @@ pub mod file_handlers;
 pub mod handlers;
 pub mod lifecycle;
 pub mod notify;
+pub mod observation;
 pub mod preflight;
 pub mod routes;
 pub mod secrets;
