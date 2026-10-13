@@ -271,8 +271,8 @@ fn truncate_on_char_boundary(text: &str, max: usize) -> &str {
 /// The Turn an activity is shown under, and when it happened.
 ///
 /// An activity carries no turn of its own: borrowed from the Message it was
-/// written with, else the newest Message before it, else the conversation's
-/// newest Turn when the window holds no Message at all (the live path, read
+/// written with, else the newest Message before it that a Turn has taken,
+/// else the conversation's newest Turn when there is none (the live path, read
 /// moments after recording).
 pub(super) fn activity_anchor(
     conversation: &Conversation,
@@ -289,10 +289,26 @@ pub(super) fn activity_anchor(
             instant(message_instant(conversation, message)),
         );
     }
+    // A held Message, such as a child's notice, has its row from the moment it
+    // is sent, so it is skipped until a Turn takes it and then while that Turn
+    // started after the activity; otherwise a question lands in another Turn,
+    // which `request_status` reads as expired. Live reads carry no
+    // `turn_outcomes`, but the notice before a fresh activity is still held.
+    let started_after = |number: i32| {
+        window
+            .turn_outcomes
+            .iter()
+            .find(|turn| turn.turn_number == number)
+            .and_then(|turn| turn.started_at)
+            .is_some_and(|started| started > activity.created_at)
+    };
     let preceding = window.messages.iter().rev().find(|message| {
         message
-            .created_at
-            .is_some_and(|created| created <= activity.created_at)
+            .turn_number
+            .is_some_and(|number| !started_after(number))
+            && message
+                .created_at
+                .is_some_and(|created| created <= activity.created_at)
     });
     let turn = match preceding {
         Some(message) => turn_reference(conversation, message),

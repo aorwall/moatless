@@ -959,6 +959,87 @@ fn runtime_request_is_pending_while_its_turn_is_open() {
 }
 
 #[test]
+fn a_notice_queued_before_the_question_leaves_it_pending_in_its_turn() {
+    let conversation = open_turn(conversation("task-1"), 18, "active");
+    let start = Utc::now() - chrono::Duration::seconds(30);
+    let mut sent = message("msg-user", Some(18), "Seed both envs", MessageType::User);
+    sent.created_at = Some(start);
+    let mut notice = held(message(
+        "msg-notice",
+        None,
+        "Child task completed turn 1.",
+        MessageType::User,
+    ));
+    notice.child_outcome = Some("completed".to_string());
+    notice.created_at = Some(start + chrono::Duration::seconds(8));
+    let mut question = asked("act-1", "req-1");
+    question.created_at = start + chrono::Duration::seconds(14);
+    let transcript = Transcript {
+        messages: vec![sent, notice],
+        activities: vec![question],
+        ..Transcript::default()
+    };
+
+    assert_eq!(
+        runtime_requests(&conversation, &transcript)[0]["status"],
+        json!("pending")
+    );
+    let (items, _) = turn_items_and_messages(&conversation, &transcript, &origins(&HashMap::new()));
+    let item = items
+        .iter()
+        .find(|item| item["type"] == json!("user_input_request"))
+        .expect("user_input_request item");
+    assert_eq!(item["status"], json!("waiting"));
+    assert_eq!(item["runId"], json!("task-1:18"));
+}
+
+fn turn_started(turn_number: i32, started_at: chrono::DateTime<Utc>) -> TurnOutcome {
+    TurnOutcome {
+        turn_number,
+        status: "completed".to_string(),
+        started_at: Some(started_at),
+        ended_at: None,
+        error: None,
+        reason: None,
+        resets_at: None,
+    }
+}
+
+#[test]
+fn a_notice_a_later_turn_took_does_not_pull_the_question_into_it() {
+    let conversation = open_turn(conversation("task-1"), 19, "active");
+    let start = Utc::now() - chrono::Duration::seconds(120);
+    let mut sent = message("msg-user", Some(18), "Seed both envs", MessageType::User);
+    sent.created_at = Some(start);
+    let mut notice = message(
+        "msg-notice",
+        Some(19),
+        "Child task completed turn 1.",
+        MessageType::User,
+    );
+    notice.child_outcome = Some("completed".to_string());
+    notice.created_at = Some(start + chrono::Duration::seconds(8));
+    let mut question = asked("act-1", "req-1");
+    question.created_at = start + chrono::Duration::seconds(14);
+    let transcript = Transcript {
+        messages: vec![sent, notice],
+        activities: vec![question],
+        turn_outcomes: vec![
+            turn_started(18, start),
+            turn_started(19, start + chrono::Duration::seconds(60)),
+        ],
+        ..Transcript::default()
+    };
+
+    let (items, _) = turn_items_and_messages(&conversation, &transcript, &origins(&HashMap::new()));
+    let item = items
+        .iter()
+        .find(|item| item["type"] == json!("user_input_request"))
+        .expect("user_input_request item");
+    assert_eq!(item["runId"], json!("task-1:18"));
+}
+
+#[test]
 fn runtime_request_is_resolved_with_its_answers_once_answered() {
     let conversation = open_turn(conversation("task-1"), 1, "active");
     let transcript = Transcript {
