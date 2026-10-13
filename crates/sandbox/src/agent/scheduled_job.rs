@@ -454,6 +454,7 @@ mod tests {
                 cwd: None,
                 timeout: None,
                 label: None,
+                queue: false,
             })
             .await
             .expect("spawn");

@@ -691,6 +691,8 @@ enum ManagedCommandState {
   MANAGED_COMMAND_STATE_TIMED_OUT = 3;
   // Killed on an explicit KillCommand.
   MANAGED_COMMAND_STATE_KILLED = 4;
+  // Registered with `queue`, waiting for the queued command ahead of it.
+  MANAGED_COMMAND_STATE_QUEUED = 5;
 }
 
 message RunCommandRequest {
@@ -706,6 +708,9 @@ message RunCommandRequest {
   // Human label for status output. Defaults to a prefix of `command`.
   optional string label = 4;
   optional string task_id = 5;
+  // Start only after every earlier queued command of the task has finished,
+  // one at a time. False starts it at once, whatever is queued.
+  bool queue = 6;
 }
 message RunCommandResponse {
   ManagedCommand command = 1;

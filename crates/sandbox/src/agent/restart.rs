@@ -169,6 +169,9 @@ fn lost_commands_body(lost: &[crate::commands::JournaledCommand]) -> Option<Stri
         .iter()
         .map(|c| {
             let status = match c.state {
+                CommandState::Queued => {
+                    "was still queued when the sandbox restarted and never started".to_string()
+                }
                 CommandState::Running => {
                     "was still running when the sandbox restarted and did not finish; its result is unknown".to_string()
                 }

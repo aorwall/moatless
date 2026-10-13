@@ -395,15 +395,16 @@ fn build_managed_command_note(config: &Config) -> Option<String> {
          command runs and wakes you the moment it finishes. End your turn once \
          it is started — that wake is guaranteed, including when the command \
          fails or hits its deadline, so do not sleep, poll, or schedule a \
-         fallback wakeup of your own. To run something only after a command \
-         finishes, such as a second build sharing its target directory, start \
-         it when that wake arrives, or as `moat cmd run \"moat cmd wait <id> && \
-         <next>\"`; never loop on `moat cmd status` output, which ends with \
-         the command's log. Check on one with `moat cmd list` / `moat cmd \
-         status <id>` / `moat cmd logs <id>`, and stop one with `moat cmd kill \
-         <id>`. A command is killed at its deadline (4h by default); pass \
-         `--timeout <seconds>` to lower it for something that should finish \
-         fast, or raise it for a server meant to run the whole session."
+         fallback wakeup of your own. Commands that must not overlap, such as \
+         builds sharing a target directory, each take `--queue`: the sandbox \
+         runs queued commands one at a time in order, and a command without \
+         it starts at once. Never wait for a command with a loop over `moat \
+         cmd status`, whose output ends with the command's log. Check on one \
+         with `moat cmd list` / `moat cmd status <id>` / `moat cmd logs \
+         <id>`, and stop one with `moat cmd kill <id>`. A command is killed \
+         at its deadline (4h by default); pass `--timeout <seconds>` to lower \
+         it for something that should finish fast, or raise it for a server \
+         meant to run the whole session."
             .to_string(),
     )
 }

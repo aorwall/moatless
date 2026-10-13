@@ -86,13 +86,16 @@ pub async fn fetch_agent_status(
 /// Converts a proto `ManagedCommand` into the API schema.
 ///
 /// An unrecognised state reads as `Running`: treating an unknown-but-in-flight
-/// state as finished would let the reaper stop the pod underneath it.
+/// state as finished would let the reaper stop the pod underneath it. `Queued`
+/// reads as `Running` too, rather than adding a value T3 Code's decoder may
+/// reject.
 pub fn managed_command_from_proto(proto: sandbox_proto::ManagedCommand) -> SchemaManagedCommand {
     let state = match proto.state() {
         sandbox_proto::ManagedCommandState::Exited => SchemaManagedCommandState::Exited,
         sandbox_proto::ManagedCommandState::TimedOut => SchemaManagedCommandState::TimedOut,
         sandbox_proto::ManagedCommandState::Killed => SchemaManagedCommandState::Killed,
-        sandbox_proto::ManagedCommandState::Running
+        sandbox_proto::ManagedCommandState::Queued
+        | sandbox_proto::ManagedCommandState::Running
         | sandbox_proto::ManagedCommandState::Unspecified => SchemaManagedCommandState::Running,
     };
     SchemaManagedCommand {

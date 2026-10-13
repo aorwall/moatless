@@ -46,6 +46,12 @@ pub enum CmdAction {
         /// Human label for status output. Defaults to the command itself.
         #[arg(long, short = 'l')]
         label: Option<String>,
+        /// Start it only after every earlier `--queue` command of this task has
+        /// finished, one at a time, whatever their exit codes. Use it for
+        /// builds that share a target directory. Without it the command starts
+        /// at once.
+        #[arg(long, short = 'q')]
+        queue: bool,
     },
 
     /// List every command the sandbox is still holding.
@@ -64,9 +70,9 @@ pub enum CmdAction {
 
     /// Block until a command finishes, then exit with its exit code.
     ///
-    /// Queue work behind a running command with
-    /// `moat cmd run "moat cmd wait <id> && <next>"`. Counts as reading the
-    /// outcome back, as `status` does.
+    /// For work that only needs to run after another command, `run --queue`
+    /// needs no waiting process. Counts as reading the outcome back, as
+    /// `status` does.
     Wait { id: String },
 
     /// Print a command's combined stdout/stderr.
@@ -96,6 +102,7 @@ pub async fn run(
             cwd,
             timeout,
             label,
+            queue,
         } => {
             let cwd = resolve_cwd(cwd, std::env::current_dir().ok());
             let resp = client
@@ -105,6 +112,7 @@ pub async fn run(
                     timeout_secs: timeout,
                     label,
                     task_id: Some(task_id.clone()),
+                    queue,
                 })
                 .await?
                 .into_inner();
@@ -118,8 +126,7 @@ pub async fn run(
             let cmd = fetch_one(&mut client, &id, task_id)
                 .await
                 .unwrap_or(started);
-            let died_immediately =
-                cmd.state() != ManagedCommandState::Running && cmd.exit_code != Some(0);
+            let died_immediately = !is_pending(cmd.state()) && cmd.exit_code != Some(0);
 
             if json {
                 print_json(&[&cmd]);
@@ -132,8 +139,19 @@ pub async fn run(
                      End your turn — do not poll it or schedule a fallback wakeup."
                 );
                 println!(
-                    "To queue work behind it: moat cmd run \"moat cmd wait {} && <next>\"",
-                    cmd.id
+                    "To run work after it, start that when the wake arrives, or start both \
+                     with --queue."
+                );
+            } else if cmd.state() == ManagedCommandState::Queued {
+                println!("Queued {} behind the running --queue command", cmd.id);
+                println!("  log:      {}", cmd.log_path);
+                println!(
+                    "  deadline: {}s, counted from when it starts",
+                    cmd.timeout_secs
+                );
+                println!(
+                    "It starts by itself; you will be woken when it finishes. \
+                     End your turn — do not poll it or schedule a fallback wakeup."
                 );
             } else {
                 println!("{}", summary_line(&cmd));
@@ -181,7 +199,7 @@ pub async fn run(
         CmdAction::Wait { id } => {
             let cmd = loop {
                 let cmd = fetch_one(&mut client, &id, task_id.clone()).await?;
-                if cmd.state() != ManagedCommandState::Running {
+                if !is_pending(cmd.state()) {
                     break cmd;
                 }
                 tokio::time::sleep(WAIT_POLL_INTERVAL).await;
@@ -237,6 +255,14 @@ async fn fetch_one(
         .ok_or_else(|| format!("no command with id {id}").into())
 }
 
+/// Whether a command has yet to finish: running, or queued behind another.
+fn is_pending(state: ManagedCommandState) -> bool {
+    matches!(
+        state,
+        ManagedCommandState::Running | ManagedCommandState::Queued
+    )
+}
+
 /// `wait`'s exit: the finished command's own code, and 1 for a command that
 /// left none, such as one killed by a signal.
 fn wait_outcome(cmd: &ManagedCommand) -> Result<(), CommandExit> {
@@ -248,6 +274,7 @@ fn wait_outcome(cmd: &ManagedCommand) -> Result<(), CommandExit> {
 
 fn summary_line(cmd: &ManagedCommand) -> String {
     let state = match cmd.state() {
+        ManagedCommandState::Queued => "queued".to_string(),
         ManagedCommandState::Running => {
             let left = cmd.deadline_unix_ms - now_unix_ms();
             format!("running ({}s of deadline left)", left.max(0) / 1000)
@@ -332,6 +359,14 @@ mod tests {
         };
         cmd.set_state(state);
         cmd
+    }
+
+    /// `wait` must keep waiting through a queued command's wait for the queue.
+    #[test]
+    fn a_queued_command_is_still_pending() {
+        assert!(is_pending(ManagedCommandState::Queued));
+        assert!(is_pending(ManagedCommandState::Running));
+        assert!(!is_pending(ManagedCommandState::Exited));
     }
 
     #[test]

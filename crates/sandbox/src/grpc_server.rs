@@ -287,6 +287,7 @@ impl SandboxService for SandboxServiceImpl {
                 cwd: Some(cwd),
                 timeout: req.timeout_secs.map(std::time::Duration::from_secs),
                 label: req.label,
+                queue: req.queue,
             })
             .await
             .map_err(command_error_to_status)?;
@@ -850,6 +851,7 @@ fn managed_command_to_proto(c: CommandRecord) -> ManagedCommandProto {
         timeout_secs: c.timeout.as_secs(),
         deadline_unix_ms: c.deadline_unix_ms,
         state: match c.state {
+            CommandState::Queued => ManagedCommandState::Queued,
             CommandState::Running => ManagedCommandState::Running,
             CommandState::Exited => ManagedCommandState::Exited,
             CommandState::TimedOut => ManagedCommandState::TimedOut,

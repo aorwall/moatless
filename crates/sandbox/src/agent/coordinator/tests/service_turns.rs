@@ -402,6 +402,7 @@ async fn completed_counts_the_commands_the_background_watch_will_wake_for() {
             cwd: None,
             timeout: None,
             label: None,
+            queue: false,
         })
         .await
         .expect("spawn");

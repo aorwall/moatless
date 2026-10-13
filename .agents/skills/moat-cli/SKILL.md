@@ -51,8 +51,11 @@ schedule a fallback wakeup.
 do, the sandbox still counts the command as owed to you. Killing it counts as
 reading it.
 
-**Queue work behind a running command** with
-`moat cmd run "moat cmd wait <id> && <next>"`. `wait` exits with the command's
+**Give `--queue` to commands that must not overlap**, such as builds sharing
+a target directory. The sandbox runs queued commands one at a time, in order,
+whatever their exit codes; a command without it starts at once. A queued
+command's deadline starts when it does. For "only if that one succeeded", use
+`moat cmd run "moat cmd wait <id> && <next>"`; `wait` exits with the command's
 own code. Never loop on `moat cmd status <id> | grep running`: the status
 output ends with the command's log, and `cargo test` prints `running N tests`,
 so the loop never exits.
