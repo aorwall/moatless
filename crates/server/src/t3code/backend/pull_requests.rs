@@ -3,6 +3,7 @@
 
 use crate::state::AppState;
 use async_trait::async_trait;
+use moatless_ports::task::TaskReader;
 use moatless_t3code::ports::{
     BoundPullRequest, BoundPullRequestSource, CommandRefusal, PullRequestError,
     ResolvedPullRequest, ThreadPullRequestRef,
@@ -10,7 +11,7 @@ use moatless_t3code::ports::{
 use moatless_types::access_control::ScopeContext;
 use moatless_types::adapter::TaskBinding;
 
-pub struct AppStateBoundPullRequests(pub AppState, pub moatless_t3code::T3Reads);
+pub struct AppStateBoundPullRequests(pub AppState);
 
 #[async_trait]
 impl BoundPullRequestSource for AppStateBoundPullRequests {
@@ -148,10 +149,19 @@ impl AppStateBoundPullRequests {
     }
 
     /// The login of the Task's creator, whose token the GitHub status fetch
-    /// resolves. Read directly rather than through a scoped find because the
-    /// port has already had the viewer's access to the Task checked.
+    /// resolves.
     async fn task_creator(&self, task_id: &str) -> Option<String> {
-        self.1.task_creator(task_id).await.ok().flatten()
+        // reason: the port's caller has already checked the viewer's access to
+        // this Task; the creator is read past it, under the system scope.
+        #[allow(clippy::disallowed_methods)]
+        let system = ScopeContext::system();
+        self.0
+            .task_reader
+            .describe(task_id, &system)
+            .await
+            .ok()
+            .flatten()?
+            .created_by
     }
 
     /// The `owner/repo` a repository's GitHub remote names, if the viewer can

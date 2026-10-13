@@ -41,7 +41,6 @@ mod state;
 pub(crate) mod subscription;
 mod subscriptions;
 mod subtasks;
-pub(crate) mod task_dao;
 mod terminal;
 pub mod terminal_relay;
 mod transcript;

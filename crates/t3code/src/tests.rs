@@ -39,7 +39,6 @@ use crate::snapshots::after_sequence;
 use crate::state::UiRpcState;
 use crate::subscriptions::thread_initial_values;
 use crate::subtasks::SubtasksState;
-use crate::task_dao::{MockT3TaskDao, TaskView};
 use crate::terminal;
 use crate::workspace::WorkspaceAccessError;
 use crate::workspace_listing::MockWorkspaceListing;
@@ -66,6 +65,7 @@ use moatless_ports::sandbox::{
     ContractSandboxStatus, LiveStatus, SandboxDesiredState, SandboxDiagnosticsContainer,
     SandboxDiagnosticsEntry, SandboxError, SandboxPortPublisher, SandboxStatus,
 };
+use moatless_ports::task::{MockTaskReader, TaskDescriptor};
 use moatless_types::access_control::ScopeContext;
 use moatless_types::auth::AllowedOrigin;
 use moatless_types::task::TaskStatus;
@@ -81,6 +81,20 @@ use std::time::Duration;
 use tokio::sync::Notify;
 use tokio::sync::mpsc;
 use uuid::Uuid;
+
+/// A readable open Task. Inert but for the id: the gates read whether a scoped
+/// read returned a Task, never a column on it.
+pub(crate) fn open_task(task_id: &str) -> TaskDescriptor {
+    TaskDescriptor {
+        task_id: task_id.to_string(),
+        status: TaskStatus::Open,
+        name: None,
+        owner_user_id: None,
+        workspace_id: None,
+        created_by: None,
+        ttl_minutes: 15,
+    }
+}
 
 mod fixtures;
 pub(crate) mod logs;

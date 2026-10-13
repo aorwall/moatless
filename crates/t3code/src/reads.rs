@@ -3,32 +3,28 @@
 use std::sync::Arc;
 
 use crate::dao::ConversationDao;
-use crate::state::UiRpcDbPool;
-use crate::task_dao::T3TaskDao;
 use crate::workspace_listing::WorkspaceListing;
 use moatless_core::change_feed::listing::ListingHead;
+use moatless_ports::task::TaskReader;
 
-/// The three projections and the pool behind them.
+/// The three read projections behind the UI-RPC handlers.
 ///
 /// Every statement reachable from here is a read; a caller that has to write
 /// asks through a port.
 #[derive(Clone)]
 pub struct T3Reads {
-    pool: UiRpcDbPool,
     conversations: Arc<dyn ConversationDao>,
     workspaces: Arc<dyn WorkspaceListing>,
-    tasks: Arc<dyn T3TaskDao>,
+    tasks: Arc<dyn TaskReader>,
 }
 
 impl T3Reads {
     pub(crate) fn new(
-        pool: UiRpcDbPool,
         conversations: Arc<dyn ConversationDao>,
         workspaces: Arc<dyn WorkspaceListing>,
-        tasks: Arc<dyn T3TaskDao>,
+        tasks: Arc<dyn TaskReader>,
     ) -> Self {
         Self {
-            pool,
             conversations,
             workspaces,
             tasks,
@@ -39,12 +35,6 @@ impl T3Reads {
     /// positions on it.
     pub async fn listing_head(&self) -> Result<ListingHead, sqlx::Error> {
         self.conversations.listing_head().await
-    }
-
-    /// Creator identity for a Task whose readability the caller has already
-    /// checked.
-    pub async fn task_creator(&self, task_id: &str) -> Result<Option<String>, sqlx::Error> {
-        crate::task_dao::task_creator(&self.pool, task_id).await
     }
 
     pub(crate) fn conversations(&self) -> &dyn ConversationDao {
@@ -59,7 +49,7 @@ impl T3Reads {
         self.conversations.clone()
     }
 
-    pub(crate) fn tasks_arc(&self) -> Arc<dyn T3TaskDao> {
+    pub(crate) fn tasks_arc(&self) -> Arc<dyn TaskReader> {
         self.tasks.clone()
     }
 
@@ -67,7 +57,7 @@ impl T3Reads {
     /// what one viewer is allowed to read.
     #[cfg(test)]
     #[must_use]
-    pub(crate) fn with_tasks(&self, tasks: Arc<dyn T3TaskDao>) -> Self {
+    pub(crate) fn with_tasks(&self, tasks: Arc<dyn TaskReader>) -> Self {
         Self {
             tasks,
             ..self.clone()

@@ -15,12 +15,11 @@ use chrono::{DateTime, Utc};
 use sqlx::AssertSqlSafe;
 
 use crate::UiRpcDbPool;
-use crate::task_dao::{T3TaskDao, TaskView};
 use crate::transcript::{JoinedOrigin, Transcript};
 use moatless_core::change_feed::conversation::{ConversationChange, ConversationHead};
 use moatless_core::change_feed::listing::{ListingChange, ListingHead};
 use moatless_ports::activity::ActivitySource;
-use moatless_ports::task::{TaskDescriptor, TaskReader};
+use moatless_ports::task::TaskReader;
 use moatless_tasks::conversation::transcript::{TranscriptEntry, TranscriptReads};
 use moatless_types::access_control::{ScopeContext, ScopedEntity};
 use moatless_types::task::TaskStatus;
@@ -302,56 +301,6 @@ impl PgConversationDao {
             transcripts,
             tasks,
         }
-    }
-}
-
-#[async_trait]
-impl T3TaskDao for PgConversationDao {
-    async fn find_by_id(
-        &self,
-        task_id: &str,
-        viewer: &ScopeContext,
-    ) -> Result<Option<TaskView>, sqlx::Error> {
-        let task = self
-            .tasks
-            .describe(task_id, viewer)
-            .await
-            .map_err(store_read)?;
-        Ok(task.map(task_view))
-    }
-
-    async fn controlled_by_id(
-        &self,
-        task_id: &str,
-        viewer: &ScopeContext,
-    ) -> Result<Option<TaskView>, sqlx::Error> {
-        let task = self
-            .tasks
-            .controlled(task_id, viewer)
-            .await
-            .map_err(store_read)?;
-        Ok(task.map(task_view))
-    }
-
-    async fn written_by_id(
-        &self,
-        task_id: &str,
-        viewer: &ScopeContext,
-    ) -> Result<Option<TaskView>, sqlx::Error> {
-        let task = self
-            .tasks
-            .written(task_id, viewer)
-            .await
-            .map_err(store_read)?;
-        Ok(task.map(task_view))
-    }
-}
-
-/// The two facts the sandbox and preview handlers read off a Task.
-fn task_view(task: TaskDescriptor) -> TaskView {
-    TaskView {
-        status: task.status,
-        ttl_minutes: task.ttl_minutes,
     }
 }
 

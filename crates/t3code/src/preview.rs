@@ -18,14 +18,14 @@ use uuid::Uuid;
 
 use crate::preview_relay::PreviewRelay;
 use crate::preview_tabs::{PreviewTab, PreviewTabs};
-use crate::task_dao::T3TaskDao;
+use moatless_ports::task::TaskReader;
 use moatless_types::access_control::ScopeContext;
 
 /// Everything the `preview.*` handlers need.
 #[derive(Clone)]
 pub struct PreviewState {
     pub tabs: Arc<PreviewTabs>,
-    pub tasks: Arc<dyn T3TaskDao>,
+    pub tasks: Arc<dyn TaskReader>,
     /// Carries an [`open_at`] to the replicas holding the other viewers'
     /// sockets. [`tabs`](Self::tabs) reaches this process and no further.
     pub relay: PreviewRelay,
@@ -73,13 +73,12 @@ async fn authorize(
     viewer: &ScopeContext,
     task_id: &str,
 ) -> Result<(), PreviewError> {
-    state
+    let readable = state
         .tasks
-        .find_by_id(task_id, viewer)
+        .may_access(task_id, viewer)
         .await
-        .map_err(PreviewError::Database)?
-        .ok_or(PreviewError::NotFound)
-        .map(drop)
+        .map_err(|error| PreviewError::Database(crate::dao::store_read(error)))?;
+    readable.then_some(()).ok_or(PreviewError::NotFound)
 }
 
 fn thread_id(payload: &Value) -> Result<&str, PreviewError> {
@@ -404,28 +403,19 @@ pub fn typed_error(error: &PreviewError) -> Option<Value> {
 mod tests {
     use super::*;
     use crate::preview_tabs::{PreviewTabTtl, PreviewTabs};
-    use crate::task_dao::{MockT3TaskDao, TaskView};
+    use moatless_ports::task::MockTaskReader;
 
     fn viewer() -> ScopeContext {
         ScopeContext::user("viewer")
     }
 
-    /// Inert but for the id: nothing in this module reads a Task's columns,
-    /// only whether a scoped read returned one.
-    fn task_fixture(_task_id: &str) -> TaskView {
-        TaskView {
-            status: moatless_types::task::TaskStatus::Open,
-            ttl_minutes: 15,
-        }
-    }
-
-    /// A task DAO that answers for `readable` and for nothing else, which is
+    /// A `TaskReader` that answers for `readable` and for nothing else, which is
     /// how a scoped read behaves for a viewer without access.
-    fn tasks_readable(readable: Option<&'static str>) -> Arc<dyn T3TaskDao> {
-        let mut tasks = MockT3TaskDao::new();
-        tasks.expect_find_by_id().returning(move |task_id, _| {
-            Ok((readable == Some(task_id)).then(|| task_fixture(task_id)))
-        });
+    fn tasks_readable(readable: Option<&'static str>) -> Arc<dyn TaskReader> {
+        let mut tasks = MockTaskReader::new();
+        tasks
+            .expect_may_access()
+            .returning(move |task_id, _| Ok(readable == Some(task_id)));
         Arc::new(tasks)
     }
 

@@ -653,11 +653,6 @@ pub(super) fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore
         .expect_readable_by_ids()
         .returning(|_, _| Ok(Vec::new()));
     let conversations: Arc<dyn ConversationDao> = Arc::new(conversations);
-    // Lazy, so nothing connects. No route these tests drive reaches
-    // `task_creator`, the read that takes the pool.
-    let pool = sqlx::postgres::PgPoolOptions::new()
-        .connect_lazy("postgres://stub@stub/stub")
-        .expect("a lazy pool parses its URL and connects to nothing");
     UiRpcState {
         rpc: Arc::new(UiRpcConfig {
             environment_id: environment_id(&stub_identity()),
@@ -673,10 +668,9 @@ pub(super) fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore
         session_jwt_secret: Some(Arc::from("test-secret")),
         pairing: Arc::new(test_pairing(None)),
         reads: T3Reads::new(
-            pool,
             conversations.clone(),
             Arc::new(workspaces),
-            Arc::new(MockT3TaskDao::new()),
+            Arc::new(MockTaskReader::new()),
         ),
         workspace_script_commands: Arc::new(ports::MockWorkspaceScriptCommands::new()),
         sandboxes: Arc::new(UnreachableSandboxes),
@@ -688,13 +682,13 @@ pub(super) fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore
                 tabs: Arc::new(preview_tabs::PreviewTabs::new(preview_tabs::PreviewTabTtl(
                     std::time::Duration::from_hours(1),
                 ))),
-                tasks: Arc::new(MockT3TaskDao::new()),
+                tasks: Arc::new(MockTaskReader::new()),
                 relay: preview_relay::PreviewRelay::disabled(),
             },
         },
         sandbox: SandboxState {
             observer: Arc::new(UnreachableSandboxes),
-            tasks: Arc::new(MockT3TaskDao::new()),
+            tasks: Arc::new(MockTaskReader::new()),
             intent: Arc::new(UnreachableSandboxes),
             starter: Arc::new(UnreachableSandboxes),
             stopper: Arc::new(UnreachableSandboxes),
@@ -709,7 +703,7 @@ pub(super) fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore
             tabs: Arc::new(preview_tabs::PreviewTabs::new(preview_tabs::PreviewTabTtl(
                 std::time::Duration::from_hours(1),
             ))),
-            tasks: Arc::new(MockT3TaskDao::new()),
+            tasks: Arc::new(MockTaskReader::new()),
             relay: preview_relay::PreviewRelay::disabled(),
         },
         agents: Arc::new(StubAgents),
@@ -787,16 +781,14 @@ impl Connection {
 
 /// A Task projection that answers for `readable` and for nothing else, which is
 /// what a scoped read does for a viewer without access.
-pub(super) fn tasks_readable(readable: &'static str) -> Arc<dyn crate::task_dao::T3TaskDao> {
-    let mut tasks = MockT3TaskDao::new();
-    tasks.expect_find_by_id().returning(move |task_id, _| {
-        // Inert but for having answered: the gate reads whether a row came
-        // back, never a column on it.
-        Ok((task_id == readable).then_some(TaskView {
-            status: moatless_types::task::TaskStatus::Open,
-            ttl_minutes: 15,
-        }))
-    });
+pub(super) fn tasks_readable(readable: &'static str) -> Arc<dyn moatless_ports::task::TaskReader> {
+    let mut tasks = MockTaskReader::new();
+    tasks
+        .expect_describe()
+        .returning(move |task_id, _| Ok((task_id == readable).then(|| super::open_task(task_id))));
+    tasks
+        .expect_may_access()
+        .returning(move |task_id, _| Ok(task_id == readable));
     Arc::new(tasks)
 }
 

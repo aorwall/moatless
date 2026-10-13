@@ -414,13 +414,6 @@ pub const CONCERNS: &[Concern] = &[
         tables: &[],
         slice: 17,
     },
-    Concern {
-        name: "t3 task projection",
-        owner: "moatless-t3code",
-        roots: &["crates/t3code/src/task_dao"],
-        tables: &[],
-        slice: 17,
-    },
 ];
 
 /// Database infrastructure every band may name: the pool, the migrations and

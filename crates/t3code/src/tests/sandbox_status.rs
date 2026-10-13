@@ -51,13 +51,10 @@ impl SandboxObserver for FixedStatus {
 
 fn state_with_sandbox_status(status: SandboxStatus) -> UiRpcState {
     let mut state = state();
-    let mut tasks = MockT3TaskDao::new();
-    tasks.expect_find_by_id().returning(|_, _| {
-        Ok(Some(TaskView {
-            status: TaskStatus::Open,
-            ttl_minutes: 15,
-        }))
-    });
+    let mut tasks = MockTaskReader::new();
+    tasks
+        .expect_describe()
+        .returning(|task_id, _| Ok(Some(super::open_task(task_id))));
     state.sandbox.tasks = Arc::new(tasks);
     state.sandbox.observer = Arc::new(FixedStatus(status));
     state.sandbox.intent = Arc::new(FixedStatus(status));

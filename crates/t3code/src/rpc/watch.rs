@@ -321,13 +321,13 @@ impl Drop for OpenThreadSubscription {
 /// for display only, so a stream that drops this check has no second gate
 /// behind it.
 struct ReadableTasks {
-    tasks: Arc<dyn crate::task_dao::T3TaskDao>,
+    tasks: Arc<dyn moatless_ports::task::TaskReader>,
     viewer: ScopeContext,
     answered: HashMap<String, bool>,
 }
 
 impl ReadableTasks {
-    fn new(tasks: Arc<dyn crate::task_dao::T3TaskDao>, viewer: ScopeContext) -> Self {
+    fn new(tasks: Arc<dyn moatless_ports::task::TaskReader>, viewer: ScopeContext) -> Self {
         Self {
             tasks,
             viewer,
@@ -341,9 +341,8 @@ impl ReadableTasks {
         if let Some(answered) = self.answered.get(task_id) {
             return Some(*answered);
         }
-        match self.tasks.find_by_id(task_id, &self.viewer).await {
-            Ok(task) => {
-                let allowed = task.is_some();
+        match self.tasks.may_access(task_id, &self.viewer).await {
+            Ok(allowed) => {
                 self.answered.insert(task_id.to_string(), allowed);
                 Some(allowed)
             }
@@ -396,7 +395,7 @@ pub(crate) async fn watch_preview_events(
 pub(crate) async fn watch_terminal_metadata(
     sink: subscription::StreamSink,
     hub: crate::terminal::TerminalHub,
-    tasks: Arc<dyn crate::task_dao::T3TaskDao>,
+    tasks: Arc<dyn moatless_ports::task::TaskReader>,
     viewer: ScopeContext,
 ) -> StreamResult {
     let mut metadata = hub.subscribe_metadata();

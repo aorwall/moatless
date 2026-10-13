@@ -218,10 +218,9 @@ pub fn t3_graph(db: UiRpcDbPool, tasks: &TaskGraph) -> T3Graph {
     T3Graph {
         pool: db.clone(),
         reads: T3Reads::new(
-            db.clone(),
-            conversations.clone(),
-            moatless_workspaces::compose::workspaces(db),
             conversations,
+            moatless_workspaces::compose::workspaces(db),
+            tasks.task_reader(),
         ),
         usage,
     }

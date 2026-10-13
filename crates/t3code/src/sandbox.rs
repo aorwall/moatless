@@ -10,11 +10,11 @@ use serde_json::{Value, json};
 use tracing::warn;
 
 use crate::subscription::{StreamFailure, StreamResult, StreamSink};
-use crate::task_dao::{T3TaskDao, TaskView};
 use moatless_ports::sandbox::{
     ClusterDiagnostics, SandboxError, SandboxIntentReader, SandboxObserver, SandboxOperator,
     SandboxStarter, SandboxStopper,
 };
+use moatless_ports::task::{TaskDescriptor, TaskReader};
 use moatless_types::access_control::ScopeContext;
 use moatless_types::sandbox::SandboxStopReason;
 
@@ -32,7 +32,7 @@ const DETAIL_POLL_INTERVAL: Duration = Duration::from_secs(10);
 #[derive(Clone)]
 pub struct SandboxState {
     pub observer: Arc<dyn SandboxObserver>,
-    pub tasks: Arc<dyn T3TaskDao>,
+    pub tasks: Arc<dyn TaskReader>,
     pub intent: Arc<dyn SandboxIntentReader>,
     pub starter: Arc<dyn SandboxStarter>,
     pub stopper: Arc<dyn SandboxStopper>,
@@ -65,12 +65,12 @@ async fn readable_task(
     state: &SandboxState,
     viewer: &ScopeContext,
     task_id: &str,
-) -> Result<TaskView, SandboxRpcError> {
+) -> Result<TaskDescriptor, SandboxRpcError> {
     state
         .tasks
-        .find_by_id(task_id, viewer)
+        .describe(task_id, viewer)
         .await
-        .map_err(SandboxRpcError::Database)?
+        .map_err(|error| SandboxRpcError::Database(crate::dao::store_read(error)))?
         .ok_or(SandboxRpcError::NotFound)
 }
 
@@ -80,12 +80,12 @@ async fn controlled_task(
     state: &SandboxState,
     viewer: &ScopeContext,
     task_id: &str,
-) -> Result<TaskView, SandboxRpcError> {
+) -> Result<TaskDescriptor, SandboxRpcError> {
     state
         .tasks
-        .controlled_by_id(task_id, viewer)
+        .controlled(task_id, viewer)
         .await
-        .map_err(SandboxRpcError::Database)?
+        .map_err(|error| SandboxRpcError::Database(crate::dao::store_read(error)))?
         .ok_or(SandboxRpcError::NotFound)
 }
 
@@ -95,12 +95,12 @@ async fn written_task(
     state: &SandboxState,
     viewer: &ScopeContext,
     task_id: &str,
-) -> Result<TaskView, SandboxRpcError> {
+) -> Result<TaskDescriptor, SandboxRpcError> {
     state
         .tasks
-        .written_by_id(task_id, viewer)
+        .written(task_id, viewer)
         .await
-        .map_err(SandboxRpcError::Database)?
+        .map_err(|error| SandboxRpcError::Database(crate::dao::store_read(error)))?
         .ok_or(SandboxRpcError::NotFound)
 }
 
@@ -489,7 +489,7 @@ mod tests {
     use moatless_types::task::TaskStatus;
     use tokio::sync::mpsc;
 
-    use crate::task_dao::{MockT3TaskDao, TaskView};
+    use moatless_ports::task::MockTaskReader;
 
     /// Reports `Initializing` until `moved` is set, then `Ready`. Once `Ready`,
     /// it also reports the agent and the commands it is asked to report.
@@ -613,13 +613,10 @@ mod tests {
     }
 
     fn watched_state(observer: Arc<MovingStatus>) -> SandboxState {
-        let mut tasks = MockT3TaskDao::new();
-        tasks.expect_find_by_id().returning(|_, _| {
-            Ok(Some(TaskView {
-                status: TaskStatus::Open,
-                ttl_minutes: 15,
-            }))
-        });
+        let mut tasks = MockTaskReader::new();
+        tasks
+            .expect_describe()
+            .returning(|task_id, _| Ok(Some(crate::tests::open_task(task_id))));
         SandboxState {
             observer: observer.clone(),
             tasks: Arc::new(tasks),

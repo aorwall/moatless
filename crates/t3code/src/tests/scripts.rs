@@ -21,7 +21,7 @@ fn scripts_state(tasks: ports::MockWorkspaceScriptSource) -> ScriptsState {
             tabs: Arc::new(preview_tabs::PreviewTabs::new(preview_tabs::PreviewTabTtl(
                 std::time::Duration::from_hours(1),
             ))),
-            tasks: Arc::new(MockT3TaskDao::new()),
+            tasks: Arc::new(MockTaskReader::new()),
             relay: preview_relay::PreviewRelay::disabled(),
         },
     }
