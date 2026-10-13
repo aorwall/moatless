@@ -1,9 +1,8 @@
 //! Tag error types.
 
-use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use moatless_core::error::error_response;
+use moatless_core::error::{error_response, internal_error};
 
 #[derive(Debug, thiserror::Error)]
 pub enum TagError {
@@ -19,17 +18,11 @@ impl IntoResponse for TagError {
         let (status, message) = match &self {
             TagError::Db(e) => {
                 tracing::error!(error = %e, "Database error in tag handler");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
             TagError::Internal(msg) => {
                 tracing::error!(error = %msg, "Internal error in tag handler");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
         };
 

@@ -80,11 +80,7 @@ pub async fn run(
         ProviderAppAction::List { provider } => list(moat, provider.as_deref(), json).await,
         ProviderAppAction::Spec { provider } => {
             let spec = spec(moat, &provider).await?;
-            if json {
-                output::print_json_typed(&spec);
-            } else {
-                print_spec(&spec);
-            }
+            output::emit(json, &spec, || print_spec(&spec));
             Ok(())
         }
         ProviderAppAction::Set {
@@ -95,11 +91,9 @@ pub async fn run(
         } => set(moat, &provider, &key, &fields, clear_omitted, json).await,
         ProviderAppAction::Remove { provider, key } => {
             let response = moat.raw_delete(&format!("{PATH}/{provider}/{key}")).await?;
-            if json {
-                output::print_json_typed(&response);
-            } else {
+            output::emit(json, &response, || {
                 println!("Removed the {provider} app registered as '{key}'.");
-            }
+            });
             Ok(())
         }
     }

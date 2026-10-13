@@ -655,10 +655,7 @@ pub(super) fn asked(tool_name: &str) -> InteractiveCall {
 }
 
 pub(super) fn viewer() -> ScopeContext {
-    ScopeContext {
-        user_id: "user-1".to_string(),
-        is_admin: false,
-    }
+    ScopeContext::user("user-1")
 }
 
 /// Run one command against a Claude thread that exists.

@@ -63,11 +63,7 @@ pub(super) async fn run(
         endpoints,
     };
 
-    if json {
-        output::print_json_typed(&report);
-    } else {
-        print_human(&report, source);
-    }
+    output::emit(json, &report, || print_human(&report, source));
 
     Ok(())
 }

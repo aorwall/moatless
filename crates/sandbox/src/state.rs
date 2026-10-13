@@ -198,10 +198,7 @@ pub(crate) mod test_support {
     use crate::config::test_support::minimal_config;
     use crate::credentials::recovery::CredentialFailureDetector;
     use crate::outbox::EventOutbox;
-    use sandbox_proto::{
-        DownloadUploadResponse, GetCredentialsResponse, InterruptedTurn, PendingAgentDelivery,
-        PublishEventRequest,
-    };
+    use sandbox_proto::{DownloadUploadResponse, PendingAgentDelivery};
 
     /// Stores nothing. Its first `failing_fetches` reads of pending messages
     /// fail as unavailable; `fetches` counts every read.
@@ -213,10 +210,6 @@ pub(crate) mod test_support {
 
     #[async_trait::async_trait]
     impl BackendClient for NoopBackend {
-        async fn publish_event(&self, _req: PublishEventRequest) -> Result<(), tonic::Status> {
-            Ok(())
-        }
-
         async fn get_pending_messages(
             &self,
             _task_id: &str,
@@ -230,62 +223,12 @@ pub(crate) mod test_support {
             Ok(vec![])
         }
 
-        async fn acknowledge_messages(
-            &self,
-            _task_id: &str,
-            _message_uuids: Vec<String>,
-            _session_id: &str,
-            _run_id: &str,
-            _answered_prompt: Option<&str>,
-        ) -> Result<(), tonic::Status> {
-            Ok(())
-        }
-
-        async fn get_credentials(
-            &self,
-            _task_id: &str,
-        ) -> Result<GetCredentialsResponse, tonic::Status> {
-            Ok(GetCredentialsResponse::default())
-        }
-
-        async fn update_credential(
-            &self,
-            _task_id: &str,
-            _key: &str,
-            _value: &str,
-        ) -> Result<(), tonic::Status> {
-            Ok(())
-        }
-
-        async fn get_system_prompt(&self, _task_id: &str) -> Result<String, tonic::Status> {
-            Ok(String::new())
-        }
-
         async fn download_upload(
             &self,
             _task_id: &str,
             _file_id: &str,
         ) -> Result<DownloadUploadResponse, tonic::Status> {
             Err(tonic::Status::not_found("no uploads in this fixture"))
-        }
-
-        async fn recover_interrupted_run(
-            &self,
-            _task_id: &str,
-        ) -> Result<Option<InterruptedTurn>, tonic::Status> {
-            Ok(None)
-        }
-
-        async fn upload_transcript(
-            &self,
-            _task_id: &str,
-            _tar_data: Vec<u8>,
-        ) -> Result<(), tonic::Status> {
-            Ok(())
-        }
-
-        async fn download_transcript(&self, _task_id: &str) -> Result<Vec<u8>, tonic::Status> {
-            Ok(Vec::new())
         }
     }
 

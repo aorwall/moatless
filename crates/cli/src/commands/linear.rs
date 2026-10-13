@@ -343,11 +343,7 @@ async fn run_issue(
                 .api()
                 .linear_get_issue(&id, connection.as_deref())
                 .await?;
-            if json {
-                output::print_json_typed(&resp);
-            } else {
-                print_issue(&resp.data);
-            }
+            output::emit(json, &resp, || print_issue(&resp.data));
             Ok(())
         }
         IssueAction::Create {
@@ -396,14 +392,12 @@ async fn run_issue(
                 .api()
                 .linear_create_issue(&req, connection.as_deref())
                 .await?;
-            if json {
-                output::print_json_typed(&resp);
-            } else {
+            output::emit(json, &resp, || {
                 println!("Created {}", issue_ref(&resp.data));
                 if let Some(bid) = &resp.binding_id {
                     println!("Bound to task via: {bid}");
                 }
-            }
+            });
             fail_on_warnings(&resp.warnings)
         }
         IssueAction::Update {
@@ -442,16 +436,14 @@ async fn run_issue(
                 .api()
                 .linear_update_issue(&id, &req, connection.as_deref())
                 .await?;
-            if json {
-                output::print_json_typed(&resp);
-            } else {
+            output::emit(json, &resp, || {
                 println!(
                     "Updated {} ({}) {}",
                     str_at(&resp.data, "/identifier"),
                     updated_fields(&req).join(", "),
                     str_at(&resp.data, "/url")
                 );
-            }
+            });
             fail_on_warnings(&resp.warnings)
         }
         IssueAction::Move {
@@ -512,15 +504,13 @@ async fn run_issue(
                 .api()
                 .linear_create_comment(&id, &req, connection.as_deref())
                 .await?;
-            if json {
-                output::print_json_typed(&resp);
-            } else {
+            output::emit(json, &resp, || {
                 let url = resp.data.get("url").and_then(Value::as_str).unwrap_or("");
                 println!("Comment posted: {url}");
-                if let Some(bid) = resp.binding_id {
+                if let Some(bid) = &resp.binding_id {
                     println!("Bound to task via: {bid}");
                 }
-            }
+            });
             Ok(())
         }
         IssueAction::Label { action } => run_label(client, action, json).await,
@@ -786,15 +776,13 @@ async fn run_label(
             connection.as_deref(),
         )
         .await?;
-    if json {
-        output::print_json_typed(&resp);
-    } else {
+    output::emit(json, &resp, || {
         let done = match op {
             LinearLabelOp::Add => "added label",
             LinearLabelOp::Remove => "removed label",
         };
         println!("{id}: {done} {label}");
-    }
+    });
     Ok(())
 }
 
@@ -810,14 +798,12 @@ async fn run_lookup(
         .api()
         .linear_lookup(kind, name, team, connection)
         .await?;
-    if json {
-        output::print_json_typed(&resp);
-    } else {
+    output::emit(json, &resp, || {
         match (resp.id.as_deref(), resp.name.as_deref()) {
             (Some(id), Some(name)) => println!("{id}\t{name}"),
             _ => println!("(no match)"),
         }
-    }
+    });
     Ok(())
 }
 

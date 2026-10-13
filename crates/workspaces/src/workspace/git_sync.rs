@@ -25,7 +25,6 @@ use crate::workspace::dao::WorkspaceDao;
 use crate::workspace::models::WorkspacePatch;
 use crate::workspace::models::{Workspace, WorkspaceKind, WorkspaceRepo, WorkspaceSource};
 use moatless_core::db::DbPool;
-use moatless_core::http_auth::AuthUser;
 use moatless_ports::identity::GitHostTokenIssuer;
 use moatless_types::access_control::Actor;
 use moatless_types::access_control::ScopeContext;
@@ -846,25 +845,6 @@ fn repo_name_from_url(url: &str) -> String {
         .to_string()
 }
 
-impl GitSyncService {
-    /// Synchronize using an HTTP caller's scope.
-    pub async fn sync_repo_workspaces(
-        &self,
-        repo: &Repository,
-        auth: &AuthUser,
-        force: &SyncForce,
-    ) -> Result<WorkspaceSyncSummary, RepositoryError> {
-        self.sync_repo_workspaces_for(repo, &auth.scope_context(), force)
-            .await
-    }
-
-    /// Synchronize before starting a task using an HTTP caller's scope.
-    pub async fn sync_repo_config_on_start(&self, auth: &AuthUser, repo: &Repository) {
-        self.sync_repo_config_on_start_for(&auth.scope_context(), repo)
-            .await;
-    }
-}
-
 pub async fn log_workspace_sync_for(
     git_sync: &GitSyncService,
     repo: &Repository,
@@ -895,16 +875,6 @@ pub async fn log_workspace_sync_for(
             WorkspaceSyncSummary::default()
         }
     }
-}
-/// Synchronize with an HTTP caller's scope and log the outcome.
-pub async fn log_workspace_sync(
-    git_sync: &Arc<GitSyncService>,
-    repo: &Repository,
-    auth: &AuthUser,
-    phase: &str,
-    force: &SyncForce,
-) -> WorkspaceSyncSummary {
-    log_workspace_sync_for(git_sync, repo, &auth.scope_context(), phase, force).await
 }
 
 #[cfg(test)]

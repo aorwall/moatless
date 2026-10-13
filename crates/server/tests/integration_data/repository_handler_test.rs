@@ -29,10 +29,7 @@ fn build_router(pool: PgPool) -> axum::Router {
 }
 
 fn scope_ctx(user_id: &str) -> ScopeContext {
-    ScopeContext {
-        user_id: user_id.into(),
-        is_admin: false,
-    }
+    ScopeContext::user(user_id)
 }
 
 #[sqlx::test]

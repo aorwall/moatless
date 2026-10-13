@@ -3,7 +3,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use moatless_core::error::error_response;
+use moatless_core::error::{error_response, internal_error};
 
 #[derive(Debug, thiserror::Error)]
 pub enum TaskEventError {
@@ -20,10 +20,7 @@ impl IntoResponse for TaskEventError {
             TaskEventError::TaskNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
             TaskEventError::Db(e) => {
                 tracing::error!(error = %e, "Database error in task event handler");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
         };
         error_response(status, message)

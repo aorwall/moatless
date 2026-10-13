@@ -661,10 +661,7 @@ mod tests {
             user_directory_over_bot_users(HashMap::new()),
             Arc::new(RefusingProver),
         );
-        let ctx = ScopeContext {
-            user_id: "reader".into(),
-            is_admin: false,
-        };
+        let ctx = ScopeContext::user("reader");
         assert!(matches!(
             administration.list_adapter_apps(&ctx).await,
             Err(AppAdministrationError::Forbidden(_))
@@ -765,10 +762,7 @@ mod tests {
                     private_key_pem: "invalid".to_string(),
                     default_installation_id: None,
                 },
-                &ScopeContext {
-                    user_id: "admin".into(),
-                    is_admin: true,
-                },
+                &ScopeContext::admin("admin"),
             )
             .await;
 
@@ -823,13 +817,7 @@ mod tests {
         let administration = AppAdministration::new(registry, users, Arc::new(RefusingProver));
 
         let removed = administration
-            .remove_github_app(
-                "reviewer",
-                &ScopeContext {
-                    user_id: "admin".into(),
-                    is_admin: true,
-                },
-            )
+            .remove_github_app("reviewer", &ScopeContext::admin("admin"))
             .await
             .expect("registered app should be removed");
 

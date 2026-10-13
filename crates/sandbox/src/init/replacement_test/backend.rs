@@ -10,10 +10,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use async_trait::async_trait;
-use sandbox_proto::{
-    DownloadUploadResponse, GetCredentialsResponse, InterruptedTurn, PendingAgentDelivery,
-    PublishEventRequest,
-};
+use sandbox_proto::{InterruptedTurn, PendingAgentDelivery};
 use tokio::sync::Mutex;
 
 use crate::backend_client::BackendClient;
@@ -169,10 +166,6 @@ fn coalesce(rows: Vec<PendingAgentDelivery>) -> Vec<PendingAgentDelivery> {
 
 #[async_trait]
 impl BackendClient for ReplayBackend {
-    async fn publish_event(&self, _req: PublishEventRequest) -> Result<(), tonic::Status> {
-        Ok(())
-    }
-
     async fn get_pending_messages(
         &self,
         task_id: &str,
@@ -223,37 +216,6 @@ impl BackendClient for ReplayBackend {
         Ok(())
     }
 
-    async fn get_credentials(
-        &self,
-        _task_id: &str,
-    ) -> Result<GetCredentialsResponse, tonic::Status> {
-        Ok(GetCredentialsResponse {
-            credentials: HashMap::new(),
-            ssh_keys: HashMap::new(),
-        })
-    }
-
-    async fn update_credential(
-        &self,
-        _task_id: &str,
-        _key: &str,
-        _value: &str,
-    ) -> Result<(), tonic::Status> {
-        Ok(())
-    }
-
-    async fn get_system_prompt(&self, _task_id: &str) -> Result<String, tonic::Status> {
-        Ok(String::new())
-    }
-
-    async fn download_upload(
-        &self,
-        _task_id: &str,
-        _file_id: &str,
-    ) -> Result<DownloadUploadResponse, tonic::Status> {
-        Err(tonic::Status::unimplemented("not used"))
-    }
-
     async fn recover_interrupted_run(
         &self,
         task_id: &str,
@@ -263,14 +225,6 @@ impl BackendClient for ReplayBackend {
             .expect("poisoned")
             .push(task_id.to_string());
         Ok(self.interrupted.clone())
-    }
-
-    async fn upload_transcript(
-        &self,
-        _task_id: &str,
-        _tar_data: Vec<u8>,
-    ) -> Result<(), tonic::Status> {
-        Ok(())
     }
 
     async fn download_transcript(&self, _task_id: &str) -> Result<Vec<u8>, tonic::Status> {

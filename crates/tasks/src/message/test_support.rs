@@ -296,29 +296,6 @@ pub async fn messages_for(pool: &DbPool, task_id: &str) -> Result<MessagePage, s
     messages(pool).get_all(task_id).await
 }
 
-/// One keyset page of a Task's Messages, oldest first.
-pub async fn paginated_messages(
-    pool: &DbPool,
-    task_id: &str,
-    before_id: Option<i32>,
-    limit: i32,
-) -> Result<MessagePage, sqlx::Error> {
-    messages(pool)
-        .get_paginated(task_id, before_id, limit)
-        .await
-}
-
-/// One subagent's Messages, contexts and activities.
-pub async fn subagent_messages(
-    pool: &DbPool,
-    task_id: &str,
-    tool_use_id: &str,
-) -> Result<MessagePage, sqlx::Error> {
-    messages(pool)
-        .get_subagent_messages(task_id, tool_use_id)
-        .await
-}
-
 fn facade(pool: &DbPool) -> super::operations::Messages {
     super::operations::Messages::new(
         Arc::new(messages(pool)),
@@ -514,18 +491,6 @@ pub async fn task_id_for_external_event_on_subject(
 /// which takes one.
 pub fn transcript(pool: &DbPool) -> Arc<crate::ports::Transcript> {
     Arc::new(crate::ports::Transcript::new(Arc::new(messages(pool))))
-}
-
-/// The Message handle over a pool that never connects, for a host test whose
-/// path reaches the store only where a read failure is tolerated.
-pub fn messages_without_a_database() -> Arc<super::operations::Messages> {
-    let pool = sqlx::postgres::PgPoolOptions::new()
-        .connect_lazy("postgres://unused@127.0.0.1:1/unused")
-        .expect("a lazy pool connects to nothing");
-    Arc::new(super::operations::Messages::new(
-        Arc::new(messages(&pool)),
-        crate::inbox::InboxService::new(pool.clone()),
-    ))
 }
 
 /// A minimal user Message, one line of text with no tool traffic.

@@ -25,10 +25,7 @@ use crate::trajectory::dao::PgTrajectoryDao;
 use crate::trajectory::operations::Trajectories;
 
 fn owner() -> ScopeContext {
-    ScopeContext {
-        user_id: "user-1".to_string(),
-        is_admin: false,
-    }
+    ScopeContext::user("user-1")
 }
 
 /// One closed turn: the person's item, delivered to `session`, and the

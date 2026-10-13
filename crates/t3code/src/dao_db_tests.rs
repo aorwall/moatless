@@ -549,10 +549,7 @@ async fn a_browse_reaches_tasks_the_viewer_neither_follows_nor_owns(pool: PgPool
     seed_browsable(&pool, "browse-theirs-tagged", USER_2, &["backend"]).await;
 
     let dao = conversations_over(&pool);
-    let viewer = ScopeContext {
-        user_id: ADMIN.to_string(),
-        is_admin: true,
-    };
+    let viewer = ScopeContext::admin(ADMIN.to_string());
 
     let by_owner = dao
         .list_browsable(
@@ -613,10 +610,7 @@ async fn a_browse_leaves_closed_tasks_out_until_it_is_asked_for_them(pool: PgPoo
         .expect("seed task");
 
     let dao = conversations_over(&pool);
-    let viewer = ScopeContext {
-        user_id: ADMIN.to_string(),
-        is_admin: true,
-    };
+    let viewer = ScopeContext::admin(ADMIN.to_string());
     let owner = || Some(USER_1.to_string());
 
     let open_only = dao
@@ -660,10 +654,7 @@ async fn a_browse_by_a_non_administrator_reaches_only_what_they_may_read(pool: P
 
     let browsed = conversations_over(&pool)
         .list_browsable(
-            &ScopeContext {
-                user_id: USER_2.to_string(),
-                is_admin: false,
-            },
+            &ScopeContext::user(USER_2.to_string()),
             &ConversationBrowse::new(None, Some("backend".to_string()), false).expect("a filter"),
         )
         .await
@@ -806,10 +797,7 @@ async fn the_archive_pages_through_every_closed_task_newest_first(pool: PgPool) 
     let tasks = moatless_tasks::compose::task_graph(pool.clone());
     let graph = crate::compose::t3_graph(pool.clone(), tasks.activities());
     let defaults = crate::config::AgentModelDefaults::default();
-    let viewer = ScopeContext {
-        user_id: USER_1.to_string(),
-        is_admin: false,
-    };
+    let viewer = ScopeContext::user(USER_1.to_string());
     let page = |before: Option<crate::dao::ArchiveCursor>| {
         let (graph, defaults, viewer) = (&graph, &defaults, &viewer);
         async move {
@@ -903,10 +891,7 @@ async fn record_turn(pool: &PgPool, turn: i32, status: &str, error: Option<&str>
 async fn the_newest_turns_error_is_read_until_another_turn_starts(pool: PgPool) {
     seed_task(&pool).await;
     let dao = conversations_over(&pool);
-    let owner = ScopeContext {
-        user_id: USER_1.to_string(),
-        is_admin: false,
-    };
+    let owner = ScopeContext::user(USER_1.to_string());
     let turn_error = |row: Option<crate::dao::Conversation>| row.expect("readable").turn_error;
 
     record_turn(&pool, 1, "error", Some("You've hit your usage limit.")).await;
@@ -962,14 +947,8 @@ async fn the_access_check_agrees_with_the_conversation_read(pool: PgPool) {
     }
 
     let dao = conversations_over(&pool);
-    let owner = ScopeContext {
-        user_id: USER_1.to_string(),
-        is_admin: false,
-    };
-    let stranger = ScopeContext {
-        user_id: USER_2.to_string(),
-        is_admin: false,
-    };
+    let owner = ScopeContext::user(USER_1.to_string());
+    let stranger = ScopeContext::user(USER_2.to_string());
     let cases = [
         (&owner, "check-private", true),
         (&stranger, "check-private", false),
@@ -1049,10 +1028,7 @@ async fn a_listed_row_names_a_readable_parent_and_counts_its_children(pool: PgPo
     .await
     .expect("child runs a turn");
 
-    let viewer = ScopeContext {
-        user_id: USER_1.to_string(),
-        is_admin: false,
-    };
+    let viewer = ScopeContext::user(USER_1.to_string());
     let rows = conversations_over(&pool)
         .list_followed(&viewer)
         .await

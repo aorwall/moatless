@@ -19,16 +19,6 @@ use moatless_types::adapter::{
 };
 use moatless_types::loops::{LoopContext, SubscriptionMatch};
 
-/// Info returned by `send_message` to create a new `BindingContext`.
-#[derive(Debug)]
-pub struct NewThreadInfo {
-    /// Adapter-specific thread/message ID (e.g., Slack message `ts`).
-    pub external_thread_id: String,
-    /// Adapter-specific properties for the thread (e.g., `channel`,
-    /// `thread_ts`).
-    pub properties: serde_json::Value,
-}
-
 /// Universal adapter identity kept for compatibility with typed provider
 /// registration and legacy name lookups.
 pub trait Adapter: Send + Sync {

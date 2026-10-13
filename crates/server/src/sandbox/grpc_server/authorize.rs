@@ -318,10 +318,10 @@ impl SandboxAuthorizer {
             .user_id
             .parse::<uuid::Uuid>()
             .map_err(|_| Status::unauthenticated("Invalid user id in token"))?;
-        Ok(ScopeContext {
-            user_id: claims.user_id.clone(),
-            is_admin: self.user_is_admin(&user_uuid).await,
-        })
+        Ok(ScopeContext::new(
+            claims.user_id.clone(),
+            self.user_is_admin(&user_uuid).await,
+        ))
     }
 
     /// Platform-admin check for the control gate. Missing repo or a lookup

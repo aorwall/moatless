@@ -943,10 +943,7 @@ mod tests {
     }
 
     fn viewer() -> ScopeContext {
-        ScopeContext {
-            user_id: "user-1".to_string(),
-            is_admin: false,
-        }
+        ScopeContext::user("user-1")
     }
 
     /// A workspace DAO wired to answer with `primary`, the repository the

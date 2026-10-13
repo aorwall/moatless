@@ -280,19 +280,11 @@ pub async fn run(
     match action {
         WorkspaceAction::List => {
             let workspaces = client.api().list_workspaces().await?;
-            if json {
-                output::print_json_typed(&workspaces);
-            } else {
-                format_workspace_list(&workspaces);
-            }
+            output::emit(json, &workspaces, || format_workspace_list(&workspaces));
         }
         WorkspaceAction::Get { workspace_id } => {
             let ws = client.api().get_workspace(&workspace_id).await?;
-            if json {
-                output::print_json_typed(&ws);
-            } else {
-                format_workspace_detail(&ws);
-            }
+            output::emit(json, &ws, || format_workspace_detail(&ws));
         }
         WorkspaceAction::Create {
             name,
@@ -339,11 +331,9 @@ pub async fn run(
                 repos,
             };
             let created = client.api().create_workspace(&req).await?;
-            if json {
-                output::print_json_typed(&created);
-            } else {
+            output::emit(json, &created, || {
                 println!("Workspace created: {}", created.id);
-            }
+            });
         }
         WorkspaceAction::Update {
             workspace_id,
@@ -384,11 +374,9 @@ pub async fn run(
                 run_as_user_id,
             };
             let updated = client.api().update_workspace(&workspace_id, &req).await?;
-            if json {
-                output::print_json_typed(&updated);
-            } else {
+            output::emit(json, &updated, || {
                 println!("Workspace {} updated.", updated.id);
-            }
+            });
         }
         WorkspaceAction::Override {
             workspace_id,
@@ -427,9 +415,7 @@ pub async fn run(
                 run_as_user_id,
             };
             let updated = client.api().override_workspace(&workspace_id, &req).await?;
-            if json {
-                output::print_json_typed(&updated);
-            } else {
+            output::emit(json, &updated, || {
                 println!(
                     "Workspace {} overridden (source=manual). Git sync will skip it until reset.",
                     updated.id
@@ -440,7 +426,7 @@ pub async fn run(
                 if let Some(ref repo_id) = updated.source_repository_id {
                     println!("  Source repository: {repo_id}");
                 }
-            }
+            });
         }
         WorkspaceAction::ResetGit { workspace_id } => {
             let result = client.api().reset_git_workspace(&workspace_id).await?;
@@ -491,14 +477,14 @@ pub async fn run(
             }
 
             client.api().delete_workspace(&id).await?;
-            if json {
-                output::print_json_typed(&serde_json::json!({
+            output::emit(
+                json,
+                &serde_json::json!({
                     "id": id,
                     "deleted": true,
-                }));
-            } else {
-                println!("Deleted workspace {name} ({id})");
-            }
+                }),
+                || println!("Deleted workspace {name} ({id})"),
+            );
         }
         WorkspaceAction::Credentials { action } => {
             run_credentials(client, action, json).await?;
@@ -662,11 +648,7 @@ async fn replace_scripts(
 
 fn print_scripts_result(updated: &WorkspaceResponse, json: bool) {
     let scripts = updated.scripts.clone().unwrap_or_default();
-    if json {
-        output::print_json_typed(&scripts);
-    } else {
-        format_scripts_list(&scripts);
-    }
+    output::emit(json, &scripts, || format_scripts_list(&scripts));
 }
 
 /// One line per script this workspace declares.
@@ -743,14 +725,12 @@ async fn run_credentials(
                 .api()
                 .set_workspace_credential(&workspace_id, &provider, &resolved)
                 .await?;
-            if json {
-                output::print_json_typed(&stored);
-            } else {
+            output::emit(json, &stored, || {
                 println!(
                     "Pinned {} credential to workspace {} (delivered as {}).",
                     stored.provider, workspace_id, stored.env_key
                 );
-            }
+            });
         }
         CredentialAction::Remove {
             workspace_id,
@@ -760,15 +740,15 @@ async fn run_credentials(
                 .api()
                 .delete_workspace_credential(&workspace_id, &provider)
                 .await?;
-            if json {
-                output::print_json_typed(&serde_json::json!({
+            output::emit(
+                json,
+                &serde_json::json!({
                     "workspaceId": workspace_id,
                     "provider": provider,
                     "removed": true,
-                }));
-            } else {
-                println!("Removed {provider} credential from workspace {workspace_id}.");
-            }
+                }),
+                || println!("Removed {provider} credential from workspace {workspace_id}."),
+            );
         }
     }
     Ok(())

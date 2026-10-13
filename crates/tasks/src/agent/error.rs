@@ -1,9 +1,8 @@
 //! Agent module error types.
 
-use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use moatless_core::error::error_response;
+use moatless_core::error::{error_response, internal_error};
 
 #[derive(Debug, thiserror::Error)]
 pub enum AgentError {
@@ -16,10 +15,7 @@ impl IntoResponse for AgentError {
         let (status, message) = match &self {
             Self::Internal(msg) => {
                 tracing::error!(error = %msg, "Internal error in agent handler");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
         };
         error_response(status, message)

@@ -167,10 +167,10 @@ pub async fn run(cli: SecretsCli) -> Result<(), Box<dyn std::error::Error>> {
 /// that user's rows plus the global ones, so `--owner-user-id` can't reach a
 /// third user's secret. The audit actor stays [`CLI_ACTOR`], passed separately.
 fn scope_context(owner_user_id: Option<&str>) -> ScopeContext {
-    ScopeContext {
-        user_id: owner_user_id.unwrap_or(CLI_ACTOR).to_string(),
-        is_admin: owner_user_id.is_none(),
-    }
+    ScopeContext::new(
+        owner_user_id.unwrap_or(CLI_ACTOR).to_string(),
+        owner_user_id.is_none(),
+    )
 }
 
 /// A user-scoped row is owned by exactly one user and a global row by nobody,

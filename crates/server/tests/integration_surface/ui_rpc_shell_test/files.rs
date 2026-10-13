@@ -69,10 +69,7 @@ async fn the_listings_worktree_path_addresses_that_conversations_files(pool: PgP
     // Same path, a viewer whose listing does not contain the conversation. A
     // `cwd` is a string the client sends, so this is the only thing standing
     // between a guessed Task id and someone else's repository.
-    let outsider = ScopeContext {
-        user_id: "user-2".into(),
-        is_admin: false,
-    };
+    let outsider = ScopeContext::user("user-2");
     let error = files::read_file(
         &reads(&pool),
         Sources {

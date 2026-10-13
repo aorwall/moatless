@@ -26,25 +26,6 @@ struct CredBackend {
 
 #[async_trait]
 impl BackendClient for CredBackend {
-    async fn publish_event(&self, _req: PublishEventRequest) -> Result<(), Status> {
-        Ok(())
-    }
-    async fn get_pending_messages(
-        &self,
-        _task_id: &str,
-    ) -> Result<Vec<PendingAgentDelivery>, Status> {
-        Ok(vec![])
-    }
-    async fn acknowledge_messages(
-        &self,
-        _task_id: &str,
-        _message_uuids: Vec<String>,
-        _session_id: &str,
-        _run_id: &str,
-        _answered_prompt: Option<&str>,
-    ) -> Result<(), Status> {
-        Ok(())
-    }
     async fn get_credentials(&self, _task_id: &str) -> Result<GetCredentialsResponse, Status> {
         if let Some(detector) = &self.flag {
             detector.trigger(CODEX_AUTH_JSON);
@@ -60,14 +41,6 @@ impl BackendClient for CredBackend {
             ssh_keys: HashMap::new(),
         })
     }
-    async fn update_credential(
-        &self,
-        _task_id: &str,
-        _key: &str,
-        _value: &str,
-    ) -> Result<(), Status> {
-        Ok(())
-    }
     async fn get_system_prompt(&self, _task_id: &str) -> Result<String, Status> {
         Err(Status::unimplemented("unused"))
     }
@@ -77,18 +50,6 @@ impl BackendClient for CredBackend {
         _file_id: &str,
     ) -> Result<DownloadUploadResponse, Status> {
         Err(Status::unimplemented("unused"))
-    }
-    async fn recover_interrupted_run(
-        &self,
-        _task_id: &str,
-    ) -> Result<Option<InterruptedTurn>, Status> {
-        Ok(None)
-    }
-    async fn upload_transcript(&self, _task_id: &str, _tar: Vec<u8>) -> Result<(), Status> {
-        Ok(())
-    }
-    async fn download_transcript(&self, _task_id: &str) -> Result<Vec<u8>, Status> {
-        Ok(vec![])
     }
 }
 

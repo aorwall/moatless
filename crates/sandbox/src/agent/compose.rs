@@ -183,10 +183,7 @@ mod tests {
     use crate::events::GrpcEventPublisher;
     use crate::outbox::EventOutbox;
     use async_trait::async_trait;
-    use sandbox_proto::{
-        DownloadUploadResponse, GetCredentialsResponse, InterruptedTurn, PendingAgentDelivery,
-        PublishEventRequest,
-    };
+    use sandbox_proto::{DownloadUploadResponse, GetCredentialsResponse};
     use std::time::Duration;
     use tokio::sync::RwLock;
     use tokio_util::sync::CancellationToken;
@@ -197,25 +194,6 @@ mod tests {
 
     #[async_trait]
     impl BackendClient for NopBackend {
-        async fn publish_event(&self, _req: PublishEventRequest) -> Result<(), Status> {
-            Ok(())
-        }
-        async fn get_pending_messages(
-            &self,
-            _task_id: &str,
-        ) -> Result<Vec<PendingAgentDelivery>, Status> {
-            Ok(vec![])
-        }
-        async fn acknowledge_messages(
-            &self,
-            _task_id: &str,
-            _uuids: Vec<String>,
-            _session_id: &str,
-            _run_id: &str,
-            _answered_prompt: Option<&str>,
-        ) -> Result<(), Status> {
-            Ok(())
-        }
         async fn get_credentials(&self, _task_id: &str) -> Result<GetCredentialsResponse, Status> {
             Err(Status::unimplemented("nop"))
         }
@@ -237,17 +215,8 @@ mod tests {
         ) -> Result<DownloadUploadResponse, Status> {
             Err(Status::unimplemented("nop"))
         }
-        async fn recover_interrupted_run(
-            &self,
-            _task_id: &str,
-        ) -> Result<Option<InterruptedTurn>, Status> {
-            Ok(None)
-        }
         async fn upload_transcript(&self, _task_id: &str, _tar: Vec<u8>) -> Result<(), Status> {
             Err(Status::unimplemented("nop"))
-        }
-        async fn download_transcript(&self, _task_id: &str) -> Result<Vec<u8>, Status> {
-            Ok(vec![])
         }
     }
 

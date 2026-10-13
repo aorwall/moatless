@@ -1,11 +1,7 @@
 //! `kubectl` and `helm` subprocess plumbing for the `moat k8s` subcommands.
 
-use std::process::Stdio;
-
-use tokio::io::AsyncWriteExt;
-use tokio::process::Command;
-
 use crate::client::ClientError;
+use crate::commands::subprocess::{CmdOutput, run, run_streaming};
 
 pub(super) const DEFAULT_RELEASE: &str = "moatless-vibe";
 pub(super) const DEFAULT_NAMESPACE: &str = "vibe";
@@ -65,7 +61,7 @@ impl KubeTarget {
     pub(super) async fn helm_streaming(&self, args: &[&str]) -> Result<(), ClientError> {
         let owned = self.helm_args(args);
         let refs: Vec<&str> = owned.iter().map(String::as_str).collect();
-        run_streaming("helm", &refs).await
+        run_streaming("helm", "helm", &refs).await
     }
 
     fn kubectl_args(&self, args: &[&str]) -> Vec<String> {
@@ -98,18 +94,7 @@ pub(super) fn require_binary(name: &'static str) -> Result<(), ClientError> {
     })
 }
 
-/// Output of a completed subprocess run.
-pub(super) struct CmdOutput {
-    pub(super) status: i32,
-    pub(super) stdout: String,
-    pub(super) stderr: String,
-}
-
 impl CmdOutput {
-    pub(super) fn success(&self) -> bool {
-        self.status == 0
-    }
-
     /// Return `stdout` on success; map non-zero to a `ClientError` that
     /// includes stderr.
     pub(super) fn into_stdout(self, context: &str) -> Result<String, ClientError> {
@@ -133,71 +118,6 @@ pub(super) async fn kubectl(args: &[&str]) -> Result<CmdOutput, ClientError> {
 /// Run `helm` with the given args and return captured output.
 pub(super) async fn helm(args: &[&str]) -> Result<CmdOutput, ClientError> {
     run("helm", args, None).await
-}
-
-/// Stream a child process to inherited stdout/stderr. Useful for long-running
-/// `helm upgrade --install --wait` where the user benefits from live output.
-pub(super) async fn run_streaming(cmd: &str, args: &[&str]) -> Result<(), ClientError> {
-    let mut child = Command::new(cmd)
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .map_err(|e| ClientError::Other(format!("Failed to spawn {cmd}: {e}")))?;
-
-    let status = child
-        .wait()
-        .await
-        .map_err(|e| ClientError::Other(format!("Failed to await {cmd}: {e}")))?;
-
-    if !status.success() {
-        return Err(ClientError::Other(format!(
-            "{cmd} exited with status {}",
-            status.code().unwrap_or(-1)
-        )));
-    }
-    Ok(())
-}
-
-async fn run(cmd: &str, args: &[&str], stdin: Option<&str>) -> Result<CmdOutput, ClientError> {
-    let mut command = Command::new(cmd);
-    command
-        .args(args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    if stdin.is_some() {
-        command.stdin(Stdio::piped());
-    } else {
-        command.stdin(Stdio::null());
-    }
-
-    let mut child = command
-        .spawn()
-        .map_err(|e| ClientError::Other(format!("Failed to spawn {cmd}: {e}")))?;
-
-    if let Some(input) = stdin {
-        if let Some(mut h) = child.stdin.take() {
-            h.write_all(input.as_bytes())
-                .await
-                .map_err(|e| ClientError::Other(format!("Failed to write stdin to {cmd}: {e}")))?;
-            h.shutdown()
-                .await
-                .map_err(|e| ClientError::Other(format!("Failed to close stdin for {cmd}: {e}")))?;
-        }
-    }
-
-    let output = child
-        .wait_with_output()
-        .await
-        .map_err(|e| ClientError::Other(format!("Failed to collect {cmd} output: {e}")))?;
-
-    Ok(CmdOutput {
-        status: output.status.code().unwrap_or(-1),
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    })
 }
 
 fn kubectl_json_from(

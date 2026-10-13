@@ -14,10 +14,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use sandbox_proto::{
-    DownloadUploadResponse, GetCredentialsResponse, InterruptedTurn, PendingAgentDelivery,
-    PublishEventRequest,
-};
+use sandbox_proto::{DownloadUploadResponse, PublishEventRequest};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
@@ -498,53 +495,12 @@ impl BackendClient for RecordingBackend {
         Ok(())
     }
 
-    async fn get_pending_messages(
-        &self,
-        _: &str,
-    ) -> Result<Vec<PendingAgentDelivery>, tonic::Status> {
-        Ok(vec![])
-    }
-
-    async fn acknowledge_messages(
-        &self,
-        _: &str,
-        _: Vec<String>,
-        _: &str,
-        _: &str,
-        _: Option<&str>,
-    ) -> Result<(), tonic::Status> {
-        Ok(())
-    }
-
-    async fn get_credentials(&self, _: &str) -> Result<GetCredentialsResponse, tonic::Status> {
-        Ok(GetCredentialsResponse::default())
-    }
-
-    async fn update_credential(&self, _: &str, _: &str, _: &str) -> Result<(), tonic::Status> {
-        Ok(())
-    }
-
-    async fn get_system_prompt(&self, _: &str) -> Result<String, tonic::Status> {
-        Ok(String::new())
-    }
-
     async fn download_upload(
         &self,
         _: &str,
         _: &str,
     ) -> Result<DownloadUploadResponse, tonic::Status> {
         Err(tonic::Status::not_found("no uploads in this fixture"))
-    }
-
-    async fn recover_interrupted_run(
-        &self,
-        _: &str,
-    ) -> Result<Option<InterruptedTurn>, tonic::Status> {
-        Ok(None)
-    }
-
-    async fn upload_transcript(&self, _: &str, _: Vec<u8>) -> Result<(), tonic::Status> {
-        Ok(())
     }
 
     async fn download_transcript(&self, _: &str) -> Result<Vec<u8>, tonic::Status> {

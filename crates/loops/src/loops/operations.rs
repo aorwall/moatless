@@ -817,10 +817,7 @@ mod tests {
     #[tokio::test]
     async fn non_admin_mutations_refuse_before_reading_or_writing() {
         let loops = disconnected();
-        let ctx = ScopeContext {
-            user_id: "caller".into(),
-            is_admin: false,
-        };
+        let ctx = ScopeContext::user("caller");
         for result in [
             loops.delete(&ctx, "loop").await,
             loops.pause(&ctx, "loop").await,
@@ -840,10 +837,7 @@ mod tests {
         let result = disconnected()
             .activate(
                 &MissingUser,
-                &ScopeContext {
-                    user_id: "admin".into(),
-                    is_admin: true,
-                },
+                &ScopeContext::admin("admin"),
                 "loop",
                 "missing",
             )

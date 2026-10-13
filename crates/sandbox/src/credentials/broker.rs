@@ -170,7 +170,7 @@ mod tests {
     use super::*;
     use async_trait::async_trait;
     use axum::http::StatusCode as Sc;
-    use sandbox_proto::{GetCredentialsResponse, PendingAgentDelivery, PublishEventRequest};
+    use sandbox_proto::GetCredentialsResponse;
     use std::collections::HashMap;
 
     struct StaticBackend {
@@ -179,57 +179,11 @@ mod tests {
 
     #[async_trait]
     impl BackendClient for StaticBackend {
-        async fn publish_event(&self, _: PublishEventRequest) -> Result<(), tonic::Status> {
-            Ok(())
-        }
-        async fn get_pending_messages(
-            &self,
-            _: &str,
-        ) -> Result<Vec<PendingAgentDelivery>, tonic::Status> {
-            Ok(vec![])
-        }
-        async fn acknowledge_messages(
-            &self,
-            _: &str,
-            _: Vec<String>,
-            _: &str,
-            _: &str,
-            _: Option<&str>,
-        ) -> Result<(), tonic::Status> {
-            Ok(())
-        }
         async fn get_credentials(&self, _: &str) -> Result<GetCredentialsResponse, tonic::Status> {
             Ok(GetCredentialsResponse {
                 credentials: self.creds.clone(),
                 ssh_keys: HashMap::new(),
             })
-        }
-        async fn update_credential(&self, _: &str, _: &str, _: &str) -> Result<(), tonic::Status> {
-            Ok(())
-        }
-        async fn get_system_prompt(&self, _: &str) -> Result<String, tonic::Status> {
-            Ok(String::new())
-        }
-        async fn download_upload(
-            &self,
-            _: &str,
-            _: &str,
-        ) -> Result<sandbox_proto::DownloadUploadResponse, tonic::Status> {
-            Err(tonic::Status::unimplemented("not used"))
-        }
-        async fn recover_interrupted_run(
-            &self,
-            _: &str,
-        ) -> Result<Option<sandbox_proto::InterruptedTurn>, tonic::Status> {
-            Ok(None)
-        }
-
-        async fn upload_transcript(&self, _: &str, _: Vec<u8>) -> Result<(), tonic::Status> {
-            Ok(())
-        }
-
-        async fn download_transcript(&self, _: &str) -> Result<Vec<u8>, tonic::Status> {
-            Ok(Vec::new())
         }
     }
 

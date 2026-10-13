@@ -25,13 +25,11 @@ mod oidc_http;
 pub mod pairing;
 pub(crate) mod pairing_dao;
 pub mod password;
-pub mod provider_secret_adapter;
 pub(crate) mod provider_token_auth_dao;
 pub(crate) mod provider_token_dao;
 pub mod provider_tokens;
 pub mod routes;
 pub mod schemas;
-pub mod secrets;
 mod sessions;
 // `test` stays first so the census keeps scoring this fake as test-context; the
 // feature exposes it to other crates' tests (see Cargo.toml `test-support`).

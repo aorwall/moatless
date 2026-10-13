@@ -55,11 +55,7 @@ pub async fn whoami(
     json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let session = moat.api().me().await?;
-    if json {
-        crate::output::print_json_typed(&session);
-    } else {
-        format_whoami(&session);
-    }
+    crate::output::emit(json, &session, || format_whoami(&session));
     Ok(())
 }
 
@@ -68,14 +64,12 @@ pub async fn tags(
     json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let tags = moat.api().list_tags().await?;
-    if json {
-        crate::output::print_json_typed(&tags);
-    } else {
+    crate::output::emit(json, &tags, || {
         let rows: Vec<Vec<String>> = tags
             .iter()
             .map(|t| vec![t.tag_id.clone(), t.name.clone()])
             .collect();
         crate::output::print_table(&["TAG_ID", "NAME"], &rows);
-    }
+    });
     Ok(())
 }

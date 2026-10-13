@@ -239,10 +239,7 @@ mod tests {
     const BOT: uuid::Uuid = uuid::Uuid::from_u128(2);
 
     fn auth(role: &str) -> ScopeContext {
-        ScopeContext {
-            user_id: CALLER.to_string(),
-            is_admin: role == "admin",
-        }
+        ScopeContext::new(CALLER.to_string(), role == "admin")
     }
 
     fn forbidden(result: &Result<Subject, PluginError>) -> bool {

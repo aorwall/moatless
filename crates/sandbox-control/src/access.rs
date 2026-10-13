@@ -163,10 +163,7 @@ mod authz_tests {
     }
 
     fn ctx(user_id: &str, is_admin: bool) -> ScopeContext {
-        ScopeContext {
-            user_id: uid(user_id).to_string(),
-            is_admin,
-        }
+        ScopeContext::new(uid(user_id).to_string(), is_admin)
     }
 
     #[test]

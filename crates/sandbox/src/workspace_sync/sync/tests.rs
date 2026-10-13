@@ -6,10 +6,7 @@ mod worktree;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use async_trait::async_trait;
-use sandbox_proto::{
-    DownloadUploadResponse, GetCredentialsResponse, GetWorkspaceSyncUrlsResponse, InterruptedTurn,
-    PendingAgentDelivery, PublishEventRequest,
-};
+use sandbox_proto::{DownloadUploadResponse, GetCredentialsResponse, GetWorkspaceSyncUrlsResponse};
 
 /// Counts the only call an upload makes before it touches the network, and then
 /// declines — so a test can tell "attempted an upload" from "skipped" without
@@ -116,25 +113,6 @@ impl CountingBackend {
 
 #[async_trait]
 impl BackendClient for CountingBackend {
-    async fn publish_event(&self, _req: PublishEventRequest) -> Result<(), tonic::Status> {
-        Ok(())
-    }
-    async fn get_pending_messages(
-        &self,
-        _task_id: &str,
-    ) -> Result<Vec<PendingAgentDelivery>, tonic::Status> {
-        Ok(vec![])
-    }
-    async fn acknowledge_messages(
-        &self,
-        _task_id: &str,
-        _uuids: Vec<String>,
-        _session_id: &str,
-        _run_id: &str,
-        _answered_prompt: Option<&str>,
-    ) -> Result<(), tonic::Status> {
-        Ok(())
-    }
     async fn get_credentials(
         &self,
         _task_id: &str,
@@ -144,36 +122,12 @@ impl BackendClient for CountingBackend {
     async fn get_system_prompt(&self, _task_id: &str) -> Result<String, tonic::Status> {
         Err(tonic::Status::unimplemented("counting"))
     }
-    async fn update_credential(
-        &self,
-        _task_id: &str,
-        _key: &str,
-        _value: &str,
-    ) -> Result<(), tonic::Status> {
-        Ok(())
-    }
     async fn download_upload(
         &self,
         _task_id: &str,
         _file_id: &str,
     ) -> Result<DownloadUploadResponse, tonic::Status> {
         Err(tonic::Status::unimplemented("counting"))
-    }
-    async fn recover_interrupted_run(
-        &self,
-        _task_id: &str,
-    ) -> Result<Option<InterruptedTurn>, tonic::Status> {
-        Ok(None)
-    }
-    async fn upload_transcript(
-        &self,
-        _task_id: &str,
-        _tar_data: Vec<u8>,
-    ) -> Result<(), tonic::Status> {
-        Ok(())
-    }
-    async fn download_transcript(&self, _task_id: &str) -> Result<Vec<u8>, tonic::Status> {
-        Ok(Vec::new())
     }
     async fn get_workspace_sync_urls(
         &self,

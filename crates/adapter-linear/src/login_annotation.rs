@@ -178,25 +178,6 @@ mod tests {
                 }),
             )
         }
-        async fn user_by_email(&self, _: &str) -> Result<Option<LinkedUser>, StoreError> {
-            Ok(None)
-        }
-        async fn provider_id_for_login(
-            &self,
-            _: &str,
-            _: &str,
-        ) -> Result<Option<String>, StoreError> {
-            Ok(None)
-        }
-        async fn user_who_connected(&self, _: &str, _: &str) -> Result<Option<String>, StoreError> {
-            Ok(None)
-        }
-        async fn user_with_login(&self, _: &str, _: &str) -> Result<Option<String>, StoreError> {
-            Ok(None)
-        }
-        async fn link(&self, _: &Uuid, _: &str, _: &str) -> Result<bool, StoreError> {
-            Ok(false)
-        }
     }
 
     fn martin() -> Value {

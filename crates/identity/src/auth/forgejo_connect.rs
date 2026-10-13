@@ -158,10 +158,10 @@ pub(super) async fn finish(
 fn principal(identity: &AuthIdentity) -> GitHostPrincipal {
     GitHostPrincipal {
         user_id: identity.user_id.to_string(),
-        scope_context: ScopeContext {
-            user_id: identity.user_id.to_string(),
-            is_admin: identity.role == UserRole::Admin,
-        },
+        scope_context: ScopeContext::new(
+            identity.user_id.to_string(),
+            identity.role == UserRole::Admin,
+        ),
     }
 }
 

@@ -563,26 +563,6 @@ impl LinearAgentApi {
         parse_viewer(&value)
     }
 
-    /// Variant used during OAuth install where the access token is held in
-    /// memory and hasn't been persisted yet.
-    #[allow(
-        dead_code,
-        reason = "reachable only while `agent_api` was `pub`; narrowing `mod.rs` in stage \
-                  15 of the Linear breakup surfaced it. Kept rather than deleted because \
-                  `agent_api.rs` internals are out of scope for that plan — see the PR."
-    )]
-    pub async fn viewer_with_token(&self, access_token: &str) -> Result<ViewerInfo, AdapterError> {
-        let value = self
-            .graphql_with_token(
-                access_token,
-                serde_json::json!({
-                    "query": "query { viewer { id name email } }"
-                }),
-            )
-            .await?;
-        parse_viewer(&value)
-    }
-
     // ------------------------------------------------------------------
     // Issue CRUD + lookup operations
     //

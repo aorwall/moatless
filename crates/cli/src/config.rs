@@ -128,11 +128,6 @@ impl Config {
         }
     }
 
-    /// Whether we're in sandbox mode.
-    pub fn is_sandbox(&self) -> bool {
-        matches!(self.auth_mode, AuthMode::Sandbox { .. })
-    }
-
     /// Get the task ID (sandbox mode only).
     pub fn task_id(&self) -> Option<&str> {
         match &self.auth_mode {

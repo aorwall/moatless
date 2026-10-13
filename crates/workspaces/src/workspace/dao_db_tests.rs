@@ -19,10 +19,7 @@ use crate::workspace::models::{UpdateOutcome, WorkspacePatch};
 
 /// Non-admin `ScopeContext` for a given user.
 fn scope_ctx(user_id: &str) -> ScopeContext {
-    ScopeContext {
-        user_id: user_id.into(),
-        is_admin: false,
-    }
+    ScopeContext::user(user_id)
 }
 
 // =========================================================================

@@ -86,10 +86,10 @@ pub struct AuthUser {
 impl AuthUser {
     /// Build a `ScopeContext` from this authenticated user.
     pub fn scope_context(&self) -> ScopeContext {
-        ScopeContext {
-            user_id: self.user_id.to_string(),
-            is_admin: self.role.as_deref() == Some("admin"),
-        }
+        ScopeContext::new(
+            self.user_id.to_string(),
+            self.role.as_deref() == Some("admin"),
+        )
     }
 }
 
@@ -212,10 +212,7 @@ impl<S: Send + Sync> FromRequestParts<S> for OptionalScope {
         let ctx = parts
             .extensions
             .get::<AuthIdentity>()
-            .map(|id| ScopeContext {
-                user_id: id.user_id.to_string(),
-                is_admin: id.role == UserRole::Admin,
-            });
+            .map(|id| ScopeContext::new(id.user_id.to_string(), id.role == UserRole::Admin));
         Ok(OptionalScope(ctx))
     }
 }

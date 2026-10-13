@@ -40,11 +40,6 @@ impl TaskCommands {
         self.store.insert_task(row, placement).await
     }
 
-    /// See [`TaskDao::delete_inserted_task`].
-    pub async fn delete_inserted_task(&self, task_id: &str) -> Result<bool, sqlx::Error> {
-        self.store.delete_inserted_task(task_id).await
-    }
-
     /// See [`TaskDao::delete_errored_empty_task`].
     pub async fn delete_errored_empty_task(
         &self,
@@ -93,11 +88,6 @@ impl TaskCommands {
         ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error> {
         self.store.delete_task(task_id, ctx).await
-    }
-
-    /// See [`TaskDao::exists_by_short_id`].
-    pub async fn exists_by_short_id(&self, short_id: &str) -> Result<bool, sqlx::Error> {
-        self.store.exists_by_short_id(short_id).await
     }
 
     /// See [`TaskDao::get_created_times`].
@@ -294,17 +284,5 @@ impl TaskCommands {
         task_ids: &[String],
     ) -> Result<HashSet<String>, sqlx::Error> {
         self.store.get_followed(user_id, task_ids).await
-    }
-
-    /// See [`TaskDao::list_open_codex_tasks_for_scope`].
-    pub async fn list_open_codex_tasks_for_scope(
-        &self,
-        scope_kind: String,
-        scope_id: String,
-        except_task_id: String,
-    ) -> Result<Vec<String>, sqlx::Error> {
-        self.store
-            .list_open_codex_tasks_for_scope(scope_kind, scope_id, except_task_id)
-            .await
     }
 }

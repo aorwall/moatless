@@ -3,7 +3,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use moatless_core::error::error_response;
+use moatless_core::error::{error_response, internal_error};
 
 #[derive(Debug, thiserror::Error)]
 pub enum SecretError {
@@ -44,25 +44,16 @@ impl IntoResponse for SecretError {
             Self::EncryptionNotConfigured => (StatusCode::SERVICE_UNAVAILABLE, self.to_string()),
             Self::EncryptionFailed | Self::DecryptionFailed => {
                 tracing::error!(error = %self, "Secret crypto error");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
             Self::ExternalRefUnsupported(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             Self::Db(e) => {
                 tracing::error!(error = %e, "Secret database error");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
             Self::Internal(msg) => {
                 tracing::error!(error = %msg, "Secret internal error");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
         };
 

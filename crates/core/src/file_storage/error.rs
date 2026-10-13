@@ -3,7 +3,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use crate::error::error_response;
+use crate::error::{error_response, internal_error};
 
 #[derive(Debug, thiserror::Error)]
 pub enum FileStorageError {
@@ -38,26 +38,17 @@ impl IntoResponse for FileStorageError {
             }
             FileStorageError::UploadFailed(ref msg) => {
                 tracing::error!(error = %msg, "File upload failed");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
             FileStorageError::Storage(source) => {
                 tracing::error!(error = %source, "File storage failed");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
             FileStorageError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             FileStorageError::Forbidden(_) => (StatusCode::FORBIDDEN, self.to_string()),
             FileStorageError::Db(e) => {
                 tracing::error!(error = %e, "Database error in file storage handler");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
         };
 

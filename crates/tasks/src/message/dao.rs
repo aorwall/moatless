@@ -118,13 +118,7 @@ pub(crate) trait MessageDao: Send + Sync {
         source_name: Option<&'a str>,
     ) -> Result<(), sqlx::Error>;
 
-    async fn has_external_event_id(
-        &self,
-        task_id: &str,
-        external_id: &str,
-    ) -> Result<bool, sqlx::Error>;
-
-    /// Like [`Self::has_external_event_id`] but matches any candidate id. Used
+    /// Whether any of `external_ids` is recorded for `task_id`. Used
     /// by the dedup gate to recognize both the new `<provider>:<kind>:<id>`
     /// form and any legacy bare-int form in one round-trip.
     async fn has_any_external_event_id(
@@ -418,14 +412,6 @@ impl MessageDao for PgMessageDao {
             source_name,
         )
         .await
-    }
-
-    async fn has_external_event_id(
-        &self,
-        task_id: &str,
-        external_id: &str,
-    ) -> Result<bool, sqlx::Error> {
-        crate::message::external_events_dao::has(&self.0, task_id, external_id).await
     }
 
     async fn has_any_external_event_id(

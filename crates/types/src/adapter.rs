@@ -22,10 +22,6 @@ crate::string_enum!(
 );
 
 impl AdapterKind {
-    pub fn is_replyable(self) -> bool {
-        true
-    }
-
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "slack" => Some(Self::Slack),

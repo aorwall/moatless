@@ -8,20 +8,6 @@
 use moatless_core::db::DbPool;
 use moatless_ports::task::EventSubject;
 
-/// Whether `task_id` already holds `external_id`.
-pub(crate) async fn has(
-    pool: &DbPool,
-    task_id: &str,
-    external_id: &str,
-) -> Result<bool, sqlx::Error> {
-    has_any(
-        pool,
-        task_id,
-        std::slice::from_ref(&external_id.to_string()),
-    )
-    .await
-}
-
 /// Whether `task_id` already holds any of `external_ids`.
 pub(crate) async fn has_any(
     pool: &DbPool,

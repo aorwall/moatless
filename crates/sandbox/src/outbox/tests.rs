@@ -14,9 +14,7 @@ use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 
 use async_trait::async_trait;
-use sandbox_proto::{
-    GetCredentialsResponse, InterruptedTurn, PendingAgentDelivery, PublishEventRequest,
-};
+use sandbox_proto::PublishEventRequest;
 use tonic::Status;
 
 fn agent_event(sub_type: &str) -> PublishEventRequest {
@@ -144,62 +142,12 @@ impl BackendClient for MockBackend {
         Ok(())
     }
 
-    async fn get_pending_messages(
-        &self,
-        _task_id: &str,
-    ) -> Result<Vec<PendingAgentDelivery>, Status> {
-        Ok(vec![])
-    }
-
-    async fn acknowledge_messages(
-        &self,
-        _task_id: &str,
-        _message_uuids: Vec<String>,
-        _session_id: &str,
-        _run_id: &str,
-        _answered_prompt: Option<&str>,
-    ) -> Result<(), Status> {
-        Ok(())
-    }
-
-    async fn get_credentials(&self, _task_id: &str) -> Result<GetCredentialsResponse, Status> {
-        Ok(GetCredentialsResponse::default())
-    }
-
-    async fn update_credential(
-        &self,
-        _task_id: &str,
-        _key: &str,
-        _value: &str,
-    ) -> Result<(), Status> {
-        Ok(())
-    }
-
-    async fn get_system_prompt(&self, _task_id: &str) -> Result<String, Status> {
-        Ok(String::new())
-    }
-
     async fn download_upload(
         &self,
         _task_id: &str,
         _file_id: &str,
     ) -> Result<sandbox_proto::DownloadUploadResponse, Status> {
         Ok(sandbox_proto::DownloadUploadResponse::default())
-    }
-
-    async fn recover_interrupted_run(
-        &self,
-        _task_id: &str,
-    ) -> Result<Option<InterruptedTurn>, Status> {
-        Ok(None)
-    }
-
-    async fn upload_transcript(&self, _task_id: &str, _tar_data: Vec<u8>) -> Result<(), Status> {
-        Ok(())
-    }
-
-    async fn download_transcript(&self, _task_id: &str) -> Result<Vec<u8>, Status> {
-        Ok(vec![])
     }
 }
 

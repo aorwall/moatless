@@ -311,10 +311,7 @@ pub(crate) async fn receive(
             .into_response();
     }
 
-    let viewer = ScopeContext {
-        user_id: claims.sub,
-        is_admin: claims.adm,
-    };
+    let viewer = ScopeContext::new(claims.sub, claims.adm);
     match state
         .attachments
         .store(

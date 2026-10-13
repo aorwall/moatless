@@ -433,24 +433,6 @@ pub enum SaveAdapterAppRequest {
     Linear(SaveLinearAdapterAppRequest),
 }
 
-#[deprecated(note = "use GitHubProviderTokenStatusResponse")]
-pub type GitHubConfigResponse = GitHubProviderTokenStatusResponse;
-
-#[deprecated(note = "use SaveGitHubProviderTokenRequest")]
-pub type SavePatRequest = SaveGitHubProviderTokenRequest;
-
-#[deprecated(note = "use GitnessProviderTokenStatusResponse")]
-pub type GitnessConfigResponse = GitnessProviderTokenStatusResponse;
-
-#[deprecated(note = "use SaveGitnessProviderTokenRequest")]
-pub type SaveGitnessPATRequest = SaveGitnessProviderTokenRequest;
-
-#[deprecated(note = "use CodexAgentHarnessCredentialStatusResponse")]
-pub type CodexConfigResponse = CodexAgentHarnessCredentialStatusResponse;
-
-#[deprecated(note = "use SaveCodexAgentHarnessCredentialRequest")]
-pub type SaveCodexAuthRequest = SaveCodexAgentHarnessCredentialRequest;
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -526,26 +508,5 @@ mod tests {
             assert!(value.contains("[REDACTED]"));
             assert!(!value.contains(plaintext));
         }
-    }
-
-    #[test]
-    #[allow(deprecated)]
-    fn compatibility_aliases_preserve_json_fields() {
-        let request: SavePatRequest = serde_json::from_value(serde_json::json!({
-            "token": "pat"
-        }))
-        .expect("compatibility request should deserialize");
-        assert_eq!(request.token, "pat");
-
-        let response: CodexConfigResponse = serde_json::from_value(serde_json::json!({
-            "connected": true,
-            "tokenType": "auth_json",
-            "authMethod": "device_code",
-            "email": "user@example.com",
-            "planType": "pro",
-            "needsReconnect": false
-        }))
-        .expect("compatibility response should deserialize");
-        assert_eq!(response.auth_method.as_deref(), Some("device_code"));
     }
 }

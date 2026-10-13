@@ -611,32 +611,6 @@ impl GitHubAppService {
         })
     }
 
-    /// Verify that an installation belongs to this App and return its account.
-    pub async fn get_installation(&self, installation_id: u64) -> Result<Installation, AuthError> {
-        let app_jwt = self.generate_app_jwt()?;
-        let resp = self
-            .http
-            .get(format!(
-                "{}/app/installations/{installation_id}",
-                self.api_base
-            ))
-            .header("Authorization", format!("Bearer {app_jwt}"))
-            .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "moatless-vibe-backend")
-            .send()
-            .await
-            .map_err(|e| AuthError::OAuth(format!("GitHub installation lookup failed: {e}")))?;
-        if !resp.status().is_success() {
-            let status = resp.status();
-            return Err(AuthError::OAuth(format!(
-                "GitHub installation lookup returned {status}"
-            )));
-        }
-        resp.json().await.map_err(|e| {
-            AuthError::OAuth(format!("Failed to parse GitHub installation response: {e}"))
-        })
-    }
-
     /// Proves that this signing key works, and belongs to the App the admin
     /// named.
     ///

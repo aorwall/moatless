@@ -153,15 +153,6 @@ impl Messages {
             .await
     }
 
-    /// See [`MessageDao::has_external_event_id`].
-    pub async fn has_external_event_id(
-        &self,
-        task_id: &str,
-        external_id: &str,
-    ) -> Result<bool, sqlx::Error> {
-        self.store.has_external_event_id(task_id, external_id).await
-    }
-
     /// See [`MessageDao::has_any_external_event_id`].
     pub async fn has_any_external_event_id(
         &self,

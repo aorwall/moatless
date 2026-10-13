@@ -129,10 +129,7 @@ mod tests {
             &compose::repositories(disconnected_pool()),
             &loops,
             &git,
-            &ScopeContext {
-                user_id: "reader".into(),
-                is_admin: false,
-            },
+            &ScopeContext::user("reader"),
             "repo",
         )
         .await;
@@ -163,10 +160,7 @@ mod tests {
             &loops,
             &git,
             &repository,
-            &ScopeContext {
-                user_id: "admin".into(),
-                is_admin: true,
-            },
+            &ScopeContext::admin("admin"),
             &SyncForce::All,
         )
         .await;

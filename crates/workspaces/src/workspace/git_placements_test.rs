@@ -145,10 +145,7 @@ async fn script_write_preserves_read_grant_and_rechecks_source_deletion_and_acce
     sqlx::raw_sql("ALTER TABLE workspaces ADD COLUMN source text NOT NULL DEFAULT 'manual', ADD COLUMN scope text NOT NULL DEFAULT 'global', ADD COLUMN owner_user_id text, ADD COLUMN created_by text, ADD COLUMN scripts jsonb; UPDATE workspaces SET owner_user_id = 'someone-else', scripts = '{}'::jsonb;")
         .execute(&pool).await.unwrap();
     let dao = PgWorkspaceDao(pool.clone());
-    let viewer = ScopeContext {
-        user_id: "viewer".to_string(),
-        is_admin: false,
-    };
+    let viewer = ScopeContext::user("viewer");
     let target = dao
         .scripts_write_target(&viewer, "ws")
         .await

@@ -231,8 +231,7 @@ pub(crate) mod test_backend {
     use std::sync::Mutex;
 
     use sandbox_proto::{
-        DownloadUploadResponse, GetCredentialsResponse, InterruptedTurn, PendingAgentDelivery,
-        PublishEventRequest,
+        GetCredentialsResponse, InterruptedTurn, PendingAgentDelivery, PublishEventRequest,
     };
     use tonic::Status;
 
@@ -298,14 +297,6 @@ pub(crate) mod test_backend {
         }
 
         async fn get_system_prompt(&self, _task_id: &str) -> Result<String, Status> {
-            Err(Status::unimplemented("not used"))
-        }
-
-        async fn download_upload(
-            &self,
-            _task_id: &str,
-            _file_id: &str,
-        ) -> Result<DownloadUploadResponse, Status> {
             Err(Status::unimplemented("not used"))
         }
 

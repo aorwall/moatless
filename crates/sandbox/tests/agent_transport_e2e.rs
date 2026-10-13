@@ -32,10 +32,7 @@ use moatless_sandbox::credentials::Dispatcher;
 use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
 use moatless_sandbox::events::GrpcEventPublisher;
 
-use sandbox_proto::{
-    DownloadUploadResponse, GetCredentialsResponse, InterruptedTurn, PendingAgentDelivery,
-    PublishEventRequest,
-};
+use sandbox_proto::{GetCredentialsResponse, PublishEventRequest};
 use tempfile::TempDir;
 use tokio::sync::RwLock;
 
@@ -127,24 +124,6 @@ impl BackendClient for NoopBackend {
         Ok(())
     }
 
-    async fn get_pending_messages(
-        &self,
-        _task_id: &str,
-    ) -> Result<Vec<PendingAgentDelivery>, tonic::Status> {
-        Ok(vec![])
-    }
-
-    async fn acknowledge_messages(
-        &self,
-        _task_id: &str,
-        _message_uuids: Vec<String>,
-        _session_id: &str,
-        _run_id: &str,
-        _answered_prompt: Option<&str>,
-    ) -> Result<(), tonic::Status> {
-        Ok(())
-    }
-
     async fn get_credentials(
         &self,
         _task_id: &str,
@@ -153,46 +132,6 @@ impl BackendClient for NoopBackend {
             credentials: self.credentials.clone(),
             ssh_keys: HashMap::new(),
         })
-    }
-
-    async fn update_credential(
-        &self,
-        _task_id: &str,
-        _key: &str,
-        _value: &str,
-    ) -> Result<(), tonic::Status> {
-        Ok(())
-    }
-
-    async fn get_system_prompt(&self, _task_id: &str) -> Result<String, tonic::Status> {
-        Ok(String::new())
-    }
-
-    async fn download_upload(
-        &self,
-        _task_id: &str,
-        _file_id: &str,
-    ) -> Result<DownloadUploadResponse, tonic::Status> {
-        Err(tonic::Status::unimplemented("not used"))
-    }
-
-    async fn recover_interrupted_run(
-        &self,
-        _task_id: &str,
-    ) -> Result<Option<InterruptedTurn>, tonic::Status> {
-        Ok(None)
-    }
-
-    async fn upload_transcript(
-        &self,
-        _task_id: &str,
-        _tar_data: Vec<u8>,
-    ) -> Result<(), tonic::Status> {
-        Ok(())
-    }
-
-    async fn download_transcript(&self, _task_id: &str) -> Result<Vec<u8>, tonic::Status> {
-        Ok(Vec::new())
     }
 }
 

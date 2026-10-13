@@ -96,11 +96,9 @@ pub async fn run(client: &MoatClient, args: FeedbackArgs, json: bool) -> Result<
 
     let resp = client.api().submit_feedback(&req).await?;
 
-    if json {
-        output::print_json_typed(&resp);
-    } else {
+    output::emit(json, &resp, || {
         println!("Recorded feedback {}", resp.feedback_id);
-    }
+    });
     Ok(())
 }
 
@@ -118,11 +116,9 @@ pub async fn set_status(
 
     let resp = client.api().set_feedback_status(&feedback_id, &req).await?;
 
-    if json {
-        output::print_json_typed(&resp);
-    } else {
+    output::emit(json, &resp, || {
         println!("Marked {} {}", resp.feedback_id, resp.status);
-    }
+    });
     Ok(())
 }
 
@@ -209,8 +205,8 @@ pub async fn list(
                     item.repository_name
                         .clone()
                         .unwrap_or_else(|| item.repository_id.clone()),
-                    truncate(&item.task_title, 30),
-                    truncate(&f.comment.replace('\n', " "), COMMENT_WIDTH),
+                    output::truncate(&item.task_title, 30),
+                    output::truncate(&f.comment.replace('\n', " "), COMMENT_WIDTH),
                 ]
             })
             .collect();
@@ -256,14 +252,6 @@ fn parse_status(raw: &str) -> Result<FeedbackStatus, ClientError> {
     FeedbackStatus::try_from(raw).map_err(|_| {
         ClientError::Other("status must be `open`, `fixed`, or `not_relevant`".to_string())
     })
-}
-
-fn truncate(value: &str, width: usize) -> String {
-    if value.chars().count() <= width {
-        return value.to_string();
-    }
-    let head: String = value.chars().take(width.saturating_sub(1)).collect();
-    format!("{head}…")
 }
 
 #[derive(clap::Args)]

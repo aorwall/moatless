@@ -193,10 +193,7 @@ async fn put_user(
     // For user-scoped migrate we create via the admin context which allows any scope.
     // The owner_id is set as the ctx user for resolution via resolve_scope_for_create.
     // We use a temporary ctx to impersonate the owner.
-    let owner_ctx = moatless_types::access_control::ScopeContext {
-        user_id: owner_id.to_string(),
-        is_admin: false,
-    };
+    let owner_ctx = moatless_types::access_control::ScopeContext::user(owner_id.to_string());
     service
         .put_secret(
             &owner_ctx,

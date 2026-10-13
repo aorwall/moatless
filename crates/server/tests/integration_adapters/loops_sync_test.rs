@@ -226,10 +226,7 @@ async fn sync_creates_then_reconciles_loops(pool: PgPool) {
     .fetch_one(&pool)
     .await
     .unwrap();
-    let admin = ScopeContext {
-        user_id: "admin-1".to_string(),
-        is_admin: true,
-    };
+    let admin = ScopeContext::admin("admin-1");
     assert!(
         activate_loop(&state.loops, &admin, &schedule_id, "approved-user")
             .await
@@ -631,10 +628,7 @@ async fn resync_preserves_activation_across_a_changed_declaration(pool: PgPool) 
     .fetch_one(&pool)
     .await
     .unwrap();
-    let admin = ScopeContext {
-        user_id: "admin-1".to_string(),
-        is_admin: true,
-    };
+    let admin = ScopeContext::admin("admin-1");
     activate_loop(&state.loops, &admin, &loop_id, "approved-user")
         .await
         .unwrap();
@@ -704,10 +698,7 @@ async fn reset_to_git_keeps_the_execution_approval(pool: PgPool) {
     .fetch_one(&pool)
     .await
     .unwrap();
-    let admin = ScopeContext {
-        user_id: "admin-1".to_string(),
-        is_admin: true,
-    };
+    let admin = ScopeContext::admin("admin-1");
     activate_loop(&state.loops, &admin, &loop_id, "approved-user")
         .await
         .unwrap();
@@ -801,10 +792,7 @@ async fn resync_skips_an_override_and_preserves_its_approval(pool: PgPool) {
     .fetch_one(&pool)
     .await
     .unwrap();
-    let admin = ScopeContext {
-        user_id: "admin-1".to_string(),
-        is_admin: true,
-    };
+    let admin = ScopeContext::admin("admin-1");
     activate_loop(&state.loops, &admin, &loop_id, "approved-user")
         .await
         .unwrap();
@@ -865,10 +853,7 @@ async fn concurrent_activation_and_resync_finish_in_a_serial_state(pool: PgPool)
     .fetch_one(&pool)
     .await
     .unwrap();
-    let admin = ScopeContext {
-        user_id: "admin-1".to_string(),
-        is_admin: true,
-    };
+    let admin = ScopeContext::admin("admin-1");
 
     let activate = activate_loop(&state.loops, &admin, &loop_id, "approved-user");
     let resync = state.loop_sync.sync_loops(

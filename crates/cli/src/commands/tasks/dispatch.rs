@@ -295,20 +295,12 @@ pub async fn run(
                 followed_by: None,
             };
             let list = client.api().list_tasks(&query).await?;
-            if json {
-                output::print_json_typed(&list);
-            } else {
-                format_task_list(&list);
-            }
+            output::emit(json, &list, || format_task_list(&list));
         }
         TaskAction::Get { task_id } => {
             let task_id = resolve_task_id(client, &task_id).await?;
             let task = client.api().get_task(&task_id).await?;
-            if json {
-                output::print_json_typed(&task);
-            } else {
-                format_task_detail(&task);
-            }
+            output::emit(json, &task, || format_task_detail(&task));
         }
         TaskAction::Create {
             repo,
@@ -470,11 +462,7 @@ pub async fn run(
                 followed_by: None,
             };
             let list = client.api().list_tasks(&query).await?;
-            if json {
-                output::print_json_typed(&list);
-            } else {
-                format_task_list(&list);
-            }
+            output::emit(json, &list, || format_task_list(&list));
         }
         TaskAction::Start { task_id } => {
             let task_id = resolve_task_id(client, &task_id).await?;
@@ -489,15 +477,13 @@ pub async fn run(
         TaskAction::Cancel { task_id } => {
             let task_id = resolve_task_id(client, &task_id).await?;
             let outcome = client.api().cancel_task(&task_id).await?;
-            if json {
-                output::print_json_typed(&outcome);
-            } else {
+            output::emit(json, &outcome, || {
                 println!(
                     "Task {task_id} cancelled: stopped {} task(s), discarded {} pending message(s).",
                     outcome.stopped_task_ids.len(),
                     outcome.disposed_messages
                 );
-            }
+            });
         }
         TaskAction::Close {
             task_id,
@@ -538,11 +524,9 @@ pub async fn run(
                 agent_profile,
             };
             let updated = client.api().update_task_metadata(&task_id, &req).await?;
-            if json {
-                output::print_json_typed(&updated);
-            } else {
+            output::emit(json, &updated, || {
                 println!("Task {} updated.", updated.task_id);
-            }
+            });
         }
         TaskAction::Ttl {
             task_id,
@@ -561,14 +545,12 @@ pub async fn run(
                 inactive_ttl_days,
             };
             let updated = client.api().update_ttl(&task_id, &req).await?;
-            if json {
-                output::print_json_typed(&updated);
-            } else {
+            output::emit(json, &updated, || {
                 println!(
                     "Task {} TTL updated (idle={}m, inactive={}d).",
                     updated.task_id, updated.ttl_minutes, updated.inactive_ttl_days
                 );
-            }
+            });
         }
         TaskAction::Status { task_id, result } => {
             let task_id = resolve_task_id(client, &task_id).await?;
@@ -576,11 +558,7 @@ pub async fn run(
                 return show_result(client, &task_id, json).await;
             }
             let status = client.api().sandbox_status(&task_id).await?;
-            if json {
-                output::print_json_typed(&status);
-            } else {
-                format_sandbox_status(&status);
-            }
+            output::emit(json, &status, || format_sandbox_status(&status));
         }
         TaskAction::Restart { task_id, yes } => {
             let task_id = resolve_task_id(client, &task_id).await?;
@@ -627,9 +605,7 @@ pub async fn run(
         TaskAction::WorkspaceRepo { task_id } => {
             let task_id = resolve_task_id(client, &task_id).await?;
             let access = client.api().workspace_repository_access(&task_id).await?;
-            if json {
-                output::print_json_typed(&access);
-            } else {
+            output::emit(json, &access, || {
                 println!("export AWS_ACCESS_KEY_ID={}", access.access_key_id);
                 println!("export AWS_SECRET_ACCESS_KEY={}", access.secret_access_key);
                 println!("export AWS_SESSION_TOKEN={}", access.session_token);
@@ -639,7 +615,7 @@ pub async fn run(
                 println!();
                 println!("# credentials expire {}", access.expires_at);
                 println!("# then: restic snapshots");
-            }
+            });
         }
         TaskAction::Files { task_id, action } => {
             let task_id = resolve_task_id(client, &task_id).await?;

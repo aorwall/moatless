@@ -108,9 +108,7 @@ pub async fn run(
             let resp = moat
                 .raw_delete(&format!("/api/v1/admin/settings/github/apps/{key}"))
                 .await?;
-            if json {
-                output::print_json_typed(&resp);
-            } else {
+            output::emit(json, &resp, || {
                 println!("Removed GitHub App '{key}'.");
                 let orphaned = resp["orphanedBotUsers"].as_array().map_or(0, Vec::len);
                 if orphaned > 0 {
@@ -121,7 +119,7 @@ pub async fn run(
                         println!("  {}", user.as_str().unwrap_or(""));
                     }
                 }
-            }
+            });
             Ok(())
         }
     }

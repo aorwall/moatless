@@ -18,10 +18,7 @@ use crate::loops::LoopReader;
 use crate::test_support::{InMemoryConnections, connection};
 
 fn viewer() -> ScopeContext {
-    ScopeContext {
-        user_id: "u_viewer".into(),
-        is_admin: false,
-    }
+    ScopeContext::user("u_viewer")
 }
 
 fn subscription(id: &str, connection_id: &str, source_matcher: &str) -> SubscriptionMatch {

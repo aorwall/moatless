@@ -105,10 +105,7 @@ mod thread_ids {
     const DRAFT: &str = "thread-minted-by-the-client";
 
     fn viewer() -> ScopeContext {
-        ScopeContext {
-            user_id: "u-1".to_string(),
-            is_admin: false,
-        }
+        ScopeContext::user("u-1")
     }
 
     fn thread_of(owner: &str, status: TaskStatus) -> Task {

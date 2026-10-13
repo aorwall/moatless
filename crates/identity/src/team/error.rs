@@ -3,7 +3,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use moatless_core::error::error_response;
+use moatless_core::error::{error_response, internal_error};
 use moatless_types::access_control::AccessControlError;
 
 #[derive(Debug, thiserror::Error)]
@@ -40,17 +40,11 @@ impl IntoResponse for TeamError {
             Self::Forbidden(m) => (StatusCode::FORBIDDEN, m.clone()),
             Self::Db(e) => {
                 tracing::error!(error = %e, "Database error in team handler");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
             Self::Internal(m) => {
                 tracing::error!(error = %m, "Internal error in team handler");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
         };
         error_response(status, message)

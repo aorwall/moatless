@@ -93,11 +93,7 @@ pub async fn run(
                 ..template
             })
             .await?;
-        if json {
-            output::print_json_typed(&response);
-        } else {
-            println!("{}", summary(&response));
-        }
+        output::emit(json, &response, || println!("{}", summary(&response)));
         return Ok(());
     }
 

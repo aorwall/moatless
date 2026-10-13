@@ -535,10 +535,7 @@ mod tests {
         conversations
             .expect_list_followed_by_ids()
             .returning(|_, ids| Ok(vec![running(&ids[0])]));
-        let viewer = ScopeContext {
-            user_id: "viewer".into(),
-            is_admin: false,
-        };
+        let viewer = ScopeContext::user("viewer");
         let cwd = "/moatless/tasks/probe";
         let connector = SandboxAt(url.clone());
         let sources = Sources {
@@ -605,10 +602,7 @@ mod tests {
         conversations
             .expect_list_followed_by_ids()
             .returning(|_, ids| Ok(vec![running(&ids[0])]));
-        let viewer = ScopeContext {
-            user_id: "viewer".into(),
-            is_admin: false,
-        };
+        let viewer = ScopeContext::user("viewer");
         let cwd = "/moatless/tasks/probe";
         let connector = SandboxAt(url.clone());
         let sources = Sources {

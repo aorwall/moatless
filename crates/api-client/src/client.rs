@@ -367,21 +367,6 @@ impl ApiClient {
             .await
     }
 
-    /// POST `/api/sandbox/v1/tasks/{task_id}/stop`
-    pub async fn stop_sandbox(&self, task_id: &str) -> Result<(), ApiError> {
-        self.post_empty(&format!("/api/sandbox/v1/tasks/{task_id}/stop"))
-            .await
-    }
-
-    /// POST `/api/sandbox/v1/tasks/{task_id}/provision`
-    pub async fn provision_sandbox(
-        &self,
-        task_id: &str,
-    ) -> Result<moatless_api_schemas::sandbox::ProvisionResponse, ApiError> {
-        self.post_no_body(&format!("/api/sandbox/v1/tasks/{task_id}/provision"))
-            .await
-    }
-
     /// POST `/api/sandbox/v1/tasks/{task_id}/redeploy`
     pub async fn redeploy_sandbox(
         &self,
@@ -402,12 +387,6 @@ impl ApiClient {
             "/api/sandbox/v1/tasks/{task_id}/workspace-repository/access"
         ))
         .await
-    }
-
-    /// POST `/api/sandbox/v1/tasks/{task_id}/cleanup`
-    pub async fn cleanup_sandbox(&self, task_id: &str) -> Result<(), ApiError> {
-        self.post_empty(&format!("/api/sandbox/v1/tasks/{task_id}/cleanup"))
-            .await
     }
 
     /// GET `/api/sandbox/v1/tasks/{task_id}/files/list`
@@ -646,17 +625,6 @@ impl ApiClient {
         task_id: &str,
     ) -> Result<moatless_api_schemas::message::GetMessagesResponse, ApiError> {
         self.get_messages_page(task_id, false, None, None).await
-    }
-
-    /// GET `/api/v1/tasks/{task_id}/messages?summary=true`
-    ///
-    /// Strips heavy fields (`tool_input`, `typed_result`, `sdk_metadata`) and
-    /// truncates tool result content; for CLI display.
-    pub async fn get_messages_summary(
-        &self,
-        task_id: &str,
-    ) -> Result<moatless_api_schemas::message::GetMessagesResponse, ApiError> {
-        self.get_messages_page(task_id, true, None, None).await
     }
 
     /// GET `/api/v1/tasks/{task_id}/messages` with explicit pagination.

@@ -440,10 +440,7 @@ mod tests {
     }
 
     fn ctx(user_id: &str) -> ScopeContext {
-        ScopeContext {
-            user_id: user_id.to_string(),
-            is_admin: false,
-        }
+        ScopeContext::user(user_id.to_string())
     }
 
     // --- tests -------------------------------------------------------------
@@ -561,10 +558,7 @@ mod tests {
     #[tokio::test]
     async fn a_non_owner_admin_may_set_a_credential() {
         let svc = service(cipher());
-        let admin = ScopeContext {
-            user_id: "root".to_string(),
-            is_admin: true,
-        };
+        let admin = ScopeContext::admin("root");
         svc.set(
             &admin,
             "ws_1",

@@ -115,14 +115,10 @@ pub async fn run(
                 presentation,
             };
             let resp = moat.api().reply_to_message(&message, &req).await?;
-            if json {
-                output::print_json_typed(&resp);
-            } else {
-                match resp.external_id {
-                    Some(ext) => println!("Reply sent to message {message} (external id: {ext})."),
-                    None => println!("Reply sent to message {message}."),
-                }
-            }
+            output::emit(json, &resp, || match &resp.external_id {
+                Some(ext) => println!("Reply sent to message {message} (external id: {ext})."),
+                None => println!("Reply sent to message {message}."),
+            });
         }
         MessageAction::React {
             message,
@@ -131,24 +127,22 @@ pub async fn run(
         } => {
             if remove {
                 moat.api().remove_message_reaction(&message, &emoji).await?;
-                if json {
-                    output::print_json_typed(&serde_json::json!({
+                output::emit(
+                    json,
+                    &serde_json::json!({
                         "ok": true,
                         "removed": true,
-                    }));
-                } else {
-                    println!("Removed reaction {emoji} from message {message}.");
-                }
+                    }),
+                    || println!("Removed reaction {emoji} from message {message}."),
+                );
             } else {
                 let req = AddMessageReactionRequest {
                     emoji: emoji.clone(),
                 };
                 let resp = moat.api().add_message_reaction(&message, &req).await?;
-                if json {
-                    output::print_json_typed(&resp);
-                } else {
+                output::emit(json, &resp, || {
                     println!("Reacted with {emoji} to message {message}.");
-                }
+                });
             }
         }
     }

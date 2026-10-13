@@ -38,11 +38,7 @@ const REQUIRED_PORTS: &[(u16, &str)] = &[
 
 pub(super) async fn run(args: PreflightArgs, json: bool) -> Result<(), ClientError> {
     let report = gather(args).await?;
-    if json {
-        output::print_json_typed(&report);
-    } else {
-        print_human(&report);
-    }
+    output::emit(json, &report, || print_human(&report));
     Ok(())
 }
 

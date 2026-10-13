@@ -161,9 +161,8 @@ pub async fn render_mentions(
 #[cfg(test)]
 mod tests {
     use async_trait::async_trait;
-    use moatless_ports::identity::{LinkedUser, ProviderIdentityLink};
+    use moatless_ports::identity::ProviderIdentityLink;
     use moatless_types::store::StoreError;
-    use uuid::Uuid;
 
     use super::{Mention, MentionPiece, render_mentions, resolve_mention, split_mentions};
 
@@ -174,12 +173,6 @@ mod tests {
 
     #[async_trait]
     impl ProviderIdentityLink for OneLink {
-        async fn user_at(&self, _: &str, _: &str) -> Result<Option<LinkedUser>, StoreError> {
-            Ok(None)
-        }
-        async fn user_by_email(&self, _: &str) -> Result<Option<LinkedUser>, StoreError> {
-            Ok(None)
-        }
         async fn provider_id_for_login(
             &self,
             provider: &str,
@@ -189,15 +182,6 @@ mod tests {
                 return Err(StoreError::new("the directory is down"));
             }
             Ok((provider == "slack" && login == "aorwall").then(|| "U0000000001".to_string()))
-        }
-        async fn user_who_connected(&self, _: &str, _: &str) -> Result<Option<String>, StoreError> {
-            Ok(None)
-        }
-        async fn user_with_login(&self, _: &str, _: &str) -> Result<Option<String>, StoreError> {
-            Ok(None)
-        }
-        async fn link(&self, _: &Uuid, _: &str, _: &str) -> Result<bool, StoreError> {
-            Ok(false)
         }
     }
 

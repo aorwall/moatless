@@ -19,14 +19,8 @@ use moatless_core::db::DbPool;
 pub trait TeamDao: Send + Sync {
     async fn find_by_id(&self, id: &str) -> Result<Option<Team>, sqlx::Error>;
     async fn find_by_slug(&self, slug: &str) -> Result<Option<Team>, sqlx::Error>;
-    async fn find_by_external_id(
-        &self,
-        external_id: &str,
-        provider: &str,
-    ) -> Result<Option<Team>, sqlx::Error>;
     async fn list_all(&self) -> Result<Vec<Team>, sqlx::Error>;
     async fn insert(&self, team: &Team) -> Result<(), sqlx::Error>;
-    async fn insert_if_absent(&self, team: &Team) -> Result<(), sqlx::Error>;
     async fn update<'a>(
         &self,
         id: &str,
@@ -46,15 +40,6 @@ pub trait TeamDao: Send + Sync {
     ) -> Result<(), sqlx::Error>;
     async fn remove_member(&self, team_id: &str, user_id: &Uuid) -> Result<(), sqlx::Error>;
     async fn is_member(&self, team_id: &str, user_id: &Uuid) -> Result<bool, sqlx::Error>;
-
-    /// Upsert a team by `external_id` + provider (for Auth0 group sync).
-    async fn upsert_by_external(
-        &self,
-        external_id: &str,
-        provider: &str,
-        name: &str,
-        slug: &str,
-    ) -> Result<Team, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`TeamDao`].
@@ -76,20 +61,6 @@ impl TeamDao for PgTeamDao {
             .await
     }
 
-    async fn find_by_external_id(
-        &self,
-        external_id: &str,
-        provider: &str,
-    ) -> Result<Option<Team>, sqlx::Error> {
-        sqlx::query_as::<_, Team>(
-            "SELECT * FROM teams WHERE external_id = $1 AND external_provider = $2",
-        )
-        .bind(external_id)
-        .bind(provider)
-        .fetch_optional(&self.0)
-        .await
-    }
-
     async fn list_all(&self) -> Result<Vec<Team>, sqlx::Error> {
         sqlx::query_as::<_, Team>("SELECT * FROM teams ORDER BY name ASC")
             .fetch_all(&self.0)
@@ -100,27 +71,6 @@ impl TeamDao for PgTeamDao {
         sqlx::query(
             r#"INSERT INTO teams (id, name, slug, description, external_id, external_provider, is_default, settings, created_at, updated_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#,
-        )
-        .bind(&team.id)
-        .bind(&team.name)
-        .bind(&team.slug)
-        .bind(&team.description)
-        .bind(&team.external_id)
-        .bind(&team.external_provider)
-        .bind(team.is_default)
-        .bind(&team.settings)
-        .bind(team.created_at)
-        .bind(team.updated_at)
-        .execute(&self.0)
-        .await?;
-        Ok(())
-    }
-
-    async fn insert_if_absent(&self, team: &Team) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r#"INSERT INTO teams (id, name, slug, description, external_id, external_provider, is_default, settings, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-               ON CONFLICT (id) DO NOTHING"#,
         )
         .bind(&team.id)
         .bind(&team.name)
@@ -230,43 +180,5 @@ impl TeamDao for PgTeamDao {
         .fetch_one(&self.0)
         .await?;
         Ok(row.0)
-    }
-
-    async fn upsert_by_external(
-        &self,
-        external_id: &str,
-        provider: &str,
-        name: &str,
-        slug: &str,
-    ) -> Result<Team, sqlx::Error> {
-        let id = uuid::Uuid::new_v4().to_string();
-        let now = chrono::Utc::now();
-        sqlx::query(
-            r#"INSERT INTO teams (id, name, slug, external_id, external_provider, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7)
-               ON CONFLICT (external_id, external_provider)
-                   WHERE external_id IS NOT NULL AND external_provider IS NOT NULL
-               DO UPDATE SET name = $2, updated_at = $7"#,
-        )
-        .bind(&id)
-        .bind(name)
-        .bind(slug)
-        .bind(external_id)
-        .bind(provider)
-        .bind(now)
-        .bind(now)
-        .execute(&self.0)
-        .await?;
-
-        // Fetch the actual row (may be existing or newly created)
-        let team = sqlx::query_as::<_, Team>(
-            "SELECT * FROM teams WHERE external_id = $1 AND external_provider = $2",
-        )
-        .bind(external_id)
-        .bind(provider)
-        .fetch_one(&self.0)
-        .await?;
-
-        Ok(team)
     }
 }

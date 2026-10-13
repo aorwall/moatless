@@ -683,10 +683,7 @@ mod tests {
     }
 
     fn viewer() -> ScopeContext {
-        ScopeContext {
-            user_id: "viewer".to_string(),
-            is_admin: false,
-        }
+        ScopeContext::user("viewer")
     }
 
     /// The seed is a value the client already has, so the first poll must not

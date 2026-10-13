@@ -86,11 +86,7 @@ async fn run_unset(args: EnvUnsetArgs, json: bool) -> Result<(), ClientError> {
         action: action.to_string(),
     };
 
-    if json {
-        output::print_json_typed(&report);
-    } else {
-        print_unset_human(&report);
-    }
+    output::emit(json, &report, || print_unset_human(&report));
     Ok(())
 }
 
@@ -150,11 +146,7 @@ async fn run_set(args: EnvSetArgs, json: bool) -> Result<(), ClientError> {
         is_secret: is_secret(&args.key),
     };
 
-    if json {
-        output::print_json_typed(&report);
-    } else {
-        print_set_human(&report);
-    }
+    output::emit(json, &report, || print_set_human(&report));
     Ok(())
 }
 
@@ -202,11 +194,7 @@ async fn run_list(args: EnvListArgs, json: bool) -> Result<(), ClientError> {
         keys,
     };
 
-    if json {
-        output::print_json_typed(&report);
-    } else {
-        print_list_human(&report, source);
-    }
+    output::emit(json, &report, || print_list_human(&report, source));
     Ok(())
 }
 

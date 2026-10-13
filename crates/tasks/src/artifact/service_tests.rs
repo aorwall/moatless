@@ -9,10 +9,7 @@ use crate::task::dao::MockTaskDao;
 use crate::task::test_support::make_task_row;
 
 fn scope() -> ScopeContext {
-    ScopeContext {
-        user_id: "user-1".to_string(),
-        is_admin: false,
-    }
+    ScopeContext::user("user-1")
 }
 
 fn s3_config(bucket: Option<&str>) -> Arc<S3Config> {

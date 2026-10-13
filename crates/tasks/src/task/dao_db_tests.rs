@@ -15,10 +15,7 @@ use crate::task::test_support::{
 use moatless_workspaces::test_support::make_repository_row;
 
 fn scope_ctx(user_id: &str) -> ScopeContext {
-    ScopeContext {
-        user_id: user_id.into(),
-        is_admin: false,
-    }
+    ScopeContext::user(user_id)
 }
 
 /// Helper: insert the personal team a repository references, satisfying the

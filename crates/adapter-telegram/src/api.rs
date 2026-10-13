@@ -261,31 +261,6 @@ impl TelegramApi {
         Ok(updates)
     }
 
-    /// Send a chat action indicator (e.g., "typing").
-    #[expect(dead_code, reason = "no caller since the module stopped being `pub`")]
-    pub async fn send_chat_action(&self, chat_id: &str, action: &str) -> Result<(), AdapterError> {
-        let body = serde_json::json!({
-            "chat_id": chat_id,
-            "action": action,
-        });
-
-        let resp = self
-            .client
-            .post(format!("{}/sendChatAction", self.base_url))
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| SharedAdapterError::provider_unreachable("Telegram sendChatAction", e))?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            warn!(status = %status, body = %text, "Telegram sendChatAction error");
-        }
-
-        Ok(())
-    }
-
     /// Set (or clear) a reaction on a Telegram message via
     /// `setMessageReaction`.
     ///
@@ -326,36 +301,6 @@ impl TelegramApi {
             .into());
         }
         Ok(())
-    }
-
-    /// Get chat info (for validation/discovery).
-    #[expect(dead_code, reason = "no caller since the module stopped being `pub`")]
-    pub async fn get_chat(&self, chat_id: &str) -> Result<serde_json::Value, AdapterError> {
-        let resp = self
-            .client
-            .get(format!("{}/getChat", self.base_url))
-            .query(&[("chat_id", chat_id)])
-            .send()
-            .await
-            .map_err(|e| SharedAdapterError::provider_unreachable("Telegram getChat", e))?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            return Err(SharedAdapterError::AdapterApi(format!(
-                "Telegram getChat returned {status}: {text}"
-            ))
-            .into());
-        }
-
-        let body: serde_json::Value = resp
-            .json()
-            .await
-            .map_err(|e| SharedAdapterError::provider_response_invalid("Telegram getChat", e))?;
-
-        body.get("result").cloned().ok_or_else(|| {
-            SharedAdapterError::AdapterApi("Telegram getChat: missing result".into()).into()
-        })
     }
 }
 

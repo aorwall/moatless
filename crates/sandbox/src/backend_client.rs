@@ -45,7 +45,10 @@ pub struct TrajectoryRead {
 
 /// Trait abstracting backend communication for testability.
 ///
-/// The real implementation is [`BackendGrpcClient`]; tests can provide a mock.
+/// The real implementation is [`BackendGrpcClient`], which overrides every
+/// method. A read default answers as a backend with nothing stored, so a test
+/// double implements only the calls its test exercises; a write default fails
+/// as `unimplemented`, so a missed override never drops a write silently.
 #[async_trait::async_trait]
 pub trait BackendClient: Send + Sync {
     /// Attempt a single publish of an event to the backend.
@@ -53,13 +56,17 @@ pub trait BackendClient: Send + Sync {
     /// One gRPC attempt with the channel's call timeout, no internal retry;
     /// retry/backoff and ordering live in [`crate::outbox`], which owns the
     /// at-least-once guarantee.
-    async fn publish_event(&self, req: PublishEventRequest) -> Result<(), tonic::Status>;
+    async fn publish_event(&self, _req: PublishEventRequest) -> Result<(), tonic::Status> {
+        Err(tonic::Status::unimplemented("publish_event not supported"))
+    }
 
     /// Fetch pending messages for a task.
     async fn get_pending_messages(
         &self,
-        task_id: &str,
-    ) -> Result<Vec<PendingAgentDelivery>, tonic::Status>;
+        _task_id: &str,
+    ) -> Result<Vec<PendingAgentDelivery>, tonic::Status> {
+        Ok(vec![])
+    }
 
     /// [`Self::get_pending_messages`], leaving `queue` messages pending when
     /// `hold_queued`: a fetch made mid-turn steers only what was sent to steer.
@@ -79,61 +86,87 @@ pub trait BackendClient: Send + Sync {
     /// `None` on an ordinary ack (see `answered_prompt_tool_use_id`).
     async fn acknowledge_messages(
         &self,
-        task_id: &str,
-        message_uuids: Vec<String>,
-        session_id: &str,
-        run_id: &str,
-        answered_prompt: Option<&str>,
-    ) -> Result<(), tonic::Status>;
+        _task_id: &str,
+        _message_uuids: Vec<String>,
+        _session_id: &str,
+        _run_id: &str,
+        _answered_prompt: Option<&str>,
+    ) -> Result<(), tonic::Status> {
+        Err(tonic::Status::unimplemented(
+            "acknowledge_messages not supported",
+        ))
+    }
 
     /// Fetch credentials for sandbox initialization.
-    async fn get_credentials(&self, task_id: &str)
-    -> Result<GetCredentialsResponse, tonic::Status>;
+    async fn get_credentials(
+        &self,
+        _task_id: &str,
+    ) -> Result<GetCredentialsResponse, tonic::Status> {
+        Ok(GetCredentialsResponse::default())
+    }
 
     /// Push a credential rotated locally inside the sandbox back to the backend
     /// so subsequent `get_credentials` calls return the rotated value.
     async fn update_credential(
         &self,
-        task_id: &str,
-        key: &str,
-        value: &str,
-    ) -> Result<(), tonic::Status>;
+        _task_id: &str,
+        _key: &str,
+        _value: &str,
+    ) -> Result<(), tonic::Status> {
+        Err(tonic::Status::unimplemented(
+            "update_credential not supported",
+        ))
+    }
 
     /// Fetch the assembled append-system-prompt for a task. Called once per
     /// agent run; the result is cached locally as a fallback for transient gRPC
     /// failures.
-    async fn get_system_prompt(&self, task_id: &str) -> Result<String, tonic::Status>;
+    async fn get_system_prompt(&self, _task_id: &str) -> Result<String, tonic::Status> {
+        Ok(String::new())
+    }
 
     /// Fetch the bytes of an uploaded file by `file_id`, for the agent
     /// pre-fetch path that lands attached files on disk before invoking the
     /// agent. Backend-side scope-checks `file_id` against this task.
     async fn download_upload(
         &self,
-        task_id: &str,
-        file_id: &str,
-    ) -> Result<DownloadUploadResponse, tonic::Status>;
+        _task_id: &str,
+        _file_id: &str,
+    ) -> Result<DownloadUploadResponse, tonic::Status> {
+        Err(tonic::Status::unimplemented(
+            "download_upload not supported",
+        ))
+    }
 
     /// Returns `Some(turn)` when the most recent user-turn was acknowledged
     /// but never reached a terminal `agent` event; `None` when nothing needs
     /// recovery or the recovery cap is reached.
     async fn recover_interrupted_run(
         &self,
-        task_id: &str,
-    ) -> Result<Option<InterruptedTurn>, tonic::Status>;
+        _task_id: &str,
+    ) -> Result<Option<InterruptedTurn>, tonic::Status> {
+        Ok(None)
+    }
 
     /// Upload the task's transcript tar to S3 via the backend (the sandbox has
     /// no AWS credentials). The bytes are streamed in chunks. Best-effort at
     /// the call site — failures are logged, never fatal.
     async fn upload_transcript(
         &self,
-        task_id: &str,
-        tar_data: Vec<u8>,
-    ) -> Result<(), tonic::Status>;
+        _task_id: &str,
+        _tar_data: Vec<u8>,
+    ) -> Result<(), tonic::Status> {
+        Err(tonic::Status::unimplemented(
+            "upload_transcript not supported",
+        ))
+    }
 
     /// Download the task's transcript tar from S3 via the backend, reassembling
     /// the streamed chunks. Returns an empty `Vec` when no transcript is stored
     /// yet.
-    async fn download_transcript(&self, task_id: &str) -> Result<Vec<u8>, tonic::Status>;
+    async fn download_transcript(&self, _task_id: &str) -> Result<Vec<u8>, tonic::Status> {
+        Ok(Vec::new())
+    }
 
     /// Download one of the task's plugins as the gzip tar `FetchPlugin`
     /// describes, reassembled from its chunks, unless it is still at

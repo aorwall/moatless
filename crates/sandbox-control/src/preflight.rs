@@ -253,10 +253,7 @@ async fn validate_control(
     user_id: &str,
     resource: &ScopedResource,
 ) -> Result<(), PreflightError> {
-    let ctx = ScopeContext {
-        user_id: user_id.to_string(),
-        is_admin: is_platform_admin(users, user_id).await,
-    };
+    let ctx = ScopeContext::new(user_id.to_string(), is_platform_admin(users, user_id).await);
     if ctx.can_write(resource) {
         return Ok(());
     }

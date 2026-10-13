@@ -3,7 +3,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use moatless_core::error::error_response;
+use moatless_core::error::{error_response, internal_error};
 use moatless_types::access_control::AccessControlError;
 
 #[derive(Debug, thiserror::Error)]
@@ -77,27 +77,18 @@ impl IntoResponse for TaskError {
             TaskError::BadRequest(_) => (StatusCode::BAD_REQUEST, text),
             TaskError::Db(e) => {
                 tracing::error!(error = %e, "Database error in task handler");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
             TaskError::Store(e) => {
                 tracing::error!(
                     error = %moatless_core::error::causal_chain(&e),
                     "Store error in task handler"
                 );
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
             TaskError::Internal(msg) => {
                 tracing::error!(error = %msg, "Internal error in task handler");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
             TaskError::Forbidden(_) => (StatusCode::FORBIDDEN, text),
             TaskError::Conflict(_) => (StatusCode::CONFLICT, text),

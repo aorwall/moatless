@@ -172,10 +172,7 @@ pub async fn fall_back_to_other_agent(state: &FallbackPorts, event: &AgentEvent)
         );
         return;
     };
-    let run_as = ScopeContext {
-        user_id: run_as,
-        is_admin: false,
-    };
+    let run_as = ScopeContext::user(run_as);
     let resets_at = event.payload.get("resetsAt").and_then(|v| v.as_str());
     let summary = format!(
         "Switched from {} to {}: {}",

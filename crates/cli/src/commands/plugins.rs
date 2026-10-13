@@ -125,20 +125,14 @@ pub async fn run(client: &MoatClient, action: PluginAction, json: bool) -> Resul
     match action {
         PluginAction::List => {
             let plugins = client.api().list_plugins().await?;
-            if json {
-                output::print_json_typed(&plugins);
-            } else {
-                format_plugin_list(&plugins);
-            }
+            output::emit(json, &plugins, || format_plugin_list(&plugins));
         }
         PluginAction::Create { name, git_url } => {
             let req = CreatePluginRequest { name, git_url };
             let created = client.api().create_plugin(&req).await?;
-            if json {
-                output::print_json_typed(&created);
-            } else {
+            output::emit(json, &created, || {
                 println!("Plugin created: {}", created.id);
-            }
+            });
         }
         PluginAction::Delete { plugin_id } => {
             client.api().delete_plugin(&plugin_id).await?;
@@ -146,15 +140,13 @@ pub async fn run(client: &MoatClient, action: PluginAction, json: bool) -> Resul
         }
         PluginAction::Skills { plugin_id } => {
             let skills = client.api().list_plugin_skills(&plugin_id).await?;
-            if json {
-                output::print_json_typed(&skills);
-            } else {
+            output::emit(json, &skills, || {
                 let rows: Vec<Vec<String>> = skills
                     .iter()
                     .map(|s| vec![s.name.clone(), s.path.clone(), s.description.clone()])
                     .collect();
                 output::print_table(&["NAME", "PATH", "DESCRIPTION"], &rows);
-            }
+            });
         }
         PluginAction::Enable {
             plugin_id,
@@ -223,9 +215,7 @@ pub async fn run(client: &MoatClient, action: PluginAction, json: bool) -> Resul
                     user.map(|id| id.to_string()).as_deref(),
                 )
                 .await?;
-            if json {
-                output::print_json_typed(&plugins);
-            } else {
+            output::emit(json, &plugins, || {
                 let rows: Vec<Vec<String>> = plugins
                     .iter()
                     .map(|p| {
@@ -238,7 +228,7 @@ pub async fn run(client: &MoatClient, action: PluginAction, json: bool) -> Resul
                     })
                     .collect();
                 output::print_table(&["ID", "NAME", "SKILLS", "FRONTLOADED"], &rows);
-            }
+            });
         }
     }
     Ok(())

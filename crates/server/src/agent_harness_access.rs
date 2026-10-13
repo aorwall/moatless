@@ -445,10 +445,7 @@ mod tests {
 
         access
             .save(
-                &ScopeContext {
-                    user_id: "u1".into(),
-                    is_admin: false,
-                },
+                &ScopeContext::user("u1"),
                 CodexScope::user("u1"),
                 r#"{"tokens":{"access_token":"a","refresh_token":"r"}}"#.to_string(),
             )
@@ -474,10 +471,7 @@ mod tests {
                 observed: mpsc::channel(1).0,
             }),
         );
-        let ctx = ScopeContext {
-            user_id: "caller".into(),
-            is_admin: false,
-        };
+        let ctx = ScopeContext::user("caller");
         for scope in [CodexScope::Global, CodexScope::user("other")] {
             assert!(matches!(
                 access.status(&ctx, &scope).await,
@@ -518,14 +512,7 @@ mod tests {
             );
 
             access
-                .poll_device_login(
-                    &ScopeContext {
-                        user_id: "u1".into(),
-                        is_admin: false,
-                    },
-                    "device",
-                    "code",
-                )
+                .poll_device_login(&ScopeContext::user("u1"), "device", "code")
                 .await
                 .expect("poll should succeed");
             assert_eq!(tokens.writes.load(Ordering::Relaxed), 0);
@@ -545,14 +532,7 @@ mod tests {
             }),
         );
         access
-            .poll_device_login(
-                &ScopeContext {
-                    user_id: "u1".into(),
-                    is_admin: false,
-                },
-                "device",
-                "code",
-            )
+            .poll_device_login(&ScopeContext::user("u1"), "device", "code")
             .await
             .expect("successful poll should persist");
         assert_eq!(tokens.writes.load(Ordering::Relaxed), 1);

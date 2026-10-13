@@ -77,10 +77,7 @@ async fn seed_message(pool: &PgPool, task_id: &str, uuid: &str) {
 /// A user-scoped [`ScopeContext`], matching the rows the fixtures seed (owner =
 /// `user_id`, no team memberships).
 fn user_scope(user_id: &str) -> ScopeContext {
-    ScopeContext {
-        user_id: user_id.to_string(),
-        is_admin: false,
-    }
+    ScopeContext::user(user_id.to_string())
 }
 
 fn filter() -> FeedbackFilter {

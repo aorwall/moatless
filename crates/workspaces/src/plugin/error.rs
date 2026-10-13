@@ -3,7 +3,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use moatless_core::error::error_response;
+use moatless_core::error::{error_response, internal_error};
 
 #[derive(Debug, thiserror::Error)]
 pub enum PluginError {
@@ -42,10 +42,7 @@ impl IntoResponse for PluginError {
             PluginError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             PluginError::Db(e) => {
                 tracing::error!(error = %e, "Database error in plugin handler");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
         };
 

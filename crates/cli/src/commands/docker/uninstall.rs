@@ -60,11 +60,7 @@ pub(super) async fn run(args: UninstallArgs, json: bool) -> Result<(), ClientErr
         cache_purged,
     };
 
-    if json {
-        output::print_json_typed(&report);
-    } else {
-        print_human(&report, source);
-    }
+    output::emit(json, &report, || print_human(&report, source));
     Ok(())
 }
 

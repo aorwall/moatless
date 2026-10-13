@@ -143,19 +143,11 @@ pub async fn run(
             let repos = client.api().list_repositories().await?;
             let repos: Vec<RepositoryResponse> =
                 repos.into_iter().filter(|r| filter.matches(r)).collect();
-            if json {
-                output::print_json_typed(&repos);
-            } else {
-                format_repo_list(&repos);
-            }
+            output::emit(json, &repos, || format_repo_list(&repos));
         }
         RepoAction::Get { repo } => {
             let repo = resolve_repo(client, &repo).await?;
-            if json {
-                output::print_json_typed(&repo);
-            } else {
-                format_repo_detail(&repo);
-            }
+            output::emit(json, &repo, || format_repo_detail(&repo));
         }
         RepoAction::Clone { repo, dir, branch } => {
             let repo = resolve_repo(client, &repo).await?;
@@ -163,15 +155,15 @@ pub async fn run(
             let target = dir.unwrap_or_else(|| checkout_dir(&repo));
             let branch = branch.or_else(|| repo.default_branch.clone());
             git_clone(&url, &target, branch.as_deref())?;
-            if json {
-                output::print_json_typed(&serde_json::json!({
+            output::emit(
+                json,
+                &serde_json::json!({
                     "id": repo.id,
                     "name": repo.name,
                     "path": target,
-                }));
-            } else {
-                println!("Cloned {} into {target}", repo.name);
-            }
+                }),
+                || println!("Cloned {} into {target}", repo.name),
+            );
         }
         RepoAction::Create {
             name,
@@ -197,11 +189,9 @@ pub async fn run(
                 scope: scope.as_deref().and_then(parse_scope),
             };
             let created = client.api().create_repository(&req).await?;
-            if json {
-                output::print_json_typed(&created);
-            } else {
+            output::emit(json, &created, || {
                 println!("Repository created: {}", created.id);
-            }
+            });
         }
         RepoAction::Update {
             repo_id,
@@ -240,11 +230,9 @@ pub async fn run(
                 description,
             };
             let updated = client.api().update_repository(&repo_id, &req).await?;
-            if json {
-                output::print_json_typed(&updated);
-            } else {
+            output::emit(json, &updated, || {
                 println!("Repository {} updated.", updated.id);
-            }
+            });
         }
         RepoAction::Import {
             org,
@@ -266,11 +254,7 @@ pub async fn run(
                 dry_run,
             )
             .await;
-            if json {
-                output::print_json_typed(&report);
-            } else {
-                format_import_report(&report, dry_run);
-            }
+            output::emit(json, &report, || format_import_report(&report, dry_run));
             // Report first: a failure part-way leaves the rows written so far,
             // and propagating straight out would print none of them.
             outcome?;
@@ -278,9 +262,7 @@ pub async fn run(
         RepoAction::SyncConfig { repo } => {
             let repo = resolve_repo(client, &repo).await?;
             let result = client.api().sync_config(&repo.id).await?;
-            if json {
-                output::print_json_typed(&result);
-            } else {
+            output::emit(json, &result, || {
                 let loops = &result.loops;
                 println!("Config synced for repository {}.", result.repository.id);
                 println!(
@@ -313,7 +295,7 @@ pub async fn run(
                 for warning in &workspaces.warnings {
                     println!("  warning {}: {}", warning.path, warning.message);
                 }
-            }
+            });
         }
         RepoAction::Delete { repo_id, yes } => {
             let repo = client.api().get_repository(&repo_id).await?;
@@ -342,14 +324,14 @@ pub async fn run(
             }
 
             client.api().delete_repository(&id).await?;
-            if json {
-                output::print_json_typed(&serde_json::json!({
+            output::emit(
+                json,
+                &serde_json::json!({
                     "id": id,
                     "deleted": true,
-                }));
-            } else {
-                println!("Deleted repository {name} ({id})");
-            }
+                }),
+                || println!("Deleted repository {name} ({id})"),
+            );
         }
     }
     Ok(())
@@ -808,7 +790,7 @@ fn format_repo_list(repos: &[RepositoryResponse]) {
                     .map_or("-".to_string(), ToString::to_string),
                 r.default_branch.as_deref().unwrap_or("-").to_string(),
                 r.scope.to_string(),
-                truncate(r.description.as_deref().unwrap_or("-"), DESCRIPTION_WIDTH),
+                output::truncate(r.description.as_deref().unwrap_or("-"), DESCRIPTION_WIDTH),
             ]
         })
         .collect();
@@ -817,18 +799,6 @@ fn format_repo_list(repos: &[RepositoryResponse]) {
         &["ID", "NAME", "PROVIDER", "BRANCH", "SCOPE", "DESCRIPTION"],
         &rows,
     );
-}
-
-/// Cut `text` to at most `width` characters, ending in `…` when anything was
-/// dropped. The `…` takes the last character's place rather than following it,
-/// so the result never exceeds `width`.
-fn truncate(text: &str, width: usize) -> String {
-    if text.chars().count() <= width {
-        return text.to_string();
-    }
-    let mut out: String = text.chars().take(width.saturating_sub(1)).collect();
-    out.push('…');
-    out
 }
 
 fn format_repo_detail(r: &RepositoryResponse) {
@@ -994,10 +964,10 @@ mod tests {
 
     #[test]
     fn a_description_is_cut_only_when_it_is_too_long() {
-        assert_eq!(truncate("short", 10), "short");
-        assert_eq!(truncate("0123456789", 10), "0123456789");
-        assert_eq!(truncate("0123456789x", 10), "012345678…");
-        assert_eq!(truncate("0123456789x", 10).chars().count(), 10);
+        assert_eq!(output::truncate("short", 10), "short");
+        assert_eq!(output::truncate("0123456789", 10), "0123456789");
+        assert_eq!(output::truncate("0123456789x", 10), "012345678…");
+        assert_eq!(output::truncate("0123456789x", 10).chars().count(), 10);
     }
 
     fn gh_repo(name: &str, description: Option<&str>, is_archived: bool) -> GhRepo {

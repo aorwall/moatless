@@ -741,10 +741,7 @@ mod tests {
     }
 
     fn viewer() -> ScopeContext {
-        ScopeContext {
-            user_id: "user-1".into(),
-            is_admin: false,
-        }
+        ScopeContext::user("user-1")
     }
 
     /// The whole point of the change log: a conversation that moves costs the

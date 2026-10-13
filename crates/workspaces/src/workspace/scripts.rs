@@ -59,10 +59,7 @@ mod tests {
     }
 
     fn viewer() -> ScopeContext {
-        ScopeContext {
-            user_id: "viewer".to_string(),
-            is_admin: false,
-        }
+        ScopeContext::user("viewer")
     }
 
     #[tokio::test]

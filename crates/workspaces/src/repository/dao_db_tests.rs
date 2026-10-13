@@ -9,10 +9,7 @@ use crate::test_support::{make_repository_row, seed_team};
 
 /// Helper to create a non-admin `ScopeContext` for a given user.
 fn scope_ctx(user_id: &str) -> ScopeContext {
-    ScopeContext {
-        user_id: user_id.into(),
-        is_admin: false,
-    }
+    ScopeContext::user(user_id)
 }
 
 #[sqlx::test]

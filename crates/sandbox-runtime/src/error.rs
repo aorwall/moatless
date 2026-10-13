@@ -4,7 +4,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use moatless_ports::sandbox as core_sandbox;
 
-use moatless_core::error::error_response;
+use moatless_core::error::{error_response, internal_error};
 
 /// Errors that can occur during sandbox lifecycle operations.
 #[derive(Debug, thiserror::Error)]
@@ -215,41 +215,26 @@ impl IntoResponse for SandboxError {
             Self::Forbidden(_) => (StatusCode::FORBIDDEN, self.to_string()),
             Self::ConfigMissing(ref msg) => {
                 tracing::error!(error = %msg, "Sandbox config missing");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
             Self::JwtError(ref msg) => {
                 tracing::error!(error = %msg, "Sandbox JWT error");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
             Self::PodBuildError(ref msg) => {
                 tracing::error!(error = %msg, "Sandbox pod build error");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
             Self::KubeError(_) => {
                 tracing::error!(
                     error = %moatless_core::error::causal_chain(&self),
                     "Kubernetes API error in sandbox handler"
                 );
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
             Self::DockerError(ref msg) => {
                 tracing::error!(error = %msg, "Docker API error in sandbox handler");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
             // Every source-bearing variant renders its whole chain into one
             // log line here — the single observability boundary — and answers
@@ -268,24 +253,15 @@ impl IntoResponse for SandboxError {
                     error = %moatless_core::error::causal_chain(&self),
                     "Sandbox operation failed"
                 );
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
             Self::InvalidResponse(ref e) => {
                 tracing::error!(error = %e, "Invalid sandbox gRPC response");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
             Self::Internal(ref msg) => {
                 tracing::error!(error = %msg, "Internal sandbox error");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
         };
         error_response(status, message)

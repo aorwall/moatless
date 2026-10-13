@@ -4,7 +4,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use tracing::{error, warn};
 
-use moatless_core::error::error_response;
+use moatless_core::error::{error_response, internal_error};
 use moatless_types::access_control::AccessControlError;
 
 pub(crate) const REMOTE_URL_UNIQUE_INDEX: &str = "repositories_active_owner_remote_url_uq";
@@ -70,17 +70,11 @@ impl IntoResponse for RepositoryError {
             RepositoryError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             RepositoryError::Db(e) => {
                 error!(error = %e, "Repository database error");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
             RepositoryError::Store(e) => {
                 error!(error = %moatless_core::error::causal_chain(e), "Repository store error");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
             RepositoryError::ProviderError(msg) => {
                 warn!(error = %msg, "Repository provider API error");

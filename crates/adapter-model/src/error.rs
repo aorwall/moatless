@@ -22,7 +22,7 @@ use axum::response::{IntoResponse, Response};
 #[cfg(feature = "http")]
 use moatless_api_schemas::bindings::{MultipleTargetsErrorBody, ReplyTargetDescriptor};
 #[cfg(feature = "http")]
-use moatless_core::error::error_response;
+use moatless_core::error::{error_response, internal_error};
 
 /// One outbound destination a caller can select explicitly.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -264,10 +264,7 @@ impl IntoResponse for AdapterError {
                     context = %context,
                     "Handing work to the task band failed"
                 );
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
             AdapterError::CreationClaimed { .. } => {
                 // 409 rather than 5xx: the request is well-formed and the
@@ -280,10 +277,7 @@ impl IntoResponse for AdapterError {
                     error = %moatless_core::error::causal_chain(e),
                     "Store error in adapter handler"
                 );
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
             AdapterError::Shared(inner) => match inner {
                 SharedAdapterError::ConfigNotFound(_) | SharedAdapterError::NotFound(_) => {
@@ -302,10 +296,7 @@ impl IntoResponse for AdapterError {
                         error = %moatless_core::error::causal_chain(e),
                         "Store error in adapter handler"
                     );
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "Internal server error".to_string(),
-                    )
+                    internal_error()
                 }
                 SharedAdapterError::AccessDenied(_) => (StatusCode::FORBIDDEN, inner.to_string()),
                 SharedAdapterError::AdapterApi(_)
@@ -332,10 +323,7 @@ impl IntoResponse for AdapterError {
                 }
                 SharedAdapterError::ConfigSerialization(e) => {
                     tracing::error!(error = %e, "Failed to serialize adapter config");
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "Internal server error".to_string(),
-                    )
+                    internal_error()
                 }
                 SharedAdapterError::Overloaded => {
                     tracing::warn!("Adapter delivery admission refused: backlog at capacity");
@@ -343,10 +331,7 @@ impl IntoResponse for AdapterError {
                 }
                 SharedAdapterError::Internal(msg) => {
                     tracing::error!(error = %msg, "Internal error in adapter handler");
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "Internal server error".to_string(),
-                    )
+                    internal_error()
                 }
             },
         };

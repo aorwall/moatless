@@ -32,23 +32,17 @@ pub async fn run(
         SettingsAction::GithubPat { token, remove } => {
             if remove {
                 let resp = client.raw_delete("/api/v1/settings/github/pat").await?;
-                if json {
-                    output::print_json_typed(&resp);
-                } else {
-                    println!("PAT override removed.");
-                }
+                output::emit(json, &resp, || println!("PAT override removed."));
             } else if let Some(pat) = token {
                 let body = serde_json::json!({ "token": pat });
                 let resp = client.raw_put("/api/v1/settings/github/pat", &body).await?;
-                if json {
-                    output::print_json_typed(&resp);
-                } else {
+                output::emit(json, &resp, || {
                     let login = resp
                         .get("login")
                         .and_then(|v| v.as_str())
                         .unwrap_or("unknown");
                     println!("GitHub PAT saved. Username: {login}");
-                }
+                });
             } else {
                 // No token and no --remove: show current status
                 print_github_status(client, json).await?;
@@ -63,9 +57,7 @@ pub async fn run(
 
 async fn print_github_status(client: &MoatClient, json: bool) -> Result<(), ClientError> {
     let resp = client.raw_get("/api/v1/settings/github/config").await?;
-    if json {
-        output::print_json_typed(&resp);
-    } else {
+    output::emit(json, &resp, || {
         let connected = resp
             .get("connected")
             .and_then(serde_json::Value::as_bool)
@@ -92,6 +84,6 @@ async fn print_github_status(client: &MoatClient, json: bool) -> Result<(), Clie
         } else {
             println!("GitHub: not connected");
         }
-    }
+    });
     Ok(())
 }

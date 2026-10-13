@@ -6,22 +6,6 @@ use moatless_core::http_auth::AuthUser;
 use moatless_workspace_types::repository::Repository;
 
 impl LoopSyncService {
-    pub async fn sync_repo_loops(
-        &self,
-        repo: &Repository,
-        auth: &AuthUser,
-    ) -> Result<LoopSyncSummary, LoopError> {
-        self.sync_repo_loops_for(repo, &auth.scope_context()).await
-    }
-    pub async fn reset_repo_loop(
-        &self,
-        repo: &Repository,
-        auth: &AuthUser,
-        source_key: &str,
-    ) -> Result<bool, LoopError> {
-        self.reset_repo_loop_for(repo, &auth.scope_context(), source_key)
-            .await
-    }
     pub async fn sync_loops(
         &self,
         repo: &Repository,

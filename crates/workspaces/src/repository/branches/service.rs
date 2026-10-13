@@ -248,10 +248,7 @@ mod tests {
     };
 
     fn ctx() -> ScopeContext {
-        ScopeContext {
-            user_id: "viewer".to_string(),
-            is_admin: false,
-        }
+        ScopeContext::user("viewer")
     }
 
     fn workspace() -> Workspace {

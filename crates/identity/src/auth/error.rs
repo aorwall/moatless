@@ -4,7 +4,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use tracing::error;
 
-use moatless_core::error::error_response;
+use moatless_core::error::{error_response, internal_error};
 
 #[derive(Debug, thiserror::Error)]
 pub enum AuthError {
@@ -89,10 +89,7 @@ impl IntoResponse for AuthError {
             Self::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
             Self::Internal(msg) => {
                 error!(error = %msg, "Internal auth error");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
             Self::PasswordVerification(_)
             | Self::PasswordHashing(_)
@@ -105,10 +102,7 @@ impl IntoResponse for AuthError {
                 // Log the full causal chain server-side exactly once, return a
                 // generic message to the client.
                 error!(error = %moatless_core::error::causal_chain(&self), "Internal auth error");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
         };
         error_response(status, message)

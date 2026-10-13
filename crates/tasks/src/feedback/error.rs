@@ -3,7 +3,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use moatless_core::error::error_response;
+use moatless_core::error::{error_response, internal_error};
 
 /// A stored `feedback` row holds `source` and `surface` as text.
 ///
@@ -58,17 +58,11 @@ impl IntoResponse for FeedbackError {
                     error = %moatless_core::error::causal_chain(&self),
                     "Database error in feedback handler"
                 );
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
             Self::Internal(msg) => {
                 tracing::error!(error = %msg, "Internal error in feedback handler");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
             Self::Forbidden(_) => (StatusCode::FORBIDDEN, self.to_string()),
         };

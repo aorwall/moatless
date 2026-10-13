@@ -352,11 +352,9 @@ async fn set_secret(
 
     let resp = client.raw_put("/api/v1/secrets", &body).await?;
 
-    if json {
-        output::print_json_typed(&resp);
-    } else {
+    output::emit(json, &resp, || {
         println!("Secret {key} saved (scope: {scope}, target: {target})");
-    }
+    });
 
     Ok(())
 }
@@ -426,11 +424,7 @@ async fn remove_secret(
 
     let resp = client.raw_delete(&format!("/api/v1/secrets/{id}")).await?;
 
-    if json {
-        output::print_json_typed(&resp);
-    } else {
-        println!("Secret {key} removed");
-    }
+    output::emit(json, &resp, || println!("Secret {key} removed"));
 
     Ok(())
 }
@@ -475,12 +469,10 @@ async fn set_enabled(
         )
         .await?;
 
-    if json {
-        output::print_json_typed(&resp);
-    } else {
+    output::emit(json, &resp, || {
         let state = if enabled { "enabled" } else { "disabled" };
         println!("Secret {key} {state}");
-    }
+    });
 
     Ok(())
 }

@@ -179,10 +179,10 @@ pub(in crate::auth) async fn verify_handler(
     let identity = authenticate_request(&state, &headers).await?;
 
     // For preview URLs, check task-based access control.
-    let scope_ctx = ScopeContext {
-        user_id: identity.user_id.to_string(),
-        is_admin: identity.role == UserRole::Admin,
-    };
+    let scope_ctx = ScopeContext::new(
+        identity.user_id.to_string(),
+        identity.role == UserRole::Admin,
+    );
     let forwarded_host = headers
         .get("x-forwarded-host")
         .and_then(|v| v.to_str().ok());

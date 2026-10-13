@@ -59,10 +59,7 @@ impl StashedOAuthCredential {
 /// `ScopeContext` for a backend-initiated read/write of a user's own secret.
 /// Not admin — the only scope it can reach is that user's.
 fn user_scope(user_id: &str) -> ScopeContext {
-    ScopeContext {
-        user_id: user_id.to_string(),
-        is_admin: false,
-    }
+    ScopeContext::user(user_id.to_string())
 }
 
 /// Stash `user_id`'s OAuth credential for `provider` behind an active PAT

@@ -157,57 +157,7 @@ fn unreachable_pool() -> DbPool {
 struct NoUsers;
 
 #[async_trait::async_trait]
-impl ProviderIdentityLink for NoUsers {
-    async fn provider_id_for_login(
-        &self,
-        _provider: &str,
-        _login: &str,
-    ) -> Result<Option<String>, moatless_types::store::StoreError> {
-        Ok(None)
-    }
-
-    async fn user_with_login(
-        &self,
-        _provider: &str,
-        _login: &str,
-    ) -> Result<Option<String>, moatless_types::store::StoreError> {
-        Ok(None)
-    }
-
-    async fn user_at(
-        &self,
-        _provider: &str,
-        _provider_user_id: &str,
-    ) -> Result<Option<moatless_ports::identity::LinkedUser>, moatless_types::store::StoreError>
-    {
-        Ok(None)
-    }
-
-    async fn user_by_email(
-        &self,
-        _email: &str,
-    ) -> Result<Option<moatless_ports::identity::LinkedUser>, moatless_types::store::StoreError>
-    {
-        Ok(None)
-    }
-
-    async fn user_who_connected(
-        &self,
-        _provider: &str,
-        _provider_user_id: &str,
-    ) -> Result<Option<String>, moatless_types::store::StoreError> {
-        Ok(None)
-    }
-
-    async fn link(
-        &self,
-        _user_id: &uuid::Uuid,
-        _provider: &str,
-        _provider_user_id: &str,
-    ) -> Result<bool, moatless_types::store::StoreError> {
-        Ok(false)
-    }
-}
+impl ProviderIdentityLink for NoUsers {}
 
 /// An identity port holding one Telegram-to-user mapping.
 ///
@@ -222,54 +172,12 @@ struct OneSender {
 #[cfg(feature = "db-tests")]
 #[async_trait::async_trait]
 impl ProviderIdentityLink for OneSender {
-    async fn provider_id_for_login(
-        &self,
-        _provider: &str,
-        _login: &str,
-    ) -> Result<Option<String>, moatless_types::store::StoreError> {
-        Ok(None)
-    }
-
-    async fn user_with_login(
-        &self,
-        _provider: &str,
-        _login: &str,
-    ) -> Result<Option<String>, moatless_types::store::StoreError> {
-        Ok(None)
-    }
-
-    async fn user_at(
-        &self,
-        _provider: &str,
-        _provider_user_id: &str,
-    ) -> Result<Option<moatless_ports::identity::LinkedUser>, moatless_types::store::StoreError>
-    {
-        Ok(None)
-    }
-
-    async fn user_by_email(
-        &self,
-        _email: &str,
-    ) -> Result<Option<moatless_ports::identity::LinkedUser>, moatless_types::store::StoreError>
-    {
-        Ok(None)
-    }
-
     async fn user_who_connected(
         &self,
         _provider: &str,
         provider_user_id: &str,
     ) -> Result<Option<String>, moatless_types::store::StoreError> {
         Ok((provider_user_id == self.telegram_user_id).then(|| self.user_id.to_string()))
-    }
-
-    async fn link(
-        &self,
-        _user_id: &uuid::Uuid,
-        _provider: &str,
-        _provider_user_id: &str,
-    ) -> Result<bool, moatless_types::store::StoreError> {
-        Ok(false)
     }
 }
 

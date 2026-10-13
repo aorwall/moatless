@@ -120,14 +120,12 @@ pub async fn run(
                     html,
                 )
                 .await?;
-            if json {
-                output::print_json_typed(&resp);
-            } else {
+            output::emit(json, &resp, || {
                 println!(
                     "Published \"{}\" v{}: {}",
                     resp.title, resp.version, resp.latest_url
                 );
-            }
+            });
         }
         ArtifactAction::List { task } => {
             let task_id = task.map_or_else(|| cfg.require_task_id(), Ok)?;

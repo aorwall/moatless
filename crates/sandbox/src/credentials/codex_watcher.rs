@@ -204,10 +204,9 @@ async fn sync_if_changed(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use sandbox_proto::{GetCredentialsResponse, PendingAgentDelivery, PublishEventRequest};
     use tempfile::TempDir;
 
     use super::*;
@@ -228,34 +227,6 @@ mod tests {
 
     #[async_trait::async_trait]
     impl BackendClient for RecordingBackend {
-        async fn publish_event(&self, _req: PublishEventRequest) -> Result<(), tonic::Status> {
-            Ok(())
-        }
-        async fn get_pending_messages(
-            &self,
-            _task_id: &str,
-        ) -> Result<Vec<PendingAgentDelivery>, tonic::Status> {
-            Ok(vec![])
-        }
-        async fn acknowledge_messages(
-            &self,
-            _task_id: &str,
-            _message_uuids: Vec<String>,
-            _session_id: &str,
-            _run_id: &str,
-            _answered_prompt: Option<&str>,
-        ) -> Result<(), tonic::Status> {
-            Ok(())
-        }
-        async fn get_credentials(
-            &self,
-            _task_id: &str,
-        ) -> Result<GetCredentialsResponse, tonic::Status> {
-            Ok(GetCredentialsResponse {
-                credentials: HashMap::new(),
-                ssh_keys: HashMap::new(),
-            })
-        }
         async fn update_credential(
             &self,
             _task_id: &str,
@@ -265,34 +236,6 @@ mod tests {
             self.update_count.fetch_add(1, Ordering::SeqCst);
             *self.last_value.lock().await = Some(value.to_string());
             Ok(())
-        }
-        async fn get_system_prompt(&self, _task_id: &str) -> Result<String, tonic::Status> {
-            Ok(String::new())
-        }
-        async fn download_upload(
-            &self,
-            _task_id: &str,
-            _file_id: &str,
-        ) -> Result<sandbox_proto::DownloadUploadResponse, tonic::Status> {
-            Err(tonic::Status::unimplemented("not used"))
-        }
-        async fn recover_interrupted_run(
-            &self,
-            _task_id: &str,
-        ) -> Result<Option<sandbox_proto::InterruptedTurn>, tonic::Status> {
-            Ok(None)
-        }
-
-        async fn upload_transcript(
-            &self,
-            _task_id: &str,
-            _tar_data: Vec<u8>,
-        ) -> Result<(), tonic::Status> {
-            Ok(())
-        }
-
-        async fn download_transcript(&self, _task_id: &str) -> Result<Vec<u8>, tonic::Status> {
-            Ok(Vec::new())
         }
     }
 

@@ -113,10 +113,7 @@ async fn a_rewind_into_a_codex_turn_transcodes_it_for_claude(pool: PgPool) {
         Arc::new(PgMessageDao(pool.clone())),
         trajectories.clone(),
     );
-    let owner = ScopeContext {
-        user_id: "user-1".into(),
-        is_admin: false,
-    };
+    let owner = ScopeContext::user("user-1");
     service.rewind(&owner, "t", 1).await.expect("rewind");
 
     let cut: uuid::Uuid =

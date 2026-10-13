@@ -75,16 +75,14 @@ pub(super) async fn run_stack(
         bound.push(resp);
     }
 
-    if json {
-        output::print_json_typed(&bound);
-    } else {
-        for pr in bound {
+    output::emit(json, &bound, || {
+        for pr in &bound {
             println!("Stack PR linked to task: {}", pr.html_url);
-            if let Some(bid) = pr.binding_id {
+            if let Some(bid) = &pr.binding_id {
                 println!("Bound to task via: {bid}");
             }
         }
-    }
+    });
 
     Ok(())
 }

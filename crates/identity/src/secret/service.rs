@@ -551,35 +551,6 @@ impl SecretService {
         Ok(removed)
     }
 
-    /// Delete a secret at an explicit scope, gated by the caller's access to
-    /// that scope via `ctx`.
-    pub async fn delete_scope_secret(
-        &self,
-        ctx: &ScopeContext,
-        actor_id: &str,
-        scope: Scope,
-        owner_user_id: Option<&str>,
-        key: &str,
-        kind: Option<SecretKind>,
-    ) -> Result<bool, SecretError> {
-        let Some(record) = self
-            .secrets
-            .find_by_key(scope.as_str(), owner_user_id, key)
-            .await?
-        else {
-            return Ok(false);
-        };
-        if kind.is_some_and(|kind| record.kind != kind.as_str()) {
-            return Ok(false);
-        }
-        let removed = self.secrets.delete(&record.id, ctx).await?;
-        if removed {
-            self.audit(Some(&record.id), actor_id, "delete", &record, "success")
-                .await?;
-        }
-        Ok(removed)
-    }
-
     /// Resolve plaintext secrets for an already-authorized internal workflow.
     pub async fn resolve_plaintext_scope(
         &self,
@@ -850,10 +821,7 @@ mod tests {
 
     #[test]
     fn non_admin_cannot_create_global_secret() {
-        let ctx = ScopeContext {
-            user_id: "u1".to_string(),
-            is_admin: false,
-        };
+        let ctx = ScopeContext::user("u1");
         assert!(resolve_scope_for_create(&ctx, Some(Scope::Global)).is_err());
     }
 

@@ -22,10 +22,7 @@ use sqlx::PgPool;
 use common::{USER_1, make_task_row, test_app_state};
 
 fn viewer() -> ScopeContext {
-    ScopeContext {
-        user_id: USER_1.into(),
-        is_admin: false,
-    }
+    ScopeContext::user(USER_1)
 }
 
 async fn seed_task(pool: &PgPool, task_id: &str, profile: &str) {

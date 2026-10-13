@@ -4,7 +4,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use tracing::error;
 
-use moatless_core::error::error_response;
+use moatless_core::error::{error_response, internal_error};
 use moatless_identity::adapter_apps::administration::AppAdministrationError;
 use moatless_identity::auth::error::AuthError;
 
@@ -102,17 +102,11 @@ impl IntoResponse for AccessSettingsError {
             Self::Conflict(_) => (StatusCode::CONFLICT, self.to_string()),
             Self::Db(source) => {
                 error!(%source, "Access settings database error");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
             Self::Store(source) => {
                 error!(%source, "Access settings database error");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
             Self::GitProvider(_) | Self::GitHubApp(_) | Self::CodexOAuth(_) => {
                 (StatusCode::BAD_GATEWAY, self.to_string())
@@ -126,10 +120,7 @@ impl IntoResponse for AccessSettingsError {
             }
             Self::Internal(source) => {
                 error!(%source, "Access settings internal error");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
         };
         error_response(status, message)

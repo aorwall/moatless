@@ -7,6 +7,15 @@ pub fn print_json_typed<T: serde::Serialize>(value: &T) {
     }
 }
 
+/// Print `value` as pretty JSON when `json` is set, otherwise run `human`.
+pub fn emit<T: serde::Serialize>(json: bool, value: &T, human: impl FnOnce()) {
+    if json {
+        print_json_typed(value);
+    } else {
+        human();
+    }
+}
+
 /// Print a simple table from a list of rows.
 ///
 /// Each row is a Vec of column values. First row is headers.
@@ -46,4 +55,16 @@ pub fn print_table(headers: &[&str], rows: &[Vec<String>]) {
             .collect();
         println!("{}", line.join("  "));
     }
+}
+
+/// Cut `text` to at most `width` characters, ending in `…` when anything was
+/// dropped. The `…` takes the last character's place rather than following it,
+/// so the result never exceeds `width`.
+pub fn truncate(text: &str, width: usize) -> String {
+    if text.chars().count() <= width {
+        return text.to_string();
+    }
+    let mut out: String = text.chars().take(width.saturating_sub(1)).collect();
+    out.push('…');
+    out
 }

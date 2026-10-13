@@ -18,19 +18,11 @@ pub async fn run(client: &MoatClient, action: TeamAction, json: bool) -> Result<
     match action {
         TeamAction::List => {
             let teams = client.api().list_teams().await?;
-            if json {
-                output::print_json_typed(&teams);
-            } else {
-                format_team_list(&teams);
-            }
+            output::emit(json, &teams, || format_team_list(&teams));
         }
         TeamAction::Get { team_id } => {
             let team = client.api().get_team(&team_id).await?;
-            if json {
-                output::print_json_typed(&team);
-            } else {
-                format_team_detail(&team);
-            }
+            output::emit(json, &team, || format_team_detail(&team));
         }
     }
     Ok(())

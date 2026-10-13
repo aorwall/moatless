@@ -6,13 +6,11 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 
 use serde::{Deserialize, Serialize};
-use tokio::io::AsyncWriteExt;
-use tokio::process::Command;
 
 use crate::client::ClientError;
+use crate::commands::subprocess::{CmdOutput, run, run_streaming};
 
 pub(super) const COMPOSE_FILE: &str = "docker-compose.yml";
 pub(super) const ENV_EXAMPLE_FILE: &str = ".env.example";
@@ -244,19 +242,6 @@ pub(super) fn seed_assets(
     Ok(copied)
 }
 
-/// Output of a completed subprocess run.
-pub(super) struct CmdOutput {
-    pub(super) status: i32,
-    pub(super) stdout: String,
-    pub(super) stderr: String,
-}
-
-impl CmdOutput {
-    pub(super) fn success(&self) -> bool {
-        self.status == 0
-    }
-}
-
 /// Run a `docker compose ...` command against the given work dir. Always passes
 /// `-f <dir>/docker-compose.yml --env-file <dir>/.env -p <project>` so the
 /// command works regardless of cwd.
@@ -303,75 +288,13 @@ pub(super) async fn run_compose_streaming(
     args.extend_from_slice(&["-p", DEFAULT_PROJECT_NAME]);
     args.extend_from_slice(extra_args);
 
-    let program = compose.program();
-    let label = compose.label();
-
-    let mut child = Command::new(program)
-        .args(&args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .map_err(|e| ClientError::Other(format!("Failed to spawn {label}: {e}")))?;
-
-    let status = child
-        .wait()
-        .await
-        .map_err(|e| ClientError::Other(format!("Failed to await {label}: {e}")))?;
-
-    if !status.success() {
-        return Err(ClientError::Other(format!(
-            "{label} exited with status {}",
-            status.code().unwrap_or(-1)
-        )));
-    }
-    Ok(())
+    run_streaming(compose.program(), compose.label(), &args).await
 }
 
 /// Run `docker <args>` directly (not compose). Used by `status` for the
 /// `pg_isready` invocation on a running container.
 pub(super) async fn run_docker(args: &[&str]) -> Result<CmdOutput, ClientError> {
     run("docker", args, None).await
-}
-
-async fn run(cmd: &str, args: &[&str], stdin: Option<&str>) -> Result<CmdOutput, ClientError> {
-    let mut command = Command::new(cmd);
-    command
-        .args(args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    if stdin.is_some() {
-        command.stdin(Stdio::piped());
-    } else {
-        command.stdin(Stdio::null());
-    }
-
-    let mut child = command
-        .spawn()
-        .map_err(|e| ClientError::Other(format!("Failed to spawn {cmd}: {e}")))?;
-
-    if let Some(input) = stdin {
-        if let Some(mut h) = child.stdin.take() {
-            h.write_all(input.as_bytes())
-                .await
-                .map_err(|e| ClientError::Other(format!("Failed to write stdin to {cmd}: {e}")))?;
-            h.shutdown()
-                .await
-                .map_err(|e| ClientError::Other(format!("Failed to close stdin for {cmd}: {e}")))?;
-        }
-    }
-
-    let output = child
-        .wait_with_output()
-        .await
-        .map_err(|e| ClientError::Other(format!("Failed to collect {cmd} output: {e}")))?;
-
-    Ok(CmdOutput {
-        status: output.status.code().unwrap_or(-1),
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-    })
 }
 
 /// Check whether a TCP port on 127.0.0.1 is already in use. Used by preflight

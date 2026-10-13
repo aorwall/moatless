@@ -361,10 +361,7 @@ pub const USER_2: &str = "22222222-2222-2222-2222-222222222222";
 /// state directly from HTTP handler tests.
 #[allow(dead_code)]
 pub fn user_scope(user_id: &str) -> ScopeContext {
-    ScopeContext {
-        user_id: user_id.to_string(),
-        is_admin: false,
-    }
+    ScopeContext::user(user_id.to_string())
 }
 
 // =========================================================================

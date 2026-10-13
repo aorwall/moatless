@@ -3,7 +3,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use moatless_core::error::error_response;
+use moatless_core::error::{error_response, internal_error};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ArtifactError {
@@ -48,10 +48,7 @@ impl IntoResponse for ArtifactError {
                     error = %moatless_core::error::causal_chain(&self),
                     "Storage error in artifact handler"
                 );
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
         };
 

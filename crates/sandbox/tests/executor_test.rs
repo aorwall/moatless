@@ -25,8 +25,8 @@ use moatless_sandbox::init::InitPhase;
 use moatless_sandbox::state::{SandboxState, TaskContext};
 
 use sandbox_proto::{
-    DownloadUploadResponse, GetCredentialsResponse, PendingAgentDelivery,
-    PromptResponse as ProtoPromptResponse, PublishEventRequest,
+    DownloadUploadResponse, PendingAgentDelivery, PromptResponse as ProtoPromptResponse,
+    PublishEventRequest,
 };
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
@@ -113,29 +113,6 @@ impl BackendClient for MockBackendClient {
         Ok(())
     }
 
-    async fn get_credentials(
-        &self,
-        _task_id: &str,
-    ) -> Result<GetCredentialsResponse, tonic::Status> {
-        Ok(GetCredentialsResponse {
-            credentials: HashMap::new(),
-            ssh_keys: HashMap::new(),
-        })
-    }
-
-    async fn update_credential(
-        &self,
-        _task_id: &str,
-        _key: &str,
-        _value: &str,
-    ) -> Result<(), tonic::Status> {
-        Ok(())
-    }
-
-    async fn get_system_prompt(&self, _task_id: &str) -> Result<String, tonic::Status> {
-        Ok(String::new())
-    }
-
     async fn download_upload(
         &self,
         _task_id: &str,
@@ -144,25 +121,6 @@ impl BackendClient for MockBackendClient {
         Err(tonic::Status::unimplemented(
             "download_upload not used in executor tests",
         ))
-    }
-
-    async fn recover_interrupted_run(
-        &self,
-        _task_id: &str,
-    ) -> Result<Option<sandbox_proto::InterruptedTurn>, tonic::Status> {
-        Ok(None)
-    }
-
-    async fn upload_transcript(
-        &self,
-        _task_id: &str,
-        _tar_data: Vec<u8>,
-    ) -> Result<(), tonic::Status> {
-        Ok(())
-    }
-
-    async fn download_transcript(&self, _task_id: &str) -> Result<Vec<u8>, tonic::Status> {
-        Ok(Vec::new())
     }
 }
 

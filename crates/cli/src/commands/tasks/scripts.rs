@@ -110,13 +110,11 @@ pub(super) async fn run_task_script_action(
                 )
                 .await
                 .map_err(|e| friendlier_scripts_error(e, task_id))?;
-            if json {
-                output::print_json_typed(&resp);
-            } else {
+            output::emit(json, &resp, || {
                 for line in run_report(&name, &resp) {
                     println!("{line}");
                 }
-            }
+            });
         }
         TaskScriptAction::Remove { name } => {
             let script_id = urlencoding::encode(&name);
@@ -124,11 +122,9 @@ pub(super) async fn run_task_script_action(
                 .raw_delete(&format!("/api/orchestration/scripts/{task_id}/{script_id}"))
                 .await
                 .map_err(|e| friendlier_scripts_error(e, task_id))?;
-            if json {
-                output::print_json_typed(&resp);
-            } else {
+            output::emit(json, &resp, || {
                 println!("Removed \"{name}\" from task {task_id}.");
-            }
+            });
         }
     }
     Ok(())

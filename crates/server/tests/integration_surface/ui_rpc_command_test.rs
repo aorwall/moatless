@@ -41,10 +41,7 @@ use common::{
 const WS: &str = "ws-t3";
 
 fn viewer(user_id: &str) -> ScopeContext {
-    ScopeContext {
-        user_id: user_id.into(),
-        is_admin: false,
-    }
+    ScopeContext::user(user_id)
 }
 
 fn defaults() -> AgentModelDefaults {

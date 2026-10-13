@@ -1,9 +1,8 @@
-use moatless_ports::identity::{LinkedUser, ProviderIdentityLink};
+use moatless_ports::identity::ProviderIdentityLink;
 use moatless_types::adapter::AdapterKind;
 use moatless_types::adapter::Audience;
 use moatless_types::loops::RoutingMode;
 use moatless_types::loops::SubscriptionMatch;
-use moatless_types::store::StoreError;
 
 use super::{IgnoredWebhook, NormalizeContext, PrimaryWebhook, normalize, title_is_ignored};
 use crate::status::WebhookStatusObservation;
@@ -13,52 +12,7 @@ use crate::status::WebhookStatusObservation;
 struct NoUsers;
 
 #[async_trait::async_trait]
-impl ProviderIdentityLink for NoUsers {
-    async fn provider_id_for_login(
-        &self,
-        _provider: &str,
-        _login: &str,
-    ) -> Result<Option<String>, StoreError> {
-        Ok(None)
-    }
-
-    async fn user_at(
-        &self,
-        _provider: &str,
-        _provider_user_id: &str,
-    ) -> Result<Option<LinkedUser>, StoreError> {
-        Ok(None)
-    }
-
-    async fn user_by_email(&self, _email: &str) -> Result<Option<LinkedUser>, StoreError> {
-        Ok(None)
-    }
-
-    async fn user_who_connected(
-        &self,
-        _provider: &str,
-        _provider_user_id: &str,
-    ) -> Result<Option<String>, StoreError> {
-        Ok(None)
-    }
-
-    async fn user_with_login(
-        &self,
-        _provider: &str,
-        _login: &str,
-    ) -> Result<Option<String>, StoreError> {
-        Ok(None)
-    }
-
-    async fn link(
-        &self,
-        _user_id: &uuid::Uuid,
-        _provider: &str,
-        _provider_user_id: &str,
-    ) -> Result<bool, StoreError> {
-        Ok(false)
-    }
-}
+impl ProviderIdentityLink for NoUsers {}
 
 fn fake_rule() -> SubscriptionMatch {
     use chrono::Utc;

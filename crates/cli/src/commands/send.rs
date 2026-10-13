@@ -109,11 +109,7 @@ pub async fn run(
             queue: args.queue,
         };
         let resp = moat.api().send_message(&id, &req).await?;
-        if json {
-            output::print_json_typed(&resp);
-        } else {
-            println!("Message sent to task {id}.");
-        }
+        output::emit(json, &resp, || println!("Message sent to task {id}."));
         return Ok(());
     }
 
@@ -128,9 +124,7 @@ pub async fn run(
             task_id: task_id_ctx.clone(),
         };
         let resp = moat.api().send_user_dm(&login, &req).await?;
-        if json {
-            output::print_json_typed(&resp);
-        } else {
+        output::emit(json, &resp, || {
             println!(
                 "DM sent to {login}. Conversation: {}, ts: {}{}",
                 resp.conversation_id,
@@ -141,7 +135,7 @@ pub async fn run(
                     format!(", binding: {}", resp.binding_id)
                 }
             );
-        }
+        });
         return Ok(());
     }
 
@@ -163,15 +157,13 @@ pub async fn run(
             presentation,
         };
         let resp = moat.api().adapter_send(&req).await?;
-        if json {
-            output::print_json_typed(&resp);
-        } else {
+        output::emit(json, &resp, || {
             print!("Sent via {} ({}).", via, resp.subject_kind);
             if let Some(binding_id) = &resp.binding_id {
                 print!(" Binding: {binding_id}.");
             }
             println!(" External id: {}", resp.external_id);
-        }
+        });
         return Ok(());
     }
 

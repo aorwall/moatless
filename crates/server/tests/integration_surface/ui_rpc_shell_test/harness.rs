@@ -60,17 +60,11 @@ pub(super) fn ui_rpc_authed_request(
 }
 
 pub(super) fn viewer(user_id: &str) -> ScopeContext {
-    ScopeContext {
-        user_id: user_id.into(),
-        is_admin: false,
-    }
+    ScopeContext::user(user_id)
 }
 
 pub(super) fn admin(user_id: &str) -> ScopeContext {
-    ScopeContext {
-        user_id: user_id.into(),
-        is_admin: true,
-    }
+    ScopeContext::admin(user_id)
 }
 
 pub(super) fn defaults() -> AgentModelDefaults {

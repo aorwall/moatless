@@ -504,42 +504,6 @@ mod tests {
                 }),
             )
         }
-        async fn user_by_email(
-            &self,
-            _email: &str,
-        ) -> Result<Option<moatless_ports::identity::LinkedUser>, moatless_types::store::StoreError>
-        {
-            Ok(None)
-        }
-        async fn provider_id_for_login(
-            &self,
-            _provider: &str,
-            _login: &str,
-        ) -> Result<Option<String>, moatless_types::store::StoreError> {
-            Ok(None)
-        }
-        async fn user_who_connected(
-            &self,
-            _provider: &str,
-            _provider_user_id: &str,
-        ) -> Result<Option<String>, moatless_types::store::StoreError> {
-            Ok(None)
-        }
-        async fn user_with_login(
-            &self,
-            _provider: &str,
-            _login: &str,
-        ) -> Result<Option<String>, moatless_types::store::StoreError> {
-            Ok(None)
-        }
-        async fn link(
-            &self,
-            _user_id: &uuid::Uuid,
-            _provider: &str,
-            _provider_user_id: &str,
-        ) -> Result<bool, moatless_types::store::StoreError> {
-            Ok(false)
-        }
     }
 
     /// History the agent is catching up on says who wrote each line, in the

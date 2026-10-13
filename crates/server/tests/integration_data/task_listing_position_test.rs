@@ -629,10 +629,7 @@ async fn seed_subject(pool: &PgPool, subject: &str) {
 }
 
 fn owner() -> ScopeContext {
-    ScopeContext {
-        user_id: USER_1.to_string(),
-        is_admin: false,
-    }
+    ScopeContext::user(USER_1.to_string())
 }
 
 /// The `tasks` row, taken outright — the lock every conversation mutation that

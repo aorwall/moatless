@@ -56,11 +56,7 @@ pub(super) async fn run(args: InstallArgs, json: bool) -> Result<(), ClientError
             all_healthy: None,
             stderr: Some(e.to_string()),
         };
-        if json {
-            output::print_json_typed(&report);
-        } else {
-            print_human(&report, source);
-        }
+        output::emit(json, &report, || print_human(&report, source));
         return Err(e);
     }
 
@@ -82,11 +78,7 @@ pub(super) async fn run(args: InstallArgs, json: bool) -> Result<(), ClientError
         stderr: None,
     };
 
-    if json {
-        output::print_json_typed(&report);
-    } else {
-        print_human(&report, source);
-    }
+    output::emit(json, &report, || print_human(&report, source));
     Ok(())
 }
 

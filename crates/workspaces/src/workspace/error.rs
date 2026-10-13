@@ -4,7 +4,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use tracing::error;
 
-use moatless_core::error::error_response;
+use moatless_core::error::{error_response, internal_error};
 use moatless_types::access_control::AccessControlError;
 
 /// A guarded replacement of workspace scripts could not complete.
@@ -66,19 +66,13 @@ impl IntoResponse for WorkspaceError {
             WorkspaceError::Conflict(_) => (StatusCode::CONFLICT, self.to_string()),
             WorkspaceError::Db(e) => {
                 error!(error = %e, "Workspace database error");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".to_string(),
-                )
+                internal_error()
             }
             WorkspaceError::Forbidden(_) => (StatusCode::FORBIDDEN, self.to_string()),
             WorkspaceError::EncryptionNotConfigured => {
                 (StatusCode::SERVICE_UNAVAILABLE, self.to_string())
             }
-            WorkspaceError::Crypto => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Internal server error".to_string(),
-            ),
+            WorkspaceError::Crypto => internal_error(),
         };
 
         error_response(status, message)

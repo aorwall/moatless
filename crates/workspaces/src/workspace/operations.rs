@@ -65,10 +65,6 @@ impl Workspaces {
         self.store.find_by_id(id, ctx).await
     }
 
-    pub async fn find_repos(&self, workspace_id: &str) -> Result<Vec<WorkspaceRepo>, sqlx::Error> {
-        self.store.find_repos(workspace_id).await
-    }
-
     pub async fn add_repo(
         &self,
         row: &WorkspaceRepo,

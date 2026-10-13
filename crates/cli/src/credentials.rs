@@ -39,11 +39,6 @@ pub fn load_credentials() -> CredentialsFile {
     serde_json::from_str(&data).unwrap_or_default()
 }
 
-/// Save credentials to disk with restricted permissions.
-pub fn save_credential(host: &str, api_key: &str, login: &str) -> Result<(), String> {
-    save_profile(host, api_key, login, None, false)
-}
-
 /// Save a profile with an explicit `api_url` (used by `moat login --local`,
 /// where the URL isn't `https://{host}`).
 ///

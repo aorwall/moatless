@@ -210,10 +210,10 @@ async fn usable_repository(
     user_id: &str,
     repository_id: &str,
 ) -> Option<Repository> {
-    let ctx = ScopeContext {
-        user_id: user_id.to_string(),
-        is_admin: matches!(users.is_platform_admin(user_id).await, Ok(true)),
-    };
+    let ctx = ScopeContext::new(
+        user_id.to_string(),
+        matches!(users.is_platform_admin(user_id).await, Ok(true)),
+    );
     let repository = repositories
         .describe(&ctx, repository_id)
         .await

@@ -240,19 +240,17 @@ pub(super) async fn run_pr_create(
             &resp.html_url,
         )?;
     }
-    if json {
-        output::print_json_typed(&resp);
-    } else {
+    output::emit(json, &resp, || {
         let verb = if resp.opened_existing {
             "PR already open"
         } else {
             "PR created"
         };
         println!("{verb}: {}", resp.html_url);
-        if let Some(bid) = resp.binding_id {
+        if let Some(bid) = &resp.binding_id {
             println!("Bound to task via: {bid}");
         }
-    }
+    });
     Ok(())
 }
 
@@ -356,14 +354,12 @@ async fn post_issue_comment(
         .github_post_issue_comment(&target.owner, &target.repo, number, &req)
         .await
         .map_err(|e| target.failed(&format!("#{number}"), e))?;
-    if json {
-        output::print_json_typed(&resp);
-    } else {
+    output::emit(json, &resp, || {
         println!("Comment posted: {}", resp.html_url);
-        if let Some(bid) = resp.binding_id {
+        if let Some(bid) = &resp.binding_id {
             println!("Bound to task via: {bid}");
         }
-    }
+    });
     Ok(())
 }
 
@@ -461,14 +457,12 @@ pub(super) async fn run_pr_reply(
         )
         .await
         .map_err(|e| target.failed(&format!("#{}", args.pr_number), e))?;
-    if json {
-        output::print_json_typed(&resp);
-    } else {
+    output::emit(json, &resp, || {
         println!("Reply posted: {}", resp.html_url);
-        if let Some(bid) = resp.binding_id {
+        if let Some(bid) = &resp.binding_id {
             println!("Bound to task via: {bid}");
         }
-    }
+    });
     Ok(())
 }
 

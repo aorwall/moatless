@@ -407,10 +407,7 @@ mod tests {
     use crate::task_dao::{MockT3TaskDao, TaskView};
 
     fn viewer() -> ScopeContext {
-        ScopeContext {
-            user_id: "viewer".to_string(),
-            is_admin: false,
-        }
+        ScopeContext::user("viewer")
     }
 
     /// Inert but for the id: nothing in this module reads a Task's columns,

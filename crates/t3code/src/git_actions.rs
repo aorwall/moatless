@@ -498,6 +498,9 @@ mod tests {
     #[derive(Default)]
     struct RecordingSink {
         turns: Mutex<Vec<ThreadTurn>>,
+        /// Refuse every send, standing in for the write failing after the
+        /// request was accepted.
+        refuse: bool,
     }
 
     #[async_trait::async_trait]
@@ -507,6 +510,11 @@ mod tests {
             _viewer: &ScopeContext,
             turn: ThreadTurn,
         ) -> Result<(), crate::ports::CommandRefusal> {
+            if self.refuse {
+                return Err(crate::ports::CommandRefusal::Failed {
+                    message: "sandbox is gone".to_string(),
+                });
+            }
             self.turns.lock().unwrap().push(turn);
             Ok(())
         }
@@ -726,242 +734,8 @@ mod tests {
         }
     }
 
-    /// A sink that refuses every send, standing in for the write failing after
-    /// the request was accepted.
-    struct RefusingSink;
-
-    #[async_trait::async_trait]
-    impl ThreadCommandSink for RefusingSink {
-        async fn send_turn(
-            &self,
-            _viewer: &ScopeContext,
-            _turn: ThreadTurn,
-        ) -> Result<(), crate::ports::CommandRefusal> {
-            Err(crate::ports::CommandRefusal::Failed {
-                message: "sandbox is gone".to_string(),
-            })
-        }
-        async fn create_thread(
-            &self,
-            _viewer: &ScopeContext,
-            _thread: crate::ports::NewThread,
-        ) -> Result<(), crate::ports::CommandRefusal> {
-            unreachable!()
-        }
-        async fn revert(
-            &self,
-            _viewer: &ScopeContext,
-            _task_id: &str,
-            _keep_through: i32,
-        ) -> Result<(), crate::ports::CommandRefusal> {
-            unreachable!()
-        }
-        async fn update_meta(
-            &self,
-            _viewer: &ScopeContext,
-            _meta: crate::ports::ThreadMeta,
-        ) -> Result<(), crate::ports::CommandRefusal> {
-            unreachable!()
-        }
-        async fn interrupt(
-            &self,
-            _viewer: &ScopeContext,
-            _task_id: &str,
-        ) -> Result<(), crate::ports::CommandRefusal> {
-            unreachable!()
-        }
-        async fn stop(
-            &self,
-            _viewer: &ScopeContext,
-            _task_id: &str,
-        ) -> Result<(), crate::ports::CommandRefusal> {
-            unreachable!()
-        }
-        async fn set_idle_timeout(
-            &self,
-            _viewer: &ScopeContext,
-            _task_id: &str,
-            _minutes: i32,
-        ) -> Result<(), crate::ports::CommandRefusal> {
-            unreachable!()
-        }
-        async fn set_visibility(
-            &self,
-            _viewer: &ScopeContext,
-            _task_id: &str,
-            _visibility: moatless_types::task::Visibility,
-        ) -> Result<(), crate::ports::CommandRefusal> {
-            unreachable!()
-        }
-        async fn archive(
-            &self,
-            _viewer: &ScopeContext,
-            _task_id: &str,
-        ) -> Result<(), crate::ports::CommandRefusal> {
-            unreachable!()
-        }
-        async fn unarchive(
-            &self,
-            _viewer: &ScopeContext,
-            _task_id: &str,
-        ) -> Result<(), crate::ports::CommandRefusal> {
-            unreachable!()
-        }
-        async fn follow(
-            &self,
-            _viewer: &ScopeContext,
-            _task_id: &str,
-        ) -> Result<(), crate::ports::CommandRefusal> {
-            unreachable!()
-        }
-        async fn unfollow(
-            &self,
-            _viewer: &ScopeContext,
-            _task_id: &str,
-        ) -> Result<(), crate::ports::CommandRefusal> {
-            unreachable!()
-        }
-        async fn settle(
-            &self,
-            _viewer: &ScopeContext,
-            _task_id: &str,
-        ) -> Result<(), crate::ports::CommandRefusal> {
-            unreachable!()
-        }
-        async fn unsettle(
-            &self,
-            _viewer: &ScopeContext,
-            _task_id: &str,
-        ) -> Result<(), crate::ports::CommandRefusal> {
-            unreachable!()
-        }
-        async fn steer_queued(
-            &self,
-            _viewer: &ScopeContext,
-            _task_id: &str,
-            _message_uuid: &str,
-        ) -> Result<(), crate::ports::CommandRefusal> {
-            unreachable!()
-        }
-        async fn snooze(
-            &self,
-            _viewer: &ScopeContext,
-            _task_id: &str,
-            _snoozed_until: chrono::DateTime<chrono::Utc>,
-        ) -> Result<(), crate::ports::CommandRefusal> {
-            unreachable!()
-        }
-        async fn unsnooze(
-            &self,
-            _viewer: &ScopeContext,
-            _task_id: &str,
-        ) -> Result<(), crate::ports::CommandRefusal> {
-            unreachable!()
-        }
-        async fn answer_question(
-            &self,
-            _viewer: &ScopeContext,
-            _answer: crate::ports::QuestionAnswer,
-        ) -> Result<(), crate::ports::CommandRefusal> {
-            unreachable!()
-        }
-        async fn fork(
-            &self,
-            _viewer: &ScopeContext,
-            _fork: crate::ports::ForkThread,
-        ) -> Result<(), crate::ports::CommandRefusal> {
-            unreachable!()
-        }
-        async fn link_pull_request(
-            &self,
-            _viewer: &ScopeContext,
-            _reference: crate::ports::ThreadPullRequestRef,
-        ) -> Result<(), crate::ports::CommandRefusal> {
-            unreachable!()
-        }
-        async fn unlink_pull_request(
-            &self,
-            _viewer: &ScopeContext,
-            _reference: crate::ports::ThreadPullRequestRef,
-        ) -> Result<(), crate::ports::CommandRefusal> {
-            unreachable!()
-        }
-        async fn change_queue(
-            &self,
-            _viewer: &ScopeContext,
-            _task_id: &str,
-            _change: crate::ports::QueueChange,
-        ) -> Result<(), crate::ports::CommandRefusal> {
-            unreachable!()
-        }
-        async fn visit(
-            &self,
-            _viewer: &ScopeContext,
-            _task_id: &str,
-            _visited_at: chrono::DateTime<chrono::Utc>,
-        ) -> Result<(), crate::ports::CommandRefusal> {
-            unreachable!()
-        }
-        async fn mark_unread(
-            &self,
-            _viewer: &ScopeContext,
-            _task_id: &str,
-        ) -> Result<(), crate::ports::CommandRefusal> {
-            unreachable!()
-        }
-        async fn delete(
-            &self,
-            _viewer: &ScopeContext,
-            _task_id: &str,
-        ) -> Result<(), crate::ports::CommandRefusal> {
-            unreachable!()
-        }
-        async fn pin(
-            &self,
-            _viewer: &ScopeContext,
-            _task_id: &str,
-            _order_key: Option<String>,
-        ) -> Result<(), crate::ports::CommandRefusal> {
-            unreachable!()
-        }
-        async fn unpin(
-            &self,
-            _viewer: &ScopeContext,
-            _task_id: &str,
-        ) -> Result<(), crate::ports::CommandRefusal> {
-            unreachable!()
-        }
-        async fn set_pin_order_key(
-            &self,
-            _viewer: &ScopeContext,
-            _task_id: &str,
-            _order_key: String,
-        ) -> Result<(), crate::ports::CommandRefusal> {
-            unreachable!()
-        }
-        async fn set_active_order_key(
-            &self,
-            _viewer: &ScopeContext,
-            _task_id: &str,
-            _order_key: String,
-        ) -> Result<(), crate::ports::CommandRefusal> {
-            unreachable!()
-        }
-        async fn watch_pull_request(
-            &self,
-            _viewer: &ScopeContext,
-            _reference: crate::ports::ThreadPullRequestRef,
-            _watching: bool,
-        ) -> Result<(), crate::ports::CommandRefusal> {
-            unreachable!()
-        }
-    }
-
     fn viewer(user_id: &str) -> ScopeContext {
-        ScopeContext {
-            user_id: user_id.into(),
-            is_admin: false,
-        }
+        ScopeContext::user(user_id)
     }
 
     fn action_payload(action: &str) -> Value {
@@ -1059,7 +833,10 @@ mod tests {
 
         let error = run_stacked_action(
             &conversations,
-            &RefusingSink,
+            &RecordingSink {
+                refuse: true,
+                ..RecordingSink::default()
+            },
             &viewer("owner"),
             &action_payload("commit"),
         )

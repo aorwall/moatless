@@ -21,10 +21,7 @@ use sqlx::PgPool;
 use common::make_repository_row;
 
 fn scope_ctx(user_id: &str) -> ScopeContext {
-    ScopeContext {
-        user_id: user_id.into(),
-        is_admin: false,
-    }
+    ScopeContext::user(user_id)
 }
 
 /// A repository that needs no GitHub preflight, so opening a task against it

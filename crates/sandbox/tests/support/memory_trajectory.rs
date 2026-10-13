@@ -8,9 +8,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
 use sandbox_proto::{
-    AppendTrajectoryRequest, AppendTrajectoryResponse, DownloadUploadResponse,
-    GetCredentialsResponse, InterruptedTurn, PendingAgentDelivery, PublishEventRequest,
-    ReadTrajectoryRequest, SessionHeader, TranscodeItem, read_trajectory_request::Target,
+    AppendTrajectoryRequest, AppendTrajectoryResponse, PublishEventRequest, ReadTrajectoryRequest,
+    SessionHeader, TranscodeItem, read_trajectory_request::Target,
 };
 use serde_json::Value;
 use tonic::Status;
@@ -140,10 +139,6 @@ impl MemoryTrajectoryBackend {
     /// The most lines any one append carried.
     pub fn widest_append(&self) -> usize {
         self.state.lock().unwrap().widest_append
-    }
-
-    pub fn fork_sessions_made(&self) -> usize {
-        self.state.lock().unwrap().fork_sessions
     }
 
     /// Record `task_id` as a fork, as `task_forks` would.
@@ -544,63 +539,5 @@ impl BackendClient for MemoryTrajectoryBackend {
     async fn publish_event(&self, req: PublishEventRequest) -> Result<(), Status> {
         self.state.lock().unwrap().published.push(req);
         Ok(())
-    }
-
-    async fn get_pending_messages(
-        &self,
-        _task_id: &str,
-    ) -> Result<Vec<PendingAgentDelivery>, Status> {
-        Ok(Vec::new())
-    }
-
-    async fn acknowledge_messages(
-        &self,
-        _task_id: &str,
-        _message_uuids: Vec<String>,
-        _session_id: &str,
-        _run_id: &str,
-        _answered_prompt: Option<&str>,
-    ) -> Result<(), Status> {
-        Ok(())
-    }
-
-    async fn get_credentials(&self, _task_id: &str) -> Result<GetCredentialsResponse, Status> {
-        Ok(GetCredentialsResponse::default())
-    }
-
-    async fn update_credential(
-        &self,
-        _task_id: &str,
-        _key: &str,
-        _value: &str,
-    ) -> Result<(), Status> {
-        Ok(())
-    }
-
-    async fn get_system_prompt(&self, _task_id: &str) -> Result<String, Status> {
-        Ok(String::new())
-    }
-
-    async fn download_upload(
-        &self,
-        _task_id: &str,
-        _file_id: &str,
-    ) -> Result<DownloadUploadResponse, Status> {
-        Err(Status::unimplemented("not used"))
-    }
-
-    async fn recover_interrupted_run(
-        &self,
-        _task_id: &str,
-    ) -> Result<Option<InterruptedTurn>, Status> {
-        Ok(None)
-    }
-
-    async fn upload_transcript(&self, _task_id: &str, _tar_data: Vec<u8>) -> Result<(), Status> {
-        Ok(())
-    }
-
-    async fn download_transcript(&self, _task_id: &str) -> Result<Vec<u8>, Status> {
-        Ok(Vec::new())
     }
 }

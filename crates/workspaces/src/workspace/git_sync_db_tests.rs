@@ -17,10 +17,7 @@ use crate::workspace::git_sync::SyncForce;
 const USER: &str = "user-1";
 
 fn scope_ctx(user_id: &str) -> ScopeContext {
-    ScopeContext {
-        user_id: user_id.into(),
-        is_admin: false,
-    }
+    ScopeContext::user(user_id)
 }
 
 /// An issuer holding no credential, which is what `resolve_sync_token` sees for

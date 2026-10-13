@@ -11,10 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use sandbox_proto::{
-    DownloadUploadResponse, GetCredentialsResponse, InterruptedTurn, PendingAgentDelivery,
-    PublishEventRequest,
-};
+use sandbox_proto::{DownloadUploadResponse, GetCredentialsResponse, PublishEventRequest};
 use tokio::sync::{RwLock, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tonic::Status;

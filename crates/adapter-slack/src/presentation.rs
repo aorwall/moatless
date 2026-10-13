@@ -277,9 +277,8 @@ fn lookup(token: &str, resolved: &Resolved) -> Mention {
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use moatless_ports::identity::{LinkedUser, ProviderIdentityLink};
+    use moatless_ports::identity::ProviderIdentityLink;
     use moatless_types::store::StoreError;
-    use uuid::Uuid;
 
     use super::*;
 
@@ -291,12 +290,6 @@ mod tests {
 
     #[async_trait::async_trait]
     impl ProviderIdentityLink for Directory {
-        async fn user_at(&self, _: &str, _: &str) -> Result<Option<LinkedUser>, StoreError> {
-            Ok(None)
-        }
-        async fn user_by_email(&self, _: &str) -> Result<Option<LinkedUser>, StoreError> {
-            Ok(None)
-        }
         async fn provider_id_for_login(
             &self,
             _: &str,
@@ -304,15 +297,6 @@ mod tests {
         ) -> Result<Option<String>, StoreError> {
             self.lookups.fetch_add(1, Ordering::Relaxed);
             Ok((login == "aorwall").then(|| "U0000000001".to_string()))
-        }
-        async fn user_who_connected(&self, _: &str, _: &str) -> Result<Option<String>, StoreError> {
-            Ok(None)
-        }
-        async fn user_with_login(&self, _: &str, _: &str) -> Result<Option<String>, StoreError> {
-            Ok(None)
-        }
-        async fn link(&self, _: &Uuid, _: &str, _: &str) -> Result<bool, StoreError> {
-            Ok(false)
         }
     }
 

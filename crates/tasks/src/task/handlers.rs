@@ -1244,10 +1244,7 @@ mod tests {
             fail_removal: true,
         };
         let bindings = FakeBindings::returning(Ok(1));
-        let ctx = moatless_types::access_control::ScopeContext {
-            user_id: "owner".to_string(),
-            is_admin: false,
-        };
+        let ctx = moatless_types::access_control::ScopeContext::user("owner");
         let tasks = TaskCommands::new(Arc::new(tasks));
         let result = super::super::removal::delete_task(
             &sandbox,

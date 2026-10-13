@@ -105,23 +105,19 @@ pub async fn run(moat: &MoatClient, action: UserAction, json: bool) -> Result<()
         UserAction::SetEmail { user, email } => {
             let body = serde_json::json!({ "email": email });
             let resp = patch_user(moat, &user, &body).await?;
-            if json {
-                output::print_json_typed(&resp);
-            } else {
+            output::emit(json, &resp, || {
                 let updated = resp.get("email").and_then(|v| v.as_str()).unwrap_or(&email);
                 println!("Updated {} email to {updated}", describe(&resp, &user));
-            }
+            });
         }
 
         UserAction::SetName { user, name } => {
             let body = serde_json::json!({ "name": name });
             let resp = patch_user(moat, &user, &body).await?;
-            if json {
-                output::print_json_typed(&resp);
-            } else {
+            output::emit(json, &resp, || {
                 let updated = resp.get("name").and_then(|v| v.as_str()).unwrap_or(&name);
                 println!("Updated {} name to {updated}", describe(&resp, &user));
-            }
+            });
         }
 
         UserAction::Activate { user } => {
@@ -141,18 +137,14 @@ pub async fn run(moat: &MoatClient, action: UserAction, json: bool) -> Result<()
             let resp = moat
                 .raw_put(&provider_ids_path(&user, Some(&provider)), &body)
                 .await?;
-            if json {
-                output::print_json_typed(&resp);
-            } else {
+            output::emit(json, &resp, || {
                 println!("Provider ID for '{provider}' set successfully.");
-            }
+            });
         }
 
         UserAction::GetProviderIds { user } => {
             let resp = moat.raw_get(&provider_ids_path(&user, None)).await?;
-            if json {
-                output::print_json_typed(&resp);
-            } else {
+            output::emit(json, &resp, || {
                 let items = resp.as_array().cloned().unwrap_or_default();
                 if items.is_empty() {
                     println!("No provider ID mappings found for '{user}'.");
@@ -167,18 +159,16 @@ pub async fn run(moat: &MoatClient, action: UserAction, json: bool) -> Result<()
                         );
                     }
                 }
-            }
+            });
         }
 
         UserAction::DeleteProviderId { user, provider } => {
             let resp = moat
                 .raw_delete(&provider_ids_path(&user, Some(&provider)))
                 .await?;
-            if json {
-                output::print_json_typed(&resp);
-            } else {
+            output::emit(json, &resp, || {
                 println!("Provider ID for '{provider}' deleted.");
-            }
+            });
         }
     }
 
@@ -193,11 +183,9 @@ async fn set_status(
 ) -> Result<(), ClientError> {
     let body = serde_json::json!({ "status": status });
     let resp = patch_user(moat, user, &body).await?;
-    if json {
-        output::print_json_typed(&resp);
-    } else {
+    output::emit(json, &resp, || {
         println!("{} is now {status}.", describe(&resp, user));
-    }
+    });
     Ok(())
 }
 

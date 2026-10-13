@@ -289,14 +289,8 @@ mod access_tests {
             created_by: Some("creator".into()),
             uploaded_at: chrono::Utc::now(),
         };
-        let creator = ScopeContext {
-            user_id: "creator".into(),
-            is_admin: false,
-        };
-        let stranger = ScopeContext {
-            user_id: "stranger".into(),
-            is_admin: false,
-        };
+        let creator = ScopeContext::user("creator");
+        let stranger = ScopeContext::user("stranger");
         assert!(authorize_read(&creator, &file).is_ok());
         assert!(matches!(
             authorize_read(&stranger, &file),
@@ -347,10 +341,7 @@ mod metadata_tests {
     async fn attachments_resolve_to_nothing_without_object_storage() {
         let files = files_from(vec![info("a", "one.txt")]);
 
-        let viewer = ScopeContext {
-            user_id: "reader".into(),
-            is_admin: false,
-        };
+        let viewer = ScopeContext::user("reader");
         assert!(
             files
                 .resolve_attachments(&["a".to_string()])

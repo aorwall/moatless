@@ -112,9 +112,4 @@ impl BindingDestination {
             last_external_event_id: None,
         }
     }
-
-    pub fn with_last_external_event_id(mut self, external_id: impl Into<String>) -> Self {
-        self.last_external_event_id = Some(external_id.into());
-        self
-    }
 }

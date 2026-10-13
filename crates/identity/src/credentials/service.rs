@@ -202,10 +202,7 @@ impl CredentialService {
 
         secrets
             .put_secret(
-                &ScopeContext {
-                    user_id: user_id.to_string(),
-                    is_admin: false,
-                },
+                &ScopeContext::user(user_id.to_string()),
                 user_id,
                 PutSecretRequest {
                     scope: Some(moatless_api_schemas::enums::Scope::User),

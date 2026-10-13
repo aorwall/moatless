@@ -89,13 +89,11 @@ pub async fn run_adapters(
         AdaptersAction::Connections { action } => run_connections(client, action, json).await,
         AdaptersAction::List => {
             let adapters = client.api().list_adapters().await?;
-            if json {
-                output::print_json_typed(&adapters);
-            } else {
-                for adapter in adapters {
+            output::emit(json, &adapters, || {
+                for adapter in &adapters {
                     println!("{adapter}");
                 }
-            }
+            });
             Ok(())
         }
         AdaptersAction::Install { adapter, print } => run_install(client, &adapter, print),
@@ -136,16 +134,14 @@ async fn run_connections(
                 .api()
                 .list_adapter_connections(adapter.as_deref())
                 .await?;
-            if json {
-                output::print_json_typed(&items);
-            } else {
-                for item in items {
+            output::emit(json, &items, || {
+                for item in &items {
                     println!(
                         "{}\t{}\t{}\t{}",
                         item.id, item.adapter_kind, item.connection_kind, item.external_account_id
                     );
                 }
-            }
+            });
         }
         ConnectionAction::Create {
             adapter,
@@ -164,11 +160,9 @@ async fn run_connections(
                 scope: None,
             };
             let created = client.api().create_adapter_connection(&req).await?;
-            if json {
-                output::print_json_typed(&created);
-            } else {
+            output::emit(json, &created, || {
                 println!("Connection upserted: {}", created.id);
-            }
+            });
         }
     }
     Ok(())

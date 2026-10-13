@@ -94,11 +94,6 @@ impl RecordingPublisher {
         }
     }
 
-    /// Raw publishes, in order.
-    pub fn raw_publishes(&self) -> Vec<RawPublish> {
-        self.raw.lock().expect("recorder poisoned").clone()
-    }
-
     /// `publish_task_event` calls, in order, with actor and payload.
     pub fn task_publishes(&self) -> Vec<TaskPublish> {
         self.tasks.lock().expect("recorder poisoned").clone()

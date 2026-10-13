@@ -20,11 +20,7 @@ pub async fn set_name(
         agent_profile: None,
     };
     let task = moat.api().update_task_metadata(&task_id, &req).await?;
-    if json {
-        output::print_json_typed(&task);
-    } else {
-        println!("Task name set to: {name}");
-    }
+    output::emit(json, &task, || println!("Task name set to: {name}"));
     Ok(())
 }
 
@@ -37,10 +33,6 @@ pub async fn set_tags(
     let task_id = cfg.require_task_id()?;
     let req = moatless_api_schemas::task::SetTagsRequest { tags: tags.clone() };
     moat.api().set_task_tags(&task_id, &req).await?;
-    if json {
-        output::print_json_typed(&tags);
-    } else {
-        println!("Tags set: {}", tags.join(", "));
-    }
+    output::emit(json, &tags, || println!("Tags set: {}", tags.join(", ")));
     Ok(())
 }

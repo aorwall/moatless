@@ -50,11 +50,7 @@ pub(super) async fn run(args: PreflightArgs, json: bool) -> Result<(), ClientErr
         .unwrap_or_else(|| DEFAULT_NAMESPACE.to_string());
     let report = gather(&namespace, &args).await?;
 
-    if json {
-        output::print_json_typed(&report);
-    } else {
-        print_human(&report);
-    }
+    output::emit(json, &report, || print_human(&report));
 
     Ok(())
 }

@@ -110,6 +110,24 @@ impl ScopeContext {
         }
     }
 
+    /// Context for `user_id`, admin when `is_admin` is set.
+    pub fn new(user_id: impl Into<String>, is_admin: bool) -> Self {
+        Self {
+            user_id: user_id.into(),
+            is_admin,
+        }
+    }
+
+    /// Non-admin context for `user_id`.
+    pub fn user(user_id: impl Into<String>) -> Self {
+        Self::new(user_id, false)
+    }
+
+    /// Admin context for `user_id`, which reads and writes every row.
+    pub fn admin(user_id: impl Into<String>) -> Self {
+        Self::new(user_id, true)
+    }
+
     /// Check if this context can read a resource with the given scope.
     ///
     /// Task visibility is not an input here: the public-task read arm lives in
@@ -322,28 +340,19 @@ mod tests {
 
     #[test]
     fn create_policy_requires_admin_for_global_and_self_for_user() {
-        let ctx = ScopeContext {
-            user_id: "u1".into(),
-            is_admin: false,
-        };
+        let ctx = ScopeContext::user("u1");
         assert!(ctx.can_create_scope(Scope::User, Some("u1")));
         assert!(!ctx.can_create_scope(Scope::User, Some("u2")));
         assert!(!ctx.can_create_scope(Scope::User, None));
         assert!(!ctx.can_create_scope(Scope::Global, None));
 
-        let admin = ScopeContext {
-            user_id: "root".into(),
-            is_admin: true,
-        };
+        let admin = ScopeContext::admin("root");
         assert!(admin.can_create_scope(Scope::Global, None));
     }
 
     #[test]
     fn run_as_allows_self_or_an_admin_over_a_bot() {
-        let user = ScopeContext {
-            user_id: "u1".into(),
-            is_admin: false,
-        };
+        let user = ScopeContext::user("u1");
         let admin = ScopeContext {
             is_admin: true,
             ..user.clone()
@@ -362,10 +371,7 @@ mod tests {
 
     #[test]
     fn repository_use_delegates_to_read_policy() {
-        let ctx = ScopeContext {
-            user_id: "u1".into(),
-            is_admin: false,
-        };
+        let ctx = ScopeContext::user("u1");
 
         for resource in [
             ScopedResource::borrowed(Scope::Global, None),
@@ -378,10 +384,7 @@ mod tests {
 
     #[test]
     fn missing_owner_is_denied_for_user_scope() {
-        let ctx = ScopeContext {
-            user_id: "u1".into(),
-            is_admin: false,
-        };
+        let ctx = ScopeContext::user("u1");
         let ownerless = ScopedResource::borrowed(Scope::User, None);
 
         assert!(!ctx.can_read(&ownerless));
@@ -390,10 +393,7 @@ mod tests {
 
     #[test]
     fn control_follows_visibility_where_write_does_not() {
-        let stranger = ScopeContext {
-            user_id: "stranger".into(),
-            is_admin: false,
-        };
+        let stranger = ScopeContext::user("stranger");
         let owned = ScopedResource::borrowed(Scope::User, Some("owner"));
 
         assert!(stranger.can_control(&owned, Visibility::Public));
@@ -418,27 +418,9 @@ mod tests {
         let owner = "owner";
 
         let actors: Vec<(&str, ScopeContext)> = vec![
-            (
-                "owner",
-                ScopeContext {
-                    user_id: owner.into(),
-                    is_admin: false,
-                },
-            ),
-            (
-                "other",
-                ScopeContext {
-                    user_id: "other".into(),
-                    is_admin: false,
-                },
-            ),
-            (
-                "admin",
-                ScopeContext {
-                    user_id: "root".into(),
-                    is_admin: true,
-                },
-            ),
+            ("owner", ScopeContext::user(owner)),
+            ("other", ScopeContext::user("other")),
+            ("admin", ScopeContext::admin("root")),
         ];
 
         let tasks = [
@@ -495,10 +477,7 @@ user   public  admin read=allow interact=allow control=allow write=allow";
 
     #[test]
     fn a_caller_acts_as_themselves_even_as_admin() {
-        let ctx = ScopeContext {
-            user_id: "admin".to_string(),
-            is_admin: true,
-        };
+        let ctx = ScopeContext::admin("admin");
         assert_eq!(Actor::caller(&ctx).user_id(), "admin");
     }
 

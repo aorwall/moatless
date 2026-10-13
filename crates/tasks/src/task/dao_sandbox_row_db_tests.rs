@@ -27,10 +27,7 @@ async fn seed_sandbox_member(pool: &PgPool, task_id: &str, sandbox_id: &str) {
 }
 
 fn owner_ctx() -> ScopeContext {
-    ScopeContext {
-        user_id: "user-1".to_string(),
-        is_admin: false,
-    }
+    ScopeContext::user("user-1")
 }
 
 fn task_row(task_id: &str) -> Task {
@@ -588,10 +585,7 @@ async fn delete_errored_empty_task_keeps_a_live_task(pool: PgPool) {
 #[sqlx::test]
 async fn delete_errored_empty_task_keeps_another_users_task(pool: PgPool) {
     seed_bare_task(&pool, "t1", "error").await;
-    let stranger = ScopeContext {
-        user_id: "user-2".to_string(),
-        is_admin: false,
-    };
+    let stranger = ScopeContext::user("user-2");
     let dao = store_over(&pool);
 
     assert!(

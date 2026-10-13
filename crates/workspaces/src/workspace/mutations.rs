@@ -571,10 +571,7 @@ mod tests {
     }
 
     fn ctx(is_admin: bool) -> ScopeContext {
-        ScopeContext {
-            user_id: "u1".to_string(),
-            is_admin,
-        }
+        ScopeContext::new("u1", is_admin)
     }
 
     /// The fields that opt a workspace into an elevated `sandboxAccess` profile

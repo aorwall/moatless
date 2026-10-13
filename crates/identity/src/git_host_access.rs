@@ -649,10 +649,7 @@ mod tests {
     fn principal() -> GitHostPrincipal {
         GitHostPrincipal {
             user_id: "u1".to_string(),
-            scope_context: ScopeContext {
-                user_id: "u1".to_string(),
-                is_admin: false,
-            },
+            scope_context: ScopeContext::user("u1"),
         }
     }
 

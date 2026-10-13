@@ -319,19 +319,11 @@ pub async fn run_loops(
                 .api()
                 .list_loops(kind.map(LoopKind::as_str), adapter.map(AdapterKind::as_str))
                 .await?;
-            if json {
-                output::print_json_typed(&items);
-            } else {
-                format_loop_list(&items);
-            }
+            output::emit(json, &items, || format_loop_list(&items));
         }
         LoopsAction::Tasks { id, limit } => {
             let items = client.api().list_loop_recent_tasks(&id, limit).await?;
-            if json {
-                output::print_json_typed(&items);
-            } else {
-                format_loop_task_list(&items);
-            }
+            output::emit(json, &items, || format_loop_task_list(&items));
         }
         LoopsAction::CreateSubscription {
             adapter,

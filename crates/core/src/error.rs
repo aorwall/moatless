@@ -35,6 +35,14 @@ pub fn error_response(status: StatusCode, message: impl Into<String>) -> Respons
         .into_response()
 }
 
+/// The redacted `500` an `IntoResponse` arm returns after logging the cause.
+pub fn internal_error() -> (StatusCode, String) {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "Internal server error".to_string(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::{causal_chain, error_response};

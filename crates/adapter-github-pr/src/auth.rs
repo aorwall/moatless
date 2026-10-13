@@ -359,54 +359,12 @@ mod tests {
 
     #[async_trait::async_trait]
     impl moatless_ports::identity::ProviderIdentityLink for LinkedLogins {
-        async fn provider_id_for_login(
-            &self,
-            _provider: &str,
-            _login: &str,
-        ) -> Result<Option<String>, moatless_types::store::StoreError> {
-            Ok(None)
-        }
-
-        async fn user_at(
-            &self,
-            _provider: &str,
-            _provider_user_id: &str,
-        ) -> Result<Option<moatless_ports::identity::LinkedUser>, moatless_types::store::StoreError>
-        {
-            Ok(None)
-        }
-
-        async fn user_by_email(
-            &self,
-            _email: &str,
-        ) -> Result<Option<moatless_ports::identity::LinkedUser>, moatless_types::store::StoreError>
-        {
-            Ok(None)
-        }
-
-        async fn user_who_connected(
-            &self,
-            _provider: &str,
-            _provider_user_id: &str,
-        ) -> Result<Option<String>, moatless_types::store::StoreError> {
-            Ok(None)
-        }
-
         async fn user_with_login(
             &self,
             _provider: &str,
             login: &str,
         ) -> Result<Option<String>, moatless_types::store::StoreError> {
             Ok(self.0.contains(&login).then(|| format!("user:{login}")))
-        }
-
-        async fn link(
-            &self,
-            _user_id: &uuid::Uuid,
-            _provider: &str,
-            _provider_user_id: &str,
-        ) -> Result<bool, moatless_types::store::StoreError> {
-            Ok(false)
         }
     }
 

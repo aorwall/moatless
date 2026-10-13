@@ -583,10 +583,7 @@ mod tests {
     const OTHER: &str = "33333333-3333-3333-3333-333333333333";
 
     fn ctx(user_id: &str, is_admin: bool) -> ScopeContext {
-        ScopeContext {
-            user_id: user_id.to_string(),
-            is_admin,
-        }
+        ScopeContext::new(user_id.to_string(), is_admin)
     }
 
     fn resolving_to(id: &'static str, login: &'static str, is_bot: bool) -> MockUserResolver {

@@ -73,10 +73,7 @@ mod tests {
     }
 
     fn scope_ctx() -> ScopeContext {
-        ScopeContext {
-            user_id: "user-1".to_string(),
-            is_admin: false,
-        }
+        ScopeContext::user("user-1")
     }
 
     #[tokio::test]

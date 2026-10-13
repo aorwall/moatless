@@ -29,15 +29,13 @@ pub async fn run(moat: &MoatClient, action: BotAction, json: bool) -> Result<(),
                 "githubAppKey": app_key,
             });
             let resp = moat.raw_post("/api/v1/users", &body).await?;
-            if json {
-                output::print_json_typed(&resp);
-            } else {
+            output::emit(json, &resp, || {
                 println!(
                     "Bot user created: id={} login={}",
                     resp["id"].as_str().unwrap_or(""),
                     resp["login"].as_str().unwrap_or(""),
                 );
-            }
+            });
         }
     }
     Ok(())
