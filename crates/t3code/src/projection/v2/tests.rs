@@ -1,9 +1,9 @@
 use super::*;
-use crate::lineage::RunningChild;
 use crate::projection::v2_items::command_exit_code;
 use crate::projection::v2_items::plans;
 use crate::transcript::TranscriptEntry;
 use chrono::Utc;
+use moatless_tasks::task_listing::RunningChild;
 use moatless_types::agent::AgentProfile;
 use moatless_types::message::MessageRole;
 use moatless_types::task::Visibility;

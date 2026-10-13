@@ -9,7 +9,7 @@
 //! Held against a real database: a property of `append_activities` and
 //! `changed_messages` together.
 
-use crate::dao::{ConversationBrowse, ConversationDao, PgConversationDao};
+use crate::dao::{ConversationDao, PgConversationDao};
 use moatless_api_schemas::task::{FileContextData, MessageContextInput, PreviewUrlContextData};
 use moatless_core::change_feed::conversation::changes_from;
 use moatless_core::change_feed::conversation::current_head;
@@ -25,7 +25,6 @@ use moatless_tasks::message::contexts::message_context_input_to_row;
 use moatless_tasks::message::models::MessageType;
 use moatless_tasks::message::test_support as message_fixtures;
 use moatless_tasks::message::test_support::make_message_row;
-use moatless_tasks::tag::test_support as tag_fixtures;
 use moatless_tasks::task::test_support::make_task_row;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::sandbox::SandboxEventPayload;
@@ -37,8 +36,6 @@ use sqlx::PgPool;
 const TASK: &str = "task-thread-window";
 const USER_1: &str = "11111111-1111-1111-1111-111111111111";
 const USER_2: &str = "22222222-2222-2222-2222-222222222222";
-/// The browsing viewer, who owns none of the Tasks below and follows none.
-const ADMIN: &str = "33333333-3333-3333-3333-333333333333";
 
 /// The read model over `pool`, with its activity seam on the same pool.
 fn conversations_over(pool: &PgPool) -> PgConversationDao {
@@ -510,171 +507,6 @@ async fn a_message_carries_the_uploads_attached_to_it(pool: PgPool) {
     );
 }
 
-/// Seed one open Task owned by `user_id`, tagged with each name given.
-async fn seed_browsable(pool: &PgPool, task_id: &str, user_id: &str, tags: &[&str]) {
-    let task = make_task_row(task_id, user_id);
-    moatless_tasks::task::test_support::seed_task(pool, &task)
-        .await
-        .expect("seed task");
-    tag_with(pool, task_id, tags).await;
-}
-
-async fn tag_with(pool: &PgPool, task_id: &str, tags: &[&str]) {
-    if tags.is_empty() {
-        return;
-    }
-    let names: Vec<String> = tags.iter().map(|name| (*name).to_string()).collect();
-    let created = tag_fixtures::find_or_create_tags(pool, &names)
-        .await
-        .expect("create tags");
-    let ids: Vec<String> = created.into_iter().map(|tag| tag.tag_id).collect();
-    tag_fixtures::add_task_tags(pool, task_id, &ids)
-        .await
-        .expect("tag task");
-}
-
-/// A browse reaches the Tasks of somebody the viewer is not, and each filter
-/// narrows it.
-///
-/// The browse drops only the *follow* rule — none of these Tasks is followed or
-/// owned by the viewer.
-#[sqlx::test(migrations = "../core/migrations")]
-async fn a_browse_reaches_tasks_the_viewer_neither_follows_nor_owns(pool: PgPool) {
-    let repo = make_repository_row("repo-1", USER_1);
-    moatless_workspaces::compose::seed_repository(&pool, &repo)
-        .await
-        .expect("seed repo");
-    seed_browsable(&pool, "browse-hers-tagged", USER_1, &["backend"]).await;
-    seed_browsable(&pool, "browse-hers-plain", USER_1, &[]).await;
-    seed_browsable(&pool, "browse-theirs-tagged", USER_2, &["backend"]).await;
-
-    let dao = conversations_over(&pool);
-    let viewer = ScopeContext::admin(ADMIN.to_string());
-
-    let by_owner = dao
-        .list_browsable(
-            &viewer,
-            &ConversationBrowse::new(Some(USER_1.to_string()), None, false).expect("a filter"),
-        )
-        .await
-        .unwrap();
-    assert_eq!(
-        browsed_ids(&by_owner),
-        vec!["browse-hers-plain", "browse-hers-tagged"],
-        "an owner filter reaches every Task of that person's and nobody else's"
-    );
-
-    let by_tag = dao
-        .list_browsable(
-            &viewer,
-            &ConversationBrowse::new(None, Some("backend".to_string()), false).expect("a filter"),
-        )
-        .await
-        .unwrap();
-    assert_eq!(
-        browsed_ids(&by_tag),
-        vec!["browse-hers-tagged", "browse-theirs-tagged"],
-        "a tag filter reaches the tagged Tasks of everyone"
-    );
-
-    let by_both = dao
-        .list_browsable(
-            &viewer,
-            &ConversationBrowse::new(Some(USER_1.to_string()), Some("backend".to_string()), false)
-                .expect("a filter"),
-        )
-        .await
-        .unwrap();
-    assert_eq!(
-        browsed_ids(&by_both),
-        vec!["browse-hers-tagged"],
-        "the two filters narrow together rather than widening"
-    );
-}
-
-/// Closed Tasks come back only when the browse asks for them.
-///
-/// Closing is T3's archiving; a browse folds both halves into one read, and
-/// this flag picks which.
-#[sqlx::test(migrations = "../core/migrations")]
-async fn a_browse_leaves_closed_tasks_out_until_it_is_asked_for_them(pool: PgPool) {
-    let repo = make_repository_row("repo-1", USER_1);
-    moatless_workspaces::compose::seed_repository(&pool, &repo)
-        .await
-        .expect("seed repo");
-    seed_browsable(&pool, "browse-open", USER_1, &[]).await;
-    let mut closed = make_task_row("browse-closed", USER_1);
-    closed.status = TaskStatus::Closed;
-    moatless_tasks::task::test_support::seed_task(&pool, &closed)
-        .await
-        .expect("seed task");
-
-    let dao = conversations_over(&pool);
-    let viewer = ScopeContext::admin(ADMIN.to_string());
-    let owner = || Some(USER_1.to_string());
-
-    let open_only = dao
-        .list_browsable(
-            &viewer,
-            &ConversationBrowse::new(owner(), None, false).expect("a filter"),
-        )
-        .await
-        .unwrap();
-    assert_eq!(browsed_ids(&open_only), vec!["browse-open"]);
-
-    let with_closed = dao
-        .list_browsable(
-            &viewer,
-            &ConversationBrowse::new(owner(), None, true).expect("a filter"),
-        )
-        .await
-        .unwrap();
-    assert_eq!(
-        browsed_ids(&with_closed),
-        vec!["browse-closed", "browse-open"],
-        "asked for them, the closed half arrives alongside the open one"
-    );
-}
-
-/// A viewer who is not an administrator browses what they may read, which is
-/// what makes the filter safe to serve to everyone: the read rule is untouched.
-#[sqlx::test(migrations = "../core/migrations")]
-async fn a_browse_by_a_non_administrator_reaches_only_what_they_may_read(pool: PgPool) {
-    let repo = make_repository_row("repo-1", USER_1);
-    moatless_workspaces::compose::seed_repository(&pool, &repo)
-        .await
-        .expect("seed repo");
-    seed_browsable(&pool, "browse-private", USER_1, &["backend"]).await;
-    let mut public = make_task_row("browse-public", USER_1);
-    public.visibility = Visibility::Public;
-    moatless_tasks::task::test_support::seed_task(&pool, &public)
-        .await
-        .expect("seed task");
-    tag_with(&pool, "browse-public", &["backend"]).await;
-
-    let browsed = conversations_over(&pool)
-        .list_browsable(
-            &ScopeContext::user(USER_2.to_string()),
-            &ConversationBrowse::new(None, Some("backend".to_string()), false).expect("a filter"),
-        )
-        .await
-        .unwrap();
-    assert_eq!(
-        browsed_ids(&browsed),
-        vec!["browse-public"],
-        "somebody else's private Task is not reachable by tagging it"
-    );
-}
-
-fn browsed_ids(conversations: &[crate::dao::Conversation]) -> Vec<String> {
-    let mut ids: Vec<String> = conversations
-        .iter()
-        .map(|conversation| conversation.task_id.clone())
-        .collect();
-    ids.sort();
-    ids
-}
-
 /// The window a plan's answer names holds the call it answers, though that call
 /// is on an earlier Message that recorded no change of its own.
 ///
@@ -860,71 +692,6 @@ async fn the_archive_pages_through_every_closed_task_newest_first(pool: PgPool) 
     assert_eq!(second["nextCursor"], serde_json::Value::Null);
 }
 
-async fn record_turn(pool: &PgPool, turn: i32, status: &str, error: Option<&str>) {
-    sqlx::query(
-        "INSERT INTO task_turns (task_id, turn_number, status) VALUES ($1, $2, $3)
-         ON CONFLICT (task_id, turn_number) DO UPDATE SET status = EXCLUDED.status",
-    )
-    .bind(TASK)
-    .bind(turn)
-    .bind(status)
-    .execute(pool)
-    .await
-    .expect("record turn");
-    if let Some(error) = error {
-        sqlx::query(
-            "INSERT INTO task_events (event_id, task_id, type, sub_type, is_error, turn_number, payload, timestamp)
-             VALUES ($1, $2, 'agent', 'error', true, $3, $4, '')",
-        )
-        .bind(format!("{TASK}-error-{turn}"))
-        .bind(TASK)
-        .bind(turn)
-        .bind(serde_json::json!({ "error": error, "reason": "usage_limit" }))
-        .execute(pool)
-        .await
-        .expect("record error event");
-    }
-}
-
-/// A Turn's error stays the conversation's until the next Turn starts.
-#[sqlx::test(migrations = "../core/migrations")]
-async fn the_newest_turns_error_is_read_until_another_turn_starts(pool: PgPool) {
-    seed_task(&pool).await;
-    let dao = conversations_over(&pool);
-    let owner = ScopeContext::user(USER_1.to_string());
-    let turn_error = |row: Option<crate::dao::Conversation>| row.expect("readable").turn_error;
-
-    record_turn(&pool, 1, "error", Some("You've hit your usage limit.")).await;
-    assert_eq!(
-        turn_error(dao.readable_by_id(&owner, TASK).await.unwrap()).as_deref(),
-        Some("You've hit your usage limit.")
-    );
-    let errored = dao
-        .readable_by_id(&owner, TASK)
-        .await
-        .unwrap()
-        .expect("readable");
-    assert_eq!(errored.turn_error_reason.as_deref(), Some("usage_limit"));
-
-    record_turn(&pool, 2, "active", None).await;
-    let running = dao
-        .readable_by_id(&owner, TASK)
-        .await
-        .unwrap()
-        .expect("readable");
-    assert_eq!(running.turn_error_reason, None);
-    assert_eq!(
-        turn_error(dao.readable_by_id(&owner, TASK).await.unwrap()),
-        None
-    );
-
-    record_turn(&pool, 2, "completed", None).await;
-    assert_eq!(
-        turn_error(dao.readable_by_id(&owner, TASK).await.unwrap()),
-        None
-    );
-}
-
 /// The one-row access check a silent thread poll asks gives the same answer
 /// as the full read it stands in for, across the read and status rules.
 #[sqlx::test(migrations = "../core/migrations")]
@@ -933,14 +700,14 @@ async fn the_access_check_agrees_with_the_conversation_read(pool: PgPool) {
     moatless_workspaces::compose::seed_repository(&pool, &repo)
         .await
         .expect("seed repo");
-    seed_browsable(&pool, "check-private", USER_1, &[]).await;
+    let private = make_task_row("check-private", USER_1);
     let mut public = make_task_row("check-public", USER_1);
     public.visibility = Visibility::Public;
     let mut closed = make_task_row("check-closed", USER_1);
     closed.status = TaskStatus::Closed;
     let mut errored = make_task_row("check-error", USER_1);
     errored.status = TaskStatus::Error;
-    for task in [&public, &closed, &errored] {
+    for task in [&private, &public, &closed, &errored] {
         moatless_tasks::task::test_support::seed_task(&pool, task)
             .await
             .expect("seed task");
@@ -963,117 +730,6 @@ async fn the_access_check_agrees_with_the_conversation_read(pool: PgPool) {
         assert_eq!(read, expected, "{task_id} read by {}", viewer.user_id);
         assert_eq!(checked, read, "{task_id} checked by {}", viewer.user_id);
     }
-}
-
-/// A listed row names its parent whenever the viewer may read the parent,
-/// followed or not, and a parent counts the children the viewer may read.
-#[sqlx::test(migrations = "../core/migrations")]
-async fn a_listed_row_names_a_readable_parent_and_counts_its_children(pool: PgPool) {
-    let seed = |task_id: &'static str, owner: &'static str| {
-        let pool = pool.clone();
-        async move {
-            let mut task = make_task_row(task_id, owner);
-            task.workspace_id = Some("ws-lineage".to_string());
-            moatless_tasks::task::test_support::seed_task(&pool, &task)
-                .await
-                .expect("seed task");
-        }
-    };
-    for task_id in ["parent", "child", "fork", "orphan", "unfollowed", "stray"] {
-        seed(task_id, USER_1).await;
-    }
-    seed("foreign", USER_2).await;
-    let edges = [
-        ("child", "parent", "created_by", serde_json::json!({})),
-        (
-            "fork",
-            "parent",
-            "forked_from",
-            serde_json::json!({ "at_turn": 2 }),
-        ),
-        ("orphan", "foreign", "created_by", serde_json::json!({})),
-        ("stray", "unfollowed", "forked_from", serde_json::json!({})),
-    ];
-    for (from, to, relation, context) in edges {
-        sqlx::query(
-            "INSERT INTO task_relations (id, from_task_id, to_task_id, relation_type, context)
-             VALUES ($1, $2, $3, $4, $5)",
-        )
-        .bind(format!("{from}->{to}"))
-        .bind(from)
-        .bind(to)
-        .bind(relation)
-        .bind(context)
-        .execute(&pool)
-        .await
-        .expect("seed relation");
-    }
-    sqlx::query(
-        "INSERT INTO task_follows (user_id, task_id)
-         SELECT $1, task_id FROM tasks ON CONFLICT DO NOTHING",
-    )
-    .bind(USER_1)
-    .execute(&pool)
-    .await
-    .expect("follow everything");
-    sqlx::query("DELETE FROM task_follows WHERE user_id = $1 AND task_id = 'unfollowed'")
-        .bind(USER_1)
-        .execute(&pool)
-        .await
-        .expect("unfollow");
-    sqlx::query(
-        "INSERT INTO task_turns (task_id, turn_number, status) VALUES ('child', 1, 'active')",
-    )
-    .execute(&pool)
-    .await
-    .expect("child runs a turn");
-
-    let viewer = ScopeContext::user(USER_1.to_string());
-    let rows = conversations_over(&pool)
-        .list_followed(&viewer)
-        .await
-        .unwrap();
-    let parent_of = |task_id: &str| {
-        let row = rows
-            .iter()
-            .find(|row| row.task_id == task_id)
-            .expect("listed");
-        (
-            row.parent_task_id.clone(),
-            row.parent_relation.clone(),
-            row.fork_at_turn,
-        )
-    };
-    let named = |parent: &str, relation: &str, at: Option<i32>| {
-        (Some(parent.to_string()), Some(relation.to_string()), at)
-    };
-    assert_eq!(parent_of("child"), named("parent", "created_by", None));
-    assert_eq!(parent_of("fork"), named("parent", "forked_from", Some(2)));
-    assert_eq!(parent_of("orphan"), (None, None, None), "unreadable parent");
-    assert_eq!(
-        parent_of("stray"),
-        named("unfollowed", "forked_from", None),
-        "unfollowed parent"
-    );
-    assert_eq!(parent_of("parent"), (None, None, None));
-
-    let row = |task_id: &str| rows.iter().find(|row| row.task_id == task_id).unwrap();
-    assert_eq!(
-        row("parent").child_count,
-        2,
-        "the spawned child and the fork"
-    );
-    assert_eq!(
-        row("parent")
-            .running_children
-            .iter()
-            .map(|child| child.task_id.as_str())
-            .collect::<Vec<_>>(),
-        vec!["child"],
-        "a fork is counted but never at work"
-    );
-    assert_eq!(row("child").child_count, 0);
-    assert!(row("child").running_children.is_empty());
 }
 
 /// A Message's origin names come from three tables the Task band does not own,

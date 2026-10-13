@@ -2,8 +2,8 @@
 
 use super::fixtures::*;
 use super::*;
-use crate::dao::ConversationAgent;
 use crate::tests::logs::CapturedLogs;
+use moatless_tasks::task_listing::ListedAgent;
 
 /// The chain has to end in an answer, because the contract refuses an empty one
 /// and supplies no default of its own.
@@ -88,5 +88,5 @@ fn the_provider_instance_follows_the_agent_kind() {
     // An agent this build does not know lists, on no instance it could run on.
     row.agent_profile = "from-a-newer-backend".to_string().into();
     assert_eq!(provider_instance(&row), "unknown");
-    assert!(matches!(row.agent_profile, ConversationAgent::Unknown(_)));
+    assert!(matches!(row.agent_profile, ListedAgent::Unknown(_)));
 }

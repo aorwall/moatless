@@ -4,7 +4,6 @@
 
 pub mod activity;
 pub mod agent;
-mod archive_cursor;
 mod assets;
 mod attachments;
 pub mod auth;
@@ -13,7 +12,6 @@ mod checkout;
 mod commands;
 mod compose;
 mod config;
-mod conversation_agent;
 pub(crate) mod dao;
 mod feed;
 pub mod files;
@@ -30,7 +28,6 @@ pub mod preview_relay;
 pub mod preview_tabs;
 mod projection;
 mod providers;
-mod pull_request_row;
 mod reads;
 mod review;
 mod routes;
