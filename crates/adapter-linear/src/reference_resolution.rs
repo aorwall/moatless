@@ -260,15 +260,24 @@ pub(super) async fn resolve_user_required(
         })
 }
 
-/// Resolve an assignee through [`resolve_user_opt`], hard-failing on a miss.
-/// Used by issue update and by an explicit create assignee.
+/// Resolve an assignee through [`resolve_user_opt`], hard-failing on a miss,
+/// with `"null"` and `""` clearing the field. Used by issue update.
+///
+/// Returns a `serde_json::Value` rather than a `String` so a clear carries as
+/// `Value::Null` rather than collapsing into "no assignee named" — the same
+/// shape [`resolve_delegate`] uses for the same reason.
 pub(super) async fn resolve_assignee(
     api: &LinearAgentApi,
     identity: &dyn ProviderIdentityLink,
     value: Option<&str>,
-) -> Result<Option<String>, AdapterError> {
-    let Some(value) = value else { return Ok(None) };
-    Ok(Some(resolve_user_required(api, identity, value).await?.id))
+) -> Result<Option<serde_json::Value>, AdapterError> {
+    match value {
+        None => Ok(None),
+        Some("null") | Some("") => Ok(Some(serde_json::Value::Null)),
+        Some(v) => Ok(Some(serde_json::Value::String(
+            resolve_user_required(api, identity, v).await?.id,
+        ))),
+    }
 }
 
 /// Resolve a delegate the same way as [`resolve_assignee`], with `"null"` and
@@ -441,7 +450,7 @@ mod tests {
     use super::super::agent_api::LinearAgentApi;
     use super::{
         LINEAR_PROVIDER, creator_name, default_assignee_from_caller, linear_id_for_login,
-        resolve_user_opt,
+        resolve_assignee, resolve_user_opt,
     };
 
     /// The Linear id stored against the login, and the answer the precedence
@@ -661,5 +670,37 @@ mod tests {
             creator_name(&unread, "not-a-uuid", "aorwall").await,
             "aorwall"
         );
+    }
+
+    /// `--assignee null` must clear rather than resolve "null" as a login —
+    /// the sentinel `resolve_delegate` already intercepts for the delegate
+    /// field. Neither the api nor the identity port is touched: a lookup
+    /// would mean the sentinel fell through to resolution.
+    #[tokio::test]
+    async fn assignee_null_clears_rather_than_resolving() {
+        let api = api_at("http://unused.invalid");
+        let mut identity = MockProviderIdentityLink::new();
+        identity.expect_provider_id_for_login().never();
+
+        for sentinel in ["null", ""] {
+            let resolved = resolve_assignee(&api, &identity, Some(sentinel))
+                .await
+                .expect("the sentinel short-circuits without a lookup");
+            assert_eq!(resolved, Some(json!(null)));
+        }
+    }
+
+    /// Omitting `--assignee` leaves the field untouched, distinct from an
+    /// explicit clear.
+    #[tokio::test]
+    async fn assignee_omitted_resolves_to_none() {
+        let api = api_at("http://unused.invalid");
+        let mut identity = MockProviderIdentityLink::new();
+        identity.expect_provider_id_for_login().never();
+
+        let resolved = resolve_assignee(&api, &identity, None)
+            .await
+            .expect("no value to resolve");
+        assert_eq!(resolved, None);
     }
 }

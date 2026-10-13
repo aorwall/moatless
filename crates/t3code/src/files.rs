@@ -137,16 +137,39 @@ fn top_level(path: &str) -> &str {
     path.split('/').next().unwrap_or(path)
 }
 
+/// A trailing slash marks a directory, its absence a file.
+fn path_kind(path: &str) -> &'static str {
+    if path.ends_with('/') {
+        "directory"
+    } else {
+        "file"
+    }
+}
+
 /// One entry of a Sandbox listing, in the contract's shape.
 ///
-/// A trailing slash marks a directory, its absence a file; a bare slash is
-/// dropped since the contract refuses a blank path.
+/// A bare slash is dropped since the contract refuses a blank path.
 fn entry(path: &str) -> Option<Value> {
-    let (path, kind) = match path.strip_suffix('/') {
-        Some(directory) => (directory, "directory"),
-        None => (path, "file"),
-    };
+    let kind = path_kind(path);
+    let path = path.strip_suffix('/').unwrap_or(path);
     (!path.is_empty()).then(|| json!({ "path": path, "kind": kind }))
+}
+
+/// The empty-query browse branch of [`search_entries`]: filter by `kind`
+/// before [`share_cap`] cuts to `limit`, so a directory-heavy workspace does
+/// not starve a `kind: "file"` browse of files past the cut. `truncated`
+/// answers for the filtered set, the one the caller asked for.
+fn browse_entries(files: Vec<String>, limit: usize, kind: Option<&str>) -> (Vec<Value>, bool) {
+    let filtered: Vec<String> = match kind {
+        Some(kind) => files.into_iter().filter(|f| path_kind(f) == kind).collect(),
+        None => files,
+    };
+    let truncated = filtered.len() > limit;
+    let entries: Vec<Value> = share_cap(&filtered, limit)
+        .into_iter()
+        .filter_map(entry)
+        .collect();
+    (entries, truncated)
 }
 
 /// Which files here are called something like this (`projects.searchEntries`).
@@ -166,31 +189,24 @@ pub async fn search_entries(
     let task_id = workspace::addressed_conversation(conversations, viewer, cwd).await?;
     let checkout = Checkout::open(sources, &task_id).await?;
 
-    let (mut entries, truncated) = if query.is_empty() {
-        let files = checkout.listing().await?;
-        let truncated = files.len() > limit;
-        let entries: Vec<Value> = share_cap(&files, limit)
-            .into_iter()
-            .filter_map(entry)
-            .collect();
-        (entries, truncated)
+    let (entries, truncated) = if query.is_empty() {
+        browse_entries(checkout.listing().await?, limit, kind)
     } else {
         let found = checkout.search(query, limit).await?;
         let truncated = found.len() >= limit;
         // Always files: neither backing has a directory to offer here — the
         // Sandbox's walker skips anything that is not a file
         // (`crates/sandbox/src/files/search.rs:69`) and the mirror stores only files.
+        // A `kind` other than `"file"` (notably `"directory"`) empties the
+        // response.
         let entries: Vec<Value> = found
             .iter()
-            .filter(|path| !path.is_empty())
+            .filter(|path| !path.is_empty() && kind.is_none_or(|k| k == "file"))
             .map(|path| json!({ "path": path, "kind": "file" }))
             .collect();
         (entries, truncated)
     };
 
-    if let Some(kind) = kind {
-        entries.retain(|entry| entry["kind"] == kind);
-    }
     Ok(json!({ "entries": entries, "truncated": truncated }))
 }
 
@@ -437,6 +453,52 @@ mod tests {
     fn a_listing_inside_the_cap_is_kept_whole() {
         let files = workspace(10, 10);
         assert_eq!(share_cap(&files, 1_000).len(), files.len());
+    }
+
+    /// The bug this guards: filtering after `share_cap` already cut the
+    /// listing to `limit` answered with far fewer than `limit` files when a
+    /// workspace's share was mostly directories. `browse_entries` must filter
+    /// first, so the cap is spent on paths of the kind the caller asked for.
+    #[test]
+    fn a_kind_filter_narrows_before_the_cap_not_after() {
+        // Ten thousand directories, lexically ahead of ten files — a filter
+        // applied after a 50-entry cut would see at most one file; this one
+        // must see all ten.
+        let mut files: Vec<String> = (0..10_000).map(|n| format!("dir-{n:05}/")).collect();
+        files.extend((0..10).map(|n| format!("zzz/file-{n:02}.rs")));
+
+        let (entries, truncated) = browse_entries(files, 50, Some("file"));
+
+        assert_eq!(
+            entries.len(),
+            10,
+            "every file is returned: the cap was spent filtering kind, not paths"
+        );
+        assert!(
+            entries.iter().all(|e| e["kind"] == "file"),
+            "no directory leaked past the kind filter"
+        );
+        assert!(!truncated, "ten files fit well under the cap of 50");
+    }
+
+    #[test]
+    fn a_directory_filter_caps_directories() {
+        let mut files: Vec<String> = (0..10).map(|n| format!("dir-{n:02}/")).collect();
+        files.extend((0..1_000).map(|n| format!("file-{n:05}.rs")));
+
+        let (entries, truncated) = browse_entries(files, 5, Some("directory"));
+
+        assert_eq!(entries.len(), 5);
+        assert!(entries.iter().all(|e| e["kind"] == "directory"));
+        assert!(truncated, "ten directories exist, five were returned");
+    }
+
+    #[test]
+    fn an_unfiltered_browse_keeps_its_prior_shape() {
+        let files = workspace(30_000, 400);
+        let (entries, truncated) = browse_entries(files, 1_000, None);
+        assert_eq!(entries.len(), 1_000);
+        assert!(truncated);
     }
 
     #[test]

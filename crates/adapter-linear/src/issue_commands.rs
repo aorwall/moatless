@@ -307,8 +307,8 @@ pub(crate) async fn update_issue(
     if let Some(p) = project_id {
         input["projectId"] = json!(p);
     }
-    if let Some(a) = assignee_id.as_deref() {
-        input["assigneeId"] = json!(a);
+    if let Some(a) = assignee_id.as_ref() {
+        input["assigneeId"] = a.clone();
     }
     if let Some(d) = delegate_id.as_ref() {
         input["delegateId"] = d.clone();
@@ -341,12 +341,12 @@ pub(crate) async fn update_issue(
     if let Some(requested) = state_id.as_deref() {
         require_applied(&issue, "state", "/state", Some(requested), "")?;
     }
-    if let Some(requested) = assignee_id.as_deref() {
+    if let Some(requested) = assignee_id.as_ref() {
         require_applied(
             &issue,
             "assignee",
             "/assignee",
-            Some(requested),
+            requested.as_str(),
             DROPPED_ASSIGNEE,
         )?;
     }

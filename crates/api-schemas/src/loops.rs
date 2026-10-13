@@ -108,8 +108,26 @@ pub struct UpdateLoopConfig {
     /// See [`LoopConfig::workspace_id`].
     pub workspace_id: Option<String>,
     pub routing_mode: Option<RoutingMode>,
+    /// `Some(None)` clears the override.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable_field"
+    )]
     pub ongoing_task_id: Option<Option<String>>,
+    /// `Some(None)` clears the override.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable_field"
+    )]
     pub task_name: Option<Option<String>>,
+    /// `Some(None)` clears the override.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable_field"
+    )]
     pub prompt: Option<Option<String>>,
     pub tag_ids: Option<Vec<String>>,
     pub skills: Option<Vec<String>>,
@@ -121,6 +139,12 @@ pub struct UpdateLoopConfig {
         deserialize_with = "deserialize_optional_nullable_field"
     )]
     pub model: Option<Option<String>>,
+    /// See [`LoopConfig::inactive_ttl_days`]. `Some(None)` clears the override.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable_field"
+    )]
     pub inactive_ttl_days: Option<Option<i32>>,
     /// See [`LoopConfig::node_selector`]. `Some(None)` clears the override.
     #[serde(
@@ -181,9 +205,21 @@ pub struct CreateSubscription {
 pub struct UpdateSubscription {
     pub connection_id: Option<String>,
     pub source_matcher: Option<String>,
+    /// `Some(None)` clears the override.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable_field"
+    )]
     pub source_name: Option<Option<String>>,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
     pub event_filter: Option<serde_json::Value>,
+    /// `Some(None)` clears the override.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable_field"
+    )]
     #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
     pub adapter_config: Option<Option<serde_json::Value>>,
     pub allow_direct_send: Option<bool>,
@@ -405,7 +441,7 @@ pub struct SyncConfigResponse {
 mod tests {
     use serde_json::json;
 
-    use super::UpdateLoopConfig;
+    use super::{UpdateLoopConfig, UpdateSubscription};
 
     #[test]
     fn update_loop_config_distinguishes_omitted_null_and_value() {
@@ -417,6 +453,67 @@ mod tests {
 
         let set: UpdateLoopConfig = serde_json::from_value(json!({ "model": "fable" })).unwrap();
         assert_eq!(set.model, Some(Some("fable".to_string())));
+    }
+
+    /// `ongoing_task_id`, `task_name`, `prompt` and `inactive_ttl_days` all
+    /// carry the same tri-state attribute as `model`; an explicit `null` must
+    /// reach the server as `Some(None)`, not collapse into "omitted".
+    #[test]
+    fn update_loop_config_clearable_fields_distinguish_omitted_and_null() {
+        let omitted: UpdateLoopConfig = serde_json::from_value(json!({})).unwrap();
+        assert_eq!(omitted.ongoing_task_id, None);
+        assert_eq!(omitted.task_name, None);
+        assert_eq!(omitted.prompt, None);
+        assert_eq!(omitted.inactive_ttl_days, None);
+
+        let cleared: UpdateLoopConfig = serde_json::from_value(json!({
+            "ongoingTaskId": null,
+            "taskName": null,
+            "prompt": null,
+            "inactiveTtlDays": null,
+        }))
+        .unwrap();
+        assert_eq!(cleared.ongoing_task_id, Some(None));
+        assert_eq!(cleared.task_name, Some(None));
+        assert_eq!(cleared.prompt, Some(None));
+        assert_eq!(cleared.inactive_ttl_days, Some(None));
+
+        let set: UpdateLoopConfig = serde_json::from_value(json!({
+            "ongoingTaskId": "task-1",
+            "taskName": "name",
+            "prompt": "do it",
+            "inactiveTtlDays": 7,
+        }))
+        .unwrap();
+        assert_eq!(set.ongoing_task_id, Some(Some("task-1".to_string())));
+        assert_eq!(set.task_name, Some(Some("name".to_string())));
+        assert_eq!(set.prompt, Some(Some("do it".to_string())));
+        assert_eq!(set.inactive_ttl_days, Some(Some(7)));
+    }
+
+    /// `source_name` and `adapter_config` carry the same tri-state attribute;
+    /// an explicit `null` must reach the server as `Some(None)`.
+    #[test]
+    fn update_subscription_clearable_fields_distinguish_omitted_and_null() {
+        let omitted: UpdateSubscription = serde_json::from_value(json!({})).unwrap();
+        assert_eq!(omitted.source_name, None);
+        assert_eq!(omitted.adapter_config, None);
+
+        let cleared: UpdateSubscription = serde_json::from_value(json!({
+            "sourceName": null,
+            "adapterConfig": null,
+        }))
+        .unwrap();
+        assert_eq!(cleared.source_name, Some(None));
+        assert_eq!(cleared.adapter_config, Some(None));
+
+        let set: UpdateSubscription = serde_json::from_value(json!({
+            "sourceName": "acme",
+            "adapterConfig": {"a": 1},
+        }))
+        .unwrap();
+        assert_eq!(set.source_name, Some(Some("acme".to_string())));
+        assert_eq!(set.adapter_config, Some(Some(json!({"a": 1}))));
     }
 
     /// The CLI sends this struct, so an omitted `model` must not reach the

@@ -3730,6 +3730,7 @@ dependencies = [
  "async-trait",
  "axum",
  "chrono",
+ "futures",
  "hex",
  "hmac 0.13.0",
  "moatless-adapter-model",

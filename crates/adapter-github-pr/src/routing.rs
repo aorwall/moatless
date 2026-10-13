@@ -371,55 +371,75 @@ impl GithubPrInboundRouter {
                     continue;
                 }
             };
-            if siblings_count > 1 {
-                info!(
-                    task_id = %task_id,
-                    pr_number,
-                    other_binding_count = siblings_count - 1,
-                    "PR closed but task has other connected bindings — leaving task open"
-                );
-                continue;
-            }
 
-            // Append the close notice while the task is still `Open`:
-            // `send.rs`'s closed-task guard drops inbound messages on
-            // `Closed` tasks, so this must run before the status flip
-            // below, or the notice vanishes. `resume = false` only
-            // persists it, without waking the torn-down sandbox's agent.
-            let close_msg = self
-                .build_close_inbound_message(owner, repo, rule, info)
+            self.notify_and_maybe_close_for_pr(rule, info, owner, repo, &binding, siblings_count)
                 .await;
-            if let Err(e) = self.append_to_binding(rule, &binding, &close_msg).await {
-                warn!(
-                    task_id = %task_id,
-                    pr_number,
-                    error = %e,
-                    "Failed to append PR-close message to task — proceeding with close"
-                );
-            }
-
-            // Terminate through the shared closer: it persists `Closed` before
-            // the slow teardown, so a racing `auto_provision` sees `Closed`
-            // and bails, then removes the sandbox, deactivates bindings, and
-            // publishes the event. The close-ports live on `TaskCloser`, not
-            // this router; only the close event below is github_pr's own.
-            let close_reason = CloseReason {
-                actor: "claude-code".to_string(),
-                payload: serde_json::json!({ "reason": "pr_closed", "pr_number": pr_number }),
-            };
-            if let Err(e) = self.task_closer.close(task_id, close_reason).await {
-                warn!(task_id = %task_id, error = %e, "Failed to close task on PR close");
-                continue;
-            }
-
-            info!(task_id = %task_id, pr_number, "Task closed due to PR close");
         }
 
         Ok(())
     }
 
-    /// Build the synthetic `InboundMessage` explaining why a task auto-closed
-    /// when its PR was closed/merged.
+    /// Deliver the PR-close notice, then close the Task — unless a sibling
+    /// Binding survives it.
+    ///
+    /// The notice runs before the status flip, since `send.rs`'s closed-task
+    /// guard drops inbound messages on `Closed` tasks. `resume = false` only
+    /// persists it, without waking the torn-down sandbox's agent.
+    async fn notify_and_maybe_close_for_pr(
+        &self,
+        rule: &SubscriptionMatch,
+        info: &PrCloseInfo,
+        owner: &str,
+        repo: &str,
+        binding: &TaskBinding,
+        siblings_count: usize,
+    ) {
+        let task_id = &binding.task_id;
+        let pr_number = info.pr_number;
+
+        let closing = siblings_count <= 1;
+        let close_msg = self
+            .build_close_inbound_message(owner, repo, rule, info, closing)
+            .await;
+        if let Err(e) = self.append_to_binding(rule, binding, &close_msg).await {
+            warn!(
+                task_id = %task_id,
+                pr_number,
+                error = %e,
+                "Failed to append PR-close message to task — proceeding with close"
+            );
+        }
+
+        if !closing {
+            info!(
+                task_id = %task_id,
+                pr_number,
+                other_binding_count = siblings_count - 1,
+                "PR closed but task has other connected bindings — leaving task open"
+            );
+            return;
+        }
+
+        // Terminate through the shared closer: it persists `Closed` before
+        // the slow teardown, so a racing `auto_provision` sees `Closed` and
+        // bails, then removes the sandbox, deactivates bindings, and
+        // publishes the event. The close-ports live on `TaskCloser`, not
+        // this router; only the close event below is github_pr's own.
+        let close_reason = CloseReason {
+            actor: "claude-code".to_string(),
+            payload: serde_json::json!({ "reason": "pr_closed", "pr_number": pr_number }),
+        };
+        if let Err(e) = self.task_closer.close(task_id, close_reason).await {
+            warn!(task_id = %task_id, error = %e, "Failed to close task on PR close");
+            return;
+        }
+
+        info!(task_id = %task_id, pr_number, "Task closed due to PR close");
+    }
+
+    /// Build the synthetic `InboundMessage` reporting that a task's PR
+    /// closed/merged, with a footer naming whether this Task auto-closes for
+    /// it or stays open for a surviving sibling Binding.
     ///
     /// Mirrors the shape of a `pull_request.opened` inbound message so the UI
     /// renders it identically.
@@ -429,6 +449,7 @@ impl GithubPrInboundRouter {
         repo: &str,
         rule: &SubscriptionMatch,
         info: &PrCloseInfo,
+        closing: bool,
     ) -> InboundMessage {
         let status = if info.merged {
             "Merged"
@@ -448,7 +469,11 @@ impl GithubPrInboundRouter {
         if !info.html_url.is_empty() {
             let _ = writeln!(text, "**Link:** {}", info.html_url);
         }
-        text.push_str("\n_Task auto-closed because the PR was closed._");
+        text.push_str(if closing {
+            "\n_Task auto-closed because the PR was closed._"
+        } else {
+            "\n_Task left open: it has other connected bindings._"
+        });
 
         let user_id = super::auth::resolve_sender_user(
             &info.sender_login,
@@ -636,6 +661,230 @@ mod tests {
             owner_user_id: owner_user_id.map(str::to_string),
             created_at: now,
             updated_at: now,
+        }
+    }
+
+    /// Builds a full `GithubPrInboundRouter` for the method below, the one
+    /// that reads every field. Every port it skips is wired to a lazily
+    /// connected pool or an unused mock — no live Postgres needed.
+    mod notify_and_maybe_close_tests {
+        use std::sync::Arc;
+
+        use async_trait::async_trait;
+        use chrono::Utc;
+        use sqlx::postgres::PgPoolOptions;
+
+        use moatless_ports::identity::MockProviderIdentityLink;
+        use moatless_ports::sandbox::SandboxWaker;
+        use moatless_ports::task::{
+            MockMessageAcceptor, MockRelationRecorder, MockTaskFinisher, MockTaskOpener,
+            MockTaskReader, MockTranscriptAppend,
+        };
+        use moatless_types::access_control::Scope;
+        use moatless_types::adapter::MessageBufferConfig;
+        use moatless_types::agent::AgentProfile;
+        use moatless_types::loops::RoutingMode;
+
+        use super::super::*;
+
+        /// Never dispatched by `notify_and_maybe_close_for_pr`: the field only
+        /// exists to satisfy `RoutingInputs`, which this test's unused
+        /// `RoutingService` needs to type-check.
+        struct UnusedWaker;
+
+        #[async_trait]
+        impl SandboxWaker for UnusedWaker {
+            async fn wake(&self, _task_id: &str) -> Result<(), String> {
+                panic!("not exercised by notify_and_maybe_close_for_pr")
+            }
+        }
+
+        /// A pool that never connects: every field unread by
+        /// `notify_and_maybe_close_for_pr` stays this cheap. Its one write,
+        /// `record_inbound_event` inside `append_to_binding`, already
+        /// tolerates failure (`warn!` then `Ok(())` either way), so a refused
+        /// loopback connection is as good as a real table.
+        fn unconnected_pool() -> sqlx::PgPool {
+            PgPoolOptions::new()
+                .connect_lazy("postgres://postgres:postgres@127.0.0.1:1/postgres")
+                .expect("lazy connect never dials out")
+        }
+
+        fn rule(close_task_on_close: bool) -> SubscriptionMatch {
+            SubscriptionMatch {
+                name: "test-loop".to_string(),
+                id: "ir_1".into(),
+                adapter_kind: AdapterKind::Github,
+                connection_id: "pc_test".into(),
+                source_matcher: "soaplabs/repo".into(),
+                source_name: None,
+                routing_mode: RoutingMode::BySubject,
+                event_filter: serde_json::json!([]),
+                workspace_id: "ws-1".into(),
+                prompt_template: None,
+                task_name: None,
+                tag_ids: vec![],
+                skills: Vec::new(),
+                run_as_user_id: Some("alice".into()),
+                agent_profile: AgentProfile::ClaudeCode,
+                model: None,
+                inactive_ttl_days: None,
+                node_selector: None,
+                stop_when_done: None,
+                message_buffer_seconds: None,
+                allow_direct_send: false,
+                adapter_config: None,
+                ongoing_task_id: None,
+                close_task_on_close,
+                notify_on_success: false,
+                active: true,
+                created_by: "alice".into(),
+                scope: Scope::User,
+                owner_user_id: Some("alice".into()),
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            }
+        }
+
+        fn binding() -> TaskBinding {
+            TaskBinding {
+                id: "tb_1".into(),
+                task_id: "task-1".into(),
+                adapter_kind: AdapterKind::GithubPr,
+                subject_kind: SUBJECT_KIND.into(),
+                subject_key: "soaplabs/repo#42".into(),
+                connection_id: "pc_test".into(),
+                loop_id: Some("ir_1".into()),
+                destination_config: serde_json::json!({}),
+                metadata: serde_json::json!({}),
+                last_external_event_id: None,
+                origin: ADAPTER_EVENT_BINDING_ORIGIN.into(),
+                created_at: Utc::now(),
+                last_event_at: Utc::now(),
+                external_status: None,
+                external_state_kind: None,
+                external_status_raw: None,
+                external_review_decision: None,
+                external_mergeable_state: None,
+                external_status_updated_at: None,
+                active: true,
+                deactivated_at: None,
+                watching: true,
+            }
+        }
+
+        fn close_info() -> PrCloseInfo {
+            PrCloseInfo {
+                pr_number: 42,
+                merged: false,
+                title: "feat: land it".into(),
+                html_url: "https://github.com/soaplabs/repo/pull/42".into(),
+                sender_login: "octocat".into(),
+                pr_author_login: None,
+            }
+        }
+
+        /// `message_send` and `task_closer` carry the test's assertions; every
+        /// other port is real-but-unqueried (the DB ones) or a mock with no
+        /// expectations (never called on this path).
+        fn router(
+            message_send: MockMessageAcceptor,
+            task_closer: MockTaskFinisher,
+        ) -> GithubPrInboundRouter {
+            let pool = unconnected_pool();
+            let connections = moatless_adapter_model::compose::adapter_connections(pool.clone());
+            let loop_graph = moatless_loops::compose::loop_graph(pool);
+
+            let mut users = MockProviderIdentityLink::new();
+            users.expect_user_with_login().returning(|_, _| Ok(None));
+
+            let routing = loop_graph.routing(moatless_loops::compose::RoutingInputs {
+                adapter_connections: connections.routing(),
+                messages: Arc::new(MockTranscriptAppend::new()),
+                tasks: Arc::new(MockTaskReader::new()),
+                task_creation: Arc::new(MockTaskOpener::new()),
+                message_send: Arc::new(MockMessageAcceptor::new()),
+                sandbox_waker: Arc::new(UnusedWaker),
+                adapters: None,
+                message_buffer: MessageBufferConfig::default(),
+            });
+
+            GithubPrInboundRouter::new(
+                connections.routing(),
+                loop_graph.loop_reader(),
+                loop_graph.bindings(),
+                Arc::new(users),
+                routing,
+                Arc::new(MockTranscriptAppend::new()),
+                Arc::new(MockRelationRecorder::new()),
+                Arc::new(MockTaskReader::new()),
+                Arc::new(MockTaskOpener::new()),
+                Arc::new(message_send),
+                Arc::new(task_closer),
+                None,
+            )
+        }
+
+        /// The bug this guards: a spared Task must still hear its PR closed
+        /// — `close_subject` used to build and discard the notice before the
+        /// sibling check ran — and the text must say it stayed open, not
+        /// that it auto-closed, which a call-count assertion cannot see.
+        #[tokio::test]
+        async fn a_spared_task_still_receives_the_close_notice() {
+            let mut message_send = MockMessageAcceptor::new();
+            message_send
+                .expect_accept()
+                .withf(|turn: &InboundTurn| {
+                    turn.text
+                        .contains("Task left open: it has other connected bindings.")
+                        && !turn.text.contains("auto-closed")
+                })
+                .times(1)
+                .returning(|_| Ok(()));
+            let mut task_closer = MockTaskFinisher::new();
+            task_closer.expect_close().never();
+
+            let router = router(message_send, task_closer);
+            router
+                .notify_and_maybe_close_for_pr(
+                    &rule(true),
+                    &close_info(),
+                    "soaplabs",
+                    "repo",
+                    &binding(),
+                    2, // a sibling Binding survives the close
+                )
+                .await;
+        }
+
+        /// The Task with no surviving sibling still gets both: the notice,
+        /// worded as a close, and the close itself.
+        #[tokio::test]
+        async fn a_sole_binding_is_notified_and_closed() {
+            let mut message_send = MockMessageAcceptor::new();
+            message_send
+                .expect_accept()
+                .withf(|turn: &InboundTurn| {
+                    turn.text
+                        .contains("Task auto-closed because the PR was closed.")
+                        && !turn.text.contains("left open")
+                })
+                .times(1)
+                .returning(|_| Ok(()));
+            let mut task_closer = MockTaskFinisher::new();
+            task_closer.expect_close().times(1).returning(|_, _| Ok(()));
+
+            let router = router(message_send, task_closer);
+            router
+                .notify_and_maybe_close_for_pr(
+                    &rule(true),
+                    &close_info(),
+                    "soaplabs",
+                    "repo",
+                    &binding(),
+                    1, // no sibling — the only Binding on this subject
+                )
+                .await;
         }
     }
 

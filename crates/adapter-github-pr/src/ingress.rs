@@ -4,8 +4,10 @@
 //! This module owns everything from request verification through classification
 //! of the durable admission outcome.
 
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
+use futures::FutureExt;
 use sha2::{Digest, Sha256};
 use tracing::{debug, warn};
 
@@ -48,11 +50,10 @@ impl<'a> WebhookRequest<'a> {
     }
 }
 
-/// Reject one ingress-path failure as worth another delivery.
+/// Wrap one ingress-path failure as [`IngressError::Ingress`].
 ///
-/// A non-2xx leaves GitHub's delivery redeliverable by an operator for 30 days,
-/// so everything here maps to [`IngressError::Ingress`] — a recorded,
-/// recoverable loss instead of a silent one.
+/// `handlers.rs` logs and meters this variant, then acknowledges the
+/// delivery with `200` — GitHub never redelivers it.
 fn ingress(e: AdapterError) -> IngressError {
     IngressError::Ingress(e)
 }
@@ -198,7 +199,10 @@ pub(crate) async fn receive(
     let (owner, repo) = repo_full_name.split_once('/').ok_or_else(|| {
         ingress(SharedAdapterError::BadRequest("Missing repository.full_name".into()).into())
     })?;
-    let normalized = super::webhook::normalize(
+    // `catch_unwind` turns a panic mid-normalization into an
+    // `IngressError::Ingress`, which `handlers.rs` logs and meters, rather
+    // than an unwound request task with nothing recorded.
+    let normalized = AssertUnwindSafe(super::webhook::normalize(
         event_type,
         &payload,
         &NormalizeContext {
@@ -210,8 +214,23 @@ pub(crate) async fn receive(
             frontend_url: github_provider.frontend_url(),
             users,
         },
-    )
-    .await;
+    ))
+    .catch_unwind()
+    .await
+    .map_err(|panic| {
+        let reason = panic_message(panic.as_ref());
+        warn!(
+            event_type,
+            repo = repo_full_name,
+            delivery_id,
+            reason,
+            "GitHub webhook normalization panicked — recording as a recoverable ingress failure"
+        );
+        ingress(
+            SharedAdapterError::Internal(format!("webhook normalization panicked: {reason}"))
+                .into(),
+        )
+    })?;
 
     // Observations apply before `primary`'s error is surfaced, so a partial
     // failure still updates PR status.
@@ -404,6 +423,17 @@ async fn resolve_provider_event(
     Ok(Some((connection, rule)))
 }
 
+/// The human-readable half of a panic payload, when there is one.
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> &str {
+    if let Some(message) = payload.downcast_ref::<&'static str>() {
+        message
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message
+    } else {
+        "unknown panic payload"
+    }
+}
+
 /// Use GitHub's delivery id, or a body digest when that header is absent.
 fn delivery_event_id(delivery_id: &str, body: &[u8]) -> String {
     if !delivery_id.is_empty() {
@@ -432,7 +462,152 @@ async fn admit_sequentially(
 
 #[cfg(test)]
 mod tests {
-    use super::delivery_event_id;
+    use super::*;
+
+    use std::net::TcpListener;
+    use std::time::Duration;
+
+    use async_trait::async_trait;
+    use sqlx::postgres::PgPoolOptions;
+
+    use moatless_adapter_model::test_support::{
+        FakeAdmission, FakeAdmissionAnswer, InMemoryConnections, connection,
+    };
+    use moatless_ports::identity::{MockGitHostTokenIssuer, MockProviderIdentityLink};
+    use moatless_types::adapter::AdapterKind;
+    use moatless_types::store::StoreError;
+
+    /// A [`LoopReader`] with no Subscriptions at all: every event falls back
+    /// to the delivery-only rule `receive` synthesizes from the connection.
+    struct NoSubscriptions;
+
+    #[async_trait]
+    impl LoopReader for NoSubscriptions {
+        async fn subscription(
+            &self,
+            _loop_id: &str,
+        ) -> Result<Option<SubscriptionMatch>, StoreError> {
+            Ok(None)
+        }
+
+        async fn runnable_subscription(
+            &self,
+            _loop_id: &str,
+        ) -> Result<Option<SubscriptionMatch>, StoreError> {
+            Ok(None)
+        }
+
+        async fn subscription_for_source(
+            &self,
+            _adapter_kind: &str,
+            _source_matcher: &str,
+        ) -> Result<Option<SubscriptionMatch>, StoreError> {
+            Ok(None)
+        }
+
+        async fn subscriptions_for_source(
+            &self,
+            _adapter_kind: &str,
+            _source_matcher: &str,
+        ) -> Result<Vec<SubscriptionMatch>, StoreError> {
+            Ok(vec![])
+        }
+
+        async fn wildcard_subscription(
+            &self,
+            _adapter_kind: &str,
+        ) -> Result<Option<SubscriptionMatch>, StoreError> {
+            Ok(None)
+        }
+    }
+
+    /// An `Arc<Bindings>` over a pool that refuses to connect. `receive`'s only
+    /// DB write on this path is `status::apply_webhook_observation`'s, fired
+    /// off as a detached task, and the `pull_request` `opened` event this test
+    /// sends produces no status observation anyway — so nothing here needs a
+    /// live Postgres.
+    fn unconnected_bindings() -> std::sync::Arc<moatless_loops::bindings::operations::Bindings> {
+        let port = TcpListener::bind("127.0.0.1:0")
+            .expect("can bind an ephemeral loopback port")
+            .local_addr()
+            .expect("a bound listener has a local address")
+            .port();
+        let pool = PgPoolOptions::new()
+            .acquire_timeout(Duration::from_millis(100))
+            .connect_lazy(&format!(
+                "postgres://postgres:postgres@127.0.0.1:{port}/postgres"
+            ))
+            .expect("connect_lazy only parses the URL; it never dials out");
+        moatless_loops::compose::loop_graph(pool).bindings()
+    }
+
+    fn opened_pr_payload() -> serde_json::Value {
+        serde_json::json!({
+            "action": "opened",
+            "repository": {
+                "full_name": "acme/widgets",
+                "owner": { "login": "acme" },
+            },
+            "sender": { "login": "octocat" },
+            "pull_request": {
+                "number": 42,
+                "title": "Add a feature",
+                "html_url": "https://github.com/acme/widgets/pull/42",
+                "head": { "ref": "feature" },
+                "base": { "ref": "main" },
+            },
+        })
+    }
+
+    /// A panic inside normalization (here, a user-lookup port that panics
+    /// instead of answering) must come out of `receive` as a logged, metered
+    /// [`IngressError::Ingress`] — never as a propagated panic that unwinds
+    /// the request task with nothing logged.
+    #[tokio::test]
+    async fn a_panic_during_normalization_is_recorded_not_propagated() {
+        let connections =
+            InMemoryConnections::new(vec![connection("conn-1", AdapterKind::Github, "acme")]);
+        let loops = NoSubscriptions;
+        let mut users = MockProviderIdentityLink::new();
+        users
+            .expect_user_with_login()
+            .returning(|_, _| panic!("boom: user lookup should never panic in production"));
+        let task_bindings = unconnected_bindings();
+        let admission = FakeAdmission::new(FakeAdmissionAnswer::Admitted);
+        let github_provider = GithubPrAdapter::new(
+            None,
+            "https://app.example".to_string(),
+            "https://api.github.com".to_string(),
+            std::sync::Arc::new(MockGitHostTokenIssuer::new()),
+            moatless_types::http::HttpTimeouts {
+                connect: Duration::from_secs(5),
+                total: Duration::from_secs(30),
+            },
+        );
+
+        let body = serde_json::to_vec(&opened_pr_payload()).expect("serializes");
+        let request = WebhookRequest::new("pull_request", "delivery-1", "", &body);
+
+        let result = receive(
+            &connections as &dyn ConnectionLookup,
+            &loops as &dyn LoopReader,
+            &users,
+            &task_bindings,
+            &admission,
+            &github_provider,
+            request,
+        )
+        .await;
+
+        match result {
+            Err(IngressError::Ingress(_)) => {}
+            other => panic!("expected a recorded Ingress failure, got {other:?}"),
+        }
+        assert!(
+            admission.seen().is_empty(),
+            "normalization panicked before anything was planned for admission"
+        );
+    }
 
     #[test]
     fn the_delivery_header_is_the_idempotency_key() {
