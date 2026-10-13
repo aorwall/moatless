@@ -30,7 +30,7 @@ use crate::scripts::ScriptsWriteError;
 /// The agent catalog over the credentials a viewer has stored.
 pub struct AgentCatalog {
     pub secrets: Arc<dyn SecretCatalog>,
-    pub provider_tokens: Arc<dyn HarnessCredentials>,
+    pub harness_credentials: Arc<dyn HarnessCredentials>,
 }
 
 #[async_trait]
@@ -38,7 +38,7 @@ impl AgentCatalogSource for AgentCatalog {
     async fn list(&self, viewer: &ScopeContext) -> Vec<AgentDescriptor> {
         moatless_tasks::agent::service::list_agents(
             self.secrets.as_ref(),
-            self.provider_tokens.as_ref(),
+            self.harness_credentials.as_ref(),
             viewer,
         )
         .await

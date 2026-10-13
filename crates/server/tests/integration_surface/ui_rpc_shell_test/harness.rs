@@ -225,7 +225,7 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
         // `crates/server/tests/ui_rpc_command_test.rs`.
         agents: Arc::new(moatless_t3code::owners::AgentCatalog {
             secrets: app.secrets.clone(),
-            provider_tokens: app.harness_credentials.clone(),
+            harness_credentials: app.harness_credentials.clone(),
         }),
         branches: app.repository_branches.clone(),
         skills: Arc::new(moatless_t3code::owners::WorkspaceSkills {
@@ -234,20 +234,15 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
         }),
         relations: app.task_relations.clone(),
         pull_requests: Arc::new(t3code_backend::AppStateBoundPullRequests(
-            test_app_state(pool.clone()),
+            app.clone(),
             reads(pool),
         )),
         source_control_auth: Arc::new(moatless_t3code::owners::GithubAuth {
             credentials: app.credentials.clone(),
             git_host_tokens: app.git_host_tokens.clone(),
         }),
-        commands: Arc::new(t3code_backend::AppStateCommands(test_app_state(
-            pool.clone(),
-        ))),
-        attachments: Arc::new(t3code_backend::AppStateAttachments(
-            test_app_state(pool.clone()),
-            reads(pool),
-        )),
+        commands: Arc::new(t3code_backend::AppStateCommands(app.clone())),
+        attachments: Arc::new(t3code_backend::AppStateAttachments(app, reads(pool))),
         model_defaults: defaults(),
         frontend_url: "http://localhost:3000".into(),
         client_traces_http: moatless_core::config::HttpConfig::default().client_traces,

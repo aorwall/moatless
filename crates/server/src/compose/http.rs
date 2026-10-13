@@ -92,7 +92,7 @@ pub(crate) async fn ui_rpc(
             ),
             agents: Arc::new(moatless_t3code::owners::AgentCatalog {
                 secrets: app_state.secrets.clone(),
-                provider_tokens: app_state.harness_credentials.clone(),
+                harness_credentials: app_state.harness_credentials.clone(),
             }),
             branches: app_state.repository_branches.clone(),
             skills: Arc::new(moatless_t3code::owners::WorkspaceSkills {
