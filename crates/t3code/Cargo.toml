@@ -40,8 +40,9 @@ moatless-ports = { workspace = true, features = [] }
 moatless-core = { workspace = true }
 moatless-identity = { workspace = true }
 moatless-types = { workspace = true }
-# Owner crates t3code reads through, directly or behind a port its tests mock.
+# Owner crates t3code calls, directly or behind a port its tests mock.
 # T3 names stay in this crate; an owner never sees one.
+moatless-tasks = { workspace = true }
 moatless-workspaces = { workspace = true }
 
 [dev-dependencies]

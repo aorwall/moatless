@@ -74,9 +74,7 @@ pub(crate) async fn ui_rpc(
             session_cookie_name: config.auth.session_cookie_name.clone(),
             session_jwt_secret: auth::jwt::get_jwt_secret(config).map(String::from),
             pairing: ports.pairing.clone(),
-            workspace_script_commands: Arc::new(t3code::backend::WorkspaceScripts(
-                app_state.workspaces.clone(),
-            )),
+            workspace_script_commands: app_state.workspaces.clone(),
             sandboxes: inputs.connector,
             snapshots: inputs.snapshots,
             observer: t3code::projection::contract_observer(
@@ -92,17 +90,24 @@ pub(crate) async fn ui_rpc(
             preview_tab_ttl: moatless_t3code::preview_tabs::PreviewTabTtl(
                 std::time::Duration::from_secs(config.sandbox.idle_timeout_minutes * 60),
             ),
-            agents: Arc::new(t3code::backend::AppStateAgents(app_state.clone())),
-            branches: Arc::new(t3code::backend::AppStateBranches(app_state.clone())),
-            skills: Arc::new(t3code::backend::AppStateSkills(app_state.clone())),
-            relations: Arc::new(t3code::backend::AppStateTaskRelations(app_state.clone())),
+            agents: Arc::new(moatless_t3code::owners::AgentCatalog {
+                secrets: app_state.secrets.clone(),
+                provider_tokens: app_state.harness_credentials.clone(),
+            }),
+            branches: app_state.repository_branches.clone(),
+            skills: Arc::new(moatless_t3code::owners::WorkspaceSkills {
+                workspaces: app_state.workspaces.clone(),
+                skills: app_state.skills.clone(),
+            }),
+            relations: app_state.task_relations.clone(),
             pull_requests: Arc::new(t3code::backend::AppStateBoundPullRequests(
                 app_state.clone(),
                 ports.t3_graph.reads().clone(),
             )),
-            source_control_auth: Arc::new(t3code::backend::AppStateSourceControlAuth(
-                app_state.clone(),
-            )),
+            source_control_auth: Arc::new(moatless_t3code::owners::GithubAuth {
+                credentials: app_state.credentials.clone(),
+                git_host_tokens: app_state.git_host_tokens.clone(),
+            }),
             commands: Arc::new(t3code::backend::AppStateCommands(app_state.clone())),
             attachments: Arc::new(t3code::backend::AppStateAttachments(
                 app_state.clone(),

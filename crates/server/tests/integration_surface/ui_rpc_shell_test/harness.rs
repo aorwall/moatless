@@ -199,13 +199,12 @@ pub(super) async fn mounted_router(pool: &PgPool) -> axum::Router {
 /// itself is asserted in `crates/identity/src/auth/pairing_dao_tests.rs`; here it
 /// is wired only because the router carries it.
 fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
+    let app = test_app_state(pool.clone());
     UiRpcDependencies {
         session_cookie_name: "moatless_session".into(),
         session_jwt_secret: Some("test-secret".into()),
         pairing: moatless_identity::compose::device_pairing(pool.clone()),
-        workspace_script_commands: Arc::new(t3code_backend::WorkspaceScripts(compose::workspaces(
-            pool.clone(),
-        ))),
+        workspace_script_commands: compose::workspaces(pool.clone()),
         sandboxes: Arc::new(NoSandboxes),
         // This suite drives no snapshot reads; a stopped Task answers as before.
         snapshots: None,
@@ -224,21 +223,24 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
         // The write ports, wired exactly as `main` wires them. This suite drives
         // reads only; what they do is asserted in
         // `crates/server/tests/ui_rpc_command_test.rs`.
-        agents: Arc::new(t3code_backend::AppStateAgents(test_app_state(pool.clone()))),
-        branches: Arc::new(t3code_backend::AppStateBranches(test_app_state(
-            pool.clone(),
-        ))),
-        skills: Arc::new(t3code_backend::AppStateSkills(test_app_state(pool.clone()))),
-        relations: Arc::new(t3code_backend::AppStateTaskRelations(test_app_state(
-            pool.clone(),
-        ))),
+        agents: Arc::new(moatless_t3code::owners::AgentCatalog {
+            secrets: app.secrets.clone(),
+            provider_tokens: app.harness_credentials.clone(),
+        }),
+        branches: app.repository_branches.clone(),
+        skills: Arc::new(moatless_t3code::owners::WorkspaceSkills {
+            workspaces: app.workspaces.clone(),
+            skills: app.skills.clone(),
+        }),
+        relations: app.task_relations.clone(),
         pull_requests: Arc::new(t3code_backend::AppStateBoundPullRequests(
             test_app_state(pool.clone()),
             reads(pool),
         )),
-        source_control_auth: Arc::new(t3code_backend::AppStateSourceControlAuth(test_app_state(
-            pool.clone(),
-        ))),
+        source_control_auth: Arc::new(moatless_t3code::owners::GithubAuth {
+            credentials: app.credentials.clone(),
+            git_host_tokens: app.git_host_tokens.clone(),
+        }),
         commands: Arc::new(t3code_backend::AppStateCommands(test_app_state(
             pool.clone(),
         ))),

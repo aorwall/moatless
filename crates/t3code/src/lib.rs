@@ -24,6 +24,7 @@ mod lineage;
 mod nominal_path;
 mod oauth;
 mod observability;
+pub mod owners;
 pub mod ports;
 mod preview;
 pub mod preview_relay;

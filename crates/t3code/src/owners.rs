@@ -1,78 +1,83 @@
-//! The read ports and the one-call write ports: an agent list, a skill list, a
-//! branch list, a workspace's scripts, a GitHub identity and a thread's
-//! children. Each is one lookup `AppState` already answers for the Moatless UI.
+//! The [`crate::ports`] this crate's tests stub, implemented over the crates
+//! that own the data. Each is the owner's call plus the translation into the
+//! port's vocabulary.
 
-use crate::state::AppState;
-use async_trait::async_trait;
-use moatless_api_schemas::agent::AgentDescriptor;
-use moatless_t3code::ports::{
-    AgentCatalogSource, BranchListError, ChildTask, GithubIdentity, ParentTask,
-    RepositoryBranchSource, SkillCatalog, SourceControlAuthSource, TaskRelationSource,
-    WorkspaceSkill,
-};
-use moatless_types::access_control::Actor;
-use moatless_types::access_control::ScopeContext;
-use moatless_types::store::StoreError;
-use moatless_workspaces::repository::error::RepositoryError;
 use std::sync::Arc;
 
-pub struct AppStateAgents(pub AppState);
+use async_trait::async_trait;
+use moatless_api_schemas::agent::AgentDescriptor;
+use moatless_identity::credentials::CredentialService;
+use moatless_ports::identity::{GitHostTokenIssuer, HarnessCredentials, SecretCatalog};
+use moatless_tasks::task::relations::TaskRelations;
+use moatless_types::access_control::{Actor, ScopeContext};
+use moatless_types::store::StoreError;
+use moatless_workspace_types::schemas::repository::BranchListResponse;
+use moatless_workspace_types::workspace::ScriptConfig;
+use moatless_workspaces::repository::branches::RepositoryBranchService;
+use moatless_workspaces::repository::error::RepositoryError;
+use moatless_workspaces::skill::service::SkillService;
+use moatless_workspaces::workspace::Workspaces;
+use moatless_workspaces::workspace::error::WorkspaceScriptsError;
+use uuid::Uuid;
+
+use crate::ports::{
+    AgentCatalogSource, BranchListError, ChildTask, GithubIdentity, ParentTask,
+    RepositoryBranchSource, SkillCatalog, SourceControlAuthSource, TaskRelationSource,
+    WorkspaceScriptCommands, WorkspaceSkill,
+};
+use crate::scripts::ScriptsWriteError;
+
+/// The agent catalog over the credentials a viewer has stored.
+pub struct AgentCatalog {
+    pub secrets: Arc<dyn SecretCatalog>,
+    pub provider_tokens: Arc<dyn HarnessCredentials>,
+}
 
 #[async_trait]
-impl AgentCatalogSource for AppStateAgents {
+impl AgentCatalogSource for AgentCatalog {
     async fn list(&self, viewer: &ScopeContext) -> Vec<AgentDescriptor> {
         moatless_tasks::agent::service::list_agents(
-            self.0.secrets.as_ref(),
-            self.0.harness_credentials.as_ref(),
+            self.secrets.as_ref(),
+            self.provider_tokens.as_ref(),
             viewer,
         )
         .await
     }
 }
 
-pub struct AppStateBranches(pub AppState);
-
-/// Adapt T3 script commands to the Workspace operation owner.
-pub struct WorkspaceScripts(pub Arc<moatless_workspaces::workspace::Workspaces>);
-
 #[async_trait]
-impl moatless_t3code::ports::WorkspaceScriptCommands for WorkspaceScripts {
+impl WorkspaceScriptCommands for Workspaces {
     async fn replace_scripts(
         &self,
         viewer: &ScopeContext,
         workspace_id: &str,
-        scripts: &[moatless_workspace_types::workspace::ScriptConfig],
-    ) -> Result<(), moatless_t3code::scripts::ScriptsWriteError> {
-        use moatless_t3code::scripts::ScriptsWriteError as Target;
-        use moatless_workspaces::workspace::error::WorkspaceScriptsError as Source;
+        scripts: &[ScriptConfig],
+    ) -> Result<(), ScriptsWriteError> {
         moatless_workspaces::workspace::scripts::replace_scripts_preserving_env(
-            &self.0,
+            self,
             viewer,
             workspace_id,
             scripts,
         )
         .await
         .map_err(|error| match error {
-            Source::NotFound => Target::NotFound,
-            Source::GitSynced => Target::GitSynced,
-            Source::Invalid(message) => Target::Invalid(message),
-            Source::Database(source) => Target::Database(source),
+            WorkspaceScriptsError::NotFound => ScriptsWriteError::NotFound,
+            WorkspaceScriptsError::GitSynced => ScriptsWriteError::GitSynced,
+            WorkspaceScriptsError::Invalid(message) => ScriptsWriteError::Invalid(message),
+            WorkspaceScriptsError::Database(source) => ScriptsWriteError::Database(source),
         })
     }
 }
 
 #[async_trait]
-impl RepositoryBranchSource for AppStateBranches {
+impl RepositoryBranchSource for RepositoryBranchService {
     async fn list_branches(
         &self,
         viewer: &ScopeContext,
         repository_id: &str,
         workspace_id: Option<&str>,
-    ) -> Result<moatless_workspace_types::schemas::repository::BranchListResponse, BranchListError>
-    {
-        self.0
-            .repository_branches
-            .list_branches(viewer, repository_id, workspace_id)
+    ) -> Result<BranchListResponse, BranchListError> {
+        RepositoryBranchService::list_branches(self, viewer, repository_id, workspace_id)
             .await
             .map_err(branch_list_error)
     }
@@ -89,27 +94,31 @@ fn branch_list_error(error: RepositoryError) -> BranchListError {
         RepositoryError::BadRequest(message)
         | RepositoryError::ProviderError(message)
         | RepositoryError::Conflict(message) => BranchListError::Unavailable(message),
-        RepositoryError::Db(error) => BranchListError::Failed(
-            moatless_types::store::StoreError::with_source("list repository branches", error),
-        ),
+        RepositoryError::Db(error) => {
+            BranchListError::Failed(StoreError::with_source("list repository branches", error))
+        }
         RepositoryError::Store(error) => BranchListError::Failed(error),
     }
 }
 
-pub struct AppStateSkills(pub AppState);
+/// The skills of a Workspace's primary repository.
+pub struct WorkspaceSkills {
+    pub workspaces: Arc<Workspaces>,
+    pub skills: Arc<SkillService>,
+}
 
 #[async_trait]
-impl SkillCatalog for AppStateSkills {
+impl SkillCatalog for WorkspaceSkills {
     async fn list_for_workspace(
         &self,
         viewer: &ScopeContext,
-        caller: uuid::Uuid,
+        caller: Uuid,
         workspace_id: &str,
     ) -> Vec<WorkspaceSkill> {
         // Unscoped, and safe to be: the placement only names a repository id,
         // and `list_for_repository` refuses both a workspace and a repository
         // this viewer cannot resolve.
-        let primary = match self.0.workspaces.find_primary_repo(workspace_id).await {
+        let primary = match self.workspaces.find_primary_repo(workspace_id).await {
             Ok(Some(placement)) => placement,
             Ok(None) => return Vec::new(),
             Err(error) => {
@@ -118,7 +127,6 @@ impl SkillCatalog for AppStateSkills {
             }
         };
         match self
-            .0
             .skills
             .list_for_repository(&primary.repository_id, Some(workspace_id), caller, viewer)
             .await
@@ -139,13 +147,17 @@ impl SkillCatalog for AppStateSkills {
     }
 }
 
-pub struct AppStateSourceControlAuth(pub AppState);
+/// The viewer's GitHub connection, from their provider-token row and the
+/// token issuer.
+pub struct GithubAuth {
+    pub credentials: Arc<CredentialService>,
+    pub git_host_tokens: Arc<dyn GitHostTokenIssuer>,
+}
 
 #[async_trait]
-impl SourceControlAuthSource for AppStateSourceControlAuth {
+impl SourceControlAuthSource for GithubAuth {
     async fn github_identity(&self, viewer: &ScopeContext) -> Option<GithubIdentity> {
         let presence = self
-            .0
             .credentials
             .github_presence(&viewer.user_id)
             .await
@@ -158,13 +170,11 @@ impl SourceControlAuthSource for AppStateSourceControlAuth {
         if presence.as_ref().is_some_and(|row| row.refresh_failure) {
             return None;
         }
-        // Usability beyond this is the issuer's answer, not the row's: an
-        // App installation row carries no token or login, so reading the
-        // row alone would call every App-backed identity unauthenticated —
-        // telling someone to connect while tasks already push as the App.
-        // A Workspace pin is invisible here for the same reason.
-        self.0
-            .git_host_tokens
+        // Usability beyond this is the issuer's answer, not the row's: an App
+        // installation row carries no token or login, so reading the row alone
+        // would call every App-backed identity unauthenticated. A Workspace
+        // pin is invisible here for the same reason.
+        self.git_host_tokens
             .github_is_usable(&Actor::of(&viewer.user_id))
             .await
             .ok()?;
@@ -174,17 +184,12 @@ impl SourceControlAuthSource for AppStateSourceControlAuth {
     }
 }
 
-pub struct AppStateTaskRelations(pub AppState);
-
 #[async_trait]
-impl TaskRelationSource for AppStateTaskRelations {
+impl TaskRelationSource for TaskRelations {
     async fn children(&self, parent_task_id: &str) -> Result<Vec<ChildTask>, StoreError> {
-        // Every incoming edge, filtered by the compatibility surface: a
-        // narrower query here would decide which relation types are children
-        // in two places.
+        // Every incoming edge, filtered by the caller: a narrower query here
+        // would decide which relation types are children in two places.
         let relations = self
-            .0
-            .task_relations
             .list_incoming(parent_task_id, None)
             .await
             .map_err(|cause| StoreError::with_source("list incoming task relations", cause))?;
@@ -199,8 +204,6 @@ impl TaskRelationSource for AppStateTaskRelations {
 
     async fn parent(&self, child_task_id: &str) -> Result<Option<ParentTask>, StoreError> {
         let relation = self
-            .0
-            .task_relations
             .find_parent(child_task_id)
             .await
             .map_err(|cause| StoreError::with_source("find task parent", cause))?;
