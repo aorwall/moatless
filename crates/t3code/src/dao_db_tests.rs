@@ -795,7 +795,7 @@ async fn the_archive_pages_through_every_closed_task_newest_first(pool: PgPool) 
     let limit = crate::dao::ARCHIVED_LIMIT;
     seed_archived(&pool, 0, limit).await;
     let tasks = moatless_tasks::compose::task_graph(pool.clone());
-    let graph = crate::compose::t3_graph(pool.clone(), tasks.activities());
+    let graph = crate::compose::t3_graph(pool.clone(), tasks.activities(), tasks.turn_usage());
     let defaults = crate::config::AgentModelDefaults::default();
     let viewer = ScopeContext::user(USER_1.to_string());
     let page = |before: Option<crate::dao::ArchiveCursor>| {

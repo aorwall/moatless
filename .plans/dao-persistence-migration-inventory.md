@@ -13,7 +13,7 @@ A consumer count is the number of `use` declarations naming the concern's module
 | [adapter connections](#adapter-connections) | moatless-adapter-model | 02 | 0 | 0 |
 | [telegram pairing](#telegram-pairing) | moatless-adapter-telegram | 15 | 0 | 0 |
 | [file metadata](#file-metadata) | moatless-core | 01 | 0 | 0 |
-| [conversation feed](#conversation-feed) | moatless-core | 01 | 8 | 4 |
+| [conversation feed](#conversation-feed) | moatless-core | 01 | 8 | 7 |
 | [events feed](#events-feed) | moatless-core | 01 | 7 | 6 |
 | [listing feed](#listing-feed) | moatless-core | 01 | 5 | 8 |
 | [preview feed](#preview-feed) | moatless-core | 01 | 4 | 4 |
@@ -38,21 +38,19 @@ A consumer count is the number of `use` declarations naming the concern's module
 | [firing receipts](#firing-receipts) | moatless-loops | 15 | 0 | 0 |
 | [sandbox lifecycle](#sandbox-lifecycle) | moatless-sandbox-control | 16 | 0 | 0 |
 | [t3 conversation projection](#t3-conversation-projection) | moatless-t3code | 17 | 0 | 0 |
-| [t3 listing projection](#t3-listing-projection) | moatless-t3code | 17 | 0 | 0 |
-| [t3 usage projection](#t3-usage-projection) | moatless-t3code | 17 | 0 | 0 |
 | [t3 activity projection](#t3-activity-projection) | moatless-t3code | 17 | 0 | 0 |
 | [t3 task projection](#t3-task-projection) | moatless-t3code | 17 | 0 | 0 |
-| [t3 workspace projection](#t3-workspace-projection) | moatless-t3code | 17 | 0 | 0 |
 | [task graph](#task-graph) | moatless-tasks | 09 | 0 | 0 |
 | [task relations](#task-relations) | moatless-tasks | 09 | 0 | 0 |
 | [task forks](#task-forks) | moatless-tasks | 09 | 0 | 0 |
+| [artifacts](#artifacts) | moatless-tasks | 09 | 0 | 0 |
 | [messages](#messages) | moatless-tasks | 10 | 0 | 0 |
 | [task activities](#task-activities) | moatless-tasks | 10 | 0 | 0 |
 | [outbound events](#outbound-events) | moatless-tasks | 10 | 0 | 0 |
 | [task turns](#task-turns) | moatless-tasks | 11 | 0 | 0 |
 | [task events](#task-events) | moatless-tasks | 11 | 0 | 0 |
+| [inbox](#inbox) | moatless-tasks | 11 | 0 | 0 |
 | [trajectory](#trajectory) | moatless-tasks | 11 | 0 | 0 |
-| [event ingress](#event-ingress) | moatless-tasks | 11 | 0 | 0 |
 | [tags](#tags) | moatless-tasks | 12 | 0 | 0 |
 | [feedback](#feedback) | moatless-tasks | 12 | 0 | 0 |
 | [repositories](#repositories) | moatless-workspaces | 07 | 0 | 0 |
@@ -101,7 +99,7 @@ A consumer count is the number of `use` declarations naming the concern's module
 - **Owning tables:** `task_conversation_changes`, `task_conversation_position`
 - **Exports:** `change_feed::conversation::allocate_position`, `change_feed::conversation::changes_from`, `change_feed::conversation::current_head`, `change_feed::conversation::prune_changes`, `change_feed::conversation::record_activity_change`, `change_feed::conversation::record_message_change`, `change_feed::conversation::record_revert_change`, `change_feed::conversation::record_session_change`
 - **Constructors:** none
-- **Peer consumers:** moatless-tasks (2)
+- **Peer consumers:** moatless-tasks (5)
 - **Test-only consumers:** moatless-t3code (2)
 
 ## events feed
@@ -364,29 +362,7 @@ A consumer count is the number of `use` declarations naming the concern's module
 - **Persistence roots:** `crates/t3code/src/dao.rs`, `crates/t3code/src/transcript_dao.rs`
 - **Owning tables:** none
 - **Exports:** none
-- **Constructors:** `ArchiveCursor::after`, `ArchiveCursor::decode`, `ConversationBrowse::new`, `PgConversationDao::new`
-- **Peer consumers:** none
-- **Test-only consumers:** none
-
-## t3 listing projection
-
-- **Owner:** moatless-t3code
-- **Closing slice:** 17
-- **Persistence roots:** `crates/t3code/src/listing/dao.rs`
-- **Owning tables:** none
-- **Exports:** none
-- **Constructors:** none
-- **Peer consumers:** none
-- **Test-only consumers:** none
-
-## t3 usage projection
-
-- **Owner:** moatless-t3code
-- **Closing slice:** 17
-- **Persistence roots:** `crates/t3code/src/usage/dao.rs`
-- **Owning tables:** none
-- **Exports:** none
-- **Constructors:** `PgUsageDao::new`
+- **Constructors:** `ConversationBrowse::new`, `PgConversationDao::new`
 - **Peer consumers:** none
 - **Test-only consumers:** none
 
@@ -412,22 +388,11 @@ A consumer count is the number of `use` declarations naming the concern's module
 - **Peer consumers:** none
 - **Test-only consumers:** none
 
-## t3 workspace projection
-
-- **Owner:** moatless-t3code
-- **Closing slice:** 17
-- **Persistence roots:** `crates/t3code/src/workspace_dao.rs`
-- **Owning tables:** none
-- **Exports:** none
-- **Constructors:** none
-- **Peer consumers:** none
-- **Test-only consumers:** none
-
 ## task graph
 
 - **Owner:** moatless-tasks
 - **Closing slice:** 09
-- **Persistence roots:** `crates/tasks/src/task/dao.rs`
+- **Persistence roots:** `crates/tasks/src/task/dao.rs`, `crates/tasks/src/task/pin_dao.rs`, `crates/tasks/src/task/switch_dao.rs`
 - **Owning tables:** `task_follows`, `task_read_receipts`, `tasks`
 - **Exports:** none
 - **Constructors:** none
@@ -456,12 +421,23 @@ A consumer count is the number of `use` declarations naming the concern's module
 - **Peer consumers:** none
 - **Test-only consumers:** none
 
+## artifacts
+
+- **Owner:** moatless-tasks
+- **Closing slice:** 09
+- **Persistence roots:** `crates/tasks/src/artifact/dao.rs`
+- **Owning tables:** `task_artifacts`
+- **Exports:** none
+- **Constructors:** none
+- **Peer consumers:** none
+- **Test-only consumers:** none
+
 ## messages
 
 - **Owner:** moatless-tasks
 - **Closing slice:** 10
-- **Persistence roots:** `crates/tasks/src/message/dao.rs`, `crates/tasks/src/message/external_events_dao.rs`, `crates/tasks/src/message/fork_dao.rs`, `crates/tasks/src/message/recovery_dao.rs`, `crates/tasks/src/task/rewind_dao.rs`
-- **Owning tables:** `task_message_content_blocks`, `task_message_contexts`, `task_message_usage`, `task_messages`
+- **Persistence roots:** `crates/tasks/src/conversation/dao.rs`, `crates/tasks/src/conversation/read_dao.rs`, `crates/tasks/src/conversation/replay_dao.rs`, `crates/tasks/src/message/dao.rs`, `crates/tasks/src/message/external_events_dao.rs`, `crates/tasks/src/message/recovery_dao.rs`, `crates/tasks/src/task/rewind_dao.rs`
+- **Owning tables:** `conversation_frozen`, `conversation_messages`, `conversation_usage`, `task_message_content_blocks`, `task_message_contexts`, `task_message_usage`, `task_messages`
 - **Exports:** none
 - **Constructors:** none
 - **Peer consumers:** none
@@ -471,8 +447,8 @@ A consumer count is the number of `use` declarations naming the concern's module
 
 - **Owner:** moatless-tasks
 - **Closing slice:** 10
-- **Persistence roots:** `crates/tasks/src/task_activities/dao.rs`
-- **Owning tables:** `task_activities`
+- **Persistence roots:** `crates/tasks/src/activities/dao.rs`
+- **Owning tables:** `conversation_activities`, `task_activities`
 - **Exports:** none
 - **Constructors:** none
 - **Peer consumers:** none
@@ -493,8 +469,8 @@ A consumer count is the number of `use` declarations naming the concern's module
 
 - **Owner:** moatless-tasks
 - **Closing slice:** 11
-- **Persistence roots:** `crates/tasks/src/task_turn/dao.rs`
-- **Owning tables:** `task_turns`
+- **Persistence roots:** `crates/tasks/src/task_turn/dao.rs`, `crates/tasks/src/task_turn/usage_dao.rs`
+- **Owning tables:** `task_rewound_turns`, `task_turns`
 - **Exports:** none
 - **Constructors:** none
 - **Peer consumers:** none
@@ -511,23 +487,23 @@ A consumer count is the number of `use` declarations naming the concern's module
 - **Peer consumers:** none
 - **Test-only consumers:** none
 
+## inbox
+
+- **Owner:** moatless-tasks
+- **Closing slice:** 11
+- **Persistence roots:** `crates/tasks/src/inbox/dao.rs`
+- **Owning tables:** `task_inbox`
+- **Exports:** none
+- **Constructors:** none
+- **Peer consumers:** none
+- **Test-only consumers:** none
+
 ## trajectory
 
 - **Owner:** moatless-tasks
 - **Closing slice:** 11
 - **Persistence roots:** `crates/tasks/src/trajectory/dao.rs`
 - **Owning tables:** `trajectory_events`, `trajectory_sessions`
-- **Exports:** none
-- **Constructors:** none
-- **Peer consumers:** none
-- **Test-only consumers:** none
-
-## event ingress
-
-- **Owner:** moatless-tasks
-- **Closing slice:** 11
-- **Persistence roots:** `crates/tasks/src/event_ingress/outbox_dao.rs`
-- **Owning tables:** `event_ingress_outbox`
 - **Exports:** none
 - **Constructors:** none
 - **Peer consumers:** none

@@ -12,7 +12,7 @@ mod test_support {
     #[must_use]
     pub fn t3_graph_over(pool: &moatless_core::db::DbPool) -> moatless_t3code::T3Graph {
         let tasks = moatless_tasks::compose::task_graph(pool.clone());
-        moatless_t3code::t3_graph(pool.clone(), tasks.activities())
+        moatless_t3code::t3_graph(pool.clone(), tasks.activities(), tasks.turn_usage())
     }
 }
 

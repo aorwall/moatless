@@ -254,6 +254,7 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
     );
     let tags = task_graph.tags();
     let tag_resolver = task_graph.tag_catalog();
+    let turn_usage = task_graph.turn_usage();
 
     Ports {
         tasks: task_graph.tasks(),
@@ -317,7 +318,7 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
 
         // The T3 band's own construction root owns its read model; this
         // process supplies the activity rows it projects.
-        t3_graph: moatless_t3code::t3_graph(pool.clone(), activities),
+        t3_graph: moatless_t3code::t3_graph(pool.clone(), activities, turn_usage),
 
         // The sandbox band's own construction root owns its store; this process
         // takes the capabilities over it.

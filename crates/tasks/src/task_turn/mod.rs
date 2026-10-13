@@ -8,6 +8,8 @@ pub(crate) mod dao;
 pub mod models;
 pub mod operations;
 pub mod recovery;
+pub mod usage;
+mod usage_dao;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;

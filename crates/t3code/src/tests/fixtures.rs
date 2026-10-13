@@ -374,7 +374,7 @@ impl ports::UsageReporter for UnreachableUsage {
         &self,
         _viewer: &ScopeContext,
         _window: &ports::UsageWindow,
-    ) -> Result<Vec<ports::UsageBucketRow>, moatless_types::store::StoreError> {
+    ) -> Result<Vec<ports::UsageBucket>, moatless_types::store::StoreError> {
         unreachable!("no test in this file reads usage")
     }
 }

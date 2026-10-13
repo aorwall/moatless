@@ -197,6 +197,11 @@ impl TaskGraph {
         Arc::new(crate::ports::Activities::new(self.db.clone()))
     }
 
+    /// Per-model token and cost totals over the Turns a viewer may read.
+    pub fn turn_usage(&self) -> Arc<crate::task_turn::usage::TurnUsage> {
+        Arc::new(crate::task_turn::usage::TurnUsage::new(self.db.clone()))
+    }
+
     /// The Codex in-flight guard and sandbox fan-out over a pure credential
     /// service.
     ///

@@ -8,7 +8,7 @@
 use moatless_types::model::{ClaudeModel, CodexModel, ModelPrice, price_for};
 use serde_json::{Value, json};
 
-use crate::ports::{UsageBucketRow, UsageWindow};
+use crate::ports::{UsageBucket, UsageWindow};
 
 /// Bumped by T3 whenever [`UsageSummary`]'s shape changes incompatibly.
 /// `packages/contracts/src/usage.ts` is the authority; a client merging an
@@ -38,7 +38,7 @@ fn cache_savings_usd(model: &str, cached_input_tokens: i64) -> f64 {
 /// Never `modelPriced`: an unpriced turn stays unpriced rather than being
 /// valued here, since a second rate table would drift from what the backend
 /// already derives.
-fn cost_source(row: &UsageBucketRow) -> &'static str {
+fn cost_source(row: &UsageBucket) -> &'static str {
     if row.unpriced_records >= row.records {
         "unpriced"
     } else {
@@ -46,7 +46,7 @@ fn cost_source(row: &UsageBucketRow) -> &'static str {
     }
 }
 
-fn bucket(row: &UsageBucketRow) -> Value {
+fn bucket(row: &UsageBucket) -> Value {
     let mut out = json!({
         "day": row.day,
         "provider": row.provider,
@@ -101,7 +101,7 @@ fn source_for(provider: &str, sessions: i64, records: i64) -> Value {
 /// keeping this function pure and testable.
 pub(crate) fn summary(
     window: &UsageWindow,
-    rows: &[UsageBucketRow],
+    rows: &[UsageBucket],
     read_at: &str,
     scan_duration_ms: u64,
 ) -> Value {
@@ -111,7 +111,7 @@ pub(crate) fn summary(
         // Task spans models, so its bucket-level session counts overlap and
         // this reports the distinct-Task count the rows carry rather than a
         // sum across models.
-        let provider_rows: Vec<&UsageBucketRow> =
+        let provider_rows: Vec<&UsageBucket> =
             rows.iter().filter(|r| r.provider == provider).collect();
         if provider_rows.is_empty() {
             continue;
@@ -186,8 +186,8 @@ pub(crate) fn window_from(payload: &Value) -> Result<UsageWindow, String> {
 mod tests {
     use super::*;
 
-    fn row(model: &str, cached: i64) -> UsageBucketRow {
-        UsageBucketRow {
+    fn row(model: &str, cached: i64) -> UsageBucket {
+        UsageBucket {
             day: "2026-09-04".to_string(),
             hour_start: None,
             provider: "claude".to_string(),

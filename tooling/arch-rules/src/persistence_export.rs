@@ -310,7 +310,10 @@ pub const CONCERNS: &[Concern] = &[
     Concern {
         name: "task turns",
         owner: "moatless-tasks",
-        roots: &["crates/tasks/src/task_turn/dao"],
+        roots: &[
+            "crates/tasks/src/task_turn/dao",
+            "crates/tasks/src/task_turn/usage_dao",
+        ],
         tables: &["task_rewound_turns", "task_turns"],
         slice: 11,
     },
@@ -405,13 +408,6 @@ pub const CONCERNS: &[Concern] = &[
         name: "t3 conversation projection",
         owner: "moatless-t3code",
         roots: &["crates/t3code/src/dao", "crates/t3code/src/transcript_dao"],
-        tables: &[],
-        slice: 17,
-    },
-    Concern {
-        name: "t3 usage projection",
-        owner: "moatless-t3code",
-        roots: &["crates/t3code/src/usage/dao"],
         tables: &[],
         slice: 17,
     },

@@ -743,61 +743,19 @@ pub trait ThreadCommandSink: Send + Sync {
     ) -> Result<(), CommandRefusal>;
 }
 
-/// One `(day, provider, model)` cell of usage, already aggregated.
-///
-/// Token fields are disjoint: `uncached_input_tokens`, `cached_input_tokens`
-/// and `cache_creation_tokens` sum to the total input; `reasoning_tokens` is a
-/// subset of `output_tokens`, never added on top.
-#[derive(Debug, Clone, PartialEq)]
-pub struct UsageBucketRow {
-    /// `YYYY-MM-DD` in the time zone the caller asked for.
-    pub day: String,
-    /// RFC3339 start of the hour, present only for an hourly request.
-    pub hour_start: Option<String>,
-    /// `claude` or `codex`, as T3's `UsageProviderKind` spells them.
-    pub provider: String,
-    pub model: String,
-    pub uncached_input_tokens: i64,
-    pub cached_input_tokens: i64,
-    pub cache_creation_tokens: i64,
-    pub output_tokens: i64,
-    pub reasoning_tokens: i64,
-    /// What the provider itself reported for these tokens, summed.
-    pub cost_usd: f64,
-    /// Turns that contributed, which is what a T3 record counts here.
-    pub records: i64,
-    /// Turns whose tokens are counted and whose cost the provider never
-    /// reported.
-    pub unpriced_records: i64,
-    /// Distinct Tasks, which are this deployment's sessions.
-    pub sessions: i64,
-}
-
-/// The window a usage read covers, already validated.
-#[derive(Debug, Clone, PartialEq)]
-pub struct UsageWindow {
-    pub since_day: String,
-    pub until_day: String,
-    /// IANA zone the days are bucketed in. An offset would be wrong for any
-    /// window crossing a DST boundary.
-    pub time_zone: String,
-    /// Bucket by hour instead of by day.
-    pub hourly: bool,
-}
+pub use moatless_tasks::task_turn::usage::{UsageBucket, UsageWindow};
 
 /// Per-model token and cost totals, read from the turns a viewer may see.
 ///
 /// T3's own servers scan the provider CLIs' on-disk transcripts; this
-/// deployment has none — its agent runs in a Sandbox pod that gets deleted, so
-/// the totals it reported, already in `task_turns.metrics`, are the only
-/// lasting record.
+/// deployment has none, so it reads [`moatless_tasks::task_turn::usage::TurnUsage`].
 #[async_trait]
 pub trait UsageReporter: Send + Sync {
     async fn buckets(
         &self,
         viewer: &ScopeContext,
         window: &UsageWindow,
-    ) -> Result<Vec<UsageBucketRow>, StoreError>;
+    ) -> Result<Vec<UsageBucket>, StoreError>;
 }
 
 #[cfg(test)]
