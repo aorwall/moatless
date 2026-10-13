@@ -70,9 +70,10 @@ reconciliation actions, cron scheduler, Codex refresh, and migrations. It also
 adds localhost/127.0.0.1 port 5733 browser origins.
 These settings do not make shared database writes private.
 
-Additional overrides go in `/opt/moatless/data/shadow/overrides.env` as sourceable
-`export KEY=value` lines. Resync/rebuild after changing environment. Use a separate
-database before enabling migrations for a schema experiment. Do not repair
-workspace service-account configuration by updating repository columns in SQL.
+Additional overrides go in `$RUNTIME_DIR/shadow/overrides.env` (falls back to the
+deprecated `/opt/moatless/data/shadow/overrides.env` with a warning for one release)
+as sourceable `export KEY=value` lines. Resync/rebuild after changing environment.
+Use a separate database before enabling migrations for a schema experiment. Do not
+repair workspace service-account configuration by updating repository columns in SQL.
 
 For the T3 Code UI against this backend, read [t3-development](../t3-development/SKILL.md).

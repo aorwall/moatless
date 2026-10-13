@@ -233,7 +233,7 @@ pub async fn create_workspace(
     let mut primary_choice: Option<String> = None;
     for (i, p) in req.repos.iter().enumerate() {
         let placement_id = format!("wsr_{}", uuid::Uuid::new_v4());
-        workspaces
+        let added = workspaces
             .add_repo(
                 &WorkspaceRepo {
                     id: placement_id.clone(),
@@ -248,13 +248,19 @@ pub async fn create_workspace(
                 ctx,
             )
             .await?;
+        if !added {
+            return Err(WorkspaceError::NotFound(workspace_id));
+        }
         if primary_choice.is_none() && p.is_primary == Some(true) {
             primary_choice = Some(placement_id.clone());
         }
         placement_ids.push(placement_id);
     }
     if let Some(target) = primary_choice.or_else(|| placement_ids.first().cloned()) {
-        workspaces.set_primary(&workspace_id, &target, ctx).await?;
+        let ok = workspaces.set_primary(&workspace_id, &target, ctx).await?;
+        if !ok {
+            return Err(WorkspaceError::NotFound(workspace_id));
+        }
     }
 
     Ok(workspace_id)
@@ -473,7 +479,7 @@ pub async fn add_workspace_repo(
 
     let placement_id = format!("wsr_{}", uuid::Uuid::new_v4());
     let position = req.position.unwrap_or(existing.len() as i32);
-    workspaces
+    let added = workspaces
         .add_repo(
             &WorkspaceRepo {
                 id: placement_id.clone(),
@@ -488,11 +494,17 @@ pub async fn add_workspace_repo(
             ctx,
         )
         .await?;
+    if !added {
+        return Err(WorkspaceError::NotFound(workspace_id));
+    }
 
     if req.is_primary == Some(true) || existing.is_empty() {
-        workspaces
+        let ok = workspaces
             .set_primary(&workspace_id, &placement_id, ctx)
             .await?;
+        if !ok {
+            return Err(WorkspaceError::NotFound(workspace_id));
+        }
     }
     workspaces.refresh_kind(&workspace_id, ctx).await?;
 
@@ -520,9 +532,12 @@ pub async fn remove_workspace_repo(
     // primary: promote the next-best remaining placement.
     let repos = workspaces.find_repos(&workspace_id).await?;
     if !repos.is_empty() && !repos.iter().any(|r| r.is_primary) {
-        workspaces
+        let ok = workspaces
             .set_primary(&workspace_id, &repos[0].id, ctx)
             .await?;
+        if !ok {
+            return Err(WorkspaceError::NotFound(workspace_id));
+        }
     }
 
     Ok(())
@@ -852,6 +867,150 @@ mod tests {
             &ctx(true),
             "ws_1".to_string(),
             scope_request(Scope::User),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, WorkspaceError::NotFound(id) if id == "ws_1"));
+    }
+
+    /// A caller who may read a workspace but not control it is refused when
+    /// adding a repository placement.
+    ///
+    /// `add_repo`'s `control_filter` matches no row for them, which used to
+    /// reach the handler as success and answer `200` with nothing added.
+    #[tokio::test]
+    async fn an_add_repo_outside_the_callers_control_scope_is_refused() {
+        let mut workspaces = MockWorkspaceDao::new();
+        workspaces
+            .expect_find_by_id()
+            .returning(|_, _| Ok(Some(workspace_with_source(WorkspaceSource::Manual))));
+        workspaces.expect_find_repos().returning(|_| Ok(vec![]));
+        workspaces.expect_add_repo().returning(|_, _| Ok(false));
+
+        let mut repositories = MockRepositoryDao::new();
+        repositories
+            .expect_find_by_id()
+            .returning(|id, _| Ok(Some(repository(id, Scope::User))));
+
+        let err = add_workspace_repo(
+            &workspaces,
+            &repositories,
+            &ctx(true),
+            "ws_1".to_string(),
+            AddRepoRequest {
+                repository_id: "repo".to_string(),
+                branch: None,
+                mount_name: None,
+                is_primary: None,
+                position: None,
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, WorkspaceError::NotFound(id) if id == "ws_1"));
+    }
+
+    fn create_request(repos: Vec<WorkspaceRepoInput>) -> CreateWorkspaceRequest {
+        CreateWorkspaceRequest {
+            name: "w".to_string(),
+            description: None,
+            icon: None,
+            scope: None,
+            run_as_user_id: None,
+            docker_image: None,
+            docker_access: None,
+            sandbox_service_account: None,
+            system_prompt: None,
+            setup_commands: None,
+            env_vars: None,
+            scripts: None,
+            resources: None,
+            network_profile: None,
+            node_selector: None,
+            default_model: None,
+            default_effort: None,
+            repos,
+        }
+    }
+
+    /// A placement insert that reports no match (an inserted row's own
+    /// `control_filter` cannot fail in practice, but the return is checked
+    /// like every other DAO write) fails the whole creation rather than
+    /// leaving a half-populated Workspace reported as a success.
+    #[tokio::test]
+    async fn a_create_whose_placement_insert_reports_no_match_is_refused() {
+        let mut workspaces = MockWorkspaceDao::new();
+        workspaces.expect_insert_workspace().returning(|_| Ok(()));
+        workspaces.expect_add_repo().returning(|_, _| Ok(false));
+
+        let mut repositories = MockRepositoryDao::new();
+        repositories
+            .expect_find_by_id()
+            .returning(|id, _| Ok(Some(repository(id, Scope::User))));
+
+        let err = create_workspace(
+            &workspaces,
+            &repositories,
+            &MockUserResolver::new(),
+            &ctx(true),
+            create_request(vec![input(None)]),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, WorkspaceError::NotFound(_)));
+    }
+
+    /// Electing a primary placement is checked the same way as inserting one.
+    #[tokio::test]
+    async fn a_create_whose_primary_election_reports_no_match_is_refused() {
+        let mut workspaces = MockWorkspaceDao::new();
+        workspaces.expect_insert_workspace().returning(|_| Ok(()));
+        workspaces.expect_add_repo().returning(|_, _| Ok(true));
+        workspaces
+            .expect_set_primary()
+            .returning(|_, _, _| Ok(false));
+
+        let mut repositories = MockRepositoryDao::new();
+        repositories
+            .expect_find_by_id()
+            .returning(|id, _| Ok(Some(repository(id, Scope::User))));
+
+        let err = create_workspace(
+            &workspaces,
+            &repositories,
+            &MockUserResolver::new(),
+            &ctx(true),
+            create_request(vec![input(None)]),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, WorkspaceError::NotFound(_)));
+    }
+
+    /// Promoting the next-best placement after a removal is checked the same
+    /// way as the removal itself.
+    #[tokio::test]
+    async fn a_remove_whose_primary_promotion_reports_no_match_is_refused() {
+        let mut workspaces = MockWorkspaceDao::new();
+        workspaces
+            .expect_find_by_id()
+            .returning(|_, _| Ok(Some(workspace_with_source(WorkspaceSource::Manual))));
+        workspaces
+            .expect_remove_repo()
+            .returning(|_, _, _| Ok(true));
+        workspaces.expect_refresh_kind().returning(|_, _| Ok(()));
+        workspaces
+            .expect_find_repos()
+            .returning(|_| Ok(vec![placement("r_remaining")]));
+        workspaces
+            .expect_set_primary()
+            .returning(|_, _, _| Ok(false));
+
+        let err = remove_workspace_repo(
+            &workspaces,
+            &ctx(true),
+            "ws_1".to_string(),
+            "wsr_removed".to_string(),
         )
         .await
         .unwrap_err();

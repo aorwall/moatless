@@ -145,8 +145,15 @@ bash scripts/shadow/up.sh          # sync env -> build -> run backend on :8080, 
   `http://localhost:5733,http://127.0.0.1:5733`. Widening it here touches only
   the shadow; the real backend's allowlist is untouched.
 - **Extra overrides:** drop `KEY=value` lines in
-  `/opt/moatless/data/shadow/overrides.env` (e.g. `RUST_LOG=debug`); they win over
-  the synced values.
+  `$RUNTIME_DIR/shadow/overrides.env` (e.g. `RUST_LOG=debug`); they win over
+  the synced values. `sync-env.sh` falls back to the old
+  `/opt/moatless/data/shadow/overrides.env` with a warning if the `RUNTIME_DIR`
+  file is absent — move an existing override file there, since `DATA_DIR` is
+  the shared-data volume and the fallback is for one release only.
+  `RUNTIME_DIR` (default `/run/moatless`) may be `tmpfs`, so a hand-written
+  `overrides.env` there might not survive a sandbox restart the way a
+  regenerated `backend.env` does — keep a copy outside the sandbox if you'd
+  otherwise have to retype it.
 
 **Limit:** with the default `moatless-sandbox` SA the shadow backend can serve the
 whole API (auth, tasks, repos, messages, SSE, read-only K8s) but **cannot create

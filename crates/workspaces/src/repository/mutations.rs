@@ -3,7 +3,9 @@ use super::error::RepositoryError;
 use super::models::Repository;
 use super::models::RepositoryPatch;
 use super::schemas::{CreateRepositoryRequest, UpdateRepositoryRequest};
-use crate::repository::remote::{ensure_no_provider_mismatch, normalize_remote_url};
+use crate::repository::remote::{
+    ensure_no_provider_mismatch, ensure_remote_url_scheme_allowed, normalize_remote_url,
+};
 use crate::workspace::git_sync::{GitSyncService, SyncForce, log_workspace_sync_for};
 use moatless_core::db::DbPool;
 use moatless_types::access_control::{Scope, ScopeContext, resolve_scope_for_create};
@@ -55,6 +57,7 @@ pub async fn create_repository(
     let scope_ctx = ctx;
 
     if let Some(remote_url) = req.remote_url.as_deref() {
+        ensure_remote_url_scheme_allowed(remote_url)?;
         ensure_no_provider_mismatch(req.provider, remote_url)?;
     }
 
@@ -151,6 +154,10 @@ pub async fn update_repository(
         .remote_url
         .clone()
         .or_else(|| existing.remote.as_ref().map(|remote| remote.url.clone()));
+
+    if let Some(remote_url) = req.remote_url.as_deref() {
+        ensure_remote_url_scheme_allowed(remote_url)?;
+    }
 
     // Either half may be patched alone, so the check reads the pair the row
     // ends up holding rather than the one the request carried. A patch sending

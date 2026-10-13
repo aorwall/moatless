@@ -18,8 +18,8 @@ use crate::repository::config_reader::fetch_provider_file;
 use crate::repository::dao::RepositoryDao;
 use crate::repository::error::{RepositoryError, is_remote_url_conflict};
 use crate::repository::models::Repository;
-use crate::repository::remote::normalize_remote_url;
 use crate::repository::remote::require_host_repo;
+use crate::repository::remote::{ensure_remote_url_scheme_allowed, normalize_remote_url};
 use crate::workspace::config_validation::validate_non_secret_env_vars;
 use crate::workspace::dao::WorkspaceDao;
 use crate::workspace::models::WorkspacePatch;
@@ -739,6 +739,7 @@ impl GitSyncService {
         let provider = source_repo.provider.ok_or_else(|| {
             RepositoryError::BadRequest("Source repository has no declared git host".to_string())
         })?;
+        ensure_remote_url_scheme_allowed(url)?;
         let key = normalize_remote_url(url);
 
         if let Some(existing) = self
