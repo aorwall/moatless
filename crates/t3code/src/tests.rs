@@ -8,8 +8,6 @@ use crate::dao::ConversationDao;
 use crate::dao::MockConversationDao;
 use crate::handlers::origin_allowed;
 use crate::handlers::origin_checked;
-use crate::listing::UiRpcEnvironmentIdentity;
-use crate::listing::UiRpcListingHead;
 use crate::observability;
 use crate::ports;
 use crate::preview::PreviewState;
@@ -53,6 +51,8 @@ use axum::http::header;
 use axum::response::Response;
 use chrono::{DateTime, Utc};
 use moatless_core::change_feed::conversation::ConversationHead;
+use moatless_core::change_feed::listing::EnvironmentIdentity;
+use moatless_core::change_feed::listing::ListingHead;
 use moatless_identity::auth::pairing::DevicePairing;
 use moatless_identity::auth::pairing::{
     PairedDevice, PairingApiKeyIssuer, PairingCode, PairingError, device_pairing_over, hash_key,

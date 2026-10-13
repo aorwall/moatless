@@ -3,10 +3,10 @@
 use std::sync::Arc;
 
 use crate::dao::ConversationDao;
-use crate::listing::UiRpcListingHead;
 use crate::state::UiRpcDbPool;
 use crate::task_dao::T3TaskDao;
 use crate::workspace_listing::WorkspaceListing;
+use moatless_core::change_feed::listing::ListingHead;
 
 /// The three projections and the pool behind them.
 ///
@@ -37,7 +37,7 @@ impl T3Reads {
 
     /// Where the shell change log stands, and which database allocated the
     /// positions on it.
-    pub async fn listing_head(&self) -> Result<UiRpcListingHead, sqlx::Error> {
+    pub async fn listing_head(&self) -> Result<ListingHead, sqlx::Error> {
         self.conversations.listing_head().await
     }
 
@@ -86,10 +86,10 @@ mod refusal {
     use crate::dao::{
         ArchiveCursor, Conversation, ConversationBrowse, ConversationMatch, InteractiveCall,
     };
-    use crate::listing::UiRpcListingChange;
     use crate::transcript_dao::Transcript;
     use async_trait::async_trait;
     use moatless_core::change_feed::conversation::{ConversationChange, ConversationHead};
+    use moatless_core::change_feed::listing::ListingChange;
     use moatless_types::access_control::ScopeContext;
     use std::collections::HashMap;
 
@@ -135,7 +135,7 @@ mod refusal {
             &self,
             after: i64,
             limit: i64,
-        ) -> Result<Vec<UiRpcListingChange>, sqlx::Error> {
+        ) -> Result<Vec<ListingChange>, sqlx::Error> {
             self.conversations.listing_changes_after(after, limit).await
         }
     }
@@ -269,7 +269,7 @@ mod refusal {
             self.0.interactive_call(task_id, tool_use_id).await
         }
 
-        async fn listing_head(&self) -> Result<UiRpcListingHead, sqlx::Error> {
+        async fn listing_head(&self) -> Result<ListingHead, sqlx::Error> {
             self.0.listing_head().await
         }
 
@@ -277,7 +277,7 @@ mod refusal {
             &self,
             after: i64,
             limit: i64,
-        ) -> Result<Vec<UiRpcListingChange>, sqlx::Error> {
+        ) -> Result<Vec<ListingChange>, sqlx::Error> {
             self.0.listing_changes_after(after, limit).await
         }
     }

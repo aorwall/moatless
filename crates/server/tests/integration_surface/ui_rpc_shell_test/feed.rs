@@ -4,10 +4,10 @@
 use super::contract::{assert_decodable_item, assert_decodable_upsert};
 use super::harness::{defaults, reads};
 use chrono::Utc;
+use moatless_core::change_feed::listing::EnvironmentIdentity;
 use moatless_core::change_feed::listing::record_change;
 use moatless_t3code::OrchestrationProtocol;
 use moatless_t3code::ShellFeed;
-use moatless_t3code::listing::UiRpcEnvironmentIdentity;
 use moatless_t3code::shell_snapshot;
 use moatless_t3code::shell_subscription;
 use moatless_tasks::task_turn::models::TurnStateEvent;
@@ -125,7 +125,7 @@ pub(super) async fn reconnect(
 /// database underneath changes — the process and its clients don't.
 pub(super) async fn reconnect_to(
     pool: &PgPool,
-    environment: &UiRpcEnvironmentIdentity,
+    environment: &EnvironmentIdentity,
     viewer: &ScopeContext,
     after: Option<i64>,
 ) -> (Vec<Value>, ShellFeed) {

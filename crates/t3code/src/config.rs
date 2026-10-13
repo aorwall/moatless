@@ -1,4 +1,4 @@
-use crate::listing::UiRpcEnvironmentIdentity;
+use moatless_core::change_feed::listing::EnvironmentIdentity;
 use moatless_types::agent::Harness;
 use moatless_types::auth::AllowedOrigin;
 
@@ -74,13 +74,12 @@ impl AgentModelDefaults {
     }
 }
 
-/// The identity this deployment presents: a configured name plus a digest of
-/// the database behind it — two deployments sharing a database are one
-/// environment.
+/// This deployment's identity: a configured name plus a digest of its
+/// database, so two deployments sharing a database are one environment.
 ///
-/// Cached per environment and read once per page load; [`task_listing::resume`]
+/// Read once per page load; [`resume`](moatless_core::change_feed::listing::resume)
 /// and [`ShellFeed::poll`](feed::ShellFeed::poll) guard a mismatch mid-session.
-pub(crate) fn environment_id(identity: &UiRpcEnvironmentIdentity) -> String {
+pub(crate) fn environment_id(identity: &EnvironmentIdentity) -> String {
     format!("{T3_ENVIRONMENT_NAME}-{}", identity.digest())
 }
 

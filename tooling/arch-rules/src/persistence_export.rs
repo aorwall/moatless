@@ -409,13 +409,6 @@ pub const CONCERNS: &[Concern] = &[
         slice: 17,
     },
     Concern {
-        name: "t3 listing projection",
-        owner: "moatless-t3code",
-        roots: &["crates/t3code/src/listing/dao"],
-        tables: &[],
-        slice: 17,
-    },
-    Concern {
         name: "t3 usage projection",
         owner: "moatless-t3code",
         roots: &["crates/t3code/src/usage/dao"],

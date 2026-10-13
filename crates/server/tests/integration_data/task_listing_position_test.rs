@@ -308,6 +308,45 @@ async fn a_committed_mutation_carries_its_record_with_it(pool: PgPool) {
     assert_eq!(current_position(&pool).await.unwrap(), 1);
 }
 
+/// A child's change is read as its parent's too, at the next position: the
+/// shell stream drops an event whose sequence repeats. A peer is not a parent.
+#[sqlx::test]
+async fn a_childs_change_is_read_for_its_parent(pool: PgPool) {
+    for task_id in ["parent", "child", "peer"] {
+        moatless_tasks::task::test_support::seed_task(&pool, &make_task_row(task_id, USER_1))
+            .await
+            .unwrap();
+    }
+    sqlx::query(
+        "INSERT INTO task_relations (id, from_task_id, to_task_id, relation_type, context)
+         VALUES ('child->parent', 'child', 'parent', 'created_by', '{}'),
+                ('child->peer', 'child', 'peer', 'related_to', '{}')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let start = current_position(&pool).await.unwrap();
+
+    let mut tx = pool.begin().await.unwrap();
+    let position = record_change(&mut tx, "child").await.unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(current_position(&pool).await.unwrap(), position + 1);
+
+    let read: Vec<(i64, String)> = changes_after(&pool, start, 1000)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|change| (change.position, change.task_id))
+        .collect();
+    assert_eq!(
+        read,
+        vec![
+            (position, "child".to_string()),
+            (position + 1, "parent".to_string())
+        ]
+    );
+}
+
 /// Workspace state is snapshot-owned. Creating, updating, deleting, or
 /// tombstoning one must not consume a Task-listing position.
 #[sqlx::test]

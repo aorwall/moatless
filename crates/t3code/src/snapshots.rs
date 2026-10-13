@@ -5,13 +5,13 @@ use crate::dao::Conversation;
 use crate::dao::ConversationBrowse;
 use crate::dao::ConversationDao;
 use crate::lineage;
-use crate::listing::UiRpcEnvironmentIdentity;
 use crate::ports::TaskRelationSource;
 use crate::projection;
 use crate::reads::T3Reads;
 use crate::state::Deployment;
 use crate::transcript_dao::Transcript;
 use moatless_core::change_feed::conversation::ConversationHead;
+use moatless_core::change_feed::listing::EnvironmentIdentity;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::task::TaskRelationType;
 use serde_json::Value;
@@ -331,7 +331,7 @@ pub struct ThreadSnapshot {
 pub struct ShellSnapshot {
     pub value: Value,
     pub sequence: i64,
-    pub identity: UiRpcEnvironmentIdentity,
+    pub identity: EnvironmentIdentity,
 }
 
 /// The workspace root a file request addresses.

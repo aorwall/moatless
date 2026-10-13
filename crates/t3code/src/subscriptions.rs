@@ -1,9 +1,6 @@
 use crate::config::AgentModelDefaults;
 use crate::config::OrchestrationProtocol;
 use crate::feed;
-use crate::listing;
-use crate::listing::UiRpcEnvironmentIdentity;
-use crate::listing::UiRpcResume;
 use crate::reads::T3Reads;
 use crate::snapshots::shell_snapshot_in;
 use crate::snapshots::thread_snapshot;
@@ -13,6 +10,8 @@ use feed::ShellFeed;
 use feed::ThreadFeed;
 use moatless_core::change_feed::conversation::Resume;
 use moatless_core::change_feed::conversation::resume;
+use moatless_core::change_feed::listing;
+use moatless_core::change_feed::listing::EnvironmentIdentity;
 use moatless_types::access_control::ScopeContext;
 use serde_json::Value;
 use serde_json::json;
@@ -166,7 +165,7 @@ pub async fn shell_subscription(
     reads: &T3Reads,
     model_defaults: &AgentModelDefaults,
     viewer: &ScopeContext,
-    environment: &UiRpcEnvironmentIdentity,
+    environment: &EnvironmentIdentity,
     after: Option<i64>,
     protocol: OrchestrationProtocol,
 ) -> Result<ShellSubscription, sqlx::Error> {
@@ -175,10 +174,10 @@ pub async fn shell_subscription(
     let head = conversations.listing_head().await?;
     let resume = match after {
         Some(after) => listing::resume(environment, &head.identity, head.position, after),
-        None => UiRpcResume::Rebuild,
+        None => listing::Resume::Rebuild,
     };
     match resume {
-        UiRpcResume::From(cursor) => {
+        listing::Resume::From(cursor) => {
             // Positioned, holding nothing it may take back, and grouping by the
             // projects this viewer can read. See `resume_grouping`.
             let grouping = resume_grouping(workspaces, viewer).await?;
@@ -194,7 +193,7 @@ pub async fn shell_subscription(
             );
             Ok(ShellSubscription { values, feed })
         }
-        UiRpcResume::Rebuild => {
+        listing::Resume::Rebuild => {
             let snapshot = shell_snapshot_in(reads, model_defaults, viewer, protocol).await?;
             if let Some(after) = after {
                 info!(

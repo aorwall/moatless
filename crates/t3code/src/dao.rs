@@ -21,10 +21,10 @@ use tracing::warn;
 use crate::UiRpcDbPool;
 pub use crate::archive_cursor::ArchiveCursor;
 pub use crate::conversation_agent::ConversationAgent;
-use crate::listing::{UiRpcListingChange, UiRpcListingHead};
 use crate::task_dao::{T3TaskDao, TaskView};
 use crate::transcript_dao::Transcript;
 use moatless_core::change_feed::conversation::{ConversationChange, ConversationHead};
+use moatless_core::change_feed::listing::{ListingChange, ListingHead};
 use moatless_ports::activity::ActivitySource;
 use moatless_types::access_control::{ScopeContext, ScopedEntity};
 use moatless_types::activity::{PLAN_TOOL, QUESTION_TOOL};
@@ -439,14 +439,14 @@ pub trait ConversationDao: Send + Sync {
 
     /// The highest listing position this deployment has reached, and the
     /// identity of the database it reached it in.
-    async fn listing_head(&self) -> Result<UiRpcListingHead, sqlx::Error>;
+    async fn listing_head(&self) -> Result<ListingHead, sqlx::Error>;
 
     /// Every listing change recorded after `after`, oldest first.
     async fn listing_changes_after(
         &self,
         after: i64,
         limit: i64,
-    ) -> Result<Vec<UiRpcListingChange>, sqlx::Error>;
+    ) -> Result<Vec<ListingChange>, sqlx::Error>;
 }
 
 /// A full shell snapshot is a deployment-sized read with no pagination in
@@ -1413,16 +1413,16 @@ impl ConversationDao for PgConversationDao {
         crate::transcript_dao::settled_turns(&self.pool, task_id, above, limit).await
     }
 
-    async fn listing_head(&self) -> Result<UiRpcListingHead, sqlx::Error> {
-        crate::listing::current_head(&self.pool).await
+    async fn listing_head(&self) -> Result<ListingHead, sqlx::Error> {
+        moatless_core::change_feed::listing::current_head(&self.pool).await
     }
 
     async fn listing_changes_after(
         &self,
         after: i64,
         limit: i64,
-    ) -> Result<Vec<UiRpcListingChange>, sqlx::Error> {
-        crate::listing::changes_after(&self.pool, after, limit).await
+    ) -> Result<Vec<ListingChange>, sqlx::Error> {
+        moatless_core::change_feed::listing::changes_after(&self.pool, after, limit).await
     }
 }
 #[cfg(all(test, feature = "db-tests"))]

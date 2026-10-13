@@ -636,8 +636,8 @@ pub(super) fn conversations(found: Option<Conversation>) -> MockConversationDao 
     dao.expect_controls_conversation()
         .returning(|_, _| Ok(true));
     dao.expect_listing_head().returning(|| {
-        Ok(UiRpcListingHead {
-            identity: UiRpcEnvironmentIdentity::new("test"),
+        Ok(ListingHead {
+            identity: EnvironmentIdentity::new("test"),
             position: 42,
         })
     });

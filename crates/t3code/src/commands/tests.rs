@@ -2,9 +2,9 @@
 
 use super::*;
 use crate::dao::{InteractiveCall, MockConversationDao};
-use crate::listing::{UiRpcEnvironmentIdentity, UiRpcListingHead};
 use crate::ports::MockWorkspaceScriptCommands;
 use async_trait::async_trait;
+use moatless_core::change_feed::listing::{EnvironmentIdentity, ListingHead};
 use moatless_types::agent::AgentProfile;
 use std::sync::Mutex;
 

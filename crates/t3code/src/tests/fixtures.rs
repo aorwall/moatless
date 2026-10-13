@@ -6,8 +6,8 @@ use super::*;
 /// The stub's database. Every read in these tests reports it, so nothing here
 /// exercises the identity guard — that needs two real databases, and is in
 /// `backend/tests/integration_surface/ui_rpc_shell_test.rs`.
-pub(super) fn stub_identity() -> UiRpcEnvironmentIdentity {
-    UiRpcEnvironmentIdentity::new("7667539899605483559:16384")
+pub(super) fn stub_identity() -> EnvironmentIdentity {
+    EnvironmentIdentity::new("7667539899605483559:16384")
 }
 
 /// A deployment whose Sandboxes are all unreachable. Every request is refused
@@ -632,7 +632,7 @@ pub(super) fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore
         .expect_can_read_conversation()
         .returning(|_, _| Ok(false));
     conversations.expect_listing_head().returning(|| {
-        Ok(UiRpcListingHead {
+        Ok(ListingHead {
             identity: stub_identity(),
             position: 0,
         })

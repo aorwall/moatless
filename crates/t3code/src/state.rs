@@ -1,6 +1,5 @@
 use crate::config::AgentModelDefaults;
 use crate::config::UiRpcConfig;
-use crate::listing::UiRpcEnvironmentIdentity;
 use crate::observability;
 use crate::ports;
 use crate::preview::PreviewState;
@@ -9,6 +8,7 @@ use crate::sandbox::SandboxState;
 use crate::scripts::ScriptsState;
 use crate::subtasks::SubtasksState;
 use crate::terminal;
+use moatless_core::change_feed::listing::EnvironmentIdentity;
 use moatless_identity::auth::pairing::DevicePairing;
 use moatless_ports::sandbox::WorkspaceSnapshotSource;
 use sandbox_proto::client::SandboxConnector;
@@ -21,8 +21,9 @@ pub(crate) struct UiRpcState {
     pub(crate) rpc: Arc<UiRpcConfig>,
     /// The database this process started against, and therefore the database
     /// every position it has handed out was allocated in. Compared against what
-    /// the database says it is on each resume; see [`task_listing::resume`].
-    pub(crate) environment: Arc<UiRpcEnvironmentIdentity>,
+    /// the database says it is on each resume; see
+    /// [`resume`](moatless_core::change_feed::listing::resume).
+    pub(crate) environment: Arc<EnvironmentIdentity>,
     pub(crate) session_cookie_name: Arc<str>,
     /// This deployment's own web address, for the one link this module builds —
     /// a Task origin's link back into the Moatless UI.

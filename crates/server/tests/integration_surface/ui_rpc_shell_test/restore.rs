@@ -9,9 +9,9 @@ use super::harness::{head, mounted_router, reads, thread_ids, viewer};
 use super::seeding::{seed_live_project, seed_task};
 use crate::common::body_json;
 use axum::http::StatusCode;
-use moatless_t3code::listing::UiRpcEnvironmentIdentity;
-use moatless_t3code::listing::UiRpcResume;
-use moatless_t3code::listing::resume;
+use moatless_core::change_feed::listing::EnvironmentIdentity;
+use moatless_core::change_feed::listing::Resume;
+use moatless_core::change_feed::listing::resume;
 use serde_json::Value;
 use sqlx::AssertSqlSafe;
 use sqlx::PgPool;
@@ -98,7 +98,7 @@ pub(super) async fn back_up_and_restore(pool: PgPool) -> RestoredDatabase {
 }
 
 /// The cluster and the database a pool is connected to, read straight from
-/// Postgres rather than through [`UiRpcEnvironmentIdentity`], so a test can say
+/// Postgres rather than through [`EnvironmentIdentity`], so a test can say
 /// which half of the identity it is exercising.
 async fn cluster_and_oid(pool: &PgPool) -> (String, i64) {
     sqlx::query_as(
@@ -166,7 +166,7 @@ async fn the_environment_identity_is_stable_and_names_one_database(pool: PgPool)
     // at 16,384 everywhere, hiding a restore onto a fresh server.
     assert_eq!(
         head(origin).await.identity,
-        UiRpcEnvironmentIdentity::new(format!("{origin_cluster}:{origin_oid}")),
+        EnvironmentIdentity::new(format!("{origin_cluster}:{origin_oid}")),
         "the identity is no longer the cluster's system identifier and the \
          database's OID"
     );
@@ -365,7 +365,7 @@ async fn a_restored_backup_reissuing_positions_is_caught_by_the_identity_guard(p
     //    the identity.
     assert_eq!(
         resume(&now.identity, &now.identity, now.position, held),
-        UiRpcResume::From(held),
+        Resume::From(held),
         "the premise failed: a guard other than the identity already refuses \
          this cursor, so this test is not about the identity guard"
     );

@@ -11,7 +11,7 @@ use super::contract::{assert_decodable_snapshot_item, assert_decodable_upsert};
 use super::feed::{ingress, one_row, other_peoples_work, reconnect, recorded_after, start_turn};
 use super::harness::{reads, viewer};
 use super::seeding::{seed_live_project, seed_task};
-use moatless_t3code::listing::RESUME_WINDOW;
+use moatless_core::change_feed::listing::RESUME_WINDOW;
 use sqlx::PgPool;
 
 /// Acceptance criterion 1: away briefly, things happened, and the client's list

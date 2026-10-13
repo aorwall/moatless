@@ -7,6 +7,7 @@ use crate::common::test_app_state;
 use chrono::DateTime;
 use chrono::Utc;
 use moatless_backend::t3code::backend as t3code_backend;
+use moatless_core::change_feed::listing::ListingHead;
 use moatless_ports::sandbox::ClusterDiagnostics;
 use moatless_ports::sandbox::ContractSandboxStatus;
 use moatless_ports::sandbox::LiveStatus;
@@ -25,7 +26,6 @@ use moatless_t3code::UiRpcAuthIdentity;
 use moatless_t3code::UiRpcDependencies;
 use moatless_t3code::UserRole;
 use moatless_t3code::archived_shell_snapshot;
-use moatless_t3code::listing::UiRpcListingHead;
 use moatless_t3code::shell_snapshot;
 use moatless_t3code::thread_shell;
 use moatless_tasks::task::models::SandboxDesiredState;
@@ -364,6 +364,6 @@ pub(super) fn parse(value: &Value) -> DateTime<Utc> {
         .with_timezone(&Utc)
 }
 
-pub(super) async fn head(pool: &PgPool) -> UiRpcListingHead {
+pub(super) async fn head(pool: &PgPool) -> ListingHead {
     reads(pool).listing_head().await.unwrap()
 }

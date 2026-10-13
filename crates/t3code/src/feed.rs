@@ -15,8 +15,8 @@ use tracing::{debug, warn};
 use super::{AgentModelDefaults, projection};
 use crate::config::OrchestrationProtocol;
 use crate::dao::ConversationDao;
-use crate::listing::UiRpcEnvironmentIdentity;
 use crate::reads::T3Reads;
+use moatless_core::change_feed::listing::EnvironmentIdentity;
 use moatless_types::access_control::ScopeContext;
 
 use crate::transcript_dao::Transcript;
@@ -37,7 +37,7 @@ const CHANGES_PER_POLL: i64 = 500;
 /// The cursor moves over records, not delivered events, and travels with the
 /// database identity; all four fields move together.
 pub struct ShellFeed {
-    identity: UiRpcEnvironmentIdentity,
+    identity: EnvironmentIdentity,
     cursor: i64,
     threads: HashSet<String>,
     grouped: HashSet<String>,
@@ -51,7 +51,7 @@ impl ShellFeed {
     ///
     /// The removable set stays empty deliberately: a fresh read would miss rows
     /// that left while the client was away.
-    pub fn resuming_from(identity: UiRpcEnvironmentIdentity, position: i64) -> Self {
+    pub fn resuming_from(identity: EnvironmentIdentity, position: i64) -> Self {
         Self {
             identity,
             cursor: position,
