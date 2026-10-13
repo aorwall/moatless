@@ -268,45 +268,14 @@ pub struct ForgejoHostQuery {
     pub host: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ForgejoInstanceSummary {
-    pub host: String,
-    pub client_id: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ForgejoInstancesResponse {
-    pub instances: Vec<ForgejoInstanceSummary>,
-}
-
 /// Every registered instance, each carrying the caller's own connection to it.
 ///
-/// Not [`ForgejoInstancesResponse`], the admin view that names a `client_id`.
+/// Not an admin-only view that names a `client_id`: `GET /api/v1/admin/settings/apps`
+/// owns that (`moatless_api_schemas::provider_apps::ProviderAppsResponse`).
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ForgejoConnectionsResponse {
     pub instances: Vec<ForgejoProviderTokenStatusResponse>,
-}
-
-#[derive(Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct RegisterForgejoInstanceRequest {
-    pub client_id: String,
-    /// Sealed under the instance row's id before it is stored, and never
-    /// returned by any read path afterwards.
-    pub client_secret: String,
-}
-
-impl std::fmt::Debug for RegisterForgejoInstanceRequest {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RegisterForgejoInstanceRequest")
-            .field("client_id", &self.client_id)
-            .field("client_secret", &"[REDACTED]")
-            .finish()
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
@@ -325,86 +294,6 @@ pub struct AdapterAppSummary {
 #[serde(rename_all = "camelCase")]
 pub struct AdapterAppsResponse {
     pub apps: Vec<AdapterAppSummary>,
-}
-
-#[derive(Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct SaveSlackAdapterAppRequest {
-    pub bot_token: String,
-    pub signing_secret: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bot_user_id: Option<String>,
-}
-
-impl std::fmt::Debug for SaveSlackAdapterAppRequest {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SaveSlackAdapterAppRequest")
-            .field("bot_token", &"[REDACTED]")
-            .field("signing_secret", &"[REDACTED]")
-            .field("bot_user_id", &self.bot_user_id)
-            .finish()
-    }
-}
-
-#[derive(Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct SaveTelegramAdapterAppRequest {
-    pub bot_token: String,
-    #[serde(default)]
-    pub mode: Option<String>,
-}
-
-impl std::fmt::Debug for SaveTelegramAdapterAppRequest {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SaveTelegramAdapterAppRequest")
-            .field("bot_token", &"[REDACTED]")
-            .field("mode", &self.mode)
-            .finish()
-    }
-}
-
-#[derive(Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct SaveLinearAdapterAppRequest {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub webhook_secret: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub oauth_client_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub oauth_client_secret: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub oauth_callback_url: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub api_base_url: Option<String>,
-}
-
-impl std::fmt::Debug for SaveLinearAdapterAppRequest {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SaveLinearAdapterAppRequest")
-            .field(
-                "webhook_secret",
-                &self.webhook_secret.as_ref().map(|_| "[REDACTED]"),
-            )
-            .field(
-                "oauth_client_id",
-                &self.oauth_client_id.as_ref().map(|_| "[REDACTED]"),
-            )
-            .field(
-                "oauth_client_secret",
-                &self.oauth_client_secret.as_ref().map(|_| "[REDACTED]"),
-            )
-            .field("oauth_callback_url", &self.oauth_callback_url)
-            .field("api_base_url", &self.api_base_url)
-            .finish()
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(tag = "adapterKind", rename_all = "snake_case")]
-pub enum SaveAdapterAppRequest {
-    Slack(SaveSlackAdapterAppRequest),
-    Telegram(SaveTelegramAdapterAppRequest),
-    Linear(SaveLinearAdapterAppRequest),
 }
 
 #[cfg(test)]
@@ -434,16 +323,6 @@ mod tests {
                     }
                 ),
                 "forgejo-plaintext",
-            ),
-            (
-                format!(
-                    "{:?}",
-                    RegisterForgejoInstanceRequest {
-                        client_id: "forgejo-client".to_string(),
-                        client_secret: "forgejo-app-plaintext".to_string(),
-                    }
-                ),
-                "forgejo-app-plaintext",
             ),
             (
                 format!(

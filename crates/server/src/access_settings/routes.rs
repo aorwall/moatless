@@ -26,16 +26,11 @@ use crate::state::AppState;
         handlers::admin_save_provider_app,
         handlers::admin_remove_provider_app,
         handlers::admin_list_adapter_apps,
-        handlers::admin_save_adapter_app,
-        handlers::admin_delete_adapter_app,
         handlers::get_forgejo_config,
         handlers::list_forgejo_connections,
         handlers::save_forgejo_pat,
         handlers::delete_forgejo_pat_override,
         handlers::delete_forgejo_config,
-        handlers::admin_list_forgejo_instances,
-        handlers::admin_register_forgejo_instance,
-        handlers::admin_remove_forgejo_instance,
         handlers::get_codex_config,
         handlers::save_codex_auth,
         handlers::delete_codex_config,
@@ -71,10 +66,6 @@ pub fn access_settings_router(state: AppState) -> (axum::Router, utoipa::openapi
         ))
         .routes(routes!(handlers::admin_list_adapter_apps))
         .routes(routes!(
-            handlers::admin_save_adapter_app,
-            handlers::admin_delete_adapter_app
-        ))
-        .routes(routes!(
             handlers::get_forgejo_config,
             handlers::delete_forgejo_config
         ))
@@ -82,11 +73,6 @@ pub fn access_settings_router(state: AppState) -> (axum::Router, utoipa::openapi
         .routes(routes!(
             handlers::save_forgejo_pat,
             handlers::delete_forgejo_pat_override
-        ))
-        .routes(routes!(handlers::admin_list_forgejo_instances))
-        .routes(routes!(
-            handlers::admin_register_forgejo_instance,
-            handlers::admin_remove_forgejo_instance
         ))
         .routes(routes!(
             handlers::get_codex_config,

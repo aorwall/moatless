@@ -16,12 +16,9 @@ use moatless_api_schemas::provider_apps::{
 };
 use moatless_core::http_auth::AuthUser;
 use moatless_identity::adapter_apps::administration::{
-    AdapterAppSave, AppAdministration, GitHubAppRegistration, GitHubAppRegistrationInput,
-    GitHubAppView,
+    AppAdministration, GitHubAppRegistration, GitHubAppRegistrationInput, GitHubAppView,
 };
-use moatless_identity::forgejo::{
-    ForgejoAccess, ForgejoInstances, ForgejoProviderTokenStatus, RegisteredForgejoInstance,
-};
+use moatless_identity::forgejo::{ForgejoAccess, ForgejoInstances, ForgejoProviderTokenStatus};
 use moatless_identity::git_host_access::{
     GitHostAccess, GitHostPrincipal, GitHubProviderTokenStatus,
 };
@@ -31,16 +28,6 @@ fn principal(auth: &AuthUser) -> GitHostPrincipal {
     GitHostPrincipal {
         user_id: auth.user_id.to_string(),
         scope_context: auth.scope_context(),
-    }
-}
-
-fn require_admin(auth: &AuthUser) -> Result<(), AccessSettingsError> {
-    if auth.scope_context().is_admin {
-        Ok(())
-    } else {
-        Err(AccessSettingsError::Forbidden(
-            "Only administrators can administer Forgejo instances".to_string(),
-        ))
     }
 }
 
@@ -145,7 +132,7 @@ pub async fn get_forgejo_config(
 
 /// Lists every registered instance with the caller's own connection to each.
 ///
-/// Any signed-in caller may read this, unlike [`admin_list_forgejo_instances`],
+/// Any signed-in caller may read this, unlike [`admin_list_provider_apps`],
 /// since a hostname isn't a secret.
 #[utoipa::path(
     get,
@@ -238,88 +225,6 @@ pub async fn delete_forgejo_config(
             .disconnect(&auth.user_id.to_string(), &query.host)
             .await?,
     )))
-}
-
-#[utoipa::path(
-    get,
-    path = "/api/v1/admin/forgejo-instances",
-    tag = "app-administration",
-    responses(
-        (status = 200, description = "Registered instances", body = ForgejoInstancesResponse),
-        (status = 403, description = "Admin only", body = moatless_api_schemas::error::ErrorBody)
-    )
-)]
-pub async fn admin_list_forgejo_instances(
-    State(instances): State<Arc<ForgejoInstances>>,
-    auth: AuthUser,
-) -> Result<Json<ForgejoInstancesResponse>, AccessSettingsError> {
-    require_admin(&auth)?;
-    Ok(Json(ForgejoInstancesResponse {
-        instances: instances
-            .list()
-            .await
-            .map_err(auth_error)?
-            .into_iter()
-            .map(forgejo_instance_summary)
-            .collect(),
-    }))
-}
-
-#[utoipa::path(
-    put,
-    path = "/api/v1/admin/forgejo-instances/{host}",
-    tag = "app-administration",
-    params(("host" = String, Path, description = "The instance's hostname")),
-    request_body = RegisterForgejoInstanceRequest,
-    responses(
-        (status = 200, description = "Application registered", body = ForgejoInstanceSummary),
-        (status = 400, description = "The application cannot be stored", body = moatless_api_schemas::error::ErrorBody),
-        (status = 403, description = "Admin only", body = moatless_api_schemas::error::ErrorBody)
-    )
-)]
-pub async fn admin_register_forgejo_instance(
-    State(instances): State<Arc<ForgejoInstances>>,
-    auth: AuthUser,
-    Path(host): Path<String>,
-    Json(request): Json<RegisterForgejoInstanceRequest>,
-) -> Result<Json<ForgejoInstanceSummary>, AccessSettingsError> {
-    require_admin(&auth)?;
-    let registered = instances
-        .register(
-            &host,
-            &request.client_id,
-            &request.client_secret,
-            &auth.user_id.to_string(),
-        )
-        .await
-        .map_err(auth_error)?;
-    Ok(Json(forgejo_instance_summary(registered)))
-}
-
-#[utoipa::path(
-    delete,
-    path = "/api/v1/admin/forgejo-instances/{host}",
-    tag = "app-administration",
-    params(("host" = String, Path, description = "The instance's hostname")),
-    responses(
-        (status = 204, description = "Application removed"),
-        (status = 403, description = "Admin only", body = moatless_api_schemas::error::ErrorBody),
-        (status = 404, description = "No application is registered for that host", body = moatless_api_schemas::error::ErrorBody)
-    )
-)]
-pub async fn admin_remove_forgejo_instance(
-    State(instances): State<Arc<ForgejoInstances>>,
-    auth: AuthUser,
-    Path(host): Path<String>,
-) -> Result<axum::http::StatusCode, AccessSettingsError> {
-    require_admin(&auth)?;
-    if instances.remove(&host).await.map_err(auth_error)? {
-        Ok(axum::http::StatusCode::NO_CONTENT)
-    } else {
-        Err(AccessSettingsError::NotFound(format!(
-            "No Forgejo OAuth application is registered for {host}"
-        )))
-    }
 }
 
 #[utoipa::path(
@@ -640,66 +545,6 @@ pub async fn admin_list_adapter_apps(
 }
 
 #[utoipa::path(
-    put,
-    path = "/api/v1/admin/settings/adapter-apps/{adapter_kind}/{app_key}",
-    tag = "app-administration",
-    params(
-        ("adapter_kind" = String, Path, description = "Adapter kind"),
-        ("app_key" = String, Path, description = "Adapter app key")
-    ),
-    request_body = SaveAdapterAppRequest,
-    responses(
-        (status = 200, description = "Adapter app saved", body = AdapterAppSummary),
-        (status = 400, description = "Invalid Adapter app config", body = moatless_api_schemas::error::ErrorBody),
-        (status = 401, description = "Not authenticated", body = moatless_api_schemas::error::ErrorBody),
-        (status = 403, description = "Admin only", body = moatless_api_schemas::error::ErrorBody)
-    )
-)]
-pub async fn admin_save_adapter_app(
-    State(administration): State<Arc<AppAdministration>>,
-    auth: AuthUser,
-    Path((adapter_kind, app_key)): Path<(String, String)>,
-    Json(request): Json<SaveAdapterAppRequest>,
-) -> Result<Json<AdapterAppSummary>, AccessSettingsError> {
-    Ok(Json(adapter_app_summary(
-        administration
-            .save_adapter_app(
-                &adapter_kind,
-                &app_key,
-                adapter_app_save(request),
-                &auth.scope_context(),
-            )
-            .await?,
-    )))
-}
-
-#[utoipa::path(
-    delete,
-    path = "/api/v1/admin/settings/adapter-apps/{adapter_kind}/{app_key}",
-    tag = "app-administration",
-    params(
-        ("adapter_kind" = String, Path, description = "Adapter kind"),
-        ("app_key" = String, Path, description = "Adapter app key")
-    ),
-    responses(
-        (status = 204, description = "Adapter app deleted"),
-        (status = 400, description = "Invalid Adapter app", body = moatless_api_schemas::error::ErrorBody),
-        (status = 401, description = "Not authenticated", body = moatless_api_schemas::error::ErrorBody),
-        (status = 403, description = "Admin only", body = moatless_api_schemas::error::ErrorBody)
-    )
-)]
-pub async fn admin_delete_adapter_app(
-    State(administration): State<Arc<AppAdministration>>,
-    auth: AuthUser,
-    Path((adapter_kind, app_key)): Path<(String, String)>,
-) -> Result<axum::http::StatusCode, AccessSettingsError> {
-    administration
-        .delete_adapter_app(&auth.scope_context(), &adapter_kind, &app_key)
-        .await?;
-    Ok(axum::http::StatusCode::NO_CONTENT)
-}
-
-#[utoipa::path(
     get,
     path = "/api/v1/admin/settings/github/apps",
     tag = "app-administration",
@@ -836,14 +681,6 @@ fn forgejo_status(status: ForgejoProviderTokenStatus) -> ForgejoProviderTokenSta
     }
 }
 
-fn forgejo_instance_summary(instance: RegisteredForgejoInstance) -> ForgejoInstanceSummary {
-    ForgejoInstanceSummary {
-        host: instance.host,
-        client_id: instance.client_id,
-        updated_at: instance.updated_at.to_rfc3339(),
-    }
-}
-
 fn agent_harness_status(
     status: AgentHarnessCredentialStatus,
 ) -> CodexAgentHarnessCredentialStatusResponse {
@@ -868,27 +705,6 @@ fn adapter_app_summary(
         secret_fingerprints: app.secret_fingerprints,
         revision: app.revision,
         updated_at: app.updated_at.to_rfc3339(),
-    }
-}
-
-fn adapter_app_save(request: SaveAdapterAppRequest) -> AdapterAppSave {
-    match request {
-        SaveAdapterAppRequest::Slack(request) => AdapterAppSave::Slack {
-            bot_token: request.bot_token,
-            signing_secret: request.signing_secret,
-            bot_user_id: request.bot_user_id,
-        },
-        SaveAdapterAppRequest::Telegram(request) => AdapterAppSave::Telegram {
-            bot_token: request.bot_token,
-            mode: request.mode,
-        },
-        SaveAdapterAppRequest::Linear(request) => AdapterAppSave::Linear {
-            webhook_secret: request.webhook_secret,
-            oauth_client_id: request.oauth_client_id,
-            oauth_client_secret: request.oauth_client_secret,
-            oauth_callback_url: request.oauth_callback_url,
-            api_base_url: request.api_base_url,
-        },
     }
 }
 
