@@ -1091,3 +1091,68 @@ async fn delete_task_removes_its_tags_follows_and_receipts(pool: PgPool) {
         assert_eq!(left, 0, "{table} kept a row for the deleted task");
     }
 }
+
+/// A public Task reads and is operated by a stranger, never written by one;
+/// a private Task is none of the three to a stranger, and all three to its
+/// owner.
+#[sqlx::test]
+async fn control_and_write_narrow_the_read_rule(pool: PgPool) {
+    let owner = "user-1";
+    let stranger = "user-2";
+    seed_repo(&pool, "repo-1", owner).await;
+    seed_task(&pool, &make_task_row("task-private", owner))
+        .await
+        .unwrap();
+    let mut public = make_task_row("task-public", owner);
+    public.visibility = Visibility::Public;
+    seed_task(&pool, &public).await.unwrap();
+
+    let dao = store_over(&pool);
+    let reach = |task_id: &'static str, user: &'static str| {
+        let dao = &dao;
+        async move {
+            let ctx = scope_ctx(user);
+            (
+                dao.find_by_id(task_id, &ctx).await.unwrap().is_some(),
+                dao.find_controlled_by_id(task_id, &ctx)
+                    .await
+                    .unwrap()
+                    .is_some(),
+                dao.find_written_by_id(task_id, &ctx)
+                    .await
+                    .unwrap()
+                    .is_some(),
+            )
+        }
+    };
+    assert_eq!(reach("task-private", owner).await, (true, true, true));
+    assert_eq!(reach("task-private", stranger).await, (false, false, false));
+    assert_eq!(reach("task-public", stranger).await, (true, true, false));
+}
+
+/// The status-only read answers for exactly the Tasks the full read returns.
+#[sqlx::test]
+async fn the_readable_status_follows_the_read_rule(pool: PgPool) {
+    let owner = "user-1";
+    seed_repo(&pool, "repo-1", owner).await;
+    seed_task(&pool, &make_task_row("task-private", owner))
+        .await
+        .unwrap();
+
+    let dao = store_over(&pool);
+    let status = |user: &'static str| {
+        let dao = &dao;
+        async move {
+            dao.find_readable_status("task-private", &scope_ctx(user))
+                .await
+                .unwrap()
+        }
+    };
+    let row = dao
+        .find_by_id("task-private", &scope_ctx(owner))
+        .await
+        .unwrap()
+        .expect("the owner reads the Task");
+    assert_eq!(status(owner).await, Some(row.status));
+    assert_eq!(status("user-2").await, None);
+}

@@ -212,6 +212,7 @@ pub fn t3_graph(db: UiRpcDbPool, tasks: &TaskGraph) -> T3Graph {
         db.clone(),
         tasks.activities(),
         tasks.transcript_reads(),
+        tasks.task_reader(),
     ));
     let usage = tasks.turn_usage();
     T3Graph {

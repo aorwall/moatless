@@ -20,6 +20,7 @@ use crate::transcript::{JoinedOrigin, Transcript};
 use moatless_core::change_feed::conversation::{ConversationChange, ConversationHead};
 use moatless_core::change_feed::listing::{ListingChange, ListingHead};
 use moatless_ports::activity::ActivitySource;
+use moatless_ports::task::{TaskDescriptor, TaskReader};
 use moatless_tasks::conversation::transcript::{TranscriptEntry, TranscriptReads};
 use moatless_types::access_control::{ScopeContext, ScopedEntity};
 use moatless_types::task::TaskStatus;
@@ -29,7 +30,7 @@ pub use moatless_tasks::task_listing::{
     ListedTask as Conversation, ListingCursor as ArchiveCursor,
     ListingFilter as ConversationBrowse,
 };
-use moatless_tasks::task_listing::{LISTED_STATUSES, TaskListing, status_list};
+use moatless_tasks::task_listing::{LISTED_STATUSES, TaskListing};
 
 /// One conversation a search matched, and the text that matched in it.
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -258,6 +259,9 @@ pub struct PgConversationDao {
     activities: Arc<dyn ActivitySource>,
     transcripts: Arc<TranscriptReads>,
     listing: TaskListing,
+    /// The read, control and write rules over `tasks`, which moatless-tasks
+    /// owns.
+    tasks: Arc<dyn TaskReader>,
 }
 
 /// A published-seam read that failed, in the `sqlx::Error` the T3 DAO trait
@@ -289,12 +293,14 @@ impl PgConversationDao {
         pool: UiRpcDbPool,
         activities: Arc<dyn ActivitySource>,
         transcripts: Arc<TranscriptReads>,
+        tasks: Arc<dyn TaskReader>,
     ) -> Self {
         Self {
             listing: TaskListing::new(pool.clone()),
             pool,
             activities,
             transcripts,
+            tasks,
         }
     }
 }
@@ -306,8 +312,12 @@ impl T3TaskDao for PgConversationDao {
         task_id: &str,
         viewer: &ScopeContext,
     ) -> Result<Option<TaskView>, sqlx::Error> {
-        let access = moatless_core::db::access_control::access_filter(ScopedEntity::Task, "", 2);
-        self.task_view(task_id, viewer, &access).await
+        let task = self
+            .tasks
+            .describe(task_id, viewer)
+            .await
+            .map_err(store_read)?;
+        Ok(task.map(task_view))
     }
 
     async fn controlled_by_id(
@@ -315,8 +325,12 @@ impl T3TaskDao for PgConversationDao {
         task_id: &str,
         viewer: &ScopeContext,
     ) -> Result<Option<TaskView>, sqlx::Error> {
-        let control = moatless_core::db::access_control::control_filter(ScopedEntity::Task, "", 2);
-        self.task_view(task_id, viewer, &control).await
+        let task = self
+            .tasks
+            .controlled(task_id, viewer)
+            .await
+            .map_err(store_read)?;
+        Ok(task.map(task_view))
     }
 
     async fn written_by_id(
@@ -324,33 +338,20 @@ impl T3TaskDao for PgConversationDao {
         task_id: &str,
         viewer: &ScopeContext,
     ) -> Result<Option<TaskView>, sqlx::Error> {
-        let write = moatless_core::db::access_control::write_filter("", 2);
-        self.task_view(task_id, viewer, &write).await
+        let task = self
+            .tasks
+            .written(task_id, viewer)
+            .await
+            .map_err(store_read)?;
+        Ok(task.map(task_view))
     }
 }
 
-impl PgConversationDao {
-    /// One Task's [`TaskView`] under whichever grant the caller's filter states
-    /// — the three `T3TaskDao` reads differ only in that filter.
-    ///
-    /// `grant` must be built with `start = 2`: `task_id` takes `$1`, and the
-    /// filter's own params follow. Any other start binds the wrong positions.
-    async fn task_view(
-        &self,
-        task_id: &str,
-        viewer: &ScopeContext,
-        grant: &moatless_core::db::access_control::AccessFilter,
-    ) -> Result<Option<TaskView>, sqlx::Error> {
-        let sql = format!(
-            "SELECT status, ttl_minutes FROM tasks WHERE task_id = $1 AND {}",
-            grant.sql()
-        );
-        sqlx::query_as::<_, TaskView>(AssertSqlSafe(sql))
-            .bind(task_id)
-            .bind(viewer.is_admin)
-            .bind(&viewer.user_id)
-            .fetch_optional(&self.pool)
-            .await
+/// The two facts the sandbox and preview handlers read off a Task.
+fn task_view(task: TaskDescriptor) -> TaskView {
+    TaskView {
+        status: task.status,
+        ttl_minutes: task.ttl_minutes,
     }
 }
 
@@ -405,19 +406,12 @@ impl ConversationDao for PgConversationDao {
         viewer: &ScopeContext,
         task_id: &str,
     ) -> Result<bool, sqlx::Error> {
-        let access = moatless_core::db::access_control::access_filter(ScopedEntity::Task, "t.", 2);
-        let sql = format!(
-            "SELECT 1 FROM tasks t WHERE t.task_id = $1 AND t.status IN ({}) AND {}",
-            status_list(LISTED_STATUSES),
-            access.sql()
-        );
-        let found = sqlx::query_scalar::<_, i32>(AssertSqlSafe(sql))
-            .bind(task_id)
-            .bind(viewer.is_admin)
-            .bind(&viewer.user_id)
-            .fetch_optional(&self.pool)
-            .await?;
-        Ok(found.is_some())
+        let status = self
+            .tasks
+            .readable_status(task_id, viewer)
+            .await
+            .map_err(store_read)?;
+        Ok(status.is_some_and(|status| LISTED_STATUSES.contains(&status)))
     }
 
     async fn controls_conversation(
@@ -425,18 +419,12 @@ impl ConversationDao for PgConversationDao {
         viewer: &ScopeContext,
         task_id: &str,
     ) -> Result<bool, sqlx::Error> {
-        let control = moatless_core::db::access_control::control_filter(ScopedEntity::Task, "", 2);
-        let sql = format!(
-            "SELECT 1 FROM tasks WHERE task_id = $1 AND {}",
-            control.sql()
-        );
-        let found = sqlx::query_scalar::<_, i32>(AssertSqlSafe(sql))
-            .bind(task_id)
-            .bind(viewer.is_admin)
-            .bind(&viewer.user_id)
-            .fetch_optional(&self.pool)
-            .await?;
-        Ok(found.is_some())
+        let task = self
+            .tasks
+            .controlled(task_id, viewer)
+            .await
+            .map_err(store_read)?;
+        Ok(task.is_some())
     }
 
     async fn search_conversations(

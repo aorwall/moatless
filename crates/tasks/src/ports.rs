@@ -19,7 +19,7 @@ use moatless_ports::task::{
 use moatless_types::access_control::ScopeContext;
 use moatless_types::activity::Activity;
 use moatless_types::store::StoreError;
-use moatless_types::task::RelatedTask;
+use moatless_types::task::{RelatedTask, TaskStatus};
 
 use crate::message::dao::MessageDao;
 use crate::tag::dao::TagDao;
@@ -37,6 +37,23 @@ impl TaskProjection {
     }
 }
 
+/// The port's view of a Task row.
+fn descriptor(task: moatless_types::task::Task) -> TaskDescriptor {
+    TaskDescriptor {
+        task_id: task.task_id,
+        status: task.status,
+        name: task.name,
+        owner_user_id: task.owner_user_id,
+        workspace_id: task.workspace_id,
+        created_by: task.created_by,
+        ttl_minutes: task.ttl_minutes,
+    }
+}
+
+fn read_failed(task_id: &str) -> impl FnOnce(sqlx::Error) -> StoreError + '_ {
+    move |e| StoreError::with_source(format!("read task {task_id}"), e)
+}
+
 #[async_trait]
 impl TaskReader for TaskProjection {
     async fn describe(
@@ -48,19 +65,49 @@ impl TaskReader for TaskProjection {
             .tasks
             .find_by_id(task_id, ctx)
             .await
-            .map_err(|e| StoreError::with_source(format!("read task {task_id}"), e))?;
-        Ok(task.map(|task| TaskDescriptor {
-            task_id: task.task_id,
-            status: task.status,
-            name: task.name,
-            owner_user_id: task.owner_user_id,
-            workspace_id: task.workspace_id,
-            created_by: task.created_by,
-        }))
+            .map_err(read_failed(task_id))?;
+        Ok(task.map(descriptor))
     }
 
     async fn may_access(&self, task_id: &str, ctx: &ScopeContext) -> Result<bool, StoreError> {
-        Ok(self.describe(task_id, ctx).await?.is_some())
+        Ok(self.readable_status(task_id, ctx).await?.is_some())
+    }
+
+    async fn readable_status(
+        &self,
+        task_id: &str,
+        ctx: &ScopeContext,
+    ) -> Result<Option<TaskStatus>, StoreError> {
+        self.tasks
+            .find_readable_status(task_id, ctx)
+            .await
+            .map_err(read_failed(task_id))
+    }
+
+    async fn controlled(
+        &self,
+        task_id: &str,
+        ctx: &ScopeContext,
+    ) -> Result<Option<TaskDescriptor>, StoreError> {
+        let task = self
+            .tasks
+            .find_controlled_by_id(task_id, ctx)
+            .await
+            .map_err(read_failed(task_id))?;
+        Ok(task.map(descriptor))
+    }
+
+    async fn written(
+        &self,
+        task_id: &str,
+        ctx: &ScopeContext,
+    ) -> Result<Option<TaskDescriptor>, StoreError> {
+        let task = self
+            .tasks
+            .find_written_by_id(task_id, ctx)
+            .await
+            .map_err(read_failed(task_id))?;
+        Ok(task.map(descriptor))
     }
 }
 

@@ -1,5 +1,6 @@
 //! Task CRUD module.
 
+pub(crate) mod access_dao;
 pub mod closer;
 pub mod creation;
 pub(crate) mod dao;

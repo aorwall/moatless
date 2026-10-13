@@ -380,7 +380,7 @@ A consumer count is the number of `use` declarations naming the concern's module
 
 - **Owner:** moatless-tasks
 - **Closing slice:** 09
-- **Persistence roots:** `crates/tasks/src/task/dao.rs`, `crates/tasks/src/task/pin_dao.rs`, `crates/tasks/src/task/switch_dao.rs`, `crates/tasks/src/task_listing/listed_dao.rs`
+- **Persistence roots:** `crates/tasks/src/task/access_dao.rs`, `crates/tasks/src/task/dao.rs`, `crates/tasks/src/task/pin_dao.rs`, `crates/tasks/src/task/switch_dao.rs`, `crates/tasks/src/task_listing/listed_dao.rs`
 - **Owning tables:** `task_follows`, `task_read_receipts`, `tasks`
 - **Exports:** none
 - **Constructors:** none

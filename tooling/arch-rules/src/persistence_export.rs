@@ -242,6 +242,7 @@ pub const CONCERNS: &[Concern] = &[
         name: "task graph",
         owner: "moatless-tasks",
         roots: &[
+            "crates/tasks/src/task/access_dao",
             "crates/tasks/src/task/dao",
             "crates/tasks/src/task/pin_dao",
             "crates/tasks/src/task/switch_dao",

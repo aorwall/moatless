@@ -40,7 +40,12 @@ const USER_2: &str = "22222222-2222-2222-2222-222222222222";
 /// The read model over `pool`, with its activity seam on the same pool.
 fn conversations_over(pool: &PgPool) -> PgConversationDao {
     let tasks = moatless_tasks::compose::task_graph(pool.clone());
-    PgConversationDao::new(pool.clone(), tasks.activities(), tasks.transcript_reads())
+    PgConversationDao::new(
+        pool.clone(),
+        tasks.activities(),
+        tasks.transcript_reads(),
+        tasks.task_reader(),
+    )
 }
 
 async fn seed_task(pool: &PgPool) {

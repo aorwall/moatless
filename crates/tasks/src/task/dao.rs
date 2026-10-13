@@ -8,7 +8,7 @@ use sqlx::AssertSqlSafe;
 
 use super::models::{
     CheckoutMode, SandboxDesiredState, SandboxIntentView, SandboxPlacement, Task, TaskFilter,
-    TaskPatch, TaskRow, TaskStatus, Visibility, sandbox_intent_epoch,
+    TaskPatch, TaskStatus, Visibility, sandbox_intent_epoch,
 };
 use super::pin_dao::{self, OrderSlot};
 use moatless_core::db::DbPool;
@@ -74,6 +74,25 @@ async fn load_sandbox_intent_views(
 pub(crate) trait TaskDao: Send + Sync {
     /// Find by `task_id`, scoped to access control.
     async fn find_by_id(
+        &self,
+        task_id: &str,
+        ctx: &ScopeContext,
+    ) -> Result<Option<Task>, sqlx::Error>;
+    /// The status of the Task [`Self::find_by_id`] would return, without
+    /// reading the rest of the row.
+    async fn find_readable_status(
+        &self,
+        task_id: &str,
+        ctx: &ScopeContext,
+    ) -> Result<Option<TaskStatus>, sqlx::Error>;
+    /// Find by `task_id`, scoped to the `control_filter` rule.
+    async fn find_controlled_by_id(
+        &self,
+        task_id: &str,
+        ctx: &ScopeContext,
+    ) -> Result<Option<Task>, sqlx::Error>;
+    /// Find by `task_id`, scoped to the `write_filter` rule.
+    async fn find_written_by_id(
         &self,
         task_id: &str,
         ctx: &ScopeContext,
@@ -277,25 +296,12 @@ pub(crate) trait TaskDao: Send + Sync {
 
 /// PostgreSQL implementation of [`TaskDao`].
 pub(crate) struct PgTaskDao {
-    pool: DbPool,
+    pub(super) pool: DbPool,
 }
 
 impl PgTaskDao {
     pub(crate) fn new(pool: DbPool) -> Self {
         Self { pool }
-    }
-}
-
-/// The E-(b) session-gate port over `TaskDao`: `verify_handler` (identity)
-/// holds `Arc<dyn TaskAccess>`, not a `TaskDao`, so identity keeps no `task`
-/// import.
-#[async_trait]
-impl moatless_core::http_auth::TaskAccess for PgTaskDao {
-    async fn may_access_task(&self, task_id: &str, ctx: &ScopeContext) -> bool {
-        // `find_by_id` is already scope-filtered, so a task `ctx` cannot see
-        // returns `None`. Fail-closed on a DB error, matching the handler's prior
-        // `map_err(|_| Forbidden)`.
-        matches!(self.find_by_id(task_id, ctx).await, Ok(Some(_)))
     }
 }
 
@@ -307,17 +313,33 @@ impl TaskDao for PgTaskDao {
         ctx: &ScopeContext,
     ) -> Result<Option<Task>, sqlx::Error> {
         let access = moatless_core::db::access_control::access_filter(ScopedEntity::Task, "", 2);
-        let sql = format!(
-            "SELECT * FROM tasks WHERE task_id = $1 AND {}",
-            access.sql(),
-        );
-        let row: Option<TaskRow> = sqlx::query_as(AssertSqlSafe(sql))
-            .bind(task_id)
-            .bind(ctx.is_admin)
-            .bind(&ctx.user_id)
-            .fetch_optional(&self.pool)
-            .await?;
-        row.map(Task::try_from).transpose()
+        self.find_under(task_id, ctx, &access).await
+    }
+
+    async fn find_readable_status(
+        &self,
+        task_id: &str,
+        ctx: &ScopeContext,
+    ) -> Result<Option<TaskStatus>, sqlx::Error> {
+        self.status_under(task_id, ctx).await
+    }
+
+    async fn find_controlled_by_id(
+        &self,
+        task_id: &str,
+        ctx: &ScopeContext,
+    ) -> Result<Option<Task>, sqlx::Error> {
+        let control = moatless_core::db::access_control::control_filter(ScopedEntity::Task, "", 2);
+        self.find_under(task_id, ctx, &control).await
+    }
+
+    async fn find_written_by_id(
+        &self,
+        task_id: &str,
+        ctx: &ScopeContext,
+    ) -> Result<Option<Task>, sqlx::Error> {
+        let write = moatless_core::db::access_control::write_filter("", 2);
+        self.find_under(task_id, ctx, &write).await
     }
 
     async fn insert_task(

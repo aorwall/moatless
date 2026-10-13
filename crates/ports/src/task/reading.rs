@@ -16,6 +16,9 @@ pub struct TaskDescriptor {
     pub workspace_id: Option<String>,
     /// Who started the Task, as a user id. `None` for a Task a Loop fired.
     pub created_by: Option<String>,
+    /// How long the Task's Sandbox may sit idle before it is stopped; `0`
+    /// disables the idle stop.
+    pub ttl_minutes: i32,
 }
 
 /// A Task, as the caller may see it.
@@ -33,4 +36,29 @@ pub trait TaskReader: Send + Sync {
     /// The same predicate as [`Self::describe`], for a caller that needs only
     /// the answer.
     async fn may_access(&self, task_id: &str, ctx: &ScopeContext) -> Result<bool, StoreError>;
+
+    /// The status of the Task [`Self::describe`] would return, for a caller
+    /// that polls and needs nothing else off the row.
+    async fn readable_status(
+        &self,
+        task_id: &str,
+        ctx: &ScopeContext,
+    ) -> Result<Option<TaskStatus>, StoreError>;
+
+    /// [`Self::describe`], narrowed to a Task `ctx` may operate: the write
+    /// rule widened by public visibility. `None` also for a Task `ctx` can
+    /// read but not operate, so the answer never says who owns it.
+    async fn controlled(
+        &self,
+        task_id: &str,
+        ctx: &ScopeContext,
+    ) -> Result<Option<TaskDescriptor>, StoreError>;
+
+    /// [`Self::describe`], narrowed to a Task `ctx` may write: owner or
+    /// admin, never widened by visibility. `None` as for [`Self::controlled`].
+    async fn written(
+        &self,
+        task_id: &str,
+        ctx: &ScopeContext,
+    ) -> Result<Option<TaskDescriptor>, StoreError>;
 }
