@@ -17,7 +17,7 @@ use super::v2_provider::provider_thread_id;
 use super::v2_provider::root_node_id;
 use crate::dao::Conversation;
 use crate::providers;
-use crate::transcript_dao::{Transcript, TranscriptMessage, TurnOutcome};
+use crate::transcript::{Transcript, TranscriptMessage, TurnOutcome};
 use moatless_types::activity::{Activity, ActivityKind};
 use moatless_types::agent::AgentProfile;
 

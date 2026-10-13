@@ -2,6 +2,7 @@ use super::*;
 use crate::lineage::RunningChild;
 use crate::projection::v2_items::command_exit_code;
 use crate::projection::v2_items::plans;
+use crate::transcript::TranscriptEntry;
 use chrono::Utc;
 use moatless_types::agent::AgentProfile;
 use moatless_types::message::MessageRole;
@@ -70,30 +71,33 @@ fn message(
     kind: MessageType,
 ) -> TranscriptMessage {
     TranscriptMessage {
-        id: 1,
-        uuid: uuid.to_string(),
-        message_type: kind,
-        message_role: MessageRole::User,
-        message_text: Some(text.to_string()),
-        user_type: "default".to_string(),
-        sandbox_wake: false,
-        held: false,
-        queue_order: None,
-        turn_number,
-        timestamp: "2026-07-01T09:05:00.000Z".to_string(),
-        created_at: Some(Utc::now()),
-        external_adapter: None,
-        external_source_name: None,
-        external_subject_key: None,
-        external_event_id: None,
-        external_author: None,
-        source_task_id: None,
+        entry: TranscriptEntry {
+            id: 1,
+            uuid: uuid.to_string(),
+            message_type: kind,
+            message_role: MessageRole::User,
+            message_text: Some(text.to_string()),
+            user_type: "default".to_string(),
+            sandbox_wake: false,
+            held: false,
+            queue_order: None,
+            turn_number,
+            timestamp: "2026-07-01T09:05:00.000Z".to_string(),
+            created_at: Some(Utc::now()),
+            external_adapter: None,
+            external_source_name: None,
+            external_subject_key: None,
+            external_event_id: None,
+            external_author: None,
+            source_task_id: None,
+            file_contexts: None,
+            child_outcome: None,
+            sent_by: None,
+        },
         binding_url: None,
         binding_label: None,
         loop_name: None,
         sent_by_name: None,
-        file_contexts: None,
-        child_outcome: None,
     }
 }
 

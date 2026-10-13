@@ -9,7 +9,7 @@ use crate::ports::TaskRelationSource;
 use crate::projection;
 use crate::reads::T3Reads;
 use crate::state::Deployment;
-use crate::transcript_dao::Transcript;
+use crate::transcript::Transcript;
 use moatless_core::change_feed::conversation::ConversationHead;
 use moatless_core::change_feed::listing::EnvironmentIdentity;
 use moatless_types::access_control::ScopeContext;

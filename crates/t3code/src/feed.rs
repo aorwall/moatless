@@ -19,7 +19,7 @@ use crate::reads::T3Reads;
 use moatless_core::change_feed::listing::EnvironmentIdentity;
 use moatless_types::access_control::ScopeContext;
 
-use crate::transcript_dao::Transcript;
+use crate::transcript::Transcript;
 use moatless_core::change_feed::conversation::{
     ConversationChange, ConversationHead, EVENTS_PER_CHANGE,
 };
@@ -535,7 +535,7 @@ fn coalesced(changes: Vec<ConversationChange>) -> Vec<ConversationChange> {
 mod tests {
     use super::*;
     use crate::dao::{Conversation, MockConversationDao};
-    use crate::transcript_dao::{Transcript, TranscriptMessage};
+    use crate::transcript::{Transcript, TranscriptEntry, TranscriptMessage};
     use moatless_core::change_feed::conversation::EVENTS_PER_CHANGE;
     use moatless_types::agent::AgentProfile;
     use moatless_types::message::{MessageRole, MessageType};
@@ -685,30 +685,33 @@ mod tests {
 
     fn a_message(id: i32, uuid: &str) -> TranscriptMessage {
         TranscriptMessage {
-            id,
-            uuid: uuid.into(),
-            message_type: MessageType::User,
-            message_role: MessageRole::User,
-            message_text: Some("Fix the build".into()),
-            user_type: "human".into(),
-            sandbox_wake: false,
-            held: false,
-            queue_order: None,
-            turn_number: Some(3),
-            timestamp: "2026-07-01T10:00:00.000Z".into(),
-            created_at: None,
-            external_adapter: None,
-            external_source_name: None,
-            external_subject_key: None,
-            external_event_id: None,
-            external_author: None,
-            source_task_id: None,
+            entry: TranscriptEntry {
+                id,
+                uuid: uuid.into(),
+                message_type: MessageType::User,
+                message_role: MessageRole::User,
+                message_text: Some("Fix the build".into()),
+                user_type: "human".into(),
+                sandbox_wake: false,
+                held: false,
+                queue_order: None,
+                turn_number: Some(3),
+                timestamp: "2026-07-01T10:00:00.000Z".into(),
+                created_at: None,
+                external_adapter: None,
+                external_source_name: None,
+                external_subject_key: None,
+                external_event_id: None,
+                external_author: None,
+                source_task_id: None,
+                file_contexts: None,
+                child_outcome: None,
+                sent_by: None,
+            },
             binding_url: None,
             binding_label: None,
             loop_name: None,
             sent_by_name: None,
-            file_contexts: None,
-            child_outcome: None,
         }
     }
 

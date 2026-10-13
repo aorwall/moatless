@@ -19,7 +19,6 @@ use crate::terminal;
 use crate::terminal_relay::{TerminalRelay, TerminalRelayWorker};
 use axum::Router;
 use moatless_identity::auth::pairing::DevicePairing;
-use moatless_ports::activity::ActivitySource;
 use moatless_ports::sandbox::ClusterDiagnostics;
 use moatless_ports::sandbox::SandboxIntentReader;
 use moatless_ports::sandbox::SandboxObserver;
@@ -28,7 +27,7 @@ use moatless_ports::sandbox::SandboxPortPublisher;
 use moatless_ports::sandbox::SandboxStarter;
 use moatless_ports::sandbox::SandboxStopper;
 use moatless_ports::sandbox::WorkspaceSnapshotSource;
-use moatless_tasks::task_turn::usage::TurnUsage;
+use moatless_tasks::compose::TaskGraph;
 use moatless_types::http::HttpTimeouts;
 use moatless_types::ui_rpc::T3UiRpcConfig;
 use sandbox_proto::client::SandboxConnector;
@@ -206,14 +205,15 @@ pub struct T3Graph {
 
 /// Build the T3 read projections over `db`.
 ///
-/// `activities` is the Task band's activity rows, which this crate projects and
-/// does not own; `usage` is the Task band's Turn totals.
-pub fn t3_graph(
-    db: UiRpcDbPool,
-    activities: Arc<dyn ActivitySource>,
-    usage: Arc<TurnUsage>,
-) -> T3Graph {
-    let conversations = Arc::new(PgConversationDao::new(db.clone(), activities));
+/// `tasks` supplies the Task band's reads this crate projects and does not own:
+/// activity rows, transcripts and Turn totals.
+pub fn t3_graph(db: UiRpcDbPool, tasks: &TaskGraph) -> T3Graph {
+    let conversations = Arc::new(PgConversationDao::new(
+        db.clone(),
+        tasks.activities(),
+        tasks.transcript_reads(),
+    ));
+    let usage = tasks.turn_usage();
     T3Graph {
         pool: db.clone(),
         reads: T3Reads::new(

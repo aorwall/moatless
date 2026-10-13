@@ -18,7 +18,7 @@ use super::turn::turn_id;
 use super::turn::turn_is_open;
 use crate::AgentModelDefaults;
 use crate::dao::Conversation;
-use crate::transcript_dao::{Transcript, TranscriptMessage};
+use crate::transcript::{Transcript, TranscriptMessage};
 use moatless_types::activity::Activity;
 use moatless_types::activity::ActivityKind;
 use moatless_types::message::MessageType;

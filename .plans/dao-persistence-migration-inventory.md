@@ -358,7 +358,7 @@ A consumer count is the number of `use` declarations naming the concern's module
 
 - **Owner:** moatless-t3code
 - **Closing slice:** 17
-- **Persistence roots:** `crates/t3code/src/dao.rs`, `crates/t3code/src/transcript_dao.rs`
+- **Persistence roots:** `crates/t3code/src/dao.rs`
 - **Owning tables:** none
 - **Exports:** none
 - **Constructors:** `ConversationBrowse::new`, `PgConversationDao::new`
@@ -424,7 +424,7 @@ A consumer count is the number of `use` declarations naming the concern's module
 
 - **Owner:** moatless-tasks
 - **Closing slice:** 10
-- **Persistence roots:** `crates/tasks/src/conversation/dao.rs`, `crates/tasks/src/conversation/read_dao.rs`, `crates/tasks/src/conversation/replay_dao.rs`, `crates/tasks/src/message/dao.rs`, `crates/tasks/src/message/external_events_dao.rs`, `crates/tasks/src/message/recovery_dao.rs`, `crates/tasks/src/task/rewind_dao.rs`
+- **Persistence roots:** `crates/tasks/src/conversation/dao.rs`, `crates/tasks/src/conversation/read_dao.rs`, `crates/tasks/src/conversation/replay_dao.rs`, `crates/tasks/src/conversation/transcript_dao.rs`, `crates/tasks/src/message/dao.rs`, `crates/tasks/src/message/external_events_dao.rs`, `crates/tasks/src/message/recovery_dao.rs`, `crates/tasks/src/task/rewind_dao.rs`
 - **Owning tables:** `conversation_frozen`, `conversation_messages`, `conversation_usage`, `task_message_content_blocks`, `task_message_contexts`, `task_message_usage`, `task_messages`
 - **Exports:** none
 - **Constructors:** none

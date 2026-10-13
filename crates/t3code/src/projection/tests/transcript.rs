@@ -326,9 +326,10 @@ fn a_result_row_is_spoken_by_the_system() {
 fn a_sandbox_wake_is_not_a_bubble() {
     let conversation = transcript(
         vec![
-            TranscriptMessage {
-                sandbox_wake: true,
-                ..message(1, MessageType::User, "A background command has finished:")
+            {
+                let mut wake = message(1, MessageType::User, "A background command has finished:");
+                wake.sandbox_wake = true;
+                wake
             },
             message(2, MessageType::Assistant, "The build passed."),
         ],

@@ -15,7 +15,7 @@ use super::v2_provider::has_started;
 use super::v2_provider::root_node_id;
 use crate::activity::t3_item_type;
 use crate::dao::Conversation;
-use crate::transcript_dao::Transcript;
+use crate::transcript::Transcript;
 use moatless_types::activity::Activity;
 use moatless_types::activity::ActivityKind;
 use moatless_types::activity::ActivityStatus;

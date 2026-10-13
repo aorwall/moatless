@@ -125,36 +125,39 @@ pub(super) fn at(offset: i64) -> DateTime<Utc> {
 
 pub(super) fn message(id: i32, message_type: MessageType, text: &str) -> TranscriptMessage {
     TranscriptMessage {
-        id,
-        uuid: format!("msg-{id}"),
-        message_type,
-        message_role: match message_type {
-            MessageType::User => MessageRole::User,
-            MessageType::Assistant => MessageRole::Assistant,
-            _ => MessageRole::System,
+        entry: TranscriptEntry {
+            id,
+            uuid: format!("msg-{id}"),
+            message_type,
+            message_role: match message_type {
+                MessageType::User => MessageRole::User,
+                MessageType::Assistant => MessageRole::Assistant,
+                _ => MessageRole::System,
+            },
+            message_text: Some(text.to_string()),
+            user_type: "human".to_string(),
+            sandbox_wake: false,
+            held: false,
+            queue_order: None,
+            turn_number: Some(3),
+            // Minute `id` past the hour, so the fixture's own order is legible
+            // in an assertion failure.
+            timestamp: format!("2026-07-01T10:{id:02}:00.000Z"),
+            created_at: Some(at(i64::from(id) * 100)),
+            external_subject_key: None,
+            external_author: None,
+            source_task_id: None,
+            file_contexts: None,
+            child_outcome: None,
+            external_event_id: None,
+            external_adapter: None,
+            external_source_name: None,
+            sent_by: None,
         },
-        message_text: Some(text.to_string()),
-        user_type: "human".to_string(),
-        sandbox_wake: false,
-        held: false,
-        queue_order: None,
-        turn_number: Some(3),
-        // Minute `id` past the hour, so the fixture's own order is legible
-        // in an assertion failure.
-        timestamp: format!("2026-07-01T10:{id:02}:00.000Z"),
-        created_at: Some(at(i64::from(id) * 100)),
-        external_subject_key: None,
-        external_author: None,
-        source_task_id: None,
         binding_url: None,
         binding_label: None,
         loop_name: None,
         sent_by_name: None,
-        file_contexts: None,
-        child_outcome: None,
-        external_event_id: None,
-        external_adapter: None,
-        external_source_name: None,
     }
 }
 

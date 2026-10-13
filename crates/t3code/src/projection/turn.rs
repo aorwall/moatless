@@ -6,7 +6,7 @@ use tracing::warn;
 use super::scalar::nullable_instant;
 use super::scalar::timestamp;
 use crate::dao::Conversation;
-use crate::transcript_dao::TranscriptMessage;
+use crate::transcript::TranscriptMessage;
 use moatless_types::running::RunningInputs;
 use moatless_types::sandbox::SandboxDesiredState;
 use moatless_types::task::TurnStatus;

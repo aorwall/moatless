@@ -18,7 +18,7 @@ pub mod agent;
 pub mod agent_event;
 pub mod artifact;
 pub mod compose;
-pub(crate) mod conversation;
+pub mod conversation;
 pub mod credential_sync;
 pub mod event_ingress;
 pub mod feedback;

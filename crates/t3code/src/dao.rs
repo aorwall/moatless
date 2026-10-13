@@ -22,10 +22,11 @@ use crate::UiRpcDbPool;
 pub use crate::archive_cursor::ArchiveCursor;
 pub use crate::conversation_agent::ConversationAgent;
 use crate::task_dao::{T3TaskDao, TaskView};
-use crate::transcript_dao::Transcript;
+use crate::transcript::{JoinedOrigin, Transcript};
 use moatless_core::change_feed::conversation::{ConversationChange, ConversationHead};
 use moatless_core::change_feed::listing::{ListingChange, ListingHead};
 use moatless_ports::activity::ActivitySource;
+use moatless_tasks::conversation::transcript::{TranscriptEntry, TranscriptReads};
 use moatless_types::access_control::{ScopeContext, ScopedEntity};
 use moatless_types::activity::{PLAN_TOOL, QUESTION_TOOL};
 use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
@@ -460,6 +461,7 @@ pub struct PgConversationDao {
     /// The Task band's activity rows. This crate projects them; it does not own
     /// the table, so it reads them through the published seam.
     activities: Arc<dyn ActivitySource>,
+    transcripts: Arc<TranscriptReads>,
     full_listing: Arc<Semaphore>,
 }
 
@@ -540,7 +542,11 @@ const LISTING_DURATION: &str = "moatless_ui_shell_listing_duration_seconds";
 const LISTING_REJECTIONS: &str = "moatless_ui_shell_listing_rejections_total";
 
 impl PgConversationDao {
-    pub fn new(pool: UiRpcDbPool, activities: Arc<dyn ActivitySource>) -> Self {
+    pub fn new(
+        pool: UiRpcDbPool,
+        activities: Arc<dyn ActivitySource>,
+        transcripts: Arc<TranscriptReads>,
+    ) -> Self {
         metrics::describe_histogram!(
             LISTING_DURATION,
             "Full T3 shell listing duration by kind and outcome"
@@ -552,6 +558,7 @@ impl PgConversationDao {
         Self {
             pool,
             activities,
+            transcripts,
             full_listing: Arc::new(Semaphore::new(FULL_LISTING_CONCURRENCY)),
         }
     }
@@ -1316,7 +1323,8 @@ impl ConversationDao for PgConversationDao {
     }
 
     async fn transcript(&self, task_id: &str) -> Result<Transcript, sqlx::Error> {
-        crate::transcript_dao::transcript(&self.pool, &*self.activities, task_id).await
+        let window = self.transcripts.read(task_id).await?;
+        crate::transcript::resolve(&self.pool, &*self.activities, task_id, window).await
     }
 
     async fn source_task_names(
@@ -1361,14 +1369,11 @@ impl ConversationDao for PgConversationDao {
         uuids: &[String],
         activity_ids: &[String],
     ) -> Result<Transcript, sqlx::Error> {
-        crate::transcript_dao::changed_messages(
-            &self.pool,
-            &*self.activities,
-            task_id,
-            uuids,
-            activity_ids,
-        )
-        .await
+        let window = self
+            .transcripts
+            .changed(task_id, uuids, activity_ids)
+            .await?;
+        crate::transcript::resolve(&self.pool, &*self.activities, task_id, window).await
     }
 
     async fn settled_turns(
@@ -1377,7 +1382,11 @@ impl ConversationDao for PgConversationDao {
         above: Option<i32>,
         limit: i64,
     ) -> Result<Transcript, sqlx::Error> {
-        crate::transcript_dao::settled_turns(&self.pool, task_id, above, limit).await
+        let window = self
+            .transcripts
+            .settled_turns(task_id, above, limit)
+            .await?;
+        crate::transcript::resolve(&self.pool, &*self.activities, task_id, window).await
     }
 
     async fn listing_head(&self) -> Result<ListingHead, sqlx::Error> {
@@ -1392,6 +1401,70 @@ impl ConversationDao for PgConversationDao {
         moatless_core::change_feed::listing::changes_after(&self.pool, after, limit).await
     }
 }
+
+/// The Binding, Loop and user each of one Task's `entries` names, by Message
+/// uuid. An entry naming none of them has no row.
+///
+/// Subject key alone isn't unique, so `ORDER BY created_at DESC LIMIT 1`
+/// picks deterministically. `users.id` casts to text, not `sent_by` to
+/// `uuid`, which would raise on a non-uuid value.
+pub(crate) async fn transcript_origins(
+    pool: &UiRpcDbPool,
+    task_id: &str,
+    entries: &[TranscriptEntry],
+) -> Result<HashMap<String, JoinedOrigin>, sqlx::Error> {
+    let named: Vec<&TranscriptEntry> = entries
+        .iter()
+        .filter(|entry| entry.external_adapter.is_some() || entry.sent_by.is_some())
+        .collect();
+    if named.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let column = |field: fn(&TranscriptEntry) -> Option<&String>| -> Vec<Option<String>> {
+        named.iter().map(|entry| field(entry).cloned()).collect()
+    };
+    let uuids: Vec<String> = named.iter().map(|entry| entry.uuid.clone()).collect();
+    let rows: Vec<JoinedOrigin> = sqlx::query_as(
+        r#"SELECT m.uuid,
+                  COALESCE(b.destination_config ->> 'issue_url',
+                           b.destination_config ->> 'url') AS binding_url,
+                  COALESCE(b.destination_config ->> 'identifier',
+                           b.destination_config ->> 'issue_identifier')
+                      AS binding_label,
+                  lp.name AS loop_name,
+                  COALESCE(u.name, u.login) AS sent_by_name
+             FROM UNNEST($2::text[], $3::text[], $4::text[], $5::text[], $6::text[])
+                  AS m(uuid, external_adapter, external_subject_key,
+                       external_source_name, sent_by)
+             LEFT JOIN LATERAL (
+                 SELECT tb.destination_config
+                 FROM task_bindings tb
+                 WHERE m.external_subject_key IS NOT NULL
+                   AND tb.task_id = $1
+                   AND tb.adapter_kind = m.external_adapter
+                   AND tb.subject_key = m.external_subject_key
+                 ORDER BY tb.created_at DESC
+                 LIMIT 1
+             ) b ON true
+             LEFT JOIN loops lp ON m.external_adapter = 'scheduled'
+                               AND lp.id = m.external_source_name
+                               AND NOT lp.deleted
+             LEFT JOIN users u ON u.id::text = m.sent_by"#,
+    )
+    .bind(task_id)
+    .bind(&uuids)
+    .bind(column(|entry| entry.external_adapter.as_ref()))
+    .bind(column(|entry| entry.external_subject_key.as_ref()))
+    .bind(column(|entry| entry.external_source_name.as_ref()))
+    .bind(column(|entry| entry.sent_by.as_ref()))
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| (row.uuid.clone(), row))
+        .collect())
+}
+
 #[cfg(all(test, feature = "db-tests"))]
 #[path = "dao_db_tests.rs"]
 mod dao_db_tests;

@@ -277,6 +277,7 @@ pub const CONCERNS: &[Concern] = &[
             "crates/tasks/src/conversation/dao",
             "crates/tasks/src/conversation/read_dao",
             "crates/tasks/src/conversation/replay_dao",
+            "crates/tasks/src/conversation/transcript_dao",
             "crates/tasks/src/message/dao",
             "crates/tasks/src/message/external_events_dao",
             "crates/tasks/src/message/recovery_dao",
@@ -407,7 +408,7 @@ pub const CONCERNS: &[Concern] = &[
     Concern {
         name: "t3 conversation projection",
         owner: "moatless-t3code",
-        roots: &["crates/t3code/src/dao", "crates/t3code/src/transcript_dao"],
+        roots: &["crates/t3code/src/dao"],
         tables: &[],
         slice: 17,
     },

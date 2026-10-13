@@ -197,6 +197,13 @@ impl TaskGraph {
         Arc::new(crate::ports::Activities::new(self.db.clone()))
     }
 
+    /// A Task's transcript as a reader opens it.
+    pub fn transcript_reads(&self) -> Arc<crate::conversation::transcript::TranscriptReads> {
+        Arc::new(crate::conversation::transcript::TranscriptReads::new(
+            self.db.clone(),
+        ))
+    }
+
     /// Per-model token and cost totals over the Turns a viewer may read.
     pub fn turn_usage(&self) -> Arc<crate::task_turn::usage::TurnUsage> {
         Arc::new(crate::task_turn::usage::TurnUsage::new(self.db.clone()))

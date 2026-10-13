@@ -12,3 +12,5 @@ mod replay;
 pub(crate) mod replay_dao;
 #[cfg(all(test, feature = "db-tests"))]
 mod replay_db_tests;
+pub mod transcript;
+pub(crate) mod transcript_dao;

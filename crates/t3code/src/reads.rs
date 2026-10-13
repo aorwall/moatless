@@ -81,7 +81,7 @@ mod refusal {
     use crate::dao::{
         ArchiveCursor, Conversation, ConversationBrowse, ConversationMatch, InteractiveCall,
     };
-    use crate::transcript_dao::Transcript;
+    use crate::transcript::Transcript;
     use async_trait::async_trait;
     use moatless_core::change_feed::conversation::{ConversationChange, ConversationHead};
     use moatless_core::change_feed::listing::ListingChange;

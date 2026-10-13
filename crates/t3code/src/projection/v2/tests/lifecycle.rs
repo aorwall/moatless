@@ -2,7 +2,7 @@
 //! child-outcome notices in the V2 projection.
 
 use super::*;
-use crate::transcript_dao::TurnOutcome;
+use crate::transcript::TurnOutcome;
 
 fn ended(turn_number: i32, status: &str) -> TurnOutcome {
     TurnOutcome {

@@ -47,7 +47,7 @@ mod subtasks;
 pub(crate) mod task_dao;
 mod terminal;
 pub mod terminal_relay;
-mod transcript_dao;
+mod transcript;
 mod usage;
 pub mod usage_limit_sources;
 mod v2_commands;

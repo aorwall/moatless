@@ -15,7 +15,7 @@ use super::turn::turn_id;
 use super::turn::turn_reference;
 use crate::activity::T3ActivityViewExt;
 use crate::dao::Conversation;
-use crate::transcript_dao::{Transcript, TranscriptMessage};
+use crate::transcript::{Transcript, TranscriptMessage};
 use moatless_core::change_feed::conversation::EVENTS_PER_CHANGE;
 use moatless_types::activity::Activity;
 use moatless_types::activity::ActivityKind;

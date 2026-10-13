@@ -13,7 +13,7 @@ use super::turn::*;
 use crate::AgentModelDefaults;
 use crate::agent::catalog;
 use crate::dao::{Conversation, ConversationMatch, ConversationPullRequest};
-use crate::transcript_dao::{Transcript, TranscriptMessage};
+use crate::transcript::{Transcript, TranscriptEntry, TranscriptMessage};
 use chrono::{DateTime, Utc};
 use moatless_core::change_feed::conversation::{ConversationChange, EVENTS_PER_CHANGE};
 use moatless_ports::activity::SubagentUsage;

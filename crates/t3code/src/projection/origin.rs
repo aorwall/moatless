@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use serde_json::{Value, json};
 
-use crate::transcript_dao::TranscriptMessage;
+use crate::transcript::TranscriptMessage;
 use moatless_types::adapter::SCHEDULED_ORIGIN;
 
 /// What the projection needs to say where a Message came from, beyond the

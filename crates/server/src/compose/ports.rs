@@ -241,7 +241,6 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
     let adapter_delivery_worker = loop_graph.delivery_worker(config.server.worker_identity.clone());
     let message_buffer_worker =
         loop_graph.message_buffer_worker(config.server.worker_identity.clone());
-    let activities = task_graph.activities();
     let pending_work = task_graph.pending_work();
     let task_events = task_graph.task_events();
     let task_turns = task_graph.task_turns();
@@ -254,7 +253,9 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
     );
     let tags = task_graph.tags();
     let tag_resolver = task_graph.tag_catalog();
-    let turn_usage = task_graph.turn_usage();
+    // The T3 band's own construction root owns its read model; this process
+    // supplies the Task band's reads it projects.
+    let t3_graph = moatless_t3code::t3_graph(pool.clone(), &task_graph);
 
     Ports {
         tasks: task_graph.tasks(),
@@ -316,9 +317,7 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
         forgejo_instances,
         forgejo_access,
 
-        // The T3 band's own construction root owns its read model; this
-        // process supplies the activity rows it projects.
-        t3_graph: moatless_t3code::t3_graph(pool.clone(), activities, turn_usage),
+        t3_graph,
 
         // The sandbox band's own construction root owns its store; this process
         // takes the capabilities over it.

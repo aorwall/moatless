@@ -43,7 +43,7 @@ const ADMIN: &str = "33333333-3333-3333-3333-333333333333";
 /// The read model over `pool`, with its activity seam on the same pool.
 fn conversations_over(pool: &PgPool) -> PgConversationDao {
     let tasks = moatless_tasks::compose::task_graph(pool.clone());
-    PgConversationDao::new(pool.clone(), tasks.activities())
+    PgConversationDao::new(pool.clone(), tasks.activities(), tasks.transcript_reads())
 }
 
 async fn seed_task(pool: &PgPool) {
@@ -795,7 +795,7 @@ async fn the_archive_pages_through_every_closed_task_newest_first(pool: PgPool) 
     let limit = crate::dao::ARCHIVED_LIMIT;
     seed_archived(&pool, 0, limit).await;
     let tasks = moatless_tasks::compose::task_graph(pool.clone());
-    let graph = crate::compose::t3_graph(pool.clone(), tasks.activities(), tasks.turn_usage());
+    let graph = crate::compose::t3_graph(pool.clone(), &tasks);
     let defaults = crate::config::AgentModelDefaults::default();
     let viewer = ScopeContext::user(USER_1.to_string());
     let page = |before: Option<crate::dao::ArchiveCursor>| {
@@ -1074,4 +1074,91 @@ async fn a_listed_row_names_a_readable_parent_and_counts_its_children(pool: PgPo
     );
     assert_eq!(row("child").child_count, 0);
     assert!(row("child").running_children.is_empty());
+}
+
+/// A Message's origin names come from three tables the Task band does not own,
+/// joined beside the rows `TranscriptReads` returns: the Binding its subject
+/// key names, the Loop a `scheduled` Message was fired by, and its sender.
+#[sqlx::test(migrations = "../core/migrations")]
+async fn a_message_reads_the_names_its_origin_resolves_to(pool: PgPool) {
+    seed_task(&pool).await;
+    sqlx::query(
+        "INSERT INTO users (id, login, name, email, provider, created_at, last_login_at) \
+         VALUES ($1::uuid, 'ada', 'Ada Lovelace', 'ada@example.test', 'local', now(), now())",
+    )
+    .bind(USER_2)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO loops (id, name, kind, scope, created_by) \
+         VALUES ('loop-1', 'Nightly sweep', 'schedule', 'global', 'system')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO adapter_connections \
+             (id, adapter_kind, connection_kind, external_account_id, created_by, scope) \
+         VALUES ('conn-1', 'linear', 'app', 'team-1', 'system', 'global')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO task_bindings \
+             (id, task_id, adapter_kind, connection_id, subject_kind, subject_key, \
+              destination_config) \
+         VALUES ('binding-1', $1, 'linear', 'conn-1', 'issue', 'issue-1', $2)",
+    )
+    .bind(TASK)
+    .bind(serde_json::json!({
+        "issue_url": "https://linear.app/soap/issue/SP-1",
+        "identifier": "SP-1"
+    }))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let mut from_linear = make_message_row(TASK, "from-linear");
+    from_linear.external_adapter = Some("linear".into());
+    from_linear.external_subject_key = Some("issue-1".into());
+    from_linear.sent_by = Some(USER_2.into());
+    let mut from_loop = make_message_row(TASK, "from-loop");
+    from_loop.external_adapter = Some("scheduled".into());
+    from_loop.external_source_name = Some("loop-1".into());
+    for message in [&from_linear, &from_loop] {
+        message_fixtures::seed_message(&pool, message, &[], &ConversationWrite::default())
+            .await
+            .unwrap();
+    }
+    append(&pool, "plain", serde_json::json!([])).await;
+
+    let transcript = conversations_over(&pool).transcript(TASK).await.unwrap();
+    let named = |id: &str| {
+        let uuid = message_fixtures::seeded_uuid(id).to_string();
+        transcript
+            .messages
+            .iter()
+            .find(|m| m.uuid == uuid)
+            .cloned()
+            .expect("the message is in the transcript")
+    };
+
+    let linear = named("from-linear");
+    assert_eq!(
+        linear.binding_url.as_deref(),
+        Some("https://linear.app/soap/issue/SP-1")
+    );
+    assert_eq!(linear.binding_label.as_deref(), Some("SP-1"));
+    assert_eq!(linear.sent_by_name.as_deref(), Some("Ada Lovelace"));
+    assert_eq!(
+        named("from-loop").loop_name.as_deref(),
+        Some("Nightly sweep")
+    );
+    let plain = named("plain");
+    assert_eq!(
+        (plain.binding_url, plain.loop_name, plain.sent_by_name),
+        (None, None, None)
+    );
 }
