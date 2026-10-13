@@ -112,7 +112,10 @@ impl GithubPrSubject {
     }
 
     pub(super) fn key(&self) -> String {
-        format!("{}/{}#{}", self.owner, self.repo, self.pr_number)
+        moatless_types::pull_request_key::pull_request_key(
+            &format!("{}/{}", self.owner, self.repo),
+            self.pr_number,
+        )
     }
 
     pub(super) fn status_key(&self) -> String {

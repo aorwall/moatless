@@ -10,6 +10,7 @@ use moatless_t3code::ports::{
 };
 use moatless_types::access_control::ScopeContext;
 use moatless_types::adapter::TaskBinding;
+use moatless_types::pull_request_key::{parse_pull_request_key, pull_request_key};
 
 pub struct AppStateBoundPullRequests(pub AppState);
 
@@ -47,7 +48,7 @@ impl BoundPullRequestSource for AppStateBoundPullRequests {
     }
 
     async fn tasks_bound_to(&self, repository: &str, number: u64) -> Vec<String> {
-        let subject_key = format!("{repository}#{number}");
+        let subject_key = pull_request_key(repository, number);
         let Ok(bindings) = self
             .0
             .task_bindings
@@ -227,8 +228,7 @@ fn resolved_pull_request(
 /// surface reports. `None` when the persisted blob predates base and head, so
 /// the toolbar shows no pull request rather than one with blank branches.
 fn bound_pull_request_from_binding(binding: &TaskBinding) -> Option<BoundPullRequest> {
-    let (repository, number) = binding.subject_key.rsplit_once('#')?;
-    let number = number.parse().ok()?;
+    let (repository, number) = parse_pull_request_key(&binding.subject_key)?;
     let raw = binding.external_status_raw.as_ref()?;
     let non_empty = |key: &str| {
         raw.get(key)

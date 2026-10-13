@@ -19,3 +19,6 @@ workspace = true
 
 [features]
 openapi = ["dep:utoipa"]
+
+[dev-dependencies]
+regex = { workspace = true }

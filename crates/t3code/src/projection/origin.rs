@@ -100,13 +100,7 @@ pub(super) fn github_pr_url(
     subject_key: Option<&str>,
     external_event_id: Option<&str>,
 ) -> Option<String> {
-    let (repo, number) = subject_key?.split_once('#')?;
-    if repo.split('/').count() != 2 || repo.split('/').any(str::is_empty) {
-        return None;
-    }
-    if number.is_empty() || !number.bytes().all(|byte| byte.is_ascii_digit()) {
-        return None;
-    }
+    let (repo, number) = moatless_types::pull_request_key::parse_pull_request_key(subject_key?)?;
     let base = format!("https://github.com/{repo}/pull/{number}");
     let fragment = external_event_id.and_then(|id| {
         id.strip_prefix("github:ic:")

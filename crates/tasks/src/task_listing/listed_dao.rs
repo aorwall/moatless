@@ -9,6 +9,7 @@ use tracing::warn;
 use moatless_core::db::DbPool;
 use moatless_types::access_control::{ScopeContext, ScopedEntity};
 use moatless_types::activity::{PLAN_TOOL, QUESTION_TOOL};
+use moatless_types::pull_request_key::PULL_REQUEST_KEY_PATTERN;
 use moatless_types::task::{TaskRelationType, TaskStatus};
 
 use super::listed::{ListedTask, ListingCursor};
@@ -352,8 +353,9 @@ pub(crate) async fn list(
                -- carry several — the unique index keys on `subject_key`, and
                -- nothing retires the binding a new one lands beside.
                --
-               -- `subject_key` is `owner/repo#N`; the regex guard is what makes
-               -- the `::bigint` casts total, so a malformed key drops its row
+               -- `subject_key` is `owner/repo#N`, matched by
+               -- `PULL_REQUEST_KEY_PATTERN`; the guard is what makes the
+               -- `::bigint` casts total, so a malformed key drops its row
                -- instead of failing the whole listing.
                --
                -- `subject_key` is the only column a row needs to be reportable,
@@ -387,7 +389,7 @@ pub(crate) async fn list(
                            COALESCE(
                                NULLIF(b.external_status_raw ->> 'url', ''),
                                'https://github.com/' || split_part(b.subject_key, '#', 1)
-                                   || '/pull/' || split_part(b.subject_key, '#', 2)
+                                   || '/pull/' || split_part(b.subject_key, '#', 2)::bigint
                            ) AS url,
                            NULLIF(b.external_status_raw ->> 'title', '')  AS title,
                            NULLIF(b.external_status_raw ->> 'baseRef', '') AS base_ref,
@@ -407,7 +409,7 @@ pub(crate) async fn list(
                          AND b.active
                          AND b.adapter_kind = 'github'
                          AND b.subject_kind = 'github_pr'
-                         AND b.subject_key ~ '^[^#]+#[0-9]+$'
+                         AND b.subject_key ~ '{PULL_REQUEST_KEY_PATTERN}'
                    ) bound
                ) pr ON TRUE
                {parent_join}
