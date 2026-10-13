@@ -12,15 +12,14 @@ use moatless_t3code::ports::{
 use moatless_tasks::message::error::MessageError;
 use moatless_tasks::message::service as message_service;
 use moatless_tasks::task::error::TaskError;
+use moatless_tasks::task::fork;
 use moatless_tasks::task::models::Task;
 use moatless_tasks::task::models::TaskPatch;
-use moatless_tasks::task::models::TaskStatus;
-use moatless_tasks::task::operations::TaskCommands;
+use moatless_tasks::task::operations::{MintedIdClaim, TaskCommands};
 use moatless_tasks::task::removal;
 use moatless_tasks::task::service as task_service;
 use moatless_tasks::task::switch::SwitchCredentials;
 use moatless_types::access_control::ScopeContext;
-use moatless_types::access_control::ScopedResource;
 use moatless_types::agent::Harness;
 use moatless_types::task::Visibility;
 use std::sync::Arc;
@@ -72,24 +71,18 @@ impl AppStateCommands {
         viewer: &ScopeContext,
         task_id: &str,
     ) -> Result<(), CommandRefusal> {
-        let task = self.readable_task(viewer, task_id).await?;
-        if task.status != TaskStatus::Open {
-            return Err(CommandRefusal::NotWritable {
-                task_id: task_id.to_string(),
-            });
-        }
-        let followed = self
+        let allowed = self
             .0
             .tasks
-            .get_followed(&viewer.user_id, &[task_id.to_string()])
+            .followed_and_open(viewer, task_id)
             .await
             .map_err(|error| {
-                tracing::warn!(%error, task_id, "T3 settlement command could not resolve follow");
+                tracing::warn!(%error, task_id, "T3 settlement command could not resolve its thread");
                 CommandRefusal::Failed {
                     message: "Could not reach that thread.".to_string(),
                 }
             })?;
-        if !followed.contains(task_id) {
+        if !allowed {
             return Err(CommandRefusal::NotWritable {
                 task_id: task_id.to_string(),
             });
@@ -162,6 +155,17 @@ impl AppStateCommands {
             .await
             .map(|_| ())
             .map_err(|e| create_refusal(task_id, e))
+    }
+
+    fn create_ports(&self) -> task_service::CreateTaskPorts<'_> {
+        task_service::CreateTaskPorts {
+            workspaces: self.0.workspace_resolver.as_ref(),
+            repositories: self.0.repository_reader.as_ref(),
+            tasks: self.0.tasks.as_ref(),
+            users: self.0.user_directory.as_ref(),
+            credential_sync: &self.0.credential_sync,
+            config: &self.0.config,
+        }
     }
 
     /// Whether this turn's Message is already persisted (the frame is a
@@ -298,28 +302,17 @@ impl ThreadCommandSink for AppStateCommands {
         // thread id is being retried after, which would otherwise leave one
         // unreachable object per retry. Only what this call stored is taken
         // back; an uploaded attachment is the client's and outlives the retry.
-        let new_task = match task_service::normalize(
-            task_service::CreateTaskPorts {
-                workspaces: self.0.workspace_resolver.as_ref(),
-                repositories: self.0.repository_reader.as_ref(),
-                tasks: self.0.tasks.as_ref(),
-                users: self.0.user_directory.as_ref(),
-                credential_sync: &self.0.credential_sync,
-                config: &self.0.config,
-            },
-            viewer,
-            &viewer.user_id,
-            intent,
-        )
-        .await
-        {
-            Ok(new_task) => new_task,
-            Err(e) => {
-                self.discard_attachments(viewer, &attachments.stored_here)
-                    .await;
-                return Err(create_refusal(&thread.task_id, e));
-            }
-        };
+        let new_task =
+            match task_service::normalize(self.create_ports(), viewer, &viewer.user_id, intent)
+                .await
+            {
+                Ok(new_task) => new_task,
+                Err(e) => {
+                    self.discard_attachments(viewer, &attachments.stored_here)
+                        .await;
+                    return Err(create_refusal(&thread.task_id, e));
+                }
+            };
         if let Err(e) = task_service::create_task(
             &self.0.task_creation,
             self.0.message_send.clone(),
@@ -341,123 +334,44 @@ impl ThreadCommandSink for AppStateCommands {
 
     async fn fork(&self, viewer: &ScopeContext, fork: ForkThread) -> Result<(), CommandRefusal> {
         // Same reason `create_thread` checks this first: the id arrives from
-        // the client, and `inherit_conversation` below writes rows keyed on it
-        // before any Task row exists to claim it.
+        // the client, and the fork writes rows keyed on it before any Task row
+        // exists to claim it.
         free_thread_id(self.0.tasks.as_ref(), viewer, &fork.new_task_id).await?;
 
-        let (source, plan) = self
-            .0
-            .task_fork
-            .plan(viewer, &fork.source_task_id, fork.at_turn)
-            .await
-            .map_err(|e| create_refusal(&fork.source_task_id, e))?;
-
-        let (agent_profile, model) = match fork.harness {
-            Some(harness) => {
-                let sandbox_id = fork
-                    .same_sandbox
-                    .then(|| source.sandbox_id.as_deref().unwrap_or(&fork.source_task_id));
-                let profile = self
-                    .0
-                    .task_switch
-                    .profile_for(sandbox_id, harness)
-                    .await
-                    .map_err(|e| create_refusal(&fork.source_task_id, e))?;
-                // The source's model belongs to its own harness.
-                (profile, fork.model.clone())
-            }
-            None => (
-                source.agent_profile,
-                fork.model.clone().or_else(|| source.model.clone()),
-            ),
-        };
-
+        let source_task_id = fork.source_task_id.clone();
+        let new_task_id = fork.new_task_id.clone();
         self.0
             .task_fork
-            .inherit_conversation(&plan, &fork.new_task_id)
-            .await
-            .map_err(|e| create_refusal(&fork.new_task_id, e))?;
-
-        let request = moatless_api_schemas::task::CreateTaskRequest {
-            repository_id: Some(source.repository_id.clone()),
-            workspace_id: source.workspace_id.clone(),
-            sandbox_id: fork
-                .same_sandbox
-                .then(|| source.sandbox_id.clone())
-                .flatten(),
-            checkout_mode: fork
-                .same_sandbox
-                .then_some(moatless_types::task::CheckoutMode::Shared),
-            agent_profile: Some(agent_profile.to_string()),
-            name: None,
-            description: None,
-            branch: source.branch.clone(),
-            message: fork.message.clone(),
-            model,
-            agent_mode: fork.agent_mode.clone(),
-            effort: fork.effort.clone(),
-            contexts: Vec::new(),
-            file_ids: Vec::new(),
-            parent_task_id: None,
-            // The T3 surface has no run-as control; a task it opens runs as its caller.
-            run_as_user_id: None,
-            headless: None,
-            // T3 has no skill picker of its own.
-            skills: Vec::new(),
-        };
-
-        let create_result = async {
-            let mut new_task = task_service::normalize(
-                task_service::CreateTaskPorts {
-                    workspaces: self.0.workspace_resolver.as_ref(),
-                    repositories: self.0.repository_reader.as_ref(),
-                    tasks: self.0.tasks.as_ref(),
-                    users: self.0.user_directory.as_ref(),
-                    credential_sync: &self.0.credential_sync,
-                    config: &self.0.config,
+            .fork(
+                fork::ForkCreationPorts {
+                    normalize: self.create_ports(),
+                    task_creation: &self.0.task_creation,
+                    message_send: self.0.message_send.clone(),
+                    switch: &self.0.task_switch,
                 },
                 viewer,
-                &viewer.user_id,
-                task_service::CreateTaskIntent {
-                    request,
-                    task_id: Some(fork.new_task_id.clone()),
-                    provision: true,
-                    first_message_uuid: None,
+                fork::ForkRequest {
+                    source_task_id: fork.source_task_id,
+                    new_task_id: Some(fork.new_task_id),
+                    at_turn: fork.at_turn,
+                    message: fork.message,
+                    same_sandbox: fork.same_sandbox,
+                    profile: fork
+                        .harness
+                        .map_or(fork::ForkProfile::Source, fork::ForkProfile::Harness),
+                    model: fork.model,
+                    agent_mode: fork.agent_mode,
+                    effort: fork.effort,
+                    // T3 has no skill picker of its own.
+                    skills: Vec::new(),
                 },
-            )
-            .await?;
-            new_task.tag_ids = self.0.task_fork.source_tag_ids(&fork.source_task_id).await;
-            new_task.forked_from = Some(moatless_tasks::task::creation::ForkedFrom {
-                source_task_id: fork.source_task_id.clone(),
-                at_turn: plan.at_turn,
-                source_event_id: plan.source_event_id,
-            });
-            task_service::create_task(
-                &self.0.task_creation,
-                self.0.message_send.clone(),
-                new_task,
                 |_| async { serde_json::Value::Null },
             )
             .await
-        }
-        .await;
-
-        if let Err(e) = create_result {
-            self.0
-                .task_fork
-                .discard_conversation(&fork.new_task_id)
-                .await;
-            return Err(create_refusal(&fork.new_task_id, e));
-        }
-
-        tracing::info!(
-            task_id = %fork.new_task_id,
-            source_task_id = %fork.source_task_id,
-            at_turn = ?plan.at_turn,
-            source_event_id = ?plan.source_event_id,
-            same_sandbox = fork.same_sandbox,
-            "Task forked from T3"
-        );
+            .map_err(|error| match error {
+                fork::ForkError::Source(e) => create_refusal(&source_task_id, e),
+                fork::ForkError::Fork(e) => create_refusal(&new_task_id, e),
+            })?;
         Ok(())
     }
 
@@ -1065,62 +979,38 @@ fn send_refusal(task_id: &str, error: MessageError) -> CommandRefusal {
     }
 }
 
-/// Make the id a `thread.create` names available, or say why not.
-///
-/// T3 mints thread ids client-side, so a retry can collide with the
-/// `Error` row a failed creation left; `thread.delete` can't clear it, so
-/// reclaiming that exact row here is the only unblock. Refused the same
-/// way for someone else's id as for one this viewer can't read.
+/// Make the id a `thread.create` names available, or say why not. See
+/// [`TaskCommands::claim_minted_id`].
 pub(super) async fn free_thread_id(
     tasks: &TaskCommands,
     viewer: &ScopeContext,
     task_id: &str,
 ) -> Result<(), CommandRefusal> {
-    let existing = tasks.find_by_id(task_id, viewer).await.map_err(|error| {
-        tracing::warn!(%error, task_id, "T3 thread create could not read the id it was given");
-        CommandRefusal::Failed {
-            message: "The thread could not be created.".to_string(),
-        }
-    })?;
-    // Free, or held by a Task this viewer cannot read. In the second case the
-    // unique index refuses the create, which is the same answer without
-    // confirming that the id is taken.
-    let Some(existing) = existing else {
-        return Ok(());
-    };
-
-    if !viewer.can_write(&ScopedResource::borrowed(
-        existing.scope,
-        existing
-            .owner_user_id
-            .as_deref()
-            .or(existing.created_by.as_deref()),
-    )) {
-        return Err(CommandRefusal::NotWritable {
-            task_id: task_id.to_string(),
-        });
-    }
-
-    let reclaimed = tasks
-        .delete_errored_empty_task(task_id, viewer)
+    let claim = tasks
+        .claim_minted_id(viewer, task_id)
         .await
         .map_err(|error| {
-            tracing::warn!(%error, task_id, "T3 thread create could not reclaim a failed bootstrap");
+            tracing::warn!(%error, task_id, "T3 thread create could not claim the id it was given");
             CommandRefusal::Failed {
                 message: "The thread could not be created.".to_string(),
             }
         })?;
-    if !reclaimed {
-        return Err(CommandRefusal::Rejected {
+    match claim {
+        MintedIdClaim::Free => Ok(()),
+        MintedIdClaim::Reclaimed => {
+            tracing::info!(
+                task_id,
+                "T3 thread create reclaimed a failed bootstrap's id"
+            );
+            Ok(())
+        }
+        MintedIdClaim::NotWritable => Err(CommandRefusal::NotWritable {
+            task_id: task_id.to_string(),
+        }),
+        MintedIdClaim::Taken => Err(CommandRefusal::Rejected {
             message: "That thread already exists.".to_string(),
-        });
+        }),
     }
-
-    tracing::info!(
-        task_id,
-        "T3 thread create reclaimed a failed bootstrap's id"
-    );
-    Ok(())
 }
 
 pub(super) fn create_refusal(task_id: &str, error: TaskError) -> CommandRefusal {

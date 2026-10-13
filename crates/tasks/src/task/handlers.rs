@@ -163,7 +163,7 @@ pub async fn create_task(
 )]
 #[expect(
     clippy::too_many_arguments,
-    reason = "the same two-stage create pipeline `create_task` forwards to, plus the fork service that resolves the cut and copies the conversation ahead of it. As there, no caller above a handler exists to hoist the ports to."
+    reason = "the same two-stage create pipeline `create_task` forwards to, plus the fork service that resolves the cut and copies the conversation ahead of it, and the switch service a harness choice resolves through. As there, no caller above a handler exists to hoist the ports to."
 )]
 pub async fn fork_task(
     State(workspaces): State<Arc<dyn WorkspaceResolver>>,
@@ -174,6 +174,7 @@ pub async fn fork_task(
     State(config): State<Arc<Config>>,
     State(task_creation): State<Arc<TaskCreationService>>,
     State(task_fork): State<Arc<TaskForkService>>,
+    State(task_switch): State<Arc<TaskSwitchService>>,
     State(message_send): State<Arc<MessageSendService>>,
     State(task_presenter): State<Arc<TaskPresenter>>,
     auth: AuthUser,
@@ -193,7 +194,8 @@ pub async fn fork_task(
         },
         task_creation: &task_creation,
         message_send,
-    }, &auth.scope_context(), &task_id, req, move |task| async move {
+        switch: &task_switch,
+    }, &auth.scope_context(), super::fork::ForkRequest::minted(&task_id, req), move |task| async move {
             match presenter_ev.enrich_task(&task, &uid_ev).await {
                 Ok(resp) => {
                     let payload = serde_json::json!({ "task": resp });

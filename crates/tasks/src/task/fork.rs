@@ -10,11 +10,18 @@
 
 use std::sync::Arc;
 
+use moatless_api_schemas::task::{CreateTaskRequest, ForkTaskRequest};
 use moatless_types::access_control::{ScopeContext, ScopedResource};
+use moatless_types::agent::{AgentMode, Harness};
+use moatless_types::task::CheckoutMode;
 
+use super::creation::{ForkedFrom, TaskCreationOutcome, TaskCreationService};
 use super::dao::TaskDao;
 use super::error::TaskError;
+use super::service::{self, CreateTaskIntent, CreateTaskPorts};
+use super::switch::TaskSwitchService;
 use crate::message::dao::MessageDao;
+use crate::message::send::MessageSendService;
 use crate::tag::dao::TagDao;
 use crate::task_turn::dao::TaskTurnDao;
 use crate::task_turn::models::ForkPoint;
@@ -216,67 +223,153 @@ impl TaskForkService {
     }
 }
 
+/// The Agent profile a fork runs.
+pub enum ForkProfile {
+    /// The source's, on the source's model unless the request names one.
+    Source,
+    /// A named profile. The source's model belongs to the source's profile,
+    /// so only the request's model applies.
+    Named(String),
+    /// The profile `harness` runs in the Sandbox the fork lands in; only the
+    /// request's model applies.
+    Harness(Harness),
+}
+
+/// A fork of `source_task_id`: the cut, and what the fork changes from its
+/// source.
+pub struct ForkRequest {
+    pub source_task_id: String,
+    /// The fork's id, when the caller minted it; `None` mints one here.
+    pub new_task_id: Option<String>,
+    /// The source's turn the copy stops after; `None` cuts after its newest
+    /// settled turn.
+    pub at_turn: Option<i32>,
+    /// The fork's own first message. `None` creates it idle.
+    pub message: Option<String>,
+    /// Join the source's Sandbox on its shared checkout instead of
+    /// provisioning one.
+    pub same_sandbox: bool,
+    pub profile: ForkProfile,
+    pub model: Option<String>,
+    pub agent_mode: Option<AgentMode>,
+    pub effort: Option<String>,
+    /// Skills to activate for the first turn.
+    pub skills: Vec<String>,
+}
+
+impl ForkRequest {
+    /// The fork the HTTP endpoint asks for, under an id minted here.
+    pub fn minted(source_task_id: &str, req: ForkTaskRequest) -> Self {
+        Self {
+            source_task_id: source_task_id.to_string(),
+            new_task_id: None,
+            at_turn: req.at_turn,
+            message: req.message,
+            same_sandbox: req.same_sandbox.unwrap_or(false),
+            profile: req
+                .agent_profile
+                .map_or(ForkProfile::Source, ForkProfile::Named),
+            model: req.model,
+            agent_mode: req.agent_mode,
+            effort: req.effort,
+            skills: req.skills,
+        }
+    }
+}
+
+/// Why [`TaskForkService::fork`] refused, split by which Task the refusal is
+/// about.
+#[derive(Debug)]
+pub enum ForkError {
+    /// Refused before anything was written: the source cannot be forked, or
+    /// the harness asked for cannot run there.
+    Source(TaskError),
+    /// Refused writing the fork; whatever it inherited is discarded.
+    Fork(TaskError),
+}
+
+impl From<ForkError> for TaskError {
+    fn from(error: ForkError) -> Self {
+        match error {
+            ForkError::Source(error) | ForkError::Fork(error) => error,
+        }
+    }
+}
+
 /// Dependencies shared by normalization and creation of a fork.
 pub struct ForkCreationPorts<'a> {
-    pub normalize: super::service::CreateTaskPorts<'a>,
-    pub task_creation: &'a super::creation::TaskCreationService,
-    pub message_send: std::sync::Arc<crate::message::send::MessageSendService>,
+    pub normalize: CreateTaskPorts<'a>,
+    pub task_creation: &'a TaskCreationService,
+    pub message_send: Arc<MessageSendService>,
+    pub switch: &'a TaskSwitchService,
 }
 
 impl TaskForkService {
-    /// Inherit the selected conversation and compensate every failed task
-    /// creation.
+    /// Fork `request.source_task_id` into a new Task, copying its conversation
+    /// up to the cut and discarding the copy when the create fails.
+    ///
+    /// The fork keeps the source's repository, Workspace, branch and tags.
     pub async fn fork<EvFut>(
         &self,
         ports: ForkCreationPorts<'_>,
         scope_ctx: &ScopeContext,
-        task_id: &str,
-        req: super::schemas::ForkTaskRequest,
+        request: ForkRequest,
         build_event_payload: impl FnOnce(super::models::Task) -> EvFut + Send,
-    ) -> Result<super::creation::TaskCreationOutcome, TaskError>
+    ) -> Result<TaskCreationOutcome, ForkError>
     where
         EvFut: std::future::Future<Output = serde_json::Value> + Send,
     {
-        use super::creation::ForkedFrom;
-        use super::schemas::CreateTaskRequest;
-        use super::service;
-        let same_sandbox = req.same_sandbox.unwrap_or(false);
-        let user_id = scope_ctx.user_id.clone();
-        let (source, plan) = self.plan(scope_ctx, task_id, req.at_turn).await?;
+        let source_task_id = request.source_task_id.as_str();
+        let same_sandbox = request.same_sandbox;
+        let (source, plan) = self
+            .plan(scope_ctx, source_task_id, request.at_turn)
+            .await
+            .map_err(ForkError::Source)?;
 
-        // The fork's id is minted here rather than by the creation service: the
-        // conversation is projected onto it before the Task row exists, which is
-        // what puts the inherited Messages behind the fork's own first message.
-        let fork_task_id = uuid::Uuid::new_v4().to_string();
-        self.inherit_conversation(&plan, &fork_task_id).await?;
+        let (agent_profile, model) = match request.profile {
+            ForkProfile::Source => (
+                source.agent_profile.to_string(),
+                request.model.or_else(|| source.model.clone()),
+            ),
+            ForkProfile::Named(profile) => (profile, request.model),
+            ForkProfile::Harness(harness) => {
+                let sandbox_id =
+                    same_sandbox.then(|| source.sandbox_id.as_deref().unwrap_or(source_task_id));
+                let profile = ports
+                    .switch
+                    .profile_for(sandbox_id, harness)
+                    .await
+                    .map_err(ForkError::Source)?;
+                (profile.to_string(), request.model)
+            }
+        };
 
-        // Everything the fork runs against comes from the source Task. A
-        // fork is deliberately unnamed/undescribed: "Fork of X" says where
-        // it came from, not what it's doing — the agent sets both via
+        // Minted before the creation service runs: the conversation is
+        // projected onto it before the Task row exists, which is what puts the
+        // inherited Messages behind the fork's own first message.
+        let fork_task_id = request
+            .new_task_id
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        self.inherit_conversation(&plan, &fork_task_id)
+            .await
+            .map_err(ForkError::Fork)?;
+
+        // A fork is deliberately unnamed/undescribed: "Fork of X" says where it
+        // came from, not what it's doing — the agent sets both via
         // `moat set-name` once it knows.
         let create = CreateTaskRequest {
             repository_id: Some(source.repository_id.clone()),
             workspace_id: source.workspace_id.clone(),
             sandbox_id: same_sandbox.then(|| source.sandbox_id.clone()).flatten(),
-            checkout_mode: same_sandbox.then_some(moatless_types::task::CheckoutMode::Shared),
-            agent_profile: Some(
-                req.agent_profile
-                    .clone()
-                    .unwrap_or_else(|| source.agent_profile.to_string()),
-            ),
+            checkout_mode: same_sandbox.then_some(CheckoutMode::Shared),
+            agent_profile: Some(agent_profile),
             name: None,
             description: None,
             branch: source.branch.clone(),
-            message: req.message.clone(),
-            // The source's model belongs to the source's profile.
-            model: req.model.clone().or_else(|| {
-                req.agent_profile
-                    .is_none()
-                    .then(|| source.model.clone())
-                    .flatten()
-            }),
-            agent_mode: req.agent_mode.clone(),
-            effort: req.effort.clone(),
+            message: request.message,
+            model,
+            agent_mode: request.agent_mode,
+            effort: request.effort,
             contexts: Vec::new(),
             file_ids: Vec::new(),
             parent_task_id: None,
@@ -284,15 +377,15 @@ impl TaskForkService {
             // naming one here would be a second answer to the same question.
             run_as_user_id: None,
             headless: None,
-            skills: req.skills.clone(),
+            skills: request.skills,
         };
 
         let create_result = async {
             let mut new_task = service::normalize(
                 ports.normalize,
                 scope_ctx,
-                &user_id,
-                service::CreateTaskIntent {
+                &scope_ctx.user_id,
+                CreateTaskIntent {
                     request: create,
                     task_id: Some(fork_task_id.clone()),
                     provision: true,
@@ -300,13 +393,12 @@ impl TaskForkService {
                 },
             )
             .await?;
-            new_task.tag_ids = self.source_tag_ids(task_id).await;
+            new_task.tag_ids = self.source_tag_ids(source_task_id).await;
             new_task.forked_from = Some(ForkedFrom {
-                source_task_id: task_id.to_string(),
+                source_task_id: source_task_id.to_string(),
                 at_turn: plan.at_turn,
                 source_event_id: plan.source_event_id,
             });
-
             service::create_task(
                 ports.task_creation,
                 ports.message_send,
@@ -323,13 +415,13 @@ impl TaskForkService {
                 // The Task never came to exist; take its inherited conversation with it
                 // rather than leave rows behind a Task that is not there.
                 self.discard_conversation(&fork_task_id).await;
-                return Err(error);
+                return Err(ForkError::Fork(error));
             }
         };
 
         tracing::info!(
             task_id = %fork_task_id,
-            source_task_id = %task_id,
+            %source_task_id,
             at_turn = ?plan.at_turn,
             source_event_id = ?plan.source_event_id,
             same_sandbox,

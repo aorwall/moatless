@@ -8,7 +8,23 @@ use chrono::{DateTime, Utc};
 use super::dao::TaskDao;
 use super::models::{SandboxIntentView, Task, TaskFilter, TaskPatch, TaskStatus};
 use super::pin_dao::OrderSlot;
-use moatless_types::access_control::ScopeContext;
+use moatless_types::access_control::{ScopeContext, ScopedResource};
+
+/// Who holds a caller-minted Task id, as [`TaskCommands::claim_minted_id`]
+/// answers it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MintedIdClaim {
+    /// No Task this viewer can read holds it. One they cannot read may, and the
+    /// create's unique index refuses it without confirming the id is taken.
+    Free,
+    /// This viewer's empty `Error` Task held it, and was deleted.
+    Reclaimed,
+    /// A Task this viewer may read but not write holds it.
+    NotWritable,
+    /// A Task this viewer may write holds it, and it is not an empty `Error`
+    /// one.
+    Taken,
+}
 
 /// The `tasks`, `task_follows` and `task_read_receipts` tables, as the backend
 /// and handlers reach them. Narrower published seams:
@@ -47,6 +63,59 @@ impl TaskCommands {
         ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error> {
         self.store.delete_errored_empty_task(task_id, ctx).await
+    }
+
+    /// Make a caller-minted Task id available to this viewer's create.
+    ///
+    /// A client that mints its own ids retries a failed creation under the same
+    /// id, which collides with the `Error` row the failure left; nothing else
+    /// can delete that row, so reclaiming it here is the only unblock.
+    pub async fn claim_minted_id(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+    ) -> Result<MintedIdClaim, sqlx::Error> {
+        let Some(existing) = self.store.find_by_id(task_id, viewer).await? else {
+            return Ok(MintedIdClaim::Free);
+        };
+        if !viewer.can_write(&ScopedResource::borrowed(
+            existing.scope,
+            existing
+                .owner_user_id
+                .as_deref()
+                .or(existing.created_by.as_deref()),
+        )) {
+            return Ok(MintedIdClaim::NotWritable);
+        }
+        if self
+            .store
+            .delete_errored_empty_task(task_id, viewer)
+            .await?
+        {
+            Ok(MintedIdClaim::Reclaimed)
+        } else {
+            Ok(MintedIdClaim::Taken)
+        }
+    }
+
+    /// Whether `viewer` may read `task_id`, it is open, and they follow it: the
+    /// gate on changing their own settle, snooze and pin state for it.
+    pub async fn followed_and_open(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let Some(task) = self.store.find_by_id(task_id, viewer).await? else {
+            return Ok(false);
+        };
+        if task.status != TaskStatus::Open {
+            return Ok(false);
+        }
+        let followed = self
+            .store
+            .get_followed(&viewer.user_id, &[task_id.to_string()])
+            .await?;
+        Ok(followed.contains(task_id))
     }
 
     /// See [`TaskDao::list_tasks`].
@@ -284,5 +353,76 @@ impl TaskCommands {
         task_ids: &[String],
     ) -> Result<HashSet<String>, sqlx::Error> {
         self.store.get_followed(user_id, task_ids).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::task::dao::MockTaskDao;
+    use crate::task::test_support::make_task_row;
+
+    fn commands(task: Option<Task>, followed: bool) -> TaskCommands {
+        let mut store = MockTaskDao::new();
+        store
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(task.clone()));
+        store.expect_get_followed().returning(move |_, ids| {
+            Ok(if followed {
+                ids.iter().cloned().collect()
+            } else {
+                HashSet::new()
+            })
+        });
+        TaskCommands::new(Arc::new(store))
+    }
+
+    #[tokio::test]
+    async fn only_an_open_readable_followed_task_takes_follower_state() {
+        let viewer = ScopeContext::user("u-1");
+        let open = make_task_row("t-1", "u-1");
+        let mut closed = open.clone();
+        closed.status = TaskStatus::Closed;
+
+        for (task, followed, expected) in [
+            (Some(open.clone()), true, true),
+            (Some(open), false, false),
+            (Some(closed), true, false),
+            (None, true, false),
+        ] {
+            let allowed = commands(task, followed)
+                .followed_and_open(&viewer, "t-1")
+                .await
+                .unwrap();
+            assert_eq!(allowed, expected);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_minted_id_is_reclaimed_only_from_the_viewers_own_errored_empty_task() {
+        let viewer = ScopeContext::user("u-1");
+        for (owner, row, deleted, expected) in [
+            ("u-1", false, false, MintedIdClaim::Free),
+            ("u-2", true, false, MintedIdClaim::NotWritable),
+            ("u-1", true, true, MintedIdClaim::Reclaimed),
+            ("u-1", true, false, MintedIdClaim::Taken),
+        ] {
+            let task = row.then(|| make_task_row("t-1", owner));
+            let mut store = MockTaskDao::new();
+            store
+                .expect_find_by_id()
+                .returning(move |_, _| Ok(task.clone()));
+            store
+                .expect_delete_errored_empty_task()
+                .returning(move |_, _| Ok(deleted));
+            let claim = TaskCommands::new(Arc::new(store))
+                .claim_minted_id(&viewer, "t-1")
+                .await
+                .unwrap();
+            assert_eq!(
+                claim, expected,
+                "owner {owner}, row {row}, deleted {deleted}"
+            );
+        }
     }
 }
