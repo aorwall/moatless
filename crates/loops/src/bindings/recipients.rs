@@ -1,14 +1,12 @@
-//! Which bindings receive an inbound event — the one place that decision is
-//! made.
+//! Which bindings receive an inbound event — decided only here.
 //!
-//! [`resolve_recipients`] performs no I/O: everything it reasons over — the
-//! active bindings, the event's author task, and the parent event's author an
-//! [`Audience::ParentAuthor`] names — is resolved by the router first, which is
-//! what makes the whole matrix affordable to test as a table.
+//! [`resolve_recipients`] does no I/O: the active bindings, the event's
+//! author task, and the parent author an [`Audience::ParentAuthor`] names
+//! are all resolved by the router first, making the matrix cheap to test.
 //!
-//! Identity plays no part: a task is excluded only where it can be *named* as
-//! the author of what arrived, never by matching a sender identity, which would
-//! mute any person posting under the same identity a provider uses.
+//! Identity plays no part: a task is excluded only when it can be *named*
+//! as the author, never by matching a sender identity — which would mute
+//! anyone posting under the same identity a provider uses.
 
 use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
 use moatless_types::adapter::Audience;
@@ -261,12 +259,11 @@ mod tests {
                 expected: vec!["t_resp", "t_resp2"],
             },
             Row {
-                // Unreachable in practice and here for the shape: this audience
-                // carries build results and merge conflicts, which are provider
-                // signals no task authors. If one ever were authored by the
-                // producer, the producer is who it was for and nobody else
-                // needs it — the fallback asks whether the audience named
-                // anyone, not whether anyone it named survived.
+                // Unreachable in practice, kept for the shape: this audience
+                // carries build/merge signals no task authors. If one ever
+                // were, the producer is who it was for — the fallback asks
+                // whether the audience named anyone, not whether the named
+                // task survived.
                 case: "producer, the producer authored it — nobody receives, no fallback",
                 audience: Audience::SubjectProducer,
                 bindings: vec![producer("t_prod"), responder("t_resp")],

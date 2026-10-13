@@ -372,7 +372,6 @@ async fn starts_a_desired_running_task_observed_absent(pool: PgPool) {
 #[sqlx::test]
 async fn wakes_a_stopped_task_with_a_newer_pending_message(pool: PgPool) {
     seed(&pool, "t1", "open", "stopped").await;
-    // A message strictly newer than the stop supersedes it.
     seed_pending_user_message(&pool, "t1", Utc::now() + chrono::Duration::hours(1)).await;
     let runtime = Arc::new(RecordingRuntime::new());
     let (rec, _sink) = build(

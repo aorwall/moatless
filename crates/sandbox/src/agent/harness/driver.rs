@@ -66,21 +66,17 @@ pub(crate) async fn run<P, F>(
         .await
         .is_err()
         {
-            // Signal receiver dropped — no consumer remains, so stop.
             return;
         }
     }
 }
 
-/// Run the persistent-process driver loop until the command side closes and the
-/// process ends, or the signal receiver is dropped.
+/// Run the persistent-process driver loop until the command side closes
+/// and the process ends, or the signal receiver is dropped.
 ///
 /// Unlike [`run`], the process is long-lived (`ExecutionEnded` is a Turn
-/// boundary, not process death) and may inject input or open harness-internal
-/// executions on its own; all persistent-transport policy (fingerprint
-/// compatibility, injection vs. replacement, tmux teardown) lives inside the
-/// [`AgentProcess`], and this loop only sequences the external contract via the
-/// shared [`emit`]/[`flush_early`]/[`finalize`] helpers.
+/// boundary, not process death) and may inject input on its own; transport
+/// policy lives in [`AgentProcess`]; this loop only sequences the contract.
 pub(crate) async fn run_persistent<P: AgentProcess>(
     mut process: P,
     mut submit_rx: mpsc::Receiver<Input>,
@@ -252,7 +248,6 @@ async fn drive_persistent_event(
             Ok(true)
         }
         Some(ProcessEvent::InputAccepted { input }) => {
-            // Consume this input from the pending set in submit order.
             if let Some(pos) = state.pending.iter().position(|id| id == &input) {
                 state.pending.remove(pos);
             }
@@ -414,15 +409,11 @@ async fn run_execution<P: AgentProcess>(
     let mut accepted = false;
     let mut cancel_requested = false;
 
-    // Deliver the opening input, racing cancellation against it. The open is not
-    // instant for every transport — Codex awaits `initialize`, `thread/start`
-    // and `turn/start` before `submit` returns — and until it does, no execution
-    // exists for the `select!` below to cancel. Without this race a Stop issued
-    // during the open would sit unread until the Agent answered, which is
-    // exactly when it cannot.
-    //
-    // `cancel` is unreachable here (the `submit` future borrows the process), so
-    // the interrupt goes through the process's own handle.
+    // Deliver the opening input, racing cancellation: Codex's open isn't
+    // instant (`submit` awaits `initialize`, `thread/start`, `turn/start`),
+    // and until it returns there's no execution for `select!` to cancel.
+    // Without this, a Stop during open sits unread until the Agent answers
+    // — exactly when it can't. `cancel` is unreachable, so use the handle.
     let cancel_handle = process.cancel_handle();
     let submitted = {
         let mut submit = std::pin::pin!(process.submit(input));
@@ -491,28 +482,18 @@ async fn run_execution<P: AgentProcess>(
             }
             submitted = submit_rx.recv(), if *commands_open => {
                 match submitted {
-                    // A process that injects takes the input into the running
-                    // execution, which reports it as a bare `InputAccepted` and
-                    // so puts it on this execution's Turn. Otherwise — and if an
-                    // injection fails — the input is queued in order and opens a
-                    // later execution once this one terminates, so it is never
-                    // dropped.
-                    //
-                    // Never inject into an execution that is already unwinding:
-                    // its terminal is `Cancelled` whatever the process reports,
-                    // so an accepted injection would be acknowledged against a
-                    // Turn that produces nothing and would never open the
-                    // follow-up execution the input was meant for.
+                    // An injecting process takes the input into the running
+                    // execution (bare `InputAccepted`); otherwise it's queued
+                    // for the next execution. Never inject into an
+                    // already-unwinding execution: its terminal is
+                    // `Cancelled` regardless, so the ack would be wasted.
                     Some(next) => {
                         if !cancel_requested && process.accepts_injection() {
-                            // Raced against cancellation for the same reason the
-                            // open above is: an injecting process can wait inside
+                            // Raced against cancellation, same reason as the
+                            // open above: an injecting process can wait inside
                             // `submit` (Codex waits out its steerability gate),
-                            // and this loop is the only reader of `cancel_rx`, so
-                            // an unraced await would make a Stop unreadable for
-                            // as long as that wait lasted. `cancel` is
-                            // unreachable while the `submit` future borrows the
-                            // process, so the interrupt goes through the handle.
+                            // and this loop is the only `cancel_rx` reader, so
+                            // an unraced await blocks Stop for that long.
                             let cancel_handle = process.cancel_handle();
                             let injected = {
                                 let mut submit = std::pin::pin!(process.submit(next.clone()));
@@ -605,9 +586,9 @@ async fn run_execution<P: AgentProcess>(
                         emit(signal_tx, Signal::Activity(activity)).await?;
                     }
                     // A one-shot execution ends by the process ending. An
-                    // `ExecutionEnded` (persistent Turn boundary) or `InternalStart`
-                    // are not part of the one-shot lifecycle; the former is treated
-                    // as the terminal, the latter is ignored.
+                    // `ExecutionEnded` (persistent Turn boundary) or
+                    // `InternalStart` are not part of the one-shot lifecycle;
+                    // the former is the terminal, the latter is ignored.
                     Some(ProcessEvent::ExecutionEnded { termination })
                     | Some(ProcessEvent::Terminated { termination }) => {
                         // Release buffered source only if acceptance was actually

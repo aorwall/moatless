@@ -21,7 +21,6 @@ pub async fn login_sandbox(client: &mut MoatClient, config: &Config) -> Result<(
 
     let session = client.api().exchange_token().await?;
 
-    // Save session to file
     std::fs::write(&config.session_file, &session.token).map_err(|e| ClientError::Api {
         status: 500,
         body: format!("Failed to write session file: {e}"),
@@ -152,7 +151,6 @@ async fn login_password(url: &str, config: &Config) -> Result<(), ClientError> {
 
     let cookie = password_login_cookie(url, &email, &password, config.http.api).await?;
 
-    // Mint a long-lived API key using the freshly minted session.
     let client = MoatClient::new_with_session_cookie(url, &cookie, config.http.clone());
     let key = client
         .api()
@@ -247,7 +245,6 @@ async fn login_browser(api_url: &str) -> Result<(), ClientError> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
-    // Bind to a random available port
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .map_err(|e| ClientError::Api {
@@ -272,7 +269,6 @@ async fn login_browser(api_url: &str) -> Result<(), ClientError> {
         eprintln!("Please open the URL above manually.");
     }
 
-    // Wait for callback with 120s timeout
     let result = tokio::time::timeout(std::time::Duration::from_mins(2), async {
         let (mut stream, _addr) = listener.accept().await.map_err(|e| ClientError::Api {
             status: 500,
@@ -288,7 +284,6 @@ async fn login_browser(api_url: &str) -> Result<(), ClientError> {
         let request = String::from_utf8_lossy(&buf[..n]);
         let (api_key, login) = parse_callback_request(&request)?;
 
-        // Send success response
         let html = "<!DOCTYPE html><html><body><h2>Login successful!</h2><p>You can close this tab and return to the terminal.</p></body></html>";
         let response = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",

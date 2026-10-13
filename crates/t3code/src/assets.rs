@@ -140,22 +140,18 @@ fn file_url(resource: &Value) -> Result<Value, AssetUrlError> {
         return Err(AssetUrlError::NotFound);
     };
 
-    // The client resolves a workspace path against the `cwd` it was given, so
-    // what arrives is this module's own nominal worktree with the file hanging
-    // off it. What is left is the path an agent wrote: relative to a checkout,
-    // or the absolute one it used inside the Sandbox. The root comes off either
-    // way, because it has to become a segment of a URL, and
-    // [`Checkout::resolve`] reads a mention with or without one.
+    // `path` is this module's nominal worktree plus what the agent wrote:
+    // relative to a checkout, or absolute inside the Sandbox. Strip the
+    // worktree prefix and leading `/` so it becomes a URL segment;
+    // [`Checkout::resolve`] accepts a mention with or without the root.
     let relative = path
         .strip_prefix(&nominal_path::nominal_worktree(thread_id))
         .unwrap_or(path)
         .trim_start_matches('/');
-    // A `..` names nothing this can resolve and the Sandbox refuses it outright
-    // (`crates/sandbox/src/files/path.rs`), so it is refused here in the
-    // contract's own type: minting it would answer the frame a status code
-    // where the client renders a sentence. An absolute path is not refused
-    // here — [`serve`] resolves one against the workspace listing, which is
-    // what keeps a path outside the checkout unreachable.
+    // Reject `..` here too (the Sandbox already does) so the client gets this
+    // error type, not a raw status code. An absolute path passes through
+    // uncaught — [`serve`] resolves it against the workspace listing, which
+    // keeps anything outside the checkout unreachable.
     if relative.is_empty() || relative.contains("..") {
         return Err(AssetUrlError::NotFound);
     }
@@ -578,13 +574,9 @@ mod tests {
         );
     }
 
-    /// Exercises [`serve`] against a real Sandbox at
-    /// `T3_UI_RPC_TEST_SANDBOX_GRPC`.
-    ///
-    /// ```text
-    /// T3_UI_RPC_TEST_SANDBOX_GRPC=http://127.0.0.1:50052 \
-    ///   cargo test -p moatless-t3code --features live-sandbox-tests assets -- --ignored --nocapture
-    /// ```
+    /// Exercises [`serve`] against a real Sandbox; point
+    /// `T3_UI_RPC_TEST_SANDBOX_GRPC` at its gRPC endpoint and run with
+    /// `--features live-sandbox-tests -- --ignored --nocapture`.
     #[cfg(feature = "live-sandbox-tests")]
     #[tokio::test]
     #[ignore = "needs a Sandbox at T3_UI_RPC_TEST_SANDBOX_GRPC"]

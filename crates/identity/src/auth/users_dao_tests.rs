@@ -46,7 +46,6 @@ async fn resolves_users_by_provider_and_legacy_id(pool: PgPool) {
         .await
         .unwrap();
 
-    // Auth0 user.
     let a0 = Uuid::new_v4();
     repo.upsert_user(&make_user(a0, "alice", "auth0", "auth0|abc"))
         .await
@@ -55,7 +54,6 @@ async fn resolves_users_by_provider_and_legacy_id(pool: PgPool) {
         .await
         .unwrap();
 
-    // Local user.
     let loc = Uuid::new_v4();
     repo.upsert_user(&make_user(loc, "bob", "local", "local:bob"))
         .await

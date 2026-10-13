@@ -53,13 +53,12 @@ fn is_parent_edge(relation: TaskRelationType) -> bool {
     )
 }
 
-/// Every child Task of `task_id` this viewer may read, in spawn order (creation
-/// time ascending, stable — rows update in place and never re-sort).
+/// Every child Task of `task_id` this viewer may read, in spawn order
+/// (creation time ascending, stable).
 ///
-/// Two reads, not a join: the relation read answers every edge, the
-/// conversation read applies the same access rule a link resolves through, so
-/// an unreadable child is absent, not blanked. An unreadable parent is
-/// [`SubtasksError::NotFound`] before either read runs.
+/// Two reads, not a join: the relation read answers every edge; the
+/// conversation read's access rule makes an unreadable child absent, not
+/// blanked, and an unreadable parent [`SubtasksError::NotFound`] first.
 pub async fn list(
     state: &SubtasksState,
     viewer: &ScopeContext,

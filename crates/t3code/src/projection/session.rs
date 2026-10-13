@@ -33,14 +33,11 @@ pub(super) fn session(conversation: &Conversation) -> Value {
     json!({
         "threadId": conversation.task_id,
         "status": session_status(conversation, desired_state),
-        // A *driver kind*, not the catalog's display label. The client decodes
-        // this field as one (`ProviderSessionDirectory.ts:27`) and locks the
-        // composer to whatever it names, and `ProviderDriverKind` is an open
-        // branded slug that a display label also satisfies — so a label here
-        // matches no published instance and leaves the composer disabled.
-        //
-        // The same string as `providerInstanceId` below, because this backend
-        // publishes exactly one instance per driver (`providers.rs`).
+        // A *driver kind*, not the catalog's display label: the client locks
+        // the composer to whatever this names (`ProviderSessionDirectory.ts`),
+        // and a label matches no published instance, leaving it disabled.
+        // Same string as `providerInstanceId` below — one instance per
+        // driver (`providers.rs`).
         "providerName": provider_instance(conversation),
         "providerInstanceId": provider_instance(conversation),
         // `runtimeMode` is omitted: the session's copy carries a decoding

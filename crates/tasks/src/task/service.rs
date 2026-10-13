@@ -257,7 +257,6 @@ pub async fn normalize(
             ))
         })?;
 
-    // Validate repository exists and is usable by this caller.
     let repo = repositories
         .describe(scope_ctx, &repository_id)
         .await?
@@ -335,10 +334,10 @@ pub async fn normalize(
         // A create request never forks: the fork handler builds its own
         // `NewTaskRequest` on top of what this returns.
         forked_from: None,
-        // Skills alone are enough to start the agent: they frontload into the
-        // first turn on the pod. So a first message is delivered whenever there is
-        // text or a skill to activate — an empty prompt with skills still opens a
-        // turn, whereas a request with neither leaves the task idle as before.
+        // Skills alone can start the agent: they frontload into the first
+        // turn, so a first message fires whenever there's text or a skill
+        // to activate — empty prompt with skills still opens a turn, but
+        // neither leaves the task idle.
         first_message: if req.message.is_some() || !req.skills.is_empty() {
             Some(FirstMessage {
                 text: req.message.clone().unwrap_or_default(),

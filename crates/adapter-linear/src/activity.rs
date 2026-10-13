@@ -1,19 +1,12 @@
-//! Outbound Linear activity: what the running Agent tells the session panel.
+//! Outbound Linear activity: what the running agent tells the session panel,
+//! via the four `notify_*` entry points the event pipeline calls.
 //!
-//! Every Linear agent session has a panel in the issue view, and this module is
-//! the only thing that writes to it after provisioning, via the four `notify_*`
-//! entry points the event pipeline calls.
+//! Imports only [`auth`](super::auth), [`subject`](super::subject) and
+//! [`agent_api`](super::agent_api) — never `ingress`, `webhook`, `delivery`, or
+//! a workflow module — so the event pipeline's compile never pulls them in.
 //!
-//! Imports nothing above it in the Adapter except [`auth`](super::auth),
-//! [`subject`](super::subject) and [`agent_api`](super::agent_api) — never
-//! `ingress`, `webhook`, `delivery`, or a workflow module — since the event
-//! pipeline depends on this module and any other edge would pull them into
-//! every compile of the pipeline.
-//!
-//! Everything here is best-effort: a failure to tell Linear (no binding,
-//! missing connection, network error, GraphQL rejection) is logged and
-//! swallowed, since it runs downstream of work that already succeeded and no
-//! caller could act on it.
+//! Best-effort: a failed Linear call is logged and swallowed, since the
+//! triggering work already succeeded and no caller could act on it.
 
 use std::sync::Arc;
 

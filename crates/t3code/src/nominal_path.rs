@@ -6,21 +6,18 @@
 
 /// Prefix of the nominal root path reported for each workspace.
 ///
-/// T3 treats a project's root path as an identity and refuses a duplicate, so a
-/// distinct path is synthesized per workspace rather than the real per-sandbox
-/// checkout dir, which would collapse every project into one sidebar group —
-/// and is nominal regardless, since no checkout exists before a task has a
-/// sandbox.
+/// T3 treats a project's root path as an identity and refuses a duplicate, so
+/// each workspace gets a distinct synthesized path rather than its real
+/// per-sandbox checkout dir — which would collapse every project into one
+/// sidebar group, and doesn't exist before a task has a sandbox anyway.
 const NOMINAL_ROOT_PREFIX: &str = "/moatless/workspaces";
 
 /// Prefix of the nominal worktree path reported for each conversation.
 ///
-/// The client echoes a thread's `worktreePath` back as the `cwd` of every
-/// workspace-file request (`ChatView.tsx`), so the image's own `WORKSPACE_DIR`
-/// — one string for every conversation — would collide; a distinct path is
-/// synthesized per Task instead and reversed by [`files`](super::files). Its
-/// own namespace, not under [`NOMINAL_ROOT_PREFIX`]: a Sandbox checkout is not
-/// a directory inside its Workspace.
+/// The client echoes `worktreePath` back as `cwd` on every file request, so
+/// `WORKSPACE_DIR` would collide across conversations; this is synthesized
+/// per Task and reversed by [`files`](super::files) — its own namespace, not
+/// under [`NOMINAL_ROOT_PREFIX`], since a checkout isn't a Workspace directory.
 const NOMINAL_WORKTREE_PREFIX: &str = "/moatless/tasks";
 
 /// A distinct, stable, nominal worktree path for one conversation.

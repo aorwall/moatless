@@ -60,9 +60,8 @@ pub trait GitHostTokenIssuer: Send + Sync {
     /// Whether `actor`'s GitHub credential is usable, with no repository in
     /// hand to name.
     ///
-    /// For reporting connection state only — actual calls go through
-    /// [`Self::token`] instead — and it answers for the credential `actor`
-    /// would really present, so a caller cannot wrongly conclude "not
-    /// connected" from one missing kind of row.
+    /// For reporting connection state only — real calls go through
+    /// [`Self::token`] — and answers for the credential `actor` would
+    /// actually present, so one missing row kind can't read as "not connected".
     async fn github_is_usable(&self, actor: &Actor) -> Result<(), GitHostTokenError>;
 }

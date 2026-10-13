@@ -89,7 +89,6 @@ fn agent_message_and_reasoning_are_ordered_assistant_text_blocks() {
     let events = drain(&mut p);
     let s = sources(&events);
     assert_eq!(s.len(), 2);
-    // Reasoning and answer both normalize to renderable assistant text, in order.
     assert_eq!(s[0].block_json()["type"], "text");
     assert_eq!(
         s[0].block_json()["text"],
@@ -338,7 +337,6 @@ fn plan_updates_share_a_stable_tool_use_id() {
     assert_eq!(s.len(), 3, "every update emits a block");
     assert_eq!(s[0].block_json()["id"], s[1].block_json()["id"]);
     assert_eq!(s[1].block_json()["id"], s[2].block_json()["id"]);
-    // Each emission is a codex.todo_list tool_use whose input tracks completion.
     assert_eq!(s[0].block_json()["name"], "codex.todo_list");
     assert_eq!(s[0].block_json()["input"]["items"][0]["text"], "a");
     assert_eq!(s[0].block_json()["input"]["items"][0]["completed"], false);

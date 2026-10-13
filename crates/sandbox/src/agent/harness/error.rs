@@ -48,10 +48,9 @@ pub enum ErrorClass {
     /// The provider could not be reached at all: DNS resolution, TCP connect,
     /// or TLS failed before any request was served.
     ///
-    /// Distinct from [`Self::RateLimit`] (the provider answered) and
-    /// [`Self::InvalidInput`] (the request was understood and rejected): the
-    /// sandbox's own egress is the suspect, and the condition is usually
-    /// transient.
+    /// Distinct from [`Self::RateLimit`] (provider answered) and
+    /// [`Self::InvalidInput`] (request understood and rejected): the
+    /// sandbox's own egress is the suspect, usually transient.
     Connectivity,
     /// A requested Session could not be resumed or was not found.
     UnavailableSession,

@@ -333,7 +333,6 @@ impl Loops {
             }
         }
 
-        // Scope update: if a new scope is requested, resolve it; otherwise keep current.
         let (next_scope, next_owner) = if let Some(requested) = req.scope {
             let resolved = resolve_scope_for_adapter_create(ctx, Some(requested))?;
             (resolved.scope, resolved.owner_user_id)

@@ -24,11 +24,10 @@ use crate::workspace::UiRpcListedWorkspace;
 
 /// The shell listing: the viewer's projects, and the conversations in them.
 ///
-/// `sequence` is the read position and must be captured *before* the rows: the
-/// client discards every event at or below it, so reading it after risks
-/// dropping an event for a change the rows already reflect. A conversation
-/// whose project is absent from `workspaces` is left out, with a warning where
-/// the client would silently drop it.
+/// `sequence` is the read position and must be captured *before* the rows:
+/// the client discards every event at or below it, so reading it after risks
+/// dropping an event the rows already reflect. A conversation whose project
+/// is absent from `workspaces` is dropped, with a warning.
 pub(crate) fn shell_snapshot(
     workspaces: &[UiRpcListedWorkspace],
     conversations: &[Conversation],

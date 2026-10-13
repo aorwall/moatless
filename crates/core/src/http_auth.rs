@@ -3,13 +3,11 @@
 //! Axum plumbing over two consumer-declared ports, so a crate that mounts
 //! routes gets the extractors without naming the identity band.
 //!
-//! Two auth paths, tried in order: the `AuthIdentity` extension set by auth
-//! middleware after validating a session cookie or API key, then the
-//! `X-User-Token` header (sandbox→backend, JWT-based) for requests that bypass
-//! the middleware. Anything else is a 401.
+//! Two auth paths, tried in order: the `AuthIdentity` extension (session
+//! cookie or API key via auth middleware), then `X-User-Token` (sandbox→
+//! backend JWT) for requests bypassing it. Anything else is a 401.
 //!
-//! `X-User-*` headers are never trusted — the auth middleware strips them
-//! before validation.
+//! `X-User-*` headers are never trusted — auth middleware strips them first.
 
 use std::sync::Arc;
 
@@ -26,10 +24,9 @@ use moatless_types::user::UserRole;
 
 /// Verifies a sandbox-issued `X-User-Token` JWT.
 ///
-/// Declared consumer-side so the extractors name only this one value from the
-/// process rather than the whole `AppState`; the implementation (with its
-/// `sandbox::jwt` and token-secret dependency) lives behind this port, so
-/// generifying the extractors over any router state `S` costs no `sandbox`
+/// Declared consumer-side so the extractors name only this one value, not
+/// the whole `AppState`; the implementation (with its `sandbox::jwt` and
+/// token-secret dependency) lives behind this port, costing no `sandbox`
 /// import here.
 pub trait UserTokenVerifier: Send + Sync {
     /// Verify a long-lived user auth token, returning the identity it carries.
@@ -111,7 +108,6 @@ where
     type Rejection = AuthError;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        // Read X-Task-Id header (used by all auth paths)
         let task_id = parts
             .headers
             .get("x-task-id")
@@ -168,7 +164,6 @@ where
             });
         }
 
-        // No valid auth found
         Err(AuthError("Authentication required".to_string()))
     }
 }
@@ -198,10 +193,9 @@ where
 /// State-agnostic optional-scope extractor for routers whose state is **not**
 /// `AppState` (e.g. the sandbox router's `SandboxApiState`).
 ///
-/// Reads the canonical [`AuthIdentity`] that `auth_middleware` injects,
-/// trusting only that middleware-set extension (never raw `X-User-*` headers);
-/// `None` means no identity was attached, and callers must treat it as a
-/// denial, never an unscoped admin.
+/// Reads the canonical [`AuthIdentity`] `auth_middleware` injects, trusting
+/// only that extension (never raw `X-User-*` headers); `None` means no
+/// identity was attached — callers must treat it as denial, not unscoped admin.
 #[derive(Debug, Clone)]
 pub struct OptionalScope(pub Option<ScopeContext>);
 

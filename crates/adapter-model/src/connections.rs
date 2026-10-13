@@ -2,14 +2,12 @@
 //! may say so.
 //!
 //! Two authorities run over the same rows and stay apart:
-//! [`AdapterConnections`] runs every operation under a viewer's `ScopeContext`
-//! (behind `/api/v1/adapters/connections`); [`ConnectionRouting`] runs
-//! unscoped, for paths where an inbound event, not a session, decides the
-//! tenant.
+//! [`AdapterConnections`] runs every operation under a viewer's
+//! `ScopeContext`; [`ConnectionRouting`] runs unscoped, where an inbound
+//! event, not a session, decides the tenant.
 //!
-//! Both are built by [`crate::compose::adapter_connections`]. A provider crate
-//! compiles no database driver, so it names a capability trait from [`ports`]
-//! instead.
+//! Both are built by [`crate::compose::adapter_connections`]; providers name a
+//! capability trait from [`ports`] instead of linking a database driver.
 
 #[cfg(feature = "postgres")]
 pub(crate) mod dao;

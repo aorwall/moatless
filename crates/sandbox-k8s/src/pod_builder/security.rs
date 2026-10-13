@@ -4,12 +4,10 @@ use super::*;
 
 /// Container-level security context for the agent + server containers.
 ///
-/// Both modes drop ALL capabilities and add back only what's needed:
-/// `DAC_OVERRIDE` is added only when running as root (UID 0), since
-/// `/home/moatless` is chowned to UID 1000 and root needs it to write there
-/// during init; non-root mode needs no such override since ownership already
-/// matches. Fargate accepts capability drops but not additions, so its preset
-/// adds none.
+/// Both modes drop ALL capabilities. `DAC_OVERRIDE` is added back only when
+/// running as root (UID 0), since `/home/moatless` is chowned to UID 1000 and
+/// root needs it to write there during init. Fargate accepts drops but not
+/// additions, so its preset adds none.
 pub(super) fn app_security_context(config: &Config) -> SecurityContext {
     if config.sandbox.compute_mode.is_fargate() {
         return SecurityContext {
@@ -46,11 +44,10 @@ pub(super) fn pod_security_context(config: &Config) -> Option<PodSecurityContext
         run_as_group: Some(1000),
         run_as_non_root: Some(true),
         fs_group: Some(1000),
-        // Only recursively chown/chmod a volume when its root doesn't already
-        // have the right ownership. Without this the kubelet walks the ENTIRE
-        // workspace PVC (node_modules, build caches, many small files) on every
-        // mount, adding large pod-start latency on each start/restart. After the
-        // first mount the root already matches, so the walk is skipped.
+        // Chown only when root ownership mismatches: otherwise the kubelet
+        // walks the entire workspace PVC on every mount, adding large
+        // pod-start latency. After the first mount ownership already
+        // matches, so later mounts skip the walk.
         fs_group_change_policy: Some("OnRootMismatch".to_string()),
         seccomp_profile: Some(SeccompProfile {
             type_: "RuntimeDefault".to_string(),

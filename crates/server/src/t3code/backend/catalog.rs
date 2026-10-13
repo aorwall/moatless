@@ -158,12 +158,11 @@ impl SourceControlAuthSource for AppStateSourceControlAuth {
         if presence.as_ref().is_some_and(|row| row.refresh_failure) {
             return None;
         }
-        // Whether anything else is usable is the issuer's answer, not this
-        // row's: an App installation row carries no token and no login, so a
-        // caller reading the row alone reports every App-backed identity
-        // unauthenticated — telling someone to connect an account while their
-        // tasks are already pushing as the App. A Workspace pin is invisible
-        // here for the same reason.
+        // Usability beyond this is the issuer's answer, not the row's: an
+        // App installation row carries no token or login, so reading the
+        // row alone would call every App-backed identity unauthenticated —
+        // telling someone to connect while tasks already push as the App.
+        // A Workspace pin is invisible here for the same reason.
         self.0
             .git_host_tokens
             .github_is_usable(&Actor::of(&viewer.user_id))

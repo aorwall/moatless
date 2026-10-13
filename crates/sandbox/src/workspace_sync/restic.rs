@@ -851,11 +851,10 @@ fn prune(access: &RepoAccess) -> Result<usize, String> {
             .map_err(|e| format!("snapshots could not be deleted: {e}"))?;
     }
 
-    // `instant_delete`, because `PruneOptions` otherwise marks packs and removes
-    // them 23 h later, which a task stopping right after this never reaches.
-    // Measured: with the default, 42 packs / 1.35 GB stayed; with this, 12 packs
-    // went and `check` returned to zero findings. Callers hold the upload
-    // baseline across this, so no snapshot writes against the index it rewrites.
+    // `instant_delete`, because `PruneOptions` otherwise marks packs and
+    // removes them 23 h later, which a short-lived task never reaches.
+    // Callers hold the upload baseline across this call, so no snapshot
+    // write races the index it rewrites.
     let mut opts = PruneOptions::default();
     opts.instant_delete = true;
     let plan = repo

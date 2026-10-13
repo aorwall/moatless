@@ -60,7 +60,6 @@ pub(super) async fn run_file_action(
                 let pretty = serde_json::to_string_pretty(&resp).unwrap_or_default();
                 println!("{pretty}");
             } else {
-                // Print file content directly.
                 let content = resp.get("content").and_then(|v| v.as_str()).unwrap_or("");
                 print!("{content}");
             }

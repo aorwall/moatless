@@ -228,7 +228,6 @@ pub fn extract_text_from_attachments(attachments: &[serde_json::Value]) -> Strin
             }
         }
 
-        // main body text
         if let Some(text) = attachment.get("text").and_then(|v| v.as_str()) {
             if !text.is_empty() {
                 parts.push(text.to_string());
@@ -555,7 +554,6 @@ mod tests {
         assert!(result.contains("[FIRING:1] High CPU Usage"));
         assert!(result.contains("*Status*: Firing"));
         assert!(result.contains("Grafana v10.2.0"));
-        // divider should not contribute text
         assert!(!result.contains("divider"));
     }
 

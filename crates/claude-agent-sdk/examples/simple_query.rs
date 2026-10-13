@@ -20,10 +20,8 @@ async fn main() -> claude_agent_sdk::Result<()> {
         ..Default::default()
     };
 
-    // Send a one-shot query
     let mut handle = query("What is 2 + 2? Reply with just the number.", options).await?;
 
-    // Process messages from the CLI
     while let Some(msg) = handle.messages.recv().await {
         match msg? {
             SdkMessage::Assistant(assistant) => {

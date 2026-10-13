@@ -17,13 +17,11 @@ async fn coordinator_service_arms_and_fires_scheduled_wakeup() {
     };
     let agent_state = Arc::new(AgentState::new());
 
-    // A registry whose injector records what a fired job re-enters.
     let injected = Arc::new(Mutex::new(Vec::<String>::new()));
     let registry = Arc::new(ScheduledJobRegistry::new(Arc::new(CapturingInjector {
         injected: Arc::clone(&injected),
     })));
 
-    // A completed Turn that emits a ScheduleWakeup tool_use with a zero delay.
     let wakeup_block = serde_json::json!({
         "type": "tool_use",
         "id": "toolu_wake",

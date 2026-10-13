@@ -93,7 +93,6 @@ pub(crate) async fn sse_handler(
     // `Some(ctx)` → filter every event by whether `ctx` can read its task.
     let access: Option<ScopeContext> = Some(scope).filter(|ctx| !ctx.is_admin);
 
-    // Parse type filters
     let type_filters: Vec<String> = query
         .types
         .map(|t| t.split(',').map(|s| s.trim().to_string()).collect())
@@ -117,7 +116,6 @@ pub(crate) async fn sse_handler(
                 result = rx.recv() => {
                     match result {
                         Ok(payload) => {
-                            // Apply type filter if specified
                             if !type_filters.is_empty() {
                                 let matches = type_filters.iter().any(|t| {
                                     // Substring match on the raw JSON for "type":"<value>"
@@ -178,7 +176,6 @@ pub(crate) async fn sse_handler(
         }
     };
 
-    // Convert to axum body
     let body = Body::from_stream(ndjson_stream.map(|r| r.map(std::string::String::into_bytes)));
 
     #[allow(clippy::expect_used)]
@@ -192,13 +189,12 @@ pub(crate) async fn sse_handler(
         .expect("valid SSE response with static header names")
 }
 
-/// Historical task events handler: returns stored events from the `task_events`
-/// Postgres table so the frontend can hydrate the Events tab on reload.
+/// Historical task events: returns stored rows from `task_events` so the
+/// frontend can hydrate the Events tab on reload.
 ///
-/// Served from `task_events`, not the change feed, which is pruned to a bounded
-/// tail. An event published between this call and opening the SSE stream can
-/// appear in both; each envelope carries its `eventId` so the client dedupes
-/// across the boundary.
+/// Not the change feed, which is pruned to a bounded tail. An event
+/// published between this call and the SSE stream opening can appear in
+/// both; each envelope's `eventId` lets the client dedupe.
 pub(crate) async fn task_events_handler(
     State(tasks): State<Arc<dyn TaskReader>>,
     State(task_events): State<Arc<TaskEvents>>,
@@ -221,7 +217,6 @@ pub(crate) async fn task_events_handler(
 
     let repo = task_events;
 
-    // Page size: default 500, capped at 2000.
     let limit = i64::try_from(query.limit.unwrap_or(500).min(2000)).unwrap_or(500);
 
     // Comma-separated `types` filter maps to a SQL `type = ANY($types)` filter

@@ -1,20 +1,13 @@
-//! A `rustic_core` backend over `moatless-s3`.
-//!
-//! `rustic_core` reaches object storage only through [`ReadBackend`] and
-//! [`WriteBackend`], so this adapter is the whole S3 surface a restic-format
-//! workspace repository uses. Key layout is restic's own, under a per-task
-//! repository prefix:
+//! A `rustic_core` backend over `moatless-s3`: the only S3 surface a
+//! restic-format workspace repository uses, via
+//! [`ReadBackend`]/[`WriteBackend`]. Key layout, under a per-task prefix:
 //!
 //! ```text
-//! <prefix>/config
-//! <prefix>/keys/<id>
-//! <prefix>/snapshots/<id>
-//! <prefix>/index/<id>
-//! <prefix>/data/<first-2-hex-of-id>/<id>
+//! <prefix>/{config, keys/<id>, snapshots/<id>, index/<id>, data/<xx>/<id>}
 //! ```
 //!
-//! Both traits are synchronous and `aws-sdk-s3` is async, so every call blocks
-//! on a runtime this module owns. See [`runtime`].
+//! Both traits are sync; `aws-sdk-s3` is async, so calls block on a runtime
+//! this module owns. See [`runtime`].
 
 use std::future::Future;
 use std::sync::OnceLock;

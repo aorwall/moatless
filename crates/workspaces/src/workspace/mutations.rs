@@ -253,7 +253,6 @@ pub async fn create_workspace(
         }
         placement_ids.push(placement_id);
     }
-    // Default the first placement to primary when the caller flagged none.
     if let Some(target) = primary_choice.or_else(|| placement_ids.first().cloned()) {
         workspaces.set_primary(&workspace_id, &target, ctx).await?;
     }
@@ -283,7 +282,6 @@ pub async fn update_workspace(
     )?;
     let run_as_user_id = resolve_run_as_user(ctx, users, req.run_as_user_id.as_ref()).await?;
 
-    // Re-resolve owner_user_id when the scope changes.
     let (scope, owner_user_id) = match req.scope {
         Some(new_scope) => {
             let resolved = resolve_scope_for_create(ctx, Some(new_scope))?;
@@ -491,8 +489,6 @@ pub async fn add_workspace_repo(
         )
         .await?;
 
-    // First repo in a previously-blank workspace, or an explicit request, makes
-    // this placement primary.
     if req.is_primary == Some(true) || existing.is_empty() {
         workspaces
             .set_primary(&workspace_id, &placement_id, ctx)

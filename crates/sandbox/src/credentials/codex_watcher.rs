@@ -270,7 +270,6 @@ mod tests {
         assert_eq!(backend.update_count.load(Ordering::SeqCst), 1);
         let pushed = backend.last_value.lock().await.clone();
         assert_eq!(pushed.as_deref(), Some(rotated.as_str()));
-        // Cache updated to the new value.
         let cached = last.lock().await.clone();
         assert_eq!(cached, rotated);
     }

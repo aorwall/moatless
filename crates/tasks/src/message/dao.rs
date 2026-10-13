@@ -129,13 +129,11 @@ pub(crate) trait MessageDao: Send + Sync {
 
     async fn get_external_event_ids(&self, task_id: &str) -> Result<Vec<String>, sqlx::Error>;
 
-    /// Find the owning task for any of the given external IDs. Matches the id
-    /// alone across every subject, so it only suits ids a provider allocates
-    /// once (e.g. a comment id).
+    /// Find the owning task for any of the given external IDs, matching the
+    /// id alone (suits ids a provider allocates once, e.g. a comment id).
     ///
-    /// Use
-    /// [`find_task_id_by_any_external_event_id_on_subject`](Self::find_task_id_by_any_external_event_id_on_subject)
-    /// for ids a second subject can repeat.
+    /// For ids a second subject can repeat, use
+    /// [`find_task_id_by_any_external_event_id_on_subject`](Self::find_task_id_by_any_external_event_id_on_subject).
     async fn find_task_id_by_any_external_event_id(
         &self,
         external_ids: &[String],

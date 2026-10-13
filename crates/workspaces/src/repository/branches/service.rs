@@ -73,10 +73,10 @@ impl RepositoryBranchService {
         let host_repo = require_host_repo(remote)?;
         let provider = host_repo.provider();
 
-        // The viewer's own credential on every host, unless they named a workspace
-        // that pins one. A repository someone else shared does not lend its owner's
-        // access to whoever opens it; a workspace's pin is lent to its own
-        // repositories on purpose, because that is the token its Tasks clone with.
+        // The viewer's own credential on every host, unless they named a
+        // workspace that pins one. A shared repository doesn't lend its
+        // owner's access to whoever opens it; a workspace's pin does lend to
+        // its own repositories — that's the token its Tasks clone with.
         let actor = branch_listing_actor(workspaces, ctx, repository_id, workspace_id).await?;
         let access_token = git_host_tokens
             .token(&actor, &host_repo.credential_account())
@@ -117,7 +117,6 @@ impl RepositoryBranchService {
             .clone()
             .or(result.default_branch.clone());
 
-        // Persist provider-reported default_branch back to DB if missing
         if repo.default_branch.is_none() {
             if let Some(ref branch) = default_branch {
                 let patch = RepositoryPatch {
@@ -141,13 +140,10 @@ impl RepositoryBranchService {
             })
             .collect();
 
-        entries.sort_by(|a, b| {
-            // Default branch always first
-            match (a.is_default, b.is_default) {
-                (true, false) => std::cmp::Ordering::Less,
-                (false, true) => std::cmp::Ordering::Greater,
-                _ => a.name.cmp(&b.name),
-            }
+        entries.sort_by(|a, b| match (a.is_default, b.is_default) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.name.cmp(&b.name),
         });
 
         Ok(BranchListResponse {

@@ -76,7 +76,6 @@ mod tests {
         let d = CredentialFailureDetector::default();
         d.trigger(CODEX_AUTH_JSON);
         assert!(d.take(CODEX_AUTH_JSON));
-        // Subsequent take returns false — flag was cleared.
         assert!(!d.take(CODEX_AUTH_JSON));
     }
 
@@ -99,7 +98,6 @@ mod tests {
         let d = CredentialFailureDetector::default();
         d.trigger(CODEX_AUTH_JSON);
         assert_eq!(d.take_all(), vec![CODEX_AUTH_JSON.to_string()]);
-        // Cleared.
         assert!(d.take_all().is_empty());
     }
 }

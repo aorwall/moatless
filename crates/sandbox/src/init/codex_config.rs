@@ -143,7 +143,6 @@ mod tests {
         assert!(contents.contains("env_key = \"OPENAI_API_KEY\""));
         // auth.json is bypassed, so the watcher never sees the hub key.
         assert!(contents.contains("requires_openai_auth = false"));
-        // Both bare keys must precede the first table header.
         let first_header = contents.find('[').unwrap();
         assert!(contents.find("project_doc_max_bytes").unwrap() < first_header);
         assert!(contents.find("model_provider").unwrap() < first_header);

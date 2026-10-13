@@ -13,12 +13,10 @@ use tracing::warn;
 
 /// The largest WebSocket message this socket reads or writes.
 ///
-/// Sized for the one large frame T3 has: an attachment traveling as a base64
-/// data URL inside `orchestration.dispatchCommand`, up to 14,000,000
-/// characters; oversized attachments are refused by name in [`commands`], so a
-/// frame this big only comes from a turn the contract allows and fails as a
-/// dropped socket, not a refusal — deliberately below eight maximum-size
-/// images, since this buffer is allocated for anyone who can open the socket.
+/// Sized for T3's one large frame: a base64 attachment inside
+/// `orchestration.dispatchCommand`, up to 14,000,000 characters. A frame
+/// over this drops the socket, not a clean refusal — [`commands`] already
+/// refuses oversized attachments by name.
 pub(crate) const MAX_FRAME_BYTES: usize = 32 * 1024 * 1024;
 
 /// Frames a subscription may have queued for the socket before it is dropped.

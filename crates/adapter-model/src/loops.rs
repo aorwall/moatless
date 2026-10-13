@@ -1,16 +1,12 @@
 //! The seam the Loop domain publishes to the Adapters.
 //!
-//! An Adapter reads Subscriptions to decide whether an inbound event is work it
-//! should do — never writing one, and never reading a Schedule, a receipt, or a
-//! Loop's config rows. What crosses is the five reads below, not the Loop store
-//! and its twenty-six functions.
+//! An Adapter reads Subscriptions to decide if an inbound event is its work —
+//! never writing one, never reading a Schedule, a receipt, or a Loop's config
+//! rows. Only the five reads below cross, not the whole Loop store.
 //!
-//! [`SubscriptionMatch`], the value every read returns, lives in
-//! `moatless_types::loops`; the Loop store implements the reader in
-//! `moatless-loops`, beside the tables it reads.
-//!
-//! [`subscription_context`] projects a Subscription into the config-shaped
-//! [`LoopContext`] the older adapter trait methods still accept.
+//! [`SubscriptionMatch`] lives in `moatless_types::loops`; [`LoopReader`] is
+//! implemented in `moatless-loops`. [`subscription_context`] projects a
+//! Subscription into the [`LoopContext`] shape older adapter methods accept.
 
 use async_trait::async_trait;
 use chrono::Utc;

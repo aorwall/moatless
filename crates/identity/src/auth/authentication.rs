@@ -30,13 +30,6 @@ pub struct Authentication {
 
 impl Authentication {
     /// Mount the authentication routes without exposing their persistence.
-    /// ```no_run
-    /// use moatless_identity::auth::Authentication;
-    /// fn mount(auth: &Authentication) {
-    ///     let _routes = auth.routes();
-    ///     let _layer = auth.layer();
-    /// }
-    /// ```
     pub fn routes(&self) -> (axum::Router, utoipa::openapi::OpenApi) {
         routes::auth_router(self.routes.clone())
     }
@@ -44,9 +37,7 @@ impl Authentication {
     /// Clone the middleware state without exposing its session store.
     /// ```compile_fail
     /// use moatless_identity::auth::Authentication;
-    /// fn session_store(auth: &Authentication) {
-    ///     let _ = auth.layer().sessions;
-    /// }
+    /// fn f(a: &Authentication) { let _ = a.layer().sessions; }
     /// ```
     pub fn layer(&self) -> middleware::AuthMiddlewareState {
         self.layer.clone()

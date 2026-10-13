@@ -286,10 +286,10 @@ pub(super) async fn process_watcher_event(
                         } else {
                             error_msg.clone()
                         },
-                        // Carry the exit code / K8s reason so consumers can tell
-                        // OOM (137) from a crash (1) without scraping pod state.
-                        // Ride these on intentional stops too (Phase 3) — the
-                        // exit code is diagnostic, not an error signal.
+                        // Carry exit code/reason so consumers tell OOM (137)
+                        // from a crash (1) without scraping pod state. Set
+                        // even on intentional stops: it's diagnostic, not an
+                        // error signal.
                         exit_code: new_state.effective_exit_code(),
                         terminated_reason: new_state.effective_terminated_reason(),
                         // Node-level correlation + disruption cause on every event.
@@ -340,11 +340,10 @@ pub(super) async fn process_watcher_event(
                 }
             }
 
-            // Only truly irrecoverable events are fatal — pod-level failures
-            // where K8s will NOT restart the container.
-            // Container-level crashes (OOM, terminated, crash loop) are not fatal
-            // because K8s will restart them. The auto-stop threshold handles
-            // persistent crash loops separately.
+            // Fatal means pod-level failure that K8s will NOT restart.
+            // Container-level crashes (OOM, crash loop) are not fatal — K8s
+            // restarts those; the auto-stop threshold handles persistent
+            // crash loops separately.
             if plan.has_fatal_transition
                 && !is_intentional_stop
                 && !new_state.fatal_published
@@ -360,10 +359,9 @@ pub(super) async fn process_watcher_event(
                 let exit_code = new_state.effective_exit_code();
                 let terminated_reason = new_state.effective_terminated_reason();
 
-                // Fetch container logs for root cause on every fatal pod failure —
-                // narrowing this to only exit-78 and the crash-restart threshold
-                // would leave a one-off failure (e.g. the agent container
-                // terminating with reason "Error" mid-turn) with no trace.
+                // Fetch logs on every fatal failure: narrowing to exit-78 and
+                // the crash-restart threshold would leave a one-off failure
+                // (e.g. "Error" mid-turn) with no trace.
                 let logs = fetch_sandbox_logs(k8s, &pod_name, 50).await;
 
                 metrics::counter!(
@@ -485,7 +483,6 @@ pub(super) async fn process_watcher_event(
                 new_state.auto_stop_pending = true;
             }
 
-            // Auto-stop sandbox if restart count exceeds threshold
             if max_crash_restart_count > 0
                 && new_state.restart_count >= max_crash_restart_count
                 && !is_intentional_stop
@@ -505,7 +502,6 @@ pub(super) async fn process_watcher_event(
                     // Fetch container logs for root cause before stopping
                     let logs = fetch_sandbox_logs(k8s, &pod_name, 50).await;
 
-                    // Build detailed error message with code blocks for technical details
                     let mut error_parts = vec![format!(
                         "Sandbox auto-stopped after {} restarts (threshold: {}).",
                         new_state.restart_count, max_crash_restart_count
@@ -521,7 +517,6 @@ pub(super) async fn process_watcher_event(
                     }
                     let detailed_error = error_parts.join("\n");
 
-                    // Publish detailed sandbox.fatal with root cause
                     event_publisher
                         .publish_sandbox_event_with_payload(
                             &task_id,
@@ -546,14 +541,11 @@ pub(super) async fn process_watcher_event(
                 }
             }
 
-            // Perform (or retry) a pending auto-stop scale-to-0. Both the exit-78
-            // fast-fail and the crash-restart threshold set `auto_stop_pending`;
-            // this block is the single point that scales the Deployment to 0 and
-            // clears the flag only on success. A failed scale keeps the flag set,
-            // so the next watcher event for this pod — or the periodic sweep —
-            // retries. Without this retry the crossing edge never re-fires
-            // (`restart_count` stays `>= threshold`) and the pod crash-loops
-            // forever.
+            // Single point that scales to 0 for a pending auto-stop (set by the
+            // exit-78 fast-fail or the crash-restart threshold), clearing the
+            // flag only on success. A failed scale leaves it set for the next
+            // event or the periodic sweep to retry — without retry the
+            // threshold never re-fires and the pod crash-loops forever.
             if new_state.auto_stop_pending
                 && !is_intentional_stop
                 && crash_autostop(deps, &task_id).await
@@ -566,26 +558,11 @@ pub(super) async fn process_watcher_event(
                 new_state.auto_stop_pending = false;
             }
 
-            // Reconcile a clean sandbox exit (Completed, exit 0) against durable
-            // Sandbox intent.
-            //
-            // The sandbox's gRPC server never exits on its own during a task —
-            // it only returns exit 0 via the SIGTERM graceful-shutdown driver
-            // (see crates/sandbox/src/shutdown.rs). So a `sandbox_completed` means "the
-            // pod got a SIGTERM", which has three very different causes:
-            //   * Stop (idle reaper / user / crash auto-stop) already scaled the
-            //     Deployment to 0 — the SIGTERM is the pod draining. Scaling to
-            //     0 again is a harmless no-op that confirms the stop.
-            //   * Remove (task close / delete) already deleted the Deployment.
-            //     There is nothing to scale.
-            //   * Involuntary node event (spot reclaim, drain, consolidation)
-            //     SIGTERMs a pod the Deployment still wants. Here K8s will
-            //     reschedule the pod and agent recovery resumes the in-flight
-            //     turn — UNLESS we scale to 0 and cancel the task.
-            //
-            // Only intent separates these: the K8s API reports a deleted and a
-            // scaled-to-0 Deployment identically. A genuine exit-0 restart loop
-            // is still caught by the restart-count auto-stop above.
+            // `sandbox_completed` means the pod got a SIGTERM (the gRPC server
+            // only exits via the SIGTERM graceful-shutdown driver), not that it
+            // crashed. [`clean_exit_action`] reads intent, not the K8s API, to
+            // tell a deliberate stop/remove apart from an involuntary node
+            // event that still wants this pod rescheduled.
             if plan.has_completed_transition {
                 match clean_exit_action(deps, k8s, &task_id).await {
                     CleanExitAction::AlreadyRemoved => {
@@ -649,10 +626,8 @@ pub(super) async fn process_watcher_event(
                     generation_from_label(labels.get(OPERATION_GENERATION_LABEL))
                 });
 
-            // Remove the specific pod entry
             pod_states.remove(pod_name);
 
-            // Check if sibling pods for this task still exist
             let siblings = sibling_pods_for_task(pod_states, &task_id, pod_name);
 
             if siblings.is_empty() {
@@ -742,10 +717,10 @@ pub(super) async fn process_watcher_event(
                         .await;
                 }
 
-                // No sandbox.fatal here — "no Deployment + pod deleted" is always
-                // intentional cleanup (the cleanup handler deletes the Deployment first).
-                // Fatal events only come from the Apply handler for truly irrecoverable
-                // transitions (pod_failed, pod_evicted).
+                // No sandbox.fatal here: "no Deployment + pod deleted" is
+                // always intentional cleanup (it deletes the Deployment
+                // first). Fatal events come only from the Apply handler, for
+                // pod_failed/pod_evicted.
             } else {
                 info!(
                     task_id = %task_id,

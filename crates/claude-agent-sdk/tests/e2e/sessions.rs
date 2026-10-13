@@ -83,7 +83,6 @@ async fn run_session_resume_recalls_context(backend: Backend) {
     eprintln!("Turn 2 session_id: {turn2_session_id:?}");
     eprintln!("Turn 2 result: {turn2_result}");
 
-    // Session ID should match (same session resumed)
     if let Some(ref t2_id) = turn2_session_id {
         assert_eq!(
             &session_id, t2_id,
@@ -91,7 +90,6 @@ async fn run_session_resume_recalls_context(backend: Backend) {
         );
     }
 
-    // Model should recall the string from turn 1
     let turn2_lower = turn2_result.to_lowercase();
     assert!(
         turn2_lower.contains("blue elephant"),
@@ -177,7 +175,6 @@ async fn run_session_continue_recalls_context(backend: Backend) {
     let turn2_result = extract_result_text(&messages).expect("Turn 2 should succeed");
     eprintln!("Turn 2 result: {turn2_result}");
 
-    // Model should recall the string from turn 1
     let turn2_lower = turn2_result.to_lowercase();
     assert!(
         turn2_lower.contains("purple giraffe"),

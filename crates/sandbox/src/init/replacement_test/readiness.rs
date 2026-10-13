@@ -43,12 +43,10 @@ async fn dispatch_is_skipped_before_ready() {
 
 #[tokio::test]
 async fn dispatch_drives_the_pending_message_after_ready_per_family() {
-    // The configured family (`config.agent_profile`) — fixed for the pod across
-    // replacement — selects how a bare pending Message resolves its resume: the
-    // Claude family continues its last session (`ResumeSession::Last`, i.e.
-    // `--continue`); Codex has no `--continue` and starts fresh. Asserting the
-    // family-specific resume proves selection actually flows from config through
-    // the coordinator to the harness, not that the loop merely runs twice.
+    // The configured family (`config.agent_profile`) selects the pending
+    // Message's resume: Claude continues its last session (`--continue`),
+    // Codex has none and starts fresh. Proves selection flows from config
+    // through the coordinator to the harness, not just that the loop runs.
     for (family, expected_resume) in [("claude-code", Some(ResumeSession::Last)), ("codex", None)] {
         let backend = ReplayBackend::new(Ok(vec![text_message("hello", "uuid-1")]), None);
         let (state, recorder) = recording_state(Some(family), InitPhase::Ready, backend.clone());
@@ -75,12 +73,11 @@ async fn dispatch_drives_the_pending_message_after_ready_per_family() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn external_dispatch_cannot_preempt_the_precedence_decision() {
-    // Both a pending Message and an interrupted Run exist. A racing external
-    // dispatch (a gRPC notification) hammers the gate concurrently with
-    // `open_for_work`. The gate must keep external dispatch out until the
-    // precedence decision completes; otherwise the racer could consume and ack
-    // the pending Message before the probe, leaving the probe to see no pending
-    // row and enqueue a now-stale Recover behind the Message.
+    // Both a pending Message and an interrupted Run exist. A racing gRPC
+    // dispatch hammers the gate concurrently with `open_for_work`, which
+    // must keep it out until precedence resolves — else the racer could
+    // ack the Message before the probe, leaving it to enqueue a stale
+    // Recover behind the Message it already missed.
     let backend = ReplayBackend::new(
         Ok(vec![text_message("hello", "uuid-1")]),
         Some(interrupted_turn(
@@ -142,12 +139,10 @@ async fn external_dispatch_cannot_preempt_the_precedence_decision() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn prompt_resolution_is_serialised_under_the_dispatch_guard() {
-    // The prompt branch must run *under* the single-flight guard: otherwise two
-    // dispatchers both fetch the same prompt Message, one answers it and the loser
-    // hits the "prompt already consumed" fallback and resubmits the text as normal
-    // harness Input. Proven deterministically by holding the guard externally and
-    // showing the prompt cannot be answered until it is released — if the branch
-    // ran before acquiring the guard, it would answer while we hold it.
+    // The prompt branch must run under the single-flight guard, or two
+    // dispatchers fetch the same prompt and the loser hits "already
+    // consumed", resubmitting as normal Input. Proven by holding the
+    // guard externally: the prompt can't be answered until released.
     let backend = ReplayBackend::new(Ok(vec![text_message("approve it", "uuid-p")]), None);
     let (state, recorder) = recording_state(Some("claude-code"), InitPhase::Ready, backend.clone());
 
@@ -246,11 +241,10 @@ async fn transient_ack_failure_retries_without_re_running_the_message() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sustained_ack_failure_never_re_runs_and_aborts_on_shutdown() {
-    // The ack fails for the whole outage. A failed ack is never treated as
-    // success: the dispatcher holds the guard and keeps retrying — never dropping
-    // the still-pending row back for a hammering waiter to re-run — and aborts
-    // cleanly on shutdown, leaving the row for the replacement pod. This is the
-    // regression for "on exhaustion the guard drops and the row is re-run".
+    // The ack fails for the whole outage. A failed ack is never success:
+    // the dispatcher holds the guard and keeps retrying, never dropping
+    // the pending row for a hammering waiter to re-run, and aborts on
+    // shutdown, leaving the row for the replacement pod.
     let backend = ReplayBackend::new(Ok(vec![text_message("do it", "uuid-1")]), None);
     backend.fail_next_acks(usize::MAX);
     let (state, recorder) = recording_state(Some("claude-code"), InitPhase::Ready, backend.clone());
@@ -265,13 +259,11 @@ async fn sustained_ack_failure_never_re_runs_and_aborts_on_shutdown() {
         }
     });
 
-    // Drive the foreground dispatch as a task, not inline: if the racer wins the
-    // dispatch lock first, its guard-holding ack task pins the lock for the whole
-    // (here permanent) ack outage, so an inline `.await` here blocks until
-    // shutdown — and the `cancel()` that would release it comes later in this
-    // same function, so awaiting inline deadlocks whenever the racer wins the
-    // race. The sibling `prompt_ack_failure_never_becomes_normal_input` spawns
-    // its dispatch for the same reason.
+    // Driven as a task, not inline: if the racer wins the dispatch lock
+    // first, its guard-holding ack pins it for the whole (here permanent)
+    // outage, so an inline `.await` deadlocks — `cancel()` only runs later
+    // in this function. `prompt_ack_failure_never_becomes_normal_input`
+    // spawns for the same reason.
     let dispatch = tokio::spawn(dispatch_pending_messages(state.clone()));
 
     // The message reaches the harness once; while the ack keeps failing the guard
@@ -307,12 +299,10 @@ async fn sustained_ack_failure_never_re_runs_and_aborts_on_shutdown() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn prompt_ack_failure_never_becomes_normal_input() {
-    // The prompt answer's ack fails throughout, while a notification hammers the
-    // gate. The answer must stay a prompt answer under the same retry-until-acked
-    // policy — never leak into the harness as ordinary input, and never be
-    // re-fetched by the waiter — and the retry must abort on shutdown. This is the
-    // regression for "one-shot prompt ack fails, the row is later submitted
-    // normally".
+    // The prompt answer's ack fails throughout, while a notification
+    // hammers the gate. It must stay a prompt answer under retry-until-acked
+    // — never leak into the harness as ordinary input or get re-fetched —
+    // and the retry must abort on shutdown.
     let backend = ReplayBackend::new(Ok(vec![text_message("approve it", "uuid-p")]), None);
     backend.fail_next_acks(usize::MAX);
     let (state, recorder) = recording_state(Some("claude-code"), InitPhase::Ready, backend.clone());

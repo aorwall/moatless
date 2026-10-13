@@ -42,10 +42,9 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         }
     };
 
-    // Defensive safety net: if the sandbox publishes an `is_error: true` result
-    // under `agent.completed` (older code paths or future agent runtimes), route
-    // it through the same error-message machinery as `handle_agent_error` so the
-    // failure is visible in chat instead of disappearing into status flips.
+    // Defensive: an `is_error: true` under `agent.completed` (older or
+    // future runtimes) routes through `handle_agent_error` so it surfaces in
+    // chat instead of vanishing into a status flip.
     if sdk_result.is_error.unwrap_or(false) {
         handle_agent_error(&AgentErrorPorts::from(state), event).await;
         return;
@@ -108,12 +107,10 @@ pub async fn handle_agent_completed(state: &AppState, event: &AgentEvent) {
         }
     }
 
-    // Touch the activity timestamp. Status is flipped separately via
-    // `update_status_if_not_closed` so a task closed mid-run (e.g. its PR was
-    // closed) is never resurrected to Open by this automated handler. Cost is
-    // NOT incremented here: an at-least-once event stream would double-count a
-    // redelivered completion, so `total_cost_usd` is recomputed from the turn
-    // metrics below instead, which is idempotent.
+    // Touch the activity timestamp only. Status flips separately via
+    // `update_status_if_not_closed`, so a task closed mid-run isn't
+    // resurrected. Cost isn't added here either: at-least-once delivery would
+    // double-count it, so `total_cost_usd` is recomputed below instead.
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let patch = TaskPatch {
         last_message_at: Some(now),
@@ -324,12 +321,10 @@ pub async fn handle_agent_stopped(state: &AppState, event: &AgentEvent) {
     // reason: agent-lifecycle event handler runs as background system with no caller identity
     #[allow(clippy::disallowed_methods)]
     let sys_ctx = ScopeContext::system();
-    // Idempotency: drop duplicate stop fan-out. Both the sandbox and the
-    // /stop HTTP handler can publish `agent.stopped` for a single user
-    // action, and a hammered /stop endpoint must never re-run the stop. The
-    // event log is the guard — a routine stop leaves no transcript row behind
-    // to recognise, so an already-terminal run means this event has nothing to
-    // add.
+    // Idempotency: the sandbox and the /stop handler can both publish
+    // `agent.stopped` for one user action, and a hammered /stop must never
+    // re-run it. The event log is the guard: an already-terminal run means
+    // this event adds nothing.
     match state
         .task_events
         .agent_run_already_terminal(&event.task_id, &event.event_id)
@@ -433,12 +428,10 @@ async fn finish_errored_run(ports: &AgentErrorPorts, event: &AgentEvent, reopen:
 
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
 
-    // No transcript row. A run outcome is not something somebody said, and the
-    // one failure worth reading — the Sandbox dying under the agent — already
-    // reaches the conversation as a `sandbox_error` activity carrying the exit
-    // code, terminated reason, disruption cause and container logs
-    // (`sandbox/k8s/pod_watcher.rs:803`). What is left here is the turn's own
-    // status and the Events tab, which keeps every one of these.
+    // No transcript row: a run outcome isn't something somebody said. The one
+    // failure worth reading — the sandbox dying under the agent — already
+    // reaches the conversation as a `sandbox_error` activity with exit code,
+    // reason and logs; this leaves only the turn status and Events tab.
 
     if let Err(e) = ports
         .tasks

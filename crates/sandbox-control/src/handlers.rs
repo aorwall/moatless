@@ -98,12 +98,11 @@ pub async fn live_status_handler(
         Err(e) => return e.into_response(),
     };
 
-    // The runtime saw the pod and the heartbeat. The turn rows are the other
-    // half of the same question, and putting both through `derive_running` is
-    // what keeps this surface and the conversation list from disagreeing about
-    // whether an agent is working. A failed turn read degrades to the runtime's
-    // own answer rather than to an error: a status endpoint that 500s is worse
-    // than one that momentarily answers from the runtime alone.
+    // The runtime saw the pod and the heartbeat; turn rows are the other
+    // half of the same question. Routing both through `derive_running` is
+    // what keeps this surface and the conversation list agreeing on whether
+    // an agent is working. A failed turn read degrades to the runtime's own
+    // answer rather than an error: 500s here is worse than answering alone.
     let turns = match state.turns.as_deref() {
         Some(reader) => match reader.turn_signals(&task_id).await {
             Ok(signals) => Some(signals),

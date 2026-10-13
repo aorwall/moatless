@@ -45,7 +45,6 @@ pub(super) async fn run(args: PreflightArgs, json: bool) -> Result<(), ClientErr
 async fn gather(args: PreflightArgs) -> Result<PreflightReport, ClientError> {
     let mut checks = Vec::new();
 
-    // 1. docker binary
     let docker_ok = require_binary("docker");
     checks.push(check_result(
         "docker installed",
@@ -54,7 +53,6 @@ async fn gather(args: PreflightArgs) -> Result<PreflightReport, ClientError> {
     ));
     docker_ok?;
 
-    // 2. compose cmd
     let compose = detect_compose_cmd().await;
     let compose_command = match &compose {
         Ok(c) => Some(c.label().to_string()),
@@ -76,7 +74,6 @@ async fn gather(args: PreflightArgs) -> Result<PreflightReport, ClientError> {
         },
     });
 
-    // 3. compose-dir resolution
     let (compose_dir, source) = resolve_compose_dir(args.compose_dir.as_deref())?;
     let compose_file_present = compose_dir.join(COMPOSE_FILE).is_file();
     let env_file_present = compose_dir.join(ENV_FILE).is_file();
@@ -118,7 +115,6 @@ async fn gather(args: PreflightArgs) -> Result<PreflightReport, ClientError> {
         },
     });
 
-    // 4. port availability
     for (port, service) in REQUIRED_PORTS {
         let busy = port_in_use(*port).await;
         checks.push(Check {

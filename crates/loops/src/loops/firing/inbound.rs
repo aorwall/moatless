@@ -107,10 +107,9 @@ pub async fn create_task_from_loop(
 /// Create a task from a chat message (Slack/Telegram/Webhook) or schedule
 /// firing.
 ///
-/// Thin wrapper over [`create_task_from_loop`]: private visibility, the Loop's
-/// task name, a truncated message preview, `{adapter, source_id}` event
-/// metadata, and `related_to` carrying the bindings path's optional peer
-/// relation.
+/// Thin wrapper over [`create_task_from_loop`]: private visibility, the
+/// Loop's task name, a truncated message preview, `{adapter, source_id}`
+/// event metadata, and `related_to`'s optional peer relation.
 pub(crate) async fn create_task_for_external_message(
     task_creation: &dyn TaskOpener,
     config: &LoopContext,

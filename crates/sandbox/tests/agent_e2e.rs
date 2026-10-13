@@ -129,25 +129,21 @@ async fn wait_for_pending_prompt(state: &AgentState, timeout: Duration) -> bool 
 async fn test_agent_state_transitions() {
     let state = AgentState::new();
 
-    // Initial state is Idle
     assert_eq!(state.status().await, AgentStatus::Idle);
     assert!(state.last_session_id().await.is_none());
     assert!(state.last_error().await.is_none());
     assert!(!state.has_pending_prompt().await);
 
-    // Idle → Running
     let cancel_token = CancellationToken::new();
     state.set_running(cancel_token.clone()).await;
     assert_eq!(state.status().await, AgentStatus::Running);
 
-    // Set session ID
     state.set_session_id("session-123".to_string()).await;
     assert_eq!(
         state.last_session_id().await,
         Some("session-123".to_string())
     );
 
-    // Set pending prompt
     let (tx, _rx) = tokio::sync::oneshot::channel();
     let prompt = PendingPrompt {
         tool_name: PromptToolName::AskUserQuestion,
@@ -158,21 +154,17 @@ async fn test_agent_state_transitions() {
     state.set_pending_prompt(prompt).await;
     assert!(state.has_pending_prompt().await);
 
-    // Take pending prompt
     let taken = state.take_pending_prompt().await;
     assert!(taken.is_some());
     assert!(!state.has_pending_prompt().await);
 
-    // Running → Idle
     state.set_idle().await;
     assert_eq!(state.status().await, AgentStatus::Idle);
 
-    // Idle → Running → Stopped
     let cancel_token2 = CancellationToken::new();
     state.set_running(cancel_token2.clone()).await;
     assert_eq!(state.status().await, AgentStatus::Running);
 
-    // set_stopped clears pending prompt
     let (tx2, _rx2) = tokio::sync::oneshot::channel();
     let prompt2 = PendingPrompt {
         tool_name: PromptToolName::ExitPlanMode,
@@ -187,7 +179,6 @@ async fn test_agent_state_transitions() {
     assert_eq!(state.status().await, AgentStatus::Stopped);
     assert!(!state.has_pending_prompt().await);
 
-    // set_error clears prompt and resets to Idle
     let cancel_token3 = CancellationToken::new();
     state.set_running(cancel_token3).await;
     let (tx3, _rx3) = tokio::sync::oneshot::channel();
@@ -207,13 +198,11 @@ async fn test_agent_state_transitions() {
         Some("Something went wrong".to_string())
     );
 
-    // stop() returns error when no cancel token
     let fresh = AgentState::new();
     let result = fresh.stop().await;
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), SandboxError::AgentNotRunning));
 
-    // stop() cancels token when running
     let cancel = CancellationToken::new();
     let cancel_clone = cancel.clone();
     fresh.set_running(cancel).await;
@@ -255,7 +244,6 @@ async fn test_basic_agent_execution() {
 
         let messages = collect_messages(&mut handle.messages).await;
 
-        // Should have System, Assistant, and Result messages
         assert!(
             messages.iter().any(|m| matches!(m, SdkMessage::System(_))),
             "Expected System init message"
@@ -265,7 +253,6 @@ async fn test_basic_agent_execution() {
             "Expected Result message"
         );
 
-        // Verify session_id was captured
         let system_session_id = messages.iter().find_map(|m| {
             if let SdkMessage::System(init) = m {
                 Some(init.session_id.clone())
@@ -278,7 +265,6 @@ async fn test_basic_agent_execution() {
             "Expected system init with session_id"
         );
 
-        // Check result contains "4"
         let result_text = extract_result_text(&messages).expect("Expected successful result");
         assert!(
             result_text.contains('4'),
@@ -324,20 +310,17 @@ async fn test_ask_user_question_flow() {
 
         let mut handle = query(prompt, options).await.expect("Failed to start query");
 
-        // Spawn a task to resolve the prompt
         let state_for_resolver = agent_state.clone();
         let resolver = tokio::spawn(async move {
             let found = wait_for_pending_prompt(&state_for_resolver, Duration::from_mins(1)).await;
             assert!(found, "Timed out waiting for pending prompt");
 
-            // Verify it's AskUserQuestion
             let tool_name = state_for_resolver
                 .pending_prompt_tool_name()
                 .await
                 .expect("Should have pending prompt tool name");
             eprintln!("Pending prompt tool: {tool_name}");
 
-            // Take and resolve the prompt
             let prompt = state_for_resolver
                 .take_pending_prompt()
                 .await
@@ -354,7 +337,6 @@ async fn test_ask_user_question_flow() {
         let messages = collect_messages(&mut handle.messages).await;
         resolver.await.expect("Resolver task panicked");
 
-        // Should complete with a Result
         assert!(
             messages.iter().any(|m| matches!(m, SdkMessage::Result(_))),
             "Expected Result message"
@@ -413,11 +395,9 @@ async fn test_exit_plan_mode_flow() {
 
         let mut handle = query(prompt, options).await.expect("Failed to start query");
 
-        // Track whether the ExitPlanMode flow was exercised
         let plan_approved = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let plan_approved_flag = plan_approved.clone();
 
-        // Spawn a task to approve the plan
         let state_for_resolver = agent_state.clone();
         let resolver = tokio::spawn(async move {
             let found = wait_for_pending_prompt(&state_for_resolver, Duration::from_mins(1)).await;
@@ -448,7 +428,6 @@ async fn test_exit_plan_mode_flow() {
             "Expected Result message"
         );
 
-        // Log the full result for debugging
         for msg in &messages {
             match msg {
                 SdkMessage::Result(ResultMessage::Success(s)) => {
@@ -477,7 +456,6 @@ async fn test_exit_plan_mode_flow() {
              before triggering plan approval"
         );
 
-        // Cleanup
         let _ = std::fs::remove_dir_all(&tmp);
     })
     .await;
@@ -517,7 +495,6 @@ async fn test_cancel_during_pending_prompt() {
 
         let mut handle = query(prompt, options).await.expect("Failed to start query");
 
-        // Wait for the pending prompt, then cancel instead of resolving
         let state_for_canceller = agent_state.clone();
         let canceller = tokio::spawn(async move {
             let found = wait_for_pending_prompt(&state_for_canceller, Duration::from_mins(1)).await;
@@ -533,7 +510,6 @@ async fn test_cancel_during_pending_prompt() {
             eprintln!("Agent cancelled");
         });
 
-        // Collect messages — agent should terminate
         let messages = collect_messages(&mut handle.messages).await;
         canceller.await.expect("Canceller task panicked");
 
@@ -541,14 +517,12 @@ async fn test_cancel_during_pending_prompt() {
         // the channel just closed. Both are acceptable.
         eprintln!("Messages received after cancel: {}", messages.len());
 
-        // Verify agent state is Stopped
         assert_eq!(
             agent_state.status().await,
             AgentStatus::Stopped,
             "Agent should be in Stopped state after cancel"
         );
 
-        // Verify pending prompt was cleared
         assert!(
             !agent_state.has_pending_prompt().await,
             "Pending prompt should be cleared after cancel"

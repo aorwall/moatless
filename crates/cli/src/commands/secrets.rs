@@ -312,13 +312,11 @@ async fn set_secret(
 ) -> Result<(), ClientError> {
     validate_scope(scope)?;
 
-    // Resolve value from --value-file, --value, or stdin ("-").
     let resolved_value = match value_file {
         Some(path) => Some(read_value_file(path)?),
         None => read_value(value)?,
     };
 
-    // Validate: must have exactly one of value or external_ref
     if resolved_value.is_none() && external_ref.is_none() {
         return Err(ClientError::Other(
             "Either --value or --external-ref is required".into(),
@@ -500,7 +498,6 @@ fn read_value(value: Option<String>) -> Result<Option<String>, ClientError> {
             std::io::stdin()
                 .read_to_string(&mut buf)
                 .map_err(|e| ClientError::Other(format!("Failed to read from stdin: {e}")))?;
-            // Trim trailing newline but preserve content
             Ok(Some(buf.trim_end_matches('\n').to_string()))
         }
         Some(v) => Ok(Some(v.to_string())),
@@ -592,7 +589,6 @@ fn format_timestamp(ts: Option<&str>) -> String {
     ts.map_or_else(
         || "-".to_string(),
         |s| {
-            // Truncate RFC3339 to just date + time without timezone for readability
             if s.len() > 19 {
                 s[..19].replace('T', " ")
             } else {

@@ -32,7 +32,6 @@ pub async fn list_task_events(
     Path(task_id): Path<String>,
     Query(query): Query<ListTaskEventsQuery>,
 ) -> Result<Json<ListTaskEventsResponse>, TaskEventError> {
-    // Verify task exists and user has access
     tasks
         .find_by_id(&task_id, &auth.scope_context())
         .await?

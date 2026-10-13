@@ -78,7 +78,6 @@ pub(crate) async fn create_issue(
         ensure_task_access_only(tasks.as_ref(), &ctx, task_id).await?;
     }
 
-    // Resolve names → UUIDs.
     let team_id = match req.team.as_deref() {
         Some(t) => Some(resolve_team_id(&api, t).await?),
         None => None,

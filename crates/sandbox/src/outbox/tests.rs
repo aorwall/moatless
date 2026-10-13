@@ -166,7 +166,6 @@ fn backoff_grows_then_caps() {
     assert_eq!(backoff_for(1), BASE_BACKOFF);
     assert_eq!(backoff_for(2), BASE_BACKOFF * 2);
     assert_eq!(backoff_for(3), BASE_BACKOFF * 4);
-    // Large attempt counts saturate to the cap, never overflow.
     assert_eq!(backoff_for(30), MAX_BACKOFF);
     assert_eq!(backoff_for(u32::MAX), MAX_BACKOFF);
 }
@@ -204,7 +203,6 @@ fn overflow_drops_oldest_non_lifecycle_keeps_lifecycle() {
     assert!(admission.rejected.is_none());
     assert_eq!(buf.len(), 3);
 
-    // The surviving lifecycle event is still buffered.
     let remaining: Vec<_> = std::iter::from_fn(|| buf.pop_front())
         .map(|e| e.req.sub_type)
         .collect();
@@ -256,7 +254,6 @@ fn byte_cap_triggers_eviction_but_never_empties_the_buffer() {
     assert!(admission.evicted.is_empty());
     assert!(admission.rejected.is_none());
     assert_eq!(buf.len(), 1);
-    // A second push must evict the first to try to get back under budget.
     let admission = buf.push(QueuedEvent::new(agent_event("activity")));
     assert_eq!(admission.evicted.len(), 1);
     assert!(admission.rejected.is_none());
@@ -299,7 +296,6 @@ async fn drains_events_in_order_with_sequences() {
             "message-4"
         ]
     );
-    // Sequences are assigned in transmission order, contiguous from 1.
     let seqs: Vec<_> = got.iter().map(|r| r.sequence).collect();
     assert_eq!(seqs, vec![1, 2, 3, 4, 5]);
     assert_eq!(outbox.pending_count(), 0);
@@ -312,9 +308,8 @@ async fn drains_events_in_order_with_sequences() {
 async fn retries_reuse_a_stable_event_id_and_sequence() {
     // Fail the first 3 attempts; the drainer must retry the same event and
     // deliver it exactly once, preserving its identity. The backend's
-    // deduplication and idempotent persistence both key on that identity
-    // (the durable-ingress decision), so every attempt — not just the accepted one — has to
-    // carry the same non-empty id and the same sequence.
+    // dedup and idempotent persistence key on that identity, so every
+    // attempt must carry the same non-empty id and sequence.
     let (backend, received) = MockBackend::new(3);
     let attempts = Arc::clone(&backend.attempts);
     let cancel = CancellationToken::new();

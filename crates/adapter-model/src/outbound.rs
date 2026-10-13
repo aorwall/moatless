@@ -14,11 +14,9 @@ pub struct OutboundFile {
 /// Where a reply came from, rendered as a footer by adapters that link back to
 /// the task themselves.
 ///
-/// Linear/GitHub PR don't use this (their Markdown bodies carry the link via
-/// [`OutboundReply::footer`]/`render_footer`); Slack mrkdwn has no
-/// `[text](url)`, so these pieces travel structured instead. Every field but
-/// `url` is droppable — a missing workspace or task name just omits its
-/// segment.
+/// Linear/GitHub PR skip this (their Markdown carries the link via
+/// [`OutboundReply::footer`]); Slack mrkdwn can't do `[text](url)`, so these
+/// fields travel structured instead. Every field but `url` is droppable.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TaskProvenance {
     /// `{frontend_url}/tasks/{task_id}`.
@@ -85,12 +83,11 @@ pub struct OutboundReply {
     /// built by the binding layer's `task_comment_footer`. Its URL doubles as
     /// the inbound echo-filter source; `None` for providers without a footer.
     pub footer: Option<String>,
-    /// Preferred system user whose Adapter credentials should author this reply
-    /// — the owning task's `owner_user_id`. Providers resolving a per-user
-    /// credential (currently GitHub) prefer this over binding/trigger
-    /// identities, so a human-owned task replies under the human and a
-    /// trigger-created task replies under its run-as bot. `None` when no task
-    /// owner is in scope or unused.
+    /// Preferred system user whose Adapter credentials should author this
+    /// reply — the owning task's `owner_user_id`. Providers resolving a
+    /// per-user credential (currently GitHub) prefer this over
+    /// binding/trigger identities, so a human-owned task replies under the
+    /// human, a trigger-created one under its run-as bot. `None` when unused.
     pub author_user_id: Option<String>,
     pub is_error: bool,
     pub files: Vec<OutboundFile>,

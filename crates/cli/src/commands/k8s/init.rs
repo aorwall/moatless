@@ -293,7 +293,6 @@ async fn resolve_provider(
     if let Some(p) = explicit {
         return Ok(p);
     }
-    // Try to auto-detect; fall back to prompt.
     let detected = detect_provider_from_cluster(target).await.ok().flatten();
     if let Some(p) = detected {
         println!("Detected provider: {}", p.as_str());

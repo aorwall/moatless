@@ -58,7 +58,6 @@ pub(super) async fn run(args: PreflightArgs, json: bool) -> Result<(), ClientErr
 async fn gather(namespace: &str, args: &PreflightArgs) -> Result<PreflightReport, ClientError> {
     let mut checks = Vec::new();
 
-    // Tooling
     let kubectl_ok = require_binary("kubectl");
     checks.push(check_from_result(
         "kubectl installed",
@@ -81,7 +80,6 @@ async fn gather(namespace: &str, args: &PreflightArgs) -> Result<PreflightReport
     ));
     helm_ok?;
 
-    // Context
     let current_context = super::cluster::current_context().await.ok().flatten();
     let context = args.context.clone().or(current_context);
     let target = KubeTarget::new(args.context.clone());
@@ -97,7 +95,6 @@ async fn gather(namespace: &str, args: &PreflightArgs) -> Result<PreflightReport
         },
     });
 
-    // Cluster connectivity
     let nodes = target.kubectl_json(&["get", "nodes", "-o", "json"]).await?;
     let cluster_type = detect_provider(&nodes);
     checks.push(Check {
@@ -121,7 +118,6 @@ async fn gather(namespace: &str, args: &PreflightArgs) -> Result<PreflightReport
         },
     });
 
-    // Namespace
     let ns = target
         .kubectl_json(&["get", "namespace", namespace, "-o", "json"])
         .await?;
@@ -144,7 +140,6 @@ async fn gather(namespace: &str, args: &PreflightArgs) -> Result<PreflightReport
         },
     });
 
-    // Ingress controllers
     let ingress_controllers = detect_ingress_controllers(&target).await?;
     checks.push(Check {
         name: "ingress controller present".to_string(),
@@ -166,7 +161,6 @@ async fn gather(namespace: &str, args: &PreflightArgs) -> Result<PreflightReport
         },
     });
 
-    // Storage classes
     let (storage_classes, default_storage_class) = detect_storage_classes(&target).await?;
     let storage_required = !matches!(args.storage_mode, StorageMode::S3 | StorageMode::Ephemeral);
     checks.push(Check {
@@ -187,7 +181,6 @@ async fn gather(namespace: &str, args: &PreflightArgs) -> Result<PreflightReport
         },
     });
 
-    // CRDs
     let crds = detect_crds(&target).await?;
     checks.push(Check {
         name: "Traefik IngressRoute CRD".to_string(),
@@ -292,7 +285,6 @@ fn detect_provider(nodes: &Option<serde_json::Value>) -> Provider {
         if provider_id.starts_with("aws://") {
             return Provider::Eks;
         }
-        // Fallback: inspect labels
         let labels = node.pointer("/metadata/labels");
         if let Some(labels) = labels.and_then(|l| l.as_object()) {
             if labels.contains_key("kubernetes.azure.com/cluster") {

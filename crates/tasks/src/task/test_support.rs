@@ -1,8 +1,7 @@
-// This module compiles only for test builds (`#[cfg(test)]`) or downstream test
-// tiers (`feature = "test-support"`), never a shipping build, so the seeder's
-// `.expect()` calls are test scaffolding — allow them the way the crate's own
-// `#[cfg(test)]` code is allowed (the crate-level allow is `test`-gated and does
-// not cover the feature-gated build).
+// Compiles only for test builds or `feature = "test-support"`, never a
+// shipping build, so the seeder's `.expect()` calls are test scaffolding —
+// allowed like the crate's own `#[cfg(test)]` code (the crate-level allow is
+// `test`-gated and misses the feature-gated build).
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 //! Shared `db-tests` seeding for the tasks band.

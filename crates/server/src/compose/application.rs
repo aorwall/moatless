@@ -149,10 +149,9 @@ impl AppState {
             std::time::Duration::from_secs(config.skill.cache_ttl_secs),
         );
 
-        // Wire the git-host credential preflight once here so every task-creation path
-        // (HTTP, loops, adapters) runs the same check. Held on `AppState` as the
-        // `PreflightPort` so the task-start handler calls the same port
-        // `task_creation` does rather than reassembling the check per request.
+        // Wired once here so every task-creation path (HTTP, loops, adapters)
+        // runs the same check, via the `PreflightPort` on `AppState` rather
+        // than each caller reassembling it.
         let preflight: Arc<dyn PreflightPort> = Arc::new(RealPreflight::new(
             PreflightCredentials {
                 git_host_tokens: git_host_tokens.clone(),

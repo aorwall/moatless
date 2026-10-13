@@ -53,7 +53,6 @@ pub trait UserDao: Send + Sync {
         status: Option<UserStatus>,
     ) -> Result<Option<User>, sqlx::Error>;
 
-    // Provider ID mapping
     async fn upsert_provider_id(
         &self,
         user_id: &Uuid,

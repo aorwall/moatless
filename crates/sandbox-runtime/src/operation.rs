@@ -145,14 +145,12 @@ impl fmt::Display for ObservedStatus {
     }
 }
 
-/// Monotonic, comparable operation identity, stamped on the resources an
-/// operation creates and carried on every watcher event as the *observed*
-/// generation.
+/// Monotonic, comparable operation identity stamped on the resources it
+/// creates, and carried on every watcher event as the *observed* generation.
 ///
-/// Ordering is load-bearing: observed < marker proves a superseded operation
-/// (suppressed). Recovery reuses the marker's generation rather than minting a
-/// new one, keeping attempt accounting and event identity stable across
-/// retries.
+/// Ordering is load-bearing: observed < marker proves a superseded
+/// operation. Recovery reuses the marker's generation, keeping attempt
+/// accounting and event identity stable across retries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct OperationGeneration(pub i64);
 

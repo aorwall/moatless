@@ -202,7 +202,6 @@ async fn started_execution_failure_finishes_once() {
         } => assert_eq!(err.class, ErrorClass::NativeProtocol),
         other => panic!("expected ExecutionFinished(Failed), got {other:?}"),
     }
-    // Exactly one terminal.
     let terminals = signals
         .iter()
         .filter(|s| matches!(s, Signal::ExecutionFinished { .. }))
@@ -298,13 +297,12 @@ async fn cancellation_during_startup_rejects_input() {
     ));
 }
 
-/// A Stop must land while the process is still *opening*, not only once it is
+/// A Stop must land while the process is still *opening*, not only once
 /// waiting for the Agent's first event.
 ///
-/// Codex awaits `initialize`, `thread/start` and `turn/start` inside `submit`,
-/// and a server that stops answering parks that future indefinitely — so a
-/// driver that read `cancel_rx` only after `submit` returned would make Stop
-/// unreachable exactly when it's needed.
+/// Codex awaits `initialize`, `thread/start` and `turn/start` inside
+/// `submit`; a server that stops answering parks that future indefinitely,
+/// so a driver reading `cancel_rx` only after `submit` returns would miss it.
 #[tokio::test]
 async fn cancellation_during_a_blocking_open_rejects_the_input() {
     let recorder: scripted::InputRecorder = Arc::new(tokio::sync::Mutex::new(Vec::new()));
@@ -511,7 +509,6 @@ async fn coordinator_mints_run_after_start_and_acks_after_acceptance() {
         .expect("submit");
 
     let mut coordinator = NeutralCoordinator::default();
-    // Before consuming any signal, no Run exists.
     assert!(coordinator.run_id.is_none());
 
     while let Some(signal) = harness.next_signal().await {

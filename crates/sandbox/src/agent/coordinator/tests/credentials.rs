@@ -248,12 +248,10 @@ async fn coordinator_service_credential_recovery_redrives_same_run_on_fresher_cr
         "a recovered credential must not surface a terminal error; got {types:?}"
     );
 
-    // The retrying event names credential recovery as the reason.
     let retrying: serde_json::Value =
         serde_json::from_str(&only(&received, "retrying").payload_json).expect("json");
     assert_eq!(retrying["reason"], "credential_recovery");
 
-    // The recovered credential was applied.
     assert!(
         applied.load(Ordering::SeqCst) >= 1,
         "recovered credential should have been dispatched to its sink"
@@ -351,7 +349,6 @@ async fn coordinator_service_credential_recovery_unchanged_gives_one_terminal_er
             .contains("reconnect"),
         "reconnect message; got {error:?}"
     );
-    // The reconnect message is recorded as the agent's last error.
     assert!(
         agent_state
             .last_error()
@@ -434,7 +431,6 @@ async fn coordinator_service_credential_recovery_caps_and_then_gives_up() {
         "the Turn never completed; got {types:?}"
     );
 
-    // The give-up names cap exhaustion.
     let error: serde_json::Value = serde_json::from_str(
         &received
             .lock()

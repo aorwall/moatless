@@ -36,13 +36,11 @@ use moatless_ports::task::TaskReader;
 // Logging
 // =========================================================================
 
-/// Install the layered tracing subscriber: JSON `fmt` (stdout, shipped to
-/// Loki), plus a `tracing-opentelemetry` layer when `otel.otlp_endpoint` is
-/// set.
+/// Install the layered tracing subscriber: JSON to stdout for Loki, plus
+/// OTel export when `otel.otlp_endpoint` is set.
 ///
-/// Returns the `SdkTracerProvider` when export is active — the caller (`main`)
-/// owns its shutdown so buffered spans flush before exit. `RUST_LOG` gates both
-/// layers equally via the shared `EnvFilter`.
+/// Returns the `SdkTracerProvider` when export is active, so `main` can
+/// flush spans before exit; `RUST_LOG` gates both layers via one `EnvFilter`.
 pub fn init_tracing(otel: &OtelConfig) -> Option<SdkTracerProvider> {
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
@@ -438,12 +436,11 @@ pub use crate::compose::infrastructure::build_merged_openapi;
 mod openapi_dump_tests {
     use super::build_merged_openapi;
 
-    /// The `--dump-openapi` builder feeds CI's TS-client generation and is a
-    /// second, independent assembly site from the runtime router. A router
-    /// whose `ApiDoc` is not merged here compiles clean but silently drops its
-    /// endpoints from the generated client. Pin the repository sync-config
-    /// endpoint, which lives in its own `ApiDoc` rather than the repository
-    /// router's.
+    /// `--dump-openapi` feeds CI's TS-client generation from a second,
+    /// independent assembly site: a router whose `ApiDoc` isn't merged here
+    /// compiles clean but silently drops its endpoints from the generated
+    /// client. Pins the repository sync-config endpoint, which lives in its
+    /// own `ApiDoc`.
     #[test]
     fn dump_includes_the_repository_sync_endpoint() {
         let spec = serde_json::to_value(build_merged_openapi()).unwrap();

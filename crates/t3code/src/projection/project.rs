@@ -101,12 +101,11 @@ pub(crate) fn project(listed: &UiRpcListedWorkspace) -> Value {
         // Required by the contract, so the narrowed shape is an empty list
         // rather than an absent field.
         "scripts": if listed.readable { scripts(workspace) } else { Vec::new() },
-        // Reported rather than left for the write to refuse: a git-synced run
-        // config is reconciled from `.moatless/workspaces.json`, so an edit here
-        // would be undone by the next sync, and the client hides the controls
-        // instead. The widened half of the union is not editable either, being
-        // projected without its scripts, and neither is a deleted one
-        // (`T3WorkspaceDao::list_readable_including`).
+        // Reported, not left for the write to refuse: a git-synced run config
+        // is reconciled from `.moatless/workspaces.json`, so an edit here
+        // would be undone by the next sync — the client hides the controls
+        // instead. The widened half of the union isn't editable either (no
+        // scripts projected), nor is a deleted one.
         "scriptsEditable": listed.readable
             && !is_git_synced(workspace)
             && workspace.deleted != Some(true),
@@ -129,9 +128,8 @@ const PROJECT_ICON_COLORS: &[&str] = &[
 /// value is not one.
 ///
 /// `workspaces.icon` is open jsonb any `PATCH` may write, but the client
-/// decodes a project strictly: an icon its schema rejects takes the project and
-/// its conversations off the client, so the shape is checked here against the
-/// same bounds.
+/// decodes it strictly: a rejected shape takes the project off the client, so
+/// it's checked here against the same bounds.
 fn project_icon(icon: Option<&Value>) -> Value {
     let icon = icon.unwrap_or(&Value::Null);
     let field = |name: &str| {

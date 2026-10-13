@@ -14,14 +14,10 @@ const LINEAR_GRAPHQL_URL: &str = "https://api.linear.app/graphql";
 
 /// Scopes requested for the workspace install.
 ///
-/// `app:assignable`/`app:mentionable` enable the Agents UX;
-/// `initiative:*`/`customer:*` are carved out of `read`/`write` (each named
-/// explicitly since omitting either fails `FORBIDDEN`), and `admin` is refused
-/// for an `actor=app` install. A token keeps the scopes it was minted with, so
-/// adding one here only takes effect on the next `/api/v1/auth/linear/install`
-/// and once enabled on the Linear app's settings page. Built via `concat!` — a
-/// lost `\` continuation would inject the source indent into the `scope` query
-/// parameter.
+/// `app:*` enable the Agents UX; `initiative:*`/`customer:*` must be named
+/// (`read`/`write` omit them); `admin` is refused for `actor=app`. A token
+/// keeps its minted scopes: a new one needs a re-install and enabling on
+/// Linear's app page. `concat!`, not a `\` continuation, which leaks indent.
 const LINEAR_OAUTH_SCOPE: &str = concat!(
     "read,write,app:assignable,app:mentionable,",
     "initiative:read,initiative:write,customer:read"

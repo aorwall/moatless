@@ -1,19 +1,12 @@
 //! Durable admission for every inbound Adapter delivery.
 //!
 //! A handler commits an `adapter_delivery` record keyed by `(adapter, kind,
-//! event_id)` before answering the sender; the `adapter-delivery-worker` claims
-//! and executes it, with one delivery fanning into several kinds becoming one
-//! record per kind, each on its own budget.
+//! event_id)` before answering the sender; `adapter-delivery-worker` claims
+//! and executes it, one record per fanned-out kind.
 //!
-//! Surface an `AdmitError` to the sender as a retryable failure — a 200 over it
-//! drops the delivery. Do not put an in-process dedup cache in front of
-//! admission: it would answer a redelivery whose admission failed with a 200 and
-//! nothing durable behind it.
-//!
-//! A handler still emits its own `record_webhook`
-//! (`moatless_adapter_model::metrics`): the delivery metric is low-cardinality
-//! at `{adapter, kind, outcome}` and cannot show one broken connection, while
-//! `record_webhook` carries `event_type`, `loop_id` and `connection_id`.
+//! Surface `AdmitError` to the sender as retryable — a 200 over it drops the
+//! delivery. No in-process dedup cache: it would 200 a redelivery whose
+//! admission failed, with nothing durable behind it.
 
 mod metrics;
 mod models;

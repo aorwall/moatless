@@ -25,7 +25,6 @@ pub fn print_table(headers: &[&str], rows: &[Vec<String>]) {
         return;
     }
 
-    // Calculate column widths
     let mut widths: Vec<usize> = headers.iter().map(|h| h.len()).collect();
     for row in rows {
         for (i, cell) in row.iter().enumerate() {
@@ -35,7 +34,6 @@ pub fn print_table(headers: &[&str], rows: &[Vec<String>]) {
         }
     }
 
-    // Print header
     let header_line: Vec<String> = headers
         .iter()
         .zip(&widths)
@@ -46,7 +44,6 @@ pub fn print_table(headers: &[&str], rows: &[Vec<String>]) {
     let separator: Vec<String> = widths.iter().map(|w| "-".repeat(*w)).collect();
     println!("{}", separator.join("  "));
 
-    // Print rows
     for row in rows {
         let line: Vec<String> = row
             .iter()

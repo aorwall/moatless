@@ -33,10 +33,9 @@ pub(super) enum Plan {
 /// The one thing that must happen before the `200`, since Linear's panel goes
 /// dark after ten seconds.
 ///
-/// Described here, applied by [`ingress::receive`](super::ingress::receive), so
-/// `normalize` stays drivable without a Linear client and the one exception to
-/// "nothing reaches Linear before the ack" is an assertable value, not a buried
-/// call.
+/// Described here, applied by [`ingress::receive`](super::ingress::receive),
+/// so `normalize` stays drivable without a Linear client, and the one
+/// exception to "nothing reaches Linear before the ack" is an assertable value.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Effect {
     SessionHeartbeat {
@@ -47,11 +46,10 @@ pub(super) enum Effect {
 
 /// A precondition on the admission that only I/O can settle.
 ///
-/// A created session is the one event gated on state `normalize` can't see: the
-/// Subscription lookup runs before the heartbeat, same as always. Unmet is
-/// [`reason::NO_SUBSCRIPTION`] — the session is closed with a terminal `error`
-/// activity instead of the heartbeat, so its panel doesn't spin forever behind
-/// an admission that never happens.
+/// A created session is the one event gated on state `normalize` can't see:
+/// the Subscription lookup runs before the heartbeat. Unmet is
+/// [`reason::NO_SUBSCRIPTION`] — closed with a terminal `error` activity
+/// instead, so its panel doesn't spin forever.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Requirement {
     /// At least one active Subscription bound to this Linear team.
@@ -159,7 +157,6 @@ fn issue_event(
     connection_id: &str,
     event_id: &str,
 ) -> Result<Plan, IngressError> {
-    // Only act on state updates.
     if envelope.action != "update" {
         return Ok(Plan::Ignored {
             reason: reason::UNSUPPORTED_ACTION,

@@ -36,7 +36,6 @@ fn pvc_switch_off_mounts_capped_workspace_empty_dir() {
     );
     assert_eq!(empty.size_limit.as_ref().map(|q| q.0.as_str()), Some("7Gi"));
 
-    // No PVC volume should be present.
     assert!(
         volumes.iter().all(|v| v.persistent_volume_claim.is_none()),
         "the PVC switch is off — no PVC may be referenced"
@@ -125,13 +124,11 @@ fn storage_switches_pick_volume_and_sync_env() {
     }
 }
 
-/// A pvc+s3 plan that ends up on an emptyDir — PVC creation degraded, or the
-/// attach-failure fallback rebuilt without one — must behave like the
-/// emptyDir+S3 tier.
+/// A pvc+s3 plan that ends up on an emptyDir (PVC creation degraded, or the
+/// attach-failure fallback rebuilt without one) must behave like emptyDir+S3.
 ///
 /// Claiming durability on an ephemeral volume would drop the periodic upload
-/// backstop and skip the boot restore — exactly backwards for the pod that
-/// needs both most.
+/// backstop and skip the boot restore — backwards for the pod needing both.
 #[test]
 fn a_pvc_plan_without_a_pvc_is_not_treated_as_durable() {
     use moatless_workspace_types::workspace::ResourceConfig;
@@ -167,7 +164,6 @@ fn a_pvc_plan_without_a_pvc_is_not_treated_as_durable() {
 
 #[test]
 fn pvc_less_workspace_size_falls_back_to_global_default() {
-    // No per-repo storage override → emptyDir uses the global storage_size.
     let mut config = test_config();
     config.sandbox.storage_size = "3Gi".into();
     let plan = test_plan();

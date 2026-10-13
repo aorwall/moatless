@@ -25,9 +25,9 @@ pub(crate) async fn register(
     }
 
     let checkout_mode = CheckoutMode::parse(checkout_mode)?;
-    // Refuse an unsupported harness here rather than at `spawn_agent`, which
-    // answers one by poisoning the Member's command channel — and `/livez` reads
-    // every Member's channel, so one bad join would replace the whole shared pod
+    // Refuse an unsupported harness here, not at `spawn_agent`: that answers
+    // one by poisoning the Member's command channel, and `/livez` reads every
+    // Member's channel, so one bad join would replace the whole shared pod
     // and take the other Members' turns with it.
     if let Some(raw) = agent_profile {
         crate::agent::handle::resolve_agent_harness(raw)

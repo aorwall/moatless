@@ -20,13 +20,11 @@ pub(crate) struct UiRpcConfig {
     /// Whether this deployment exports spans over OTLP — reported to the client
     /// as `observability.otlpTracesEnabled` (see [`server_config`]).
     pub(crate) otlp_traces_enabled: bool,
-    /// Whether attachment uploads can be offered — whether a URL can be signed
-    /// for one; see [`attachments`]. Reported as
-    /// `capabilities.attachmentUploads`.
+    /// Whether attachment uploads can be offered; see [`attachments`].
+    /// Reported as `capabilities.attachmentUploads`.
     ///
-    /// Must be reported honestly: the composer stops sending images inline once
-    /// it reads this true, so a deployment that then couldn't take the upload
-    /// would lose the attachment.
+    /// Must be honest: the composer stops sending images inline once it reads
+    /// this true, so a deployment that then can't take the upload loses it.
     pub(crate) attachment_uploads: bool,
     /// Whether a `CLIProxyAPI` hub is configured, and therefore whether the
     /// config stream ever emits `usageLimitSourcesUpdated` — see
@@ -76,13 +74,12 @@ impl AgentModelDefaults {
     }
 }
 
-/// The identity this deployment presents itself by: a configured name and a
-/// digest of the database behind it — two deployments sharing a database are
-/// one environment.
+/// The identity this deployment presents: a configured name plus a digest of
+/// the database behind it — two deployments sharing a database are one
+/// environment.
 ///
-/// Cached per environment and read once per page load, so a changed id is only
-/// safe mid-session because [`task_listing::resume`] and
-/// [`ShellFeed::poll`](feed::ShellFeed::poll) guard the mismatch.
+/// Cached per environment and read once per page load; [`task_listing::resume`]
+/// and [`ShellFeed::poll`](feed::ShellFeed::poll) guard a mismatch mid-session.
 pub(crate) fn environment_id(identity: &UiRpcEnvironmentIdentity) -> String {
     format!("{T3_ENVIRONMENT_NAME}-{}", identity.digest())
 }

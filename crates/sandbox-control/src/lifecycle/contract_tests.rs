@@ -530,10 +530,10 @@ async fn closed_task_start_is_rejected(opts: PgPoolOptions, conn: PgConnectOptio
 
 // ---- Bad plan ----
 
-// The recording runtime injects the permanent `Rejected`, so this covers the
-// orchestrator's response to a bad plan (intent kept, Error fact, non-retriable).
-// The real plan path — the native runtime adapter's unbuildable-plan →
-// `Rejected` mapping — is covered by `plan::db_tests::bad_plan_is_permanent_rejected`.
+// The recording runtime injects the permanent `Rejected`, covering the
+// orchestrator's response to a bad plan (intent kept, Error fact,
+// non-retriable). The real unbuildable-plan → `Rejected` mapping is
+// covered by `plan::db_tests::bad_plan_is_permanent_rejected`.
 #[sqlx::test]
 async fn bad_plan_start_is_permanent_and_keeps_intent(opts: PgPoolOptions, conn: PgConnectOptions) {
     let (store_pool, lock_pool) = pools(&opts, &conn).await;
@@ -588,7 +588,6 @@ async fn concurrent_starts_serialize_and_contender_gets_operation_in_progress(
         other => panic!("expected OperationInProgress, got {other:?}"),
     }
 
-    // Release A; it completes successfully.
     gate.release.notify_one();
     a.await.unwrap().expect("A completes");
 }

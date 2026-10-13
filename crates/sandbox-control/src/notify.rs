@@ -55,10 +55,10 @@ impl SandboxWaker for SandboxWakeService {
     /// On failure, logs the error and returns `Err(String)` with a message
     /// callers can choose to persist.
     async fn wake(&self, task_id: &str) -> Result<(), String> {
-        // A closed task is terminal — never re-provision its sandbox. This is the
-        // single backstop against resurrection from every caller (adapter inbound
-        // comments, scheduled runs, the UI message handler). `Error` tasks stay
-        // resumable to match `start_task`'s recovery semantics.
+        // A closed task is terminal — never re-provision its sandbox. This
+        // is the single backstop against resurrection from every caller
+        // (adapter comments, scheduled runs, the UI handler). `Error` tasks
+        // stay resumable to match `start_task`'s recovery semantics.
         match self.sandbox.intent(task_id).await {
             Ok(intent) if intent.status == moatless_types::task::TaskStatus::Closed => {
                 tracing::debug!(
@@ -74,12 +74,11 @@ impl SandboxWaker for SandboxWakeService {
             }
         }
 
-        // A concurrent lifecycle op holds the per-Task lock. Inline handling of
-        // contention is a latency fast path only — the persisted pending message is
-        // the reconciler's durable wake input, never an agent error. A toward-Running
-        // op already covers the wake and stops inline work; a stop/remove gets a
-        // bounded inline retry so a fresh message lands with low latency once that op
-        // releases the lock, then defers to the reconciler.
+        // Lock contention here is a latency fast path only: the persisted
+        // pending message, not this, is the reconciler's durable wake
+        // input. A toward-Running op already covers the wake, so this
+        // skips inline work for it; a stop/remove op gets a bounded inline
+        // retry for low latency, then defers to the reconciler.
         const MAX_WAKE_RETRIES: u32 = 3;
         const WAKE_RETRY_BACKOFF: std::time::Duration = std::time::Duration::from_millis(300);
 

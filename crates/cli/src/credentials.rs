@@ -72,7 +72,6 @@ pub fn save_profile(
         .map_err(|e| format!("Failed to serialize credentials: {e}"))?;
     fs::write(&path, &json).map_err(|e| format!("Failed to write credentials: {e}"))?;
 
-    // Set file permissions to 0o600 (owner read/write only)
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -93,7 +92,6 @@ pub fn delete_credential(host: &str) -> Result<bool, String> {
     let mut creds = load_credentials();
     let removed = creds.profiles.remove(host).is_some();
     if removed {
-        // Clear default if it pointed to the removed host
         if creds.default.as_deref() == Some(host) {
             creds.default = creds.profiles.keys().next().cloned();
         }

@@ -151,7 +151,6 @@ pub async fn stream_container_logs_k8s(
         .and_then(|p| p.metadata.name.clone())
         .ok_or_else(|| LogStreamError::NoPod(format!("No pod found for task {task_id}")))?;
 
-    // If previous logs requested, skip live streaming entirely.
     if previous {
         let prev_params = LogParams {
             container: Some(container_name.to_string()),

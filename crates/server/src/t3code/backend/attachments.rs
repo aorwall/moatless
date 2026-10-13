@@ -26,13 +26,12 @@ pub(super) struct ResolvedAttachments {
 }
 
 impl AppStateCommands {
-    /// The upload ids a turn's attachments name, storing the ones that arrived
-    /// as bytes.
+    /// The upload ids a turn's attachments name, storing the ones that
+    /// arrive as bytes.
     ///
-    /// Both forms end as a Moatless upload id on the Message; an inline image
-    /// is stored here (where its bytes enter), an uploaded attachment is only
-    /// checked (storing it again would duplicate the file). A failure refuses
-    /// the whole turn and takes back any inline bytes already stored.
+    /// Both forms end as a Moatless upload id: an inline image is stored
+    /// here, an uploaded attachment is only checked (not re-stored). A
+    /// failure refuses the turn and takes back any bytes already stored.
     pub(super) async fn resolve_attachments(
         &self,
         viewer: &ScopeContext,
@@ -118,13 +117,11 @@ impl AppStateCommands {
                 });
             }
         };
-        // Read access is not provenance. Moatless's own multipart route stores
-        // files this viewer can read and knows nothing about T3's union, so
-        // without this the mime and size limits would hold only for uploads
-        // that actually came through the mint. It also keeps the turn agreeing
-        // with the projection, which drops an attachment outside these bounds:
-        // storing one would show the person a message whose attachment the
-        // agent saw and their client never renders.
+        // Read access isn't provenance: a file this viewer can read may
+        // have bypassed T3's mint via Moatless's multipart route, so this
+        // is what holds the mime/size limits. It also matches the
+        // projection, which drops an out-of-bounds attachment the agent
+        // saw but the client would never render.
         if !kind.accepts(&meta.mime_type, meta.size) {
             tracing::warn!(
                 attachment_id,
@@ -143,13 +140,12 @@ impl AppStateCommands {
         Ok(meta.file_id)
     }
 
-    /// Take back inline uploads a command that failed left behind.
+    /// Take back inline uploads a failed command left behind.
     ///
-    /// Only ever passed [`ResolvedAttachments::stored_here`], minted inside the
-    /// now-failing command — since no Message was ever written, no
-    /// [`AppStateAttachments::is_on_a_message`] check applies, unlike
-    /// `attachments.delete`. Best-effort: the caller already returns a refusal,
-    /// so an unremovable store is logged, not raised as a second failure.
+    /// Only passed [`ResolvedAttachments::stored_here`]: no Message was ever
+    /// written, so no [`AppStateAttachments::is_on_a_message`] check applies
+    /// here, unlike `attachments.delete`. Best-effort: an unremovable store
+    /// is logged, not raised as a second failure.
     pub(super) async fn discard_attachments(&self, viewer: &ScopeContext, file_ids: &[String]) {
         for file_id in file_ids {
             if let Err(error) = self.0.files.delete(viewer, file_id).await {
@@ -233,14 +229,11 @@ impl AttachmentStore for AppStateAttachments {
         viewer: &ScopeContext,
         attachment_id: &str,
     ) -> Result<(), AttachmentStoreError> {
-        // `attachments.delete` means "I abandoned this upload". An upload a
-        // message names was not abandoned, so there is no orphan to collect and
-        // the request rests on a premise that is no longer true. Deleting
-        // anyway would strip an attachment off a sent message and leave the
-        // transcript, the download and the Sandbox pre-fetch pointing at bytes
-        // that are gone. Reported as success because the client's intent —
-        // leave nothing dangling — holds either way, and a failure here is not
-        // something the person could act on.
+        // `attachments.delete` means "I abandoned this upload" — not true
+        // once a message names it, so deleting anyway would leave the
+        // transcript, download and Sandbox pre-fetch pointing at gone
+        // bytes. Reports success regardless: the client's "nothing
+        // dangling" intent holds, and a failure here isn't actionable.
         if self.is_on_a_message(attachment_id).await? {
             tracing::debug!(attachment_id, "Kept a T3 attachment that a message names");
             return Ok(());

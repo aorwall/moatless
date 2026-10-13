@@ -22,12 +22,11 @@ impl UsageReporter for PgUsageDao {
         viewer: &ScopeContext,
         window: &UsageWindow,
     ) -> Result<Vec<UsageBucketRow>, StoreError> {
-        // `modelUsage` is Claude's per-model breakdown and is the only place a
-        // model name survives on a Claude turn. Codex reports one model per
-        // run and no breakdown, so its row is built from `metrics -> usage`
-        // with `metrics ->> 'model'` as the name. The two arms are unioned
-        // rather than coalesced: a Claude turn using two models has to fan out
-        // into two rows, and a Codex turn must not.
+        // `modelUsage` is Claude's per-model breakdown, the only place a
+        // model name survives on a Claude turn; Codex has one model per run,
+        // built from `metrics ->> 'model'` instead. Unioned, not coalesced:
+        // a two-model Claude turn must fan into two rows, a Codex turn must
+        // not.
         let access = moatless_core::db::access_control::access_filter(ScopedEntity::Task, "k.", 4);
         // Interpolated into `cells`, which selects `FROM turns`: name the CTE's
         // columns unqualified. A `t.` prefix resolves in `turns` but not here,

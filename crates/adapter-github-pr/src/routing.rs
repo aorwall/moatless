@@ -50,13 +50,12 @@ pub(super) fn delivery_only_rule(
 }
 
 impl GithubPrInboundRouter {
-    /// Route an inbound GitHub PR message to the tasks bound to its pull
-    /// request.
+    /// Route an inbound GitHub PR message to tasks bound to its pull request.
     ///
-    /// Assembles the bindings — attaching one for the event's author task,
-    /// spawning the review task a fresh open PR calls for — but
-    /// [`moatless_loops::bindings::runtime::fan_out`] decides which receive the
-    /// event, from the audience `adapter.rs` classified it into.
+    /// Assembles the bindings — attaching the author's task, spawning the
+    /// review task a fresh open PR calls for — but
+    /// [`moatless_loops::bindings::runtime::fan_out`] decides who receives it,
+    /// by audience.
     pub(super) async fn route_event(
         &self,
         connection: &AdapterConnection,
@@ -90,17 +89,11 @@ impl GithubPrInboundRouter {
         let source_name = format!("{}/{}", subject.owner(), subject.repo());
         let binding_repo = self.task_bindings.clone();
 
-        // Provenance: who wrote this event, where it can be named. The
-        // `Moatless task:` footer link `<frontend_url>/tasks/<id>` the adapter
-        // parsed off the body is authoritative and costs no round-trip; failing
-        // that, an event identifier already recorded against a task names it.
-        // Nothing here is an identity.
-        //
-        // The identifier is only asked about on this pull request. A PR-level
-        // id names its own subject now (`external_id`), but a row written
-        // before it did carries a bare number that every repository with a #607
-        // shares, and the answer here attaches a binding — so the question
-        // states the subject rather than trusting the string to be unambiguous.
+        // Provenance: who wrote this, via the `Moatless task:` footer link the
+        // adapter parsed off the body, else a recorded event id — never an
+        // identity. Asked only on this PR: an old row's bare number can repeat
+        // across repos, so this scopes the lookup to the subject, not the
+        // string alone.
         let origin_task_id = match msg.source_task_id.clone() {
             Some(task_id) => Some(task_id),
             // Every rerun on one commit shares a check-run id, so its
@@ -191,12 +184,11 @@ impl GithubPrInboundRouter {
                 .await?
                 .is_some();
             if let (false, Some(rule)) = (has_provider_event_task, rule) {
-                // `moat gh pr create` upserts a connected_thread binding for the
-                // originating task as part of creating the PR — so by the time
-                // pr_opened fires, the earliest binding is the originating
-                // task. Link the new review
-                // task to it as a `related_to` peer (it shares the PR subject_key,
-                // it isn't a child of the originator).
+                // `moat gh pr create` upserts a connected_thread binding for
+                // the originating task when creating the PR, so by `pr_opened`
+                // the earliest binding is the originator. Link the new review
+                // task to it as a `related_to` peer — it shares the
+                // subject_key, not a parent/child.
                 let related = originator_binding_summary
                     .as_ref()
                     .map(|(task_id, binding_id)| moatless_types::task::RelatedTask {
@@ -236,12 +228,11 @@ impl GithubPrInboundRouter {
                         new_task_binding_id = Some(binding.id.clone());
                         bindings.insert(0, binding);
                     }
-                    // Preflight is permanent: a bad token can't be fixed by a GitHub
-                    // redelivery, and retrying would just accumulate errored rows.
-                    // The service already marked the task errored with a sandbox
-                    // error event, so degrade — log and skip the new-task
-                    // binding/delivery, then fall through to existing-binding
-                    // delivery below.
+                    // Preflight is permanent: no redelivery fixes a bad token,
+                    // and retrying only accumulates errored rows. The service
+                    // already marked the task errored, so this degrades: skip
+                    // the new-task binding/delivery and fall through to the
+                    // existing bindings.
                     Err(TaskOpenError::Refused(reason)) => {
                         warn!(
                             subscription_id = %rule.id,
@@ -284,10 +275,9 @@ impl GithubPrInboundRouter {
             return Ok(());
         }
 
-        // A pull request nothing is bound to expects nothing of this event — every
-        // task that was working it has closed. Unlike an empty recipient set on a
-        // subject that *does* carry bindings, this is not a loss, so it is not a
-        // failure.
+        // Nothing bound to this PR means nothing is owed: every task working
+        // it has closed. Unlike an empty recipient set on a subject that does
+        // carry bindings, this is not a loss.
         if bindings.is_empty() {
             debug!(
                 subject_key = %subject_key,
@@ -391,12 +381,11 @@ impl GithubPrInboundRouter {
                 continue;
             }
 
-            // Append the close notice to the task chat while the task is still
-            // `Open`. The `send.rs` closed-task guard drops inbound external
-            // messages on `Closed` tasks, so the notice MUST be delivered before
-            // the status flip below — otherwise it would silently vanish.
-            // `resume = false` only persists the message; it never provisions or
-            // wakes the agent on a sandbox we're about to tear down.
+            // Append the close notice while the task is still `Open`:
+            // `send.rs`'s closed-task guard drops inbound messages on
+            // `Closed` tasks, so this must run before the status flip
+            // below, or the notice vanishes. `resume = false` only
+            // persists it, without waking the torn-down sandbox's agent.
             let close_msg = self
                 .build_close_inbound_message(owner, repo, rule, info)
                 .await;
@@ -409,14 +398,11 @@ impl GithubPrInboundRouter {
                 );
             }
 
-            // Terminate through the shared closer. It persists `Closed` before
-            // the slow teardown — the same racing-webhook ordering the inline
-            // close kept (a concurrent auto_provision then sees `Closed` and
-            // bails) — then removes the sandbox, deactivates the bindings, and
-            // publishes the event. The six close-ports live on `TaskCloser`, not
-            // on this router; only the enriched close event is github_pr's, so we
-            // carry it: the "claude-code" actor and the `{reason, pr_number}`
-            // payload the UI renders, byte for byte what the inline close emitted.
+            // Terminate through the shared closer: it persists `Closed` before
+            // the slow teardown, so a racing `auto_provision` sees `Closed`
+            // and bails, then removes the sandbox, deactivates bindings, and
+            // publishes the event. The close-ports live on `TaskCloser`, not
+            // this router; only the close event below is github_pr's own.
             let close_reason = CloseReason {
                 actor: "claude-code".to_string(),
                 payload: serde_json::json!({ "reason": "pr_closed", "pr_number": pr_number }),
@@ -530,24 +516,22 @@ impl GithubPrInboundRouter {
             .await
     }
 
-    /// Translate a GitHub PR provider event into a [`NewTaskRequest`] and hand
-    /// it to the task band's own opener; the binding upsert and first-message
-    /// delivery stay with the caller ([`route_event`]).
+    /// Translate a GitHub PR provider event into a [`NewTaskRequest`] for the
+    /// task opener; binding upsert and first-message delivery stay with the
+    /// caller ([`route_event`]).
     ///
-    /// Returns the raw [`TaskOpenError`] so the caller can distinguish a
-    /// permanent failure (`Preflight`) from a transient one that should surface
-    /// as a 5xx so GitHub retries.
+    /// Returns the raw [`TaskOpenError`]: a permanent failure (`Preflight`) vs.
+    /// a transient one that should 5xx so GitHub retries.
     async fn create_provider_event_task(
         &self,
         rule: &SubscriptionMatch,
         msg: &InboundMessage,
     ) -> Result<String, TaskOpenError> {
-        // Compose the shared spine's single task-creation entry point. The only
-        // GitHub-specific inputs are the `PR_ORIGIN_CONTEXT` prelude, public
-        // visibility (so PR collaborators can open the task), and the
-        // `source_matcher` event metadata; `related_to` is recorded by the caller
-        // after creation succeeds, and the first message is delivered through the
-        // binding.
+        // Compose the shared spine's task-creation entry point. GitHub-specific
+        // inputs: the `PR_ORIGIN_CONTEXT` prelude, public visibility (so PR
+        // collaborators can open the task), and `source_matcher` metadata.
+        // `related_to` is recorded by the caller after creation; the first
+        // message is delivered through the binding.
         let config = moatless_adapter_model::loops::subscription_context(rule);
         // Self-resolve: github_pr's reply instructions are its own constant, so
         // read them off this adapter rather than the registry of all providers,

@@ -44,7 +44,6 @@ pub async fn run(
                     println!("GitHub PAT saved. Username: {login}");
                 });
             } else {
-                // No token and no --remove: show current status
                 print_github_status(client, json).await?;
             }
         }

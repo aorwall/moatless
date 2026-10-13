@@ -59,7 +59,6 @@ mod tests {
 
     #[test]
     fn code_excludes_ambiguous_chars() {
-        // Verify no O, I, 0, 1 in alphabet
         assert!(!CODE_ALPHABET.contains(&b'O'));
         assert!(!CODE_ALPHABET.contains(&b'I'));
         assert!(!CODE_ALPHABET.contains(&b'0'));

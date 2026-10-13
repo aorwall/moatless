@@ -57,7 +57,6 @@ async fn closed_removed_stop_preserves_removed_intent() {
     let cur = h.store.current().expect("intent");
     assert_eq!(cur.desired_state, SandboxDesiredState::Removed);
     assert_eq!(cur.retention, Some(ArchiveRetention::RetainArchives));
-    // No runtime effect, no events.
     assert!(h.log.lock().expect("lock").is_empty());
     assert!(h.events.facts().is_empty());
 }

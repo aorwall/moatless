@@ -39,14 +39,12 @@ pub fn forgejo_oauth_stash_key(host: &str) -> String {
     format!("FORGEJO_OAUTH_ACCESS_TOKEN_{}", host_key_segment(host))
 }
 
-/// `host` as a key segment: an alphanumeric byte uppercased, every other byte
-/// escaped as `_` and two hex digits.
+/// `host` as a key segment: an alphanumeric byte uppercased, every other
+/// byte escaped as `_` plus two hex digits.
 ///
-/// [`is_valid_secret_key`] rejects the dot and the dash a hostname carries. The
-/// escape is fixed-width and a host holds no `_` of its own, so two hosts never
-/// share a key — mapping every separator to plain `_` instead merged
-/// `git.acme.dev` with `git-acme.dev`, and one host's token then overwrote the
-/// other's.
+/// Fixed-width escaping keeps two hosts from colliding — mapping separators
+/// to plain `_` instead merged `git.acme.dev` with `git-acme.dev`,
+/// overwriting one host's token with the other's.
 fn host_key_segment(host: &str) -> String {
     const HEX: [u8; 16] = *b"0123456789ABCDEF";
 

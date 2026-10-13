@@ -4,7 +4,6 @@ use chrono::Utc;
 
 use crate::agent::harness::{ErrorClass, HarnessError};
 
-// ── Retry constants ──────────────────────────────────────────────
 /// Maximum retry attempts. `pub(crate)` so `CoordinatorService` can read it.
 pub(crate) const MAX_RETRIES: u32 = 5;
 const BACKOFF_BASE_SECS: f64 = 5.0;

@@ -30,11 +30,9 @@ pub struct WakeIntent {
 /// reconciler converge the Task to Running and (re-)notify?
 ///
 /// Closed is never resurrected; a message newer than
-/// `sandbox_desired_state_updated_at` may supersede Stopped, or Removed only
-/// when its retention is `RetainArchives` — an in-progress `DeleteArchives`
-/// removal always wins.
+/// `sandbox_desired_state_updated_at` may supersede Stopped, or Removed
+/// when retention is `RetainArchives` — in-progress `DeleteArchives` wins.
 pub fn message_supersedes_intent(intent: WakeIntent, message_created_at: DateTime<Utc>) -> bool {
-    // Closed is never resurrected by a pending message.
     if intent.task_status == TaskStatus::Closed {
         return false;
     }

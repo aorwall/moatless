@@ -234,12 +234,11 @@ impl GitHostAccess {
     }
 
     /// Whether an App-issued credential is stashed behind this user's PAT —
-    /// that is, whether [`Self::restore_github_app_token`] would hand back a
-    /// working credential rather than fail.
+    /// i.e. whether [`Self::restore_github_app_token`] would succeed.
     ///
-    /// Keyed on the stash itself, not on the row's metadata: the App
-    /// authorization flow stashes a displaced PAT's predecessor without ever
-    /// writing to the row, so metadata answers for only one of the two writers.
+    /// Keyed on the stash itself, not the row's metadata: the App auth flow
+    /// stashes a displaced PAT without writing the row, so metadata alone
+    /// can't answer this.
     async fn has_stashed_app_token(&self, user_id: &str, token_type: Option<&str>) -> bool {
         if token_type != Some("pat") {
             return false;
@@ -504,14 +503,12 @@ impl GitHostAccess {
     }
 }
 
-/// The `auth_method` to restore `row` under once a PAT override is removed, or
-/// `None` when the row holds nothing worth stashing.
+/// The `auth_method` to restore `row` under once a PAT override is removed,
+/// or `None` when the row holds nothing worth stashing.
 ///
-/// A `secret_ref` row stores [`SECRET_REF_TOKEN_PLACEHOLDER`] rather than a
-/// token, and an installation token is minted per install and short-lived —
-/// stashing either offers a restore that hands back a string GitHub rejects.
-/// Everything else is a real user token, including the `manual` rows migration
-/// 0027 backfilled.
+/// A `secret_ref` row stores [`SECRET_REF_TOKEN_PLACEHOLDER`], and an
+/// installation token is minted per install — stashing either would restore
+/// a string GitHub rejects. Everything else is a real user token.
 fn restorable_auth_method(row: &ProviderToken) -> Option<String> {
     if row.access_token.is_empty() || row.access_token == SECRET_REF_TOKEN_PLACEHOLDER {
         return None;

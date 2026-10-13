@@ -102,7 +102,6 @@ pub(super) async fn resolve_repo_id(
     client: &MoatClient,
     repo_arg: &str,
 ) -> Result<String, ClientError> {
-    // Simple UUID check: 36 chars with 4 hyphens.
     if repo_arg.len() == 36 && repo_arg.chars().filter(|c| *c == '-').count() == 4 {
         return Ok(repo_arg.to_string());
     }
@@ -192,7 +191,6 @@ mod tests {
         assert!(!looks_like_task_id("K9PCBWwH"));
         assert!(!looks_like_task_id("Gs0d_Tcb"));
         assert!(!looks_like_task_id(""));
-        // Right length, wrong hyphen count.
         assert!(!looks_like_task_id(
             "1f0d0ebb00a8e049c2094ff077e8ea50b8bbxx"
         ));

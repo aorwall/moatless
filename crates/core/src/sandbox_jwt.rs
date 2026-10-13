@@ -344,7 +344,6 @@ mod tests {
     fn port_maps_outcomes_to_the_extractor_error() {
         use crate::http_auth::{TokenVerifyError, UserTokenVerifier};
 
-        // No configured secret -> NotConfigured.
         let unconfigured = JwtUserTokenVerifier::new(None);
         assert!(matches!(
             unconfigured.verify_user_token("anything"),
@@ -353,7 +352,6 @@ mod tests {
 
         let verifier = JwtUserTokenVerifier::new(Some("test-secret".to_string()));
 
-        // A valid token -> the two fields the extractor reads.
         let token =
             generate_user_auth_token("user-456", "john", "task-1", "test-secret", TTL).unwrap();
         let verified = verifier.verify_user_token(&token).expect("valid token");

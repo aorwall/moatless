@@ -1,12 +1,13 @@
 //! Durable execution of inbound chat-message routing.
 //!
 //! Routing creates a task and provisions a sandbox — too slow for a chat
-//! sender's webhook deadline — so the handler hands off to
-//! [`crate::adapters::delivery`] before acknowledging; this module is the
+//! webhook deadline — so the handler hands off to
+//! [`crate::adapters::delivery`] before acknowledging; this is the
 //! worker-side handler for the surviving payload, built by
-//! [`inbound_delivery_request`](moatless_adapter_model::delivery::inbound_delivery_request).
-//! Adapter-agnostic since the routing is: every chat Adapter owns only its
-//! `kind` constant and registration.
+//! [`inbound_delivery_request`][idr]. Adapter-agnostic: every chat Adapter
+//! owns only its `kind` constant and registration.
+//!
+//! [idr]: moatless_adapter_model::delivery::inbound_delivery_request
 
 use std::sync::Arc;
 
@@ -19,11 +20,11 @@ use moatless_types::adapter::InboundDeliveryPayload;
 
 /// Routes one admitted inbound message.
 ///
-/// Idempotent not by its own doing: repeat delivery is stopped by the
-/// event-receipt table inside
-/// [`route_inbound_message`](crate::bindings::runtime::route_inbound_message),
-/// and repeat task creation by the binding it upserts, so a crash re-walks the
-/// same bindings and delivers nothing twice.
+/// Idempotent only via its callees: the event-receipt table inside
+/// [`route_inbound_message`][rim] stops repeat delivery, and the binding it
+/// upserts stops repeat task creation — so a crash replays safely.
+///
+/// [rim]: crate::bindings::runtime::route_inbound_message
 pub struct InboundMessageHandler {
     /// Sender label used for routing, bindings, and metrics.
     adapter: &'static str,

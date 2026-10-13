@@ -1,13 +1,10 @@
 //! Deserialization structs for Linear webhooks (`AgentSessionEvent`, `Issue`,
-//! `Comment`, `AppUserNotification`). Reference:
-//! <https://linear.app/developers/agents>.
+//! `Comment`, `AppUserNotification`).
+//! Reference: <https://linear.app/developers/agents>.
 //!
-//! These types also `Serialize`, and that's load-bearing: every kind is
-//! admitted into [`super::delivery`] before Linear is answered, and the durable
-//! record carries the sender's event data verbatim since it can't be re-fetched
-//! once the body is gone. `rename` attributes must therefore hold in both
-//! directions — a field serialising under a different name than it parses comes
-//! back empty in the worker.
+//! Also `Serialize`: the durable record stores the admitted payload verbatim,
+//! since it can't be re-fetched once the body is gone. `rename` attributes
+//! must hold in both directions, or a field comes back empty in the worker.
 
 use serde::{Deserialize, Serialize};
 
@@ -283,10 +280,9 @@ impl IssuePayload {
 }
 
 // =============================================================================
-// AppUserNotification — Linear's OAuth-app inbox stream. The notification body
-// is at the envelope's top-level `notification` field. We only act on
-// `issueStatusChanged` (close-on-terminal); other sub-actions are routed but
-// no-op'd at the handler layer.
+// AppUserNotification — Linear's OAuth-app inbox stream; the notification
+// body is at the envelope's top-level `notification` field. Only
+// `issueStatusChanged` (close-on-terminal) does anything; the rest no-op.
 // =============================================================================
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

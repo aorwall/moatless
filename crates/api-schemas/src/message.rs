@@ -359,7 +359,6 @@ pub struct SendMessageRequest {
     pub effort: Option<String>,
     #[serde(default)]
     pub contexts: Vec<MessageContextInput>,
-    // Tool response fields
     pub tool_use_id: Option<String>,
     pub tool_name: Option<String>,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]

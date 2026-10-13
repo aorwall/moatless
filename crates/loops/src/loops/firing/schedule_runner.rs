@@ -290,12 +290,11 @@ async fn create_scheduled_task(
     .await
     {
         Ok(outcome) => outcome,
-        // Permanent failure (e.g. a bad GitHub token). The service already
-        // persisted the task as errored + published a `SandboxStatus::Error`
-        // event. Record a distinct metric so a broken token is separable from a
-        // transient blip in the generic `execution_failed` counter; the per-tick
-        // cron retry is inherent and left to Loop auto-disable (a separate
-        // ticket).
+        // Permanent failure (e.g. bad GitHub token): already persisted as
+        // errored, with a `SandboxStatus::Error` event published. Record a
+        // distinct metric so a broken token is separable from a transient
+        // blip in the generic `execution_failed` counter; the per-tick cron
+        // retry is inherent, left to Loop auto-disable.
         Err(e @ TaskOpenError::Refused(_)) => {
             warn!(loop_id = %config.id, error = %e, "Scheduled task preflight failed");
             record_schedule_firing("error", "preflight_failed", &config.id);

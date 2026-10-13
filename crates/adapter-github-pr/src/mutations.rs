@@ -83,11 +83,9 @@ pub(crate) async fn create_pr(
         .await
     {
         Ok(pr) => CreatedPr::from_created(&pr, &req.title)?,
-        // A head branch that already has an open pull request is the one
-        // non-success that is not a failure: GitHub answers 422, and we bind the
-        // pull request that already exists instead of surfacing the 422. Any
-        // other create failure — and a 422 with no open pull request to find —
-        // passes through unchanged.
+        // A head branch with an already-open pull request isn't a failure:
+        // GitHub answers 422, and we bind the existing pull request instead.
+        // Any other create failure passes through unchanged.
         Err(create_error) => match api.find_open_pr_for_head(&owner, &repo, &req.head).await {
             Ok(Some(existing)) => CreatedPr::from_existing(&existing, &owner, &repo),
             _ => return Err(create_error),

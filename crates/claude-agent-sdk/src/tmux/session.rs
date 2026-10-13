@@ -71,18 +71,11 @@ impl TmuxSession {
         if let Some(cwd) = &options.cwd {
             cmd.arg("-c").arg(cwd);
         }
-        // Pin claude's config dir + HOME to exactly what the SDK polls, then
-        // layer `options.env` after (caller overrides win) — see
-        // [`child_env_vars`]. Set on the tmux CLIENT's environment rather than
-        // passed as `new-session` argv words: a private-socket session always
-        // forks a brand new tmux SERVER (see [`tmux_socket_path`]), which
-        // inherits the client's environment at fork time and copies it into
-        // the new session, so the pane's spawned process still sees these —
-        // without counting them against tmux's `MAX_IMSGSIZE` control-message
-        // limit the way argv words would. That limit is what production hit:
-        // `options.env` carries every resolved credential/secret (unbounded
-        // size), and pushing it through argv turned "tmux new-session" into
-        // "command too long".
+        // Pin claude's config dir + HOME to what the SDK polls, then layer
+        // `options.env` after (caller wins) — see [`child_env_vars`]. Set on
+        // the tmux CLIENT's env, not `new-session` argv: argv is capped by
+        // tmux's `MAX_IMSGSIZE`, and `options.env` carries every resolved
+        // credential unbounded — argv overflow fails "command too long".
         for (k, v) in child_env_vars(options) {
             cmd.env(k, v);
         }
@@ -395,20 +388,11 @@ mod tests {
         assert_eq!(a.file_name().unwrap(), "claude-sdk-aaaaaaaa.sock");
     }
 
-    // Regression test for the production "command too long" failure (SP tmux
-    // investigation, task e0b3e4e8): `options.env` in the real pipeline
-    // carries every resolved credential/secret (crates/sandbox/src/agent/claude_code.rs),
-    // unbounded in size — before the fix, `child_env_prefix` re-broadcast that
-    // whole map as individual `new-session` argv words, and tmux's client
-    // packs the entire `new-session` argv into a single control-socket
-    // message capped at `MAX_IMSGSIZE` (16384 bytes, compat/imsg.h), failing
-    // with exit status 1 and stderr "command too long" once prompt + secrets
-    // crossed that ceiling. `child_env_vars` sets these via `Command::env`
-    // on the tmux CLIENT instead (picked up by the freshly-forked tmux SERVER
-    // and copied into the session), which isn't bounded by that limit — so a
-    // ~4.5KB system prompt (realistic size, matches the failing task's logged
-    // `append_system_prompt_len`) plus a handful of secret-sized env values
-    // must succeed.
+    // Regression: `options.env` carries every resolved secret, unbounded, and
+    // tmux's control-socket argv is capped at `MAX_IMSGSIZE` (16384 bytes) —
+    // `child_env_vars` sets these via `Command::env` on the tmux client
+    // instead of `new-session` argv, so prompt + secrets no longer hit
+    // "command too long".
     fn realistic_append_system_prompt() -> String {
         "x".repeat(4500)
     }
@@ -422,11 +406,10 @@ mod tests {
 
         let harness = crate::tmux::hooks::HookHarness::create().expect("create hook harness");
 
-        // Stand-in for a handful of real-world secrets (kubeconfig,
-        // service-account JSON, cloud credentials) that `resolve_task_credentials`
-        // would merge into `options.env` alongside GitHub/Codex tokens — nothing
-        // filters these by size before they reach the sandbox. Combined with
-        // the ~4.5KB prompt below, this alone would have exceeded tmux's 16KB
+        // Stand-in for real-world secrets (kubeconfig, service-account JSON,
+        // cloud credentials) `resolve_task_credentials` merges into
+        // `options.env` — nothing filters these by size, and combined with
+        // the ~4.5KB prompt below this alone exceeded tmux's 16KB
         // MAX_IMSGSIZE before the fix.
         let mut env = std::collections::HashMap::new();
         env.insert("KUBECONFIG_BLOB".to_string(), "k".repeat(5000));

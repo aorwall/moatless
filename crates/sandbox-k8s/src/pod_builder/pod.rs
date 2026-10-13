@@ -27,7 +27,6 @@ pub fn build_pod(
     let pod_name = generate_pod_name(&plan.repo_config.name, task_id);
     let namespace = config.sandbox.namespace.clone();
 
-    // ── Labels ──────────────────────────────────────────────────────
     let mut labels = BTreeMap::new();
     labels.insert("moatless.io/task-id".to_string(), task_id.to_string());
     labels.insert("moatless.io/sandbox-id".to_string(), task_id.to_string());
@@ -59,7 +58,6 @@ pub fn build_pod(
         );
     }
 
-    // ── Annotations ─────────────────────────────────────────────────
     let mut annotations = BTreeMap::new();
     // Redact any embedded credentials (userinfo) so a PAT/password in the clone
     // URL never lands in the pod spec / etcd. Authentication happens at runtime
@@ -77,12 +75,9 @@ pub fn build_pod(
 
     // ── Volumes ─────────────────────────────────────────────────────
     //
-    // `/opt/moatless` (the workspace) is backed by the `workspace-data` volume:
-    // a per-task PVC when the `pvc` switch is on, a node-local emptyDir when it
-    // is off. Either way it is a single
-    // volume shared by the pod's containers, with `/tmp` served
-    // from its `tmp` subPath so `/tmp` never charges against the pod's memory
-    // budget.
+    // `/opt/moatless` is backed by `workspace-data`: a per-task PVC when the
+    // `pvc` switch is on, a node-local emptyDir when off. `/tmp` is its `tmp`
+    // subPath — same volume, so `/tmp` never charges the pod's memory budget.
     let mut volumes = vec![
         Volume {
             name: "shared-data".to_string(),
@@ -133,19 +128,14 @@ pub fn build_pod(
         });
     }
 
-    // ── Sandbox container ───────────────────────────────────────────
     let sandbox_container = build_sandbox_container(config, task_id, plan, tokens, pvc_name)?;
 
-    // ── Docker-in-Docker sidecar (opt-in via repo config `dockerAccess`) ──
+    // ── Docker-in-Docker sidecar (opt-in via `dockerAccess`) ───────────
     //
-    // When a repo opts in, attach a privileged `docker:dind` sidecar. It shares
-    // the pod network namespace, so the sandbox reaches dockerd at
-    // `tcp://localhost:2375` — which is what lets Testcontainers spin up real
-    // containers (Postgres, Redis, …). dind's image/container storage lives on a
-    // node-local hostPath by default (`resources.dockerStorageMode: "node"`), or
-    // a capped emptyDir when explicitly requested. Gated on the opt-in so default
-    // sandboxes stay hardened with no privileged container. Mirrors the CI runner dind pattern
-    // (soap-platform-gitops `java-build-runner-set`).
+    // Shares the pod network namespace: the sandbox reaches dockerd at
+    // `tcp://localhost:2375`, letting Testcontainers run real containers.
+    // Storage is a node-local hostPath by default, or a capped emptyDir
+    // when requested; gated on opt-in so default sandboxes stay hardened.
     let docker_access = docker_access_enabled(plan);
     if docker_access {
         let mut volume = Volume {
@@ -169,7 +159,6 @@ pub fn build_pod(
         volumes.push(volume);
     }
 
-    // ── Assemble Pod ────────────────────────────────────────────────
     let mut all_containers = vec![sandbox_container];
     if docker_access {
         all_containers.push(build_dind_container(config));
@@ -225,12 +214,10 @@ pub fn build_pod(
                     .sandbox_service_account
                     .clone()
                     .or_else(|| config.sandbox.service_account_name.clone()),
-                // The global default SA exists for pod identity, not cluster
-                // access, but a cluster is free to bind RBAC to it — and a
-                // mounted token hands that to every agent in every sandbox.
-                // An opted-in repo leaves the field unset rather than `true`,
-                // so its SA can still refuse the token. AWS pod identity
-                // projects its own and is unaffected either way.
+                // The global default SA could get cluster RBAC bound to it; a
+                // mounted token would hand that to every sandbox. Left unset
+                // (not `true`) for an opted-in repo, so its own SA can still
+                // refuse the token; AWS pod identity is unaffected either way.
                 automount_service_account_token: plan
                     .repo_config
                     .sandbox_service_account
@@ -275,11 +262,10 @@ const PER_BUILD_ENV: [&str; 2] = ["SANDBOX_BOOTSTRAP_TOKEN", "USER_AUTH_TOKEN"];
 
 /// Hash the part of a pod spec that comes from the config and the plan.
 ///
-/// [`build_pod`] stamps this under [`POD_SPEC_HASH_ANNOTATION`], and the start
-/// path compares it against a stopped Deployment's value; excludes minted auth
-/// tokens, `HashMap`-ordered env, and annotations (incl. build time) — the
-/// token filter matches by name, so `emit_legacy_user_token_env` alone never
-/// rebuilds a template.
+/// [`build_pod`] stamps this under [`POD_SPEC_HASH_ANNOTATION`]; the start
+/// path compares it against a stopped Deployment's value. Excludes minted
+/// auth tokens (matched by name — `emit_legacy_user_token_env` alone never
+/// rebuilds), `HashMap`-ordered env, and annotations (incl. build time).
 pub fn pod_spec_fingerprint(pod: &Pod) -> String {
     let mut spec = pod.spec.clone().unwrap_or_default();
     for container in &mut spec.containers {

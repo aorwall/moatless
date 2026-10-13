@@ -75,16 +75,12 @@ pub enum SandboxOpError {
     Internal(String),
 }
 
-/// The durable sandbox-lifecycle contract the tasks band drives, inverting the
-/// edge so consumers hold `Arc<dyn SandboxLifecycle>` and name no `sandbox`
-/// type.
+/// The durable sandbox-lifecycle contract the tasks band drives.
 ///
-/// Deliberately not
-/// [`SandboxStarter`]/[`SandboxStopper`]/[`SandboxIntentReader`]: those flatten
-/// through [`SandboxError`], which has no `Conflict` variant, so a 409
-/// (`OperationInProgress`) would arrive as a 500. Excludes
-/// `restart`/`redeploy`/`expected_sandbox_image`, which only sandbox HTTP
-/// handlers call.
+/// Deliberately not [`SandboxStarter`]/[`SandboxStopper`]/
+/// [`SandboxIntentReader`]: those flatten through [`SandboxError`] (no
+/// `Conflict`), so a 409 would arrive as a 500. Excludes HTTP-only
+/// `restart`/`redeploy`/`expected_sandbox_image`.
 #[async_trait]
 pub trait SandboxLifecycle: Send + Sync {
     /// Provision and start the Task's sandbox.
@@ -93,13 +89,11 @@ pub trait SandboxLifecycle: Send + Sync {
     /// Stop the Task's sandbox, recording why.
     async fn stop(&self, task_id: &str, reason: SandboxStopReason) -> Result<(), SandboxOpError>;
 
-    /// Stop the agent inside the Task's sandbox, leaving the sandbox up. Not a
-    /// lifecycle transition: nothing is recorded, so the next turn runs in the
-    /// same sandbox.
+    /// Stop the agent inside the Task's sandbox, leaving it up — not a
+    /// lifecycle transition, so the next turn runs in the same sandbox.
     ///
-    /// Best-effort, like the graceful stop [`Self::stop`] issues: an
-    /// unreachable sandbox has no agent running anyway. The caller's terminal
-    /// `agent.stopped` closes the turn.
+    /// Best-effort, like [`Self::stop`]: an unreachable sandbox has no agent
+    /// running anyway. The caller's terminal `agent.stopped` closes the turn.
     async fn stop_agent(&self, task_id: &str, reason: SandboxStopReason);
 
     /// Remove the Task's sandbox, applying the archive-retention policy. The

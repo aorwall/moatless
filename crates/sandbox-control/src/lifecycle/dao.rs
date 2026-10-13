@@ -145,22 +145,20 @@ pub trait LifecycleDao: Send + Sync {
     /// [`Self::stopped_with_storage`] until a start provisions a fresh volume.
     async fn mark_storage_reclaimed(&self, task_id: &str) -> Result<(), StoreError>;
 
-    /// Record how many `moat cmd` commands the Sandbox is running, as the pod
-    /// last reported. Absolute, so a missed report is corrected by the next
-    /// one.
+    /// Record how many `moat cmd` commands the Sandbox is running, as the
+    /// pod last reported. Absolute, so a missed report is corrected by the
+    /// next one.
     ///
-    /// Notifies the listing only when the count crosses zero, since the sidebar
-    /// renders "is anything running" and a 2→3 move would wake every client for
-    /// nothing.
+    /// Notifies the listing only when the count crosses zero: the sidebar
+    /// renders "is anything running", and a 2→3 move wakes no client.
     async fn record_running_commands(&self, task_id: &str, running: i32) -> Result<(), StoreError>;
 
-    /// Mirror the commands a pod says still owe its agent an outcome, on a row
-    /// no failed workspace-snapshot restore touches, so a replacement can name
-    /// them.
+    /// Mirror the commands a pod says still owe its agent an outcome, on a
+    /// row no failed workspace-snapshot restore touches, so a replacement
+    /// can name them.
     ///
-    /// Absolute, like [`Self::record_running_commands`]; `revision` is the pod
-    /// registry lock's counter, and a call carrying one no higher than stored
-    /// is dropped.
+    /// Absolute, like [`Self::record_running_commands`]; `revision` is the
+    /// pod registry lock's counter, and a lower-or-equal call is dropped.
     async fn record_unreported_commands(
         &self,
         task_id: &str,
@@ -318,21 +316,11 @@ impl LifecycleDao for PgLifecycleDao {
     }
 
     async fn reconcile_candidates(&self) -> Result<Vec<ReconcileCandidate>, StoreError> {
-        // Desired-Running participants (fleet observation may find them down)
-        // ∪ incomplete-marker Sandboxes (a crashed operation) ∪ Sandboxes with
-        // queued work. The last arm is what wakes a Sandbox whose pod is down:
-        // the fact is on the row, so no pod has to be reachable to find it.
-        // Backed by `sandboxes_desired_running_idx`,
-        // `sandboxes_incomplete_operation_idx`, and `sandboxes_pending_work_idx`.
-        //
-        // One candidate per Sandbox, because every lifecycle operation is keyed
-        // by `sandbox_id` (`op_start` and its peers lock and drive on
-        // `intent.sandbox_id`), so a second member would only contend for the
-        // same lock and spend the same attempt cap twice. The candidate is a
-        // handle on the Sandbox, not the Task a wake is for: on a shared
-        // Sandbox the members holding the queued work are resolved separately,
-        // through `PendingWorkReader`, because `task_inbox` belongs to the
-        // Task domain.
+        // Desired-running ∪ incomplete-marker ∪ pending-work sandboxes (the
+        // last arm wakes one whose pod is down: the fact lives on the row).
+        // One candidate per sandbox, not per task — lifecycle ops lock on
+        // `sandbox_id`, so a second member would only contend the same lock.
+        // The task with the work is found via `PendingWorkReader` separately.
         sqlx::query_as(
             r#"SELECT DISTINCT ON (s.sandbox_id) t.task_id, s.pending_work_at
                FROM sandboxes s
@@ -434,14 +422,11 @@ impl LifecycleDao for PgLifecycleDao {
         write: &IntentWrite,
     ) -> Result<IntentEffect, StoreError> {
         let task_id = sandbox_id;
-        // Single atomic statement against the row task creation wrote. `prev`
-        // captures the pre-image under a row lock so `changed` reflects the
-        // desired-state / stop-reason / retention delta — the intent-change
-        // axis — while the marker is always overwritten.
-        //
-        // Now in a transaction, because the listing record below has to commit
-        // with it: a sidebar shows the session's status, and a status that moved
-        // with no record is a session the sidebar stops updating.
+        // One atomic statement against the row task creation wrote. `prev`
+        // captures the pre-image under a row lock, so `changed` reflects
+        // only the desired-state/stop-reason/retention delta; the marker
+        // is always overwritten. Now in a transaction, since the listing
+        // record below must commit with it, or the sidebar stops updating.
         let mut tx = self
             .pool
             .begin()
@@ -685,11 +670,10 @@ impl LifecycleDao for PgLifecycleDao {
         let payload = serde_json::to_value(commands)
             .map_err(|e| StoreError::with_source("encode the unreported commands", e))?;
 
-        // The revision predicate is what makes a late write harmless: the pod
-        // writes off its registry lock, so an older, larger set can land after a
-        // newer one and resurrect a command the agent has already been told
-        // about. Strict `<`, so a resent revision is a no-op rather than a
-        // rewrite.
+        // The revision predicate makes a late write harmless: the pod
+        // writes off its registry lock, so an older, larger set can land
+        // after a newer one and resurrect a command already told to the
+        // agent. Strict `<`: a resent revision is a no-op, not a rewrite.
         sqlx::query(
             r#"INSERT INTO sandbox_unreported_commands (task_id, commands, revision)
                VALUES ($1, $2, $3)
@@ -712,14 +696,11 @@ impl LifecycleDao for PgLifecycleDao {
         &self,
         task_id: &str,
     ) -> Result<Vec<OutstandingCommand>, StoreError> {
-        // Read and clear in one statement so two starts racing the same row
-        // cannot both announce the same loss.
-        //
-        // `revision` is deliberately left where it is: a write from the dying pod
-        // can still land after this, and a reset would let it resurrect what
-        // the agent has just been shown. The replacement seeds its own counter
-        // from the clock (`CommandRegistry::with_backend_mirror`), so it outruns
-        // what stays here rather than losing to it.
+        // Read and clear in one statement, so two racing starts can't both
+        // announce the same loss. `revision` is deliberately left as-is: a
+        // write from the dying pod can still land after this, and resetting
+        // it would resurrect what the agent's already been shown. The
+        // replacement seeds its own counter from the clock, outrunning it.
         let stored: Option<serde_json::Value> = sqlx::query_scalar(
             r#"WITH prev AS (
                    SELECT task_id, commands

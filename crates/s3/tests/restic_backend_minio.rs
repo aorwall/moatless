@@ -1,20 +1,11 @@
-//! Round-trips a restic repository through [`ResticS3Backend`] against a real
-//! S3 server.
-//!
-//! Ignored by default: it needs an endpoint. Start one and run it with
+//! Round-trips a restic repo through `ResticS3Backend` against a real server:
 //!
 //! ```bash
-//! docker run -d --name minio-restic -p 19000:9000 \
-//!   -e MINIO_ROOT_USER=spikeadmin -e MINIO_ROOT_PASSWORD=spikeadmin123 \
-//!   minio/minio:latest server /data
-//! cargo test -p moatless-s3 --features restic-backend --test restic_backend_minio \
-//!   -- --ignored --nocapture
+//! docker run -d -p 19000:9000 -e MINIO_ROOT_USER=spikeadmin -e MINIO_ROOT_PASSWORD=spikeadmin123 minio/minio:latest server /data
+//! cargo test -p moatless-s3 --features restic-backend --test restic_backend_minio -- --ignored --nocapture
 //! ```
 //!
-//! The unit tests cover the key layout against a fake endpoint. What only a
-//! real server can show is that `rustic_core` drives this backend through a
-//! whole init → backup → read → restore cycle, and that blocking on the
-//! backend's own runtime from inside `spawn_blocking` does not deadlock.
+//! Proves init->backup->read->restore, and `spawn_blocking` doesn't deadlock.
 #![cfg(feature = "restic-backend")]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -85,11 +76,9 @@ async fn a_repository_round_trips_through_the_backend() {
         let first = repo.backup(&backup, &paths, snapshot).unwrap();
 
         // A second snapshot of an unchanged tree must find its parent and add
-        // nothing, which is what makes the format incremental. The parent is
-        // resolved against the index the repository was opened with, so the
-        // handle is reopened rather than reused: a handle opened before the
-        // first snapshot cannot see the tree that snapshot wrote, and re-reads
-        // every file as new.
+        // nothing — the format's incremental trick. The handle is reopened,
+        // not reused: one opened before the first snapshot can't see the
+        // tree it wrote, so it would re-read every file as new.
         let repo = Repository::new(&options, &backends)
             .unwrap()
             .open(&password)

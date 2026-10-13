@@ -214,14 +214,11 @@ pub(crate) enum AskForApproval {
 // =============================================================================
 
 // Every notification but `thread/started` carries the `threadId` it belongs to,
-// and one connection carries several: a native sub-agent (`collabAgentToolCall`)
-// runs on its own thread and streams over the same pipe. Each is modelled as
-// `Option<String>` and read through [`ServerEvent::thread_id`], which
-// `CodexProcess::absorb` matches against the thread it opened. A build that
-// stops sending the field must fail open — see that method.
+// since one connection can carry several (a sub-agent runs on its own thread).
+// Each is `Option<String>`, read via [`ServerEvent::thread_id`] and matched by
+// `CodexProcess::absorb`; a build that stops sending the field must fail open.
 //
-// The `turnId` below the Turn is not modelled: one thread runs one Turn at a
-// time, so matching the thread already picks out a single Turn.
+// `turnId` is not modelled: matching the thread already picks a single Turn.
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -1,15 +1,12 @@
-//! Quota from a `CLIProxyAPI` hub, published on the `subscribeServerConfig`
-//! stream as `usageLimitSourcesUpdated`.
+//! Quota from a `CLIProxyAPI` hub, published on `subscribeServerConfig` as
+//! `usageLimitSourcesUpdated`.
 //!
-//! T3's own hub protocol, `GET /v0/management/quota-scheduler/status`, is a
-//! convention third-party daemons implement, but no `CLIProxyAPI` release or
-//! plugin serves that path — this backend reads the hub's real `GET
-//! /v0/management/auth-files` and maps each pooled account itself.
+//! No `CLIProxyAPI` release implements T3's own hub protocol
+//! (`GET /v0/management/quota-scheduler/status`), so this backend reads the
+//! hub's real `GET /v0/management/auth-files` and maps each account itself.
 //!
-//! The hub reports quota as the upstream rate-limit headers it last saw on a
-//! response for that account, so a window appears only after the account has
-//! served a request through the hub. Codex states a used percent per window and
-//! Anthropic states a used fraction, so both providers draw a real bar.
+//! Quota is the rate-limit headers the hub last saw for an account, so a
+//! window appears only once it's served a request through the hub.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;

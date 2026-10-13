@@ -48,13 +48,12 @@ pub trait ProviderTokenDao: Send + Sync {
         metadata: Option<&serde_json::Value>,
     ) -> Result<(), sqlx::Error>;
 
-    /// Upserts a provider token, setting `auth_method` on both insert and
-    /// update — for reference rows (`secret_ref`) whose resolution branch must
-    /// switch even when a row already exists.
+    /// Upserts a provider token, setting `auth_method` on insert and update —
+    /// for `secret_ref` rows, whose resolution branch must switch even when a
+    /// row already exists.
     ///
-    /// `refresh_token` and `expires_at` are written as given, `None` included:
-    /// a leftover expiry from the credential this replaces would date the wrong
-    /// token.
+    /// `refresh_token`/`expires_at` are written as given, `None` included:
+    /// a leftover expiry from the old credential would date the wrong token.
     async fn upsert_token_with_auth_method(
         &self,
         user_id: &str,
@@ -130,13 +129,12 @@ pub trait ProviderTokenDao: Send + Sync {
     /// (migration `0059`) backs the predicate, so this stays O(touched rows).
     async fn healthy_codex_scopes(&self) -> Result<Vec<CodexScope>, sqlx::Error>;
 
-    /// Brings the codex row at `scope` up to date, asking `refresher` what to
-    /// write.
+    /// Brings the codex row at `scope` up to date, asking `refresher` what
+    /// to write. `None` when no row addresses `scope`.
     ///
     /// One transaction: advisory-locks the scope, reads the row `FOR UPDATE`,
-    /// hands the blob to `refresher`, then compare-and-swaps the answer back —
-    /// a lock or CAS another replica already won reports that writer's value.
-    /// `None` when no row addresses `scope`.
+    /// hands the blob to `refresher`, then CAS the answer back — a lock or
+    /// CAS already won by another replica reports that writer's value.
     async fn refresh_codex_blob(
         &self,
         scope: &CodexScope,
@@ -607,14 +605,12 @@ fn codex_bind_value(scope: &CodexScope) -> &str {
     }
 }
 
-/// Builds the `WHERE` clause fragment addressing this scope's row in
-/// `provider_tokens`, using `placeholder` for the dynamic identifier; callers
-/// paste it into the larger SQL string and bind [`codex_bind_value`] at the
-/// same positional index.
+/// Builds the `WHERE` clause fragment for this scope's row in
+/// `provider_tokens`; callers paste it into the SQL string and bind
+/// [`codex_bind_value`] at the same positional index.
 ///
-/// Global scope uses `IS NULL` checks so its bind value is unused, but callers
-/// must still bind it (empty string) to keep positional parameter counts
-/// consistent.
+/// Global uses `IS NULL` checks, so its bind value is unused but callers
+/// must still bind it (empty string) to keep parameter positions aligned.
 fn codex_where_clause(scope: &CodexScope, placeholder: &str) -> String {
     match scope {
         CodexScope::User(_) => {

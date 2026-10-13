@@ -355,7 +355,6 @@ impl SlackApi {
     ) -> Result<(), AdapterError> {
         let length_str = content.len().to_string();
 
-        // Step 1: Get presigned upload URL
         let resp: GetUploadUrlResponse = self
             .client
             .get(format!("{}/files.getUploadURLExternal", self.base_url))
@@ -385,7 +384,6 @@ impl SlackApi {
             SharedAdapterError::AdapterApi("files.getUploadURLExternal: no file_id".into())
         })?;
 
-        // Step 2: Upload file content to presigned URL
         let upload_status = self
             .client
             .post(&upload_url)
@@ -404,7 +402,6 @@ impl SlackApi {
             .into());
         }
 
-        // Step 3: Complete the upload, associating with channel + thread
         let mut complete_body = serde_json::json!({
             "files": [{ "id": slack_file_id, "title": filename }],
             "channel_id": channel,

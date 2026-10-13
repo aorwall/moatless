@@ -192,7 +192,6 @@ async fn delete_repository(pool: PgPool) {
 
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
 
-    // Verify soft-deleted
     let found = compose::find_repository(&pool, "repo-del", &scope_ctx(USER_1))
         .await
         .unwrap();

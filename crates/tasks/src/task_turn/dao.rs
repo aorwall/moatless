@@ -405,13 +405,11 @@ impl TaskTurnDao for PgTaskTurnDao {
     async fn list_settled_turns_with_later_activity(
         &self,
     ) -> Result<Vec<SettledTurn>, sqlx::Error> {
-        // `ended_at IS NOT NULL` is load-bearing, not defensive: a turn closed
-        // without recording when cannot be compared against anything, and
-        // treating it as infinitely old would make every such row a candidate
-        // forever.
-        //
-        // The activity is dated by `created_at` (timestamptz), not by
-        // `timestamp`, which is free-form text a publisher chooses.
+        // `ended_at IS NOT NULL` is load-bearing: a turn closed without
+        // recording when can't be compared, and treating it as infinitely
+        // old would make it a candidate forever. Dated by `created_at`
+        // (timestamptz), not `timestamp` (free-form text a publisher
+        // chooses).
         let rows: Vec<(String, i32, Option<String>, Option<String>)> = sqlx::query_as(
             r#"SELECT tt.task_id, tt.turn_number, tt.agent_profile, tt.run_id
                FROM task_turns tt
@@ -674,12 +672,10 @@ impl TaskTurnDao for PgTaskTurnDao {
         task_id: &str,
         at_turn: Option<i32>,
     ) -> Result<ForkPoint, sqlx::Error> {
-        // The newest turn only, because that is the one an agent could still be
-        // writing. An earlier turn left `active` or `interrupted` behind a
-        // higher-numbered one is a lost terminal event, not work in flight: the
-        // turns after it prove the agent moved on, and nothing will ever resume
-        // it. Asking across every turn instead refused these Tasks forever, and
-        // told the person to wait for a turn that had ended a day earlier.
+        // The newest turn only: that's the one an agent could still be
+        // writing. An earlier turn left `active`/`interrupted` behind a
+        // higher-numbered one is a lost terminal event, not work in flight —
+        // later turns prove the agent moved on, and nothing will resume it.
         let open_turn: Option<i32> = sqlx::query_scalar(
             "SELECT turn_number FROM task_turns \
              WHERE task_id = $1 AND status IN ('active', 'interrupted') \

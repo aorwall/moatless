@@ -38,7 +38,6 @@ async fn run_simple_query(backend: Backend) {
         "Expected Result message"
     );
 
-    // Check result contains "4"
     let result_text = extract_result_text(&messages).expect("Expected successful result");
     assert!(
         result_text.contains('4'),
@@ -162,14 +161,12 @@ async fn test_system_init_has_model_and_tools() {
             })
             .expect("Expected System init message");
 
-        // Model should contain our requested model (haiku)
         assert!(
             init.model.contains("haiku"),
             "Expected model to contain 'haiku', got: {}",
             init.model
         );
 
-        // Tools list should be non-empty
         assert!(
             !init.tools.is_empty(),
             "Expected non-empty tools list, got: {:?}",

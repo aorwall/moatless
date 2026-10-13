@@ -98,12 +98,11 @@ async fn download_on_start_survives_a_corrupt_archive() {
 
 #[tokio::test]
 async fn restore_precedes_the_harness_accepting_the_resumed_turn() {
-    // The whole point of the seam: a replaced pod restores Session state to disk
-    // *before* the harness is handed the resumed turn — otherwise the agent would
-    // `--resume` against history that has not landed yet. This exercises one
-    // lifecycle: download_on_start (restore) → open_for_work (recover), and
-    // observes that the restored session file is present on disk *before* the
-    // harness accepts the interrupted run.
+    // The whole point of the seam: a replaced pod restores Session state
+    // to disk before the harness gets the resumed turn — otherwise the
+    // agent would `--resume` against history not yet landed. Observes that
+    // the restored file exists before the harness accepts the interrupted
+    // run, across download_on_start (restore) → open_for_work (recover).
     for family in ["claude-code", "codex"] {
         let tmp = tempfile::TempDir::new().unwrap();
         tokio::fs::create_dir_all(tmp.path().join("workspace"))

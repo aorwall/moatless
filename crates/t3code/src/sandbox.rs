@@ -814,7 +814,6 @@ mod tests {
         let frame = received.try_recv().expect("the new command is news");
         assert_eq!(frame["values"][0]["commands"][0]["label"], "mvn verify");
 
-        // Nothing moved since, so nothing more is sent.
         tokio::time::sleep(STATUS_POLL_INTERVAL * 2).await;
         assert!(received.try_recv().is_err(), "a steady command is silent");
     }

@@ -39,7 +39,6 @@ pub fn parse_loop(content: &str, dir_name: &str) -> Result<ParsedLoop, String> {
 fn split_frontmatter(contents: &str) -> Result<(String, String), String> {
     // Strip the optional UTF-8 BOM so `---` lands at byte 0.
     let trimmed = contents.strip_prefix('\u{feff}').unwrap_or(contents);
-    // Frontmatter must start at the very first line.
     let rest = trimmed
         .strip_prefix("---\n")
         .or_else(|| trimmed.strip_prefix("---\r\n"))

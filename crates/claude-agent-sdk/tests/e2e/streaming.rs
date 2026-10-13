@@ -128,7 +128,6 @@ async fn run_streaming_client_multi_turn(backend: Backend) {
         return;
     }
 
-    // Verify the response mentions 42
     let turn2_text = extract_assistant_text(&turn2_messages);
     let turn2_result = extract_result_text(&turn2_messages).unwrap_or_default();
     let combined = format!("{turn2_text} {turn2_result}");

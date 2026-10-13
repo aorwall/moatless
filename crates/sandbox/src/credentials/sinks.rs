@@ -108,17 +108,14 @@ mod tests {
         let payload = r#"{"tokens":{"access_token":"new"}}"#;
         sink.apply(payload).await.unwrap();
 
-        // File written at the expected path.
         let on_disk = tokio::fs::read_to_string(codex_dir.join("auth.json"))
             .await
             .unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&on_disk).unwrap();
         assert_eq!(parsed["tokens"]["access_token"], "new");
 
-        // .tmp file cleaned up by rename.
         assert!(!codex_dir.join("auth.json.tmp").exists());
 
-        // Watcher cache seeded with the canonical written form.
         let cached = last_value.lock().await.clone();
         let parsed: serde_json::Value = serde_json::from_str(&cached).unwrap();
         assert_eq!(parsed["tokens"]["access_token"], "new");
@@ -136,7 +133,6 @@ mod tests {
 
         let err = sink.apply("{not json").await.expect_err("should reject");
         assert!(err.contains("not valid JSON"));
-        // No file written.
         assert!(!codex_dir.join("auth.json").exists());
     }
 

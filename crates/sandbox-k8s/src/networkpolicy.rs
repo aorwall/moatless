@@ -25,12 +25,11 @@ const TRAEFIK_POD_LABEL: &str = "app.kubernetes.io/name";
 const TRAEFIK_POD_LABEL_VALUE: &str = "traefik";
 
 /// A 403 on the `NetworkPolicy` API means the backend `ServiceAccount` lacks
-/// the `networking.k8s.io/networkpolicies` grant (an older chart release).
+/// the `networking.k8s.io/networkpolicies` grant (older chart release).
 ///
-/// Preview policies then degrade to "feature off" rather than wedging: creation
-/// is best-effort and delete no longer hard-fails, yet nothing leaks — any
-/// policy created while the grant existed still carries the Deployment's
-/// ownerReference for K8s GC.
+/// Creation is best-effort: this degrades preview policies to "feature off"
+/// without wedging, and nothing leaks — any policy made while the grant
+/// existed still carries the Deployment's ownerReference for K8s GC.
 fn is_forbidden(error: &kube::Error) -> bool {
     matches!(error, kube::Error::Api(response) if response.code == 403)
 }

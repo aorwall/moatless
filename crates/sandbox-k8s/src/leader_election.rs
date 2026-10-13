@@ -87,12 +87,10 @@ impl LeaderElection {
                 });
 
                 if holder == Some(self.identity.as_str()) {
-                    // We hold it — renew
                     self.update_lease(&lease).await?;
                     debug!(identity = %self.identity, lease = %self.lease_name, "Renewed leadership");
                     Ok(true)
                 } else if is_expired {
-                    // Expired — take over
                     info!(
                         identity = %self.identity,
                         lease = %self.lease_name,
@@ -112,7 +110,6 @@ impl LeaderElection {
                 }
             }
             Err(kube::Error::Api(ref e)) if e.code == 404 => {
-                // Lease doesn't exist — create it
                 self.create_lease().await?;
                 info!(identity = %self.identity, lease = %self.lease_name, "Acquired leadership (created lease)");
                 Ok(true)

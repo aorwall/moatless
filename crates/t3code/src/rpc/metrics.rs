@@ -189,11 +189,10 @@ pub(crate) fn request_root_span(
     span_id: Option<&str>,
     sampled: Option<bool>,
 ) -> tracing::Span {
-    // `otel.*` are `tracing-opentelemetry`'s own field names, and a field it can
-    // record has to be declared here: a span records only what it was built
-    // with. `outcome`, `duration_ms` and the status are filled in once the
-    // handler answers, in [`record_request`]; `queued_ms` by the caller, which
-    // is the only thing that knows when the frame arrived.
+    // `otel.*` are `tracing-opentelemetry`'s field names; a span records only
+    // what it's declared with here. `outcome`, `duration_ms` and status are
+    // filled in by [`record_request`]; `queued_ms` by the caller, the only
+    // one that knows when the frame arrived.
     let span = tracing::info_span!(
         "ui_rpc.request",
         tag = %tag,
@@ -268,13 +267,12 @@ impl Drop for Abandoned<'_> {
     }
 }
 
-/// Count one answered request, mark its span with what the client was told, and
-/// log the failures nothing else logs.
+/// Count one answered request, mark its span with what the client was told,
+/// and log the failures nothing else logs.
 ///
-/// Called by [`answered`] alone. Per-domain failure builders
-/// (`file_failure_exit` and siblings) log their own sqlx/gRPC cause, which this
-/// can't see — so a `Die` on those paths logs twice: once here with the tag,
-/// once there with the cause.
+/// Called by [`answered`] alone. Per-domain builders (`file_failure_exit`
+/// and siblings) log their own cause, invisible here — so a `Die` there logs
+/// twice: once here with the tag, once there with the cause.
 pub(crate) fn record_request(
     span: &tracing::Span,
     tag: &str,

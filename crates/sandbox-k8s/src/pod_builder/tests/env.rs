@@ -8,7 +8,6 @@ use super::*;
 fn resolve_sandbox_image_prefers_repo_override() {
     let config = test_config();
 
-    // case: no override → config default
     let plan = test_plan();
     assert_eq!(resolve_sandbox_image(&config, &plan), "sandbox:latest");
 
@@ -17,7 +16,6 @@ fn resolve_sandbox_image_prefers_repo_override() {
     plan.repo_config.docker_image = Some(String::new());
     assert_eq!(resolve_sandbox_image(&config, &plan), "sandbox:latest");
 
-    // case: non-empty override → wins over config default
     let mut plan = test_plan();
     plan.repo_config.docker_image = Some("custom:v2".into());
     assert_eq!(resolve_sandbox_image(&config, &plan), "custom:v2");
@@ -44,7 +42,6 @@ fn redact_url_userinfo_strips_credentials() {
         redact_url_userinfo("https://oauth2:glpat-xxx@gitlab.com/group/repo.git"),
         "https://gitlab.com/group/repo.git"
     );
-    // No userinfo → unchanged.
     assert_eq!(
         redact_url_userinfo("https://github.com/owner/repo.git"),
         "https://github.com/owner/repo.git"
@@ -96,7 +93,6 @@ fn pod_spec_redacts_clone_url_and_omits_user_token() {
         Some("https://github.com/test/repo.git")
     );
 
-    // With no tokens passed, neither auth env is present.
     assert!(env.iter().all(|e| e.name != "USER_AUTH_TOKEN"));
     assert!(env.iter().all(|e| e.name != "SANDBOX_BOOTSTRAP_TOKEN"));
 }

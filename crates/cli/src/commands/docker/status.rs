@@ -147,9 +147,7 @@ fn parse_service(v: &serde_json::Value) -> Option<ServiceStatus> {
 async fn gather_endpoints(local_stack: HttpTimeouts) -> Vec<EndpointStatus> {
     let mut out = Vec::new();
 
-    // Backend /health
     out.push(http_probe("backend", "http://localhost:8080/health", local_stack).await);
-    // Frontend root
     out.push(http_probe("frontend", "http://localhost:3000/", local_stack).await);
 
     // Postgres — pg_isready inside the container (avoids needing psql on host)

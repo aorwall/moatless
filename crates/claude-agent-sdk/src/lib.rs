@@ -58,7 +58,6 @@ mod session_cost;
 mod transcripts;
 mod transport;
 
-// Top-level re-exports for convenience
 pub use api::agents::AgentDefinition;
 pub use api::content::{ApiMessage, ContentBlock};
 pub use api::hooks::{HookDefinition, HookEvent, HookHandler, HookOutput, SyncHookOutput};

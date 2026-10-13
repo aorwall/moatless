@@ -33,7 +33,6 @@ pub async fn create_plugin(
     };
 
     if let Err(e) = plugins.insert(&row).await {
-        // Check for unique constraint violation on name
         if let sqlx::Error::Database(ref db_err) = e {
             if db_err.constraint().is_some() {
                 return Err(PluginError::Conflict(

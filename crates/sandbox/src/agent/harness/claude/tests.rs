@@ -119,7 +119,6 @@ fn each_content_block_is_one_source_event_in_native_order() {
     let mut p = process();
     p.absorb(SdkMessage::System(system_init("sess")));
     drain(&mut p);
-    // One assistant response, two blocks sharing a message id.
     p.absorb(SdkMessage::Assistant(assistant_line(
         Some("msg_1"),
         text("first"),

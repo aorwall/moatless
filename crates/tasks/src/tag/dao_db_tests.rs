@@ -27,7 +27,6 @@ async fn find_or_create_new_tags(pool: PgPool) {
     assert_eq!(tags.len(), 2);
     assert!(!tags[0].tag_id.is_empty());
     assert!(!tags[1].tag_id.is_empty());
-    // Names should match
     let mut tag_names: Vec<&str> = tags.iter().map(|t| t.name.as_str()).collect();
     tag_names.sort_unstable();
     assert_eq!(tag_names, vec!["bug", "feature"]);
@@ -80,7 +79,6 @@ async fn set_task_tags(pool: PgPool) {
 async fn set_task_tags_replaces(pool: PgPool) {
     seed_task(&pool, "task-replace", "user-1").await;
 
-    // Set tags A, B
     let tags_ab = PgTagDao(pool.clone())
         .find_or_create_tags(&["A".to_string(), "B".to_string()])
         .await
@@ -91,7 +89,6 @@ async fn set_task_tags_replaces(pool: PgPool) {
         .await
         .unwrap();
 
-    // Replace with B, C
     let tags_bc = PgTagDao(pool.clone())
         .find_or_create_tags(&["B".to_string(), "C".to_string()])
         .await
@@ -164,7 +161,6 @@ async fn list_all(pool: PgPool) {
 
     let all = PgTagDao(pool.clone()).list_all().await.unwrap();
     assert_eq!(all.len(), 3);
-    // Should be ordered by name
     assert_eq!(all[0].name, "alpha");
     assert_eq!(all[1].name, "mike");
     assert_eq!(all[2].name, "zulu");

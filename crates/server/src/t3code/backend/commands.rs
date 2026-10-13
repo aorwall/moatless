@@ -187,14 +187,12 @@ impl ThreadCommandSink for AppStateCommands {
         viewer: &ScopeContext,
         turn: ThreadTurn,
     ) -> Result<(), CommandRefusal> {
-        // Stored before the Message, so a turn that reaches the agent always
+        // Stored before the Message, so a turn reaching the agent always
         // names files that exist.
         //
-        // A replay has to be caught here rather than left to the send path: the
-        // send resolves it by reading the Message already under that uuid and
-        // writing nothing, but by then these bytes are in S3 under a file id no
-        // Message will ever name, and a reconnecting client replays whole
-        // turns. The extra read only happens on turns that carry files.
+        // A replay must be caught here, not in the send path: by the time
+        // send resolves it (reads the existing Message, writes nothing),
+        // these bytes are already in S3 under a file id no Message names.
         if let Some(harness) = turn.harness {
             self.switch_harness(viewer, &turn.task_id, harness, turn.model.as_deref())
                 .await?;
@@ -674,13 +672,11 @@ impl ThreadCommandSink for AppStateCommands {
             .settle_task(&viewer.user_id, task_id, chrono::Utc::now())
             .await
             .map_err(|e| Self::state_refusal(task_id, e))?;
-        // Settling says nobody is waiting on this thread any more, so the
-        // sandbox it was holding is released rather than left for the idle
-        // reaper. Best-effort: the settlement is already durable, and a viewer
-        // who follows a thread they may not control has no sandbox to stop —
-        // neither case is a reason to report the settle as refused. New
-        // activity clears the settlement (`clear_settled_for_all_followers`)
-        // and the next turn starts the sandbox again.
+        // Settling means nobody is waiting on this thread, so its sandbox
+        // is released rather than left for the idle reaper. Best-effort:
+        // the settlement is already durable, and a viewer who doesn't
+        // control the sandbox has none to stop — neither fails the settle.
+        // New activity clears it (`clear_settled_for_all_followers`).
         if let Err(error) = task_service::stop_task(
             self.0.tasks.as_ref(),
             self.0.sandbox.as_ref(),
@@ -1069,15 +1065,12 @@ fn send_refusal(task_id: &str, error: MessageError) -> CommandRefusal {
     }
 }
 
-/// Make the id a `thread.create` names available, or say why it is not.
+/// Make the id a `thread.create` names available, or say why not.
 ///
-/// T3 mints the thread id client-side, so it can arrive already taken by the
-/// `Error` row a prior failed creation left behind; since the client never gets
-/// a `thread.deleted` to rotate off of and `thread.delete` is refused, only
-/// reclaiming that exact failed-bootstrap incarnation here unblocks the retry.
-/// The delete re-checks its own `WHERE` (alive or non-empty is refused), and
-/// the ownership check keeps a refusal for somebody else's id indistinguishable
-/// from one this viewer may not read.
+/// T3 mints thread ids client-side, so a retry can collide with the
+/// `Error` row a failed creation left; `thread.delete` can't clear it, so
+/// reclaiming that exact row here is the only unblock. Refused the same
+/// way for someone else's id as for one this viewer can't read.
 pub(super) async fn free_thread_id(
     tasks: &TaskCommands,
     viewer: &ScopeContext,

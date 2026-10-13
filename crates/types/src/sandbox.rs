@@ -158,13 +158,11 @@ impl ManagedCommandState {
     }
 }
 
-/// A registered command, narrowed to what a status reader needs to say one is
-/// still running and name it (the full shape is
-/// `moatless_api_schemas::sandbox::ManagedCommand`).
+/// A registered command narrowed to what a status reader needs: running
+/// state and a name (full shape: `moatless_api_schemas::sandbox::ManagedCommand`).
 ///
-/// Every time here is an instant, never an elapsed duration — a reader computes
-/// "12m in" from `started_at_unix_ms` itself, since a duration recomputed
-/// producer-side would change (and re-push) on every poll.
+/// Every time here is an instant, never an elapsed duration: a reader
+/// computes "12m in" from `started_at_unix_ms`; a producer value would re-push.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -531,20 +529,17 @@ pub const SANDBOX_DIND_PORT: u16 = 2375;
 /// The pod port a published preview reaches, where the sandbox's preview proxy
 /// answers on behalf of every published port.
 ///
-/// A constant, not configuration: the Service's `targetPort` and the proxy's
-/// listener are two ends of one wire set by different processes
-/// (`sandbox-k8s`'s `edge::publish_task_port` and the sandbox binary), so a
-/// per-sandbox value could drift undetected.
+/// A constant, not configuration: the Service's `targetPort` and the
+/// proxy's listener are two ends of one wire set by different processes, so
+/// a per-sandbox value could drift undetected.
 pub const SANDBOX_PREVIEW_PROXY_PORT: u16 = 8003;
 
 /// Whether `port` belongs to the sandbox's own control plane rather than to
 /// anything a workspace may expose.
 ///
-/// Lives beside `SandboxPortPublisher` as part of that trait's contract:
-/// routing the preview edge onto the control port, gRPC channel, or Docker
-/// socket is a sandbox escape on every runtime, and binding the preview proxy's
-/// own port would shadow the listener every other preview routes through. Takes
-/// the gRPC port, not a `Config`, to stay in the trait's band.
+/// Routing the preview edge onto the control port, gRPC channel, or Docker
+/// socket is a sandbox escape; binding the proxy's own port would shadow
+/// the listener every preview routes through.
 #[must_use]
 pub fn is_reserved_sandbox_port(port: u16, grpc_port: u16) -> bool {
     port == SANDBOX_HTTP_PORT

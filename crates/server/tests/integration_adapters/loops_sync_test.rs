@@ -551,7 +551,6 @@ async fn resync_preserves_ongoing_task_id(pool: PgPool) {
     let state = test_app_state(pool.clone());
     let auth = auth("user-1");
 
-    // First sync creates the managed loop.
     let loops = vec![parse_loop(GITHUB_LOOP, "java-review").unwrap()];
     let summary = state
         .loop_sync

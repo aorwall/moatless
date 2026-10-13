@@ -57,7 +57,6 @@ impl HookHarness {
                 script_path.display()
             ))
         })?;
-        // Make script executable.
         let mut perms = std::fs::metadata(&script_path)
             .map_err(|e| {
                 SdkError::HookHarnessFailed(format!(

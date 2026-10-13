@@ -67,13 +67,12 @@ impl CloseEvent {
         }
     }
 
-    /// An enriched provider close event: `actor` is recorded on the published
-    /// `Closed` event, and `payload` is merged into it verbatim.
+    /// An enriched provider close event: `actor` is recorded on the
+    /// published `Closed` event, and `payload` is merged into it verbatim.
     ///
-    /// This crate never interprets `payload` — the provider owns its shape, and
-    /// only the `reason` field is special: the frontend renders it as the
-    /// event's message text (`event-messages.ts`); the rest rides wholesale
-    /// through the event sinks.
+    /// This crate never interprets `payload` — the provider owns its shape.
+    /// Only `reason` is special: the frontend renders it as the event's
+    /// message text (`event-messages.ts`); the rest rides through as-is.
     pub fn enriched(actor: impl Into<String>, payload: serde_json::Value) -> Self {
         Self {
             actor: Some(actor.into()),

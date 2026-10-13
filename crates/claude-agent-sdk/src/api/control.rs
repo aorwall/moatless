@@ -219,13 +219,10 @@ impl RawStdoutMessage {
                 RawStdoutMessage::ControlCancelRequest { request_id }
             }
             Some("keep_alive") => RawStdoutMessage::KeepAlive,
-            _ => {
-                // Try to parse as an SDK message
-                match SdkMessage::from_value(value.clone()) {
-                    Some(msg) => RawStdoutMessage::Sdk(Box::new(msg)),
-                    None => RawStdoutMessage::Unknown(value),
-                }
-            }
+            _ => match SdkMessage::from_value(value.clone()) {
+                Some(msg) => RawStdoutMessage::Sdk(Box::new(msg)),
+                None => RawStdoutMessage::Unknown(value),
+            },
         }
     }
 }
@@ -413,7 +410,6 @@ mod tests {
 
     #[test]
     fn parse_unknown_type_as_sdk_message_or_unknown() {
-        // A valid SDK message type is parsed as Sdk variant
         let json = serde_json::json!({
             "type": "assistant",
             "uuid": "msg-1",

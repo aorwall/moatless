@@ -281,13 +281,12 @@ async fn background_bash_survives_under_tmux() {
     );
 }
 
-/// The CLI's `Monitor` tool needs the CLI process to outlive the turn — true
-/// for tmux's persistent TUI, false for one-shot subprocess `claude -p` — so
-/// the sandbox allows it only in tmux mode.
+/// The CLI's `Monitor` tool needs the process to outlive the turn — true for
+/// tmux's persistent TUI, false for one-shot `claude -p` — so the sandbox
+/// allows it only in tmux mode.
 ///
-/// Proves an autonomous second turn (second `Result`, no new caller `send`)
-/// fires once a Monitor-armed background job finishes. Requires
-/// `CLAUDE_TMUX_E2E=1` and `tmux` on PATH.
+/// Proves an autonomous second turn fires once a Monitor-armed background job
+/// finishes. Requires `CLAUDE_TMUX_E2E=1` and `tmux` on PATH.
 #[tokio::test]
 #[ignore = "requires claude CLI + API key + tmux (CLAUDE_TMUX_E2E=1)"]
 async fn monitor_retriggers_turn_under_tmux() {

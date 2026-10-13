@@ -142,8 +142,6 @@ pub async fn fetch_and_apply_credentials_with_mode(
                     persist_user_auth_token(&state.config, &user_token).await;
                 }
 
-                // Set each credential as an env var for the sandbox process itself,
-                // except the git-auth keys in ENV_SET_BLOCKLIST.
                 for (key, value) in &resp.credentials {
                     if ENV_SET_BLOCKLIST.contains(&key.as_str()) {
                         continue;
@@ -210,13 +208,11 @@ pub async fn fetch_and_apply_credentials_with_mode(
                         attempt += 1;
                         continue;
                     }
-                    // Every token this pod holds has been refused, and all of
-                    // them are fixed for its lifetime — retrying, or letting K8s
-                    // restart the container into the same env and the same
-                    // persisted file, presents the same set again. Only
-                    // re-provisioning mints new ones, so fail permanently with an
-                    // actionable message and let the pod watcher stop the crash
-                    // loop.
+                    // Every token this pod holds has been refused, and all are
+                    // fixed for its lifetime — a retry, or a K8s restart into
+                    // the same env and file, presents the same set again. Only
+                    // re-provisioning mints new ones, so fail permanently and
+                    // let the pod watcher stop the crash loop.
                     return Err(CredentialFetchError::Permanent(format!(
                         "backend rejected every auth token this sandbox holds; restart \
                          the task to re-provision (credential fetch failed: {e})"
@@ -383,7 +379,6 @@ async fn write_claude_credentials(claude_config_dir: &str, oauth_token: &str) {
 
     match fs::write(&creds_path, &creds_json).await {
         Ok(()) => {
-            // Set file permissions to 600
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;

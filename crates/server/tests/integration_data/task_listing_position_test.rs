@@ -994,13 +994,11 @@ async fn seed_tasks(pool: &PgPool) {
     }
 }
 
-/// What the counter costs under concurrent mutation, measured rather than
-/// assumed.
+/// What the counter costs under concurrent mutation, measured not assumed.
 ///
 /// Drives many writers and compares three throughputs — no counter, counter
-/// allocated last, counter allocated early (which prices holding it across one
-/// more statement) — asserting only an order-of-magnitude cost and that
-/// allocating last is no slower than early.
+/// allocated last, counter allocated early — asserting only an
+/// order-of-magnitude cost and that allocating last is no slower than early.
 #[sqlx::test]
 async fn the_counter_is_measured_under_concurrent_mutation(pool: PgPool) {
     let total = (WRITERS * PER_WRITER) as f64;

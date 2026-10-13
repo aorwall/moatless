@@ -372,11 +372,10 @@ impl ThreadFeed {
             .conversation_changes(&self.task_id, self.cursor, THREAD_POLL_CHANGES)
             .await?;
 
-        // A silent poll still checks access: closing or deleting a Task records
-        // no conversation change, so a check run only on changes would never end
-        // this subscription. It asks `can_read_conversation` rather than
-        // `readable_by_id`, whose listing query, once a second per open thread,
-        // held a large share of the pool.
+        // A silent poll still checks access: closing/deleting leaves no
+        // conversation change, so a changes-only check would never end this
+        // subscription. Uses `can_read_conversation`, not `readable_by_id`
+        // (too costly run once a second per open thread).
         let Some(last) = changes.last() else {
             if !conversations
                 .can_read_conversation(viewer, &self.task_id)
@@ -388,11 +387,10 @@ impl ThreadFeed {
             return Ok(Some(Vec::new()));
         };
 
-        // The conversation itself, through the same read the snapshot resolved
-        // it with, so a conversation that left this viewer's reach needs no rule
-        // repeated here. By access rather than by Follow, or an open
-        // subscription would end on its first poll for every reader who opened
-        // a conversation they do not follow.
+        // Resolved through the same read the snapshot used, so reach rules
+        // aren't repeated here. By access, not by Follow — else this ends on
+        // the first poll for a reader who opened a conversation they don't
+        // follow.
         let Some(conversation) = conversations.readable_by_id(viewer, &self.task_id).await? else {
             self.log_unreadable(viewer);
             return Ok(None);
@@ -468,12 +466,9 @@ impl ThreadFeed {
             }
         }
 
-        // Last, and only once every fallible read above has returned. A failed
-        // poll is retried by `watch_thread` on the stated ground that the cursor
-        // has not moved, so the next poll covers the same ground — advancing it
-        // before the reads that can fail makes that sentence false and loses the
-        // batch outright, with nothing logged on the client's side and nothing
-        // wrong on its screen except that the conversation has stopped.
+        // Last, after every fallible read above succeeds. `watch_thread`
+        // retries a failed poll on the premise the cursor hasn't moved;
+        // advancing it earlier would silently drop the batch instead.
         self.cursor = read_through + 1;
         Ok(Some(items))
     }

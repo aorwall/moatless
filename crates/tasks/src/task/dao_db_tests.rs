@@ -70,7 +70,6 @@ async fn find_by_id_access_control_private(pool: PgPool) {
     let row = make_task_row("task-private", owner);
     seed_task(&pool, &row).await.unwrap();
 
-    // Other user cannot see private task
     let found = find_task(&pool, "task-private", &scope_ctx(other))
         .await
         .unwrap();
@@ -87,7 +86,6 @@ async fn find_by_id_access_control_public(pool: PgPool) {
     row.visibility = Visibility::Public;
     seed_task(&pool, &row).await.unwrap();
 
-    // Other user can see public task
     let found = find_task(&pool, "task-public", &scope_ctx(other))
         .await
         .unwrap();
@@ -102,7 +100,6 @@ async fn system_context_reads_any_task(pool: PgPool) {
     let row = make_task_row("task-internal", owner);
     seed_task(&pool, &row).await.unwrap();
 
-    // Another user cannot read the private user-scoped task...
     let found = find_task(&pool, "task-internal", &scope_ctx("user-2"))
         .await
         .unwrap();
@@ -206,7 +203,6 @@ async fn list_tasks_tag_filter(pool: PgPool) {
     let task_b = make_task_row("task-untagged", user);
     seed_task(&pool, &task_b).await.unwrap();
 
-    // Create tag and assign
     let tags = crate::tag::test_support::find_or_create_tags(&pool, &["bug".to_string()])
         .await
         .unwrap();
@@ -388,14 +384,12 @@ async fn follow_unfollow_and_list_followed(pool: PgPool) {
 
     let repo = store_over(&pool);
 
-    // Initially the follower follows nothing.
     let followed = repo
         .get_followed(follower, &["task-followed".to_string()])
         .await
         .unwrap();
     assert!(followed.is_empty());
 
-    // Follow, then the followed_by filter surfaces the task.
     repo.follow_task(follower, "task-followed").await.unwrap();
 
     let followed = repo
@@ -425,7 +419,6 @@ async fn follow_unfollow_and_list_followed(pool: PgPool) {
     let (_, total) = repo.list_tasks(&filter).await.unwrap();
     assert_eq!(total, 1);
 
-    // Unfollow removes it from the followed_by filter again.
     repo.unfollow_task(follower, "task-followed").await.unwrap();
     let (rows, total) = repo.list_tasks(&filter).await.unwrap();
     assert_eq!(total, 0);
@@ -639,14 +632,10 @@ async fn settle_drops_the_pin_and_both_slots(pool: PgPool) {
     assert_eq!(settled_override.as_deref(), Some("settled"));
 }
 
-// =========================================================================
-// Pagination invariants (DB-1)
-//
-// The page and the total must come from the same distinct, filtered task
-// relation: tags must not fan a task out into several counted rows, every
-// filter and the access-control predicate must constrain both, and an offset
-// past the end must still report the true total.
-// =========================================================================
+// Pagination invariants (DB-1): the page and the total must share one
+// filtered relation — tags can't fan a task into several counted rows,
+// every filter/access predicate constrains both, and an offset past the
+// end still reports the true total.
 
 /// A `TaskFilter` with no filters set, so each test only names what it varies.
 fn base_filter(user_id: &str) -> TaskFilter {
@@ -794,7 +783,6 @@ async fn list_tasks_acl_predicate_constrains_page_and_total(pool: PgPool) {
     tag_task(&pool, "task-private-0", &["bug", "urgent"]).await;
     tag_task(&pool, "task-public", &["bug", "urgent"]).await;
 
-    // The other user's own task.
     seed_task(&pool, &make_task_row("task-own", other))
         .await
         .unwrap();
@@ -917,7 +905,6 @@ async fn list_tasks_followed_by_and_status_filters_count_tagged_task_once(pool: 
     assert_eq!(rows.len(), 2);
     assert_eq!(total, 2);
 
-    // followed_by + status.
     let filter = TaskFilter {
         followed_by: Some(user.to_string()),
         status: Some(TaskStatus::Open),

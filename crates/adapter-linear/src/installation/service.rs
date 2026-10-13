@@ -30,7 +30,6 @@ async fn persist_install(
     tokens: moatless_identity::auth::models::OAuthTokens,
     identity: super::client::LinearInstallIdentity,
 ) -> Result<String, AuthError> {
-    // Upsert the workspace-level adapter_connections row.
     use moatless_types::adapter::AdapterConnection;
     let conn_repo = connections;
 

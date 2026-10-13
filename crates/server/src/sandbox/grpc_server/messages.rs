@@ -53,11 +53,10 @@ pub(super) async fn get_pending_messages(
         None
     };
 
-    // Gate: a Closed task is terminal — never start a turn on it. The
-    // sandbox dispatcher no-ops on an empty list, so returning empty here
-    // means no `agent.started`, no turn — even if the pod is still finishing
-    // its termination grace period. Fail open on unknown (None / DB-error,
-    // both collapsed by `.ok().flatten()`): only a confirmed-Closed task is
+    // Gate: a Closed task never starts a turn — returning an empty list is a
+    // no-op in the sandbox dispatcher, covering a pod still finishing its
+    // termination grace period. Unknown status (None / DB error, collapsed
+    // by `.ok().flatten()`) fails open: only a confirmed-Closed task is
     // gated, mirroring `send.rs`.
     if matches!(
         task.as_ref().map(|t| t.status),
@@ -252,13 +251,11 @@ pub(super) async fn get_pending_messages(
             agent_mode: delivery.agent_mode,
             effort: delivery.effort,
             skills: delivery.skills,
-            // A fork's first turn resumes nothing by id and asks for a
-            // fresh start, which is what a pod that does not know `fork`
-            // falls back to. The alternative — leaving `resume_session_id`
-            // set — would have such a pod resume the *parent's* session and
-            // write two Tasks into one transcript.
-            // A switch starts no CLI session by id either: its session is
-            // written out from the Trajectory, rendered into this harness.
+            // A fork resumes nothing by id — leaving `resume_session_id` set
+            // would make a pod that doesn't know `fork` resume the parent's
+            // session, writing two Tasks into one transcript. A switch also
+            // starts no CLI session by id: its session is written out from
+            // the Trajectory, rendered into this harness.
             resume_session_id: if fork.is_some() || matches!(switch, HarnessSwitch::Switch) {
                 None
             } else {

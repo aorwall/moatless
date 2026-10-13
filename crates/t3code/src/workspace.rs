@@ -1,19 +1,14 @@
-//! Which conversation's Sandbox a `cwd` names, and whether this viewer may be
-//! told it exists.
+//! Which conversation's Sandbox a `cwd` names, and whether this viewer may
+//! be told it exists.
 //!
-//! T3 addresses a workspace by the only handle it has: the `cwd` it was given.
-//! There is no thread id, project id or session on these requests — `{ cwd }`
-//! and `{ cwd, relativePath }` are the whole input — so the path *is* the
-//! addressing, and every surface that reads a Sandbox comes through here.
+//! `cwd` is the only handle these requests carry, so the path is the address.
 //!
-//! **A `cwd` is a claim, not a capability**: every request re-reads the Task it
-//! names through the same follow-and-access filter the shell listing uses, so a
-//! Task the viewer may not read is indistinguishable from one that does not
-//! exist.
+//! **A `cwd` is a claim, not a capability**: it's re-read through the same
+//! follow-and-access filter as the shell listing, so an unreadable Task is
+//! indistinguishable from a nonexistent one.
 //!
-//! **A removed Sandbox has had its working copy reclaimed**: a `cwd` naming it,
-//! held from before the removal, answers as a conversation with no worktree
-//! rather than as a failure.
+//! **A removed Sandbox's working copy is reclaimed**: a stale `cwd` answers
+//! as a conversation with no worktree, not a failure.
 
 use super::dao::ConversationDao;
 use super::nominal_path;
@@ -151,10 +146,9 @@ pub fn sandbox_access(error: SandboxError) -> WorkspaceAccessError {
 /// The conversation a `cwd` names, once this viewer is allowed to be told it
 /// exists.
 ///
-/// The access filter is re-applied here since a `cwd` is client-supplied and
-/// being issued to *somebody* says nothing about who holds it now. Following is
-/// **not** re-checked — a Follow gates nothing, and what the shell paths
-/// actually gate on is control (see [`controlled_conversation`]).
+/// Re-applies the access filter: being issued a `cwd` says nothing about who
+/// holds it now. Following isn't re-checked — the shell paths gate on
+/// control instead (see [`controlled_conversation`]).
 pub(crate) async fn addressed_conversation(
     conversations: &dyn ConversationDao,
     viewer: &ScopeContext,

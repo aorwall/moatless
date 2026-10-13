@@ -49,7 +49,6 @@ pub fn build_container_config(
 ) -> ContainerConfig {
     let container_name = generate_container_name(task_id);
 
-    // ── Image ──────────────────────────────────────────────────────
     let image = resolve_sandbox_image(config, plan);
 
     // ── Environment variables ─────────────────────────────────────
@@ -97,7 +96,6 @@ pub fn build_container_config(
         env.push(format!("USER_AUTH_TOKEN={token}"));
     }
 
-    // REPO_CONFIG env var (pass-through for sandbox)
     if let Some(repo_config_json) = build_repo_config_json(plan) {
         env.push(format!("REPO_CONFIG={repo_config_json}"));
     }
@@ -111,19 +109,16 @@ pub fn build_container_config(
     // Frontend URL for constructing task URLs in the agent system prompt
     env.push(format!("FRONTEND_URL={}", config.auth.frontend_url));
 
-    // Default model for agent sessions
     if let Some(ref model) = config.sandbox.default_model {
         env.push(format!("DEFAULT_CLAUDE_CODE_MODEL={model}"));
     }
 
-    // Custom env vars from repo config
     if let Some(ref env_vars) = plan.env_vars {
         for (key, value) in env_vars {
             env.push(format!("{key}={value}"));
         }
     }
 
-    // ── Labels ─────────────────────────────────────────────────────
     let mut labels = HashMap::new();
     labels.insert(CREATED_BY_LABEL.to_string(), CREATED_BY_VALUE.to_string());
     labels.insert(SERVICE_LABEL.to_string(), SANDBOX_SERVICE.to_string());
@@ -144,7 +139,6 @@ pub fn build_container_config(
     // ── Port bindings (dynamic host port mapping) ─────────────────
     let mut port_bindings: HashMap<String, Option<Vec<PortBinding>>> = HashMap::new();
 
-    // Map sandbox ports
     for port_key in &exposed_ports {
         port_bindings.insert(
             port_key.clone(),
@@ -219,7 +213,6 @@ pub fn build_container_config(
         ..Default::default()
     };
 
-    // ── Container config ──────────────────────────────────────────
     ContainerConfig {
         image: Some(image),
         hostname: Some(container_name),

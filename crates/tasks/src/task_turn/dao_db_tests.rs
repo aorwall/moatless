@@ -433,7 +433,6 @@ async fn list_unclosed_active_turns_filters_by_age_and_status(pool: PgPool) {
     let old = Utc::now() - Duration::hours(1);
     let recent = Utc::now();
 
-    // Directly seed task_turns with controlled started_at / status.
     let seed = |task_id: &'static str,
                 turn_number: i32,
                 status: &'static str,

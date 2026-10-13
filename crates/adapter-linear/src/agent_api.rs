@@ -563,14 +563,9 @@ impl LinearAgentApi {
         parse_viewer(&value)
     }
 
-    // ------------------------------------------------------------------
-    // Issue CRUD + lookup operations
-    //
-    // Thin wrappers around the Linear GraphQL API. Inputs are passed
-    // through as `Value` so callers (HTTP handlers) own DTO shape and
-    // name-to-UUID resolution. Each operation returns the relevant
-    // subobject — never the full GraphQL envelope.
-    // ------------------------------------------------------------------
+    // Issue CRUD + lookup: thin wrappers passing `Value` straight through so
+    // callers own DTO shape and name-to-UUID resolution. Each returns the
+    // relevant subobject, never the full GraphQL envelope.
 
     /// Fetch one issue by identifier (`SP-123`) or UUID. Returns the issue
     /// subobject.

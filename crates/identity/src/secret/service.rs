@@ -445,14 +445,12 @@ impl SecretService {
         })
     }
 
-    /// Resolve a single user-scoped secret for an already-authorized internal
-    /// workflow.
+    /// Resolve a single user-scoped secret for an already-authorized
+    /// internal workflow.
     ///
-    /// Unlike [`resolve_plaintext_scope`](Self::resolve_plaintext_scope) this
-    /// writes no audit event, so it's cheap for settings and sandbox-preflight
-    /// paths; `kind` filters the record (e.g. `Some(SecretKind::ProviderToken)`
-    /// excludes a same-key `env` secret), and this returns `Ok(None)` when
-    /// absent, disabled, or of another kind.
+    /// Unlike [`resolve_plaintext_scope`](Self::resolve_plaintext_scope), this
+    /// writes no audit event, so it's cheap for settings/preflight paths;
+    /// `kind` filters the record, else `Ok(None)` when absent/disabled.
     pub async fn resolve_user_secret(
         &self,
         actor_id: &str,
@@ -564,7 +562,6 @@ impl SecretService {
         let records = self.secrets.list(&sys_ctx, Some(scope.as_str())).await?;
         let mut resolved = Vec::new();
         for record in records {
-            // Filter to the requested owner for user-scoped secrets.
             if scope == Scope::User && record.owner_user_id.as_deref() != owner_user_id {
                 continue;
             }
@@ -603,10 +600,8 @@ impl SecretService {
     /// Resolve accessible secrets into an env-var map with `user > global`
     /// precedence.
     ///
-    /// `ssh_key`-kind secrets are excluded (delivered separately into
-    /// `~/.ssh`); use
-    /// [`resolve_accessible_ssh_keys`](Self::resolve_accessible_ssh_keys) for
-    /// those.
+    /// Excludes `ssh_key`-kind secrets (delivered separately into `~/.ssh`);
+    /// use [`resolve_accessible_ssh_keys`](Self::resolve_accessible_ssh_keys).
     pub async fn resolve_accessible_plaintext(
         &self,
         actor_id: &str,

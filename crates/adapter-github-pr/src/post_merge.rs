@@ -136,11 +136,10 @@ pub(super) fn post_merge_ci_text(
 impl GithubPrInboundRouter {
     /// Post-merge CI notification: on a base-branch `workflow_run` completing,
     /// resolve the merged PR from the commit sha and notify every task still
-    /// connected to that PR.
+    /// connected to it.
     ///
-    /// Skips (returning `Ok(())`) when the run isn't on the default branch, no
-    /// merged PR produced the commit, or no active task is bound to it; any
-    /// other failure is retried rather than dropped.
+    /// Skips (`Ok(())`) when the run misses the default branch, lacks a merged
+    /// PR, or binds no task; any other failure retries.
     pub(super) async fn run_post_merge(
         &self,
         connection: &AdapterConnection,
@@ -177,7 +176,6 @@ impl GithubPrInboundRouter {
             return Ok(());
         }
 
-        // Map the merge commit back to the PR it merged.
         let pulls = api
             .get_pulls_for_commit(&execution.owner, &execution.repo, &execution.run.head_sha)
             .await?;
@@ -191,7 +189,6 @@ impl GithubPrInboundRouter {
         let pr_number = pr.number;
         let subject_key = GithubPrSubject::new(&execution.owner, &execution.repo, pr_number).key();
 
-        // Skip unless some active task is still connected to the PR.
         if !self
             .task_bindings
             .for_subject("github", "github_pr", &subject_key)

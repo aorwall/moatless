@@ -335,15 +335,10 @@ mod tests {
 
     #[tokio::test]
     async fn build_harness_constructs_each_supported_selection() {
-        // Every supported (agent_profile, transport) composes a harness rather than
-        // panicking or erroring; the routing decision itself — which family each
-        // raw type collapses to — is asserted by the `resolve_agent_harness` tests
-        // below (the single source of truth `build_harness` matches on). The
-        // behavioural proof that the composed adapter is the intended family is an
-        // E2E concern (it requires actually running each CLI): fixed selection
-        // surviving a restart is covered for both families by
-        // `sandbox_replacement_ordering` (gated `SANDBOX_REPLACEMENT_E2E`) — not
-        // by inspecting a private tag here.
+        // Asserts construction only; `resolve_agent_harness` tests cover the
+        // family routing. Proving the composed adapter is the right family
+        // needs a running CLI, so that's `sandbox_replacement_ordering`
+        // (gated `SANDBOX_REPLACEMENT_E2E`), not a check on a private tag.
         for (agent_profile, use_tmux) in [
             ("codex", false),
             ("claude-code", false),

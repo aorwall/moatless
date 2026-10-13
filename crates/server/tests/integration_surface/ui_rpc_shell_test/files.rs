@@ -16,20 +16,8 @@ use moatless_types::access_control::ScopeContext;
 use moatless_workspaces::compose;
 use sqlx::PgPool;
 
-// =========================================================================
-// Addressing a conversation's files
-// =========================================================================
-//
-// The client asks for files by the `cwd` it holds, and the only `cwd` it has
-// for a conversation is the `worktreePath` this module put in the listing. So
-// the two have to be each other's inverse, and the round trip is only real
-// against a database: the reverse direction re-reads the conversation through
-// the same follow and access filters the listing applies, which are SQL.
-//
-// What a Sandbox answers is a gRPC round trip against a pod, which no test here
-// has. These stop where that begins — at the point the request has been
-// addressed and authorized and is about to leave for the Sandbox — because
-// everything before it is this module's and everything after it is not.
+// See the module doc: this stops where the gRPC round trip to a Sandbox
+// begins.
 
 /// The `worktreePath` in a viewer's listing is the `cwd` that reaches that same
 /// conversation's Sandbox, and only for a viewer whose listing contains it.

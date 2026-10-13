@@ -74,11 +74,10 @@ pub async fn linear_webhook(
                     return Err(AdapterError::from(e));
                 }
                 // Also not acknowledged, but for the opposite reason: admission
-                // was never attempted, because the delivery carries no field
-                // that could tell its work apart from the next delivery's. A
-                // `400` says so — the delivery is malformed rather than the
-                // backend unwell, and no amount of retrying the same body will
-                // add the missing field.
+                // never ran, since the delivery carries no field to tell its
+                // work apart from the next delivery's. `400` says the delivery
+                // is malformed, not the backend unwell — retrying the same
+                // body won't add the missing field.
                 IngressError::Unidentifiable(missing) => {
                     record_webhook("linear", "error", "unidentifiable", &event_type, "", "");
                     warn!(

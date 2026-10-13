@@ -228,8 +228,6 @@ fn translate_assistant(mut value: Value, acc: &mut TurnAccumulator) -> Translate
             if msg.is_api_error_message == Some(true) || msg.error.is_some() {
                 acc.api_error = true;
             }
-            // Pull out the most recent text block for the synthesized Result
-            // and accumulate usage.
             let last_text = msg.message.content.iter().rev().find_map(|b| match b {
                 crate::api::content::ContentBlock::Text { text } => Some(text.clone()),
                 _ => None,
@@ -811,7 +809,6 @@ mod tests {
             },
             Translated::Skip => panic!("Expected Result::Success, got Skip"),
         }
-        // Accumulator should have reset
         assert_eq!(a.turn_number, 1);
         assert_eq!(a.last_text, "");
         assert_eq!(a.accumulated_usage.input_tokens, 0);

@@ -290,7 +290,6 @@ async fn dispatch_with_no_messages_does_nothing() {
 
     moatless_sandbox::agent::dispatcher::dispatch_pending_messages(state.clone()).await;
 
-    // No messages → no ack, no events
     assert_eq!(backend.ack_count(), 0);
 }
 
@@ -573,13 +572,11 @@ async fn panel_answer_is_not_named_on_its_acknowledgement() {
 
 #[tokio::test]
 async fn prompt_without_run_identity_is_left_pending_not_answered_unackably() {
-    // A pending prompt with no resolvable run identity (session + run id) cannot
-    // be acknowledged. Answering it anyway is the BLOCKER this ticket closes:
-    // the answered row would stay pending and be re-fetched later as ordinary
-    // Agent input. So the dispatcher leaves the prompt and its message untouched
-    // for a later pass rather than answering unacknowledgeably. (In production a
-    // pending prompt always has an active run, so this is a defensive edge; the
-    // safe disposition is to not answer.)
+    // A pending prompt with no resolvable run identity (session + run id)
+    // can't be acknowledged: answering it anyway leaves the row looking
+    // pending, so it gets re-fetched later as ordinary Agent input. The
+    // dispatcher leaves the prompt and message untouched for a later pass
+    // instead. Defensive: production always has an active run here.
     let backend = Arc::new(MockBackendClient::new(vec![vec![make_text_message(
         "yes, proceed",
         Some("prompt-reply-1"),
@@ -762,7 +759,6 @@ async fn agent_handle_concurrent_send_from_multiple_tasks() {
     let backend = Arc::new(MockBackendClient::new(vec![]));
     let state = test_state(Arc::clone(&backend) as _);
 
-    // Spawn 5 tasks that all send concurrently
     let mut join_handles = Vec::new();
     for i in 0..5 {
         let handle = test_task_context(&state).await.agent_handle.clone();
@@ -781,7 +777,6 @@ async fn agent_handle_concurrent_send_from_multiple_tasks() {
         }));
     }
 
-    // Wait for all spawned tasks to complete
     for jh in join_handles {
         jh.await.unwrap();
     }

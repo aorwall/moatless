@@ -114,7 +114,6 @@ pub async fn list_task_feedback(
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<ListFeedbackResponse>, FeedbackError> {
-    // Access check via the task lookup.
     let _task = tasks
         .find_by_id(&task_id, &auth.scope_context())
         .await?

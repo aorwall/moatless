@@ -97,15 +97,11 @@ pub async fn materialize_ssh_keys(config: &Config, ssh_keys: &HashMap<String, St
         }
     }
 
-    // OpenSSH resolves `~` for the per-user config via getpwuid(), NOT $HOME.
-    // The sandbox runs as root (passwd home /root) while our material lives
-    // under $HOME/.ssh (e.g. /home/moatless/.ssh), so a bare `git clone` over
-    // SSH would look for /root/.ssh/config, not find it, and silently ignore
-    // our identities + `accept-new` host policy — failing with "Host key
-    // verification failed". Point git at the config file explicitly via
-    // core.sshCommand so every git SSH op (the init clone AND the agent's later
-    // push/pull) uses it regardless of $HOME/uid. The config only references
-    // absolute paths, so there is no further `~` to resolve.
+    // OpenSSH resolves `~` for the per-user config via getpwuid(), not $HOME.
+    // The sandbox runs as root (home /root) while our material lives under
+    // $HOME/.ssh, so a bare `git clone` over SSH would miss our config,
+    // silently ignore our identities, and fail with "Host key verification
+    // failed". Point git at it explicitly via `core.sshCommand` instead.
     wire_git_ssh_command(&config_path).await;
 }
 

@@ -31,7 +31,6 @@ mod tests {
         let secret = "test-secret-123";
         let body = b"Hello, World!";
 
-        // Compute expected signature
         let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
         mac.update(body);
         let expected = format!("sha256={}", hex::encode(mac.finalize().into_bytes()));

@@ -88,13 +88,9 @@ impl ClaudePersistentProcess {
     /// continues the same conversation.
     async fn spawn_resume(&self, input: &Input, replacing: Option<&str>) -> Option<ResumeSession> {
         // A fork's first Turn resumes a truncated copy of the parent's
-        // transcript under a fresh id, not the parent's Session and not the live
-        // one — so it rides ahead of both `start_fresh` (which a fork also sets,
-        // as the version-skew guard) and `replacing`. When the cut succeeds the
-        // copy is the resume target; when it cannot (no transcript on disk, or
-        // the anchor is missing) the fork falls through to a fresh Session. This
-        // is the same cut `ClaudeProcess::resolve_resume` makes for the
-        // subprocess transport.
+        // transcript, taking priority over `start_fresh` and `replacing`.
+        // Same cut as `ClaudeProcess::resolve_resume`; falls through to a
+        // fresh Session when the cut fails.
         if let Some(fork) = &input.fork {
             if let Some(anchor) = &fork.source_message_uuid {
                 if let Some(new_session_id) = super::fork::write_forked_transcript(
@@ -308,7 +304,6 @@ impl AgentProcess for ClaudePersistentProcess {
     async fn submit(&mut self, input: Input) -> Result<(), HarnessError> {
         let input_id = input.id.clone();
 
-        // No live session yet: spawn one and paste the opening prompt.
         if self.handle.is_none() {
             super::session::ensure_explicit_resume_is_available(
                 &self.cfg.config,
@@ -340,7 +335,6 @@ impl AgentProcess for ClaudePersistentProcess {
             return Ok(());
         }
 
-        // Compatible with the live session.
         self.paste(&input).await?;
         if self.turn_in_flight {
             // Injected into the active Turn: acceptance only, no new start.

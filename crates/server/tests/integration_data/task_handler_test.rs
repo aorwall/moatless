@@ -62,12 +62,11 @@ async fn get_task_404(pool: PgPool) {
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
-// Regression: `task_router` must build without panicking. utoipa-axum's
-// `routes!()` groups every handler in a single call onto one path, so mixing
-// handlers with different paths (e.g. GET /{task_id} and GET
-// /{task_id}/statistics) registers two GET method-routes on the same path and
-// panics at startup with "Overlapping method route". Each distinct path must
-// get its own `.routes(routes!(...))` call. See crates/server/src/task/routes.rs.
+// Regression: utoipa-axum's `routes!()` groups every handler in one call
+// onto one path, so mixing handlers with different paths (e.g. GET
+// /{task_id} and GET /{task_id}/statistics) panics at startup with
+// "Overlapping method route". Each distinct path needs its own
+// `.routes(routes!(...))` call.
 #[sqlx::test]
 async fn router_builds_and_statistics_route_is_registered(pool: PgPool) {
     seed_repo(&pool).await;
@@ -237,7 +236,6 @@ async fn delete_task_handler(pool: PgPool) {
 
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
 
-    // Verify deleted
     let found = task_fixtures::find_task(&pool, "task-del-h", &user_scope(USER_1))
         .await
         .unwrap();

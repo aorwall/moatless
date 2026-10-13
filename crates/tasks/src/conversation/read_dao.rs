@@ -278,10 +278,11 @@ pub(crate) async fn response_usage(
     pool: &DbPool,
     task_id: &str,
 ) -> Result<Vec<ResponseUsage>, sqlx::Error> {
-    // A Codex usage line names no model: the session's latest one up to it does.
-    // `COALESCE` runs a subquery only when every argument before it is NULL, and
-    // the turn is split on NULL because `IS NOT DISTINCT FROM` is no index
-    // condition: either way `trajectory_events_session_turn_seq_idx` is scanned.
+    // A Codex usage line names no model — the session's latest one up to it
+    // does. `COALESCE` runs the subquery only when prior args are NULL; the
+    // turn split uses NULL because `IS NOT DISTINCT FROM` isn't an index
+    // condition — either way, `trajectory_events_session_turn_seq_idx` gets
+    // scanned.
     let rows: Vec<UsageRow> = sqlx::query_as(
         r#"SELECT COALESCE(
                       u.message_uuid,

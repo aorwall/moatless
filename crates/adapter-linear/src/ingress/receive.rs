@@ -219,12 +219,10 @@ async fn dispatch(
         return Err(e.into());
     }
 
-    // The delivery identity, on the specific resource/event that happened and
-    // NOT on Linear's `webhookId` (the stable webhook-config id, identical on
-    // every delivery — see `dedup_key`). It is the only thing that collapses a
-    // Linear retry: durable admission recognises it on any replica and after
-    // any restart. Compute unconditionally — a resource id can exist even when
-    // `webhook_id` is absent.
+    // Identity of the resource/event, not Linear's `webhookId` (same on every
+    // delivery — see `dedup_key`); durable admission uses it to collapse a
+    // retry across replicas and restarts. Computed unconditionally: a resource
+    // id can exist even when `webhook_id` is absent.
     let event_id = dedup_key(envelope);
 
     let (requests, effects, requires) =

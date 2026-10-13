@@ -1,27 +1,13 @@
-//! The git review surfaces: the patch a reviewer reads, the branch state behind
-//! it, and the refs they can diff against.
+//! The git review surfaces: the patch a reviewer reads, the branch state
+//! behind it, and the refs they can diff against.
 //!
-//! # What a path in here means
+//! Every path is workspace-relative, like [`super::tree`]. A patch spans
+//! all of a workspace's repos, each with its own `--src-prefix`/
+//! `--dst-prefix`, which don't reach `rename from`/`to`; renames go as
+//! delete-plus-add instead.
 //!
-//! Every path a patch or a status entry carries is **workspace-relative**, the
-//! same space [`super::tree`] and the read APIs use, so a file named by a patch
-//! is a file the caller can turn round and open. A workspace holds 0..n
-//! repositories, each cloned into its own subdirectory, so a patch spans all of
-//! them and git is asked to write each repository's own prefix into the patch
-//! headers (`--src-prefix`/`--dst-prefix`).
-//!
-//! Renames are asked for as a delete plus an add: git applies those prefixes to
-//! the `diff --git` header but not to `rename from`/`rename to`, and a rename
-//! header naming a repository-relative path is a path the caller cannot open.
-//!
-//! # What answers for the primary repository alone
-//!
-//! Branch state and refs. "Which branch is this, how far ahead of its upstream,
-//! what can I diff against" are questions about one repository's HEAD and one
-//! repository's ref namespace; merging several repositories' answers would
-//! invent a branch that does not exist. The diff spans the workspace, and so
-//! does the uncommitted-change tally beside it, because a reviewer reads
-//! changes, not repositories.
+//! Branch state and refs answer for the primary repo alone (merging would
+//! invent a nonexistent branch); the diff and change tally span the workspace.
 
 use std::collections::HashMap;
 
@@ -342,13 +328,12 @@ pub async fn status(workspace_dir: &str, repo_dir: &str) -> RepoStatus {
     status
 }
 
-/// Every repository's uncommitted changes, and whether one outside `primary_dir`
-/// has any.
+/// Every repository's uncommitted changes, and whether one outside
+/// `primary_dir` has any.
 ///
-/// The porcelain read in [`status`] answers for `primary_dir` alone, so each
-/// other repository in the workspace is asked on its own: a task that edits a
-/// secondary checkout and nothing else still has changes to review, and a
-/// reviewer offered only the branch scope there sees nothing at all.
+/// [`status`]'s porcelain read answers for `primary_dir` alone, so each
+/// other repository is asked on its own: a task editing only a secondary
+/// checkout still has changes a branch-scoped review would miss.
 async fn workspace_working_tree(
     workspace_dir: &str,
     primary_dir: &str,

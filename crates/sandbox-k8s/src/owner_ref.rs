@@ -1,14 +1,12 @@
 //! Owner-reference construction for cascading K8s garbage collection.
 //!
-//! A sandbox's Service and Traefik `IngressRoutes` are made children of the
-//! task's Deployment via `metadata.ownerReferences`; when the Deployment is
-//! deleted, K8s GC cascades to every dependent, so a transient failure
-//! mid-`cleanup()` cannot orphan a Service or `IngressRoute` — GC works
-//! for the Traefik CRD as it does built-ins.
+//! A sandbox's Service and Traefik `IngressRoutes` are children of the task's
+//! Deployment via `metadata.ownerReferences`: deleting the Deployment cascades
+//! GC to every dependent (including the Traefik CRD), so a failure
+//! mid-`cleanup()` cannot orphan one.
 //!
 //! The PVC is deliberately NOT owner-referenced: it must survive a
-//! stop/redeploy (which deletes the Deployment but keeps workspace data), so
-//! its lifecycle is managed explicitly.
+//! stop/redeploy, which deletes the Deployment but keeps workspace data.
 
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
 

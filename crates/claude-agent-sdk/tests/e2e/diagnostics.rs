@@ -50,7 +50,6 @@ async fn run_diagnose_empty_result_after_trailing_tool_use(backend: Backend) {
         .expect("query failed");
     let messages = collect_messages(&mut handle.messages).await;
 
-    // ── Diagnostic dump: print every message we received ──
     eprintln!("\n=== EMPTY-RESULT DIAGNOSTIC ({backend:?}) ===");
     eprintln!("Total messages: {}", messages.len());
     for (i, msg) in messages.iter().enumerate() {
@@ -213,7 +212,6 @@ async fn test_diagnose_cost_fields() {
 
         let messages = collect_messages(&mut handle.messages).await;
 
-        // Check if we received a Result at all
         let has_result = messages.iter().any(|m| matches!(m, SdkMessage::Result(_)));
         eprintln!("\n=== COST DIAGNOSTIC ===");
         eprintln!("Total messages received: {}", messages.len());
@@ -251,7 +249,6 @@ async fn test_diagnose_cost_fields() {
                     );
                 }
 
-                // Serialize back to JSON to see what the payload looks like downstream
                 let payload = serde_json::to_value(s).unwrap();
                 eprintln!(
                     "  payload.total_cost_usd: {:?}",

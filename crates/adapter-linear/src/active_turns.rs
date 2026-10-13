@@ -1,15 +1,13 @@
-//! Per-task gate that suppresses stray Linear activity emission after a turn
-//! has terminated. Mirrors the shape of
-//! `bindings::recently_sent::RecentlySent`.
+//! Per-task gate suppressing stray Linear activity emission after a turn ends.
+//! Mirrors `bindings::recently_sent::RecentlySent`.
 //!
-//! A turn opens when an inbound Linear webhook routes to a task (or an
-//! `Agent(Started)` event arrives for a Linear-bound task) and closes when the
-//! terminal `agent.completed`/`agent.stopped`/`agent.error` handler posts its
-//! final activity; while closed, all `notify_linear_*` dispatches are dropped
-//! so post-turn sandbox lifecycle events never leak into Linear's UI.
+//! Opens on an inbound webhook route or an `Agent(Started)` event; closes when
+//! the terminal `agent.completed`/`stopped`/`error` handler posts its final
+//! activity. While closed, `notify_linear_*` dispatches are dropped so
+//! post-turn sandbox events don't leak into Linear's UI.
 //!
-//! TTL is `60min`, a safety valve (below realistic turn durations) for entries
-//! stuck open after a pod crash or missed completion event.
+//! TTL `60min`: safety valve for entries stuck open after a crash or missed
+//! completion event.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
@@ -176,7 +174,6 @@ mod tests {
         }
         // Stale: TTL sweep drops it on is_open().
         assert!(!gate.is_open("task-1"));
-        // Re-open refreshes the timestamp.
         gate.open("task-1");
         assert!(gate.is_open("task-1"));
     }
@@ -193,7 +190,6 @@ mod tests {
             guard.get_mut("task-1").unwrap().opened_at = stale;
         }
         assert!(!gate.is_open("task-1"));
-        // The sweep also removes the entry from the map.
         let guard = gate.inner.lock().unwrap();
         assert!(!guard.contains_key("task-1"));
     }

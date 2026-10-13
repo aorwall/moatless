@@ -219,11 +219,9 @@ pub(super) async fn run_diagnose(
     limit: i64,
     json: bool,
 ) -> Result<(), ClientError> {
-    // Fetch status (includes container diagnostics from Phase 1)
     let status_path = format!("/api/sandbox/v1/tasks/{task_id}/status");
     let status = client.raw_get(&status_path).await?;
 
-    // Fetch recent error events
     let events_path = format!("/api/v1/tasks/{task_id}/events/history?limit={limit}&types=sandbox");
     let events_resp = client.raw_get(&events_path).await;
 
@@ -240,10 +238,8 @@ pub(super) async fn run_diagnose(
         return Ok(());
     }
 
-    // Format human-readable report
     println!("=== Sandbox Diagnostics: {task_id} ===\n");
 
-    // Status section
     println!("Status:");
     let sandbox_status = status
         .get("sandboxStatus")
@@ -264,7 +260,6 @@ pub(super) async fn run_diagnose(
         println!("  Error:        {err}");
     }
 
-    // Container diagnostics section
     let diagnostics = status
         .get("containerDiagnostics")
         .and_then(serde_json::Value::as_array);
@@ -305,7 +300,6 @@ pub(super) async fn run_diagnose(
         }
     }
 
-    // Recent events section
     if let Ok(events) = events_resp {
         let items = events
             .get("items")
@@ -313,7 +307,6 @@ pub(super) async fn run_diagnose(
             .cloned()
             .unwrap_or_default();
 
-        // Filter to error events only
         let errors: Vec<_> = items
             .iter()
             .filter(|e| {

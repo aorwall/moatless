@@ -68,14 +68,12 @@ impl SkillService {
         }
     }
 
-    /// Return the merged, deduplicated skill list a caller gets in a
-    /// repository.
+    /// The merged, deduplicated skill list a caller gets in a repository.
     ///
-    /// Repository skills plus plugin activations, workspace shadowing plugin on
-    /// a name clash (first plugin wins among plugins); the plugin half is
-    /// per-caller like the sandbox, and `workspace_id` narrows it the same way
-    /// — `caller`/`ctx` are both needed since activations key by user id while
-    /// reads are scoped.
+    /// Repository skills plus plugin activations, workspace shadowing plugin
+    /// on a name clash; the plugin half is per-caller, and `workspace_id`
+    /// narrows it the same way. `caller`/`ctx` are both needed: activations
+    /// key by user id while reads are scoped.
     pub async fn list_for_repository(
         &self,
         repository_id: &str,

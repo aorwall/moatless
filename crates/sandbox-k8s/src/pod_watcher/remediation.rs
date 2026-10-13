@@ -56,11 +56,10 @@ pub(super) fn clean_exit_action_for_intent(
 
 /// Decide what a clean sandbox exit means for the Deployment.
 ///
-/// Intent is the authority: lifecycle alone can distinguish "Deployment deleted
-/// by a remove" from "Deployment scaled to 0 by a stop" — the K8s API reports
-/// both as zero desired replicas (`get_deployment_replicas` maps a 404 to `(0,
-/// 0)`). Without a lifecycle handle (DB-less setups), falls back to the replica
-/// count, which at least separates a stop from a still-wanted replica.
+/// Intent is the authority: it distinguishes "deleted by a remove" from
+/// "scaled to 0 by a stop" — the K8s API reports both as zero desired
+/// replicas. Without a lifecycle handle, falls back to the replica count,
+/// which at least separates a stop from a still-wanted replica.
 pub(super) async fn clean_exit_action(
     deps: &WatcherDeps,
     k8s: &K8sClient,

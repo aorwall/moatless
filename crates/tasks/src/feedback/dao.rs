@@ -133,12 +133,11 @@ impl FeedbackDao for PgFeedbackDao {
     }
 
     async fn latest_activity(&self, task_id: &str) -> Result<Option<LatestActivity>, sqlx::Error> {
-        // A tool call's `conversation_activities` row is written as soon as its
-        // `tool_use` block streams in, before the call runs — so at the
-        // moment an agent invokes `moat feedback` from a Bash call, that very
-        // call is already the latest row here. That is the intended reading:
-        // the feedback lands on the turn during which the agent decided to
-        // write it, not on whatever call preceded it.
+        // A tool call's `conversation_activities` row writes when its
+        // `tool_use` streams in, before the call runs — so when an agent
+        // invokes `moat feedback` via Bash, that call is already the latest
+        // row. Intended: feedback lands on the turn where it was decided,
+        // not the preceding call.
         if let Some(row) = sqlx::query_as::<_, LatestActivity>(
             r#"SELECT message_uuid::text AS message_uuid, tool_use_id
                FROM conversation_activities
@@ -247,13 +246,12 @@ impl FeedbackDao for PgFeedbackDao {
             }
         }
 
-        // Access control reads the joined task: `feedback` has no scope columns
-        // of its own, so a row is readable exactly when its task is.
+        // Access control reads the joined task: `feedback` has no scope
+        // columns of its own, so a row is readable exactly when its task is.
         //
-        // `filtered` is the single source of truth for both the page and the
-        // total, so the two cannot drift apart under a filter change, and
-        // `total LEFT JOIN page ON TRUE` keeps the total available when the
-        // page is empty.
+        // `filtered` is the single source for both page and total, so they
+        // can't drift under a filter change; `total LEFT JOIN page ON TRUE`
+        // keeps the total available when the page is empty.
         let access = moatless_core::db::access_control::access_filter(ScopedEntity::Task, "t.", 1);
         let sql = format!(
             r#"WITH filtered AS (

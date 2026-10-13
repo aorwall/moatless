@@ -51,7 +51,6 @@ impl StatusResolve for StatusResolver {
         let is_running = phase == PodPhase::Running;
 
         if is_running {
-            // Query actual agent status from the sandbox pod via gRPC
             let AgentStatusSnapshot {
                 status: agent_status,
                 scheduled_jobs,
@@ -66,7 +65,6 @@ impl StatusResolve for StatusResolver {
                 agent_status,
             );
 
-            // Fetch all container statuses for diagnostics
             let container_diagnostics = self.fetch_container_diagnostics(sandbox_id).await;
 
             return SandboxStatusFullResponse {
@@ -85,7 +83,6 @@ impl StatusResolve for StatusResolver {
             };
         }
 
-        // Fetch diagnostics for non-running pods with issues
         let fetch_diagnostics = matches!(
             phase,
             PodPhase::Pending | PodPhase::Failed | PodPhase::Unknown
@@ -96,7 +93,6 @@ impl StatusResolve for StatusResolver {
             None
         };
 
-        // Fetch runtime events for error/initializing states
         let runtime_events = if fetch_diagnostics {
             let events = pod_reader::fetch_pod_runtime_events(&self.k8s, sandbox_id).await;
             if events.is_empty() {
@@ -269,7 +265,6 @@ impl StatusResolver {
         task_id: &str,
         desired_state: SandboxDesiredState,
     ) -> (PodPhase, Option<String>, Option<String>) {
-        // Check Deployment replicas first
         let current_image =
             if let Ok(Some(dep)) = deployment::find_deployment(&self.k8s, task_id).await {
                 let image = deployment::deployment_sandbox_image(&dep);
@@ -282,18 +277,14 @@ impl StatusResolver {
                 }
                 image
             } else {
-                // No Deployment. That is "never created" for a Task that never
-                // ran, but it is also what a reclaimed sandbox looks like — the
-                // cold transition deletes the Deployment and the volume and
-                // deliberately keeps the Service, so a surviving Service is the
-                // mark of a sandbox whose compute was reclaimed. Only asked when
-                // intent is Stopped: a Task mid-remove has its Deployment gone
-                // and its Service still draining, and that is `NotCreated` (which
-                // the Closed projection renders as Removed), not Stopped.
+                // No Deployment means either never-created, or reclaimed
+                // compute (the cold transition deletes Deployment+volume but
+                // keeps the Service). Only reached when intent is Stopped —
+                // a mid-remove Task (Deployment gone, Service draining) is
+                // `NotCreated`, not Stopped.
                 return (self.absent_phase(task_id, desired_state).await, None, None);
             };
 
-        // Deployment exists with replicas > 0, check actual pod status
         let pods_api: Api<Pod> = Api::namespaced(self.k8s.client.clone(), self.k8s.namespace());
         let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
 
@@ -307,7 +298,6 @@ impl StatusResolver {
                         .and_then(|s| s.phase.as_deref())
                         .unwrap_or("Unknown");
 
-                    // Check for permanent sandbox failures (CrashLoopBackOff, ImagePullBackOff, etc.)
                     let error = check_sandbox_permanent_failure(pod);
 
                     let phase = if is_terminating {

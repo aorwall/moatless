@@ -250,11 +250,10 @@ pub async fn search_by_name_handler(
 
 // ── Snapshot fallback ────────────────────────────────────────────
 //
-// When no sandbox is running, a Task's files are still readable from the S3
-// snapshot (`workspace_snapshot`). Each of the four read handlers falls through
-// to its counterpart here, keyed on `no_live_sandbox`. `unreachable` is the error
-// the connector gave, and it is what a caller gets back when there is also no
-// snapshot: the reason there are no files is still that nothing is running.
+// When no sandbox is running, a task's files are still readable from the
+// S3 snapshot (`workspace_snapshot`). Each read handler falls through to
+// its counterpart here on `no_live_sandbox`. `unreachable` is also what a
+// caller gets back with no snapshot either: nothing is running either way.
 
 /// Map a snapshot miss onto the response error.
 ///

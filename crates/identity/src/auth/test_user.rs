@@ -55,7 +55,6 @@ pub(crate) async fn ensure_test_user(users: &dyn UserDao, api_keys: &dyn ApiKeyD
         return;
     }
 
-    // 2. Check if API key hash already exists → skip if so
     let key_hash = hash_key(raw_key);
     match api_keys.get_api_key_by_hash(&key_hash).await {
         Ok(Some(_)) => {
@@ -70,7 +69,6 @@ pub(crate) async fn ensure_test_user(users: &dyn UserDao, api_keys: &dyn ApiKeyD
         Ok(None) => { /* key not found, proceed to insert */ }
     }
 
-    // 3. Insert the API key
     let key_prefix = format!("mvk_{}", &raw_key[4..raw_key.len().min(12)]);
     let id = format!("test-{}", &key_hash[..16]);
 

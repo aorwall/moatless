@@ -147,11 +147,10 @@ pub fn classify(
         }
         T::CleanStop | T::NonZeroStop | T::Deleted => {
             // 3. Expected intermediate: the superseded pod's deliberate death
-            //    during a restart/redeploy edge. Identity — not the clock —
+            //    during a restart/redeploy edge. Identity, not the clock,
             //    distinguishes the old pod's death (generation < marker) from
             //    the new pod's crash (generation == marker), so a stale edge
-            //    with disabled suppression falls through to the echo/divergence
-            //    rules below.
+            //    with disabled suppression falls to echo/divergence below.
             if suppression_active {
                 if let Some(m) = marker {
                     if m.kind.is_edge() && is_superseded(obs.observed_generation, m.generation) {

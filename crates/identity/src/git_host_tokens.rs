@@ -296,12 +296,10 @@ impl GitHostTokens {
 
     /// Read the encrypted PAT the `secret_ref` row for `key` points at.
     ///
-    /// `key` names the secret because one identity holds one `secret_ref` row
-    /// per host, each pointing at its own — `GITHUB_TOKEN` for GitHub, and a
-    /// [`forgejo_token_key`] per Forgejo instance. Every failure mode is an
-    /// error rather than an absent credential: a reference row with no
-    /// resolvable secret means the identity *is* connected but the credential
-    /// is unreachable.
+    /// `key` names the secret: one identity holds one `secret_ref` row per
+    /// host (`GITHUB_TOKEN`, or [`forgejo_token_key`] per Forgejo instance).
+    /// Every failure is an error, not an absent credential: an unresolvable
+    /// reference means the identity *is* connected but unreachable.
     async fn read_secret_ref_token(&self, actor: &Actor, key: &str) -> Result<String, AuthError> {
         self.secrets
             .resolve_scope_secret(
@@ -783,12 +781,11 @@ mod tests {
 
     #[tokio::test]
     async fn an_app_backed_identity_is_never_reported_as_never_connected() {
-        // What the T3 source-control panel reads. An installation row holds no
-        // token and no login, so a caller that reads the row itself sees an
-        // identity with nothing in it and concludes "connect an account" — while
-        // the identity's tasks are already pushing as the App. The distinction
-        // this must keep is between "no credential" and "a credential whose App
-        // could not be resolved": only the first is an invitation to connect.
+        // What the T3 source-control panel reads. An installation row has no
+        // token or login, so a naive read sees "nothing" and suggests
+        // "connect an account" — while the identity already pushes as the
+        // App. Must distinguish "no credential" from "a credential whose
+        // App couldn't be resolved": only the former invites a connect.
         let mut row = github_row(
             AUTH_METHOD_APP_INSTALLATION,
             crate::auth::provider_tokens::APP_INSTALLATION_TOKEN_PLACEHOLDER,

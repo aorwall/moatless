@@ -48,12 +48,11 @@ impl Drop for PgLockGuard {
             return;
         };
         let key = self.key;
-        // Detach from the pool *before* handing the connection to the spawned
-        // unlock. A detached connection closes its session on drop, so even if
-        // this task is never polled (runtime shutting down, executor dropped),
-        // the session — and its advisory lock — die with the dropped connection.
-        // A pooled connection would instead return to the pool still holding the
-        // lock, silently leaking a foreign per-Task lock to the next checkout.
+        // Detach from the pool before handing off to the spawned unlock: a
+        // detached connection closes its session on drop, so even if this
+        // task is never polled (shutdown, executor dropped), the session —
+        // and its advisory lock — dies with it. A pooled connection would
+        // instead return to the pool still holding the lock, leaking it.
         let mut conn = conn.detach();
         tokio::spawn(async move {
             if let Err(e) = sqlx::query("SELECT pg_advisory_unlock($1, $2)")
@@ -190,7 +189,6 @@ mod db_tests {
                 .try_acquire("t1", OperationKind::Stop)
                 .await
                 .expect("acquire");
-            // A different Task never contends.
             seed(&pool, "t2").await;
             assert!(lock.try_acquire("t2", OperationKind::Stop).await.is_ok());
         }

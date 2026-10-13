@@ -144,7 +144,6 @@ mod tests {
         b.begin(gen(1));
         b.block();
         assert!(b.exhausted());
-        // A wake reopens it.
         b.reset_for_wake();
         assert!(!b.exhausted());
         // Re-block, then a new generation reopens it.
@@ -174,7 +173,6 @@ mod tests {
         assert_eq!(backoff(2, base, max), Duration::from_secs(4));
         assert_eq!(backoff(3, base, max), Duration::from_secs(8));
         assert_eq!(backoff(4, base, max), Duration::from_secs(16));
-        // Capped.
         assert_eq!(backoff(5, base, max), Duration::from_secs(30));
         assert_eq!(backoff(100, base, max), Duration::from_secs(30));
     }

@@ -455,7 +455,6 @@ async fn a_listing_row_by_id_reaches_what_neither_listing_carries(pool: PgPool) 
     seed_public_task(&pool, "t-unfollowed", "user-2", Some("ws-live")).await;
     unfollow(&pool, "user-1", "t-unfollowed").await;
 
-    // What the sidebar shows, and what it leaves out.
     assert_eq!(
         thread_ids(&pool, &viewer("user-1")).await,
         vec!["t-open".to_string()]

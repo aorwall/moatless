@@ -82,13 +82,12 @@ pub(crate) trait AgentProcess: Send {
     /// failed terminal (after execution start).
     async fn submit(&mut self, input: Input) -> Result<(), HarnessError>;
 
-    /// Whether input submitted while an execution is already active is injected
-    /// into that execution (as a bare `InputAccepted`) rather than waiting for
-    /// a later one.
+    /// Whether input submitted while an execution is already active is
+    /// injected into that execution (bare `InputAccepted`) rather than
+    /// waiting for a later one.
     ///
-    /// Consulted only by the one-execution-per-process driver; a process that
-    /// opens a fresh execution per submit must leave this `false` so input
-    /// queues instead of clobbering the running execution.
+    /// Consulted only by the one-execution-per-process driver; a process
+    /// that opens a fresh execution per submit must leave this `false`.
     fn accepts_injection(&self) -> bool {
         false
     }
@@ -99,12 +98,10 @@ pub(crate) trait AgentProcess: Send {
 
     /// A handle that cancels the process tree without borrowing it.
     ///
-    /// [`AgentProcess::cancel`] can't be reached while [`AgentProcess::submit`]
-    /// still holds the process mutably, so a transport whose open blocks on the
-    /// Agent (like Codex) must override this or a Stop cannot land until the
-    /// open finishes; the default token nobody else holds does nothing, which
-    /// is correct only when `submit` cannot block — the driver still records
-    /// the Stop and applies it once `submit` lands.
+    /// [`AgentProcess::cancel`] can't be reached while `submit` still holds
+    /// the process, so a transport whose open blocks on the Agent (Codex)
+    /// must override this or a Stop can't land until open finishes. The
+    /// default no-op token is correct only when `submit` can't block.
     fn cancel_handle(&self) -> CancellationToken {
         CancellationToken::new()
     }

@@ -2,12 +2,10 @@
 //!
 //! Provider config (stored in `trigger_config` JSONB):
 //! ```json
-//! {
-//!   "webhook_secret": "optional-hmac-secret",
+//! { "webhook_secret": "optional-hmac-secret",
 //!   "callback_url": "https://example.com/callback",
 //!   "callback_headers": { "Authorization": "Bearer xxx" },
-//!   "user_id": "default-user-id"
-//! }
+//!   "user_id": "default-user-id" }
 //! ```
 
 use std::sync::Arc;

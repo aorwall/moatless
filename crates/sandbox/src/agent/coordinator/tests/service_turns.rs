@@ -89,7 +89,6 @@ async fn coordinator_service_submit_completed_sets_idle_and_publishes_completed(
         cancel.clone(),
     );
 
-    // Send a Submit command with a throwaway ack.
     let (ack_tx, _ack_rx) = oneshot::channel();
     tx.try_send(AgentCommand::Send {
         text: "do the thing".to_string(),
@@ -105,7 +104,6 @@ async fn coordinator_service_submit_completed_sets_idle_and_publishes_completed(
     })
     .expect("channel open");
 
-    // Wait for `completed` event to arrive in the recording buffer.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     loop {
         flush(&events).await;
@@ -120,7 +118,6 @@ async fn coordinator_service_submit_completed_sets_idle_and_publishes_completed(
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 
-    // Agent state must be Idle after a successful completion.
     assert_eq!(agent_state.status().await, AgentStatus::Idle);
 
     cancel.cancel();

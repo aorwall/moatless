@@ -60,7 +60,6 @@ pub(in crate::auth) async fn exchange_api_key_handler(
     )
     .await?;
 
-    // Build response from user data + claims
     let body = SessionResponse {
         user: Some(UserInfo {
             id: user.id,

@@ -88,13 +88,11 @@ pub(super) fn build_dind_container(config: &Config) -> Container {
     }
 }
 
-/// Overlay a per-repo resource override onto the configured defaults, field by
-/// field.
+/// Overlay a per-repo resource override onto the configured defaults, field
+/// by field: an override replaces only the `cpu`/`memory` it names.
 ///
-/// An override replaces only the `cpu`/`memory` values it names, the rest keep
-/// their default; since `ResourceConfig` also carries storage fields, a repo
-/// configuring only storage or only memory still gets a fully bounded container
-/// instead of `BestEffort`.
+/// `ResourceConfig` also carries storage fields, so a repo configuring only
+/// storage still gets a fully bounded container instead of `BestEffort`.
 pub(super) fn merge_resources(
     override_cfg: Option<&ResourceConfig>,
     default_cpu_request: &str,
@@ -204,7 +202,6 @@ pub(super) fn build_sandbox_container(
     // env block below, where the difference is load-bearing.
     pvc_name: Option<&str>,
 ) -> Result<Container, String> {
-    // Resolve image: repo config override → default sandbox image
     let image = resolve_sandbox_image(config, plan);
 
     // Build env vars. GIT_CLONE_URL is credential-free — the sandbox clones via
@@ -240,7 +237,6 @@ pub(super) fn build_sandbox_container(
     // defaults would let the advertised path and the written path drift apart.
     env.push(env_var("UPLOAD_DIR", &config.sandbox.file_mount_path));
 
-    // Git provider (github, gitlab, gitness)
     env.push(env_var("GIT_PROVIDER", &plan.git_provider));
 
     // Every repository the workspace places in the sandbox, primary first. The
@@ -251,18 +247,11 @@ pub(super) fn build_sandbox_container(
         env.push(env_var(WORKSPACE_REPOS_ENV, &repos_json));
     }
 
-    // Workspace storage switches. With S3 on, the sandbox syncs the git working
-    // tree to S3 via presigned URLs — flag it so it uploads after terminal agent
-    // turns and restores on boot.
-    //
-    // `WORKSPACE_RESTORE_IF_EMPTY` claims the mounted volume is *durable*: the
-    // sandbox then treats S3 as a fallback read only, and drops the periodic
-    // upload backstop because the volume survives an involuntary kill. That has
-    // to follow the volume this pod actually gets, not the one the plan asked
-    // for — the caller passes `pvc_name: None` when PVC creation degraded or the
-    // attach-failure fallback rebuilt onto an emptyDir, and such a pod must
-    // behave like the emptyDir+S3 tier (restore every boot, keep the backstop)
-    // even though its plan still reads pvc+s3.
+    // WORKSPACE_SYNC_ENABLED: sync the git tree to S3 on terminal agent turns
+    // and restore it on boot. WORKSPACE_RESTORE_IF_EMPTY: treat the volume as
+    // durable (S3 read-only fallback, no periodic backstop upload) — gated on
+    // `pvc_name`, the volume this pod actually got, not the plan's request,
+    // since a degraded/fallback pod runs emptyDir despite its plan.
     let storage_backend = moatless_sandbox_runtime::storage::StorageBackend::from_plan(
         plan,
         config.sandbox.default_pvc_enabled,
@@ -280,26 +269,21 @@ pub(super) fn build_sandbox_container(
         &resolve_sandbox_size(config, plan),
     ));
 
-    // REPO_CONFIG env var (pass-through for sandbox)
     if let Some(repo_config_json) = build_repo_config_json(plan) {
         env.push(env_var("REPO_CONFIG", &repo_config_json));
     }
 
-    // Proxy domain and protocol for constructing preview URLs
     if let Some(ref domain) = config.proxy.domain {
         env.push(env_var("PROXY_DOMAIN", domain));
         env.push(env_var("PROXY_PROTOCOL", &config.proxy.protocol));
     }
 
-    // Frontend URL for constructing task URLs in the agent system prompt
     env.push(env_var("FRONTEND_URL", &config.auth.frontend_url));
 
-    // Egress forward-proxy: when this pod's network profile opts into the
-    // in-cluster allowlist proxy, route all outbound HTTP(S) through it. The
-    // paired per-profile NetworkPolicy blocks direct internet egress, so the
-    // proxy's hostname allowlist becomes the only way out (e.g. an approved API
-    // host is allowed; everything else is denied). NO_PROXY keeps in-cluster
-    // traffic (backend gRPC, DNS) direct.
+    // When this pod's network profile opts in, route outbound HTTP(S) through
+    // the in-cluster allowlist proxy. The paired per-profile NetworkPolicy
+    // blocks direct internet egress, so the proxy's hostname allowlist is the
+    // only way out. NO_PROXY keeps in-cluster traffic (backend gRPC, DNS) direct.
     if let (Some(proxy_url), Some(profile)) = (
         config.sandbox.egress_proxy_url.as_deref(),
         plan.repo_config
@@ -322,15 +306,14 @@ pub(super) fn build_sandbox_container(
         }
     }
 
-    // Default model for agent sessions
     if let Some(ref model) = config.sandbox.default_model {
         env.push(env_var("DEFAULT_CLAUDE_CODE_MODEL", model));
     }
 
-    // Auth tokens. The short-lived bootstrap token is the only auth secret on
-    // the pod spec; it authenticates the initial GetCredentials call, after which
-    // the sandbox swaps to the long-lived token delivered over that channel. The
-    // USER_AUTH_TOKEN is emitted only when SANDBOX_EMIT_LEGACY_USER_TOKEN is set.
+    // The bootstrap token is the only auth secret in the pod spec; it
+    // authenticates the initial GetCredentials call, which hands back the
+    // long-lived token. USER_AUTH_TOKEN is legacy, emitted only when
+    // SANDBOX_EMIT_LEGACY_USER_TOKEN is set.
     if let Some(tokens) = tokens {
         env.push(env_var("SANDBOX_BOOTSTRAP_TOKEN", tokens.bootstrap));
         if let Some(legacy) = tokens.legacy_user_token {
@@ -338,12 +321,10 @@ pub(super) fn build_sandbox_container(
         }
     }
 
-    // Extra env vars from backend config (K8S_SANDBOX_EXTRA_ENV)
     for (key, value) in &config.sandbox.extra_env {
         env.push(env_var(key, value));
     }
 
-    // Custom env vars from repo config
     if let Some(ref env_vars) = plan.env_vars {
         for (key, value) in env_vars {
             env.push(env_var(key, value));
@@ -359,7 +340,6 @@ pub(super) fn build_sandbox_container(
         env.push(env_var("TESTCONTAINERS_RYUK_DISABLED", "true"));
     }
 
-    // Startup probe
     let startup_timeout = config.sandbox.pod_startup_timeout_secs;
     let startup_probe_period: i32 = 5;
     let failure_threshold = ((startup_timeout / startup_probe_period as u64) + 6) as i32;
@@ -376,13 +356,10 @@ pub(super) fn build_sandbox_container(
         ..Default::default()
     };
 
-    // Liveness probe (opt-in via `K8S_SANDBOX_LIVENESS_ENABLED`). Hits the
-    // sandbox `/livez` endpoint, which reports unhealthy only when the agent
-    // actor loop is wedged — never on backend/credential/disk trouble. Settings
-    // are deliberately conservative: 6 consecutive failures at 10s spacing (~60s)
-    // before a restart, because a false-positive restart kills an in-flight agent
-    // turn, which is worse than a rare hang. Gated off by default; the startup
-    // probe on `/health` remains the startup gate regardless.
+    // Opt-in (`K8S_SANDBOX_LIVENESS_ENABLED`). `/livez` is unhealthy only when
+    // the agent actor loop is wedged, never for backend/credential/disk
+    // trouble. Thresholds are deliberately loose (6 failures at 10s) because a
+    // false-positive restart kills an in-flight agent turn.
     let liveness_probe = config.sandbox.liveness_enabled.then(|| Probe {
         http_get: Some(HTTPGetAction {
             path: Some("/livez".to_string()),
@@ -395,13 +372,10 @@ pub(super) fn build_sandbox_container(
         ..Default::default()
     });
 
-    // Readiness probe — TCP connect on the gRPC control port. The backend
-    // reaches this container only over gRPC (via the K8s Service), so pod
-    // readiness must track the gRPC listener, not the HTTP `/health` startup
-    // gate: `/health` on :8001 can answer before the gRPC socket on :50052 is
-    // bound (or after it dies while HTTP still serves), and without this probe
-    // the pod stays in the Service's endpoints through that window, so real
-    // gRPC calls hit a dead socket and surface as connect timeouts / 503s.
+    // TCP probe on the gRPC port, not `/health`: `/health` on :8001 can answer
+    // before the gRPC socket on :50052 binds (or after it dies). Without this,
+    // the pod stays in the Service's endpoints through that window, and real
+    // gRPC calls hit a dead socket as connect timeouts / 503s.
     let readiness_probe = Probe {
         tcp_socket: Some(TCPSocketAction {
             port: IntOrString::Int(config.sandbox.grpc_port as i32),
@@ -413,12 +387,9 @@ pub(super) fn build_sandbox_container(
         ..Default::default()
     };
 
-    // Volume mounts
-    //
-    // `workspace-data` (PVC or emptyDir) is always present and mounted at
-    // `/opt/moatless`. `/tmp` is backed by its `tmp` subPath — the same volume, a
-    // separate directory — so `/tmp` shares the workspace headroom and never charges
-    // against container memory.
+    // `workspace-data` (PVC or emptyDir) mounts at `/opt/moatless`; `/tmp` is
+    // its `tmp` subPath, not a separate volume, so `/tmp` shares the workspace
+    // headroom and never charges against container memory.
     let mut volume_mounts = vec![
         VolumeMount {
             name: "shared-data".to_string(),
@@ -443,13 +414,10 @@ pub(super) fn build_sandbox_container(
         },
     ];
 
-    // Persist cargo's downloaded state across pod replacement (opt-in via
-    // `K8S_SANDBOX_PERSIST_TOOLCHAIN`). Only the registry and git caches ride
-    // the workspace volume: mounting an empty subPath over all of `/opt/cargo`
-    // (or `/opt/rust`) would shadow the toolchain baked into the image — K8s
-    // subPath mounts don't seed from image content — whereas cargo repopulates
-    // an empty registry/git cache transparently. Without a PVC the
-    // subPaths land in the emptyDir and die with the pod (harmless no-op).
+    // Opt-in (`K8S_SANDBOX_PERSIST_TOOLCHAIN`). Only cache dirs ride the
+    // volume: subPath mounts don't seed from image content, so mounting an
+    // empty subPath over all of `/opt/cargo` would shadow the baked-in
+    // toolchain. Without a PVC these subPaths land in emptyDir (no-op).
     if config.sandbox.persist_toolchain {
         volume_mounts.push(VolumeMount {
             name: "workspace-data".to_string(),

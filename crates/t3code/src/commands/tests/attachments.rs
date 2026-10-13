@@ -62,13 +62,11 @@ async fn attachments_keep_the_order_they_were_sent_in() {
     );
 }
 
-/// A composer that has read `attachmentUploads` sends a reference — image or
-/// file — carrying no bytes; only the id matters, since the name, type and size
-/// beside it are just the client's copy of the upload row.
+/// A composer that read `attachmentUploads` sends a reference — no bytes,
+/// just the id; name, type and size are the client's copy of the upload row.
 ///
-/// An id alone is not provenance, so the resolver measures the stored row
-/// against the member kind it was claimed under, which this side must keep
-/// naming.
+/// An id alone is not provenance, so the resolver checks the stored row
+/// against the member kind it was claimed under.
 #[tokio::test]
 async fn an_uploaded_attachment_reaches_the_sink_as_the_id_it_named() {
     let uploaded = |kind: &str, name: &str, id: &str| {

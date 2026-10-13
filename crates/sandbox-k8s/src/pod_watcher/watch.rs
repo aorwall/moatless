@@ -64,7 +64,6 @@ pub fn spawn_pod_lifecycle_watcher(
                 return;
             }
 
-            // Try to acquire or renew leadership
             match leader_election.try_acquire_or_renew().await {
                 Ok(true) => {
                     info!(identity = %identity, "Leader acquired, starting pod watch");
@@ -124,7 +123,6 @@ async fn run_pod_watch(
                 return;
             }
             _ = renew_interval.tick() => {
-                // Renew leadership periodically
                 match leader_election.try_acquire_or_renew().await {
                     Ok(true) => {} // Still leader
                     Ok(false) => {
@@ -136,10 +134,9 @@ async fn run_pod_watch(
                         return;
                     }
                 }
-                // Time-based sweep: the watch stream only fires on pod changes, so
-                // a pod that sits Pending or ContainerCreating for minutes produces
-                // no events. This tick turns those silent windows into
-                // scheduling_blocked / startup_slow events (fire-once per pod).
+                // The watch stream only fires on pod changes, so a pod stuck
+                // Pending/ContainerCreating for minutes produces none; this tick
+                // turns that silence into scheduling_blocked/startup_slow events.
                 sweep_pending_pods(k8s, event_publisher, &mut pod_states, deps).await;
                 gc_failed_pods(k8s, &mut pod_states).await;
                 retry_pending_auto_stops(&mut pod_states, deps).await;

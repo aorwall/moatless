@@ -493,13 +493,12 @@ async fn a_turn_naming_an_upload_outside_its_member_is_refused(pool: PgPool) {
     assert!(message_uuids(&pool, "t-oversize").await.is_empty());
 }
 
-/// `attachments.delete` means "I abandoned this upload" — but once a turn
-/// carries the id, the transcript, download route, and Sandbox pre-fetch all
-/// point at it.
+/// `attachments.delete` means "I abandoned this upload" — until a turn
+/// carries the id; then the transcript, download route and pre-fetch use it.
 ///
-/// Deleting a sent attachment reports success and keeps the bytes; the composer
-/// can't know server state when it clears a draft, and collecting it as an
-/// orphan would strip a message already sent and read.
+/// Deleting a sent one reports success and keeps the bytes: the composer
+/// can't know server state, and collecting it as an orphan would strip a
+/// message already read.
 #[sqlx::test]
 async fn an_attachment_a_message_carries_is_kept_when_the_composer_deletes_it(pool: PgPool) {
     seed_project(&pool, USER_1).await;

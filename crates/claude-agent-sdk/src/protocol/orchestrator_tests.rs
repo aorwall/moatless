@@ -162,7 +162,6 @@ mod tests {
         let msg = h.recv().await;
         assert!(matches!(msg, SdkMessage::Result(_)));
 
-        // Channel should close after result
         let next =
             tokio::time::timeout(std::time::Duration::from_millis(200), h.sdk_rx.recv()).await;
         assert!(next.is_ok()); // Returns Ok(None) — channel closed
@@ -175,7 +174,6 @@ mod tests {
 
         h.feed(RawStdoutMessage::KeepAlive).await;
 
-        // No message should arrive
         let result =
             tokio::time::timeout(std::time::Duration::from_millis(100), h.sdk_rx.recv()).await;
         assert!(result.is_err()); // Timeout — no message forwarded
@@ -351,7 +349,6 @@ mod tests {
         })
         .await;
 
-        // Wait for the response to be written
         let _ = h.read_stdin_line().await;
 
         let guard = captured.lock().await;
@@ -634,7 +631,6 @@ mod tests {
         let response = h.read_stdin_line().await;
         let resp = &response["response"];
         assert_eq!(resp["subtype"], "success");
-        // Empty response object — no continue, no decision
         let resp_value = resp["response"].as_object().unwrap();
         assert!(resp_value.is_empty());
     }
@@ -655,7 +651,6 @@ mod tests {
         ))
         .await;
 
-        // Wait for the response
         let _ = h.read_stdin_line().await;
 
         let guard = captured.lock().await;
@@ -672,13 +667,11 @@ mod tests {
             Some(Arc::new(ApprovingHookHandler)),
         );
 
-        // Send a permission request
         h.feed(make_can_use_tool_request("req-p1", "Bash", "tu-p1"))
             .await;
         let perm_resp = h.read_stdin_line().await;
         assert_eq!(perm_resp["response"]["response"]["behavior"], "allow");
 
-        // Send a hook callback
         h.feed(make_hook_callback_request(
             "req-hh1",
             "cb-hh1",
@@ -698,13 +691,11 @@ mod tests {
     async fn control_response_resolves_pending_request() {
         let h = TestHarness::new(None, None);
 
-        // Register a pending request
         let (req_id, rx) = {
             let mut tracker = h.request_tracker.lock().await;
             tracker.register()
         };
 
-        // Feed a success response
         h.feed(RawStdoutMessage::ControlResponse(
             ControlResponseInner::Success {
                 request_id: req_id.clone(),
@@ -713,7 +704,6 @@ mod tests {
         ))
         .await;
 
-        // The receiver should get the response
         let result = tokio::time::timeout(std::time::Duration::from_secs(2), rx)
             .await
             .unwrap()
@@ -796,10 +786,8 @@ mod tests {
         .await;
         let _ = h.recv().await;
 
-        // Cancel
         h.cancel.cancel();
 
-        // Channel should close
         let result = tokio::time::timeout(std::time::Duration::from_secs(2), h.sdk_rx.recv()).await;
         // Either we get an error message or the channel closes
         match result {
@@ -838,7 +826,6 @@ mod tests {
         // Drop the feeder to signal EOF
         drop(msg_tx);
 
-        // Channel should close gracefully
         let result = tokio::time::timeout(std::time::Duration::from_secs(2), sdk_rx.recv()).await;
         assert!(matches!(result, Ok(None)));
 
@@ -1103,13 +1090,11 @@ mod tests {
         let mut h =
             TestHarness::with_mcp_servers(Some(Arc::new(AllowAllHandler)), None, Some(servers));
 
-        // Send permission request
         h.feed(make_can_use_tool_request("req-p1", "Bash", "tu-p1"))
             .await;
         let perm_resp = h.read_stdin_line().await;
         assert_eq!(perm_resp["response"]["response"]["behavior"], "allow");
 
-        // Send MCP message
         h.feed(make_mcp_message_request(
             "req-mcp-7",
             "calc",

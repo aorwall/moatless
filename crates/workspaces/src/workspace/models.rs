@@ -192,14 +192,12 @@ pub struct ListedWorkspaceRow {
     pub readable: bool,
 }
 
-/// A workspace in a widened listing, and whether the caller may actually read
-/// it.
+/// A workspace in a widened listing, and whether the caller may actually
+/// read it.
 ///
-/// A widened listing unions what the read rule admits with what something the
-/// caller may see merely references — the second half is present to render a
-/// group, not because it was granted, so conflating the halves discloses its
-/// configuration. The flag comes from the same access filter as the `WHERE`
-/// clause, in the same statement, so the two cannot drift.
+/// Unions what the read rule admits with what a thing the caller may see
+/// merely references; the second half renders a group, not a grant. The
+/// flag comes from the same access filter as the `WHERE`, so they can't drift.
 #[derive(Debug, Clone)]
 pub struct ListedWorkspace {
     pub workspace: Workspace,

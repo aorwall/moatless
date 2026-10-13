@@ -164,12 +164,11 @@ pub enum WorkspaceAction {
         action: CredentialAction,
     },
     /// Declare a workspace's scripts; each becomes a Run button in the chat
-    /// header's Project actions group, or is runnable via `moat tasks scripts
-    /// run`.
+    /// header's Project actions, or runs via `moat tasks scripts run`.
     ///
-    /// This only edits the declaration — nothing runs until `moat tasks scripts
-    /// run` addresses it against a task's sandbox. A script with `--port` also
-    /// gets a live preview tab, like a declared server.
+    /// Declaring only edits the record — nothing runs until `moat tasks
+    /// scripts run` addresses it against a task's sandbox. `--port` also gets
+    /// a live preview tab, like a declared server.
     Scripts {
         #[command(subcommand)]
         action: WorkspaceScriptAction,

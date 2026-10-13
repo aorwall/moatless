@@ -79,7 +79,6 @@ async fn run_subagent_fields_captured(backend: Backend) {
     // stop_reason may only appear on the final assistant message of each turn
     println!("has_stop_reason: {has_stop_reason}");
 
-    // Verify user messages (tool results) exist with toolUseResult
     let user_msgs: Vec<_> = messages
         .iter()
         .filter_map(|m| {
@@ -91,7 +90,6 @@ async fn run_subagent_fields_captured(backend: Backend) {
         })
         .collect();
 
-    // Print for debugging
     for u in &user_msgs {
         if u.tool_use_result.is_some() {
             println!(
@@ -106,7 +104,6 @@ async fn run_subagent_fields_captured(backend: Backend) {
     let has_agent_result = user_msgs.iter().any(|u| u.tool_use_result.is_some());
     println!("Has agent tool_use_result: {has_agent_result}");
 
-    // Print all message types for debugging
     for (i, msg) in messages.iter().enumerate() {
         match msg {
             SdkMessage::System(_) => println!("[{i}] System"),

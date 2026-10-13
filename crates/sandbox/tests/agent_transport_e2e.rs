@@ -259,11 +259,11 @@ fn spawn_test_agent_in(
     let events = GrpcEventPublisher::new(outbox);
     let config = Arc::new(test_config(tmp, use_tmux, agent_profile));
 
-    // Mirror the cluster: the `claude` child inherits CLAUDE_CONFIG_DIR from the
-    // process env (the sandbox does NOT pass it through `options.env`), and the
-    // SDK's tmux JSONL discovery must resolve the same dir. Setting it here so it
-    // differs from $HOME/.claude is what reproduces the cold-config-dir bug — the
-    // old SDK polled $HOME/.claude/projects and timed out with JsonlNotFound.
+    // Mirrors the cluster: the `claude` child inherits CLAUDE_CONFIG_DIR from
+    // the process env, not `options.env`, and the SDK's tmux JSONL discovery
+    // must resolve the same dir. Set it here, different from $HOME/.claude,
+    // deliberately: that's what catches the SDK polling the wrong directory
+    // and timing out with JsonlNotFound.
     std::env::set_var("CLAUDE_CONFIG_DIR", &config.claude_config_dir);
     let agent_state = Arc::new(AgentState::new());
     let credentials = Arc::new(RwLock::new(HashMap::new()));

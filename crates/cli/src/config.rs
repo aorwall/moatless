@@ -94,7 +94,6 @@ impl Config {
             };
             AuthMode::Standalone { api_key }
         } else {
-            // Standalone mode — try loading API key from credentials file
             let host = host_from_url(&api_url);
             let api_key = crate::credentials::get_api_key(&host);
             AuthMode::Standalone { api_key }

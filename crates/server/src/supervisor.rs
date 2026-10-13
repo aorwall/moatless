@@ -116,13 +116,12 @@ impl Supervisor {
         });
     }
 
-    /// Watch the supervised tasks until one [`Criticality::Fatal`] task
-    /// terminates early or the root token is cancelled, then cancel and join
-    /// the rest within `join_deadline`.
+    /// Watch supervised tasks until a [`Criticality::Fatal`] one exits early
+    /// or the root token cancels, then cancel and join the rest within
+    /// `join_deadline`.
     ///
-    /// Returns the fatal exit that ended the process, if there was one; a task
-    /// that outlives the deadline is reported by name and left running rather
-    /// than hung on.
+    /// Returns the fatal exit that ended the process, if any; a task that
+    /// outlives the deadline is reported by name and left running.
     pub async fn run(self, join_deadline: Duration) -> Result<(), TaskExit> {
         let Self {
             cancel,

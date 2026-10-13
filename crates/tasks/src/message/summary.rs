@@ -20,7 +20,6 @@ pub(crate) fn strip_heavy_fields(mut msg: UiMessage) -> UiMessage {
             });
         }
     }
-    // Truncate tool result content and remove typed_result
     for tr in &mut msg.tool_results {
         tr.typed_result = None;
         if let Some(ref content) = tr.content {
@@ -29,7 +28,6 @@ pub(crate) fn strip_heavy_fields(mut msg: UiMessage) -> UiMessage {
             }
         }
     }
-    // Remove SDK metadata
     msg.sdk_metadata = None;
     msg
 }

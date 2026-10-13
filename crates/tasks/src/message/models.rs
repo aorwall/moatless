@@ -7,17 +7,10 @@ use moatless_types::agent::AgentMode;
 
 pub use moatless_types::message::{MessageRole, MessageType};
 
-// `stop_is_reported` narrows stop reporting to error stops with the reason
-// stated in full: the other stop reasons are routine lifecycle the reader
-// already knows from the task's live status and turn state, and for
-// externally-bound tasks a "Stopped by user request" line is pure noise on
-// Slack or Linear.
-//
-// A run outcome is nowhere in the conversation, because it is not a Message
-// (Decision 14). A stopped turn is known by `task_turns.status`; a Sandbox
-// failure by its own activity, which `k8s/pod_watcher.rs:803` already publishes
-// with the exit code, terminated reason, node, disruption cause and container
-// logs. The Message row would duplicate an event the design stores anyway.
+// A run outcome is not a Message: a stopped turn is known by
+// `task_turns.status`, and a Sandbox failure by its own activity (exit code,
+// reason, node, disruption cause, logs). A Message row here would duplicate
+// what's already stored.
 
 // =============================================================================
 // Query shapes

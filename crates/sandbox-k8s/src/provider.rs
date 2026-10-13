@@ -49,11 +49,10 @@ pub struct K8sSandboxAdapter {
     pub config: Arc<Config>,
     pub k8s: K8sClient,
     pub status_resolver: StatusResolver,
-    // `pub` (not `pub(crate)`) is the carve's declared debt: the backend
-    // composition root (`startup.rs::build_k8s_sandbox_adapter`) builds this
-    // adapter with a struct literal across the crate boundary, and a cross-crate
-    // struct literal requires every field it sets to be `pub`. Visibility follows
-    // the real consumer, which is in another crate.
+    // `pub`, not `pub(crate)`: the backend composition root
+    // (`startup.rs::build_k8s_sandbox_adapter`) builds this adapter with a
+    // cross-crate struct literal, which requires every field it sets to be
+    // `pub`.
     pub plan: Option<ProvisionDeps>,
     /// Optional S3 client used to delete a task's transcript archive on
     /// cleanup.
@@ -153,14 +152,10 @@ impl K8sSandboxAdapter {
                 } else {
                     None
                 };
-                // The pod template freezes when the Deployment is created and no
-                // other start path rewrites it, so a task keeps the config it
-                // was created with however often it restarts. Compare the whole
-                // config-derived spec rather than the image tag alone, or a
-                // changed env never reaches a long-lived task.
-                //
-                // Build against the claim this Deployment already mounts, so a
-                // mismatch reports a config change and never a storage one.
+                // The pod template freezes at Deployment creation, so a task
+                // keeps its creation-time config across restarts. Compare the
+                // whole spec (not just the image tag) against the claim
+                // already mounted, so a mismatch reads as config, not storage.
                 let fresh = pod_builder::build_pod(
                     &self.config,
                     task_id,
@@ -180,14 +175,11 @@ impl K8sSandboxAdapter {
                 ) {
                     // Spec unchanged — fast path: scale back up.
                     info!(task_id = %task_id, image = ?current_image, "Starting stopped sandbox (pod spec unchanged), scaling up");
-                    // A stop→start collision (e.g. the idle reaper scales to 0
-                    // and the user immediately reopens the task) can leave the
-                    // old pod still Terminating while it holds the ReadWriteOnce
-                    // PVC. Scaling straight to 1 would schedule a new pod that
-                    // races that attachment → "Multi-Attach" stall. Wait for the
-                    // old pod to fully terminate first (no-op if already gone).
-                    // A timeout here surfaces as an environment error rather than
-                    // scheduling a new pod straight into the stall.
+                    // A stop→start race (idle reaper scales to 0, user
+                    // reopens) can leave the old pod Terminating while it
+                    // holds the ReadWriteOnce PVC — scaling to 1 immediately
+                    // races that attach into a Multi-Attach stall. Wait for
+                    // it to terminate first; a timeout reads as an env error.
                     deployment::wait_for_pods_deleted(&self.k8s, task_id).await?;
                     if uses_node_archives {
                         deployment::set_node_placement(&self.k8s, task_id, retained_node.as_deref())
@@ -215,11 +207,10 @@ impl K8sSandboxAdapter {
                     let pvc_name = match self.create_or_find_pvc(task_id, plan).await {
                         Ok(name) if !name.is_empty() => Some(name),
                         Ok(_) => None,
-                        // A failed resolve says nothing about what the plan asks
-                        // for, so keep the claim this Deployment already mounts.
-                        // Rebuilding onto an emptyDir would strand the volume,
-                        // and the next start would compare against the template
-                        // this one wrote and keep it there.
+                        // A failed resolve says nothing about what the plan
+                        // wants, so keep the claim already mounted —
+                        // rebuilding onto an emptyDir would strand the volume,
+                        // and the next start would keep comparing against it.
                         Err(error) => {
                             warn!(task_id = %task_id, %error, "Failed to resolve the workspace claim; keeping the mounted one");
                             deployment::deployment_workspace_claim(&existing_deployment)
@@ -463,11 +454,10 @@ impl SandboxRuntime for K8sSandboxAdapter {
             node_archive::record_current_pod_nodes(&self.k8s, task_id).await?;
         }
 
-        // 1. Delete Deployment (cascades to pods + ReplicaSets). Fail hard on
-        //    error: if the delete fails, reprovisioning hits 409 and reuses the
-        //    existing Deployment, so the stale pod spec survives and the redeploy
-        //    is silently defeated. `delete_deployment` already treats 404 as
-        //    success, so this only fails on a genuine API error.
+        // Delete Deployment (cascades to pods + ReplicaSets); fail hard, not
+        // best-effort — a failed delete hits 409 on reprovision and reuses
+        // the stale spec, silently defeating the redeploy. (404 already
+        // counts as success in `delete_deployment`.)
         deployment::delete_deployment(&self.k8s, task_id)
             .await
             .map_err(|error| map_sandbox_error(SandboxError::KubeError(Box::new(error))))?;
@@ -552,14 +542,11 @@ impl SandboxRuntime for K8sSandboxAdapter {
             existing_deployment.is_some() || pvc::find_task_pvc(&self.k8s, task_id).await.is_some();
         info!(task_id = %task_id, retain_storage, "Cleaning up sandbox (deleting all resources)");
 
-        // Delete the Deployment first. Its ownerReferences make the Service and
-        // IngressRoutes children, and explicit deletes make the absence check
-        // strict for every network resource.
-        //
-        // Every load-bearing step feeds `first_err`: a failure returns an error
-        // so the caller retries and the `Removed` completion is withheld. Removal
-        // is strict — it reports success only once every resource is observed
-        // absent (pods drained, PVC gone) and every owed archive is deleted.
+        // Delete the Deployment first: ownerReferences make the Service and
+        // IngressRoutes children, and explicit deletes keep absence checks
+        // strict. Every load-bearing step feeds `first_err`, withholding
+        // `Removed` on failure — success requires every resource observed
+        // absent and every owed archive deleted.
         let mut first_err: Option<moatless_sandbox_runtime::runtime::RuntimeError> = None;
 
         if let Err(e) = deployment::delete_deployment(&self.k8s, task_id).await {
@@ -692,12 +679,11 @@ impl SandboxRuntime for K8sSandboxAdapter {
         }
 
         if !retain_storage && first_err.is_none() {
-            // Delete this task's transcript and `s3`-backend workspace archives
-            // (`<prefix>/<task_id>/...`). These live in the uploads bucket, not
-            // the PVC, so the per-task PVC delete above doesn't cover them. The
-            // deletes are load-bearing: a "successful" remove must not leave an
-            // archive behind. No-op when S3 isn't configured or the prefix is
-            // empty (`ebs`/`ephemeral` tasks).
+            // Delete this task's transcript + workspace archives
+            // (`<prefix>/<task_id>/...`) from the uploads bucket — not covered
+            // by the PVC delete above. Load-bearing: success must not leave
+            // an archive behind. No-op when S3 is unconfigured or the prefix
+            // is empty (`ebs`/`ephemeral` tasks).
             if let Err(e) = self.delete_task_transcripts(task_id).await {
                 warn!(task_id = %task_id, error = %e, "Failed to delete task transcripts from S3");
                 first_err.get_or_insert(map_sandbox_error(e));
@@ -764,14 +750,11 @@ impl SandboxRuntime for K8sSandboxAdapter {
             "Reclaiming stopped sandbox storage (deleting Deployment and PVC)"
         );
 
-        // The Deployment goes first and its pods are awaited: deleting a claim
-        // that a live pod template still names leaves the next start Pending on
-        // a volume that no longer exists, and a pod still holding the RWO claim
-        // blocks its deletion.
-        //
-        // The rescue also needs the claim detached, so it runs after this and
-        // before the delete — the one window where the volume is both readable
-        // and still ours.
+        // Delete the Deployment first and await its pods: a claim deleted
+        // while a live pod template still names it leaves the next start
+        // Pending on a gone volume, and a pod holding the RWO claim blocks
+        // its deletion. The rescue runs in the window after this and before
+        // the PVC delete — the volume is still ours but already detached.
         if deployment.is_some() {
             deployment::delete_deployment(&self.k8s, task_id)
                 .await
@@ -1119,7 +1102,6 @@ impl K8sSandboxAdapter {
             Ok((0, _)) => Err(SandboxError::NotReady("Sandbox is stopped".into())),
             Ok(_) => Ok(()),
             Err(_) => {
-                // Deployment might not exist at all
                 match deployment::find_deployment(&self.k8s, task_id).await {
                     Ok(None) => Err(SandboxError::NotReady("Sandbox not provisioned".into())),
                     Ok(Some(_)) => Ok(()), // exists but replicas check failed — try gRPC anyway
@@ -1145,13 +1127,11 @@ impl K8sSandboxAdapter {
         }
         warn!(task_id = %task_id, "Sandbox Service missing for existing Deployment, recreating");
 
-        // A Script's IngressRoute — a separate object that survived the missing
-        // Service — is the only record of its port. Put those back into the
-        // Service, or the route that outlived it starts pointing at nothing.
-        //
-        // Only into the Service and the policy: those routes still exist, and
-        // recreating them under a second name would give Traefik two rules for
-        // one hostname.
+        // A Script's IngressRoute survives a missing Service and is the only
+        // record of its port; put those ports back into the Service (not a
+        // new IngressRoute), or the route keeps pointing at nothing. Reuse
+        // the existing route's name — a second one gives Traefik two rules
+        // for one hostname.
         let mut script_ports = BTreeSet::new();
         for port in edge::published_task_ports(&self.k8s, task_id).await {
             if is_reserved_sandbox_port(port, self.config.sandbox.grpc_port) {
@@ -1309,7 +1289,6 @@ impl K8sSandboxAdapter {
     /// Check for an existing pod — returns [`ExistingPodResult`] for idempotent
     /// provisioning.
     async fn check_existing_pod(&self, task_id: &str) -> ExistingPodResult {
-        // Check if a Deployment already exists
         let dep = match deployment::find_deployment(&self.k8s, task_id).await {
             Ok(Some(d)) => d,
             Ok(None) => return ExistingPodResult::NotFound,
@@ -1337,7 +1316,6 @@ impl K8sSandboxAdapter {
             }
         }
 
-        // Check actual pod status
         let pods_api: Api<Pod> = Api::namespaced(self.k8s.client.clone(), self.k8s.namespace());
         let lp = ListParams::default().labels(&format!("moatless.io/task-id={task_id}"));
 

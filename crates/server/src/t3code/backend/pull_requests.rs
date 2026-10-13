@@ -28,16 +28,11 @@ impl BoundPullRequestSource for AppStateBoundPullRequests {
                 bound.push(pr);
                 continue;
             }
-            // The status blob is still NULL — a freshly opened pull request no
-            // surface has polled — so it resolves to nothing until fetched.
-            // Refresh it once through the write-through, then rebuild from what
-            // the fetch filled in. This walks every cold binding on the Task,
-            // not only the one a caller asked after, so resolving one reference
-            // warms the rest. A refresh that cannot be done (no token, API
-            // error, no adapter) drops that pull request rather than the ones
-            // beside it — and the listing, which tolerates a NULL blob, then
-            // still links a reference this cannot resolve. That residual
-            // disagreement is the state left when GitHub is unreachable.
+            // A NULL status blob means nothing polled this PR yet, so it
+            // refreshes once and rebuilds from the result — walking every
+            // cold binding on the Task (not just the one asked after) so
+            // resolving one warms the rest. A failed refresh drops only
+            // that PR, leaving the listing's NULL-tolerant link unresolved.
             if let Some(pr) = self
                 .refresh_incomplete_binding(task_id, &binding)
                 .await

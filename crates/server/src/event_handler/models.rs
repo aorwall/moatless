@@ -165,7 +165,6 @@ mod tests {
 
     #[test]
     fn deserialize_sdk_result_non_string_value() {
-        // Non-string JSON values should be converted to their string representation
         let v = json!({
             "result": 42
         });

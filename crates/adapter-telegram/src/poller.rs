@@ -168,13 +168,11 @@ pub fn spawn_telegram_poller(
                     }
 
                     if held_back {
-                        // A held-back update is still pending, so the next
-                        // `getUpdates` returns it immediately instead of
-                        // long-polling for 30s. Re-attempting it at that rate
-                        // would hammer whatever refused it — and a saturated
-                        // backlog, one of the conditions that holds an update
-                        // back, is precisely the persistent state such a spin
-                        // would feed. So this failure waits like any other.
+                        // A held-back update stays pending: `getUpdates`
+                        // returns it at once, not after a 30s long-poll,
+                        // which would hammer whatever refused it; a
+                        // saturated backlog is exactly what holds one
+                        // back. This backs off too.
                         if !back_off(&cancel, &mut backoff).await {
                             info!("Telegram poller shutting down");
                             return;

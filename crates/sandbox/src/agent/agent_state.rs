@@ -324,7 +324,6 @@ mod tests {
         assert!(taken.is_some());
         assert!(!state.has_pending_prompt().await);
 
-        // Taking again returns None
         assert!(state.take_pending_prompt().await.is_none());
     }
 
@@ -351,14 +350,11 @@ mod tests {
     #[tokio::test]
     async fn messages_pending_lifecycle() {
         let state = AgentState::new();
-        // Initially no messages pending
         assert!(!state.take_messages_pending().await);
 
-        // Set flag and take it
         state.set_messages_pending().await;
         assert!(state.take_messages_pending().await);
 
-        // Flag is reset after take
         assert!(!state.take_messages_pending().await);
 
         // Multiple sets before take still returns true once

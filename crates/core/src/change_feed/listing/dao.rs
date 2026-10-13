@@ -45,19 +45,17 @@ pub async fn record_change(tx: &mut PgConnection, task_id: &str) -> Result<i64, 
     Ok(position)
 }
 
-/// The highest position this deployment has reached, and the database identity
-/// it reached it in.
+/// The highest position this deployment has reached, and the database
+/// identity it reached it in.
 ///
-/// 0 before the first change; both values come from **one** statement (see
-/// [`ListingHead`]). The counter is the authority, never
-/// `MAX(task_listing_changes.position)`: [`prune_changes`] bounds that window,
-/// so `MAX` can silently go stale on a deployment older than it.
+/// 0 before the first change; both values come from **one** statement. The
+/// counter is authoritative, never `MAX(task_listing_changes.position)`:
+/// [`prune_changes`] bounds that window, so `MAX` can go stale.
 pub async fn current_head(pool: &PgPool) -> Result<ListingHead, sqlx::Error> {
-    // `pg_control_system()` carries no ACL, so an ordinary application role can
-    // call it. Verified rather than assumed — `router_if_enabled` fails startup
-    // rather than inventing an identity, so the reverse would be a deployment
-    // blocker. Decision 7, and
-    // `the_identity_is_readable_by_a_least_privilege_application_role`.
+    // `pg_control_system()` needs no special ACL. Verified rather than
+    // assumed: `router_if_enabled` fails startup if an ordinary role can't
+    // read this identity (see test
+    // `the_identity_is_readable_by_a_least_privilege_application_role`).
     let (position, identity): (i64, String) = sqlx::query_as(
         r#"SELECT
                COALESCE((SELECT position FROM task_listing_position), 0),

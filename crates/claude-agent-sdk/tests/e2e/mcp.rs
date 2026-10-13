@@ -74,7 +74,6 @@ async fn test_sdk_mcp_tool_is_called() {
 
         let messages = collect_messages(&mut handle.messages).await;
 
-        // Debug: print all messages
         for msg in &messages {
             match msg {
                 SdkMessage::System(_) => eprintln!("  [System]"),
@@ -113,13 +112,11 @@ async fn test_sdk_mcp_tool_is_called() {
             "Expected Result message"
         );
 
-        // Verify the tool was actually invoked
         assert!(
             tool_was_called.load(Ordering::SeqCst),
             "Expected the add tool to be called"
         );
 
-        // Verify the result mentions 7
         let result_text = extract_result_text(&messages);
         let assistant_text = extract_assistant_text(&messages);
         let combined = format!(

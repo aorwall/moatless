@@ -193,7 +193,6 @@ pub async fn update_repository(
         return Err(RepositoryError::NotFound(repository_id));
     }
 
-    // Re-fetch updated row
     let updated = repositories
         .find_by_id(&repository_id, ctx)
         .await?

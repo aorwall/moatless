@@ -204,7 +204,6 @@ fn screen(
     slack_config: &SlackAdapterConfig,
     ctx: &NormalizeContext<'_>,
 ) -> Result<bool, &'static str> {
-    // Ignore the bot's own messages.
     if ctx.bot_user_id == Some(event.user) {
         debug!(
             reason = "user_is_own_bot",

@@ -97,14 +97,11 @@ fn is_exempt(path: &str) -> bool {
         }
     }
 
-    // A T3 chat attachment upload. Not public: the path segment after the
-    // prefix is a short-lived signed token naming the viewer who minted it and
-    // the one attachment it may write, and the route verifies it before
-    // reading a byte (`moatless_t3code::attachments`). Exempt because that
-    // credential is the point — the client uploads with a bare
-    // `xhr.send(file)`, which carries no CSRF header, and a route that fell
-    // back to the ambient session cookie would be the CSRF the header exists to
-    // stop. Mounted only when the T3 compatibility routes are; a 404 otherwise.
+    // A T3 chat attachment upload. Not public: the path segment is a
+    // short-lived signed token naming the viewer and attachment it may
+    // write, verified before any read (`moatless_t3code::attachments`).
+    // CSRF-exempt: uploads use bare `xhr.send(file)`, no CSRF header;
+    // falling back to the cookie would be the CSRF. 404s when unmounted.
     if path.starts_with("/api/attachments/") {
         return true;
     }
@@ -126,7 +123,6 @@ fn is_exempt(path: &str) -> bool {
         return true;
     }
 
-    // Public endpoints
     matches!(
         path,
         "/.well-known/t3/environment"
@@ -191,7 +187,6 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
 
     let path = req.uri().path().to_string();
 
-    // Exempt paths bypass auth
     if is_exempt(&path) {
         return next.run(req).await;
     }
@@ -200,11 +195,10 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
     strip_user_headers(&mut req);
 
     // A WebSocket upgrade carries no headers a client can choose, so the
-    // credential is in the query string instead. Only on this one path, and
-    // only a ticket: nothing else is accepted there, and a ticket is accepted
-    // nowhere else. A present-but-bad ticket is refused rather than falling
-    // through to the cookie, so a client that thought it was authenticating one
-    // way is not silently authenticated another.
+    // credential travels in the query string instead, as a ticket only —
+    // nothing else is accepted here, and a ticket is accepted nowhere else.
+    // A bad ticket is refused rather than falling through to the cookie, so
+    // a client isn't silently authenticated a different way than it chose.
     if path == WEBSOCKET_PATH {
         if let Some(ticket) = websocket_ticket(&req) {
             let Some(jwt_secret) = jwt::get_jwt_secret(&state.config) else {
@@ -237,7 +231,6 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
         }
     }
 
-    // Try API key (Authorization: Bearer mvk_xxx)
     if let Some(auth_header) = req
         .headers()
         .get(header::AUTHORIZATION)
@@ -287,13 +280,11 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
         }
     }
 
-    // Try the sandbox-issued X-User-Token JWT. A deliberately-held bearer
-    // credential, so — like the API key above and unlike the session cookie
-    // below — it is CSRF-exempt: it is never attached ambiently by a browser.
-    // Tried ahead of the cookie so a sandbox request carrying both authenticates
-    // as the agent without hitting the cookie's CSRF gate. A present-but-invalid
-    // token (or no verifier configured) falls through to the remaining methods
-    // rather than failing the request, so it never narrows what already worked.
+    // The sandbox-issued X-User-Token JWT is a deliberately-held bearer
+    // credential, so it's CSRF-exempt like the API key above (unlike the
+    // cookie below): never attached ambiently by a browser. Tried ahead of
+    // the cookie so a dual-credential request authenticates as the agent.
+    // An invalid token falls through to the rest rather than failing outright.
     if let Some(token) = req
         .headers()
         .get("x-user-token")
@@ -376,7 +367,6 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
         }
     }
 
-    // No valid auth found
     if tokens.is_empty() {
         debug!(path = %path, "Auth middleware: no credentials provided");
     } else {

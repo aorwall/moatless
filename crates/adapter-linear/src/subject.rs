@@ -1,14 +1,13 @@
 //! What a Linear Binding points at, and how to find one.
 //!
 //! Two subject kinds. A `linear_agent_session` Binding names a Linear agent
-//! session with a live panel, kept alive by an activity, that replies land in.
-//! A `linear_issue` Binding (CLI, operator, or trigger-state created) names an
-//! issue with no session, no panel, and no activity calls — only comments.
+//! session with a live panel, kept alive by an activity, that replies land
+//! in. A `linear_issue` Binding (CLI, operator, or trigger-state) names an
+//! issue with no session, panel, or activity calls — only comments.
 //!
-//! Both carry `issue_id` in `destination_config`, so one comment can reach a
-//! task bound either way — which is why both destination-config literals live
-//! here rather than at their two provisioning sites: a differently-spelled key
-//! would write a Binding nothing could find.
+//! Both carry `issue_id` in `destination_config`; both destination-config
+//! literals live here, not at their two provisioning sites, since a
+//! differently-spelled key would write a Binding nothing could find.
 
 use moatless_adapter_model::error::AdapterError;
 use moatless_adapter_model::loops::LoopReader;
@@ -41,11 +40,10 @@ pub(super) enum BindingScope<'a> {
 
 /// The Bindings `scope` names, in no particular order.
 ///
-/// Skips a Binding still marked pending in `destination_config` (written before
-/// its Linear side exists) so no caller acts on a subject that doesn't exist
-/// yet; deliberately does *not* filter on `active` — the close path needs to
-/// see a Binding to decide about it, so callers that want only live Bindings
-/// say so themselves.
+/// Skips a Binding still pending in `destination_config` (its Linear side
+/// doesn't exist yet). Deliberately not filtered on `active` — the close
+/// path needs to see a Binding to decide about it, so callers wanting only
+/// live ones filter themselves.
 pub(super) async fn bindings_in_scope(
     task_bindings: &Bindings,
     scope: BindingScope<'_>,
@@ -85,13 +83,12 @@ fn is_pending(binding: &TaskBinding) -> bool {
         == Some("true")
 }
 
-/// Every active Binding of either subject kind listening to `issue_id`, scoped
-/// to `connection`, session Bindings first.
+/// Every active Binding of either subject kind listening to `issue_id`,
+/// scoped to `connection`, session Bindings first.
 ///
-/// Not de-duplicated per task: which Binding hears a given comment depends on
-/// the comment (see `comments::recipients_for_comment`), and the session-first
-/// order lets the recipient step keep the session Binding whenever a task's
-/// session is the one that matched.
+/// Not de-duplicated per task: which Binding hears a comment depends on the
+/// comment (see `comments::recipients_for_comment`); session-first order lets
+/// the recipient step keep the session Binding when it matched.
 pub(super) async fn active_comment_bindings(
     task_bindings: &Bindings,
     connection: &AdapterConnection,

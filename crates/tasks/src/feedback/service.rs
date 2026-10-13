@@ -17,14 +17,12 @@ pub async fn create_feedback(
     source: FeedbackSource,
     req: CreateFeedbackRequest,
 ) -> Result<Feedback, FeedbackError> {
-    // Validate scope: tool_use_id requires message_uuid.
     if req.tool_use_id.is_some() && req.message_uuid.is_none() {
         return Err(FeedbackError::BadRequest(
             "tool_use_id requires message_uuid to be set".to_string(),
         ));
     }
 
-    // Validate scope is consistent with surface.
     match (
         req.surface,
         req.message_uuid.is_some(),
@@ -52,18 +50,16 @@ pub async fn create_feedback(
         ));
     }
 
-    // Verify task exists and the caller has access.
     let _task = tasks
         .find_by_id(&req.task_id, scope)
         .await?
         .ok_or_else(|| FeedbackError::TaskNotFound(req.task_id.clone()))?;
 
-    // A caller who names no message asked for task-level feedback, but the
-    // common case — the agent running `moat feedback` with no flags — means
-    // "about what I am doing right now", not "about the task as a whole".
-    // Best effort: point it at the task's latest activity instead. A caller
-    // that did name a message (or asked for `preview_failure`) keeps exactly
-    // what it sent.
+    // A caller naming no message asked for task-level feedback, but the
+    // common case — `moat feedback` with no flags — means "about what I'm
+    // doing now," not "about the task." Best effort: point it at the task's
+    // latest activity. A caller that did name a message (or asked for
+    // `preview_failure`) keeps exactly what it sent.
     let (message_uuid, tool_use_id, surface) =
         if req.surface == FeedbackSurface::Task && req.message_uuid.is_none() {
             match feedback.latest_activity(&req.task_id).await? {

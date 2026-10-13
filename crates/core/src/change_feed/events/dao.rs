@@ -16,19 +16,11 @@ pub async fn record_event(
     task_id: &str,
     event: &str,
 ) -> Result<Option<i64>, sqlx::Error> {
-    // `queued` is unreferenced on purpose: a data-modifying CTE runs whether or
-    // not the outer query reads it, and reading it would drop the `recorded`
-    // row on a dedup.
-    //
-    // `existing` reads the pre-statement snapshot, so it sees a row only on a
-    // genuine dedup and never the one `recorded` just inserted. Re-arming
-    // through it replays nothing to clients: no new position is allocated, and
-    // both readers are keyed by position.
-    //
-    // Clearing `claimed_at` can cut a live claim short, letting a second
-    // replica take events the first is still handling. Deliberate: the
-    // handlers are idempotent and `RECLAIM_AFTER` already permits it, and a
-    // relay re-publish is the case where the claimer is most likely dead.
+    // `queued` is unreferenced: the CTE always runs, and reading it would drop
+    // the `recorded` row on a dedup. `existing` reads the pre-statement
+    // snapshot, so re-arming via it replays nothing to clients. Clearing
+    // `claimed_at` on a dedup is deliberate: handlers are idempotent, so this
+    // just lets a second replica reclaim from a likely-dead claimer.
     let position: Option<(i64,)> = sqlx::query_as(
         r#"WITH allocated AS (
                INSERT INTO task_event_position (id, position) VALUES (TRUE, 1)

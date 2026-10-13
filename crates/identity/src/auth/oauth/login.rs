@@ -28,10 +28,8 @@ pub(in crate::auth) async fn complete_login(
     // A login has nowhere to report a decline to, so it stays an error.
     let code = code.ok_or_else(|| AuthError::OAuth("Authorization was declined".into()))?;
 
-    // Exchange code for tokens
     let tokens = provider.exchange_code_for_tokens(code).await?;
 
-    // Get user info
     let user_info = provider.get_user_info(&tokens).await?;
 
     // Check required GitHub org membership. Login-only: a connect (see
@@ -51,7 +49,6 @@ pub(in crate::auth) async fn complete_login(
         }
     }
 
-    // Extract group (optional)
     let group_id = provider.extract_user_group(&tokens).await;
 
     // GitHub App login uses the stable `github` identity key shared with

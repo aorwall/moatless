@@ -426,7 +426,6 @@ impl TerminalManager {
                 if session.cols != input.cols || session.rows != input.rows {
                     resize_session(session, input.cols, input.rows)?;
                 }
-                // Reused a session already running: this open started nothing.
                 let mut reused = snapshot(session);
                 reused.started_new_process = Some(false);
                 return Ok(reused);
@@ -434,7 +433,6 @@ impl TerminalManager {
         }
         drop(inner);
 
-        // Fell through to a spawn: this open is what starts the process.
         let mut started = self
             .open_or_restart(input, TerminalStartKind::Started)
             .await?;

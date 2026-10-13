@@ -132,7 +132,6 @@ async fn coordinator_service_duplicate_stop_emits_exactly_one_stopped() {
 
     start_turn_and_wait_running(&tx, &received, &events).await;
 
-    // Two Stops arrive before the first resolves.
     let (stop_tx1, stop_rx1) = oneshot::channel::<()>();
     let (stop_tx2, stop_rx2) = oneshot::channel::<()>();
     tx.try_send(AgentCommand::Stop {

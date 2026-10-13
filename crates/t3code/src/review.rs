@@ -348,9 +348,8 @@ fn shadows_a_local_branch(
 /// returns.
 ///
 /// A draft thread has no Sandbox, so it reads branches from the git host via
-/// its project root instead of a checkout; access gates through the scoped
-/// workspace read first, so an unreadable project root answers as an empty
-/// list.
+/// the project root instead of a checkout; an unreadable project root
+/// answers as an empty list.
 pub async fn workspace_branches(
     workspaces: &dyn T3WorkspaceDao,
     branches: &dyn RepositoryBranchSource,
@@ -381,10 +380,9 @@ pub async fn workspace_branches(
 /// One page of a repository's branches, as the contract's `vcs.listRefs`
 /// result.
 ///
-/// The git host lists branches in one pass and every knob here is a view over
-/// that list, like [`ref_page`] over a Sandbox's refs; none is `current` or has
-/// a `worktreePath` since none has a checkout, and the default already leads
-/// since [`list_branches`] returns it default-first.
+/// Every knob is a view over the host's one-pass list, like [`ref_page`]
+/// over a Sandbox's refs; none is `current` or has `worktreePath` since none
+/// has a checkout. [`list_branches`] already returns the default first.
 fn branch_ref_page(response: &BranchListResponse, request: &RefRequest<'_>) -> Value {
     // A host branch is a plain branch, not a remote-tracking ref, so a request
     // narrowed to remote refs has nothing to answer with.

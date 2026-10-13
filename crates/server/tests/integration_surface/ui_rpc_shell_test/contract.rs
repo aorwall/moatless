@@ -5,19 +5,11 @@
 
 use serde_json::Value;
 
-// =========================================================================
-// The contract, transcribed
-// =========================================================================
-//
-// `OrchestrationThreadShell` and the types it nests, copied out of
-// `packages/contracts/src/orchestration.ts` on `moatless-adapter`. "Optional"
-// means the contract can fill it — `Schema.optional` or a decoding default.
-// Everything else has to be on the wire, `null` included, or the whole
-// snapshot fails to decode and the sidebar goes blank.
-//
-// The unit tests assert this against hand-built rows; here it is asserted
-// against rows a real database produced, where the nullable columns are
-// genuinely null rather than null because a factory said so.
+// `OrchestrationThreadShell` and its nested types, copied from
+// `packages/contracts/src/orchestration.ts`. "Optional" means the contract
+// can fill it (`Schema.optional` or a decoding default); everything else
+// must be on the wire, `null` included, or the snapshot fails to decode.
+// Asserted here against real database rows, not hand-built ones.
 
 /// `OrchestrationThreadShell` (`orchestration.ts:401-427`).
 const THREAD_REQUIRED: &[&str] = &[
@@ -142,16 +134,12 @@ pub(super) fn assert_decodable_thread(thread: &Value) {
     }
 }
 
-// =========================================================================
-// Delivery: a watching client sees a turn change
-// =========================================================================
+// Delivery: a watching client sees a turn change.
 //
-// The snapshot is a listing read at a position; everything that happens after
-// it reaches the client as stream events off the change feed. These tests drive
-// the real writers — the turn-number allocator and the gRPC ingress — rather
-// than inserting change records by hand, because a record written by a test
-// helper proves only that the helper works. What is asserted is what a client
-// watching the feed is handed.
+// The snapshot is a listing read at a position; everything after reaches
+// the client as stream events off the change feed. These tests drive the
+// real writers (allocator, gRPC ingress), not hand-inserted records,
+// since that would only prove the helper works.
 
 /// The `thread-upserted` member of `OrchestrationShellStreamEvent`
 /// (`orchestration.ts:449-453`). Three keys, all required, none optional — an
@@ -170,16 +158,11 @@ pub(super) fn assert_decodable_upsert(event: &Value) {
     assert_decodable_thread(&event["thread"]);
 }
 
-// =========================================================================
-// Reconnecting
-// =========================================================================
-//
-// A client that comes back holds a position and asks for what it missed. What
-// it may be told is one of three things, and the whole of this ticket is that
-// they are three rather than two: *here is what changed*, *nothing changed*,
-// and *more changed than I kept, here is the list again*. The last two are the
-// same empty result unless they are made different, and a client that cannot
-// tell them apart renders a stale sidebar forever while reporting itself live.
+// Reconnecting: a client holds a position and asks what it missed, and
+// gets one of three answers — here is what changed, nothing changed, or
+// more changed than I kept (here is the list again). The last two are
+// the same empty result unless made different; a client unable to tell
+// them apart renders a stale sidebar forever while reporting itself live.
 
 /// The `snapshot` member of `OrchestrationShellStreamItem`, both keys required
 /// (`orchestration.ts:466-469`).
@@ -218,13 +201,8 @@ pub(super) const DESCRIPTOR_REQUIRED: &[&str] = &[
     "capabilities",
 ];
 
-// =========================================================================
-// The rest of the change kinds, delivered
-// =========================================================================
-//
-// Ticket 04 delivered a turn moving. What follows is everything else a sidebar
-// shows moving, and the two directions ticket 04 could not express: a row
-// *entering* a listing, and a row *leaving* one.
+// The rest of the change kinds a sidebar shows moving: a row entering a
+// listing, and a row leaving one.
 
 /// The other three members of `OrchestrationShellStreamEvent`
 /// (`orchestration.ts:438-459`), and the two non-event members of

@@ -156,7 +156,6 @@ mod tests {
     #[tokio::test]
     async fn value_actually_changed_returns_true_when_no_local_file() {
         let tmp = tempfile::TempDir::new().unwrap();
-        // Note: no auth.json written — file missing.
         let config = test_config_with_codex_dir(tmp.path().join(".codex").display().to_string());
 
         let changed = value_actually_changed("CODEX_AUTH_JSON", r#"{"tokens":{}}"#, &config).await;
@@ -167,7 +166,6 @@ mod tests {
     async fn value_actually_changed_returns_true_for_unknown_keys() {
         let tmp = tempfile::TempDir::new().unwrap();
         let config = test_config_with_codex_dir(tmp.path().join(".codex").display().to_string());
-        // Unknown keys conservatively retry.
         let changed = value_actually_changed("WHATEVER", "value", &config).await;
         assert!(changed);
     }

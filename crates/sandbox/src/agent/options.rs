@@ -89,13 +89,10 @@ pub fn build_options(
     .into_iter()
     .find_map(claude_model);
 
-    // Build system prompt
     let system_prompt = build_system_prompt(config, request);
 
-    // Build plugin configs from paths
     let plugins = build_plugins(config);
 
-    // Detect plan mode from agent_mode.
     let is_plan_mode = request.agent_mode.as_deref() == Some("plan");
 
     // Build the permission handler for interactive prompts (AskUserQuestion,
@@ -103,7 +100,6 @@ pub fn build_options(
     let permission_handler =
         InteractivePermissionHandler::with_plan_mode(agent_state, is_plan_mode);
 
-    // Determine session resume
     let (resume, continue_conversation) = resolve_resume(request);
     let init_timeout = std::time::Duration::from_mins(2);
 
@@ -117,16 +113,11 @@ pub fn build_options(
             .or_insert_with(|| "1".to_string());
         Some(env)
     } else {
-        // Subprocess mode: each turn is a one-shot `claude -p` process. Claude
-        // Code terminates any CLI-managed `run_in_background` Bash shell a few
-        // seconds after the final result once stdin closes (see
-        // https://code.claude.com/docs/en/headless), so a job the agent
-        // "backgrounds" this way is killed at turn end rather than left
-        // running — it never surfaces as a live process and never completes.
-        // Disable that path so the agent keeps work in the foreground instead
-        // of starting jobs that die silently. A genuinely detached process
-        // (`setsid`/`nohup … &`) is not CLI-managed, survives the turn, and is
-        // still covered by the post-turn background-completion watch.
+        // Subprocess mode: each turn is one-shot `claude -p`. The CLI's
+        // `run_in_background` Bash dies with the process at turn end (see
+        // https://code.claude.com/docs/en/headless), so disable it — a
+        // genuinely detached process (`setsid`/`nohup … &`) survives and is
+        // covered by the post-turn background-completion watch instead.
         let mut env = env.unwrap_or_default();
         env.entry("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS".to_string())
             .or_insert_with(|| "1".to_string());
@@ -164,12 +155,11 @@ pub fn build_options(
         model,
         effort: claude_effort(request.effort.as_deref()),
         system_prompt,
-        // Plan-mode requests always use Plan so the InteractivePermissionHandler
-        // can block writes until ExitPlanMode. Otherwise use the configured mode
-        // (`SANDBOX_PERMISSION_MODE`), which defaults to BypassPermissions:
-        // AcceptEdits auto-approves only file edit/write tools and leaves network
-        // tools like WebSearch/WebFetch denied, since the CLI never routes those
-        // through the stdio permission handler.
+        // Plan mode always uses Plan so InteractivePermissionHandler can
+        // block writes until ExitPlanMode. Otherwise uses the configured
+        // mode (`SANDBOX_PERMISSION_MODE`, default BypassPermissions):
+        // AcceptEdits approves only file edit/write, leaving WebSearch/
+        // WebFetch denied — the CLI never routes those through this handler.
         permission_mode: Some(if is_plan_mode {
             PermissionMode::Plan
         } else {
@@ -190,34 +180,18 @@ pub fn build_options(
         max_turns: config.agent_config.timeout.map(|t| t as u32),
         init_timeout: Some(init_timeout),
         env,
-        // Disallowed tools are removed from the CLI's context entirely (a bare
-        // tool name in the deny list), so the agent never sees or calls them.
-        //
-        // - Monitor (subprocess mode only): the CLI's built-in Monitor tool
-        //   only delivers events while its own process is alive. The
-        //   subprocess per-turn `--resume` model kills that process at turn
-        //   end, so the Monitor watcher dies before any events reach the
-        //   agent. Disallow it so the agent gets a loud "tool not allowed"
-        //   error and falls back to Bash background. In tmux mode the TUI
-        //   process persists across turns, so Monitor (and the CLI's internal
-        //   ScheduleWakeup timer) work natively and Monitor stays allowed.
-        //
-        // - The interactive tools (headless tasks only): AskUserQuestion and
-        //   Enter/ExitPlanMode each park the turn until a person answers. A
-        //   headless task has nobody watching for the prompt, so the turn would
-        //   sit on a question that is never answered. Where a person is
-        //   watching, the question reaches them as a durable activity and their
-        //   answer comes back through the permission handler, so they stay
-        //   allowed and the prompt is rendered rather than dropped.
+        // See `disallowed_tools` for what's removed and why.
         disallowed_tools: Some(disallowed_tools(config, is_plan_mode)),
         ..ClaudeOptions::default()
     }
 }
 
-/// The tools kept out of the CLI's context for this run.
+/// Tools removed entirely from the CLI's context for this run.
 ///
-/// A plan-mode run keeps `ExitPlanMode`: it is the only way out of plan mode,
-/// and asking for plan mode is asking for the approval prompt it raises.
+/// Plan mode keeps `ExitPlanMode`, the only way out. Monitor is disallowed
+/// in subprocess mode: its watcher dies at turn end before events reach the
+/// agent (tmux keeps the TUI alive, so it stays allowed there). Headless
+/// interactive tools are disallowed since nobody is watching to answer them.
 fn disallowed_tools(config: &Config, is_plan_mode: bool) -> Vec<String> {
     let mut tools: Vec<&str> = Vec::new();
     if !config.use_tmux {
@@ -453,13 +427,12 @@ fn repo_instruction_filenames(config: &Config) -> [&'static str; 2] {
 /// a runaway file, and what is dropped is still reachable at the path shown.
 const MAX_INLINED_INSTRUCTIONS_BYTES: usize = 64 * 1024;
 
-/// Build the "# Repository Instructions" section for each checked-out repo's
-/// root instruction file, inlined by default since a pointer alone often goes
-/// unread.
+/// Build the "# Repository Instructions" section for each checked-out
+/// repo's root instruction file, inlined by default since a pointer alone
+/// often goes unread.
 ///
-/// A repo opts out via `frontloadInstructions: false`, which travels with the
-/// primary repo and governs the whole section in a multi-repo workspace.
-/// Returns `None` when no repo has one.
+/// A repo opts out via `frontloadInstructions: false`, governing the whole
+/// section in a multi-repo workspace. Returns `None` when no repo has one.
 fn build_repo_instructions_section(config: &Config) -> Option<String> {
     let filenames = repo_instruction_filenames(config);
     let paths: Vec<String> = config
@@ -1296,7 +1269,6 @@ mod tests {
         assert!(append.contains(&format!("## `{api_dir}/CLAUDE.md`")));
         // Only AGENTS.md exists here, so the fallback name is what gets used.
         assert!(append.contains(&format!("## `{web_dir}/AGENTS.md`")));
-        // The contents are in the prompt, not just the paths.
         assert!(append.contains("API RULES"));
         assert!(append.contains("WEB RULES"));
 

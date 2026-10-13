@@ -58,11 +58,10 @@ pub(super) async fn handle_comment_created(
         return Ok(());
     }
 
-    // Provenance: our own outbound comments end with a `Moatless task:` footer
-    // link to the authoring task (see `LinearAdapter::send_reply_for_binding`).
-    // Recovering that task id is what lets the resolver drop the comment for the
-    // task that authored it. The footer is visible content — nothing to strip,
-    // so the body is forwarded unchanged.
+    // Our own outbound comments end with a `Moatless task:` footer link (see
+    // `LinearAdapter::send_reply_for_binding`); recovering that id is how the
+    // resolver drops the comment for its own authoring task. The footer is
+    // visible, so the body is forwarded unchanged.
     let author_task_id = moatless_adapter_model::footer::parse_task_id_from_body(
         &config.auth.frontend_url,
         &comment.body,
@@ -231,14 +230,11 @@ mod tests {
     use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
     use moatless_types::adapter::TaskBinding;
 
-    // ---- Comment routing -------------------------------------------------
-    //
-    // Two halves, tested apart because they are two different jobs. The
-    // classification below is Linear's: only Linear knows a `parentId` makes a
-    // comment a threaded reply. Turning that into recipients is
-    // `resolve_recipients`, shared with GitHub PR and exhaustively tabled in
-    // `moatless_loops::bindings::recipients` — what the delivery cases here assert is
-    // that Linear's own binding shapes fall where the ticket says they fall.
+    // Comment routing: two jobs, tested apart. Classification (`parentId` →
+    // threaded reply) is Linear-specific; turning that into recipients is
+    // `resolve_recipients`, shared with GitHub PR and tabled exhaustively in
+    // `moatless_loops::bindings::recipients`. These tests only assert Linear's
+    // binding shapes land where that table says.
 
     fn comment_with_parent(parent_id: Option<&str>) -> CommentPayloadData {
         CommentPayloadData {

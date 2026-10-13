@@ -36,14 +36,12 @@ async fn find_by_id_access_control(pool: PgPool) {
     let row = make_repository_row("repo-priv", "user-1");
     PgRepositoryDao(pool.clone()).insert(&row).await.unwrap();
 
-    // Owner can see a user-scoped repository.
     let found = PgRepositoryDao(pool.clone())
         .find_by_id("repo-priv", &scope_ctx("user-1"))
         .await
         .unwrap();
     assert!(found.is_some());
 
-    // Other users cannot read another user's user-scoped repository.
     let found = PgRepositoryDao(pool.clone())
         .find_by_id("repo-priv", &scope_ctx("user-2"))
         .await
@@ -127,7 +125,6 @@ async fn soft_delete(pool: PgPool) {
         .unwrap();
     assert!(deleted);
 
-    // Should not be findable anymore
     let found = PgRepositoryDao(pool.clone())
         .find_by_id("repo-del", &scope_ctx("user-1"))
         .await

@@ -125,19 +125,17 @@ pub(crate) struct CoordinatorService {
     /// Who initiated the in-flight stop, echoed on the terminal `Stopped`
     /// event.
     ///
-    /// `None` means no `AgentCommand::Stop` set one — a shutdown self-cancel,
-    /// closing the Turn as `turn_interrupted` rather than `stopped`. It is the
-    /// only writer, so `None` at a `Cancelled` outcome is the shutdown
-    /// signature.
+    /// `None` means no `AgentCommand::Stop` set one: a shutdown self-cancel
+    /// closes the Turn as `turn_interrupted`, not `stopped` — the only
+    /// writer, so `None` at `Cancelled` is the shutdown signature.
     pending_stop_source: Option<StopSource>,
     // ── Workspace sync ───────────────────────────────────────────────────────
-    /// The pod-wide upload baseline: turn boundaries are the primary durability
-    /// point on the PVC tier, and sharing this keeps a turn that changed
-    /// nothing from shipping a duplicate tar.
+    /// The pod-wide upload baseline. Turn boundaries are the primary
+    /// durability point on the PVC tier; sharing this keeps a turn that
+    /// changed nothing from shipping a duplicate tar.
     ///
-    /// Cloned into a background task at each boundary rather than awaited: this
-    /// loop also drains messages, stops, and command wakes
-    /// ([`workspace_sync::spawn_after_turn`]).
+    /// Cloned into a background task rather than awaited, since this loop
+    /// also drains messages, stops, and command wakes.
     workspace_sync: WorkspaceSyncTracker,
 }
 
@@ -260,15 +258,12 @@ impl CoordinatorService {
         let mut heartbeat_tick = tokio::time::interval(HEARTBEAT_TICK_INTERVAL);
         heartbeat_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
-        // A deadline one year in the future — used as the "never fires" sentinel
-        // for the retry arm when no retry is scheduled.
-        // reason: the larger-unit constructors (`Duration::from_days`) are still
-        // unstable, so build the ~1-year sentinel from seconds.
+        // "Never fires" sentinel for the retry arm when no retry is scheduled.
+        // reason: `Duration::from_days` is still unstable, so build it from seconds.
         #[allow(clippy::duration_suboptimal_units)]
         let far_future = tokio::time::Instant::now() + Duration::from_secs(31_536_000);
 
         loop {
-            // Prove the loop is alive on every iteration.
             heartbeat.beat();
 
             tokio::select! {
@@ -307,24 +302,18 @@ impl CoordinatorService {
                             }
                         }
 
-                        // Decide retry BEFORE the coordinator publishes: a
-                        // failure we will re-drive must suppress the coordinator's
-                        // terminal `error` event so the user sees only
-                        // `retrying`.
-                        //
-                        // A flagged credential takes precedence over transient
-                        // retry — a Codex auth failure can surface as a process
-                        // exit — and drives credential recovery here, which owns
-                        // the retry scheduling, the single reconnect error, and
-                        // the consecutive-error accounting for this failure.
+                        // Decide retry before the coordinator publishes: a
+                        // re-driven failure must suppress the terminal
+                        // `error` event. A flagged credential wins over
+                        // transient retry (Codex auth can exit as a process)
+                        // and owns the retry, reconnect error, and error count.
                         let mut credential_recovery_handled = false;
                         if let Some(Outcome::Failed(err)) = &outcome_ref {
                             let flagged = self.credential_failures.take_all();
                             if !flagged.is_empty() {
-                                // Recovery either schedules a retry (only
-                                // `retrying`) or publishes its own single
-                                // user-facing reconnect error — the coordinator's
-                                // generic terminal error is suppressed either way.
+                                // Recovery schedules a retry or publishes its own
+                                // reconnect error; the coordinator's terminal
+                                // error is suppressed either way.
                                 self.coordinator.suppress_next_failure_event();
                                 self.try_credential_recovery(flagged, err, &task_id).await;
                                 credential_recovery_handled = true;
@@ -332,14 +321,11 @@ impl CoordinatorService {
                                 && self.retry_attempt < MAX_RETRIES
                             {
                                 self.coordinator.suppress_next_failure_event();
-                                // Record last_error but undo the +1 that
-                                // set_error adds to AgentState's own
-                                // consecutive-error count (read by the
-                                // dispatcher) — a retryable error must not
-                                // count until retries are exhausted (mirrors
-                                // actor.rs:462). The service's own breaker
-                                // counter is only incremented for terminal
-                                // failures below, so it is left untouched here.
+                                // Record last_error but undo set_error's +1 to
+                                // AgentState's own error count (read by the
+                                // dispatcher): a retryable error must not count
+                                // until retries exhaust. The service's own
+                                // breaker counter stays untouched here.
                                 self.agent_state.set_error(err.diagnostic.clone()).await;
                                 self.agent_state.undo_error_increment().await;
                             } else {
@@ -360,11 +346,10 @@ impl CoordinatorService {
                                 .defer_completion_for_background_commands(owed);
                         }
 
-                        // The coordinator updates Run identity and acks, moves
-                        // the state machine, and publishes — one act per
-                        // signal, so the turn the events describe and the turn
-                        // the agent reports are the same turn. What is left
-                        // below is what the *service* owns: retry budget, the
+                        // The coordinator updates Run identity, acks, and
+                        // publishes as one act per signal, keeping the events'
+                        // turn and the agent's reported turn the same turn.
+                        // What's left here is service-owned: retry budget,
                         // breaker, scheduled jobs, workspace sync.
                         if let Some(opened) = self.coordinator.handle_signal(signal).await {
                             turn_cancel = opened;
@@ -373,12 +358,10 @@ impl CoordinatorService {
                         if let Some(outcome) = outcome_ref {
                             match outcome {
                                 Outcome::Completed { .. } => {
-                                    // Successful completion resets retry and breaker state.
                                     self.retry_attempt = 0;
                                     self.retry_at = None;
                                     self.consecutive_errors = 0;
                                     self.credential_recovery_attempts = 0;
-                                    // Arm any self-scheduled jobs the completed Turn requested.
                                     self.arm_scheduled_jobs(&task_id).await;
                                     workspace_sync::spawn_after_turn(
                                         self.config.clone(),
@@ -392,20 +375,10 @@ impl CoordinatorService {
                                     self.consecutive_errors = 0;
                                     // A cancelled Turn arms nothing; drop any buffered wakeup.
                                     self.pending_wakeup = None;
-                                    // The cancellation source owns Turn closure, and
-                                    // it also decides *whether the Turn is closed at
-                                    // all*. An `AgentCommand::Stop` carries a source
-                                    // and is a real stop: it closes the Run and Turn
-                                    // with exactly one `Stopped`. A shutdown-initiated
-                                    // `AgentState::stop()` carries none — the pod is
-                                    // being torn down under a Turn nobody asked to
-                                    // end — so it publishes `turn_interrupted`
-                                    // instead, leaving the Turn open for the
-                                    // replacement pod's `recover_interrupted_run` to
-                                    // resume. See `interrupted_turn_payload`.
-                                    // `close_turn` already left `Running`; only
-                                    // *which* terminal event says so is decided
-                                    // here.
+                                    // Source decides closure: `Stop` closes
+                                    // Run+Turn with one `Stopped`; a shutdown
+                                    // self-cancel (no source) leaves the Turn
+                                    // open via `turn_interrupted` to resume.
                                     let run_events = self
                                         .coordinator
                                         .events
@@ -447,10 +420,9 @@ impl CoordinatorService {
                                     // the block if it recurs.
                                     self.pending_wakeup = None;
                                     if credential_recovery_handled {
-                                        // Credential recovery (before publish) already
-                                        // owns this failure's retry scheduling, the
-                                        // single reconnect error, and the
-                                        // consecutive-error accounting.
+                                        // Credential recovery already owns this
+                                        // failure's retry, reconnect error, and
+                                        // error accounting (decided before publish).
                                     } else if is_retryable_harness_error(&err)
                                         && self.retry_attempt < MAX_RETRIES
                                     {
@@ -497,11 +469,10 @@ impl CoordinatorService {
 
                         if let Some((_, reason)) = rejection_ref {
                             match reason {
-                                // A lost-resume rejection the coordinator recovered
-                                // (re-drove a fresh Turn, holding the Run) is not a
-                                // terminal error — its recovery `ExecutionStarted`
-                                // will `set_running` shortly. Only a rejection the
-                                // coordinator did NOT recover is a real failure.
+                                // A lost-resume rejection already recovered
+                                // (re-drove a Turn, holding the Run) is not a
+                                // terminal error; only an unrecovered
+                                // rejection is a real failure.
                                 Rejection::Failed(err) if !self.coordinator.is_recovering() => {
                                     // Pre-accept startup failures also count toward the
                                     // circuit breaker (mirrors actor session-start failure path).
@@ -515,19 +486,15 @@ impl CoordinatorService {
                             }
                         }
                     } else {
-                        // Harness signal stream closed: the harness has stopped.
                         info!(task_id = %task_id, "HarnessRuntime signal stream closed; CoordinatorService exiting");
                         break;
                     }
                 }
 
-                // When the active turn's cancel token fires (set via
-                // `agent_state.set_running(turn_cancel)`), forward the
-                // cancellation to the harness so the active execution is
-                // interrupted. The select arm stays active as long as the loop
-                // runs — once turn_cancel is a cancelled child the arm fires
-                // immediately; a new ExecutionStarted mints a fresh child so
-                // only the current turn is affected.
+                // When the turn's cancel token fires (set via
+                // `agent_state.set_running(turn_cancel)`), forward cancellation
+                // to the harness. `turn_cancel` is rebound to a fresh child on
+                // each `ExecutionStarted`, so only the current turn is affected.
                 () = turn_cancel.cancelled() => {
                     self.coordinator.cancel();
                     // Re-create so a subsequent turn gets its own cancel scope.
@@ -658,11 +625,10 @@ impl CoordinatorService {
                             self.scheduled_jobs.cancel_all().await;
 
                             if self.coordinator.turn_active() {
-                                // Active stop: interrupt the harness and keep
+                                // Active stop: interrupt the harness, keep
                                 // driving signals. The terminal `Cancelled`
-                                // (handled above) publishes the one `Stopped` and
-                                // resolves the ack. Do NOT break — the pod stays
-                                // alive to serve later turns.
+                                // above publishes `Stopped` and resolves the
+                                // ack — do NOT break; the pod serves later turns.
                                 info!(task_id = %task_id, "CoordinatorService: active stop");
                                 self.coordinator.cancel();
                             } else {
@@ -771,7 +737,6 @@ impl CoordinatorService {
         // per-prompt cap is scoped to one prompt.
         self.credential_recovery_attempts = 0;
 
-        // ── Circuit breaker ───────────────────────────────────────
         const MAX_CONSECUTIVE_ERRORS: u32 = 3;
         if self.consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
             warn!(
@@ -895,11 +860,10 @@ impl CoordinatorService {
 
     /// Drive credential recovery after a Turn failed with the detector flagged.
     ///
-    /// Pulls fresh values for `flagged`; if any is genuinely fresher, retries
-    /// the same prompt on the same Run (user sees `retrying`). Otherwise — or
-    /// past the per-prompt cap — publishes exactly one reconnect error, since
-    /// the coordinator suppressed the original terminal event and recovery owns
-    /// the single user-facing one.
+    /// Pulls fresh values for `flagged`; if any is fresher, retries the same
+    /// prompt on the same Run (`retrying`). Otherwise, past the per-prompt
+    /// cap, publishes exactly one reconnect error — recovery owns the single
+    /// user-facing event the coordinator suppressed.
     async fn try_credential_recovery(
         &mut self,
         flagged: Vec<String>,
@@ -1040,11 +1004,10 @@ impl CoordinatorService {
         env.insert("TASK_ID".to_string(), self.config.task_id.clone());
         let env = Some(env);
 
-        // Resolve resume exactly as `session::resolve_resume_session`: the pod's
-        // last known Session id takes precedence, then the backend-provided id,
-        // then a `--continue` for the Claude family. The family is
-        // `config.agent_profile`, which `ensure_profile` keeps on the running
-        // harness's profile.
+        // Resolve resume as `session::resolve_resume_session`: the pod's last
+        // known Session id wins, then the backend-provided id, then
+        // `--continue` for Claude. Family is `config.agent_profile`, kept
+        // current by `ensure_profile`.
         let harness_family = self
             .config
             .agent_profile

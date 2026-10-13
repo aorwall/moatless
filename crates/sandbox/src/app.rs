@@ -19,7 +19,6 @@ const GITHUB_PROXY_SOCKET_FILE: &str = "github.sock";
 
 /// Configure structured logging from the process environment.
 pub fn initialize_logging(log_level: &str) {
-    // Initialize logging
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| {
             // `rustic_core` WARNs once per restored entry whose extended
@@ -43,7 +42,6 @@ pub fn initialize_logging(log_level: &str) {
 
 /// Assemble and supervise the sandbox process.
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    // Load configuration
     let config = Config::from_env().map_err(|error| {
         tracing::error!(%error, "Invalid checkout configuration");
         crate::init::InitError::Permanent(error)
@@ -60,12 +58,10 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let registrar = supervisor.registrar();
 
     // Start gRPC server for sandbox service (receives commands from backend)
-    // Available even during init so backend can reach the pod. Drains via the
-    // lifecycle token so a SIGTERM (see shutdown driver below) stops it cleanly.
-    //
-    // Fatal: this is the only channel the backend has to reach the pod. Before
-    // supervision an early `serve` return logged an error and left a process
-    // nothing could talk to, still passing its startup probe forever.
+    // Available even during init so backend can reach the pod. Drains via
+    // the lifecycle token so SIGTERM stops it cleanly. Fatal: this is the
+    // only channel the backend has to reach the pod — before supervision,
+    // an early `serve` return left a process nothing could talk to.
     let grpc_state = state.clone();
     let grpc_port = config.grpc_port;
     let grpc_server = tokio::spawn(async move {
@@ -117,12 +113,11 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     spawn_github_proxy(&state, &registrar).await;
 
-    // Spawn init task — handles credential fetching, git clone, workspace setup.
-    // After init completes, it triggers process_pending_messages() to pick up
-    // any messages that arrived during initialization.
+    // Spawns init: credential fetch, git clone, workspace setup, then
+    // `process_pending_messages()` for anything that arrived meanwhile.
     //
-    // Initialization errors retain their permanent/transient classification
-    // through the executable's exit decision; panics remain supervisor failures.
+    // Init errors keep their permanent/transient classification through
+    // the exit decision; panics remain supervisor failures.
     let init_state = state.clone();
     let (init_failure, init_errors) = tokio::sync::oneshot::channel();
     let init_registrar = registrar.clone();
@@ -136,18 +131,11 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let router = crate::health::router(state.clone());
 
-    // Drive graceful shutdown on SIGTERM/SIGINT. Without this the process rides
-    // the full pod termination grace period and is SIGKILLed (exit 137) on every
-    // teardown (idle-down, node drain, eviction, PR-close). On signal we stop the
-    // agent and cancel the lifecycle token, which both servers and background
-    // tasks observe to wind down.
-    //
-    // Liveness, not Fatal: a driver that died before the signal means the *next*
-    // teardown rides the grace period to exit-137, which costs the final flushes.
-    // Exiting the process now to fix that would destroy the turn currently
-    // running, which is strictly worse — a restart under SIGTERM is the remedy.
-    // Its own normal return happens after it cancels the lifecycle token, so it
-    // classifies as shutdown rather than early termination.
+    // Drive graceful shutdown on SIGTERM/SIGINT: without it, every teardown
+    // rides the grace period to a SIGKILL (exit 137). On signal it stops the
+    // agent and cancels the lifecycle token, which servers and background
+    // tasks observe. Liveness, not Fatal: dying before the signal just costs
+    // the next teardown's final flushes, and isn't worth a restart.
     registrar.supervise(
         "shutdown-driver",
         Criticality::Liveness,
@@ -199,19 +187,11 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         ),
     }
 
-    // Hand control to the supervisor: it watches until a fatal exit or the
-    // lifecycle token fires, then cancels and joins everything within one
-    // bounded deadline (see `SHUTDOWN_JOIN_DEADLINE`).
-    //
-    // The second argument is the graceful teardown for the *fatal* path, where
-    // no SIGTERM arrived and so the shutdown driver never ran. It is the same
-    // `perform_shutdown` the signal path uses, run in the same position — before
-    // cancellation — so the outbox flush, the transcript flush and the workspace
-    // flush all happen on both exit paths. `Fatal` is a per-task policy, not a
-    // synonym for "the backend is unreachable": for every Fatal task except the
-    // gRPC server the connection is fine, and a fatal exit is exactly when a
-    // terminal lifecycle event most needs to land. The future is not polled
-    // unless a fatal exit actually happens.
+    // The supervisor watches until a fatal exit or the lifecycle token
+    // fires, then cancels and joins within one deadline. The second arg is
+    // the fatal-path teardown (no SIGTERM, shutdown driver never ran) —
+    // the same `perform_shutdown`, run before cancellation so flushes land
+    // on both exit paths; never polled unless a fatal exit happens.
     let teardown = shutdown::perform_shutdown_for_state(&state);
     let supervision = supervisor.run(SHUTDOWN_JOIN_DEADLINE, teardown);
     tokio::pin!(supervision);
@@ -275,15 +255,11 @@ pub async fn run_init(
 }
 
 async fn start_background_tasks(state: &SandboxState, registrar: &crate::supervisor::Registrar) {
-    // Spawn the periodic credential refresher. GitHub App installation tokens
-    // expire after 1h and user access tokens after 8h — long-running tasks
-    // would otherwise fail mid-turn on `git push` / `gh pr comment`.
-    // See `refresher.rs` for the full rationale.
-    //
-    // Liveness: the loop handles its own transient errors, so only a panic ends
-    // it — after which credentials silently go stale and git operations start
-    // failing an hour later with no connection to the cause. A restart re-fetches
-    // them; an immediate process exit would kill the turn that is still working.
+    // Credential refresher: GitHub tokens expire (1h app, 8h user), and a
+    // long-running task would fail mid-turn on `git push`/`gh pr comment`
+    // without it (see `refresher.rs`). Liveness: only a panic ends the loop
+    // (it handles its own transient errors), after which credentials go
+    // stale silently; a restart re-fetches rather than killing the turn.
     let refresher_state = state.clone();
     let refresher_cancel = state.lifecycle_cancel.clone();
     let refresher_interval = state.config.credential_refresh_interval;
@@ -297,18 +273,11 @@ async fn start_background_tasks(state: &SandboxState, registrar: &crate::supervi
         )),
     );
 
-    // Spawn the periodic CLI session-state uploader. Every interval it tars
-    // Claude transcripts plus Codex rollout sessions and ships them to S3 via
-    // the backend, so agent resume state persists off the per-task PVC (and is
-    // the only CLI-session durability for the ephemeral tier).
-    // `TRANSCRIPT_SYNC_INTERVAL_SECS=0` disables the loop; sync-on-shutdown
-    // still flushes the final delta.
-    //
-    // Liveness: a dead loop stops persisting resume state, so an ungraceful kill
-    // loses everything since the last successful sync — silently, because
-    // `flush_on_shutdown` is driven by the shutdown driver rather than by this
-    // task and keeps working either way. That final flush is unchanged;
-    // supervision only makes the loop's death visible.
+    // Session-state uploader: tars Claude/Codex session state to S3 every
+    // interval, the only CLI-session durability on the ephemeral tier
+    // (`TRANSCRIPT_SYNC_INTERVAL_SECS=0` disables it; shutdown still flushes
+    // the final delta). Liveness: a dead loop silently stops persisting
+    // resume state; the shutdown-driven final flush is unaffected.
     if let Some(interval) = state.config.transcript_sync_interval {
         let transcript_state = state.clone();
         let transcript_cancel = state.lifecycle_cancel.clone();
@@ -323,19 +292,11 @@ async fn start_background_tasks(state: &SandboxState, registrar: &crate::supervi
         );
     }
 
-    // Spawn the periodic workspace uploader for the `s3` storage backend. Turn
-    // completion and the bounded shutdown flush are the primary durability
-    // points, but a long turn killed involuntarily (node-pressure eviction, OOM,
-    // spot reclaim with no grace) reaches neither and loses everything since the
-    // last completed turn. This loop bounds that gap: every interval it
-    // fingerprints the workspace and uploads only when the tracked file set
-    // changed. `WORKSPACE_SYNC_INTERVAL_SECS=0` disables it, and so does a
-    // durable volume, which survives the kill this loop exists for;
-    // turn-boundary, pre-stop and shutdown uploads still run.
-    //
-    // Liveness: a dead loop silently drops the between-turn checkpoints, leaving
-    // an ungraceful kill to fall back to the last turn boundary — supervision
-    // makes the loop's death visible rather than fixing it.
+    // Workspace uploader (`s3` backend): bounds the gap a turn killed
+    // involuntarily (eviction, OOM, spot reclaim) leaves beyond turn-end
+    // and shutdown flushes, uploading only when the tracked file set
+    // changed (`WORKSPACE_SYNC_INTERVAL_SECS=0`, or a durable volume,
+    // disables it). Liveness: a dead loop just drops between-turn checkpoints.
     if crate::workspace_sync::is_periodic_enabled(&state.config) {
         if let Some(interval) = state.config.workspace_sync_interval {
             let workspace_state = state.clone();
@@ -352,14 +313,12 @@ async fn start_background_tasks(state: &SandboxState, registrar: &crate::supervi
         }
     }
 
-    // Watch ~/.codex/auth.json for rotations. Codex rewrites this file every
-    // time it refreshes its OAuth token; the watcher pushes the rotated blob
-    // back to the backend so subsequent tasks (and pod restarts) see the new
-    // refresh_token instead of the now-invalidated stored copy.
+    // Watch ~/.codex/auth.json for rotations: Codex rewrites it on every
+    // OAuth refresh, and the watcher pushes the rotated blob to the backend
+    // so later tasks and pod restarts see the new refresh_token.
     //
-    // A routed Codex authenticates by `env_key` and rotates nothing. Running
-    // the watcher would push the synthesized proxy-key blob into the user's
-    // stored Codex credential and destroy the OAuth token it replaced.
+    // A routed Codex authenticates by `env_key` and rotates nothing; running
+    // the watcher would overwrite the user's real stored credential.
     if state.config.openai_base_url.is_none() {
         spawn_codex_auth_watcher(state, registrar).await;
     }
@@ -403,11 +362,10 @@ async fn spawn_codex_auth_watcher(state: &SandboxState, registrar: &crate::super
         state.lifecycle_cancel.clone(),
     );
 
-    // Optional: losing the watcher means a Codex token rotation is not pushed
-    // back to the backend, which costs the *next* task (or the next pod start) a
-    // stale refresh_token. It costs the running turn nothing, so it is not worth
-    // a restart — but it should be named rather than logged as an anonymous
-    // panic.
+    // Optional: losing the watcher means a Codex token rotation isn't pushed
+    // back, costing the *next* task (or pod start) a stale refresh_token —
+    // nothing to the running turn, so not worth a restart, but named rather
+    // than logged as an anonymous panic.
     registrar.supervise("codex-auth-watcher", Criticality::Optional, watcher_task);
 
     // Stash the handle so the credential dispatcher can seed the watcher's

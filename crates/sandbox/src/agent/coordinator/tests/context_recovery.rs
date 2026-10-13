@@ -74,7 +74,6 @@ async fn lost_resume_recovers_with_a_fresh_turn_and_keeps_the_ack() {
     coord.pump_one_execution().await;
     flush(&events).await;
 
-    // The context-loss notice precedes a full fresh Turn.
     assert_eq!(
         sub_types(&received),
         vec![
@@ -86,7 +85,6 @@ async fn lost_resume_recovers_with_a_fresh_turn_and_keeps_the_ack() {
         ],
     );
 
-    // The notice names the stale Session and the classified diagnostic.
     let notice: serde_json::Value =
         serde_json::from_str(&only(&received, "session_context_lost").payload_json).expect("json");
     assert_eq!(notice["stale_session_id"], "stale-session");
@@ -172,7 +170,6 @@ async fn a_recovery_that_fails_again_is_not_retried() {
         "got {types:?}"
     );
     assert!(types.contains(&"error".to_string()), "got {types:?}");
-    // The ack is finally dropped once recovery is exhausted.
     assert!(matches!(
         ack_rx.await,
         Err(oneshot::error::RecvError { .. })

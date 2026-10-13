@@ -71,14 +71,12 @@ pub(crate) struct TailTarget {
     pub(crate) start_at_end: bool,
 }
 
-/// Race the hook-driven `Stop.transcript_path` against snapshot-diff against
-/// `before`, returning whichever resolves first (else
+/// Races the hook-driven `Stop.transcript_path` against snapshot-diff of
+/// `before`; whichever resolves first wins (else
 /// [`SdkError::JsonlNotFound`] on timeout).
 ///
-/// Stop is authoritative and covers `--continue`/`--resume`, where claude
-/// appends to an existing file and snapshot-diff sees nothing new;
-/// snapshot-diff is a defensive fallback for older Claude versions and fresh
-/// sessions.
+/// Stop covers `--continue`/`--resume`, where snapshot-diff sees no new
+/// file; snapshot-diff is the fallback for older Claude versions.
 pub(crate) async fn discover_transcript_path(
     mut state_rx: watch::Receiver<HookState>,
     project_dir: PathBuf,
@@ -119,7 +117,6 @@ pub(crate) async fn discover_transcript_path(
                     // until deadline.
                     continue;
                 }
-                // Loop back: re-check state for transcript_path.
             }
             () = &mut sleep => {
                 // Resume: claude appends to the existing <session_id>.jsonl (no
@@ -265,14 +262,11 @@ pub(crate) fn spawn_lazy_supervisor(
             return;
         }
 
-        // Resume / --continue cases mean the JSONL already contains prior
-        // turns. Seek to EOF before tailing — otherwise we'd replay every
-        // old record and synth a Result for an old turn_duration.
+        // Resume/--continue: the JSONL has prior turns, so seek to EOF or
+        // we'd replay old records and synth a Result for a stale turn_duration.
         //
-        // We can't rely on `before` here because Claude's project-dir
-        // encoding doesn't always match ours (it replaces underscores in
-        // path components too), so the file may exist on disk under a name
-        // our snapshot-diff didn't see.
+        // `before` is unreliable here: Claude's project-dir encoding doesn't
+        // always match ours, so the file may be under a name snapshot-diff missed.
         let start_at_end = options.resume.is_some() || options.continue_conversation == Some(true);
 
         let target = TailTarget {
@@ -581,7 +575,6 @@ async fn tail_loop(
         };
 
         if n == 0 {
-            // EOF — wait for more data
             tokio::select! {
                 () = cancellation_token.cancelled() => return,
                 () = tokio::time::sleep(eof_sleep) => continue,

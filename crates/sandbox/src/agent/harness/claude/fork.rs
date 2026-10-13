@@ -8,13 +8,12 @@
 use claude_agent_sdk::transcript_dir;
 use tracing::warn;
 
-/// Write a truncated copy of `source_session_id`'s transcript under a fresh id,
-/// keeping every line through `through_message_uuid`, and return that id for
-/// the harness to `--resume`.
+/// Write a truncated copy of `source_session_id`'s transcript under a fresh
+/// id, keeping every line through `through_message_uuid`; returns that id
+/// for the harness to `--resume`.
 ///
-/// Returns `None` when the source is missing or the anchor line is absent (e.g.
-/// the archive synced before the cut's turn reached it) — both leave the caller
-/// to start the fork fresh rather than resume something unintended.
+/// Returns `None` when the source or the anchor line is missing, leaving
+/// the caller to start the fork fresh rather than resume something unintended.
 pub(super) async fn write_forked_transcript(
     cwd: &str,
     config_dir: &str,
@@ -56,14 +55,12 @@ pub(super) async fn write_forked_transcript(
     Some(new_session_id)
 }
 
-/// Keep `body`'s lines through the last one matching `through_uuid`, rewriting
-/// `sessionId` to `session_id`.
+/// Keep `body`'s lines through the last one matching `through_uuid`,
+/// rewriting `sessionId` to `session_id`.
 ///
-/// Matched against `message.id` first, then the line's own `uuid` (a stored
-/// row's `uuid` never matches the CLI-minted one); the cut runs to the *last*
-/// matching line, not the first, since one message spans up to four lines and
-/// stopping earlier would truncate it. Empty string means no match; an
-/// unparseable line is dropped rather than carried forward unrewritten.
+/// Matches `message.id` first, then the line's own `uuid`. Cuts to the
+/// *last* matching line, not the first, since one message spans up to
+/// four lines. Empty string means no match; an unparseable line is dropped.
 fn cut_transcript(body: &str, through_uuid: &str, session_id: &str) -> String {
     let parsed: Vec<serde_json::Value> = body
         .lines()

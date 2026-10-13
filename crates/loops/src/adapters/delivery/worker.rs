@@ -84,16 +84,11 @@ async fn run(
         }
     }
 
-    // Shutdown drains by *not* claiming another batch: the batch in flight is
-    // awaited inside `drain_due` before the loop can observe cancellation.
-    //
-    // That await is not a promise the batch finishes. The root supervisor only
-    // bounded-joins for `SHUTDOWN_JOIN_DEADLINE` (20s) whereas one execution may
-    // take `execution_timeout` (2min), so a deploy landing on a long batch exits
-    // with handlers still running and names this task a straggler. Nothing is
-    // lost when it does: those records stay `claimed` and are recovered by the
-    // next run of this owner or by lease expiry. Shutdown delays admitted work,
-    // it never loses it.
+    // Shutdown stops claiming batches but awaits the in-flight one inside
+    // `drain_due` before observing cancellation — not a finish guarantee:
+    // the supervisor bounded-joins `SHUTDOWN_JOIN_DEADLINE` (20s) while one
+    // execution may take `execution_timeout` (2min), so a long batch exits
+    // as a straggler; its records stay `claimed` and get recovered later.
     info!("Adapter delivery worker stopped");
 }
 

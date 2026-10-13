@@ -7,16 +7,11 @@
 //! generation; strict removal (absence of every resource, PVC included); and
 //! correlation by generation rather than by the clock.
 
-// Decision modules driven by the desired-state reconciler (wired in `main`).
-// `reconciler`, `watcher`, `observe` and `error` are `pub` (not `pub(crate)`)
-// because the band-7 provider crates (`sandbox-k8s`, `sandbox-docker`) and the
-// backend supervisor reach specific items in them across the crate boundary.
-// Widening the module only exposes its `pub` items; the rest stay
-// `pub(crate)`, so a lifecycle mutation still cannot bypass `Lifecycle`.
-//
-// The four decision modules a runtime also reads — `convergence`, `classify`,
-// `marker`, `operation` — and the runtime seam itself live in
-// `moatless-sandbox-runtime`.
+// `reconciler`, `watcher`, `observe` and `error` are `pub`, not
+// `pub(crate)`: band-7 provider crates and the backend supervisor reach
+// specific items in them across the crate boundary. Only their `pub`
+// items widen; the rest stays `pub(crate)`, so a mutation still can't
+// bypass `Lifecycle`.
 pub(crate) mod attempt;
 pub(crate) mod reconcile;
 pub mod reconciler;
@@ -41,22 +36,18 @@ pub mod observe;
 pub(crate) mod workspace_archive;
 pub(crate) mod workspace_sync;
 
-// The lifecycle contract against local Postgres (Lifecycle over the Pg adapters).
 #[cfg(all(test, feature = "db-tests"))]
 mod contract_tests;
 
-// Shared test seeding for the db-tests modules.
 #[cfg(all(test, feature = "db-tests"))]
 pub(crate) mod test_support;
 
 // ---- Curated surface ----
 //
-// `pub` is the deep module's cross-crate contract: the `Lifecycle` handle, its
-// typed error, and the reconciler surface `main` spawns. Everything the module
-// is merely built *over* — the stores, the ports and the correlation
-// internals — is `pub(crate)`, and `crate::compose` is the only assembler; no
-// caller outside this crate names one. The outcome a caller reads back is
-// `moatless_sandbox_runtime::outcome::LifecycleOutcome`, named from that crate.
+// `pub` is the cross-crate contract: the `Lifecycle` handle, its typed
+// error, and the reconciler surface `main` spawns. Everything merely built
+// *over* — stores, ports, correlation internals — is `pub(crate)`;
+// `crate::compose` is the only assembler a caller outside names.
 
 pub use error::LifecycleError;
 pub use ingress::SandboxIngress;

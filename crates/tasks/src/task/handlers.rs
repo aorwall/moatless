@@ -289,7 +289,6 @@ pub async fn list_tasks(
         .collect();
     let repo_names = task_presenter.resolve_repo_names_batch(&repo_ids).await;
 
-    // Batch resolve workspace names for the tasks that have a workspace.
     let workspace_ids: Vec<String> = rows
         .iter()
         .filter_map(|r| r.workspace_id.clone())
@@ -629,7 +628,6 @@ pub async fn mark_task_read(
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<axum::http::StatusCode, TaskError> {
-    // Ensure the task exists and is visible to the user before recording a read.
     tasks
         .find_by_id(&task_id, &auth.scope_context())
         .await?
@@ -661,7 +659,6 @@ pub async fn follow_task(
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<FollowTaskResponse>, TaskError> {
-    // Ensure the task exists and is visible to the user before following.
     tasks
         .find_by_id(&task_id, &auth.scope_context())
         .await?
@@ -694,7 +691,6 @@ pub async fn unfollow_task(
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<Json<FollowTaskResponse>, TaskError> {
-    // Ensure the task exists and is visible to the user before unfollowing.
     tasks
         .find_by_id(&task_id, &auth.scope_context())
         .await?

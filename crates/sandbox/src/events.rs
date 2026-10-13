@@ -132,11 +132,10 @@ impl GrpcEventPublisher {
         };
 
         // Narrowing onto the wire enum is partial: the domain enum carries
-        // backend-derived types the protocol cannot express. Every caller above
-        // passes a sandbox-originated type, so a rejection here is a bug in this
-        // module, not a runtime condition — drop the event rather than publish it
-        // under a different type. The drop goes through the outbox's accounting
-        // seam so it is measured and announced, not only logged.
+        // backend-derived types the protocol cannot express. Every caller
+        // above passes a sandbox-originated type, so a rejection here is a
+        // bug in this module, not a runtime condition — drop the event
+        // through the outbox's accounting seam, so it's measured too.
         let proto_event_type = match sandbox_proto::EventType::try_from(event_type) {
             Ok(t) => t,
             Err(e) => {

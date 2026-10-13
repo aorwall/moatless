@@ -71,7 +71,6 @@ pub fn build_deployment_object(
     );
     labels.insert("moatless.io/task-id".to_string(), task_id.to_string());
 
-    // Merge pod labels into deployment labels
     for (k, v) in &pod_labels {
         labels.entry(k.clone()).or_insert_with(|| v.clone());
     }

@@ -37,11 +37,10 @@ pub enum LoopsAction {
     },
     /// Create a subscription loop (fired by adapter events).
     ///
-    /// `adapter_config` is free-form JSON, set via --set/--append/--unset or
-    /// --adapter-config; --event-filter allowlists events, `ignored_events`
-    /// denylists and wins, and ignoring a derived signal
-    /// (`merge_conflict`/`post_merge`/`pr_merged`) skips only that signal, not
-    /// its source.
+    /// `adapter_config` is free-form JSON (--set/--append/--unset or
+    /// --adapter-config); --event-filter allowlists, `ignored_events`
+    /// denylists and wins; ignoring a derived signal
+    /// (`merge_conflict`/`post_merge`/`pr_merged`) skips only that signal.
     #[command(alias = "create-adapter-event")]
     CreateSubscription {
         #[arg(long)]

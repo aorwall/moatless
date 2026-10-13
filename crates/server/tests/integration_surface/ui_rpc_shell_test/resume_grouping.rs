@@ -297,13 +297,12 @@ async fn a_removal_never_names_a_row_the_listing_did_not_show(pool: PgPool) {
     }
 }
 
-/// Criterion 5: `rebuild` must replace what the feed believes about the
-/// listing, not just the client's copy of it — identity, cursor, and the
-/// `threads`/grouping sets together.
+/// Criterion 5: `rebuild` must replace what the feed believes — identity,
+/// cursor, and the `threads`/grouping sets together — not just the
+/// client's copy.
 ///
-/// A row from the replaced listing must never come back as a removal, and a row
-/// the rebuild introduced must come back as one when it leaves, or the client
-/// keeps it forever.
+/// A row from the replaced listing must never come back as a removal, and
+/// a row the rebuild introduced must come back as one when it leaves.
 #[sqlx::test]
 async fn a_rebuilt_feed_describes_the_listing_it_sent_not_the_one_it_replaced(pool: PgPool) {
     let watcher_viewer = viewer("user-1");

@@ -42,7 +42,6 @@ pub(super) async fn stream_logs(
                             if let Some(data) = line.strip_prefix("data:") {
                                 println!("{}", data.trim_start());
                             } else if !line.starts_with(':') {
-                                // Print non-comment, non-data lines as-is.
                                 println!("{line}");
                             }
                         }

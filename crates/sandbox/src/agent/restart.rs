@@ -17,19 +17,19 @@ pub(crate) async fn open_for_work(state: &SandboxState, workspace_origin: Worksp
         take_lost_commands(state, &state.config.task_id, &state.config.workspace_dir).await;
     let wake_notes = wake_note::take(&wake_note::default_path(&state.config.workspace_dir)).await;
 
-    // Adopt whatever the restore or clone produced as the upload baseline — unless
-    // either file was consumed: the take deleted it here but the S3 archive still
-    // carries it, so adopting now would let an untouched turn skip the upload, and
-    // the next replacement would restore the stale archive and repeat the wake.
+    // Adopt whatever the restore or clone produced as the upload baseline,
+    // unless a file was consumed: the take deleted it here but S3 still
+    // carries it, so adopting now would let an untouched turn skip the
+    // upload, and the next replacement would restore the stale archive.
     if state.config.workspace_sync_enabled && lost_commands.is_empty() && wake_notes.is_empty() {
         state.workspace_sync.adopt_current(&state.config).await;
     }
 
     {
-        // Held across the recovery pass and the Ready flip: `task_context::register`
-        // takes the same lock, so a racing `JoinTask` either lands before the
-        // snapshot (recovered here) or blocks until Ready and recovers itself.
-        // Dropping it early would let a Member land in between and recover from neither.
+        // Held across the recovery pass and the Ready flip: `register`
+        // takes the same lock, so a racing `JoinTask` lands before the
+        // snapshot or blocks until Ready and recovers itself. Dropping
+        // early would let a Member land between and recover from neither.
         let _registration = state.task_context_registration.lock().await;
         *state.workspace_origin.write().await = workspace_origin;
         for context in state.task_contexts_snapshot().await {
@@ -336,13 +336,12 @@ fn workspace_recloned_note(workspace_dir: &str) -> String {
          </sandbox-restart-note>\n\n"
     )
 }
-/// Interrupted-run precedence gate for one Member: replays the interrupted run
-/// only when no pending user message is waiting. Keys on `context`, never
-/// `state.config`.
+/// Interrupted-run precedence gate for one Member: replays the interrupted
+/// run only when no pending user message is waiting. Keys on `context`,
+/// never `state.config`.
 ///
-/// A probe error fails closed. Call once per Member per start:
-/// [`open_for_work`] covers init, [`crate::task_context::register`] covers one
-/// joining after Ready.
+/// A probe error fails closed. Call once per Member per start: covered by
+/// [`open_for_work`] at init, [`crate::task_context::register`] after Ready.
 pub(crate) async fn recover_interrupted_run_unless_pending(
     state: &SandboxState,
     context: &TaskContext,

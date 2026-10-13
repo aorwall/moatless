@@ -19,13 +19,12 @@ use moatless_adapter_model::registry::Adapters;
 use moatless_types::adapter::ExternalStatus;
 use moatless_types::adapter::TaskBinding;
 
-/// Whether a binding's live external status is worth fetching again: pure, with
+/// Whether a binding's live external status is worth fetching again: pure,
 /// no I/O.
 ///
-/// A binding whose persisted blob predates a field the adapter now needs is
-/// refreshed once even when terminal; otherwise a terminal binding never
-/// re-polls except via unconditional webhook persistence, so a missed webhook
-/// leaves it stale forever (no backstop poll).
+/// A blob predating a field the adapter now needs is refreshed once even
+/// when terminal; otherwise a terminal binding never re-polls, so a missed
+/// webhook leaves it stale forever (no backstop poll).
 pub fn should_refresh(
     status: &dyn AdapterBindingStatus,
     binding: &TaskBinding,
@@ -70,10 +69,9 @@ fn cache() -> &'static Cache<String, ExternalStatus> {
 /// Fetch the live external status for a binding, caching it and writing it
 /// through to the binding's persisted columns.
 ///
-/// `None` when no live status can be obtained (no live-status adapter, no
-/// config, no token, API error) — callers fall back to whatever is already
-/// persisted; `created_by` resolves a per-user token where the adapter needs
-/// one.
+/// `None` when unobtainable (no live-status adapter, config, token, or an
+/// API error) — callers fall back to what's persisted. `created_by` resolves
+/// a per-user token where the adapter needs one.
 pub async fn get_or_fetch(
     adapters: Option<&Arc<Adapters>>,
     task_bindings: &Bindings,

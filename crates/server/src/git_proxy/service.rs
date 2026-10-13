@@ -197,13 +197,11 @@ impl GitProxy {
     }
 }
 
-/// The repository `user_id` may fetch and push by id, or `None` when there is
-/// none.
+/// The repository `user_id` may fetch and push by id, or `None` if not.
 ///
-/// `user_id` is the pod's own identity (`created_by`), never the run-as actor
-/// the credential comes from, so it is checked with
-/// `ScopeContext::can_use_repository` against the row's owner. Returns `None`
-/// alike for a hidden repository, an unauthorized one, and a failed read.
+/// `user_id` is the pod's own identity (`created_by`), not the run-as actor,
+/// checked via `ScopeContext::can_use_repository` against the row's owner.
+/// Returns `None` for a hidden, unauthorized, or unreadable repository.
 async fn usable_repository(
     repositories: &Arc<dyn RepositoryReader>,
     users: &Arc<dyn CommitIdentity>,

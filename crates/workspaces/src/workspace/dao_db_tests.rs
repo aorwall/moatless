@@ -32,7 +32,6 @@ async fn insert_and_find_by_id(pool: PgPool) {
     let ws = make_workspace_row("ws-1", "user-1");
     repo.insert_workspace(&ws).await.unwrap();
 
-    // Owner sees their user-scoped workspace.
     let found = repo.find_by_id("ws-1", &scope_ctx("user-1")).await.unwrap();
     assert!(found.is_some());
     let found = found.unwrap();
@@ -276,7 +275,6 @@ async fn add_repo_rejects_duplicate_mount_name(pool: PgPool) {
     dup.mount_name = Some("frontend".to_string());
     assert!(repo.add_repo(&dup, &scope_ctx("user-1")).await.is_err());
 
-    // A distinct mount name is fine.
     let mut ok = make_workspace_repo_row("wsr-3", "ws-m", "repo-3", false, 2);
     ok.mount_name = Some("backend".to_string());
     repo.add_repo(&ok, &scope_ctx("user-1")).await.unwrap();

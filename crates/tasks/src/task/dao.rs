@@ -335,17 +335,11 @@ impl TaskDao for PgTaskDao {
 
         let mut tx = self.pool.begin().await?;
 
-        // Task controls Sandbox. A creation that names no sandbox writes the
-        // Sandbox row here, in the same transaction as the Task, so the control
-        // plane reads a pod's shape and its access control off `sandboxes`
-        // alone. A creation that names one joins an existing Sandbox and writes
-        // no row.
-        //
-        // `run_as_user_id` follows `Actor::run_as`, with the Task's own choice
-        // ahead of it: the Task outranks the Workspace's account, which outranks
-        // the owner of the work. `storage_reclaimed_at` is stamped because a
-        // Sandbox that has never started owns no volume; the first intent toward
-        // Running clears it.
+        // Task controls Sandbox: naming no sandbox writes the Sandbox row
+        // here in the same transaction as the Task; naming one joins the
+        // existing Sandbox instead. `run_as_user_id` follows `Actor::run_as`
+        // (Task > Workspace account > work owner). `storage_reclaimed_at` is
+        // stamped since a never-started Sandbox owns no volume.
         let sandbox_id = row
             .sandbox_id
             .clone()
@@ -444,15 +438,11 @@ impl TaskDao for PgTaskDao {
         moatless_core::change_feed::listing::record_change(&mut tx, &row.task_id).await?;
         tx.commit().await?;
 
-        // Auto-follow the task for its creator so it lands in their personal
-        // task list. Applied at the DAO layer so every creation path (HTTP
-        // handler, adapters, loops) follows consistently. Best-effort — a
-        // follow failure must never fail task insertion.
-        //
-        // Deliberately after the commit rather than inside it: an error inside a
-        // transaction aborts it, so a "best-effort" write that cannot fail the
-        // insert cannot live in the insert's transaction. It records its own
-        // change, and the two coalesce into one delivered row.
+        // Auto-follow the creator so every creation path (HTTP, adapters,
+        // loops) behaves consistently; best-effort, never fails the insert.
+        // Deliberately after the commit, not inside it: an error inside the
+        // tx would abort it. It records its own change, coalescing with the
+        // task's into one delivered row.
         if let Some(ref creator) = row.created_by {
             if let Err(e) = self.follow_task(creator, &row.task_id).await {
                 tracing::warn!(
@@ -682,20 +672,11 @@ impl TaskDao for PgTaskDao {
         }
 
         let access = moatless_core::db::access_control::access_filter(ScopedEntity::Task, "t.", 1);
-        // `filtered` is the single source of truth for both the page and the
-        // total: `total` counts it and `page` slices it, so the two can never
-        // drift apart under a filter or access-control change.
-        //
-        // It holds exactly one row per matching task. The tag, parent-relation
-        // and followed-by filters are all `EXISTS` subqueries rather than joins,
-        // so a task carrying several tags is not fanned out into several rows,
-        // which would over-count the total. When a filter is unset its subquery
-        // is skipped entirely (`$n IS NULL`).
-        //
-        // `total LEFT JOIN page ON TRUE` is what keeps the total available when
-        // the page is empty: `total` is an ungrouped aggregate and therefore
-        // always yields exactly one row, so an offset past the end returns that
-        // row with NULL page columns rather than returning nothing at all.
+        // `filtered` is the single source for page and total, so they can't
+        // drift apart. `EXISTS` subqueries (not joins) keep tag/relation
+        // filters from fanning a multi-tag task into several rows and
+        // over-counting. `total LEFT JOIN page ON TRUE` keeps the total
+        // available when an offset past the end leaves the page empty.
         let sql = format!(
             r#"WITH filtered AS (
                 SELECT
@@ -786,16 +767,11 @@ impl TaskDao for PgTaskDao {
         patch: &TaskPatch,
         ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error> {
-        // Use individual UPDATE statements per field for type safety.
-        // Each statement embeds the write_filter so only the owner (or admin)
-        // can modify the row. The first executed statement's rows_affected drives
-        // the return value; subsequent statements return their own rows_affected
-        // but we track the first non-empty patch field's result.
-        //
-        // One transaction across the fields, because a listing change and the
-        // mutation it describes have to commit together or not at all. Every
-        // statement here shares one `WHERE`, so they all match the same row and
-        // `first_affected` speaks for all of them.
+        // Per-field UPDATE statements (type safety), each scoped by
+        // `write_filter` so only the owner/admin can modify the row.
+        // `first_affected` takes the first non-empty field's `rows_affected`
+        // — valid since every statement shares one `WHERE`. One transaction:
+        // the listing change and mutation must commit together or not at all.
         let mut tx = self.pool.begin().await?;
         let ctrl = moatless_core::db::access_control::write_filter("", 3);
         let ctrl_sql = ctrl.sql();
@@ -987,10 +963,9 @@ impl TaskDao for PgTaskDao {
                 }
             }
 
-            // The record outlives the Task it names — `task_listing_changes` has no
-            // foreign key precisely so that a deletion is still replayable. A
-            // watching client re-reads this id, finds nothing, and drops the row it
-            // holds.
+            // The record outlives the Task it names — `task_listing_changes`
+            // has no foreign key so a deletion stays replayable: a watching
+            // client re-reads this id, finds nothing, and drops its row.
             record_deletion(&mut tx, &deleted_task_id, &parents).await?;
         }
         tx.commit().await?;
@@ -1139,11 +1114,11 @@ impl TaskDao for PgTaskDao {
         &self,
         task_id: &str,
     ) -> Result<Option<String>, sqlx::Error> {
-        // Three busy axes, read in one statement so none of them can open
-        // between checks: `running_commands` is what the idle reaper defers on,
-        // an `active` turn is a redelivered completion racing a newer run, and a
-        // user message past the last turn's `ended_at` is a turn owed but not
-        // yet opened — `moatless_types::running::turn_is_owed` owns that rule.
+        // Three busy axes, read in one statement so none opens between
+        // checks: `running_commands` (idle reaper defers), an `active` turn
+        // (redelivered completion racing a newer run), and a user message
+        // past the last turn's `ended_at` (owed, not yet opened — see
+        // `moatless_types::running::turn_is_owed`).
         sqlx::query_scalar(
             r#"
             SELECT s.sandbox_id

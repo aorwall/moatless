@@ -31,11 +31,10 @@ pub(super) fn resolve_sandbox_size(config: &Config, plan: &ProvisionPlan) -> Str
 
 /// Express a retained-node placement so the scheduler still runs.
 ///
-/// `spec.nodeName` binds directly and skips scheduling, so a node that can't
-/// fit the pod rejects it at admission and the `ReplicaSet` respawns forever;
-/// affinity leaves an unschedulable pod `Pending` instead. Only a cache (dind's
-/// data root) pins here, so the preference is soft: prefer the recorded node,
-/// settle for another and pay a cold rebuild.
+/// Unlike `spec.nodeName` (skips scheduling; a node that can't fit rejects at
+/// admission and the `ReplicaSet` respawns forever), affinity leaves an
+/// unschedulable pod `Pending`. Soft: only a cache (dind's data root) pins
+/// here, so it can fall back to another node and pay a cold rebuild.
 pub(crate) fn retained_node_affinity(node_name: &str) -> Affinity {
     let term = NodeSelectorTerm {
         match_fields: Some(vec![NodeSelectorRequirement {

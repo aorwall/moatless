@@ -184,7 +184,6 @@ mod tests {
             identity_idx < mentioning_idx,
             "identity must come before mentioning-users"
         );
-        // The identity block names the bot's Slack ID explicitly.
         assert!(s.contains("<@U0000000002>"));
         assert!(s.contains("Slack user ID `U0000000002`"));
         // Response guidance still references the ID.

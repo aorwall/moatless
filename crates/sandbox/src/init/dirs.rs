@@ -117,11 +117,11 @@ pub(super) fn ensure_directories(config: &Config) {
         }
     }
 
-    // `CLAUDE_CODE_DEBUG_LOGS_DIR` is deliberately NOT set here. Directory setup
-    // runs on the blocking pool with the runtime up, where `set_var` is unsound.
-    // It is set once in `main` before the runtime is built (covering the K8s path,
-    // which overrides the image entrypoint), and `docker-entrypoint-sandbox.sh`
-    // still exports it for image-entrypoint launches.
+    // `CLAUDE_CODE_DEBUG_LOGS_DIR` is deliberately NOT set here: this runs
+    // on the blocking pool with the runtime up, where `set_var` is unsound.
+    // It's set once in `main` before the runtime builds (covers K8s, which
+    // overrides the image entrypoint); `docker-entrypoint-sandbox.sh` still
+    // exports it for image-entrypoint launches.
 
     info!("Directories initialized");
 }

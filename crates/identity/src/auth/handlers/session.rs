@@ -100,7 +100,6 @@ pub(super) async fn authenticate_request(
     state: &AuthState,
     headers: &HeaderMap,
 ) -> Result<AuthIdentity, AuthError> {
-    // Try API key (Authorization: Bearer mvk_xxx)
     if let Some(auth_header) = headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
@@ -131,7 +130,6 @@ pub(super) async fn authenticate_request(
         }
     }
 
-    // Try opaque auth-session cookies.
     let tokens = cookie::get_all_cookie_values(headers, &state.config.auth.session_cookie_name);
     if tokens.is_empty() {
         return Err(AuthError::Unauthorized);
@@ -178,7 +176,6 @@ pub(in crate::auth) async fn verify_handler(
 ) -> Result<Response, AuthError> {
     let identity = authenticate_request(&state, &headers).await?;
 
-    // For preview URLs, check task-based access control.
     let scope_ctx = ScopeContext::new(
         identity.user_id.to_string(),
         identity.role == UserRole::Admin,

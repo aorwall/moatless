@@ -326,12 +326,10 @@ mod tests {
     #[test]
     fn seed_assets_writes_every_install_asset() {
         // Seeding with no --assets-from override must materialise every entry
-        // in INSTALL_ASSETS from the binary's embedded copies. This is NOT a
-        // tautology to delete: INSTALL_ASSETS carries `include_str!` contents,
-        // so each entry is anchored by the compiler to a real file under
-        // `docker-compose/`. This test fails to *build* if an entry loses its
-        // backing file, and fails at *runtime* if seeding stops writing one or
-        // writes the wrong bytes.
+        // in INSTALL_ASSETS. Not a tautology: INSTALL_ASSETS's `include_str!`
+        // anchors each entry to a real file, so this fails to *build* if one
+        // loses its backing file, and fails at *runtime* if seeding stops
+        // writing one or writes the wrong bytes.
         let tmp = tempfile::tempdir().unwrap();
         let work = tmp.path().join("work");
 

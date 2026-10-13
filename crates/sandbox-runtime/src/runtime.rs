@@ -129,8 +129,7 @@ impl RuntimeOutcome {
 ///
 /// `ensure_running` covers reuse-Ready, wait-Initializing, scale-up-Stopped,
 /// rebuild-on-image-change, create-missing, heal-network, and
-/// replace-terminal-pod — a failed pod is never reported as indefinitely
-/// Initializing.
+/// replace-terminal-pod, so a failed pod is never stuck Initializing.
 #[async_trait]
 pub trait SandboxRuntime: Send + Sync {
     /// Ensure the sandbox is running from a fresh plan (start / reconcile
@@ -182,15 +181,12 @@ pub trait SandboxRuntime: Send + Sync {
         ctx: RuntimeOperationContext,
     ) -> Result<RuntimeOutcome, RuntimeError>;
 
-    /// Reclaim the compute objects and workspace volume of a **stopped**
-    /// sandbox, keeping the Service, `IngressRoutes`, network policy, and S3
-    /// archive; a later start provisions a fresh volume and restores into it.
+    /// Reclaims a **stopped** sandbox's compute objects and workspace volume,
+    /// keeping the Service, `IngressRoutes`, network policy, and S3 archive.
     ///
-    /// The Deployment's absence is awaited before the claim is deleted (else a
-    /// stale pod template leaves the next scale-up Pending forever);
-    /// `rescue_upload_url`, when `Some`, must be filled before deleting
-    /// anything or the operation fails. Strict success means observed absence,
-    /// and it's idempotent (`NoOp` when nothing remains).
+    /// Awaits the Deployment's absence before deleting the claim (else
+    /// scale-up stays Pending); fills `rescue_upload_url` first if `Some`.
+    /// Idempotent: `NoOp` when nothing remains.
     async fn reclaim_storage(
         &self,
         task_id: &str,

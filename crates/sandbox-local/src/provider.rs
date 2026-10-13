@@ -88,7 +88,6 @@ impl LocalSandboxAdapter {
             source,
         })?;
 
-        // 2. Prepare the per-task directory layout.
         let paths =
             naming::task_paths(self.client.root(), task_id).map_err(SandboxError::BadRequest)?;
         for dir in paths.dirs_to_create() {
@@ -106,7 +105,6 @@ impl LocalSandboxAdapter {
             }
         }
 
-        // 3. Allocate a per-task port pair and build the process environment.
         let (http_port, grpc_port) = LocalClient::allocate_ports()
             .await
             .map_err(|e| SandboxError::Internal(format!("allocate local sandbox ports: {e}")))?;
@@ -120,7 +118,6 @@ impl LocalSandboxAdapter {
             grpc_port,
         );
 
-        // 4. Spawn.
         self.client
             .spawn(
                 task_id,

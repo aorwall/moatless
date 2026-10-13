@@ -347,7 +347,6 @@ fn close_zero_inactive_ttl_is_indefinite() {
 #[test]
 fn close_beyond_ttl_closes() {
     let now = Utc::now();
-    // 7-day TTL, last activity 8 days ago → close.
     let decision = decide_close(7, Some(now - chrono::Duration::days(8)), now);
     assert_eq!(decision, CloseDecision::Close);
 }
@@ -355,7 +354,6 @@ fn close_beyond_ttl_closes() {
 #[test]
 fn close_within_ttl_keeps() {
     let now = Utc::now();
-    // 7-day TTL, last activity 1 day ago → keep.
     let decision = decide_close(7, Some(now - chrono::Duration::days(1)), now);
     assert_eq!(decision, CloseDecision::Keep);
 }
@@ -438,13 +436,11 @@ fn stopped_agent_floor_dates_from_stop_time() {
     let event = ("completed".to_string(), stopped_at);
     let floor = compute_reap_floor(Some(&event), Some(old_message), now);
     assert_eq!(floor, Some(stopped_at));
-    // 60-min TTL, stopped 30 min ago → still within TTL → Keep.
     assert_eq!(decide_reap(60, floor, now), ReapDecision::Keep);
 }
 
 #[test]
 fn stopped_agent_reaped_after_ttl_from_stop() {
-    // Terminal latest event, stopped longer ago than the TTL ⇒ Stop.
     let now = Utc::now();
     let stopped_at = now - chrono::Duration::minutes(90);
     let event = ("stopped".to_string(), stopped_at);

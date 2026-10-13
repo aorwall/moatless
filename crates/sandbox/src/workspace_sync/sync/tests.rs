@@ -482,7 +482,6 @@ async fn an_unchanged_workspace_is_not_re_uploaded() {
     upload_after_turn(&config, &backend, &tracker).await;
     assert_eq!(backend.attempts(), 0, "an untouched workspace is skipped");
 
-    // An agent edit moves the fingerprint.
     std::fs::write(repo.join("a.txt"), "edited by the agent").unwrap();
     upload_after_turn(&config, &backend, &tracker).await;
     assert_eq!(backend.attempts(), 1, "a changed workspace is uploaded");
@@ -1069,16 +1068,13 @@ async fn fingerprint_tracks_snapshot_content_and_ignores_build_churn() {
     let base = workspace_fingerprint(ws.clone())
         .await
         .expect("workspace has content");
-    // Recomputing without changes is stable.
     assert_eq!(base, workspace_fingerprint(ws.clone()).await.unwrap());
 
-    // Churning a gitignored artifact does not move the fingerprint.
     tokio::fs::write(repo.join("ignored").join("build.log"), b"xxxxxxxx\n")
         .await
         .unwrap();
     assert_eq!(base, workspace_fingerprint(ws.clone()).await.unwrap());
 
-    // Editing a tracked file moves it.
     tokio::fs::write(repo.join("main.rs"), b"fn main() { work(); }\n")
         .await
         .unwrap();
@@ -1091,7 +1087,6 @@ async fn fingerprint_tracks_snapshot_content_and_ignores_build_churn() {
     let after_commit = workspace_fingerprint(ws.clone()).await.unwrap();
     assert_ne!(after_edit, after_commit);
 
-    // A loose file outside any repo moves it, too.
     tokio::fs::write(ws.join("notes.txt"), b"scratch\n")
         .await
         .unwrap();
@@ -1106,7 +1101,6 @@ async fn archive_is_gzipped_and_smaller_than_the_plain_tar() {
     let tmp = tempfile::TempDir::new().unwrap();
     let repo = tmp.path().join("repo");
     init_repo(&repo);
-    // Compressible, repetitive source content.
     tokio::fs::write(repo.join("main.rs"), "fn main() {}\n".repeat(500))
         .await
         .unwrap();
@@ -1126,7 +1120,6 @@ async fn archive_is_gzipped_and_smaller_than_the_plain_tar() {
         plain.len()
     );
 
-    // And it still restores to the same content.
     let dst = tmp.path().join("restored");
     tokio::fs::create_dir_all(&dst).await.unwrap();
     extract_tar(archive, dst.clone()).await.unwrap();
@@ -1229,11 +1222,9 @@ async fn tar_round_trip_respects_gitignore() {
     tokio::fs::create_dir_all(&dst).await.unwrap();
     extract_tar(tar, dst.clone()).await.unwrap();
 
-    // Tracked + untracked-non-ignored are present; the ignored path is not.
     assert!(dst.join("src.txt").exists());
     assert!(dst.join("untracked.txt").exists());
     assert!(!dst.join("ignored").join("skip.txt").exists());
-    // The archive carries `.git`, so the restored tree is a real repo.
     assert!(dst.join(".git").is_dir());
 }
 
@@ -1268,7 +1259,6 @@ async fn snapshot_captures_all_data_and_honors_repo_gitignore() {
         .unwrap();
     git_add(&sibling, &["scenarios.yaml"]);
 
-    // Loose data outside any repo: a top-level file and a non-git directory.
     tokio::fs::write(ws.join("notes.txt"), b"scratch\n")
         .await
         .unwrap();
@@ -1279,7 +1269,6 @@ async fn snapshot_captures_all_data_and_honors_repo_gitignore() {
         .await
         .unwrap();
 
-    // Snapshot the whole workspace.
     let tar = build_tar(ws.clone()).await.expect("tar built");
 
     // Restore onto a fresh empty workspace; primary_prefix is the primary
@@ -1291,13 +1280,11 @@ async fn snapshot_captures_all_data_and_honors_repo_gitignore() {
         .unwrap();
     assert!(restored, "primary repo present → skip clone");
 
-    // Both repos restored, each a complete repo.
     assert!(dst.join("soap-tm").join("main.rs").exists());
     assert!(dst.join("soap-tm").join(".git").is_dir());
     assert!(dst.join("config-default").join("scenarios.yaml").exists());
     assert!(dst.join("config-default").join(".git").is_dir());
 
-    // Loose (non-repo) data is captured verbatim.
     assert!(dst.join("notes.txt").exists());
     assert!(dst.join("artifacts").join("build.log").exists());
 
@@ -1388,7 +1375,6 @@ async fn repo_relative_archive_restores_to_repo_dir() {
     assert!(restored);
     assert!(repo_dir.join("a.txt").exists());
     assert!(repo_dir.join(".git").is_dir());
-    // Not misplaced at the workspace root.
     assert!(!ws.join("a.txt").exists());
 }
 

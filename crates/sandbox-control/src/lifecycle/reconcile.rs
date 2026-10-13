@@ -72,11 +72,11 @@ pub fn decide(input: &ReconcileInput) -> ReconcileDecision {
 
     let mut action = reconcile_action(effective_desired, input.observed, remove_marker_incomplete);
 
-    // A Stopped Task that converged on the runtime but still carries its stop
-    // marker owes a `Stopped` completion commit (a crash between convergence and
-    // the commit). Re-drive stop so the orchestrator's Unchanged+NoOp+incomplete
-    // -marker path commits the fact and clears the marker — otherwise the
-    // incomplete marker re-enumerates the Task as a permanent no-op every tick.
+    // A Stopped task that converged but still carries its stop marker owes
+    // a `Stopped` completion commit (a crash between convergence and the
+    // commit). Re-drive stop so the orchestrator's Unchanged+NoOp path
+    // commits the fact and clears the marker, or the incomplete marker
+    // re-enumerates the task as a permanent no-op every tick.
     if action == ReconcileAction::None
         && effective_desired == SandboxDesiredState::Stopped
         && intent
@@ -87,11 +87,11 @@ pub fn decide(input: &ReconcileInput) -> ReconcileDecision {
         action = ReconcileAction::Stop;
     }
 
-    // Stale edge markers (Restart/Redeploy) are deliberately not handled here.
-    // The spec's rule — disable event suppression, then clear only once the
-    // replacement generation is observed Ready or the edge is durably classified
-    // abandoned with its `Error` fact — needs generation identity, so it lands
-    // with generation-label threading (see the PR's remaining-work list).
+    // Stale edge markers (Restart/Redeploy) are deliberately not handled
+    // here. The spec's rule — disable event suppression, then clear only
+    // once the replacement generation is Ready or the edge is durably
+    // classified abandoned — needs generation identity, pending
+    // generation-label threading.
 
     ReconcileDecision { action, woken }
 }

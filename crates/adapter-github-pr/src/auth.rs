@@ -154,10 +154,8 @@ fn outbound_actor(
 /// The identity a reaction acts as: the binding's filter user, else the
 /// already-authorized caller.
 ///
-/// `BindingContext` carries no author or subscription, so the filter user is
-/// the only identity the binding itself offers, and a binding created by an
-/// outbound send carries none. The caller stands in below it rather than
-/// failing, since authorization to react happened before this point.
+/// `BindingContext` carries no author or subscription, so the caller stands
+/// in rather than failing: authorization to react already happened.
 fn reaction_actor(binding: &BindingContext, acting_user_id: &str) -> Actor {
     binding_filter_user_id(&binding.destination_config, &binding.metadata)
         .map_or_else(|| Actor::of(acting_user_id), Actor::of)
@@ -462,8 +460,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_identity_with_no_row_cannot_reach_github() {
-        // The deleted fallback, asserted as absent: no env token, no org row,
-        // no other identity.
+        // No fallback token path: no env token, no org row, no other identity.
         let auth = auth_with_tokens(Arc::new(StubProviderTokens::default()));
         let error = auth
             .client_for(

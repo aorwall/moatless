@@ -245,7 +245,6 @@ fn keys_for_values(values: Option<&serde_yaml::Value>) -> Vec<&'static KeySpec> 
 
 async fn bootstrap(args: BootstrapArgs, json_out: bool) -> Result<(), ClientError> {
     let target = KubeTarget::new(args.context.clone());
-    // Step 1: load values file (optional).
     let values: Option<serde_yaml::Value> = std::fs::read_to_string(&args.values)
         .ok()
         .and_then(|s| serde_yaml::from_str(&s).ok());
@@ -259,12 +258,10 @@ async fn bootstrap(args: BootstrapArgs, json_out: bool) -> Result<(), ClientErro
 
     let specs = keys_for_values(values.as_ref());
 
-    // Step 2: snapshot existing cluster secret.
     let existing = load_cluster_secret(&target, &args.namespace, SECRET_NAME)
         .await
         .unwrap_or_default();
 
-    // Step 3: discover .env files (unless skipped).
     let env_values = if args.no_env_file {
         BTreeMap::new()
     } else if let Some(path) = args.env_file.as_deref() {
@@ -273,7 +270,6 @@ async fn bootstrap(args: BootstrapArgs, json_out: bool) -> Result<(), ClientErro
         discover_env(&specs)?
     };
 
-    // Step 4: gather final values.
     let mut final_values: BTreeMap<String, String> = BTreeMap::new();
     let mut sources: BTreeMap<String, &'static str> = BTreeMap::new();
 
@@ -323,7 +319,6 @@ async fn bootstrap(args: BootstrapArgs, json_out: bool) -> Result<(), ClientErro
         }
     }
 
-    // Step 5: build + emit Secret manifest.
     let combined = {
         let mut m = existing.clone();
         m.extend(final_values.clone());
@@ -575,7 +570,6 @@ fn discover_env(specs: &[&KeySpec]) -> Result<BTreeMap<String, String>, ClientEr
             continue;
         }
         let parsed = read_env_file(&p)?;
-        // Only surface keys we care about.
         let relevant: Vec<&str> = specs
             .iter()
             .map(|s| s.key)

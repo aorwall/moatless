@@ -189,28 +189,20 @@ async fn dispatch_pending_messages_for_context(
         return;
     }
 
-    // Init is not finished: the gRPC server accepts `execute_agent` /
-    // `notify_messages` from the moment the pod starts — before `run_init`
-    // restores Claude/Codex Session state and reaches Ready. Driving the harness
-    // now would submit input against un-restored `--resume` history. Dropping the
-    // call is safe: the messages stay pending on the backend, and `run_init`
-    // performs the authoritative dispatch itself right after restoration + Ready.
+    // gRPC accepts calls before `run_init` restores Session state and
+    // reaches Ready; driving the harness now would submit against
+    // un-restored `--resume` history. Dropping is safe: messages stay
+    // pending, and `run_init` dispatches itself after restore + Ready.
     if !state.is_ready().await {
         info!("Dispatch skipped: init not Ready — run_init will dispatch after restore");
         return;
     }
 
-    // Single-flight: hold an owned guard from before the fetch (and before the
-    // prompt branch) until the ack completes. `get_pending_messages` only returns
-    // unacknowledged rows and the ack lands after the agent accepts, so without
-    // this two dispatchers racing the Ready transition each fetch the same unacked
-    // Message and submit it twice; and two racing the *prompt* branch each fetch
-    // the same prompt Message — one answers the prompt, the loser hits the
-    // "prompt already consumed" fallback and resubmits it as normal Input. A
-    // concurrent dispatcher blocks here and then fetches empty.
-    //
-    // Acquisition is cancellation-aware: a dispatcher queued on the lock across a
-    // shutdown must not acquire it and start new work after the pod is stopping.
+    // Single-flight: hold a guard from before the fetch until the ack
+    // completes, so two dispatchers racing Ready can't double-submit
+    // the same Message (racing the *prompt* branch: the loser hits
+    // "already consumed" and resubmits as Input). Cancellation-aware,
+    // so a dispatcher queued across a shutdown never starts new work.
     let dispatch_guard = tokio::select! {
         guard = context.dispatch_lock.clone().lock_owned() => guard,
         () = state.lifecycle_cancel.cancelled() => {
@@ -231,7 +223,6 @@ async fn dispatch_pending_messages_for_context(
         return;
     }
 
-    // Fetch pending messages from backend
     let task_id = &context.task_id;
     let Some(deliveries) = fetch_or_redispatch(&state, &context).await else {
         return;
@@ -619,12 +610,11 @@ async fn resolve_pending_prompt(state: &SandboxState, context: &std::sync::Arc<T
         return;
     };
 
-    // A row this pod queued for itself is a wake and not an answer — see
-    // [`dispatch_self_queued`]. `build_pending_deliveries` coalesces every pending
-    // row into this one delivery, so a wake arrives alongside the person's answer
-    // and has to be withheld row by row: it is left unacknowledged, and the
-    // redispatch below opens the turn it was owed. Answering with the delivery
-    // whole would ack the wake as part of the answer and lose it.
+    // A row this pod queued for itself is a wake, not an answer — see
+    // [`dispatch_self_queued`]. A wake can arrive alongside the answer,
+    // so it is withheld unacknowledged and the redispatch below opens
+    // the turn it was owed; answering with the whole delivery would ack
+    // the wake too and lose it.
     let (wakes, prompt_response_uuids) = context
         .split_self_queued(&prompt_delivery.message_uuids)
         .await;
@@ -634,14 +624,11 @@ async fn resolve_pending_prompt(state: &SandboxState, context: &std::sync::Arc<T
     }
     let has_remaining_messages = deliveries.len() > 1 || !wakes.is_empty();
 
-    // The answer joins the run that asked the question, so it is acknowledged
-    // against that run's identity. Resolve it *before* consuming the prompt:
-    // without it the answer cannot be acknowledged, and answering-then-failing-
-    // to-ack would leave the row pending to be re-fetched later as ordinary
-    // input (with no prompt outstanding). A pending prompt implies an active
-    // run, so this is present in practice; if it is somehow absent, leave the
-    // prompt and message pending for a later pass rather than answering
-    // unacknowledgeably.
+    // The answer joins the run that asked, acked against that run's
+    // identity. Resolve it before consuming the prompt: answering then
+    // failing to ack would leave the row pending, re-fetched later as
+    // ordinary input with no prompt outstanding. If somehow absent,
+    // leave prompt and message pending rather than ack unacknowledgeably.
     let (Some(session_id), Some(run_id)) = (
         context.agent.last_session_id().await,
         context.agent.current_run_id().await,

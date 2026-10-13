@@ -247,11 +247,9 @@ impl Coordinator {
                 self.drop_accepted_injected_acks(
                     "new execution started before non-terminal output",
                 );
-                // A new execution opens a new Run — for input-opened and
-                // harness-internal executions alike. The acknowledgement (if any)
-                // waits for the following `InputAccepted`. A context-loss recovery
-                // already minted the Run for its notice, so the recovered Turn
-                // continues that same logical Run rather than opening a second.
+                // A new execution opens a new Run, except context-loss recovery:
+                // it reuses the Run already minted for its notice instead of
+                // opening a second one.
                 self.session_id = session.0;
                 if !self.hold_run_id {
                     self.run_id = new_run_id();
@@ -280,12 +278,10 @@ impl Coordinator {
                     .await;
             }
             Signal::InputAccepted { input } => {
-                // Accepted: it will never need context-loss recovery, so release
-                // the retained copy. An input that opened this execution acks at
-                // acceptance. An input injected into an already-running execution
-                // waits until the agent emits later non-terminal output; if the
-                // execution is already at its terminal result, that ack is dropped
-                // so the backend can redispatch the still-unhandled batch.
+                // Accepted input never needs context-loss recovery, so drop the
+                // retained copy. The opening input acks now; an injected input
+                // waits for later non-terminal output, or its ack is dropped at
+                // the terminal result so the backend redispatches the batch.
                 self.pending_inputs.remove(&input);
                 if let Some(ack) = self.pending_acks.remove(&input) {
                     if self.opening_input.as_ref() == Some(&input) {
@@ -306,21 +302,19 @@ impl Coordinator {
             Signal::ContextWindow(window) => self.publish_context_window(window).await,
             Signal::ExecutionFinished { outcome } => {
                 self.drop_accepted_injected_acks("execution finished before non-terminal output");
-                // Leave the turn *before* the events say it ended, for the same
-                // reason opening enters it first: the observable gap must be
-                // the harmless direction. This is the pairing whose absence put
-                // task `0d48056e` in the state the reaper had no arm for — the
-                // agent reporting `running` under a turn the events had closed.
+                // Leave the turn *before* the events say it ended, mirroring the
+                // open ordering: the observable gap must stay the harmless
+                // direction, never the agent reporting `running` under a turn
+                // the events already closed.
                 self.close_turn(&outcome).await;
                 self.publish_outcome(outcome).await;
             }
             Signal::InputRejected { input, reason } => {
                 let original = self.pending_inputs.remove(&input);
                 match reason {
-                    // A resume the harness could not load (`SessionImpact::Lost`)
-                    // must never silently drop the Message. Re-drive it once as a
-                    // fresh context-recovery Turn, keeping the pending ack alive
-                    // for the recovered Turn's acceptance.
+                    // A resume the harness couldn't load (`SessionImpact::Lost`)
+                    // must not silently drop the Message: re-drive it once as a
+                    // context-recovery Turn, keeping the pending ack alive.
                     Rejection::Failed(err)
                         if original
                             .as_ref()
@@ -331,12 +325,11 @@ impl Coordinator {
                             self.recover_lost_session(input, &original, &err).await;
                         }
                     }
-                    // No `ExecutionStarted` preceded a non-recoverable rejection,
-                    // so no Run was minted and there is nothing to close. Drop the
-                    // ack (the dispatcher observes a closed channel and leaves the
-                    // batch unacknowledged) and surface a classified failure. This
-                    // also ends a recovery re-drive that itself failed — recovery
-                    // is bounded to a single attempt.
+                    // No `ExecutionStarted` preceded this, so no Run was minted
+                    // and there is nothing to close. Drop the ack — the
+                    // dispatcher sees the closed channel and leaves the batch
+                    // unacknowledged — and surface a classified failure; this
+                    // also bounds a failed recovery re-drive to one attempt.
                     Rejection::Failed(err) => {
                         self.hold_run_id = false;
                         drop(self.pending_acks.remove(&input));
@@ -479,9 +472,8 @@ impl Coordinator {
     async fn publish_outcome(&mut self, outcome: Outcome) {
         match outcome {
             Outcome::Completed { totals } => {
-                // The terminal carries the run's authoritative token/cost totals
-                // when the harness reported them; an older runtime that reported
-                // none still publishes so the turn closes, just with an empty body.
+                // Carries the run's token/cost totals when the harness reported
+                // them; an older runtime with none still publishes an empty body.
                 let mut payload = totals.map_or_else(|| json!({}), |t| t.to_payload());
                 let background_commands = std::mem::take(&mut self.background_commands);
                 if background_commands > 0 {
@@ -609,10 +601,8 @@ fn new_run_id() -> String {
 /// Payload for `taskTurn.turn_interrupted`, published when the pod's own
 /// shutdown cancels a Turn nobody asked to end.
 ///
-/// Never publish `agent.stopped` alongside it — that's what
-/// `find_interrupted_turn` reads as "this Turn ended," leaving the replacement
-/// pod nothing to resume. Mirrors the pod watcher's SIGKILL-path message so
-/// both interruptions read the same in the UI.
+/// Never publish `agent.stopped` alongside it: `find_interrupted_turn` reads
+/// that as "Turn ended," leaving the replacement pod nothing to resume.
 pub(super) fn interrupted_turn_payload() -> Value {
     json!({
         "message": "Turn interrupted — the sandbox pod was shut down mid-turn. \

@@ -239,16 +239,11 @@ impl Supervisor {
             }
         }
 
-        // A fatal exit means *we* are initiating shutdown, so no signal handler
-        // has run and nothing has flushed anything. Run the graceful teardown
-        // here, before cancelling — see this method's docs for why the order is
-        // load-bearing rather than cosmetic. `teardown` cancels the token
-        // itself, which makes the `cancel()` below the same idempotent no-op it
-        // already is on the signal path.
-        //
-        // Skipped when the token is already cancelled: that is the signal path
-        // (or a signal that raced this fatal exit), where teardown has run or is
-        // running, and a second concurrent teardown would only duplicate work.
+        // A fatal exit means we are initiating shutdown, with no signal
+        // handler run and nothing flushed -- so teardown must run here,
+        // before cancelling (see this method's docs for why). `teardown`
+        // cancels the token itself, so `cancel()` below no-ops; skipped if
+        // already cancelled, since the signal path is already tearing down.
         if fatal.is_some() && !cancel.is_cancelled() {
             info!("Fatal task exit; running graceful teardown before cancelling");
             teardown.await;

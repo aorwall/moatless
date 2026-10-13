@@ -197,13 +197,11 @@ impl RoutingService {
         }
 
         let binding_repo = self.task_bindings.clone();
-        // Provenance: the task an adapter recovered from the event's own body (the
-        // `Moatless task:` footer), else the task an already-recorded event
-        // identifier names. Never an identity.
-        //
-        // The identifier is only asked about on this subject: a provider that
-        // numbers events per subject rather than globally reuses one id across
-        // all of them, and the task that holds it elsewhere did not write this.
+        // Provenance: the task an adapter recovered from the event body, else
+        // the task an already-recorded event identifier names — never an
+        // identity. The identifier is asked about only on this subject: a
+        // provider numbering events per subject (not globally) reuses one id
+        // across subjects, so a task holding it elsewhere didn't write this.
         let origin_task_id = match msg.source_task_id.clone() {
             Some(task_id) => Some(task_id),
             None => match msg.external_event_id.as_deref() {
@@ -256,11 +254,11 @@ impl RoutingService {
         if subscription.routing_mode == RoutingMode::Ongoing {
             if let Some(task_id) = self.open_ongoing_task_id(subscription).await {
                 if !bindings.iter().any(|s| s.task_id == task_id) {
-                    // Pass None so a newly attached binding starts with no cursor —
-                    // `deliver_to_binding` then fetches the full prior thread as
-                    // context, and `touch_cursor` advances it after delivery. For an
-                    // existing binding the COALESCE in the upsert preserves the
-                    // current cursor.
+                    // None here: a newly attached binding starts with no
+                    // cursor. `deliver_to_binding` fetches the full prior
+                    // thread as context, and `touch_cursor` advances it
+                    // after delivery. An existing binding's COALESCE in
+                    // the upsert keeps its current cursor.
                     let sub = self
                         .task_bindings
                         .bind(
@@ -285,18 +283,11 @@ impl RoutingService {
             .should_create_binding_task(subscription, &bindings)
             .await?
         {
-            // Reading the bindings above and creating below are two statements,
-            // not one transaction, and the backend runs more than one replica.
-            // Two events for the same subject arriving together therefore both
-            // read no binding and both create — which is not hypothetical: an
-            // @mention reaches Slack's adapter as two events carrying the same
-            // message ts, ~300ms apart, and produced two tasks and two replies.
-            //
-            // The claim is the decision. Exactly one delivery lands the row;
-            // the rest are told to retry, and by then the winner's binding is
-            // there to receive them. A duplicate event is then dropped by the
-            // event-receipt table, and a genuinely different message is
-            // delivered to the task the winner made. Nothing is lost either way.
+            // Reading bindings then creating is two statements, not one
+            // transaction, across replicas, so two events for one subject
+            // can both see no binding and both try to create (seen for
+            // real: duplicate Slack events ~300ms apart). One
+            // `claim_task_creation` wins; losers retry onto its binding.
             let claimed = self
                 .event_receipts
                 .claim_task_creation(
@@ -336,11 +327,11 @@ impl RoutingService {
                 });
             }
 
-            // The earliest binding for this subject (if any) belongs to the task
-            // that originated it — typically a `connected_thread` binding placed
-            // when an earlier task produced the resource. We link the new task
-            // to it as `related_to` (peer sharing the same external artifact),
-            // not as a parent.
+            // The earliest binding for this subject, if any, belongs to the
+            // task that originated it — typically a `connected_thread`
+            // binding from an earlier task that produced the resource. Link
+            // the new task to it as `related_to` (a peer sharing the
+            // artifact), not as a parent.
             let related = bindings.first().map(|b| moatless_types::task::RelatedTask {
                 related_task_id: b.task_id.clone(),
                 context: serde_json::json!({
@@ -352,8 +343,6 @@ impl RoutingService {
                 }),
             });
             let config = subscription_context(subscription);
-            // Resolve the bound adapter's reply instructions from the registry
-            // and pass them to the firing entry point as a value.
             let presentation = self
                 .adapters
                 .as_ref()
@@ -407,12 +396,11 @@ impl RoutingService {
                         .await?;
                     info!(task_id = %task_id, subscription_id = %subscription.id, provider = adapter_label, "Created task from provider event");
                 }
-                // Permanent failure (e.g. a bad GitHub token). The service already
-                // persisted the task as errored + published a `SandboxStatus::Error`
-                // event. Skip the new-task binding and its delivery, but fall through
-                // to existing-binding delivery and return `Ok` — returning a 5xx here
-                // makes sources like Slack redeliver, and every redelivery inserts
-                // another errored row.
+                // Permanent failure (e.g. bad GitHub token): already
+                // persisted as errored, with a `SandboxStatus::Error`
+                // event published. Skip the new binding and its delivery,
+                // but fall through to existing bindings and return `Ok` —
+                // a 5xx would make it redeliver and duplicate the error.
                 Err(TaskOpenError::Refused(reason)) => {
                     // The claim bought the right to create and no task came of
                     // it. Hand it back, or every later event for this subject
@@ -423,8 +411,8 @@ impl RoutingService {
                         .await?;
                     warn!(subscription_id = %subscription.id, provider = adapter_label, reason = %reason, "Skipping task creation from provider event: preflight failed");
                 }
-                // Transient failure (Db / ShortId / RepoNotFound) — propagate so the
-                // source retries, exactly as before this migration.
+                // Transient failure (Db / ShortId / RepoNotFound) — propagate
+                // so the source retries.
                 Err(e) => {
                     // Transient, so the sender retries — but the claim must not
                     // outlive the attempt that took it, or the retry loses to
@@ -459,11 +447,10 @@ impl RoutingService {
 
     /// Deliver one event to the bindings on its subject that should receive it.
     ///
-    /// The single delivery decision point for every adapter: resolves the
-    /// audience via [`resolve_recipients`], checks the redelivery receipt,
-    /// fails loudly when a subject with bindings ends up with no recipient, and
-    /// returns the last task delivered to (or accounted for, where a skip means
-    /// it already holds the event).
+    /// The single delivery decision point: resolves the audience via
+    /// [`resolve_recipients`], checks the redelivery receipt, fails loudly when
+    /// a subject with bindings gets no recipient, and returns the last task
+    /// delivered to (or accounted for, when a skip means it already has it).
     pub(crate) async fn fan_out(
         &self,
         connection: &AdapterConnection,
@@ -500,10 +487,10 @@ impl RoutingService {
         .map(|binding| binding.id.clone())
         .collect();
 
-        // How many bindings the subject carried when the walk began, and why each
-        // one that got nothing got nothing. A subject with no bindings expects
-        // nothing of this event; one whose every binding was passed over expected
-        // something and no task got it.
+        // Bindings the subject carried when the walk began, and why each
+        // one got nothing. A subject with no bindings expects nothing of
+        // this event; one whose every binding was passed over expected
+        // something and got no task.
         let active_bindings = bindings.len();
         let mut passed_over: Vec<(String, &'static str)> = Vec::new();
         let mut delivered_task_id = None;
@@ -533,12 +520,11 @@ impl RoutingService {
                 continue;
             }
 
-            // The audience named someone else. This deliberately does *not* mark
-            // the event as delivered: nothing holds it on this binding's account,
-            // and `delivered_task_id` is the whole of the empty-result signal once
-            // the GitHub PR router's own ledger is gone. Marking here would make a
-            // review that reached no task report as a successful delivery, which is
-            // precisely the fault the signal exists to catch.
+            // Named someone else: deliberately not marked delivered, since
+            // nothing holds it on this binding. `delivered_task_id` is now
+            // the only empty-result signal (the GitHub PR router's ledger
+            // is gone); marking here would make a review reaching no task
+            // falsely report success — the exact fault this signal catches.
             if !recipient_ids.contains(&binding.id) {
                 debug!(
                     task_id = %binding.task_id,
@@ -652,10 +638,10 @@ impl RoutingService {
             &subscription.id,
             &connection.id,
         );
-        // Permanent by classification (`adapters/delivery`): the same event walking the
-        // same bindings is passed over the same way, so retrying only burns the
-        // budget. The record lands in `failed` carrying this message, which is the
-        // point — the event is not lost quietly.
+        // Permanent by classification (`adapters/delivery`): the same event
+        // walking the same bindings is passed over the same way, so
+        // retrying only burns budget. The record lands in `failed` with
+        // this message — the event isn't lost quietly.
         Err(SharedAdapterError::NotFound(format!(
             "no task binding on {subject_key} could receive this {adapter_label} event \
              ({active_bindings} passed over: {reasons})"
@@ -664,13 +650,11 @@ impl RoutingService {
     }
 
     /// The task that authored the parent event an [`Audience::ParentAuthor`]
-    /// names, or `None` for every other audience and for a parent no task
-    /// authored.
+    /// names, or `None` otherwise and when no task authored it.
     ///
-    /// Sits above [`resolve_recipients`], which performs no I/O of its own;
-    /// asks across every subject rather than just this one, since the parent id
-    /// — `github:rc:<id>`, `linear:comment:<uuid>` — is allocated once by the
-    /// provider and names the comment without help.
+    /// Sits above [`resolve_recipients`] (no I/O) but asks across every
+    /// subject, not just this one, since the parent id is allocated once
+    /// by the provider and names the comment unaided.
     pub async fn parent_author_task_id(
         &self,
         adapter_label: &str,
@@ -986,9 +970,9 @@ impl RoutingService {
                     sender_id: last.sender_external_id.clone(),
                 },
                 sent_by: Some(last.user_id.clone()),
-                // A `routing_mode: ongoing` Loop fires into a task that is already
-                // open, so the delivery resumes and the task's own skills are held
-                // back. The Loop still means them for every firing; send them here.
+                // A `routing_mode: ongoing` Loop fires into an already-open
+                // task, so the task's own skills are held back during
+                // resume; the Loop still means them, so send them here.
                 skills: config.skills.clone(),
             })
             .await
@@ -1008,13 +992,12 @@ impl RoutingService {
     }
 }
 
-/// One event, the bindings on its subject, and what routing already knows about
-/// who wrote it.
+/// One event, the bindings on its subject, and what routing already knows
+/// about who wrote it.
 ///
-/// Assembling the set is the caller's job, since spawning varies per adapter (a
-/// chat adapter spawns for any unbound subject, GitHub PR only when a pull
-/// request opens); deciding who among them receives the event does not, and
-/// lives in [`RoutingService::fan_out`].
+/// Assembling the set is the caller's job (spawning varies per adapter: a
+/// chat adapter spawns for any unbound subject, GitHub PR only when a PR
+/// opens); deciding who receives it lives in [`RoutingService::fan_out`].
 pub struct Fanout<'a> {
     /// The adapter label the event is delivered and metered under: the value
     /// `task_inbox.external_adapter` carries, and the key the adapter

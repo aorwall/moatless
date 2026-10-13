@@ -176,7 +176,6 @@ fn transform_scoped(
     file_metadata: &HashMap<String, FileInfo>,
     scope: RenderScope<'_>,
 ) -> Vec<UiMessage> {
-    // Group contexts by message ID
     let contexts_by_msg: HashMap<i32, Vec<&TaskMessageContext>> = {
         let mut map: HashMap<i32, Vec<&TaskMessageContext>> = HashMap::new();
         for ctx in contexts {

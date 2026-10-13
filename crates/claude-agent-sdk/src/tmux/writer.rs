@@ -55,7 +55,6 @@ impl TmuxPasteWriter {
     pub(crate) async fn send_text(&self, text: &str) -> Result<()> {
         let buffer_name = format!("sdk-{}", uuid::Uuid::new_v4().simple());
 
-        // 1. Load text into a named tmux buffer via stdin.
         let mut load = tmux_command(&self.socket)
             .args(["load-buffer", "-b", &buffer_name, "-"])
             .stdin(Stdio::piped())
@@ -101,14 +100,10 @@ impl TmuxPasteWriter {
             )));
         }
 
-        // 3. Submit. We deliberately do NOT press Enter on a fixed delay here:
-        // Ink applies a bracketed-paste / burst-input heuristic, so an Enter
-        // that arrives before the paste has rendered into the input box is
-        // absorbed as input instead of submitting — leaving the prompt unsent
-        // (claude never runs a turn, no transcript, no Stop hook → JSONL
-        // discovery times out with JsonlNotFound). Instead, wait for the pasted
-        // text to actually appear in the input box, THEN press Enter and confirm
-        // the box clears.
+        // 3. Submit. Deliberately not a fixed-delay Enter: Ink's
+        // bracketed-paste heuristic absorbs an Enter that arrives before the
+        // paste renders, instead of submitting (unsent prompt, JsonlNotFound).
+        // Wait for the pasted text to appear, then Enter, then confirm it clears.
         self.submit_pasted_text(target, text).await;
 
         debug!(target = %target, bytes = text.len(), "Pasted user message into tmux");
@@ -431,11 +426,9 @@ mod tests {
 
     #[test]
     fn input_region_pending_with_prior_marker_in_history() {
-        // Exact shape of a wedge captured on the cluster (0.1.62): a previous
-        // turn's prompt (with its own `❯`) sits in the scrollback ABOVE the
-        // active input box, which holds the still-unsent prompt. `last_index_of`
-        // must lock onto the active (last) `❯`, and the needle must match there
-        // despite the box borders + footer that follow it.
+        // A previous turn's prompt (with its own `❯`) sits in the scrollback
+        // above the active input box. `last_index_of` must lock onto the
+        // active (last) `❯`, matching despite the box borders + footer after it.
         let pane = "\
 ● STRESS-3-OK
 ✻ Worked for 1s

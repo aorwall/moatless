@@ -1,29 +1,12 @@
 //! At-least-once send buffer for the sandbox → backend event hop.
 //!
 //! In-memory, ordered, non-durable across process death: losing it loses
-//! events. [`EventOutbox::enqueue`] is non-blocking, never fails the caller, and
-//! is where capacity is enforced, so a stalled drainer cannot grow the queue. A
-//! single drainer sends in FIFO order with capped exponential backoff, assigning
-//! a monotonic `sequence` in transmission order.
-//!
-//! Every lost event is counted and announced on the stream as an
-//! [`EVENTS_DROPPED_SUB_TYPE`] marker. Markers are drainer-generated and never
-//! enter the buffer, so a saturated buffer can still announce its saturation.
-//!
-//! At capacity the outbox evicts the oldest evictable event and counts
-//! `dropped_overflow`. When only lifecycle events (`taskTurn.*` and terminal
-//! `agent.*`) remain, it refuses the incoming event and counts
-//! `rejected_saturated` instead. It always keeps one event, even when that
-//! event alone exceeds the byte cap. Lifecycle events are preferred but share
-//! the queue budget with every other event, so the outbox refuses the newest
-//! and keeps the oldest — the drainer is FIFO, and an older event is the
-//! prefix that keeps the later ones interpretable.
-//!
-//! Drop an event the backend *permanently* refuses; do not retry it. That
-//! event is at-most-once, because one in-order drainer would otherwise stall
-//! on it and take the task's whole remaining stream with it
-//! (`dropped_terminal`). `dropped_unrepresentable` is a bug in this process,
-//! not a load condition.
+//! events. [`EventOutbox::enqueue`] is non-blocking and never fails the
+//! caller; a single drainer sends in FIFO order with capped exponential
+//! backoff, assigning a monotonic `sequence` in transmission order. Drop
+//! markers are drainer-generated and never enter the buffer, so a
+//! saturated buffer can still announce its own saturation. See
+//! [`DropReason`] and [`OutboxMetrics`] for drop semantics and counters.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -580,10 +563,10 @@ impl EventOutbox {
                 if stopped {
                     return;
                 }
-                // Drops are carried by counter deltas, not by buffered events,
-                // so an empty buffer is not an empty queue: a terminal rejection
-                // or an unrepresentable type leaves a marker the drainer still
-                // owes the stream. Returning here would cancel the drainer with
+                // Drops are carried by counter deltas, not buffered events,
+                // so an empty buffer isn't an empty queue: a terminal
+                // rejection or unrepresentable type leaves a marker owed to
+                // the stream. Returning here would cancel the drainer with
                 // that gap unannounced.
                 if undrained == 0 && self.shared.counters.unannounced_drops() == 0 {
                     return;
@@ -769,11 +752,11 @@ impl Drainer {
             match self.deliver(&marker).await {
                 Delivery::Sent => ledger.announced.store(recorded, Ordering::SeqCst),
                 Delivery::Rejected(status) => {
-                    // The marker is backend-authored in all but name — a UUID, a
-                    // known event type, serialised JSON — so a terminal rejection
-                    // means version skew. Record it as announced anyway: counting
-                    // the marker's own loss as a drop would generate a new marker
-                    // that would be rejected in turn, forever.
+                    // The marker is backend-authored in all but name (UUID,
+                    // known event type, serialised JSON), so a terminal
+                    // rejection means version skew. Record it as announced
+                    // anyway: counting its own loss as a drop would generate
+                    // a new marker, rejected in turn, forever.
                     error!(
                         task_id = %self.task_id,
                         reason = reason.marker_reason(),

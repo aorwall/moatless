@@ -341,11 +341,10 @@ fn detect_transitions(
                         .is_some_and(|r| r.contains("Evict"));
                 let resource_pressure_eviction = is_evicted
                     && !eviction_is_node_lifecycle(current.pod_status_message.as_deref());
-                // Keep the reason, do not just test it: `NodeShutdown`/`Terminated`
-                // mean the kubelet drained the pod, `DeletionByPodGC`/`NodeLost` mean
-                // the node went with the pod still bound and no SIGTERM. Read
-                // `disruption_reason` first, so this agrees with the precedence
-                // `extract_pod_observed_state` already applies to the same two fields.
+                // Keep the reason: `NodeShutdown`/`Terminated` means the
+                // kubelet drained the pod; `DeletionByPodGC`/`NodeLost` means
+                // the node went with it, no SIGTERM. Check `disruption_reason`
+                // first, matching `extract_pod_observed_state`'s precedence.
                 let node_removal_reason = current
                     .disruption_reason
                     .as_deref()

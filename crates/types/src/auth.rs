@@ -147,10 +147,9 @@ pub struct AuthConfig {
     /// Additional GitHub Apps registered as bot identities (e.g. `dev-bot`,
     /// `review-bot`).
     ///
-    /// `GITHUB_APPS_JSON` is a one-time upgrade path: the first start after
-    /// upgrading copies each entry into this field and ignores the env var from
-    /// then on (see `GitHubAppRegistry::carry_over_env_apps`). A bot user's
-    /// `provider_tokens.provider_user_id` stores the matching `key`.
+    /// `GITHUB_APPS_JSON` is a one-time upgrade: the first start after
+    /// upgrading copies each entry here and ignores the env var after. A bot
+    /// user's `provider_tokens.provider_user_id` stores the matching `key`.
     pub github_apps: Vec<GitHubAppConfig>,
 }
 
@@ -240,10 +239,9 @@ impl fmt::Debug for GitHubAppConfig {
 
 /// One entry of a browser origin allow-list.
 ///
-/// Grants are list-specific, not interchangeable —
-/// [`AuthConfig::csrf_trusted_origins`] admits a cookie write, the T3 WebSocket
-/// list a socket. A `*.<domain>` entry admits any same-scheme host under it,
-/// for sandbox previews whose per-workspace hostname isn't known in advance;
+/// Grants are list-specific — [`AuthConfig::csrf_trusted_origins`] admits a
+/// cookie write, the T3 WebSocket list a socket. `*.<domain>` admits any
+/// same-scheme host under it, for sandbox previews with unknown hostnames;
 /// the wildcard never spans scheme or port.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AllowedOrigin {
@@ -471,13 +469,12 @@ pub struct AuthIdentity {
     pub group_id: Option<String>,
 }
 
-/// Which credential the middleware accepted for the current request, injected
-/// alongside [`AuthIdentity`].
+/// Which credential the middleware accepted, injected alongside
+/// [`AuthIdentity`].
 ///
-/// Read by handlers whose defences depend on *how* the caller proved who they
-/// are, not who they are — a cookie is attached by the browser to any request
-/// anybody can cause it to make, while the other two require a client holding
-/// them deliberately.
+/// Read by handlers whose defences depend on *how* the caller proved who
+/// they are: a cookie is attached by the browser to any request anybody can
+/// cause, while the other two require a client holding them deliberately.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuthMethod {
     SessionCookie,

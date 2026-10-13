@@ -1,15 +1,13 @@
-//! Merged-pull-request notification: candidate derivation and durable
-//! execution.
+//! Merged-PR notification: candidate derivation and durable execution.
 //!
-//! Tells the tasks still working a pull request that it landed. GitHub has no
-//! `merged` action, so the signal is derived from `pull_request` `closed`
-//! carrying `merged: true`, gated by its own name
-//! ([`super::config::PR_MERGED`]) rather than the carrier's.
+//! Tells tasks still working a pull request that it landed. GitHub has no
+//! `merged` action, so this derives from `pull_request` `closed` with
+//! `merged: true`, gated by its own name ([`super::config::PR_MERGED`])
+//! rather than the carrier's.
 //!
-//! Recipients are the active Bindings the trigger's auto-close does not own:
-//! auto-close winds its own tasks down and appends its own notice
-//! ([`super::routing`]); this notifies everyone else, so the two durable kinds
-//! never both deliver to the same Task regardless of execution order.
+//! Recipients are the Bindings auto-close does not own: auto-close winds its
+//! own tasks down and appends its own notice ([`super::routing`]); this
+//! notifies everyone else, so the two kinds never both deliver to one Task.
 
 use std::fmt::Write;
 

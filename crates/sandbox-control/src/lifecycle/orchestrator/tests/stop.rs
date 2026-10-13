@@ -62,7 +62,6 @@ async fn completion_commit_failure_propagates_and_does_not_publish() {
         .replace(Ok(RuntimeOutcome::applied(ObservedStatus::Stopped)));
     let res = h.lifecycle.stop("t", SandboxStopReason::User).await;
     assert!(matches!(res, Err(LifecycleError::CompletionCommit { .. })));
-    // Stopped completion was NOT published; marker retained.
     assert!(!h.events.facts().contains(&EventFact::Stopped));
     assert!(h.store.current().expect("intent").marker.is_some());
 }

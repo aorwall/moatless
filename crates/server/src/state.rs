@@ -744,11 +744,9 @@ impl axum::extract::FromRef<AppState> for Arc<TaskCloser> {
     }
 }
 
-// Naming `DbPool` gives a handler the pool for a raw-pool query function that
-// predates the DAO layer (the sites Step 3 left alone). It is a named residue,
-// not a grant to run new SQL from a handler — new persistence goes through a DAO
-// port constructed in the composition root. See `.plans/backend-ports-and-crates.md`
-// Step 5, `AppState.db`.
+// `DbPool` here is residue for a raw-pool query predating the DAO layer,
+// not license for new SQL from a handler: new persistence goes through a
+// DAO port built in the composition root.
 impl axum::extract::FromRef<AppState> for DbPool {
     fn from_ref(state: &AppState) -> Self {
         state.db.clone()

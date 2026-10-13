@@ -180,13 +180,12 @@ pub(super) fn require_linear(
     linear.ok_or_else(|| SharedAdapterError::AdapterNotConfigured("linear".into()).into())
 }
 
-/// Resolve the caller's Linear connection (defaulting to the single accessible
-/// one) and build a [`LinearAgentApi`] for that workspace.
+/// Resolve the caller's Linear connection (default: the one accessible
+/// connection) and build a [`LinearAgentApi`] for it.
 ///
-/// The adapter is handed in directly rather than looked up through
-/// `state.provider_handles.linear`, since this file *is* the Linear provider
-/// and self-resolution through the registry dissolves once the route extracts
-/// `State<Option<Arc<LinearAdapter>>>`.
+/// Takes the adapter directly rather than via `state.provider_handles.linear`:
+/// self-resolution through the registry would dissolve once the route already
+/// extracted `State<Option<Arc<LinearAdapter>>>`.
 pub(super) async fn resolve_linear_api(
     adapter: &LinearAdapter,
     ctx: &ScopeContext,

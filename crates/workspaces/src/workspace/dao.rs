@@ -55,13 +55,12 @@ pub(crate) trait WorkspaceDao: Send + Sync {
     async fn find_names_by_ids(&self, ids: &[String])
     -> Result<Vec<(String, String)>, sqlx::Error>;
 
-    /// Every non-deleted workspace the caller may read, plus every workspace in
-    /// `also_include` regardless of readability or deletion, for listings that
-    /// group tasks by workspace.
+    /// Every non-deleted workspace the caller may read, plus every workspace
+    /// in `also_include` regardless of readability, for listings that group
+    /// tasks by workspace.
     ///
-    /// Each row says which half of the union it came from ([`ListedWorkspace`])
-    /// — projecting both halves the same way would leak the widened half's
-    /// configuration to someone the read rule refused.
+    /// Each row says which half admitted it ([`ListedWorkspace`]): projecting
+    /// both the same way would leak the widened half's config.
     async fn list_readable_including(
         &self,
         ctx: &ScopeContext,
@@ -344,13 +343,12 @@ impl WorkspaceDao for PgWorkspaceDao {
         let access =
             moatless_core::db::access_control::access_filter(ScopedEntity::Resource, "", 1);
         let ids_param = access.next_param();
-        // The same fragment twice, on purpose: as the admitting half of the
-        // `WHERE` and as the column that says which half admitted the row. One
-        // expression, so a row can never be reported readable by one and not
-        // the other.
+        // The same fragment twice, deliberately: as the admitting half of the
+        // `WHERE` and as the column naming which half admitted the row — one
+        // expression, so a row can't be readable by one and not the other.
         //
-        // `deleted` narrows the readable half only: a workspace named by a task
-        // the caller may read is listed even once a sync has tombstoned it.
+        // `deleted` narrows only the readable half: a workspace named by a
+        // readable task still lists even once a sync has tombstoned it.
         let sql = format!(
             "SELECT *, {} AS readable FROM workspaces \
              WHERE ((deleted IS NULL OR deleted = false) AND {}) \

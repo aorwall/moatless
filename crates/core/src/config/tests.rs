@@ -137,11 +137,9 @@ fn env_bool_default_false_recognises_true_values() {
     std::env::set_var("_TEST_BOOL_4", "anything");
     assert!(!env_bool("_TEST_BOOL_4", false));
 
-    // Missing env var
     std::env::remove_var("_TEST_BOOL_MISSING");
     assert!(!env_bool("_TEST_BOOL_MISSING", false));
 
-    // Cleanup
     for k in [
         "_TEST_BOOL_1",
         "_TEST_BOOL_2",
@@ -164,11 +162,9 @@ fn env_bool_default_true_recognises_false_values() {
     std::env::set_var("_TEST_BOOL_T3", "anything");
     assert!(env_bool("_TEST_BOOL_T3", true));
 
-    // Missing env var returns default (true)
     std::env::remove_var("_TEST_BOOL_T_MISSING");
     assert!(env_bool("_TEST_BOOL_T_MISSING", true));
 
-    // Cleanup
     for k in ["_TEST_BOOL_T1", "_TEST_BOOL_T2", "_TEST_BOOL_T3"] {
         std::env::remove_var(k);
     }

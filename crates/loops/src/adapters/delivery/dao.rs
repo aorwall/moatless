@@ -62,12 +62,11 @@ impl AdapterDeliveryStore {
 
     async fn insert(&self, request: AdapterDeliveryRequest) -> Result<Admission, AdmitError> {
         let id = format!("ad_{}", uuid::Uuid::new_v4());
-        // The capacity predicate is evaluated against this statement's own READ
-        // COMMITTED snapshot, so concurrent admissions can each see the same
-        // below-capacity backlog and all insert. That is deliberate, and the
-        // resulting bound is still hard rather than approximate — see
-        // `AdapterDeliveryPolicy::backlog_capacity` for the arithmetic and for why
-        // serialising the decision would cost more than the overshoot does.
+        // The capacity predicate reads this statement's own READ COMMITTED
+        // snapshot, so concurrent admissions can all see the same
+        // below-capacity backlog and all insert — deliberately: the bound
+        // stays hard, not approximate. Serializing would cost more than
+        // the overshoot; see `AdapterDeliveryPolicy::backlog_capacity`.
         let inserted = sqlx::query(
             r#"INSERT INTO adapter_delivery
                    (id, adapter, kind, event_id, payload, status, attempts, max_attempts,

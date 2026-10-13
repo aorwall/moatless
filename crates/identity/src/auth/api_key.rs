@@ -52,7 +52,6 @@ pub(crate) async fn generate_key(
     let key_hash = hash_key(&full_key);
     let key_prefix = format!("{}{}", KEY_PREFIX, &key_hex[..8]);
 
-    // Random 16-byte hex ID
     let id_bytes: [u8; 16] = rand::rng().random();
     let id = hex::encode(id_bytes);
 
@@ -105,7 +104,6 @@ pub(crate) async fn validate_key(
         return Ok(None);
     };
 
-    // Check expiration
     if let Some(exp) = row.expires_at {
         if chrono::Utc::now() > exp {
             debug!(key_id = %row.id, "API key expired");
@@ -163,7 +161,6 @@ pub(crate) async fn validate_key_cached(
 
     let key_hash = hash_key(key);
 
-    // Check cache first
     if let Some(cached) = cache.get_api_key(&key_hash).await {
         // Check expiry (MAX means no expiry)
         let now = chrono::Utc::now();
@@ -174,7 +171,6 @@ pub(crate) async fn validate_key_cached(
         return Ok(Some(cached));
     }
 
-    // Cache miss — go to DB
     let payload = validate_key(api_keys, users, key).await?;
     let Some(payload) = payload else {
         return Ok(None);

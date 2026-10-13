@@ -18,13 +18,11 @@ pub fn enforce_slack_access(
         SourceAccessPolicy::Disabled => AccessDecision::Blocked,
         SourceAccessPolicy::Open => AccessDecision::Allowed,
         SourceAccessPolicy::Allowlist | SourceAccessPolicy::Pairing => {
-            // Check channel allowlist (if non-empty)
             if !config.channel_allowlist.is_empty()
                 && !config.channel_allowlist.iter().any(|c| c == channel_id)
             {
                 return AccessDecision::Blocked;
             }
-            // Check user allowlist (if non-empty)
             if !config.user_allowlist.is_empty()
                 && !config.user_allowlist.iter().any(|u| u == user_id)
             {

@@ -1,14 +1,13 @@
 //! Durable admission for the GitHub PR work that must not be lost.
 //!
-//! One webhook loops several units of work — routing, closing tasks a merged PR
-//! created, notifying survivors, the post-merge CI notice, the conflict check —
-//! each admitted separately so they retry and fail independently.
+//! One webhook loops several units of work, each admitted separately so they
+//! retry and fail independently.
 //!
-//! The durable unique index dedups only these effects, not ingress's read-only
-//! work or its best-effort status projections; a late GitHub redelivery (up to
-//! 30 days, past `succeeded_retention`) can overwrite newer PR state, and
-//! [`kind::PR_MESSAGE`] can duplicate a task if its 2-minute timeout lands
-//! between task creation and the binding write.
+//! The durable unique index dedups only these effects, not ingress's
+//! read-only work or status projections. GitHub's redelivery window outlives
+//! `succeeded_retention`, so a late redelivery can overwrite newer PR state,
+//! and [`kind::PR_MESSAGE`] can duplicate a task if its 2-minute timeout
+//! lands between task creation and the binding write.
 
 use super::kind;
 use std::sync::Arc;

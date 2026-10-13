@@ -66,10 +66,9 @@ pub(crate) struct PodObservedState {
     /// Fire-once guard: an attach-failure storage fallback has been requested
     /// for this pod.
     ///
-    /// Keyed per pod, so it's effectively once per generation — a rebuild
-    /// replaces the pod, and the fresh pod starts the guard clear. Set
-    /// regardless of outcome, so a failed rebuild waits for the next clean
-    /// start rather than retrying every sweep.
+    /// Keyed per pod (effectively per generation — a rebuild replaces the pod
+    /// with the guard clear). Set regardless of outcome, so a failed rebuild
+    /// waits for the next clean start rather than retrying every sweep.
     pub(crate) storage_fallback_requested: bool,
     /// Epoch ms when this pod was first observed in the terminal `Failed`
     /// phase.
@@ -80,22 +79,19 @@ pub(crate) struct PodObservedState {
     pub(crate) failed_since_ms: Option<i64>,
     /// Fire-once guard: a GC delete has been issued for this Failed pod.
     pub(crate) gc_requested: bool,
-    /// An auto-stop (scale Deployment to 0) has been decided for this pod — via
-    /// the crash-restart threshold crossing or the exit-78 fast-fail — but not
-    /// yet confirmed by a successful `scale_deployment` call.
+    /// An auto-stop (scale Deployment to 0) has been decided — via the
+    /// crash-restart threshold or exit-78 fast-fail — but not yet confirmed.
     ///
-    /// Cleared only on a successful scale-to-0, and retried on every watcher
-    /// event and the periodic sweep; without this, a failed scale is lost and
-    /// `restart_count` staying `>= threshold` means the "new crossing" edge
-    /// never re-fires, so the pod crash-loops forever.
+    /// Cleared only on a successful scale-to-0; retried every watcher event
+    /// and sweep. Without that, a failed scale is lost and the threshold
+    /// crossing never re-fires, so the pod crash-loops forever.
     pub(super) auto_stop_pending: bool,
     /// Sandbox status most recently published from this pod's lifecycle
     /// transitions, carried across Apply events.
     ///
-    /// Suppresses consecutive identical publishes from the high-frequency
-    /// container `sub_types` (restart/crash-loop/terminated), which otherwise
-    /// fire once per K8s watch Apply while a container flaps; watcher restart
-    /// resets this (acceptable — one extra event per pod after failover).
+    /// Suppresses consecutive identical publishes from high-frequency
+    /// container `sub_types` while a container flaps. Watcher restart resets
+    /// this (acceptable: one extra event per pod after failover).
     pub(crate) last_published_sandbox_status: Option<SandboxStatus>,
 }
 
@@ -183,10 +179,10 @@ pub(crate) fn extract_pod_observed_state(
         .and_then(|s| s.terminated.as_ref())
         .map(|t| t.exit_code);
 
-    // Last-terminated state survives a K8s restart (current state becomes
-    // Running/Waiting after restart). Kept separate from the current-state fields
-    // above so transition detection keeps comparing current-vs-previous, while the
-    // diagnostics payloads can still recover the exit code/reason after a restart.
+    // Last-terminated survives a K8s restart (current becomes Running/Waiting).
+    // Kept separate from the current-state fields so transition detection still
+    // compares current-vs-previous, while diagnostics can recover the exit
+    // code/reason after a restart.
     let last_terminated = sandbox_container_status
         .and_then(|cs| cs.last_state.as_ref())
         .and_then(|s| s.terminated.as_ref());

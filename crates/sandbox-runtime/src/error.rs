@@ -564,7 +564,6 @@ mod tests {
             .unwrap()
             .to_bytes();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        // Should NOT expose the actual config key
         let error_msg = json["error"].as_str().unwrap();
         assert!(!error_msg.contains("TOKEN_SECRET"));
         assert_eq!(error_msg, "Internal server error");

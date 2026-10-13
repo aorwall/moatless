@@ -121,11 +121,10 @@ pub const CODEX: AgentProfileEntry = AgentProfileEntry {
     credential_keys: &[CODEX_AUTH_JSON, OPENAI_API_KEY],
     provider_token_providers: &["codex", "openai"],
     default_model: UNRESOLVED_MODEL_CHOICE,
-    // The explicit entries mirror the `gpt-*` half of the Codex CLI's own `model/list` at the
-    // version pinned in `docker/cli-versions.env`, in the order it returns them. `model/list` also
-    // returns the `claude-*` ids Codex can drive; they are deliberately absent here, because a
-    // Codex turn on one routes at Anthropic rather than through the OpenAI proxy a pod is
-    // configured for.
+    // Mirrors the `gpt-*` half of the Codex CLI's `model/list` (pinned in
+    // `docker/cli-versions.env`), in order. `claude-*` ids are deliberately
+    // excluded: a Codex turn on one routes directly to Anthropic, bypassing
+    // the OpenAI proxy a pod is configured for.
     models: &[
         DEFAULT_MODEL,
         codex_model(CodexModel::Gpt61Sol),

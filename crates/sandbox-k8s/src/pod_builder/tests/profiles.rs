@@ -67,7 +67,6 @@ fn a_repo_that_did_not_opt_in_mounts_no_service_account_token() {
 fn per_repo_network_profile_sets_pod_label() {
     const KEY: &str = "moatless.io/network-profile";
 
-    // Unset → no profile label.
     let config = test_config();
     let plan = test_plan();
     let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
@@ -76,7 +75,6 @@ fn per_repo_network_profile_sets_pod_label() {
         "unset network_profile adds no label"
     );
 
-    // Set → label carries the value.
     let mut plan = test_plan();
     plan.repo_config.network_profile = Some("sealed-egress".to_string());
     let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();

@@ -1,16 +1,14 @@
 //! Prometheus metrics for sandbox storage backends.
 //!
-//! Exists to compare the storage combinations
-//! ([`crate::storage::StorageBackend`]) head-to-head — PVC vs. node-local
-//! `emptyDir`, each with/without the S3 snapshot.
+//! Compares storage combinations ([`crate::storage::StorageBackend`]) head-
+//! to-head — PVC vs. node-local `emptyDir`, each with/without the S3
+//! snapshot.
 //!
 //! Labels: `outcome` ∈ {`ok`, `error`}; `direction` ∈ {`upload`, `download`,
 //! `other`}; `format` ∈ {`tar`, `restic`, `other`}.
 //!
-//! Provision/restart durations are timed by the backend (synchronous K8s
-//! calls); workspace-sync duration/bytes come from the sandbox via
-//! `ReportWorkspaceSync`, since the transfer is sandbox→S3 and the backend must
-//! be told.
+//! Provision/restart durations come from the backend; workspace-sync
+//! duration/bytes come from the sandbox via `ReportWorkspaceSync` instead.
 
 use std::time::Duration;
 

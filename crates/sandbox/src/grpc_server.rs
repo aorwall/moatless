@@ -124,14 +124,11 @@ impl SandboxService for SandboxServiceImpl {
         let context = self
             .resolve_member_context(request.get_ref().task_id.as_deref())
             .await?;
-        // Fetch pending messages and send to the agent lifecycle task.
-        // The coordinator handles whether to start a new session or inject into a running one.
-        //
-        // Detached, but through the dispatcher's supervision seam: the RPC
-        // returns before dispatch finishes (that is the contract — `Ok` means
-        // "triggered"), and dispatch must outlive the call to hold the
-        // single-flight guard across its ack retries. `spawn_supervised` changes
-        // nothing about that lifetime; it only stops a panic from disappearing.
+        // Fetch pending messages and dispatch to the agent. Detached, but
+        // through the dispatcher's supervision seam: the RPC returns before
+        // dispatch finishes (`Ok` means "triggered"), and dispatch must
+        // outlive the call to hold the single-flight guard across its ack
+        // retries; `spawn_supervised` only stops a panic from disappearing.
         let state = self.state.clone();
         let task_id = context.task_id.clone();
         crate::agent::dispatcher::spawn_supervised("execute-agent-dispatch", async move {
@@ -150,10 +147,10 @@ impl SandboxService for SandboxServiceImpl {
         let context = self
             .resolve_member_context(request.get_ref().task_id.as_deref())
             .await?;
-        // Route the stop through the lifecycle owner — never publishing the
-        // terminal event here, and never branching on harness selection. The
-        // ack resolves once exactly one `agent.stopped` has been published and the
-        // Turn closed, so returning Ok means the stop was processed, not queued.
+        // Route the stop through the lifecycle owner, never publishing the
+        // terminal event or branching on harness here. The ack resolves
+        // once one `agent.stopped` publishes and the Turn closes, so `Ok`
+        // means the stop was processed, not queued.
         let source = crate::agent::types::StopSource::from(request.get_ref().source());
         let stop = async { context.agent_handle.stop(source).await.await };
         match tokio::time::timeout(std::time::Duration::from_secs(30), stop).await {
@@ -602,14 +599,10 @@ impl SandboxService for SandboxServiceImpl {
     }
 
     // ── File operations ──────────────────────────────────────────
-    //
-    // The file browser API is rooted at the workspace directory (`WORKSPACE_DIR`,
-    // e.g. `/opt/moatless/workspace`) rather than the primary repo subdirectory,
-    // so the frontend exposes the entire workspace. Git change overlays are
-    // computed per-repo: every git repository found within the workspace (the
-    // root itself, or sibling repos in subdirectories) contributes changes,
-    // with file paths prefixed by the repo's workspace-relative location so they
-    // line up with the tree. Degrades gracefully (no badges) when no repos exist.
+    // Rooted at the workspace directory (`WORKSPACE_DIR`), not the primary
+    // repo, so the frontend sees the whole workspace. Git overlays are
+    // per-repo (root and sibling checkouts), paths prefixed by each repo's
+    // workspace-relative location; degrades gracefully when no repos exist.
 
     #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
     async fn get_file_tree(

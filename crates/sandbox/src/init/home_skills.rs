@@ -126,7 +126,6 @@ mod tests {
             );
             assert!(dst_skills.join("bar").is_dir());
         }
-        // No docs are bridged.
         assert!(!tmp.path().join("home/CLAUDE.md").exists());
         assert!(!tmp.path().join("home/AGENTS.md").exists());
     }

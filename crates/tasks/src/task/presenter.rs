@@ -103,7 +103,6 @@ impl TaskPresenter {
             None
         };
 
-        // Resolve external bindings for this task.
         let bindings = self.resolve_task_bindings(&row.task_id).await;
 
         // Resolve outgoing relations for this task (best-effort — empty on error).

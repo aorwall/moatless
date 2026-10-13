@@ -95,12 +95,10 @@ pub(super) async fn start(
 
 /// Stores the authorization `connect` asked for as its initiator's credential.
 ///
-/// Only stores when `viewer` matches the initiator (`oauth_state` outlives a
-/// logout and the session itself, so a stale or shared-browser session must not
-/// inherit another person's Forgejo account); `code` is absent when the person
-/// declined. Always redirects to the return URL with the outcome as a query
-/// parameter instead of a JSON error, since the browser is mid-flow on a page
-/// the person opened.
+/// Only stores when `viewer` matches the initiator: a stale or shared-browser
+/// session (`oauth_state` outlives it) must not inherit another person's
+/// Forgejo account. `code` is absent when declined; always redirects with the
+/// outcome as a query param rather than JSON, since the browser is mid-flow.
 pub(super) async fn finish(
     state: &AuthState,
     viewer: Option<&AuthIdentity>,

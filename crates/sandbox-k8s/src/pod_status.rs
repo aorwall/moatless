@@ -76,7 +76,6 @@ pub fn pick_best_pod(pods: &[Pod]) -> Option<&Pod> {
         return None;
     }
 
-    // Split into non-terminating and terminating
     let (alive, terminating): (Vec<_>, Vec<_>) = pods
         .iter()
         .partition(|p| p.metadata.deletion_timestamp.is_none());
@@ -86,7 +85,6 @@ pub fn pick_best_pod(pods: &[Pod]) -> Option<&Pod> {
         return pods.first();
     }
 
-    // Among alive pods, pick by phase priority
     fn phase_priority(pod: &Pod) -> u8 {
         match pod
             .status

@@ -36,10 +36,9 @@ pub async fn github_webhook(
     );
 
     // Every port `receive` needs is carried on the adapter (see
-    // `with_ingress_ports`), so this route reads them through it rather than an
-    // `AppState`. `receive` keeps its explicit-port contract (adapter-carve
-    // #444); this route just sources those ports from the provider it already
-    // extracts.
+    // `with_ingress_ports`), so this route reads them through it rather than
+    // an `AppState`. `receive` keeps its explicit-port contract; this route
+    // just sources those ports from the provider it already extracts.
     match super::ingress::receive(
         github_pr_provider.require_adapter_connections()?,
         github_pr_provider.require_loops()?,
@@ -69,31 +68,29 @@ pub async fn github_webhook(
                 &connection_id,
             );
         }
-        // The one failure that must not be acknowledged. Nothing was written,
-        // so a 200 would tell GitHub the work is ours while no record of it
-        // exists anywhere. Surfaced as `503` at capacity and `500` on a failed
-        // write. GitHub does not retry a delivery on its own, so what this buys
-        // is a delivery recorded as failed — redeliverable by an operator for 30
-        // days, and alertable here via the `not_admitted` reason.
+        // The one failure that must not be acknowledged: nothing was written,
+        // so a 200 would claim ownership of work with no record anywhere.
+        // Surfaced as `503` at capacity, `500` on a failed write; GitHub won't
+        // retry on its own, so this only leaves the delivery recorded as
+        // failed and alertable via `not_admitted`.
         Err(IngressError::NotAdmitted(e)) => {
             record_webhook("github_pr", "error", "not_admitted", event_type, "", "");
             warn!(error = %e, "GitHub PR webhook work was not admitted; delivery left unacknowledged");
             return Err(AdapterError::from(e));
         }
-        // Not constructed by `receive` today: GitHub's own unidentifiable
-        // deliveries (no `repository.full_name`, no `X-GitHub-Event`) are raised
-        // as `Ingress` and acknowledged, which is what they did before the
-        // vocabulary was shared and is not changed here. The arm gives the class
-        // its transport treatment so a step that starts raising it gets a `400`
-        // rather than inheriting the metered `200` below.
+        // Not constructed by `receive` today: unidentifiable GitHub deliveries
+        // (no `repository.full_name`, no `X-GitHub-Event`) are raised as
+        // `Ingress` and acknowledged. This arm exists so a step that starts
+        // raising `Unidentifiable` gets a `400` instead of the metered `200`
+        // below.
         Err(IngressError::Unidentifiable(missing)) => {
             record_webhook("github_pr", "error", "unidentifiable", event_type, "", "");
             warn!(%missing, "GitHub PR webhook could not be identified");
             return Err(SharedAdapterError::BadRequest(missing).into());
         }
-        // Every other failure keeps the long-standing behaviour: log it, meter
-        // it, and acknowledge. These are rejections of the delivery itself
-        // (bad header, bad JSON, bad signature), which a redelivery cannot fix.
+        // Every other failure: log it, meter it, acknowledge. These reject the
+        // delivery itself (bad header, bad JSON, bad signature), which a
+        // redelivery cannot fix.
         Err(IngressError::Ingress(e)) => {
             record_webhook("github_pr", "error", "delivery_failed", event_type, "", "");
             warn!(error = %e, "GitHub PR webhook processing error");

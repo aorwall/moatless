@@ -84,11 +84,10 @@ impl AdapterInboundPresentation for SlackAdapter {
             return Ok(None);
         }
 
-        // Slack always returns the parent message regardless of `oldest`,
-        // so filter client-side to only include messages strictly after the cursor.
-        // Also exclude messages already delivered to the task (e.g. the current
-        // message being processed) to avoid duplicates in the context. Match
-        // both new prefixed and legacy bare-ts forms.
+        // Slack always returns the parent regardless of `oldest`; filter
+        // client-side to messages strictly after the cursor. Also drop
+        // messages already delivered to the task — matching both new
+        // prefixed and legacy bare-ts forms — to avoid duplicates.
         let kept: Vec<&ThreadReply> = replies
             .iter()
             .filter(|r| match (&r.ts, oldest) {
@@ -158,7 +157,6 @@ fn select_replies(
     messages
         .into_iter()
         .filter(|m| {
-            // Exclude bot's own messages
             if let Some(ref uid) = m.user {
                 if let Some(bot_id) = bot_user_id {
                     return uid != bot_id;

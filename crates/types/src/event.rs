@@ -120,7 +120,6 @@ impl std::fmt::Display for SubType {
     }
 }
 
-// Convenience From impls
 impl From<SandboxStatus> for SubType {
     fn from(s: SandboxStatus) -> Self {
         Self::Sandbox(s)

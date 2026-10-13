@@ -159,7 +159,6 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
     )
     .await;
 
-    // 3. Fetch credentials from backend via gRPC
     {
         *state.init_phase.write().await = InitPhase::FetchingCredentials;
     }
@@ -190,12 +189,11 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
         warn!(error = %e, "Git configuration failed (non-fatal)");
     }
 
-    // 4. For the `s3` storage backend, try to restore a full-repo snapshot from
-    //    S3 *before* cloning. A snapshot that carries `.git` is a complete repo
-    //    at the exact prior HEAD + index + dirty working tree, so restoring it
-    //    lets us skip the clone entirely. Returns false (leaving the workspace
-    //    empty) for a fresh task, a disabled feature, a failed transfer, or a
-    //    working-tree-only snapshot — in which case we clone below.
+    // 4. For the `s3` backend, try restoring a full-repo snapshot from S3
+    //    before cloning: one carrying `.git` is a complete repo at the
+    //    prior HEAD/index/working tree, so restoring it skips the clone.
+    //    Returns false (workspace left empty, cloned below) for a fresh
+    //    task, a disabled feature, a failed transfer, or a tree-only snapshot.
     let restore_decision = if state.config.workspace_sync_enabled {
         let decision = workspace_sync::restore_on_start(state).await;
         if decision.restored_snapshot() {
@@ -219,17 +217,11 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
     // `workspace_sync::sweep_git_locks` owns why.
     workspace_sync::sweep_git_locks(PathBuf::from(&state.config.workspace_dir)).await;
 
-    // 5. Clone the workspace's repositories (fatal on failure). Runs even after
-    //    an S3 restore: `clone_repositories` skips any repo whose directory
-    //    already holds a `.git`, so this only fills in what the snapshot didn't
-    //    have — e.g. a repo added to the workspace since it was taken.
-    //
-    // `workspace_recloned` tracks whether a *fresh* clone actually replaced the
-    // primary repo (as opposed to a full S3 restore, an EBS/PVC volume that
-    // already held it, or an overlay onto a fresh clone). When true,
-    // ephemeral pre-restart state (gitignored deps/build artifacts, out-of-repo
-    // files, unpushed commits / uncommitted changes) is gone, and we tell a
-    // resuming agent so below.
+    // 5. Clone the workspace's repos (fatal on failure); runs even after an
+    //    S3 restore, since `clone_repositories` skips a dir that already
+    //    has `.git`. `workspace_recloned` is true only for a fresh clone of
+    //    the primary repo, not a restore or pre-existing volume — when
+    //    true, ephemeral pre-restart state is gone.
     let mut workspace_recloned = false;
     if !state.config.repos.is_empty() {
         {
@@ -295,13 +287,11 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
         info!(count = staged, "Staged plugin skills for Codex");
     }
 
-    // 8. Install the repo's skills into the home-level skill dirs for both
-    // agents: `<claude_config_dir>/skills` for Claude and `<codex_home_dir>/skills`
-    // for Codex. Skills are discovered relative to cwd (`workspace_dir`), so a
-    // repo checked out one level down at `repo_dir` would otherwise be invisible;
-    // copying into the home dirs (alongside the staged image skills) makes them
-    // discoverable without polluting the workspace root or pulling the repo's
-    // `CLAUDE.md`/`AGENTS.md` into the agent's project context.
+    // 8. Install the repo's skills into both agents' home skill dirs
+    //    (`<claude_config_dir>/skills`, `<codex_home_dir>/skills`). Skills
+    //    are discovered relative to cwd (`workspace_dir`), so a repo at
+    //    `repo_dir` would otherwise be invisible; copying them home avoids
+    //    pulling the repo's `CLAUDE.md`/`AGENTS.md` into agent context.
     if !state.config.repo_dir.is_empty() {
         // `install_repo_skills_to_home` walks and copies directory trees, so it
         // runs on the blocking pool like every other filesystem step here.
@@ -320,24 +310,18 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
         }
     }
 
-    // 9. Restore CLI session state from S3 (via backend-proxied gRPC): Claude
-    //    transcripts into `projects/<dashed-cwd>/` and Codex rollout sessions
-    //    into `$CODEX_HOME/sessions`. Runs here — after the clone, before the
-    //    sandbox is marked Ready — so `recover_interrupted_run` and
-    //    pending-message dispatch see restored `--resume` history.
-    //    Tier-agnostic and best-effort: a missing archive (or a disabled
-    //    feature) is non-fatal.
+    // 9. Restore CLI session state from S3: Claude transcripts into
+    //    `projects/<dashed-cwd>/`, Codex sessions into `$CODEX_HOME/sessions`.
+    //    Runs after the clone, before Ready, so `recover_interrupted_run`
+    //    and pending-message dispatch see restored `--resume` history.
+    //    Best-effort: a missing archive or disabled feature is non-fatal.
     transcript_sync::download_on_start(state).await;
 
-    // 10. S3 working-tree overlay: only when workspace sync is on AND step 4 left
-    //     the overlay owed. Overlays the persisted working tree onto the fresh
-    //     clone so the agent sees restored edits. Best-effort and non-fatal.
-    //
-    //     Both "we just extracted the full snapshot" and "the durable volume
-    //     already holds the repo" suppress it: in the first the archive is
-    //     already the working tree, and in the second the archive is the *older*
-    //     copy — extracting it over a live PVC would revert work that never made
-    //     it into a snapshot.
+    // 10. S3 working-tree overlay onto the fresh clone, when sync is on and
+    //     step 4 left it owed; best-effort, non-fatal. Suppressed by either
+    //     a just-extracted full snapshot (already the working tree) or a
+    //     pre-existing durable volume (the archive there is *older* — an
+    //     overlay would revert work never captured in a snapshot).
     if state.config.workspace_sync_enabled && !restore_decision.skips_overlay() {
         workspace_sync::download_on_start(state).await;
     }

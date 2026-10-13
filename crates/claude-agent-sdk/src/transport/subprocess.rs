@@ -91,7 +91,6 @@ impl SubprocessTransport {
         let stdin = Arc::new(Mutex::new(stdin));
         let stdout_lines = BufReader::new(stdout).lines();
 
-        // Drain stderr in background with a shared buffer for real-time access
         let stderr_buffer = Arc::new(Mutex::new(Vec::new()));
         let stderr_callback = options.stderr_callback.as_ref().map(|_| ());
         let stderr_task = tokio::spawn(drain_stderr(
@@ -172,7 +171,6 @@ impl SubprocessTransport {
             let _ = stdin.shutdown().await;
         }
 
-        // Step 2: Wait briefly for natural exit after EOF
         match tokio::time::timeout(std::time::Duration::from_secs(2), self.child.wait()).await {
             Ok(Ok(status)) => {
                 let stderr_lines = collect_stderr(&mut self._stderr_task).await;
@@ -200,7 +198,6 @@ impl SubprocessTransport {
             }
         }
 
-        // Step 4: Wait for SIGTERM to take effect
         match tokio::time::timeout(std::time::Duration::from_secs(5), self.child.wait()).await {
             Ok(Ok(status)) => {
                 let stderr_lines = collect_stderr(&mut self._stderr_task).await;
@@ -215,10 +212,8 @@ impl SubprocessTransport {
             }
         }
 
-        // Step 5: SIGKILL — last resort
         let _ = self.child.kill().await;
 
-        // Collect stderr and log
         let stderr_lines = collect_stderr(&mut self._stderr_task).await;
         if !stderr_lines.is_empty() {
             let tail = if stderr_lines.len() > 20 {
@@ -240,7 +235,6 @@ fn resolve_cli_path(options: &ClaudeOptions) -> Result<String> {
         return Ok(path.clone());
     }
 
-    // Try `which claude`
     if let Ok(output) = std::process::Command::new("which").arg("claude").output() {
         if output.status.success() {
             let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -250,13 +244,11 @@ fn resolve_cli_path(options: &ClaudeOptions) -> Result<String> {
         }
     }
 
-    // Try default location
     let default_path = crate::config_dir::home_dir().join(".claude/local/claude");
     if default_path.exists() {
         return Ok(default_path.to_string_lossy().into_owned());
     }
 
-    // Fall back to just "claude" and let PATH resolution handle it
     Ok("claude".to_string())
 }
 
@@ -264,7 +256,6 @@ fn resolve_cli_path(options: &ClaudeOptions) -> Result<String> {
 pub(crate) fn build_cli_args(options: &ClaudeOptions) -> Vec<String> {
     let mut args = Vec::with_capacity(32);
 
-    // Always-present flags
     args.extend_from_slice(&[
         "--output-format".to_string(),
         "stream-json".to_string(),
@@ -274,7 +265,6 @@ pub(crate) fn build_cli_args(options: &ClaudeOptions) -> Vec<String> {
         "--print".to_string(),
     ]);
 
-    // Model
     if let Some(model) = &options.model {
         args.push("--model".to_string());
         args.push(model.clone());
@@ -298,18 +288,15 @@ pub(crate) fn build_cli_args(options: &ClaudeOptions) -> Vec<String> {
         args.push(tool_name.clone());
     }
 
-    // Permission mode
     if let Some(mode) = &options.permission_mode {
         args.push("--permission-mode".to_string());
         args.push(mode.to_string());
     }
 
-    // Allow dangerously skip permissions
     if options.allow_dangerously_skip_permissions == Some(true) {
         args.push("--allow-dangerously-skip-permissions".to_string());
     }
 
-    // Session
     if let Some(session) = &options.resume {
         args.push("--resume".to_string());
         args.push(session.clone());
@@ -324,7 +311,6 @@ pub(crate) fn build_cli_args(options: &ClaudeOptions) -> Vec<String> {
         args.push("--no-persist-session".to_string());
     }
 
-    // Limits
     if let Some(turns) = options.max_turns {
         args.push("--max-turns".to_string());
         args.push(turns.to_string());
@@ -334,7 +320,6 @@ pub(crate) fn build_cli_args(options: &ClaudeOptions) -> Vec<String> {
         args.push(budget.to_string());
     }
 
-    // Tools
     if let Some(tools) = &options.allowed_tools {
         if !tools.is_empty() {
             args.push("--allowedTools".to_string());
@@ -348,7 +333,6 @@ pub(crate) fn build_cli_args(options: &ClaudeOptions) -> Vec<String> {
         }
     }
 
-    // Directories
     if let Some(dirs) = &options.additional_directories {
         for dir in dirs {
             args.push("--add-dir".to_string());
@@ -356,7 +340,6 @@ pub(crate) fn build_cli_args(options: &ClaudeOptions) -> Vec<String> {
         }
     }
 
-    // Settings sources
     if let Some(sources) = &options.setting_sources {
         if !sources.is_empty() {
             args.push("--setting-sources".to_string());
@@ -370,7 +353,6 @@ pub(crate) fn build_cli_args(options: &ClaudeOptions) -> Vec<String> {
         }
     }
 
-    // System prompt
     if let Some(prompt) = &options.system_prompt {
         match prompt {
             SystemPrompt::Replace(text) => {
@@ -386,7 +368,6 @@ pub(crate) fn build_cli_args(options: &ClaudeOptions) -> Vec<String> {
         }
     }
 
-    // Plugins
     if let Some(plugins) = &options.plugins {
         for plugin in plugins {
             args.push("--plugin-dir".to_string());
@@ -405,12 +386,10 @@ pub(crate) fn build_cli_args(options: &ClaudeOptions) -> Vec<String> {
         }
     }
 
-    // Strict MCP config
     if options.strict_mcp_config == Some(true) {
         args.push("--strict-mcp-config".to_string());
     }
 
-    // Betas
     if let Some(betas) = &options.betas {
         if !betas.is_empty() {
             args.push("--betas".to_string());
@@ -433,12 +412,10 @@ pub(crate) fn build_cli_args(options: &ClaudeOptions) -> Vec<String> {
         }
     }
 
-    // File checkpointing
     if options.enable_file_checkpointing == Some(true) {
         args.push("--enable-file-checkpointing".to_string());
     }
 
-    // Agent
     if let Some(agent) = &options.agent {
         args.push("--agent".to_string());
         args.push(agent.clone());
@@ -454,7 +431,6 @@ pub(crate) fn build_cli_args(options: &ClaudeOptions) -> Vec<String> {
         }
     }
 
-    // Extra args
     if let Some(extra) = &options.extra_args {
         for (key, value) in extra {
             args.push(format!("--{key}"));
@@ -571,11 +547,10 @@ fn log_stdout_message(msg: &RawStdoutMessage) {
             trace!("CLI stdout: keep_alive");
         }
         RawStdoutMessage::Unknown(value) => {
-            // The CLI emits far more `system` subtypes than
-            // `SdkMessage::from_value` models, so an unknown shape is ordinary
-            // protocol drift. Type and subtype name which one to model. Keep the
-            // rest of the body out of the WARN: an unparsed `control_request`
-            // lands here too, and its `request` holds tool input.
+            // `SdkMessage::from_value` models fewer `system` subtypes than the
+            // CLI emits, so an unknown shape is ordinary drift — log only
+            // type/subtype. Keep the body out of WARN: an unparsed
+            // `control_request` lands here too, and its `request` holds tool input.
             let type_str = value.get("type").and_then(|v| v.as_str()).unwrap_or("?");
             let subtype = value.get("subtype").and_then(|v| v.as_str()).unwrap_or("-");
             if first_unknown_frame(type_str, subtype) {
@@ -843,7 +818,6 @@ fn format_content_blocks(blocks: &[ContentBlock]) -> String {
             }
         }
     }
-    // Trim trailing newlines
     while out.ends_with('\n') {
         out.pop();
     }
@@ -874,7 +848,6 @@ fn format_tool_input(tool_name: &str, input: &Map<String, Value>) -> String {
         }
     }
 
-    // If no key fields were found, show all keys
     if out.is_empty() {
         let keys: Vec<&str> = input.keys().map(std::string::String::as_str).collect();
         let _ = writeln!(out, "  input keys: [{}]", keys.join(", "));
@@ -886,7 +859,6 @@ fn format_tool_input(tool_name: &str, input: &Map<String, Value>) -> String {
 /// Return the first 8 characters of an ID string.
 fn short_id(id: &str) -> &str {
     let end = id.len().min(8);
-    // Ensure we're at a char boundary
     let mut e = end;
     while e > 0 && !id.is_char_boundary(e) {
         e -= 1;
@@ -907,7 +879,6 @@ fn truncate(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
         return s.to_string();
     }
-    // Find valid UTF-8 boundary
     let mut end = max_len;
     while end > 0 && !s.is_char_boundary(end) {
         end -= 1;

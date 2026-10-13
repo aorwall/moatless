@@ -1,13 +1,12 @@
 //! The two Linear agent-session workflows: a session created, and a prompt
 //! typed into one that already exists.
 //!
-//! A session gets a visible panel, so both open with a heartbeat activity
-//! before anything slow — `created`'s in
-//! [`webhook::normalize`](super::webhook::normalize)/[`ingress`](super::ingress),
-//! `prompted`'s here. `created` always spawns a Task (a mention is an explicit
-//! instruction); `prompted` routes into the Task its session is already bound
-//! to — a missing Binding is ordinary (that task has since closed), not an
-//! error.
+//! Both open a heartbeat activity before any slow work, since a session gets
+//! a visible panel — `created`'s heartbeat is in
+//! [`webhook::normalize`](super::webhook::normalize)/`ingress`,
+//! `prompted`'s here. `created` always spawns a Task (a mention is explicit);
+//! `prompted` routes into its already-bound Task — a missing Binding means
+//! that task closed already, not an error.
 
 use tracing::{info, warn};
 
@@ -123,10 +122,9 @@ pub(super) async fn provision_selected_session_task(
 /// Project/label-aware spawn-rule selection for a mention/assignment session.
 ///
 /// Skips the Linear API when no rule is project-scoped
-/// ([`rules_need_issue_fetch`] is false); otherwise fetches the issue once for
-/// project + labels (mirroring [`create_tasks_for_status_entry`]) — a fetch
-/// failure degrades to `(None, &[])`, routing to the unscoped catch-all /
-/// oldest rule.
+/// ([`rules_need_issue_fetch`] is false); otherwise fetches the issue once,
+/// mirroring [`create_tasks_for_status_entry`]. A fetch failure degrades to
+/// `(None, &[])`, routing to the unscoped/oldest catch-all rule.
 async fn select_session_spawn_rule(
     api: &LinearAgentApi,
     rules: &[SubscriptionMatch],
@@ -292,14 +290,11 @@ async fn provision_session_task(
         .as_ref()
         .ok_or_else(|| SharedAdapterError::BadRequest("AgentSession missing issue".into()))?;
 
-    // Idempotency guard: if a binding already exists for this session id, this
-    // is a second execution of work that already provisioned the task. Durable
-    // admission collapses a redelivery of one `created` event, but the record
-    // behind it is executed at-least-once — an attempt abandoned at its
-    // deadline or interrupted by a restart is claimed again — so the guard is
-    // what makes the *execution* converge. Return early rather than creating a
-    // second task. Keyed on session id, so multiple *distinct* sessions on the
-    // same issue still each get their own task.
+    // Idempotency guard: an existing binding for this session id means the
+    // task is already provisioned — durable admission collapses a `created`
+    // redelivery, but execution is at-least-once (a restart re-claims an
+    // abandoned attempt), so this guard makes execution converge. Keyed on
+    // session id: distinct sessions on one issue each get their own task.
     match task_bindings
         .for_subject(ADAPTER, SUBJECT_KIND, &session.id)
         .await
@@ -420,7 +415,6 @@ async fn provision_session_task(
         )
         .await?;
 
-    // Update the session with an externalUrl pointing at the moatless task.
     let task_url = super::text::task_url(config, &task_id);
     let attachment_title = super::task_links::task_attachment_title(
         tasks,
@@ -480,13 +474,11 @@ async fn provision_session_task(
         );
     }
 
-    // Move the issue into the rule's configured "started" state (e.g. In
-    // Progress) on mention/assignment pickup, so the Linear board reflects that
-    // the agent picked it up. Reuses the same team-scoped transition as the
-    // status-entry path. Best-effort and idempotent: skipped when the issue is
-    // already in the target state. No self-retrigger risk — this loop's
-    // status-entry path is off, and the resulting `→ In Progress` Issue.update
-    // doesn't feed the mention path.
+    // Move the issue into the rule's "started" state on mention/assignment
+    // pickup, so the board reflects it — same team-scoped transition as the
+    // status-entry path. Best-effort and idempotent: skipped if already in
+    // the target state. No self-retrigger: this loop's status-entry path is
+    // off, so the resulting Issue.update doesn't feed back here.
     if let Some(start_state) = LinearRuleConfig::from_rule(rule).start_state.as_deref() {
         let current_state = issue.state.as_ref().map_or("", |s| s.name.as_str());
         if !current_state.eq_ignore_ascii_case(start_state) {

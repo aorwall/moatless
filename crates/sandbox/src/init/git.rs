@@ -61,7 +61,6 @@ pub async fn configure_git(config: &Config, credentials: &GitCredentials) -> Res
         return Ok(());
     }
 
-    // Resolve git user info
     let user_name = credentials.get("GIT_USER_NAME");
     let user_email = credentials.get("GIT_USER_EMAIL");
 
@@ -87,7 +86,6 @@ pub async fn configure_git(config: &Config, credentials: &GitCredentials) -> Res
         }
     }
 
-    // Set explicit user name/email if the credentials carry them
     if let Some(ref name) = user_name {
         run_command("git", &["config", "--global", "user.name", name]).await?;
     }
@@ -277,10 +275,10 @@ async fn failure_is_retryable(
     credentials: &GitCredentials,
     probe: HttpTimeouts,
 ) -> bool {
-    // A 5xx is the service's own outage; a 2xx advertising the branch leaves only
-    // the transfer to blame, such as GitHub cancelling the stream mid-pack. This
-    // only ever promotes a failure: a 4xx falls through to reachability, so an
-    // endpoint that answers differently cannot make a working repo permanent.
+    // A 5xx is the service's own outage; a 2xx advertising the branch leaves
+    // only the transfer to blame (e.g. GitHub cancelling mid-pack). Only ever
+    // promotes a failure: a 4xx falls through to reachability, so a
+    // differently-answering endpoint can't make a working repo permanent.
     if let Some(advertisement) = repo_advertisement(repo, pod_provider, credentials, probe).await {
         if advertisement.status.is_server_error() {
             return true;
@@ -461,7 +459,6 @@ async fn clone_checkout(
     let clone_url = &repo.clone_url;
     let is_ssh = repo.uses_ssh;
 
-    // Normalize empty branch to None
     let branch = repo.branch.as_deref().filter(|b| !b.is_empty());
 
     info!(
@@ -473,13 +470,11 @@ async fn clone_checkout(
         "Cloning repository"
     );
 
-    // SSH remote: clone the URL directly. Authentication and host-key checking
-    // come from the identities/config written to ~/.ssh by credentials.rs — no
-    // token involved (checked first so an SSH URL to a host with a configured
-    // provider still takes the SSH path). Clones into `repo_dir` like the other
-    // providers — `workspace_dir` is no longer empty at clone time (e.g. the
-    // persisted user token lives under it), and git refuses to clone into a
-    // non-empty directory.
+    // SSH remote: clone the URL directly. Auth and host-key checking come
+    // from the identities/config credentials.rs wrote to ~/.ssh, no token
+    // involved (checked first, so an SSH URL to a configured-provider host
+    // still takes the SSH path). Clones into `repo_dir`: `workspace_dir`
+    // is no longer empty by clone time, and git refuses a non-empty dir.
     if is_ssh {
         let git_args = git_clone_args(clone_url, dest, branch);
         return match run_command("git", &git_args).await {
@@ -641,7 +636,6 @@ pub(crate) fn inject_token_into_url(url: &str, token: &str) -> String {
         };
         format!("https://x-access-token:{token}@{host_and_path}")
     } else {
-        // Not an HTTPS URL, return as-is (ssh, etc.)
         url.to_string()
     }
 }
@@ -1263,7 +1257,6 @@ mod tests {
             port("https://x-access-token:ghs_tok@github.com/owner/repo.git"),
             Some(("github.com".into(), 443))
         );
-        // Nothing to probe.
         assert_eq!(port("/srv/git/local-repo.git"), None);
     }
 
@@ -1537,12 +1530,10 @@ mod tests {
     /// re-authenticates by injecting the provider token.
     #[test]
     fn redacted_url_authenticates_via_injected_token() {
-        // GitHub flow.
         assert_eq!(
             inject_token_into_url("https://github.com/owner/repo.git", "ghs_tok"),
             "https://x-access-token:ghs_tok@github.com/owner/repo.git"
         );
-        // GitLab flow.
         assert_eq!(
             inject_token_into_url("https://gitlab.com/group/repo.git", "glpat_tok"),
             "https://x-access-token:glpat_tok@gitlab.com/group/repo.git"

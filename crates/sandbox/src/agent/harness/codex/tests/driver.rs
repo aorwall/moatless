@@ -14,9 +14,8 @@ fn the_codex_process_accepts_injection() {
 /// `thread/start`/`resume`, `turn/start` — none of which is bounded (see
 /// `PendingRequests`).
 ///
-/// The handle exists from construction and is the token
-/// `codex_app_server::start` is handed, so cancelling it kills the child
-/// mid-handshake, before any session exists.
+/// The handle exists from construction, the token `codex_app_server::start`
+/// is handed, so cancelling it kills the child mid-handshake.
 #[tokio::test]
 async fn cancelling_before_the_session_opens_still_tears_the_server_down() {
     let mut process = process();
@@ -117,7 +116,6 @@ async fn queued_input_opens_the_next_turn_and_is_accepted_against_it() {
     let (tx2, _s2, session2) = AppServerSession::scripted();
     let (submit_tx, _cancel_tx, mut signal_rx) = scripted_driver(vec![session1, session2]);
 
-    // First Turn starts.
     submit_tx
         .send(Input::text("in-1", "one"))
         .await
@@ -132,7 +130,6 @@ async fn queued_input_opens_the_next_turn_and_is_accepted_against_it() {
         Signal::InputAccepted { input } if input.0 == "in-1"
     ));
 
-    // Queue a second input while the first Turn is active.
     submit_tx
         .send(Input::text("in-2", "two"))
         .await

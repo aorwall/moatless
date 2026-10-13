@@ -378,11 +378,10 @@ async fn resolve_repo(
 
 /// The remote `git clone` is pointed at.
 ///
-/// A repository with a provider clones through the backend git proxy, whose
-/// credential comes from the Workspace's run-as identity — no provider token
-/// reaches the pod, and the task token travels as the HTTP Basic password via
-/// the pod's `credential.<backend>.helper`. An SSH remote clones from its own
-/// host instead, authenticating with the pod's `ssh_key` secret.
+/// A repository with a provider clones through the backend git proxy, using
+/// the Workspace's run-as identity — no provider token reaches the pod; the
+/// task token travels as the HTTP Basic password. An SSH remote clones from
+/// its own host, authenticating with the pod's `ssh_key` secret.
 fn clone_url(base_url: &str, repo: &RepositoryResponse) -> Result<String, ClientError> {
     let remote = repo.remote.as_ref().ok_or_else(|| {
         ClientError::Other(format!(

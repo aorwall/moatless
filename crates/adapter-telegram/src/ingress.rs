@@ -51,24 +51,16 @@ pub(super) async fn receive(
     let payload: serde_json::Value = serde_json::from_slice(body)
         .map_err(|e| IngressError::Unidentifiable(format!("Invalid JSON: {e}")))?;
 
-    // Telegram's own delivery id, and therefore the durable idempotency key: a
-    // re-delivered update carries the same `update_id`, so admission recognises
-    // it as the same unit of work rather than a second one.
-    //
-    // `update_id` is unique per *bot*, not globally, and the dedup index —
-    // `(adapter, kind, event_id)` — has no connection column to scope it by.
-    // That is sound only because Telegram runs a single env-backed bot
-    // transport, which is the same assumption the `"default"` connection scope
-    // below rests on. Give Telegram a second connection and two bots' id
-    // sequences overlap: the second bot's updates would be swallowed as
-    // duplicates, silently, with no error and nothing above `debug`. Whoever
-    // makes Telegram multi-connection must qualify this key by connection.
+    // `update_id` is Telegram's durable idempotency key, unique per *bot* only.
+    // The dedup key (`adapter, kind, event_id`) has no connection column, sound
+    // only while Telegram runs one env-backed bot. A second connection would
+    // overlap id sequences and silently swallow its updates as duplicates —
+    // qualify this key by connection then.
     let update_id = payload
         .get("update_id")
         .and_then(serde_json::Value::as_i64)
         .ok_or_else(|| IngressError::Unidentifiable("Missing update_id".into()))?;
 
-    // Extract chat_id from message or channel_post
     let message = payload
         .get("message")
         .or_else(|| payload.get("channel_post"));
@@ -276,7 +268,6 @@ pub(super) async fn apply_effects(
                     code = req.code,
                 );
                 if let Err(e) = api.send_message(&chat_id, &message, None, None).await {
-                    // Best-effort — log but don't fail the whole flow
                     info!(from_id, error = %e, "Failed to send pairing message");
                 }
 

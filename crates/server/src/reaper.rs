@@ -393,10 +393,9 @@ struct ReaperStats {
     reclaimed: u32,
 }
 
-// The reaper's methods are split across several `impl` blocks so each stays next
-// to the free helpers between them that it calls (the decision fns, the DAO-thin
-// loaders, the agent-status port). The blocks collapse into one if those helpers
-// ever become methods.
+// Split across several `impl` blocks so each stays near the free helpers it
+// calls (decision fns, DAO-thin loaders, the agent-status port); they'd
+// collapse into one if those helpers became methods.
 impl TaskReaper {
     async fn load_reaper_snapshot(
         &self,
@@ -565,10 +564,10 @@ impl TaskReaper {
         &self,
         live_ids: &[String],
     ) -> HashMap<String, (String, DateTime<Utc>)> {
-        // Latest agent run-state per Member, used to date the idle-stop floor
-        // from when each agent last stopped (and to never reap a running agent).
-        // Only Members reach the reap branch, so query just those. Falls back to
-        // the activity floor on error.
+        // Latest agent run-state per Member: dates the idle-stop floor from
+        // when it last stopped, so a running agent is never reaped. Only
+        // Members reach the reap branch; falls back to the activity floor on
+        // error.
         self.task_events
         .get_latest_agent_lifecycle(live_ids)
         .await
@@ -734,10 +733,10 @@ impl TaskReaper {
         ttl_minutes: i32,
         latest_at: Option<DateTime<Utc>>,
     ) -> bool {
-        // Defense in depth: the activity floor can go stale, so ask each Member's
-        // agent before pulling the plug. One Member still working keeps the pod,
-        // because the pod is what every Member's process lives in. An unreadable
-        // status falls through.
+        // Defense in depth: the activity floor can go stale, so each
+        // Member's agent is asked before the pod stops. One Member still
+        // working keeps it, since the pod hosts every Member's process; an
+        // unreadable status falls through.
         for member in &sandbox.members {
             let Some(status) = agent_status_snapshot(self.connector.as_ref(), member).await else {
                 continue;
@@ -951,10 +950,9 @@ impl TaskReaper {
     /// Settle turns a later turn already superseded.
     ///
     /// Unlike [`Self::reconcile_orphaned_turns`], no sandbox is consulted: a
-    /// higher-numbered turn proves the agent moved on, so the row settles
-    /// straight to a terminal status without touching the task or publishing a
-    /// `taskTurn` event — `completed` if its final reply is on record, else
-    /// `stopped`.
+    /// higher-numbered turn means the agent moved on, so the row settles to
+    /// `completed` (final reply on record) or `stopped`, skipping the task
+    /// and `taskTurn` event.
     async fn reconcile_superseded_turns(&self, superseded: &[UnclosedTurn]) {
         for turn in superseded {
             let Some(turn_number) = turn.turn_number else {
@@ -1134,11 +1132,9 @@ impl TaskReaper {
         in_live_sandbox: bool,
         agent_status: Option<&str>,
     ) {
-        // False-negative guard: if the agent already delivered its final reply for
-        // this turn, the terminal event was merely lost — not the result. Closing
-        // such a turn as `error` surfaces a misleading "stopped without reporting a
-        // result" message even though the answer is right there in the chat. Close
-        // it as `completed` instead.
+        // False-negative guard: a lost terminal event isn't a lost result. If
+        // the agent's final reply for this turn is already in the chat,
+        // close it as `completed`, not `error`.
         match self
             .messages
             .last_message_is_completed_reply(&turn.task_id, turn.turn_number)
@@ -1264,9 +1260,9 @@ impl TaskReaper {
             }
         }
 
-        // Return the task to Open unless it was closed mid-run (mirrors the agent
-        // terminal handlers — a Closed task is never resurrected by automation).
-        // reason: reaper reconciles orphaned turns across all task owners; system ctx required.
+        // Reopens unless closed mid-run, mirroring the agent terminal
+        // handlers: automation never resurrects a Closed task.
+        // reason: orphaned-turn reconcile spans all task owners; system ctx.
         #[allow(clippy::disallowed_methods)]
         let sys_ctx = ScopeContext::system();
         if let Err(e) = self
@@ -1499,25 +1495,23 @@ fn decide_close(
     }
 }
 
-/// Pure decision function: whether a stopped sandbox has been stopped long
-/// enough for its storage to be reclaimed.
+/// Whether a stopped sandbox has been stopped long enough to reclaim its
+/// storage.
 ///
-/// `cold_after_hours <= 0` disables the branch (`0` reads as indefinite, like
-/// the other TTLs); `stopped_at` is also the instant the pre-stop archive push
-/// was taken against, so it decides both this clock and the freshness proof
-/// downstream.
+/// `cold_after_hours <= 0` disables the branch (`0` means indefinite, like
+/// the other TTLs); `stopped_at` also anchors the pre-stop archive push, so
+/// it drives both this clock and the freshness proof downstream.
 fn decide_cold(cold_after_hours: i32, stopped_at: DateTime<Utc>, now: DateTime<Utc>) -> bool {
     cold_after_hours > 0 && now - stopped_at >= chrono::Duration::hours(i64::from(cold_after_hours))
 }
 
 impl TaskReaper {
     /// Mirror of [`moatless_tasks::task::handlers::close_task`] for unattended
-    /// use. Best-effort: every step logs on failure but never propagates — the
-    /// reaper loop must never panic.
+    /// use; every step logs on failure but never propagates, so the reaper
+    /// loop never panics.
     ///
-    /// Not interchangeable with
-    /// [`moatless_tasks::task::closer::TaskCloser::close_single`], which
-    /// carries an already-Closed idempotence guard this one lacks.
+    /// Unlike [`moatless_tasks::task::closer::TaskCloser::close_single`],
+    /// this lacks an already-Closed idempotence guard.
     async fn auto_close_task(&self, task_id: &str) {
         // reason: reaper acts across all task owners; system ctx bypasses per-user scope.
         #[allow(clippy::disallowed_methods)]
@@ -1535,10 +1529,9 @@ impl TaskReaper {
             }
         };
 
-        // Commit `Closed` BEFORE the teardown (the original order cleaned up first,
-        // then wrote the status). With `Closed` persisted first, any concurrent
-        // `auto_provision` / `get_pending_messages` (gated by Fix B) sees `Closed`
-        // and bails. A teardown failure below can't leave the task non-terminal.
+        // Commit `Closed` before teardown: a concurrent `auto_provision` or
+        // `get_pending_messages` then sees `Closed` and bails, so a teardown
+        // failure below can't leave the task non-terminal.
         if let Err(e) = self
             .tasks
             .update_task(

@@ -193,7 +193,6 @@ impl RepositoryDao for PgRepositoryDao {
             q = q.bind(provider.map(RepositoryProvider::as_str));
         }
 
-        // Bind updated_at then write_filter params
         q = q.bind(now);
         q = q.bind(ctx.is_admin);
         q = q.bind(&ctx.user_id);

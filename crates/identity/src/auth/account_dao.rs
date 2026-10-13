@@ -152,11 +152,10 @@ pub(super) async fn upsert_bot(
     .await?;
 
     // Bot's provider_tokens row. `provider_user_id` carries the App key so
-    // the canonical resolver can pick the right App when minting installation
-    // tokens. `access_token` holds the documented sentinel — any code path that
-    // bypasses the resolver and reads the column directly hits a clear 401
-    // instead of silently sending an empty Bearer token.
-    // team_id is NULL (migration 0097 dropped the team FK requirement).
+    // the resolver can pick the right App when minting installation tokens.
+    // `access_token` holds the sentinel; bypassing the resolver to read the
+    // column directly hits a 401 instead of an empty Bearer token. team_id
+    // is NULL (migration 0097 dropped the team FK requirement).
     sqlx::query(
         r#"
         INSERT INTO provider_tokens (

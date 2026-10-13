@@ -53,10 +53,9 @@ const KNOWN_SCOPES: [&str; 8] = [
 /// The scope a method requires, ported from the reference server's
 /// `RPC_REQUIRED_SCOPES` (`apps/server/src/auth/RpcAuthorization.ts:23`).
 ///
-/// Runs ahead of dispatch, listing every method the *contract* declares, so a
-/// withheld surface is refused for its scope rather than told it doesn't exist;
-/// the `orchestration:read` default gives an unclassified method the least
-/// authority.
+/// Runs ahead of dispatch over every method the *contract* declares, so a
+/// withheld surface is refused for its scope, not told it doesn't exist. The
+/// `orchestration:read` default gives an unclassified method least authority.
 pub(super) fn required_scope(tag: &str) -> &'static str {
     match tag {
         // Writes.

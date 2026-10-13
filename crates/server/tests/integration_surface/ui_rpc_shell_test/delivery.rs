@@ -26,7 +26,6 @@ async fn starting_a_turn_moves_the_row_in_a_watching_client(pool: PgPool) {
     let viewer = viewer("user-1");
     let mut feed = watching(&pool, &viewer).await;
 
-    // Nothing has happened yet, so the client is told nothing.
     assert!(delivered(&pool, &mut feed, &viewer).await.is_empty());
 
     start_turn(&pool, "t-live", "run-1").await;

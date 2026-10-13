@@ -223,7 +223,6 @@ mod tests {
         assert_eq!(json["continue"], true);
         assert_eq!(json["decision"], "approve");
         assert_eq!(json["systemMessage"], "Check permissions");
-        // Omitted fields should not be present
         assert!(json.get("suppressOutput").is_none());
         assert!(json.get("stopReason").is_none());
     }

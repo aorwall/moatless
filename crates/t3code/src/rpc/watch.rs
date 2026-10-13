@@ -82,15 +82,11 @@ pub(crate) async fn watch_shell(
         let values = match feed.poll(&reads, &model_defaults, &viewer).await {
             Ok(values) => values,
             Err(error) => {
-                // The subscription survives a failed poll. Ending it would
-                // present a transient database error as a dead sidebar, and
-                // the cursor has not moved, so the next poll covers the same
-                // ground.
-                //
-                // That second clause is a fact about [`ShellFeed::poll`],
-                // not about this loop: the cursor advances last, after the
-                // reads that build the batch, so a failure in any of them
-                // does not skip it silently. Do not move it back.
+                // The subscription survives a failed poll rather than ending
+                // as a dead sidebar; the cursor hasn't moved, so the next
+                // poll retries the same ground. That holds because
+                // [`ShellFeed::poll`] advances the cursor last, after every
+                // read — do not move it back here.
                 warn!(
                     %error,
                     user_id = %viewer.user_id,
@@ -102,17 +98,11 @@ pub(crate) async fn watch_shell(
         if values.is_empty() {
             continue;
         }
-        // A chunk that cannot be queued is not the poll's problem, and the
-        // cursor is deliberately left where the poll put it: the receiver
-        // is held by the `ProtocolSession`, so a closed channel means the
-        // socket loop has already returned and this subscription is over —
-        // there is no next poll for a rewound cursor to serve. What the
-        // client resumes from is the `afterSequence` of the snapshot it
-        // re-fetches over HTTP before resubscribing, not anything this feed
-        // remembers. Note that the converse also holds: a chunk queued
-        // successfully may still fail on the wire in `send_frames`, so
-        // treating the queue as delivery confirmation would be wrong in the
-        // other direction too.
+        // Left where the poll put it: a closed channel means the socket
+        // loop (held by `ProtocolSession`) already returned, so no next
+        // poll exists to serve a rewound cursor — the client resumes via
+        // the snapshot's `afterSequence` on resubscribe instead. Queuing a
+        // chunk isn't delivery: it can still fail later in `send_frames`.
         if !sink.send_values(values).await {
             return Ok(());
         }

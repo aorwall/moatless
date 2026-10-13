@@ -250,9 +250,9 @@ impl TaskForkService {
         let fork_task_id = uuid::Uuid::new_v4().to_string();
         self.inherit_conversation(&plan, &fork_task_id).await?;
 
-        // Everything the fork runs against comes from the Task it branched off. A
-        // fork is deliberately created unnamed and undescribed: "Fork of X" says
-        // where it came from, not what it is doing, and the agent sets both with
+        // Everything the fork runs against comes from the source Task. A
+        // fork is deliberately unnamed/undescribed: "Fork of X" says where
+        // it came from, not what it's doing — the agent sets both via
         // `moat set-name` once it knows.
         let create = CreateTaskRequest {
             repository_id: Some(source.repository_id.clone()),

@@ -96,7 +96,6 @@ pub async fn read_file(workspace_dir: &str, path: &str) -> Result<ReadResult, Fi
 pub async fn write_file(workspace_dir: &str, path: &str, content: &str) -> Result<(), FileError> {
     let full_path = validate_path(workspace_dir, path)?;
 
-    // Create parent directories if needed
     if let Some(parent) = full_path.parent() {
         if !parent.exists() {
             fs::create_dir_all(parent).await?;
@@ -117,7 +116,6 @@ pub async fn read_file_with_changes(
 ) -> Result<ReadFileResult, FileError> {
     let result = read_file(workspace_dir, path).await?;
 
-    // Skip git diffs for binary files — they're not meaningful
     if result.is_binary {
         return Ok(ReadFileResult {
             content: result.content,
@@ -198,7 +196,6 @@ mod tests {
         assert!(result.is_binary);
         assert_eq!(result.media_type.as_deref(), Some("image/png"));
 
-        // Verify base64 round-trips
         let decoded = base64::engine::general_purpose::STANDARD
             .decode(&result.content)
             .unwrap();
@@ -244,7 +241,6 @@ mod tests {
             .unwrap();
         assert_eq!(result.content, "content");
         assert!(!result.is_binary);
-        // No git repo, so no changes
         assert!(result.old_content.is_none());
         assert!(result.is_modified.is_none());
     }

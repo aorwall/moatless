@@ -161,12 +161,11 @@ fn parse_message_id(uuid: &str) -> Result<uuid::Uuid, MessageError> {
 }
 
 /// Queue a user message a sandbox wrote for its own Task, so an interrupted
-/// turn recovers — `agent_handle.send` alone leaves no row for
+/// turn recovers — `agent_handle.send` leaves no row for
 /// `find_interrupted_turn` to see.
 ///
-/// `idempotency_key` collapses a retried call onto its first row; `None` keys
-/// on `text`, which swallows repeat callers like `/loop` unless they pass their
-/// own key. `Ok(None)` means already queued, or the Task is closed.
+/// `None` keys `idempotency_key` on `text`, swallowing repeat `/loop` calls.
+/// `Ok(None)`: already queued, or the Task is closed.
 pub async fn enqueue_sandbox_message(
     messages: &Messages,
     tasks: &TaskCommands,
@@ -395,25 +394,22 @@ impl MessageSendService {
         // Skills the sandbox activates for this turn. Names only; the SKILL.md
         // body is resolved from disk in the pod.
         skills: &[String],
-        // The Message's uuid, when the caller owns it. The T3 compatibility
-        // surface mints a message id before it sends and keys its own optimistic
-        // copy on it, so a server-minted uuid would leave that copy on screen
-        // forever. Every other caller passes `None` and gets a fresh uuid.
-        //
-        // An id that arrives from a client is checked against the whole table
-        // below before anything is written — see the guard on it.
+        // The Message's uuid, when the caller owns it (T3 mints one before
+        // sending and keys its optimistic copy on it — a server-minted uuid
+        // would leave that copy stranded). Other callers pass `None` for a
+        // fresh uuid. A client-supplied id is checked against the whole
+        // table before any write — see the guard below.
         message_uuid: Option<String>,
         // Hold the Message until the active turn ends rather than steering it
         // in. See [`DeliveryOptions::queue`].
         queue: bool,
         child_outcome: Option<ChildOutcome>,
     ) -> Result<Option<String>, MessageError> {
-        // A closed task is terminal (no reopen path) so no send may persist a
-        // message or wake the agent. Inbound external messages are dropped
-        // silently — backstop for the close-vs-comment race; steady state,
-        // inactive bindings already keep these out of routing. Internal/API sends
-        // surface a 409 so the caller knows nothing was queued. `Error` tasks
-        // stay sendable to match `start_task` recovery semantics.
+        // A closed task is terminal (no reopen), so no send may persist a
+        // message or wake the agent. Inbound external sends are dropped
+        // silently (backstop for the close-vs-comment race); internal/API
+        // sends surface a 409 instead. `Error` tasks stay sendable to match
+        // `start_task` recovery semantics.
         if self.task_is_closed(task_id).await {
             if let Some(adapter) = origin.adapter {
                 tracing::debug!(
@@ -426,24 +422,20 @@ impl MessageSendService {
             return Err(MessageError::TaskClosed(task_id.to_string()));
         }
 
-        // Idempotency for agent→task sends. Any `moat send` from inside a sandbox
-        // (a child reporting to its parent, most notably) carries a source_task_id.
-        // Give it a deterministic uuid keyed on (source, destination, text) so an
-        // identical resend — a report the agent retried because the first looked
-        // like it failed — collapses onto the first row via the message_uuid guard
-        // below instead of landing twice. Human sends carry no source_task_id and
-        // keep a fresh random uuid; an explicit caller-owned uuid (the T3 surface)
-        // always wins over this derivation.
+        // Agent→task sends (e.g. a child reporting to its parent) carry
+        // `source_task_id`; derive a uuid from (source, destination, text) so
+        // a retried resend collapses onto the first row via the uuid guard
+        // below instead of duplicating. Human sends keep a fresh random
+        // uuid; an explicit caller-owned uuid (T3) always wins over this.
         let message_uuid = message_uuid.or_else(|| {
             origin
                 .source_task_id
                 .map(|source| agent_send_idempotency_uuid(source, task_id, message))
         });
 
-        // Dedup: if this external message was already persisted (or was just sent
-        // outbound and is racing the webhook), skip the insert entirely. Prevents
-        // duplicates from Slack retries, re-delivered webhooks, and `moat reply`
-        // self-echoes.
+        // Dedup: skip the insert if this external message was already
+        // persisted, or is racing an outbound send's webhook — covers Slack
+        // retries, redelivered webhooks, and `moat reply` self-echoes.
         if let Some(ext_id) = origin.event_id {
             // 1. In-memory race-window check — catches webhooks that land before
             //    `set_external_event_id` has committed.
@@ -470,23 +462,11 @@ impl MessageSendService {
             }
         }
 
-        // A caller-owned id addresses a Message across the whole table, not within
-        // this Task, and the insert below upserts on that column: it is the merge
-        // path that assembles one agent Message from its blocks. So an id already
-        // in use is one of two things, and they have to be told apart before the
-        // write rather than after it.
-        //
-        // This Task's own user row means the frame arrived twice — a reconnecting
-        // T3 client replaying what it could not confirm — and must read as sent, or
-        // the person sees their message fail and sends it again. Anything else names
-        // a Message the sender has no claim on: writing through would rewrite that
-        // conversation's history from a Task the sender does own, leaving the
-        // sender's own conversation empty and the victim's carrying text nobody
-        // with access to it wrote.
-        //
-        // The replay case is deliberately not narrowed to identical text. A client
-        // reusing its own id for a different message is a bug on its side, and
-        // answering it the way a true replay is answered writes nothing either way.
+        // A caller-owned id addresses a Message table-wide; the insert
+        // upserts on it, the merge path for one agent Message's parts.
+        // Reused in this Task's own row reads as a replayed frame (sent).
+        // Reused on any other Message, the sender has no claim on it —
+        // writing through would corrupt a stranger's conversation.
         if let Some(uuid) = message_uuid.as_deref() {
             let id = parse_message_id(uuid)?;
             let queued = self
@@ -590,12 +570,10 @@ impl MessageSendService {
 
         tracing::info!(task_id = %task_id, "Message persisted");
 
-        // Advance the conversation clock. The persisted pending row is the
-        // reconciler's durable wake input after idle/user stops; sandbox intent is
-        // written only by lifecycle (through the ensure-and-notify start path),
-        // never here.
-        // reason: conversation-clock bookkeeping; the send itself was already
-        // read-authorized (public tasks accept messages from non-owners).
+        // Advance the conversation clock: the persisted pending row is the
+        // reconciler's durable wake input after idle/user stops. Sandbox
+        // intent is written only by lifecycle, never here.
+        // reason: conversation-clock bookkeeping, not a new access check.
         #[allow(clippy::disallowed_methods)]
         let sys_ctx = ScopeContext::system();
         self.tasks
@@ -793,11 +771,10 @@ impl MessageSendService {
 
 /// Settle the interactive call that an ordinary chat message answered.
 ///
-/// A plain message carries no tool response, so nothing on its way in settles
-/// the call like `send_tool_response_flow` does, leaving it `in_progress`
-/// forever; this writes the same outcome — text as a freeform answer, or a
-/// rejection for a plan — keyed on the answering message, so a redelivered
-/// acknowledgement is idempotent.
+/// A plain message carries no tool response, so nothing settles the call
+/// like `send_tool_response_flow` does, leaving it `in_progress` forever;
+/// this writes the same outcome (freeform text, or a plan rejection) keyed
+/// on the answering message, so a redelivered ack is idempotent.
 pub async fn settle_answered_prompt(
     messages: &crate::message::operations::Messages,
     task_id: &str,
@@ -875,7 +852,6 @@ mod tests {
         let a = agent_send_idempotency_uuid("child", "parent", "phase 1 done");
         let b = agent_send_idempotency_uuid("child", "parent", "phase 1 done");
         assert_eq!(a, b);
-        // And it is a well-formed uuid.
         assert!(uuid::Uuid::parse_str(&a).is_ok());
     }
 

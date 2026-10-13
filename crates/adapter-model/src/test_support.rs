@@ -241,12 +241,9 @@ impl ProviderStub {
 
     /// The GraphQL operations invoked, in order.
     ///
-    /// [`Self::paths`] can't distinguish calls here since every request is
-    /// `POST /graphql`; this reads the top-level field of the `query` document
-    /// instead (`issue` for a read, the mutation name for a write), falling
-    /// back to `method path` for a request with no recognisable document — e.g.
-    /// an OAuth token refresh — rather than dropping it and understating the
-    /// budget.
+    /// [`Self::paths`] can't distinguish calls here (every request is `POST
+    /// /graphql`), so this reads the `query` document's top-level field
+    /// instead, falling back to `method path` when none is recognisable.
     pub fn graphql_operations(&self) -> Vec<String> {
         self.requests()
             .into_iter()

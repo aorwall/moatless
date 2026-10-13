@@ -1,14 +1,13 @@
 //! The GitHub PR inbound-routing service.
 //!
 //! Everything a GitHub PR webhook does after admission reads a wide set of
-//! task, routing, message, and binding ports that are NOT adapter
-//! infrastructure, so they don't belong on [`GithubPrAdapter`] or threaded one
-//! by one through the delivery closures.
+//! task, routing, message, and binding ports — not adapter infrastructure,
+//! so they don't belong on [`GithubPrAdapter`] or threaded through delivery
+//! closures.
 //!
 //! Built once at compose from the composition root's ports and captured by
-//! [`super::delivery::register`]; every port it holds sits below the adapter
-//! band, so naming them here is a set of downward edges, not the upward reach
-//! into `AppState`.
+//! [`super::delivery::register`]; every port here is a downward edge, not
+//! the upward reach into `AppState`.
 
 use std::sync::Arc;
 

@@ -33,14 +33,12 @@ pub async fn approve_request(
     loop_id: &str,
     code: &str,
 ) -> Result<PairingRequest, AdapterError> {
-    // Find the pending request
     let req = find_by_code(db, loop_id, code).await?.ok_or_else(|| {
         SharedAdapterError::BadRequest("Pairing code not found or already used".into())
     })?;
 
     super::dao::mark_approved(db, req.id).await?;
 
-    // Read current adapter_config and append user to dm_allowlist
     let current_config = store
         .adapter_config(loop_id)
         .await
@@ -51,7 +49,6 @@ pub async fn approve_request(
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .unwrap_or_default();
 
-    // Add user if not already present
     let user_id_str = req.provider_user_id.clone();
     if !tg_config.dm_allowlist.contains(&user_id_str) {
         tg_config.dm_allowlist.push(user_id_str);

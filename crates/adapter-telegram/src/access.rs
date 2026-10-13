@@ -95,7 +95,6 @@ pub(super) fn enforce_group_access(
         SourceAccessPolicy::Open => {}
     }
 
-    // Check mention requirement
     if tg_config.require_mention {
         if let Some(ref bot_username) = tg_config.bot_username {
             let mention = if bot_username.starts_with('@') {
@@ -205,12 +204,10 @@ mod tests {
     #[test]
     fn group_require_mention_allowlist_both_required() {
         let cfg = make_group_config(SourceAccessPolicy::Allowlist, vec!["-100123"], true);
-        // In allowlist but no mention → blocked
         assert!(matches!(
             enforce_group_access(&cfg, -100_123, "hello"),
             AccessDecision::Blocked
         ));
-        // In allowlist and has mention → allowed
         assert!(matches!(
             enforce_group_access(&cfg, -100_123, "@testbot hello"),
             AccessDecision::Allowed

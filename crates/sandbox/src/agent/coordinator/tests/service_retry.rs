@@ -42,7 +42,6 @@ async fn coordinator_service_failed_execution_sets_error_on_agent_state() {
     })
     .expect("channel open");
 
-    // Wait for `error` event.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     loop {
         flush(&events).await;
@@ -57,7 +56,6 @@ async fn coordinator_service_failed_execution_sets_error_on_agent_state() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 
-    // last_error must be set after a Failed outcome.
     let err = agent_state.last_error().await;
     assert!(err.is_some(), "expected last_error to be set");
     assert!(
@@ -152,7 +150,6 @@ async fn coordinator_service_retryable_failure_retries_then_completes() {
         "no terminal error after a successful retry; got {types:?}"
     );
 
-    // The agent ends Idle after the retried completion.
     assert_eq!(agent_state.status().await, AgentStatus::Idle);
 
     // Every published event shares the one Run id: the retry re-used it rather

@@ -226,21 +226,18 @@ fn format_transcript(messages: &[UiMessage]) -> String {
 
 /// Build a short preview string for a message.
 fn message_preview(msg: &UiMessage) -> String {
-    // Try to find a text block first
     for block in &msg.content {
         if let Some(ref text) = block.text {
             if !text.is_empty() {
                 return text.chars().take(80).collect();
             }
         }
-        // Show tool_use as "[tool_name]"
         if block.block_type == "tool_use" {
             if let Some(ref name) = block.tool_name {
                 return format!("[{name}]");
             }
         }
     }
-    // Show tool result summary
     if !msg.tool_results.is_empty() {
         let errors = msg
             .tool_results
@@ -256,7 +253,6 @@ fn message_preview(msg: &UiMessage) -> String {
         }
         return format!("[{} tool result(s)]", msg.tool_results.len());
     }
-    // Result message
     if msg.result.is_some() {
         return "[result]".to_string();
     }

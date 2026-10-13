@@ -18,7 +18,6 @@ use claude_agent_sdk::{ClaudeOptions, ContentBlock, SdkMessage, query};
 
 #[tokio::main]
 async fn main() -> claude_agent_sdk::Result<()> {
-    // Build an SDK MCP server with custom tools
     let calculator = SdkMcpServer::builder("calculator")
         .tool(
             SdkMcpTool::new("add", "Add two numbers together")
@@ -58,7 +57,6 @@ async fn main() -> claude_agent_sdk::Result<()> {
         )
         .build();
 
-    // Register the SDK MCP server in options
     let mut sdk_mcp_servers = HashMap::new();
     sdk_mcp_servers.insert("calculator".to_string(), calculator);
 

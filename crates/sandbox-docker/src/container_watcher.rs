@@ -77,7 +77,6 @@ pub fn spawn_container_lifecycle_watcher(
                 }
             }
 
-            // Wait before reconnecting
             tokio::select! {
                 () = cancel.cancelled() => {
                     info!("Docker container lifecycle watcher shutting down during reconnect");
@@ -104,7 +103,6 @@ async fn handle_docker_event(
     let action = event.action;
     let attributes = event.attributes;
 
-    // Extract task_id from container labels
     let task_id = attributes.get("moatless.io/task-id").map(String::as_str);
 
     let Some(task_id) = task_id else {

@@ -169,11 +169,9 @@ pub(super) fn proposed_plan(
 /// When the answer to a parked interactive call landed, or `None` while it is
 /// still parked.
 ///
-/// Joined on `requestId`, since the resolved row's own `tool_use_id` column is
-/// empty and carries the call's id in its payload
-/// (`mapping::user_input_resolved`) instead; a settled call whose resolved row
-/// falls outside the window reports the call's own instant, never as still
-/// parked.
+/// Joined on `requestId`: the resolved row's `tool_use_id` is empty and
+/// carries the call's id in its payload instead. A settled call whose row
+/// falls outside the window reports its own instant, never "still parked".
 fn answered_at(transcript: &Transcript, call: &Activity) -> Option<String> {
     if !call.is_settled() {
         return None;

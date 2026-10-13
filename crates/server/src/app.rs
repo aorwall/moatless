@@ -26,7 +26,6 @@ const SHUTDOWN_JOIN_DEADLINE: std::time::Duration = std::time::Duration::from_se
 
 /// Run the backend process and supervise its servers and workers.
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    // Install rustls crypto provider (required before any TLS operations)
     #[allow(clippy::expect_used)]
     // fail-fast: TLS provider must be installed before any networking
     rustls::crypto::aws_lc_rs::default_provider()
@@ -327,7 +326,6 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             supervisor.health(),
         ));
 
-        // Seed default repositories
         moatless_workspaces::compose::seed_default_repositories(app_state.db.clone()).await;
 
         auth::jwt::warn_on_jwt_secret_fallback(&config);
@@ -344,7 +342,6 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(|e| format!("failed to seed the local admin account: {e}"))?;
         }
 
-        // Ensure test API user + key (if configured)
         if let Some(ref key) = config.auth.test_api_key {
             moatless_identity::compose::ensure_test_user(ports.pool.clone(), key).await;
         }
@@ -452,17 +449,11 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             Arc::new(adapter_installations.delivery_handlers(&app_state));
         supervisor.supervise(
             "adapter-delivery-worker",
-            // Readiness: what it owns is durable, so losing this worker
-            // delays admitted webhooks rather than dropping them — any replica
-            // can claim the same records. Shedding traffic from a replica that
-            // can no longer execute what it admits is the proportionate
-            // response; killing the process would take the API down with it.
-            // The consequence is deliberate: liveness stays on `/health`, so
-            // nothing restarts the pod, and on a single-replica deployment the
-            // backlog stalls until an operator acts. That is why the worker
-            // publishes `moatless_adapter_delivery_backlog` and
-            // `moatless_adapter_delivery_oldest_pending_seconds` — a stalled
-            // backlog has to be visible, not merely survivable.
+            // Readiness, not liveness: losing this worker only delays
+            // durable webhooks (any replica can claim them), so shedding
+            // traffic is correct but killing the process would take the
+            // API down too. Liveness deliberately excludes it, so a stall
+            // doesn't restart the pod; metrics keep the backlog visible.
             Criticality::Readiness,
             app_state
                 .adapter_delivery_worker

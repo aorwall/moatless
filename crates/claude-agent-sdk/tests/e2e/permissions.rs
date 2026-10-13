@@ -72,7 +72,6 @@ async fn test_permission_handler_is_invoked() {
 
         let messages = collect_messages(&mut handle.messages).await;
 
-        // Print all messages for debugging
         for msg in &messages {
             match msg {
                 SdkMessage::System(_) => eprintln!("  [System]"),
@@ -106,7 +105,6 @@ async fn test_permission_handler_is_invoked() {
         );
         eprintln!("Permission handler invoked for tools: {:?}", *captured);
 
-        // Cleanup
         let _ = std::fs::remove_dir_all(&tmp);
     })
     .await;
@@ -196,7 +194,6 @@ async fn test_permission_handler_deny_blocks_tool() {
             _ => unreachable!(),
         }
 
-        // Cleanup
         let _ = std::fs::remove_dir_all(&tmp);
     })
     .await;

@@ -1,15 +1,11 @@
-//! Uploads as a caller reaches them: the bytes into S3, the metadata into
-//! Postgres, and the removal that undoes both.
+//! Uploads as a caller reaches them: bytes into S3, metadata into Postgres,
+//! and the removal that undoes both.
 //!
-//! Three surfaces store an upload — the multipart route's form field, the T3
-//! compatibility surface's inline turn image (for a client that sends bytes
-//! because it doesn't know this server accepts uploads), and the T3
-//! attachment-upload route's raw body under a pre-minted id.
-//!
-//! They differ only in how the bytes got here: what an upload *is* — a uuid, an
-//! object under the configured prefix, and a metadata row scoped to its creator
-//! — is decided once, and all three are readable afterwards through `GET
-//! /api/v1/uploads/{file_id}`.
+//! Three surfaces create an upload — the multipart form field, the T3
+//! inline turn image, and the T3 attachment-upload route's raw body under a
+//! pre-minted id — differing only in how the bytes arrive. The shape (uuid,
+//! object under the prefix, metadata row scoped to its creator) is decided
+//! once; all three read back through `GET /api/v1/uploads/{file_id}`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -145,15 +141,12 @@ impl Files {
         })
     }
 
-    /// Remove an upload: its object, then its metadata row. Answers whether
-    /// there was one to remove.
+    /// Remove an upload: its object, then its metadata row, answering
+    /// whether there was one.
     ///
-    /// Object before row, so a failure between them leaves the row naming gone
-    /// bytes rather than an orphaned object — retrying then succeeds since S3
-    /// treats deleting an absent key as success; an id naming nothing is
-    /// `Ok(false)`, not an error. Access is all this checks — whether anything
-    /// still points at the upload is the caller's own domain question, asked
-    /// elsewhere.
+    /// Object before row: a failure between leaves the row naming gone bytes,
+    /// not an orphaned object, and retry succeeds (S3 treats deleting an
+    /// absent key as success). Checks only access, not referential use.
     pub async fn delete(
         &self,
         viewer: &ScopeContext,

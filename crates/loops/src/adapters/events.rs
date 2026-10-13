@@ -1,34 +1,13 @@
 //! The subscription seam for a task's own event stream.
 //!
-//! An Adapter that wants to mirror agent progress back to its provider
-//! registers a [`TaskEventSubscriber`] against the [`EventKey`]s it cares about,
-//! and the server band's event-handler consumer fans each event out through
-//! [`TaskEventSubscribers::dispatch`]. Keeping the two ends joined by an
-//! `EventKey` rather than by a match arm means adding an Adapter adds a
-//! subscriber module and one registration line, and never edits an arm another
-//! Adapter is also editing — the same rule
-//! [`delivery::AdapterDeliveryHandlers`](super::delivery::AdapterDeliveryHandlers)
-//! follows for inbound work.
+//! An Adapter registers a [`TaskEventSubscriber`] per [`EventKey`]; the
+//! consumer fans events out via [`TaskEventSubscribers::dispatch`]. Keying
+//! by `EventKey` means adding an Adapter never edits a shared match arm.
 //!
-//! # What a subscriber may do
-//!
-//! `on_task_event` runs inline on the consumer's dispatch, one event at a time,
-//! so it must stay cheap: decide here, and `tokio::spawn` anything that talks to
-//! the provider. That spawn is deliberately detached. A progress notification
-//! whose process dies is lost on purpose — the run is unaffected, and the next
-//! event carries the task's state again — so there is nothing for a supervisor
-//! to own. Durable provider work belongs in `adapters::delivery`, not here.
-//!
-//! A subscriber that keeps per-task state, such as Linear's turn gate, owns
-//! the whole reaction including its ordering: emit the event and change the
-//! state in the order the provider needs. Split the two across bands and the
-//! gate closes before the activity it gates is emitted.
-//!
-//! # Faults are contained
-//!
-//! A subscriber has no way to fail the event: `on_task_event` returns nothing,
-//! and a panic inside one is caught, logged, and does not reach its siblings or
-//! the consumer loop. One Adapter's bug must not stop the stream for the others.
+//! `on_task_event` runs inline and must stay cheap: `tokio::spawn` any
+//! provider call, detached — a lost notification is fine, durable work
+//! belongs in `adapters::delivery`. A state-keeping subscriber must emit
+//! then update state itself, in order; a panic in one is caught and logged.
 
 use std::collections::HashMap;
 use std::panic::AssertUnwindSafe;

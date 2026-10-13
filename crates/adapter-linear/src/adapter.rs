@@ -644,7 +644,6 @@ mod tests {
     fn comment_body_carries_text_and_footer_without_hidden_marker() {
         let footer = "\n\n---\nMoatless task: [T](https://app.example.com/tasks/task-42)";
         let body = build_comment_body(&reply("hello", Some(footer)));
-        // No hidden HTML marker — the body is plain text + the visible footer.
         assert!(!body.contains("<!-- moatless-agent"));
         assert!(body.starts_with("hello"));
         assert!(body.ends_with(footer));

@@ -61,13 +61,12 @@ pub(crate) async fn hydrate_subagent_summaries_from_dao(
     super::transform::inject_subagent_summaries(messages, &map);
 }
 
-/// Re-assemble the top-level Message affected by a change to `message_uuid` and
-/// publish a derived `message.upsert` carrying it.
+/// Re-assemble the top-level Message affected by a change to `message_uuid`
+/// and publish a derived `message.upsert` carrying it.
 ///
-/// Resolves a folded `tool_result`/system row to its parent assistant Message;
-/// UI-only, since `task_events` consumers gate `message.*` out and the SSE
-/// consumer relays it to clients directly. Fire-and-forget — failures are
-/// logged and the read path hydrates on next open.
+/// Resolves a folded `tool_result`/system row to its parent assistant
+/// Message; UI-only, since `task_events` consumers gate `message.*` out.
+/// Fire-and-forget — failures are logged; the read path hydrates on next open.
 pub async fn emit_message_upsert_from_daos(
     events: Option<&Arc<dyn EventPublisher>>,
     message_dao: &Messages,
@@ -118,7 +117,6 @@ pub async fn emit_message_upsert_from_daos(
 
     let mut assembled =
         super::transform::transform_to_ui_with_files(&messages, &contexts, &blocks, &file_metadata);
-    // Inject subagent summaries onto `Agent` blocks via the shared helper.
     hydrate_subagent_summaries_from_dao(message_dao, task_id, &mut assembled).await;
 
     let Some(message) = assembled.into_iter().find(|m| m.uuid == target_uuid) else {

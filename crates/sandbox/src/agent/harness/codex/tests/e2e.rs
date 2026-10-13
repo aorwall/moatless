@@ -151,13 +151,12 @@ struct TurnLog {
     outcome: Option<Outcome>,
 }
 
-/// Drain signals until the open execution reports its terminal, folding them
-/// into a [`TurnLog`].
+/// Drain signals until the open execution reports its terminal, folding
+/// them into a [`TurnLog`].
 ///
-/// When `mid_turn` is `Some((id, text))`, it submits that input the moment the
+/// When `mid_turn` is `Some((id, text))`, it submits that input once the
 /// execution commits its first `tool_use` block, resuming the thread the
-/// running Turn announced — what `CoordinatorService::build_input` does for a
-/// follow-up Turn.
+/// running Turn announced (as `CoordinatorService::build_input` does).
 async fn collect_turn(harness: &mut HarnessRuntime, mid_turn: Option<(&str, &str)>) -> TurnLog {
     let mut log = TurnLog::default();
     let mut mid_turn = mid_turn;

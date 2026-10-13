@@ -76,12 +76,10 @@ pub(crate) fn descriptor(config: &UiRpcConfig) -> Value {
             // any of them opens the panel and a client that has none of them
             // must not offer it at all.
             "sandboxDetail": true,
-            // Whether `scripts.run` is understood. A workspace's scripts are
-            // still listed on the project without this — they are read out of
-            // the workspace either way — but a client only shows the control
-            // that runs one where the server can actually run it. T3's own
-            // server omits this key and answers `scripts.run` with
-            // `UnsupportedMethodError`.
+            // Whether `scripts.run` is understood. Scripts still list on the
+            // project without this, but a client only shows the run control
+            // where the server can run it. T3's own server omits this key
+            // and answers `scripts.run` with `UnsupportedMethodError`.
             "workspaceScripts": true,
             // Whether `scripts.listForThread` is understood. A Task may declare
             // Scripts of its own, which its project does not carry and its
@@ -108,15 +106,12 @@ pub(crate) fn descriptor(config: &UiRpcConfig) -> Value {
         }
     });
 
-    // Both keys are `optionalKey` in the contract, and both are absent rather
-    // than false where uploads cannot be served: a `null` fails the client's
-    // decode of the whole descriptor, which is the one thing it reads before it
-    // can connect at all.
+    // Both keys are `optionalKey`, absent rather than false when uploads
+    // can't be served: `null` fails the client's descriptor decode outright.
     //
-    // `attachmentUploads` is what moves the composer off the inline data-URL
-    // path — for images as well as files — so it is reported only where a URL
-    // can actually be signed (see [`attachments`]). The inline path stays
-    // served either way, for the clients that have not read it.
+    // `attachmentUploads` moves the composer off the inline data-URL path
+    // once a URL can be signed (see [`attachments`]); inline stays served
+    // either way, for clients that haven't read it.
     if config.attachment_uploads {
         if let Some(capabilities) = descriptor["capabilities"].as_object_mut() {
             capabilities.insert("attachmentUploads".into(), json!(true));

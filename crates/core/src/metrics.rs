@@ -19,14 +19,12 @@ struct MetricsState {
     handle: Arc<PrometheusHandle>,
 }
 
-/// The exporter as this process configures it, before a recorder is built from
-/// it.
+/// The exporter as this process configures it, before a recorder is built.
 ///
-/// Duration histograms get explicit buckets; without them this exporter renders
-/// every `metrics::histogram!` as a per-process Prometheus *summary*, which
-/// cannot be aggregated across replicas for `histogram_quantile`. The
-/// `_seconds` suffix match leaves non-time histograms (`..._usd`, `..._bytes`,
-/// `..._turns`) as summaries, which suits them.
+/// Duration histograms get explicit buckets; without them this exporter
+/// renders every `metrics::histogram!` as a per-process Prometheus
+/// *summary*, unaggregable across replicas for `histogram_quantile`. The
+/// `_seconds` suffix match leaves non-time histograms as plain summaries.
 #[allow(clippy::expect_used)] // fail-fast: metrics is a startup prerequisite
 fn builder() -> PrometheusBuilder {
     PrometheusBuilder::new()

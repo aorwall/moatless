@@ -1,12 +1,10 @@
 //! A real clone, through the real routes, from a real Forgejo.
 //!
-//! Ignored by default. The proxy's own dependencies are ports, so only the
-//! `sandboxes` row is real here: the run reads one existing row and writes
-//! nothing. Give it a Postgres holding that row, a Forgejo remote, and a token
-//! for it:
+//! Ignored by default; needs a Postgres `sandboxes` row, a Forgejo remote,
+//! and a token:
 //!
 //! ```text
-//! FORGEJO_E2E_SANDBOX_ID=… FORGEJO_E2E_REMOTE=https://git.example.com/owner/repo.git \
+//! FORGEJO_E2E_SANDBOX_ID=… FORGEJO_E2E_REMOTE=https://example.com/o/r.git \
 //!   FORGEJO_TOKEN=… DATABASE_URL=… \
 //!   cargo test -p moatless-backend git_proxy::e2e -- --ignored --nocapture
 //! ```

@@ -643,9 +643,9 @@ async fn an_error_result_under_completed_sends_only_the_error_notice(pool: PgPoo
 
 #[sqlx::test]
 async fn reconcile_error_keeps_closed_and_says_nothing(pool: PgPool) {
-    // Mirrors `reaper::close_orphaned_turn`: a synthetic agent.error on a closed
-    // task must keep it closed. It writes no conversation row — a run outcome is
-    // not a Message (Decision 14); the turn's own status is what unblocks the UI.
+    // Mirrors `reaper::close_orphaned_turn`: a synthetic agent.error on a
+    // closed task must keep it closed, writing no conversation row — a run
+    // outcome isn't a Message; the turn's own status unblocks the UI.
     seed_with_status(&pool, "task-r", TaskStatus::Closed).await;
     let state = test_app_state(pool.clone());
 

@@ -211,13 +211,12 @@ pub fn acceptance_events(task_id: &str, ctx: &EventContext) -> Vec<LifecycleEven
     out
 }
 
-/// Completion + infrastructure events, emitted after a successful runtime
-/// effect.
+/// Completion and infrastructure events after a successful runtime effect.
 ///
-/// Completion (`Stopped`/`Removed`) publishes on newly-established convergence,
-/// including `NoOp` completions and recovery retries; infrastructure
-/// (`Initializing`) gates on `RuntimeEffect::Applied`; a pure `Unchanged` +
-/// `NoOp` against an already-converged target publishes nothing.
+/// Completion (`Stopped`/`Removed`) publishes on newly-established
+/// convergence, including `NoOp` completions and retries; infrastructure
+/// (`Initializing`) gates on `RuntimeEffect::Applied`, and a pure
+/// `Unchanged`+`NoOp` publishes nothing.
 pub fn outcome_events(task_id: &str, ctx: &EventContext) -> Vec<LifecycleEvent> {
     let mut out = Vec::new();
 

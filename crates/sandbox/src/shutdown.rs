@@ -108,17 +108,11 @@ async fn stop_agent_and_wait(agent: &AgentState) {
 }
 
 async fn stop_agent(agent: &AgentState) {
-    // Cancel the in-flight turn so the Claude CLI subprocess is killed and the
-    // turn ends now, instead of being SIGKILLed at grace-period end.
-    // `AgentNotRunning` (an idle agent) is expected on a routine idle-down and
-    // is ignored.
-    //
-    // This cancels via the token rather than an `AgentCommand::Stop`, and that
-    // distinction is load-bearing: the coordinator reads the absent stop source
-    // as "the pod is going away under a turn nobody asked to end" and closes the
-    // turn as `turn_interrupted` instead of `stopped`. A `stopped` here would be
-    // a terminal event, and `find_interrupted_turn` would tell the replacement
-    // pod there is nothing to resume.
+    // Cancels via the token, not `AgentCommand::Stop` -- the coordinator reads
+    // the absent stop source as "pod going away under an unasked-for turn end"
+    // and closes it `turn_interrupted`, not `stopped`. `stopped` would be
+    // terminal and leave `find_interrupted_turn` reporting nothing to resume.
+    // `AgentNotRunning` (idle agent) is expected here and ignored.
     match agent.stop().await {
         Ok(()) => info!("Shutdown: stopped running agent"),
         Err(e) => info!(error = %e, "Shutdown: no running agent to stop (continuing)"),
@@ -126,32 +120,20 @@ async fn stop_agent(agent: &AgentState) {
 }
 
 async fn finish_shutdown(lifecycle_cancel: &CancellationToken, state: Option<&SandboxState>) {
-    // Drain the event outbox BEFORE the transcript flush and BEFORE cancelling
-    // the lifecycle token (which stops the drainer). Stopping the agent above
-    // emits the terminal `agent`/`taskTurn` events we most need delivered, so
-    // this flush is what makes graceful teardown lose no lifecycle events.
-    // Bounded so it can't blow the pod's grace period; see
-    // `every_shutdown_step_fits_the_grace_period`.
-    //
-    // **This step's position is load-bearing, not just its duration.**
-    // `EventOutbox::flush` early-returns the instant `drainer_stopped` is set —
-    // deliberately, since waiting on a dead drainer is pure delay. So a
-    // teardown that cancels the lifecycle token before (or concurrently with)
-    // this line turns the flush into a no-op that returns instantly and reports
-    // success: nothing fails, no test goes red, and the pod simply stops
-    // delivering its terminal lifecycle events on every graceful teardown —
-    // exactly what this flush exists to prevent. Pinned by
-    // `tests/supervisor_test.rs::shutdown_flushes_the_outbox_before_cancelling`.
+    // Drain the outbox before the transcript flush and before cancelling the
+    // lifecycle token (which stops the drainer): `flush` early-returns once
+    // `drainer_stopped` is set, so cancelling first turns it into a silent
+    // no-op that reports success while terminal lifecycle events go
+    // undelivered. Pinned by `shutdown_flushes_the_outbox_before_cancelling`.
     if let Some(state) = state {
         state.events.outbox().flush(OUTBOX_FLUSH_TIMEOUT).await;
     }
 
-    // Both flushes run AFTER the agent has stopped (so the working tree is
-    // stable and the CLI has flushed its active JSONL files) and BEFORE
-    // cancelling the lifecycle token (which stops the periodic syncs). On a
-    // graceful kill — including a spot reclaim's 2-min drain → SIGTERM — this
-    // persists the final delta with no loss. Each is bounded internally so the
-    // pair fits the pod's grace period.
+    // Both flushes run after the agent stops (working tree stable, CLI has
+    // flushed its JSONL) and before cancelling the lifecycle token (which
+    // stops the periodic syncs) -- so a graceful kill, including a spot
+    // reclaim's 2-min drain to SIGTERM, persists the final delta with no
+    // loss. Each is bounded internally to fit the pod's grace period.
     if let Some(state) = state {
         // The working tree goes first, deliberately: for the `s3` storage
         // backend it is the durability the node-local emptyDir doesn't provide,
@@ -165,21 +147,11 @@ async fn finish_shutdown(lifecycle_cancel: &CancellationToken, state: Option<&Sa
         crate::transcript_sync::flush_on_shutdown(state).await;
     }
 
-    // Last, and only last. Every bounded step above depends on the task this
-    // cancels still running — most sharply the outbox flush, see above.
-    //
-    // **This line is the single production origin of lifecycle cancellation**,
-    // and that is what makes "cancel as an ordered step" safe rather than merely
-    // convenient. `git grep 'lifecycle_cancel.cancel()' -- crates/sandbox/src` returns
-    // this site and nothing else in production code; the root supervisor does
-    // not originate cancellation, it is *woken* by this line and then owns only
-    // the bounded join that follows. On the fatal path the supervisor runs this
-    // whole function before its own cancel, so the order is identical there.
-    //
-    // If you add a second origin, that argument stops holding: two sites racing
-    // this one can cancel the drainer out from under the flush above and empty
-    // it silently. Either keep this the only origin, or make the drainer's
-    // cancellation explicitly ordered behind the flush.
+    // Last, and only last: every bounded step above depends on this task
+    // still running (the outbox flush most of all). This is the single
+    // production origin of lifecycle cancellation -- `git grep
+    // 'lifecycle_cancel.cancel()' -- crates/sandbox/src` returns only this
+    // site. A second origin could race the flush above and empty it silently.
     lifecycle_cancel.cancel();
 }
 
@@ -342,9 +314,7 @@ mod tests {
         let token = CancellationToken::new();
         perform_shutdown(&agent, &token, None).await;
 
-        // The agent's in-flight turn was cancelled...
         assert!(agent_cancel.is_cancelled());
-        // ...and the lifecycle token was cancelled.
         assert!(token.is_cancelled());
     }
 }

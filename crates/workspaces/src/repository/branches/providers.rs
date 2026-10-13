@@ -336,7 +336,6 @@ pub(super) async fn fetch_gitness_branches(
     base_url: &str,
 ) -> Result<BranchFetchResult, RepositoryError> {
     let remote_url = remote.url.as_str();
-    // Extract the repo path by stripping the base URL prefix
     let url = remote_url.trim_end_matches('/').trim_end_matches(".git");
     let base = base_url.trim_end_matches('/');
 

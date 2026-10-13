@@ -140,7 +140,6 @@ mod tests {
             sender: tx,
         };
 
-        // Dropping the prompt (and its sender) causes the receiver to error
         drop(prompt);
         assert!(rx.blocking_recv().is_err());
     }

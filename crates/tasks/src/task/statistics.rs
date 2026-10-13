@@ -153,11 +153,10 @@ pub(crate) fn build_task_statistics(
                 total_calls,
             })
             .collect(),
-        // No activities at all means this Task ran before they were stored, and
-        // an empty `tool_calls` from it is "not recorded" rather than "made
-        // none". Decision 9 backfills nothing, so this is the only way a client
-        // can tell those two apart — and reporting zero would be a wrong answer,
-        // not a missing one.
+        // No activities means this Task predates activity storage: an empty
+        // `tool_calls` reads as "not recorded," not "made none" (Decision 9
+        // backfills nothing). Reporting zero would be a wrong answer, not a
+        // missing one.
         tool_calls_available: !activities.is_empty(),
     }
 }

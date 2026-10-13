@@ -47,11 +47,9 @@ impl claude_agent_sdk::PermissionHandler for InteractivePermissionHandler {
         input: &serde_json::Map<String, serde_json::Value>,
         context: claude_agent_sdk::api::permissions::PermissionContext,
     ) -> claude_agent_sdk::PermissionResult {
-        // Check if this is an interactive prompt tool
         if let Some(prompt_tool) = PromptToolName::from_tool_name(tool_name) {
             let input_value = serde_json::Value::Object(input.clone());
 
-            // Create oneshot channel for the response
             let (tx, rx) = tokio::sync::oneshot::channel();
 
             let prompt = PendingPrompt {
@@ -80,15 +78,14 @@ impl claude_agent_sdk::PermissionHandler for InteractivePermissionHandler {
             self.agent_state.begin_waiting().await;
 
             // Wait for the response (blocks until user responds or agent is
-            // cancelled). No timeout: a person who answers while the sandbox is
-            // alive continues the same turn, and a sandbox reclaimed underneath
-            // an unanswered question leaves the question standing — it is stored,
-            // and answering it later starts a fresh turn carrying it.
+            // cancelled). No timeout: a person answering while the sandbox
+            // is alive continues the same turn; a reclaimed sandbox leaves
+            // the question stored, and answering it later starts a fresh
+            // turn carrying it.
             let response = rx.await;
             self.agent_state.end_waiting().await;
             match response {
                 Ok(response) => {
-                    // Convert prompt response to permission result
                     let result_json = match &response {
                         PromptResponse::AskUserAnswer { answers } => {
                             serde_json::json!({ "answers": answers })
@@ -104,13 +101,11 @@ impl claude_agent_sdk::PermissionHandler for InteractivePermissionHandler {
                         }
                     };
 
-                    // If plan was approved, deactivate plan mode restrictions
                     if matches!(response, PromptResponse::PlanApproved) {
                         self.plan_mode_active.store(false, Ordering::SeqCst);
                     }
 
                     let mut updated_input = input.clone();
-                    // Merge the response into the input
                     if let serde_json::Value::Object(map) = result_json {
                         for (k, v) in map {
                             updated_input.insert(k, v);
@@ -131,7 +126,6 @@ impl claude_agent_sdk::PermissionHandler for InteractivePermissionHandler {
                 }
             }
         } else if self.plan_mode_active.load(Ordering::SeqCst) && WRITE_TOOLS.contains(&tool_name) {
-            // In plan mode, deny write tools until ExitPlanMode is approved
             claude_agent_sdk::PermissionResult::Deny {
                 message: "Plan mode: use ExitPlanMode to get plan approval before making changes."
                     .to_string(),
@@ -264,18 +258,15 @@ mod tests {
         let state = Arc::new(AgentState::new());
         let handler = test_handler(Arc::clone(&state));
 
-        // Spawn handler in background — it will block on the oneshot
         let handle = tokio::spawn(async move {
             handler
                 .can_use_tool("AskUserQuestion", &empty_input(), test_context())
                 .await
         });
 
-        // Wait for the prompt to appear
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert!(state.has_pending_prompt().await, "Prompt should be pending");
 
-        // Resolve the prompt
         let prompt = state.take_pending_prompt().await.unwrap();
         let _ = prompt.sender.send(PromptResponse::AskUserAnswer {
             answers: serde_json::json!({ "Which colour?": "blue" }),

@@ -124,11 +124,10 @@ pub(crate) struct ClaudeProcess {
 
 /// Build the `UserMessage` frame for an input injected into a running Session.
 ///
-/// `Next` is load-bearing: it folds the message into the running execution (as
-/// an extra internal turn) while still emitting exactly one `Result`, which is
-/// what lets the one-shot transport carry an injected input at all; `Now` means
-/// *interrupt* — it abandons in-flight work and returns an empty result, so it
-/// must not be used here.
+/// `Next` is load-bearing: it folds the message into the running execution
+/// (an extra internal turn) while still emitting one `Result` — the only way
+/// the one-shot transport carries an injected input. `Now` means *interrupt*,
+/// abandoning in-flight work, and must not be used here.
 fn user_message(text: &str, session_id: &str) -> UserMessage {
     UserMessage {
         uuid: None,
@@ -260,11 +259,10 @@ impl ClaudeProcess {
     /// an empty project dir makes the CLI exit immediately.
     async fn resolve_resume(&self, input: &Input) -> Option<ResumeSession> {
         // A fork's first Turn resumes a truncated copy of the parent's
-        // transcript, not the parent's Session, and rides ahead of `start_fresh`
-        // — which a fork also sets, as the version-skew guard for a pod too old
-        // to know the `fork` field. When the cut succeeds the copy is the resume
-        // target; when it cannot (no transcript on disk, or the anchor is
-        // missing) the fork falls through to a fresh Session.
+        // transcript, not the parent's Session, and rides ahead of
+        // `start_fresh` (a fork also sets it, as the version-skew guard
+        // for a pod too old to know `fork`). Falls through to a fresh
+        // Session when the cut fails (no transcript, or anchor missing).
         if let Some(fork) = &input.fork {
             if let Some(anchor) = &fork.source_message_uuid {
                 if let Some(new_session_id) = fork::write_forked_transcript(
@@ -308,12 +306,11 @@ impl ClaudeProcess {
 #[async_trait::async_trait]
 impl AgentProcess for ClaudeProcess {
     async fn submit(&mut self, input: Input) -> Result<(), HarnessError> {
-        // A live handle means the execution opened by an earlier input is still
-        // running: write this input into that Session instead of launching a
-        // second CLI. It joins that execution and shares its single `Result`
-        // (see `user_message`). Acceptance is known as soon as the write lands,
-        // so the bare `InputAccepted` reports the injection with no
-        // `SessionReady` ahead of it.
+        // A live handle means an earlier input's execution is still running:
+        // write into that Session instead of launching a second CLI. It joins
+        // that execution, sharing its one `Result` (see `user_message`), so
+        // acceptance is known at write time: `InputAccepted` reports the
+        // injection with no `SessionReady` ahead of it.
         if let Some(handle) = self.handle.as_ref() {
             let session_id = self.session_id.clone().unwrap_or_default();
             handle

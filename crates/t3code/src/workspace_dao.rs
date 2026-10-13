@@ -7,15 +7,12 @@ use crate::workspace::UiRpcListedWorkspace;
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait T3WorkspaceDao: Send + Sync {
-    /// Every live Workspace the viewer may read, plus every Workspace in
-    /// `also_include` whether or not they may read it or it is deleted, ordered
-    /// by name.
+    /// Every live Workspace the viewer may read, plus every Workspace named
+    /// in `also_include` regardless of access or deletion, ordered by name.
     ///
-    /// The widening covers listings that group Tasks by Workspace: a readable
-    /// Task can name an unreadable or tombstoned Workspace, and omitting it
-    /// would drop the Task's row too. Each returned row says which half it came
-    /// from ([`UiRpcListedWorkspace::readable`]) so a caller cannot hand the
-    /// widened half's configuration to someone the read rule refused.
+    /// Widened so a Task naming an unreadable Workspace isn't dropped from a
+    /// listing. Each row's [`UiRpcListedWorkspace::readable`] says which
+    /// half it is — never hand the widened half's config to a refused viewer.
     async fn list_readable_including(
         &self,
         ctx: &ScopeContext,

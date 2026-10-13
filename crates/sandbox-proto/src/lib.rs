@@ -17,7 +17,6 @@ pub mod sandbox {
     }
 }
 
-// Re-export for convenience
 pub use sandbox::v1::*;
 
 mod event_conversion;

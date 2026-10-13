@@ -5,16 +5,13 @@
 //! The Adapter kernel: the whole Adapter contract in one crate.
 //!
 //! What an Adapter offers ([`capabilities`]), what it speaks ([`apps`],
-//! [`footer`], [`signature`]) and the access it gates on ([`access`]), what it
-//! can fail with ([`error`]), which external account it speaks for
-//! ([`connections`]), how it hands inbound work over durably ([`delivery`]),
-//! and how a delivery ends ([`ingress`]). A provider crate implements the
-//! contract by naming this crate and nothing above it.
+//! [`footer`], [`signature`]), its access gate ([`access`]), failure type
+//! ([`error`]), the account it speaks for ([`connections`]), durable inbound
+//! handoff ([`delivery`]), and how a delivery ends ([`ingress`]). A provider
+//! crate names this crate and nothing above it.
 //!
-//! Two features keep the base surface to the contract itself: `postgres` adds
-//! the connection store and its row shapes, `http` adds the `IntoResponse`
-//! rendering of [`error::AdapterError`]. A consumer that neither reads rows nor
-//! answers requests compiles neither a database driver nor axum.
+//! `postgres` adds the connection store; `http` adds `IntoResponse` rendering
+//! of [`error::AdapterError`], each optional so a consumer skips that driver.
 
 pub mod access;
 pub mod apps;

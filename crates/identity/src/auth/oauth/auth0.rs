@@ -176,7 +176,6 @@ impl OAuthProvider for Auth0OAuthProvider {
             return None;
         }
 
-        // Base64url-decode the payload
         use base64::Engine;
         use base64::engine::general_purpose::URL_SAFE_NO_PAD;
         let payload_bytes = URL_SAFE_NO_PAD.decode(parts[1]).ok()?;

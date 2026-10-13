@@ -238,10 +238,10 @@ impl AgentProcess for ScriptedProcess {
                     });
                 }
                 Some(Step::AwaitInput) => {
-                    // Wait until an input is queued that no `AcceptInput` has yet
-                    // consumed. The queue is authoritative; `Notify` only wakes the
-                    // poll (and stores one permit, so a submit that arrives before
-                    // we await is not lost).
+                    // Wait until an input is queued that `AcceptInput` hasn't
+                    // consumed. The queue is authoritative; `Notify` only
+                    // wakes the poll, storing one permit so an earlier submit
+                    // isn't lost.
                     while self.inputs.is_empty() {
                         self.submit_notify.notified().await;
                     }

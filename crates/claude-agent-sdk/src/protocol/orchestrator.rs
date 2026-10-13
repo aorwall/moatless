@@ -63,7 +63,6 @@ impl Orchestrator {
                 }
             }
 
-            // Clean up: cancel all pending requests
             {
                 let mut tracker = request_tracker.lock().await;
                 tracker.cancel_all();
@@ -75,7 +74,6 @@ impl Orchestrator {
                 Err(_) => "error",
             };
 
-            // Close the transport
             transport.close().await;
             // Only now has the CLI written the `cost-state` a resume restores.
             drop(session_cost);
@@ -136,15 +134,11 @@ impl Orchestrator {
                         blocked_path,
                         decision_reason,
                     } => {
-                        // A permission decision may take as long as the person
-                        // making it, so it is answered off this loop. Awaited
-                        // here, one handler that waits stops the only reader of
-                        // the CLI's stdout: every message already written — the
-                        // assistant block holding the very call being asked
-                        // about, the result of the tool before it — stays unread
-                        // until the answer arrives, and the run looks stopped
-                        // rather than parked on a question. Spawned, the stream
-                        // keeps flowing while the question stands.
+                        // Spawned, not awaited: a decision can take as long as
+                        // the person deciding, and awaiting here would stall
+                        // the only stdout reader, leaving already-written
+                        // messages — including the call being asked about —
+                        // unread until answered.
                         let context = PermissionContext {
                             tool_use_id: tool_use_id.clone(),
                             agent_id,
@@ -309,7 +303,6 @@ impl Orchestrator {
                 let response_value = if let Some(handler) = hook_handler {
                     debug!(callback_id = %callback_id, "Hook callback received — invoking handler");
                     let output = handler.on_hook(&input, tool_use_id.as_deref()).await;
-                    // Serialize HookOutput into the response JSON
                     match output {
                         HookOutput::Async(async_output) => {
                             serde_json::to_value(async_output).unwrap_or_default()

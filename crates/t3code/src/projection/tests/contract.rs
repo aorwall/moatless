@@ -4,16 +4,12 @@
 use super::fixtures::*;
 use super::*;
 
-// -----------------------------------------------------------------------
-// The contract, transcribed
-// -----------------------------------------------------------------------
+// The contract, transcribed from `packages/contracts/src/orchestration.ts`
+// (`soaplabs/t3code@moatless-adapter`): `OrchestrationShellSnapshot`,
+// `OrchestrationProjectShell`, `ProjectScript`.
 //
-// Copied from `packages/contracts/src/orchestration.ts` in
-// `soaplabs/t3code@moatless-adapter` — `OrchestrationShellSnapshot`,
-// `OrchestrationProjectShell` and `ProjectScript` — and deliberately *not*
-// derived from the projection below: a test written from the projection
-// cannot see a required field the projection never thought to emit, and one
-// missing field makes the entire listing undecodable.
+// Deliberately not derived from the projection below: a test derived from it
+// can't see a field the projection forgot to emit.
 
 const SNAPSHOT_REQUIRED: &[&str] = &["snapshotSequence", "projects", "threads", "updatedAt"];
 const SNAPSHOT_OPTIONAL: &[&str] = &[];
@@ -45,14 +41,12 @@ const SCRIPT_NON_EMPTY: &[&str] = &["id", "name", "command"];
 
 const SCRIPT_ICONS: &[&str] = &["play", "test", "lint", "configure", "build", "debug"];
 
-// `OrchestrationThreadShell` (`orchestration.ts:401-427`) — the shell's
-// conversation row, and the near-twin of `OrchestrationThread` without its
-// messages, activities, checkpoints, proposed plans and `deletedAt`.
+// `OrchestrationThreadShell` (`orchestration.ts:401-427`): the shell's
+// conversation row, missing `OrchestrationThread`'s messages, activities,
+// checkpoints, proposed plans and `deletedAt`.
 //
-// "Optional" here means the contract can fill it: either `Schema.optional`
-// or a `withDecodingDefault`. Everything else must be on the wire, `null`
-// included, or the whole snapshot fails to decode and the sidebar goes
-// blank rather than losing one row.
+// "Optional" means `Schema.optional` or `withDecodingDefault`; everything
+// else must be on the wire, `null` included, or the whole snapshot fails.
 const THREAD_REQUIRED: &[&str] = &[
     "id",
     "projectId",
@@ -239,14 +233,10 @@ fn the_wire_shape_matches_the_contract_field_for_field() {
     assert!(script["runOnWorktreeCreate"].is_boolean());
 }
 
-// -----------------------------------------------------------------------
-// The conversation itself
-// -----------------------------------------------------------------------
-//
-// `OrchestrationThread` (`orchestration.ts:342-378`) — the shell row's
-// fuller twin. It drops the four the shell adds for its own sorting and
-// badges, and adds the conversation: `deletedAt`, `messages`,
-// `proposedPlans`, `activities`, `checkpoints`.
+// `OrchestrationThread` (`orchestration.ts:342-378`): the shell row's fuller
+// twin. Drops the four fields the shell adds for sorting and badges, adds
+// the conversation's own: `deletedAt`, `messages`, `proposedPlans`,
+// `activities`, `checkpoints`.
 
 pub(super) const DETAIL_REQUIRED: &[&str] = &[
     "id",

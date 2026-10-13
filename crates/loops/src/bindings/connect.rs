@@ -21,9 +21,8 @@ use moatless_types::loops::SubscriptionMatch;
 /// Wires a task to an external Adapter subject: resolves the connection and
 /// (optionally) the Subscription, then upserts the canonical task binding.
 ///
-/// `github_destination` holds the concrete GitHub PR
-/// [`AdapterDestinationBuilder`] directly, never the adapter registry —
-/// reaching it via `adapters.destination_builder(GithubPr)` would be a provider
+/// `github_destination` holds the GitHub PR [`AdapterDestinationBuilder`]
+/// directly, not via the adapter registry — that path would be a provider
 /// self-lookup laundered through the band-8 aggregate.
 pub struct Connector {
     github_destination: Option<Arc<dyn AdapterDestinationBuilder>>,

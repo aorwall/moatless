@@ -17,7 +17,6 @@ pub(super) async fn find_pending(
     loop_id: &str,
     provider_user_id: &str,
 ) -> Result<Option<PairingRequest>, AdapterError> {
-    // Check for existing pending request
     let existing: Option<PairingRequest> = sqlx::query_as(
         "SELECT * FROM integration_pairing_requests \
          WHERE loop_id = $1 AND adapter_kind = 'telegram' AND provider_user_id = $2 AND status = 'pending' \
@@ -108,7 +107,6 @@ pub(super) async fn pending_for_loops(
     Ok(rows)
 }
 pub(super) async fn mark_approved(db: &DbPool, id: i32) -> Result<(), AdapterError> {
-    // Mark as approved
     sqlx::query(
         "UPDATE integration_pairing_requests SET status = 'approved', updated_at = now() \
          WHERE id = $1",
@@ -121,7 +119,6 @@ pub(super) async fn mark_approved(db: &DbPool, id: i32) -> Result<(), AdapterErr
     Ok(())
 }
 pub(super) async fn find_by_id(db: &DbPool, id: i32) -> Result<PairingRequest, AdapterError> {
-    // Return updated request
     let updated: PairingRequest =
         sqlx::query_as("SELECT * FROM integration_pairing_requests WHERE id = $1")
             .bind(id)

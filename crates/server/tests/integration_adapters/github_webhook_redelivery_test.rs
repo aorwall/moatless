@@ -1384,12 +1384,11 @@ async fn durable_workflows_preserve_audience_fallback_and_github_call_budgets(po
 async fn a_redelivery_on_a_different_replica_does_no_second_effect(pool: PgPool) {
     common::seed_github_token(&pool, CONNECTION_USER).await;
     common::seed_github_token(&pool, TASK_USER).await;
-    // The delivery plans a merge-conflict check as well as the comment, and
-    // that check authenticates before it reads the PR. Without a credential it
-    // is a *retryable* failure, so the record never settles and the "executes
-    // exactly once" assertion below has nothing to read. The PR the stub serves
-    // is clean, which keeps the check a no-op past the read: the one message on
-    // the task stays the comment.
+    // The delivery also runs a merge-conflict check that authenticates
+    // before reading the PR; without a credential that's a retryable
+    // failure, so the record never settles and the exactly-once assertion
+    // has nothing to read. The stub serves a clean PR, so the check is a
+    // no-op past the read, and the task's one message stays the comment.
     let (base_url, _requests) = request_counting_github_stub_with_mergeable_state("clean").await;
 
     let task_id = "task-gh-redelivery";

@@ -255,7 +255,6 @@ fn process_file_path(
             children: Vec::new(),
         };
 
-        // Find parent path
         let parent_path = if i > 0 {
             let parent_parts = &parts[..i];
             Some(parent_parts.join("/"))
@@ -517,7 +516,6 @@ mod tests {
         ];
         let tree = build_file_tree(&paths, &HashMap::new());
 
-        // Directories first, then files
         assert_eq!(tree[0].name, "src");
         assert_eq!(tree[0].node_type, FileNodeType::Directory);
         assert_eq!(tree[0].children.len(), 2);

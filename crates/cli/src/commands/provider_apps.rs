@@ -38,11 +38,10 @@ pub enum ProviderAppAction {
 
     /// Register or replace an app.
     ///
-    /// A save replaces every field, so an omitted one is cleared — except a
-    /// secret, which can't be read back: an omitted required secret is prompted
-    /// for, and an omitted optional one is left alone unless `--clear-omitted`
-    /// says to drop it. The provider confirms credentials where it can; nothing
-    /// is stored when it refuses them.
+    /// A save replaces every field; an omitted one is cleared — except a
+    /// secret, which can't be read back: an omitted required secret prompts,
+    /// an omitted optional one is left alone unless `--clear-omitted`.
+    /// Nothing is stored if the provider refuses the credentials.
     Set {
         /// A provider named by `moat app list`, e.g. `forgejo`.
         provider: String,

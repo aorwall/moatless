@@ -90,7 +90,6 @@ impl TelegramApi {
         let mut first_message_id = None;
 
         for (i, chunk) in chunks.iter().enumerate() {
-            // Only reply to the original message on the first chunk
             let reply_id = if i == 0 { reply_to_message_id } else { None };
 
             let mut body = serde_json::json!({
@@ -332,7 +331,6 @@ fn chunk_text(text: &str, max_len: usize) -> Vec<&str> {
             break;
         }
 
-        // Find last newline within max_len
         let split_at = remaining[..max_len]
             .rfind('\n')
             .map_or(max_len, |pos| pos + 1);

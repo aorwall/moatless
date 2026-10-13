@@ -1,14 +1,12 @@
 //! The claim a Task files on a sha it pushed.
 //!
-//! Every other GitHub event a Task produces names its author (a comment carries
-//! the `Moatless task:` footer; typed `moat gh` routes record GitHub's id), but
-//! a `git push` passes through neither, so nothing named the Task behind a
-//! `pull_request.synchronize` event and the push echoed back into it.
+//! Every other GitHub event a Task produces names it (a `Moatless task:`
+//! footer or a `moat gh` route); a `git push` names nothing, so its
+//! `pull_request.synchronize` would go unattributed.
 //!
 //! The sandbox files this claim as the push completes
-//! (`init::git_push_watcher`), before GitHub's webhook for the same sha
-//! arrives; routing reads it back through [`external_id::aliases`] and passes
-//! over the Task the claim names.
+//! (`init::git_push_watcher`), before GitHub's webhook for that sha arrives;
+//! routing reads it back via [`external_id::aliases`].
 
 use moatless_ports::task::{ExternalEvent, TranscriptAppend};
 use moatless_types::store::StoreError;

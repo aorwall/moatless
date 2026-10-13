@@ -46,7 +46,6 @@ async fn list_tags_empty(pool: PgPool) {
 
 #[sqlx::test]
 async fn list_tags_with_data(pool: PgPool) {
-    // Create some tags
     tag_fixtures::find_or_create_tags(
         &pool,
         &[
@@ -71,11 +70,9 @@ async fn list_tags_with_data(pool: PgPool) {
     let body = body_json(resp).await;
     let tags = body.as_array().unwrap();
     assert_eq!(tags.len(), 3);
-    // Should be ordered alphabetically by name
     assert_eq!(tags[0]["name"], "bug");
     assert_eq!(tags[1]["name"], "feature");
     assert_eq!(tags[2]["name"], "urgent");
-    // Each tag has tagId and name
     assert!(!tags[0]["tagId"].as_str().unwrap().is_empty());
 }
 
@@ -105,7 +102,6 @@ async fn list_tags_response_shape(pool: PgPool) {
 
 #[sqlx::test]
 async fn list_tags_with_task_associations(pool: PgPool) {
-    // Seed repo + task + tags, then associate
     let repo = make_repository_row("repo-1", "user-1");
     compose::seed_repository(&pool, &repo).await.unwrap();
     let task = make_task_row("task-tag-h", "user-1");

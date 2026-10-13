@@ -79,23 +79,10 @@ pub(super) fn start(
 
 /// Stores the authorization `connect` asked for as its initiator's credential.
 ///
-/// `viewer` is whoever holds the callback request, which is not necessarily who
-/// started the flow: `oauth_state` outlives both a logout and the session
-/// itself, so a consent screen left open past `session_max_age_secs`, or a
-/// shared browser someone else signed into, both come back under a session that
-/// is not the initiator's. `None` is that request carrying no session at all.
-/// Writing the credential to the session in hand would hand a second person the
-/// first person's GitHub account, so anything but a match stores nothing.
-///
-/// `code` is absent when the person declined on GitHub.
-///
-/// Always redirects to the return URL, carrying the outcome as a query
-/// parameter: the browser is mid-flow on a page the person opened, and a JSON
-/// error body would strand them there.
-///
-/// Writes the credential row and stops: does not revoke or re-issue a
-/// session. Anything that changes who the caller is belongs in the login
-/// path, not here.
+/// `viewer` may not be the initiator: `oauth_state` outlives a logout or a
+/// stale/shared session, so only a match stores anything, else it would
+/// hand away someone else's GitHub account. `code` absent means declined.
+/// Never revokes a session; always redirects the outcome as a query param.
 pub(super) async fn finish(
     state: &AuthState,
     provider: &dyn OAuthProvider,

@@ -200,7 +200,6 @@ mod tests {
     #[test]
     fn stopped_converges_on_stopped_or_absent() {
         assert!(converged(D::Stopped, O::Stopped, false));
-        // A missing runtime satisfies Stopped.
         assert!(converged(D::Stopped, O::Absent, false));
         assert!(!converged(D::Stopped, O::Ready, false));
         assert!(!converged(D::Stopped, O::Starting, false));
@@ -235,11 +234,9 @@ mod tests {
 
     #[test]
     fn removed_converges_only_on_absent_with_complete_marker() {
-        // Absent + complete obligation → converged.
         assert!(converged(D::Removed, O::Absent, false));
         // Absent + incomplete marker → NOT converged (archive obligation).
         assert!(!converged(D::Removed, O::Absent, true));
-        // Any live status → never converged.
         for o in [O::Ready, O::Starting, O::Stopped, O::Error, O::Terminating] {
             assert!(!converged(D::Removed, o, false), "observed {o:?}");
         }
@@ -253,7 +250,6 @@ mod tests {
             reconcile_action(D::Removed, O::Absent, true),
             ReconcileAction::Remove
         );
-        // Complete obligation → nothing to do.
         assert_eq!(
             reconcile_action(D::Removed, O::Absent, false),
             ReconcileAction::None

@@ -567,7 +567,6 @@ mod tests {
         assert!(prompt.contains("# Sandbox CLI Reference"));
         assert!(prompt.contains("moat messages reply --message"));
         assert!(prompt.contains("moat messages react --message"));
-        // External-message header explanation
         assert!(prompt.contains("<message_id>"));
         assert!(prompt.contains("<source>"));
         // The unified guidance lives in the base prompt, not tacked on

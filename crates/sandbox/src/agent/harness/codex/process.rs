@@ -24,23 +24,20 @@ use crate::trajectory_tail::TurnTrajectory;
 
 use super::normalize::{Normalizer, TurnUsage, turn_result_source};
 
-/// How long a mid-Turn message waits for the steerability gate before falling
-/// back to opening the next Turn instead — the same fallback a rejected steer
-/// takes.
+/// How long a mid-Turn message waits for the steerability gate before
+/// falling back to opening the next Turn, same as a rejected steer.
 ///
-/// Bounds only the wait for `turn/started` in `submit`, a notification a server
-/// might never send; it does not cover the `turn/steer` call that follows the
-/// gate, which must not be abandoned once written (see
+/// Bounds only the wait for `turn/started` in `submit`; the `turn/steer`
+/// call after the gate must not be abandoned once written (see
 /// [`AgentProcess::submit`]).
 const MID_TURN_DELIVERY_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Where the Turn is in its life, which decides whether a message that arrives
-/// now can join it.
+/// Where the Turn is in its life, which decides whether a message that
+/// arrives now can join it.
 ///
-/// The gate between the first two states is measured, not defensive: steering
-/// immediately after `turn/start`'s **response** is rejected (`-32600 "no
-/// active turn to steer"`); the Turn is steerable only once the `turn/started`
-/// **notification** arrives.
+/// The gate between the first two states is measured: steering right after
+/// `turn/start`'s **response** is rejected (`-32600`); the Turn is
+/// steerable only once the `turn/started` **notification** arrives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TurnPhase {
     /// `turn/start` has been sent and `turn/started` has not arrived. Not
@@ -146,9 +143,9 @@ impl CodexProcess {
         self.normalizer.set_session(session.clone());
         if !self.session_ready {
             self.session_ready = true;
-            // `open_turn` set `self.turn_id` from the `turn/start` response before
-            // this runs (submit and event reads never overlap), so a real turn's
-            // id is present. A driver-injected session has none, and reports None.
+            // `open_turn` set `turn_id` from the `turn/start` response before
+            // this runs, so a real turn's id is present; a driver-injected
+            // session has none and reports `None`.
             self.pending.push_back(ProcessEvent::SessionReady {
                 session,
                 agent_turn_id: self.turn_id.clone(),
@@ -282,11 +279,9 @@ impl CodexProcess {
     /// Deliver what [`Self::held`] owes the running Turn, once the gate is open
     /// (see [`Self::await_steerable`]).
     ///
-    /// An error means this Turn cannot take the message; the driver then queues
-    /// it for the next Turn — the only way back, since a message left neither
-    /// accepted nor rejected would pin the dispatcher's single-flight lock for
-    /// the life of the pod, so nothing here is answered `Ok` until the server
-    /// has actually taken it.
+    /// An error queues the message for the next Turn instead: nothing here is
+    /// answered `Ok` until the server has taken it, since a message left
+    /// neither accepted nor rejected would pin the dispatcher's lock forever.
     async fn deliver_held(&mut self) -> Result<(), HarnessError> {
         match self.held.take() {
             Some(input) => self.steer(&input).await,
@@ -432,11 +427,9 @@ impl CodexProcess {
     /// Whether a notification belongs to the thread this process opened.
     ///
     /// A native sub-agent runs its own thread over the same connection, so a
-    /// `turn/completed` here isn't necessarily this Turn's terminal —
-    /// everything that thread emits belongs to it, not this Turn's transcript
-    /// or spend. **Fails open**: an unattributed notification is taken as this
-    /// one's, since dropping an unattributed `turn/completed` would leave the
-    /// Turn with no terminal at all.
+    /// `turn/completed` here isn't necessarily this Turn's terminal. **Fails
+    /// open**: an unattributed notification is taken as this one's, since
+    /// dropping it would leave the Turn with no terminal at all.
     fn owns_thread(&self, event: &ServerEvent) -> bool {
         let (Some(own), Some(event_thread)) = (self.thread_id.as_deref(), event.thread_id()) else {
             return true;
@@ -457,12 +450,11 @@ impl CodexProcess {
         }
         match event {
             ServerEvent::ThreadStarted(started) => {
-                // A fresh thread announces itself twice — in the `thread/start`
-                // response and here — but an injected test session only ever
-                // sees this one, so the id every `turn/*` request needs is taken
-                // from whichever arrives. A sub-agent's own announcement never
-                // reaches here: `owns_thread` rejects it against the id the
-                // response already set.
+                // A fresh thread announces itself twice — in the
+                // `thread/start` response and here — but an injected test
+                // session only sees this one, so the id is taken from
+                // whichever arrives. A sub-agent's own announcement never
+                // reaches here: `owns_thread` rejects it first.
                 self.thread_id = Some(started.thread.id.clone());
                 self.announce_session(started.thread.id);
             }
@@ -547,14 +539,11 @@ impl AgentProcess for CodexProcess {
         }
 
         self.held = Some(input);
-        // The gate is the only part of this that can wait on something that may
-        // never come, so the deadline and the Stop are raced against *it*, not
-        // against the steer that follows. Abandoning a `turn/steer` whose
-        // request is already written would hand the message back to the driver
-        // while the server was still free to accept it, and it would be acted on
-        // twice — once inside this Turn and once as the next one. The steer needs
-        // no deadline of its own: it is a request against a live Turn, and the
-        // stream ending releases its waiter (`codex_app_server::PendingRequests`).
+        // The gate is the only part that can wait on something that may
+        // never come, so the deadline and Stop race against it, not the
+        // steer that follows: abandoning an already-written `turn/steer`
+        // could have it acted on twice. The steer needs no deadline of its
+        // own; the stream ending releases its waiter.
         let cancelled = self.cancel_token.clone();
         let opened = tokio::select! {
             biased;
@@ -616,7 +605,6 @@ impl AgentProcess for CodexProcess {
                 break Some(event);
             }
             if !self.pump().await {
-                // The stream is finished; hand over the terminal it left, if any.
                 break self.pending.pop_front();
             }
         };

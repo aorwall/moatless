@@ -196,7 +196,6 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
             moatless_tasks::message::schemas::AllowedPrompt,
             moatless_tasks::message::schemas::AskUserQuestionInput,
             moatless_tasks::message::schemas::ExitPlanModeInput,
-            // Tool names
             crate::sandbox::schemas::MoatlessToolName,
         ))
     )]

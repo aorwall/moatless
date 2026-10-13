@@ -147,7 +147,6 @@ impl QueryHandle {
         let json = serde_json::to_string(&envelope)?;
         self.stdin_writer.write_json_line(&json).await?;
 
-        // Wait for response with timeout
         let result = tokio::time::timeout(std::time::Duration::from_secs(30), rx).await;
 
         match result {
@@ -213,7 +212,6 @@ pub async fn query(prompt: &str, mut options: ClaudeOptions) -> Result<QueryHand
     let sdk_mcp_servers = options.sdk_mcp_servers.take();
     let sdk_mcp_server_names = extract_server_names(&sdk_mcp_servers);
 
-    // 1. Spawn transport
     let session_cost = SessionCost::restored(&options).await;
     let transport = SubprocessTransport::spawn(&options).await?;
     let stdin_writer: Arc<dyn StdinWriter> = Arc::new(ChildStdinWriter {
@@ -222,11 +220,9 @@ pub async fn query(prompt: &str, mut options: ClaudeOptions) -> Result<QueryHand
     // Capture stderr buffer before transport is moved into the orchestrator
     let stderr_buf = transport.stderr_buffer();
 
-    // 2. Create channels
     let (message_tx, message_rx) = mpsc::channel(CHANNEL_CAPACITY);
     let request_tracker = Arc::new(Mutex::new(RequestTracker::new()));
 
-    // 3. Spawn orchestrator
     let orchestrator_handle = Orchestrator::spawn(
         Box::new(transport),
         message_tx,
@@ -239,7 +235,6 @@ pub async fn query(prompt: &str, mut options: ClaudeOptions) -> Result<QueryHand
         session_cost,
     );
 
-    // 4. Send initialize control request
     let init_request = build_initialize_request(&options, sdk_mcp_server_names);
     let (init_id, init_rx) = {
         let mut tracker = request_tracker.lock().await;
@@ -255,7 +250,6 @@ pub async fn query(prompt: &str, mut options: ClaudeOptions) -> Result<QueryHand
     let json = serde_json::to_string(&init_envelope)?;
     stdin_writer.write_json_line(&json).await?;
 
-    // Wait for init response
     let init_timeout = options
         .init_timeout
         .unwrap_or(std::time::Duration::from_mins(1));
@@ -334,7 +328,6 @@ pub async fn query(prompt: &str, mut options: ClaudeOptions) -> Result<QueryHand
 
     Ok(QueryHandle {
         messages: message_rx,
-        // Subprocess transport: no tmux session.
         tmux_pane_pid: None,
         orchestrator_handle,
         stdin_writer,
@@ -355,7 +348,6 @@ pub async fn query_streaming(mut options: ClaudeOptions) -> Result<QueryHandle> 
     let sdk_mcp_servers = options.sdk_mcp_servers.take();
     let sdk_mcp_server_names = extract_server_names(&sdk_mcp_servers);
 
-    // 1. Spawn transport
     let session_cost = SessionCost::restored(&options).await;
     let transport = SubprocessTransport::spawn(&options).await?;
     let stdin_writer: Arc<dyn StdinWriter> = Arc::new(ChildStdinWriter {
@@ -364,11 +356,9 @@ pub async fn query_streaming(mut options: ClaudeOptions) -> Result<QueryHandle> 
     // Capture stderr buffer before transport is moved into the orchestrator
     let stderr_buf = transport.stderr_buffer();
 
-    // 2. Create channels
     let (message_tx, message_rx) = mpsc::channel(CHANNEL_CAPACITY);
     let request_tracker = Arc::new(Mutex::new(RequestTracker::new()));
 
-    // 3. Spawn orchestrator
     let orchestrator_handle = Orchestrator::spawn(
         Box::new(transport),
         message_tx,
@@ -381,7 +371,6 @@ pub async fn query_streaming(mut options: ClaudeOptions) -> Result<QueryHandle> 
         session_cost,
     );
 
-    // 4. Send initialize control request
     let init_request = build_initialize_request(&options, sdk_mcp_server_names);
     let (init_id, init_rx) = {
         let mut tracker = request_tracker.lock().await;
@@ -397,7 +386,6 @@ pub async fn query_streaming(mut options: ClaudeOptions) -> Result<QueryHandle> 
     let json = serde_json::to_string(&init_envelope)?;
     stdin_writer.write_json_line(&json).await?;
 
-    // Wait for init response
     let init_timeout = options
         .init_timeout
         .unwrap_or(std::time::Duration::from_mins(1));
@@ -461,7 +449,6 @@ pub async fn query_streaming(mut options: ClaudeOptions) -> Result<QueryHandle> 
 
     Ok(QueryHandle {
         messages: message_rx,
-        // Subprocess transport: no tmux session.
         tmux_pane_pid: None,
         orchestrator_handle,
         stdin_writer,

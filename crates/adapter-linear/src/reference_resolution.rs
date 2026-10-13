@@ -177,8 +177,7 @@ pub(super) async fn linear_id_for_login(
 /// display name.
 ///
 /// The login step precedes email so a deliberately-set id outranks a
-/// coincidental match; `Ok(None)` on no match lets callers decide whether a
-/// miss is fatal or skippable.
+/// coincidental match; `Ok(None)` lets callers decide if a miss is fatal.
 pub(super) async fn resolve_user_opt(
     api: &LinearAgentApi,
     identity: &dyn ProviderIdentityLink,
@@ -294,8 +293,7 @@ pub(super) async fn resolve_delegate(
 /// Linear's members.
 ///
 /// The provider id is the reliable half; an email only matches when both
-/// directories agree. Returns `None` (and warns) when neither resolves — never
-/// fails issue creation.
+/// directories agree. Never fails issue creation — returns `None` on a miss.
 pub(super) async fn default_assignee_from_caller(
     users: &dyn UserDisplay,
     identity: &dyn ProviderIdentityLink,

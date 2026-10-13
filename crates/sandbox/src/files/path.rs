@@ -6,14 +6,12 @@ use std::path::{Path, PathBuf};
 /// Rejects `..` segments, absolute paths, and paths that escape the workspace
 /// root after resolution.
 pub fn validate_path(workspace_dir: &str, relative_path: &str) -> Result<PathBuf, FileError> {
-    // Reject absolute paths
     if relative_path.starts_with('/') {
         return Err(FileError::InvalidPath(
             "Absolute paths are not allowed".to_string(),
         ));
     }
 
-    // Reject path traversal
     if relative_path.contains("..") {
         return Err(FileError::InvalidPath(
             "Path must not contain '..'".to_string(),
@@ -23,7 +21,6 @@ pub fn validate_path(workspace_dir: &str, relative_path: &str) -> Result<PathBuf
     let workspace = Path::new(workspace_dir);
     let full_path = workspace.join(relative_path);
 
-    // Canonicalize the workspace root (must exist)
     let canonical_workspace = workspace.canonicalize().map_err(|_| {
         FileError::InvalidPath(format!("Workspace directory not found: {workspace_dir}"))
     })?;
@@ -49,7 +46,6 @@ pub fn validate_path(workspace_dir: &str, relative_path: &str) -> Result<PathBuf
             }
         };
 
-    // Ensure the resolved path is within the workspace
     if !canonical_target.starts_with(&canonical_workspace) {
         return Err(FileError::InvalidPath(
             "Path resolves outside workspace".to_string(),

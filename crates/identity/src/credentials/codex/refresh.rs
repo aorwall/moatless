@@ -79,11 +79,11 @@ impl CredentialService {
                 reason,
                 was_already_failing,
             } => {
-                // WARN only on the transition into (or a change of) the terminal
-                // state — a row already marked with the same reason re-fails on
-                // every `GetCredentials`, so repeat the notice at DEBUG to avoid
-                // flooding the logs. A successful rotation clears the marker, so
-                // a genuine new failure WARNs again.
+                // WARN only on entering (or changing) the terminal failure
+                // state; a row already marked with this reason re-fails on
+                // every call, so repeat it at DEBUG to avoid flooding logs.
+                // A successful rotation clears the marker, so a new failure
+                // WARNs again.
                 if was_already_failing {
                     debug!(
                         scope = %scope.display(),

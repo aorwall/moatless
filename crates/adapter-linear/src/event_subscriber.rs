@@ -150,11 +150,10 @@ impl LinearEventSubscriber {
             return;
         }
 
-        // Append the `Moatless task:` footer so the inbound `Comment.create`
-        // echo filter (`handle_comment_created`) can recover the authoring task
-        // id and drop this comment when Linear webhooks it back. Without the
-        // footer the response activity re-enters the task as a fresh inbound
-        // comment, the agent answers, `agent.completed` fires again, and the
+        // Append the `Moatless task:` footer so `handle_comment_created`'s
+        // echo filter can recover the authoring task id and drop this
+        // comment when Linear webhooks it back. Without it, the response
+        // re-enters as a fresh inbound comment, the agent replies, and the
         // task loops forever.
         if let Some(footer) = moatless_loops::bindings::footer::task_comment_footer(
             self.tasks.as_ref(),

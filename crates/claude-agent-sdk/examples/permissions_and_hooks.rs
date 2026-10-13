@@ -30,7 +30,6 @@ impl PermissionHandler for ReadOnlyPermissions {
         _context: PermissionContext,
     ) -> PermissionResult {
         match tool_name {
-            // Allow read-only tools
             "Read" | "Glob" | "Grep" | "LS" | "WebSearch" | "WebFetch" => {
                 println!("[Permission] Allowing tool: {tool_name}");
                 PermissionResult::Allow {
@@ -38,7 +37,6 @@ impl PermissionHandler for ReadOnlyPermissions {
                     updated_permissions: None,
                 }
             }
-            // Deny write tools
             _ => {
                 println!("[Permission] Denying tool: {tool_name}");
                 PermissionResult::Deny {
@@ -70,7 +68,6 @@ impl HookHandler for LoggingHookHandler {
             tool_use_id.unwrap_or("none")
         );
 
-        // Continue execution with no modifications
         HookOutput::Sync(SyncHookOutput {
             should_continue: Some(true),
             ..Default::default()

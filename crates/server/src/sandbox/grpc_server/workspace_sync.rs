@@ -64,11 +64,10 @@ const WORKSPACE_PRESIGN_TTL: std::time::Duration = std::time::Duration::from_min
 impl BackendSandboxServiceImpl {
     /// The key a workspace restore should read for `task_id`.
     ///
-    /// A fork with no archive of its own falls back to its parent's (also
-    /// keeping it off the clone path for an unpushed branch), but only on a
-    /// definitive "not there" — `head_object_modified_at`'s "cannot tell" is
-    /// `Err`, not absence, since that would hand an already-synced fork its
-    /// parent's stale tree.
+    /// A fork with no archive falls back to its parent's, keeping it off
+    /// the clone path for an unpushed branch — but only on a definitive "not
+    /// there"; `head_object_modified_at`'s "cannot tell" is `Err`, not
+    /// absence, or an already-synced fork would get its parent's stale tree.
     async fn workspace_restore_key(
         &self,
         s3_client: &moatless_s3::S3Storage,
@@ -90,13 +89,12 @@ impl BackendSandboxServiceImpl {
         }
     }
 
-    /// The task whose prefix a restore should read, or `None` for the task's
-    /// own.
+    /// The task whose prefix a restore should read, or `None` for its own.
     ///
-    /// `probe` decides against the actual artifact restored, so the tar and
-    /// repository resolve independently; one level only (`find_parent` is the
-    /// immediate parent), so a fork-of-a-fork whose parent holds nothing here
-    /// restores its own.
+    /// `probe` decides the artifact restored, so the tar and repository
+    /// resolve independently. One level only (`find_parent` is the
+    /// immediate parent): a fork-of-a-fork with nothing here restores its
+    /// own.
     async fn workspace_restore_task_id(
         &self,
         s3_client: &moatless_s3::S3Storage,
@@ -202,15 +200,12 @@ pub(super) async fn get_workspace_sync_urls(
     }))
 }
 
-/// Hand the sandbox direct S3 access to its own workspace `restic` repository,
-/// plus the password that opens it.
+/// Hands the sandbox direct S3 access to its `restic` repository and the
+/// password that unlocks it.
 ///
-/// A presigned URL can't carry this: `rustic_core` lists the repository by
-/// prefix on every open, and the repository is encrypted, so only this task's
-/// prefix is writable with a task-id-derived password; a fork with no
-/// repository of its own gets its source's prefix read-only, via the same
-/// fallback [`BackendSandboxServiceImpl::workspace_restore_task_id`] resolves
-/// for the tar.
+/// Needed because `rustic_core` lists by prefix on every open: only this
+/// task's encrypted prefix is writable, with a task-id password; a fork
+/// with none gets its source's prefix read-only instead.
 pub(super) async fn get_workspace_repository_access(
     service: &BackendSandboxServiceImpl,
     request: Request<GetWorkspaceRepositoryAccessRequest>,

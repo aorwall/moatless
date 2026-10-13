@@ -6,18 +6,17 @@
               and in the shared `common` module compiled into this binary; both lints only \
               fire when the db-tests feature is enabled"
 )]
-//! Two Linear deliveries made separately must reach the Agent separately, and
-//! one delivery Linear retried must reach it once.
+//! Two Linear deliveries made separately must reach the Agent separately,
+//! and one delivery Linear retried must reach it once.
 //!
-//! These run the real inbound route because the delivery identity is derived by
-//! the dispatcher, between the signature check and the handler.
+//! These run the real inbound route because the delivery identity is
+//! derived by the dispatcher, between the signature check and the handler.
 //!
-//! The `200` means the delivery is durably owned; the record, not the process
-//! that answered Linear, decides what reaches the Agent.
+//! The `200` means the delivery is durably owned; the record, not the
+//! process that answered Linear, decides what reaches the Agent.
 //!
-//! Linear's own API is unreachable from here, matching an expired install: the
-//! session heartbeat fails and is logged, and the forward to the task carries
-//! on regardless.
+//! Linear's API is unreachable here, matching an expired install: the
+//! heartbeat fails (logged), but the forward to the task carries on.
 
 use crate::common;
 use moatless_types::adapter::AdapterKind;

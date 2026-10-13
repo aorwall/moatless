@@ -189,7 +189,6 @@ async fn a_steered_turn_bills_every_model_request_it_made() {
     // A resumed thread replays what the Session had already spent.
     p.absorb(token_usage(1000, 0, 100, 0));
     p.absorb(turn_started("turn-1"));
-    // The Turn's own first model request.
     p.absorb(token_usage(1400, 40, 140, 20));
     drain(&mut p);
 
@@ -201,7 +200,6 @@ async fn a_steered_turn_bills_every_model_request_it_made() {
     let (mut p, outcome) = steering.await.expect("the steering task joins");
     outcome.expect("steered");
 
-    // The request the steered message caused, then the terminal.
     p.absorb(token_usage(1900, 80, 260, 60));
     p.absorb(turn_completed("completed", None));
     let events = drain(&mut p);

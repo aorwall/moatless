@@ -120,11 +120,10 @@ pub struct Transcript {
     pub omitted: i64,
     /// Every `task_turns.turn_number` this Task has, ascending.
     ///
-    /// Read from `task_turns` rather than off `messages`, since that is the set
-    /// a rewind cuts against — a tool-only turn has no Message, and a turn
-    /// older than `TRANSCRIPT_LIMIT` has none left here. Empty from
-    /// [`crate::dao::ConversationDao::changed_messages`], whose caller projects
-    /// no checkpoints.
+    /// Read from `task_turns`, not off `messages`: a tool-only turn has no
+    /// Message, and a turn older than `TRANSCRIPT_LIMIT` has none left here.
+    /// Empty from [`crate::dao::ConversationDao::changed_messages`], whose
+    /// caller projects no checkpoints.
     pub turns: Vec<i32>,
     /// How each of [`Self::turns`] ended, ascending. Read by [`transcript`]
     /// alone, and empty from every other read.
@@ -229,13 +228,12 @@ macro_rules! transcript_rows {
     };
 }
 
-/// The columns a transcript read projects, over the capped set aliased `m` and
-/// the two tables joined onto it.
+/// The columns a transcript read projects, over the capped set aliased `m`
+/// and the two tables joined onto it.
 ///
-/// Kept in one place because the snapshot read and the live-delta read must
-/// select exactly the same shape into [`TranscriptMessage`] — a column on one
-/// and not the other is present on reload and absent on the frame that
-/// delivered it.
+/// Kept in one place: the snapshot and live-delta reads must select the same
+/// shape into [`TranscriptMessage`], or a column present on reload goes
+/// missing from the frame that delivered it.
 const TRANSCRIPT_COLUMNS: &str = r#"m.id, m.uuid, m.message_type, m.message_role,
                       m.message_text, m.user_type, m.sandbox_wake, m.turn_number,
                       m.held, m.queue_order, m."timestamp",
@@ -251,16 +249,12 @@ const TRANSCRIPT_COLUMNS: &str = r#"m.id, m.uuid, m.message_type, m.message_role
                       COALESCE(u.name, u.login) AS sent_by_name,
                       files.file_contexts, m.child_outcome"#;
 
-/// The joins carrying a Message's origin out of the database: what its Binding
-/// calls the subject and where it lives, the Loop that fired it, and the
-/// display name `sent_by` resolves to.
+/// The joins carrying a Message's origin: its Binding's subject, the Loop
+/// that fired it, and the display name `sent_by` resolves to.
 ///
-/// Destination-config precedence matches
-/// `adapters::providers::linear::status::binding_label_and_url`; the subject
-/// key alone is not unique, so `ORDER BY created_at DESC LIMIT 1` picks the
-/// most recent binding deterministically; and the `users.id` comparison casts
-/// to text rather than casting the polymorphic `sent_by` to `uuid`, which would
-/// raise on a non-uuid value.
+/// Subject key alone isn't unique, so `ORDER BY created_at DESC LIMIT 1`
+/// picks deterministically. `users.id` casts to text, not `sent_by` to
+/// `uuid`, which would raise on a non-uuid value.
 const TRANSCRIPT_ORIGIN_JOINS: &str = r#"LEFT JOIN LATERAL (
                           SELECT tb.destination_config
                           FROM task_bindings tb
@@ -294,22 +288,12 @@ pub(crate) async fn transcript(
     activity_source: &dyn ActivitySource,
     task_id: &str,
 ) -> Result<Transcript, sqlx::Error> {
-    // Newest first so the cap keeps the end of the conversation, then
-    // reversed below into the order it is read in. `position` is the
-    // conversation's own order, and its unique index read backwards makes
-    // the cap a bounded index scan rather than a sort of the whole
-    // conversation.
+    // Newest first, reversed below: `position`'s unique index read
+    // backwards makes the cap a bounded scan, not a sort. Keep the outer
+    // `ORDER BY`: the subquery's order does not survive the joins.
     //
-    // Subagent rows are excluded here rather than after the cap: they are
-    // the bulk of a long transcript, they are never rendered inline
-    // (`message/transform.rs` assembles them on demand behind their
-    // spawning tool call), and counting them against the cap would evict
-    // the conversation a person is reading.
-    // The cap is applied in the inner subquery, before the origin joins, so
-    // the index-driven bounded scan still decides which rows are read and
-    // the joins run over at most `TRANSCRIPT_LIMIT` of them rather than the
-    // whole conversation. The outer `ORDER BY` re-establishes the order a
-    // subquery does not promise to keep; `reverse` then reads it forward.
+    // Subagent rows are excluded before the cap: they're bulk but never
+    // rendered inline, so counting them would evict the real conversation.
     let sql = format!(
         r#"SELECT {TRANSCRIPT_COLUMNS}
            FROM ({} ORDER BY m.position DESC LIMIT $2) m
@@ -467,13 +451,11 @@ pub(crate) async fn changed_messages(
         ))
     });
 
-    // Named Messages plus those. A result no longer lands on a Message of
-    // its own: it settles the activity the call already wrote, and the
-    // change that records it names the Message that *made* the call
-    // (`agent_handlers::anchor_message_uuid`).
-    //
-    // Top-level only, for the reason the transcript has it: subagent rows
-    // are never rendered inline.
+    // Named Messages plus those activities. A result settles the activity
+    // the call already wrote rather than landing on its own Message; the
+    // change naming it points to the Message that *made* the call
+    // (`agent_handlers::anchor_message_uuid`). Top-level only: subagent rows
+    // never render inline.
     let sql = format!(
         r#"SELECT {TRANSCRIPT_COLUMNS}
            FROM ({} AND m.uuid::text = ANY($2)) m

@@ -23,7 +23,6 @@ pub(crate) async fn compose_runtime(config: &Config) -> (SandboxState, Superviso
     .expect("Failed to create backend gRPC client");
     info!(url = %config.backend_grpc_url, "Backend gRPC client created (lazy connection)");
 
-    // Wrap backend client in Arc for shared ownership
     let backend_client: Arc<dyn crate::backend_client::BackendClient> = Arc::new(backend_client);
 
     // Lifecycle token, created up front so the event outbox drainer shares it
@@ -36,25 +35,11 @@ pub(crate) async fn compose_runtime(config: &Config) -> (SandboxState, Superviso
     let supervisor = Supervisor::new(lifecycle_cancel.clone());
     let registrar = supervisor.registrar();
 
-    // Spawn the at-least-once event send buffer and back the publisher with it.
-    // The drainer sends events in order with retry/backoff across backend
-    // rollout and network interruptions.
-    //
-    // Fatal: once the drainer stops, `EventOutbox::enqueue` refuses admission in
-    // the same critical section as the buffer push and the outbox stays stopped.
-    // A pod that cannot publish events makes its task appear frozen, so the
-    // right remedy is to replace it. `into_join_handle` is the escape hatch the
-    // outbox provides for exactly this: the supervisor owns termination policy,
-    // so the outbox's own `shutdown(deadline)` is not used.
-    //
-    // The supervisor owns this task's JOIN, never the timing of its
-    // cancellation. `shutdown::perform_shutdown` flushes the outbox and only
-    // then cancels the lifecycle token; the supervisor is woken by that
-    // cancellation and joins afterwards. Do not "optimise" this into cancelling
-    // the drainer with the rest of the supervised set at the top of teardown:
-    // `flush` early-returns on a stopped drainer, so that inversion makes the
-    // flush an instant no-op and drops the pod's terminal lifecycle events with
-    // no error anywhere. See the comment on that flush in `shutdown.rs`.
+    // At-least-once send buffer backing the publisher (drainer retries
+    // across rollout/network interruptions). Fatal: once stopped,
+    // `enqueue` refuses admission for good. Do NOT cancel it with the rest
+    // of the supervised set: `perform_shutdown` must flush before
+    // cancelling, or `flush` no-ops and silently drops terminal events.
     let (outbox, outbox_drainer) = crate::outbox::EventOutbox::spawn(
         Arc::clone(&backend_client),
         config.task_id.clone(),

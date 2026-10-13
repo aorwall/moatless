@@ -18,22 +18,11 @@ use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use tower::ServiceExt;
 
-// =========================================================================
-// The database changing underneath a deployment
-// =========================================================================
-//
-// The spec's Decision 7 is two guards, and the whole of it is that neither is
-// redundant. A position higher than any this deployment has reached is
-// impossible; a database that is not the one this process started against makes
-// every position it ever handed out mean something else. Each has a case the
-// other cannot see, and the two tests below are those two cases — written so
-// that deleting either guard turns exactly one of them red.
-//
-// Both are operational disasters, so both are built rather than described. The
-// counter is really reset; the restored database is really a second database,
-// created in the cluster and migrated, with positions really reissued to
-// different changes. A test that claims to simulate a restore and does not is
-// worse than no test, because it will be cited.
+// Decision 7 is two guards, neither redundant: a position higher than any
+// this deployment reached is impossible; a database that isn't the one
+// the process started against makes every position mean something else.
+// The two tests below are those two cases, each built as the real
+// disaster (a reset counter, a second database) rather than simulated.
 
 /// A backup restored into a new database beside the original, a byte-for-byte
 /// `CREATE DATABASE ... TEMPLATE` copy indistinguishable from inside the data.
@@ -70,10 +59,10 @@ pub(super) async fn back_up_and_restore(pool: PgPool) -> RestoredDatabase {
         .fetch_one(&pool)
         .await
         .unwrap();
-    // Postgres truncates an identifier at 63 bytes and `#[sqlx::test]` names its
-    // databases right up to that limit, so a plain suffix would truncate back to
-    // the name it was derived from — and the `DROP` below would be the test
-    // dropping the database it is restoring.
+    // Postgres truncates identifiers at 63 bytes, and `#[sqlx::test]`
+    // names run right up to that limit — a plain suffix would truncate
+    // back to the original name, making the `DROP` below drop the
+    // database being restored.
     let name = format!("{}_restored", &current[..current.len().min(53)]);
     assert_ne!(name, current);
 
@@ -170,15 +159,11 @@ async fn the_environment_identity_is_stable_and_names_one_database(pool: PgPool)
     );
     assert_ne!(origin_oid, restored_oid);
 
-    // Both halves, pinned against the values Postgres reports for them.
-    //
-    // The OID half is what the restore below exercises. The cluster half
-    // cannot be — a second cluster is not something `#[sqlx::test]` can
-    // produce — and it is the half most easily mistaken for decoration, so it
-    // is pinned structurally instead. Dropping it would leave the identity
-    // resting on a per-cluster counter that starts at 16,384 in every cluster
-    // alive, and a restore into a freshly-`initdb`'d server would present as
-    // the database it replaced.
+    // Both halves are pinned against what Postgres reports. The OID half
+    // is what the restore below exercises; the cluster half can't be (no
+    // test can spin up a second cluster), so it's pinned structurally —
+    // drop it and identity rests on a per-cluster OID counter that starts
+    // at 16,384 everywhere, hiding a restore onto a fresh server.
     assert_eq!(
         head(origin).await.identity,
         UiRpcEnvironmentIdentity::new(format!("{origin_cluster}:{origin_oid}")),
@@ -326,12 +311,11 @@ async fn a_counter_reset_on_the_same_database_is_caught_by_the_position_guard(po
 }
 
 /// Acceptance criteria 2 and 3, the case only the identity guard sees: a
-/// restored backup reissues positions to entirely different changes than a
-/// stale cursor remembers.
+/// restored backup reissues positions to different changes than a stale
+/// cursor remembers.
 ///
-/// Without the identity guard, `resume` treats the matching positions as valid
-/// and replays instead of rebuilding, silently skipping every reissued change —
-/// criterion 3's failure exactly.
+/// Without the guard, `resume` treats matching positions as valid and
+/// replays instead of rebuilding, silently skipping every reissued change.
 #[sqlx::test]
 async fn a_restored_backup_reissuing_positions_is_caught_by_the_identity_guard(pool: PgPool) {
     let viewer = viewer("user-1");
@@ -420,13 +404,12 @@ async fn a_restored_backup_reissuing_positions_is_caught_by_the_identity_guard(p
     restored.discard().await;
 }
 
-/// Acceptance criterion 2, for the client that never reconnects: a live
-/// subscription open when the database was replaced resumes nothing, so no
-/// resume guard covers it.
+/// Acceptance criterion 2, for a client that never reconnects: a live
+/// subscription open when the database is replaced resumes nothing, so
+/// no resume guard covers it.
 ///
-/// Every poll asks past a position the restore hasn't reached, so it is
-/// answered with silence and then, once the restore catches up, with changes —
-/// having silently skipped everything in between.
+/// Every poll past a position the restore hasn't reached sees silence,
+/// then changes once it catches up, skipping everything silently.
 #[sqlx::test]
 async fn a_connected_client_whose_database_is_replaced_rebuilds_rather_than_stalling(pool: PgPool) {
     let viewer = viewer("user-1");

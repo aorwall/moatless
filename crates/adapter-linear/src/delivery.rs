@@ -1,15 +1,13 @@
 //! Durable admission for every Linear webhook event kind.
 //!
-//! Linear does not resend an acknowledged delivery, so all five kinds are
-//! admitted into [`moatless_loops::adapters::delivery`] before the response
-//! returns; only verification, parsing, and shape guards run on the response
-//! path.
+//! Linear never resends an acknowledged delivery: each kind is admitted into
+//! [`moatless_loops::adapters::delivery`] before the response returns, and
+//! only verification, parsing, and shape guards run before that.
 //!
-//! `event_id` is the existing [`dedup_key`](super::ingress) string, not
-//! Linear's `webhookId` (identical on every delivery). Each kind converges on
-//! an identity it does not invent, so a retry after the execution timeout is a
-//! no-op — except a timeout landing between task creation and the binding write
-//! in `provision_session_task`.
+//! `event_id` is [`dedup_key`](super::ingress), not Linear's `webhookId`
+//! (same on every delivery), so a retry after the execution timeout is a
+//! no-op — except one landing between task creation and the binding write in
+//! `provision_session_task`.
 
 use std::sync::Arc;
 
@@ -63,10 +61,9 @@ pub const NOTIFICATION: &str = "linear.notification";
 /// The Linear side of durable delivery: the five worker entry points as
 /// methods, over the downward ports they read.
 ///
-/// Constructed once at the composition root and shared behind an `Arc` by
-/// [`register`]; ports live here rather than on
-/// [`LinearAdapter`](super::adapter::LinearAdapter) so the adapter stays a
-/// description of the provider.
+/// Built once at the composition root and shared via `Arc` by [`register`];
+/// ports live here, not on [`LinearAdapter`](super::adapter::LinearAdapter),
+/// so the adapter stays a description of the provider.
 pub struct LinearInboundRouter {
     adapter_connections: Arc<dyn ConnectionLookup>,
     app_tokens: Arc<dyn AppCredentials>,
@@ -445,12 +442,12 @@ impl LinearInboundRouter {
                 team_id = %team_id,
                 "Linear session provisioning skipped: no active rule for the team"
             );
-            // The rule that admitted this session was disabled before the worker
-            // ran. Close the session so its Linear panel doesn't spin forever.
+            // The admitting rule was disabled before the worker ran; close the
+            // session so its Linear panel doesn't spin forever.
             //
-            // Resolved here rather than above the guard, and best-effort: there is
-            // no work left to redo on this record, so a credential failure must not
-            // turn a settled no-op into a retry.
+            // Best-effort, and deliberately here rather than above the guard:
+            // there's no work left to redo, so a credential failure here must
+            // not turn this settled no-op into a retry.
             match super::auth::api_for_connection(
                 self.config.http.linear,
                 self.app_tokens.clone(),
@@ -621,10 +618,10 @@ impl LinearInboundRouter {
         connection: AdapterConnection,
         payload: NotificationDelivery,
     ) -> Result<(), AdapterDeliveryFailure> {
-        // An action this adapter does not act on is a *successful* no-op, not a
-        // failure: the delivery arrived, it was recorded, and there was nothing to
-        // do with it. Ending the record any other way would put a delivery Linear
-        // sends routinely into an operator's failed-record queue.
+        // An action this adapter doesn't handle is a *successful* no-op, not
+        // a failure: the delivery arrived and was recorded; there's just
+        // nothing to do. Any other ending would land a routine delivery in
+        // the operator's failed-record queue.
         if payload.action != "issueStatusChanged" {
             warn!(
                 action = %payload.action,

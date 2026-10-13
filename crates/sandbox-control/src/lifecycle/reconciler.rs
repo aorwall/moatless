@@ -1,14 +1,13 @@
 //! The desired-state reconciler — the single async recovery owner for level
 //! states.
 //!
-//! Each tick compares intent against fleet-observed status via
-//! [`reconcile::decide`](super::reconcile::decide); a divergence is confirmed
-//! with an authoritative per-Task read before it drives a lifecycle operation
-//! (never a direct mutation), retried via a leader-local [`AttemptBudget`]
-//! until permanent failure or Closed.
+//! Each tick compares intent against fleet status via
+//! [`reconcile::decide`]; a divergence is confirmed with an authoritative
+//! per-Task read before it drives a lifecycle operation, retried via
+//! [`AttemptBudget`] until permanent failure or Closed.
 //!
-//! Holds no lease logic itself: [`Reconciler::reconcile_once`] is lease-elected
-//! on Kubernetes, lease-free single-replica on Docker.
+//! Holds no lease logic itself: [`Reconciler::reconcile_once`] is
+//! lease-elected on Kubernetes, lease-free single-replica on Docker.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -580,15 +579,12 @@ impl Reconciler {
         }
     }
 
-    /// Re-notify a Ready sandbox of its pending wake, spaced by leader-local
-    /// exponential backoff keyed by Task.
+    /// Re-notify a Ready sandbox of its pending wake, spaced by
+    /// leader-local exponential backoff keyed by Task.
     ///
-    /// `task_id` is the Sandbox's candidate (its oldest Task), not necessarily
-    /// who queued the work — several Tasks can share a Sandbox, so this
-    /// notifies every member with an unclaimed message, not just the candidate,
-    /// or a Task that joined an existing Sandbox would never be dispatched;
-    /// backoff stays keyed on the candidate since the wake and its fan-out
-    /// share one spacing.
+    /// `task_id` is the Sandbox's oldest Task, not necessarily who queued
+    /// the work: this notifies every member with an unclaimed message, or
+    /// a Task that joined later would never be dispatched.
     async fn maybe_notify(&self, task_id: &str, now: DateTime<Utc>) {
         let due = {
             let mut guard = self
@@ -670,16 +666,15 @@ impl Reconciler {
                 .begin(moatless_sandbox_runtime::operation::OperationGeneration(g));
         }
 
-        // Backing off between transient retries.
         if let Some(t) = retry.next_eligible {
             if now < t {
                 return false;
             }
         }
-        // A tracked generation whose cap is exhausted (or blocked by a permanent
-        // failure) waits for a new caller operation or a wake. A markerless first
-        // attempt has no generation to key on and is always allowed — it
-        // establishes the marker the next tick keys against.
+        // A tracked generation whose cap is exhausted (or hit a permanent
+        // failure) waits for a new caller operation or a wake. A markerless
+        // first attempt has no generation to key on and is always allowed:
+        // it establishes the marker the next tick keys against.
         if generation.is_some() && retry.budget.exhausted() {
             return false;
         }
@@ -728,11 +723,11 @@ impl Reconciler {
                         );
                         warn!(task_id, ?action, error = %e, "reconciler: transient failure; will retry");
                     }
-                    // Another writer holds the per-Task lock and is driving this
-                    // same generation. The budget stays untouched so the next
-                    // tick finds the lock free: spending it here published a
-                    // `recovery_exhausted` error for work already in progress,
-                    // and then refused to drive the operation again.
+                    // Another writer holds the per-Task lock, driving this
+                    // same generation. The budget stays untouched so the
+                    // next tick finds the lock free — spending it here
+                    // would report `recovery_exhausted` for work already
+                    // in progress, then refuse to retry it.
                     ErrorClass::Contention => {
                         debug!(task_id, ?action, error = %e, "reconciler: lock contention; retrying next tick");
                         return None;

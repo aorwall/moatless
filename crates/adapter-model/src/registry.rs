@@ -17,8 +17,7 @@ use moatless_types::adapter::AdapterKind;
 /// The trait-object map is the whole registry: cross-provider code dispatches
 /// through it, while each provider's concrete handle lives on the composition
 /// root (`ProviderHandles`), not here. Each provider registers via its own
-/// `register_into`, called once at the composition root, so the provider owns
-/// the mapping from itself to the capability surfaces it implements.
+/// `register_into`, called once at the composition root.
 #[derive(Clone)]
 pub struct Adapters {
     providers: HashMap<AdapterKind, Arc<dyn Adapter>>,
@@ -281,13 +280,11 @@ mod tests {
     use crate::error::{AdapterError, SharedAdapterError};
     use moatless_types::adapter::AdapterKind;
 
-    // The capability-matrix tests that build the five concrete providers live in
-    // the backend crate (`backend/src/adapters/registry_matrix_tests.rs`): the
-    // providers sit above the loops band, so a loops test cannot name them. They
-    // call these accessors directly.
-    // What stays here is the pair that needs no provider — the empty/stand-in
-    // registry and the registry-owned "missing outbound capability" error —
-    // proven with in-crate stub adapters alone.
+    // Capability-matrix tests for the five concrete providers live in
+    // `backend/src/adapters/registry_matrix_tests.rs`, since providers sit
+    // above the loops band and can't be named here. This file covers only the
+    // provider-less pair — the empty/stand-in registry and the "missing
+    // outbound capability" error — with in-crate stub adapters.
 
     struct DummyProvider;
 

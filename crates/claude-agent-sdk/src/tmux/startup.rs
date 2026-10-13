@@ -129,7 +129,6 @@ async fn wait_for_session_start(
         // (and never past the overall deadline).
         let wait = remaining.min(LIVENESS_POLL_INTERVAL);
         match tokio::time::timeout(wait, state_rx.changed()).await {
-            // State changed — re-check at the top of the loop.
             Ok(Ok(())) => continue,
             // Sender dropped — listener exited before SessionStart fired.
             Ok(Err(_)) => return Err(timeout_err()),
@@ -143,26 +142,21 @@ async fn wait_for_session_start(
     }
 }
 
-/// Poll `tmux capture-pane -p` every [`TRUST_POLL_INTERVAL`] for the
-/// workspace-trust dialog; send Enter (default "Yes, I trust this folder") and
-/// exit when found.
+/// Polls `tmux capture-pane -p` every [`TRUST_POLL_INTERVAL`] for the
+/// workspace-trust and bypass-permissions dialogs, dismissing each.
 ///
-/// Cancels itself on `cancellation_token`, which the caller fires right after
-/// `SessionStart`, keeping this active only for the brief pre-SessionStart
-/// window.
+/// Cancels on `cancellation_token`, which the caller fires right after
+/// `SessionStart`, so this only runs during the pre-`SessionStart` window.
 async fn startup_dialog_watcher(
     session: Arc<TmuxSession>,
     writer: Arc<TmuxPasteWriter>,
     cancellation_token: CancellationToken,
     pane_tx: watch::Sender<Vec<u8>>,
 ) {
-    // Two distinct blocking dialogs can appear before SessionStart, in order:
-    //   1. workspace-trust ("…trust the files in this folder?") — default is
-    //      "Yes", a bare Enter accepts.
-    //   2. bypass-permissions warning (from --dangerously-skip-permissions) —
-    //      default is "No, exit", so we must move Down to "Yes, I accept" first.
-    // Each is dismissed at most once; we keep polling until both are handled or
-    // SessionStart cancels us.
+    // Two dialogs can precede SessionStart, in order: workspace-trust
+    // (default "Yes", Enter accepts) then bypass-permissions (default "No,
+    // exit", needs Down then Enter). Each is dismissed once; polling
+    // continues until both are handled or SessionStart cancels us.
     let mut trust_dismissed = false;
     let mut bypass_dismissed = false;
     loop {

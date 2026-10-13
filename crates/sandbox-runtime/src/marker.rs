@@ -186,7 +186,6 @@ mod tests {
             ),
             MarkerAck::Retain
         );
-        // Converged AND persisted → clear.
         assert_eq!(
             acknowledge(
                 &m,
@@ -242,7 +241,6 @@ mod tests {
             ),
             MarkerAck::Retain
         );
-        // Strict success (absent + persisted) → clear.
         assert_eq!(
             acknowledge(
                 &m,
@@ -342,13 +340,11 @@ mod tests {
     #[test]
     fn edge_suppression_disables_when_stale() {
         let m = marker(OperationKind::Restart);
-        // Fresh (age 30s < 60s) → suppression active.
         assert!(edge_suppression_active(
             &m,
             at(1_030),
             Duration::from_mins(1)
         ));
-        // Stale (age 120s > 60s) → suppression disabled.
         assert!(!edge_suppression_active(
             &m,
             at(1_120),

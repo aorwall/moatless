@@ -84,15 +84,11 @@ impl TaskEventDao for PgTaskEventDao {
         offset: i64,
     ) -> Result<Vec<TaskEvent>, sqlx::Error> {
         let types_ref: Option<&[String]> = event_types.as_deref();
-        // Ordered DESC so LIMIT keeps the newest rows instead of the oldest.
+        // Ordered DESC so LIMIT keeps the newest rows, not the oldest.
         //
-        // `id::bigint`: the legacy Drizzle-created `task_events` table defines
-        // `id` as int4, but `TaskEvent::id` is `i64` (INT8). Without this cast
-        // sqlx fails to decode every row ("Rust type `i64` ... not compatible
-        // with SQL type `INT4`"), which broke the events-history endpoints
-        // entirely. Casting in the query fixes decoding on both the legacy int4
-        // schema and a fresh bigint schema, without a locking ALTER on a table
-        // that can hold a row per tool call / streamed chunk.
+        // `id::bigint`: legacy int4 `task_events.id` won't decode into
+        // `TaskEvent::id: i64` without this cast. Works on both legacy int4
+        // and fresh bigint schemas, with no locking ALTER on this table.
         let mut rows = sqlx::query_as::<_, TaskEvent>(
             r#"SELECT
                 id::bigint AS id, event_id, task_id, type AS event_type, sub_type, is_error,
@@ -118,15 +114,11 @@ impl TaskEventDao for PgTaskEventDao {
         task_id: &str,
         event_id: &str,
     ) -> Result<bool, sqlx::Error> {
-        // The newest run-state event strictly *older* than this one. Ordering on
-        // `id` rides `idx_task_events_task_id (task_id, id)` and gives the two
-        // stop publishers a stable order — `created_at` need not, and "older
-        // than me" rather than "not me" is what makes exactly one of them win
-        // whichever the consumer dispatches first.
-        //
-        // The `id <` comparison is NULL when this event has no row (persistence
-        // is best-effort), so the query returns nothing and the caller proceeds
-        // — the same fail-open the guard has always had.
+        // The newest run-state event strictly older than this one, ordered
+        // on `id` (rides `idx_task_events_task_id`) for a stable order
+        // between the two stop publishers — "older than me," not "not me,"
+        // is what makes exactly one win regardless of dispatch order. `id <`
+        // is NULL when this event has no row, so the query fails open.
         let row: Option<(String,)> = sqlx::query_as(
             r#"SELECT sub_type
                FROM task_events

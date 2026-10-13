@@ -50,15 +50,11 @@ pub(super) async fn run(args: InitArgs, json: bool) -> Result<(), ClientError> {
         if !path.exists() {
             needs_seed = true;
         } else if !path.is_file() {
-            // Remove a wrong-type entry (e.g. `docker compose` auto-created
-            // `nginx.conf` as an empty directory because the bind-mount source
-            // wasn't on disk) so seeding can drop a real file here. Removal is
-            // sufficient: the path no longer exists, so `seed_assets` writes it
-            // even with overwrite=false. Deliberately do NOT force overwrite —
-            // the flag applies to every entry, so repairing one would clobber
-            // the user's healthy, hand-edited assets, which is unrecoverable in
-            // the untracked cache dir. `--overwrite` remains opt-in via
-            // `args.overwrite`.
+            // Remove a wrong-type entry (e.g. `docker compose` auto-created it
+            // as a directory) so seeding writes a real file here. Deliberately
+            // not forcing overwrite: that flag hits every entry and would
+            // clobber the user's hand-edited assets, unrecoverable in this
+            // cache dir.
             fs::remove_dir_all(&path).map_err(|e| {
                 ClientError::Other(format!(
                     "Failed to remove stale {} (expected a file, found a directory): {e}",
@@ -88,7 +84,6 @@ pub(super) async fn run(args: InitArgs, json: bool) -> Result<(), ClientError> {
         Vec::new()
     };
 
-    // Seed from example any keys that don't exist yet.
     for (k, v) in &example {
         if !current.iter().any(|(ek, _)| ek == k) {
             current.push((k.clone(), v.clone()));

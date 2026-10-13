@@ -26,14 +26,11 @@ pub(super) async fn fetch_sandbox_logs(
     }
 }
 
-/// Best-effort lookup of the most relevant K8s Event reason+message for a pod,
-/// naming the cause of a stuck-Pending/slow-start window (e.g.
-/// `FailedScheduling`, `FailedAttachVolume`).
+/// Best-effort lookup of a pod's most relevant K8s Event (reason+message),
+/// naming a stuck-Pending/slow-start cause like `FailedScheduling`.
 ///
-/// Lists core/v1 Events filtered on `involvedObject.name`, prefers the last
-/// `Warning`-type event, falling back to the last of any type; `None` when
-/// nothing is found or the API call fails (e.g. missing RBAC), and the caller
-/// degrades to emitting without a cause chip.
+/// Prefers the last `Warning` event, falling back to any type; `None` when
+/// nothing is found or the call fails, and the caller omits the cause chip.
 pub(super) async fn fetch_pod_event_cause(k8s: &K8sClient, pod_name: &str) -> Option<String> {
     let events_api: Api<CoreEvent> = Api::namespaced(k8s.client.clone(), k8s.namespace());
     let lp = ListParams::default().fields(&format!("involvedObject.name={pod_name}"));

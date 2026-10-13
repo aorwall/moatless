@@ -49,7 +49,6 @@ pub(super) async fn run(args: UninstallArgs, json_out: bool) -> Result<(), Clien
     let orphaned_pvcs = list_pvcs(&target, &args.namespace).await?;
 
     if args.purge {
-        // Delete the app secret (best-effort).
         let _ = target
             .kubectl(&[
                 "-n",

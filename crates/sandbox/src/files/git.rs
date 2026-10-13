@@ -253,7 +253,6 @@ async fn get_best_compare_reference(workspace_dir: &str) -> CompareRef {
     let base = detect_base_branch(workspace_dir).await;
     let origin_branch = format!("origin/{base}");
 
-    // Try origin/<base>
     if run_git(workspace_dir, &["rev-parse", "--verify", &origin_branch], 5)
         .await
         .is_ok()
@@ -263,7 +262,6 @@ async fn get_best_compare_reference(workspace_dir: &str) -> CompareRef {
         };
     }
 
-    // Try merge-base
     let current = run_git_quiet(workspace_dir, &["branch", "--show-current"], 5).await;
     let current = current.trim();
     if !current.is_empty() {
@@ -346,7 +344,6 @@ async fn get_diff_string(workspace_dir: &str) -> (String, String) {
 
     let diff_output = run_git_quiet(workspace_dir, &["diff", &compare_base], 30).await;
 
-    // Get untracked files diff
     let untracked_diff = get_untracked_files_diff(workspace_dir).await;
     let combined = if untracked_diff.is_empty() {
         diff_output
@@ -415,17 +412,14 @@ fn parse_diff_files(
             continue;
         };
 
-        // Skip files with too-large diffs
         if let Some(&(add, del, is_binary)) = numstat.get(&filename) {
             if is_binary || (add + del) as i64 > MAX_FILE_LINES {
                 continue;
             }
         }
 
-        // Determine status from diff header lines
         let status = determine_file_status(chunk);
 
-        // Count additions/deletions from diff lines
         let (additions, deletions) = count_changes(chunk);
 
         let is_staged = staged_set.contains(&filename);
@@ -534,7 +528,6 @@ async fn get_repo_diff_detailed(workspace_dir: &str) -> GitDiffResponse {
 
     let mut files = parse_diff_files(&diff_string, &staged_set, &numstat);
 
-    // Add untracked files not already in the diff
     let existing_filenames: HashSet<String> = files.iter().map(|f| f.filename.clone()).collect();
     for filename in &untracked {
         if existing_filenames.contains(filename.as_str()) {
@@ -579,7 +572,6 @@ pub async fn get_file_change_info(workspace_dir: &str, file_path: &str) -> FileC
     let compare_ref = get_best_compare_reference(workspace_dir).await;
     let compare_base = &compare_ref.reference;
 
-    // Get numstat for this file
     let numstat_output = run_git_quiet(
         workspace_dir,
         &["diff", "--numstat", compare_base, "--", file_path],
@@ -601,7 +593,6 @@ pub async fn get_file_change_info(workspace_dir: &str, file_path: &str) -> FileC
         .and_then(|s| s.parse::<i32>().ok())
         .unwrap_or(0);
 
-    // Get status
     let status_output = run_git_quiet(
         workspace_dir,
         &["diff", "--name-status", compare_base, "--", file_path],
@@ -616,7 +607,6 @@ pub async fn get_file_change_info(workspace_dir: &str, file_path: &str) -> FileC
         .unwrap_or("")
         .to_string();
 
-    // Get old content for modified/deleted files
     let old_content = if status_code.starts_with('M') || status_code.starts_with('D') {
         let show_ref = format!("{compare_base}:{file_path}");
         run_git(workspace_dir, &["show", &show_ref], 5).await.ok()
@@ -783,7 +773,6 @@ mod tests {
         std::fs::create_dir(&repo_dir).unwrap();
         git_init(&repo_dir).await;
 
-        // Commit a tracked file, then modify it and add an untracked file.
         std::fs::write(repo_dir.join("tracked.txt"), "one\n").unwrap();
         git_commit_all(&repo_dir, "init").await;
         std::fs::write(repo_dir.join("tracked.txt"), "one\ntwo\n").unwrap();
@@ -803,7 +792,6 @@ mod tests {
             "expected prefixed untracked file, got {names:?}"
         );
 
-        // get_file_change_info resolves the workspace-relative path back to the repo.
         let info = get_file_change_info(root.to_str().unwrap(), "my-repo/tracked.txt").await;
         assert!(info.is_modified);
         assert_eq!(info.additions, 1);

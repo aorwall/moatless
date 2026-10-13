@@ -377,12 +377,10 @@ mod tests {
     async fn build_tar_returns_none_for_missing_or_empty_dir() {
         let tmp = tempfile::TempDir::new().unwrap();
 
-        // Missing dir.
         let missing = tmp.path().join("nope");
         let also_missing = tmp.path().join("also-nope");
         assert!(build_tar(missing, also_missing).await.is_none());
 
-        // Present but empty dir.
         let empty = tmp.path().join("empty");
         let also_empty = tmp.path().join("also-empty");
         tokio::fs::create_dir_all(&empty).await.unwrap();

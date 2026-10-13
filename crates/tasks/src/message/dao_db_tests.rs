@@ -160,7 +160,6 @@ async fn get_pending_user(pool: PgPool) {
 async fn get_last_result(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
 
-    // Insert two result messages with different timestamps
     let mut msg1 = make_message_row("task-1", "result-1");
     msg1.message_type = MessageType::Result;
     msg1.timestamp = "2024-01-01T00:00:00.000Z".to_string();
@@ -186,7 +185,6 @@ async fn get_last_result(pool: PgPool) {
 async fn get_last_assistant_message_picks_latest_assistant(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
 
-    // Earlier assistant row.
     let mut asst1 = make_message_row("task-1", "asst-1");
     asst1.message_type = MessageType::Assistant;
     asst1.message_role = MessageRole::Assistant;
@@ -204,7 +202,6 @@ async fn get_last_assistant_message_picks_latest_assistant(pool: PgPool) {
         .await
         .unwrap();
 
-    // Most recent assistant row.
     let mut asst2 = make_message_row("task-1", "asst-2");
     asst2.message_type = MessageType::Assistant;
     asst2.message_role = MessageRole::Assistant;
@@ -226,7 +223,6 @@ async fn get_last_assistant_message_picks_latest_assistant(pool: PgPool) {
 async fn get_last_assistant_message_returns_none_when_absent(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
 
-    // Only a non-assistant row exists.
     let mut result = make_message_row("task-1", "result-1");
     result.message_type = MessageType::Result;
     crate::message::test_support::seed_message(&pool, &result, &[], &ConversationWrite::default())

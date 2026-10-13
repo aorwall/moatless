@@ -399,11 +399,10 @@ impl CommandRegistry {
         self.row_mirror = Some(UnreportedMirror {
             client,
             task_id: self.task_id.clone(),
-            // Seeded from the clock, not from zero: `take_unreported_commands` leaves
-            // the prior pod's revision on the row, so a counter that restarted
-            // would lose the backend's `<` guard until it caught up — silently
-            // dropping this pod's whole mirror, which is the case the mirror
-            // exists for.
+            // Seeded from the clock, not zero: `take_unreported_commands`
+            // leaves the prior pod's revision on the row, so restarting
+            // from zero would lose the backend's `<` guard until it caught
+            // up, silently dropping this pod's whole mirror.
             revision: Arc::new(AtomicI64::new(unix_now_ms())),
         });
         self

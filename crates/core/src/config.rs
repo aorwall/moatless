@@ -347,12 +347,11 @@ pub struct SandboxConfig {
     /// `K8S_SANDBOX_NODE_ARCHIVE_ENABLED` (default `false`).
     pub node_archive_enabled: bool,
     /// When `true`, closing a task preserves its managed archives (S3, Docker,
-    /// node-local disk) instead of deleting them, making it revivable via
-    /// reopen.
+    /// node-local disk) instead of deleting them, so it can reopen.
     ///
-    /// K8s runtime resources are still torn down on close, and permanent
-    /// deletion always removes storage regardless of this flag (env
-    /// `SANDBOX_RETAIN_STORAGE_ON_CLOSE`, default `true`).
+    /// K8s runtime resources still tear down on close; permanent deletion
+    /// always removes storage regardless. Env
+    /// `SANDBOX_RETAIN_STORAGE_ON_CLOSE` (default `true`).
     pub retain_storage_on_close: bool,
     /// Pod startup timeout in seconds
     pub pod_startup_timeout_secs: u64,
@@ -410,13 +409,11 @@ pub struct SandboxConfig {
     /// Auto-close Open tasks inactive for this many days. `0` disables
     /// auto-close. Env: `TASK_INACTIVE_TIMEOUT_DAYS` (default: 7).
     pub inactive_task_timeout_days: u64,
-    /// Reclaim the Deployment and PVC of a sandbox Stopped this many hours,
-    /// leaving the S3 snapshot as the only copy; a later start restores into a
-    /// fresh volume.
+    /// Reclaim a Stopped sandbox's Deployment and PVC after this many hours,
+    /// leaving the S3 snapshot as the only copy; a later start restores it.
     ///
     /// Only pvc+s3-tier tasks are eligible. `0` disables. Env
-    /// `SANDBOX_COLD_AFTER_HOURS` (default 24); a per-task
-    /// `tasks.cold_after_hours` overrides this.
+    /// `SANDBOX_COLD_AFTER_HOURS` (default 24); `tasks.cold_after_hours` overrides.
     pub cold_after_hours: u64,
     /// Whether the reaper's orphan-GC pass is enabled (default: true). When on,
     /// the reaper deletes labeled sandbox K8s resources whose Task row no
@@ -847,11 +844,10 @@ impl Config {
             .and_then(|v| v.parse().ok())
             .unwrap_or(SandboxProviderType::Kubernetes);
 
-        // Namespaces running the Traefik ingress pods that terminate preview
-        // traffic. Defaults to the sandbox namespace (where preview IngressRoutes
-        // are created) plus the shared `platform-ingress`; a comma-separated env
-        // overrides. Duplicates are collapsed so a repeated `from` peer isn't
-        // emitted when the two coincide.
+        // Namespaces running Traefik ingress pods that terminate preview
+        // traffic. Defaults to the sandbox namespace plus the shared
+        // `platform-ingress`; a comma-separated env overrides. Duplicates
+        // collapse so a repeated `from` peer isn't emitted.
         let traefik_ingress_namespaces = {
             let mut namespaces = env_opt("TRAEFIK_INGRESS_NAMESPACES").map_or_else(
                 || vec![sandbox_namespace.clone(), "platform-ingress".to_string()],
@@ -1122,10 +1118,9 @@ impl Config {
     ///
     /// Made `pub(crate)` so tests can call it directly without env vars.
     pub(crate) fn validate(&self) -> Result<(), ConfigError> {
-        // Production must be able to authenticate sandbox gRPC calls. Without the
-        // signing secret the verification layer would fall back to its dev bypass
-        // (trusting every caller), so refuse to boot. Dev/local may omit it and
-        // run unauthenticated.
+        // Production must authenticate sandbox gRPC calls: without the signing
+        // secret, verification falls back to its dev bypass (trusting every
+        // caller), so refuse to boot. Dev/local may omit it and run unauthenticated.
         if self.auth.is_production && self.sandbox.task_token_secret.is_none() {
             return Err(ConfigError::Invalid(
                 "TASK_TOKEN_SECRET required in production (APP_ENV=production) — sandbox gRPC \
@@ -1159,7 +1154,6 @@ impl Config {
             }
         }
 
-        // Validate auth provider config consistency
         if self.auth.provider == AuthProvider::GitHubApp {
             if self.auth.github_app_client_id.is_none() {
                 return Err(ConfigError::Invalid(
@@ -1235,7 +1229,6 @@ impl Config {
             }
         }
 
-        // Validate test API key format
         if let Some(ref key) = self.auth.test_api_key {
             if !key.starts_with("mvk_") {
                 return Err(ConfigError::Invalid(
@@ -1249,7 +1242,6 @@ impl Config {
             }
         }
 
-        // Provider-specific validation
         match self.sandbox_provider {
             SandboxProviderType::Kubernetes => {
                 if self.sandbox.namespace.is_empty() {
@@ -1331,7 +1323,6 @@ impl Config {
             SandboxProviderType::Local => {}
         }
 
-        // SECRETS_ENCRYPTION_KEY is always required
         if self.secrets.encryption_key.is_none() {
             return Err(ConfigError::Invalid(
                 "SECRETS_ENCRYPTION_KEY is required".into(),

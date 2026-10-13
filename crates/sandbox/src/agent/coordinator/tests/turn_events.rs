@@ -37,7 +37,6 @@ async fn fresh_turn_publishes_ordered_events_and_acks_after_acceptance() {
     assert_eq!(ack.run_id, started.run_id);
     assert!(!ack.run_id.is_empty());
 
-    // Every event of the Run carries its Run id.
     for req in received.lock().expect("lock").iter() {
         assert_eq!(req.run_id, ack.run_id, "run-scoped: {}", req.sub_type);
     }

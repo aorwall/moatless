@@ -12,15 +12,12 @@ use crate::auth::github::service::GitHubAppService;
 use crate::auth::provider_token_auth_dao::ProviderTokenAuthDao;
 use crate::auth::provider_token_dao::ProviderTokenDao;
 
-/// Ensures the GitHub token for a user is fresh, refreshing an expired,
-/// soon-to-expire, or undated `github_app` token and persisting new
-/// credentials; other token kinds, and a `github_app` row with no refresh
-/// token, return as-is.
+/// Ensures the GitHub token for a user is fresh: refreshes an expired,
+/// soon-to-expire, or undated `github_app` token and persists it. Other
+/// token kinds, and a `github_app` row with no refresh token, return as-is.
 ///
-/// Not concurrency-safe: parallel calls for the same user race, and the loser
-/// gets `bad_refresh_token` since GitHub invalidates the prior refresh token on
-/// every exchange — the Codex path serializes separately in
-/// `credentials::codex`.
+/// Not concurrency-safe: parallel calls for the same user race and the
+/// loser gets `bad_refresh_token`; the Codex path serializes separately.
 pub async fn ensure_fresh_token(
     token_dao: &dyn ProviderTokenDao,
     token_auth: &dyn ProviderTokenAuthDao,
@@ -45,7 +42,6 @@ pub async fn ensure_fresh_token_with_dao(
         .map_err(AuthError::Database)?
         .ok_or_else(|| AuthError::NotFound("No GitHub token found for user".to_string()))?;
 
-    // Only refresh GitHub App tokens
     if token.auth_method.as_deref() != Some("github_app") {
         return Ok(token.access_token);
     }

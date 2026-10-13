@@ -68,7 +68,6 @@ async fn injection_accepts_into_active_execution_without_new_start() {
         Some(Signal::Source(assistant_block("first")))
     );
 
-    // Inject a second input mid-execution.
     harness
         .submit(Input::text("in-2", "more"))
         .await
@@ -271,7 +270,6 @@ async fn cancellation_ends_execution_and_process_persists_for_the_next() {
         }
     ));
 
-    // The process persisted: a later input runs a fresh execution.
     harness
         .submit(Input::text("in-2", "again"))
         .await

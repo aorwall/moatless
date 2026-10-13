@@ -206,7 +206,6 @@ impl MoatClient {
                 cookie_name,
                 session_token,
             } => {
-                // Set session cookie for /api/v1/ routes
                 if let Some(ref token) = session_token {
                     let cookie = format!("{cookie_name}={token}");
                     if let Ok(v) = HeaderValue::from_str(&cookie) {
@@ -235,7 +234,6 @@ impl MoatClient {
         } = self.auth_mode
         {
             *session_token = Some(token);
-            // Rebuild HTTP client and typed client with new session cookie.
             let http = Self::build_http_client(&self.auth_mode, self.http.api);
             self.typed_client = ApiClient::new(&self.base_url, http);
         }
@@ -380,7 +378,6 @@ impl MoatClient {
             return Err(ClientError::Api { status, body });
         }
 
-        // 204 No Content
         if body.is_empty() {
             return Ok(serde_json::json!({"status": "ok"}));
         }

@@ -604,14 +604,12 @@ async fn fork_thread(
         .await
 }
 
-/// The title a person's rename carries. Drops a `thread.meta.update` title
-/// unless the Task already has a name.
+/// The title a rename carries; drops it unless the Task already has a name.
 ///
-/// A Task created from T3 is created unnamed. The client's auto-title and a
-/// person's rename are identical on the wire, and only the auto-title arrives
-/// while the Task is still unnamed; letting it through would set `tasks.name`
-/// before the pod boots and suppress the `# Required First Actions` block that
-/// has the agent name the Task (`crates/tasks/src/agent/prompt.rs`).
+/// A new Task is unnamed, and the client's auto-title command is
+/// indistinguishable on the wire from a person's rename. Letting it through
+/// would set `tasks.name` before the pod boots and skip the agent's own
+/// naming step (`agent/prompt.rs`'s `# Required First Actions`).
 fn rename(conversation: &Conversation, command: &Value) -> Option<String> {
     let title = command.get("title").and_then(Value::as_str)?;
     conversation
@@ -701,10 +699,9 @@ async fn regenerate_title(
 /// The project fields this surface changes: its Workspace's Scripts, and
 /// nothing else.
 ///
-/// `project.meta.update` carries other fields that describe a Moatless
-/// Workspace projection (see `PROJECT_FIELDS_MOATLESS_OWNS`); accepting them
-/// and quietly dropping the rest would report a save that never happened, so
-/// each is refused by name instead.
+/// `project.meta.update` carries fields that describe a Moatless Workspace
+/// projection (`PROJECT_FIELDS_MOATLESS_OWNS`); each is refused by name
+/// instead of silently dropped, so a client never sees a false save.
 async fn project_meta_update(
     ctx: &CommandContext<'_>,
     viewer: &ScopeContext,

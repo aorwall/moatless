@@ -129,7 +129,6 @@ pub(crate) async fn receive(
         return Ok(Outcome::ignored(event_type, "inactive"));
     }
 
-    // Verify webhook signature against the org connection's secret.
     let secret = connection
         .webhook_secret
         .as_deref()
@@ -150,13 +149,11 @@ pub(crate) async fn receive(
         ));
     }
 
-    // No delivery-level gate here on purpose. A GitHub redelivery reuses the
-    // same `X-GitHub-Delivery` id and is collapsed by durable admission below —
-    // on any replica, after any restart, and past any expiry. Everything this
-    // function does before admitting is either read-only or derives a value
-    // from the delivery payload and writes that same value again (PR status,
-    // review decision), so re-running it on a redelivery costs work and changes
-    // nothing.
+    // No delivery-level gate here on purpose: a GitHub redelivery reuses the
+    // same `X-GitHub-Delivery` id, collapsed by durable admission below on
+    // any replica, after any restart, past any expiry. Everything above is
+    // read-only or rewrites the same derived value (PR status, review
+    // decision), so a redelivery costs work but changes nothing.
 
     // Normalization reads the trigger as a config bag (event filter, source
     // label, sender→user fallback). When no trigger matches, synthesize a
@@ -216,10 +213,8 @@ pub(crate) async fn receive(
     )
     .await;
 
-    // Observations are scheduled before the primary result is propagated. This
-    // pins the existing partial-payload ordering even though today's handlers
-    // have no separate post-observation rejection for the documented Ticket 01
-    // partial shape.
+    // Observations apply before `primary`'s error is surfaced, so a partial
+    // failure still updates PR status.
     for observation in normalized.status_observations {
         super::status::apply_webhook_observation(task_bindings.clone(), observation);
     }

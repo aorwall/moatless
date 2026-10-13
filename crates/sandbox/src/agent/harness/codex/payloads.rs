@@ -407,7 +407,6 @@ mod tests {
         assert_eq!(input.items[0].text, "first");
         assert!(input.items[0].completed);
         assert_eq!(input.items[0].status, CodexTodoStatus::Completed);
-        // A step in flight is not yet completed, and says so as its own state.
         assert!(!input.items[1].completed);
         assert_eq!(input.items[1].status, CodexTodoStatus::InProgress);
         assert!(!input.items[2].completed);

@@ -4,11 +4,9 @@
 //! this crate. [`AdapterError`] wraps it and adds variants that carry a failure
 //! from another band, plus the `IntoResponse` renderer over both.
 //!
-//! Each cross-band variant boxes its source rather than naming the other band's
-//! error type — `IntoResponse` only picks a status class and logs the chain, so
-//! naming it would buy a dependency and no behaviour. The renderer sits behind
-//! the `http` feature: what a failure *is* belongs to the kernel, what it looks
-//! like on the wire belongs to whoever answers the request.
+//! Each cross-band variant boxes its source rather than naming the other
+//! band's error type: `IntoResponse` only picks a status class and logs the
+//! chain, so naming it would buy a dependency for no behaviour.
 
 use moatless_types::access_control::AccessControlError;
 use moatless_types::store::StoreError;
@@ -340,11 +338,9 @@ impl IntoResponse for AdapterError {
     }
 }
 
-// Gated on the two features the assertions need: `http` puts `IntoResponse` in
-// scope, `postgres` gives them an `sqlx::Error` to use as a stand-in cause. Both
-// are on for every test target of this crate — the dev-dependency on itself in
-// Cargo.toml enables them — so this is a compile gate, not a way for the suite
-// to go quiet when the crate is tested alone.
+// Needs `http` for `IntoResponse` and `postgres` for a stand-in `sqlx::Error`
+// cause. The crate's self dev-dependency enables both for its own tests, so
+// this gate never silently skips the suite.
 #[cfg(all(test, feature = "http", feature = "postgres"))]
 mod tests {
     use std::error::Error as _;

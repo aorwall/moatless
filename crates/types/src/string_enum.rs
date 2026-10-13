@@ -1,23 +1,8 @@
-/// A closed set of values persisted as text and carried on the wire as text.
-///
-/// Declares the enum, then delegates to [`string_enum_mapping!`] for the wire
-/// mapping. Reading one out of a database column belongs to the crate that
-/// owns the query, not here.
+/// A closed set of values persisted and carried on the wire as text,
+/// delegating to [`string_enum_mapping!`] for the wire mapping.
 ///
 /// Keep this invocation name (`string_enum!`) stable: architecture analysis
-/// greps for it to find every domain enum.
-///
-/// One knob beyond the bare form: `Name [Hash, Default] { ... }` adds derives
-/// beyond the default set. A type that must not carry this macro's serde
-/// derive and wire contract — e.g. one with no wire representation, or one
-/// that keeps its own smaller derive set — declares its own enum and invokes
-/// [`string_enum_mapping!`] directly instead of this macro.
-///
-/// A variant's `$value` is what `as_str`/`Display`/serde use — each variant
-/// gets its own `#[serde(rename = $value)]`, so there is no `rename_all` to
-/// drift out of step with it. `$value | alias` accepts additional strings
-/// (e.g. a retired spelling from old rows) in `TryFrom` and `Deserialize`
-/// both, via `#[serde(alias = ...)]`.
+/// greps for it. `Name [Hash, Default] { ... }` adds extra derives.
 macro_rules! string_enum {
     (
         $(#[$meta:meta])*

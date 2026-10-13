@@ -47,11 +47,9 @@ pub(super) async fn install(
 
 /// Handle the Linear workspace install callback.
 ///
-/// CSRF-checks the cookie, exchanges the code for a workspace token, then
-/// upserts `adapter_connections` and the global
-/// `provider_tokens(provider="linear")` row — workspace OAuth tokens are stored
-/// globally, keyed by the org id in `adapter_connections.external_account_id`
-/// and `provider_tokens.metadata`.
+/// CSRF-checks the cookie, exchanges the code for a token, then upserts
+/// `adapter_connections` and the global `provider_tokens(provider="linear")`
+/// row, keyed by org id in `external_account_id`/`metadata`.
 pub(super) async fn callback(
     State(state): State<Option<Arc<Installation>>>,
     headers: HeaderMap,

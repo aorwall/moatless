@@ -25,13 +25,10 @@ pub async fn admit_delivery(
 }
 
 /// What one Adapter's `receive` made of a delivery it is prepared to
-/// acknowledge.
+/// acknowledge; both variants answer `2xx`.
 ///
-/// Both variants answer `2xx`: durably-owned work is metered by the delivery
-/// worker when it runs, while an ignored delivery is metered here, carrying its
-/// own labels since ingress is the last place that knows them.
-/// [`Self::Ignored`]'s fields an Adapter never labels are left empty — see
-/// [`Self::ignored`].
+/// `Processed` is metered by the delivery worker; `Ignored` is metered here,
+/// carrying its own labels. [`Self::ignored`] leaves unlabelled fields empty.
 #[derive(Debug)]
 pub enum Outcome {
     /// The delivery's work is durably owned: admitted by this delivery, or
@@ -69,11 +66,10 @@ impl Outcome {
 
 /// Why a delivery did not reach an [`Outcome`].
 ///
-/// The three variants get three different transport treatments, and getting the
-/// class wrong is how a delivery is lost. Each Adapter keeps its own match: the
-/// *type* is shared, the handler policy is not — e.g. Slack answers
-/// [`Self::Ingress`] with the failure's own status while GitHub PR meters it
-/// and returns `200`.
+/// The three variants get three different transport treatments; getting the
+/// class wrong loses a delivery. Each Adapter keeps its own match on the
+/// shared type — e.g. Slack answers [`Self::Ingress`] with its own status,
+/// GitHub PR meters it and returns `200`.
 #[derive(Debug, thiserror::Error)]
 pub enum IngressError {
     /// Durable admission did not commit, so the backend owns nothing and a
@@ -89,13 +85,11 @@ pub enum IngressError {
     #[error("{0}")]
     Unidentifiable(String),
     /// Everything the ingress path itself rejected or failed on: a missing
-    /// header, an unparseable body, a refused signature, a database read.
+    /// header, unparseable body, refused signature, or database read.
     ///
-    /// Deliberately **not** `#[from]`: Telegram's poller holds its offset back
-    /// for this class, so a `?` reaching it by inference (rather than a
-    /// deliberate decision) wedges the poller on one update and blocks
-    /// everything queued behind it. Every construction is written out; a
-    /// provider-raised error is classified at its raise site instead.
+    /// Deliberately not `#[from]`: an inferred `?` here would wedge Telegram's
+    /// poller on one update, holding its offset back and blocking the queue
+    /// behind it. Every construction is written out instead.
     #[error(transparent)]
     Ingress(AdapterError),
 }

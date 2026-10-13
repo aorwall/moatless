@@ -38,7 +38,6 @@ async fn test_long_running_three_turns_tmux() {
 
         let mut session_id = String::new();
 
-        // ── Turn 1: establish a fact ───────────────────────────────
         client
             .send(
                 "Remember: my favorite color is teal. Confirm in <=5 words.",
@@ -65,7 +64,6 @@ async fn test_long_running_three_turns_tmux() {
             extract_result_text(&turn1).unwrap_or_default()
         );
 
-        // ── Turn 2: second fact and verify recall ─────────────────
         client
             .send(
                 "Also remember: my favorite number is 17. What color did I tell you?",
@@ -94,7 +92,6 @@ async fn test_long_running_three_turns_tmux() {
             "turn 2 should recall 'teal' from turn 1, got: {turn2_combined}"
         );
 
-        // ── Turn 3: verify BOTH earlier facts ─────────────────────
         client
             .send(
                 "Repeat both: my color and my number. Just the two values.",
@@ -128,7 +125,6 @@ async fn test_long_running_three_turns_tmux() {
             "turn 3 should recall '17', got: {turn3_combined}"
         );
 
-        // ── All three turns share the same session_id ─────────────
         let session_ids: Vec<&str> = turn1
             .iter()
             .chain(turn2.iter())
@@ -179,7 +175,6 @@ async fn test_sandbox_restart_resume_tmux() {
     };
 
     let test_body = async {
-        // ── Pre-restart: 2 turns through one TUI ──────────────────
         let mut client = ClaudeClient::new_tmux(base_options())
             .await
             .expect("Failed to create initial tmux ClaudeClient");
@@ -278,7 +273,6 @@ async fn test_sandbox_restart_resume_tmux() {
             "resumed session must recall '17' from pre-restart turn 2; got: {combined}"
         );
 
-        // Confirm session_id is preserved across restart.
         let post_restart_session_ids: Vec<&str> = turn3
             .iter()
             .filter_map(|m| match m {

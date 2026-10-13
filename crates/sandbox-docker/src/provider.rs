@@ -210,7 +210,6 @@ impl DockerSandboxAdapter {
             source,
         })?;
 
-        // 3. Create workspace and data directories on host
         let workspace_path =
             super::naming::generate_sandbox_host_path(&self.config.docker.data_dir, task_id);
         // Use container_data_dir for creating directories when running inside a container
@@ -243,7 +242,6 @@ impl DockerSandboxAdapter {
             }
         }
 
-        // 4. Build container config
         let mut container_config = container_builder::build_container_config(
             &self.config,
             task_id,
@@ -252,7 +250,6 @@ impl DockerSandboxAdapter {
         );
         container_builder::stamp_operation_generation(&mut container_config, ctx);
 
-        // 5. Create and start container
         self.client
             .docker
             .create_container(
@@ -285,7 +282,6 @@ impl DockerSandboxAdapter {
             "Docker sandbox provisioned"
         );
 
-        // 6. Connect to extra Docker networks (opt-in)
         let extra_networks = plan
             .repo_config
             .docker_networks

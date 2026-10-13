@@ -170,12 +170,11 @@ impl WorkspaceSyncTracker {
             return SyncOutcome::default();
         }
 
-        // One gate for every format, ahead of all of them. A tree that has not
-        // moved is already stored by whatever ran last, and a `restic` snapshot
-        // of it still walks the workspace, reads the index and writes a
-        // snapshot object for no data: 1114 of 3095 snapshots on 2026-09-08 did
-        // exactly that. Agent work always moves the fingerprint, so what the
-        // gate skips is only a tree init produced and its source still holds.
+        // One gate for every format, ahead of all of them: a `restic` snapshot
+        // of an unmoved tree still walks the workspace, reads the index, and
+        // writes a snapshot object for no new data. Agent work always moves
+        // the fingerprint, so what this gate skips is only a redundant
+        // snapshot whose source tree hasn't changed since the last upload.
         phases.enter("lock");
         let mut last = self.last_uploaded.lock().await;
         phases.enter("fingerprint");
@@ -200,10 +199,10 @@ impl WorkspaceSyncTracker {
             *last = current;
         }
         // Still under `last`, deliberately: `restic::prune` sets
-        // `instant_delete`, so a snapshot writing against the index a prune is
-        // rewriting can be left pointing at a pack that is already gone. Blocks
-        // only another upload in the same pod — including the next turn's, which
-        // `spawn_after_turn` already runs off the agent's main loop.
+        // `instant_delete`, so a snapshot writing against the index a prune
+        // is rewriting can be left pointing at an already-gone pack. Blocks
+        // only another upload in this pod, including the next turn's --
+        // `spawn_after_turn` already runs that off the agent's main loop.
         if prune == Prune::WhenDue && stored.snapshotted && self.claim_prune() {
             restic::forget_and_prune(config, backend_client, &self.repository_access).await;
         }

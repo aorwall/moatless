@@ -6,9 +6,8 @@
 //! [`parse_task_id_from_body`] recovers the authoring task id from the footer
 //! URL so only that task's own echo is dropped, with no hidden HTML marker.
 //!
-//! This is the pure render/parse layer; the DAO-backed wrapper that loads a
-//! task's name before rendering lives in the binding runtime
-//! (`bindings::footer::task_comment_footer`).
+//! This is the pure render/parse layer; the DAO-backed wrapper lives in
+//! `bindings::footer::task_comment_footer`.
 
 /// Marker used to detect the footer was already appended, so a retry doesn't
 /// re-append it.
@@ -124,10 +123,9 @@ mod tests {
 
     #[test]
     fn parses_task_id_from_production_direct_comment_footer() {
-        // Regression: the Linear direct-comment endpoint (triage flow) appends a
-        // bare `[label](url)` footer with no `Moatless task:` prefix. The parser
-        // must still recover the task id from this shape so routing skips that
-        // task and avoids a self-echo.
+        // Linear's triage endpoint appends a bare `[label](url)` footer with no
+        // `Moatless task:` prefix; the parser must still recover the task id,
+        // or routing fails to skip the self-echo.
         let body = "Triage summary…\n\n---\n[Triage E2E run 27608948265]\
             (https://moatless.xyz/tasks/731bd010-0f54-4ec0-a099-b94b1c16c9ca)";
         assert_eq!(
@@ -168,13 +166,9 @@ mod tests {
 
     #[test]
     fn completion_response_body_is_echo_filterable() {
-        // Regression: the terminal Linear `response` activity posted by
-        // `handle_agent_completed` must carry the footer so the inbound
-        // `Comment.create` echo filter can recover the authoring task id and
-        // drop the self-echo. Without it, the response re-enters the task as a
-        // fresh comment and the agent loops forever. This asserts the exact
-        // shape the completion handler emits (assistant text + footer) is
-        // recognised as belonging to the originating task.
+        // The terminal `response` activity from `handle_agent_completed` must
+        // carry the footer: without it, the inbound echo filter can't match it
+        // and the response re-enters the task, looping the agent forever.
         let frontend = "https://moatless.xyz";
         let task_id = "9a7c77ab-5e43-45b5-9315-955802f9b3b2";
         let footer = render_footer(frontend, task_id, Some("SP-2360")).expect("footer rendered");

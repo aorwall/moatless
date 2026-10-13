@@ -127,13 +127,12 @@ pub async fn current_head(pool: &PgPool, task_id: &str) -> Result<ConversationHe
     })
 }
 
-/// Every change to this conversation recorded at or after `from`, oldest first,
-/// capped at `limit`.
+/// Every change to this conversation at or after `from`, oldest first, capped
+/// at `limit`.
 ///
-/// At `from`, not after: a disconnected client's cursor can sit inside a change
-/// it partly missed; filtering *events* by sequence
-/// ([`position_of`](super::position::position_of)) keeps this a safe polling
-/// cursor.
+/// At `from`, not after: a disconnected client's cursor can sit inside a
+/// change it partly missed; filtering *events* by sequence
+/// ([`position_of`](super::position::position_of)) keeps polling safe.
 pub async fn changes_from(
     pool: &PgPool,
     task_id: &str,

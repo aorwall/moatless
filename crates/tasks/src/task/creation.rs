@@ -414,18 +414,11 @@ impl TaskCreationService {
             }
         }
 
-        // Join an existing sandbox before delivering a first message. The DB
-        // membership row must exist first so the sandbox-bound token can
-        // authorize this task on later per-task RPCs.
-        //
-        // A join against a shared sandbox that has idle-stopped fails `NotReady`:
-        // there is no pod to register the in-pod context on. That is not a
-        // create failure — the membership `insert_task` already wrote is the
-        // durable fact, and starting the shared sandbox below restores its
-        // checkout and re-registers every member, this one included. So a
-        // `NotReady` join defers to that start rather than 500-ing the create;
-        // every other join error stays fatal and takes the inserted task back
-        // down.
+        // Join before delivering the first message: the membership row must
+        // exist first so the sandbox-bound token can authorize later RPCs.
+        // A `NotReady` join (shared sandbox idle-stopped) isn't a create
+        // failure — starting the sandbox below re-registers every member.
+        // Any other join error is fatal and rolls the inserted task back.
         let mut join_deferred_to_start = false;
         if let Some(checkout_mode) = join_checkout_mode {
             match self
@@ -471,12 +464,11 @@ impl TaskCreationService {
         }
 
         // Persist the first message before provisioning, so the sandbox's
-        // authoritative startup dispatch cannot race ahead of the initial
-        // prompt and find no pending input.
+        // startup dispatch can't race ahead and find no pending input.
         //
-        // A Task whose brief did not persist has nothing to run and no second
-        // chance to deliver it, so the create fails rather than provisioning
-        // one — see [`Self::first_message_failed`] for what it leaves behind.
+        // A Task whose brief didn't persist has no second chance to deliver
+        // it, so create fails rather than provisioning one — see
+        // [`Self::first_message_failed`] for what it leaves behind.
         if let Some(first_message) = req.first_message {
             if let Err(error) = send_first_message(task_id.clone(), first_message).await {
                 tracing::warn!(
@@ -493,20 +485,11 @@ impl TaskCreationService {
             }
         }
 
-        // Provision (best-effort). Failure publishes a sandbox error event so
-        // the task shows as errored; creation still succeeds.
-        //
-        // A task created with nothing to run gets no sandbox until something is
-        // sent to it. Only the T3 compatibility surface asks for this; every
-        // other caller leaves `provision` at its default and is unaffected.
-        // Note this is not the same as "no first message": the bindings runtime
-        // and the schedule runner create with `first_message: None` and deliver
-        // it themselves, and they do need a sandbox.
-        // A same-sandbox join that landed needs no start: the shared pod is
-        // already running. One that deferred (`NotReady`) does — starting keys
-        // off this task's `sandbox_id`, which is the shared one, so it wakes the
-        // shared sandbox and its init registers this member. Both share the
-        // start-or-error handling with a normal provision.
+        // Provision is best-effort: failure publishes a sandbox error event,
+        // but creation still succeeds. `req.provision` is unrelated to
+        // `first_message` (bindings/schedule runner send `None` but still
+        // provision). A landed join needs no start; a deferred one wakes
+        // the shared sandbox via this task's `sandbox_id`.
         let provision = if join_checkout_mode.is_some() && !join_deferred_to_start {
             ProvisionOutcome::Started
         } else if (join_checkout_mode.is_some() && join_deferred_to_start) || req.provision {
@@ -528,7 +511,6 @@ impl TaskCreationService {
             ProvisionOutcome::Skipped
         };
 
-        // Task event.
         if let Some(events) = &self.events {
             let payload = build_event_payload(row.clone()).await;
             events

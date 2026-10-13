@@ -38,11 +38,10 @@ const ADAPTER_LABEL: &str = moatless_types::adapter::AdapterKind::Linear.as_str(
 
 /// Handle an `Issue.update` payload.
 ///
-/// On any real state transition, forwards a notification to every bound task;
-/// when the new state is in the rule's `terminal_states` and
-/// `close_task_on_close` is set, the close path also runs. `transition_id` is
-/// the semantic transition from durable delivery, with `delivered_at` as a
-/// fallback for older records.
+/// On a real state transition, notifies every bound task; if the new state
+/// is in `terminal_states` and `close_task_on_close` is set, also runs the
+/// close path. `transition_id` is the semantic transition, falling back to
+/// `delivered_at` for older records.
 #[expect(
     clippy::too_many_arguments,
     reason = "a fan-out root dispatching to persist/notify/close/status-entry, \
@@ -73,7 +72,6 @@ pub(super) async fn handle_issue_update(
         .and_then(serde_json::Value::as_str);
     let new_state_id = issue.state.as_ref().map(|s| s.id.as_str());
 
-    // Only act on real state transitions.
     if prev_state_id.is_none() || new_state_id.is_none() || prev_state_id == new_state_id {
         return Ok(());
     }
@@ -136,13 +134,12 @@ pub(super) async fn handle_issue_update(
     Ok(())
 }
 
-/// Spawn new tasks for rules opted into `create_on_status_entry` whose
-/// `trigger_states` include the issue's new state, applying project/label
-/// filters; idempotent per `(issue, trigger)`.
+/// Spawn tasks for rules opted into `create_on_status_entry` whose
+/// `trigger_states` include the new state, applying project/label filters;
+/// idempotent per `(issue, trigger)`.
 ///
-/// Fetches the full issue via `get_issue` once when a matching rule filters on
-/// project/labels the webhook may omit; a fetch failure falls back to the
-/// webhook-carried project id with empty labels.
+/// Fetches the issue via `get_issue` once a rule filters on project/labels
+/// the webhook omits, falling back to the webhook project id, empty labels.
 #[expect(
     clippy::too_many_arguments,
     reason = "forwards the six ports the per-rule provisioning path reads \
@@ -258,13 +255,12 @@ async fn create_tasks_for_status_entry(
     }
 }
 
-/// Create + provision a task for an `Issue.update` status-entry match, bind it
-/// to the issue via `linear_issue`, link it back on the issue, and forward the
-/// inbound "read the ticket" prompt.
+/// Create + provision a task for an `Issue.update` status-entry match, bind
+/// it to the issue via `linear_issue`, link it back, and forward the inbound
+/// "read the ticket" prompt.
 ///
 /// Idempotent per `(issue, trigger)`: an existing active binding for this
-/// trigger+connection returns early, so re-entering the same state doesn't
-/// double-create.
+/// trigger+connection returns early, so re-entering doesn't double-create.
 #[expect(
     clippy::too_many_arguments,
     reason = "the six downward ports one status-entry provisioning reads \
@@ -345,7 +341,6 @@ async fn provision_issue_task(
         )
         .await?;
 
-    // Link the Moatless task back onto the Linear issue.
     let task_url = super::text::task_url(config, &task_id);
     let attachment_title = super::task_links::task_attachment_title(
         tasks,
@@ -394,12 +389,11 @@ async fn provision_issue_task(
         );
     }
 
-    // Move the issue into the configured "started" state (e.g. In Progress) so
-    // the Linear board reflects that the agent picked it up. Best-effort, and
-    // safe against self-retrigger: the resulting `Issue.update` re-enters this
-    // path but the binding created above trips the idempotency guard. We only
-    // transition when the issue isn't already in the target state, so a loop
-    // whose `start_state` overlaps `trigger_states` doesn't thrash.
+    // Move the issue to the configured "started" state so the board reflects
+    // pickup. Best-effort and safe against self-retrigger: the resulting
+    // `Issue.update` re-enters this path but trips the idempotency guard above.
+    // Transitions only when not already in the target state, so a loop via
+    // overlapping `start_state`/`trigger_states` doesn't thrash.
     if let Some(start_state) = cfg.start_state.as_deref() {
         if !issue.state_name().eq_ignore_ascii_case(start_state) {
             transition_issue_state(api, &team_id, &issue.id, &issue.identifier, start_state).await;
@@ -418,10 +412,9 @@ async fn provision_issue_task(
 /// Best-effort: resolve `start_state` to a team-scoped workflow-state id and
 /// move the issue into it via `issueUpdate`.
 ///
-/// Shared by the status-entry and mention/assignment pickup paths, which carry
-/// different issue payload types, so this takes plain ids; failures are logged
-/// and swallowed since a missed board transition must not fail the pickup.
-/// Callers guard against no-op transitions first.
+/// Shared by the status-entry and mention/assignment paths, which carry
+/// different issue payload types, so this takes plain ids. Failures are
+/// logged and swallowed — a missed transition must not fail the pickup.
 pub(super) async fn transition_issue_state(
     api: &LinearAgentApi,
     team_id: &str,
@@ -625,18 +618,11 @@ pub(super) async fn insert_event_task(
     title: &str,
     preview: &str,
 ) -> Result<String, AdapterError> {
-    // Compose the shared spine's single task-creation entry point. Linear adds
-    // no origin prelude; its only per-path inputs are the `{identifier} — {title}`
-    // name fallback, public visibility (so issue collaborators can open the
-    // task), and the `source_matcher` event metadata. The inbound prompt is
-    // delivered by the caller through the binding, so no first message is passed.
-    //
-    // Preflight, insert, tags, provisioning, and the `Open` event all run inside
-    // the creation service. On preflight failure it records the task as errored
-    // (with a `SandboxStatus::Error` event) and returns an error; here we surface
-    // it as `AccessDenied` so callers can post the reason back to Linear — the
-    // service's error event alone stays invisible there because no turn gate is
-    // open for a task that never got a binding.
+    // The shared spine's task-creation entry point: preflight, insert, tags,
+    // provisioning, and the `Open` event all run inside it. On preflight
+    // failure, surfaced here as `AccessDenied` so the caller can post the
+    // reason to Linear — the service's own error event is invisible there:
+    // no binding exists yet to open a turn gate.
     let config = moatless_adapter_model::loops::subscription_context(rule);
     let outcome = moatless_loops::loops::firing::inbound::create_task_from_loop(
         task_creation,

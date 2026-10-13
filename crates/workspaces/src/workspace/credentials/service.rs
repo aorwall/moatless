@@ -166,13 +166,12 @@ impl WorkspaceCredentialService {
         Ok(())
     }
 
-    /// The credentials a sandbox on this workspace runs with, as an
-    /// environment-variable map.
+    /// The credentials a sandbox on this workspace runs with, as an env map.
     ///
-    /// Fails rather than returning a partial map — degrading to "whatever the
-    /// run-as user holds" would hand the task a different identity than
-    /// configured. Preflight turns the error into a refusal to start; the
-    /// sandbox's `GetCredentials` turns it into a failed fetch.
+    /// Fails rather than returning a partial map: degrading to "whatever the
+    /// run-as user holds" would hand the task a different identity.
+    /// Preflight turns the error into a refusal to start; `GetCredentials`
+    /// turns it into a failed fetch.
     pub async fn resolve_env(
         &self,
         workspace_id: &str,

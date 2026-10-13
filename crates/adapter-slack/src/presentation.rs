@@ -50,13 +50,9 @@ pub(super) async fn render_block_mentions(
         .collect()
 }
 
-// =============================================================================
-// Pass 1: what needs looking up
-// =============================================================================
-//
-// Only the surfaces that can render a mention are collected. A `plain_text`
-// string is rewritten from the token alone, so collecting it would buy a
-// directory read nothing uses.
+// Pass 1: what needs looking up. Only the surfaces that can render a mention
+// are collected; a `plain_text` string is rewritten from the token alone, so
+// collecting it would buy a directory read nothing uses.
 
 fn collect_block(block: &SlackBlock, out: &mut Vec<String>) {
     match block {
@@ -108,9 +104,7 @@ fn cell_elements(cell: &SlackTableCell) -> impl Iterator<Item = &SlackRichTextEl
     })
 }
 
-// =============================================================================
-// Pass 2: the rewrite
-// =============================================================================
+// Pass 2: the rewrite.
 
 fn rewrite_block(block: SlackBlock, resolved: &Resolved) -> SlackBlock {
     match block {

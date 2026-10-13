@@ -35,13 +35,12 @@ pub struct LinearRuleConfig {
     pub terminal_states: Vec<String>,
     /// Mirror of the subscription's scalar `close_task_on_close` column.
     pub close_task_on_close: bool,
-    /// Opt-in: when `true`, an `Issue.update` moving the issue into a
-    /// `trigger_states` entry (satisfying `require_labels`/`project_ids`)
-    /// spawns a new Moatless task.
+    /// Opt-in: when `true`, an `Issue.update` into a `trigger_states` entry
+    /// (satisfying `require_labels`/`project_ids`) spawns a new Moatless task.
     ///
-    /// Defaults to `false` so pre-existing mention/assignment-only
-    /// subscriptions, which carry the legacy non-empty `trigger_states`, don't
-    /// start auto-creating tasks; `on: linear` loops opt in explicitly.
+    /// Defaults to `false` so legacy mention/assignment-only subscriptions
+    /// with non-empty `trigger_states` don't start auto-creating tasks;
+    /// `on: linear` loops opt in explicitly.
     pub create_on_status_entry: bool,
     /// Project allowlist — issue must belong to one of these Linear project
     /// UUIDs to fire status-entry creation. Empty = any project.
@@ -248,7 +247,6 @@ mod tests {
         assert_eq!(cfg.trigger_states, vec!["Todo", "In Progress"]);
         assert_eq!(cfg.terminal_states, vec!["completed", "canceled"]);
         assert!(cfg.close_task_on_close);
-        // Status-entry creation is OFF unless explicitly opted in.
         assert!(!cfg.create_on_status_entry);
         assert!(cfg.project_ids.is_empty());
     }

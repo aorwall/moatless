@@ -63,13 +63,11 @@ pub(super) async fn normalize(
     payload: &serde_json::Value,
     ctx: &NormalizeContext<'_>,
 ) -> Result<Normalization, AdapterError> {
-    // 1. Extract update_id
     let update_id = payload
         .get("update_id")
         .and_then(serde_json::Value::as_i64)
         .ok_or_else(|| SharedAdapterError::BadRequest("Missing update_id".into()))?;
 
-    // 2. Extract message (message or channel_post)
     let message = payload
         .get("message")
         .or_else(|| payload.get("channel_post"));
@@ -82,7 +80,6 @@ pub(super) async fn normalize(
         return Ok(ignored("no_message"));
     };
 
-    // 4. Extract fields
     let chat_id = message
         .pointer("/chat/id")
         .and_then(serde_json::Value::as_i64)
@@ -131,19 +128,16 @@ pub(super) async fn normalize(
         return Ok(ignored("empty_text"));
     }
 
-    // 6. Handle reply threading
     let reply_to_message_id = message
         .pointer("/reply_to_message/message_id")
         .and_then(serde_json::Value::as_i64);
 
-    // 7. Strip bot mention from group messages
     let bot_username = ctx.tg_config.bot_username.as_deref();
     let clean_text = strip_bot_mention(text, bot_username);
     if clean_text.trim().is_empty() {
         return Ok(ignored("empty_after_mention"));
     }
 
-    // 7.5. Access control
     let from_username = from
         .and_then(|f| f.get("username"))
         .and_then(|v| v.as_str());
@@ -191,7 +185,6 @@ pub(super) async fn normalize(
         }
     }
 
-    // 8. Resolve Telegram user → system user (fall back to config owner for unmapped users)
     let from_id_str = from_id.to_string();
     let user_id = if let Some(uid) = super::auth::resolve_sender(&from_id_str, ctx.users).await? {
         uid
@@ -205,7 +198,6 @@ pub(super) async fn normalize(
         ctx.config.effective_user_id().to_string()
     };
 
-    // 9. Extract forum/topic fields
     let is_forum = message
         .pointer("/chat/is_forum")
         .and_then(serde_json::Value::as_bool)
@@ -214,19 +206,16 @@ pub(super) async fn normalize(
         .get("message_thread_id")
         .and_then(serde_json::Value::as_i64);
 
-    // 10. Build thread properties
     let thread_properties = serde_json::json!({
         "chat_id": chat_id_str,
         "message_id": message_id,
         "forum_topic_id": forum_topic_id,
     });
 
-    // Threading strategy:
-    // - Private chats (DMs): use chat_id as thread key so all messages from
-    //   the same user thread together into one persistent task.
-    // - Forum groups: use chat_id:topic_id as thread key.
-    // - Non-forum groups: use reply_to_message_id for thread continuity,
-    //   otherwise each message starts its own thread.
+    // Threading strategy: private chats key on `chat_id`, so one user's
+    // messages share a task; forum groups key on `chat_id:topic_id`;
+    // non-forum groups continue on `reply_to_message_id`, else each message
+    // starts its own thread.
     let (thread_id, msg_thread_id, effective_source_id) = if ctx.is_private_chat {
         (
             Some(chat_id_str.clone()),
@@ -259,8 +248,8 @@ pub(super) async fn normalize(
         "Telegram message parsed"
     );
 
-    // Telegram's `@username` where the sender has one — many accounts do not —
-    // else the display name they do have.
+    // `@username` when the sender has one — many accounts don't — else their
+    // display name.
     let author = from_username
         .map(|handle| format!("@{handle}"))
         .or_else(|| from_first_name.map(str::to_string))
@@ -315,7 +304,6 @@ fn strip_bot_mention(text: &str, bot_username: Option<&str>) -> String {
         return text.to_string();
     };
 
-    // Normalize: ensure username starts with @
     let mention = if username.starts_with('@') {
         username.to_string()
     } else {

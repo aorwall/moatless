@@ -518,13 +518,9 @@ mod tests {
         }
     }
 
-    /// The whole projection, against a real Sandbox — ignored; point
-    /// `T3_UI_RPC_TEST_SANDBOX_GRPC` at one (e.g. `http://127.0.0.1:50052`) and
-    /// run:
-    /// ```text
-    /// T3_UI_RPC_TEST_SANDBOX_GRPC=http://127.0.0.1:50052 \
-    ///   cargo test -p moatless-t3code --features live-sandbox-tests files -- --ignored --nocapture
-    /// ```
+    /// The whole projection, against a real Sandbox; point
+    /// `T3_UI_RPC_TEST_SANDBOX_GRPC` at its gRPC endpoint and run with
+    /// `--features live-sandbox-tests -- --ignored --nocapture`.
     #[cfg(feature = "live-sandbox-tests")]
     #[tokio::test]
     #[ignore = "needs a Sandbox at T3_UI_RPC_TEST_SANDBOX_GRPC"]

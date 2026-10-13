@@ -28,7 +28,6 @@ pub(in crate::auth) async fn me_handler(
     State(state): State<AuthState>,
     headers: HeaderMap,
 ) -> Result<Json<SessionResponse>, AuthError> {
-    // Try API key first, fall back to session cookie
     let identity = authenticate_request(&state, &headers).await?;
 
     crate::auth::account_status::current_user(&state, identity)
@@ -57,7 +56,6 @@ pub(in crate::auth) async fn update_me_handler(
 
     let role = claims.user_role();
 
-    // Update the users table
     let user = state
         .users
         .update_user_profile(&claims.sub, body.name.clone(), body.email.clone())

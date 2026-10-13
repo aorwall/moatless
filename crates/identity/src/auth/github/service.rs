@@ -319,7 +319,6 @@ impl GitHubAppService {
 
     /// Get an installation access token, using cache when available.
     pub async fn get_installation_token(&self, installation_id: u64) -> Result<String, AuthError> {
-        // Check cache first
         {
             let cache = self.token_cache.read().await;
             if let Some(cached) = cache.get(&installation_id) {
@@ -332,7 +331,6 @@ impl GitHubAppService {
             }
         }
 
-        // Generate a new installation token
         let app_jwt = self.generate_app_jwt()?;
 
         let resp = self
@@ -369,7 +367,6 @@ impl GitHubAppService {
             .parse::<DateTime<Utc>>()
             .unwrap_or_else(|_| Utc::now() + chrono::Duration::hours(1));
 
-        // Cache the token
         {
             let mut cache = self.token_cache.write().await;
             cache.insert(

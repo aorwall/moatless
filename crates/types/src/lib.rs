@@ -5,11 +5,10 @@
 //!
 //! Admission and dependency constraints are enforced by `tooling/arch-rules`.
 //!
-//! No type here carries `#[schema(as = …)]`, so an OpenAPI schema name derives
-//! from the type name alone, and `packages/api-client/src/sandbox/model/`
-//! mirrors it in TypeScript. After a rename or a move, `task generate:spec`
-//! must leave `openapi-specs.json` byte-identical. An explicit
-//! `#[serde(rename)]` pin travels with its type.
+//! No type here carries `#[schema(as = …)]`, so its OpenAPI schema name
+//! derives from the type name, mirrored in TypeScript under
+//! `packages/api-client/src/sandbox/model/`. A rename or move must leave
+//! `openapi-specs.json` byte-identical; `#[serde(rename)]` pins travel with it.
 
 // Test code asserts a parse succeeded; production code keeps the workspace deny.
 #![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used))]

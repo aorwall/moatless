@@ -322,14 +322,12 @@ impl Lifecycle {
 
     // ---- Public operations (detached from the caller future) ----
 
-    /// The span a detached operation runs under: a root of its own, linked back
-    /// to whoever asked for it.
+    /// The span a detached operation runs under: a root of its own, linked
+    /// back to whoever asked for it.
     ///
-    /// The spawned task outlives the caller's future, so it must not carry the
-    /// caller's span — `tracing-opentelemetry` restamps a span's end time on
-    /// every exit and a spawned task re-enters its span on every poll, so an
-    /// adopted span reports the caller as having taken as long as the whole
-    /// operation.
+    /// Must not reuse the caller's span: `tracing-opentelemetry` restamps a
+    /// span's end time on every exit, so the caller would report as having
+    /// run as long as the whole detached operation.
     fn detached_span(op: &'static str, task_id: &str) -> tracing::Span {
         let span =
             tracing::info_span!(parent: None, "sandbox.lifecycle", op = %op, task_id = %task_id);
@@ -528,11 +526,10 @@ impl Lifecycle {
 
     /// The cold transition.
     ///
-    /// Unlike every other operation here it writes no intent and publishes no
-    /// events, since the Sandbox is already `Stopped` and stays so; what it
-    /// owns instead is proof — the volume is deleted only once the archive is
-    /// known at least as new as the stop, or once the runtime has been given a
-    /// way to write one.
+    /// Unlike every other operation here, it writes no intent and publishes
+    /// no events, since the Sandbox is already `Stopped` and stays so. It
+    /// owns proof instead: the volume is deleted only once the archive is
+    /// known at least as new as the stop (or the runtime can write one).
     #[tracing::instrument(skip_all, fields(task_id = %task_id, op = "archive_storage"))]
     async fn op_archive_storage(self, task_id: String) -> Result<LifecycleOutcome, LifecycleError> {
         // Held under `Stop`: this is a continuation of the stop that preceded
@@ -832,10 +829,10 @@ impl Lifecycle {
             }
         };
 
-        // Graceful agent stop BEFORE the runtime effect (best-effort), then push
-        // the workspace to S3 while the sandbox can still read it. The stop comes
-        // first so the tar is taken against a working tree the agent is no longer
-        // writing to.
+        // Graceful agent stop before the runtime effect (best-effort), then
+        // push the workspace to S3 while the sandbox can still read it: the
+        // stop comes first so the tar is taken against a tree the agent is
+        // no longer writing to.
         self.agent_stop.stop_agent(task_id, reason).await;
         self.sync_workspace_before_effect(task_id).await;
 
@@ -954,11 +951,10 @@ impl Lifecycle {
     }
 
     /// On failure, publishes the deterministic `Error` fact and returns the
-    /// error (intent/marker survive); on success, persists the completion fact
-    /// and clears the marker in one transaction before publishing so a commit
-    /// failure blocks publication — a pure no-op against an already-converged
-    /// target clears its marker synchronously instead, otherwise the marker is
-    /// left for the reconciler.
+    /// error (intent/marker survive). On success, persists the completion
+    /// fact and clears the marker in one transaction before publishing, so
+    /// a commit failure blocks publication; a no-op against an
+    /// already-converged target clears its marker synchronously instead.
     async fn finalize(
         &self,
         task_id: &str,
@@ -1004,12 +1000,11 @@ impl Lifecycle {
         let mut committed_completion = false;
         for event in events::outcome_events(task_id, &ctx) {
             if matches!(event.fact, EventFact::Stopped | EventFact::Removed) {
-                // Persist the full completion fact + clear the marker atomically;
-                // propagate failure and do NOT publish the completion (intent +
-                // marker survive for the reconciler, so the deterministic id is
-                // never published without being persisted). The *failure* is
-                // published, otherwise a completion that never committed leaves
-                // a Task diverged with an empty event stream.
+                // Persist the completion fact and clear the marker
+                // atomically; propagate failure and don't publish the
+                // completion (intent/marker survive, so the deterministic
+                // id is never published unpersisted). The failure publishes
+                // instead, or a never-committed completion leaves no event.
                 if let Err(e) = self
                     .store
                     .commit_fact_and_clear_marker(sandbox_id, task_id, &event)
@@ -1152,11 +1147,11 @@ impl Lifecycle {
     }
 }
 
-// The durable-lifecycle ports of the sandbox runtime contract. `Lifecycle` is
-// the sole writer of Sandbox intent; these hand a transport the one capability
-// it needs without taking the whole orchestrator. A `LifecycleError` reaches
-// the contract through this module's `SandboxError`, so the three client-visible
-// lifecycle outcomes keep their mapping.
+// The durable-lifecycle ports of the sandbox runtime contract. `Lifecycle`
+// is the sole writer of Sandbox intent; these hand a transport only the
+// one capability it needs, not the whole orchestrator. A `LifecycleError`
+// reaches the contract through this module's `SandboxError`, keeping the
+// three client-visible outcomes' mapping.
 #[async_trait]
 impl core_sandbox::SandboxIntentReader for Lifecycle {
     async fn desired_state(
@@ -1223,13 +1218,12 @@ impl core_sandbox::SandboxOperator for Lifecycle {
     }
 }
 
-/// Classify a `LifecycleError` for the tasks-band lifecycle port, so the tasks
-/// band names no lifecycle error.
+/// Classify a `LifecycleError` for the tasks-band lifecycle port, so the
+/// tasks band names no lifecycle error.
 ///
-/// The three client-visible outcomes (404/400/409) keep their shape and
-/// everything else becomes an internal failure with its chain intact; unlike
-/// the T3 contract's `SandboxError`, `SandboxOpError` has an `InProgress`
-/// variant so lock contention stays a 409 rather than flattening to 500.
+/// The three client-visible outcomes (404/400/409) keep their shape, and
+/// everything else becomes an internal failure with its chain intact.
+/// `InProgress` (unlike T3's `SandboxError`) keeps lock contention a 409.
 fn op_error(e: LifecycleError) -> SandboxOpError {
     use LifecycleError as LE;
     match &e {

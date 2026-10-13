@@ -136,11 +136,9 @@ impl ProtocolSession {
             .and_then(Value::as_bool)
             .unwrap_or(false)
         {
-            // Last, after the snapshot or the catch-up. The contract places the
-            // marker "after the subscription has emitted its initial snapshot or
-            // catch-up replay and before it begins emitting live events", and the
-            // client reads it as permission to stop rendering itself as
-            // synchronizing.
+            // Last, after the snapshot or catch-up and before live events —
+            // the contract's required order. The client reads it as
+            // permission to stop rendering itself as synchronizing.
             values.push(json!({ "kind": "synchronized" }));
         }
         let reads = state.reads.clone();

@@ -71,12 +71,11 @@ pub struct TaskCredentialInputs<'a> {
 pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMap<String, String> {
     let mut credentials: HashMap<String, String> = input.workspace_credentials;
     for (key, value) in input.workspace_env_vars {
-        // Guarded here as well as at the resolver, for the same reason
-        // `fill_missing_from_scoped` guards its own merge: this is where a
-        // platform-owned key would take effect, and `fill_git_host_tokens`
-        // below fills only a slot that is still empty — so a git-host key
-        // arriving here would suppress the validated resolver, not just
-        // outrank it.
+        // Guarded here too, for the same reason `fill_missing_from_scoped`
+        // guards its own merge: this is where a platform-owned key would
+        // take effect, and `fill_git_host_tokens` below fills only an
+        // empty slot — a git-host key arriving here would suppress the
+        // validated resolver, not just outrank it.
         if is_platform_owned_key(&key) {
             continue;
         }
@@ -1057,12 +1056,11 @@ mod tests {
 
     #[tokio::test]
     async fn the_issuer_is_asked_on_behalf_of_the_workspace_the_actor_names() {
-        // The two channels a pinned token reaches a task by — the pinned map,
-        // and the issuer for every backend-side call — must not disagree, and
-        // the issuer can only resolve a pin from the Workspace on the actor.
-        // `TaskCredentialInputs` therefore takes the actor whole; this asserts
-        // the Workspace survives the trip. Nothing seeds the map here, so the
-        // token can only have come from the issuer.
+        // The two channels a pinned token reaches a task by — the pinned
+        // map, and the issuer for backend-side calls — must agree, and the
+        // issuer can only resolve a pin from the actor's Workspace.
+        // `TaskCredentialInputs` takes the actor whole so the Workspace
+        // survives the trip; an unseeded map means the issuer supplied it.
         let repository = github_repository(moatless_types::access_control::Scope::User);
         let mut mock = MockGitHostTokenIssuer::new();
         mock.expect_token()

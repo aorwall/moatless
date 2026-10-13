@@ -26,12 +26,11 @@ use super::subscription_rules::resolve_rules_for_team;
 use super::webhook_payloads::AppUserNotificationData;
 
 /// Close active bindings when an `AppUserNotification.issueStatusChanged`
-/// arrives for a terminal state — the inbox-stream analog of
-/// `handle_issue_update`'s close path, used when the workspace only subscribes
-/// to `AppUserNotification` webhooks.
+/// arrives for a terminal state — the analog of `handle_issue_update`'s
+/// close path, for `AppUserNotification`-only workspaces.
 ///
-/// Acts on the current state alone (no diff); idempotent, so double delivery
-/// from the Issue path is safe.
+/// Acts on the current state alone (no diff); idempotent against double
+/// delivery from the Issue path.
 #[expect(
     clippy::too_many_arguments,
     reason = "this forward-only path threads the union its two callees need — the \

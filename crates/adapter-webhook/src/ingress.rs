@@ -38,7 +38,6 @@ pub(crate) fn parse_inbound(
         super::signature::verify_signature(secret, body, sig)?;
     }
 
-    // 2. Parse payload
     let payload: WebhookPayload = serde_json::from_slice(body)
         .map_err(|e| SharedAdapterError::BadRequest(format!("Invalid JSON: {e}")))?;
 
@@ -46,7 +45,6 @@ pub(crate) fn parse_inbound(
         return Err(SharedAdapterError::BadRequest("Missing required field: text".into()).into());
     }
 
-    // 3. Determine user_id
     let user_id = payload
         .user_id
         .or_else(|| {
@@ -59,13 +57,11 @@ pub(crate) fn parse_inbound(
         })
         .unwrap_or_else(|| config.effective_user_id().to_string());
 
-    // 4. Build message thread ID (use provided thread_id or generate one)
     let message_thread_id = payload
         .thread_id
         .clone()
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
-    // 5. Build thread properties
     let thread_properties = serde_json::json!({
         "loop_id": config.id,
         "metadata": payload.metadata,
@@ -140,16 +136,12 @@ pub(crate) async fn receive(
         .unwrap_or(&message.message_thread_id);
     let subject_key = format!("{}:{thread_id}", message.source_id);
 
-    // The Adapter connection is named, not read. Admission runs on the caller's
-    // response deadline and must not fail because a connection is missing or
-    // concurrently deleted; the handler reads it when it executes and reports a
-    // permanent failure if it is gone.
+    // The connection is named, not read, so admission doesn't fail if it's
+    // missing or concurrently deleted; the handler reads it later and reports
+    // a permanent failure if it's gone.
     //
-    // Everything below the 200 depends on this write: a failure here must reach
-    // the caller as a failure so it re-delivers, and must never be swallowed
-    // into an acknowledgment. The routing itself runs in the Adapter
-    // delivery worker, which is also where the webhook outcome metric is
-    // recorded.
+    // Everything below the 200 depends on this write: a failure here must
+    // reach the caller so it re-delivers, never swallowed into an ack.
     let request = inbound_delivery_request(
         ADAPTER,
         INBOUND_MESSAGE,
@@ -164,11 +156,9 @@ pub(crate) async fn receive(
             message,
         },
     )?;
-    // This handler has no `receive` to hold the shared `Outcome`/`IngressError`
-    // — it answers with `AdapterError` directly and its own body type — so the
-    // `AdmitError` is flattened here, by the `From<AdmitError> for AdapterError`
-    // impl the kernel owns, rather than through an `IngressError` this handler
-    // has no place to hold.
+    // No `receive` here to hold the shared `Outcome`/`IngressError`: this
+    // handler answers with `AdapterError` directly, so `AdmitError` flattens
+    // via the kernel's `From<AdmitError> for AdapterError`, not `IngressError`.
     let admission = admit_delivery(adapter_delivery, request).await?;
 
     debug!(

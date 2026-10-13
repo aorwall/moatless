@@ -104,10 +104,9 @@ impl CredentialSync {
     /// Persist a credential and, when a new value landed on a key sandboxes
     /// can't pull on demand, fan it out to running sandboxes.
     ///
-    /// `source` drives the broadcast exclusion: `SandboxRotation { task_id }`
-    /// excludes the originating sandbox so a rotated value doesn't echo back;
-    /// only a `StoreOutcome::Persisted` value (never `Unchanged`/`SecretRef`)
-    /// reaches the fan-out.
+    /// `source` drives broadcast exclusion (`SandboxRotation { task_id }`
+    /// excludes the originating sandbox); only `StoreOutcome::Persisted`
+    /// (never `Unchanged`/`SecretRef`) reaches the fan-out.
     pub async fn store(
         &self,
         user_id: &str,
@@ -184,13 +183,12 @@ impl CredentialSync {
         }
     }
 
-    /// Push a freshly stored credential to every running sandbox whose
-    /// effective user resolves through `scope`. Fire-and-forget per sandbox;
-    /// failures are logged.
+    /// Push a freshly stored credential to every running sandbox resolved
+    /// through `scope`. Fire-and-forget; failures are logged.
     ///
-    /// Coarse fan-out: team/global scopes push to every open codex task in
-    /// scope, even users with their own row — harmless since the sandbox
-    /// watcher applies a value only when it differs.
+    /// Coarse: team/global scopes push to every open codex task in scope,
+    /// even users with their own row — harmless since the watcher applies a
+    /// value only when it differs.
     async fn broadcast_to_scope(
         &self,
         scope: &CodexScope,
@@ -307,11 +305,10 @@ mod tests {
     #[tokio::test]
     async fn ensure_fresh_codex_consults_the_guard_exactly_once() {
         let mut tasks = MockTaskDao::new();
-        // `.times(1)` is verified when the mock drops with `sync`: if the guard
-        // stops firing, this expectation fails. No open task → guard passes →
-        // refresh path. The service has no db/http, so `refresh_codex_locked`
-        // falls back to `read_raw_codex` (Unchanged, no Rotated) → no broadcast,
-        // so the connector is never reached and this is the only DAO call.
+        // `.times(1)` is verified when the mock drops: this fails if the
+        // guard stops firing. No open task → guard passes → refresh path;
+        // no db/http, so `refresh_codex_locked` falls back to
+        // `read_raw_codex` (Unchanged) → no broadcast, so this is the only call.
         tasks
             .expect_list_open_codex_tasks_for_scope()
             .times(1)

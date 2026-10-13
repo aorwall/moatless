@@ -93,10 +93,9 @@ pub fn workspace_repository_prefix(prefix: &str, task_id: &str) -> String {
 /// Build the S3 prefix a `restic` repository's snapshots sit under:
 /// `<prefix>/<task_id>/repo/snapshots/`.
 ///
-/// Any object here means the task has something to restore; a listing is used
-/// (not `head_object` on `repo/config`) because a snapshot's id is its content
-/// hash, and `restic::prune` creates `config` merely by opening the repo — a
-/// task stopped before its first snapshot has a config and nothing behind it.
+/// Listing, not `head_object` on `repo/config`, because `restic::prune`
+/// creates `config` just by opening the repo — a task stopped before its
+/// first snapshot has a config but nothing behind it.
 pub fn workspace_repository_snapshots_prefix(prefix: &str, task_id: &str) -> String {
     format!(
         "{}/snapshots/",

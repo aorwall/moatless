@@ -22,7 +22,6 @@ async fn main() -> claude_agent_sdk::Result<()> {
 
     let mut client = ClaudeClient::new(options).await?;
 
-    // First turn
     println!("--- Turn 1 ---");
     client
         .send("Remember the number 42. Just confirm you've noted it.", "")

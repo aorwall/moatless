@@ -46,7 +46,6 @@ pub async fn create_team(
     };
 
     teams.insert(&team).await?;
-    // Add creator as owner member
     teams.add_member(&id, &caller.user_id, "owner").await?;
 
     Ok(team)
@@ -63,7 +62,6 @@ pub async fn get_team(
         .await?
         .ok_or_else(|| TeamError::NotFound(team_id.clone()))?;
 
-    // Non-admin must be a member
     if !caller.is_admin {
         let is_member = teams.is_member(&team_id, &caller.user_id).await?;
         if !is_member {

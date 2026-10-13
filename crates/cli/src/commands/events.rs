@@ -53,7 +53,6 @@ pub async fn run(client: &MoatClient, action: EventAction, json: bool) -> Result
             errors,
             follow,
         } => {
-            // Fetch and display history first.
             let mut path = format!("/api/v1/tasks/{task_id}/events/history?limit={limit}");
             if let Some(ref t) = types {
                 let _ = write!(path, "&types={t}");
@@ -86,7 +85,6 @@ pub async fn run(client: &MoatClient, action: EventAction, json: bool) -> Result
                 format_events(&items);
             }
 
-            // If --follow, stream real-time events via SSE.
             if follow {
                 follow_events(client, &task_id, types.as_deref(), errors, json).await?;
             }
@@ -186,7 +184,6 @@ async fn follow_events(
                 match chunk {
                     Some(Ok(bytes)) => {
                         buf.push_str(&String::from_utf8_lossy(&bytes));
-                        // Process complete NDJSON lines.
                         while let Some(pos) = buf.find('\n') {
                             let line: String = buf.drain(..=pos).collect();
                             let line = line.trim();
@@ -194,7 +191,6 @@ async fn follow_events(
                                 continue;
                             }
                             if let Ok(event) = serde_json::from_str::<serde_json::Value>(line) {
-                                // Skip ping events.
                                 if event.get("type").and_then(|v| v.as_str()) == Some("ping") {
                                     continue;
                                 }
@@ -203,7 +199,6 @@ async fn follow_events(
                                 if event_task != Some(task_id) {
                                     continue;
                                 }
-                                // Filter errors if requested.
                                 if errors_only {
                                     let is_err = event.get("isError")
                                         .and_then(serde_json::Value::as_bool)
@@ -247,7 +242,6 @@ fn format_events(items: &[serde_json::Value]) {
                 .and_then(|v| v.as_str())
                 .unwrap_or("-")
                 .to_string();
-            // Truncate timestamp to seconds for readability
             let timestamp = if timestamp.len() > 19 {
                 timestamp[..19].to_string()
             } else {

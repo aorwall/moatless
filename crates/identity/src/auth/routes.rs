@@ -45,7 +45,6 @@ pub struct AuthApiDoc;
 
 /// Create the auth router with all endpoints.
 pub(super) fn auth_router(state: AuthState) -> (axum::Router, utoipa::openapi::OpenApi) {
-    // Build OpenAPI-documented routes
     let (openapi_router, api) = documented_auth_routes()
         .with_state(state.clone())
         .split_for_parts();
@@ -99,7 +98,6 @@ pub(super) fn auth_router(state: AuthState) -> (axum::Router, utoipa::openapi::O
         )
         .with_state(state);
 
-    // Merge both into a single Router
     let router: axum::Router = Into::<axum::Router>::into(openapi_router).merge(oauth_router);
 
     (router, api)

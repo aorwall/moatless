@@ -87,11 +87,10 @@ crate::string_enum!(
         Completed => "completed",
         Error => "error",
         Stopped => "stopped",
-        /// The turn's sandbox pod terminated involuntarily (eviction, node loss)
-        /// while the turn was active. Emitted immediately by the pod watcher so the
-        /// interruption is visible without waiting for the delayed orphaned-turn
-        /// reconciliation. The turn resumes once the pod reschedules — not a
-        /// terminal error, so `is_error` stays false.
+        /// The turn's sandbox pod terminated involuntarily (eviction, node
+        /// loss) mid-turn. Emitted immediately by the pod watcher, ahead of
+        /// the delayed orphaned-turn reconciliation. Resumes once the pod
+        /// reschedules — not a terminal error, so `is_error` stays false.
         Interrupted => "turn_interrupted",
     }
 );
@@ -229,10 +228,9 @@ impl TurnStatus {
     /// The turn state an event's `(type, sub_type)` reports, or `None` for an
     /// event that does not bear turn state.
     ///
-    /// The single table for that mapping: `moatless_tasks` reads it to decide
-    /// what an inbound event writes to `task_turns`, and the event publisher
-    /// reads it to stamp what the event says about a working agent — two
-    /// readers of one table, not two tables kept in step.
+    /// The single table for that mapping: `moatless_tasks` uses it to decide
+    /// what an inbound event writes to `task_turns`; the event publisher
+    /// reads it too — two readers of one table, not two tables kept in step.
     pub fn from_event(event_type: &str, sub_type: &str) -> Option<Self> {
         match (event_type, sub_type) {
             ("taskTurn", "active") => Some(Self::Active),
