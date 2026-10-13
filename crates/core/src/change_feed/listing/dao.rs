@@ -1,6 +1,7 @@
 //! Transactional change-feed persistence.
 
 use super::position::{EnvironmentIdentity, ListingChange, ListingHead, RETAINED_CHANGES};
+use moatless_types::task::TaskRelationType;
 use sqlx::{PgConnection, PgPool};
 
 /// Record that `task_id`'s listing-visible state changed, then each
@@ -19,8 +20,7 @@ pub async fn record_change(tx: &mut PgConnection, task_id: &str) -> Result<i64, 
                    SELECT DISTINCT to_task_id
                    FROM task_relations
                    WHERE from_task_id = $1
-                     -- `moatless_tasks`'s `PARENT_RELATION_TYPES`.
-                     AND relation_type IN ('created_by', 'forked_from')
+                     AND relation_type = ANY($2)
                ) parents
            ),
            allocated AS (
@@ -40,6 +40,7 @@ pub async fn record_change(tx: &mut PgConnection, task_id: &str) -> Result<i64, 
            SELECT min(position) FROM recorded"#,
     )
     .bind(task_id)
+    .bind(&TaskRelationType::PARENT_WIRE[..])
     .fetch_one(tx)
     .await?;
     Ok(position)

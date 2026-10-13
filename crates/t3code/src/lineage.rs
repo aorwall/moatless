@@ -2,6 +2,7 @@
 //! `lineage` and `forkedFrom` fields.
 
 use moatless_types::access_control::ScopeContext;
+use moatless_types::task::TaskRelationType;
 use tracing::warn;
 
 use crate::ports::TaskRelationSource;
@@ -74,6 +75,7 @@ pub(crate) fn listed_parent_join() -> String {
         1,
     );
     let access = access.sql();
+    let parent = TaskRelationType::PARENT_SQL_LIST;
     format!(
         "LEFT JOIN LATERAL (
             SELECT p.task_id, edge.relation_type,
@@ -85,7 +87,7 @@ pub(crate) fn listed_parent_join() -> String {
                 SELECT r.to_task_id, r.relation_type, r.context
                 FROM task_relations r
                 WHERE r.from_task_id = t.task_id
-                  AND r.relation_type IN ('created_by', 'forked_from')
+                  AND r.relation_type IN {parent}
                 ORDER BY r.created_at ASC
                 LIMIT 1
             ) edge
@@ -114,6 +116,7 @@ pub(crate) fn listed_children_join() -> String {
         1,
     );
     let access = access.sql();
+    let parent = TaskRelationType::PARENT_SQL_LIST;
     format!(
         "LEFT JOIN LATERAL (
             SELECT count(DISTINCT c.task_id) AS child_count,
@@ -143,7 +146,7 @@ pub(crate) fn listed_children_join() -> String {
             FROM task_relations r
             JOIN tasks c ON c.task_id = r.from_task_id
             WHERE r.to_task_id = t.task_id
-              AND r.relation_type IN ('created_by', 'forked_from')
+              AND r.relation_type IN {parent}
               AND {access}
         ) children ON TRUE"
     )

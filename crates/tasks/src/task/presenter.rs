@@ -299,9 +299,7 @@ pub(crate) fn build_task_response(
 
     let title = derive_title(row);
 
-    let parent = relations
-        .iter()
-        .find(|r| matches!(r.relation_type, RelType::CreatedBy | RelType::ForkedFrom));
+    let parent = relations.iter().find(|r| r.relation_type.is_parent());
     let parent_task_id = parent.map(|r| r.to_task_id.clone());
     let forked_from = parent
         .filter(|r| matches!(r.relation_type, RelType::ForkedFrom))

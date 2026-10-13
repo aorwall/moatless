@@ -264,6 +264,27 @@ crate::string_enum!(
     }
 );
 
+impl TaskRelationType {
+    /// The relation types that make the `from` Task a child of the `to` Task.
+    ///
+    /// `RelatedTo` is deliberately excluded: a cross-referenced Task is not work
+    /// the `to` Task spawned.
+    pub const PARENT: [Self; 2] = [Self::CreatedBy, Self::ForkedFrom];
+
+    /// [`Self::PARENT`]'s wire values, for binding as a `text[]`.
+    pub const PARENT_WIRE: [&'static str; 2] = [Self::PARENT[0].as_str(), Self::PARENT[1].as_str()];
+
+    /// [`Self::PARENT`] as a SQL `IN` list, for a fragment embedded in a
+    /// statement whose parameter slots it does not own.
+    pub const PARENT_SQL_LIST: &'static str = "('created_by', 'forked_from')";
+
+    /// Whether this relation makes the `from` Task a child of the `to` Task.
+    #[must_use]
+    pub const fn is_parent(self) -> bool {
+        matches!(self, Self::CreatedBy | Self::ForkedFrom)
+    }
+}
+
 crate::string_enum!(
     /// How a task's checkout relates to other members of the same Sandbox.
     CheckoutMode [Default] {
@@ -277,6 +298,25 @@ crate::string_enum!(
 #[cfg(test)]
 mod wire_contract {
     use super::*;
+
+    #[test]
+    fn the_parent_rule_is_stated_the_same_way_in_every_form() {
+        for relation in TaskRelationType::ALL {
+            assert_eq!(
+                relation.is_parent(),
+                TaskRelationType::PARENT.contains(relation),
+                "{relation}"
+            );
+        }
+        let quoted: Vec<String> = TaskRelationType::PARENT_WIRE
+            .iter()
+            .map(|wire| format!("'{wire}'"))
+            .collect();
+        assert_eq!(
+            TaskRelationType::PARENT_SQL_LIST,
+            format!("({})", quoted.join(", "))
+        );
+    }
 
     /// The wire strings are a contract: `openapi-specs.json` and the generated
     /// TypeScript client both pin them. A changed literal here is a breaking

@@ -15,6 +15,7 @@ use moatless_core::db::DbPool;
 use moatless_core::db_enum::decode_optional;
 use moatless_types::access_control::{Scope, ScopeContext, ScopedEntity};
 use moatless_types::agent::AgentProfile;
+use moatless_types::task::TaskRelationType;
 
 #[derive(sqlx::FromRow)]
 struct SandboxIntentViewRow {
@@ -706,7 +707,7 @@ impl TaskDao for PgTaskDao {
                   AND ($7::text IS NULL OR EXISTS (
                       SELECT 1 FROM task_relations tr
                       WHERE tr.from_task_id = t.task_id
-                        AND tr.relation_type IN ('created_by', 'forked_from')
+                        AND tr.relation_type = ANY($12)
                         AND tr.to_task_id = $7
                   ))
                   AND ($11::text IS NULL OR EXISTS (
@@ -739,6 +740,7 @@ impl TaskDao for PgTaskDao {
             .bind(filter.offset)
             .bind(filter.exclude_status.map(TaskStatus::as_str))
             .bind(&filter.followed_by)
+            .bind(&TaskRelationType::PARENT_WIRE[..])
             .fetch_all(&self.pool)
             .await?;
 

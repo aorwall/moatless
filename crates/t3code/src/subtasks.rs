@@ -16,7 +16,6 @@ use crate::ports::TaskRelationSource;
 use crate::projection;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::store::StoreError;
-use moatless_types::task::TaskRelationType;
 
 /// Everything the `subtasks.*` handlers read through.
 #[derive(Clone)]
@@ -40,17 +39,6 @@ pub enum SubtasksError {
     Relations(#[source] StoreError),
     #[error("the child tasks could not be read")]
     Database(#[source] sqlx::Error),
-}
-
-/// The two relation types that make the `from` Task a child of the `to` Task.
-///
-/// `related_to` is deliberately excluded: a cross-referenced Task is not work
-/// this Task spawned.
-fn is_parent_edge(relation: TaskRelationType) -> bool {
-    matches!(
-        relation,
-        TaskRelationType::CreatedBy | TaskRelationType::ForkedFrom
-    )
 }
 
 /// Every child Task of `task_id` this viewer may read, in spawn order
@@ -79,7 +67,7 @@ pub async fn list(
         .await
         .map_err(SubtasksError::Relations)?
         .into_iter()
-        .filter(|child| is_parent_edge(child.relation))
+        .filter(|child| child.relation.is_parent())
         .collect::<Vec<_>>();
     let child_ids = children
         .iter()
@@ -117,6 +105,7 @@ mod tests {
     use crate::dao::{Conversation, MockConversationDao};
     use async_trait::async_trait;
     use moatless_types::agent::AgentProfile;
+    use moatless_types::task::TaskRelationType;
 
     struct StubRelations(Vec<crate::ports::ChildTask>);
 

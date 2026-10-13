@@ -29,11 +29,6 @@ pub(crate) trait TaskRelationDao: Send + Sync {
     async fn find_parent(&self, from_task_id: &str) -> Result<Option<TaskRelation>, sqlx::Error>;
 }
 
-/// The two relation types that make `from_task_id` a child of `to_task_id`.
-/// Bound as a `text[]` rather than interpolated: these are data values, and the
-/// SQL that reads them must stay parameterised.
-const PARENT_RELATION_TYPES: [&str; 2] = ["created_by", "forked_from"];
-
 pub(crate) struct PgTaskRelationDao(pub(crate) DbPool);
 
 const TASK_RELATION_SELECT: &str = r#"
@@ -60,7 +55,7 @@ impl TaskRelationDao for PgTaskRelationDao {
         .execute(&mut *tx)
         .await?
         .rows_affected();
-        if inserted > 0 && PARENT_RELATION_TYPES.contains(&row.relation_type.as_str()) {
+        if inserted > 0 && row.relation_type.is_parent() {
             // Last, per `record_change`'s rule.
             moatless_core::change_feed::listing::record_change(&mut tx, &row.from_task_id).await?;
         }
@@ -99,7 +94,7 @@ impl TaskRelationDao for PgTaskRelationDao {
             ORDER BY created_at ASC LIMIT 1"
         )))
         .bind(from_task_id)
-        .bind(&PARENT_RELATION_TYPES[..])
+        .bind(&TaskRelationType::PARENT_WIRE[..])
         .fetch_optional(&self.0)
         .await
     }
@@ -117,7 +112,7 @@ pub(crate) async fn parent_ids(
          WHERE from_task_id = $1 AND relation_type = ANY($2)",
     )
     .bind(from_task_id)
-    .bind(&PARENT_RELATION_TYPES[..])
+    .bind(&TaskRelationType::PARENT_WIRE[..])
     .fetch_all(tx)
     .await
 }
