@@ -35,3 +35,4 @@ pub mod storage;
 pub mod observation_events;
 
 pub mod file_conversion;
+pub mod workspace_copy;

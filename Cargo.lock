@@ -4380,6 +4380,7 @@ dependencies = [
  "moatless-core",
  "moatless-identity",
  "moatless-ports",
+ "moatless-sandbox-runtime",
  "moatless-tasks",
  "moatless-types",
  "moatless-workspace-types",

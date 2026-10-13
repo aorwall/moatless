@@ -13,10 +13,13 @@ use super::access::{authorize_task_control, authorize_task_read};
 use super::routes::SandboxApiState;
 use base64::Engine;
 use moatless_core::http_auth::OptionalScope;
-use moatless_ports::sandbox::{self as core_sandbox, SnapshotError, SnapshotListing};
+use moatless_ports::sandbox::{
+    self as core_sandbox, SnapshotError, SnapshotListing, WorkspaceSnapshotSource,
+};
 use moatless_sandbox_runtime::client::classify_grpc_error;
 use moatless_sandbox_runtime::error::SandboxError;
 use moatless_sandbox_runtime::schemas::*;
+use moatless_sandbox_runtime::workspace_copy::{self, WorkspaceCopy};
 
 /// Query parameters for the file tree endpoint.
 #[derive(Debug, Deserialize, IntoParams)]
@@ -75,12 +78,12 @@ pub async fn file_tree_handler(
     authorize_task_read(&state, &scope, &task_id).await?;
     let root_path = query.path.as_deref().unwrap_or(".");
     let recursive = query.recursive.unwrap_or(false);
-    let client = match state.connector.sandbox_client(&task_id).await {
-        Ok(client) => client,
-        Err(e) if moatless_types::sandbox::no_live_sandbox(&e) => {
-            return snapshot_tree(&state, &task_id, root_path, recursive, e).await;
-        }
-        Err(e) => return Err(e.into()),
+    let client = match open_copy(&state, &task_id).await? {
+        WorkspaceCopy::Live(client) => client,
+        WorkspaceCopy::Stored {
+            source,
+            unreachable,
+        } => return snapshot_tree(source, &task_id, root_path, recursive, unreachable).await,
     };
     let resp = client
         .get_file_tree_for_task(Some(&task_id), root_path, recursive)
@@ -116,12 +119,12 @@ pub async fn read_file_handler(
 ) -> Result<Json<FileContentResponse>, SandboxError> {
     authorize_task_read(&state, &scope, &task_id).await?;
     let include_changes = query.changes.unwrap_or(false);
-    let client = match state.connector.sandbox_client(&task_id).await {
-        Ok(client) => client,
-        Err(e) if moatless_types::sandbox::no_live_sandbox(&e) => {
-            return snapshot_read(&state, &task_id, &query.path, e).await;
-        }
-        Err(e) => return Err(e.into()),
+    let client = match open_copy(&state, &task_id).await? {
+        WorkspaceCopy::Live(client) => client,
+        WorkspaceCopy::Stored {
+            source,
+            unreachable,
+        } => return snapshot_read(source, &task_id, &query.path, unreachable).await,
     };
     let resp = client
         .read_file_for_task(Some(&task_id), &query.path, include_changes)
@@ -187,12 +190,12 @@ pub async fn list_files_handler(
     authorize_task_read(&state, &scope, &task_id).await?;
     let path = query.path.as_deref().unwrap_or(".");
     let recursive = query.recursive.unwrap_or(false);
-    let client = match state.connector.sandbox_client(&task_id).await {
-        Ok(client) => client,
-        Err(e) if moatless_types::sandbox::no_live_sandbox(&e) => {
-            return snapshot_list(&state, &task_id, path, recursive, e).await;
-        }
-        Err(e) => return Err(e.into()),
+    let client = match open_copy(&state, &task_id).await? {
+        WorkspaceCopy::Live(client) => client,
+        WorkspaceCopy::Stored {
+            source,
+            unreachable,
+        } => return snapshot_list(source, &task_id, path, recursive, unreachable).await,
     };
     let files = client
         // The whole walk, which is what this endpoint has always returned.
@@ -227,12 +230,12 @@ pub async fn search_by_name_handler(
     Json(req): Json<SearchByNameRequest>,
 ) -> Result<Json<SearchByNameResponse>, SandboxError> {
     authorize_task_read(&state, &scope, &task_id).await?;
-    let client = match state.connector.sandbox_client(&task_id).await {
-        Ok(client) => client,
-        Err(e) if moatless_types::sandbox::no_live_sandbox(&e) => {
-            return snapshot_search(&state, &task_id, &req, e).await;
-        }
-        Err(e) => return Err(e.into()),
+    let client = match open_copy(&state, &task_id).await? {
+        WorkspaceCopy::Live(client) => client,
+        WorkspaceCopy::Stored {
+            source,
+            unreachable,
+        } => return snapshot_search(source, &task_id, &req, unreachable).await,
     };
     let resp = client
         .search_files_by_name_for_task(
@@ -252,8 +255,18 @@ pub async fn search_by_name_handler(
 //
 // When no sandbox is running, a task's files are still readable from the
 // S3 snapshot (`workspace_snapshot`). Each read handler falls through to
-// its counterpart here on `no_live_sandbox`. `unreachable` is also what a
-// caller gets back with no snapshot either: nothing is running either way.
+// its counterpart here when `workspace_copy::open` picks the stored copy.
+
+/// [`workspace_copy::open`] for this state; both error cases answer with the
+/// connector's error.
+async fn open_copy<'a>(
+    state: &'a SandboxApiState,
+    task_id: &str,
+) -> Result<WorkspaceCopy<'a>, SandboxError> {
+    workspace_copy::open(&*state.connector, state.snapshots.as_deref(), task_id)
+        .await
+        .map_err(|e| e.into_sandbox_error().into())
+}
 
 /// Map a snapshot miss onto the response error.
 ///
@@ -277,14 +290,11 @@ fn snapshot_failed(
 }
 
 async fn snapshot_read(
-    state: &SandboxApiState,
+    source: &dyn WorkspaceSnapshotSource,
     task_id: &str,
     path: &str,
     unreachable: core_sandbox::SandboxError,
 ) -> Result<Json<FileContentResponse>, SandboxError> {
-    let Some(source) = state.snapshots.as_deref() else {
-        return Err(unreachable.into());
-    };
     let file = source
         .read(task_id, path)
         .await
@@ -314,15 +324,12 @@ async fn snapshot_read(
 }
 
 async fn snapshot_tree(
-    state: &SandboxApiState,
+    source: &dyn WorkspaceSnapshotSource,
     task_id: &str,
     root: &str,
     recursive: bool,
     unreachable: core_sandbox::SandboxError,
 ) -> Result<Json<FileTreeResponse>, SandboxError> {
-    let Some(source) = state.snapshots.as_deref() else {
-        return Err(unreachable.into());
-    };
     let listing = source
         .list(task_id, root, recursive)
         .await
@@ -344,15 +351,12 @@ async fn snapshot_tree(
 }
 
 async fn snapshot_list(
-    state: &SandboxApiState,
+    source: &dyn WorkspaceSnapshotSource,
     task_id: &str,
     path: &str,
     recursive: bool,
     unreachable: core_sandbox::SandboxError,
 ) -> Result<Json<ListFilesResponse>, SandboxError> {
-    let Some(source) = state.snapshots.as_deref() else {
-        return Err(unreachable.into());
-    };
     let listing = source
         .list(task_id, path, recursive)
         .await
@@ -372,14 +376,11 @@ async fn snapshot_list(
 }
 
 async fn snapshot_search(
-    state: &SandboxApiState,
+    source: &dyn WorkspaceSnapshotSource,
     task_id: &str,
     req: &SearchByNameRequest,
     unreachable: core_sandbox::SandboxError,
 ) -> Result<Json<SearchByNameResponse>, SandboxError> {
-    let Some(source) = state.snapshots.as_deref() else {
-        return Err(unreachable.into());
-    };
     let limit = req.max_results.unwrap_or(0).max(0) as usize;
     let listing = source
         .search(

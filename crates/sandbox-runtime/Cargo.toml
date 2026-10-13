@@ -43,4 +43,5 @@ test-support = []
 workspace = true
 
 [dev-dependencies]
+moatless-ports = { workspace = true, features = ["openapi", "test-support"] }
 http-body-util = { workspace = true }

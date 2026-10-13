@@ -40,6 +40,8 @@ moatless-ports = { workspace = true, features = [] }
 moatless-core = { workspace = true }
 moatless-identity = { workspace = true }
 moatless-types = { workspace = true }
+# `workspace_copy::open`: which copy of a Task's files a read goes to.
+moatless-sandbox-runtime = { workspace = true }
 # Owner crates t3code calls, directly or behind a port its tests mock.
 # T3 names stay in this crate; an owner never sees one.
 moatless-tasks = { workspace = true }

@@ -8,8 +8,8 @@
 
 use base64::Engine;
 use moatless_ports::sandbox::{SandboxError, SnapshotError, WorkspaceSnapshotSource};
-use moatless_types::sandbox::no_live_sandbox;
-use sandbox_proto::client::{SandboxClient, SandboxConnector, classify_grpc_error};
+use moatless_sandbox_runtime::workspace_copy::{self, OpenError, WorkspaceCopy};
+use sandbox_proto::client::{SandboxConnector, classify_grpc_error};
 use tracing::warn;
 
 use crate::workspace;
@@ -31,18 +31,7 @@ pub struct Sources<'a> {
 /// One conversation's files, from whichever copy of them can answer.
 pub(crate) struct Checkout<'a> {
     task_id: String,
-    backing: Backing<'a>,
-}
-
-enum Backing<'a> {
-    Live(SandboxClient),
-    /// The snapshot, plus what the Sandbox said when unreachable: that text is
-    /// the answer if the snapshot also holds nothing, since no files still
-    /// means nothing is running.
-    Stored {
-        source: &'a dyn WorkspaceSnapshotSource,
-        unreachable: String,
-    },
+    backing: WorkspaceCopy<'a>,
 }
 
 /// One file, as either backing returned it.
@@ -76,27 +65,17 @@ impl Body {
 }
 
 impl<'a> Checkout<'a> {
-    /// Open `task_id`'s files, live when its Sandbox answers, from the snapshot
-    /// when there is none to answer.
-    ///
-    /// [`no_live_sandbox`] is the whole of that distinction: a Sandbox that is
-    /// up and refused the connection has current files, so answering from a
-    /// stored copy would present an older tree as live.
+    /// Open `task_id`'s files from the copy [`workspace_copy::open`] picks.
     pub(crate) async fn open(
         sources: Sources<'a>,
         task_id: &str,
     ) -> Result<Self, WorkspaceAccessError> {
-        let backing = match sources.sandboxes.sandbox_client(task_id).await {
-            Ok(client) => Backing::Live(client),
-            Err(error) if no_live_sandbox(&error) => match sources.snapshots {
-                Some(source) => Backing::Stored {
-                    source,
-                    unreachable: error.to_string(),
-                },
-                None => return Err(WorkspaceAccessError::NotRunning(error)),
-            },
-            Err(error) => return Err(workspace::sandbox_access(error)),
-        };
+        let backing = workspace_copy::open(sources.sandboxes, sources.snapshots, task_id)
+            .await
+            .map_err(|error| match error {
+                OpenError::NotRunning(error) => WorkspaceAccessError::NotRunning(error),
+                OpenError::Sandbox(error) => workspace::sandbox_access(error),
+            })?;
         Ok(Self {
             task_id: task_id.to_string(),
             backing,
@@ -109,11 +88,11 @@ impl<'a> Checkout<'a> {
     /// asked to, and the mirror only ever stored the non-ignored set.
     pub(crate) async fn listing(&self) -> Result<Vec<String>, WorkspaceAccessError> {
         match &self.backing {
-            Backing::Live(client) => client
+            WorkspaceCopy::Live(client) => client
                 .list_files_for_task(Some(&self.task_id), ".", true, true)
                 .await
                 .map_err(|status| sandbox_failed(status, "list_files")),
-            Backing::Stored {
+            WorkspaceCopy::Stored {
                 source,
                 unreachable,
             } => {
@@ -147,7 +126,7 @@ impl<'a> Checkout<'a> {
         limit: usize,
     ) -> Result<Vec<String>, WorkspaceAccessError> {
         match &self.backing {
-            Backing::Live(client) => {
+            WorkspaceCopy::Live(client) => {
                 let found = client
                     .search_files_by_name_for_task(
                         Some(&self.task_id),
@@ -159,7 +138,7 @@ impl<'a> Checkout<'a> {
                     .map_err(|status| sandbox_failed(status, "search_files_by_name"))?;
                 Ok(found.files.into_iter().map(|found| found.path).collect())
             }
-            Backing::Stored {
+            WorkspaceCopy::Stored {
                 source,
                 unreachable,
             } => {
@@ -204,7 +183,7 @@ impl<'a> Checkout<'a> {
     /// asking for one would cost a `git` invocation per opened file.
     async fn read_at(&self, path: &str) -> Result<Content, WorkspaceAccessError> {
         match &self.backing {
-            Backing::Live(client) => {
+            WorkspaceCopy::Live(client) => {
                 let file = client
                     .read_file_for_task(Some(&self.task_id), path, false)
                     .await
@@ -228,7 +207,7 @@ impl<'a> Checkout<'a> {
                     media_type: file.media_type,
                 })
             }
-            Backing::Stored {
+            WorkspaceCopy::Stored {
                 source,
                 unreachable,
             } => {
@@ -284,7 +263,7 @@ impl<'a> Checkout<'a> {
         &self,
         error: SnapshotError,
         what: &str,
-        unreachable: &str,
+        unreachable: &SandboxError,
     ) -> WorkspaceAccessError {
         match error {
             SnapshotError::NoSnapshot => {
@@ -345,6 +324,7 @@ mod tests {
     use moatless_ports::sandbox::{
         MockWorkspaceSnapshotSource, SnapshotEntry, SnapshotFile as StoredFile, SnapshotListing,
     };
+    use sandbox_proto::client::SandboxClient;
 
     use super::*;
 
