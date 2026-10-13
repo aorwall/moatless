@@ -28,6 +28,20 @@ pub trait WorkspaceScriptCommands: Send + Sync {
     ) -> Result<(), crate::scripts::ScriptsWriteError>;
 }
 
+/// The Workspace Scripts a Task runs against, read through the Task.
+#[cfg_attr(test, mockall::automock)]
+#[async_trait]
+pub trait WorkspaceScriptSource: Send + Sync {
+    /// `None` when the viewer cannot read the Task, it does not exist, or its
+    /// Workspace is gone: the same answer as everywhere else a scoped read
+    /// finds nothing. `Some(vec)`, maybe empty, when it is readable.
+    async fn scripts_for_task(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+    ) -> Result<Option<Vec<moatless_workspace_types::workspace::ScriptConfig>>, StoreError>;
+}
+
 /// Why a command was not carried out — an *anticipated* outcome the client can
 /// render as a typed failure. A defect means a bug in this server, not this.
 #[derive(Debug, Clone)]

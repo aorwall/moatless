@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use moatless_types::access_control::ScopeContext;
+use moatless_workspace_types::workspace::ScriptConfig;
 
 use super::dao::WorkspaceDao;
 use super::models::{ListedWorkspace, WorkspaceRepo};
@@ -48,6 +49,15 @@ impl Workspaces {
         self.store
             .readable_primary_repository(ctx, workspace_id)
             .await
+    }
+
+    /// See [`WorkspaceDao::scripts_unscoped`], whose precondition binds every
+    /// caller.
+    pub async fn scripts_unscoped(
+        &self,
+        workspace_id: &str,
+    ) -> Result<Option<Vec<ScriptConfig>>, sqlx::Error> {
+        self.store.scripts_unscoped(workspace_id).await
     }
 
     /// Every workspace the caller may read, widened by the ids in

@@ -35,6 +35,17 @@ pub(crate) trait WorkspaceDao: Send + Sync {
         workspace_id: &str,
         scripts: &[ScriptConfig],
     ) -> Result<bool, sqlx::Error>;
+
+    /// A live Workspace's Scripts, unscoped: `None` when it is gone or
+    /// deleted. A stored value that will not decode reads as no Scripts.
+    ///
+    /// The caller must already have authorized the read through a Task that
+    /// runs in this Workspace; nothing here checks the viewer.
+    async fn scripts_unscoped(
+        &self,
+        workspace_id: &str,
+    ) -> Result<Option<Vec<ScriptConfig>>, sqlx::Error>;
+
     /// Fetch a single active workspace, or a deleted git-origin tombstone, by
     /// id, filtered by the caller's ACL scope. Returns `None` when the row is
     /// missing, outside the scope, or a plain deleted manual workspace.
@@ -211,6 +222,23 @@ impl WorkspaceDao for PgWorkspaceDao {
             .await?;
         Ok(result.rows_affected() > 0)
     }
+
+    async fn scripts_unscoped(
+        &self,
+        workspace_id: &str,
+    ) -> Result<Option<Vec<ScriptConfig>>, sqlx::Error> {
+        // `COALESCE` so a workspace predating the scripts column reads as an
+        // empty list rather than a NULL that fails to decode.
+        let raw = sqlx::query_scalar::<_, serde_json::Value>(
+            "SELECT COALESCE(scripts, '[]'::jsonb) FROM workspaces \
+             WHERE id = $1 AND (deleted IS NULL OR deleted = false)",
+        )
+        .bind(workspace_id)
+        .fetch_optional(&self.0)
+        .await?;
+        Ok(raw.map(|raw| serde_json::from_value(raw).unwrap_or_default()))
+    }
+
     async fn find_by_id(
         &self,
         id: &str,

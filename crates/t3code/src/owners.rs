@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use moatless_api_schemas::agent::AgentDescriptor;
 use moatless_identity::credentials::CredentialService;
 use moatless_ports::identity::{GitHostTokenIssuer, HarnessCredentials, SecretCatalog};
+use moatless_ports::task::TaskReader;
 use moatless_tasks::task::relations::TaskRelations;
 use moatless_types::access_control::{Actor, ScopeContext};
 use moatless_types::store::StoreError;
@@ -23,7 +24,7 @@ use uuid::Uuid;
 use crate::ports::{
     AgentCatalogSource, BranchListError, ChildTask, GithubIdentity, ParentTask,
     RepositoryBranchSource, SkillCatalog, SourceControlAuthSource, TaskRelationSource,
-    WorkspaceScriptCommands, WorkspaceSkill,
+    WorkspaceScriptCommands, WorkspaceScriptSource, WorkspaceSkill,
 };
 use crate::scripts::ScriptsWriteError;
 
@@ -66,6 +67,35 @@ impl WorkspaceScriptCommands for Workspaces {
             WorkspaceScriptsError::Invalid(message) => ScriptsWriteError::Invalid(message),
             WorkspaceScriptsError::Database(source) => ScriptsWriteError::Database(source),
         })
+    }
+}
+
+/// The Task read gates the Workspace read: a viewer who may read a Task runs
+/// its Workspace's Scripts whether or not they may read that Workspace.
+pub struct TaskWorkspaceScripts {
+    pub tasks: Arc<dyn TaskReader>,
+    pub workspaces: Arc<Workspaces>,
+}
+
+#[async_trait]
+impl WorkspaceScriptSource for TaskWorkspaceScripts {
+    async fn scripts_for_task(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+    ) -> Result<Option<Vec<ScriptConfig>>, StoreError> {
+        let Some(workspace_id) = self
+            .tasks
+            .describe(task_id, viewer)
+            .await?
+            .and_then(|task| task.workspace_id)
+        else {
+            return Ok(None);
+        };
+        self.workspaces
+            .scripts_unscoped(&workspace_id)
+            .await
+            .map_err(|e| StoreError::with_source(format!("read {workspace_id}'s scripts"), e))
     }
 }
 

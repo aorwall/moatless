@@ -205,6 +205,10 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
         session_jwt_secret: Some("test-secret".into()),
         pairing: moatless_identity::compose::device_pairing(pool.clone()),
         workspace_script_commands: compose::workspaces(pool.clone()),
+        workspace_scripts: Arc::new(moatless_t3code::owners::TaskWorkspaceScripts {
+            tasks: app.task_reader.clone(),
+            workspaces: compose::workspaces(pool.clone()),
+        }),
         sandboxes: Arc::new(NoSandboxes),
         // This suite drives no snapshot reads; a stopped Task answers as before.
         snapshots: None,

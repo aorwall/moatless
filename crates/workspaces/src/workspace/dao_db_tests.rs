@@ -441,3 +441,26 @@ async fn readable_primary_repository_is_scoped_and_skips_deleted(pool: PgPool) {
         .unwrap();
     assert_eq!(deleted, None);
 }
+
+/// The Script read a Task's scope authorizes: any viewer's, empty for a
+/// Workspace that declared none, and absent once the Workspace is deleted.
+#[sqlx::test]
+async fn scripts_unscoped_reads_any_live_workspace(pool: PgPool) {
+    let repo = PgWorkspaceDao(pool.clone());
+    repo.insert_workspace(&make_workspace_row("ws-s", "user-1"))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        repo.scripts_unscoped("ws-s").await.unwrap(),
+        Some(Vec::new())
+    );
+
+    assert!(
+        repo.soft_delete("ws-s", &scope_ctx("user-1"))
+            .await
+            .unwrap()
+    );
+    assert_eq!(repo.scripts_unscoped("ws-s").await.unwrap(), None);
+    assert_eq!(repo.scripts_unscoped("ws-missing").await.unwrap(), None);
+}

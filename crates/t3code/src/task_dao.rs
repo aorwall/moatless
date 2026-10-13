@@ -5,7 +5,6 @@
 use async_trait::async_trait;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::task::TaskStatus;
-use moatless_workspace_types::schemas::workspace::ScriptConfig;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct TaskView {
@@ -44,18 +43,6 @@ pub trait T3TaskDao: Send + Sync {
         task_id: &str,
         ctx: &ScopeContext,
     ) -> Result<Option<TaskView>, sqlx::Error>;
-
-    /// The Scripts declared by the Workspace a Task runs against, scoped to the
-    /// viewer.
-    ///
-    /// `None` when the Task is not readable or does not exist — the same answer
-    /// as everywhere else a scoped read finds nothing; `Some(vec)` (maybe
-    /// empty) when it is readable.
-    async fn scripts_for_task(
-        &self,
-        ctx: &ScopeContext,
-        task_id: &str,
-    ) -> Result<Option<Vec<ScriptConfig>>, sqlx::Error>;
 }
 
 /// Creator identity for a Task whose readability the caller has already

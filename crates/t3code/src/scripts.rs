@@ -16,13 +16,15 @@ use tracing::{debug, warn};
 
 use crate::dao::ConversationDao;
 use crate::nominal_path;
+use crate::ports::WorkspaceScriptSource;
 use crate::preview::{self, PreviewState};
 use crate::projection;
-use crate::task_dao::T3TaskDao;
 use crate::terminal::{self, TerminalError, TerminalHub};
 use moatless_ports::sandbox::{SandboxError, SandboxPortPublisher};
 use moatless_types::access_control::ScopeContext;
+use moatless_types::store::StoreError;
 use moatless_workspace_types::schemas::repository::ScriptConfig;
+use moatless_workspaces::workspace::scripts::{ResolvedScript, ScriptOrigin, merge};
 use sandbox_proto::TaskScript;
 use sandbox_proto::client::{SandboxConnector, classify_grpc_error};
 
@@ -32,7 +34,7 @@ use sandbox_proto::client::{SandboxConnector, classify_grpc_error};
 #[derive(Clone)]
 pub(crate) struct ScriptsState {
     /// Reads a Task's Workspace scripts, scoped to the viewer.
-    pub(crate) tasks: Arc<dyn T3TaskDao>,
+    pub(crate) workspace_scripts: Arc<dyn WorkspaceScriptSource>,
     /// Publishes a Script's port on the running sandbox. A no-op that returns
     /// `None` where the runtime cannot publish ports (Docker), and refuses a
     /// reserved infrastructure port.
@@ -73,11 +75,11 @@ pub enum ScriptsError {
     #[error("the script's terminal could not be started")]
     Terminal(TerminalError),
     #[error("the task could not be read")]
-    Database(#[source] sqlx::Error),
+    Database(#[source] StoreError),
 }
 
-impl From<sqlx::Error> for ScriptsError {
-    fn from(value: sqlx::Error) -> Self {
+impl From<StoreError> for ScriptsError {
+    fn from(value: StoreError) -> Self {
         Self::Database(value)
     }
 }
@@ -91,24 +93,11 @@ fn required_str<'a>(payload: &'a Value, field: &'static str) -> Result<&'a str, 
         .ok_or(ScriptsError::Malformed(field))
 }
 
-/// One Script a Task can run, and where it was declared.
-pub struct ResolvedScript {
-    pub config: ScriptConfig,
-    /// Declared on this Task and stored in its sandbox, rather than on its
-    /// Workspace. A Task Script runs on this Task alone, which is what a
-    /// Workspace one cannot do.
-    pub task_scoped: bool,
-}
-
-impl ResolvedScript {
-    /// Where this Script was declared, under the name both wire surfaces give
-    /// it.
-    pub fn scope(&self) -> &'static str {
-        if self.task_scoped {
-            "task"
-        } else {
-            "workspace"
-        }
+/// Where `script` was declared, under the name both wire surfaces give it.
+pub fn scope(script: &ResolvedScript) -> &'static str {
+    match script.declared_by {
+        ScriptOrigin::Task => "task",
+        ScriptOrigin::Workspace => "workspace",
     }
 }
 
@@ -134,7 +123,7 @@ pub(crate) async fn resolve(
     task_id: &str,
 ) -> Result<Resolved, ScriptsError> {
     let workspace = state
-        .tasks
+        .workspace_scripts
         .scripts_for_task(viewer, task_id)
         .await?
         .ok_or(ScriptsError::NotFound)?;
@@ -151,24 +140,6 @@ pub(crate) async fn resolve(
         scripts: merge(workspace, own),
         own_unread,
     })
-}
-
-/// The Workspace's Scripts with the Task's own over them, the Task's winning a
-/// shared name as the more specific of the two.
-fn merge(workspace: Vec<ScriptConfig>, own: BTreeMap<String, ScriptConfig>) -> Vec<ResolvedScript> {
-    let mut scripts: Vec<ResolvedScript> = workspace
-        .into_iter()
-        .filter(|script| !own.contains_key(&script.name))
-        .map(|config| ResolvedScript {
-            config,
-            task_scoped: false,
-        })
-        .collect();
-    scripts.extend(own.into_values().map(|config| ResolvedScript {
-        config,
-        task_scoped: true,
-    }));
-    scripts
 }
 
 /// The Scripts a Task declared on itself, keyed by name.
@@ -232,7 +203,7 @@ pub fn public_script_list(scripts: &[ResolvedScript]) -> Vec<Value> {
                 "icon": script.config.icon,
                 "port": script.config.port,
                 "runOnStart": script.config.run_on_start,
-                "scope": script.scope(),
+                "scope": scope(script),
             })
         })
         .collect()
@@ -246,7 +217,7 @@ pub fn public_script_list(scripts: &[ResolvedScript]) -> Vec<Value> {
 pub(crate) fn ui_script_list(scripts: &[ResolvedScript]) -> Vec<Value> {
     scripts
         .iter()
-        .filter_map(|script| projection::ui_script(&script.config, Some(script.scope())))
+        .filter_map(|script| projection::ui_script(&script.config, Some(scope(script))))
         .collect()
 }
 
@@ -430,7 +401,7 @@ async fn authorize(
     task_id: &str,
 ) -> Result<(), ScriptsError> {
     state
-        .tasks
+        .workspace_scripts
         .scripts_for_task(viewer, task_id)
         .await?
         .ok_or(ScriptsError::NotFound)?;
@@ -719,41 +690,6 @@ mod tests {
             env_vars: None,
             run_on_start: false,
         }
-    }
-
-    /// Declaring `demo` on one Task is how a Workspace Script is overridden for
-    /// that Task alone, so the Workspace's copy must not be listed beside it or
-    /// `run demo` has two candidates.
-    #[test]
-    fn a_task_script_shadows_the_workspace_script_of_the_same_name() {
-        let own = BTreeMap::from([("demo".to_string(), config("demo", "python3 -m http.server"))]);
-        let merged = merge(
-            vec![config("dev", "bun dev"), config("demo", "bun demo")],
-            own,
-        );
-
-        let demo: Vec<_> = merged
-            .iter()
-            .filter(|script| script.config.name == "demo")
-            .collect();
-        assert_eq!(demo.len(), 1, "one `demo`, not both");
-        assert_eq!(demo[0].config.command, "python3 -m http.server");
-        assert!(demo[0].task_scoped);
-
-        let dev = merged
-            .iter()
-            .find(|script| script.config.name == "dev")
-            .expect("the workspace's other script survives");
-        assert!(!dev.task_scoped);
-    }
-
-    /// A Task that declared nothing still runs its Workspace's Scripts, all
-    /// reported as the Workspace's.
-    #[test]
-    fn a_task_with_no_scripts_of_its_own_lists_its_workspace_unchanged() {
-        let merged = merge(vec![config("dev", "bun dev")], BTreeMap::new());
-        assert_eq!(merged.len(), 1);
-        assert!(!merged[0].task_scoped);
     }
 
     /// The client reads the merged listing as its `ProjectScript`, and tells
