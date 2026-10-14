@@ -9,8 +9,8 @@ use sandbox_proto::backend_sandbox_service_server::BackendSandboxService;
 use sandbox_proto::{
     AcknowledgeMessagesRequest, AcknowledgeMessagesResponse, AppendTrajectoryRequest,
     AppendTrajectoryResponse, DownloadTranscriptRequest, DownloadUploadRequest,
-    DownloadUploadResponse, EnqueueSandboxMessageRequest, EnqueueSandboxMessageResponse,
-    FetchPluginRequest, GetCredentialsRequest, GetCredentialsResponse, GetPendingMessagesRequest,
+    EnqueueSandboxMessageRequest, EnqueueSandboxMessageResponse, FetchPluginRequest,
+    GetCredentialsRequest, GetCredentialsResponse, GetPendingMessagesRequest,
     GetPendingMessagesResponse, GetSystemPromptRequest, GetSystemPromptResponse,
     GetWorkspaceRepositoryAccessRequest, GetWorkspaceRepositoryAccessResponse,
     GetWorkspaceSyncUrlsRequest, GetWorkspaceSyncUrlsResponse, PublishEventRequest,
@@ -74,13 +74,6 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         request: Request<GetSystemPromptRequest>,
     ) -> Result<Response<GetSystemPromptResponse>, Status> {
         messages::get_system_prompt(self, request).await
-    }
-
-    async fn download_upload(
-        &self,
-        request: Request<DownloadUploadRequest>,
-    ) -> Result<Response<DownloadUploadResponse>, Status> {
-        uploads::download_upload(self, request).await
     }
 
     async fn download_upload_chunked(

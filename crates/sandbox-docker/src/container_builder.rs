@@ -24,8 +24,6 @@ pub(crate) const CREATED_BY_LABEL: &str = "created-by";
 pub(crate) const CREATED_BY_VALUE: &str = "moatless";
 pub(crate) const SERVICE_LABEL: &str = "moatless.service";
 pub(crate) const SANDBOX_SERVICE: &str = "sandbox";
-/// `SERVICE_LABEL` value on preview server containers older releases created.
-pub(crate) const LEGACY_SERVER_SERVICE: &str = "server";
 
 /// Resolve the sandbox image for a plan: per-repo override → default docker
 /// image.

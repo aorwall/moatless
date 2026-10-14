@@ -177,13 +177,14 @@ mod tests {
     use crate::agent::heartbeat::Heartbeat;
     use crate::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
     use crate::backend_client::BackendClient;
+    use crate::backend_client::DownloadedUpload;
     use crate::config::{Config, test_support::minimal_config};
     use crate::credentials::Dispatcher;
     use crate::credentials::recovery::CredentialFailureDetector;
     use crate::events::GrpcEventPublisher;
     use crate::outbox::EventOutbox;
     use async_trait::async_trait;
-    use sandbox_proto::{DownloadUploadResponse, GetCredentialsResponse};
+    use sandbox_proto::GetCredentialsResponse;
     use std::time::Duration;
     use tokio::sync::RwLock;
     use tokio_util::sync::CancellationToken;
@@ -212,7 +213,7 @@ mod tests {
             &self,
             _task_id: &str,
             _file_id: &str,
-        ) -> Result<DownloadUploadResponse, Status> {
+        ) -> Result<DownloadedUpload, Status> {
             Err(Status::unimplemented("nop"))
         }
         async fn upload_transcript(&self, _task_id: &str, _tar: Vec<u8>) -> Result<(), Status> {

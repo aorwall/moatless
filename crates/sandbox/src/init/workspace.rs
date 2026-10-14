@@ -417,7 +417,7 @@ mod tests {
             &self,
             _task_id: &str,
             _file_id: &str,
-        ) -> Result<sandbox_proto::DownloadUploadResponse, tonic::Status> {
+        ) -> Result<crate::backend_client::DownloadedUpload, tonic::Status> {
             unimplemented!()
         }
         async fn recover_interrupted_run(

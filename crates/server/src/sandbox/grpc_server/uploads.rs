@@ -1,4 +1,4 @@
-//! An uploaded file, served whole or as the chunks the sandbox reassembles.
+//! An uploaded file, served as the chunks the sandbox reassembles.
 
 use std::pin::Pin;
 
@@ -6,7 +6,7 @@ use futures::{Stream, StreamExt};
 use tonic::{Request, Response, Status};
 use tracing::{debug, warn};
 
-use sandbox_proto::{DownloadUploadRequest, DownloadUploadResponse, UploadChunk};
+use sandbox_proto::{DownloadUploadRequest, UploadChunk};
 
 use moatless_s3 as file_s3;
 
@@ -15,7 +15,7 @@ use super::state::BackendSandboxServiceImpl;
 /// The chunk stream [`download_upload_chunked`] answers with.
 pub(super) type UploadChunkStream = Pin<Box<dyn Stream<Item = Result<UploadChunk, Status>> + Send>>;
 
-/// An uploaded file read out of S3, ready to be served by either download RPC.
+/// An uploaded file read out of S3, ready to be split into chunks.
 struct LoadedUpload {
     data: Vec<u8>,
     filename: String,
@@ -59,7 +59,7 @@ fn upload_chunks(upload: LoadedUpload) -> Vec<UploadChunk> {
 }
 
 impl BackendSandboxServiceImpl {
-    /// Read an uploaded file's bytes and metadata for the download RPCs.
+    /// Read an uploaded file's bytes and metadata for `DownloadUploadChunked`.
     ///
     /// The `file_id` must be referenced by a message belonging to `task_id`, so
     /// even a valid token cannot pull another task's uploads.
@@ -124,27 +124,6 @@ impl BackendSandboxServiceImpl {
     }
 }
 
-/// Serve an uploaded file's bytes to the sandbox in one message.
-///
-/// Bounded by the transport's per-message cap; auth and scope checks are
-/// [`BackendSandboxServiceImpl::load_upload`]'s.
-pub(super) async fn download_upload(
-    service: &BackendSandboxServiceImpl,
-    request: Request<DownloadUploadRequest>,
-) -> Result<Response<DownloadUploadResponse>, Status> {
-    let task_id = request.get_ref().task_id.clone();
-    service.authorizer.authorize(&request, &task_id).await?;
-    let req = request.into_inner();
-
-    let upload = service.load_upload(&req.task_id, &req.file_id).await?;
-
-    Ok(Response::new(DownloadUploadResponse {
-        data: upload.data,
-        filename: upload.filename,
-        mime_type: upload.mime_type,
-    }))
-}
-
 /// Stream an uploaded file's bytes to the sandbox, chunk by chunk.
 ///
 /// Called for every `file_id` on a pending message before the agent runs, so
@@ -207,9 +186,9 @@ mod tests {
     }
 
     #[test]
-    fn an_upload_larger_than_the_unary_cap_survives_chunking() {
-        // 5 MiB: past tonic's 4 MiB default per-message cap, which is what the
-        // single-message RPC could not carry.
+    fn an_upload_larger_than_the_per_message_cap_survives_chunking() {
+        // 5 MiB: past tonic's 4 MiB default per-message cap, which a single
+        // message could not carry.
         let len = 5 * CHUNK;
         let chunks = upload_chunks(upload_of(len));
 

@@ -10,8 +10,8 @@ use bollard::models::{
     NetworkingConfig,
 };
 use bollard::query_parameters::{
-    CreateContainerOptionsBuilder, ListContainersOptionsBuilder, RemoveContainerOptionsBuilder,
-    StartContainerOptions, StopContainerOptionsBuilder,
+    CreateContainerOptionsBuilder, RemoveContainerOptionsBuilder, StartContainerOptions,
+    StopContainerOptionsBuilder,
 };
 use futures::stream::BoxStream;
 use std::sync::Arc;
@@ -467,10 +467,6 @@ impl SandboxRuntime for DockerSandboxAdapter {
         let plan = self.require_plan()?;
         let request = plan.build_request(task_id).await?;
 
-        self.remove_legacy_server_containers(task_id)
-            .await
-            .map_err(map_sandbox_error)?;
-
         // Strict edge teardown: never provision past a failed remove, or the
         // fresh plan would reuse the stale sandbox container.
         let container_name = generate_container_name(task_id);
@@ -494,15 +490,10 @@ impl SandboxRuntime for DockerSandboxAdapter {
     ) -> Result<RuntimeOutcome, moatless_sandbox_runtime::runtime::RuntimeError> {
         info!(task_id = %task_id, "Cleaning up Docker sandbox");
         let container_name = generate_container_name(task_id);
-        let had_legacy_servers = self
-            .remove_legacy_server_containers(task_id)
-            .await
-            .map_err(map_sandbox_error)?;
         let had_runtime = self
             .container_exists(&container_name)
             .await
-            .map_err(map_sandbox_error)?
-            || had_legacy_servers;
+            .map_err(map_sandbox_error)?;
 
         // Load-bearing: strict removal must not report success while the sandbox
         // container lingers — a propagated error withholds lifecycle's `Removed`
@@ -748,66 +739,6 @@ impl DockerSandboxAdapter {
                 source: Box::new(source),
             }),
         }
-    }
-
-    /// Force-remove the task's preview server containers, which releases before
-    /// Scripts created with an `unless-stopped` policy and host ports. Returns
-    /// whether any existed; errors if one survives removal.
-    async fn remove_legacy_server_containers(&self, task_id: &str) -> Result<bool, SandboxError> {
-        let names = self.list_legacy_server_container_names(task_id).await?;
-        if names.is_empty() {
-            return Ok(false);
-        }
-        for name in &names {
-            self.force_remove_container(name).await?;
-        }
-        if self
-            .list_legacy_server_container_names(task_id)
-            .await?
-            .is_empty()
-        {
-            Ok(true)
-        } else {
-            Err(SandboxError::DockerError(format!(
-                "server containers for task {task_id} remain after removal"
-            )))
-        }
-    }
-
-    async fn list_legacy_server_container_names(
-        &self,
-        task_id: &str,
-    ) -> Result<Vec<String>, SandboxError> {
-        let filters = std::collections::HashMap::from([(
-            "label".to_string(),
-            vec![
-                format!("moatless.io/task-id={task_id}"),
-                format!(
-                    "{}={}",
-                    container_builder::SERVICE_LABEL,
-                    container_builder::LEGACY_SERVER_SERVICE
-                ),
-            ],
-        )]);
-        let containers = self
-            .client
-            .docker
-            .list_containers(Some(
-                ListContainersOptionsBuilder::new()
-                    .all(true)
-                    .filters(&filters)
-                    .build(),
-            ))
-            .await
-            .map_err(|source| SandboxError::Docker {
-                operation: "listing server containers",
-                source: Box::new(source),
-            })?;
-        Ok(containers
-            .into_iter()
-            .filter_map(|c| c.names?.into_iter().next())
-            .map(|name| name.trim_start_matches('/').to_string())
-            .collect())
     }
 
     /// Force-remove a container. `Ok` on success or when it is already gone

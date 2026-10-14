@@ -28,14 +28,6 @@ service BackendSandboxService {
   // refresh, permanently invalidating the credential.
   rpc UpdateCredential(UpdateCredentialRequest) returns (UpdateCredentialResponse);
 
-  // Download a file uploaded via /api/v1/uploads in a single message. Capped
-  // at tonic's default max message size (4 MiB): a larger file fails the call
-  // with `resource_exhausted`. Served for sandbox pods whose image predates
-  // DownloadUploadChunked and that therefore still call it; a pod that
-  // implements DownloadUploadChunked calls that instead. Auth via gRPC
-  // metadata.
-  rpc DownloadUpload(DownloadUploadRequest) returns (DownloadUploadResponse);
-
   // Download a file uploaded via /api/v1/uploads, streamed chunk by chunk. The
   // sandbox calls this for every file_id on a pending message before invoking
   // the agent, so the on-disk path the prompt advertises ("Saved to: …") is
@@ -564,12 +556,6 @@ message DownloadUploadRequest {
   string task_id = 1;
   string file_id = 2;
   // auth via gRPC metadata (authorization: Bearer <token>), not message fields
-}
-
-message DownloadUploadResponse {
-  bytes data = 1;
-  string filename = 2;
-  string mime_type = 3;
 }
 
 // A chunk of an uploaded file's bytes, as served by DownloadUploadChunked.

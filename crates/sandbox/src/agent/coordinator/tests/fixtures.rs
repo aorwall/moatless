@@ -36,7 +36,7 @@ impl BackendClient for RecordingBackend {
         &self,
         _task_id: &str,
         _file_id: &str,
-    ) -> Result<DownloadUploadResponse, Status> {
+    ) -> Result<DownloadedUpload, Status> {
         Err(Status::unimplemented("unused"))
     }
 

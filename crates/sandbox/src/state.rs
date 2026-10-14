@@ -194,11 +194,12 @@ pub(crate) mod test_support {
     use crate::agent::agent_state::AgentState;
     use crate::agent::handle::AgentHandle;
     use crate::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
+    use crate::backend_client::DownloadedUpload;
     use crate::commands::CommandRegistry;
     use crate::config::test_support::minimal_config;
     use crate::credentials::recovery::CredentialFailureDetector;
     use crate::outbox::EventOutbox;
-    use sandbox_proto::{DownloadUploadResponse, PendingAgentDelivery};
+    use sandbox_proto::PendingAgentDelivery;
 
     /// Stores nothing. Its first `failing_fetches` reads of pending messages
     /// fail as unavailable; `fetches` counts every read.
@@ -227,7 +228,7 @@ pub(crate) mod test_support {
             &self,
             _task_id: &str,
             _file_id: &str,
-        ) -> Result<DownloadUploadResponse, tonic::Status> {
+        ) -> Result<DownloadedUpload, tonic::Status> {
             Err(tonic::Status::not_found("no uploads in this fixture"))
         }
     }

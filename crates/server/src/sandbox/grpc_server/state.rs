@@ -51,7 +51,7 @@ pub struct HandlerDbPorts {
     pub workspace_credentials: Arc<dyn moatless_workspace_ports::WorkspaceCredentialReader>,
     /// The one way to a git-host token, for the identity the task acts as.
     pub git_host_tokens: Arc<dyn GitHostTokenIssuer>,
-    /// File metadata repository, for `download_upload`'s filename and mime
+    /// File metadata repository, for `download_upload_chunked`'s filename and mime
     /// type.
     pub files: Arc<Files>,
     /// The moatless login behind an inbound writer, for the `<from>` header on
@@ -111,7 +111,7 @@ pub struct BackendSandboxServiceImpl {
     /// Backend config. Read here for `sandbox.user_token_ttl_secs`, and
     /// forwarded whole to the two prompt builders.
     pub backend_config: Arc<Config>,
-    /// S3 handle used by `download_upload` and workspace sync.
+    /// S3 handle used by `download_upload_chunked` and workspace sync.
     pub s3: Option<Arc<moatless_s3::S3Storage>>,
     /// Mints what `GetWorkspaceRepositoryAccess` hands out. `None` unless the
     /// repository role, master secret and bucket are all configured, which is

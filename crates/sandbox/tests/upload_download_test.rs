@@ -2,7 +2,7 @@
 //!
 //! The bug this guards is a size ceiling on the wire, so the test has to put
 //! bytes through an actual tonic server and client rather than call the
-//! reassembly logic directly: a unary response larger than tonic's 4 MiB
+//! reassembly logic directly: a single message larger than tonic's 4 MiB
 //! default decoding cap is rejected by the transport, not by any code here.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -16,17 +16,17 @@ use sandbox_proto::backend_sandbox_service_server::{
 };
 use sandbox_proto::{
     AcknowledgeMessagesRequest, AcknowledgeMessagesResponse, DownloadTranscriptRequest,
-    DownloadUploadRequest, DownloadUploadResponse, EnqueueSandboxMessageRequest,
-    EnqueueSandboxMessageResponse, FetchPluginRequest, GetCredentialsRequest,
-    GetCredentialsResponse, GetPendingMessagesRequest, GetPendingMessagesResponse,
-    GetSystemPromptRequest, GetSystemPromptResponse, GetWorkspaceRepositoryAccessRequest,
-    GetWorkspaceRepositoryAccessResponse, GetWorkspaceSyncUrlsRequest,
-    GetWorkspaceSyncUrlsResponse, PluginChunk, PublishEventRequest, PublishEventResponse,
-    RecordGitPushRequest, RecordGitPushResponse, RecordUnreportedCommandsRequest,
-    RecordUnreportedCommandsResponse, RecoverInterruptedRunRequest, RecoverInterruptedRunResponse,
-    ReportWorkspaceSyncRequest, ReportWorkspaceSyncResponse, TakeUnreportedCommandsRequest,
-    TakeUnreportedCommandsResponse, TranscriptChunk, UpdateCredentialRequest,
-    UpdateCredentialResponse, UploadChunk, UploadTranscriptResponse,
+    DownloadUploadRequest, EnqueueSandboxMessageRequest, EnqueueSandboxMessageResponse,
+    FetchPluginRequest, GetCredentialsRequest, GetCredentialsResponse, GetPendingMessagesRequest,
+    GetPendingMessagesResponse, GetSystemPromptRequest, GetSystemPromptResponse,
+    GetWorkspaceRepositoryAccessRequest, GetWorkspaceRepositoryAccessResponse,
+    GetWorkspaceSyncUrlsRequest, GetWorkspaceSyncUrlsResponse, PluginChunk, PublishEventRequest,
+    PublishEventResponse, RecordGitPushRequest, RecordGitPushResponse,
+    RecordUnreportedCommandsRequest, RecordUnreportedCommandsResponse,
+    RecoverInterruptedRunRequest, RecoverInterruptedRunResponse, ReportWorkspaceSyncRequest,
+    ReportWorkspaceSyncResponse, TakeUnreportedCommandsRequest, TakeUnreportedCommandsResponse,
+    TranscriptChunk, UpdateCredentialRequest, UpdateCredentialResponse, UploadChunk,
+    UploadTranscriptResponse,
 };
 use tonic::{Request, Response, Status, Streaming};
 
@@ -116,13 +116,6 @@ impl BackendSandboxService for UploadOnlyBackend {
         &self,
         _request: Request<FetchPluginRequest>,
     ) -> Result<Response<Self::FetchPluginStream>, Status> {
-        Err(Status::unimplemented("not used"))
-    }
-
-    async fn download_upload(
-        &self,
-        _request: Request<DownloadUploadRequest>,
-    ) -> Result<Response<DownloadUploadResponse>, Status> {
         Err(Status::unimplemented("not used"))
     }
 
@@ -288,7 +281,7 @@ fn pattern(len: usize) -> Vec<u8> {
 }
 
 #[tokio::test]
-async fn an_upload_past_the_unary_message_cap_round_trips_whole() {
+async fn an_upload_past_the_per_message_cap_round_trips_whole() {
     // 6 MiB: comfortably past tonic's 4 MiB default decoding cap, which is
     // where a single-message response is refused with `resource_exhausted`.
     let data = pattern(6 * CHUNK);

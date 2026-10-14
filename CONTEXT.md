@@ -458,7 +458,7 @@ another Task, an Adapter, the platform, or the Sandbox waking its own Agent.
 Its `origin` fixes which sender columns it carries. An item is `pending` until
 a Turn delivers it, and what the Chat shows is the item as sent, never the
 CLI's copy of it.
-_Avoid_: queued `task_messages` row; reading a prompt back from the Trajectory
+_Avoid_: reading a prompt back from the Trajectory
 
 **Projector**:
 The only writer of the conversation read model (`conversation_messages`,

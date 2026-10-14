@@ -6,7 +6,9 @@ mod worktree;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use async_trait::async_trait;
-use sandbox_proto::{DownloadUploadResponse, GetCredentialsResponse, GetWorkspaceSyncUrlsResponse};
+use sandbox_proto::{GetCredentialsResponse, GetWorkspaceSyncUrlsResponse};
+
+use crate::backend_client::DownloadedUpload;
 
 /// Counts the only call an upload makes before it touches the network, and then
 /// declines — so a test can tell "attempted an upload" from "skipped" without
@@ -126,7 +128,7 @@ impl BackendClient for CountingBackend {
         &self,
         _task_id: &str,
         _file_id: &str,
-    ) -> Result<DownloadUploadResponse, tonic::Status> {
+    ) -> Result<DownloadedUpload, tonic::Status> {
         Err(tonic::Status::unimplemented("counting"))
     }
     async fn get_workspace_sync_urls(

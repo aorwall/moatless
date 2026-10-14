@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use sandbox_proto::{DownloadUploadResponse, PublishEventRequest};
+use sandbox_proto::PublishEventRequest;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
@@ -22,7 +22,7 @@ use moatless_sandbox::agent::agent_state::AgentState;
 use moatless_sandbox::agent::handle::spawn_agent;
 use moatless_sandbox::agent::heartbeat::Heartbeat;
 use moatless_sandbox::agent::scheduled_job::{LateInjector, ScheduledJobRegistry};
-use moatless_sandbox::backend_client::BackendClient;
+use moatless_sandbox::backend_client::{BackendClient, DownloadedUpload};
 use moatless_sandbox::config::Config;
 use moatless_sandbox::credentials::Dispatcher;
 use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
@@ -495,11 +495,7 @@ impl BackendClient for RecordingBackend {
         Ok(())
     }
 
-    async fn download_upload(
-        &self,
-        _: &str,
-        _: &str,
-    ) -> Result<DownloadUploadResponse, tonic::Status> {
+    async fn download_upload(&self, _: &str, _: &str) -> Result<DownloadedUpload, tonic::Status> {
         Err(tonic::Status::not_found("no uploads in this fixture"))
     }
 

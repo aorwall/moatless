@@ -187,16 +187,11 @@ pub const CONCERNS: &[Concern] = &[
             "crates/identity/src/adapter_apps/app_dao",
             "crates/identity/src/adapter_apps/dao",
         ],
-        // The three `github_app_*` tables have no live query. They are the
-        // predecessors of `adapter_app_*`, and this concern owns them.
         tables: &[
             "adapter_app_audit_events",
             "adapter_app_migrations",
             "adapter_app_secrets",
             "adapter_apps",
-            "github_app_audit_events",
-            "github_app_migrations",
-            "github_apps",
         ],
         slice: 6,
     },
@@ -291,10 +286,6 @@ pub const CONCERNS: &[Concern] = &[
             "conversation_frozen",
             "conversation_messages",
             "conversation_usage",
-            "task_message_content_blocks",
-            "task_message_contexts",
-            "task_message_usage",
-            "task_messages",
         ],
         slice: 10,
     },
@@ -302,7 +293,7 @@ pub const CONCERNS: &[Concern] = &[
         name: "task activities",
         owner: "moatless-tasks",
         roots: &["crates/tasks/src/activities/dao"],
-        tables: &["conversation_activities", "task_activities"],
+        tables: &["conversation_activities"],
         slice: 10,
     },
     Concern {

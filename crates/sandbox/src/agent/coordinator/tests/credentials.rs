@@ -48,7 +48,7 @@ impl BackendClient for CredBackend {
         &self,
         _task_id: &str,
         _file_id: &str,
-    ) -> Result<DownloadUploadResponse, Status> {
+    ) -> Result<DownloadedUpload, Status> {
         Err(Status::unimplemented("unused"))
     }
 }

@@ -5,7 +5,7 @@
 //! backend remembers the thread id. See [`transcript_dir`] and
 //! [`codex_sessions_dir`] for the on-disk paths. AWS-credential-less by design:
 //! I/O is proxied through the backend over JWT-authed gRPC, mirroring
-//! `DownloadUpload`.
+//! `DownloadUploadChunked`.
 
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;

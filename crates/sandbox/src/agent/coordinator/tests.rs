@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use sandbox_proto::{DownloadUploadResponse, GetCredentialsResponse, PublishEventRequest};
+use sandbox_proto::{GetCredentialsResponse, PublishEventRequest};
 use tokio::sync::{RwLock, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tonic::Status;
@@ -27,7 +27,7 @@ use crate::agent::harness::{
 use crate::agent::heartbeat::Heartbeat;
 use crate::agent::scheduled_job::{JobInjector, LateInjector, ScheduledJobRegistry};
 use crate::agent::types::{ResumeSession, StopSource};
-use crate::backend_client::BackendClient;
+use crate::backend_client::{BackendClient, DownloadedUpload};
 use crate::config::{Config, test_support::minimal_config};
 use crate::credentials::recovery::{CODEX_AUTH_JSON, CredentialFailureDetector};
 use crate::credentials::retry::MAX_CREDENTIAL_RECOVERY_RETRIES;

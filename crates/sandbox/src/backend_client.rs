@@ -10,15 +10,14 @@ use std::time::Duration;
 use sandbox_proto::backend_sandbox_service_client::BackendSandboxServiceClient;
 use sandbox_proto::{
     AcknowledgeMessagesRequest, AppendTrajectoryRequest, AppendTrajectoryResponse,
-    DownloadTranscriptRequest, DownloadUploadRequest, DownloadUploadResponse,
-    EnqueueSandboxMessageRequest, FetchPluginRequest, GetCredentialsRequest,
-    GetCredentialsResponse, GetPendingMessagesRequest, GetSystemPromptRequest,
-    GetWorkspaceRepositoryAccessRequest, GetWorkspaceRepositoryAccessResponse,
-    GetWorkspaceSyncUrlsRequest, GetWorkspaceSyncUrlsResponse, InterruptedTurn,
-    PendingAgentDelivery, PublishEventRequest, ReadTrajectoryRequest, RecordGitPushRequest,
-    RecordUnreportedCommandsRequest, RecoverInterruptedRunRequest, ReportWorkspaceSyncRequest,
-    SessionHeader, TakeUnreportedCommandsRequest, TranscriptChunk, UnreportedCommand,
-    UpdateCredentialRequest,
+    DownloadTranscriptRequest, DownloadUploadRequest, EnqueueSandboxMessageRequest,
+    FetchPluginRequest, GetCredentialsRequest, GetCredentialsResponse, GetPendingMessagesRequest,
+    GetSystemPromptRequest, GetWorkspaceRepositoryAccessRequest,
+    GetWorkspaceRepositoryAccessResponse, GetWorkspaceSyncUrlsRequest,
+    GetWorkspaceSyncUrlsResponse, InterruptedTurn, PendingAgentDelivery, PublishEventRequest,
+    ReadTrajectoryRequest, RecordGitPushRequest, RecordUnreportedCommandsRequest,
+    RecoverInterruptedRunRequest, ReportWorkspaceSyncRequest, SessionHeader,
+    TakeUnreportedCommandsRequest, TranscriptChunk, UnreportedCommand, UpdateCredentialRequest,
 };
 
 use crate::commands::{CommandState, JournaledCommand};
@@ -26,6 +25,15 @@ use tonic::service::interceptor::InterceptedService;
 use tonic::transport::Channel;
 use tonic::{Request, Status};
 use tracing::{debug, warn};
+
+/// An uploaded file as [`BackendClient::download_upload`] reassembles it from
+/// the `DownloadUploadChunked` stream.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DownloadedUpload {
+    pub data: Vec<u8>,
+    pub filename: String,
+    pub mime_type: String,
+}
 
 /// Errors that can occur when constructing a [`BackendGrpcClient`].
 #[derive(Debug, thiserror::Error)]
@@ -132,7 +140,7 @@ pub trait BackendClient: Send + Sync {
         &self,
         _task_id: &str,
         _file_id: &str,
-    ) -> Result<DownloadUploadResponse, tonic::Status> {
+    ) -> Result<DownloadedUpload, tonic::Status> {
         Err(tonic::Status::unimplemented(
             "download_upload not supported",
         ))
@@ -553,7 +561,7 @@ impl BackendClient for BackendGrpcClient {
         &self,
         task_id: &str,
         file_id: &str,
-    ) -> Result<DownloadUploadResponse, tonic::Status> {
+    ) -> Result<DownloadedUpload, tonic::Status> {
         use futures::StreamExt;
 
         let mut client = self.client.clone();
@@ -568,13 +576,13 @@ impl BackendClient for BackendGrpcClient {
         // response future, which resolves on the response headers — but not to
         // the chunk stream below, which is bounded only by the HTTP/2 keep-alive.
         let mut stream = resp.into_inner();
-        let mut reassembled: Option<DownloadUploadResponse> = None;
+        let mut reassembled: Option<DownloadedUpload> = None;
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
             match reassembled {
                 // The first chunk names the file; the rest carry bytes only.
                 None => {
-                    reassembled = Some(DownloadUploadResponse {
+                    reassembled = Some(DownloadedUpload {
                         data: chunk.data,
                         filename: chunk.filename,
                         mime_type: chunk.mime_type,

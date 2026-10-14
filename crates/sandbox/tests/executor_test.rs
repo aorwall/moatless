@@ -16,7 +16,7 @@ use moatless_sandbox::agent::agent_state::AgentState;
 use moatless_sandbox::agent::handle::spawn_agent;
 use moatless_sandbox::agent::prompt::{PendingPrompt, PromptResponse, PromptToolName};
 use moatless_sandbox::agent::types::{AgentStatus, StopSource};
-use moatless_sandbox::backend_client::BackendClient;
+use moatless_sandbox::backend_client::{BackendClient, DownloadedUpload};
 use moatless_sandbox::config::Config;
 use moatless_sandbox::credentials::Dispatcher;
 use moatless_sandbox::credentials::recovery::CredentialFailureDetector;
@@ -25,8 +25,7 @@ use moatless_sandbox::init::InitPhase;
 use moatless_sandbox::state::{SandboxState, TaskContext};
 
 use sandbox_proto::{
-    DownloadUploadResponse, PendingAgentDelivery, PromptResponse as ProtoPromptResponse,
-    PublishEventRequest,
+    PendingAgentDelivery, PromptResponse as ProtoPromptResponse, PublishEventRequest,
 };
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
@@ -117,7 +116,7 @@ impl BackendClient for MockBackendClient {
         &self,
         _task_id: &str,
         _file_id: &str,
-    ) -> Result<DownloadUploadResponse, tonic::Status> {
+    ) -> Result<DownloadedUpload, tonic::Status> {
         Err(tonic::Status::unimplemented(
             "download_upload not used in executor tests",
         ))

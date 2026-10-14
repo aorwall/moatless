@@ -202,7 +202,7 @@ pub(crate) trait MessageDao: Send + Sync {
     ) -> Result<Option<ToolCallRow>, sqlx::Error>;
 
     /// Whether `file_id` is attached to a Message of `task_id`'s conversation.
-    /// Used by the sandbox `DownloadUpload` RPC to defense-in-depth the
+    /// Used by the sandbox `DownloadUploadChunked` RPC to defense-in-depth the
     /// cross-task check.
     async fn file_id_used_in_task(&self, task_id: &str, file_id: &str)
     -> Result<bool, sqlx::Error>;

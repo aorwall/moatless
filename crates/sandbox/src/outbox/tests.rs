@@ -146,8 +146,8 @@ impl BackendClient for MockBackend {
         &self,
         _task_id: &str,
         _file_id: &str,
-    ) -> Result<sandbox_proto::DownloadUploadResponse, Status> {
-        Ok(sandbox_proto::DownloadUploadResponse::default())
+    ) -> Result<crate::backend_client::DownloadedUpload, Status> {
+        Ok(crate::backend_client::DownloadedUpload::default())
     }
 }
 
