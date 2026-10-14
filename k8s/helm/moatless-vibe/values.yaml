@@ -928,12 +928,9 @@ kubernetes:
   # plan|delegate|dontAsk). Ignored in tmux mode:
   #   - name: SANDBOX_PERMISSION_MODE
   #     value: "acceptEdits"
-  # Example: point sccache at a shared S3 bucket so a fresh sandbox reuses
-  # objects an earlier one compiled. Unset means sandboxes compile uncached; the
-  # pod's IAM role needs read/write on the prefix, or the entrypoint warns and
-  # carries on:
-  #   - name: SCCACHE_S3_BUCKET
-  #     value: "soap-platform-ci-sccache"
+  # SCCACHE_S3_BUCKET does nothing here: its bootstrap lives in
+  # docker-entrypoint-sandbox.sh, which Kubernetes sandboxes never run (see
+  # docs/deferred-changes.md).
   # IS_SANDBOX=1 lets the Claude CLI accept bypassPermissions while sandbox pods
   # run as root (the default — sandboxRunAsNonRoot is false). Harmless when
   # running non-root. Deployments that set sandboxExtraEnv override this list.

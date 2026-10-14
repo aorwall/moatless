@@ -1,14 +1,11 @@
 #!/bin/bash
 set -e
 
-# Minimal entrypoint — all initialization (credentials, git, servers) is now
-# handled by the Rust sandbox binary's init module.
-
-# Ensure basic directories exist (Rust init will create subdirs)
-mkdir -p "$HOME"
-mkdir -p "${WORKSPACE_DIR:-/workspace}"
-mkdir -p "${DATA_DIR:-/opt/moatless/data}"
-mkdir -p "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/debug"
+# Image ENTRYPOINT for docker-compose and `docker run` only. Kubernetes never
+# runs it: the pod `command` (sandbox-k8s pod_builder/containers.rs) replaces the
+# ENTRYPOINT, so a step added here skips every Kubernetes sandbox. Put setup
+# every launch needs in the image itself (an ENV, or a file under /etc such as
+# /etc/codeartifact-env.sh) or in the sandbox binary.
 
 # `gh` builds its git credential helper from `GH_PATH` (also exported by the
 # sandbox binary, since K8s skips this script); moatless-git-cred
@@ -17,119 +14,9 @@ if [ -x /usr/local/bin/moatless-git-cred ]; then
     export GH_PATH=/usr/local/bin/moatless-git-cred
 fi
 
-# Point debug logs to /tmp (workaround for SDK lazy-init race condition)
-export CLAUDE_CODE_DEBUG_LOGS_DIR="/tmp/claude-debug.log"
-
-# Configure git worktree environment if needed
-if [ "$USE_GIT_WORKTREES" = "true" ] && [ -n "$GIT_WORKTREE_NAME" ]; then
-    export GIT_DIR="/main-repo-git/worktrees/$GIT_WORKTREE_NAME"
-    export GIT_WORK_TREE="$WORKSPACE_DIR"
-fi
-
-# CodeArtifact bootstrap — point npm / pip / maven at the org CodeArtifact repos
-# so in-task package installs resolve over the CodeArtifact VPC endpoints instead
-# of NAT (and resolve private @soaplabs / com.soaplabs packages with no GitHub
-# token). Gated on CODEARTIFACT_DOMAIN, so unset == no-op (local/dev unaffected).
-# Requires AWS creds (a Pod Identity association) + AWS CLI v2.
-if [ -n "$CODEARTIFACT_DOMAIN" ]; then
-    ca_owner="${CODEARTIFACT_DOMAIN_OWNER:-222222222222}"
-    ca_region="${AWS_REGION:-${AWS_DEFAULT_REGION:-eu-north-1}}"
-    ca_npm_repo="${CODEARTIFACT_NPM_REPO:-npm}"
-    ca_pypi_repo="${CODEARTIFACT_PYPI_REPO:-pypi}"
-    ca_maven_repo="${CODEARTIFACT_MAVEN_REPO:-maven}"
-    ca_host="${CODEARTIFACT_DOMAIN}-${ca_owner}.d.codeartifact.${ca_region}.amazonaws.com"
-
-    if ! command -v aws >/dev/null 2>&1; then
-        echo "[codeartifact] aws CLI not found — skipping registry bootstrap" >&2
-    else
-        ca_stderr="$(mktemp)"
-        ca_token="$(aws codeartifact get-authorization-token \
-            --domain "$CODEARTIFACT_DOMAIN" --domain-owner "$ca_owner" --region "$ca_region" \
-            --query authorizationToken --output text 2>"$ca_stderr" || true)"
-
-        if [ -z "$ca_token" ] || [ "$ca_token" = "None" ]; then
-            # CODEARTIFACT_DOMAIN is set, so this is a misconfigured deployment and
-            # not a local no-op. Name the denial here: the install that fails is
-            # minutes away and reports a 401 that points at the registry, not IAM.
-            ca_arn="$(aws sts get-caller-identity --query Arn --output text 2>/dev/null || true)"
-            echo "[codeartifact] ERROR: no token for domain ${CODEARTIFACT_DOMAIN} — npm, pip and maven are unconfigured." >&2
-            sed '/^[[:space:]]*$/d; s/^/[codeartifact]   /' "$ca_stderr" >&2
-            echo "[codeartifact]   identity: ${ca_arn:-none, no AWS credentials reached this sandbox}" >&2
-            echo "[codeartifact]   Every private @soaplabs / com.soaplabs install will 401 until the error" >&2
-            echo "[codeartifact]   above clears — a missing codeartifact:GetAuthorizationToken grant is one" >&2
-            echo "[codeartifact]   cause of it. A GitHub Packages token is not a fix for any of them." >&2
-
-            # The agent that hits the 401 reads ~/.npmrc, not this container's
-            # stderr. Leave the diagnosis where it will look: npm ignores `#`
-            # lines, so an otherwise empty file changes no resolution.
-            {
-                echo "# CodeArtifact bootstrap FAILED at sandbox start — there is no auth token."
-                echo "# get-authorization-token on domain ${CODEARTIFACT_DOMAIN} said:"
-                sed '/^[[:space:]]*$/d; s/^/#   /' "$ca_stderr"
-                echo "#   identity: ${ca_arn:-none, no AWS credentials reached this sandbox}"
-                echo "# No private @soaplabs package resolves until that call succeeds. The"
-                echo "# usual cause is a missing codeartifact:GetAuthorizationToken grant on"
-                echo "# that identity, but read the error above rather than assuming it."
-                echo "# Do not reach for a GitHub Packages token: nothing here publishes to one."
-            } > "$HOME/.npmrc"
-            rm -f "$ca_stderr"
-        else
-            rm -f "$ca_stderr"
-            # Export for repos whose own .npmrc / settings.xml reference
-            # ${CODEARTIFACT_AUTH_TOKEN} (the documented contract). A project-level
-            # .npmrc shadows ~/.npmrc for the same _authToken key, so writing
-            # ~/.npmrc alone is not enough — the env var must resolve too. The Rust
-            # sandbox binary (exec'd below) inherits this, as do the setup commands
-            # it spawns (`sh -c "… bun install"`).
-            export CODEARTIFACT_AUTH_TOKEN="$ca_token"
-
-            # npm + bun (read ~/.npmrc) — fallback for repos that ship no .npmrc
-            {
-                echo "registry=https://${ca_host}/npm/${ca_npm_repo}/"
-                echo "@soaplabs:registry=https://${ca_host}/npm/${ca_npm_repo}/"
-                echo "//${ca_host}/npm/${ca_npm_repo}/:_authToken=${ca_token}"
-                echo "//${ca_host}/npm/${ca_npm_repo}/:always-auth=true"
-            } > "$HOME/.npmrc"
-
-            # pip / uv — env-only, inherited by the sandbox and its setup commands
-            export PIP_INDEX_URL="https://aws:${ca_token}@${ca_host}/pypi/${ca_pypi_repo}/simple/"
-            export UV_DEFAULT_INDEX="$PIP_INDEX_URL"
-
-            # maven (wildcard mirror). Maven resolves settings from the JVM's
-            # user.home, which comes from the passwd entry (/root for uid 0),
-            # not $HOME (/home/moatless) — write to both.
-            pw_home="$(getent passwd "$(id -u)" | cut -d: -f6)"
-            for m2_dir in "$HOME/.m2" "${pw_home:-$HOME}/.m2"; do
-                mkdir -p "$m2_dir"
-                cat > "$m2_dir/settings.xml" <<EOF
-<settings>
-  <servers>
-    <server>
-      <id>codeartifact</id>
-      <username>aws</username>
-      <password>${ca_token}</password>
-    </server>
-  </servers>
-  <mirrors>
-    <mirror>
-      <id>codeartifact</id>
-      <name>CodeArtifact wildcard mirror</name>
-      <url>https://${ca_host}/maven/${ca_maven_repo}/</url>
-      <mirrorOf>*</mirrorOf>
-    </mirror>
-  </mirrors>
-</settings>
-EOF
-            done
-            echo "[codeartifact] configured npm/pip/maven for ${ca_host}" >&2
-        fi
-    fi
-fi
-
 # sccache bootstrap — wrap rustc in the shared S3 compilation cache so a fresh
 # sandbox reuses objects an earlier sandbox built instead of recompiling the
-# dependency graph. Gated on SCCACHE_S3_BUCKET, so unset == no-op (local/docker
-# unaffected).
+# dependency graph. Gated on SCCACHE_S3_BUCKET, so unset == no-op.
 #
 # Sandboxes hit each other's objects because they agree on every absolute path
 # (/opt/cargo, /opt/moatless/workspace/<repo>). CI does not — its checkout and

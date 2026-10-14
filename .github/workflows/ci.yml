@@ -147,6 +147,7 @@ jobs:
               - 'docker/playwright-cli.sh'
               - 'docker/playwright-consumers.json'
               - 'docker/cli-versions.env'
+              - 'docker/codeartifact/**'
               - '.github/scripts/install-mold.sh'
               - '.github/workflows/ci.yml'
               # Built into the image, so a change here has to rebuild it.
@@ -1143,6 +1144,9 @@ jobs:
     runs-on: staging-runners-large
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Test codeartifact-env.sh
+        run: bash docker/codeartifact/test.sh
 
       - name: Load CLI versions
         run: grep -E '^[A-Z_]+=' docker/cli-versions.env >> "$GITHUB_ENV"

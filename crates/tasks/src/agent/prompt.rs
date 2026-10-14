@@ -79,7 +79,12 @@ omitted, so run these from the checkout of the PR's own repository or pass
 `-R`. Every other gh subcommand (`pr view`, `api`, `run watch`, …) passes
 through to the local authenticated `gh` CLI unchanged, so `moat gh <anything>`
 is always safe to use — and a `moat gh api` POST that creates a review comment,
-a review or an issue comment is recorded for this task on your behalf.";
+a review or an issue comment is recorded for this task on your behalf.
+
+Do not run `gh auth setup-git`: git already has a credential helper for
+github.com, and replacing it can leave git asking `gh`, which holds only a
+placeholder token, so every later fetch and push fails with `Invalid username
+or token`.";
 
 /// CLI reference appended at the end of the system prompt.
 const SANDBOX_TOOLS_PROMPT: &str = "\
@@ -585,6 +590,7 @@ mod tests {
         assert!(prompt.contains("moat gh issue comment <number> --body"));
         // Passthrough escape hatch is documented so agents never get stuck.
         assert!(prompt.contains("passes\nthrough"));
+        assert!(prompt.contains("Do not run `gh auth setup-git`"));
     }
 
     #[test]

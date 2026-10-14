@@ -18,13 +18,17 @@ if [ -n "${CODEARTIFACT_DOMAIN:-}" ] && command -v aws >/dev/null 2>&1; then
     if _ca_out=$(aws codeartifact get-authorization-token \
         --domain "$CODEARTIFACT_DOMAIN" --domain-owner "$_ca_owner" --region "$_ca_region" \
         --query '[authorizationToken,expiration]' --output text 2>"$_ca_cache.err"); then
-      (umask 077; printf '%s\n' "$_ca_out" | awk '{print $1}' > "$_ca_cache")
-      date -d "$(printf '%s\n' "$_ca_out" | awk '{print $2}')" +%s > "$_ca_cache.exp" 2>/dev/null \
-        || echo 0 > "$_ca_cache.exp"
+      # Through a rename: /etc/codeartifact-env.sh reads this cache from every
+      # bash, and an in-place write hands it a partial token.
+      (umask 077; printf '%s\n' "$_ca_out" | awk '{print $1}' > "$_ca_cache.tmp.$$") \
+        && mv -f "$_ca_cache.tmp.$$" "$_ca_cache"
+      { date -d "$(printf '%s\n' "$_ca_out" | awk '{print $2}')" +%s 2>/dev/null \
+        || echo 0; } > "$_ca_cache.exp.tmp.$$" && mv -f "$_ca_cache.exp.tmp.$$" "$_ca_cache.exp"
     else
-      echo "[mavenrc] CodeArtifact token mint failed; com.soaplabs artifacts will 401:" >&2
+      # The cached token stays: it is often still valid, since the renewal
+      # starts ten minutes before expiry.
+      echo "[mavenrc] CodeArtifact token mint failed; com.soaplabs artifacts may 401:" >&2
       sed '/^[[:space:]]*$/d; s/^/[mavenrc]   /' "$_ca_cache.err" >&2
-      rm -f "$_ca_cache" "$_ca_cache.exp"
     fi
     rm -f "$_ca_cache.err"
   fi

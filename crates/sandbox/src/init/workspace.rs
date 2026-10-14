@@ -234,7 +234,9 @@ pub async fn run_setup_command(config: &Config, cmd: &str) -> Result<(), String>
     }
 
     info!(command = %cmd, "Running setup command");
-    let output = Command::new("sh")
+    // bash, not `sh`: dash never reads the image's `BASH_ENV`, which exports
+    // the `CodeArtifact` token a setup `bun install` needs.
+    let output = Command::new("bash")
         .args(["-c", cmd])
         .current_dir(&config.repo_dir)
         .output()
@@ -271,6 +273,20 @@ mod tests {
                 .unwrap();
         }
         builder.into_inner().unwrap().finish().unwrap()
+    }
+
+    /// Runs under bash so the image's `BASH_ENV` script reaches the command;
+    /// `sh` is dash, which never reads it. `[[` fails under dash.
+    #[tokio::test]
+    async fn a_setup_command_runs_under_bash() {
+        let root = tempdir().unwrap();
+        let mut config = crate::config::test_support::minimal_config();
+        config.repo_dir = root.path().to_string_lossy().into_owned();
+        assert!(
+            run_setup_command(&config, "[[ -n ${BASH_VERSION:-} ]]")
+                .await
+                .is_ok()
+        );
     }
 
     #[test]
