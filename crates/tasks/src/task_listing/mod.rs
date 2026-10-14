@@ -6,11 +6,14 @@
 
 pub mod listed;
 mod listed_dao;
+mod names_dao;
 pub mod operations;
 pub mod pruner;
 
 #[cfg(all(test, feature = "db-tests"))]
 mod listed_db_tests;
+#[cfg(all(test, feature = "db-tests"))]
+mod names_db_tests;
 
 pub use listed::{ListedAgent, ListedPullRequest, ListedTask, ListingCursor, RunningChild};
 pub use operations::{

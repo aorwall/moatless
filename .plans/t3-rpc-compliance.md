@@ -160,7 +160,7 @@ column decides, not reach; reach only says how loudly a gap is felt meanwhile.
 | `review.getDiffPreview` | typed, blank | Diff panel | `cwd: ""` and `command: "git"` render as empty parentheses |
 | `subscribeTerminalMetadata` | silent stream | ungated atom | Nothing — no terminal exists, and no exec RPC could back one |
 | `subscribeVcsStatus` | often silent | Diff panel | Works; says nothing at all when the Sandbox is down |
-| `orchestration.searchThreads` | `Die` | ⌘K palette | `tasks.name` + `task_messages`, under the listing's own filters |
+| `orchestration.searchThreads` | `Die` | ⌘K palette | `tasks.name` + `task_messages`, over every open Task the viewer may read (`moatless_tasks::search`) |
 | `vcs.refreshStatus` | `Die` | gated off | `review::status` already reads exactly this |
 | `projects.searchContents` | `Die` | gated off | Nothing — the Sandbox has no content-search RPC |
 | `getTurnDiff`, `getFullThreadDiff` | `Die` | no surface | Nothing — no per-turn worktree snapshot is recorded |
@@ -279,8 +279,8 @@ Eight components, each named as the thing it is.
   reach the conversation's Sandbox through the `cwd` `workspace::addressed_conversation` already resolves.
 - **The review surface** (`review.rs`) — its branch-status projection becomes answerable as a request, not
   only as a subscription tick.
-- **The conversation reader** (`dao.rs`) — gains a search over titles and message text, under the same
-  follow-and-access filter the sidebar uses.
+- **The conversation reader** (`dao.rs`) — gains a search over titles and message text, over every open
+  Task the viewer may read, followed or not.
 - **The session projection** (`projection.rs`) — reports the driver kind a provider is published under.
 - **The contracts package** (`t3code/packages/contracts`) — every RPC's declared error union also admits a
   refusal.

@@ -1,6 +1,7 @@
 //! The Task listing: what a sidebar of followed Tasks, its archive, a browse
 //! and a re-read by id each return, as one [`ListedTask`] row per Task.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use moatless_core::db::DbPool;
@@ -12,6 +13,7 @@ use super::listed::{ListedTask, ListingCursor};
 use super::listed_dao::{
     self, FULL_LISTING_CONCURRENCY, LISTING_DURATION, LISTING_REJECTIONS, Page, Reach,
 };
+use super::names_dao;
 
 /// Reads the Task listing for one viewer.
 ///
@@ -166,6 +168,16 @@ impl TaskListing {
             None,
         )
         .await
+    }
+
+    /// The names of the named Tasks the viewer may read, at any status, by
+    /// task id. An unreadable or missing Task has no entry.
+    pub async fn readable_names(
+        &self,
+        viewer: &ScopeContext,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, String>, sqlx::Error> {
+        names_dao::readable_names(&self.pool, viewer, task_ids).await
     }
 }
 

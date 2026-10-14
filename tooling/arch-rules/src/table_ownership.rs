@@ -94,7 +94,12 @@ fn allowed(consumer: &str, table: &str, write: bool) -> bool {
     matches!(
         (consumer, table),
         ("moatless-tasks", "sandboxes") | ("moatless-sandbox-control", "tasks")
-    ) || (consumer == "moatless-t3code" && !write)
+    )
+        // `t3code::dao::transcript_origins` joins a Message's Binding, Loop and
+        // sender in one statement; no port publishes them in batch.
+        || (consumer == "moatless-t3code"
+            && matches!(table, "task_bindings" | "loops" | "users")
+            && !write)
         // The Task listing is one statement: a row's Binding pull requests and
         // owner name are joins in it, not reads through `loops` or `identity`.
         || (consumer == "moatless-tasks" && matches!(table, "task_bindings" | "users") && !write)
@@ -164,8 +169,9 @@ mod tests {
     use super::*;
     #[test]
     fn projections_may_read_but_never_write_foreign_tables() {
-        assert!(allowed("moatless-t3code", "tasks", false));
-        assert!(!allowed("moatless-t3code", "tasks", true));
+        assert!(allowed("moatless-t3code", "loops", false));
+        assert!(!allowed("moatless-t3code", "loops", true));
+        assert!(!allowed("moatless-t3code", "tasks", false));
         assert!(allowed("moatless-tasks", "sandboxes", true));
         assert!(!allowed("moatless-identity", "sandboxes", false));
         assert!(allowed("moatless-core", "task_relations", false));

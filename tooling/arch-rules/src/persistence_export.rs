@@ -247,6 +247,8 @@ pub const CONCERNS: &[Concern] = &[
             "crates/tasks/src/task/pin_dao",
             "crates/tasks/src/task/switch_dao",
             "crates/tasks/src/task_listing/listed_dao",
+            "crates/tasks/src/task_listing/names_dao",
+            "crates/tasks/src/search/dao",
         ],
         tables: &["task_follows", "task_read_receipts", "tasks"],
         slice: 9,

@@ -11,8 +11,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
-use sqlx::AssertSqlSafe;
 
 use crate::UiRpcDbPool;
 use crate::transcript::{JoinedOrigin, Transcript};
@@ -21,34 +19,16 @@ use moatless_core::change_feed::listing::{ListingChange, ListingHead};
 use moatless_ports::activity::ActivitySource;
 use moatless_ports::task::TaskReader;
 use moatless_tasks::conversation::transcript::{TranscriptEntry, TranscriptReads};
-use moatless_types::access_control::{ScopeContext, ScopedEntity};
-use moatless_types::task::TaskStatus;
+use moatless_types::access_control::ScopeContext;
 
+pub use moatless_tasks::search::TaskMatch as ConversationMatch;
+use moatless_tasks::search::TaskSearch;
 pub use moatless_tasks::task_listing::{
     ARCHIVED_LIMIT, BROWSE_LIMIT, ListedPullRequest as ConversationPullRequest,
     ListedTask as Conversation, ListingCursor as ArchiveCursor,
     ListingFilter as ConversationBrowse,
 };
 use moatless_tasks::task_listing::{LISTED_STATUSES, TaskListing};
-
-/// One conversation a search matched, and the text that matched in it.
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub struct ConversationMatch {
-    pub task_id: String,
-    /// `None` for older and hand-written rows, as on [`Conversation`]. A match
-    /// without one is dropped by the projection: the contract's match carries a
-    /// project id and the client uses it to route.
-    pub workspace_id: Option<String>,
-    /// Whether a person or the agent wrote the matched text. A Task *name*
-    /// matched is reported as the person's — it is Moatless's handle for the
-    /// Task and the contract has no third source to call it.
-    pub from_user: bool,
-    /// What matched: a Message's text, or the Task's name.
-    pub matched_text: String,
-    /// When the matched Message was written. `None` for a name match, which the
-    /// contract allows precisely so a match need not be a Message.
-    pub matched_at: Option<DateTime<Utc>>,
-}
 
 /// The stored tool call an answer names.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -159,8 +139,8 @@ pub trait ConversationDao: Send + Sync {
     /// Conversations whose name or Message text contains `query`, at most one
     /// match each, best first.
     ///
-    /// Filtered by the same rules as [`ConversationDao::list_followed`]. A
-    /// Message match beats a name match, person beats agent, per the
+    /// Every open Task the viewer may read, followed or not. A Message match
+    /// beats a name match, person beats agent, per the
     /// reference server's ranking (`ProjectionSnapshotQuery.ts:725`).
     async fn search_conversations(
         &self,
@@ -258,6 +238,7 @@ pub struct PgConversationDao {
     activities: Arc<dyn ActivitySource>,
     transcripts: Arc<TranscriptReads>,
     listing: TaskListing,
+    search: TaskSearch,
     /// The read, control and write rules over `tasks`, which moatless-tasks
     /// owns.
     tasks: Arc<dyn TaskReader>,
@@ -270,23 +251,6 @@ pub(crate) fn store_read(error: moatless_types::store::StoreError) -> sqlx::Erro
     sqlx::Error::Protocol(moatless_core::error::causal_chain(&error))
 }
 
-/// A search term as a `LIKE` operand rather than a `LIKE` pattern.
-///
-/// `%`, `_`, and the escape character itself (`\`) are escaped, since they're
-/// ordinary characters to the person typing them; every query using this must
-/// declare `ESCAPE '\'` explicitly, since Postgres's default depends on
-/// `standard_conforming_strings`.
-fn escape_like(query: &str) -> String {
-    let mut escaped = String::with_capacity(query.len());
-    for character in query.chars() {
-        if matches!(character, '%' | '_' | '\\') {
-            escaped.push('\\');
-        }
-        escaped.push(character);
-    }
-    escaped
-}
-
 impl PgConversationDao {
     pub fn new(
         pool: UiRpcDbPool,
@@ -296,6 +260,7 @@ impl PgConversationDao {
     ) -> Self {
         Self {
             listing: TaskListing::new(pool.clone()),
+            search: TaskSearch::new(pool.clone()),
             pool,
             activities,
             transcripts,
@@ -382,87 +347,7 @@ impl ConversationDao for PgConversationDao {
         query: &str,
         limit: i64,
     ) -> Result<Vec<ConversationMatch>, sqlx::Error> {
-        // The same three filters the listing applies, written the same way:
-        // the follow join, the shared access fragment, and the open status. A
-        // fourth copy of the read rule is the drift the narrowed listing query
-        // exists to avoid, and here a drift is a disclosure rather than a
-        // missing row.
-        let open = TaskStatus::Open.as_str();
-        let access = moatless_core::db::access_control::access_filter(ScopedEntity::Task, "t.", 1);
-        let follower = access.next_param();
-        let pattern = follower + 1;
-        let row_limit = pattern + 1;
-        let sql = format!(
-            r#"WITH listed AS MATERIALIZED (
-                   SELECT t.task_id, t.workspace_id, t.name, t.updated_at
-                   FROM task_follows tf
-                   JOIN tasks t ON t.task_id = tf.task_id
-                   WHERE tf.user_id = ${follower}
-                     AND t.status = '{open}'
-                     AND {}
-               ),
-               matched AS (
-                   -- A Message match. `author` distinguishes the person from
-                   -- the agent; `parent_tool_use_id IS NULL` drops subagent rows,
-                   -- which are never rendered inline and would otherwise be the
-                   -- bulk of what a long conversation matches.
-                   SELECT
-                       t.task_id,
-                       t.workspace_id,
-                       m.author = 'user' AS from_user,
-                       COALESCE(m.text, i.text) AS matched_text,
-                       m.created_at          AS matched_at,
-                       t.updated_at,
-                       CASE WHEN m.author = 'user' THEN 0 ELSE 1 END AS rank
-                   FROM listed t
-                   JOIN conversation_messages m ON m.task_id = t.task_id
-                   LEFT JOIN task_inbox i ON i.id = m.inbox_id
-                   WHERE m.parent_tool_use_id IS NULL
-                     -- A sandbox wake is in no conversation to jump to.
-                     AND i.origin IS DISTINCT FROM 'sandbox'
-                     AND COALESCE(m.text, i.text) ILIKE ${pattern} ESCAPE '\'
-                   UNION ALL
-                   -- A name match, which the reference server has no equivalent
-                   -- of. `tasks.name` is Moatless's own handle for a Task and is
-                   -- often the only text a person remembers; it ranks below both
-                   -- Message sources because a Message match is the more
-                   -- specific answer about the same Task.
-                   SELECT
-                       t.task_id,
-                       t.workspace_id,
-                       true   AS from_user,
-                       t.name AS matched_text,
-                       NULL::timestamptz AS matched_at,
-                       t.updated_at,
-                       2 AS rank
-                   FROM listed t
-                   WHERE t.name ILIKE ${pattern} ESCAPE '\'
-               ),
-               ranked AS (
-                   SELECT
-                       matched.*,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY task_id
-                           ORDER BY rank ASC, matched_at DESC NULLS LAST
-                       ) AS per_task
-                   FROM matched
-               )
-               SELECT task_id, workspace_id, from_user, matched_text, matched_at
-               FROM ranked
-               WHERE per_task = 1
-               ORDER BY rank ASC, updated_at DESC NULLS LAST, task_id ASC
-               LIMIT ${row_limit}"#,
-            access.sql(),
-        );
-
-        sqlx::query_as::<_, ConversationMatch>(AssertSqlSafe(sql))
-            .bind(viewer.is_admin)
-            .bind(&viewer.user_id)
-            .bind(&viewer.user_id)
-            .bind(format!("%{}%", escape_like(query)))
-            .bind(limit)
-            .fetch_all(&self.pool)
-            .await
+        self.search.search(viewer, query, limit).await
     }
 
     async fn interactive_call(
@@ -500,21 +385,7 @@ impl ConversationDao for PgConversationDao {
         viewer: &ScopeContext,
         task_ids: &[String],
     ) -> Result<HashMap<String, String>, sqlx::Error> {
-        // Scoped, so a Task outside the viewer's reach yields no row and the
-        // origin built from it carries neither a name nor a link. `$1` is the
-        // id set; the access filter binds `is_admin` then `user_id` from `$2`.
-        let access = moatless_core::db::access_control::access_filter(ScopedEntity::Task, "", 2);
-        let sql = format!(
-            "SELECT task_id, name FROM tasks WHERE task_id = ANY($1) AND {}",
-            access.sql()
-        );
-        let rows: Vec<(String, String)> = sqlx::query_as(AssertSqlSafe(sql))
-            .bind(task_ids)
-            .bind(viewer.is_admin)
-            .bind(&viewer.user_id)
-            .fetch_all(&self.pool)
-            .await?;
-        Ok(rows.into_iter().collect())
+        self.listing.readable_names(viewer, task_ids).await
     }
 
     async fn conversation_head(&self, task_id: &str) -> Result<ConversationHead, sqlx::Error> {
