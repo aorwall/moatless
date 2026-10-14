@@ -24,7 +24,12 @@ pub(super) fn thread_pull_requests(conversation: &Conversation) -> Vec<Value> {
             if pr.number <= 0 {
                 return None;
             }
-            let mut link = json!({
+            // No `watch`: every active Binding routes its events to the
+            // agent regardless of this Task's work, so reporting one here
+            // would read as T3's "stay in Working while watching a pull
+            // request" and mark the thread Waiting for as long as it stays
+            // linked, even with no work pending.
+            Some(json!({
                 "host": pull_request_host(&url),
                 "repository": repository,
                 "number": pr.number,
@@ -35,38 +40,9 @@ pub(super) fn thread_pull_requests(conversation: &Conversation) -> Vec<Value> {
                 // Moatless reads no stack from GitHub, so a link never carries
                 // one and the client chains by base and head branch instead.
                 "stack": Value::Null
-            });
-            if let Some(watch) = pull_request_watch(pr) {
-                link["watch"] = watch;
-            }
-            Some(link)
+            }))
         })
         .collect()
-}
-
-/// The watch on a pull request whose events wake the agent, or `None` while
-/// the Binding is muted or the pull request has merged or closed.
-///
-/// Every active Binding routes its events to the agent, so a watch starts when
-/// the link does. Moatless keeps no record of what it already told the agent,
-/// which leaves those fields empty; only `conflicting` is read off the row.
-fn pull_request_watch(pr: &ConversationPullRequest) -> Option<Value> {
-    let live = !matches!(pr.state_kind.as_deref(), Some("merged" | "closed"));
-    if !(pr.watching && live) {
-        return None;
-    }
-    let started_at = instant(pr.linked_at);
-    Some(json!({
-        "startedAt": started_at,
-        "headSha": Value::Null,
-        "failedChecks": [],
-        "passed": false,
-        "passedChecks": [],
-        "remarksThrough": started_at,
-        "remarkIds": [],
-        "conflicting": pr.mergeable_state.as_deref() == Some("dirty"),
-        "wakes": 0
-    }))
 }
 
 /// The legacy single reference for the primary of [`thread_pull_requests`].

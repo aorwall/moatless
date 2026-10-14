@@ -128,9 +128,10 @@ pub(crate) fn descriptor(config: &UiRpcConfig) -> Value {
             // `regenerateTitle` on `thread.meta.update`, which asks the agent
             // to rename the Task. Absent, a client hides the action.
             "threadTitleRegeneration": true,
-            // `thread.pull-request.watch`. Every linked pull request wakes the
-            // agent until a watch is turned off.
-            "threadPullRequestWatch": true,
+            // `thread.pull-request.watch` still mutes server-side; false
+            // because no link carries `watch` for the toggle to read (see
+            // docs/deferred-changes.md).
+            "threadPullRequestWatch": false,
             // The `/api/v1` REST API and its cookie login share this origin.
             // Absent, the client offers T3 pairing and no administration pages.
             "moatlessApi": true,
