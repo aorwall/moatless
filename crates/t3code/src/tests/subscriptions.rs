@@ -158,9 +158,10 @@ async fn a_thread_subscription_without_a_thread_is_refused() {
 #[test]
 fn a_subscription_ends_with_the_refusal_its_request_would_have_answered() {
     assert_eq!(
-        sandbox_stream_refusal(&request_id("1"), "sandbox.subscribeStatus"),
+        sandbox_stream_refusal(&request_id("1"), Scope::OrchestrationRead),
         sandbox_failure_exit(
             &request_id("1"),
+            Scope::OrchestrationRead,
             "sandbox.subscribeStatus",
             &SandboxRpcError::NotFound,
             &viewer(),

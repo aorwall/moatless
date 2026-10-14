@@ -1,11 +1,20 @@
 use crate::authentication::viewer_scope;
+use crate::oauth::Scope;
 use crate::rpc::config::now_rfc3339;
 use crate::rpc::envelope::ClientFrame;
 use crate::rpc::envelope::RequestId;
 use crate::rpc::envelope::connection_defect;
 use crate::rpc::envelope::interrupted_exit;
+use crate::rpc::envelope::typed_failure_exit;
 use crate::rpc::envelope::valid_request_id;
+use crate::rpc::errors::authorization_error;
+use crate::rpc::errors::unsupported_exit;
+use crate::rpc::metrics::answered;
 use crate::rpc::metrics::request_root_span;
+use crate::rpc::table::Handler;
+use crate::rpc::table::Method;
+use crate::rpc::table::MethodTable;
+use crate::rpc::table::Request;
 use crate::skills;
 use crate::state::UiRpcState;
 use crate::subscription::DetachedSet;
@@ -13,10 +22,12 @@ use crate::subscription::StreamSet;
 use moatless_types::ui_rpc::UiRpcAuthIdentity;
 use serde_json::Value;
 use serde_json::json;
+use std::future::ready;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::PoisonError;
 use tokio::sync::mpsc;
+use tracing::warn;
 
 pub(crate) const MAX_MESSAGES_PER_FRAME: usize = 128;
 pub(crate) const MAX_ACTIVE_STREAMS: usize = 64;
@@ -138,22 +149,125 @@ pub(crate) struct SharedSession {
     pub(crate) protocol: crate::config::OrchestrationProtocol,
 }
 
-#[derive(Debug)]
 pub(crate) struct ProtocolSession {
     pub(crate) streams: StreamSet,
-    /// The requests this connection has running elsewhere. See
-    /// [`crate::rpc::dispatch::routing::detach`] for which ones go here.
+    /// The requests this connection has running elsewhere: every
+    /// [`Handler::Detached`] method's.
     pub(crate) detached: DetachedSet,
     pub(crate) shared: SharedSession,
+    methods: &'static MethodTable,
 }
 
 impl ProtocolSession {
-    pub(crate) fn new(frames: mpsc::Sender<Value>) -> Self {
+    pub(crate) fn new(frames: mpsc::Sender<Value>, methods: &'static MethodTable) -> Self {
         Self {
             streams: StreamSet::new(frames.clone()),
             detached: DetachedSet::new(frames),
             shared: SharedSession::default(),
+            methods,
         }
+    }
+
+    /// Answer one request, or start it.
+    ///
+    /// `None`: the method is [`Handler::Detached`], so it answers on the frame
+    /// channel once it finishes.
+    async fn answer(
+        &mut self,
+        id: RequestId,
+        tag: String,
+        payload: Value,
+        state: &UiRpcState,
+        identity: &UiRpcAuthIdentity,
+        span: &tracing::Span,
+    ) -> Option<Vec<Value>> {
+        // Copied out so a borrow of an entry is not a borrow of `self`, which a
+        // stream handler takes.
+        let methods = self.methods;
+        let method = methods.get(&tag);
+        let label = method.map(|method| method.tag);
+        if let Some(refusal) = self.refuse(&id, &tag, method, identity) {
+            return Some(answered(span, label, identity, ready(refusal)).await);
+        }
+        let Some((method, handler)) = method.and_then(|method| {
+            method
+                .handler(self.shared.protocol)
+                .map(|handler| (method, handler))
+        }) else {
+            let unsupported = vec![unsupported_exit(&id, &tag)];
+            return Some(answered(span, label, identity, ready(unsupported)).await);
+        };
+        let request = Request {
+            id: id.clone(),
+            tag: method.tag,
+            scope: method.scope,
+            payload,
+            state: state.clone(),
+            identity: identity.clone(),
+            shared: self.shared.clone(),
+        };
+        match handler {
+            Handler::Detached(respond) => {
+                let request = respond(request);
+                let detached = {
+                    let span = span.clone();
+                    let identity = identity.clone();
+                    async move { answered(&span, label, &identity, request).await }
+                };
+                match self.detached.spawn(&id, detached) {
+                    None => None,
+                    // At the cap: answered on the frame loop, which is where
+                    // every request was answered before any of them detached.
+                    Some(request) => Some(request.await),
+                }
+            }
+            Handler::Session(respond) => {
+                Some(answered(span, label, identity, respond(request)).await)
+            }
+            Handler::Stream(open) => {
+                Some(answered(span, label, identity, open(self, request)).await)
+            }
+        }
+    }
+
+    /// The refusals that precede a dispatch, and so precede the choice of which
+    /// path answers it.
+    fn refuse(
+        &mut self,
+        id: &RequestId,
+        tag: &str,
+        method: Option<&Method>,
+        identity: &UiRpcAuthIdentity,
+    ) -> Option<Vec<Value>> {
+        if !valid_request_id(id.as_str()) {
+            return Some(vec![connection_defect(
+                "invalid_request_id",
+                "Request id is not a decimal string and cannot be correlated",
+            )]);
+        }
+        if self.streams.contains_active(id) || self.detached.contains_active(id) {
+            return Some(vec![connection_defect(
+                "duplicate_request_id",
+                format!("Duplicate in-flight RPC request id: {id}"),
+            )]);
+        }
+
+        // An unknown tag gets the reference server's default for an
+        // unclassified method, the narrowest scope this deployment grants. The
+        // grant is the deployment's, not the client's: a pairing that asked for
+        // less still gets a credential carrying all of it.
+        let required = method.map_or(Scope::OrchestrationRead, |method| method.scope);
+        if !required.is_granted() {
+            // `warn!`, not `debug!`: deployments run at `RUST_LOG=info`, and a
+            // client asking for a method this deployment withholds is the
+            // refusal an operator most needs to see.
+            warn!(%tag, %required, user_id = %identity.user_id, "T3 UI request refused; scope not granted");
+            return Some(vec![typed_failure_exit(
+                id,
+                authorization_error(required, format!("This server does not grant {required}.")),
+            )]);
+        }
+        None
     }
 }
 

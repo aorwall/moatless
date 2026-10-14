@@ -1,10 +1,42 @@
 //! The `preview.*` methods.
 
-use super::routing::Request;
 use crate::authentication::viewer_scope;
+use crate::oauth::Scope;
 use crate::preview;
 use crate::rpc::errors::preview_answer;
+use crate::rpc::table::MethodTable;
+use crate::rpc::table::Request;
 use serde_json::Value;
+
+pub(super) fn preview_methods() -> MethodTable {
+    MethodTable::new()
+        .declared("preview.automationConnect", Scope::OrchestrationOperate)
+        .declared("preview.automationFocusHost", Scope::OrchestrationOperate)
+        .declared("preview.automationRespond", Scope::OrchestrationOperate)
+        .session("preview.close", Scope::OrchestrationOperate, preview_close)
+        .detached("preview.list", Scope::OrchestrationRead, preview_list)
+        .session(
+            "preview.navigate",
+            Scope::OrchestrationOperate,
+            preview_navigate,
+        )
+        .session("preview.open", Scope::OrchestrationOperate, preview_open)
+        .session(
+            "preview.refresh",
+            Scope::OrchestrationOperate,
+            preview_refresh,
+        )
+        .session(
+            "preview.reportStatus",
+            Scope::OrchestrationOperate,
+            preview_report_status,
+        )
+        .session(
+            "preview.resize",
+            Scope::OrchestrationOperate,
+            preview_resize,
+        )
+}
 
 pub(super) async fn preview_list(request: Request) -> Vec<Value> {
     let Request {

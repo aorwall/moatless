@@ -1,21 +1,24 @@
-//! The routed method set, read from `methods.tsv`, and what a client is told
-//! for a tag that has no handler.
+//! The method table against the routed set `methods.tsv` snapshots, and the
+//! order its session methods answer in.
 
 use super::fixtures::*;
 use super::*;
 use crate::config::OrchestrationProtocol;
-use crate::oauth;
+use crate::rpc::table::Handler;
+use crate::rpc::table::MethodTable;
+use std::sync::Mutex;
 
 /// One row of `methods.tsv`.
-pub(crate) struct RoutedMethod {
-    pub(crate) tag: &'static str,
-    pub(crate) scope: &'static str,
-    pub(crate) v1: &'static str,
-    pub(crate) v2: &'static str,
+struct RoutedMethod {
+    tag: &'static str,
+    scope: &'static str,
+    v1: &'static str,
+    v2: &'static str,
+    v2_handler: &'static str,
 }
 
 impl RoutedMethod {
-    pub(crate) fn mode(&self, protocol: OrchestrationProtocol) -> &'static str {
+    fn mode(&self, protocol: OrchestrationProtocol) -> &'static str {
         match protocol {
             OrchestrationProtocol::V1 => self.v1,
             OrchestrationProtocol::V2 => self.v2,
@@ -25,7 +28,7 @@ impl RoutedMethod {
 
 const MODES: [&str; 5] = ["detached", "session", "stream", "unsupported", "declared"];
 
-pub(crate) fn routed_methods() -> Vec<RoutedMethod> {
+fn routed_methods() -> Vec<RoutedMethod> {
     include_str!("methods.tsv")
         .lines()
         .filter(|line| !line.starts_with('#'))
@@ -42,7 +45,13 @@ pub(crate) fn routed_methods() -> Vec<RoutedMethod> {
                 ["own", "same", "-"].contains(&v2_handler),
                 "methods.tsv v2_handler: {line}"
             );
-            RoutedMethod { tag, scope, v1, v2 }
+            RoutedMethod {
+                tag,
+                scope,
+                v1,
+                v2,
+                v2_handler,
+            }
         })
         .collect()
 }
@@ -63,7 +72,11 @@ async fn a_tag_without_a_handler_answers_for_its_scope_or_its_absence() {
                 .handle_json(&request("1", method.tag, json!({})), &state, &viewer())
                 .await;
             let error = &output.frames[0]["exit"]["cause"][0]["error"];
-            if oauth::GRANTED_SCOPES.contains(&method.scope) {
+            let scope = methods()
+                .get(method.tag)
+                .expect("every row is in the table")
+                .scope;
+            if scope.is_granted() {
                 assert_eq!(
                     error["_tag"], "UnsupportedMethodError",
                     "{} {protocol:?}",
@@ -80,4 +93,83 @@ async fn a_tag_without_a_handler_answers_for_its_scope_or_its_absence() {
             }
         }
     }
+}
+
+/// Both directions: the table holds every row's tag and no other, and answers
+/// each as the row records.
+#[test]
+fn the_table_routes_exactly_the_snapshotted_set() {
+    let snapshot = routed_methods();
+    let mut expected: Vec<&str> = snapshot.iter().map(|row| row.tag).collect();
+    expected.sort_unstable();
+    let tags: Vec<&str> = methods().iter().map(|method| method.tag).collect();
+    assert_eq!(tags, expected);
+
+    for row in snapshot {
+        let method = methods().get(row.tag).expect("every row is in the table");
+        assert_eq!(method.scope.as_str(), row.scope, "{}", row.tag);
+        for protocol in [OrchestrationProtocol::V1, OrchestrationProtocol::V2] {
+            let mode = method
+                .handler(protocol)
+                .map_or("unsupported", Handler::mode);
+            let recorded = match row.mode(protocol) {
+                "declared" => "unsupported",
+                recorded => recorded,
+            };
+            assert_eq!(mode, recorded, "{} {protocol:?}", row.tag);
+        }
+        match row.v2_handler {
+            "own" => assert!(method.v2_is_own(), "{}", row.tag),
+            "same" => assert!(!method.v2_is_own(), "{}", row.tag),
+            _ => {}
+        }
+    }
+}
+
+/// A session method finishes before anything sent after it in the same frame
+/// starts, a detached read included: the read sees the transition done.
+#[tokio::test]
+async fn an_ordered_transition_waits_for_the_one_before_it() {
+    let log: &'static Mutex<Vec<&'static str>> = Box::leak(Box::default());
+    let record = |entry: &'static str| log.lock().expect("log").push(entry);
+    let table = MethodTable::new()
+        .session(
+            "test.slowTransition",
+            Scope::OrchestrationOperate,
+            move |_| async move {
+                tokio::time::sleep(Duration::from_millis(30)).await;
+                record("slow transition");
+                Vec::new()
+            },
+        )
+        .session(
+            "test.transition",
+            Scope::OrchestrationOperate,
+            move |_| async move {
+                record("transition");
+                Vec::new()
+            },
+        )
+        .detached("test.read", Scope::OrchestrationRead, move |_| async move {
+            record("read");
+            Vec::new()
+        });
+    let (frames, _pushed) = mpsc::channel(OUTBOUND_FRAMES);
+    let mut session = ProtocolSession::new(frames, Box::leak(Box::new(table)));
+    let batch: Vec<Value> = ["test.slowTransition", "test.transition", "test.read"]
+        .iter()
+        .enumerate()
+        .map(|(id, tag)| {
+            json!({ "_tag": "Request", "id": id.to_string(), "tag": tag, "payload": {}, "headers": [] })
+        })
+        .collect();
+    let bytes = serde_json::to_vec(&batch).expect("a batch encodes");
+
+    session.handle_json(&bytes, &state(), &viewer()).await;
+    session.detached.wait_until_idle().await;
+
+    assert_eq!(
+        *log.lock().expect("log"),
+        ["slow transition", "transition", "read"]
+    );
 }

@@ -53,6 +53,7 @@ async fn a_method_this_server_does_not_have_says_so_in_a_type_the_client_reads()
 fn a_thread_the_viewer_cannot_read_is_a_typed_refusal_not_a_defect() {
     let frame = sandbox_failure_exit(
         &request_id("1"),
+        Scope::OrchestrationRead,
         "sandbox.subscribeStatus",
         &SandboxRpcError::NotFound,
         &viewer(),
@@ -71,6 +72,7 @@ fn a_thread_the_viewer_cannot_read_is_a_typed_refusal_not_a_defect() {
 fn a_sandbox_that_could_not_be_read_is_still_a_defect() {
     let frame = sandbox_failure_exit(
         &request_id("1"),
+        Scope::OrchestrationRead,
         "sandbox.status",
         &SandboxRpcError::Database(sqlx::Error::RowNotFound),
         &viewer(),
@@ -85,6 +87,7 @@ fn a_sandbox_that_could_not_be_read_is_still_a_defect() {
 fn the_metrics_seam_reads_an_unreadable_thread_as_unauthorized() {
     let frames = vec![sandbox_failure_exit(
         &request_id("1"),
+        Scope::OrchestrationRead,
         "sandbox.subscribeStatus",
         &SandboxRpcError::NotFound,
         &viewer(),

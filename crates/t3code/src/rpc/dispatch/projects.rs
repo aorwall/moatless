@@ -1,12 +1,12 @@
 //! Methods that read and write the Workspace's files and attachments.
 
 use super::orchestration_v2::command_context;
-use super::routing::Request;
 use crate::assets;
 use crate::attachments;
 use crate::authentication::viewer_scope;
 use crate::commands;
 use crate::files;
+use crate::oauth::Scope;
 use crate::projection;
 use crate::rpc::envelope::failure_exit;
 use crate::rpc::envelope::success_exit;
@@ -14,11 +14,59 @@ use crate::rpc::envelope::typed_failure_exit;
 use crate::rpc::errors::file_failure_exit;
 use crate::rpc::session::SEARCH_ENTRIES_LIMIT;
 use crate::rpc::session::SEARCH_ENTRIES_MAX;
+use crate::rpc::table::MethodTable;
+use crate::rpc::table::Request;
 use crate::snapshots::workspace_cwd;
 use crate::v2_commands;
 use crate::workspace::WorkspaceAccessError;
 use serde_json::Value;
 use serde_json::json;
+
+pub(super) fn project_methods() -> MethodTable {
+    MethodTable::new()
+        .session(
+            "assets.createUrl",
+            Scope::OrchestrationRead,
+            assets_create_url,
+        )
+        .session(
+            "attachments.createUploadUrl",
+            Scope::OrchestrationOperate,
+            attachments_create_upload_url,
+        )
+        .session(
+            "attachments.delete",
+            Scope::OrchestrationOperate,
+            attachments_delete,
+        )
+        .declared("projects.add", Scope::OrchestrationOperate)
+        .detached(
+            "projects.listEntries",
+            Scope::OrchestrationRead,
+            projects_list_entries,
+        )
+        .session(
+            "projects.mutate",
+            Scope::OrchestrationOperate,
+            projects_mutate,
+        )
+        .detached(
+            "projects.readFile",
+            Scope::OrchestrationRead,
+            projects_read_file,
+        )
+        .declared("projects.remove", Scope::OrchestrationOperate)
+        .detached(
+            "projects.searchEntries",
+            Scope::OrchestrationRead,
+            projects_search_entries,
+        )
+        .session(
+            "projects.writeFile",
+            Scope::OrchestrationOperate,
+            projects_write_file,
+        )
+}
 
 pub(super) async fn projects_list_entries(request: Request) -> Vec<Value> {
     let Request {
@@ -32,7 +80,7 @@ pub(super) async fn projects_list_entries(request: Request) -> Vec<Value> {
     let Some(cwd) = workspace_cwd(&payload) else {
         return vec![file_failure_exit(
             &id,
-            &tag,
+            tag,
             &WorkspaceAccessError::Unaddressable,
             &identity,
         )];
@@ -46,7 +94,7 @@ pub(super) async fn projects_list_entries(request: Request) -> Vec<Value> {
     .await
     {
         Ok(listing) => vec![success_exit(&id, listing)],
-        Err(error) => vec![file_failure_exit(&id, &tag, &error, &identity)],
+        Err(error) => vec![file_failure_exit(&id, tag, &error, &identity)],
     }
 }
 
@@ -67,7 +115,7 @@ pub(super) async fn projects_read_file(request: Request) -> Vec<Value> {
     let (Some(cwd), Some(relative_path)) = (workspace_cwd(&payload), relative_path) else {
         return vec![file_failure_exit(
             &id,
-            &tag,
+            tag,
             &WorkspaceAccessError::Unaddressable,
             &identity,
         )];
@@ -83,7 +131,7 @@ pub(super) async fn projects_read_file(request: Request) -> Vec<Value> {
     {
         Ok(file) => vec![success_exit(&id, file)],
         Err(files::ReadFileError::Access(error)) => {
-            vec![file_failure_exit(&id, &tag, &error, &identity)]
+            vec![file_failure_exit(&id, tag, &error, &identity)]
         }
         Err(files::ReadFileError::Binary { path }) => vec![typed_failure_exit(
             &id,
@@ -118,7 +166,7 @@ pub(super) async fn projects_search_entries(request: Request) -> Vec<Value> {
     let Some(cwd) = workspace_cwd(&payload) else {
         return vec![file_failure_exit(
             &id,
-            &tag,
+            tag,
             &WorkspaceAccessError::Unaddressable,
             &identity,
         )];
@@ -141,7 +189,7 @@ pub(super) async fn projects_search_entries(request: Request) -> Vec<Value> {
     .await
     {
         Ok(entries) => vec![success_exit(&id, entries)],
-        Err(error) => vec![file_failure_exit(&id, &tag, &error, &identity)],
+        Err(error) => vec![file_failure_exit(&id, tag, &error, &identity)],
     }
 }
 
@@ -167,7 +215,7 @@ pub(super) async fn projects_write_file(request: Request) -> Vec<Value> {
     else {
         return vec![file_failure_exit(
             &id,
-            &tag,
+            tag,
             &WorkspaceAccessError::Unaddressable,
             &identity,
         )];
@@ -183,14 +231,14 @@ pub(super) async fn projects_write_file(request: Request) -> Vec<Value> {
     .await
     {
         Ok(written) => vec![success_exit(&id, written)],
-        Err(error) => vec![file_failure_exit(&id, &tag, &error, &identity)],
+        Err(error) => vec![file_failure_exit(&id, tag, &error, &identity)],
     }
 }
 
 /// Mints an asset as a route this backend serves the file on, not a local path
 /// — a checkout lives only in its Sandbox; a favicon names no file and always
 /// answers none.
-pub(super) fn assets_create_url(request: Request) -> Vec<Value> {
+pub(super) async fn assets_create_url(request: Request) -> Vec<Value> {
     let Request { id, payload, .. } = request;
     // The error carries the resource back, and the client decodes it against the
     // same schema it sent — so a request without one has no typed answer to give
@@ -213,7 +261,7 @@ pub(super) fn assets_create_url(request: Request) -> Vec<Value> {
 /// Mints the URL the composer uploads a file to before sending the turn that
 /// names it; the URL carries its own credential, so nothing about the upload
 /// reaches this socket except the id.
-pub(super) fn attachments_create_upload_url(request: Request) -> Vec<Value> {
+pub(super) async fn attachments_create_upload_url(request: Request) -> Vec<Value> {
     let Request {
         id,
         payload,

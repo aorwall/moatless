@@ -1,9 +1,9 @@
 //! Methods that answer for the deployment itself.
 
-use super::routing::Request;
 use crate::authentication::viewer_scope;
 use crate::config::T3_CLIENT_CONTRACT_VERSION;
 use crate::git_actions;
+use crate::oauth::Scope;
 use crate::providers;
 use crate::rpc::config::now_rfc3339;
 use crate::rpc::config::platform_arch;
@@ -12,16 +12,77 @@ use crate::rpc::config::server_config;
 use crate::rpc::envelope::success_exit;
 use crate::rpc::envelope::typed_failure_exit;
 use crate::rpc::session::resolve_workspace_skills;
+use crate::rpc::table::MethodTable;
+use crate::rpc::table::Request;
 use crate::usage;
 use serde_json::Value;
 use serde_json::json;
 use tracing::warn;
 
-pub(super) fn server_probe(request: Request) -> Vec<Value> {
+pub(super) fn server_methods() -> MethodTable {
+    MethodTable::new()
+        .session(
+            "cloud.getRelayClientStatus",
+            Scope::RelayRead,
+            cloud_get_relay_client_status,
+        )
+        .declared("cloud.installRelayClient", Scope::RelayWrite)
+        .detached(
+            "server.discoverSourceControl",
+            Scope::OrchestrationRead,
+            server_discover_source_control,
+        )
+        .detached(
+            "server.getConfig",
+            Scope::OrchestrationRead,
+            server_get_config,
+        )
+        .session(
+            "server.getSettings",
+            Scope::OrchestrationRead,
+            server_get_settings,
+        )
+        .detached(
+            "server.getUsageSummary",
+            Scope::OrchestrationRead,
+            server_get_usage_summary,
+        )
+        .session("server.probe", Scope::OrchestrationRead, server_probe)
+        .detached(
+            "server.refreshProviders",
+            Scope::OrchestrationOperate,
+            server_refresh_providers,
+        )
+        .declared("server.removeKeybinding", Scope::OrchestrationOperate)
+        .session(
+            "server.reportClientActivity",
+            Scope::OrchestrationRead,
+            server_report_client_activity,
+        )
+        .declared("server.reportHostPowerState", Scope::OrchestrationOperate)
+        .declared("server.retryResourceTelemetry", Scope::OrchestrationOperate)
+        .declared("server.signalProcess", Scope::OrchestrationOperate)
+        .declared("server.updateProvider", Scope::OrchestrationOperate)
+        .declared("server.updateServer", Scope::OrchestrationOperate)
+        .declared(
+            "server.updateServerWithProgress",
+            Scope::OrchestrationOperate,
+        )
+        .declared("server.updateSettings", Scope::OrchestrationOperate)
+        .declared("server.upsertKeybinding", Scope::OrchestrationOperate)
+        .declared("shell.openInEditor", Scope::OrchestrationOperate)
+        .declared("sourceControl.cloneRepository", Scope::OrchestrationOperate)
+        .declared(
+            "sourceControl.publishRepository",
+            Scope::OrchestrationOperate,
+        )
+}
+
+pub(super) async fn server_probe(request: Request) -> Vec<Value> {
     vec![success_exit(&request.id, json!({}))]
 }
 
-pub(super) fn server_get_settings(request: Request) -> Vec<Value> {
+pub(super) async fn server_get_settings(request: Request) -> Vec<Value> {
     vec![success_exit(&request.id, json!({}))]
 }
 
@@ -30,11 +91,11 @@ pub(super) fn server_get_settings(request: Request) -> Vec<Value> {
 /// Moatless runs agents in Sandboxes no browser tab is attached to, so this
 /// per-focus-change report is meaningless here, and refusing it would just be
 /// noise.
-pub(super) fn server_report_client_activity(request: Request) -> Vec<Value> {
+pub(super) async fn server_report_client_activity(request: Request) -> Vec<Value> {
     vec![success_exit(&request.id, Value::Null)]
 }
 
-pub(super) fn cloud_get_relay_client_status(request: Request) -> Vec<Value> {
+pub(super) async fn cloud_get_relay_client_status(request: Request) -> Vec<Value> {
     vec![success_exit(
         &request.id,
         json!({

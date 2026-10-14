@@ -159,7 +159,7 @@ fn a_failed_request_marks_its_span_as_an_error() {
         let _entered = span.enter();
         record_request(
             &span,
-            "shell.list",
+            Some("shell.list"),
             &[json!({
                 "_tag": "Exit",
                 "requestId": "1",
@@ -201,7 +201,7 @@ fn a_successful_request_leaves_its_span_unset() {
         let _entered = span.enter();
         record_request(
             &span,
-            "server.probe",
+            Some("server.probe"),
             &[json!({
                 "_tag": "Exit",
                 "requestId": "1",

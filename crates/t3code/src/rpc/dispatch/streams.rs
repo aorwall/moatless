@@ -2,10 +2,9 @@
 //!
 //! A method here holds the frame loop; see `docs/deferred-changes.md`.
 
-use super::routing::Request;
-use super::routing::ThreadRequest;
 use crate::authentication::viewer_scope;
 use crate::config::T3_ENVIRONMENT_LABEL;
+use crate::oauth::Scope;
 use crate::rpc::config::descriptor;
 use crate::rpc::config::server_config;
 use crate::rpc::config::sources_event;
@@ -14,6 +13,9 @@ use crate::rpc::errors::sandbox_failure_exit;
 use crate::rpc::errors::shell_failure_exit;
 use crate::rpc::errors::terminal_failure_exit;
 use crate::rpc::session::ProtocolSession;
+use crate::rpc::table::MethodTable;
+use crate::rpc::table::Request;
+use crate::rpc::table::ThreadRequest;
 use crate::rpc::watch;
 use crate::sandbox;
 use crate::snapshots::after_sequence;
@@ -25,6 +27,74 @@ use serde_json::Value;
 use serde_json::json;
 use tokio::sync::broadcast;
 use tracing::error;
+
+pub(super) fn stream_methods() -> MethodTable {
+    MethodTable::new()
+        // `subscribeDiscoveredLocalServers` is deliberately absent and answers
+        // `UnsupportedMethodError`: there is no local-server discovery, and a
+        // stream that never says anything reads to a client as "connected,
+        // nothing to report".
+        .stream(
+            "orchestration.subscribeShell",
+            Scope::OrchestrationRead,
+            |session, request| Box::pin(session.orchestration_subscribe_shell(request)),
+        )
+        .stream(
+            "orchestration.subscribeThread",
+            Scope::OrchestrationRead,
+            |session, request| Box::pin(session.orchestration_subscribe_thread(request)),
+        )
+        .stream(
+            "sandbox.subscribeDetail",
+            Scope::OrchestrationRead,
+            |session, request| Box::pin(session.sandbox_subscribe_detail(request)),
+        )
+        .stream(
+            "sandbox.subscribeStatus",
+            Scope::OrchestrationRead,
+            |session, request| Box::pin(session.sandbox_subscribe_status(request)),
+        )
+        .stream(
+            "subscribeAuthAccess",
+            Scope::AccessRead,
+            |session, request| Box::pin(session.subscribe_auth_access(request)),
+        )
+        .stream(
+            "subscribePreviewEvents",
+            Scope::OrchestrationRead,
+            |session, request| Box::pin(session.subscribe_preview_events(request)),
+        )
+        .stream(
+            "subscribeServerConfig",
+            Scope::OrchestrationRead,
+            |session, request| Box::pin(session.subscribe_server_config(request)),
+        )
+        .stream(
+            "subscribeServerLifecycle",
+            Scope::OrchestrationRead,
+            |session, request| Box::pin(session.subscribe_server_lifecycle(request)),
+        )
+        .stream(
+            "subscribeTerminalEvents",
+            Scope::TerminalOperate,
+            |session, request| Box::pin(session.subscribe_terminal_events(request)),
+        )
+        .stream(
+            "subscribeTerminalMetadata",
+            Scope::TerminalOperate,
+            |session, request| Box::pin(session.subscribe_terminal_metadata(request)),
+        )
+        .stream(
+            "subscribeVcsStatus",
+            Scope::OrchestrationRead,
+            |session, request| Box::pin(session.subscribe_vcs_status(request)),
+        )
+        .stream(
+            "terminal.attach",
+            Scope::TerminalOperate,
+            |session, request| Box::pin(session.terminal_attach(request)),
+        )
+}
 
 impl ProtocolSession {
     pub(super) async fn terminal_attach(&mut self, request: Request) -> Vec<Value> {
@@ -57,6 +127,7 @@ impl ProtocolSession {
         let ThreadRequest {
             id,
             tag,
+            scope,
             viewer,
             task_id,
             state,
@@ -70,12 +141,12 @@ impl ProtocolSession {
         // status before the first interval elapses rather than after it.
         let seeded = match sandbox::status(&state.sandbox, &viewer, &task_id).await {
             Ok(status) => status,
-            Err(error) => return vec![sandbox_failure_exit(&id, &tag, &error, &identity)],
+            Err(error) => return vec![sandbox_failure_exit(&id, scope, tag, &error, &identity)],
         };
         let sandbox = state.sandbox.clone();
         self.streams
             .start_produced(&id, Some(vec![seeded.clone()]), move |sink| {
-                sandbox::watch_status(sink, sandbox, viewer, task_id, seeded)
+                sandbox::watch_status(sink, scope, sandbox, viewer, task_id, seeded)
             })
     }
 
@@ -83,6 +154,7 @@ impl ProtocolSession {
         let ThreadRequest {
             id,
             tag,
+            scope,
             viewer,
             task_id,
             state,
@@ -96,12 +168,12 @@ impl ProtocolSession {
         // so: this subscription's interval is five times as long.
         let seeded = match sandbox::detail(&state.sandbox, &viewer, &task_id).await {
             Ok(detail) => detail,
-            Err(error) => return vec![sandbox_failure_exit(&id, &tag, &error, &identity)],
+            Err(error) => return vec![sandbox_failure_exit(&id, scope, tag, &error, &identity)],
         };
         let sandbox = state.sandbox.clone();
         self.streams
             .start_produced(&id, Some(vec![seeded.clone()]), move |sink| {
-                sandbox::watch_detail(sink, sandbox, viewer, task_id, seeded)
+                sandbox::watch_detail(sink, scope, sandbox, viewer, task_id, seeded)
             })
     }
 
@@ -252,7 +324,7 @@ impl ProtocolSession {
         started
     }
 
-    pub(super) fn subscribe_server_lifecycle(&mut self, request: Request) -> Vec<Value> {
+    pub(super) async fn subscribe_server_lifecycle(&mut self, request: Request) -> Vec<Value> {
         self.streams.start(
             &request.id,
             Some(vec![json!({
@@ -268,7 +340,7 @@ impl ProtocolSession {
         )
     }
 
-    pub(super) fn subscribe_auth_access(&mut self, request: Request) -> Vec<Value> {
+    pub(super) async fn subscribe_auth_access(&mut self, request: Request) -> Vec<Value> {
         self.streams.start(
             &request.id,
             Some(vec![json!({
@@ -283,7 +355,7 @@ impl ProtocolSession {
         )
     }
 
-    pub(super) fn subscribe_preview_events(&mut self, request: Request) -> Vec<Value> {
+    pub(super) async fn subscribe_preview_events(&mut self, request: Request) -> Vec<Value> {
         let preview = request.state.preview.clone();
         let viewer = viewer_scope(&request.identity);
         self.streams.start_produced(&request.id, None, move |sink| {
@@ -291,14 +363,14 @@ impl ProtocolSession {
         })
     }
 
-    pub(super) fn subscribe_terminal_events(&mut self, request: Request) -> Vec<Value> {
+    pub(super) async fn subscribe_terminal_events(&mut self, request: Request) -> Vec<Value> {
         let events = request.state.terminal.subscribe_events();
         self.streams.start_produced(&request.id, None, move |sink| {
             terminal::forward_value_subscription(events, sink)
         })
     }
 
-    pub(super) fn subscribe_terminal_metadata(&mut self, request: Request) -> Vec<Value> {
+    pub(super) async fn subscribe_terminal_metadata(&mut self, request: Request) -> Vec<Value> {
         let hub = request.state.terminal.clone();
         let tasks = request.state.reads.tasks_arc();
         let viewer = viewer_scope(&request.identity);
@@ -307,7 +379,7 @@ impl ProtocolSession {
         })
     }
 
-    pub(super) fn subscribe_vcs_status(&mut self, request: Request) -> Vec<Value> {
+    pub(super) async fn subscribe_vcs_status(&mut self, request: Request) -> Vec<Value> {
         let Request {
             id,
             payload,

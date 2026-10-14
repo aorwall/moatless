@@ -726,9 +726,9 @@ pub(super) fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore
 
 /// A session whose pushed frames go nowhere; these tests drive requests only. A
 /// detached request answers on this channel, not its caller — use
-/// [`connection`] for tests on a `detach`-routed tag.
+/// [`connection`] for tests on a [`Handler::Detached`](crate::rpc::table::Handler) method.
 pub(super) fn session() -> ProtocolSession {
-    ProtocolSession::new(mpsc::channel(OUTBOUND_FRAMES).0)
+    ProtocolSession::new(mpsc::channel(OUTBOUND_FRAMES).0, methods())
 }
 
 /// A session holding the frame channel `serve_websocket` writes to the socket.
@@ -740,7 +740,7 @@ pub(super) struct Connection {
 pub(super) fn connection() -> Connection {
     let (frames, pushed) = mpsc::channel(OUTBOUND_FRAMES);
     Connection {
-        session: ProtocolSession::new(frames),
+        session: ProtocolSession::new(frames, methods()),
         pushed,
     }
 }

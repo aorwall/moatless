@@ -1,14 +1,16 @@
 //! Methods that act on a thread's Sandbox and read what runs inside it.
 
-use super::routing::Request;
-use super::routing::ThreadRequest;
 use crate::authentication::viewer_scope;
+use crate::oauth::Scope;
 use crate::rpc::envelope::failure_exit;
 use crate::rpc::envelope::success_exit;
 use crate::rpc::errors::sandbox_failure_exit;
 use crate::rpc::errors::scripts_failure_exit;
 use crate::rpc::errors::scripts_list_failure_exit;
 use crate::rpc::errors::subtasks_failure_exit;
+use crate::rpc::table::MethodTable;
+use crate::rpc::table::Request;
+use crate::rpc::table::ThreadRequest;
 use crate::sandbox;
 use crate::scripts;
 use crate::scripts::ScriptsError;
@@ -16,6 +18,45 @@ use crate::subtasks;
 use crate::subtasks::SubtasksError;
 use serde_json::Value;
 use serde_json::json;
+
+pub(super) fn sandbox_methods() -> MethodTable {
+    MethodTable::new()
+        .session(
+            "sandbox.cleanup",
+            Scope::OrchestrationOperate,
+            sandbox_cleanup,
+        )
+        .detached(
+            "sandbox.listDiagnostics",
+            Scope::OrchestrationRead,
+            sandbox_list_diagnostics,
+        )
+        .session(
+            "sandbox.redeploy",
+            Scope::OrchestrationOperate,
+            sandbox_redeploy,
+        )
+        .session(
+            "sandbox.restart",
+            Scope::OrchestrationOperate,
+            sandbox_restart,
+        )
+        .session(
+            "sandbox.setIdleTimeout",
+            Scope::OrchestrationOperate,
+            sandbox_set_idle_timeout,
+        )
+        .session("sandbox.start", Scope::OrchestrationRead, sandbox_start)
+        .detached("sandbox.status", Scope::OrchestrationRead, sandbox_status)
+        .session("sandbox.stop", Scope::OrchestrationRead, sandbox_stop)
+        .detached(
+            "scripts.listForThread",
+            Scope::OrchestrationRead,
+            scripts_list_for_thread,
+        )
+        .session("scripts.run", Scope::OrchestrationRead, scripts_run)
+        .detached("subtasks.list", Scope::OrchestrationRead, subtasks_list)
+}
 
 pub(super) async fn scripts_run(request: Request) -> Vec<Value> {
     let Request {
@@ -71,6 +112,7 @@ pub(super) async fn sandbox_start(request: Request) -> Vec<Value> {
     let ThreadRequest {
         id,
         tag,
+        scope,
         viewer,
         task_id,
         state,
@@ -82,7 +124,7 @@ pub(super) async fn sandbox_start(request: Request) -> Vec<Value> {
     };
     match sandbox::start(&state.sandbox, &viewer, &task_id).await {
         Ok(status) => vec![success_exit(&id, status)],
-        Err(error) => vec![sandbox_failure_exit(&id, &tag, &error, &identity)],
+        Err(error) => vec![sandbox_failure_exit(&id, scope, tag, &error, &identity)],
     }
 }
 
@@ -90,6 +132,7 @@ pub(super) async fn sandbox_stop(request: Request) -> Vec<Value> {
     let ThreadRequest {
         id,
         tag,
+        scope,
         viewer,
         task_id,
         state,
@@ -101,7 +144,7 @@ pub(super) async fn sandbox_stop(request: Request) -> Vec<Value> {
     };
     match sandbox::stop(&state.sandbox, &viewer, &task_id).await {
         Ok(status) => vec![success_exit(&id, status)],
-        Err(error) => vec![sandbox_failure_exit(&id, &tag, &error, &identity)],
+        Err(error) => vec![sandbox_failure_exit(&id, scope, tag, &error, &identity)],
     }
 }
 
@@ -109,6 +152,7 @@ pub(super) async fn sandbox_restart(request: Request) -> Vec<Value> {
     let ThreadRequest {
         id,
         tag,
+        scope,
         viewer,
         task_id,
         state,
@@ -120,7 +164,7 @@ pub(super) async fn sandbox_restart(request: Request) -> Vec<Value> {
     };
     match sandbox::restart(&state.sandbox, &viewer, &task_id).await {
         Ok(status) => vec![success_exit(&id, status)],
-        Err(error) => vec![sandbox_failure_exit(&id, &tag, &error, &identity)],
+        Err(error) => vec![sandbox_failure_exit(&id, scope, tag, &error, &identity)],
     }
 }
 
@@ -128,6 +172,7 @@ pub(super) async fn sandbox_redeploy(request: Request) -> Vec<Value> {
     let ThreadRequest {
         id,
         tag,
+        scope,
         viewer,
         task_id,
         state,
@@ -139,7 +184,7 @@ pub(super) async fn sandbox_redeploy(request: Request) -> Vec<Value> {
     };
     match sandbox::redeploy(&state.sandbox, &viewer, &task_id).await {
         Ok(status) => vec![success_exit(&id, status)],
-        Err(error) => vec![sandbox_failure_exit(&id, &tag, &error, &identity)],
+        Err(error) => vec![sandbox_failure_exit(&id, scope, tag, &error, &identity)],
     }
 }
 
@@ -147,6 +192,7 @@ pub(super) async fn sandbox_cleanup(request: Request) -> Vec<Value> {
     let ThreadRequest {
         id,
         tag,
+        scope,
         viewer,
         task_id,
         state,
@@ -158,7 +204,7 @@ pub(super) async fn sandbox_cleanup(request: Request) -> Vec<Value> {
     };
     match sandbox::cleanup(&state.sandbox, &viewer, &task_id).await {
         Ok(status) => vec![success_exit(&id, status)],
-        Err(error) => vec![sandbox_failure_exit(&id, &tag, &error, &identity)],
+        Err(error) => vec![sandbox_failure_exit(&id, scope, tag, &error, &identity)],
     }
 }
 
@@ -166,6 +212,7 @@ pub(super) async fn sandbox_set_idle_timeout(request: Request) -> Vec<Value> {
     let ThreadRequest {
         id,
         tag,
+        scope,
         viewer,
         task_id,
         state,
@@ -186,7 +233,7 @@ pub(super) async fn sandbox_set_idle_timeout(request: Request) -> Vec<Value> {
     };
     match sandbox::set_idle_timeout(state.commands.as_ref(), &viewer, &task_id, minutes).await {
         Ok(result) => vec![success_exit(&id, result)],
-        Err(error) => vec![sandbox_failure_exit(&id, &tag, &error, &identity)],
+        Err(error) => vec![sandbox_failure_exit(&id, scope, tag, &error, &identity)],
     }
 }
 
@@ -194,6 +241,7 @@ pub(super) async fn sandbox_status(request: Request) -> Vec<Value> {
     let ThreadRequest {
         id,
         tag,
+        scope,
         viewer,
         task_id,
         state,
@@ -205,7 +253,7 @@ pub(super) async fn sandbox_status(request: Request) -> Vec<Value> {
     };
     match sandbox::status(&state.sandbox, &viewer, &task_id).await {
         Ok(status) => vec![success_exit(&id, status)],
-        Err(error) => vec![sandbox_failure_exit(&id, &tag, &error, &identity)],
+        Err(error) => vec![sandbox_failure_exit(&id, scope, tag, &error, &identity)],
     }
 }
 
@@ -213,13 +261,14 @@ pub(super) async fn sandbox_list_diagnostics(request: Request) -> Vec<Value> {
     let Request {
         id,
         tag,
+        scope,
         state,
         identity,
         ..
     } = request;
     match sandbox::list_diagnostics(&state.sandbox).await {
         Ok(entries) => vec![success_exit(&id, entries)],
-        Err(error) => vec![sandbox_failure_exit(&id, &tag, &error, &identity)],
+        Err(error) => vec![sandbox_failure_exit(&id, scope, tag, &error, &identity)],
     }
 }
 

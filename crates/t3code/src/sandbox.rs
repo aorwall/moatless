@@ -9,6 +9,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use tracing::warn;
 
+use crate::oauth::Scope;
 use crate::subscription::{StreamFailure, StreamResult, StreamSink};
 use moatless_ports::sandbox::{
     ClusterDiagnostics, SandboxError, SandboxIntentReader, SandboxObserver, SandboxOperator,
@@ -294,28 +295,31 @@ impl Watched {
 /// detector so a repeat isn't sent as a change.
 pub async fn watch_status(
     sink: StreamSink,
+    scope: Scope,
     state: SandboxState,
     viewer: ScopeContext,
     task_id: String,
     seeded: Value,
 ) -> StreamResult {
-    watch(Watched::Status, sink, state, viewer, task_id, seeded).await
+    watch(Watched::Status, sink, scope, state, viewer, task_id, seeded).await
 }
 
 /// The same push for the sandbox panel's wider read; see [`watch_status`].
 pub async fn watch_detail(
     sink: StreamSink,
+    scope: Scope,
     state: SandboxState,
     viewer: ScopeContext,
     task_id: String,
     seeded: Value,
 ) -> StreamResult {
-    watch(Watched::Detail, sink, state, viewer, task_id, seeded).await
+    watch(Watched::Detail, sink, scope, state, viewer, task_id, seeded).await
 }
 
 async fn watch(
     watched: Watched,
     sink: StreamSink,
+    scope: Scope,
     state: SandboxState,
     viewer: ScopeContext,
     task_id: String,
@@ -337,7 +341,7 @@ async fn watch(
                 );
                 return Err(StreamFailure::frame(crate::sandbox_stream_refusal(
                     sink.request_id(),
-                    watched.tag(),
+                    scope,
                 )));
             }
             Err(error) => {
@@ -696,6 +700,7 @@ mod tests {
         streams.start_produced(&request_id, None, move |sink| {
             watch_status(
                 sink,
+                Scope::OrchestrationRead,
                 watched_state(watched.clone()),
                 viewer(),
                 "task-1".to_string(),
@@ -797,7 +802,14 @@ mod tests {
         let request_id: crate::RequestId = serde_json::from_value(json!(1)).expect("a numeric id");
         let mut streams = crate::subscription::StreamSet::new(tx);
         streams.start_produced(&request_id, None, move |sink| {
-            watch_status(sink, state, viewer(), "task-1".to_string(), seeded)
+            watch_status(
+                sink,
+                Scope::OrchestrationRead,
+                state,
+                viewer(),
+                "task-1".to_string(),
+                seeded,
+            )
         });
 
         tokio::time::sleep(STATUS_POLL_INTERVAL * 2).await;

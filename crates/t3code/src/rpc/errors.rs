@@ -2,7 +2,7 @@
 //! becomes, and the one log line its cause gets.
 
 use crate::git_actions;
-use crate::oauth;
+use crate::oauth::Scope;
 use crate::ports;
 use crate::preview;
 use crate::preview::PreviewError;
@@ -35,11 +35,11 @@ pub(crate) const THREAD_UNAVAILABLE: &str = "This thread is not available.";
 ///
 /// `requiredScope` is not always why the request was refused — a viewer with
 /// the scope may still be refused one Task; `message` says which happened.
-pub(crate) fn authorization_error(required_scope: &str, message: impl Into<String>) -> Value {
+pub(crate) fn authorization_error(required_scope: Scope, message: impl Into<String>) -> Value {
     json!({
         "_tag": "EnvironmentAuthorizationError",
         "message": message.into(),
-        "requiredScope": required_scope,
+        "requiredScope": required_scope.as_str(),
     })
 }
 
@@ -452,6 +452,7 @@ fn sandbox_not_running(thread_id: &str) -> Value {
 /// `EnvironmentAuthorizationError`.
 pub(crate) fn sandbox_failure_exit(
     request_id: &RequestId,
+    scope: Scope,
     tag: &str,
     error: &SandboxRpcError,
     identity: &UiRpcAuthIdentity,
@@ -459,10 +460,7 @@ pub(crate) fn sandbox_failure_exit(
     match error {
         SandboxRpcError::NotFound => {
             warn!(%tag, user_id = %identity.user_id, "T3 UI sandbox request refused; thread not readable");
-            typed_failure_exit(
-                request_id,
-                authorization_error(oauth::required_scope(tag), THREAD_UNAVAILABLE),
-            )
+            typed_failure_exit(request_id, authorization_error(scope, THREAD_UNAVAILABLE))
         }
         // Moatless declined the change and said why in terms the person asking
         // can act on, so its own words go back rather than the generic failure.
@@ -481,11 +479,8 @@ pub(crate) fn sandbox_failure_exit(
 ///
 /// The same refusal [`sandbox_failure_exit`] gives the opening request, as the
 /// `Exit` that closes a stream already delivering chunks.
-pub(crate) fn sandbox_stream_refusal(request_id: &RequestId, tag: &str) -> Value {
-    typed_failure_exit(
-        request_id,
-        authorization_error(oauth::required_scope(tag), THREAD_UNAVAILABLE),
-    )
+pub(crate) fn sandbox_stream_refusal(request_id: &RequestId, scope: Scope) -> Value {
+    typed_failure_exit(request_id, authorization_error(scope, THREAD_UNAVAILABLE))
 }
 
 /// The method is not one this server has.

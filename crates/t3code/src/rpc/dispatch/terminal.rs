@@ -1,11 +1,23 @@
 //! The `terminal.*` methods that are not the attach stream.
 
-use super::routing::Request;
 use crate::authentication::viewer_scope;
+use crate::oauth::Scope;
 use crate::rpc::envelope::success_exit;
 use crate::rpc::errors::terminal_failure_exit;
+use crate::rpc::table::MethodTable;
+use crate::rpc::table::Request;
 use crate::terminal;
 use serde_json::Value;
+
+pub(super) fn terminal_methods() -> MethodTable {
+    MethodTable::new()
+        .session("terminal.clear", Scope::TerminalOperate, terminal_clear)
+        .session("terminal.close", Scope::TerminalOperate, terminal_close)
+        .session("terminal.open", Scope::TerminalOperate, terminal_open)
+        .session("terminal.resize", Scope::TerminalOperate, terminal_resize)
+        .session("terminal.restart", Scope::TerminalOperate, terminal_restart)
+        .session("terminal.write", Scope::TerminalOperate, terminal_write)
+}
 
 pub(super) async fn terminal_open(request: Request) -> Vec<Value> {
     let Request {

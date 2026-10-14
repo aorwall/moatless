@@ -4,9 +4,9 @@
 //! produced. The exceptions say where they are emitted; nothing else in this
 //! crate increments any of them.
 //!
-//! The `tag` label is a method name the client chose, so it is bounded by
-//! [`Outcome::tag_label`] rather than by trust: only an outcome that proves the
-//! dispatch matched an arm carries the raw tag.
+//! The `tag` label is bounded by the method table rather than by trust: it is
+//! the matched entry's own `&'static str`, never the tag the client sent. See
+//! [`Outcome::tag_label`].
 
 use moatless_types::ui_rpc::UiRpcAuthIdentity;
 use serde_json::Value;
@@ -104,16 +104,17 @@ impl Outcome {
         }
     }
 
-    /// The `tag` label for a request that ended this way.
+    /// The `tag` label for a request that ended this way, given the tag of the
+    /// table entry it matched.
     ///
-    /// [`Self::Rejected`] and [`Self::Unsupported`] are the two outcomes a tag
-    /// no arm matched can reach, so they collapse to a constant; every other
-    /// outcome comes from a matched arm, so the raw tag is safe to label with.
-    pub(crate) fn tag_label(self, tag: &str) -> &str {
+    /// [`Self::Rejected`] and [`Self::Unsupported`] collapse to a constant even
+    /// for a matched entry, so a method without a handler counts with the tags
+    /// no entry matched. No other outcome is reachable without an entry.
+    pub(crate) fn tag_label(self, method: Option<&'static str>) -> &'static str {
         match self {
             Self::Rejected => "rejected",
             Self::Unsupported => "unsupported",
-            _ => tag,
+            _ => method.unwrap_or("unsupported"),
         }
     }
 
@@ -224,20 +225,20 @@ pub(crate) fn request_root_span(
 /// [`Outcome::Interrupted`], when `DetachedRequest` aborts its task.
 pub(crate) async fn answered(
     span: &tracing::Span,
-    tag: &str,
+    method: Option<&'static str>,
     identity: &UiRpcAuthIdentity,
     request: impl Future<Output = Vec<Value>>,
 ) -> Vec<Value> {
     let mut abandoned = Abandoned {
         span,
-        tag,
+        method,
         identity,
         started: std::time::Instant::now(),
         answered: false,
     };
     let frames = request.instrument(span.clone()).await;
     abandoned.answered = true;
-    record_request(span, tag, &frames, abandoned.started.elapsed(), identity);
+    record_request(span, method, &frames, abandoned.started.elapsed(), identity);
     frames
 }
 
@@ -246,7 +247,7 @@ pub(crate) async fn answered(
 /// request that stopped without frames.
 struct Abandoned<'a> {
     span: &'a tracing::Span,
-    tag: &'a str,
+    method: Option<&'static str>,
     identity: &'a UiRpcAuthIdentity,
     started: std::time::Instant,
     answered: bool,
@@ -257,7 +258,7 @@ impl Drop for Abandoned<'_> {
         if !self.answered {
             record(
                 self.span,
-                self.tag,
+                self.method,
                 Outcome::Interrupted,
                 &[],
                 self.started.elapsed(),
@@ -275,12 +276,12 @@ impl Drop for Abandoned<'_> {
 /// twice: once here with the tag, once there with the cause.
 pub(crate) fn record_request(
     span: &tracing::Span,
-    tag: &str,
+    method: Option<&'static str>,
     frames: &[Value],
     elapsed: Duration,
     identity: &UiRpcAuthIdentity,
 ) {
-    record(span, tag, classify(frames), frames, elapsed, identity);
+    record(span, method, classify(frames), frames, elapsed, identity);
 }
 
 /// [`record_request`] for an outcome the frames cannot state, because there are
@@ -288,17 +289,17 @@ pub(crate) fn record_request(
 /// reachable with an empty slice is one that carries nothing.
 fn record(
     span: &tracing::Span,
-    tag: &str,
+    method: Option<&'static str>,
     outcome: Outcome,
     frames: &[Value],
     elapsed: Duration,
     identity: &UiRpcAuthIdentity,
 ) {
-    let label = outcome.tag_label(tag).to_owned();
+    let label = outcome.tag_label(method);
 
     metrics::counter!(
         REQUESTS,
-        "tag" => label.clone(),
+        "tag" => label,
         "outcome" => outcome.as_str(),
     )
     .increment(1);
@@ -329,7 +330,7 @@ fn record(
     // `warn!` at the site that decided them.
     if outcome == Outcome::Die {
         warn!(
-            %tag,
+            tag = label,
             user_id = %identity.user_id,
             defect = defect(frames).unwrap_or("(none)"),
             "A T3 UI request failed as an unexpected server defect"
@@ -478,21 +479,18 @@ mod tests {
         let frames = vec![json!({ "_tag": "Defect", "defect": "Duplicate id" })];
         let outcome = classify(&frames);
         assert_eq!(outcome, Outcome::Rejected);
-        assert_eq!(
-            outcome.tag_label("anything.the.client.invented"),
-            "rejected"
-        );
+        assert_eq!(outcome.tag_label(None), "rejected");
         assert_eq!(defect(&frames), Some("Duplicate id"));
     }
 
     #[test]
     fn an_unsupported_method_does_not_label_with_its_tag() {
         assert_eq!(
-            Outcome::Unsupported.tag_label("nonsense.method"),
+            Outcome::Unsupported.tag_label(Some("orchestration.replayEvents")),
             "unsupported"
         );
         assert_eq!(
-            Outcome::Fail.tag_label("projects.readFile"),
+            Outcome::Fail.tag_label(Some("projects.readFile")),
             "projects.readFile"
         );
     }
@@ -514,7 +512,7 @@ mod tests {
             let entered = span.enter();
             record_request(
                 &span,
-                "shell.list",
+                Some("shell.list"),
                 &[json!({
                     "_tag": "Exit",
                     "requestId": "1",

@@ -1,4 +1,5 @@
 use crate::config::OrchestrationProtocol;
+use crate::rpc::dispatch::methods;
 use crate::rpc::metrics::CONNECTION_BLOCKED;
 use crate::rpc::session::ProtocolSession;
 use crate::state::UiRpcState;
@@ -41,7 +42,7 @@ pub(crate) async fn serve_websocket(
     debug!(user_id = %identity.user_id, ?protocol, "T3 UI WebSocket connected");
     let (mut sink, mut incoming) = socket.split();
     let (frames, mut pushed) = mpsc::channel::<Value>(OUTBOUND_FRAMES);
-    let mut session = ProtocolSession::new(frames);
+    let mut session = ProtocolSession::new(frames, methods());
     session.shared.protocol = protocol;
 
     'connection: loop {

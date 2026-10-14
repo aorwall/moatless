@@ -1,9 +1,9 @@
 //! Methods that read a checkout, a diff or a pull request.
 
-use super::routing::Request;
 use crate::authentication::viewer_scope;
 use crate::git_actions;
 use crate::nominal_path;
+use crate::oauth::Scope;
 use crate::review;
 use crate::rpc::envelope::success_exit;
 use crate::rpc::errors::branch_list_exit;
@@ -12,19 +12,62 @@ use crate::rpc::errors::pull_request_failure_exit;
 use crate::rpc::errors::pull_request_summary_failure_exit;
 use crate::rpc::errors::review_failure_exit;
 use crate::rpc::errors::unsupported_exit;
+use crate::rpc::table::MethodTable;
+use crate::rpc::table::Request;
 use crate::snapshots::workspace_cwd;
 use crate::workspace::WorkspaceAccessError;
 use serde_json::Value;
 use serde_json::json;
 use tracing::error;
 
+pub(super) fn vcs_methods() -> MethodTable {
+    MethodTable::new()
+        .detached(
+            "git.preparePullRequestThread",
+            Scope::OrchestrationOperate,
+            git_prepare_pull_request_thread,
+        )
+        .detached(
+            "git.resolvePullRequest",
+            Scope::OrchestrationOperate,
+            git_resolve_pull_request,
+        )
+        .session(
+            "git.runStackedAction",
+            Scope::OrchestrationOperate,
+            git_run_stacked_action,
+        )
+        .detached(
+            "pullRequests.summary",
+            Scope::OrchestrationRead,
+            pull_requests_summary,
+        )
+        .detached(
+            "review.getDiffPreview",
+            Scope::ReviewWrite,
+            review_get_diff_preview,
+        )
+        .declared("vcs.createRef", Scope::OrchestrationOperate)
+        .declared("vcs.createWorktree", Scope::OrchestrationOperate)
+        .declared("vcs.init", Scope::OrchestrationOperate)
+        .detached("vcs.listRefs", Scope::OrchestrationRead, vcs_list_refs)
+        .declared("vcs.pull", Scope::OrchestrationOperate)
+        .detached(
+            "vcs.refreshStatus",
+            Scope::OrchestrationRead,
+            vcs_refresh_status,
+        )
+        .declared("vcs.removeWorktree", Scope::OrchestrationOperate)
+        .session("vcs.switchRef", Scope::OrchestrationOperate, vcs_switch_ref)
+}
+
 /// A draft thread has no checkout, so the switch answers done, echoing back the
 /// ref to store; a thread with a Sandbox can't change branch (fixed at
 /// creation) and falls through to unsupported.
-pub(super) fn vcs_switch_ref(request: Request) -> Vec<Value> {
+pub(super) async fn vcs_switch_ref(request: Request) -> Vec<Value> {
     match branch_switch_result(&request.payload) {
         Some(result) => vec![success_exit(&request.id, result)],
-        None => vec![unsupported_exit(&request.id, &request.tag)],
+        None => vec![unsupported_exit(&request.id, request.tag)],
     }
 }
 
@@ -68,7 +111,7 @@ pub(super) async fn vcs_list_refs(request: Request) -> Vec<Value> {
     {
         Ok(refs) => vec![success_exit(&id, refs)],
         Err(error) if review::refs_are_quiet(&error) => vec![success_exit(&id, review::no_refs())],
-        Err(error) => vec![review_failure_exit(&id, &tag, &cwd, &error, &identity)],
+        Err(error) => vec![review_failure_exit(&id, tag, &cwd, &error, &identity)],
     }
 }
 
@@ -85,7 +128,7 @@ pub(super) async fn vcs_refresh_status(request: Request) -> Vec<Value> {
         // No cwd is why this failed, so there is none to report.
         return vec![review_failure_exit(
             &id,
-            &tag,
+            tag,
             "",
             &WorkspaceAccessError::Unaddressable,
             &identity,
@@ -101,7 +144,7 @@ pub(super) async fn vcs_refresh_status(request: Request) -> Vec<Value> {
     .await
     {
         Ok(status) => vec![success_exit(&id, status)],
-        Err(error) => vec![review_failure_exit(&id, &tag, &cwd, &error, &identity)],
+        Err(error) => vec![review_failure_exit(&id, tag, &cwd, &error, &identity)],
     }
 }
 
@@ -118,7 +161,7 @@ pub(super) async fn review_get_diff_preview(request: Request) -> Vec<Value> {
         // No cwd is why this failed, so there is none to report.
         return vec![review_failure_exit(
             &id,
-            &tag,
+            tag,
             "",
             &WorkspaceAccessError::Unaddressable,
             &identity,
@@ -142,7 +185,7 @@ pub(super) async fn review_get_diff_preview(request: Request) -> Vec<Value> {
     .await
     {
         Ok(preview) => vec![success_exit(&id, preview)],
-        Err(error) => vec![review_failure_exit(&id, &tag, &cwd, &error, &identity)],
+        Err(error) => vec![review_failure_exit(&id, tag, &cwd, &error, &identity)],
     }
 }
 
@@ -209,7 +252,7 @@ pub(super) async fn git_resolve_pull_request(request: Request) -> Vec<Value> {
     .await
     {
         Ok(result) => vec![success_exit(&id, result)],
-        Err(error) => vec![pull_request_failure_exit(&id, &tag, &error, &identity)],
+        Err(error) => vec![pull_request_failure_exit(&id, tag, &error, &identity)],
     }
 }
 
@@ -234,8 +277,8 @@ pub(super) async fn git_prepare_pull_request_thread(request: Request) -> Vec<Val
         Ok(git_actions::PreparedThread::Local(result)) => vec![success_exit(&id, result)],
         // Worktree mode is refused by name, not by falling through to the
         // catch-all: this surface prepares a branch, never a worktree on disk.
-        Ok(git_actions::PreparedThread::WorktreeUnsupported) => vec![unsupported_exit(&id, &tag)],
-        Err(error) => vec![pull_request_failure_exit(&id, &tag, &error, &identity)],
+        Ok(git_actions::PreparedThread::WorktreeUnsupported) => vec![unsupported_exit(&id, tag)],
+        Err(error) => vec![pull_request_failure_exit(&id, tag, &error, &identity)],
     }
 }
 

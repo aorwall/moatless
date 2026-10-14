@@ -1,14 +1,16 @@
-//! One function per UI-RPC method, grouped by the surface it answers for.
-//!
-//! [`routing`] holds both dispatch matches and no method body.
+//! One function per UI-RPC method, grouped by the surface it answers for. Each
+//! group registers its methods in a
+//! [`MethodTable`](crate::rpc::table::MethodTable); [`methods()`] merges them.
 
+mod methods;
 mod orchestration;
 mod orchestration_v2;
 mod preview;
 mod projects;
-mod routing;
 mod sandbox;
 mod server;
 mod streams;
 mod terminal;
 mod vcs;
+
+pub(crate) use methods::methods;

@@ -5,18 +5,20 @@
 //! command run through [`commands::dispatch`]; nothing here reads or writes
 //! state of its own.
 
-use super::routing::Request;
-use super::routing::ThreadRequest;
 use crate::authentication::viewer_scope;
 use crate::commands;
 use crate::commands::CommandContext;
 use crate::config::OrchestrationProtocol;
+use crate::oauth::Scope;
 use crate::rpc::envelope::RequestId;
 use crate::rpc::envelope::failure_exit;
 use crate::rpc::envelope::success_exit;
 use crate::rpc::envelope::typed_failure_exit;
 use crate::rpc::errors::shell_failure_exit;
 use crate::rpc::session::ProtocolSession;
+use crate::rpc::table::MethodTable;
+use crate::rpc::table::Request;
+use crate::rpc::table::ThreadRequest;
 use crate::rpc::watch;
 use crate::snapshots::after_sequence;
 use crate::snapshots::archived_shell_page;
@@ -29,6 +31,43 @@ use serde_json::json;
 use tracing::error;
 use tracing::warn;
 use uuid::Uuid;
+
+/// What a V2 connection is answered with in place of, or beside, the V1 methods.
+pub(super) fn orchestration_v2_methods() -> MethodTable {
+    MethodTable::v2()
+        .session(
+            "orchestration.dispatchCommand",
+            Scope::OrchestrationOperate,
+            orchestration_dispatch_command_v2,
+        )
+        .detached(
+            "orchestration.getThreadProjection",
+            Scope::OrchestrationRead,
+            orchestration_get_thread_projection,
+        )
+        .detached(
+            "orchestration.getTurnItem",
+            Scope::OrchestrationRead,
+            orchestration_get_turn_item,
+        )
+        .session(
+            "orchestration.launchThread",
+            Scope::OrchestrationOperate,
+            orchestration_launch_thread,
+        )
+        // V1's event log has no V2 counterpart, and no V2 client asks.
+        .declared("orchestration.replayEvents", Scope::OrchestrationRead)
+        .stream(
+            "orchestration.subscribeArchivedShell",
+            Scope::OrchestrationRead,
+            |session, request| Box::pin(session.orchestration_subscribe_archived_shell(request)),
+        )
+        .stream(
+            "orchestration.subscribeThread",
+            Scope::OrchestrationRead,
+            |session, request| Box::pin(session.orchestration_subscribe_thread_v2(request)),
+        )
+}
 
 pub(super) fn command_context<'a>(
     state: &'a UiRpcState,

@@ -13,7 +13,7 @@ use axum::extract::{Extension, Form, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use chrono::{SecondsFormat, Utc};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tracing::{error, info, warn};
 
@@ -22,111 +22,85 @@ use crate::auth::{WS_TICKET_TTL_SECS, generate_ws_ticket_jwt};
 use moatless_identity::auth::pairing::{PairingClient, PairingError};
 use moatless_types::ui_rpc::UiRpcAuthIdentity;
 
-/// The scopes this deployment is able to grant, in the order it reports them.
+/// A scope T3's contract defines, granted here or not.
 ///
-/// Checked against [`required_scope`] before dispatch; `access:write` and
-/// `relay:write` stay out because nothing behind this deployment needs them.
-pub(super) const GRANTED_SCOPES: [&str; 6] = [
-    "orchestration:read",
-    "orchestration:operate",
-    "terminal:operate",
-    "review:write",
-    "access:read",
-    "relay:read",
-];
+/// The method each one gates is named on that method's table entry, which
+/// ports the reference server's `RPC_REQUIRED_SCOPES`
+/// (`apps/server/src/auth/RpcAuthorization.ts:23`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Scope {
+    OrchestrationRead,
+    OrchestrationOperate,
+    TerminalOperate,
+    ReviewWrite,
+    AccessRead,
+    AccessWrite,
+    RelayRead,
+    RelayWrite,
+}
 
-/// Every scope name T3's contract defines, granted here or not.
-///
-/// Kept apart from [`GRANTED_SCOPES`]: asking for an ungranted scope and asking
-/// for a nonexistent one are different mistakes, answered differently.
-const KNOWN_SCOPES: [&str; 8] = [
-    "orchestration:read",
-    "orchestration:operate",
-    "terminal:operate",
-    "review:write",
-    "access:read",
-    "access:write",
-    "relay:read",
-    "relay:write",
-];
+impl Scope {
+    const ALL: [Scope; 8] = [
+        Scope::OrchestrationRead,
+        Scope::OrchestrationOperate,
+        Scope::TerminalOperate,
+        Scope::ReviewWrite,
+        Scope::AccessRead,
+        Scope::AccessWrite,
+        Scope::RelayRead,
+        Scope::RelayWrite,
+    ];
 
-/// The scope a method requires, ported from the reference server's
-/// `RPC_REQUIRED_SCOPES` (`apps/server/src/auth/RpcAuthorization.ts:23`).
-///
-/// Runs ahead of dispatch over every method the *contract* declares, so a
-/// withheld surface is refused for its scope, not told it doesn't exist. The
-/// `orchestration:read` default gives an unclassified method least authority.
-pub(super) fn required_scope(tag: &str) -> &'static str {
-    match tag {
-        // Writes.
-        "orchestration.dispatchCommand"
-        | "orchestration.launchThread"
-        | "server.refreshProviders"
-        | "server.updateProvider"
-        | "server.updateServer"
-        | "server.updateServerWithProgress"
-        | "server.upsertKeybinding"
-        | "server.removeKeybinding"
-        | "server.updateSettings"
-        | "server.retryResourceTelemetry"
-        | "server.signalProcess"
-        | "server.reportHostPowerState"
-        | "sourceControl.cloneRepository"
-        | "sourceControl.publishRepository"
-        | "projects.add"
-        | "projects.remove"
-        | "projects.mutate"
-        | "projects.writeFile"
-        | "shell.openInEditor"
-        | "vcs.pull"
-        | "vcs.createWorktree"
-        | "vcs.removeWorktree"
-        | "vcs.createRef"
-        | "vcs.switchRef"
-        | "vcs.init"
-        | "git.runStackedAction"
-        | "git.resolvePullRequest"
-        | "git.preparePullRequestThread"
-        | "preview.open"
-        | "preview.navigate"
-        | "preview.resize"
-        | "preview.refresh"
-        | "preview.close"
-        | "preview.reportStatus"
-        | "preview.automationConnect"
-        | "preview.automationRespond"
-        | "preview.automationFocusHost"
-        | "attachments.createUploadUrl"
-        | "attachments.delete"
-        | "sandbox.restart"
-        | "sandbox.redeploy"
-        | "sandbox.cleanup"
-        | "sandbox.setIdleTimeout" => "orchestration:operate",
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Scope::OrchestrationRead => "orchestration:read",
+            Scope::OrchestrationOperate => "orchestration:operate",
+            Scope::TerminalOperate => "terminal:operate",
+            Scope::ReviewWrite => "review:write",
+            Scope::AccessRead => "access:read",
+            Scope::AccessWrite => "access:write",
+            Scope::RelayRead => "relay:read",
+            Scope::RelayWrite => "relay:write",
+        }
+    }
 
-        // The diff surface. `review:write` is what gates it in the reference
-        // server's map, despite the name — this backend serves it under that
-        // scope.
-        "review.getDiffPreview" => "review:write",
+    fn parse(scope: &str) -> Option<Scope> {
+        Scope::ALL.into_iter().find(|known| known.as_str() == scope)
+    }
 
-        // Terminals. The backend authorizes them here; the PTY itself lives in
-        // the conversation's Sandbox.
-        "terminal.open"
-        | "terminal.attach"
-        | "terminal.write"
-        | "terminal.resize"
-        | "terminal.clear"
-        | "terminal.restart"
-        | "terminal.close"
-        | "subscribeTerminalEvents"
-        | "subscribeTerminalMetadata" => "terminal:operate",
-
-        "cloud.getRelayClientStatus" => "relay:read",
-        "cloud.installRelayClient" => "relay:write",
-        "subscribeAuthAccess" => "access:read",
-
-        _ => "orchestration:read",
+    pub(crate) fn is_granted(self) -> bool {
+        GRANTED_SCOPES.contains(&self)
     }
 }
+
+/// Serialized as [`Scope::as_str`], so `session_state`'s `scopes` and every
+/// other wire use read one spelling.
+impl Serialize for Scope {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl std::fmt::Display for Scope {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+/// The scopes this deployment is able to grant, in the order it reports them.
+///
+/// Checked against a method's [`Scope`] before dispatch; `access:write` and
+/// `relay:write` stay out because nothing behind this deployment needs them.
+/// Asking for an ungranted scope and asking for one [`Scope`] does not name are
+/// different mistakes, answered differently.
+pub(super) const GRANTED_SCOPES: [Scope; 6] = [
+    Scope::OrchestrationRead,
+    Scope::OrchestrationOperate,
+    Scope::TerminalOperate,
+    Scope::ReviewWrite,
+    Scope::AccessRead,
+    Scope::RelayRead,
+];
 
 const TOKEN_EXCHANGE_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:token-exchange";
 const BOOTSTRAP_TOKEN_TYPE: &str = "urn:t3:params:oauth:token-type:environment-bootstrap";
@@ -253,13 +227,13 @@ fn granted_scopes(requested: Option<&str>) -> Result<Vec<String>, &'static str> 
     };
     if requested
         .split(' ')
-        .any(|scope| !KNOWN_SCOPES.contains(&scope))
+        .any(|scope| Scope::parse(scope).is_none())
     {
         return Err("invalid_scope");
     }
     let granted: Vec<String> = GRANTED_SCOPES
         .iter()
-        .filter(|scope| requested.split(' ').any(|asked| asked == **scope))
+        .filter(|scope| requested.split(' ').any(|asked| asked == scope.as_str()))
         .map(ToString::to_string)
         .collect();
     if granted.is_empty() {
@@ -325,7 +299,10 @@ mod tests {
 
     #[test]
     fn a_client_asking_for_nothing_is_given_everything() {
-        assert_eq!(granted_scopes(None).unwrap(), GRANTED_SCOPES);
+        assert_eq!(
+            granted_scopes(None).unwrap(),
+            GRANTED_SCOPES.map(Scope::as_str)
+        );
     }
 
     #[test]
@@ -354,49 +331,6 @@ mod tests {
         assert_eq!(
             granted_scopes(Some("access:write relay:write")),
             Err("scope_not_granted")
-        );
-    }
-
-    /// The gate reads this map for every request, so a method landing in the
-    /// wrong bucket is either a refusal nobody can work around or a permission
-    /// that was never checked.
-    #[test]
-    fn a_method_that_changes_something_needs_more_than_read() {
-        assert_eq!(
-            required_scope("orchestration.subscribeShell"),
-            "orchestration:read"
-        );
-        assert_eq!(
-            required_scope("orchestration.dispatchCommand"),
-            "orchestration:operate"
-        );
-        assert_eq!(
-            required_scope("projects.writeFile"),
-            "orchestration:operate"
-        );
-        assert_eq!(required_scope("review.getDiffPreview"), "review:write");
-    }
-
-    /// An unknown tag is one this server does not implement, and it has to
-    /// reach the dispatch to be told so. Defaulting it to anything stronger
-    /// than read would answer "you may not" where the truth is "there is no
-    /// such method".
-    #[test]
-    fn a_method_this_map_does_not_name_falls_through_to_read() {
-        assert_eq!(
-            required_scope("something.nobodyImplemented"),
-            "orchestration:read"
-        );
-    }
-
-    /// The fleet diagnostics read is unclassified here on purpose — it is a
-    /// read like `sandbox.status`, so the default is the
-    /// right answer rather than an omission.
-    #[test]
-    fn fleet_diagnostics_falls_through_to_read() {
-        assert_eq!(
-            required_scope("sandbox.listDiagnostics"),
-            "orchestration:read"
         );
     }
 

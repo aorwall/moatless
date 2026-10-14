@@ -1,11 +1,10 @@
 //! Methods that read or command the thread listing.
 
-use super::routing::Request;
-use super::routing::ThreadRequest;
 use crate::authentication::viewer_scope;
 use crate::commands;
 use crate::dao::ArchiveCursor;
 use crate::dao::ConversationBrowse;
+use crate::oauth::Scope;
 use crate::projection;
 use crate::rpc::envelope::failure_exit;
 use crate::rpc::envelope::success_exit;
@@ -13,6 +12,9 @@ use crate::rpc::envelope::typed_failure_exit;
 use crate::rpc::errors::shell_failure_exit;
 use crate::rpc::session::SEARCH_THREADS_LIMIT;
 use crate::rpc::session::SEARCH_THREADS_MIN_QUERY;
+use crate::rpc::table::MethodTable;
+use crate::rpc::table::Request;
+use crate::rpc::table::ThreadRequest;
 use crate::snapshots::archived_shell_page;
 use crate::snapshots::browse_snapshot;
 use crate::snapshots::thread_shell;
@@ -20,6 +22,37 @@ use serde_json::Value;
 use serde_json::json;
 use tracing::error;
 use tracing::warn;
+
+/// The thread listing's reads and the V1 command path.
+pub(super) fn orchestration_methods() -> MethodTable {
+    MethodTable::new()
+        .session(
+            "orchestration.dispatchCommand",
+            Scope::OrchestrationOperate,
+            orchestration_dispatch_command,
+        )
+        .detached(
+            "orchestration.getArchivedShellSnapshot",
+            Scope::OrchestrationRead,
+            orchestration_get_archived_shell_snapshot,
+        )
+        .session(
+            "orchestration.replayEvents",
+            Scope::OrchestrationRead,
+            orchestration_replay_events,
+        )
+        .detached(
+            "orchestration.searchThreads",
+            Scope::OrchestrationRead,
+            orchestration_search_threads,
+        )
+        .detached("threads.browse", Scope::OrchestrationRead, threads_browse)
+        .detached(
+            "threads.getShell",
+            Scope::OrchestrationRead,
+            threads_get_shell,
+        )
+}
 
 /// The one write. A refusal is a typed failure the composer renders, not a
 /// defect: "that action does not exist here" is true, "this server is broken"
@@ -117,7 +150,7 @@ pub(super) async fn orchestration_search_threads(request: Request) -> Vec<Value>
 ///
 /// Its `OrchestrationEvent` result carries an event id, an aggregate and a
 /// causation chain, none of which this backend records.
-pub(super) fn orchestration_replay_events(request: Request) -> Vec<Value> {
+pub(super) async fn orchestration_replay_events(request: Request) -> Vec<Value> {
     vec![success_exit(&request.id, json!([]))]
 }
 
