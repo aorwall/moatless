@@ -14,7 +14,6 @@ branch — `docs/reference/moatless-concept-map.md` walks every contract surface
 feature-by-feature, and `.plans/moatless-convergence.md` proposes changing both
 sides. This document is the Moatless-side summary and the terminology decision; it
 does not repeat their findings. Where the two disagree, that is called out inline.
-See [the orientation note](./t3-code-integration-start-here.md) for reading order.
 
 Read against `soaplabs/t3code` @ `d67a67a` and this repository @ `ef4d860`.
 

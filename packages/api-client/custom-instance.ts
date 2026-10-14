@@ -1,9 +1,7 @@
 /**
  * Custom fetch instance for Orval-generated API client.
  *
- * Replicates the behavior of the existing `apiClient` from
- * `apps/frontend/src/lib/api/client.ts` — same-origin requests,
- * credentials included, JSON body serialization.
+ * Same-origin requests, credentials included, JSON body serialization.
  *
  * Orval v8 passes standard `RequestInit` fields (`body`, `headers`,
  * `signal`, `method`) directly.  The `body` is already JSON-stringified

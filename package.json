@@ -24,21 +24,10 @@
       "prismjs@<1.30.0": ">=1.30.0"
     }
   },
-  "bin": {
-    "moatless-vibe": "./bin/cli.js"
-  },
-  "files": [
-    "bin",
-    "dist",
-    "drizzle",
-    "README.md"
-  ],
   "scripts": {
     "postinstall": "turbo run build --filter='./packages/*'",
     "build": "turbo run build",
     "build:dev": "turbo run build:dev",
-    "build:package": "bun run build && node scripts/prepare-package.js",
-    "prepublishOnly": "bun run build:package",
     "test": "turbo run test",
     "test:unit": "turbo run test:unit",
     "test:coverage": "turbo run test:coverage",
@@ -57,29 +46,15 @@
     "post-edit-hook": "./scripts/validate-code.sh",
     "cleanup:docker": "./scripts/cleanup-docker-containers.sh",
     "dev:docker": "./docker-compose/dev-docker.sh",
-    "knip": "knip",
-    "knip:production": "knip --production",
     "prepare": "husky",
     "generate:api": "task generate"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.4",
-    "@chromatic-com/storybook": "^5.2.1",
     "@commitlint/cli": "^21.0.2",
     "@commitlint/config-conventional": "^19.8.1",
     "@playwright/test": "^1.63.0",
-    "@storybook/addon-a11y": "^10.0.6",
-    "@storybook/addon-docs": "^10.0.6",
-    "@storybook/addon-vitest": "^10.0.6",
-    "@storybook/react-vite": "^10.0.6",
-    "@tailwindcss/typography": "^0.5.19",
-    "@testing-library/jest-dom": "^6.9.1",
-    "@testing-library/react": "^16.3.0",
-    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^24.10.0",
-    "@types/pako": "^2.0.4",
-    "@types/react": "^19.2.2",
-    "@types/react-dom": "^19.2.2",
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^4.7.0",
     "@vitest/coverage-v8": "^4.1.11",
@@ -88,10 +63,7 @@
     "esbuild": "^0.28.0",
     "husky": "^9.1.7",
     "js-yaml": "^4.1.0",
-    "knip": "^6.17.1",
-    "likec4": "^1.43.0",
     "lint-staged": "^17.0.7",
-    "storybook": "^10.0.6",
     "tsx": "^4.20.6",
     "turbo": "^2.6.0",
     "typescript": "^5.9.3",
@@ -103,8 +75,7 @@
     "@vitest/browser-playwright": "^4.1.11"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "0.3.206",
-    "class-variance-authority": "^0.7.1"
+    "@anthropic-ai/claude-agent-sdk": "0.3.206"
   },
   "workspaces": [
     "packages/*"

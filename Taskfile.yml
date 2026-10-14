@@ -232,23 +232,13 @@ tasks:
       - echo "==> Deployment:"
       - kubectl get deployment -n {{.NAMESPACE}} -l app.kubernetes.io/name=moatless-vibe
       - echo ""
-      - echo "==> Worker pods:"
-      - kubectl get pods -n {{.NAMESPACE}} -l app.kubernetes.io/component=worker 2>/dev/null || echo "No worker pods running"
+      - echo "==> Sandbox pods:"
+      - kubectl get pods -n {{.NAMESPACE}} -l app.kubernetes.io/component=sandbox 2>/dev/null || echo "No sandbox pods running"
 
   logs:
     desc: Show backend logs
     cmds:
       - kubectl logs -n {{.NAMESPACE}} deployment/{{.RELEASE_NAME}}-backend --tail=100 -f
-
-  logs:worker:
-    desc: Show logs for all worker pods
-    cmds:
-      - echo "==> Worker pods:"
-      - |
-        kubectl get pods -n {{.NAMESPACE}} -l app.kubernetes.io/component=worker --no-headers | while read pod rest; do
-          echo "--- $pod ---"
-          kubectl logs -n {{.NAMESPACE}} $pod --tail=20 2>/dev/null || echo "No logs available"
-        done
 
   # ── Database ───────────────────────────────────────────────────
 

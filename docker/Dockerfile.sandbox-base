@@ -6,7 +6,7 @@
 # protoc/pkg-config/mold/sccache so agents can build Rust projects — including
 # moatless-vibe itself — inside the sandbox, git, system tools, moatless user.
 # Does NOT contain: the compiled sandbox/moat binaries or entrypoint scripts —
-# those are added by leaf images (Dockerfile.sandbox, Dockerfile.sandbox-full)
+# those are added by leaf images (Dockerfile.sandbox and the recipe images)
 # so the expensive layers here cache across normal code changes.
 #
 # Bumping CLAUDE_CLI_VERSION, CODEX_CLI_VERSION, TASK_VERSION, BUN_VERSION,
@@ -202,7 +202,7 @@ RUN chmod +x /usr/local/bin/task \
     && mkdir -p /opt/moatless \
     && (task --version 2>/dev/null || echo "unknown") > /opt/moatless/.task-version
 
-# Install Python build dependencies and pyenv prerequisites (used by sandbox-full),
+# Install Python build dependencies and pyenv prerequisites,
 # plus native build tooling needed to compile the Rust workspace: pkg-config and
 # protobuf-compiler (`protoc`). This workspace no longer needs protoc —
 # crates/sandbox-proto vendors it — but it stays for the arbitrary Rust projects

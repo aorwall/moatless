@@ -27,8 +27,8 @@ bun run test:scripts
 For one package file, run Vitest inside that package:
 
 ```bash
-cd packages/shell-utils
-bunx vitest run src/process/__tests__/tree-kill.test.ts
+cd packages/inspector
+bunx vitest run src/__tests__/route-tracker.test.ts
 ```
 
 Root `test` goes through Turbo; an extra bare pattern is interpreted as a Turbo

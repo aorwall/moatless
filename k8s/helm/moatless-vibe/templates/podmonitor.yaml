@@ -1,2 +1,0 @@
-{{- /* PodMonitor removed — nginx frontend does not expose /metrics.
-       Use backend-servicemonitor.yaml for Rust backend metrics. */ -}}

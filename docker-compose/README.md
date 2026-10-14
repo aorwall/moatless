@@ -362,6 +362,7 @@ cat backup.sql | docker compose -f docker-compose/docker-compose.yml \
 ## Building Images Locally
 
 ### Frontend Image
+Build it from the `moatless-legacy-frontend` repository:
 ```bash
 docker/build-app.sh --local
 ```

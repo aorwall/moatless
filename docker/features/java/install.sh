@@ -36,8 +36,7 @@ apt-get update
 apt-get install -y --no-install-recommends "temurin-${JAVA_VERSION}-jdk"
 rm -rf /var/lib/apt/lists/*
 
-# Stable path independent of the exact installed package-version string — same
-# convention as the old Dockerfile.sandbox-java / Dockerfile.sandbox-full.
+# Stable path independent of the exact installed package-version string.
 jdk_dirs=(/usr/lib/jvm/temurin-"${JAVA_VERSION}"-jdk-*)
 jdk_home="${jdk_dirs[0]}"
 if [ ! -x "${jdk_home}/bin/javac" ]; then

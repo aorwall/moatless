@@ -7,8 +7,8 @@ against git repositories, driven by a person or on a schedule by a Loop.
 `docker-compose/` and `k8s/` the deployment definitions.
 
 The UI is T3 Code, built from the separate `soaplabs/t3code` repository and
-served over UI-RPC (`crates/t3code`); see the `t3-development` skill. Do not
-change `apps/frontend`: it is the retired UI, and nothing builds or deploys it.
+served over UI-RPC (`crates/t3code`); see the `t3-development` skill. The
+retired Moatless UI lives in the separate `moatless-legacy-frontend` repository.
 
 ## Commands
 
@@ -32,7 +32,6 @@ bash .github/scripts/test-workspace-contracts.sh
 task rust:gc                                # reclaim target/debug/incremental
 
 task deploy [TAG=v2.0.0]                    # also deploy:backend, status, logs
-git tag v0.1.21 && git push origin v0.1.21  # triggers release.yml
 ```
 
 - Run the clippy lines verbatim. Add no `-p` line of your own, and never run
@@ -115,4 +114,3 @@ item gets a one-line doc.
   not show it. History and rejected alternatives go in the commit or PR.
 - Every `AGENTS.md` has a committed `CLAUDE.md` symlink beside it
   (`ln -s AGENTS.md CLAUDE.md`), and `.claude/skills` links to `.agents/skills`.
-- `routeTree.gen.ts` is generated. Edit the routes, never the tree.

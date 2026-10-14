@@ -1041,8 +1041,7 @@ jobs:
   # The rest stay uncovered deliberately. `Dockerfile.sandbox-tools`, `.sandbox`
   # and `.backend-cross` take prebuilt binaries as named build contexts, and
   # `build-rust` does not run on a PR at all, so building them would mean a full
-  # release Rust build per PR. `Dockerfile.app` copies `apps/frontend/dist`,
-  # which nothing in this repo builds.
+  # release Rust build per PR.
   validate-dockerfile-e2e:
     name: Build e2e image (no push)
     needs: detect-changes

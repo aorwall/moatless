@@ -100,13 +100,8 @@ cspFrameSrc: "https:"
 # Set enabled=false to get the Moatless SPA back; nothing about the switch is
 # one-way.
 #
-# Two consequences worth knowing before flipping it in a shared environment:
-#
-#   - The T3 UI covers less than the Moatless UI does. Its shell, workspace
-#     listing and conversation views work; most other commands are still
-#     refused. See docs/t3-code-current-state.md for what is actually wired.
-#   - This also switches on the backend's T3 compatibility router
-#     (T3_UI_RPC_ENABLED) and allow-lists the T3 origin for its WebSocket.
+# This also switches on the backend's T3 compatibility router
+# (T3_UI_RPC_ENABLED) and allow-lists the T3 origin for its WebSocket.
 t3:
   # -- Serve the T3 Code UI.
   enabled: true

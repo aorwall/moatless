@@ -8,10 +8,6 @@
 # This same image is also published under the alias `aorwall/moatless-sandbox-js`
 # (built and pushed with both tags from the same Dockerfile).
 #
-# For richer language toolchains (Python/Rust/Go/Java) use sandbox-full, which
-# also extends sandbox-base directly (NOT this image), so a binary change here
-# does not invalidate its toolchain layers.
-#
 # Published as:
 #   - aorwall/moatless-sandbox:latest
 #   - aorwall/moatless-sandbox-js:latest  (same content, different tag)

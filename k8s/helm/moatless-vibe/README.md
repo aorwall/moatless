@@ -225,12 +225,6 @@ is a parent of both, and so is the OAuth state cookie — a GitHub App has one
 registered callback URL, so a connect started here comes back on the app host
 and fails its CSRF check without it.
 
-Before using it on a shared environment: the T3 UI covers less than the
-Moatless UI. The shell, workspace listing and conversation views work; most
-other commands are still refused. See
-[`docs/t3-code-current-state.md`](../../../docs/t3-code-current-state.md) for
-what is actually wired.
-
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `t3.enabled` | Serve the T3 UI; `false` restores the Moatless frontend | `true` |

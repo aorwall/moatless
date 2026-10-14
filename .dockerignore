@@ -19,21 +19,11 @@
 # Docker config
 !docker/
 
-# All workspace package.json files (needed for bun install — the app image and
-# the dev image's warm-cache `bun install`). Globbed over every workspace member
-# (root package.json declares workspaces apps/* + packages/*) so a new member's
+# All workspace package.json files (needed for bun install — the dev image's
+# warm-cache `bun install`). Globbed over every workspace member
+# (root package.json declares workspaces packages/*) so a new member's
 # manifest is picked up automatically and the set always matches bun.lock.
-!apps/*/package.json
 !packages/*/package.json
-
-# Frontend source and workspace dependencies (app image build)
-# frontend → types, api-client, api-contract, diff-viewer; types → shell-utils
-!apps/frontend/
-!packages/types/
-!packages/api-client/
-!packages/api-contract/
-!packages/diff-viewer/
-!packages/shell-utils/
 
 # Exclude node_modules within included dirs
 **/node_modules/
@@ -58,7 +48,6 @@
 # Re-excluded: the blanket node_modules rule sits above this line, and
 # last match wins.
 packages/inspector/node_modules/
-!packages/shell-utils/dist/
 !packages/types/dist/
 !dev-browser/
 
