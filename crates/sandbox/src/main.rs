@@ -28,6 +28,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         {
             std::env::set_var(key, value);
         }
+        // `gh` passes git `!"$GH_PATH" auth git-credential` as its only helper.
+        // Unset, that is `gh` itself, which holds a placeholder token, so
+        // `gh pr checkout` fails `Invalid username or token`; the helper script
+        // answers it from the broker. K8s skips the entrypoint that set it.
+        let helper = moatless_sandbox::credentials::broker::BROKER_HELPER_PATH;
+        if std::env::var_os("GH_PATH").is_none() && std::path::Path::new(helper).exists() {
+            std::env::set_var("GH_PATH", helper);
+        }
     }
 
     // Read here rather than through `Config::from_env()`: that call panics if

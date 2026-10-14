@@ -3,6 +3,7 @@
 //! Wired into git via `docker/moatless-git-cred.sh`; pulls the freshest value
 //! from the backend on every request (no caching), so a rotation is visible to
 //! the next `git push` without waiting for the credential refresher's cycle.
+//! The backend's own host is the exception, answered from the pod's task token.
 //! `GET /credential?key=K` returns `value\n`; `GET /git-credential?host=H`
 //! returns git's credential-helper format.
 
@@ -18,6 +19,10 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use crate::backend_client::BackendClient;
+
+/// The git credential helper script answering from this broker
+/// (`docker/moatless-git-cred.sh`), shipped in the sandbox image.
+pub const BROKER_HELPER_PATH: &str = "/usr/local/bin/moatless-git-cred";
 
 /// Shared state for the broker handlers.
 #[derive(Clone)]
@@ -40,13 +45,17 @@ async fn get_credential(
     Query(q): Query<CredentialQuery>,
 ) -> impl IntoResponse {
     match state.backend_client.get_credentials(&state.task_id).await {
-        Ok(resp) => match resp.credentials.get(&q.key) {
-            Some(value) => (StatusCode::OK, format!("{value}\n")),
-            None => (
-                StatusCode::NOT_FOUND,
-                format!("no credential for {}\n", q.key),
-            ),
-        },
+        Ok(resp) => {
+            if let Some(value) = resp.credentials.get(&q.key) {
+                (StatusCode::OK, format!("{value}\n"))
+            } else {
+                warn!(key = %q.key, "broker: the backend returned no such credential");
+                (
+                    StatusCode::NOT_FOUND,
+                    format!("no credential for {}\n", q.key),
+                )
+            }
+        }
         Err(e) => {
             warn!(error = %e, key = %q.key, "broker: get_credentials failed");
             (
@@ -67,8 +76,10 @@ pub struct GitCredentialQuery {
 
 /// Answer git's credential-helper protocol for one host.
 ///
-/// A request naming the backend is a proxied checkout, answered with the pod's
-/// own task token instead of `GITHUB_TOKEN`.
+/// A request naming the backend is a proxied checkout, answered with the task
+/// token the pod already holds, with no backend round trip, so a slow
+/// `get_credentials` cannot outlast the helper's timeout and leave git with no
+/// credential. Every other host gets `GITHUB_TOKEN`, fetched fresh.
 async fn get_git_credential(
     State(state): State<BrokerState>,
     Query(q): Query<GitCredentialQuery>,
@@ -77,22 +88,34 @@ async fn get_git_credential(
         (Some(backend), Some(asked)) => backend == asked,
         _ => false,
     };
-    // The proxy ignores the username; the token is the whole credential.
-    let (key, username) = if proxied {
-        ("USER_AUTH_TOKEN", "x-access-token")
-    } else {
-        ("GITHUB_TOKEN", "oauth2")
-    };
+    if proxied {
+        // The proxy ignores the username; the token is the whole credential.
+        let Some(token) = state.backend_client.auth_token() else {
+            warn!(host = ?q.host, "broker: no task token held for the backend git proxy");
+            return (StatusCode::NOT_FOUND, "no task token held\n".to_string());
+        };
+        return (
+            StatusCode::OK,
+            format!("username=x-access-token\npassword={token}\n"),
+        );
+    }
     match state.backend_client.get_credentials(&state.task_id).await {
-        Ok(resp) => match resp.credentials.get(key) {
-            Some(token) => (
-                StatusCode::OK,
-                format!("username={username}\npassword={token}\n"),
-            ),
-            None => (StatusCode::NOT_FOUND, format!("no {key} available\n")),
-        },
+        Ok(resp) => {
+            if let Some(token) = resp.credentials.get("GITHUB_TOKEN") {
+                (
+                    StatusCode::OK,
+                    format!("username=oauth2\npassword={token}\n"),
+                )
+            } else {
+                warn!(host = ?q.host, "broker: the backend returned no GITHUB_TOKEN for git");
+                (
+                    StatusCode::NOT_FOUND,
+                    "no GITHUB_TOKEN available\n".to_string(),
+                )
+            }
+        }
         Err(e) => {
-            warn!(error = %e, "broker: get_credentials failed for git-credential");
+            warn!(error = %e, host = ?q.host, "broker: get_credentials failed for git-credential");
             (
                 StatusCode::BAD_GATEWAY,
                 format!("backend get_credentials failed: {e}\n"),
@@ -175,20 +198,36 @@ mod tests {
 
     struct StaticBackend {
         creds: HashMap<String, String>,
+        task_token: Option<String>,
+        fetches: std::sync::atomic::AtomicUsize,
     }
 
     #[async_trait]
     impl BackendClient for StaticBackend {
         async fn get_credentials(&self, _: &str) -> Result<GetCredentialsResponse, tonic::Status> {
+            self.fetches
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             Ok(GetCredentialsResponse {
                 credentials: self.creds.clone(),
                 ssh_keys: HashMap::new(),
             })
         }
+
+        fn auth_token(&self) -> Option<String> {
+            self.task_token.clone()
+        }
     }
 
     fn make_state(creds: HashMap<String, String>) -> BrokerState {
-        let backend: Arc<dyn BackendClient> = Arc::new(StaticBackend { creds });
+        state_over(Arc::new(StaticBackend {
+            creds,
+            task_token: Some("task-jwt".to_string()),
+            fetches: std::sync::atomic::AtomicUsize::new(0),
+        }))
+    }
+
+    fn state_over(backend: Arc<StaticBackend>) -> BrokerState {
+        let backend: Arc<dyn BackendClient> = backend;
         BrokerState {
             task_id: "task-1".to_string(),
             backend_client: backend,
@@ -258,22 +297,39 @@ mod tests {
     }
 
     /// A proxied checkout addresses the backend, and the credential it needs is
-    /// the pod's own task token — never the git host's.
+    /// the task token the pod already holds — never the git host's, and with no
+    /// backend call.
     #[tokio::test]
     async fn the_backend_host_is_answered_with_the_task_token() {
         let mut creds = HashMap::new();
         creds.insert("GITHUB_TOKEN".to_string(), "ghs_token".to_string());
-        creds.insert("USER_AUTH_TOKEN".to_string(), "task-jwt".to_string());
+        let backend = Arc::new(StaticBackend {
+            creds: creds.clone(),
+            task_token: Some("task-jwt".to_string()),
+            fetches: std::sync::atomic::AtomicUsize::new(0),
+        });
 
         let (status, body) =
-            git_credential_body(make_state(creds.clone()), Some("backend:8001")).await;
+            git_credential_body(state_over(Arc::clone(&backend)), Some("backend:8001")).await;
         assert_eq!(status, Sc::OK);
         assert!(body.contains("password=task-jwt"), "{body}");
         assert!(!body.contains("ghs_token"), "{body}");
+        assert_eq!(backend.fetches.load(std::sync::atomic::Ordering::SeqCst), 0);
 
         // A host the helper did not name is not the backend.
         let (_, body) = git_credential_body(make_state(creds), None).await;
         assert!(body.contains("password=ghs_token"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn the_backend_host_with_no_task_token_held_answers_404() {
+        let backend = Arc::new(StaticBackend {
+            creds: HashMap::new(),
+            task_token: None,
+            fetches: std::sync::atomic::AtomicUsize::new(0),
+        });
+        let (status, _) = git_credential_body(state_over(backend), Some("backend:8001")).await;
+        assert_eq!(status, Sc::NOT_FOUND);
     }
 
     #[test]

@@ -3,6 +3,7 @@
 //! The sandbox runs inside a sandbox pod and receives its configuration via
 //! environment variables set by the orchestrator.
 
+use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -10,7 +11,8 @@ use std::time::Duration;
 use claude_agent_sdk::PermissionMode;
 use moatless_workspace_types::plugin::PluginDelivery;
 use moatless_workspace_types::workspace::{
-    PROXIED_PROVIDER, RepoCheckout, WORKSPACE_LIMIT_ENV, WORKSPACE_REPOS_ENV, proxy_clone_url,
+    PROXIED_PROVIDER, RepoCheckout, WORKSPACE_LIMIT_ENV, WORKSPACE_REPOS_ENV,
+    proxy_clone_repository_id, proxy_clone_url,
 };
 use serde::Deserialize;
 
@@ -22,6 +24,8 @@ pub use crate::http_config::SandboxHttpConfig;
 /// persisted user auth token, neither of which may reach the workspace snapshot
 /// or server sidecars.
 pub const RUNTIME_DIR: &str = "/run/moatless";
+
+const GITHUB_PROVIDER: &str = moatless_types::git_host::RepositoryProvider::Github.as_str();
 
 /// Deadline a `moat cmd` command takes when it declares none.
 pub const DEFAULT_COMMAND_TIMEOUT_SECS: u64 = 4 * 60 * 60;
@@ -216,6 +220,10 @@ pub struct Config {
     pub git_provider: String,
     /// Resolved checkouts supplied in `WORKSPACE_REPOS`, primary first.
     pub repos: Vec<RepoCheckout>,
+    /// The GitHub URL each checkout cloning through the backend proxy stands
+    /// in for, by mount name. The clone records it as the
+    /// [`GITHUB_REMOTE`](crate::init::git::GITHUB_REMOTE) remote.
+    pub github_upstreams: HashMap<String, String>,
     /// Raw `REPO_CONFIG` JSON (for entrypoint compat)
     pub repo_config_raw: Option<String>,
     /// Setup commands from `REPO_CONFIG.codeExecution.setupCommands`
@@ -227,23 +235,22 @@ pub struct Config {
     pub http: SandboxHttpConfig,
 }
 
-/// Read the resolved checkouts supplied by the backend.
+/// Read the resolved checkouts supplied by the backend, routed as
+/// [`route_through_proxy`] does, with the GitHub URLs it replaced.
 fn load_repo_checkouts(
     git_clone_url: Option<&str>,
     backend_api_url: Option<&str>,
-) -> Result<Vec<RepoCheckout>, String> {
-    parse_repo_checkouts(
-        env::var(WORKSPACE_REPOS_ENV).ok().as_deref(),
-        git_clone_url,
-        backend_api_url,
-    )
+) -> Result<(Vec<RepoCheckout>, HashMap<String, String>), String> {
+    let mut repos =
+        parse_repo_checkouts(env::var(WORKSPACE_REPOS_ENV).ok().as_deref(), git_clone_url)?;
+    let github_upstreams = route_through_proxy(&mut repos, backend_api_url);
+    Ok((repos, github_upstreams))
 }
 
 /// Decode resolved checkouts without consulting process environment.
 fn parse_repo_checkouts(
     raw: Option<&str>,
     git_clone_url: Option<&str>,
-    backend_api_url: Option<&str>,
 ) -> Result<Vec<RepoCheckout>, String> {
     let Some(raw) = raw.filter(|raw| !raw.trim().is_empty()) else {
         return if git_clone_url.is_some() {
@@ -259,13 +266,29 @@ fn parse_repo_checkouts(
         if !usable { tracing::error!(mount_name = %repo.mount_name, "Skipping checkout with an unusable mount name or clone URL"); }
         usable
     });
-    for repo in &mut repos {
+    Ok(repos)
+}
+
+/// Point every checkout [`proxied_clone_url`] names at the backend proxy.
+///
+/// Returns the `clone_url` each rewritten GitHub checkout had, by mount name:
+/// `gh` and the push watcher still need the GitHub repository the proxy
+/// stands in for.
+fn route_through_proxy(
+    repos: &mut [RepoCheckout],
+    backend_api_url: Option<&str>,
+) -> HashMap<String, String> {
+    let mut github_upstreams = HashMap::new();
+    for repo in repos {
         if let Some(url) = proxied_clone_url(repo, backend_api_url) {
-            repo.clone_url = url;
+            let upstream = std::mem::replace(&mut repo.clone_url, url);
+            if repo.provider == GITHUB_PROVIDER {
+                github_upstreams.insert(repo.mount_name.clone(), upstream);
+            }
             repo.uses_ssh = false;
         }
     }
-    Ok(repos)
+    github_upstreams
 }
 
 /// Split a URL into its scheme and its `host[:port]`, dropping any path.
@@ -275,13 +298,14 @@ fn scheme_and_authority(url: &str) -> Option<(&str, &str)> {
     Some((scheme, authority))
 }
 
-/// The backend-proxied remote to clone this checkout from, or `None` when it
-/// clones from its own host.
-///
-/// Also `None` with no `BACKEND_API_URL` or repository id, leaving the upstream
-/// URL to fail on the missing credential.
+/// The backend-proxied remote to clone this checkout from: every Forgejo and
+/// every HTTPS GitHub checkout, so git asks the broker for the task token
+/// rather than a provider token. SSH GitHub keeps its own host and keys.
+/// `None` with no `BACKEND_API_URL` or repository id.
 fn proxied_clone_url(repo: &RepoCheckout, backend_api_url: Option<&str>) -> Option<String> {
-    if repo.provider != PROXIED_PROVIDER || repo.repository_id.is_empty() {
+    let proxied =
+        repo.provider == PROXIED_PROVIDER || (repo.provider == GITHUB_PROVIDER && !repo.uses_ssh);
+    if !proxied || repo.repository_id.is_empty() {
         return None;
     }
     let base = backend_api_url.filter(|url| !url.is_empty())?;
@@ -452,6 +476,14 @@ impl Config {
         Some(format!("{scheme}://{authority}"))
     }
 
+    /// Whether `repo` clones from the backend proxy, which authenticates the
+    /// pod's task token and so must be handed no provider token.
+    pub fn clones_through_proxy(&self, repo: &RepoCheckout) -> bool {
+        self.backend_api_url
+            .as_deref()
+            .is_some_and(|base| proxy_clone_repository_id(base, &repo.clone_url).is_some())
+    }
+
     /// The `host[:port]` git sends as its `host=` field when it asks for a
     /// proxied checkout's credential.
     pub fn backend_api_host(&self) -> Option<String> {
@@ -483,7 +515,8 @@ impl Config {
         let git_branch = env::var("GIT_BRANCH").ok();
         let git_provider = env::var("GIT_PROVIDER").unwrap_or_default();
         let backend_api_url = env::var("BACKEND_API_URL").ok();
-        let repos = load_repo_checkouts(git_clone_url.as_deref(), backend_api_url.as_deref())?;
+        let (repos, github_upstreams) =
+            load_repo_checkouts(git_clone_url.as_deref(), backend_api_url.as_deref())?;
         let repo_dir = primary_checkout(&repos)
             .map_or_else(|| workspace_dir.clone(), |repo| repo.dir(&workspace_dir));
         let upload_dir =
@@ -589,6 +622,7 @@ impl Config {
             git_branch,
             git_provider,
             repos,
+            github_upstreams,
             repo_config_raw: env::var("REPO_CONFIG").ok(),
             setup_commands: parsed.setup_commands,
             plugins: parsed.plugins,
@@ -645,6 +679,7 @@ pub(crate) mod test_support {
         AgentConfig, Config, DEFAULT_REFRESH_INTERVAL_SECS, DEFAULT_SYNC_INTERVAL_SECS,
         PermissionMode,
     };
+    use std::collections::HashMap;
     use std::time::Duration;
 
     /// A minimal [`Config`] with empty/default values, suitable for unit tests
@@ -690,6 +725,7 @@ pub(crate) mod test_support {
             git_branch: None,
             git_provider: "github".to_string(),
             repos: Vec::new(),
+            github_upstreams: HashMap::new(),
             repo_config_raw: None,
             setup_commands: Vec::new(),
             plugins: Vec::new(),
@@ -768,8 +804,10 @@ mod tests {
     use super::{
         PermissionMode, RepoConfigFile, default_upload_dir, env_flag_override,
         env_flag_value_enabled, is_safe_mount_name, parse_permission_mode, parse_repo_checkouts,
-        primary_checkout, resolve_agent_config,
+        primary_checkout, resolve_agent_config, route_through_proxy,
     };
+    use moatless_workspace_types::workspace::RepoCheckout;
+    use std::collections::HashMap;
     use std::time::Duration;
 
     #[test]
@@ -1076,7 +1114,7 @@ mod tests {
     #[test]
     fn url_only_configuration_requires_reprovisioning() {
         assert!(
-            parse_repo_checkouts(None, Some("https://github.com/owner/service.git"), None)
+            parse_repo_checkouts(None, Some("https://github.com/owner/service.git"))
                 .unwrap_err()
                 .contains("reprovision")
         );
@@ -1084,12 +1122,8 @@ mod tests {
 
     #[test]
     fn no_clone_url_at_all_yields_no_checkouts() {
-        assert!(parse_repo_checkouts(None, None, None).unwrap().is_empty());
-        assert!(
-            parse_repo_checkouts(Some("[]"), None, None)
-                .unwrap()
-                .is_empty()
-        );
+        assert!(parse_repo_checkouts(None, None).unwrap().is_empty());
+        assert!(parse_repo_checkouts(Some("[]"), None).unwrap().is_empty());
     }
 
     #[test]
@@ -1099,7 +1133,7 @@ mod tests {
             {"usesSsh":false,"cloneUrl":"https://gitlab.com/acme/shared.git","provider":"gitlab","mountName":"lib"}
         ]"#;
         let repos =
-            parse_repo_checkouts(Some(raw), Some("https://github.com/acme/api.git"), None).unwrap();
+            parse_repo_checkouts(Some(raw), Some("https://github.com/acme/api.git")).unwrap();
         assert_eq!(repos.len(), 2);
         assert_eq!(
             primary_checkout(&repos)
@@ -1121,29 +1155,81 @@ mod tests {
             {"usesSsh":false,"cloneUrl":"https://github.com/acme/evil.git","provider":"github","mountName":"../escape"},
             {"usesSsh":false,"cloneUrl":"","provider":"github","mountName":"empty"}
         ]"#;
-        let repos = parse_repo_checkouts(Some(raw), None, None).unwrap();
+        let repos = parse_repo_checkouts(Some(raw), None).unwrap();
         assert_eq!(repos.len(), 1);
         assert_eq!(repos[0].mount_name, "api");
     }
 
     #[test]
     fn malformed_or_unclassified_checkouts_are_rejected() {
-        assert!(parse_repo_checkouts(Some("not json"), None, None).is_err());
-        assert!(parse_repo_checkouts(Some(r#"[{"cloneUrl":"git@github.com:acme/repo.git","provider":"github","mountName":"repo"}]"#), None, None).is_err());
+        assert!(parse_repo_checkouts(Some("not json"), None).is_err());
+        assert!(parse_repo_checkouts(Some(r#"[{"cloneUrl":"git@github.com:acme/repo.git","provider":"github","mountName":"repo"}]"#), None).is_err());
+    }
+
+    fn routed(
+        raw: &str,
+        backend_api_url: Option<&str>,
+    ) -> (Vec<RepoCheckout>, HashMap<String, String>) {
+        let mut repos = parse_repo_checkouts(Some(raw), None).unwrap();
+        let upstreams = route_through_proxy(&mut repos, backend_api_url);
+        (repos, upstreams)
     }
 
     /// A Forgejo token never reaches the pod, so its checkout clones from the
-    /// backend and every other checkout keeps its own host.
+    /// backend even when it was declared over SSH.
     #[test]
     fn a_forgejo_checkout_clones_through_the_backend_proxy() {
         let raw = r#"[
             {"usesSsh":true,"cloneUrl":"git@forge.example:acme/api.git","repositoryId":"repo_1","provider":"forgejo","mountName":"api","isPrimary":true},
-            {"usesSsh":false,"cloneUrl":"https://github.com/acme/web.git","repositoryId":"repo_2","provider":"github","mountName":"web"}
+            {"usesSsh":false,"cloneUrl":"https://gitlab.com/acme/lib.git","repositoryId":"repo_3","provider":"gitlab","mountName":"lib"}
         ]"#;
-        let repos = parse_repo_checkouts(Some(raw), None, Some("http://backend:8001/")).unwrap();
+        let (repos, upstreams) = routed(raw, Some("http://backend:8001/"));
         assert_eq!(repos[0].clone_url, "http://backend:8001/git/repo_1");
         assert!(!repos[0].uses_ssh);
-        assert_eq!(repos[1].clone_url, "https://github.com/acme/web.git");
+        assert_eq!(repos[1].clone_url, "https://gitlab.com/acme/lib.git");
+        assert!(upstreams.is_empty(), "{upstreams:?}");
+    }
+
+    /// An HTTPS GitHub checkout clones from the backend too, and its GitHub URL
+    /// is kept for the remote `gh` resolves the repository from.
+    #[test]
+    fn a_github_checkout_with_a_repository_id_clones_through_the_backend_proxy() {
+        let raw = r#"[
+            {"usesSsh":false,"cloneUrl":"https://github.com/acme/web.git","repositoryId":"repo_2","provider":"github","mountName":"web","isPrimary":true}
+        ]"#;
+        let (repos, upstreams) = routed(raw, Some("http://backend:8001"));
+        assert_eq!(repos[0].clone_url, "http://backend:8001/git/repo_2");
+        assert_eq!(
+            upstreams.get("web").map(String::as_str),
+            Some("https://github.com/acme/web.git")
+        );
+    }
+
+    /// No registry row, or SSH keys the user chose, leaves github.com in place.
+    #[test]
+    fn a_github_checkout_without_an_id_or_over_ssh_keeps_its_remote() {
+        let raw = r#"[
+            {"usesSsh":false,"cloneUrl":"https://github.com/acme/web.git","provider":"github","mountName":"web","isPrimary":true},
+            {"usesSsh":true,"cloneUrl":"git@github.com:acme/api.git","repositoryId":"repo_1","provider":"github","mountName":"api"}
+        ]"#;
+        let (repos, upstreams) = routed(raw, Some("http://backend:8001"));
+        assert_eq!(repos[0].clone_url, "https://github.com/acme/web.git");
+        assert_eq!(repos[1].clone_url, "git@github.com:acme/api.git");
+        assert!(repos[1].uses_ssh);
+        assert!(upstreams.is_empty(), "{upstreams:?}");
+    }
+
+    #[test]
+    fn only_a_backend_proxy_url_counts_as_cloning_through_the_proxy() {
+        let mut config = minimal_config();
+        config.backend_api_url = Some("http://backend:8001".to_string());
+        let raw = r#"[
+            {"usesSsh":false,"cloneUrl":"https://github.com/acme/web.git","repositoryId":"repo_2","provider":"github","mountName":"web","isPrimary":true},
+            {"usesSsh":false,"cloneUrl":"https://gitlab.com/acme/lib.git","repositoryId":"repo_3","provider":"gitlab","mountName":"lib"}
+        ]"#;
+        let (repos, _) = routed(raw, config.backend_api_url.as_deref());
+        assert!(config.clones_through_proxy(&repos[0]));
+        assert!(!config.clones_through_proxy(&repos[1]));
     }
 
     /// With nothing to address the backend by, the upstream URL stays: the
@@ -1153,14 +1239,13 @@ mod tests {
     fn a_forgejo_checkout_the_proxy_cannot_be_addressed_for_keeps_its_remote() {
         let raw = r#"[{"usesSsh":false,"cloneUrl":"https://forge.example/acme/api.git","repositoryId":"repo_1","provider":"forgejo","mountName":"api","isPrimary":true}]"#;
         assert_eq!(
-            parse_repo_checkouts(Some(raw), None, None).unwrap()[0].clone_url,
+            routed(raw, None).0[0].clone_url,
             "https://forge.example/acme/api.git"
         );
 
         let no_id = r#"[{"usesSsh":false,"cloneUrl":"https://forge.example/acme/api.git","provider":"forgejo","mountName":"api","isPrimary":true}]"#;
         assert_eq!(
-            parse_repo_checkouts(Some(no_id), None, Some("http://backend:8001")).unwrap()[0]
-                .clone_url,
+            routed(no_id, Some("http://backend:8001")).0[0].clone_url,
             "https://forge.example/acme/api.git"
         );
     }
@@ -1199,7 +1284,7 @@ mod tests {
     #[test]
     fn primary_checkout_falls_back_to_the_first_entry() {
         let raw = r#"[{"usesSsh":false,"cloneUrl":"https://github.com/acme/api.git","provider":"github","mountName":"api"}]"#;
-        let repos = parse_repo_checkouts(Some(raw), None, None).unwrap();
+        let repos = parse_repo_checkouts(Some(raw), None).unwrap();
         assert_eq!(primary_checkout(&repos).unwrap().mount_name, "api");
         assert!(primary_checkout(&[]).is_none());
     }

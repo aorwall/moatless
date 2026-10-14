@@ -9,7 +9,7 @@ Use `secrets list` with the same context/namespace to inspect names, not values.
 | Key | Required when |
 |---|---|
 | `SECRETS_ENCRYPTION_KEY` | Always; base64 of 32 random bytes. Preserve it for an existing database. |
-| `TASK_TOKEN_SECRET` | Always; task-scoped authentication. |
+| `TASK_TOKEN_SECRET` | Always; task-scoped authentication. Without it the backend git proxy refuses every request, and every Forgejo and HTTPS GitHub checkout with a registry id clones through that proxy. |
 | `DATABASE_URL` | External Postgres (`postgres.enabled: false`). |
 | GitHub App client ID/secret | GitHub App login is selected. |
 | Auth0 domain/client ID/client secret | Auth0 login is selected. |

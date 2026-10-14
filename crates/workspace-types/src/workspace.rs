@@ -196,12 +196,12 @@ impl RepoCheckout {
     }
 }
 
-/// The provider whose checkouts clone through the backend's git proxy instead
-/// of from their own host.
+/// The provider whose checkouts always clone through the backend's git proxy
+/// instead of from their own host.
 ///
 /// A Forgejo token is never delivered into a pod: the pod addresses the
-/// backend, which attaches the credential. Every other provider's `clone_url`
-/// reaches its host directly.
+/// backend, which attaches the credential. The sandbox proxies an HTTPS GitHub
+/// checkout too; GitLab and SSH GitHub checkouts reach their host directly.
 pub const PROXIED_PROVIDER: &str = moatless_types::git_host::RepositoryProvider::Forgejo.as_str();
 
 /// The proxied remote for `repository_id`:

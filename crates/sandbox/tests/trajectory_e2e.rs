@@ -165,6 +165,7 @@ impl RealEnv {
             git_branch: None,
             git_provider: "github".to_string(),
             repos: Vec::new(),
+            github_upstreams: Default::default(),
             repo_config_raw: None,
             setup_commands: vec![],
             plugins: vec![],

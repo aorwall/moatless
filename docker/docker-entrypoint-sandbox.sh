@@ -10,7 +10,8 @@ mkdir -p "${WORKSPACE_DIR:-/workspace}"
 mkdir -p "${DATA_DIR:-/opt/moatless/data}"
 mkdir -p "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/debug"
 
-# `gh` builds its git credential helper from `GH_PATH`; moatless-git-cred
+# `gh` builds its git credential helper from `GH_PATH` (also exported by the
+# sandbox binary, since K8s skips this script); moatless-git-cred
 # answers that helper from the broker and hands every other call to `gh`.
 if [ -x /usr/local/bin/moatless-git-cred ]; then
     export GH_PATH=/usr/local/bin/moatless-git-cred

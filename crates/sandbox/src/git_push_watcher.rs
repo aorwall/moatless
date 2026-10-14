@@ -16,7 +16,10 @@ use notify::{RecursiveMode, Watcher};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
+use moatless_workspace_types::workspace::proxy_clone_repository_id;
+
 use crate::backend_client::BackendClient;
+use crate::init::git::GITHUB_REMOTE;
 
 /// Coalescing window. One `git push` writes one reflog line per ref, so a
 /// multi-ref push arrives as a burst.
@@ -42,14 +45,18 @@ struct Repo {
 }
 
 /// Spawn the watcher. Returns immediately; it runs until `cancel` fires.
+///
+/// `backend_api_url` identifies a push to a backend-proxied `origin`, which is
+/// claimed under the checkout's [`GITHUB_REMOTE`].
 pub fn spawn(
     task_id: String,
     repo_dirs: Vec<String>,
+    backend_api_url: Option<String>,
     backend_client: Arc<dyn BackendClient>,
     cancel: CancellationToken,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        if let Err(e) = run(task_id, repo_dirs, backend_client, cancel).await {
+        if let Err(e) = run(task_id, repo_dirs, backend_api_url, backend_client, cancel).await {
             warn!(error = %e, "Git push watcher exited with error");
         }
     })
@@ -58,6 +65,7 @@ pub fn spawn(
 async fn run(
     task_id: String,
     repo_dirs: Vec<String>,
+    backend_api_url: Option<String>,
     backend_client: Arc<dyn BackendClient>,
     cancel: CancellationToken,
 ) -> Result<(), String> {
@@ -128,7 +136,14 @@ async fn run(
                     }
                 }
 
-                claim_new_pushes(&task_id, &repos, &mut claimed, backend_client.as_ref()).await;
+                claim_new_pushes(
+                    &task_id,
+                    &repos,
+                    backend_api_url.as_deref(),
+                    &mut claimed,
+                    backend_client.as_ref(),
+                )
+                .await;
             }
         }
     }
@@ -158,6 +173,7 @@ struct Push {
 async fn claim_new_pushes(
     task_id: &str,
     repos: &[Repo],
+    backend_api_url: Option<&str>,
     claimed: &mut HashSet<String>,
     backend_client: &dyn BackendClient,
 ) {
@@ -166,15 +182,9 @@ async fn claim_new_pushes(
             if claimed.contains(&push.sha) {
                 continue;
             }
-            let Some(url) = git(
-                &repo.dir,
-                &["config", "--get", &format!("remote.{}.url", push.remote)],
-            )
-            .await
+            let Some((owner, name)) =
+                pushed_github_repo(&repo.dir, &push.remote, backend_api_url).await
             else {
-                continue;
-            };
-            let Some((owner, name)) = github_repo_from_url(url.trim()) else {
                 debug!(remote = %push.remote, "Push went to a non-GitHub remote — nothing to claim");
                 continue;
             };
@@ -269,6 +279,26 @@ fn pushed_shas(reflog: &str) -> Vec<String> {
             Some(sha.to_string())
         })
         .collect()
+}
+
+/// The GitHub repository a push to `remote` reached: its own URL's, or for a
+/// backend-proxied remote, the checkout's [`GITHUB_REMOTE`]'s.
+async fn pushed_github_repo(
+    dir: &str,
+    remote: &str,
+    backend_api_url: Option<&str>,
+) -> Option<(String, String)> {
+    let url = remote_url(dir, remote).await?;
+    if let Some(repo) = github_repo_from_url(&url) {
+        return Some(repo);
+    }
+    backend_api_url.and_then(|base| proxy_clone_repository_id(base, &url))?;
+    github_repo_from_url(&remote_url(dir, GITHUB_REMOTE).await?)
+}
+
+async fn remote_url(dir: &str, remote: &str) -> Option<String> {
+    let url = git(dir, &["config", "--get", &format!("remote.{remote}.url")]).await?;
+    Some(url.trim().to_string())
 }
 
 /// `owner` and `repo` of a github.com remote, in any URL form git accepts.
@@ -378,6 +408,53 @@ mod tests {
             None
         );
         assert_eq!(github_repo_from_url("https://github.com/acme"), None);
+    }
+
+    /// A push to a proxied `origin` is GitHub's, under the `github` remote the
+    /// clone recorded; any other non-GitHub remote still claims nothing.
+    #[tokio::test]
+    async fn a_push_to_a_proxied_origin_is_claimed_under_the_github_remote() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().display().to_string();
+        let backend = "http://backend:8001";
+        for args in [
+            vec!["init", "-q"],
+            vec!["remote", "add", "origin", "http://backend:8001/git/repo_1"],
+            vec![
+                "remote",
+                "add",
+                "lab",
+                "https://gitlab.com/acme/widgets.git",
+            ],
+        ] {
+            assert!(git(&dir, &args).await.is_some(), "git {args:?}");
+        }
+
+        // No `github` remote yet: the proxied push names no repository.
+        assert_eq!(
+            pushed_github_repo(&dir, "origin", Some(backend)).await,
+            None
+        );
+
+        git(
+            &dir,
+            &[
+                "remote",
+                "add",
+                GITHUB_REMOTE,
+                "https://github.com/acme/widgets.git",
+            ],
+        )
+        .await
+        .unwrap();
+        let widgets = Some(("acme".to_string(), "widgets".to_string()));
+        assert_eq!(
+            pushed_github_repo(&dir, "origin", Some(backend)).await,
+            widgets
+        );
+        assert_eq!(pushed_github_repo(&dir, "lab", Some(backend)).await, None);
+        // Without the backend to match against, `origin` is just a foreign host.
+        assert_eq!(pushed_github_repo(&dir, "origin", None).await, None);
     }
 
     #[test]
