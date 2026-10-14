@@ -69,10 +69,10 @@ pub use moatless_ports::sandbox::{
 };
 pub use moatless_types::ui_rpc::{UiRpcAuthIdentity, UiRpcAuthMethod, UserRole};
 pub use reads::T3Reads;
-pub(crate) use rpc::frames::RequestId;
-pub(crate) use rpc::frames::failure_exit;
-pub(crate) use rpc::frames::sandbox_stream_refusal;
-pub(crate) use rpc::frames::success_exit;
+pub(crate) use rpc::envelope::RequestId;
+pub(crate) use rpc::envelope::failure_exit;
+pub(crate) use rpc::envelope::success_exit;
+pub(crate) use rpc::errors::sandbox_stream_refusal;
 pub(crate) use rpc::session::MAX_ACTIVE_STREAMS;
 pub(crate) use rpc::session::MAX_DETACHED_REQUESTS;
 pub use sandbox_proto::client::SandboxConnector;

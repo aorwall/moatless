@@ -3,7 +3,7 @@
 use super::routing::Request;
 use crate::authentication::viewer_scope;
 use crate::preview;
-use crate::rpc::frames::preview_answer;
+use crate::rpc::errors::preview_answer;
 use serde_json::Value;
 
 pub(super) async fn preview_list(request: Request) -> Vec<Value> {

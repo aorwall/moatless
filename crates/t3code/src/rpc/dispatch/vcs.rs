@@ -5,15 +5,13 @@ use crate::authentication::viewer_scope;
 use crate::git_actions;
 use crate::nominal_path;
 use crate::review;
-use crate::rpc::frames::branch_list_exit;
-use crate::rpc::frames::branch_switch_result;
-use crate::rpc::frames::git_action_failure_exit;
-use crate::rpc::frames::pull_request_failure_exit;
-use crate::rpc::frames::pull_request_ref;
-use crate::rpc::frames::pull_request_summary_failure_exit;
-use crate::rpc::frames::review_failure_exit;
-use crate::rpc::frames::success_exit;
-use crate::rpc::frames::unsupported_exit;
+use crate::rpc::envelope::success_exit;
+use crate::rpc::errors::branch_list_exit;
+use crate::rpc::errors::git_action_failure_exit;
+use crate::rpc::errors::pull_request_failure_exit;
+use crate::rpc::errors::pull_request_summary_failure_exit;
+use crate::rpc::errors::review_failure_exit;
+use crate::rpc::errors::unsupported_exit;
 use crate::snapshots::workspace_cwd;
 use crate::workspace::WorkspaceAccessError;
 use serde_json::Value;
@@ -272,4 +270,36 @@ pub(super) async fn git_run_stacked_action(request: Request) -> Vec<Value> {
         ],
         Err(error) => vec![git_action_failure_exit(&id, &error, &identity)],
     }
+}
+
+/// The `PullRequestRef` a summary request carries.
+fn pull_request_ref(payload: &Value) -> Option<(String, String, u64)> {
+    let text = |key: &str| {
+        payload
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    let number = payload.get("number").and_then(Value::as_u64)?;
+    if number == 0 {
+        return None;
+    }
+    Some((text("projectId")?, text("repository")?, number))
+}
+
+/// The result of switching a draft thread to a branch, if this is one to
+/// answer.
+///
+/// A no-op for a draft: there's no checkout yet, so the ref is echoed back for
+/// the client to record and send at creation. `None` means refuse — a Task's
+/// branch is fixed once its checkout exists.
+fn branch_switch_result(payload: &Value) -> Option<Value> {
+    let cwd = workspace_cwd(payload)?;
+    if !nominal_path::is_project_root(&cwd) {
+        return None;
+    }
+    let ref_name = payload.get("refName").and_then(Value::as_str)?.trim();
+    (!ref_name.is_empty()).then(|| json!({ "refName": ref_name }))
 }

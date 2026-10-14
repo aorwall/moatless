@@ -1,10 +1,10 @@
 use crate::authentication::viewer_scope;
 use crate::rpc::config::now_rfc3339;
-use crate::rpc::frames::ClientFrame;
-use crate::rpc::frames::RequestId;
-use crate::rpc::frames::connection_defect;
-use crate::rpc::frames::interrupted_exit;
-use crate::rpc::frames::valid_request_id;
+use crate::rpc::envelope::ClientFrame;
+use crate::rpc::envelope::RequestId;
+use crate::rpc::envelope::connection_defect;
+use crate::rpc::envelope::interrupted_exit;
+use crate::rpc::envelope::valid_request_id;
 use crate::rpc::metrics::request_root_span;
 use crate::skills;
 use crate::state::UiRpcState;

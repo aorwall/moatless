@@ -17,11 +17,11 @@ use crate::reads::T3Reads;
 use crate::routes::router;
 use crate::rpc::config::descriptor;
 use crate::rpc::config::server_config;
-use crate::rpc::frames::RequestId;
-use crate::rpc::frames::THREAD_UNAVAILABLE;
-use crate::rpc::frames::sandbox_failure_exit;
-use crate::rpc::frames::sandbox_stream_refusal;
-use crate::rpc::frames::scripts_failure_exit;
+use crate::rpc::envelope::RequestId;
+use crate::rpc::errors::THREAD_UNAVAILABLE;
+use crate::rpc::errors::sandbox_failure_exit;
+use crate::rpc::errors::sandbox_stream_refusal;
+use crate::rpc::errors::scripts_failure_exit;
 use crate::rpc::metrics as rpc_metrics;
 use crate::rpc::metrics::record_request;
 use crate::rpc::metrics::remote_span_context;
@@ -96,7 +96,7 @@ pub(crate) fn open_task(task_id: &str) -> TaskDescriptor {
     }
 }
 
-mod fixtures;
+pub(crate) mod fixtures;
 pub(crate) mod logs;
 
 mod assets;
@@ -108,6 +108,7 @@ mod diagnostics;
 mod files;
 mod http_compression;
 mod listing;
+pub(crate) mod methods;
 mod origin;
 mod pairing;
 mod refusals;

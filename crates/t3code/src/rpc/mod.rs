@@ -2,7 +2,8 @@
 
 pub(crate) mod config;
 mod dispatch;
-pub(crate) mod frames;
+pub(crate) mod envelope;
+pub(crate) mod errors;
 pub(crate) mod metrics;
 pub(crate) mod session;
 pub(crate) mod socket;

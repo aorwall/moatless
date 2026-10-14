@@ -609,7 +609,7 @@ impl ports::ThreadCommandSink for UnreachableCommands {
 /// These tests are about the envelope encoding, so the listing behind it is a
 /// stub. What a viewer actually sees is asserted against a real database in
 /// `backend/tests/integration_surface/ui_rpc_shell_test.rs`.
-pub(super) fn state() -> UiRpcState {
+pub(crate) fn state() -> UiRpcState {
     state_with_attachments(Arc::new(RecordingAttachments::default()))
 }
 
@@ -803,7 +803,7 @@ pub(super) fn terminal_summary_for(thread_id: &str, terminal_id: &str) -> Value 
     })
 }
 
-pub(super) fn viewer() -> UiRpcAuthIdentity {
+pub(crate) fn viewer() -> UiRpcAuthIdentity {
     UiRpcAuthIdentity {
         user_id: Uuid::nil(),
         login: "viewer".into(),

@@ -2,8 +2,8 @@
 
 use super::routing::Request;
 use crate::authentication::viewer_scope;
-use crate::rpc::frames::success_exit;
-use crate::rpc::frames::terminal_failure_exit;
+use crate::rpc::envelope::success_exit;
+use crate::rpc::errors::terminal_failure_exit;
 use crate::terminal;
 use serde_json::Value;
 

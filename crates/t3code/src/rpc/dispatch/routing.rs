@@ -19,13 +19,13 @@ use super::vcs::*;
 use crate::authentication::viewer_scope;
 use crate::config::OrchestrationProtocol;
 use crate::oauth;
-use crate::rpc::frames::RequestId;
-use crate::rpc::frames::authorization_error;
-use crate::rpc::frames::connection_defect;
-use crate::rpc::frames::failure_exit;
-use crate::rpc::frames::typed_failure_exit;
-use crate::rpc::frames::unsupported_exit;
-use crate::rpc::frames::valid_request_id;
+use crate::rpc::envelope::RequestId;
+use crate::rpc::envelope::connection_defect;
+use crate::rpc::envelope::failure_exit;
+use crate::rpc::envelope::typed_failure_exit;
+use crate::rpc::envelope::valid_request_id;
+use crate::rpc::errors::authorization_error;
+use crate::rpc::errors::unsupported_exit;
 use crate::rpc::metrics::answered;
 use crate::rpc::session::ProtocolSession;
 use crate::rpc::session::SharedSession;
@@ -330,4 +330,48 @@ fn detach_any(request: Request) -> Dispatch {
         _ => return Dispatch::Session(Box::new(request)),
     };
     Dispatch::Detached(detached)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tests::fixtures::state;
+    use crate::tests::fixtures::viewer;
+    use crate::tests::methods::routed_methods;
+
+    /// Every `methods.tsv` row routes as these matches route it. One way only:
+    /// a routed tag with no row passes, and the method table that replaces
+    /// these matches checks the other direction.
+    #[test]
+    fn every_snapshotted_row_routes_as_recorded() {
+        let state = state();
+        for method in routed_methods() {
+            assert_eq!(
+                oauth::required_scope(method.tag),
+                method.scope,
+                "{}",
+                method.tag
+            );
+            for protocol in [OrchestrationProtocol::V1, OrchestrationProtocol::V2] {
+                let request = Request {
+                    id: serde_json::from_value(Value::from("1")).expect("a request id"),
+                    tag: method.tag.to_string(),
+                    payload: Value::Null,
+                    state: state.clone(),
+                    identity: viewer(),
+                    shared: SharedSession {
+                        protocol,
+                        ..SharedSession::default()
+                    },
+                };
+                let detached = matches!(detach(request), Dispatch::Detached(_));
+                assert_eq!(
+                    detached,
+                    method.mode(protocol) == "detached",
+                    "{} {protocol:?}",
+                    method.tag
+                );
+            }
+        }
+    }
 }
