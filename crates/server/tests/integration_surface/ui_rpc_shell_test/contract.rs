@@ -33,7 +33,8 @@ const THREAD_REQUIRED: &[&str] = &[
 const THREAD_OPTIONAL: &[&str] = &[
     "backgroundLiveness",
     "linkedPullRequest",
-    "linkedPullRequests",
+    "pullRequests",
+    "visibility",
     "interactionMode",
     "archivedAt",
     "settledOverride",
@@ -41,6 +42,9 @@ const THREAD_OPTIONAL: &[&str] = &[
     "snoozedUntil",
     "snoozedAt",
     "ownerName",
+    "pinnedAt",
+    "pinOrderKey",
+    "activeOrderKey",
 ];
 
 const THREAD_NON_EMPTY: &[&str] = &["id", "projectId", "title"];
@@ -227,7 +231,7 @@ const PROJECT_REQUIRED: &[&str] = &[
     "updatedAt",
 ];
 
-const PROJECT_OPTIONAL: &[&str] = &["repositoryIdentity", "scriptsEditable"];
+const PROJECT_OPTIONAL: &[&str] = &["repositoryIdentity", "projectIcon", "scriptsEditable"];
 
 const PROJECT_NON_EMPTY: &[&str] = &["id", "title", "workspaceRoot"];
 

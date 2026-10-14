@@ -19,12 +19,10 @@ TIER_STATUS=${2:?usage: db-tests-ceiling.sh <junit-dir> <tier-exit-status>}
 # so the same table holds a full push to `main`. Mirrors the enumeration in
 # docs/deferred-changes.md; move both together, downward, and delete both at 0.
 CEILINGS="
-moatless-backend::integration_surface 49
 moatless-backend::integration_adapters 8
 moatless-backend::integration_data 1
 moatless-loops 8
 moatless-tasks 5
-moatless-sandbox-control 1
 "
 
 shopt -s nullglob

@@ -12,7 +12,6 @@ use super::seeding::{
 };
 use crate::common::USER_1;
 use crate::common::authed_request;
-use crate::common::make_message_row;
 use crate::common::make_repository_row;
 use crate::common::make_task_row;
 use crate::common::make_workspace_row;
@@ -22,10 +21,8 @@ use crate::common::test_app_state;
 use axum::http::StatusCode;
 use futures::future::BoxFuture;
 use moatless_tasks::activities::mapping::BlockContext;
-use moatless_tasks::activities::mapping::ConversationWrite;
 use moatless_tasks::activities::mapping::map_content;
 use moatless_tasks::message::models::MessageType;
-use moatless_tasks::message::models::TaskMessage;
 use moatless_tasks::tag::test_support as tag_fixtures;
 use moatless_tasks::task::models::TaskPatch;
 use moatless_tasks::task::models::TaskStatus;
@@ -333,15 +330,15 @@ async fn every_remaining_change_kind_moves_the_row(pool: PgPool) {
             "written to by a person",
             |pool, _ctx, id| {
                 Box::pin(async move {
-                    let msg = make_message_row(&id, &format!("{id}-said"));
-                    moatless_tasks::message::test_support::seed_message(
+                    // Sent, not seeded: `seed_message` writes a frozen row, and
+                    // only the live projection records a listing change.
+                    moatless_tasks::message::test_support::queue_named(
                         &pool,
-                        &msg,
-                        &[],
-                        &ConversationWrite::default(),
+                        &id,
+                        &format!("{id}-said"),
+                        "hello",
                     )
-                    .await
-                    .unwrap();
+                    .await;
                 })
             },
             // The activity timestamp T3 orders the sidebar by. It was null on
@@ -352,37 +349,18 @@ async fn every_remaining_change_kind_moves_the_row(pool: PgPool) {
             "asked a question",
             |pool, _ctx, id| {
                 Box::pin(async move {
-                    let uuid = format!("{id}-asked");
-                    let msg = TaskMessage {
-                        message_type: MessageType::Assistant,
-                        message_text: Some("Which one?".into()),
-                        ..make_message_row(&id, &uuid)
-                    };
-                    let question = map_content(
-                        BlockContext {
-                            task_id: &id,
-                            message_uuid: &uuid,
-                            parent_uuid: None,
-                            message_type: MessageType::Assistant,
-                            block_index: 1,
-                            source: &uuid,
-                            source_block: 0,
-                        },
-                        &json!([{
-                            "type": "tool_use",
-                            "id": "tu-1",
-                            "name": "AskUserQuestion",
-                            "input": {}
-                        }]),
-                    );
-                    moatless_tasks::message::test_support::seed_message(
+                    // Projected, not seeded, for the reason the case above is.
+                    moatless_tasks::message::test_support::seed_agent_blocks(
                         &pool,
-                        &msg,
-                        &[],
-                        &question,
+                        &id,
+                        &format!("{id}-session"),
+                        Some(1),
+                        json!([
+                            {"type": "text", "text": "Which one?"},
+                            {"type": "tool_use", "id": "tu-1", "name": "AskUserQuestion", "input": {}}
+                        ]),
                     )
-                    .await
-                    .unwrap();
+                    .await;
                 })
             },
             Some(("hasPendingUserInput", json!(true))),
@@ -873,10 +851,10 @@ async fn a_referenced_project_change_waits_for_the_next_snapshot(pool: PgPool) {
     );
     assert_eq!(recorded_after(&pool, watched_from).await, 0);
     assert!(held.projects.contains(&"ws-other".to_string()));
-    assert!(
-        !Held::opening(&pool, &watcher_viewer)
-            .await
-            .projects
-            .contains(&"ws-other".to_string())
+    // Still listed after the delete: the conversation user-1 follows names it.
+    assert_eq!(
+        project(&pool, &watcher_viewer, "ws-other").await["title"],
+        "Renamed elsewhere",
+        "the next snapshot carries the change the feed withheld"
     );
 }

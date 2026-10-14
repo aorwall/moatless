@@ -618,32 +618,32 @@ impl LifecycleDao for PgLifecycleDao {
             .await
             .map_err(|e| StoreError::with_source("begin running-commands transaction", e))?;
 
-        // `crossed` is the busy axis, not the count: the row under `FOR UPDATE`
-        // is compared against the incoming value for zero-ness only.
-        let crossed: Option<bool> = sqlx::query_scalar(
-            r#"WITH prev AS (
-                   SELECT running_commands
-                   FROM sandboxes
-                   WHERE sandbox_id = $1
-                   FOR UPDATE
-               ),
-               write AS (
-                   UPDATE sandboxes SET
-                       running_commands = $2,
-                       updated_at = NOW()
-                   WHERE sandbox_id = $1
-                   RETURNING 1
-               )
-               SELECT ((SELECT running_commands FROM prev) > 0) IS DISTINCT FROM ($2 > 0)
-               FROM write"#,
+        // Two statements, deliberately: a `FOR UPDATE` CTE beside the `UPDATE`
+        // can run after it, skips the row that statement already modified, and
+        // reads NULL, so every report would count as crossing zero.
+        let previous: Option<i32> = sqlx::query_scalar(
+            "SELECT running_commands FROM sandboxes WHERE sandbox_id = $1 FOR UPDATE",
+        )
+        .bind(sandbox_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| StoreError::with_source("lock running commands", e))?;
+        let Some(previous) = previous else {
+            return Ok(());
+        };
+
+        sqlx::query(
+            "UPDATE sandboxes SET running_commands = $2, updated_at = NOW() \
+             WHERE sandbox_id = $1",
         )
         .bind(sandbox_id)
         .bind(running)
-        .fetch_optional(&mut *tx)
+        .execute(&mut *tx)
         .await
         .map_err(|e| StoreError::with_source("persist running commands", e))?;
 
-        if crossed == Some(true) {
+        // The busy axis, not the count: a 2→3 move wakes no client.
+        if (previous > 0) != (running > 0) {
             // Ahead of the listing's allocator, per the lock order in
             // `moatless_core::change_feed`.
             moatless_core::change_feed::conversation::record_session_change(&mut tx, sandbox_id)

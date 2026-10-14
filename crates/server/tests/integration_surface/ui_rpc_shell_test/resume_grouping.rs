@@ -239,16 +239,22 @@ async fn a_removal_after_a_resume_names_only_ids_that_client_was_sent(pool: PgPo
 /// Criterion 6: the held set is what the client was *shown*, not what the
 /// viewer may *read*.
 ///
-/// The two differ when a followed, readable conversation's workspace is gone:
-/// it's projected out but still in `list_followed`, so a held set built from
-/// the latter would send a removal for a row never shown.
+/// The two differ when a followed, readable conversation names a workspace
+/// with no row: it's projected out but still in `list_followed`, so a held set
+/// built from the latter would send a removal for a row never shown.
 #[sqlx::test]
 async fn a_removal_never_names_a_row_the_listing_did_not_show(pool: PgPool) {
     seed_workspaces(&pool).await;
     seed_task(&pool, "t-shown", "user-1", Some("ws-own")).await;
-    // `ws-deleted` is soft-deleted, so this conversation is followed, readable,
-    // and not listable.
-    seed_task(&pool, "t-orphan", "user-1", Some("ws-deleted")).await;
+    // Followed, readable, and not listable: `tasks.workspace_id` has no foreign
+    // key, so it can name a row that is gone. Seeded first against `ws-own`
+    // because the Sandbox row creation writes does have one. A soft-deleted
+    // workspace would not do: a readable Task naming it keeps it listed.
+    seed_task(&pool, "t-orphan", "user-1", Some("ws-own")).await;
+    sqlx::query("UPDATE tasks SET workspace_id = 'ws-gone' WHERE task_id = 't-orphan'")
+        .execute(&pool)
+        .await
+        .unwrap();
     let watcher_viewer = viewer("user-1");
 
     // The premise, stated against the query a reconstruction would use.

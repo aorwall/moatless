@@ -100,7 +100,7 @@ async fn a_thread_links_a_pull_request_whose_status_was_never_fetched(pool: PgPo
         row["linkedPullRequest"]["url"],
         "https://github.com/acme/web/pull/7"
     );
-    assert_eq!(row["linkedPullRequests"].as_array().unwrap().len(), 1);
+    assert_eq!(row["pullRequests"].as_array().unwrap().len(), 1);
 }
 
 #[sqlx::test]
@@ -113,7 +113,7 @@ async fn a_thread_links_every_bound_pull_request_live_first_then_newest(pool: Pg
     seed_pr_binding(&pool, "b-3", "t-prs", "acme/api#8", None).await;
 
     let row = thread(&pool, &viewer("user-1"), "t-prs").await;
-    let linked = row["linkedPullRequests"].as_array().unwrap();
+    let linked = row["pullRequests"].as_array().unwrap();
 
     // Live before terminal, then highest number — so the merged #9 sorts last
     // and the unrefreshed #8 counts as live.
@@ -130,7 +130,9 @@ async fn a_thread_links_every_bound_pull_request_live_first_then_newest(pool: Pg
         ]
     );
     // The single reference every existing reader uses is the list's primary.
-    assert_eq!(row["linkedPullRequest"], linked[0]);
+    for key in ["repository", "number", "url"] {
+        assert_eq!(row["linkedPullRequest"][key], linked[0][key], "{key}");
+    }
 }
 
 /// Spares every pull-request surface a `pullRequests.summary` round trip.
@@ -147,8 +149,8 @@ async fn a_thread_carries_the_status_of_each_pull_request_that_was_refreshed(poo
     seed_pr_binding(&pool, "b-2", "t-prs", "acme/api#8", None).await;
 
     let row = thread(&pool, &viewer("user-1"), "t-prs").await;
-    let linked = row["linkedPullRequests"].as_array().unwrap();
-    let refreshed = linked.iter().find(|pr| pr["number"] == 7).unwrap();
+    let linked = row["pullRequests"].as_array().unwrap();
+    let refreshed = &linked.iter().find(|pr| pr["number"] == 7).unwrap()["snapshot"];
 
     assert_eq!(refreshed["title"], "Ship the composer pill");
     // A draft has no state of its own in the contract, so `isDraft` is what
@@ -157,19 +159,10 @@ async fn a_thread_carries_the_status_of_each_pull_request_that_was_refreshed(poo
     assert_eq!(refreshed["isDraft"], true);
     assert_eq!(refreshed["baseBranch"], "main");
     assert_eq!(refreshed["headBranch"], "feature/pill");
-    assert_eq!(refreshed["updatedAt"], "2026-02-03T04:05:06.000Z");
+    assert_eq!(refreshed["syncedAt"], "2026-02-03T04:05:06.000Z");
 
     let unrefreshed = linked.iter().find(|pr| pr["number"] == 8).unwrap();
-    for absent in [
-        "title",
-        "state",
-        "isDraft",
-        "baseBranch",
-        "headBranch",
-        "updatedAt",
-    ] {
-        assert_eq!(unrefreshed.get(absent), None, "{absent} was never fetched");
-    }
+    assert!(unrefreshed["snapshot"].is_null(), "#8 was never fetched");
 }
 
 /// The guard exists so a malformed key drops its own row: the `::bigint` cast
@@ -187,7 +180,7 @@ async fn a_binding_whose_key_is_not_owner_repo_number_drops_without_failing_the_
     seed_pr_binding(&pool, "b-3", "t-odd", "acme/web#none", None).await;
 
     let row = thread(&pool, &viewer("user-1"), "t-odd").await;
-    let linked = row["linkedPullRequests"].as_array().unwrap();
+    let linked = row["pullRequests"].as_array().unwrap();
 
     assert_eq!(linked.len(), 1);
     assert_eq!(linked[0]["repository"], "acme/web");
@@ -202,7 +195,7 @@ async fn a_thread_bound_to_no_pull_request_links_none(pool: PgPool) {
     let row = thread(&pool, &viewer("user-1"), "t-bare").await;
 
     assert!(row["linkedPullRequest"].is_null());
-    assert!(row["linkedPullRequests"].as_array().unwrap().is_empty());
+    assert!(row["pullRequests"].as_array().unwrap().is_empty());
 }
 
 /// Absence is one answer with one meaning, and the reader cannot tell which of
@@ -403,10 +396,10 @@ async fn an_unfollowed_closed_conversation_is_absent_from_the_archive(pool: PgPo
     );
 }
 
-/// A workspace that was deleted is not listable, so a conversation still
-/// pointing at it has no project either.
+/// A deleted workspace still lists while a readable conversation names it, so
+/// the sidebar does not drop work that is still in it.
 #[sqlx::test]
-async fn a_conversation_whose_project_was_deleted_is_left_out(pool: PgPool) {
+async fn a_conversation_whose_project_was_deleted_still_lists(pool: PgPool) {
     let mut deleted = make_workspace_row("ws-gone", "user-1");
     deleted.deleted = true;
     compose::workspaces(pool.clone())
@@ -415,5 +408,5 @@ async fn a_conversation_whose_project_was_deleted_is_left_out(pool: PgPool) {
         .unwrap();
     seed_task(&pool, "t-stranded", "user-1", Some("ws-gone")).await;
 
-    assert!(thread_ids(&pool, &viewer("user-1")).await.is_empty());
+    assert_eq!(thread_ids(&pool, &viewer("user-1")).await, ["t-stranded"]);
 }
