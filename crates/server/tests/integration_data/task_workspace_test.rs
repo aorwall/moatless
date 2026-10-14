@@ -11,6 +11,7 @@
 
 use crate::common;
 
+use moatless_loops::loops::test_support::insert_manual_loop;
 use moatless_ports::task::{NewTask, TaskOpenError, TaskOpener};
 use moatless_tasks::task::test_support::find_task;
 use moatless_types::access_control::ScopeContext;
@@ -62,6 +63,9 @@ async fn a_loop_opens_its_task_in_the_workspace_it_names(pool: PgPool) {
     seed_local_repository(&pool, "repo-1").await;
     common::seed_workspace_placing(&pool, "ws-other", "repo-1", common::USER_1).await;
     common::seed_workspace_placing(&pool, "ws-named", "repo-1", common::USER_1).await;
+    insert_manual_loop(&pool, "loop-1", "loop", "ws-named")
+        .await
+        .unwrap();
     let state = common::test_app_state(pool.clone());
 
     let opened = state

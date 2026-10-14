@@ -179,7 +179,9 @@ async fn execute(
             finish_failed(store, &delivery, terminal, &describe(&failure)).await;
         }
         Ok(Err(panic)) => {
-            let reason = format!("handler panicked: {}", panic_message(&panic));
+            // `as_ref`, not `&panic`: `&Box<dyn Any>` coerces the `Box` itself to
+            // `dyn Any`, so every downcast misses and the payload is lost.
+            let reason = format!("handler panicked: {}", panic_message(panic.as_ref()));
             finish_failed(store, &delivery, delivery.is_last_attempt(), &reason).await;
         }
         Err(_elapsed) => {

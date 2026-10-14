@@ -286,7 +286,7 @@ mod tests {
         sqlx::query(
             r#"INSERT INTO adapter_connections
                    (id, adapter_kind, connection_kind, external_account_id, created_by, scope)
-               VALUES ('ac_buf', 'github_pr', 'app', 'acme', 'user-1', 'team')"#,
+               VALUES ('ac_buf', 'github_pr', 'app', 'acme', 'user-1', 'global')"#,
         )
         .execute(pool)
         .await

@@ -671,22 +671,11 @@ jobs:
             # `--no-tests=warn` for the same reason the main tier carries it: a
             # package can declare the feature and gate no test behind it.
             DB_TESTS_STATUS=0
-            DB_TESTS_HARD=0
-            # Split by exit code, deliberately, rather than collapsed to a
-            # boolean: nextest exits 100 for failing tests, which the ceiling
-            # below is allowed to hold, and any other nonzero is a build or
-            # setup failure, which it is not. Without the split, one package
-            # failing to compile while another writes a report reads as green.
             run_db_tests() {
-              local code=0
-              "$@" || code=$?
-              [ "$code" -eq 0 ] && return 0
-              DB_TESTS_STATUS=1
-              [ "$code" -ne 100 ] && DB_TESTS_HARD=$code
-              return 0
+              "$@" || DB_TESTS_STATUS=1
             }
             # `target/` is restored from cache, so a report this run did not
-            # write would otherwise be counted against the ceiling below.
+            # write would otherwise be uploaded as this run's.
             rm -f target/nextest/ci-db-tests/junit*.xml
             if [ "$CARGO_MANIFEST_CHANGED" = true ]; then
               # A bare run would stop the loop at the first red package and
@@ -712,17 +701,10 @@ jobs:
               run_db_tests cargo nextest run --profile ci-db-tests $DB_TEST_ARGS \
                 --features "$DB_TEST_FEATURES" --no-tests=warn
             fi
-            if [ "$DB_TESTS_HARD" -ne 0 ]; then
-              echo "::error::The db-tests tier exited ${DB_TESTS_HARD}, which is not a test result — nextest reports failing tests as 100. Read the log above; the ceiling covers fixtures, not a build or setup failure."
+            if [ "$DB_TESTS_STATUS" -ne 0 ]; then
+              echo "::error::The db-tests tier failed — read the log above."
               exit 1
             fi
-            # A ceiling rather than a pass/fail: the fixtures it holds carry
-            # debt this branch did not create, so a binary is red only when its
-            # own count rises. Per binary rather than one total, because the run
-            # is a per-PR package subset. The script owns the table and what it
-            # refuses; `docs/deferred-changes.md` owns the enumeration.
-            bash .github/scripts/db-tests-ceiling.sh \
-              target/nextest/ci-db-tests "$DB_TESTS_STATUS"
           else
             echo "No selected package declares db-tests — skipping db-tests."
           fi

@@ -50,6 +50,7 @@ async fn installation_registers_capabilities_deliveries_and_handler_access(pool:
     assert_eq!(
         kinds,
         [
+            "github.check_run",
             "github.close",
             "github.merge_conflict",
             "github.post_merge",
