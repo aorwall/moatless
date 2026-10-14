@@ -287,10 +287,14 @@ pub struct SandboxConfig {
     /// Memory limit for the sandbox (agent) container (env
     /// `K8S_RESOURCE_LIMIT_MEMORY`)
     pub sandbox_resources_memory_limit: String,
-    /// Optional ephemeral-storage request and limit for the sandbox container.
-    /// EKS Fargate uses the request to provision pod-local disk. Env
-    /// `K8S_SANDBOX_EPHEMERAL_STORAGE`.
+    /// Optional ephemeral-storage request for the sandbox container, which the
+    /// scheduler counts against node disk. EKS Fargate uses it to provision
+    /// pod-local disk. Env `K8S_SANDBOX_EPHEMERAL_STORAGE`.
     pub ephemeral_storage: Option<String>,
+    /// Optional ephemeral-storage limit; the kubelet evicts a container that
+    /// exceeds it. Unset means no ceiling. Ignored under Fargate, where the
+    /// request doubles as the limit. Env `K8S_SANDBOX_EPHEMERAL_STORAGE_LIMIT`.
+    pub ephemeral_storage_limit: Option<String>,
     /// Runs the sandbox and server containers as non-root via a pod
     /// securityContext (env `K8S_SANDBOX_RUN_AS_NON_ROOT`, default `false`).
     ///
@@ -889,6 +893,7 @@ impl Config {
                 sandbox_resources_memory_request: env_str("K8S_RESOURCE_REQUEST_MEMORY", "2Gi"),
                 sandbox_resources_memory_limit: env_str("K8S_RESOURCE_LIMIT_MEMORY", "16Gi"),
                 ephemeral_storage: env_opt("K8S_SANDBOX_EPHEMERAL_STORAGE"),
+                ephemeral_storage_limit: env_opt("K8S_SANDBOX_EPHEMERAL_STORAGE_LIMIT"),
                 run_as_non_root: env_bool("K8S_SANDBOX_RUN_AS_NON_ROOT", false),
                 shared_data_size: env_str("K8S_SANDBOX_SHARED_DATA_SIZE", "2Gi"),
                 persist_toolchain: env_bool("K8S_SANDBOX_PERSIST_TOOLCHAIN", false),
@@ -1364,6 +1369,7 @@ impl Config {
                 sandbox_resources_memory_request: "2Gi".into(),
                 sandbox_resources_memory_limit: "8Gi".into(),
                 ephemeral_storage: None,
+                ephemeral_storage_limit: None,
                 run_as_non_root: false,
                 shared_data_size: "2Gi".into(),
                 persist_toolchain: false,

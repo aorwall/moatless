@@ -125,3 +125,55 @@ fn shared_data_empty_dir_is_size_capped() {
         "shared-data emptyDir must be size-capped"
     );
 }
+
+/// The sandbox container's ephemeral-storage `(request, limit)`.
+fn ephemeral_storage(config: &Config) -> (Option<String>, Option<String>) {
+    let container = build_sandbox_container(config, "task-1", &test_plan(), None, None).unwrap();
+    let resources = container.resources.unwrap();
+    let get = |map: Option<BTreeMap<String, Quantity>>| {
+        map.and_then(|map| map.get("ephemeral-storage").map(|q| q.0.clone()))
+    };
+    (get(resources.requests), get(resources.limits))
+}
+
+#[test]
+fn no_ephemeral_storage_setting_writes_neither_request_nor_limit() {
+    assert_eq!(ephemeral_storage(&test_config()), (None, None));
+}
+
+/// A request alone sets no limit, so a container over it is ranked first
+/// for eviction under node pressure rather than evicted at a fixed ceiling.
+#[test]
+fn an_ephemeral_storage_request_sets_no_limit() {
+    let mut config = test_config();
+    config.sandbox.ephemeral_storage = Some("6Gi".into());
+    assert_eq!(ephemeral_storage(&config), (Some("6Gi".into()), None));
+}
+
+#[test]
+fn an_ephemeral_storage_limit_is_set_independently_of_the_request() {
+    let mut config = test_config();
+    config.sandbox.ephemeral_storage = Some("6Gi".into());
+    config.sandbox.ephemeral_storage_limit = Some("50Gi".into());
+    assert_eq!(
+        ephemeral_storage(&config),
+        (Some("6Gi".into()), Some("50Gi".into()))
+    );
+}
+
+/// Fargate provisions pod-local disk from the request and wants equal
+/// requests and limits, so the request doubles as the limit there, even over
+/// an explicit limit.
+#[test]
+fn fargate_uses_the_ephemeral_storage_request_as_the_limit() {
+    assert_eq!(
+        ephemeral_storage(&fargate_config()),
+        (Some("40Gi".into()), Some("40Gi".into()))
+    );
+    let mut config = fargate_config();
+    config.sandbox.ephemeral_storage_limit = Some("20Gi".into());
+    assert_eq!(
+        ephemeral_storage(&config),
+        (Some("40Gi".into()), Some("40Gi".into()))
+    );
+}

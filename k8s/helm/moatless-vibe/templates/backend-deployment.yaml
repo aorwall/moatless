@@ -121,6 +121,10 @@ spec:
             - name: K8S_SANDBOX_EPHEMERAL_STORAGE
               value: {{ . | quote }}
             {{- end }}
+            {{- with .Values.kubernetes.sandboxEphemeralStorageLimit }}
+            - name: K8S_SANDBOX_EPHEMERAL_STORAGE_LIMIT
+              value: {{ . | quote }}
+            {{- end }}
             - name: K8S_SANDBOX_STORAGE_ENABLED
               value: {{ .Values.kubernetes.sandboxStorage.enabled | default true | quote }}
             - name: K8S_SANDBOX_STORAGE_SIZE

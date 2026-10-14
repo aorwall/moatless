@@ -448,11 +448,19 @@ pub(super) fn build_sandbox_container(
         validate_fargate_resources(&resources, "sandbox")?;
     }
     let mut resources = resources;
-    if let Some(size) = &config.sandbox.ephemeral_storage {
+    let request = config.sandbox.ephemeral_storage.as_ref();
+    if let Some(size) = request {
         resources
             .requests
             .get_or_insert_with(BTreeMap::new)
             .insert("ephemeral-storage".to_string(), Quantity(size.clone()));
+    }
+    let limit = if config.sandbox.compute_mode.is_fargate() {
+        request
+    } else {
+        config.sandbox.ephemeral_storage_limit.as_ref()
+    };
+    if let Some(size) = limit {
         resources
             .limits
             .get_or_insert_with(BTreeMap::new)

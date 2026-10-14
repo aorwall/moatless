@@ -703,9 +703,17 @@ kubernetes:
     requests:
       cpu: "1"
       memory: 2Gi
-  # -- Sandbox container ephemeral-storage request and limit. Set for Fargate
-  # to increase the encrypted pod-local disk beyond its small default.
-  sandboxEphemeralStorage: ""
+  # -- Sandbox container ephemeral-storage request: node disk the scheduler
+  # reserves per sandbox, covering the writable layer and the workspace
+  # emptyDir. 6Gi sits above most sandboxes' use measured in October 2026, and
+  # above it a sandbox is first in line when a node runs low on disk. On Fargate
+  # it sizes the encrypted pod-local disk and doubles as the limit.
+  sandboxEphemeralStorage: "6Gi"
+  # -- Sandbox container ephemeral-storage limit. The kubelet evicts a sandbox
+  # that exceeds it, so leave it unset unless a hard per-sandbox ceiling is
+  # wanted; the workspace emptyDir keeps its own sizeLimit either way. Ignored on
+  # Fargate.
+  sandboxEphemeralStorageLimit: ""
   # -- Resource limits for the one-shot rescue pod that uploads an orphaned
   #    workspace claim to S3 (`crates/sandbox-k8s/src/rescue_pod.rs`). The
   #    `server`-prefixed name is legacy; there is no longer a separate server

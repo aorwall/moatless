@@ -178,7 +178,8 @@ trusted repositories.
 | `storage.s3.createSharedVolume` | Create the Mountpoint S3 CSI shared PV/PVC | `true` |
 | `storage.s3.workspaceRepositoryRoleArn` | IAM role the backend assumes to grant a sandbox access to its own workspace repository prefix | `""` |
 | `kubernetes.computeMode` | Sandbox compute contract: `standard` or `fargate` | `standard` |
-| `kubernetes.sandboxEphemeralStorage` | Sandbox ephemeral-storage request and limit | `""` |
+| `kubernetes.sandboxEphemeralStorage` | Sandbox ephemeral-storage request; under Fargate also the limit | `"6Gi"` |
+| `kubernetes.sandboxEphemeralStorageLimit` | Sandbox ephemeral-storage limit, an eviction ceiling | `""` |
 
 ### T3 Code UI
 
