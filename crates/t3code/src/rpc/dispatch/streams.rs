@@ -365,8 +365,10 @@ impl ProtocolSession {
 
     pub(super) async fn subscribe_terminal_events(&mut self, request: Request) -> Vec<Value> {
         let events = request.state.terminal.subscribe_events();
+        let tasks = request.state.reads.tasks_arc();
+        let viewer = viewer_scope(&request.identity);
         self.streams.start_produced(&request.id, None, move |sink| {
-            terminal::forward_value_subscription(events, sink)
+            watch::watch_terminal_events(sink, events, tasks, viewer)
         })
     }
 

@@ -20,7 +20,7 @@ use sandbox_proto::{
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, broadcast};
 use tonic::Streaming;
-use tracing::{debug, warn};
+use tracing::warn;
 
 use super::dao::ConversationDao;
 use super::workspace::{self, WorkspaceAccessError};
@@ -565,25 +565,6 @@ pub async fn forward_attach_stream(
         }
     }
     Ok(())
-}
-
-pub async fn forward_value_subscription(
-    mut rx: broadcast::Receiver<Value>,
-    sink: StreamSink,
-) -> StreamResult {
-    loop {
-        match rx.recv().await {
-            Ok(value) => {
-                if !sink.send(value).await {
-                    return Ok(());
-                }
-            }
-            Err(broadcast::error::RecvError::Lagged(missed)) => {
-                debug!(missed, "A T3 terminal subscriber lagged");
-            }
-            Err(broadcast::error::RecvError::Closed) => return Ok(()),
-        }
-    }
 }
 
 #[derive(Debug)]

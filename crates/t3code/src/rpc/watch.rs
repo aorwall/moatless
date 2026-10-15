@@ -317,7 +317,7 @@ impl Drop for OpenThreadSubscription {
 /// Which Tasks one subscriber may read, answered once per Task per
 /// subscription.
 ///
-/// Both broadcasts below are environment-wide and the client filters by thread
+/// Every broadcast below is environment-wide and the client filters by thread
 /// for display only, so a stream that drops this check has no second gate
 /// behind it.
 struct ReadableTasks {
@@ -370,6 +370,38 @@ pub(crate) async fn watch_preview_events(
             // against `preview.list` on the next event it does see.
             Err(tokio::sync::broadcast::error::RecvError::Lagged(missed)) => {
                 warn!(missed, user_id = %viewer.user_id, "A preview event subscriber lagged");
+                continue;
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return Ok(()),
+        };
+        let Some(task_id) = event.get("threadId").and_then(Value::as_str) else {
+            continue;
+        };
+        if readable.allows(task_id).await != Some(true) {
+            continue;
+        }
+        if !sink.send(event).await {
+            return Ok(());
+        }
+    }
+}
+
+/// Every terminal event the viewer is allowed to see, until the socket closes.
+///
+/// A `started` or `restarted` event carries the session's `history`, so this
+/// gate is what keeps another viewer's terminal output off the socket.
+pub(crate) async fn watch_terminal_events(
+    sink: subscription::StreamSink,
+    mut events: tokio::sync::broadcast::Receiver<Value>,
+    tasks: Arc<dyn moatless_ports::task::TaskReader>,
+    viewer: ScopeContext,
+) -> StreamResult {
+    let mut readable = ReadableTasks::new(tasks, viewer.clone());
+    loop {
+        let event = match events.recv().await {
+            Ok(event) => event,
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(missed)) => {
+                warn!(missed, user_id = %viewer.user_id, "A terminal event subscriber lagged");
                 continue;
             }
             Err(tokio::sync::broadcast::error::RecvError::Closed) => return Ok(()),
