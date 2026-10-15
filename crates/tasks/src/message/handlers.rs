@@ -315,7 +315,7 @@ pub async fn get_pending_messages(
             message_type: m.message_type,
             timestamp: m.timestamp.clone(),
             message_text: m.message_text.clone(),
-            agent_mode: m.agent_mode(),
+            agent_mode: m.agent_mode.clone(),
             model: m.model.clone(),
             resume: m.resume,
             will_not_resume: None,

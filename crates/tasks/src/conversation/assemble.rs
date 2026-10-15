@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 
 use moatless_core::db::DbPool;
+use moatless_types::agent::AgentMode;
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
@@ -19,7 +20,7 @@ use crate::message::models::{MessageRole, MessageType, TaskMessage, TaskMessageC
 pub(crate) async fn load(
     pool: &DbPool,
     records: &[MessageRecord],
-    mode: Option<String>,
+    mode: Option<AgentMode>,
 ) -> Result<(Vec<TaskMessage>, Vec<TaskMessageContext>), sqlx::Error> {
     let ids: Vec<Uuid> = records.iter().filter_map(|r| r.inbox_id).collect();
     let items = read_dao::inbox_items(pool, &ids).await?;
@@ -43,7 +44,7 @@ pub(crate) async fn load_one(
 pub(crate) fn assemble(
     records: &[MessageRecord],
     items: &HashMap<Uuid, InboxItem>,
-    mut mode: Option<String>,
+    mut mode: Option<AgentMode>,
 ) -> (Vec<TaskMessage>, Vec<TaskMessageContext>) {
     let mut messages = Vec::with_capacity(records.len());
     let mut contexts = Vec::new();
@@ -62,7 +63,7 @@ pub(crate) fn assemble(
         // A frozen user row has an inbox item too; 0178 gave it the origin.
         message.sandbox_wake = item.is_some_and(|item| matches!(item.origin, InboxOrigin::Sandbox));
         if message.message_type == MessageType::User {
-            mode.clone_from(&message.agent_mode_raw);
+            mode.clone_from(&message.agent_mode);
         }
         messages.push(message);
     }
@@ -94,7 +95,7 @@ fn user(record: &MessageRecord, item: &InboxItem) -> TaskMessage {
     }
 }
 
-fn projected(record: &MessageRecord, mode: Option<String>) -> TaskMessage {
+fn projected(record: &MessageRecord, mode: Option<AgentMode>) -> TaskMessage {
     let (message_type, message_role) = match (record.author.as_str(), record.kind.as_str()) {
         ("user", _) => (MessageType::User, MessageRole::User),
         ("agent", _) => (MessageType::Assistant, MessageRole::Assistant),
@@ -131,7 +132,7 @@ fn projected(record: &MessageRecord, mode: Option<String>) -> TaskMessage {
         assistant_usage_cache_read_input_tokens: tokens("cache_read_input_tokens"),
         will_not_resume: meta.will_not_resume,
         run_metrics: meta.run_metrics,
-        agent_mode_raw: agent.then_some(mode).flatten(),
+        agent_mode: agent.then_some(mode).flatten(),
         created_at: Some(record.created_at),
         resume: false,
         ..TaskMessage::new_user_message(
@@ -192,7 +193,7 @@ fn frozen(record: &MessageRecord, legacy: &Map<String, Value>) -> TaskMessage {
         agent_session_id: text("agent_session_id"),
         will_not_resume: flag("will_not_resume"),
         run_metrics: json("run_metrics"),
-        agent_mode_raw: text("agent_mode"),
+        agent_mode: text("agent_mode").map(AgentMode::from),
         model: text("model"),
         effort: text("effort"),
         skills: legacy
@@ -233,5 +234,59 @@ impl TaskMessage {
             message_text,
             ..self
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn record(position: i64, author: &str, legacy: Option<Value>) -> MessageRecord {
+        MessageRecord {
+            uuid: Uuid::new_v4(),
+            task_id: "task-1".to_string(),
+            position,
+            author: author.to_string(),
+            kind: "message".to_string(),
+            text: Some("text".to_string()),
+            parent_tool_use_id: None,
+            turn_number: Some(1),
+            model: None,
+            usage: None,
+            inbox_id: None,
+            frozen: legacy.is_some(),
+            legacy,
+            created_at: chrono::Utc::now(),
+            harness_session_id: None,
+            harness_item_id: None,
+            event_sub_type: None,
+            event_payload: None,
+        }
+    }
+
+    #[test]
+    fn an_agent_message_runs_under_the_mode_of_the_user_message_before_it() {
+        let user = serde_json::json!({
+            "message_type": "user",
+            "message_role": "user",
+            "agent_mode": "plan",
+        });
+        let records = [
+            record(1, "agent", None),
+            record(2, "user", Some(user)),
+            record(3, "agent", None),
+        ];
+
+        let (messages, _) = assemble(
+            &records,
+            &HashMap::new(),
+            Some(AgentMode::from("code".to_string())),
+        );
+
+        let modes: Vec<_> = messages
+            .iter()
+            .map(|m| m.agent_mode.as_ref().map(AgentMode::as_str))
+            .collect();
+        assert_eq!(modes, vec![Some("code"), Some("plan"), Some("plan")]);
     }
 }

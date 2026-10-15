@@ -462,7 +462,7 @@ fn transform_assistant(msg: &TaskMessage, activities: &[&Activity], is_last: boo
         timestamp: msg.timestamp.clone(),
         session_id: msg.session_id.clone(),
         turn_number: msg.turn_number,
-        agent_mode: msg.agent_mode(),
+        agent_mode: msg.agent_mode.clone(),
         model: msg
             .assistant_message_model
             .clone()
@@ -524,7 +524,7 @@ fn transform_user(
         timestamp: msg.timestamp.clone(),
         session_id: msg.session_id.clone(),
         turn_number: msg.turn_number,
-        agent_mode: msg.agent_mode(),
+        agent_mode: msg.agent_mode.clone(),
         model: msg.model.clone(),
         is_queued: if is_queued { Some(true) } else { None },
         content,
@@ -554,7 +554,7 @@ fn transform_result(msg: &TaskMessage) -> UiMessage {
         timestamp: msg.timestamp.clone(),
         session_id: msg.session_id.clone(),
         turn_number: msg.turn_number,
-        agent_mode: msg.agent_mode(),
+        agent_mode: msg.agent_mode.clone(),
         model: msg.model.clone(),
         is_queued: None,
         content,
@@ -829,7 +829,7 @@ mod tests {
             agent_session_id: None,
             will_not_resume: None,
             run_metrics: None,
-            agent_mode_raw: None,
+            agent_mode: None,
             effort: None,
             model: None,
             skills: Vec::new(),

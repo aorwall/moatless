@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 
 use crate::message::models::{TaskMessage, TaskMessageContext};
+use moatless_types::agent::AgentMode;
 use moatless_types::message::TOOL_RESPONSE_USER_TYPE;
 
 use super::models::{InboxContext, InboxItem, InboxOrigin};
@@ -54,7 +55,7 @@ impl InboxItem {
             sandbox_wake,
             attachments: (!self.file_ids.is_empty())
                 .then(|| serde_json::json!({ "file_ids": &self.file_ids })),
-            agent_mode_raw: options.agent_mode.clone(),
+            agent_mode: options.agent_mode.clone().map(AgentMode::from),
             model: options.model.clone(),
             effort: options.effort.clone(),
             skills: options.skills.clone(),

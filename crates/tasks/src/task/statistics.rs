@@ -243,7 +243,7 @@ mod tests {
             agent_session_id: None,
             will_not_resume: None,
             run_metrics: None,
-            agent_mode_raw: None,
+            agent_mode: None,
             effort: None,
             model: None,
             skills: Vec::new(),

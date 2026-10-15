@@ -1,3 +1,5 @@
+use crate::artifact::operations::Artifacts;
+
 use super::bindings::{TaskBindings, deactivate_task_bindings};
 use super::error::TaskError;
 use super::models::TaskPatch;
@@ -13,6 +15,7 @@ pub async fn delete_task(
     sandbox: &dyn SandboxLifecycle,
     task_bindings: &dyn TaskBindings,
     tasks: &TaskCommands,
+    artifacts: &Artifacts,
     scope_ctx: &ScopeContext,
     task_id: String,
 ) -> Result<(), TaskError> {
@@ -49,6 +52,9 @@ pub async fn delete_task(
     if !deleted {
         return Err(TaskError::NotFound(task_id.clone()));
     }
+    // After the row, so a publish racing this delete fails its reservation on
+    // the missing Task rather than writing a page under a cleared prefix.
+    artifacts.delete_task_pages(&task_id).await;
     tracing::info!(task_id = %task_id, user_id = %scope_ctx.user_id, "Task deleted");
 
     Ok(())

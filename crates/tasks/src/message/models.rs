@@ -111,8 +111,8 @@ pub struct TaskMessage {
     pub agent_session_id: Option<String>,
     pub will_not_resume: Option<bool>,
     pub run_metrics: Option<serde_json::Value>,
-    /// Read the typed value through [`TaskMessage::agent_mode`].
-    pub agent_mode_raw: Option<String>,
+    /// The agent mode the message was produced under.
+    pub agent_mode: Option<AgentMode>,
     pub model: Option<String>,
     /// Reasoning effort for the turn, in the agent's own vocabulary. `None`
     /// leaves the agent on its own default.
@@ -155,12 +155,6 @@ pub struct TaskMessage {
 }
 
 impl TaskMessage {
-    /// The agent mode this message was produced under, when the column names
-    /// one.
-    pub fn agent_mode(&self) -> Option<AgentMode> {
-        self.agent_mode_raw.clone().map(AgentMode::from)
-    }
-
     /// The queued user row every send path starts from: no turn, no session,
     /// nothing acknowledged, and no origin. The run that consumes it decides
     /// which turn it belongs to, and each caller fills in what its own origin
@@ -200,7 +194,7 @@ impl TaskMessage {
             agent_session_id: None,
             will_not_resume: None,
             run_metrics: None,
-            agent_mode_raw: None,
+            agent_mode: None,
             model: None,
             effort: None,
             skills: Vec::new(),

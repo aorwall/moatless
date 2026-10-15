@@ -742,6 +742,7 @@ impl ThreadCommandSink for AppStateCommands {
             self.0.sandbox.as_ref(),
             self.0.binding_directory.as_ref(),
             self.0.tasks.as_ref(),
+            self.0.artifacts.as_ref(),
             viewer,
             task_id.to_string(),
         )

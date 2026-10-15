@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use moatless_core::db::DbPool;
 use moatless_ports::activity::SubagentUsage;
+use moatless_types::agent::AgentMode;
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -154,7 +155,7 @@ pub(crate) async fn agent_mode_at(
     pool: &DbPool,
     task_id: &str,
     position: i64,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<AgentMode>, sqlx::Error> {
     let mode: Option<Option<String>> = sqlx::query_scalar(
         r#"SELECT COALESCE(i.delivery_options ->> 'agentMode', m.legacy ->> 'agent_mode')
              FROM conversation_messages m
@@ -167,7 +168,7 @@ pub(crate) async fn agent_mode_at(
     .bind(position)
     .fetch_optional(pool)
     .await?;
-    Ok(mode.flatten())
+    Ok(mode.flatten().map(AgentMode::from))
 }
 
 /// See [`crate::message::dao::MessageDao::latest_agent_session_id`].

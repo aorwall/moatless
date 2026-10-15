@@ -7,6 +7,7 @@ use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use super::handlers;
+use crate::artifact::operations::Artifacts;
 use crate::credential_sync::CredentialSync;
 use crate::message::operations::Messages;
 use crate::message::send::MessageSendService;
@@ -63,6 +64,7 @@ pub fn task_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
 where
     S: Clone + Send + Sync + 'static,
     Arc<TaskCommands>: FromRef<S>,
+    Arc<Artifacts>: FromRef<S>,
     Arc<dyn TaskBindings>: FromRef<S>,
     Arc<TaskTurns>: FromRef<S>,
     Arc<Messages>: FromRef<S>,

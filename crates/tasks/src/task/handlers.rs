@@ -12,6 +12,7 @@ use super::presenter::{ResolvedNames, TaskPresenter, build_task_response};
 use super::schemas::*;
 use super::service;
 use super::switch::{SwitchCredentials, SwitchOutcome, TaskSwitchService};
+use crate::artifact::operations::Artifacts;
 use crate::credential_sync::CredentialSync;
 use crate::message::operations::Messages;
 use crate::message::send::MessageSendService;
@@ -596,6 +597,7 @@ pub async fn delete_task(
     State(sandbox): State<Arc<dyn SandboxLifecycle>>,
     State(task_bindings): State<Arc<dyn TaskBindings>>,
     State(tasks): State<Arc<TaskCommands>>,
+    State(artifacts): State<Arc<Artifacts>>,
     auth: AuthUser,
     Path(task_id): Path<String>,
 ) -> Result<axum::http::StatusCode, TaskError> {
@@ -603,6 +605,7 @@ pub async fn delete_task(
         sandbox.as_ref(),
         task_bindings.as_ref(),
         tasks.as_ref(),
+        artifacts.as_ref(),
         &auth.scope_context(),
         task_id,
     )
@@ -1205,6 +1208,7 @@ mod tests {
             }) as Arc<dyn SandboxLifecycle>),
             State(Arc::new(FakeBindings::returning(Ok(0))) as Arc<dyn TaskBindings>),
             State(Arc::new(TaskCommands::new(Arc::new(tasks)))),
+            State(Arc::new(artifacts(None))),
             AuthUser {
                 user_id: Uuid::parse_str("00000000-0000-0000-0000-000000000001")
                     .expect("valid uuid"),
@@ -1248,6 +1252,7 @@ mod tests {
             &sandbox,
             &bindings,
             &tasks,
+            &artifacts(None),
             &ctx,
             "task-1".to_string(),
         )
@@ -1255,5 +1260,152 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(*log.lock().unwrap(), vec!["close", "remove"]);
         assert_eq!(*bindings.deactivated.lock().unwrap(), vec!["task-1"]);
+    }
+
+    /// `Artifacts` over `endpoint`'s object storage, or over none.
+    fn artifacts(endpoint: Option<&str>) -> Artifacts {
+        let s3 = endpoint.map(|endpoint| {
+            moatless_s3::S3Storage::at_endpoint(
+                endpoint,
+                "us-east-1",
+                moatless_s3::S3Credentials {
+                    access_key_id: "test".to_string(),
+                    secret_access_key: "test".to_string(),
+                    session_token: None,
+                },
+            )
+        });
+        Artifacts::new(
+            Arc::new(crate::artifact::dao::MockArtifactDao::new()),
+            s3,
+            Arc::new(moatless_core::config::S3Config {
+                bucket_name: Some("bucket".to_string()),
+                key_prefix: "uploads".to_string(),
+                transcript_prefix: "transcripts".to_string(),
+                workspace_prefix: "workspaces".to_string(),
+                artifact_prefix: "artifacts".to_string(),
+                region: "us-east-1".to_string(),
+            }),
+            "https://moatless.example",
+        )
+    }
+
+    /// An S3 endpoint answering each request with the next of `responses`
+    /// (status, body). Returns its URL and the request line plus body of
+    /// every request it answered.
+    async fn s3_endpoint(
+        responses: Vec<(&'static str, &'static str)>,
+    ) -> (String, tokio::task::JoinHandle<Vec<String>>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let url = format!("http://{}", listener.local_addr().expect("address"));
+        let server = tokio::spawn(async move {
+            let mut requests = Vec::new();
+            for (status, body) in responses {
+                let (mut socket, _) = listener.accept().await.expect("accept");
+                let mut request = Vec::new();
+                while !request.ends_with(b"\r\n\r\n") {
+                    request.push(socket.read_u8().await.expect("read"));
+                }
+                let head = String::from_utf8_lossy(&request).to_lowercase();
+                let length = head
+                    .lines()
+                    .find_map(|line| line.strip_prefix("content-length:"))
+                    .map_or(0, |length| length.trim().parse::<usize>().expect("length"));
+                let mut payload = vec![0; length];
+                socket.read_exact(&mut payload).await.expect("read body");
+                let line = head.lines().next().unwrap_or_default().to_string();
+                requests.push(format!("{line}\n{}", String::from_utf8_lossy(&payload)));
+                let response = format!(
+                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                socket.write_all(response.as_bytes()).await.expect("write");
+            }
+            requests
+        });
+        (url, server)
+    }
+
+    fn deletable_tasks() -> TaskCommands {
+        let mut tasks = MockTaskDao::new();
+        tasks
+            .expect_update_task()
+            .once()
+            .returning(|_, _, _| Ok(true));
+        tasks.expect_delete_task().once().returning(|_, _| Ok(true));
+        TaskCommands::new(Arc::new(tasks))
+    }
+
+    #[tokio::test]
+    async fn delete_removes_the_task_artifact_pages() {
+        let (url, server) = s3_endpoint(vec![
+            (
+                "200 OK",
+                "<ListBucketResult><IsTruncated>false</IsTruncated>\
+                 <Contents><Key>artifacts/task-1/art-1/v1.html</Key></Contents>\
+                 </ListBucketResult>",
+            ),
+            ("200 OK", "<DeleteResult/>"),
+        ])
+        .await;
+        let sandbox = RecordingSandbox {
+            log: Arc::new(Mutex::new(Vec::new())),
+            fail_removal: false,
+        };
+
+        super::super::removal::delete_task(
+            &sandbox,
+            &FakeBindings::returning(Ok(0)),
+            &deletable_tasks(),
+            &artifacts(Some(&url)),
+            &moatless_types::access_control::ScopeContext::user("owner"),
+            "task-1".to_string(),
+        )
+        .await
+        .expect("delete succeeds");
+
+        let requests = server.await.expect("endpoint");
+        assert!(
+            requests[0].contains("prefix=artifacts%2ftask-1%2f"),
+            "{}",
+            requests[0]
+        );
+        assert!(
+            requests[1].starts_with("post /bucket/?delete"),
+            "{}",
+            requests[1]
+        );
+        assert!(
+            requests[1].contains("<Key>artifacts/task-1/art-1/v1.html</Key>"),
+            "{}",
+            requests[1]
+        );
+    }
+
+    /// A storage outage leaves the pages orphaned rather than the Task
+    /// undeletable.
+    #[tokio::test]
+    async fn delete_completes_when_artifact_storage_fails() {
+        let (url, server) = s3_endpoint(vec![("403 Forbidden", "")]).await;
+        let sandbox = RecordingSandbox {
+            log: Arc::new(Mutex::new(Vec::new())),
+            fail_removal: false,
+        };
+
+        super::super::removal::delete_task(
+            &sandbox,
+            &FakeBindings::returning(Ok(0)),
+            &deletable_tasks(),
+            &artifacts(Some(&url)),
+            &moatless_types::access_control::ScopeContext::user("owner"),
+            "task-1".to_string(),
+        )
+        .await
+        .expect("delete succeeds despite the storage failure");
+
+        assert_eq!(server.await.expect("endpoint").len(), 1);
     }
 }

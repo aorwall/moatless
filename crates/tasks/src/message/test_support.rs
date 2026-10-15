@@ -195,7 +195,10 @@ fn inbox_item(
         file_ids,
         options: DeliveryOptions {
             model: msg.model.clone(),
-            agent_mode: msg.agent_mode_raw.clone(),
+            agent_mode: msg
+                .agent_mode
+                .as_ref()
+                .map(|mode| mode.as_str().to_string()),
             effort: msg.effort.clone(),
             skills: msg.skills.clone(),
             resume: msg.resume,
@@ -267,7 +270,7 @@ fn legacy(msg: &TaskMessage) -> Value {
         ("agent_session_id", json!(msg.agent_session_id)),
         ("will_not_resume", json!(msg.will_not_resume)),
         ("run_metrics", json!(msg.run_metrics)),
-        ("agent_mode", json!(msg.agent_mode_raw)),
+        ("agent_mode", json!(msg.agent_mode)),
         ("model", json!(msg.model)),
         ("effort", json!(msg.effort)),
         ("skills", json!(msg.skills)),
@@ -524,7 +527,7 @@ pub fn make_message_row(task_id: &str, uuid: &str) -> TaskMessage {
         agent_session_id: None,
         will_not_resume: None,
         run_metrics: None,
-        agent_mode_raw: None,
+        agent_mode: None,
         model: None,
         effort: None,
         resume: true,

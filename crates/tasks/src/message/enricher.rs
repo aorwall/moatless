@@ -192,8 +192,8 @@ impl<'a> AgentPromptBuilder<'a> {
                 }),
             )
             .or(model);
-            if row.agent_mode_raw.is_some() {
-                agent_mode = row.agent_mode_raw.clone();
+            if let Some(mode) = &row.agent_mode {
+                agent_mode = Some(mode.as_str().to_string());
             }
             effort = row.effort.clone().or(effort);
             for name in &row.skills {

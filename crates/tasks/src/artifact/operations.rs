@@ -104,6 +104,25 @@ impl Artifacts {
         }
     }
 
+    /// Best-effort removal of every page `task_id` published, for a Task being
+    /// deleted.
+    ///
+    /// A failure is logged rather than returned, so a storage outage cannot
+    /// make a Task undeletable; its pages stay orphaned in the bucket instead.
+    pub async fn delete_task_pages(&self, task_id: &str) {
+        let Ok((s3, bucket)) = self.object_storage() else {
+            return;
+        };
+        let prefix = format!("{}/{task_id}/", self.s3_config.artifact_prefix);
+        if let Err(e) = moatless_s3::delete_objects_by_prefix(s3, bucket, &prefix).await {
+            tracing::warn!(
+                error = %moatless_core::error::causal_chain(&e),
+                %prefix,
+                "Failed to delete the artifact pages of a deleted task"
+            );
+        }
+    }
+
     /// One version's page, or `None` when it has no object.
     pub(crate) async fn read_page(
         &self,
