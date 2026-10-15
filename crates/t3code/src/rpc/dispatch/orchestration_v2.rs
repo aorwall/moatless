@@ -85,7 +85,7 @@ pub(super) fn command_context<'a>(
 
 /// `orchestration.dispatchCommand` for a V2 client. Refusals are the
 /// contract's `OrchestrationV2DispatchCommandError`, which the composer renders.
-pub(super) async fn orchestration_dispatch_command_v2(request: Request) -> Vec<Value> {
+pub(super) async fn orchestration_dispatch_command_v2(request: Request<Value>) -> Vec<Value> {
     let Request {
         id,
         tag,
@@ -125,7 +125,7 @@ pub(super) async fn orchestration_dispatch_command_v2(request: Request) -> Vec<V
 /// `orchestration.launchThread`: a thread and its first message in one call,
 /// answered with the projection it opens on. `resumed` is always `false`: it
 /// reports a retried launch, and Moatless keeps no launch receipts to tell one.
-pub(super) async fn orchestration_launch_thread(request: Request) -> Vec<Value> {
+pub(super) async fn orchestration_launch_thread(request: Request<Value>) -> Vec<Value> {
     let Request {
         id,
         payload,
@@ -297,7 +297,7 @@ async fn read_projection(request: ThreadRequest) -> Result<(RequestId, String, V
     }
 }
 
-pub(super) async fn orchestration_get_thread_projection(request: Request) -> Vec<Value> {
+pub(super) async fn orchestration_get_thread_projection(request: Request<Value>) -> Vec<Value> {
     let request = match request.require_thread_id() {
         Ok(request) => request,
         Err(failure) => return failure,
@@ -310,7 +310,7 @@ pub(super) async fn orchestration_get_thread_projection(request: Request) -> Vec
 
 /// One turn item, by id. Items here are never withheld from the projection,
 /// so this answers with the same row the timeline already holds.
-pub(super) async fn orchestration_get_turn_item(request: Request) -> Vec<Value> {
+pub(super) async fn orchestration_get_turn_item(request: Request<Value>) -> Vec<Value> {
     let request = match request.require_thread_id() {
         Ok(request) => request,
         Err(failure) => return failure,
@@ -343,7 +343,7 @@ impl ProtocolSession {
     /// what it holds on every `snapshot`, so no event vocabulary is needed.
     pub(super) async fn orchestration_subscribe_thread_v2(
         &mut self,
-        request: Request,
+        request: Request<Value>,
     ) -> Vec<Value> {
         let ThreadRequest {
             id,
@@ -405,7 +405,7 @@ impl ProtocolSession {
     /// that page again whenever the listing moves.
     pub(super) async fn orchestration_subscribe_archived_shell(
         &mut self,
-        request: Request,
+        request: Request<Value>,
     ) -> Vec<Value> {
         let Request {
             id,

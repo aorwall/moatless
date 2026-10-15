@@ -9,6 +9,7 @@
 //! request would.
 
 use moatless_types::access_control::ScopeContext;
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::dao::ConversationDao;
@@ -39,6 +40,44 @@ pub enum ActionError {
     Send(crate::ports::CommandRefusal),
 }
 
+/// The contract's `GitRunStackedActionInput`.
+///
+/// The fields `run_stacked_action` refuses without are optional here, so that a
+/// request missing one is answered with that refusal rather than a defect.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitRunStackedActionInput {
+    cwd: Option<String>,
+    action_id: Option<String>,
+    action: Option<String>,
+    commit_message: Option<String>,
+    feature_branch: Option<bool>,
+    file_paths: Option<Vec<String>>,
+}
+
+/// The contract's `GitPullRequestRefInput`; optional for the reason
+/// [`GitRunStackedActionInput`]'s fields are.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitPullRequestRefInput {
+    cwd: Option<String>,
+    reference: Option<String>,
+}
+
+/// The contract's `GitPreparePullRequestThreadInput`.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitPreparePullRequestThreadInput {
+    #[serde(flatten)]
+    reference: GitPullRequestRefInput,
+    mode: Option<String>,
+}
+
+/// `value` trimmed, or `None` when that leaves nothing.
+fn nonblank(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
+}
+
 /// Resolve the `cwd`, refuse what the viewer cannot reach, and ask the Task's
 /// agent to run the action.
 ///
@@ -48,54 +87,31 @@ pub async fn run_stacked_action(
     conversations: &dyn ConversationDao,
     sink: &dyn ThreadCommandSink,
     viewer: &ScopeContext,
-    payload: &Value,
+    input: &GitRunStackedActionInput,
 ) -> Result<AskedAgent, ActionError> {
-    let cwd = payload
-        .get("cwd")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|cwd| !cwd.is_empty())
+    let cwd = nonblank(input.cwd.as_deref())
         .ok_or_else(|| ActionError::Rejected("cwd is required".to_string()))?
         .to_string();
-    let action_id = payload
-        .get("actionId")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
+    let action_id = nonblank(input.action_id.as_deref())
         .ok_or_else(|| ActionError::Rejected("actionId is required".to_string()))?
         .to_string();
-    let action = payload
-        .get("action")
-        .and_then(Value::as_str)
-        .ok_or_else(|| ActionError::Rejected("action is required".to_string()))?
-        .to_string();
+    let action = input
+        .action
+        .clone()
+        .ok_or_else(|| ActionError::Rejected("action is required".to_string()))?;
     if !is_known_action(&action) {
         return Err(ActionError::Rejected(format!("unknown action `{action}`")));
     }
 
-    let commit_message = payload
-        .get("commitMessage")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|m| !m.is_empty())
-        .map(str::to_string);
-    let feature_branch = payload
-        .get("featureBranch")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    let file_paths: Vec<String> = payload
-        .get("filePaths")
-        .and_then(Value::as_array)
-        .map(|paths| {
-            paths
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::trim)
-                .filter(|p| !p.is_empty())
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
+    let commit_message = nonblank(input.commit_message.as_deref()).map(str::to_string);
+    let feature_branch = input.feature_branch.unwrap_or(false);
+    let file_paths: Vec<String> = input
+        .file_paths
+        .iter()
+        .flatten()
+        .filter_map(|path| nonblank(Some(path.as_str())))
+        .map(str::to_string)
+        .collect();
 
     // The action commits, pushes and opens PRs, so reading is not enough: the
     // viewer must control the Task. Control and not write, because a controller
@@ -235,9 +251,9 @@ pub async fn resolve_pull_request(
     conversations: &dyn ConversationDao,
     pull_requests: &dyn BoundPullRequestSource,
     viewer: &ScopeContext,
-    payload: &Value,
+    input: &GitPullRequestRefInput,
 ) -> Result<Value, PullRequestError> {
-    let (cwd, reference) = pull_request_ref_input(payload)?;
+    let (cwd, reference) = pull_request_ref_input(input)?;
     let pr = resolve_reference(
         workspaces,
         conversations,
@@ -260,17 +276,13 @@ pub async fn prepare_pull_request_thread(
     conversations: &dyn ConversationDao,
     pull_requests: &dyn BoundPullRequestSource,
     viewer: &ScopeContext,
-    payload: &Value,
+    input: &GitPreparePullRequestThreadInput,
 ) -> Result<PreparedThread, PullRequestError> {
-    let mode = payload
-        .get("mode")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .unwrap_or_default();
+    let mode = input.mode.as_deref().map(str::trim).unwrap_or_default();
     match mode {
         "worktree" => Ok(PreparedThread::WorktreeUnsupported),
         "local" => {
-            let (cwd, reference) = pull_request_ref_input(payload)?;
+            let (cwd, reference) = pull_request_ref_input(&input.reference)?;
             let pr = resolve_reference(
                 workspaces,
                 conversations,
@@ -295,19 +307,13 @@ pub async fn prepare_pull_request_thread(
 }
 
 /// The `cwd` and normalized reference an attach-PR request carries.
-fn pull_request_ref_input(payload: &Value) -> Result<(String, String), PullRequestError> {
-    let cwd = payload
-        .get("cwd")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|cwd| !cwd.is_empty())
+fn pull_request_ref_input(
+    input: &GitPullRequestRefInput,
+) -> Result<(String, String), PullRequestError> {
+    let cwd = nonblank(input.cwd.as_deref())
         .ok_or_else(|| PullRequestError::Unavailable("cwd is required".to_string()))?
         .to_string();
-    let reference = payload
-        .get("reference")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|reference| !reference.is_empty())
+    let reference = nonblank(input.reference.as_deref())
         .ok_or_else(|| PullRequestError::Unavailable("reference is required".to_string()))?;
     Ok((cwd, normalize_reference(reference)))
 }
@@ -738,12 +744,13 @@ mod tests {
         ScopeContext::user(user_id)
     }
 
-    fn action_payload(action: &str) -> Value {
-        json!({
+    fn action_payload(action: &str) -> GitRunStackedActionInput {
+        serde_json::from_value(json!({
             "cwd": "/moatless/tasks/t-1",
             "actionId": "a-1",
             "action": action,
-        })
+        }))
+        .expect("a GitRunStackedActionInput")
     }
 
     /// Someone who may read a Task cannot commit, push or open a PR against it:

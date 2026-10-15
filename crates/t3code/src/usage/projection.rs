@@ -6,6 +6,7 @@
 //! what they report instead.
 
 use moatless_types::model::{ClaudeModel, CodexModel, ModelPrice, price_for};
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::ports::{UsageBucket, UsageWindow};
@@ -141,16 +142,26 @@ pub(crate) fn summary(
     })
 }
 
+/// The contract's `UsageSummaryInput`, as far as a window is read from it.
+///
+/// Every field is optional here so that [`window_from`] names a missing one in
+/// a `UsageReadError` rather than the decode refusing it as a defect.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UsageSummaryInput {
+    since_day: Option<String>,
+    until_day: Option<String>,
+    time_zone: Option<String>,
+    resolution: Option<String>,
+}
+
 /// Read the requested window off the payload.
 ///
 /// `Err` carries the `detail` of a `UsageReadError { reason: "invalidWindow" }`
 /// — the client renders it, so it names the field at fault.
-pub(crate) fn window_from(payload: &Value) -> Result<UsageWindow, String> {
-    let day = |key: &str| -> Result<String, String> {
-        let raw = payload
-            .get(key)
-            .and_then(Value::as_str)
-            .ok_or_else(|| format!("{key} is required."))?;
+pub(crate) fn window_from(input: &UsageSummaryInput) -> Result<UsageWindow, String> {
+    let day = |key: &str, raw: Option<&str>| -> Result<String, String> {
+        let raw = raw.ok_or_else(|| format!("{key} is required."))?;
         // The contract brands these `YYYY-MM-DD`; a value of another shape
         // would reach SQL as a date literal and fail there instead.
         if raw.len() != 10
@@ -163,14 +174,14 @@ pub(crate) fn window_from(payload: &Value) -> Result<UsageWindow, String> {
         }
         Ok(raw.to_string())
     };
-    let since_day = day("sinceDay")?;
-    let until_day = day("untilDay")?;
+    let since_day = day("sinceDay", input.since_day.as_deref())?;
+    let until_day = day("untilDay", input.until_day.as_deref())?;
     if since_day > until_day {
         return Err("sinceDay must not be after untilDay.".to_string());
     }
-    let time_zone = payload
-        .get("timeZone")
-        .and_then(Value::as_str)
+    let time_zone = input
+        .time_zone
+        .as_deref()
         .filter(|zone| !zone.trim().is_empty())
         .ok_or_else(|| "timeZone is required.".to_string())?
         .to_string();
@@ -178,7 +189,7 @@ pub(crate) fn window_from(payload: &Value) -> Result<UsageWindow, String> {
         since_day,
         until_day,
         time_zone,
-        hourly: payload.get("resolution").and_then(Value::as_str) == Some("hour"),
+        hourly: input.resolution.as_deref() == Some("hour"),
     })
 }
 
@@ -202,6 +213,10 @@ mod tests {
             unpriced_records: 0,
             sessions: 2,
         }
+    }
+
+    fn input(payload: Value) -> UsageSummaryInput {
+        serde_json::from_value(payload).expect("a UsageSummaryInput")
     }
 
     fn window() -> UsageWindow {
@@ -286,15 +301,20 @@ mod tests {
 
     #[test]
     fn a_window_needs_both_days_and_a_zone() {
-        let ok = window_from(&json!({
+        let ok = window_from(&input(json!({
             "sinceDay": "2026-09-01", "untilDay": "2026-09-04", "timeZone": "Europe/Stockholm"
-        }))
+        })))
         .expect("valid window");
         assert_eq!(ok.time_zone, "Europe/Stockholm");
         assert!(!ok.hourly);
 
-        assert!(window_from(&json!({"untilDay": "2026-09-04", "timeZone": "UTC"})).is_err());
-        assert!(window_from(&json!({"sinceDay": "2026-09-01", "untilDay": "2026-09-04"})).is_err());
+        assert!(window_from(&input(json!({"untilDay": "2026-09-04", "timeZone": "UTC"}))).is_err());
+        assert!(
+            window_from(&input(
+                json!({"sinceDay": "2026-09-01", "untilDay": "2026-09-04"})
+            ))
+            .is_err()
+        );
     }
 
     /// A day that reaches SQL as a date literal must be rejected here, where
@@ -302,21 +322,21 @@ mod tests {
     #[test]
     fn a_day_of_the_wrong_shape_is_refused_before_it_reaches_sql() {
         let bad = json!({"sinceDay": "01/09/2026", "untilDay": "2026-09-04", "timeZone": "UTC"});
-        assert!(window_from(&bad).unwrap_err().contains("sinceDay"));
+        assert!(window_from(&input(bad)).unwrap_err().contains("sinceDay"));
     }
 
     #[test]
     fn a_backwards_window_is_refused() {
         let bad = json!({"sinceDay": "2026-09-05", "untilDay": "2026-09-04", "timeZone": "UTC"});
-        assert!(window_from(&bad).is_err());
+        assert!(window_from(&input(bad)).is_err());
     }
 
     #[test]
     fn an_hourly_resolution_is_read_off_the_payload() {
-        let hourly = window_from(&json!({
+        let hourly = window_from(&input(json!({
             "sinceDay": "2026-09-04", "untilDay": "2026-09-04",
             "timeZone": "UTC", "resolution": "hour"
-        }))
+        })))
         .expect("valid window");
         assert!(hourly.hourly);
     }

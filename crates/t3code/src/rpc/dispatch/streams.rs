@@ -97,7 +97,7 @@ pub(super) fn stream_methods() -> MethodTable {
 }
 
 impl ProtocolSession {
-    pub(super) async fn terminal_attach(&mut self, request: Request) -> Vec<Value> {
+    pub(super) async fn terminal_attach(&mut self, request: Request<Value>) -> Vec<Value> {
         let Request {
             id,
             payload,
@@ -123,7 +123,7 @@ impl ProtocolSession {
         })
     }
 
-    pub(super) async fn sandbox_subscribe_status(&mut self, request: Request) -> Vec<Value> {
+    pub(super) async fn sandbox_subscribe_status(&mut self, request: Request<Value>) -> Vec<Value> {
         let ThreadRequest {
             id,
             tag,
@@ -150,7 +150,7 @@ impl ProtocolSession {
             })
     }
 
-    pub(super) async fn sandbox_subscribe_detail(&mut self, request: Request) -> Vec<Value> {
+    pub(super) async fn sandbox_subscribe_detail(&mut self, request: Request<Value>) -> Vec<Value> {
         let ThreadRequest {
             id,
             tag,
@@ -177,7 +177,10 @@ impl ProtocolSession {
             })
     }
 
-    pub(super) async fn orchestration_subscribe_shell(&mut self, request: Request) -> Vec<Value> {
+    pub(super) async fn orchestration_subscribe_shell(
+        &mut self,
+        request: Request<Value>,
+    ) -> Vec<Value> {
         let Request {
             id,
             payload,
@@ -220,7 +223,10 @@ impl ProtocolSession {
         })
     }
 
-    pub(super) async fn orchestration_subscribe_thread(&mut self, request: Request) -> Vec<Value> {
+    pub(super) async fn orchestration_subscribe_thread(
+        &mut self,
+        request: Request<Value>,
+    ) -> Vec<Value> {
         let ThreadRequest {
             id,
             viewer,
@@ -268,7 +274,7 @@ impl ProtocolSession {
         })
     }
 
-    pub(super) async fn subscribe_server_config(&mut self, request: Request) -> Vec<Value> {
+    pub(super) async fn subscribe_server_config(&mut self, request: Request<Value>) -> Vec<Value> {
         let Request {
             id,
             payload,
@@ -324,7 +330,10 @@ impl ProtocolSession {
         started
     }
 
-    pub(super) async fn subscribe_server_lifecycle(&mut self, request: Request) -> Vec<Value> {
+    pub(super) async fn subscribe_server_lifecycle(
+        &mut self,
+        request: Request<Value>,
+    ) -> Vec<Value> {
         self.streams.start(
             &request.id,
             Some(vec![json!({
@@ -340,7 +349,7 @@ impl ProtocolSession {
         )
     }
 
-    pub(super) async fn subscribe_auth_access(&mut self, request: Request) -> Vec<Value> {
+    pub(super) async fn subscribe_auth_access(&mut self, request: Request<Value>) -> Vec<Value> {
         self.streams.start(
             &request.id,
             Some(vec![json!({
@@ -355,7 +364,7 @@ impl ProtocolSession {
         )
     }
 
-    pub(super) async fn subscribe_preview_events(&mut self, request: Request) -> Vec<Value> {
+    pub(super) async fn subscribe_preview_events(&mut self, request: Request<Value>) -> Vec<Value> {
         let preview = request.state.preview.clone();
         let viewer = viewer_scope(&request.identity);
         self.streams.start_produced(&request.id, None, move |sink| {
@@ -363,7 +372,10 @@ impl ProtocolSession {
         })
     }
 
-    pub(super) async fn subscribe_terminal_events(&mut self, request: Request) -> Vec<Value> {
+    pub(super) async fn subscribe_terminal_events(
+        &mut self,
+        request: Request<Value>,
+    ) -> Vec<Value> {
         let events = request.state.terminal.subscribe_events();
         let tasks = request.state.reads.tasks_arc();
         let viewer = viewer_scope(&request.identity);
@@ -372,7 +384,10 @@ impl ProtocolSession {
         })
     }
 
-    pub(super) async fn subscribe_terminal_metadata(&mut self, request: Request) -> Vec<Value> {
+    pub(super) async fn subscribe_terminal_metadata(
+        &mut self,
+        request: Request<Value>,
+    ) -> Vec<Value> {
         let hub = request.state.terminal.clone();
         let tasks = request.state.reads.tasks_arc();
         let viewer = viewer_scope(&request.identity);
@@ -381,7 +396,7 @@ impl ProtocolSession {
         })
     }
 
-    pub(super) async fn subscribe_vcs_status(&mut self, request: Request) -> Vec<Value> {
+    pub(super) async fn subscribe_vcs_status(&mut self, request: Request<Value>) -> Vec<Value> {
         let Request {
             id,
             payload,
@@ -393,7 +408,7 @@ impl ProtocolSession {
         // client opens this subscription for every thread it shows, including
         // ones with no sandbox, and a stream that says nothing is what "there is
         // no repository to report on" looks like.
-        let Some(cwd) = workspace_cwd(&payload) else {
+        let Some(cwd) = workspace_cwd(payload.get("cwd").and_then(Value::as_str)) else {
             return self.streams.start(&id, None);
         };
         let conversations = state.reads.conversations_arc();

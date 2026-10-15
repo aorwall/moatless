@@ -19,7 +19,7 @@ pub(super) fn terminal_methods() -> MethodTable {
         .session("terminal.write", Scope::TerminalOperate, terminal_write)
 }
 
-pub(super) async fn terminal_open(request: Request) -> Vec<Value> {
+pub(super) async fn terminal_open(request: Request<Value>) -> Vec<Value> {
     let Request {
         id,
         payload,
@@ -42,7 +42,7 @@ pub(super) async fn terminal_open(request: Request) -> Vec<Value> {
     }
 }
 
-pub(super) async fn terminal_write(request: Request) -> Vec<Value> {
+pub(super) async fn terminal_write(request: Request<Value>) -> Vec<Value> {
     let Request {
         id,
         payload,
@@ -64,7 +64,7 @@ pub(super) async fn terminal_write(request: Request) -> Vec<Value> {
     }
 }
 
-pub(super) async fn terminal_resize(request: Request) -> Vec<Value> {
+pub(super) async fn terminal_resize(request: Request<Value>) -> Vec<Value> {
     let Request {
         id,
         payload,
@@ -86,7 +86,7 @@ pub(super) async fn terminal_resize(request: Request) -> Vec<Value> {
     }
 }
 
-pub(super) async fn terminal_clear(request: Request) -> Vec<Value> {
+pub(super) async fn terminal_clear(request: Request<Value>) -> Vec<Value> {
     let Request {
         id,
         payload,
@@ -109,7 +109,7 @@ pub(super) async fn terminal_clear(request: Request) -> Vec<Value> {
     }
 }
 
-pub(super) async fn terminal_restart(request: Request) -> Vec<Value> {
+pub(super) async fn terminal_restart(request: Request<Value>) -> Vec<Value> {
     let Request {
         id,
         payload,
@@ -132,7 +132,7 @@ pub(super) async fn terminal_restart(request: Request) -> Vec<Value> {
     }
 }
 
-pub(super) async fn terminal_close(request: Request) -> Vec<Value> {
+pub(super) async fn terminal_close(request: Request<Value>) -> Vec<Value> {
     let Request {
         id,
         payload,

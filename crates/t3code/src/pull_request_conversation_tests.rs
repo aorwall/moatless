@@ -85,12 +85,19 @@ fn a_file_read_names_its_change_and_both_paths() {
         "newPath": "src/new.rs",
         "commit": "",
     });
-    let file = changed_file(&payload).unwrap();
+    let input = serde_json::from_value(payload).unwrap();
+    let file = changed_file(&input).unwrap();
     assert_eq!(file.change, FileChangeType::RenameChanged);
     assert_eq!((file.old_path, file.new_path), ("src/old.rs", "src/new.rs"));
     assert_eq!(file.commit, None);
     assert!(
-        changed_file(&json!({ "changeType": "copy", "oldPath": "a", "newPath": "a" })).is_none()
+        changed_file(&PullRequestDiffFileContentsInput {
+            change_type: Some("copy".to_string()),
+            old_path: Some("a".to_string()),
+            new_path: Some("a".to_string()),
+            ..Default::default()
+        })
+        .is_none()
     );
 }
 

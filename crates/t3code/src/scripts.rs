@@ -11,6 +11,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use serde::Deserialize;
 use serde_json::{Value, json};
 use tracing::{debug, warn};
 
@@ -88,9 +89,25 @@ fn required_str<'a>(payload: &'a Value, field: &'static str) -> Result<&'a str, 
     payload
         .get(field)
         .and_then(Value::as_str)
-        .map(str::trim)
+        .map_or(Err(ScriptsError::Malformed(field)), |value| {
+            nonblank(value, field)
+        })
+}
+
+/// `value` trimmed, or [`ScriptsError::Malformed`] naming `field` when that
+/// leaves nothing.
+fn nonblank<'a>(value: &'a str, field: &'static str) -> Result<&'a str, ScriptsError> {
+    Some(value.trim())
         .filter(|value| !value.is_empty())
         .ok_or(ScriptsError::Malformed(field))
+}
+
+/// The contract's `ScriptsRunInput`.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ScriptsRunInput {
+    pub(crate) thread_id: String,
+    pub(crate) script_id: String,
 }
 
 /// Where `script` was declared, under the name both wire surfaces give it.
@@ -233,10 +250,10 @@ pub(crate) async fn run(
     sandboxes: &dyn SandboxConnector,
     hub: &TerminalHub,
     viewer: &ScopeContext,
-    payload: &Value,
+    input: &ScriptsRunInput,
 ) -> Result<Value, ScriptsError> {
-    let task_id = required_str(payload, "threadId")?;
-    let script_id = required_str(payload, "scriptId")?;
+    let task_id = nonblank(&input.thread_id, "threadId")?;
+    let script_id = nonblank(&input.script_id, "scriptId")?;
 
     let resolved = resolve(state, sandboxes, viewer, task_id).await?;
     let script = match resolved

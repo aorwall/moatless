@@ -16,6 +16,7 @@ use moatless_types::access_control::ScopeContext;
 use moatless_types::agent::AgentProfile;
 use moatless_types::pull_request_conversation::PullRequestStatus;
 use moatless_types::task::TurnStatus;
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::config::AgentModelDefaults;
@@ -96,21 +97,38 @@ pub(crate) struct ReviewPorts<'a> {
     pub(crate) auth: &'a dyn SourceControlAuthSource,
 }
 
-/// The `PullRequestRef` a `pullRequests.*` request carries.
-pub(crate) fn pull_request_ref(payload: &Value) -> Option<(String, String, u64)> {
-    let text = |key: &str| {
-        payload
-            .get(key)
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string)
-    };
-    let number = payload.get("number").and_then(Value::as_u64)?;
-    if number == 0 {
-        return None;
+/// The contract's `PullRequestRef`, as far as it names a pull request.
+///
+/// Every field is optional here so that a missing one is answered with the
+/// caller's typed refusal rather than refused by the decode as a defect.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PullRequestRef {
+    project_id: Option<String>,
+    repository: Option<String>,
+    number: Option<u64>,
+}
+
+impl PullRequestRef {
+    /// The project, repository and number, or `None` when one is missing,
+    /// blank or zero.
+    pub(crate) fn target(&self) -> Option<(String, String, u64)> {
+        let text = |value: &Option<String>| {
+            value
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        };
+        let number = self.number.filter(|number| *number != 0)?;
+        Some((text(&self.project_id)?, text(&self.repository)?, number))
     }
-    Some((text("projectId")?, text("repository")?, number))
+}
+
+/// The pull request a `PullRequestRef`-shaped body names; see
+/// [`PullRequestRef::target`].
+pub(crate) fn pull_request_ref(payload: &Value) -> Option<(String, String, u64)> {
+    PullRequestRef::deserialize(payload).ok()?.target()
 }
 
 /// The ports a request answers from.

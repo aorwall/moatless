@@ -14,23 +14,25 @@ use crate::rpc::session::SharedSession;
 use crate::state::UiRpcState;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::ui_rpc::UiRpcAuthIdentity;
+use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
 
-/// One client request, owned by whatever answers it.
+/// One client request, owned by whatever answers it, carrying the payload its
+/// method declares as `P`.
 ///
 /// Owned, not borrowed, because a detached request outlives the frame-loop call
-/// that routed it; every field is an `Arc`, a `&'static str` or an
-/// already-parsed `Value`, so owning one costs only refcount bumps.
-pub(crate) struct Request {
+/// that routed it; every other field is an `Arc` or a `&'static str`, so owning
+/// one costs only refcount bumps.
+pub(crate) struct Request<P> {
     pub(crate) id: RequestId,
     /// The method's tag, kept because the failure frames echo it back.
     pub(crate) tag: &'static str,
     /// The scope the method's entry requires, which a per-Task refusal names.
     pub(crate) scope: Scope,
-    pub(crate) payload: Value,
+    pub(crate) payload: P,
     pub(crate) state: UiRpcState,
     pub(crate) identity: UiRpcAuthIdentity,
     pub(crate) shared: SharedSession,
@@ -49,7 +51,40 @@ pub(crate) struct ThreadRequest {
     pub(crate) payload: Value,
 }
 
-impl Request {
+impl Request<Value> {
+    /// The request with its payload decoded as `P`, or the `Die` that refuses
+    /// a payload `P` does not decode.
+    ///
+    /// An absent payload decodes as `{}`, so it answers as one that sends no
+    /// field rather than as one of the wrong type.
+    fn decode<P: DeserializeOwned>(self) -> Result<Request<P>, Vec<Value>> {
+        let Request {
+            id,
+            tag,
+            scope,
+            payload,
+            state,
+            identity,
+            shared,
+        } = self;
+        let payload = match payload {
+            Value::Null => Value::Object(serde_json::Map::new()),
+            payload => payload,
+        };
+        match serde_json::from_value(payload) {
+            Ok(payload) => Ok(Request {
+                id,
+                tag,
+                scope,
+                payload,
+                state,
+                identity,
+                shared,
+            }),
+            Err(error) => Err(vec![failure_exit(&id, format!("{tag}: {error}"))]),
+        }
+    }
+
     /// Destructure a request that addresses one thread and extract its
     /// `threadId`, naming the refusing method in the failure.
     ///
@@ -90,7 +125,10 @@ impl Request {
 /// The frames a request answers with, once it finishes.
 pub(crate) type Answer<'a> = Pin<Box<dyn Future<Output = Vec<Value>> + Send + 'a>>;
 
-type Respond = Box<dyn Fn(Request) -> Answer<'static> + Send + Sync>;
+type Respond = Box<dyn Fn(Request<Value>) -> Answer<'static> + Send + Sync>;
+
+type Open =
+    Box<dyn for<'a> Fn(&'a mut ProtocolSession, Request<Value>) -> Answer<'a> + Send + Sync>;
 
 /// Where a method runs, and what it may reach while it does.
 pub(crate) enum Handler {
@@ -104,7 +142,7 @@ pub(crate) enum Handler {
     /// one.
     Session(Respond),
     /// [`Self::Session`], holding the connection it opens a stream on.
-    Stream(for<'a> fn(&'a mut ProtocolSession, Request) -> Answer<'a>),
+    Stream(Open),
 }
 
 impl Handler {
@@ -116,6 +154,29 @@ impl Handler {
             Handler::Stream(_) => "stream",
         }
     }
+}
+
+/// `handler` behind the decode of its payload.
+fn decoded<P, F, A>(handler: F) -> Respond
+where
+    P: DeserializeOwned,
+    F: Fn(Request<P>) -> A + Send + Sync + 'static,
+    A: Future<Output = Vec<Value>> + Send + 'static,
+{
+    Box::new(move |request| -> Answer<'static> {
+        match request.decode() {
+            Ok(request) => Box::pin(handler(request)),
+            Err(died) => Box::pin(std::future::ready(died)),
+        }
+    })
+}
+
+/// Pins a stream closure's signature, which a closure only takes from a bound.
+fn opening<F>(open: F) -> F
+where
+    F: for<'a> Fn(&'a mut ProtocolSession, Request<Value>) -> Answer<'a>,
+{
+    open
 }
 
 /// What one group registered for a method.
@@ -187,12 +248,13 @@ impl MethodTable {
         }
     }
 
-    pub(crate) fn detached<F, A>(self, tag: &'static str, scope: Scope, handler: F) -> Self
+    pub(crate) fn detached<P, F, A>(self, tag: &'static str, scope: Scope, handler: F) -> Self
     where
-        F: Fn(Request) -> A + Send + Sync + 'static,
+        P: DeserializeOwned,
+        F: Fn(Request<P>) -> A + Send + Sync + 'static,
         A: Future<Output = Vec<Value>> + Send + 'static,
     {
-        let respond: Respond = Box::new(move |request| Box::pin(handler(request)));
+        let respond = decoded(handler);
         let since = self.since;
         self.register(
             tag,
@@ -202,12 +264,13 @@ impl MethodTable {
         )
     }
 
-    pub(crate) fn session<F, A>(self, tag: &'static str, scope: Scope, handler: F) -> Self
+    pub(crate) fn session<P, F, A>(self, tag: &'static str, scope: Scope, handler: F) -> Self
     where
-        F: Fn(Request) -> A + Send + Sync + 'static,
+        P: DeserializeOwned,
+        F: Fn(Request<P>) -> A + Send + Sync + 'static,
         A: Future<Output = Vec<Value>> + Send + 'static,
     {
-        let respond: Respond = Box::new(move |request| Box::pin(handler(request)));
+        let respond = decoded(handler);
         let since = self.since;
         self.register(
             tag,
@@ -217,18 +280,22 @@ impl MethodTable {
         )
     }
 
-    pub(crate) fn stream(
+    pub(crate) fn stream<P: DeserializeOwned + 'static>(
         self,
         tag: &'static str,
         scope: Scope,
-        handler: for<'a> fn(&'a mut ProtocolSession, Request) -> Answer<'a>,
+        handler: for<'a> fn(&'a mut ProtocolSession, Request<P>) -> Answer<'a>,
     ) -> Self {
+        let open: Open = Box::new(opening(move |session, request| match request.decode() {
+            Ok(request) => handler(session, request),
+            Err(died) => Box::pin(std::future::ready(died)),
+        }));
         let since = self.since;
         self.register(
             tag,
             scope,
             since,
-            Registration::Answered(Handler::Stream(handler)),
+            Registration::Answered(Handler::Stream(open)),
         )
     }
 
@@ -298,7 +365,7 @@ impl MethodTable {
 mod tests {
     use super::*;
 
-    async fn answer(_: Request) -> Vec<Value> {
+    async fn answer(_: Request<Value>) -> Vec<Value> {
         Vec::new()
     }
 

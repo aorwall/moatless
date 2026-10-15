@@ -15,6 +15,9 @@ use crate::rpc::session::resolve_workspace_skills;
 use crate::rpc::table::MethodTable;
 use crate::rpc::table::Request;
 use crate::usage;
+use crate::usage::UsageSummaryInput;
+use serde::Deserialize;
+use serde::de::IgnoredAny;
 use serde_json::Value;
 use serde_json::json;
 use tracing::warn;
@@ -78,11 +81,11 @@ pub(super) fn server_methods() -> MethodTable {
         )
 }
 
-pub(super) async fn server_probe(request: Request) -> Vec<Value> {
+pub(super) async fn server_probe(request: Request<IgnoredAny>) -> Vec<Value> {
     vec![success_exit(&request.id, json!({}))]
 }
 
-pub(super) async fn server_get_settings(request: Request) -> Vec<Value> {
+pub(super) async fn server_get_settings(request: Request<IgnoredAny>) -> Vec<Value> {
     vec![success_exit(&request.id, json!({}))]
 }
 
@@ -91,11 +94,11 @@ pub(super) async fn server_get_settings(request: Request) -> Vec<Value> {
 /// Moatless runs agents in Sandboxes no browser tab is attached to, so this
 /// per-focus-change report is meaningless here, and refusing it would just be
 /// noise.
-pub(super) async fn server_report_client_activity(request: Request) -> Vec<Value> {
+pub(super) async fn server_report_client_activity(request: Request<IgnoredAny>) -> Vec<Value> {
     vec![success_exit(&request.id, Value::Null)]
 }
 
-pub(super) async fn cloud_get_relay_client_status(request: Request) -> Vec<Value> {
+pub(super) async fn cloud_get_relay_client_status(request: Request<IgnoredAny>) -> Vec<Value> {
     vec![success_exit(
         &request.id,
         json!({
@@ -107,7 +110,7 @@ pub(super) async fn cloud_get_relay_client_status(request: Request) -> Vec<Value
     )]
 }
 
-pub(super) async fn server_get_config(request: Request) -> Vec<Value> {
+pub(super) async fn server_get_config(request: Request<IgnoredAny>) -> Vec<Value> {
     let Request {
         id,
         state,
@@ -122,10 +125,18 @@ pub(super) async fn server_get_config(request: Request) -> Vec<Value> {
     )]
 }
 
+/// The contract's `server.refreshProviders` payload, as far as it is read.
+#[derive(Deserialize)]
+pub(super) struct ServerRefreshProvidersInput {
+    cwd: Option<String>,
+}
+
 /// Publishes a fresh provider list twice: as the reply, which is what stops the
 /// composer asking again, and on the open config stream, which is what fills
 /// the menu.
-pub(super) async fn server_refresh_providers(request: Request) -> Vec<Value> {
+pub(super) async fn server_refresh_providers(
+    request: Request<ServerRefreshProvidersInput>,
+) -> Vec<Value> {
     let Request {
         id,
         payload,
@@ -134,8 +145,8 @@ pub(super) async fn server_refresh_providers(request: Request) -> Vec<Value> {
         shared,
         ..
     } = request;
-    if let Some(cwd) = payload.get("cwd").and_then(Value::as_str) {
-        resolve_workspace_skills(&state, &identity, cwd, &shared.workspace_snapshots).await;
+    if let Some(cwd) = payload.cwd {
+        resolve_workspace_skills(&state, &identity, &cwd, &shared.workspace_snapshots).await;
     }
     let agents = state.agents.list(&viewer_scope(&identity)).await;
     let providers = providers::providers(
@@ -159,7 +170,7 @@ pub(super) async fn server_refresh_providers(request: Request) -> Vec<Value> {
     frames
 }
 
-pub(super) async fn server_get_usage_summary(request: Request) -> Vec<Value> {
+pub(super) async fn server_get_usage_summary(request: Request<UsageSummaryInput>) -> Vec<Value> {
     let Request {
         id,
         tag,
@@ -206,7 +217,7 @@ pub(super) async fn server_get_usage_summary(request: Request) -> Vec<Value> {
     }
 }
 
-pub(super) async fn server_discover_source_control(request: Request) -> Vec<Value> {
+pub(super) async fn server_discover_source_control(request: Request<IgnoredAny>) -> Vec<Value> {
     let Request {
         id,
         state,

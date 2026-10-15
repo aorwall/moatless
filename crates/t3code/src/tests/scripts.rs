@@ -33,11 +33,10 @@ fn scripts_state(tasks: ports::MockWorkspaceScriptSource) -> ScriptsState {
 #[test]
 fn a_stopped_sandbox_refuses_a_script_run_in_terms_the_client_can_act_on() {
     let identity = viewer();
-    let payload = json!({ "threadId": "task-1", "scriptId": "dev" });
     let error = ScriptsError::Port(SandboxError::NotReady("stopped".to_string()));
 
     let request_id: RequestId = serde_json::from_value(json!(1)).expect("a numeric id");
-    let exit = scripts_failure_exit(&request_id, &error, &payload, &identity);
+    let exit = scripts_failure_exit(&request_id, &error, "task-1", &identity);
 
     let cause = &exit["exit"]["cause"][0];
     assert_eq!(cause["_tag"], "Fail", "a Die would not decode client-side");
@@ -51,11 +50,10 @@ fn a_stopped_sandbox_refuses_a_script_run_in_terms_the_client_can_act_on() {
 #[test]
 fn a_reserved_port_is_still_reported_rather_than_retried() {
     let identity = viewer();
-    let payload = json!({ "threadId": "task-1", "scriptId": "dev" });
     let error = ScriptsError::Port(SandboxError::BadRequest("Port 8001 is reserved".into()));
 
     let request_id: RequestId = serde_json::from_value(json!(1)).expect("a numeric id");
-    let exit = scripts_failure_exit(&request_id, &error, &payload, &identity);
+    let exit = scripts_failure_exit(&request_id, &error, "task-1", &identity);
 
     assert_eq!(exit["exit"]["cause"][0]["_tag"], "Die");
 }
@@ -232,13 +230,12 @@ async fn a_task_the_viewer_cannot_read_resolves_to_not_found() {
 #[test]
 fn a_stopped_sandbox_refuses_a_portless_script_run_in_the_same_terms() {
     let identity = viewer();
-    let payload = json!({ "threadId": "task-1", "scriptId": "dev" });
     let error = ScriptsError::Terminal(terminal::TerminalError::Workspace(
         WorkspaceAccessError::NotRunning(SandboxError::NotReady("stopped".to_string())),
     ));
 
     let request_id: RequestId = serde_json::from_value(json!(1)).expect("a numeric id");
-    let exit = scripts_failure_exit(&request_id, &error, &payload, &identity);
+    let exit = scripts_failure_exit(&request_id, &error, "task-1", &identity);
 
     let cause = &exit["exit"]["cause"][0];
     assert_eq!(cause["_tag"], "Fail", "a Die would not auto-start");
@@ -252,13 +249,12 @@ fn a_stopped_sandbox_refuses_a_portless_script_run_in_the_same_terms() {
 #[test]
 fn a_terminal_failure_a_script_run_cannot_declare_is_reported_as_a_defect() {
     let identity = viewer();
-    let payload = json!({ "threadId": "task-1", "scriptId": "dev" });
     let error = ScriptsError::Terminal(terminal::TerminalError::Workspace(
         WorkspaceAccessError::NoWorktree,
     ));
 
     let request_id: RequestId = serde_json::from_value(json!(1)).expect("a numeric id");
-    let exit = scripts_failure_exit(&request_id, &error, &payload, &identity);
+    let exit = scripts_failure_exit(&request_id, &error, "task-1", &identity);
 
     assert_eq!(exit["exit"]["cause"][0]["_tag"], "Die");
 }

@@ -338,11 +338,8 @@ pub struct ShellSnapshot {
 ///
 /// Refused, not defaulted: any substitute for a missing `cwd` would name
 /// somebody else's conversation.
-pub(crate) fn workspace_cwd(payload: &Value) -> Option<String> {
-    payload
-        .get("cwd")
-        .and_then(Value::as_str)
-        .map(str::trim)
+pub(crate) fn workspace_cwd(cwd: Option<&str>) -> Option<String> {
+    cwd.map(str::trim)
         .filter(|cwd| !cwd.is_empty())
         .map(str::to_owned)
 }

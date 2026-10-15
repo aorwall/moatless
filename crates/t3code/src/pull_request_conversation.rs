@@ -8,13 +8,38 @@ use moatless_types::pull_request_conversation::{
     PullRequestCheckStatus, PullRequestCommitEntry, PullRequestLabel, PullRequestRemark,
     PullRequestRemarkKind, ReviewThread, ReviewThreadComment,
 };
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::ports::ChangedFile;
 use crate::pull_request_review::{
-    PullRequestReviewError, PullRequestTarget, ReviewPorts, non_empty_or, now_rfc3339, reach,
-    rfc3339,
+    PullRequestRef, PullRequestReviewError, PullRequestTarget, ReviewPorts, non_empty_or,
+    now_rfc3339, reach, rfc3339,
 };
+
+/// The contract's `PullRequestThreadCommentsInput`. Its fields are optional, as
+/// [`PullRequestRef`]'s are, so a missing one gets the typed refusal.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PullRequestThreadCommentsInput {
+    #[serde(flatten)]
+    pub(crate) reference: PullRequestRef,
+    pub(crate) thread_id: Option<String>,
+    pub(crate) cursor: Option<String>,
+}
+
+/// The contract's `PullRequestDiffFileContentsInput`, optional as
+/// [`PullRequestThreadCommentsInput`]'s fields are.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PullRequestDiffFileContentsInput {
+    #[serde(flatten)]
+    pub(crate) reference: PullRequestRef,
+    pub(crate) commit: Option<String>,
+    pub(crate) change_type: Option<String>,
+    pub(crate) old_path: Option<String>,
+    pub(crate) new_path: Option<String>,
+}
 
 /// `pullRequests.activity`: the conversation, review threads and commits.
 pub(crate) async fn activity(
@@ -162,16 +187,13 @@ pub(crate) async fn linked_threads(
 }
 
 /// The `ChangedFile` a `pullRequests.diffFileContents` request names.
-pub(crate) fn changed_file(payload: &Value) -> Option<ChangedFile<'_>> {
-    let text = |key: &str| {
-        payload
-            .get(key)
-            .and_then(Value::as_str)
-            .filter(|value| !value.trim().is_empty())
-    };
+pub(crate) fn changed_file(input: &PullRequestDiffFileContentsInput) -> Option<ChangedFile<'_>> {
+    fn text(value: &Option<String>) -> Option<&str> {
+        value.as_deref().filter(|value| !value.trim().is_empty())
+    }
     Some(ChangedFile {
-        commit: text("commit"),
-        change: match text("changeType")? {
+        commit: text(&input.commit),
+        change: match text(&input.change_type)? {
             "change" => FileChangeType::Change,
             "rename-pure" => FileChangeType::RenamePure,
             "rename-changed" => FileChangeType::RenameChanged,
@@ -179,8 +201,8 @@ pub(crate) fn changed_file(payload: &Value) -> Option<ChangedFile<'_>> {
             "deleted" => FileChangeType::Deleted,
             _ => return None,
         },
-        old_path: text("oldPath")?,
-        new_path: text("newPath")?,
+        old_path: text(&input.old_path)?,
+        new_path: text(&input.new_path)?,
     })
 }
 

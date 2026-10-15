@@ -8,6 +8,7 @@
 //! It does not carry a *turn checkpoint*: Moatless records no per-turn worktree
 //! snapshot, so `projection::checkpoints` reports no `files` there.
 
+use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -197,7 +198,7 @@ pub fn refs_are_quiet(error: &WorkspaceAccessError) -> bool {
 pub struct RefRequest<'a> {
     pub cwd: &'a str,
     /// Case-insensitive substring the ref's name must contain.
-    pub query: Option<&'a str>,
+    pub query: Option<String>,
     pub cursor: usize,
     pub limit: usize,
     /// Whether a remote ref is offered beside the local branch of the same
@@ -224,34 +225,40 @@ impl RefKind {
     }
 }
 
+/// The contract's `VcsListRefsInput`.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct VcsListRefsInput {
+    /// Optional here so that a request without one is answered with no refs
+    /// rather than refused by the decode.
+    pub(crate) cwd: Option<String>,
+    query: Option<String>,
+    cursor: Option<u64>,
+    limit: Option<u64>,
+    include_matching_remote_refs: Option<bool>,
+    ref_kind: Option<String>,
+}
+
 impl<'a> RefRequest<'a> {
     /// Read one off the wire, with the contract's own defaults for what it
     /// leaves out.
-    pub fn from_payload(cwd: &'a str, payload: &'a Value) -> Self {
+    pub(crate) fn from_input(cwd: &'a str, input: &VcsListRefsInput) -> Self {
         Self {
             cwd,
-            query: payload
-                .get("query")
-                .and_then(Value::as_str)
+            query: input
+                .query
+                .as_deref()
                 .map(str::trim)
-                .filter(|query| !query.is_empty()),
-            cursor: payload
-                .get("cursor")
-                .and_then(Value::as_u64)
-                .unwrap_or(0)
-                .try_into()
-                .unwrap_or(usize::MAX),
-            limit: payload
-                .get("limit")
-                .and_then(Value::as_u64)
+                .filter(|query| !query.is_empty())
+                .map(str::to_string),
+            cursor: input.cursor.unwrap_or(0).try_into().unwrap_or(usize::MAX),
+            limit: input
+                .limit
                 .and_then(|limit| usize::try_from(limit).ok())
                 .filter(|limit| *limit > 0)
                 .unwrap_or(DEFAULT_REF_LIMIT),
-            include_matching_remote_refs: payload
-                .get("includeMatchingRemoteRefs")
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
-            ref_kind: RefKind::from_wire(payload.get("refKind").and_then(Value::as_str)),
+            include_matching_remote_refs: input.include_matching_remote_refs.unwrap_or(false),
+            ref_kind: RefKind::from_wire(input.ref_kind.as_deref()),
         }
     }
 }
@@ -276,7 +283,7 @@ fn ref_page(listing: &ListGitRefsResponse, request: &RefRequest<'_>) -> Value {
         .filter(|reference| {
             request.include_matching_remote_refs || !shadows_a_local_branch(reference, &local_names)
         })
-        .filter(|reference| match request.query {
+        .filter(|reference| match request.query.as_deref() {
             Some(query) => reference
                 .name
                 .to_lowercase()
@@ -392,7 +399,7 @@ fn branch_ref_page(response: &BranchListResponse, request: &RefRequest<'_>) -> V
         response
             .branches
             .iter()
-            .filter(|branch| match request.query {
+            .filter(|branch| match request.query.as_deref() {
                 Some(query) => branch.name.to_lowercase().contains(&query.to_lowercase()),
                 None => true,
             })
@@ -703,8 +710,9 @@ mod tests {
         }
     }
 
-    fn request<'a>(cwd: &'a str, payload: &'a Value) -> RefRequest<'a> {
-        RefRequest::from_payload(cwd, payload)
+    fn request<'a>(cwd: &'a str, payload: &Value) -> RefRequest<'a> {
+        let input = serde_json::from_value(payload.clone()).expect("a VcsListRefsInput");
+        RefRequest::from_input(cwd, &input)
     }
 
     #[test]
@@ -972,7 +980,7 @@ mod tests {
     }
 
     fn project_root() -> RefRequest<'static> {
-        RefRequest::from_payload("/moatless/workspaces/ws-1", &Value::Null)
+        RefRequest::from_input("/moatless/workspaces/ws-1", &VcsListRefsInput::default())
     }
 
     /// The picker of a draft thread reaches the primary repository's branches,

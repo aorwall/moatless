@@ -2,7 +2,6 @@
 
 use crate::authentication::viewer_scope;
 use crate::oauth::Scope;
-use crate::rpc::envelope::failure_exit;
 use crate::rpc::envelope::success_exit;
 use crate::rpc::errors::sandbox_failure_exit;
 use crate::rpc::errors::scripts_failure_exit;
@@ -10,12 +9,14 @@ use crate::rpc::errors::scripts_list_failure_exit;
 use crate::rpc::errors::subtasks_failure_exit;
 use crate::rpc::table::MethodTable;
 use crate::rpc::table::Request;
-use crate::rpc::table::ThreadRequest;
 use crate::sandbox;
 use crate::scripts;
 use crate::scripts::ScriptsError;
+use crate::scripts::ScriptsRunInput;
 use crate::subtasks;
 use crate::subtasks::SubtasksError;
+use serde::Deserialize;
+use serde::de::IgnoredAny;
 use serde_json::Value;
 use serde_json::json;
 
@@ -58,7 +59,39 @@ pub(super) fn sandbox_methods() -> MethodTable {
         .detached("subtasks.list", Scope::OrchestrationRead, subtasks_list)
 }
 
-pub(super) async fn scripts_run(request: Request) -> Vec<Value> {
+/// The contract's `SandboxStatusInput`, and every other `sandbox.*` input that
+/// names only a thread (`SandboxDetailInput`, `SandboxStartInput`, …).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SandboxStatusInput {
+    pub(super) thread_id: String,
+}
+
+/// The contract's `ScriptsListForThreadInput`.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ScriptsListForThreadInput {
+    thread_id: String,
+}
+
+/// The contract's `SubtasksListInput`.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SubtasksListInput {
+    thread_id: String,
+}
+
+/// The contract's `SandboxSetIdleTimeoutInput`.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SandboxSetIdleTimeoutInput {
+    thread_id: String,
+    /// `i32` and not `u32`: a client that sends a negative gets the refusal
+    /// `sandbox::set_idle_timeout` states, not a decode failure.
+    minutes: i32,
+}
+
+pub(super) async fn scripts_run(request: Request<ScriptsRunInput>) -> Vec<Value> {
     let Request {
         id,
         payload,
@@ -78,22 +111,26 @@ pub(super) async fn scripts_run(request: Request) -> Vec<Value> {
     .await
     {
         Ok(result) => vec![success_exit(&id, result)],
-        Err(error) => vec![scripts_failure_exit(&id, &error, &payload, &identity)],
+        Err(error) => vec![scripts_failure_exit(
+            &id,
+            &error,
+            &payload.thread_id,
+            &identity,
+        )],
     }
 }
 
-pub(super) async fn scripts_list_for_thread(request: Request) -> Vec<Value> {
-    let ThreadRequest {
+pub(super) async fn scripts_list_for_thread(
+    request: Request<ScriptsListForThreadInput>,
+) -> Vec<Value> {
+    let Request {
         id,
-        viewer,
-        task_id,
+        payload: ScriptsListForThreadInput { thread_id: task_id },
         state,
         identity,
         ..
-    } = match request.require_thread_id() {
-        Ok(request) => request,
-        Err(failure) => return failure,
-    };
+    } = request;
+    let viewer = viewer_scope(&identity);
     match scripts::list(&state.scripts, state.sandboxes.as_ref(), &viewer, &task_id).await {
         Ok(scripts) => vec![success_exit(
             &id,
@@ -108,156 +145,132 @@ pub(super) async fn scripts_list_for_thread(request: Request) -> Vec<Value> {
     }
 }
 
-pub(super) async fn sandbox_start(request: Request) -> Vec<Value> {
-    let ThreadRequest {
+pub(super) async fn sandbox_start(request: Request<SandboxStatusInput>) -> Vec<Value> {
+    let Request {
         id,
         tag,
         scope,
-        viewer,
-        task_id,
+        payload: SandboxStatusInput { thread_id: task_id },
         state,
         identity,
         ..
-    } = match request.require_thread_id() {
-        Ok(request) => request,
-        Err(failure) => return failure,
-    };
+    } = request;
+    let viewer = viewer_scope(&identity);
     match sandbox::start(&state.sandbox, &viewer, &task_id).await {
         Ok(status) => vec![success_exit(&id, status)],
         Err(error) => vec![sandbox_failure_exit(&id, scope, tag, &error, &identity)],
     }
 }
 
-pub(super) async fn sandbox_stop(request: Request) -> Vec<Value> {
-    let ThreadRequest {
+pub(super) async fn sandbox_stop(request: Request<SandboxStatusInput>) -> Vec<Value> {
+    let Request {
         id,
         tag,
         scope,
-        viewer,
-        task_id,
+        payload: SandboxStatusInput { thread_id: task_id },
         state,
         identity,
         ..
-    } = match request.require_thread_id() {
-        Ok(request) => request,
-        Err(failure) => return failure,
-    };
+    } = request;
+    let viewer = viewer_scope(&identity);
     match sandbox::stop(&state.sandbox, &viewer, &task_id).await {
         Ok(status) => vec![success_exit(&id, status)],
         Err(error) => vec![sandbox_failure_exit(&id, scope, tag, &error, &identity)],
     }
 }
 
-pub(super) async fn sandbox_restart(request: Request) -> Vec<Value> {
-    let ThreadRequest {
+pub(super) async fn sandbox_restart(request: Request<SandboxStatusInput>) -> Vec<Value> {
+    let Request {
         id,
         tag,
         scope,
-        viewer,
-        task_id,
+        payload: SandboxStatusInput { thread_id: task_id },
         state,
         identity,
         ..
-    } = match request.require_thread_id() {
-        Ok(request) => request,
-        Err(failure) => return failure,
-    };
+    } = request;
+    let viewer = viewer_scope(&identity);
     match sandbox::restart(&state.sandbox, &viewer, &task_id).await {
         Ok(status) => vec![success_exit(&id, status)],
         Err(error) => vec![sandbox_failure_exit(&id, scope, tag, &error, &identity)],
     }
 }
 
-pub(super) async fn sandbox_redeploy(request: Request) -> Vec<Value> {
-    let ThreadRequest {
+pub(super) async fn sandbox_redeploy(request: Request<SandboxStatusInput>) -> Vec<Value> {
+    let Request {
         id,
         tag,
         scope,
-        viewer,
-        task_id,
+        payload: SandboxStatusInput { thread_id: task_id },
         state,
         identity,
         ..
-    } = match request.require_thread_id() {
-        Ok(request) => request,
-        Err(failure) => return failure,
-    };
+    } = request;
+    let viewer = viewer_scope(&identity);
     match sandbox::redeploy(&state.sandbox, &viewer, &task_id).await {
         Ok(status) => vec![success_exit(&id, status)],
         Err(error) => vec![sandbox_failure_exit(&id, scope, tag, &error, &identity)],
     }
 }
 
-pub(super) async fn sandbox_cleanup(request: Request) -> Vec<Value> {
-    let ThreadRequest {
+pub(super) async fn sandbox_cleanup(request: Request<SandboxStatusInput>) -> Vec<Value> {
+    let Request {
         id,
         tag,
         scope,
-        viewer,
-        task_id,
+        payload: SandboxStatusInput { thread_id: task_id },
         state,
         identity,
         ..
-    } = match request.require_thread_id() {
-        Ok(request) => request,
-        Err(failure) => return failure,
-    };
+    } = request;
+    let viewer = viewer_scope(&identity);
     match sandbox::cleanup(&state.sandbox, &viewer, &task_id).await {
         Ok(status) => vec![success_exit(&id, status)],
         Err(error) => vec![sandbox_failure_exit(&id, scope, tag, &error, &identity)],
     }
 }
 
-pub(super) async fn sandbox_set_idle_timeout(request: Request) -> Vec<Value> {
-    let ThreadRequest {
+pub(super) async fn sandbox_set_idle_timeout(
+    request: Request<SandboxSetIdleTimeoutInput>,
+) -> Vec<Value> {
+    let Request {
         id,
         tag,
         scope,
-        viewer,
-        task_id,
+        payload:
+            SandboxSetIdleTimeoutInput {
+                thread_id: task_id,
+                minutes,
+            },
         state,
         identity,
-        payload,
-    } = match request.require_thread_id() {
-        Ok(request) => request,
-        Err(failure) => return failure,
-    };
-    // `as_i64` and not `as_u64`: a client that sends a negative gets the
-    // refusal `sandbox::set_idle_timeout` states, not "requires minutes".
-    let Some(minutes) = payload
-        .get("minutes")
-        .and_then(Value::as_i64)
-        .and_then(|minutes| i32::try_from(minutes).ok())
-    else {
-        return vec![failure_exit(&id, "sandbox.setIdleTimeout requires minutes")];
-    };
+        ..
+    } = request;
+    let viewer = viewer_scope(&identity);
     match sandbox::set_idle_timeout(state.commands.as_ref(), &viewer, &task_id, minutes).await {
         Ok(result) => vec![success_exit(&id, result)],
         Err(error) => vec![sandbox_failure_exit(&id, scope, tag, &error, &identity)],
     }
 }
 
-pub(super) async fn sandbox_status(request: Request) -> Vec<Value> {
-    let ThreadRequest {
+pub(super) async fn sandbox_status(request: Request<SandboxStatusInput>) -> Vec<Value> {
+    let Request {
         id,
         tag,
         scope,
-        viewer,
-        task_id,
+        payload: SandboxStatusInput { thread_id: task_id },
         state,
         identity,
         ..
-    } = match request.require_thread_id() {
-        Ok(request) => request,
-        Err(failure) => return failure,
-    };
+    } = request;
+    let viewer = viewer_scope(&identity);
     match sandbox::status(&state.sandbox, &viewer, &task_id).await {
         Ok(status) => vec![success_exit(&id, status)],
         Err(error) => vec![sandbox_failure_exit(&id, scope, tag, &error, &identity)],
     }
 }
 
-pub(super) async fn sandbox_list_diagnostics(request: Request) -> Vec<Value> {
+pub(super) async fn sandbox_list_diagnostics(request: Request<IgnoredAny>) -> Vec<Value> {
     let Request {
         id,
         tag,
@@ -272,18 +285,15 @@ pub(super) async fn sandbox_list_diagnostics(request: Request) -> Vec<Value> {
     }
 }
 
-pub(super) async fn subtasks_list(request: Request) -> Vec<Value> {
-    let ThreadRequest {
+pub(super) async fn subtasks_list(request: Request<SubtasksListInput>) -> Vec<Value> {
+    let Request {
         id,
-        viewer,
-        task_id,
+        payload: SubtasksListInput { thread_id: task_id },
         state,
         identity,
         ..
-    } = match request.require_thread_id() {
-        Ok(request) => request,
-        Err(failure) => return failure,
-    };
+    } = request;
+    let viewer = viewer_scope(&identity);
     match subtasks::list(&state.subtasks, &viewer, &task_id).await {
         Ok(listing) => vec![success_exit(&id, listing)],
         // A Thread the viewer cannot read has no subtasks *for them*, and the

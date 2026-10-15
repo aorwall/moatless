@@ -399,13 +399,9 @@ pub(crate) fn subtasks_failure_exit(
 pub(crate) fn scripts_failure_exit(
     request_id: &RequestId,
     error: &ScriptsError,
-    payload: &Value,
+    thread_id: &str,
     identity: &UiRpcAuthIdentity,
 ) -> Value {
-    let thread_id = payload
-        .get("threadId")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
     match error {
         ScriptsError::Terminal(terminal_error) => {
             log_terminal_failure(terminal_error, identity);

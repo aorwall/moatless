@@ -73,7 +73,7 @@ pub(super) fn project_methods() -> MethodTable {
         )
 }
 
-pub(super) async fn projects_list_entries(request: Request) -> Vec<Value> {
+pub(super) async fn projects_list_entries(request: Request<Value>) -> Vec<Value> {
     let Request {
         id,
         tag,
@@ -82,7 +82,7 @@ pub(super) async fn projects_list_entries(request: Request) -> Vec<Value> {
         identity,
         ..
     } = request;
-    let Some(cwd) = workspace_cwd(&payload) else {
+    let Some(cwd) = workspace_cwd(payload.get("cwd").and_then(Value::as_str)) else {
         return vec![file_failure_exit(
             &id,
             tag,
@@ -103,7 +103,7 @@ pub(super) async fn projects_list_entries(request: Request) -> Vec<Value> {
     }
 }
 
-pub(super) async fn projects_go_to_definition(request: Request) -> Vec<Value> {
+pub(super) async fn projects_go_to_definition(request: Request<Value>) -> Vec<Value> {
     let Request {
         id,
         tag,
@@ -125,7 +125,7 @@ pub(super) async fn projects_go_to_definition(request: Request) -> Vec<Value> {
             .filter(|n| *n > 0)
     };
     let (Some(cwd), Some(relative_path), Some(line), Some(column)) = (
-        workspace_cwd(&payload),
+        workspace_cwd(payload.get("cwd").and_then(Value::as_str)),
         relative_path,
         position("line"),
         position("column"),
@@ -153,7 +153,7 @@ pub(super) async fn projects_go_to_definition(request: Request) -> Vec<Value> {
     }
 }
 
-pub(super) async fn projects_read_file(request: Request) -> Vec<Value> {
+pub(super) async fn projects_read_file(request: Request<Value>) -> Vec<Value> {
     let Request {
         id,
         tag,
@@ -167,7 +167,10 @@ pub(super) async fn projects_read_file(request: Request) -> Vec<Value> {
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|path| !path.is_empty());
-    let (Some(cwd), Some(relative_path)) = (workspace_cwd(&payload), relative_path) else {
+    let (Some(cwd), Some(relative_path)) = (
+        workspace_cwd(payload.get("cwd").and_then(Value::as_str)),
+        relative_path,
+    ) else {
         return vec![file_failure_exit(
             &id,
             tag,
@@ -200,7 +203,7 @@ pub(super) async fn projects_read_file(request: Request) -> Vec<Value> {
     }
 }
 
-pub(super) async fn projects_search_entries(request: Request) -> Vec<Value> {
+pub(super) async fn projects_search_entries(request: Request<Value>) -> Vec<Value> {
     let Request {
         id,
         tag,
@@ -218,7 +221,7 @@ pub(super) async fn projects_search_entries(request: Request) -> Vec<Value> {
         .get("query")
         .and_then(Value::as_str)
         .map_or("", str::trim);
-    let Some(cwd) = workspace_cwd(&payload) else {
+    let Some(cwd) = workspace_cwd(payload.get("cwd").and_then(Value::as_str)) else {
         return vec![file_failure_exit(
             &id,
             tag,
@@ -248,7 +251,7 @@ pub(super) async fn projects_search_entries(request: Request) -> Vec<Value> {
     }
 }
 
-pub(super) async fn projects_write_file(request: Request) -> Vec<Value> {
+pub(super) async fn projects_write_file(request: Request<Value>) -> Vec<Value> {
     let Request {
         id,
         tag,
@@ -265,9 +268,11 @@ pub(super) async fn projects_write_file(request: Request) -> Vec<Value> {
     // Empty contents are a legal write — truncating a file is a thing a person
     // does — so only an absent `contents` is unaddressable.
     let contents = payload.get("contents").and_then(Value::as_str);
-    let (Some(cwd), Some(relative_path), Some(contents)) =
-        (workspace_cwd(&payload), relative_path, contents)
-    else {
+    let (Some(cwd), Some(relative_path), Some(contents)) = (
+        workspace_cwd(payload.get("cwd").and_then(Value::as_str)),
+        relative_path,
+        contents,
+    ) else {
         return vec![file_failure_exit(
             &id,
             tag,
@@ -293,7 +298,7 @@ pub(super) async fn projects_write_file(request: Request) -> Vec<Value> {
 /// Mints an asset as a route this backend serves the file on, not a local path
 /// — a checkout lives only in its Sandbox; a favicon names no file and always
 /// answers none.
-pub(super) async fn assets_create_url(request: Request) -> Vec<Value> {
+pub(super) async fn assets_create_url(request: Request<Value>) -> Vec<Value> {
     let Request { id, payload, .. } = request;
     // The error carries the resource back, and the client decodes it against the
     // same schema it sent — so a request without one has no typed answer to give
@@ -316,7 +321,7 @@ pub(super) async fn assets_create_url(request: Request) -> Vec<Value> {
 /// Mints the URL the composer uploads a file to before sending the turn that
 /// names it; the URL carries its own credential, so nothing about the upload
 /// reaches this socket except the id.
-pub(super) async fn attachments_create_upload_url(request: Request) -> Vec<Value> {
+pub(super) async fn attachments_create_upload_url(request: Request<Value>) -> Vec<Value> {
     let Request {
         id,
         payload,
@@ -337,7 +342,7 @@ pub(super) async fn attachments_create_upload_url(request: Request) -> Vec<Value
     }
 }
 
-pub(super) async fn attachments_delete(request: Request) -> Vec<Value> {
+pub(super) async fn attachments_delete(request: Request<Value>) -> Vec<Value> {
     let Request {
         id,
         payload,
@@ -360,7 +365,7 @@ pub(super) async fn attachments_delete(request: Request) -> Vec<Value> {
 /// `projects.mutate`: a project is a Moatless Workspace, so only an update of its
 /// Scripts is carried out, through the V1 command
 /// ([`v2_commands::project_mutation`]). Answers the updated `Project`.
-pub(super) async fn projects_mutate(request: Request) -> Vec<Value> {
+pub(super) async fn projects_mutate(request: Request<Value>) -> Vec<Value> {
     let Request {
         id,
         payload,

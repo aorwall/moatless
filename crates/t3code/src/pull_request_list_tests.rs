@@ -4,6 +4,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use crate::workspace_listing::MockWorkspaceListing;
 use async_trait::async_trait;
 
+fn input(payload: Value) -> PullRequestListInput {
+    serde_json::from_value(payload).expect("a PullRequestListInput")
+}
+
 fn source() -> Source {
     Source {
         project_id: "ws-1".into(),
@@ -34,7 +38,7 @@ fn item() -> PullRequestListItem {
 
 #[test]
 fn the_input_becomes_a_query() {
-    let query = list_query(&json!({
+    let query = list_query(&input(json!({
         "state": "merged",
         "involvement": "authored",
         "query": " picker ",
@@ -46,7 +50,7 @@ fn the_input_becomes_a_query() {
             "excludedLabels": ["wontfix"],
             "author": "alice",
         },
-    }));
+    })));
     assert_eq!(query.state, "merged");
     assert_eq!(query.involvement.as_deref(), Some("authored"));
     assert_eq!(query.text.as_deref(), Some("picker"));
@@ -59,7 +63,7 @@ fn the_input_becomes_a_query() {
     );
     assert_eq!(query.excluded_labels, vec!["wontfix".to_string()]);
     assert_eq!(query.author.as_deref(), Some("alice"));
-    assert_eq!(list_query(&json!({})).state, "open");
+    assert_eq!(list_query(&input(json!({}))).state, "open");
 }
 
 #[test]
@@ -310,7 +314,9 @@ async fn each_readable_repository_is_read_once_and_a_failure_is_reported() {
 #[tokio::test]
 async fn named_projects_narrow_the_listing() {
     let viewer = ScopeContext::user("user-1".to_string());
-    let named = projects_named(&json!({ "projectIds": ["ws-3"], "projectId": "ws-2" }));
+    let named = projects_named(&input(
+        json!({ "projectIds": ["ws-3"], "projectId": "ws-2" }),
+    ));
     let (sources, _) = sources(&every_project(), &repositories(), &viewer, &named, None)
         .await
         .unwrap();
@@ -323,8 +329,8 @@ async fn named_projects_narrow_the_listing() {
 #[tokio::test]
 async fn a_continuation_reads_only_the_repositories_it_names() {
     let viewer = ScopeContext::user("user-1".to_string());
-    let mut cursors = Map::new();
-    cursors.insert("github.com acme/api".into(), json!("Y3Vy"));
+    let mut cursors = BTreeMap::new();
+    cursors.insert("github.com acme/api".to_string(), "Y3Vy".to_string());
     let (sources, _) = sources(
         &every_project(),
         &repositories(),

@@ -9,7 +9,6 @@
 
 use std::sync::Arc;
 
-use serde_json::json;
 use tracing::warn;
 
 use crate::reads::T3Reads;
@@ -82,14 +81,17 @@ impl StartupScripts {
             .map(|script| &script.config)
             .filter(|script| script.run_on_start)
         {
-            let payload = json!({ "threadId": task_id, "scriptId": script.name });
+            let input = scripts::ScriptsRunInput {
+                thread_id: task_id.to_string(),
+                script_id: script.name.clone(),
+            };
             if let Err(error) = scripts::run(
                 &self.scripts,
                 self.reads.conversations(),
                 self.sandboxes.as_ref(),
                 &self.terminal,
                 viewer,
-                &payload,
+                &input,
             )
             .await
             {

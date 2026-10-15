@@ -57,7 +57,7 @@ pub(super) fn orchestration_methods() -> MethodTable {
 /// The one write. A refusal is a typed failure the composer renders, not a
 /// defect: "that action does not exist here" is true, "this server is broken"
 /// is not.
-pub(super) async fn orchestration_dispatch_command(request: Request) -> Vec<Value> {
+pub(super) async fn orchestration_dispatch_command(request: Request<Value>) -> Vec<Value> {
     let Request {
         id,
         tag,
@@ -97,7 +97,7 @@ pub(super) async fn orchestration_dispatch_command(request: Request) -> Vec<Valu
     }
 }
 
-pub(super) async fn orchestration_search_threads(request: Request) -> Vec<Value> {
+pub(super) async fn orchestration_search_threads(request: Request<Value>) -> Vec<Value> {
     let Request {
         id,
         payload,
@@ -150,12 +150,14 @@ pub(super) async fn orchestration_search_threads(request: Request) -> Vec<Value>
 ///
 /// Its `OrchestrationEvent` result carries an event id, an aggregate and a
 /// causation chain, none of which this backend records.
-pub(super) async fn orchestration_replay_events(request: Request) -> Vec<Value> {
+pub(super) async fn orchestration_replay_events(request: Request<Value>) -> Vec<Value> {
     vec![success_exit(&request.id, json!([]))]
 }
 
 /// `before` is optional: a client that sends none gets the newest page.
-pub(super) async fn orchestration_get_archived_shell_snapshot(request: Request) -> Vec<Value> {
+pub(super) async fn orchestration_get_archived_shell_snapshot(
+    request: Request<Value>,
+) -> Vec<Value> {
     let Request {
         id,
         payload,
@@ -197,7 +199,7 @@ pub(super) async fn orchestration_get_archived_shell_snapshot(request: Request) 
 /// `null` answers every way it can be absent: the client is already on that
 /// page, and a failure would take a rendered transcript off screen to report a
 /// missing title.
-pub(super) async fn threads_get_shell(request: Request) -> Vec<Value> {
+pub(super) async fn threads_get_shell(request: Request<Value>) -> Vec<Value> {
     let protocol = request.shared.protocol;
     let ThreadRequest {
         id,
@@ -233,7 +235,7 @@ pub(super) async fn threads_get_shell(request: Request) -> Vec<Value> {
 /// Refused when the filter is empty, not when the viewer isn't an
 /// administrator: `list_browsable` applies the read rule to everyone alike, and
 /// unnarrowed that read is every Task an administrator may read.
-pub(super) async fn threads_browse(request: Request) -> Vec<Value> {
+pub(super) async fn threads_browse(request: Request<Value>) -> Vec<Value> {
     let Request {
         id,
         payload,

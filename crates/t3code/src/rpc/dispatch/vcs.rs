@@ -2,12 +2,20 @@
 
 use crate::authentication::viewer_scope;
 use crate::git_actions;
+use crate::git_actions::GitPreparePullRequestThreadInput;
+use crate::git_actions::GitPullRequestRefInput;
+use crate::git_actions::GitRunStackedActionInput;
 use crate::nominal_path;
 use crate::oauth::Scope;
 use crate::pull_request_conversation;
+use crate::pull_request_conversation::PullRequestDiffFileContentsInput;
+use crate::pull_request_conversation::PullRequestThreadCommentsInput;
 use crate::pull_request_list;
+use crate::pull_request_list::PullRequestListInput;
 use crate::pull_request_review;
+use crate::pull_request_review::PullRequestRef;
 use crate::review;
+use crate::review::VcsListRefsInput;
 use crate::rpc::envelope::RequestId;
 use crate::rpc::envelope::success_exit;
 use crate::rpc::envelope::typed_failure_exit;
@@ -22,6 +30,8 @@ use crate::rpc::table::MethodTable;
 use crate::rpc::table::Request;
 use crate::snapshots::workspace_cwd;
 use crate::workspace::WorkspaceAccessError;
+use serde::Deserialize;
+use serde::de::IgnoredAny;
 use serde_json::Value;
 use serde_json::json;
 use tracing::error;
@@ -122,17 +132,43 @@ pub(super) fn vcs_methods() -> MethodTable {
         .session("vcs.switchRef", Scope::OrchestrationOperate, vcs_switch_ref)
 }
 
+/// The contract's `VcsSwitchRefInput`. Optional here because a request
+/// without either field is answered as unsupported, not refused by the decode.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct VcsSwitchRefInput {
+    cwd: Option<String>,
+    ref_name: Option<String>,
+}
+
+/// The contract's `VcsStatusInput`. Optional here because a request without a
+/// `cwd` is answered with the typed refusal `review_failure_exit` gives.
+#[derive(Deserialize)]
+pub(super) struct VcsStatusInput {
+    cwd: Option<String>,
+}
+
+/// The contract's `ReviewDiffPreviewInput`, as far as it is read; `cwd` is
+/// optional for the reason [`VcsStatusInput`]'s is.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ReviewDiffPreviewInput {
+    cwd: Option<String>,
+    base_ref: Option<String>,
+    ignore_whitespace: Option<bool>,
+}
+
 /// A draft thread has no checkout, so the switch answers done, echoing back the
 /// ref to store; a thread with a Sandbox can't change branch (fixed at
 /// creation) and falls through to unsupported.
-pub(super) async fn vcs_switch_ref(request: Request) -> Vec<Value> {
+pub(super) async fn vcs_switch_ref(request: Request<VcsSwitchRefInput>) -> Vec<Value> {
     match branch_switch_result(&request.payload) {
         Some(result) => vec![success_exit(&request.id, result)],
         None => vec![unsupported_exit(&request.id, request.tag)],
     }
 }
 
-pub(super) async fn vcs_list_refs(request: Request) -> Vec<Value> {
+pub(super) async fn vcs_list_refs(request: Request<VcsListRefsInput>) -> Vec<Value> {
     let Request {
         id,
         tag,
@@ -141,10 +177,10 @@ pub(super) async fn vcs_list_refs(request: Request) -> Vec<Value> {
         identity,
         ..
     } = request;
-    let Some(cwd) = workspace_cwd(&payload) else {
+    let Some(cwd) = workspace_cwd(payload.cwd.as_deref()) else {
         return vec![success_exit(&id, review::no_refs())];
     };
-    let refs = review::RefRequest::from_payload(&cwd, &payload);
+    let refs = review::RefRequest::from_input(&cwd, &payload);
     // A draft thread has no Sandbox yet and addresses its Workspace by the
     // project root. Its branches are the primary repository's, read from the git
     // host — the same list the Moatless branch picker shows before a Task runs.
@@ -176,7 +212,7 @@ pub(super) async fn vcs_list_refs(request: Request) -> Vec<Value> {
     }
 }
 
-pub(super) async fn vcs_refresh_status(request: Request) -> Vec<Value> {
+pub(super) async fn vcs_refresh_status(request: Request<VcsStatusInput>) -> Vec<Value> {
     let Request {
         id,
         tag,
@@ -185,7 +221,7 @@ pub(super) async fn vcs_refresh_status(request: Request) -> Vec<Value> {
         identity,
         ..
     } = request;
-    let Some(cwd) = workspace_cwd(&payload) else {
+    let Some(cwd) = workspace_cwd(payload.cwd.as_deref()) else {
         // No cwd is why this failed, so there is none to report.
         return vec![review_failure_exit(
             &id,
@@ -209,7 +245,9 @@ pub(super) async fn vcs_refresh_status(request: Request) -> Vec<Value> {
     }
 }
 
-pub(super) async fn review_get_diff_preview(request: Request) -> Vec<Value> {
+pub(super) async fn review_get_diff_preview(
+    request: Request<ReviewDiffPreviewInput>,
+) -> Vec<Value> {
     let Request {
         id,
         tag,
@@ -218,7 +256,7 @@ pub(super) async fn review_get_diff_preview(request: Request) -> Vec<Value> {
         identity,
         ..
     } = request;
-    let Some(cwd) = workspace_cwd(&payload) else {
+    let Some(cwd) = workspace_cwd(payload.cwd.as_deref()) else {
         // No cwd is why this failed, so there is none to report.
         return vec![review_failure_exit(
             &id,
@@ -234,14 +272,11 @@ pub(super) async fn review_get_diff_preview(request: Request) -> Vec<Value> {
         &viewer_scope(&identity),
         &cwd,
         payload
-            .get("baseRef")
-            .and_then(Value::as_str)
+            .base_ref
+            .as_deref()
             .map(str::trim)
             .filter(|base| !base.is_empty()),
-        payload
-            .get("ignoreWhitespace")
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
+        payload.ignore_whitespace.unwrap_or(false),
     )
     .await
     {
@@ -251,7 +286,7 @@ pub(super) async fn review_get_diff_preview(request: Request) -> Vec<Value> {
 }
 
 /// Every readable project's pull requests, read from GitHub.
-pub(super) async fn pull_requests_list(request: Request) -> Vec<Value> {
+pub(super) async fn pull_requests_list(request: Request<PullRequestListInput>) -> Vec<Value> {
     let Request {
         id,
         tag,
@@ -272,12 +307,12 @@ pub(super) async fn pull_requests_list(request: Request) -> Vec<Value> {
 
 /// No stats: `pullRequests.list` already carries each row's line counts, and
 /// the page keeps those for a row absent here.
-pub(super) async fn pull_requests_list_stats(request: Request) -> Vec<Value> {
+pub(super) async fn pull_requests_list_stats(request: Request<IgnoredAny>) -> Vec<Value> {
     vec![success_exit(&request.id, json!({ "stats": [] }))]
 }
 
 /// Nothing to forget: no listing, detail or diff is cached here.
-pub(super) async fn pull_requests_invalidate(request: Request) -> Vec<Value> {
+pub(super) async fn pull_requests_invalidate(request: Request<IgnoredAny>) -> Vec<Value> {
     vec![success_exit(&request.id, Value::Null)]
 }
 
@@ -289,44 +324,79 @@ enum PullRequestRead {
     Activity,
     Preview,
     LinkedThreads,
-    ThreadComments,
-    DiffFileContents,
+    ThreadComments {
+        thread_id: Option<String>,
+        cursor: Option<String>,
+    },
+    DiffFileContents(PullRequestDiffFileContentsInput),
 }
 
-pub(super) async fn pull_requests_activity(request: Request) -> Vec<Value> {
-    pull_request_read(request, PullRequestRead::Activity).await
+/// The read a request for `reference` alone is.
+fn plain(
+    read: PullRequestRead,
+) -> impl FnOnce(PullRequestRef) -> (PullRequestRef, PullRequestRead) {
+    move |reference| (reference, read)
 }
 
-pub(super) async fn pull_requests_preview(request: Request) -> Vec<Value> {
-    pull_request_read(request, PullRequestRead::Preview).await
+pub(super) async fn pull_requests_activity(request: Request<PullRequestRef>) -> Vec<Value> {
+    pull_request_read(request, plain(PullRequestRead::Activity)).await
 }
 
-pub(super) async fn pull_requests_linked_threads(request: Request) -> Vec<Value> {
-    pull_request_read(request, PullRequestRead::LinkedThreads).await
+pub(super) async fn pull_requests_preview(request: Request<PullRequestRef>) -> Vec<Value> {
+    pull_request_read(request, plain(PullRequestRead::Preview)).await
 }
 
-pub(super) async fn pull_requests_thread_comments(request: Request) -> Vec<Value> {
-    pull_request_read(request, PullRequestRead::ThreadComments).await
+pub(super) async fn pull_requests_linked_threads(request: Request<PullRequestRef>) -> Vec<Value> {
+    pull_request_read(request, plain(PullRequestRead::LinkedThreads)).await
 }
 
-pub(super) async fn pull_requests_diff_file_contents(request: Request) -> Vec<Value> {
-    pull_request_read(request, PullRequestRead::DiffFileContents).await
+pub(super) async fn pull_requests_thread_comments(
+    request: Request<PullRequestThreadCommentsInput>,
+) -> Vec<Value> {
+    pull_request_read(request, |input| {
+        (
+            input.reference,
+            PullRequestRead::ThreadComments {
+                thread_id: input.thread_id,
+                cursor: input.cursor,
+            },
+        )
+    })
+    .await
 }
 
-pub(super) async fn pull_requests_detail(request: Request) -> Vec<Value> {
-    pull_request_read(request, PullRequestRead::Detail).await
+pub(super) async fn pull_requests_diff_file_contents(
+    request: Request<PullRequestDiffFileContentsInput>,
+) -> Vec<Value> {
+    pull_request_read(request, |mut input| {
+        (
+            std::mem::take(&mut input.reference),
+            PullRequestRead::DiffFileContents(input),
+        )
+    })
+    .await
 }
 
-pub(super) async fn pull_requests_review_guide(request: Request) -> Vec<Value> {
-    pull_request_read(request, PullRequestRead::ReviewGuide).await
+pub(super) async fn pull_requests_detail(request: Request<PullRequestRef>) -> Vec<Value> {
+    pull_request_read(request, plain(PullRequestRead::Detail)).await
 }
 
-pub(super) async fn pull_requests_generate_review_guide(request: Request) -> Vec<Value> {
-    pull_request_read(request, PullRequestRead::GenerateReviewGuide).await
+pub(super) async fn pull_requests_review_guide(request: Request<PullRequestRef>) -> Vec<Value> {
+    pull_request_read(request, plain(PullRequestRead::ReviewGuide)).await
 }
 
-/// A pull request's detail and guided review.
-async fn pull_request_read(request: Request, read: PullRequestRead) -> Vec<Value> {
+pub(super) async fn pull_requests_generate_review_guide(
+    request: Request<PullRequestRef>,
+) -> Vec<Value> {
+    pull_request_read(request, plain(PullRequestRead::GenerateReviewGuide)).await
+}
+
+/// A pull request's detail and guided review, split by `read` into the pull
+/// request it names and what is read of it.
+async fn pull_request_read<P>(
+    request: Request<P>,
+    read: impl FnOnce(P) -> (PullRequestRef, PullRequestRead),
+) -> Vec<Value> {
     let Request {
         id,
         tag,
@@ -335,8 +405,8 @@ async fn pull_request_read(request: Request, read: PullRequestRead) -> Vec<Value
         identity,
         ..
     } = request;
-    let Some((project_id, repository, number)) = pull_request_review::pull_request_ref(&payload)
-    else {
+    let (reference, read) = read(payload);
+    let Some((project_id, repository, number)) = reference.target() else {
         return vec![bad_reference(
             &id,
             tag,
@@ -367,9 +437,11 @@ async fn pull_request_read(request: Request, read: PullRequestRead) -> Vec<Value
         PullRequestRead::LinkedThreads => {
             pull_request_conversation::linked_threads(&ports, &viewer, &target).await
         }
-        PullRequestRead::ThreadComments => {
-            let text = |key: &str| payload.get(key).and_then(Value::as_str).map(str::trim);
-            match (text("threadId"), text("cursor")) {
+        PullRequestRead::ThreadComments { thread_id, cursor } => {
+            match (
+                thread_id.as_deref().map(str::trim),
+                cursor.as_deref().map(str::trim),
+            ) {
                 (Some(thread_id), Some(cursor)) if !thread_id.is_empty() && !cursor.is_empty() => {
                     pull_request_conversation::thread_comments(
                         &ports, &viewer, &target, thread_id, cursor,
@@ -385,8 +457,8 @@ async fn pull_request_read(request: Request, read: PullRequestRead) -> Vec<Value
                 }
             }
         }
-        PullRequestRead::DiffFileContents => {
-            match pull_request_conversation::changed_file(&payload) {
+        PullRequestRead::DiffFileContents(input) => {
+            match pull_request_conversation::changed_file(&input) {
                 Some(file)
                     if file
                         .commit
@@ -427,7 +499,7 @@ fn bad_reference(id: &RequestId, tag: &str, detail: &str) -> Value {
 
 /// Served off a Task's own binding rather than the git host, so it answers
 /// even where reading the host fails.
-pub(super) async fn pull_requests_summary(request: Request) -> Vec<Value> {
+pub(super) async fn pull_requests_summary(request: Request<PullRequestRef>) -> Vec<Value> {
     let Request {
         id,
         payload,
@@ -435,8 +507,7 @@ pub(super) async fn pull_requests_summary(request: Request) -> Vec<Value> {
         identity,
         ..
     } = request;
-    let Some((project_id, repository, number)) = pull_request_review::pull_request_ref(&payload)
-    else {
+    let Some((project_id, repository, number)) = payload.target() else {
         return vec![pull_request_summary_failure_exit(
             &id,
             "A pull request reference needs a projectId, repository and number.",
@@ -469,7 +540,9 @@ pub(super) async fn pull_requests_summary(request: Request) -> Vec<Value> {
     }
 }
 
-pub(super) async fn git_resolve_pull_request(request: Request) -> Vec<Value> {
+pub(super) async fn git_resolve_pull_request(
+    request: Request<GitPullRequestRefInput>,
+) -> Vec<Value> {
     let Request {
         id,
         tag,
@@ -492,7 +565,9 @@ pub(super) async fn git_resolve_pull_request(request: Request) -> Vec<Value> {
     }
 }
 
-pub(super) async fn git_prepare_pull_request_thread(request: Request) -> Vec<Value> {
+pub(super) async fn git_prepare_pull_request_thread(
+    request: Request<GitPreparePullRequestThreadInput>,
+) -> Vec<Value> {
     let Request {
         id,
         tag,
@@ -523,7 +598,9 @@ pub(super) async fn git_prepare_pull_request_thread(request: Request) -> Vec<Val
 /// The button press becomes a message asking the Task's agent to do the git
 /// work, answered as one `action_finished` chunk plus terminal success — the
 /// shape a completed action produces.
-pub(super) async fn git_run_stacked_action(request: Request) -> Vec<Value> {
+pub(super) async fn git_run_stacked_action(
+    request: Request<GitRunStackedActionInput>,
+) -> Vec<Value> {
     let Request {
         id,
         payload,
@@ -557,11 +634,11 @@ pub(super) async fn git_run_stacked_action(request: Request) -> Vec<Value> {
 /// A no-op for a draft: there's no checkout yet, so the ref is echoed back for
 /// the client to record and send at creation. `None` means refuse — a Task's
 /// branch is fixed once its checkout exists.
-fn branch_switch_result(payload: &Value) -> Option<Value> {
-    let cwd = workspace_cwd(payload)?;
+fn branch_switch_result(input: &VcsSwitchRefInput) -> Option<Value> {
+    let cwd = workspace_cwd(input.cwd.as_deref())?;
     if !nominal_path::is_project_root(&cwd) {
         return None;
     }
-    let ref_name = payload.get("refName").and_then(Value::as_str)?.trim();
+    let ref_name = input.ref_name.as_deref()?.trim();
     (!ref_name.is_empty()).then(|| json!({ "refName": ref_name }))
 }

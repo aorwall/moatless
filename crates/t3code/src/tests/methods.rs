@@ -6,6 +6,8 @@ use super::*;
 use crate::config::OrchestrationProtocol;
 use crate::rpc::table::Handler;
 use crate::rpc::table::MethodTable;
+use crate::rpc::table::Request;
+use serde::de::IgnoredAny;
 use std::sync::Mutex;
 
 /// One row of `methods.tsv`.
@@ -136,7 +138,7 @@ async fn an_ordered_transition_waits_for_the_one_before_it() {
         .session(
             "test.slowTransition",
             Scope::OrchestrationOperate,
-            move |_| async move {
+            move |_: Request<IgnoredAny>| async move {
                 tokio::time::sleep(Duration::from_millis(30)).await;
                 record("slow transition");
                 Vec::new()
@@ -145,15 +147,19 @@ async fn an_ordered_transition_waits_for_the_one_before_it() {
         .session(
             "test.transition",
             Scope::OrchestrationOperate,
-            move |_| async move {
+            move |_: Request<IgnoredAny>| async move {
                 record("transition");
                 Vec::new()
             },
         )
-        .detached("test.read", Scope::OrchestrationRead, move |_| async move {
-            record("read");
-            Vec::new()
-        });
+        .detached(
+            "test.read",
+            Scope::OrchestrationRead,
+            move |_: Request<IgnoredAny>| async move {
+                record("read");
+                Vec::new()
+            },
+        );
     let (frames, _pushed) = mpsc::channel(OUTBOUND_FRAMES);
     let mut session = ProtocolSession::new(frames, Box::leak(Box::new(table)));
     let batch: Vec<Value> = ["test.slowTransition", "test.transition", "test.read"]
@@ -172,4 +178,56 @@ async fn an_ordered_transition_waits_for_the_one_before_it() {
         *log.lock().expect("log"),
         ["slow transition", "transition", "read"]
     );
+}
+
+/// The `Die` a payload answers when its method's declared type does not decode
+/// it, from the frame loop or a detached request alike.
+fn decode_defect(output: &ProtocolOutput) -> &str {
+    let cause = &output.frames[0]["exit"]["cause"][0];
+    assert_eq!(cause["_tag"], "Die", "{output:?}");
+    cause["defect"].as_str().expect("a defect")
+}
+
+#[tokio::test]
+async fn a_session_payload_of_the_wrong_type_dies_naming_its_method() {
+    let frame = request(
+        "1",
+        "sandbox.setIdleTimeout",
+        json!({ "threadId": "task-1", "minutes": "ten" }),
+    );
+    let output = session().handle_json(&frame, &state(), &viewer()).await;
+
+    assert!(
+        decode_defect(&output).starts_with("sandbox.setIdleTimeout: invalid type: string \"ten\""),
+        "{output:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_detached_payload_of_the_wrong_type_dies_naming_its_method() {
+    let frame = request(
+        "1",
+        "pullRequests.list",
+        json!({ "state": "open", "limit": "ten" }),
+    );
+    let output = connection().exchange(&frame, &state(), &viewer()).await;
+
+    assert!(
+        decode_defect(&output).starts_with("pullRequests.list: invalid type: string \"ten\""),
+        "{output:?}"
+    );
+}
+
+/// An absent payload decodes as `{}`: a method whose fields are all optional
+/// answers it as a request that names none of them.
+#[tokio::test]
+async fn an_absent_payload_decodes_as_an_empty_one() {
+    let frame = serde_json::to_vec(
+        &json!({ "_tag": "Request", "id": "1", "tag": "vcs.listRefs", "headers": [] }),
+    )
+    .expect("a frame encodes");
+    let output = connection().exchange(&frame, &state(), &viewer()).await;
+
+    assert_eq!(output.frames[0]["exit"]["_tag"], "Success", "{output:?}");
+    assert_eq!(output.frames[0]["exit"]["value"], crate::review::no_refs());
 }

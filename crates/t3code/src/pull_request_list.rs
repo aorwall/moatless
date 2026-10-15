@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, HashSet};
 
 use futures::StreamExt;
 use moatless_types::access_control::ScopeContext;
+use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::ports::{
@@ -32,13 +33,41 @@ struct Source {
     cursor: Option<String>,
 }
 
-/// The listing `payload` (a `PullRequestListInput`) asks for.
+/// The contract's `PullRequestListInput`.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PullRequestListInput {
+    state: Option<String>,
+    involvement: Option<String>,
+    filters: Option<PullRequestListFilters>,
+    project_id: Option<String>,
+    project_ids: Option<Vec<String>>,
+    host: Option<String>,
+    limit: Option<u64>,
+    /// Keyed `"<host> <repository>"`.
+    cursors: Option<BTreeMap<String, String>>,
+    query: Option<String>,
+}
+
+/// The contract's `PullRequestListFilters`.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PullRequestListFilters {
+    draft: Option<String>,
+    review: Option<String>,
+    checks: Option<String>,
+    labels: Option<Vec<Vec<String>>>,
+    excluded_labels: Option<Vec<String>>,
+    author: Option<String>,
+}
+
+/// The listing `input` asks for.
 pub(crate) async fn list(
     ports: &ReviewPorts<'_>,
     viewer: &ScopeContext,
-    payload: &Value,
+    input: &PullRequestListInput,
 ) -> Result<Value, PullRequestReviewError> {
-    let host_named = text(payload, "host");
+    let host_named = text(input.host.as_deref());
     if host_named.as_deref().is_some_and(|host| host != HOST) {
         return Ok(result(
             &BTreeMap::new(),
@@ -56,21 +85,17 @@ pub(crate) async fn list(
         .filter(|login| !login.trim().is_empty());
     let query = PullRequestListQuery {
         viewer_login: viewer_login.clone(),
-        ..list_query(payload)
+        ..list_query(input)
     };
-    let limit = payload
-        .get("limit")
-        .and_then(Value::as_u64)
-        .map_or(DEFAULT_LIMIT, |limit| {
-            limit.clamp(1, u64::from(MAX_LIMIT)) as u32
-        });
-    let cursors = payload.get("cursors").and_then(Value::as_object);
+    let limit = input.limit.map_or(DEFAULT_LIMIT, |limit| {
+        limit.clamp(1, u64::from(MAX_LIMIT)) as u32
+    });
     let (sources, mut errors) = sources(
         ports.workspaces,
         ports.host,
         viewer,
-        &projects_named(payload),
-        cursors,
+        &projects_named(input),
+        input.cursors.as_ref(),
     )
     .await?;
 
@@ -146,18 +171,9 @@ async fn read<'a>(
 
 /// The `projectIds` and `projectId` the listing is narrowed to; empty for
 /// every readable project.
-fn projects_named(payload: &Value) -> Vec<String> {
-    let mut named: Vec<String> = payload
-        .get("projectIds")
-        .and_then(Value::as_array)
-        .map(|ids| {
-            ids.iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
-    named.extend(text(payload, "projectId"));
+fn projects_named(input: &PullRequestListInput) -> Vec<String> {
+    let mut named = input.project_ids.clone().unwrap_or_default();
+    named.extend(text(input.project_id.as_deref()));
     named
 }
 
@@ -169,7 +185,7 @@ async fn sources(
     host: &dyn PullRequestReviewSource,
     viewer: &ScopeContext,
     named: &[String],
-    cursors: Option<&Map<String, Value>>,
+    cursors: Option<&BTreeMap<String, String>>,
 ) -> Result<(Vec<Source>, Vec<Value>), PullRequestReviewError> {
     let projects: Vec<(String, String)> = workspaces
         .list_readable_including(viewer, &[])
@@ -208,11 +224,8 @@ async fn sources(
             continue;
         }
         let cursor = match cursors {
-            Some(cursors) => match cursors
-                .get(&format!("{HOST} {repository}"))
-                .and_then(Value::as_str)
-            {
-                Some(cursor) => Some(cursor.to_string()),
+            Some(cursors) => match cursors.get(&format!("{HOST} {repository}")) {
+                Some(cursor) => Some(cursor.clone()),
                 None => continue,
             },
             None => None,
@@ -231,38 +244,24 @@ async fn sources(
     Ok((sources, errors))
 }
 
-fn list_query(payload: &Value) -> PullRequestListQuery {
-    let filters = payload.get("filters").cloned().unwrap_or(Value::Null);
-    let strings = |value: &Value| -> Vec<String> {
-        value
-            .as_array()
-            .map(|names| {
-                names
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_string)
-                    .collect()
-            })
-            .unwrap_or_default()
-    };
+fn list_query(input: &PullRequestListInput) -> PullRequestListQuery {
+    let filters = input.filters.as_ref();
+    let filter = |field: fn(&PullRequestListFilters) -> Option<&str>| text(filters.and_then(field));
     PullRequestListQuery {
-        state: text(payload, "state").unwrap_or_else(|| "open".to_string()),
-        involvement: text(payload, "involvement"),
+        state: text(input.state.as_deref()).unwrap_or_else(|| "open".to_string()),
+        involvement: text(input.involvement.as_deref()),
         viewer_login: None,
-        text: text(payload, "query"),
-        draft: text(&filters, "draft"),
-        review: text(&filters, "review"),
-        checks: text(&filters, "checks"),
+        text: text(input.query.as_deref()),
+        draft: filter(|filters| filters.draft.as_deref()),
+        review: filter(|filters| filters.review.as_deref()),
+        checks: filter(|filters| filters.checks.as_deref()),
         labels: filters
-            .get("labels")
-            .and_then(Value::as_array)
-            .map(|groups| groups.iter().map(strings).collect())
+            .and_then(|filters| filters.labels.clone())
             .unwrap_or_default(),
         excluded_labels: filters
-            .get("excludedLabels")
-            .map(strings)
+            .and_then(|filters| filters.excluded_labels.clone())
             .unwrap_or_default(),
-        author: text(&filters, "author"),
+        author: filter(|filters| filters.author.as_deref()),
     }
 }
 
@@ -366,10 +365,9 @@ fn source_error(project_id: &str, project_title: &str, error: &PullRequestError)
     })
 }
 
-fn text(value: &Value, key: &str) -> Option<String> {
+/// `value` trimmed, or `None` when that leaves nothing.
+fn text(value: Option<&str>) -> Option<String> {
     value
-        .get(key)
-        .and_then(Value::as_str)
         .map(str::trim)
         .filter(|text| !text.is_empty())
         .map(str::to_string)

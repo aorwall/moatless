@@ -235,14 +235,17 @@ pub(crate) async fn scripts_run_http(
         }
     }
 
-    let payload = json!({ "threadId": thread_id, "scriptId": script_id });
+    let input = scripts::ScriptsRunInput {
+        thread_id,
+        script_id,
+    };
     match scripts::run(
         &state.scripts,
         state.reads.conversations(),
         state.sandboxes.as_ref(),
         &state.terminal,
         &viewer,
-        &payload,
+        &input,
     )
     .await
     {
