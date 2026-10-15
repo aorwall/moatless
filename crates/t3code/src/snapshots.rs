@@ -14,6 +14,7 @@ use moatless_core::change_feed::conversation::ConversationHead;
 use moatless_core::change_feed::listing::EnvironmentIdentity;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::task::TaskRelationType;
+use serde::Deserialize;
 use serde_json::Value;
 use serde_json::json;
 use tracing::info;
@@ -344,15 +345,19 @@ pub(crate) fn workspace_cwd(cwd: Option<&str>) -> Option<String> {
         .map(str::to_owned)
 }
 
-/// The position a client says it already holds.
+/// The position a client says it already holds, as a `deserialize_with` for
+/// an `afterSequence` field.
 ///
 /// Invalid input reads as absent, not a position: rebuilding the client is
 /// safe, resuming from an unallocated number is not.
-pub(crate) fn after_sequence(payload: &Value) -> Option<i64> {
-    payload
-        .get("afterSequence")
+pub(crate) fn after_sequence<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<i64>, D::Error> {
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(value
+        .as_ref()
         .and_then(Value::as_i64)
-        .filter(|sequence| *sequence >= 0)
+        .filter(|sequence| *sequence >= 0))
 }
 
 impl ShellSnapshot {

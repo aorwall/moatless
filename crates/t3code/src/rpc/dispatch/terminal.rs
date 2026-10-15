@@ -7,6 +7,7 @@ use crate::rpc::errors::terminal_failure_exit;
 use crate::rpc::table::MethodTable;
 use crate::rpc::table::Request;
 use crate::terminal;
+use crate::terminal::TerminalInput;
 use serde_json::Value;
 
 pub(super) fn terminal_methods() -> MethodTable {
@@ -19,7 +20,7 @@ pub(super) fn terminal_methods() -> MethodTable {
         .session("terminal.write", Scope::TerminalOperate, terminal_write)
 }
 
-pub(super) async fn terminal_open(request: Request<Value>) -> Vec<Value> {
+pub(super) async fn terminal_open(request: Request<TerminalInput>) -> Vec<Value> {
     let Request {
         id,
         payload,
@@ -42,7 +43,7 @@ pub(super) async fn terminal_open(request: Request<Value>) -> Vec<Value> {
     }
 }
 
-pub(super) async fn terminal_write(request: Request<Value>) -> Vec<Value> {
+pub(super) async fn terminal_write(request: Request<TerminalInput>) -> Vec<Value> {
     let Request {
         id,
         payload,
@@ -64,7 +65,7 @@ pub(super) async fn terminal_write(request: Request<Value>) -> Vec<Value> {
     }
 }
 
-pub(super) async fn terminal_resize(request: Request<Value>) -> Vec<Value> {
+pub(super) async fn terminal_resize(request: Request<TerminalInput>) -> Vec<Value> {
     let Request {
         id,
         payload,
@@ -86,7 +87,7 @@ pub(super) async fn terminal_resize(request: Request<Value>) -> Vec<Value> {
     }
 }
 
-pub(super) async fn terminal_clear(request: Request<Value>) -> Vec<Value> {
+pub(super) async fn terminal_clear(request: Request<TerminalInput>) -> Vec<Value> {
     let Request {
         id,
         payload,
@@ -109,7 +110,7 @@ pub(super) async fn terminal_clear(request: Request<Value>) -> Vec<Value> {
     }
 }
 
-pub(super) async fn terminal_restart(request: Request<Value>) -> Vec<Value> {
+pub(super) async fn terminal_restart(request: Request<TerminalInput>) -> Vec<Value> {
     let Request {
         id,
         payload,
@@ -132,7 +133,7 @@ pub(super) async fn terminal_restart(request: Request<Value>) -> Vec<Value> {
     }
 }
 
-pub(super) async fn terminal_close(request: Request<Value>) -> Vec<Value> {
+pub(super) async fn terminal_close(request: Request<TerminalInput>) -> Vec<Value> {
     let Request {
         id,
         payload,

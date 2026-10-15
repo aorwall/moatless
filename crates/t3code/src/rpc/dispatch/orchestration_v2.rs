@@ -18,14 +18,15 @@ use crate::rpc::errors::shell_failure_exit;
 use crate::rpc::session::ProtocolSession;
 use crate::rpc::table::MethodTable;
 use crate::rpc::table::Request;
-use crate::rpc::table::ThreadRequest;
 use crate::rpc::watch;
-use crate::snapshots::after_sequence;
 use crate::snapshots::archived_shell_page;
 use crate::snapshots::thread_detail_v2;
 use crate::state::UiRpcState;
+use crate::subscriptions::OrchestrationV2SubscribeThreadInput;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::ui_rpc::UiRpcAuthIdentity;
+use serde::Deserialize;
+use serde::de::IgnoredAny;
 use serde_json::Value;
 use serde_json::json;
 use tracing::error;
@@ -83,8 +84,56 @@ pub(super) fn command_context<'a>(
     }
 }
 
+/// The contract's `OrchestrationV2ThreadLaunchInput`, all optional so that a
+/// missing field gets the typed `OrchestrationV2ThreadLaunchError` from
+/// `commands::dispatch` rather than a decode Die.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OrchestrationV2ThreadLaunchInput {
+    command_id: Option<Value>,
+    thread_id: Option<String>,
+    reuse_existing_thread: Option<bool>,
+    project_id: Option<Value>,
+    model_selection: Option<Value>,
+    interaction_mode: Option<Value>,
+    workspace_strategy: Option<OrchestrationV2ThreadLaunchWorkspaceStrategy>,
+    initial_message: Option<OrchestrationV2ThreadLaunchInitialMessage>,
+}
+
+/// The contract's `OrchestrationV2ThreadLaunchWorkspaceStrategy`, of which
+/// only `branch` is read: a Task's checkout lives in its Sandbox.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct OrchestrationV2ThreadLaunchWorkspaceStrategy {
+    branch: Option<Value>,
+}
+
+/// The contract's `OrchestrationV2ThreadLaunchInput.initialMessage`.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OrchestrationV2ThreadLaunchInitialMessage {
+    message_id: Option<String>,
+    text: Option<Value>,
+    attachments: Option<Value>,
+}
+
+/// The contract's `OrchestrationV2GetThreadProjectionInput`.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct OrchestrationV2GetThreadProjectionInput {
+    thread_id: String,
+}
+
+/// The contract's `OrchestrationV2GetTurnItemInput`.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct OrchestrationV2GetTurnItemInput {
+    thread_id: String,
+    item_id: Option<String>,
+}
+
 /// `orchestration.dispatchCommand` for a V2 client. Refusals are the
-/// contract's `OrchestrationV2DispatchCommandError`, which the composer renders.
+/// contract's `OrchestrationV2DispatchCommandError`, which the composer renders;
+/// the payload stays a `Value` so a malformed command gets one, not a Die.
 pub(super) async fn orchestration_dispatch_command_v2(request: Request<Value>) -> Vec<Value> {
     let Request {
         id,
@@ -125,7 +174,9 @@ pub(super) async fn orchestration_dispatch_command_v2(request: Request<Value>) -
 /// `orchestration.launchThread`: a thread and its first message in one call,
 /// answered with the projection it opens on. `resumed` is always `false`: it
 /// reports a retried launch, and Moatless keeps no launch receipts to tell one.
-pub(super) async fn orchestration_launch_thread(request: Request<Value>) -> Vec<Value> {
+pub(super) async fn orchestration_launch_thread(
+    request: Request<OrchestrationV2ThreadLaunchInput>,
+) -> Vec<Value> {
     let Request {
         id,
         payload,
@@ -139,17 +190,14 @@ pub(super) async fn orchestration_launch_thread(request: Request<Value>) -> Vec<
             &id,
             json!({
                 "_tag": "OrchestrationV2ThreadLaunchError",
-                "commandId": payload.get("commandId").cloned().unwrap_or_else(|| json!("")),
-                "projectId": payload.get("projectId").cloned().unwrap_or_else(|| json!("")),
+                "commandId": payload.command_id.clone().unwrap_or_else(|| json!("")),
+                "projectId": payload.project_id.clone().unwrap_or_else(|| json!("")),
                 "message": message,
             }),
         )
     };
-    let requested = payload.get("threadId").and_then(Value::as_str);
-    let reuse = payload
-        .get("reuseExistingThread")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
+    let requested = payload.thread_id.as_deref();
+    let reuse = payload.reuse_existing_thread.unwrap_or(false);
     if reuse && requested.is_none() {
         return vec![launch_error(
             "Reusing an existing thread requires a thread id.".to_string(),
@@ -201,49 +249,49 @@ pub(super) async fn orchestration_launch_thread(request: Request<Value>) -> Vec<
 /// The V1 command a launch is carried out as: a bootstrapped
 /// `thread.turn.start`, or `thread.create` without a first message. `None` when
 /// an existing thread is reused with nothing to send. Of the workspace strategy
-/// only `branch` is read: a Task's checkout lives in its Sandbox.
-pub(crate) fn launch_command(payload: &Value, thread_id: &str) -> Option<Value> {
-    let reuse = payload
-        .get("reuseExistingThread")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
+/// only `branch` is read.
+pub(crate) fn launch_command(
+    payload: &OrchestrationV2ThreadLaunchInput,
+    thread_id: &str,
+) -> Option<Value> {
+    let reuse = payload.reuse_existing_thread.unwrap_or(false);
     let branch = payload
-        .get("workspaceStrategy")
-        .and_then(|strategy| strategy.get("branch"))
-        .cloned()
+        .workspace_strategy
+        .as_ref()
+        .and_then(|strategy| strategy.branch.clone())
         .unwrap_or(Value::Null);
-    let Some(initial) = payload.get("initialMessage") else {
+    let Some(initial) = &payload.initial_message else {
         if reuse {
             return None;
         }
         return Some(json!({
             "type": "thread.create",
             "threadId": thread_id,
-            "projectId": payload.get("projectId"),
-            "modelSelection": payload.get("modelSelection"),
+            "projectId": payload.project_id,
+            "modelSelection": payload.model_selection,
             "branch": branch,
         }));
     };
     let message_id = initial
-        .get("messageId")
-        .and_then(Value::as_str)
-        .map_or_else(|| Uuid::new_v4().to_string(), str::to_string);
+        .message_id
+        .clone()
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
     let mut command = json!({
         "type": "thread.turn.start",
         "threadId": thread_id,
-        "modelSelection": payload.get("modelSelection"),
-        "interactionMode": payload.get("interactionMode"),
+        "modelSelection": payload.model_selection,
+        "interactionMode": payload.interaction_mode,
         "message": {
             "messageId": message_id,
-            "text": initial.get("text").cloned().unwrap_or_else(|| json!("")),
-            "attachments": initial.get("attachments").cloned().unwrap_or_else(|| json!([])),
+            "text": initial.text.clone().unwrap_or_else(|| json!("")),
+            "attachments": initial.attachments.clone().unwrap_or_else(|| json!([])),
         },
     });
     if !reuse {
         command["bootstrap"] = json!({
             "createThread": {
-                "projectId": payload.get("projectId"),
-                "modelSelection": payload.get("modelSelection"),
+                "projectId": payload.project_id,
+                "modelSelection": payload.model_selection,
                 "branch": branch,
             }
         });
@@ -262,66 +310,68 @@ fn projection_error(id: &RequestId, task_id: &str, message: &str) -> Value {
     )
 }
 
-async fn read_projection(request: ThreadRequest) -> Result<(RequestId, String, Value), Vec<Value>> {
-    let ThreadRequest {
-        id,
-        viewer,
-        task_id,
-        state,
-        identity,
-        ..
-    } = request;
+async fn read_projection(
+    id: &RequestId,
+    task_id: &str,
+    state: &UiRpcState,
+    identity: &UiRpcAuthIdentity,
+) -> Result<Value, Vec<Value>> {
     match thread_detail_v2(
         &state.reads,
         &state.deployment(),
         state.subtasks.relations.as_ref(),
-        &viewer,
-        &task_id,
+        &viewer_scope(identity),
+        task_id,
     )
     .await
     {
-        Ok(Some(mut detail)) => Ok((id, task_id, detail.snapshot["projection"].take())),
+        Ok(Some(mut detail)) => Ok(detail.snapshot["projection"].take()),
         Ok(None) => Err(vec![projection_error(
-            &id,
-            &task_id,
+            id,
+            task_id,
             "Conversation not found",
         )]),
         Err(error) => {
             error!(%error, user_id = %identity.user_id, %task_id, "Failed to assemble T3 UI thread projection");
             Err(vec![projection_error(
-                &id,
-                &task_id,
+                id,
+                task_id,
                 "Failed to assemble the conversation",
             )])
         }
     }
 }
 
-pub(super) async fn orchestration_get_thread_projection(request: Request<Value>) -> Vec<Value> {
-    let request = match request.require_thread_id() {
-        Ok(request) => request,
-        Err(failure) => return failure,
-    };
-    match read_projection(request).await {
-        Ok((id, _, projection)) => vec![success_exit(&id, projection)],
+pub(super) async fn orchestration_get_thread_projection(
+    request: Request<OrchestrationV2GetThreadProjectionInput>,
+) -> Vec<Value> {
+    let Request {
+        id,
+        payload,
+        state,
+        identity,
+        ..
+    } = request;
+    match read_projection(&id, &payload.thread_id, &state, &identity).await {
+        Ok(projection) => vec![success_exit(&id, projection)],
         Err(failure) => failure,
     }
 }
 
 /// One turn item, by id. Items here are never withheld from the projection,
 /// so this answers with the same row the timeline already holds.
-pub(super) async fn orchestration_get_turn_item(request: Request<Value>) -> Vec<Value> {
-    let request = match request.require_thread_id() {
-        Ok(request) => request,
-        Err(failure) => return failure,
-    };
-    let item_id = request
-        .payload
-        .get("itemId")
-        .and_then(Value::as_str)
-        .map(str::to_string);
-    match read_projection(request).await {
-        Ok((id, _, projection)) => {
+pub(super) async fn orchestration_get_turn_item(
+    request: Request<OrchestrationV2GetTurnItemInput>,
+) -> Vec<Value> {
+    let Request {
+        id,
+        payload: OrchestrationV2GetTurnItemInput { thread_id, item_id },
+        state,
+        identity,
+        ..
+    } = request;
+    match read_projection(&id, &thread_id, &state, &identity).await {
+        Ok(projection) => {
             let item = projection["turnItems"]
                 .as_array()
                 .and_then(|items| {
@@ -343,20 +393,17 @@ impl ProtocolSession {
     /// what it holds on every `snapshot`, so no event vocabulary is needed.
     pub(super) async fn orchestration_subscribe_thread_v2(
         &mut self,
-        request: Request<Value>,
+        request: Request<OrchestrationV2SubscribeThreadInput>,
     ) -> Vec<Value> {
-        let ThreadRequest {
+        let Request {
             id,
-            viewer,
-            task_id,
+            payload,
             state,
             identity,
-            payload,
             ..
-        } = match request.require_thread_id() {
-            Ok(request) => request,
-            Err(failure) => return failure,
-        };
+        } = request;
+        let viewer = viewer_scope(&identity);
+        let task_id = payload.thread_id;
         let detail = match thread_detail_v2(
             &state.reads,
             &state.deployment(),
@@ -375,15 +422,13 @@ impl ProtocolSession {
         };
         let mut values = Vec::new();
         // A client already at this head holds what a snapshot would send.
-        let behind = after_sequence(&payload).is_none_or(|after| after < detail.head.sequence());
+        let behind = payload
+            .after_sequence
+            .is_none_or(|after| after < detail.head.sequence());
         if behind {
             values.push(watch::thread_snapshot_item(&detail));
         }
-        if payload
-            .get("requestCompletionMarker")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-        {
+        if payload.request_completion_marker.unwrap_or(false) {
             values.push(json!({ "kind": "synchronized" }));
         }
         let watched = watch::WatchedThreadV2 {
@@ -405,7 +450,7 @@ impl ProtocolSession {
     /// that page again whenever the listing moves.
     pub(super) async fn orchestration_subscribe_archived_shell(
         &mut self,
-        request: Request<Value>,
+        request: Request<IgnoredAny>,
     ) -> Vec<Value> {
         let Request {
             id,

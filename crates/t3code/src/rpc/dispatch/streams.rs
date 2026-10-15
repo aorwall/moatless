@@ -2,6 +2,7 @@
 //!
 //! A method here holds the frame loop; see `docs/deferred-changes.md`.
 
+use super::sandbox::SandboxStatusInput;
 use crate::authentication::viewer_scope;
 use crate::config::T3_ENVIRONMENT_LABEL;
 use crate::oauth::Scope;
@@ -15,14 +16,17 @@ use crate::rpc::errors::terminal_failure_exit;
 use crate::rpc::session::ProtocolSession;
 use crate::rpc::table::MethodTable;
 use crate::rpc::table::Request;
-use crate::rpc::table::ThreadRequest;
 use crate::rpc::watch;
 use crate::sandbox;
-use crate::snapshots::after_sequence;
 use crate::snapshots::workspace_cwd;
+use crate::subscriptions::OrchestrationV2SubscribeShellInput;
+use crate::subscriptions::OrchestrationV2SubscribeThreadInput;
 use crate::subscriptions::shell_subscription;
 use crate::subscriptions::thread_subscription;
 use crate::terminal;
+use crate::terminal::TerminalInput;
+use serde::Deserialize;
+use serde::de::IgnoredAny;
 use serde_json::Value;
 use serde_json::json;
 use tokio::sync::broadcast;
@@ -96,8 +100,22 @@ pub(super) fn stream_methods() -> MethodTable {
         )
 }
 
+/// The `subscribeServerConfig` input, of the opt-ins this backend reads.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ServerConfigSubscriptionInput {
+    usage_limit_sources: Option<bool>,
+}
+
+/// The contract's `VcsStatusSubscriptionInput`, of the fields this backend
+/// reads.
+#[derive(Deserialize)]
+pub(super) struct VcsStatusSubscriptionInput {
+    cwd: Option<String>,
+}
+
 impl ProtocolSession {
-    pub(super) async fn terminal_attach(&mut self, request: Request<Value>) -> Vec<Value> {
+    pub(super) async fn terminal_attach(&mut self, request: Request<TerminalInput>) -> Vec<Value> {
         let Request {
             id,
             payload,
@@ -123,20 +141,20 @@ impl ProtocolSession {
         })
     }
 
-    pub(super) async fn sandbox_subscribe_status(&mut self, request: Request<Value>) -> Vec<Value> {
-        let ThreadRequest {
+    pub(super) async fn sandbox_subscribe_status(
+        &mut self,
+        request: Request<SandboxStatusInput>,
+    ) -> Vec<Value> {
+        let Request {
             id,
             tag,
             scope,
-            viewer,
-            task_id,
+            payload: SandboxStatusInput { thread_id: task_id },
             state,
             identity,
             ..
-        } = match request.require_thread_id() {
-            Ok(request) => request,
-            Err(failure) => return failure,
-        };
+        } = request;
+        let viewer = viewer_scope(&identity);
         // Seed from the same read the poller makes, so the indicator has a
         // status before the first interval elapses rather than after it.
         let seeded = match sandbox::status(&state.sandbox, &viewer, &task_id).await {
@@ -150,20 +168,20 @@ impl ProtocolSession {
             })
     }
 
-    pub(super) async fn sandbox_subscribe_detail(&mut self, request: Request<Value>) -> Vec<Value> {
-        let ThreadRequest {
+    pub(super) async fn sandbox_subscribe_detail(
+        &mut self,
+        request: Request<SandboxStatusInput>,
+    ) -> Vec<Value> {
+        let Request {
             id,
             tag,
             scope,
-            viewer,
-            task_id,
+            payload: SandboxStatusInput { thread_id: task_id },
             state,
             identity,
             ..
-        } = match request.require_thread_id() {
-            Ok(request) => request,
-            Err(failure) => return failure,
-        };
+        } = request;
+        let viewer = viewer_scope(&identity);
         // Seeded for the same reason `sandbox.subscribeStatus` is, and the more
         // so: this subscription's interval is five times as long.
         let seeded = match sandbox::detail(&state.sandbox, &viewer, &task_id).await {
@@ -179,7 +197,7 @@ impl ProtocolSession {
 
     pub(super) async fn orchestration_subscribe_shell(
         &mut self,
-        request: Request<Value>,
+        request: Request<OrchestrationV2SubscribeShellInput>,
     ) -> Vec<Value> {
         let Request {
             id,
@@ -195,7 +213,7 @@ impl ProtocolSession {
             &state.model_defaults,
             &viewer,
             &state.environment,
-            after_sequence(&payload),
+            payload.after_sequence,
             shared.protocol,
         )
         .await
@@ -206,11 +224,7 @@ impl ProtocolSession {
         // Both halves come from `shell_subscription`: the items to send, and a
         // feed that already knows what sending them leaves the client holding.
         let mut values = subscription.values;
-        if payload
-            .get("requestCompletionMarker")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-        {
+        if payload.request_completion_marker.unwrap_or(false) {
             // Last, after the snapshot or catch-up and before live events —
             // the contract's required order. The client reads it as
             // permission to stop rendering itself as synchronizing.
@@ -225,30 +239,24 @@ impl ProtocolSession {
 
     pub(super) async fn orchestration_subscribe_thread(
         &mut self,
-        request: Request<Value>,
+        request: Request<OrchestrationV2SubscribeThreadInput>,
     ) -> Vec<Value> {
-        let ThreadRequest {
+        let Request {
             id,
-            viewer,
-            task_id,
+            payload,
             state,
             identity,
-            payload,
             ..
-        } = match request.require_thread_id() {
-            Ok(request) => request,
-            Err(failure) => return failure,
-        };
+        } = request;
+        let viewer = viewer_scope(&identity);
+        let task_id = payload.thread_id;
         let opened = match thread_subscription(
             &state.reads,
             &state.deployment(),
             &viewer,
             &task_id,
-            after_sequence(&payload),
-            payload
-                .get("requestCompletionMarker")
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
+            payload.after_sequence,
+            payload.request_completion_marker.unwrap_or(false),
         )
         .await
         {
@@ -274,7 +282,10 @@ impl ProtocolSession {
         })
     }
 
-    pub(super) async fn subscribe_server_config(&mut self, request: Request<Value>) -> Vec<Value> {
+    pub(super) async fn subscribe_server_config(
+        &mut self,
+        request: Request<ServerConfigSubscriptionInput>,
+    ) -> Vec<Value> {
         let Request {
             id,
             payload,
@@ -295,11 +306,8 @@ impl ProtocolSession {
         // A client that did not ask for `usageLimitSourcesUpdated` decodes the
         // stream against an event union without it and dies on one, so the
         // opt-in gates the whole producer rather than only the first frame.
-        let sources_opted_in = state.rpc.usage_limit_sources
-            && payload
-                .get("usageLimitSources")
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
+        let sources_opted_in =
+            state.rpc.usage_limit_sources && payload.usage_limit_sources.unwrap_or(false);
         let started = if sources_opted_in {
             let sources = state.usage_limit_sources.clone();
             let mut changes = sources.subscribe();
@@ -332,7 +340,7 @@ impl ProtocolSession {
 
     pub(super) async fn subscribe_server_lifecycle(
         &mut self,
-        request: Request<Value>,
+        request: Request<IgnoredAny>,
     ) -> Vec<Value> {
         self.streams.start(
             &request.id,
@@ -349,7 +357,10 @@ impl ProtocolSession {
         )
     }
 
-    pub(super) async fn subscribe_auth_access(&mut self, request: Request<Value>) -> Vec<Value> {
+    pub(super) async fn subscribe_auth_access(
+        &mut self,
+        request: Request<IgnoredAny>,
+    ) -> Vec<Value> {
         self.streams.start(
             &request.id,
             Some(vec![json!({
@@ -364,7 +375,10 @@ impl ProtocolSession {
         )
     }
 
-    pub(super) async fn subscribe_preview_events(&mut self, request: Request<Value>) -> Vec<Value> {
+    pub(super) async fn subscribe_preview_events(
+        &mut self,
+        request: Request<IgnoredAny>,
+    ) -> Vec<Value> {
         let preview = request.state.preview.clone();
         let viewer = viewer_scope(&request.identity);
         self.streams.start_produced(&request.id, None, move |sink| {
@@ -374,7 +388,7 @@ impl ProtocolSession {
 
     pub(super) async fn subscribe_terminal_events(
         &mut self,
-        request: Request<Value>,
+        request: Request<IgnoredAny>,
     ) -> Vec<Value> {
         let events = request.state.terminal.subscribe_events();
         let tasks = request.state.reads.tasks_arc();
@@ -386,7 +400,7 @@ impl ProtocolSession {
 
     pub(super) async fn subscribe_terminal_metadata(
         &mut self,
-        request: Request<Value>,
+        request: Request<IgnoredAny>,
     ) -> Vec<Value> {
         let hub = request.state.terminal.clone();
         let tasks = request.state.reads.tasks_arc();
@@ -396,7 +410,10 @@ impl ProtocolSession {
         })
     }
 
-    pub(super) async fn subscribe_vcs_status(&mut self, request: Request<Value>) -> Vec<Value> {
+    pub(super) async fn subscribe_vcs_status(
+        &mut self,
+        request: Request<VcsStatusSubscriptionInput>,
+    ) -> Vec<Value> {
         let Request {
             id,
             payload,
@@ -408,7 +425,7 @@ impl ProtocolSession {
         // client opens this subscription for every thread it shows, including
         // ones with no sandbox, and a stream that says nothing is what "there is
         // no repository to report on" looks like.
-        let Some(cwd) = workspace_cwd(payload.get("cwd").and_then(Value::as_str)) else {
+        let Some(cwd) = workspace_cwd(payload.cwd.as_deref()) else {
             return self.streams.start(&id, None);
         };
         let conversations = state.reads.conversations_arc();

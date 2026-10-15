@@ -12,6 +12,7 @@
 use std::sync::Arc;
 
 use chrono::Utc;
+use serde::Deserialize;
 use serde_json::{Value, json};
 use tracing::warn;
 use uuid::Uuid;
@@ -81,29 +82,44 @@ async fn authorize(
     readable.then_some(()).ok_or(PreviewError::NotFound)
 }
 
-fn thread_id(payload: &Value) -> Result<&str, PreviewError> {
-    payload
-        .get("threadId")
-        .and_then(Value::as_str)
-        .filter(|id| !id.is_empty())
-        .ok_or(PreviewError::Malformed("threadId"))
+/// Every field the contract's `Preview*Input` payloads carry, each optional:
+/// which a method requires is that method's check.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewInput {
+    thread_id: Option<String>,
+    tab_id: Option<String>,
+    url: Option<String>,
+    /// Stored and sent back verbatim.
+    viewport: Option<Value>,
+    /// Stored and sent back verbatim.
+    nav_status: Option<Value>,
+    can_go_back: Option<bool>,
+    can_go_forward: Option<bool>,
 }
 
-fn tab_id(payload: &Value) -> Result<&str, PreviewError> {
-    payload
-        .get("tabId")
-        .and_then(Value::as_str)
-        .filter(|id| !id.is_empty())
-        .ok_or(PreviewError::Malformed("tabId"))
-}
+impl PreviewInput {
+    fn thread_id(&self) -> Result<&str, PreviewError> {
+        self.thread_id
+            .as_deref()
+            .filter(|id| !id.is_empty())
+            .ok_or(PreviewError::Malformed("threadId"))
+    }
 
-fn url(payload: &Value) -> Result<&str, PreviewError> {
-    payload
-        .get("url")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|url| !url.is_empty())
-        .ok_or(PreviewError::Malformed("url"))
+    fn tab_id(&self) -> Result<&str, PreviewError> {
+        self.tab_id
+            .as_deref()
+            .filter(|id| !id.is_empty())
+            .ok_or(PreviewError::Malformed("tabId"))
+    }
+
+    /// The trimmed `url`, or `None` when it is absent or blank.
+    fn url(&self) -> Option<&str> {
+        self.url
+            .as_deref()
+            .map(str::trim)
+            .filter(|url| !url.is_empty())
+    }
 }
 
 /// A `Success` nav status for a URL nobody has watched load.
@@ -141,15 +157,15 @@ async fn commit(
 pub async fn open(
     state: &PreviewState,
     viewer: &ScopeContext,
-    payload: &Value,
+    input: &PreviewInput,
 ) -> Result<Value, PreviewError> {
-    let task_id = thread_id(payload)?;
+    let task_id = input.thread_id()?;
     authorize(state, viewer, task_id).await?;
     // `url` is optional here and only here: a tab opened without one is the
     // empty tab a user types into.
-    let nav_status = match payload.get("url").and_then(Value::as_str) {
-        Some(url) if !url.trim().is_empty() => commanded(url.trim()),
-        _ => json!({ "_tag": "Idle" }),
+    let nav_status = match input.url() {
+        Some(url) => commanded(url),
+        None => json!({ "_tag": "Idle" }),
     };
     commit(
         state,
@@ -235,11 +251,11 @@ async fn store_open(
 pub async fn navigate(
     state: &PreviewState,
     viewer: &ScopeContext,
-    payload: &Value,
+    input: &PreviewInput,
 ) -> Result<Value, PreviewError> {
-    let task_id = thread_id(payload)?;
-    let tab_id = tab_id(payload)?;
-    let url = url(payload)?;
+    let task_id = input.thread_id()?;
+    let tab_id = input.tab_id()?;
+    let url = input.url().ok_or(PreviewError::Malformed("url"))?;
     authorize(state, viewer, task_id).await?;
     let mut tab = require_tab(state, task_id, tab_id).await?;
     tab.nav_status = commanded(url);
@@ -254,13 +270,13 @@ pub async fn navigate(
 pub async fn resize(
     state: &PreviewState,
     viewer: &ScopeContext,
-    payload: &Value,
+    input: &PreviewInput,
 ) -> Result<Value, PreviewError> {
-    let task_id = thread_id(payload)?;
-    let tab_id = tab_id(payload)?;
-    let viewport = payload
-        .get("viewport")
-        .cloned()
+    let task_id = input.thread_id()?;
+    let tab_id = input.tab_id()?;
+    let viewport = input
+        .viewport
+        .clone()
         .ok_or(PreviewError::Malformed("viewport"))?;
     authorize(state, viewer, task_id).await?;
     let mut tab = require_tab(state, task_id, tab_id).await?;
@@ -277,10 +293,10 @@ pub async fn resize(
 pub async fn refresh(
     state: &PreviewState,
     viewer: &ScopeContext,
-    payload: &Value,
+    input: &PreviewInput,
 ) -> Result<(), PreviewError> {
-    let task_id = thread_id(payload)?;
-    let tab_id = tab_id(payload)?;
+    let task_id = input.thread_id()?;
+    let tab_id = input.tab_id()?;
     authorize(state, viewer, task_id).await?;
     require_tab(state, task_id, tab_id).await.map(drop)
 }
@@ -292,25 +308,19 @@ pub async fn refresh(
 pub async fn report_status(
     state: &PreviewState,
     viewer: &ScopeContext,
-    payload: &Value,
+    input: &PreviewInput,
 ) -> Result<(), PreviewError> {
-    let task_id = thread_id(payload)?;
-    let tab_id = tab_id(payload)?;
-    let nav_status = payload
-        .get("navStatus")
-        .cloned()
+    let task_id = input.thread_id()?;
+    let tab_id = input.tab_id()?;
+    let nav_status = input
+        .nav_status
+        .clone()
         .ok_or(PreviewError::Malformed("navStatus"))?;
     authorize(state, viewer, task_id).await?;
     let mut tab = require_tab(state, task_id, tab_id).await?;
     tab.nav_status = nav_status;
-    tab.can_go_back = payload
-        .get("canGoBack")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    tab.can_go_forward = payload
-        .get("canGoForward")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
+    tab.can_go_back = input.can_go_back.unwrap_or(false);
+    tab.can_go_forward = input.can_go_forward.unwrap_or(false);
     tab.updated_at = Utc::now().to_rfc3339();
     commit(state, tab, "navigated").await.map(drop)
 }
@@ -322,13 +332,10 @@ pub async fn report_status(
 pub async fn close(
     state: &PreviewState,
     viewer: &ScopeContext,
-    payload: &Value,
+    input: &PreviewInput,
 ) -> Result<(), PreviewError> {
-    let task_id = thread_id(payload)?;
-    let tab_id = payload
-        .get("tabId")
-        .and_then(Value::as_str)
-        .filter(|id| !id.is_empty());
+    let task_id = input.thread_id()?;
+    let tab_id = input.tab_id.as_deref().filter(|id| !id.is_empty());
     authorize(state, viewer, task_id).await?;
     let removal = state.tabs.remove(task_id, tab_id);
     let created_at = Utc::now().to_rfc3339();
@@ -357,9 +364,9 @@ pub async fn close(
 pub async fn list(
     state: &PreviewState,
     viewer: &ScopeContext,
-    payload: &Value,
+    input: &PreviewInput,
 ) -> Result<Value, PreviewError> {
-    let task_id = thread_id(payload)?;
+    let task_id = input.thread_id()?;
     authorize(state, viewer, task_id).await?;
     let listing = state.tabs.list(task_id);
     Ok(json!({
@@ -402,6 +409,10 @@ pub fn typed_error(error: &PreviewError) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn input(payload: Value) -> PreviewInput {
+        serde_json::from_value(payload).expect("a PreviewInput")
+    }
     use crate::preview_tabs::{PreviewTabTtl, PreviewTabs};
     use moatless_ports::task::MockTaskReader;
 
@@ -435,7 +446,7 @@ mod tests {
     #[tokio::test]
     async fn listing_a_task_with_no_tabs_still_carries_an_epoch_and_a_revision() {
         let state = state(Some("task"));
-        let listed = list(&state, &viewer(), &json!({ "threadId": "task" }))
+        let listed = list(&state, &viewer(), &input(json!({ "threadId": "task" })))
             .await
             .unwrap();
         assert_eq!(listed["sessions"], json!([]));
@@ -453,7 +464,7 @@ mod tests {
         let opened = open(
             &state,
             &viewer(),
-            &json!({ "threadId": "task", "url": "https://task--5733.example.com" }),
+            &input(json!({ "threadId": "task", "url": "https://task--5733.example.com" })),
         )
         .await
         .unwrap();
@@ -469,7 +480,7 @@ mod tests {
     #[tokio::test]
     async fn opening_without_a_url_is_an_idle_tab() {
         let state = state(Some("task"));
-        let opened = open(&state, &viewer(), &json!({ "threadId": "task" }))
+        let opened = open(&state, &viewer(), &input(json!({ "threadId": "task" })))
             .await
             .unwrap();
         assert_eq!(opened["navStatus"], json!({ "_tag": "Idle" }));
@@ -478,11 +489,11 @@ mod tests {
     #[tokio::test]
     async fn an_opened_tab_is_listed_and_a_closed_one_is_not() {
         let state = state(Some("task"));
-        let opened = open(&state, &viewer(), &json!({ "threadId": "task" }))
+        let opened = open(&state, &viewer(), &input(json!({ "threadId": "task" })))
             .await
             .unwrap();
         let tab_id = opened["tabId"].as_str().unwrap().to_string();
-        let listed = list(&state, &viewer(), &json!({ "threadId": "task" }))
+        let listed = list(&state, &viewer(), &input(json!({ "threadId": "task" })))
             .await
             .unwrap();
         assert_eq!(listed["sessions"].as_array().unwrap().len(), 1);
@@ -490,11 +501,11 @@ mod tests {
         close(
             &state,
             &viewer(),
-            &json!({ "threadId": "task", "tabId": tab_id }),
+            &input(json!({ "threadId": "task", "tabId": tab_id })),
         )
         .await
         .unwrap();
-        let listed = list(&state, &viewer(), &json!({ "threadId": "task" }))
+        let listed = list(&state, &viewer(), &input(json!({ "threadId": "task" })))
             .await
             .unwrap();
         assert_eq!(listed["sessions"], json!([]));
@@ -504,7 +515,7 @@ mod tests {
     async fn navigating_moves_the_url_and_publishes_an_event() {
         let state = state(Some("task"));
         let mut events = state.tabs.subscribe();
-        let opened = open(&state, &viewer(), &json!({ "threadId": "task" }))
+        let opened = open(&state, &viewer(), &input(json!({ "threadId": "task" })))
             .await
             .unwrap();
         assert_eq!(events.recv().await.unwrap()["type"], "opened");
@@ -513,7 +524,9 @@ mod tests {
         let moved = navigate(
             &state,
             &viewer(),
-            &json!({ "threadId": "task", "tabId": tab_id, "url": "https://elsewhere.example" }),
+            &input(
+                json!({ "threadId": "task", "tabId": tab_id, "url": "https://elsewhere.example" }),
+            ),
         )
         .await
         .unwrap();
@@ -532,10 +545,10 @@ mod tests {
     #[tokio::test]
     async fn refreshing_publishes_nothing_and_moves_no_revision() {
         let state = state(Some("task"));
-        let opened = open(&state, &viewer(), &json!({ "threadId": "task" }))
+        let opened = open(&state, &viewer(), &input(json!({ "threadId": "task" })))
             .await
             .unwrap();
-        let before = list(&state, &viewer(), &json!({ "threadId": "task" }))
+        let before = list(&state, &viewer(), &input(json!({ "threadId": "task" })))
             .await
             .unwrap();
         let mut events = state.tabs.subscribe();
@@ -543,12 +556,12 @@ mod tests {
         refresh(
             &state,
             &viewer(),
-            &json!({ "threadId": "task", "tabId": opened["tabId"] }),
+            &input(json!({ "threadId": "task", "tabId": opened["tabId"] })),
         )
         .await
         .unwrap();
 
-        let after = list(&state, &viewer(), &json!({ "threadId": "task" }))
+        let after = list(&state, &viewer(), &input(json!({ "threadId": "task" })))
             .await
             .unwrap();
         assert_eq!(before["revision"], after["revision"]);
@@ -558,7 +571,7 @@ mod tests {
     #[tokio::test]
     async fn resizing_stores_the_viewport_verbatim() {
         let state = state(Some("task"));
-        let opened = open(&state, &viewer(), &json!({ "threadId": "task" }))
+        let opened = open(&state, &viewer(), &input(json!({ "threadId": "task" })))
             .await
             .unwrap();
         let viewport =
@@ -566,7 +579,7 @@ mod tests {
         let resized = resize(
             &state,
             &viewer(),
-            &json!({ "threadId": "task", "tabId": opened["tabId"], "viewport": viewport }),
+            &input(json!({ "threadId": "task", "tabId": opened["tabId"], "viewport": viewport })),
         )
         .await
         .unwrap();
@@ -576,7 +589,7 @@ mod tests {
     #[tokio::test]
     async fn the_desktop_client_s_report_is_written_verbatim() {
         let state = state(Some("task"));
-        let opened = open(&state, &viewer(), &json!({ "threadId": "task" }))
+        let opened = open(&state, &viewer(), &input(json!({ "threadId": "task" })))
             .await
             .unwrap();
         let nav_status = json!({
@@ -586,14 +599,14 @@ mod tests {
         report_status(
             &state,
             &viewer(),
-            &json!({
+            &input(json!({
                 "threadId": "task", "tabId": opened["tabId"], "navStatus": nav_status,
                 "canGoBack": true, "canGoForward": false
-            }),
+            })),
         )
         .await
         .unwrap();
-        let listed = list(&state, &viewer(), &json!({ "threadId": "task" }))
+        let listed = list(&state, &viewer(), &input(json!({ "threadId": "task" })))
             .await
             .unwrap();
         assert_eq!(listed["sessions"][0]["navStatus"], nav_status);
@@ -603,16 +616,16 @@ mod tests {
     #[tokio::test]
     async fn closing_without_a_tab_id_closes_every_tab_on_the_task() {
         let state = state(Some("task"));
-        open(&state, &viewer(), &json!({ "threadId": "task" }))
+        open(&state, &viewer(), &input(json!({ "threadId": "task" })))
             .await
             .unwrap();
-        open(&state, &viewer(), &json!({ "threadId": "task" }))
+        open(&state, &viewer(), &input(json!({ "threadId": "task" })))
             .await
             .unwrap();
-        close(&state, &viewer(), &json!({ "threadId": "task" }))
+        close(&state, &viewer(), &input(json!({ "threadId": "task" })))
             .await
             .unwrap();
-        let listed = list(&state, &viewer(), &json!({ "threadId": "task" }))
+        let listed = list(&state, &viewer(), &input(json!({ "threadId": "task" })))
             .await
             .unwrap();
         assert_eq!(listed["sessions"], json!([]));
@@ -624,7 +637,7 @@ mod tests {
         let error = navigate(
             &state,
             &viewer(),
-            &json!({ "threadId": "task", "tabId": "nope", "url": "https://a.example" }),
+            &input(json!({ "threadId": "task", "tabId": "nope", "url": "https://a.example" })),
         )
         .await
         .unwrap_err();
@@ -655,7 +668,7 @@ mod tests {
                 .unwrap();
         }
 
-        let listed = list(&state, &viewer(), &json!({ "threadId": "task" }))
+        let listed = list(&state, &viewer(), &input(json!({ "threadId": "task" })))
             .await
             .unwrap();
         assert_eq!(listed["sessions"].as_array().unwrap().len(), 1);
@@ -684,7 +697,7 @@ mod tests {
         resize(
             &state,
             &viewer(),
-            &json!({ "threadId": "task", "tabId": "script-dev", "viewport": viewport }),
+            &input(json!({ "threadId": "task", "tabId": "script-dev", "viewport": viewport })),
         )
         .await
         .unwrap();
@@ -720,8 +733,10 @@ mod tests {
     #[tokio::test]
     async fn a_viewer_without_access_is_refused_by_every_method() {
         let state = state(None);
-        let payload = json!({ "threadId": "task", "tabId": "a", "url": "https://a.example",
-                              "viewport": { "_tag": "fill" }, "navStatus": { "_tag": "Idle" } });
+        let payload = input(
+            json!({ "threadId": "task", "tabId": "a", "url": "https://a.example",
+                              "viewport": { "_tag": "fill" }, "navStatus": { "_tag": "Idle" } }),
+        );
         assert!(matches!(
             open(&state, &viewer(), &payload).await,
             Err(PreviewError::NotFound)

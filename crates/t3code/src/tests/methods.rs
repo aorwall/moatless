@@ -218,6 +218,22 @@ async fn a_detached_payload_of_the_wrong_type_dies_naming_its_method() {
     );
 }
 
+#[tokio::test]
+async fn a_stream_payload_of_the_wrong_type_dies_naming_its_method() {
+    let frame = request(
+        "1",
+        "orchestration.subscribeThread",
+        json!({ "threadId": 7 }),
+    );
+    let output = session().handle_json(&frame, &state(), &viewer()).await;
+
+    assert!(
+        decode_defect(&output)
+            .starts_with("orchestration.subscribeThread: invalid type: integer `7`"),
+        "{output:?}"
+    );
+}
+
 /// An absent payload decodes as `{}`: a method whose fields are all optional
 /// answers it as a request that names none of them.
 #[tokio::test]

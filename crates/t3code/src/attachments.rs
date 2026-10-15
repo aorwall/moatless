@@ -104,6 +104,26 @@ struct Declared {
     size_bytes: i64,
 }
 
+/// The contract's `AttachmentCreateUploadUrlInput`, a union on `type`, read as
+/// one struct with every field optional so that [`declared`] names the field it
+/// refuses.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AttachmentCreateUploadUrlInput {
+    #[serde(rename = "type")]
+    kind: Option<String>,
+    name: Option<String>,
+    mime_type: Option<String>,
+    size_bytes: Option<i64>,
+}
+
+/// The contract's `AttachmentDeleteInput`.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AttachmentDeleteInput {
+    attachment_id: Option<String>,
+}
+
 /// Answer `attachments.createUploadUrl`.
 ///
 /// The id is a fresh uuid stored as the upload id, so an attachment id and a
@@ -112,9 +132,9 @@ struct Declared {
 pub(crate) fn create_upload_url(
     identity: &UiRpcAuthIdentity,
     signing_key: Option<&str>,
-    payload: &Value,
+    input: &AttachmentCreateUploadUrlInput,
 ) -> Result<Value, MintError> {
-    let declared = declared(payload)?;
+    let declared = declared(input)?;
     let signing_key = signing_key.ok_or(MintError::NoSigningKey)?;
 
     let attachment_id = uuid::Uuid::new_v4().to_string();
@@ -149,37 +169,32 @@ pub(crate) fn create_upload_url(
     }))
 }
 
-/// The payload read against `AttachmentCreateUploadUrlInput`.
+/// `input` read against the union.
 ///
 /// An `image` is restricted to four mime types and 10 MiB, a `file` takes any
 /// type up to 50 MiB. `type` is optional on the image member, so a payload
 /// without one is an image, as a pre-files client sends.
-fn declared(payload: &Value) -> Result<Declared, MintError> {
-    let kind = match payload.get("type") {
-        None | Some(Value::Null) => "image",
-        Some(Value::String(kind)) => kind.as_str(),
-        Some(_) => return Err(MintError::Invalid("`type` must be a string".to_string())),
-    };
+fn declared(input: &AttachmentCreateUploadUrlInput) -> Result<Declared, MintError> {
+    let kind = input.kind.as_deref().unwrap_or("image");
 
-    let name = payload
-        .get("name")
-        .and_then(Value::as_str)
+    let name = input
+        .name
+        .as_deref()
         .map(str::trim)
         .filter(|name| !name.is_empty() && name.chars().count() <= NAME_MAX_CHARS)
         .ok_or_else(|| MintError::Invalid("`name` must be a non-empty file name".to_string()))?
         .to_string();
 
-    let mime_type = payload
-        .get("mimeType")
-        .and_then(Value::as_str)
+    let mime_type = input
+        .mime_type
+        .as_deref()
         .map(str::trim)
         .filter(|mime| !mime.is_empty() && mime.chars().count() <= MIME_MAX_CHARS)
         .ok_or_else(|| MintError::Invalid("`mimeType` must be a mime type".to_string()))?
         .to_ascii_lowercase();
 
-    let size_bytes = payload
-        .get("sizeBytes")
-        .and_then(Value::as_i64)
+    let size_bytes = input
+        .size_bytes
         .ok_or_else(|| MintError::Invalid("`sizeBytes` must be a number".to_string()))?;
 
     let max_bytes = match kind {
@@ -219,11 +234,11 @@ fn declared(payload: &Value) -> Result<Declared, MintError> {
 pub(crate) async fn delete(
     store: &dyn AttachmentStore,
     viewer: &ScopeContext,
-    payload: &Value,
+    input: &AttachmentDeleteInput,
 ) -> Result<(), String> {
-    let attachment_id = payload
-        .get("attachmentId")
-        .and_then(Value::as_str)
+    let attachment_id = input
+        .attachment_id
+        .as_deref()
         .map(str::trim)
         .filter(|id| is_attachment_id(id))
         .ok_or_else(|| "attachments.delete requires an attachmentId".to_string())?;
@@ -382,8 +397,12 @@ mod tests {
         }
     }
 
+    fn input(payload: Value) -> AttachmentCreateUploadUrlInput {
+        serde_json::from_value(payload).expect("an AttachmentCreateUploadUrlInput")
+    }
+
     fn minted(payload: Value) -> Value {
-        create_upload_url(&identity(), Some(SECRET), &payload)
+        create_upload_url(&identity(), Some(SECRET), &input(payload))
             .unwrap_or_else(|_| panic!("the payload should have minted"))
     }
 
@@ -396,7 +415,7 @@ mod tests {
     }
 
     fn invalid(payload: Value) -> String {
-        match create_upload_url(&identity(), Some(SECRET), &payload) {
+        match create_upload_url(&identity(), Some(SECRET), &input(payload)) {
             Err(MintError::Invalid(message)) => message,
             Err(MintError::NoSigningKey) => panic!("a key was supplied"),
             Ok(minted) => panic!("expected a refusal, got {minted}"),
@@ -529,12 +548,14 @@ mod tests {
             create_upload_url(
                 &identity(),
                 None,
-                &json!({ "type": "file", "name": "a.pdf", "mimeType": "application/pdf", "sizeBytes": 1 })
+                &input(
+                    json!({ "type": "file", "name": "a.pdf", "mimeType": "application/pdf", "sizeBytes": 1 })
+                )
             ),
             Err(MintError::NoSigningKey)
         ));
         assert!(matches!(
-            create_upload_url(&identity(), None, &json!({ "type": "file" })),
+            create_upload_url(&identity(), None, &input(json!({ "type": "file" }))),
             Err(MintError::Invalid(_))
         ));
     }

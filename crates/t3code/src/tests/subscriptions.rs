@@ -87,13 +87,18 @@ async fn a_resuming_subscription_chunks_no_snapshot() {
 /// would resume from nothing allocated.
 #[test]
 fn an_after_sequence_the_contract_refuses_is_read_as_absent() {
-    assert_eq!(after_sequence(&json!({ "afterSequence": 7 })), Some(7));
-    assert_eq!(after_sequence(&json!({ "afterSequence": 0 })), Some(0));
-    assert_eq!(after_sequence(&json!({})), None);
-    assert_eq!(after_sequence(&json!({ "afterSequence": null })), None);
-    assert_eq!(after_sequence(&json!({ "afterSequence": -1 })), None);
-    assert_eq!(after_sequence(&json!({ "afterSequence": "7" })), None);
-    assert_eq!(after_sequence(&json!({ "afterSequence": 1.5 })), None);
+    let after_sequence = |payload: Value| {
+        serde_json::from_value::<OrchestrationV2SubscribeShellInput>(payload)
+            .expect("an afterSequence never fails the decode")
+            .after_sequence
+    };
+    assert_eq!(after_sequence(json!({ "afterSequence": 7 })), Some(7));
+    assert_eq!(after_sequence(json!({ "afterSequence": 0 })), Some(0));
+    assert_eq!(after_sequence(json!({})), None);
+    assert_eq!(after_sequence(json!({ "afterSequence": null })), None);
+    assert_eq!(after_sequence(json!({ "afterSequence": -1 })), None);
+    assert_eq!(after_sequence(json!({ "afterSequence": "7" })), None);
+    assert_eq!(after_sequence(json!({ "afterSequence": 1.5 })), None);
 }
 
 /// A conversation this viewer cannot see ends the subscription rather than

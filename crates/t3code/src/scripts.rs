@@ -290,18 +290,15 @@ pub(crate) async fn run(
     // The nominal worktree path the sandbox maps back to the real checkout.
     let cwd = nominal_path::nominal_worktree(task_id);
 
-    let mut open_payload = json!({
-        "threadId": task_id,
-        "terminalId": terminal_id,
-        "cwd": cwd,
-    });
-    if let Some(env) = &script.env_vars {
-        // Only when present: the terminal helper treats a null `env` as
-        // malformed, so an absent field must stay absent.
-        open_payload["env"] = json!(env);
-    }
+    let open = terminal::TerminalInput {
+        thread_id: Some(task_id.to_string()),
+        terminal_id: Some(terminal_id.clone()),
+        cwd: Some(cwd),
+        env: script.env_vars.clone(),
+        ..Default::default()
+    };
     let (_, is_new_process) =
-        terminal::open_from_environment(conversations, sandboxes, hub, viewer, &open_payload)
+        terminal::open_from_environment(conversations, sandboxes, hub, viewer, &open)
             .await
             .map_err(ScriptsError::Terminal)?;
 
@@ -311,12 +308,13 @@ pub(crate) async fn run(
     // process's stdin rather than start a second run. Running twice is the
     // client asking to watch the one that is running, so return it as-is.
     if is_new_process {
-        let write_payload = json!({
-            "threadId": task_id,
-            "terminalId": terminal_id,
-            "data": exec_line(&script.command),
-        });
-        terminal::write(conversations, sandboxes, viewer, &write_payload)
+        let write = terminal::TerminalInput {
+            thread_id: Some(task_id.to_string()),
+            terminal_id: Some(terminal_id.clone()),
+            data: Some(exec_line(&script.command)),
+            ..Default::default()
+        };
+        terminal::write(conversations, sandboxes, viewer, &write)
             .await
             .map_err(ScriptsError::Terminal)?;
     }

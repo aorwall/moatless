@@ -347,12 +347,12 @@ pub(crate) fn preview_answer(
 
 pub(crate) fn terminal_failure_exit(
     request_id: &RequestId,
-    payload: &Value,
+    input: &terminal::TerminalInput,
     error: &terminal::TerminalError,
     identity: &UiRpcAuthIdentity,
 ) -> Value {
     log_terminal_failure(error, identity);
-    match terminal::typed_error(error, payload) {
+    match terminal::typed_error(error, input) {
         Some(error) => typed_failure_exit(request_id, error),
         None => failure_exit(request_id, terminal::message(error)),
     }

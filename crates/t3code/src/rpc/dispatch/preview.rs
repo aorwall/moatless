@@ -3,6 +3,7 @@
 use crate::authentication::viewer_scope;
 use crate::oauth::Scope;
 use crate::preview;
+use crate::preview::PreviewInput;
 use crate::rpc::errors::preview_answer;
 use crate::rpc::table::MethodTable;
 use crate::rpc::table::Request;
@@ -38,7 +39,7 @@ pub(super) fn preview_methods() -> MethodTable {
         )
 }
 
-pub(super) async fn preview_list(request: Request<Value>) -> Vec<Value> {
+pub(super) async fn preview_list(request: Request<PreviewInput>) -> Vec<Value> {
     let Request {
         id,
         payload,
@@ -52,7 +53,7 @@ pub(super) async fn preview_list(request: Request<Value>) -> Vec<Value> {
     )
 }
 
-pub(super) async fn preview_open(request: Request<Value>) -> Vec<Value> {
+pub(super) async fn preview_open(request: Request<PreviewInput>) -> Vec<Value> {
     let Request {
         id,
         payload,
@@ -66,7 +67,7 @@ pub(super) async fn preview_open(request: Request<Value>) -> Vec<Value> {
     )
 }
 
-pub(super) async fn preview_navigate(request: Request<Value>) -> Vec<Value> {
+pub(super) async fn preview_navigate(request: Request<PreviewInput>) -> Vec<Value> {
     let Request {
         id,
         payload,
@@ -80,7 +81,7 @@ pub(super) async fn preview_navigate(request: Request<Value>) -> Vec<Value> {
     )
 }
 
-pub(super) async fn preview_resize(request: Request<Value>) -> Vec<Value> {
+pub(super) async fn preview_resize(request: Request<PreviewInput>) -> Vec<Value> {
     let Request {
         id,
         payload,
@@ -96,7 +97,7 @@ pub(super) async fn preview_resize(request: Request<Value>) -> Vec<Value> {
 
 /// The three void methods answer `null` rather than a snapshot, matching the
 /// contract's declared success type.
-pub(super) async fn preview_refresh(request: Request<Value>) -> Vec<Value> {
+pub(super) async fn preview_refresh(request: Request<PreviewInput>) -> Vec<Value> {
     let Request {
         id,
         payload,
@@ -112,7 +113,7 @@ pub(super) async fn preview_refresh(request: Request<Value>) -> Vec<Value> {
     )
 }
 
-pub(super) async fn preview_report_status(request: Request<Value>) -> Vec<Value> {
+pub(super) async fn preview_report_status(request: Request<PreviewInput>) -> Vec<Value> {
     let Request {
         id,
         payload,
@@ -128,7 +129,7 @@ pub(super) async fn preview_report_status(request: Request<Value>) -> Vec<Value>
     )
 }
 
-pub(super) async fn preview_close(request: Request<Value>) -> Vec<Value> {
+pub(super) async fn preview_close(request: Request<PreviewInput>) -> Vec<Value> {
     let Request {
         id,
         payload,

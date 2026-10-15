@@ -13,11 +13,33 @@ use moatless_core::change_feed::conversation::resume;
 use moatless_core::change_feed::listing;
 use moatless_core::change_feed::listing::EnvironmentIdentity;
 use moatless_types::access_control::ScopeContext;
+use serde::Deserialize;
 use serde_json::Value;
 use serde_json::json;
 use std::time::Duration;
 use tracing::debug;
 use tracing::info;
+
+/// The contract's `OrchestrationV2SubscribeShellInput`, which V1's
+/// `orchestration.subscribeShell` shares.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OrchestrationV2SubscribeShellInput {
+    #[serde(default, deserialize_with = "crate::snapshots::after_sequence")]
+    pub(crate) after_sequence: Option<i64>,
+    pub(crate) request_completion_marker: Option<bool>,
+}
+
+/// The contract's `OrchestrationV2SubscribeThreadInput`, which V1's
+/// `orchestration.subscribeThread` shares.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OrchestrationV2SubscribeThreadInput {
+    pub(crate) thread_id: String,
+    #[serde(default, deserialize_with = "crate::snapshots::after_sequence")]
+    pub(crate) after_sequence: Option<i64>,
+    pub(crate) request_completion_marker: Option<bool>,
+}
 
 /// How often a shell subscription asks what has changed.
 ///

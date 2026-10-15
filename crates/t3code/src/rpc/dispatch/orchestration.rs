@@ -14,10 +14,11 @@ use crate::rpc::session::SEARCH_THREADS_LIMIT;
 use crate::rpc::session::SEARCH_THREADS_MIN_QUERY;
 use crate::rpc::table::MethodTable;
 use crate::rpc::table::Request;
-use crate::rpc::table::ThreadRequest;
 use crate::snapshots::archived_shell_page;
 use crate::snapshots::browse_snapshot;
 use crate::snapshots::thread_shell;
+use serde::Deserialize;
+use serde::de::IgnoredAny;
 use serde_json::Value;
 use serde_json::json;
 use tracing::error;
@@ -54,9 +55,39 @@ pub(super) fn orchestration_methods() -> MethodTable {
         )
 }
 
+/// The contract's `OrchestrationSearchThreadsInput`.
+#[derive(Deserialize)]
+pub(super) struct OrchestrationSearchThreadsInput {
+    query: Option<String>,
+    limit: Option<i64>,
+}
+
+/// The contract's `orchestration.getArchivedShellSnapshot` input.
+#[derive(Deserialize)]
+pub(super) struct OrchestrationGetArchivedShellSnapshotInput {
+    before: Option<String>,
+}
+
+/// The contract's `ThreadShellGetInput`.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ThreadShellGetInput {
+    thread_id: String,
+}
+
+/// The contract's `ThreadBrowseInput`.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ThreadBrowseInput {
+    owner_user_id: Option<String>,
+    tag: Option<String>,
+    include_closed: Option<bool>,
+}
+
 /// The one write. A refusal is a typed failure the composer renders, not a
 /// defect: "that action does not exist here" is true, "this server is broken"
-/// is not.
+/// is not. The payload stays a `Value` so that a malformed command gets that
+/// refusal from [`commands::dispatch`] rather than a decode Die.
 pub(super) async fn orchestration_dispatch_command(request: Request<Value>) -> Vec<Value> {
     let Request {
         id,
@@ -97,7 +128,9 @@ pub(super) async fn orchestration_dispatch_command(request: Request<Value>) -> V
     }
 }
 
-pub(super) async fn orchestration_search_threads(request: Request<Value>) -> Vec<Value> {
+pub(super) async fn orchestration_search_threads(
+    request: Request<OrchestrationSearchThreadsInput>,
+) -> Vec<Value> {
     let Request {
         id,
         payload,
@@ -105,18 +138,14 @@ pub(super) async fn orchestration_search_threads(request: Request<Value>) -> Vec
         identity,
         ..
     } = request;
-    let query = payload
-        .get("query")
-        .and_then(Value::as_str)
-        .map_or("", str::trim);
+    let query = payload.query.as_deref().map_or("", str::trim);
     // See [`SEARCH_THREADS_MIN_QUERY`]. Answering an empty list is the honest
     // response to "match anything", and it costs nothing.
     if query.chars().count() < SEARCH_THREADS_MIN_QUERY {
         return vec![success_exit(&id, json!({ "matches": [] }))];
     }
     let limit = payload
-        .get("limit")
-        .and_then(Value::as_i64)
+        .limit
         .filter(|limit| *limit > 0)
         .map_or(SEARCH_THREADS_LIMIT, |limit| {
             limit.min(SEARCH_THREADS_LIMIT)
@@ -150,13 +179,13 @@ pub(super) async fn orchestration_search_threads(request: Request<Value>) -> Vec
 ///
 /// Its `OrchestrationEvent` result carries an event id, an aggregate and a
 /// causation chain, none of which this backend records.
-pub(super) async fn orchestration_replay_events(request: Request<Value>) -> Vec<Value> {
+pub(super) async fn orchestration_replay_events(request: Request<IgnoredAny>) -> Vec<Value> {
     vec![success_exit(&request.id, json!([]))]
 }
 
 /// `before` is optional: a client that sends none gets the newest page.
 pub(super) async fn orchestration_get_archived_shell_snapshot(
-    request: Request<Value>,
+    request: Request<OrchestrationGetArchivedShellSnapshotInput>,
 ) -> Vec<Value> {
     let Request {
         id,
@@ -167,7 +196,7 @@ pub(super) async fn orchestration_get_archived_shell_snapshot(
         ..
     } = request;
     let viewer = viewer_scope(&identity);
-    let before = match payload.get("before").and_then(Value::as_str) {
+    let before = match payload.before.as_deref() {
         None => None,
         Some(text) => match ArchiveCursor::decode(text) {
             Some(cursor) => Some(cursor),
@@ -199,23 +228,20 @@ pub(super) async fn orchestration_get_archived_shell_snapshot(
 /// `null` answers every way it can be absent: the client is already on that
 /// page, and a failure would take a rendered transcript off screen to report a
 /// missing title.
-pub(super) async fn threads_get_shell(request: Request<Value>) -> Vec<Value> {
-    let protocol = request.shared.protocol;
-    let ThreadRequest {
+pub(super) async fn threads_get_shell(request: Request<ThreadShellGetInput>) -> Vec<Value> {
+    let Request {
         id,
-        viewer,
-        task_id,
+        payload: ThreadShellGetInput { thread_id: task_id },
         state,
         identity,
+        shared,
         ..
-    } = match request.require_thread_id() {
-        Ok(request) => request,
-        Err(failure) => return failure,
-    };
+    } = request;
+    let protocol = shared.protocol;
     match thread_shell(
         &state.reads,
         &state.model_defaults,
-        &viewer,
+        &viewer_scope(&identity),
         &task_id,
         protocol,
     )
@@ -235,7 +261,7 @@ pub(super) async fn threads_get_shell(request: Request<Value>) -> Vec<Value> {
 /// Refused when the filter is empty, not when the viewer isn't an
 /// administrator: `list_browsable` applies the read rule to everyone alike, and
 /// unnarrowed that read is every Task an administrator may read.
-pub(super) async fn threads_browse(request: Request<Value>) -> Vec<Value> {
+pub(super) async fn threads_browse(request: Request<ThreadBrowseInput>) -> Vec<Value> {
     let Request {
         id,
         payload,
@@ -245,14 +271,10 @@ pub(super) async fn threads_browse(request: Request<Value>) -> Vec<Value> {
         ..
     } = request;
     let viewer = viewer_scope(&identity);
-    let text = |key: &str| payload.get(key).and_then(Value::as_str).map(str::to_owned);
     let Some(filter) = ConversationBrowse::new(
-        text("ownerUserId"),
-        text("tag"),
-        payload
-            .get("includeClosed")
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
+        payload.owner_user_id,
+        payload.tag,
+        payload.include_closed.unwrap_or(false),
     ) else {
         warn!(
             user_id = %viewer.user_id,

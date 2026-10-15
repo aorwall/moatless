@@ -17,6 +17,7 @@ use sandbox_proto::{
     TerminalOpenRequest, TerminalResizeRequest, TerminalRestartRequest, TerminalSessionSnapshot,
     TerminalSessionStatus, TerminalWriteRequest,
 };
+use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, broadcast};
 use tonic::Streaming;
@@ -275,6 +276,26 @@ impl TerminalHub {
     }
 }
 
+/// Every field the contract's `Terminal*Input` payloads carry, each optional.
+///
+/// Which fields a method requires is that method's check, so a missing one is
+/// answered with the `TerminalCwdStatError` [`typed_error`] gives
+/// [`TerminalError::Malformed`] rather than refused by the decode.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalInput {
+    pub thread_id: Option<String>,
+    pub terminal_id: Option<String>,
+    pub cwd: Option<String>,
+    pub worktree_path: Option<String>,
+    pub cols: Option<u64>,
+    pub rows: Option<u64>,
+    pub env: Option<HashMap<String, String>>,
+    pub data: Option<String>,
+    pub restart_if_not_running: Option<bool>,
+    pub delete_history: Option<bool>,
+}
+
 /// Open a session for the client that asked for it.
 ///
 /// Announces nothing: the reply travels back down the asking client's own
@@ -286,9 +307,9 @@ pub async fn open(
     sandboxes: &dyn SandboxConnector,
     hub: &TerminalHub,
     viewer: &ScopeContext,
-    payload: &Value,
+    input: &TerminalInput,
 ) -> Result<Value, TerminalError> {
-    open_session(conversations, sandboxes, hub, viewer, payload)
+    open_session(conversations, sandboxes, hub, viewer, input)
         .await
         .map(|(snapshot, _)| terminal_snapshot(&snapshot))
 }
@@ -304,10 +325,10 @@ pub async fn open_from_environment(
     sandboxes: &dyn SandboxConnector,
     hub: &TerminalHub,
     viewer: &ScopeContext,
-    payload: &Value,
+    input: &TerminalInput,
 ) -> Result<(Value, bool), TerminalError> {
     let (snapshot, is_new_process) =
-        open_session(conversations, sandboxes, hub, viewer, payload).await?;
+        open_session(conversations, sandboxes, hub, viewer, input).await?;
     if is_new_process {
         // `task_id` and the snapshot's `thread_id` are the same Task under two
         // names; the relayed record is keyed by the one the hub stores under.
@@ -328,16 +349,16 @@ async fn open_session(
     sandboxes: &dyn SandboxConnector,
     hub: &TerminalHub,
     viewer: &ScopeContext,
-    payload: &Value,
+    input: &TerminalInput,
 ) -> Result<(TerminalSessionSnapshot, bool), TerminalError> {
     let mut request = TerminalOpenRequest {
-        thread_id: required_string(payload, "threadId")?.to_string(),
-        terminal_id: required_string(payload, "terminalId")?.to_string(),
-        cwd: required_string(payload, "cwd")?.to_string(),
-        worktree_path: optional_string(payload, "worktreePath")?,
-        cols: optional_u32(payload, "cols")?.unwrap_or(0),
-        rows: optional_u32(payload, "rows")?.unwrap_or(0),
-        env: optional_env(payload)?,
+        thread_id: required_string(&input.thread_id, "threadId")?.to_string(),
+        terminal_id: required_string(&input.terminal_id, "terminalId")?.to_string(),
+        cwd: required_string(&input.cwd, "cwd")?.to_string(),
+        worktree_path: optional_string(&input.worktree_path, "worktreePath")?,
+        cols: optional_u32(input.cols, "cols")?.unwrap_or(0),
+        rows: optional_u32(input.rows, "rows")?.unwrap_or(0),
+        env: input.env.clone().unwrap_or_default(),
     };
     let task_id = workspace::controlled_conversation(conversations, viewer, &request.cwd).await?;
     stamp_task_id(&mut request.env, &task_id);
@@ -374,10 +395,10 @@ pub async fn attach(
     conversations: &dyn ConversationDao,
     sandboxes: &dyn SandboxConnector,
     viewer: &ScopeContext,
-    payload: &Value,
+    input: &TerminalInput,
 ) -> Result<Streaming<TerminalAttachStreamEvent>, TerminalError> {
-    let thread_id = required_string(payload, "threadId")?.to_string();
-    let task_id = match optional_string(payload, "cwd")? {
+    let thread_id = required_string(&input.thread_id, "threadId")?.to_string();
+    let task_id = match optional_string(&input.cwd, "cwd")? {
         Some(cwd) => workspace::controlled_conversation(conversations, viewer, &cwd).await?,
         None => controlled_thread(conversations, viewer, &thread_id).await?,
     };
@@ -387,16 +408,13 @@ pub async fn attach(
         .map_err(as_not_running)?;
     let mut request = TerminalAttachRequest {
         thread_id,
-        terminal_id: required_string(payload, "terminalId")?.to_string(),
-        cwd: optional_string(payload, "cwd")?,
-        worktree_path: optional_string(payload, "worktreePath")?,
-        cols: optional_u32(payload, "cols")?.unwrap_or(0),
-        rows: optional_u32(payload, "rows")?.unwrap_or(0),
-        env: optional_env(payload)?,
-        restart_if_not_running: payload
-            .get("restartIfNotRunning")
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
+        terminal_id: required_string(&input.terminal_id, "terminalId")?.to_string(),
+        cwd: optional_string(&input.cwd, "cwd")?,
+        worktree_path: optional_string(&input.worktree_path, "worktreePath")?,
+        cols: optional_u32(input.cols, "cols")?.unwrap_or(0),
+        rows: optional_u32(input.rows, "rows")?.unwrap_or(0),
+        env: input.env.clone().unwrap_or_default(),
+        restart_if_not_running: input.restart_if_not_running.unwrap_or(false),
     };
     stamp_task_id(&mut request.env, &task_id);
     client
@@ -409,9 +427,9 @@ pub async fn write(
     conversations: &dyn ConversationDao,
     sandboxes: &dyn SandboxConnector,
     viewer: &ScopeContext,
-    payload: &Value,
+    input: &TerminalInput,
 ) -> Result<(), TerminalError> {
-    let thread_id = required_string(payload, "threadId")?.to_string();
+    let thread_id = required_string(&input.thread_id, "threadId")?.to_string();
     let task_id = controlled_thread(conversations, viewer, &thread_id).await?;
     let client = sandboxes
         .sandbox_client(&task_id)
@@ -420,8 +438,8 @@ pub async fn write(
     client
         .terminal_write(TerminalWriteRequest {
             thread_id,
-            terminal_id: required_string(payload, "terminalId")?.to_string(),
-            data: required_raw_string(payload, "data")?.to_string(),
+            terminal_id: required_string(&input.terminal_id, "terminalId")?.to_string(),
+            data: required_raw_string(&input.data, "data")?.to_string(),
         })
         .await
         .map_err(|error| TerminalError::sandbox(classify_grpc_error(error, "terminal_write")))
@@ -431,9 +449,9 @@ pub async fn resize(
     conversations: &dyn ConversationDao,
     sandboxes: &dyn SandboxConnector,
     viewer: &ScopeContext,
-    payload: &Value,
+    input: &TerminalInput,
 ) -> Result<(), TerminalError> {
-    let thread_id = required_string(payload, "threadId")?.to_string();
+    let thread_id = required_string(&input.thread_id, "threadId")?.to_string();
     let task_id = controlled_thread(conversations, viewer, &thread_id).await?;
     let client = sandboxes
         .sandbox_client(&task_id)
@@ -442,9 +460,9 @@ pub async fn resize(
     client
         .terminal_resize(TerminalResizeRequest {
             thread_id,
-            terminal_id: required_string(payload, "terminalId")?.to_string(),
-            cols: required_u32(payload, "cols")?,
-            rows: required_u32(payload, "rows")?,
+            terminal_id: required_string(&input.terminal_id, "terminalId")?.to_string(),
+            cols: required_u32(input.cols, "cols")?,
+            rows: required_u32(input.rows, "rows")?,
         })
         .await
         .map_err(|error| TerminalError::sandbox(classify_grpc_error(error, "terminal_resize")))
@@ -455,10 +473,10 @@ pub async fn clear(
     sandboxes: &dyn SandboxConnector,
     hub: &TerminalHub,
     viewer: &ScopeContext,
-    payload: &Value,
+    input: &TerminalInput,
 ) -> Result<(), TerminalError> {
-    let thread_id = required_string(payload, "threadId")?.to_string();
-    let terminal_id = required_string(payload, "terminalId")?.to_string();
+    let thread_id = required_string(&input.thread_id, "threadId")?.to_string();
+    let terminal_id = required_string(&input.terminal_id, "terminalId")?.to_string();
     let task_id = controlled_thread(conversations, viewer, &thread_id).await?;
     let client = sandboxes
         .sandbox_client(&task_id)
@@ -480,16 +498,16 @@ pub async fn restart(
     sandboxes: &dyn SandboxConnector,
     hub: &TerminalHub,
     viewer: &ScopeContext,
-    payload: &Value,
+    input: &TerminalInput,
 ) -> Result<Value, TerminalError> {
     let mut request = TerminalRestartRequest {
-        thread_id: required_string(payload, "threadId")?.to_string(),
-        terminal_id: required_string(payload, "terminalId")?.to_string(),
-        cwd: required_string(payload, "cwd")?.to_string(),
-        worktree_path: optional_string(payload, "worktreePath")?,
-        cols: required_u32(payload, "cols")?,
-        rows: required_u32(payload, "rows")?,
-        env: optional_env(payload)?,
+        thread_id: required_string(&input.thread_id, "threadId")?.to_string(),
+        terminal_id: required_string(&input.terminal_id, "terminalId")?.to_string(),
+        cwd: required_string(&input.cwd, "cwd")?.to_string(),
+        worktree_path: optional_string(&input.worktree_path, "worktreePath")?,
+        cols: required_u32(input.cols, "cols")?,
+        rows: required_u32(input.rows, "rows")?,
+        env: input.env.clone().unwrap_or_default(),
     };
     let task_id = workspace::controlled_conversation(conversations, viewer, &request.cwd).await?;
     stamp_task_id(&mut request.env, &task_id);
@@ -518,10 +536,10 @@ pub async fn close(
     sandboxes: &dyn SandboxConnector,
     hub: &TerminalHub,
     viewer: &ScopeContext,
-    payload: &Value,
+    input: &TerminalInput,
 ) -> Result<(), TerminalError> {
-    let thread_id = required_string(payload, "threadId")?.to_string();
-    let terminal_id = optional_string(payload, "terminalId")?;
+    let thread_id = required_string(&input.thread_id, "threadId")?.to_string();
+    let terminal_id = optional_string(&input.terminal_id, "terminalId")?;
     let task_id = controlled_thread(conversations, viewer, &thread_id).await?;
     let client = sandboxes
         .sandbox_client(&task_id)
@@ -531,10 +549,7 @@ pub async fn close(
         .terminal_close(TerminalCloseRequest {
             thread_id: thread_id.clone(),
             terminal_id: terminal_id.clone(),
-            delete_history: payload
-                .get("deleteHistory")
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
+            delete_history: input.delete_history.unwrap_or(false),
         })
         .await
         .map_err(|error| TerminalError::sandbox(classify_grpc_error(error, "terminal_close")))?;
@@ -611,15 +626,10 @@ pub fn means_not_running(error: &TerminalError) -> bool {
     }
 }
 
-pub fn typed_error(error: &TerminalError, payload: &Value) -> Option<Value> {
-    let thread_id = payload
-        .get("threadId")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    let terminal_id = payload
-        .get("terminalId")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
+pub fn typed_error(error: &TerminalError, input: &TerminalInput) -> Option<Value> {
+    let thread_id = input.thread_id.as_deref().unwrap_or_default();
+    let terminal_id = input.terminal_id.as_deref().unwrap_or_default();
+    let cwd = input.cwd.as_deref().unwrap_or_default();
     if means_not_running(error) {
         return Some(json!({
             "_tag": "TerminalNotRunningError",
@@ -637,18 +647,16 @@ pub fn typed_error(error: &TerminalError, payload: &Value) -> Option<Value> {
         TerminalError::Workspace(WorkspaceAccessError::Sandbox(SandboxError::BadRequest(
             detail,
         )))
-        | TerminalError::Sandbox(SandboxError::BadRequest(detail)) => {
-            Some(cwd_error(payload, detail))
-        }
+        | TerminalError::Sandbox(SandboxError::BadRequest(detail)) => Some(cwd_error(cwd, detail)),
         TerminalError::Workspace(WorkspaceAccessError::NoWorktree)
         | TerminalError::Workspace(WorkspaceAccessError::Unaddressable) => Some(json!({
             "_tag": "TerminalCwdStatError",
-            "cwd": payload.get("cwd").and_then(Value::as_str).unwrap_or_default(),
+            "cwd": cwd,
             "cause": "This conversation's workspace is not available."
         })),
         TerminalError::Malformed(field) => Some(json!({
             "_tag": "TerminalCwdStatError",
-            "cwd": payload.get("cwd").and_then(Value::as_str).unwrap_or_default(),
+            "cwd": cwd,
             "cause": format!("terminal request is missing {field}")
         })),
         _ => None,
@@ -663,11 +671,7 @@ pub fn message(error: &TerminalError) -> String {
     }
 }
 
-fn cwd_error(payload: &Value, detail: &str) -> Value {
-    let cwd = payload
-        .get("cwd")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
+fn cwd_error(cwd: &str, detail: &str) -> Value {
     if let Some(path) = detail.strip_prefix("terminal cwd does not exist: ") {
         return json!({
             "_tag": "TerminalCwdNotFoundError",
@@ -717,70 +721,49 @@ fn as_not_running(error: SandboxError) -> TerminalError {
     TerminalError::Workspace(WorkspaceAccessError::NotRunning(error))
 }
 
-fn required_string<'a>(payload: &'a Value, field: &'static str) -> Result<&'a str, TerminalError> {
-    payload
-        .get(field)
-        .and_then(Value::as_str)
+fn required_string<'a>(
+    value: &'a Option<String>,
+    field: &'static str,
+) -> Result<&'a str, TerminalError> {
+    value
+        .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or(TerminalError::Malformed(field))
 }
 
 fn required_raw_string<'a>(
-    payload: &'a Value,
+    value: &'a Option<String>,
     field: &'static str,
 ) -> Result<&'a str, TerminalError> {
-    payload
-        .get(field)
-        .and_then(Value::as_str)
+    value
+        .as_deref()
         .filter(|value| !value.is_empty())
         .ok_or(TerminalError::Malformed(field))
 }
 
-fn optional_string(payload: &Value, field: &'static str) -> Result<Option<String>, TerminalError> {
-    match payload.get(field) {
-        None | Some(Value::Null) => Ok(None),
-        Some(value) => value
-            .as_str()
-            .map(str::trim)
+/// `None` when absent; a value that trims to nothing is malformed.
+fn optional_string(
+    value: &Option<String>,
+    field: &'static str,
+) -> Result<Option<String>, TerminalError> {
+    match value {
+        None => Ok(None),
+        Some(value) => Some(value.trim())
             .filter(|value| !value.is_empty())
-            .map(str::to_string)
-            .map(Some)
+            .map(|value| Some(value.to_string()))
             .ok_or(TerminalError::Malformed(field)),
     }
 }
 
-fn required_u32(payload: &Value, field: &'static str) -> Result<u32, TerminalError> {
-    optional_u32(payload, field)?.ok_or(TerminalError::Malformed(field))
+fn required_u32(value: Option<u64>, field: &'static str) -> Result<u32, TerminalError> {
+    optional_u32(value, field)?.ok_or(TerminalError::Malformed(field))
 }
 
-fn optional_u32(payload: &Value, field: &'static str) -> Result<Option<u32>, TerminalError> {
-    match payload.get(field) {
-        None | Some(Value::Null) => Ok(None),
-        Some(value) => value
-            .as_u64()
-            .and_then(|number| u32::try_from(number).ok())
-            .map(Some)
-            .ok_or(TerminalError::Malformed(field)),
-    }
-}
-
-fn optional_env(payload: &Value) -> Result<HashMap<String, String>, TerminalError> {
-    let Some(value) = payload.get("env") else {
-        return Ok(HashMap::new());
-    };
-    let Some(object) = value.as_object() else {
-        return Err(TerminalError::Malformed("env"));
-    };
-    object
-        .iter()
-        .map(|(key, value)| {
-            value
-                .as_str()
-                .map(|value| (key.clone(), value.to_string()))
-                .ok_or(TerminalError::Malformed("env"))
-        })
-        .collect()
+fn optional_u32(value: Option<u64>, field: &'static str) -> Result<Option<u32>, TerminalError> {
+    value
+        .map(|number| u32::try_from(number).map_err(|_| TerminalError::Malformed(field)))
+        .transpose()
 }
 
 /// Export the Task this terminal was authorized against as `TASK_ID`.
@@ -1050,24 +1033,24 @@ mod tests {
 
     #[test]
     fn required_raw_string_preserves_terminal_control_input() {
-        let payload = json!({ "data": "\r" });
+        let data = Some("\r".to_string());
 
-        assert_eq!(required_raw_string(&payload, "data").unwrap(), "\r");
+        assert_eq!(required_raw_string(&data, "data").unwrap(), "\r");
     }
 
     #[test]
     fn required_raw_string_accepts_whitespace_terminal_input() {
-        let payload = json!({ "data": " " });
+        let data = Some(" ".to_string());
 
-        assert_eq!(required_raw_string(&payload, "data").unwrap(), " ");
+        assert_eq!(required_raw_string(&data, "data").unwrap(), " ");
     }
 
     #[test]
     fn required_raw_string_rejects_empty_terminal_input() {
-        let payload = json!({ "data": "" });
+        let data = Some(String::new());
 
         assert!(matches!(
-            required_raw_string(&payload, "data"),
+            required_raw_string(&data, "data"),
             Err(TerminalError::Malformed("data"))
         ));
     }

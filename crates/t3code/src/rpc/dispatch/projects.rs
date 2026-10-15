@@ -3,6 +3,8 @@
 use super::orchestration_v2::command_context;
 use crate::assets;
 use crate::attachments;
+use crate::attachments::AttachmentCreateUploadUrlInput;
+use crate::attachments::AttachmentDeleteInput;
 use crate::authentication::viewer_scope;
 use crate::commands;
 use crate::files;
@@ -19,6 +21,7 @@ use crate::rpc::table::Request;
 use crate::snapshots::workspace_cwd;
 use crate::v2_commands;
 use crate::workspace::WorkspaceAccessError;
+use serde::Deserialize;
 use serde_json::Value;
 use serde_json::json;
 
@@ -73,7 +76,66 @@ pub(super) fn project_methods() -> MethodTable {
         )
 }
 
-pub(super) async fn projects_list_entries(request: Request<Value>) -> Vec<Value> {
+/// The contract's `ProjectListEntriesInput`.
+///
+/// This group's file inputs leave optional what the contract requires, so a
+/// request missing one gets the typed refusal `file_failure_exit` gives
+/// [`WorkspaceAccessError::Unaddressable`] rather than a decode Die.
+#[derive(Deserialize)]
+pub(super) struct ProjectListEntriesInput {
+    cwd: Option<String>,
+}
+
+/// The contract's `ProjectGoToDefinitionInput`.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ProjectGoToDefinitionInput {
+    cwd: Option<String>,
+    relative_path: Option<String>,
+    line: Option<u64>,
+    column: Option<u64>,
+}
+
+/// The contract's `ProjectReadFileInput`.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ProjectReadFileInput {
+    cwd: Option<String>,
+    relative_path: Option<String>,
+}
+
+/// The contract's `ProjectSearchEntriesInput`.
+#[derive(Deserialize)]
+pub(super) struct ProjectSearchEntriesInput {
+    cwd: Option<String>,
+    query: Option<String>,
+    limit: Option<u64>,
+    kind: Option<String>,
+}
+
+/// The contract's `ProjectWriteFileInput`.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ProjectWriteFileInput {
+    cwd: Option<String>,
+    relative_path: Option<String>,
+    contents: Option<String>,
+}
+
+/// The contract's `AssetCreateUrlInput`.
+#[derive(Deserialize)]
+pub(super) struct AssetCreateUrlInput {
+    /// An open union: [`assets::create_url`] answers a tag it does not serve
+    /// with a typed refusal, which an enum here would turn into a decode Die.
+    resource: Value,
+}
+
+/// `relative_path` trimmed, or `None` when that leaves nothing.
+fn relative_path(relative_path: Option<&str>) -> Option<&str> {
+    relative_path.map(str::trim).filter(|path| !path.is_empty())
+}
+
+pub(super) async fn projects_list_entries(request: Request<ProjectListEntriesInput>) -> Vec<Value> {
     let Request {
         id,
         tag,
@@ -82,7 +144,7 @@ pub(super) async fn projects_list_entries(request: Request<Value>) -> Vec<Value>
         identity,
         ..
     } = request;
-    let Some(cwd) = workspace_cwd(payload.get("cwd").and_then(Value::as_str)) else {
+    let Some(cwd) = workspace_cwd(payload.cwd.as_deref()) else {
         return vec![file_failure_exit(
             &id,
             tag,
@@ -103,7 +165,9 @@ pub(super) async fn projects_list_entries(request: Request<Value>) -> Vec<Value>
     }
 }
 
-pub(super) async fn projects_go_to_definition(request: Request<Value>) -> Vec<Value> {
+pub(super) async fn projects_go_to_definition(
+    request: Request<ProjectGoToDefinitionInput>,
+) -> Vec<Value> {
     let Request {
         id,
         tag,
@@ -112,23 +176,16 @@ pub(super) async fn projects_go_to_definition(request: Request<Value>) -> Vec<Va
         identity,
         ..
     } = request;
-    let relative_path = payload
-        .get("relativePath")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|path| !path.is_empty());
-    let position = |key: &str| {
-        payload
-            .get(key)
-            .and_then(Value::as_u64)
+    let position = |position: Option<u64>| {
+        position
             .and_then(|n| u32::try_from(n).ok())
             .filter(|n| *n > 0)
     };
     let (Some(cwd), Some(relative_path), Some(line), Some(column)) = (
-        workspace_cwd(payload.get("cwd").and_then(Value::as_str)),
-        relative_path,
-        position("line"),
-        position("column"),
+        workspace_cwd(payload.cwd.as_deref()),
+        relative_path(payload.relative_path.as_deref()),
+        position(payload.line),
+        position(payload.column),
     ) else {
         return vec![file_failure_exit(
             &id,
@@ -153,7 +210,7 @@ pub(super) async fn projects_go_to_definition(request: Request<Value>) -> Vec<Va
     }
 }
 
-pub(super) async fn projects_read_file(request: Request<Value>) -> Vec<Value> {
+pub(super) async fn projects_read_file(request: Request<ProjectReadFileInput>) -> Vec<Value> {
     let Request {
         id,
         tag,
@@ -162,14 +219,9 @@ pub(super) async fn projects_read_file(request: Request<Value>) -> Vec<Value> {
         identity,
         ..
     } = request;
-    let relative_path = payload
-        .get("relativePath")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|path| !path.is_empty());
     let (Some(cwd), Some(relative_path)) = (
-        workspace_cwd(payload.get("cwd").and_then(Value::as_str)),
-        relative_path,
+        workspace_cwd(payload.cwd.as_deref()),
+        relative_path(payload.relative_path.as_deref()),
     ) else {
         return vec![file_failure_exit(
             &id,
@@ -203,7 +255,9 @@ pub(super) async fn projects_read_file(request: Request<Value>) -> Vec<Value> {
     }
 }
 
-pub(super) async fn projects_search_entries(request: Request<Value>) -> Vec<Value> {
+pub(super) async fn projects_search_entries(
+    request: Request<ProjectSearchEntriesInput>,
+) -> Vec<Value> {
     let Request {
         id,
         tag,
@@ -217,11 +271,8 @@ pub(super) async fn projects_search_entries(request: Request<Value>) -> Vec<Valu
     // bounded listing rather than nothing, because the Sandbox's name search
     // matches no path at all for an empty needle and an empty picker looks like
     // a broken one.
-    let query = payload
-        .get("query")
-        .and_then(Value::as_str)
-        .map_or("", str::trim);
-    let Some(cwd) = workspace_cwd(payload.get("cwd").and_then(Value::as_str)) else {
+    let query = payload.query.as_deref().map_or("", str::trim);
+    let Some(cwd) = workspace_cwd(payload.cwd.as_deref()) else {
         return vec![file_failure_exit(
             &id,
             tag,
@@ -229,12 +280,9 @@ pub(super) async fn projects_search_entries(request: Request<Value>) -> Vec<Valu
             &identity,
         )];
     };
-    let limit = payload
-        .get("limit")
-        .and_then(Value::as_u64)
-        .map_or(SEARCH_ENTRIES_LIMIT, |limit| {
-            (limit as usize).min(SEARCH_ENTRIES_MAX)
-        });
+    let limit = payload.limit.map_or(SEARCH_ENTRIES_LIMIT, |limit| {
+        (limit as usize).min(SEARCH_ENTRIES_MAX)
+    });
     match files::search_entries(
         &state.reads,
         state.file_sources(),
@@ -242,7 +290,7 @@ pub(super) async fn projects_search_entries(request: Request<Value>) -> Vec<Valu
         &cwd,
         query,
         limit,
-        payload.get("kind").and_then(Value::as_str),
+        payload.kind.as_deref(),
     )
     .await
     {
@@ -251,7 +299,7 @@ pub(super) async fn projects_search_entries(request: Request<Value>) -> Vec<Valu
     }
 }
 
-pub(super) async fn projects_write_file(request: Request<Value>) -> Vec<Value> {
+pub(super) async fn projects_write_file(request: Request<ProjectWriteFileInput>) -> Vec<Value> {
     let Request {
         id,
         tag,
@@ -260,18 +308,12 @@ pub(super) async fn projects_write_file(request: Request<Value>) -> Vec<Value> {
         identity,
         ..
     } = request;
-    let relative_path = payload
-        .get("relativePath")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|path| !path.is_empty());
     // Empty contents are a legal write — truncating a file is a thing a person
     // does — so only an absent `contents` is unaddressable.
-    let contents = payload.get("contents").and_then(Value::as_str);
     let (Some(cwd), Some(relative_path), Some(contents)) = (
-        workspace_cwd(payload.get("cwd").and_then(Value::as_str)),
-        relative_path,
-        contents,
+        workspace_cwd(payload.cwd.as_deref()),
+        relative_path(payload.relative_path.as_deref()),
+        payload.contents.as_deref(),
     ) else {
         return vec![file_failure_exit(
             &id,
@@ -298,15 +340,16 @@ pub(super) async fn projects_write_file(request: Request<Value>) -> Vec<Value> {
 /// Mints an asset as a route this backend serves the file on, not a local path
 /// — a checkout lives only in its Sandbox; a favicon names no file and always
 /// answers none.
-pub(super) async fn assets_create_url(request: Request<Value>) -> Vec<Value> {
-    let Request { id, payload, .. } = request;
-    // The error carries the resource back, and the client decodes it against the
-    // same schema it sent — so a request without one has no typed answer to give
-    // and is a malformed request instead.
-    let Some(resource) = payload.get("resource") else {
-        return vec![failure_exit(&id, "assets.createUrl requires a resource")];
-    };
-    match assets::create_url(resource) {
+///
+/// The decode refuses a request without a `resource`: the typed error carries
+/// the resource back, so it has no typed answer to give.
+pub(super) async fn assets_create_url(request: Request<AssetCreateUrlInput>) -> Vec<Value> {
+    let Request {
+        id,
+        payload: AssetCreateUrlInput { resource },
+        ..
+    } = request;
+    match assets::create_url(&resource) {
         Ok(minted) => vec![success_exit(&id, minted)],
         Err(error) => vec![typed_failure_exit(
             &id,
@@ -321,7 +364,9 @@ pub(super) async fn assets_create_url(request: Request<Value>) -> Vec<Value> {
 /// Mints the URL the composer uploads a file to before sending the turn that
 /// names it; the URL carries its own credential, so nothing about the upload
 /// reaches this socket except the id.
-pub(super) async fn attachments_create_upload_url(request: Request<Value>) -> Vec<Value> {
+pub(super) async fn attachments_create_upload_url(
+    request: Request<AttachmentCreateUploadUrlInput>,
+) -> Vec<Value> {
     let Request {
         id,
         payload,
@@ -342,7 +387,7 @@ pub(super) async fn attachments_create_upload_url(request: Request<Value>) -> Ve
     }
 }
 
-pub(super) async fn attachments_delete(request: Request<Value>) -> Vec<Value> {
+pub(super) async fn attachments_delete(request: Request<AttachmentDeleteInput>) -> Vec<Value> {
     let Request {
         id,
         payload,
@@ -364,7 +409,8 @@ pub(super) async fn attachments_delete(request: Request<Value>) -> Vec<Value> {
 
 /// `projects.mutate`: a project is a Moatless Workspace, so only an update of its
 /// Scripts is carried out, through the V1 command
-/// ([`v2_commands::project_mutation`]). Answers the updated `Project`.
+/// ([`v2_commands::project_mutation`]), whose typed refusal a malformed `Value`
+/// payload gets rather than a decode Die. Answers the updated `Project`.
 pub(super) async fn projects_mutate(request: Request<Value>) -> Vec<Value> {
     let Request {
         id,

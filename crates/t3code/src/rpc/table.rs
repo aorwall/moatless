@@ -4,7 +4,6 @@
 //! [`crate::rpc::dispatch::methods`] merges each `dispatch/*.rs` group into the
 //! table a connection answers from.
 
-use crate::authentication::viewer_scope;
 use crate::config::OrchestrationProtocol;
 use crate::oauth::Scope;
 use crate::rpc::envelope::RequestId;
@@ -12,7 +11,6 @@ use crate::rpc::envelope::failure_exit;
 use crate::rpc::session::ProtocolSession;
 use crate::rpc::session::SharedSession;
 use crate::state::UiRpcState;
-use moatless_types::access_control::ScopeContext;
 use moatless_types::ui_rpc::UiRpcAuthIdentity;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -36,19 +34,6 @@ pub(crate) struct Request<P> {
     pub(crate) state: UiRpcState,
     pub(crate) identity: UiRpcAuthIdentity,
     pub(crate) shared: SharedSession,
-}
-
-/// What [`Request::require_thread_id`] hands back: everything its prologue
-/// already computed, so the handler starts past it.
-pub(crate) struct ThreadRequest {
-    pub(crate) id: RequestId,
-    pub(crate) tag: &'static str,
-    pub(crate) scope: Scope,
-    pub(crate) viewer: ScopeContext,
-    pub(crate) task_id: String,
-    pub(crate) state: UiRpcState,
-    pub(crate) identity: UiRpcAuthIdentity,
-    pub(crate) payload: Value,
 }
 
 impl Request<Value> {
@@ -83,42 +68,6 @@ impl Request<Value> {
             }),
             Err(error) => Err(vec![failure_exit(&id, format!("{tag}: {error}"))]),
         }
-    }
-
-    /// Destructure a request that addresses one thread and extract its
-    /// `threadId`, naming the refusing method in the failure.
-    ///
-    /// A missing `threadId` is a malformed request, not a conversation that
-    /// is missing: every client encodes against the contract that requires
-    /// it, so the two must not answer alike.
-    pub(crate) fn require_thread_id(self) -> Result<ThreadRequest, Vec<Value>> {
-        let Request {
-            id,
-            tag,
-            scope,
-            payload,
-            state,
-            identity,
-            ..
-        } = self;
-        let viewer = viewer_scope(&identity);
-        let Some(task_id) = payload.get("threadId").and_then(Value::as_str) else {
-            return Err(vec![failure_exit(
-                &id,
-                format!("{tag} requires a threadId"),
-            )]);
-        };
-        let task_id = task_id.to_string();
-        Ok(ThreadRequest {
-            id,
-            tag,
-            scope,
-            viewer,
-            task_id,
-            state,
-            identity,
-            payload,
-        })
     }
 }
 
