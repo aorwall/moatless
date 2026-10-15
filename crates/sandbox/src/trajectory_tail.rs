@@ -32,8 +32,8 @@ use crate::config::Config;
 /// tailer polls.
 pub const FALLBACK_POLL: Duration = Duration::from_millis(100);
 
-/// Kept under the backend's 4 MiB gRPC decode limit; a single line over that
-/// limit fails its append and stops recording of that session.
+/// Kept well under [`sandbox_proto::client::MAX_GRPC_MESSAGE_SIZE`]; a single
+/// line whose append is over it stops recording of that session.
 const MAX_BATCH_BYTES: usize = 1024 * 1024;
 
 /// Lines per `AppendTrajectory`.
@@ -90,7 +90,11 @@ impl RecordError {
         match self {
             Self::Off | Self::Behind { .. } | Self::Diverged { .. } => true,
             Self::Io(_) => false,
-            Self::Rpc(status) => status.code() == tonic::Code::ResourceExhausted,
+            // `OutOfRange` is an append over the backend's decode limit.
+            Self::Rpc(status) => matches!(
+                status.code(),
+                tonic::Code::ResourceExhausted | tonic::Code::OutOfRange
+            ),
         }
     }
 }
@@ -272,10 +276,13 @@ impl SessionRecorder {
 
     /// Records a recorder that stopped in `task_events`.
     async fn report(&self, error: &RecordError) {
-        let payload = serde_json::json!({
+        let mut payload = serde_json::json!({
             "harnessSessionId": self.target.harness_session_id,
             "error": error.to_string(),
         });
+        if let Some((_, parent)) = &self.target.subagent {
+            payload["parentHarnessSessionId"] = parent.parent_harness_session_id.clone().into();
+        }
         let request = PublishEventRequest {
             task_id: self.target.task_id.clone(),
             event_type: EventType::Agent as i32,

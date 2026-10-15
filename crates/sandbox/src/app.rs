@@ -69,11 +69,10 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         let svc = SandboxServiceImpl { state: grpc_state };
         let addr = SocketAddr::from(([0, 0, 0, 0], grpc_port));
         info!(port = grpc_port, "Starting sandbox gRPC server");
-        // Raise from tonic's 4 MB default so binary files (audio, images) can round-trip.
-        const MAX_MESSAGE_SIZE: usize = 32 * 1024 * 1024;
+        let limit = sandbox_proto::client::MAX_GRPC_MESSAGE_SIZE;
         let service = sandbox_proto::sandbox_service_server::SandboxServiceServer::new(svc)
-            .max_decoding_message_size(MAX_MESSAGE_SIZE)
-            .max_encoding_message_size(MAX_MESSAGE_SIZE);
+            .max_decoding_message_size(limit)
+            .max_encoding_message_size(limit);
         if let Err(e) = tonic::transport::Server::builder()
             .add_service(service)
             .serve_with_shutdown(addr, async move { grpc_shutdown.cancelled().await })

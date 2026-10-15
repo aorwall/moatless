@@ -202,7 +202,7 @@ pub(crate) async fn task_events(
             WHERE t.task_id = $1
               AND ((t.type = 'task' AND t.sub_type IN ('error', 'binding_reply_sent', 'agent_switched',
                                                             'artifact_shown'))
-                   OR (t.type = 'agent' AND t.sub_type IN ('completed', 'context_window'))
+                   OR (t.type = 'agent' AND t.sub_type IN ('completed', 'context_window', 'recording_stopped'))
                    OR (t.type = 'sandbox' AND t.sub_type IN ('initializing', 'ready', 'stopped', 'error')))
               AND ($2::int IS NULL
                    OR t.turn_number < $2

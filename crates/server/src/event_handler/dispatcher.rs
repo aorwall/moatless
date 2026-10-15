@@ -264,8 +264,8 @@ impl EventDispatcher {
                 // ingress, beside the admission that made it durable, so the
                 // Task listing reads it without waiting on this consumer.
                 | AgentSubType::CommandsChanged
-                // A stopped trajectory recorder: kept in task_events for
-                // diagnosis; the Turn goes on.
+                // A stopped trajectory recorder: the Turn goes on. Projected
+                // as an error activity by `persist_event`.
                 | AgentSubType::RecordingStopped
                 // Projected as an activity by `persist_event`.
                 | AgentSubType::ContextWindow,

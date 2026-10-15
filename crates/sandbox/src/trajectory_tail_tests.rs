@@ -682,3 +682,28 @@ async fn a_held_codex_reply_ships_once_it_has_waited() {
     tokio::time::advance(Duration::from_millis(1)).await;
     assert_eq!(recorder.flush().await.unwrap(), 44);
 }
+
+#[tokio::test]
+async fn an_append_over_the_decode_limit_stops_the_recorder_and_says_so() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = session_file(dir.path(), dir.path());
+    let large = format!("{{\"data\":\"{}\"}}", "J".repeat(64 * 1024));
+    std::fs::write(
+        &path,
+        format!("{{\"type\":\"user\"}}\n{large}\n{{\"n\":2}}\n"),
+    )
+    .unwrap();
+    let backend = Arc::new(MemoryTrajectoryBackend::default());
+    backend.limit_appends(32 * 1024);
+    let (mut recorder, _) = recorder(backend.clone(), dir.path(), dir.path());
+
+    let refused = recorder.flush().await.unwrap_err();
+    assert!(
+        matches!(&refused, RecordError::Rpc(status) if status.code() == tonic::Code::OutOfRange)
+    );
+    assert!(matches!(recorder.flush().await, Err(RecordError::Off)));
+    let published = backend.published();
+    assert_eq!(published.len(), 1);
+    assert_eq!(published[0].0, "recording_stopped");
+    assert!(published[0].1.contains("too large"), "{}", published[0].1);
+}

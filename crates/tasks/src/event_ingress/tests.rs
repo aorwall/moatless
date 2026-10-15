@@ -326,3 +326,10 @@ fn invalid_requests_are_terminal_and_everything_else_retries() {
         );
     }
 }
+
+#[test]
+fn a_stopped_recording_is_stored_as_an_error() {
+    assert!(super::is_error_sub_type("recording_stopped"));
+    assert!(super::is_error_sub_type("failed"));
+    assert!(!super::is_error_sub_type("context_window"));
+}

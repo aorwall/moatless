@@ -331,12 +331,12 @@ async fn an_upload_that_lands_on_a_chunk_boundary_round_trips_whole() {
 
 #[tokio::test]
 async fn the_per_message_cap_the_chunking_exists_to_dodge_is_real() {
-    // Guards the premise of every test above: serve the same 6 MiB in a single
-    // message and the client's decoder refuses it. Chunking is what keeps the
-    // upload under this ceiling; if this ever stops failing, the round-trip
-    // tests stop proving anything.
+    // Guards the premise of every test above: serve one message over the cap
+    // and the client's decoder refuses it. Chunking is what keeps the upload
+    // under this ceiling; if this ever stops failing, the round-trip tests
+    // stop proving anything.
     let oversized = vec![UploadChunk {
-        data: pattern(6 * CHUNK),
+        data: pattern(sandbox_proto::client::MAX_GRPC_MESSAGE_SIZE + 1),
         filename: "report.pdf".to_string(),
         mime_type: "application/pdf".to_string(),
     }];
@@ -345,7 +345,7 @@ async fn the_per_message_cap_the_chunking_exists_to_dodge_is_real() {
     let err = client
         .download_upload("task-1", "file-1")
         .await
-        .expect_err("6 MiB in one message must exceed the decoding cap");
+        .expect_err("one message over the cap must exceed the decoding cap");
 
     assert_eq!(err.code(), tonic::Code::OutOfRange, "{err:?}");
 }

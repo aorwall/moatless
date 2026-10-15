@@ -25,9 +25,9 @@ use tonic::Streaming;
 use tonic::transport::Channel;
 use tracing::debug;
 
-/// Raise from tonic's 4 MB default so binary files (audio, images) can
-/// round-trip.
-const MAX_GRPC_MESSAGE_SIZE: usize = 32 * 1024 * 1024;
+/// Every backend ↔ sandbox gRPC server and client, raised from tonic's 4 MiB
+/// default so binary files and trajectory lines carrying images or PDFs fit.
+pub const MAX_GRPC_MESSAGE_SIZE: usize = 32 * 1024 * 1024;
 const SHORT_RPC_TIMEOUT: Duration = Duration::from_secs(10);
 const JOIN_TASK_TIMEOUT: Duration = Duration::from_mins(5);
 

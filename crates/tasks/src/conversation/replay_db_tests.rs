@@ -156,6 +156,40 @@ async fn rebuild_reproduces_rows_and_ids(pool: PgPool) {
     assert_eq!(activity_ids(&pool, "a").await, activities);
 }
 
+#[sqlx::test]
+async fn rebuild_reproduces_a_stopped_recording(pool: PgPool) {
+    use crate::task_event::dao::{PgTaskEventDao, TaskEventDao};
+    use crate::task_event::models::InsertTaskEvent;
+    seed_bare_task(&pool, "a", "open").await;
+    run_turn(&pool, "a", "sa", 1, "one").await;
+    PgTaskEventDao(pool.clone())
+        .insert_event(&InsertTaskEvent {
+            event_id: "evt-stopped".to_string(),
+            task_id: "a".to_string(),
+            event_type: "agent".to_string(),
+            sub_type: "recording_stopped".to_string(),
+            is_error: true,
+            agent_profile: Some("claude-code".to_string()),
+            turn_number: Some(1),
+            payload: json!({ "error": "line 7 is too large" }),
+            timestamp: "2026-10-15T06:54:00.000Z".to_string(),
+        })
+        .await
+        .unwrap();
+    let activities = activity_ids(&pool, "a").await;
+    assert_eq!(
+        activities
+            .iter()
+            .map(|(_, _, kind)| kind.as_str())
+            .collect::<Vec<_>>(),
+        ["sandbox_error"]
+    );
+
+    rebuild(&pool, "a").await;
+
+    assert_eq!(activity_ids(&pool, "a").await, activities);
+}
+
 /// A fork's cut turn is closed and decided, so nothing reads the inherited
 /// user Messages as a turn still owed (#1005).
 #[sqlx::test]

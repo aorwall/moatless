@@ -275,12 +275,13 @@ pub fn spawn_grpc_server(
     tokio::spawn(async move {
         let addr = SocketAddr::from(([0, 0, 0, 0], port));
         info!(port, "Starting backend gRPC server");
+        let limit = sandbox_proto::client::MAX_GRPC_MESSAGE_SIZE;
+        let service =
+            sandbox_proto::backend_sandbox_service_server::BackendSandboxServiceServer::new(svc)
+                .max_decoding_message_size(limit)
+                .max_encoding_message_size(limit);
         if let Err(e) = tonic::transport::Server::builder()
-            .add_service(
-                sandbox_proto::backend_sandbox_service_server::BackendSandboxServiceServer::new(
-                    svc,
-                ),
-            )
+            .add_service(service)
             .serve_with_shutdown(addr, async move { cancel.cancelled().await })
             .await
         {

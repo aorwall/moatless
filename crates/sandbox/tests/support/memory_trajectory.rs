@@ -72,6 +72,9 @@ struct State {
     published: Vec<PublishEventRequest>,
     /// Appends with lines to answer `Unavailable` before storing any.
     failing_appends: usize,
+    /// Refuse a larger append `OutOfRange`, as the backend's decode limit
+    /// does; `None` is [`sandbox_proto::client::MAX_GRPC_MESSAGE_SIZE`].
+    decode_limit: Option<usize>,
 }
 
 #[derive(Default)]
@@ -153,6 +156,11 @@ impl MemoryTrajectoryBackend {
     /// Answer the next `n` appends that carry lines `Unavailable`.
     pub fn fail_appends(&self, n: usize) {
         self.state.lock().unwrap().failing_appends = n;
+    }
+
+    /// Lower the decode limit appends are refused over.
+    pub fn limit_appends(&self, bytes: usize) {
+        self.state.lock().unwrap().decode_limit = Some(bytes);
     }
 
     /// Drop one stored event, leaving a gap in its session's chain.
@@ -385,6 +393,19 @@ impl BackendClient for MemoryTrajectoryBackend {
         state.appends += 1;
         state.widest_append = state.widest_append.max(req.lines.len());
         let probe = req.lines.is_empty();
+        let bytes: usize = req
+            .lines
+            .iter()
+            .map(|l| l.payload.len() + l.content_json.len())
+            .sum();
+        let limit = state
+            .decode_limit
+            .unwrap_or(sandbox_proto::client::MAX_GRPC_MESSAGE_SIZE);
+        if bytes > limit {
+            return Err(Status::out_of_range(format!(
+                "Error, decoded message length too large: found {bytes} bytes, the limit is: {limit} bytes"
+            )));
+        }
         if !probe && state.failing_appends > 0 {
             state.failing_appends -= 1;
             return Err(Status::unavailable("backend unavailable"));

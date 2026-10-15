@@ -482,6 +482,21 @@ impl Projector {
                     let row = context_window_updated(&name, task_id, used, max);
                     dao::standalone_activity(tx, &row, Source::TaskEvent(event.event_id)).await?;
                 }
+                "recording_stopped" => {
+                    let message = match event.payload.get("parentHarnessSessionId") {
+                        Some(_) => "Subagent recording stopped: its later messages are not shown",
+                        None => "Conversation recording stopped: later messages are not shown",
+                    };
+                    let payload = moatless_types::sandbox::SandboxEventPayload {
+                        message: message.to_string(),
+                        ..Default::default()
+                    };
+                    let mut row = sandbox_activity(&name, task_id, "error", true, &payload);
+                    if let Some(error) = event.payload.get("error").and_then(Value::as_str) {
+                        row.payload["detail"] = Value::String(error.to_string());
+                    }
+                    dao::standalone_activity(tx, &row, Source::TaskEvent(event.event_id)).await?;
+                }
                 _ => {}
             },
             EventType::Sandbox => {
@@ -676,7 +691,9 @@ fn projects(event_type: &str, sub_type: &str) -> bool {
         (
             "task",
             "error" | "binding_reply_sent" | "agent_switched" | "artifact_shown"
-        ) | ("agent", "completed" | "context_window")
-            | ("sandbox", "initializing" | "ready" | "stopped" | "error")
+        ) | (
+            "agent",
+            "completed" | "context_window" | "recording_stopped"
+        ) | ("sandbox", "initializing" | "ready" | "stopped" | "error")
     )
 }

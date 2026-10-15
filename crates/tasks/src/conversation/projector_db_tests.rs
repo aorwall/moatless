@@ -965,3 +965,78 @@ async fn a_compaction_line_is_a_compaction_activity(pool: PgPool) {
         .unwrap();
     assert_eq!(compactions().await, live);
 }
+
+/// A stopped trajectory recorder is the thread's last word: everything after
+/// it is missing, so it shows as a failed Sandbox error with the reason.
+#[sqlx::test]
+async fn a_stopped_recording_is_a_failed_sandbox_error(pool: PgPool) {
+    use crate::task_event::dao::{PgTaskEventDao, TaskEventDao};
+    use crate::task_event::models::InsertTaskEvent;
+    seed(&pool).await;
+    PgTaskEventDao(pool.clone())
+        .insert_event(&InsertTaskEvent {
+            event_id: "evt-stopped".to_string(),
+            task_id: TASK.to_string(),
+            event_type: "agent".to_string(),
+            sub_type: "recording_stopped".to_string(),
+            is_error: true,
+            agent_profile: Some("claude-code".to_string()),
+            turn_number: Some(1),
+            payload: json!({ "harnessSessionId": "s", "error": "line 7 is too large" }),
+            timestamp: "2026-10-15T06:54:00.000Z".to_string(),
+        })
+        .await
+        .unwrap();
+
+    let rows: Vec<(String, String, Value)> = sqlx::query_as(
+        "SELECT kind, status, payload FROM conversation_activities WHERE task_id = $1",
+    )
+    .bind(TASK)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(
+        (rows[0].0.as_str(), rows[0].1.as_str()),
+        ("sandbox_error", "failed")
+    );
+    assert_eq!(
+        rows[0].2["summary"],
+        "Conversation recording stopped: later messages are not shown"
+    );
+    assert_eq!(rows[0].2["detail"], "line 7 is too large");
+}
+
+/// A subagent's recorder stopping leaves the main conversation recorded.
+#[sqlx::test]
+async fn a_stopped_subagent_recording_names_the_subagent(pool: PgPool) {
+    use crate::task_event::dao::{PgTaskEventDao, TaskEventDao};
+    use crate::task_event::models::InsertTaskEvent;
+    seed(&pool).await;
+    PgTaskEventDao(pool.clone())
+        .insert_event(&InsertTaskEvent {
+            event_id: "evt-stopped".to_string(),
+            task_id: TASK.to_string(),
+            event_type: "agent".to_string(),
+            sub_type: "recording_stopped".to_string(),
+            is_error: true,
+            agent_profile: Some("claude-code".to_string()),
+            turn_number: Some(1),
+            payload: json!({ "harnessSessionId": "s:agent-1", "parentHarnessSessionId": "s" }),
+            timestamp: "2026-10-15T06:54:00.000Z".to_string(),
+        })
+        .await
+        .unwrap();
+
+    let summary: Value = sqlx::query_scalar(
+        "SELECT payload->'summary' FROM conversation_activities WHERE task_id = $1",
+    )
+    .bind(TASK)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        summary,
+        "Subagent recording stopped: its later messages are not shown"
+    );
+}

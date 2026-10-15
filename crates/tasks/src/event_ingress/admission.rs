@@ -136,9 +136,10 @@ impl EventAdmission {
     }
 }
 
-/// The two sub-types every event kind treats as a failure.
+/// The sub-types stored as a failure: `error` and `failed` on any event kind,
+/// and `recording_stopped`, after which the thread shows nothing more.
 pub fn is_error_sub_type(sub_type: &str) -> bool {
-    sub_type == "error" || sub_type == "failed"
+    matches!(sub_type, "error" | "failed" | "recording_stopped")
 }
 
 fn timestamp_now() -> String {

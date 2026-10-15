@@ -421,21 +421,29 @@ impl BackendGrpcClient {
         let interceptor = AuthInterceptor {
             token: Arc::clone(&auth_token),
         };
-        let client =
-            BackendSandboxServiceClient::with_interceptor(endpoint(RPC_TIMEOUT)?, interceptor);
-        let workspace = BackendSandboxServiceClient::with_interceptor(
+        let limited = |client: BackendSandboxServiceClient<_>| {
+            let limit = sandbox_proto::client::MAX_GRPC_MESSAGE_SIZE;
+            client
+                .max_decoding_message_size(limit)
+                .max_encoding_message_size(limit)
+        };
+        let client = limited(BackendSandboxServiceClient::with_interceptor(
+            endpoint(RPC_TIMEOUT)?,
+            interceptor,
+        ));
+        let workspace = limited(BackendSandboxServiceClient::with_interceptor(
             endpoint(WORKSPACE_RPC_TIMEOUT)?,
             AuthInterceptor {
                 token: Arc::clone(&auth_token),
             },
-        );
+        ));
 
-        let plugins = BackendSandboxServiceClient::with_interceptor(
+        let plugins = limited(BackendSandboxServiceClient::with_interceptor(
             endpoint(PLUGIN_RPC_TIMEOUT)?,
             AuthInterceptor {
                 token: Arc::clone(&auth_token),
             },
-        );
+        ));
 
         Ok(Self {
             client,
