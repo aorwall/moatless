@@ -447,22 +447,26 @@ pub(crate) async fn list(
     if let Some(before) = before {
         query = query.bind(before.updated_at).bind(before.task_id.clone());
     }
-    let result = match task_ids {
-        Some(_) => query.fetch_all(pool).await,
-        None => {
-            async {
-                let mut tx = pool.begin().await?;
-                sqlx::query("SELECT set_config('statement_timeout', $1, true)")
-                    .bind(FULL_LISTING_STATEMENT_TIMEOUT)
-                    .execute(&mut *tx)
-                    .await?;
-                let rows = query.fetch_all(&mut *tx).await?;
-                tx.commit().await?;
-                Ok(rows)
-            }
-            .await
-        }
+    // A narrowed read is a key lookup whatever the ids, so it takes the cached
+    // generic plan. Under `auto` Postgres never switches to one for this
+    // statement and plans its ~25 relations on every call, 5-400 ms against
+    // ~1 ms to execute, once a second per open thread via `ThreadFeed::poll`.
+    let (setting, value) = match task_ids {
+        Some(_) => ("plan_cache_mode", "force_generic_plan"),
+        None => ("statement_timeout", FULL_LISTING_STATEMENT_TIMEOUT),
     };
+    let result = async {
+        let mut tx = pool.begin().await?;
+        sqlx::query("SELECT set_config($1, $2, true)")
+            .bind(setting)
+            .bind(value)
+            .execute(&mut *tx)
+            .await?;
+        let rows = query.fetch_all(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(rows)
+    }
+    .await;
     if let Some(started) = started {
         let outcome = match &result {
             Ok(_) => "ok",

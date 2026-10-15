@@ -263,6 +263,12 @@ shared warm Sandbox is observed holding members that disagree, with the
 pod-level column kept as the default a member inherits when it asks for
 nothing.
 
+## Performance
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| The listing executes at about 4–5 ms per row | `crates/tasks/src/task_listing/listed_dao.rs::list` — 200 ids took about 1 s to execute, mostly in the `pending` and `pr` laterals; measured on a saturated Aurora instance, so noisy. Narrowed reads reuse a cached generic plan, so this is execution cost alone | When `moatless_ui_shell_listing_duration_seconds` for the full listing nears its 5 s `statement_timeout`, or a by-ids caller reads hundreds of Tasks per call |
+
 ## Language servers
 
 Gaps in the agent's `LSP` tool, which `crates/sandbox/src/init/language_servers.rs`

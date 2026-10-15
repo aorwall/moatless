@@ -358,3 +358,34 @@ async fn a_listed_row_names_a_readable_parent_and_counts_its_children(pool: PgPo
     assert_eq!(row("child").child_count, 0);
     assert!(row("child").running_children.is_empty());
 }
+
+/// A read by id reuses the statement's generic plan rather than planning it
+/// on every call. One connection, so the prepared statement is observable.
+#[sqlx::test]
+async fn a_read_by_id_reuses_the_generic_plan(pool: PgPool) {
+    seed_owned_task(&pool).await;
+    let single = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(pool.connect_options().as_ref().clone())
+        .await
+        .expect("single-connection pool");
+    let listing = listing_over(&single);
+    let owner = ScopeContext::user(USER_1.to_string());
+
+    for _ in 0..3 {
+        listing
+            .readable_by_id(&owner, TASK)
+            .await
+            .unwrap()
+            .expect("readable");
+    }
+
+    let (generic, custom): (i64, i64) = sqlx::query_as(
+        "SELECT generic_plans, custom_plans FROM pg_prepared_statements
+         WHERE statement LIKE 'WITH listed AS MATERIALIZED%'",
+    )
+    .fetch_one(&single)
+    .await
+    .expect("the listing statement is prepared");
+    assert_eq!((generic, custom), (3, 0));
+}
