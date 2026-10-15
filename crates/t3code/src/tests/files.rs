@@ -4,7 +4,7 @@
 use super::fixtures::*;
 use super::*;
 
-/// Both methods answer in their contract's shape, not as a defect. A `Die`
+/// Each method answers in its contract's shape, not as a defect. A `Die`
 /// strips the reason from the panel message, so an actionable refusal must
 /// arrive as a `Fail` carrying the sentence.
 #[tokio::test]
@@ -19,6 +19,11 @@ async fn a_refused_file_request_fails_with_the_method_s_own_error() {
             "projects.readFile",
             json!({ "cwd": "/moatless/workspaces/ws-a", "relativePath": "README.md" }),
             "ProjectReadFileError",
+        ),
+        (
+            "projects.goToDefinition",
+            json!({ "cwd": "/moatless/workspaces/ws-a", "relativePath": "src/a.ts", "line": 3, "column": 7 }),
+            "ProjectGoToDefinitionError",
         ),
     ] {
         let mut connection = connection();

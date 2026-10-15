@@ -16,16 +16,16 @@ use tracing::{info, warn};
 /// `agent::options` tests stage a plugin under this name by hand.
 const PLUGIN_DIR_NAME: &str = "moatless-language-servers";
 
-/// How Claude Code starts one language server.
-struct ServerSpec {
+/// How one language server is started, by Claude Code and by `code_intel`.
+pub(crate) struct ServerSpec {
     /// Looked up on `PATH`, so a custom image can supply its own build.
-    command: &'static str,
-    args: &'static [&'static str],
+    pub(crate) command: &'static str,
+    pub(crate) args: &'static [&'static str],
     /// File extension to LSP language id.
-    extensions: &'static [(&'static str, &'static str)],
+    pub(crate) extensions: &'static [(&'static str, &'static str)],
 }
 
-fn server_spec(server: LanguageServer) -> ServerSpec {
+pub(crate) fn server_spec(server: LanguageServer) -> ServerSpec {
     match server {
         // TypeScript 7's native server. It answers diagnostics only when pulled,
         // which Claude Code never does, so it navigates but reports no errors.

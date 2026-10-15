@@ -66,7 +66,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let grpc_port = config.grpc_port;
     let grpc_server = tokio::spawn(async move {
         let grpc_shutdown = grpc_state.lifecycle_cancel.clone();
-        let svc = SandboxServiceImpl { state: grpc_state };
+        let svc = SandboxServiceImpl::new(grpc_state);
         let addr = SocketAddr::from(([0, 0, 0, 0], grpc_port));
         info!(port = grpc_port, "Starting sandbox gRPC server");
         let limit = sandbox_proto::client::MAX_GRPC_MESSAGE_SIZE;

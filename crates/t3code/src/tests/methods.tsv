@@ -35,6 +35,7 @@ preview.refresh	orchestration:operate	session	session	same
 preview.reportStatus	orchestration:operate	session	session	same
 preview.resize	orchestration:operate	session	session	same
 projects.add	orchestration:operate	declared	declared	-
+projects.goToDefinition	orchestration:read	detached	detached	same
 projects.listEntries	orchestration:read	detached	detached	same
 projects.mutate	orchestration:operate	session	session	same
 projects.readFile	orchestration:read	detached	detached	same

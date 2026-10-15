@@ -302,6 +302,31 @@ impl SandboxClient {
         }
     }
 
+    /// Where the symbol at `line`/`column` (1-based, UTF-16) of `path` is
+    /// defined. The sandbox may start a language server first, so the deadline
+    /// covers its start as well as the lookup.
+    pub async fn go_to_definition_for_task(
+        &self,
+        task_id: Option<&str>,
+        path: &str,
+        line: u32,
+        column: u32,
+    ) -> Result<crate::GoToDefinitionResponse, tonic::Status> {
+        let mut client = self.client.clone();
+        let request = crate::GoToDefinitionRequest {
+            path: path.to_string(),
+            line,
+            column,
+            task_id: task_id.map(str::to_string),
+        };
+        match tokio::time::timeout(Duration::from_mins(1), client.go_to_definition(request)).await {
+            Ok(result) => result.map(tonic::Response::into_inner),
+            Err(_) => Err(tonic::Status::deadline_exceeded(
+                "Go-to-definition gRPC request timed out",
+            )),
+        }
+    }
+
     /// Write a file in the sandbox workspace.
     pub async fn write_file(&self, path: &str, content: &str) -> Result<(), tonic::Status> {
         self.write_file_for_task(None, path, content).await

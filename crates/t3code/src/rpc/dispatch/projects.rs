@@ -41,6 +41,11 @@ pub(super) fn project_methods() -> MethodTable {
         )
         .declared("projects.add", Scope::OrchestrationOperate)
         .detached(
+            "projects.goToDefinition",
+            Scope::OrchestrationRead,
+            projects_go_to_definition,
+        )
+        .detached(
             "projects.listEntries",
             Scope::OrchestrationRead,
             projects_list_entries,
@@ -94,6 +99,56 @@ pub(super) async fn projects_list_entries(request: Request) -> Vec<Value> {
     .await
     {
         Ok(listing) => vec![success_exit(&id, listing)],
+        Err(error) => vec![file_failure_exit(&id, tag, &error, &identity)],
+    }
+}
+
+pub(super) async fn projects_go_to_definition(request: Request) -> Vec<Value> {
+    let Request {
+        id,
+        tag,
+        payload,
+        state,
+        identity,
+        ..
+    } = request;
+    let relative_path = payload
+        .get("relativePath")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|path| !path.is_empty());
+    let position = |key: &str| {
+        payload
+            .get(key)
+            .and_then(Value::as_u64)
+            .and_then(|n| u32::try_from(n).ok())
+            .filter(|n| *n > 0)
+    };
+    let (Some(cwd), Some(relative_path), Some(line), Some(column)) = (
+        workspace_cwd(&payload),
+        relative_path,
+        position("line"),
+        position("column"),
+    ) else {
+        return vec![file_failure_exit(
+            &id,
+            tag,
+            &WorkspaceAccessError::Unaddressable,
+            &identity,
+        )];
+    };
+    match files::go_to_definition(
+        &state.reads,
+        state.sandboxes.as_ref(),
+        &viewer_scope(&identity),
+        &cwd,
+        relative_path,
+        line,
+        column,
+    )
+    .await
+    {
+        Ok(result) => vec![success_exit(&id, result)],
         Err(error) => vec![file_failure_exit(&id, tag, &error, &identity)],
     }
 }

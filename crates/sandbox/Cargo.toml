@@ -84,6 +84,9 @@ flate2 = { version = "1", default-features = false, features = ["rust_backend"] 
 # write the rotated refresh token back to the backend).
 notify = "8"
 
+# File URIs exchanged with language servers (`code_intel`)
+urlencoding = { workspace = true }
+
 # Base64 encoding (binary file support)
 base64 = { workspace = true }
 

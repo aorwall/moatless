@@ -9,7 +9,7 @@ use std::sync::Arc;
 use futures::Stream;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
-use tracing::info;
+use tracing::{info, warn};
 
 use sandbox_proto::sandbox_service_server::SandboxService;
 use sandbox_proto::{
@@ -35,6 +35,7 @@ use sandbox_proto::{
 use crate::agent::scheduled_job::JobSnapshot;
 use crate::agent::types::AgentStatus;
 use crate::agent::wake_note;
+use crate::code_intel::{CodeIntel, CodeIntelError};
 use crate::commands::{CommandError, CommandRecord, CommandSpec, CommandState};
 use crate::files;
 use crate::state::{RegisterTaskContextError, SandboxState, TaskContext, TaskContextLookupError};
@@ -44,9 +45,18 @@ use crate::writer_admission::WriterPermit;
 /// gRPC server for sandbox commands.
 pub struct SandboxServiceImpl {
     pub state: SandboxState,
+    code_intel: CodeIntel,
 }
 
 impl SandboxServiceImpl {
+    pub fn new(state: SandboxState) -> Self {
+        let code_intel = CodeIntel::new(
+            &state.config.language_servers,
+            state.lifecycle_cancel.clone(),
+        );
+        Self { state, code_intel }
+    }
+
     /// Admit an RPC that is itself the only owner of its write, refusing it
     /// once teardown has begun.
     ///
@@ -677,6 +687,39 @@ impl SandboxService for SandboxServiceImpl {
     }
 
     #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
+    async fn go_to_definition(
+        &self,
+        request: Request<sandbox_proto::GoToDefinitionRequest>,
+    ) -> Result<Response<sandbox_proto::GoToDefinitionResponse>, Status> {
+        let req = request.into_inner();
+        let context = self.resolve_member_context(req.task_id.as_deref()).await?;
+        let locations = self
+            .code_intel
+            .definition(&context.workspace_dir, &req.path, req.line, req.column)
+            .await
+            .map_err(|e| match e {
+                CodeIntelError::File(e) => file_error_to_status(e),
+                CodeIntelError::Unsupported(_) => Status::failed_precondition(e.to_string()),
+                CodeIntelError::Server(_) => {
+                    warn!(error = %e, path = %req.path, "Go-to-definition failed");
+                    Status::unavailable(e.to_string())
+                }
+            })?;
+        Ok(Response::new(sandbox_proto::GoToDefinitionResponse {
+            locations: locations
+                .into_iter()
+                .map(|l| sandbox_proto::SourceLocation {
+                    path: l.path,
+                    line: l.line,
+                    column: l.column,
+                    end_line: l.end_line,
+                    end_column: l.end_column,
+                })
+                .collect(),
+        }))
+    }
+
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
     async fn write_file(
         &self,
         request: Request<WriteFileRequest>,
@@ -937,9 +980,7 @@ mod tests {
     /// closure is answered before the arguments are.
     #[tokio::test]
     async fn a_closed_workspace_admits_no_further_writer() {
-        let service = SandboxServiceImpl {
-            state: crate::state::test_support::state_for_test(),
-        };
+        let service = SandboxServiceImpl::new(crate::state::test_support::state_for_test());
         service
             .state
             .writer_admission
@@ -1002,9 +1043,7 @@ mod tests {
     /// guard above is what refuses them and not the empty request.
     #[tokio::test]
     async fn an_open_workspace_answers_a_writer_on_its_merits() {
-        let service = SandboxServiceImpl {
-            state: crate::state::test_support::state_for_test(),
-        };
+        let service = SandboxServiceImpl::new(crate::state::test_support::state_for_test());
 
         let status = service
             .run_command(Request::new(RunCommandRequest::default()))

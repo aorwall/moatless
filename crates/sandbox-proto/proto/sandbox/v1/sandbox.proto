@@ -635,6 +635,10 @@ service SandboxService {
   rpc WriteFile(WriteFileRequest) returns (WriteFileResponse);
   rpc ListFiles(ListFilesRequest) returns (ListFilesResponse);
   rpc SearchFilesByName(SearchFilesByNameRequest) returns (SearchFilesByNameResponse);
+  // Where the symbol at a position is defined, answered by a language server
+  // the sandbox starts from the Workspace's `languageServers`.
+  // FAILED_PRECONDITION when no configured server handles the file.
+  rpc GoToDefinition(GoToDefinitionRequest) returns (GoToDefinitionResponse);
 
   // Git review operations: the patch a person reads, the branch state behind
   // it, and the refs they can pick to diff against.
@@ -1102,6 +1106,30 @@ message ReadFileResponse {
   optional bool is_modified = 5;
   optional bool is_binary = 6;
   optional string media_type = 7;
+}
+
+message GoToDefinitionRequest {
+  // Relative to the member's workspace directory.
+  string path = 1;
+  // 1-based line and 1-based UTF-16 column, as an editor counts them.
+  uint32 line = 2;
+  uint32 column = 3;
+  optional string task_id = 4;
+}
+
+// A range in a file under the member's workspace directory, counted like
+// `GoToDefinitionRequest`'s position.
+message SourceLocation {
+  string path = 1;
+  uint32 line = 2;
+  uint32 column = 3;
+  uint32 end_line = 4;
+  uint32 end_column = 5;
+}
+
+message GoToDefinitionResponse {
+  // Empty when the server knows no definition, or only one outside the workspace.
+  repeated SourceLocation locations = 1;
 }
 
 message WriteFileRequest {

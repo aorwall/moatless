@@ -240,6 +240,45 @@ pub async fn write_file(
     Ok(json!({ "relativePath": relative_path }))
 }
 
+/// Where the symbol at `line`/`column` (1-based, UTF-16) of `relative_path`
+/// is defined (`projects.goToDefinition`). Needs a running Sandbox: the
+/// language server lives in it, so a snapshot cannot answer.
+pub async fn go_to_definition(
+    reads: &T3Reads,
+    sandboxes: &dyn SandboxConnector,
+    viewer: &ScopeContext,
+    cwd: &str,
+    relative_path: &str,
+    line: u32,
+    column: u32,
+) -> Result<Value, WorkspaceAccessError> {
+    let conversations = reads.conversations();
+    let task_id = workspace::addressed_conversation(conversations, viewer, cwd).await?;
+    let response = sandboxes
+        .sandbox_client(&task_id)
+        .await
+        .map_err(WorkspaceAccessError::NotRunning)?
+        .go_to_definition_for_task(Some(&task_id), relative_path, line, column)
+        .await
+        .map_err(|status| {
+            WorkspaceAccessError::Sandbox(classify_grpc_error(status, "go_to_definition"))
+        })?;
+    let locations: Vec<Value> = response
+        .locations
+        .into_iter()
+        .map(|l| {
+            json!({
+                "relativePath": l.path,
+                "line": l.line,
+                "column": l.column,
+                "endLine": l.end_line,
+                "endColumn": l.end_column,
+            })
+        })
+        .collect();
+    Ok(json!({ "locations": locations }))
+}
+
 /// Why [`read_file`] has no text to give.
 #[derive(Debug)]
 pub enum ReadFileError {

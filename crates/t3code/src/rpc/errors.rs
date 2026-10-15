@@ -56,6 +56,7 @@ pub(crate) fn file_failure_exit(
     identity: &UiRpcAuthIdentity,
 ) -> Value {
     let error_tag = match tag {
+        "projects.goToDefinition" => "ProjectGoToDefinitionError",
         "projects.readFile" => "ProjectReadFileError",
         "projects.searchEntries" => "ProjectSearchEntriesError",
         "projects.writeFile" => "ProjectWriteFileError",
