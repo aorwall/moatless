@@ -176,7 +176,7 @@ The `REPO_CONFIG` environment variable contains a JSON-encoded configuration obj
   "systemPrompt": "Optional additional system prompt for the agent",
   "codeExecution": {
     "setupCommands": ["npm install", "npm run build"],
-    "dockerImage": "aorwall/moatless-vibe-sandbox-js:latest"
+    "dockerImage": "aorwall/moatless-sandbox:latest"
   }
 }
 ```
@@ -591,32 +591,13 @@ Backend                                          Sandbox
 
 ## Docker Image
 
-### Base Image (`Dockerfile.sandbox`)
+### One image, two tags
 
-Built on Ubuntu 24.04 with:
-
-| Component | Version | Notes |
-|-----------|---------|-------|
-| Git | Latest | With LFS support |
-| Node.js | 22.x | Via NodeSource |
-| Claude Code CLI | Latest | npm global install |
-| GitHub CLI (gh) | Latest | For repository operations |
-| Git Delta | Latest | Better diff formatting |
-| Python build deps | — | For pyenv support |
-| Network tools | — | curl, wget, netcat, openssh |
-
-### JavaScript Variant (`Dockerfile.sandbox-js`)
-
-Extends base with:
-
-| Component | Version | Notes |
-|-----------|---------|-------|
-| Bun | 1.3.6 | JavaScript runtime |
-| pnpm, yarn | Latest | Via corepack |
-| TypeScript, tsx | Latest | TypeScript execution |
-| Vite+ (`vp`) | 0.2.7 | Unified JS toolchain at `VP_HOME=/opt/vite-plus` |
-| Playwright | Pinned | One package tree per pin under `/opt/playwright-packages` |
-| Chromium | Shared | One build per pin at `/opt/playwright-browsers` |
+Every sandbox runs one image: `Dockerfile.sandbox-base` holds the tooling and
+`Dockerfile.sandbox` adds the entrypoint scripts and the `sandbox` and `moat`
+binaries. It is published as `moatless-sandbox` and under the alias
+`moatless-sandbox-js`. The header comment of `Dockerfile.sandbox-base` lists the
+tooling; [Docker Build Guide](docker-builds.md#sandbox-image) covers building it.
 
 ### Rust Toolchain
 

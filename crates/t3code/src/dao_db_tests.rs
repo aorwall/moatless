@@ -96,7 +96,7 @@ fn tool_result(id: &str) -> serde_json::Value {
 ///
 /// No text of its own; it settles the call's activity and names the *calling*
 /// Message, so no run before it is needed.
-#[sqlx::test(migrations = "../core/migrations")]
+#[sqlx::test]
 async fn a_result_is_read_as_a_change_to_the_call_it_answers(pool: PgPool) {
     seed_task(&pool).await;
 
@@ -156,7 +156,7 @@ async fn a_result_is_read_as_a_change_to_the_call_it_answers(pool: PgPool) {
 ///
 /// Every change describes the row it names — no lookback, no row dragged along
 /// for context.
-#[sqlx::test(migrations = "../core/migrations")]
+#[sqlx::test]
 async fn a_batch_is_read_as_the_rows_it_names(pool: PgPool) {
     seed_task(&pool).await;
 
@@ -201,7 +201,7 @@ async fn a_batch_is_read_as_the_rows_it_names(pool: PgPool) {
 ///
 /// Both share one change, block and ordinal; the ordinal must survive a
 /// redelivery, and the read must return both in written order.
-#[sqlx::test(migrations = "../core/migrations")]
+#[sqlx::test]
 async fn a_question_is_stored_as_a_call_and_as_the_question_it_asked(pool: PgPool) {
     seed_task(&pool).await;
 
@@ -288,7 +288,7 @@ async fn a_question_is_stored_as_a_call_and_as_the_question_it_asked(pool: PgPoo
 /// The call is stored once (unique on `(task_id, tool_use_id)`); the panel row
 /// is rewritten on the new Message, so a client waiting on settlement needs
 /// this read to find it.
-#[sqlx::test(migrations = "../core/migrations")]
+#[sqlx::test]
 async fn a_re_presented_question_is_read_as_settled_without_its_call(pool: PgPool) {
     seed_task(&pool).await;
 
@@ -356,7 +356,7 @@ async fn a_re_presented_question_is_read_as_settled_without_its_call(pool: PgPoo
 ///
 /// A context-window reading is the live case: written through the standalone
 /// path, read back by activity id.
-#[sqlx::test(migrations = "../core/migrations")]
+#[sqlx::test]
 async fn a_standalone_activity_change_names_the_activity_and_reads_back(pool: PgPool) {
     seed_task(&pool).await;
 
@@ -400,7 +400,7 @@ async fn a_standalone_activity_change_names_the_activity_and_reads_back(pool: Pg
 /// A Sandbox status that restates the one before it writes nothing and spends
 /// no position: the collapse check runs before the allocation, so a restated
 /// status records no change for a subscriber to be woken by.
-#[sqlx::test(migrations = "../core/migrations")]
+#[sqlx::test]
 async fn a_restated_sandbox_status_records_no_change_and_spends_no_position(pool: PgPool) {
     seed_task(&pool).await;
     let ready = sandbox_activity(
@@ -450,7 +450,7 @@ async fn a_restated_sandbox_status_records_no_change_and_spends_no_position(pool
 ///
 /// Joined from `file` context rows only, scoped to this Message, each carrying
 /// the metadata a rendered attachment needs.
-#[sqlx::test(migrations = "../core/migrations")]
+#[sqlx::test]
 async fn a_message_carries_the_uploads_attached_to_it(pool: PgPool) {
     seed_task(&pool).await;
 
@@ -517,7 +517,7 @@ async fn a_message_carries_the_uploads_attached_to_it(pool: PgPool) {
 ///
 /// Without the call the projection has no plan to read, so a client is never
 /// told the plan was answered.
-#[sqlx::test(migrations = "../core/migrations")]
+#[sqlx::test]
 async fn a_windowed_answer_reaches_the_plan_call_it_settles(pool: PgPool) {
     seed_task(&pool).await;
 
@@ -627,7 +627,7 @@ async fn seed_archived(pool: &PgPool, from: i64, to: i64) {
 ///
 /// A page filled exactly to the cap has no cursor: the extra row the query
 /// reads is only a signal.
-#[sqlx::test(migrations = "../core/migrations")]
+#[sqlx::test]
 async fn the_archive_pages_through_every_closed_task_newest_first(pool: PgPool) {
     let limit = crate::dao::ARCHIVED_LIMIT;
     seed_archived(&pool, 0, limit).await;
@@ -699,7 +699,7 @@ async fn the_archive_pages_through_every_closed_task_newest_first(pool: PgPool) 
 
 /// The one-row access check a silent thread poll asks gives the same answer
 /// as the full read it stands in for, across the read and status rules.
-#[sqlx::test(migrations = "../core/migrations")]
+#[sqlx::test]
 async fn the_access_check_agrees_with_the_conversation_read(pool: PgPool) {
     let repo = make_repository_row("repo-1", USER_1);
     moatless_workspaces::compose::seed_repository(&pool, &repo)
@@ -740,7 +740,7 @@ async fn the_access_check_agrees_with_the_conversation_read(pool: PgPool) {
 /// A Message's origin names come from three tables the Task band does not own,
 /// joined beside the rows `TranscriptReads` returns: the Binding its subject
 /// key names, the Loop a `scheduled` Message was fired by, and its sender.
-#[sqlx::test(migrations = "../core/migrations")]
+#[sqlx::test]
 async fn a_message_reads_the_names_its_origin_resolves_to(pool: PgPool) {
     seed_task(&pool).await;
     sqlx::query(

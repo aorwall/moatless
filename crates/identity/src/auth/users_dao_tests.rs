@@ -33,7 +33,7 @@ fn make_user(id: Uuid, login: &str, provider: &str, provider_user_id: &str) -> U
 
 /// Login resolves by `(provider, provider_user_id)`; legacy references resolve
 /// by `provider_user_id` alone. `github`/`github_app` collapse to one key.
-#[sqlx::test(migrations = "../core/migrations")]
+#[sqlx::test]
 async fn resolves_users_by_provider_and_legacy_id(pool: PgPool) {
     let repo = PgUserDao(pool.clone());
 
@@ -164,7 +164,7 @@ async fn resolves_users_by_provider_and_legacy_id(pool: PgPool) {
 
 /// `update_user_profile_and_role` is the only writer of `status`, and a
 /// disabled row stays disabled through a login and through an unrelated edit.
-#[sqlx::test(migrations = "../core/migrations")]
+#[sqlx::test]
 async fn only_an_explicit_update_moves_the_status(pool: PgPool) {
     let repo = PgUserDao(pool);
     let uid = Uuid::new_v4();
@@ -208,7 +208,7 @@ async fn only_an_explicit_update_moves_the_status(pool: PgPool) {
 }
 
 /// `list_users` hides a disabled row unless the caller asks for it.
-#[sqlx::test(migrations = "../core/migrations")]
+#[sqlx::test]
 async fn the_directory_hides_disabled_accounts_by_default(pool: PgPool) {
     let repo = PgUserDao(pool);
     let departed = Uuid::new_v4();
@@ -233,7 +233,7 @@ async fn the_directory_hides_disabled_accounts_by_default(pool: PgPool) {
 /// The FK columns (`team_members.user_id`, `user_credentials.user_id`) are
 /// native `uuid` referencing `users.id`; rows resolve through the DAOs and the
 /// FK rejects an unknown user.
-#[sqlx::test(migrations = "../core/migrations")]
+#[sqlx::test]
 async fn native_uuid_foreign_keys_resolve_and_enforce(pool: PgPool) {
     let users = PgUserDao(pool.clone());
     let teams = PgTeamDao(pool.clone());

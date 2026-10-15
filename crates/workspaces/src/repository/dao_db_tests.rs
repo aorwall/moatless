@@ -212,7 +212,7 @@ async fn soft_delete_releases_canonical_url(pool: PgPool) {
         .unwrap();
 }
 
-#[sqlx::test(migrations = "../core/migrations")]
+#[sqlx::test]
 async fn reading_after_a_remote_update_rebuilds_host_and_transport(pool: PgPool) {
     use crate::repository::models::RepositoryProvider;
     seed_team(&pool, "personal-user-1").await;

@@ -169,7 +169,8 @@ enforce!(
     base_surface,
     file_size,
     conversation_writer,
-    session_line_parsing
+    session_line_parsing,
+    sqlx_test_migrations
 );
 
 #[test]

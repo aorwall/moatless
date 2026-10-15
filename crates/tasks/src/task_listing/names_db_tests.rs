@@ -11,7 +11,7 @@ const USER_1: &str = "11111111-1111-1111-1111-111111111111";
 const USER_2: &str = "22222222-2222-2222-2222-222222222222";
 
 /// A Task the viewer may not read has no name entry, whether or not it exists.
-#[sqlx::test(migrations = "../core/migrations")]
+#[sqlx::test]
 async fn readable_names_omit_what_the_viewer_cannot_read(pool: PgPool) {
     let repo = make_repository_row("repo-1", USER_1);
     moatless_workspaces::compose::seed_repository(&pool, &repo)

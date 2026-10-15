@@ -146,10 +146,8 @@ bash scripts/shadow/up.sh          # sync env -> build -> run backend on :8080, 
   the shadow; the real backend's allowlist is untouched.
 - **Extra overrides:** drop `KEY=value` lines in
   `$RUNTIME_DIR/shadow/overrides.env` (e.g. `RUST_LOG=debug`); they win over
-  the synced values. `sync-env.sh` falls back to the old
-  `/opt/moatless/data/shadow/overrides.env` with a warning if the `RUNTIME_DIR`
-  file is absent — move an existing override file there, since `DATA_DIR` is
-  the shared-data volume and the fallback is for one release only.
+  the synced values. `sync-env.sh` reads no other path: an override file under
+  `DATA_DIR`, the shared-data volume, is ignored.
   `RUNTIME_DIR` (default `/run/moatless`) may be `tmpfs`, so a hand-written
   `overrides.env` there might not survive a sandbox restart the way a
   regenerated `backend.env` does — keep a copy outside the sandbox if you'd

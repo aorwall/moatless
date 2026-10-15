@@ -76,7 +76,7 @@ async fn seed_agent_message(pool: &PgPool, task_id: &str, position: i64, text: &
 /// person's Message outranks the agent's, which outranks a Task name; a
 /// sandbox wake, another user's private Task and a closed Task match nothing;
 /// `%` is a literal.
-#[sqlx::test(migrations = "../core/migrations")]
+#[sqlx::test]
 async fn a_search_reaches_every_readable_open_task_and_ranks_by_source(pool: PgPool) {
     seed_repo(&pool).await;
     seed_owned(&pool, "by-person", USER_1).await;

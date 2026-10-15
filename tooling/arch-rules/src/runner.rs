@@ -6,8 +6,8 @@ use crate::{
     duplicate_names, env_read_owner, file_size, floor_type_admission, manifest_inheritance,
     module_names, persistence_export, persistence_sql_location, port_admission, process_exit,
     reqwest_default, route_registration, row_stays_with_query, session_line_parsing,
-    single_implementation_trait, store_privacy, table_ownership, transport_direction,
-    vendor_crate_owner, vendor_type_export,
+    single_implementation_trait, sqlx_test_migrations, store_privacy, table_ownership,
+    transport_direction, vendor_crate_owner, vendor_type_export,
 };
 use anyhow::{Context, Result};
 
@@ -69,6 +69,7 @@ rules!(
     vendor_crate_owner => "A vendor SDK is declared only by the crate that adapts it.",
     vendor_type_export => "No public API names a vendor SDK type; its owner translates it.",
     duplicate_constant_value => "A literal constant value is defined in more than one production crate.",
+    sqlx_test_migrations => "Database tests reach the shared migrations through each crate's symlink.",
 );
 
 /// Run every registered rule against one workspace read.

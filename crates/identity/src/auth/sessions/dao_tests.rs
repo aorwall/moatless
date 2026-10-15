@@ -25,7 +25,7 @@ async fn active_count(pool: &PgPool, user_id: Uuid) -> i64 {
     .unwrap()
 }
 
-#[sqlx::test(migrations = "../core/migrations")]
+#[sqlx::test]
 async fn unknown_expired_and_disabled_account_sessions_do_not_resolve(pool: PgPool) {
     let user_id = seed_user(&pool).await;
     let sessions = PgSessionDao(pool.clone());
@@ -79,7 +79,7 @@ async fn unknown_expired_and_disabled_account_sessions_do_not_resolve(pool: PgPo
     );
 }
 
-#[sqlx::test(migrations = "../core/migrations")]
+#[sqlx::test]
 async fn revocation_audits_only_newly_revoked_sessions(pool: PgPool) {
     let user_id = seed_user(&pool).await;
     let other_user_id = seed_user(&pool).await;
@@ -152,7 +152,7 @@ async fn revocation_audits_only_newly_revoked_sessions(pool: PgPool) {
     ));
 }
 
-#[sqlx::test(migrations = "../core/migrations")]
+#[sqlx::test]
 async fn audit_insert_failure_rolls_back_session_creation(pool: PgPool) {
     let user_id = seed_user(&pool).await;
     let sessions = PgSessionDao(pool.clone());
@@ -179,7 +179,7 @@ async fn audit_insert_failure_rolls_back_session_creation(pool: PgPool) {
     assert_eq!(audits, 0);
 }
 
-#[sqlx::test(migrations = "../core/migrations")]
+#[sqlx::test]
 async fn audit_insert_failure_rolls_back_single_and_all_session_revocation(pool: PgPool) {
     let user_id = seed_user(&pool).await;
     let sessions = PgSessionDao(pool.clone());
@@ -210,7 +210,7 @@ async fn audit_insert_failure_rolls_back_single_and_all_session_revocation(pool:
     assert_eq!(count, 2);
 }
 
-#[sqlx::test(migrations = "../core/migrations")]
+#[sqlx::test]
 async fn touch_caps_expiry_and_does_not_update_revoked_rows(pool: PgPool) {
     let user_id = seed_user(&pool).await;
     let sessions = PgSessionDao(pool.clone());
@@ -297,7 +297,7 @@ async fn seed_session(sessions: &PgSessionDao, user_id: Uuid, token_hash: &[u8])
         .unwrap();
 }
 
-#[sqlx::test(migrations = "../core/migrations")]
+#[sqlx::test]
 async fn bot_user_session_validates(pool: PgPool) {
     let users = PgUserDao(pool.clone());
     let sessions = PgSessionDao(pool.clone());

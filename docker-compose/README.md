@@ -245,16 +245,10 @@ AUTH0_CALLBACK_URL=http://localhost:8080/api/v1/auth/auth0/callback
 
 #### Sandbox Image
 
-Choose sandbox environment:
-
-**JavaScript/TypeScript only** (default, 2GB):
+There is one sandbox image, published as `aorwall/moatless-sandbox` and under
+the alias `aorwall/moatless-sandbox-js`. Pin a tag or a registry mirror with:
 ```bash
-SANDBOX_IMAGE=aorwall/moatless-vibe-sandbox-js:latest
-```
-
-**Full stack** (includes Python, Rust, Go, Java, 5-8GB):
-```bash
-SANDBOX_IMAGE=aorwall/moatless-vibe-sandbox:latest
+SANDBOX_IMAGE=aorwall/moatless-sandbox:latest
 ```
 
 #### Port Configuration

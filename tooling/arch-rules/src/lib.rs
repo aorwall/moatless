@@ -38,6 +38,7 @@ pub mod session_line_parsing;
 pub mod single_implementation_trait;
 mod source_index;
 mod sql;
+pub mod sqlx_test_migrations;
 pub mod store_privacy;
 pub mod table_ownership;
 pub mod transport_direction;

@@ -1,85 +1,53 @@
 # Docker Build Guide
 
-## Sandbox Images
+## Sandbox Image
 
-Two sandbox images are available for task execution in Kubernetes:
+Tasks run in one sandbox image. `docker/build-sandbox.sh` builds it and pushes
+it under two tags that name the same image:
 
-| Image | Size | Use Case |
-|-------|------|----------|
-| `aorwall/moatless-vibe-sandbox` | ~1.7GB | Full polyglot (Python, Node, Go, Rust, Java) |
-| `aorwall/moatless-vibe-sandbox-js` | ~530MB | JavaScript/TypeScript only |
+| Tag | Note |
+|-----|------|
+| `aorwall/moatless-sandbox:<tag>` | The name to use |
+| `aorwall/moatless-sandbox-js:<tag>` | Alias for configurations that still name it |
 
-## Building Images
+The image is `moatless-sandbox-base` (`docker/Dockerfile.sandbox-base`) plus the
+entrypoint scripts and the `sandbox` and `moat` binaries
+(`docker/Dockerfile.sandbox`). The base holds the tooling: Node.js, npm, Bun,
+pnpm, yarn, TypeScript/tsx, Vite+, Playwright with Chromium, the Claude Code and
+Codex CLIs, Task, the Rust toolchain and git. Its header comment is the current
+list.
 
-### Full Sandbox (all languages)
-
-```bash
-# Build for local platform
-./docker/build-sandbox.sh
-
-# Build for K8s (linux/amd64) and push
-./docker/build-sandbox.sh --platform linux/amd64 --push
-
-# Build with custom tag
-./docker/build-sandbox.sh --tag v1.0.0 --push
-```
-
-### Slim JS/TS Sandbox
+## Building
 
 ```bash
-# Build for local platform
+# Build multi-arch and push both tags (the default)
 ./docker/build-sandbox.sh
 
-# Build for K8s and push
-./docker/build-sandbox.sh --platform linux/amd64 --push
+# Build single-arch for the local Docker daemon, no push
+./docker/build-sandbox.sh --local
+
+# Build for K8s (linux/amd64) with a custom tag and push
+./docker/build-sandbox.sh --platform linux/amd64 --tag v1.0.0 --push
 ```
 
 ## Build Options
 
-All build scripts support:
-
 | Option | Description |
 |--------|-------------|
-| `--tag TAG` | Custom image tag (default: `latest`) |
+| `--tag TAG` | Image tag (default: `latest`) |
 | `--platform ARCH` | Target platform (e.g., `linux/amd64`) |
-| `--push` | Push to Docker Hub after building |
+| `--local` | Single-arch build for this host, no push |
+| `--push` | Push after building |
+| `--only TARGET` | Build only `sandbox-base` or `sandbox` |
+| `--skip-base` | Reuse an existing `sandbox-base` |
 | `--no-cache` | Build without Docker cache |
-| `--help` | Show help |
+| `--help` | Show every option |
 
-## Using Custom Sandbox Images
+## Choosing the Image
 
-### In Kubernetes Settings
-
-```json
-{
-  "kubernetes": {
-    "image": "aorwall/moatless-vibe-sandbox-js:latest"
-  }
-}
-```
-
-### Via Environment Variable
-
-```bash
-K8S_SANDBOX_IMAGE=aorwall/moatless-vibe-sandbox-js:latest
-```
-
-## What's in Each Image
-
-### Full Sandbox (`moatless-vibe-sandbox`)
-- Node.js 22, Bun, npm/pnpm/yarn
-- Python 3.12 (pyenv)
-- Go 1.23
-- Rust (rustup)
-- Java 21, Maven
-- Playwright + Chromium
-- Claude Code CLI
-
-### Slim Sandbox (`moatless-vibe-sandbox-js`)
-- Node.js 22, Bun, npm/pnpm/yarn
-- TypeScript, tsx
-- Playwright (no browsers)
-- Claude Code CLI
+The backend reads `SANDBOX_IMAGE` for Kubernetes sandboxes and
+`DOCKER_SANDBOX_IMAGE` for Docker sandboxes; both default to
+`aorwall/moatless-sandbox:latest`.
 
 ## Cross-Platform Builds
 

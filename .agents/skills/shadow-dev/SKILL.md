@@ -70,8 +70,7 @@ reconciliation actions, cron scheduler, Codex refresh, and migrations. It also
 adds localhost/127.0.0.1 port 5733 browser origins.
 These settings do not make shared database writes private.
 
-Additional overrides go in `$RUNTIME_DIR/shadow/overrides.env` (falls back to the
-deprecated `/opt/moatless/data/shadow/overrides.env` with a warning for one release)
+Additional overrides go in `$RUNTIME_DIR/shadow/overrides.env`, and nowhere else,
 as sourceable `export KEY=value` lines. Resync/rebuild after changing environment.
 Use a separate database before enabling migrations for a schema experiment. Do not
 repair workspace service-account configuration by updating repository columns in SQL.

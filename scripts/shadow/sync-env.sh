@@ -145,19 +145,11 @@ SYNCED_ENV="$(printf '%s' "$DEPLOY_JSON" | CONTAINER="$CONTAINER" SECRET_DIR="$S
   echo "export METRICS_PORT='9090'"
   # Optional extra overrides supplied by the developer. RUNTIME_DIR is not the
   # shared-data volume, so an override file there is not the credential
-  # exposure the generated vars above were moved to RUNTIME_DIR to close. Fall
-  # back to the old DATA_DIR path with a warning for one release so an
-  # existing override file keeps working while it is being moved.
+  # exposure the generated vars above were moved to RUNTIME_DIR to close.
   RUNTIME_OVERRIDES="${RUNTIME_DIR}/shadow/overrides.env"
-  LEGACY_OVERRIDES="${DATA_DIR:-/opt/moatless/data}/shadow/overrides.env"
   if [ -f "$RUNTIME_OVERRIDES" ]; then
     echo "# --- user overrides (overrides.env) ---"
     cat "$RUNTIME_OVERRIDES"
-  elif [ -f "$LEGACY_OVERRIDES" ]; then
-    echo "WARNING: reading overrides.env from ${LEGACY_OVERRIDES}, inside DATA_DIR." >&2
-    echo "         Move it to ${RUNTIME_OVERRIDES}; the DATA_DIR path is deprecated." >&2
-    echo "# --- user overrides (overrides.env, legacy DATA_DIR path) ---"
-    cat "$LEGACY_OVERRIDES"
   fi
 } > "$OUT"
 

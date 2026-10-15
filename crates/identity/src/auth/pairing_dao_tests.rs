@@ -61,7 +61,7 @@ async fn seed_user(pool: &PgPool) -> Uuid {
     id
 }
 
-#[sqlx::test(migrations = "../core/migrations")]
+#[sqlx::test]
 async fn a_redeemed_code_leaves_the_device_holding_a_working_key(pool: PgPool) {
     let user_id = seed_user(&pool).await;
     let pairing = crate::compose::device_pairing(pool.clone());
@@ -103,7 +103,7 @@ async fn a_redeemed_code_leaves_the_device_holding_a_working_key(pool: PgPool) {
     assert_eq!(listed[0].name, "Bedside phone (iOS)");
 }
 
-#[sqlx::test(migrations = "../core/migrations")]
+#[sqlx::test]
 async fn a_code_is_worth_exactly_one_device(pool: PgPool) {
     let user_id = seed_user(&pool).await;
     let pairing = crate::compose::device_pairing(pool.clone());
@@ -134,7 +134,7 @@ async fn a_code_is_worth_exactly_one_device(pool: PgPool) {
     );
 }
 
-#[sqlx::test(migrations = "../core/migrations")]
+#[sqlx::test]
 async fn a_code_that_ran_out_of_time_is_refused(pool: PgPool) {
     let user_id = seed_user(&pool).await;
     let codes = PgPairingCodeDao(pool.clone());
@@ -161,7 +161,7 @@ async fn a_code_that_ran_out_of_time_is_refused(pool: PgPool) {
     assert!(matches!(redeemed, Err(PairingError::InvalidCode)));
 }
 
-#[sqlx::test(migrations = "../core/migrations")]
+#[sqlx::test]
 async fn a_lower_case_code_is_the_same_code(pool: PgPool) {
     let user_id = seed_user(&pool).await;
     let pairing = crate::compose::device_pairing(pool.clone());
@@ -185,7 +185,7 @@ async fn a_lower_case_code_is_the_same_code(pool: PgPool) {
     );
 }
 
-#[sqlx::test(migrations = "../core/migrations")]
+#[sqlx::test]
 async fn pruning_clears_finished_codes_and_leaves_live_ones(pool: PgPool) {
     let user_id = seed_user(&pool).await;
     let codes = PgPairingCodeDao(pool.clone());
