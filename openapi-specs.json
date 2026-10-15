@@ -13748,7 +13748,8 @@
         "description": "A language server the sandbox can start for the agent's `LSP` tool.\n\nClosed because each value maps to a binary the sandbox image installs;\nthe sandbox owns that mapping.",
         "enum": [
           "typescript",
-          "rust"
+          "rust",
+          "java"
         ]
       },
       "LinearCommentCreateRequest": {

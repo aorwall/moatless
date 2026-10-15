@@ -83,6 +83,7 @@ impl LspClient {
         command: &str,
         args: &[&str],
         root: &Path,
+        initialization_options: Value,
         timeout: Duration,
     ) -> Result<Self, LspError> {
         let mut child = Command::new(command)
@@ -131,6 +132,7 @@ impl LspClient {
                     "rootUri": root_uri,
                     "workspaceFolders": [{ "uri": root_uri, "name": "workspace" }],
                     "capabilities": client_capabilities(),
+                    "initializationOptions": initialization_options,
                 }),
                 timeout,
             )

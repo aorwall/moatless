@@ -73,6 +73,26 @@ done
 # Maven sources /etc/mavenrc on every run; it mints the CodeArtifact token.
 install -m 0644 "$(dirname "$0")/mavenrc" /etc/mavenrc
 
+# Eclipse JDT.LS for the `java` language server, with the Lombok agent that
+# lets it see generated builders and accessors. Runs on JDK 21 or later.
+# Bump the version, build stamp and checksum together, by hand: the download
+# URL needs all three (milestones/<version>/latest.txt names the build).
+JDTLS_VERSION=1.62.0
+JDTLS_BUILD=202610131109
+JDTLS_SHA256=f587dafd8410633c2c2bf005e853a2bbb03cddee88933d49bfe6d9cb1cf09342
+LOMBOK_VERSION=1.18.48
+LOMBOK_SHA1=6858f13541bab505384f07053c5a7b539bbfd3e3
+install -d -m 0755 /opt/jdtls
+wget -qO /tmp/jdtls.tar.gz \
+    "https://download.eclipse.org/jdtls/milestones/${JDTLS_VERSION}/jdt-language-server-${JDTLS_VERSION}-${JDTLS_BUILD}.tar.gz"
+echo "${JDTLS_SHA256}  /tmp/jdtls.tar.gz" | sha256sum -c -
+tar -xzf /tmp/jdtls.tar.gz -C /opt/jdtls
+rm /tmp/jdtls.tar.gz
+wget -qO /opt/jdtls/lombok.jar \
+    "https://repo1.maven.org/maven2/org/projectlombok/lombok/${LOMBOK_VERSION}/lombok-${LOMBOK_VERSION}.jar"
+echo "${LOMBOK_SHA1}  /opt/jdtls/lombok.jar" | sha1sum -c -
+install -m 0755 "$(dirname "$0")/moatless-jdtls" /usr/local/bin/moatless-jdtls
+
 # The real JAVA_HOME/PATH ENV is emitted into the generated Dockerfile from
 # this feature's feature.json "env" field (see generate-recipe.sh) — that's
 # what the sandbox process itself inherits. This /etc/profile append is only

@@ -174,7 +174,15 @@ impl CodeIntel {
         }
         let spec = server_spec(language);
         let started = Instant::now();
-        let client = LspClient::start(spec.command, spec.args, root, START_TIMEOUT).await?;
+        // The options may read the checkout; a failed read starts the server
+        // with its defaults.
+        let options_root = root.to_path_buf();
+        let options =
+            tokio::task::spawn_blocking(move || (spec.initialization_options)(&options_root))
+                .await
+                .unwrap_or(Value::Null);
+        let client =
+            LspClient::start(spec.command, spec.args, root, options, START_TIMEOUT).await?;
         info!(server = %language, root = %root.display(), elapsed_ms = started.elapsed().as_millis() as u64, "Started language server");
         let server = Arc::new(Server {
             client,

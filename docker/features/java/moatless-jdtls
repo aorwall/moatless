@@ -1,0 +1,18 @@
+#!/bin/sh
+# The `java` language server (crates/sandbox/src/init/language_servers.rs).
+# The sandbox starts it in the workspace directory and sends the settings in
+# `initialize`; this script supplies what only a launch can: the CodeArtifact
+# token, Lombok, and a data directory outside the checkout.
+
+# m2e resolves through settings that read ${env.CODEARTIFACT_AUTH_TOKEN}, which
+# only /etc/mavenrc exports; without it every com.soaplabs artifact is missing.
+[ -r /etc/mavenrc ] && . /etc/mavenrc
+
+data="${XDG_CACHE_HOME:-$HOME/.cache}/jdtls/$(pwd | sha256sum | cut -c1-16)"
+# A system property only: in `initializationOptions` it is ignored, and JDT.LS
+# writes .project, .classpath and .settings into every module of the checkout.
+exec /opt/jdtls/bin/jdtls \
+    --jvm-arg=-javaagent:/opt/jdtls/lombok.jar \
+    --jvm-arg=-Djava.import.generatesMetadataFilesAtProjectRoot=false \
+    --jvm-arg=-Xmx3g \
+    -data "$data" "$@"

@@ -300,6 +300,8 @@ crate::string_enum!(
         Typescript => "typescript",
         /// Rust, through rust-analyzer.
         Rust => "rust",
+        /// Java, through Eclipse JDT.LS; only the `soaplabs` recipe image has it.
+        Java => "java",
     }
 );
 

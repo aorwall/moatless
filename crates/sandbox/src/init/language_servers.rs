@@ -26,6 +26,8 @@ pub(crate) struct ServerSpec {
     pub(crate) args: &'static [&'static str],
     /// File extension to LSP language id.
     pub(crate) extensions: &'static [(&'static str, &'static str)],
+    /// `initializationOptions` for a server rooted at the given directory.
+    pub(crate) initialization_options: fn(&Path) -> Value,
 }
 
 pub(crate) fn server_spec(server: LanguageServer) -> ServerSpec {
@@ -45,13 +47,77 @@ pub(crate) fn server_spec(server: LanguageServer) -> ServerSpec {
                 (".cjs", "javascript"),
                 (".jsx", "javascriptreact"),
             ],
+            initialization_options: |_| Value::Null,
         },
         LanguageServer::Rust => ServerSpec {
             command: "rust-analyzer",
             args: &[],
             extensions: &[(".rs", "rust")],
+            initialization_options: |_| Value::Null,
+        },
+        // `docker/features/java/moatless-jdtls` adds the CodeArtifact token,
+        // Lombok and a data directory to JDT.LS.
+        LanguageServer::Java => ServerSpec {
+            command: "moatless-jdtls",
+            args: &[],
+            extensions: &[(".java", "java")],
+            initialization_options: jdtls_options,
         },
     }
+}
+
+/// JDT.LS settings for navigation. Without `autobuild` off it compiles into
+/// each module's `target/classes`, the directory the agent's `mvn` builds
+/// into; `moatless-jdtls` keeps its Eclipse metadata out of the checkout.
+fn jdtls_options(root: &Path) -> Value {
+    let mut java = json!({
+        "autobuild": { "enabled": false },
+        "maven": { "downloadSources": false },
+        "eclipse": { "downloadSources": false },
+    });
+    if let Some(settings) = maven_user_settings(root) {
+        java["configuration"] = json!({ "maven": { "userSettings": settings } });
+    }
+    json!({
+        "settings": { "java": java },
+        // Without it, a definition inside a jar or the JDK comes back empty.
+        "extendedClientCapabilities": {
+            "classFileContentsSupport": true,
+            "progressReportProvider": false,
+        },
+    })
+}
+
+/// The settings file a repository's `.mvn/maven.config` passes with `-s`, which
+/// `mvn` applies and JDT.LS's embedded Maven does not. Looks at `root`, then
+/// each directory directly under it in name order; the first file found applies
+/// to every checkout, since JDT.LS takes one settings file per server.
+fn maven_user_settings(root: &Path) -> Option<PathBuf> {
+    let children = std::fs::read_dir(root)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path());
+    let mut projects: Vec<PathBuf> = std::iter::once(root.to_path_buf())
+        .chain(children)
+        .collect();
+    projects[1..].sort();
+    projects.into_iter().find_map(|project| {
+        let config = std::fs::read_to_string(project.join(".mvn/maven.config")).ok()?;
+        let mut args = config.split_whitespace();
+        while let Some(arg) = args.next() {
+            let settings = match arg {
+                "-s" | "--settings" => args.next(),
+                _ => arg
+                    .strip_prefix("--settings=")
+                    .or_else(|| arg.strip_prefix("-s").filter(|rest| !rest.is_empty())),
+            };
+            if let Some(settings) = settings {
+                return Some(project.join(settings));
+            }
+        }
+        None
+    })
 }
 
 fn plugin_dir(claude_config_dir: &Path) -> PathBuf {
@@ -295,6 +361,47 @@ mod tests {
         assert_eq!(
             lsp["rust"]["args"],
             json!(["lsp-proxy", "/run/moatless/lsp/rust.sock"])
+        );
+    }
+
+    #[test]
+    fn jdtls_gets_the_settings_file_a_checkout_passes_to_maven() {
+        let workspace = TempDir::new().unwrap();
+        let repo = workspace.path().join("soap-backend");
+        std::fs::create_dir_all(repo.join(".mvn")).unwrap();
+        std::fs::write(
+            repo.join(".mvn/maven.config"),
+            "-T 1C\n--settings .github/ci-settings.xml\n",
+        )
+        .unwrap();
+
+        let options = jdtls_options(workspace.path());
+
+        assert_eq!(
+            options["settings"]["java"]["configuration"]["maven"]["userSettings"],
+            json!(repo.join(".github/ci-settings.xml"))
+        );
+        assert_eq!(options["settings"]["java"]["autobuild"]["enabled"], false);
+        assert_eq!(
+            options["extendedClientCapabilities"]["classFileContentsSupport"],
+            true
+        );
+    }
+
+    #[test]
+    fn the_short_settings_flag_is_read_in_both_forms_and_absent_is_none() {
+        let dir = TempDir::new().unwrap();
+        assert_eq!(maven_user_settings(dir.path()), None);
+        std::fs::create_dir(dir.path().join(".mvn")).unwrap();
+        std::fs::write(dir.path().join(".mvn/maven.config"), "-sci.xml").unwrap();
+        assert_eq!(
+            maven_user_settings(dir.path()),
+            Some(dir.path().join("ci.xml"))
+        );
+        std::fs::write(dir.path().join(".mvn/maven.config"), "-s ci.xml").unwrap();
+        assert_eq!(
+            maven_user_settings(dir.path()),
+            Some(dir.path().join("ci.xml"))
         );
     }
 }

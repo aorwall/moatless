@@ -52,7 +52,8 @@ pub enum WorkspaceAction {
         resources_json: Option<String>,
         /// Language servers the agent may start, comma-separated, e.g.
         /// `typescript,rust`. Pass an empty string to start none. `rust` runs
-        /// rust-analyzer, which can take several GB on a large crate graph.
+        /// rust-analyzer, which can take several GB on a large crate graph;
+        /// `java` runs JDT.LS, which only the `soaplabs` recipe image installs.
         #[arg(long)]
         language_servers: Option<String>,
         #[arg(long)]
@@ -99,7 +100,8 @@ pub enum WorkspaceAction {
         resources_json: Option<String>,
         /// Language servers the agent may start, comma-separated, e.g.
         /// `typescript,rust`. Pass an empty string to start none. `rust` runs
-        /// rust-analyzer, which can take several GB on a large crate graph.
+        /// rust-analyzer, which can take several GB on a large crate graph;
+        /// `java` runs JDT.LS, which only the `soaplabs` recipe image installs.
         #[arg(long)]
         language_servers: Option<String>,
         #[arg(long)]
@@ -141,7 +143,8 @@ pub enum WorkspaceAction {
         resources_json: Option<String>,
         /// Language servers the agent may start, comma-separated, e.g.
         /// `typescript,rust`. Pass an empty string to start none. `rust` runs
-        /// rust-analyzer, which can take several GB on a large crate graph.
+        /// rust-analyzer, which can take several GB on a large crate graph;
+        /// `java` runs JDT.LS, which only the `soaplabs` recipe image installs.
         #[arg(long)]
         language_servers: Option<String>,
         #[arg(long)]

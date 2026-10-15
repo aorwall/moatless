@@ -18,4 +18,5 @@ export type LanguageServer = typeof LanguageServer[keyof typeof LanguageServer];
 export const LanguageServer = {
   typescript: 'typescript',
   rust: 'rust',
+  java: 'java',
 } as const;
