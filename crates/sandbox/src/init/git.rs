@@ -177,6 +177,7 @@ pub async fn clone_repositories(
                 .get(&repo.mount_name)
                 .map(String::as_str),
             broker_origins: &broker_origins,
+            stall_secs: CLONE_STALL_SECS,
         };
         clone_with_retry(repo, &dest, &source, config.http.git_probe, deadline).await?;
         summary.cloned.push(repo.mount_name.clone());
@@ -224,6 +225,8 @@ struct CloneSource<'a> {
     github_upstream: Option<&'a str>,
     /// The origins the credential broker answers ([`broker_origins`]).
     broker_origins: &'a [String],
+    /// [`CLONE_STALL_SECS`] outside tests.
+    stall_secs: u64,
 }
 
 /// Wall-clock ceiling on clone retries, shared by every repo in one pass.
@@ -232,6 +235,16 @@ struct CloneSource<'a> {
 /// restore, this): the probe may SIGKILL it mid-backoff since the restore's
 /// report matters more, and the container restart is the outer retry.
 const CLONE_RETRY_BUDGET: Duration = Duration::from_secs(45);
+
+/// How long a clone may receive nothing before git abandons it.
+///
+/// A stall limit rather than a wall-clock cap, so a large checkout still
+/// transferring is never cut off. Inside the default startup probe window
+/// (150s), so a host that black-holes the clone fails here and init's error
+/// reaches the termination log rather than the probe's SIGKILL taking it.
+pub(crate) const CLONE_STALL_SECS: u64 = 60;
+// The default window: `(K8S_POD_STARTUP_TIMEOUT_SECS / 5 + 6) * 5`.
+const _: () = assert!(CLONE_STALL_SECS < (120 / 5 + 6) * 5);
 
 /// Longest single backoff between clone attempts.
 const MAX_CLONE_RETRY_DELAY: Duration = Duration::from_secs(8);
@@ -517,7 +530,7 @@ async fn clone_checkout(
     // is no longer empty by clone time, and git refuses a non-empty dir.
     if is_ssh {
         let git_args = git_clone_args(clone_url, dest, branch);
-        return match run_command("git", &git_args).await {
+        return match run_clone(&git_args, None, source.stall_secs).await {
             Ok(()) => {
                 info!("Repository cloned successfully over SSH");
                 Ok(())
@@ -544,7 +557,7 @@ async fn clone_checkout(
             git_args.insert(1, setting);
             git_args.insert(1, "--config");
         }
-        return match clone_with_token_helper(&git_args, token).await {
+        return match run_clone(&git_args, token, source.stall_secs).await {
             Ok(()) => {
                 info!("Repository cloned successfully through the credential broker");
                 Ok(())
@@ -559,7 +572,7 @@ async fn clone_checkout(
     if let Some(token) = token {
         let auth_url = inject_token_into_url(clone_url, token);
         let git_args = git_clone_args(&auth_url, dest, branch);
-        match run_command("git", &git_args).await {
+        match run_clone(&git_args, None, source.stall_secs).await {
             Ok(()) => {
                 info!("Repository cloned successfully with token auth");
                 return Ok(());
@@ -573,7 +586,7 @@ async fn clone_checkout(
 
     // Last resort: plain git clone (works for public repos)
     let git_args = git_clone_args(clone_url, dest, branch);
-    match run_command("git", &git_args).await {
+    match run_clone(&git_args, None, source.stall_secs).await {
         Ok(()) => {
             info!("Repository cloned successfully (plain git clone)");
             Ok(())
@@ -756,10 +769,17 @@ const CLONE_TOKEN_ENV: &str = "MOATLESS_CLONE_TOKEN";
 const CLONE_TOKEN_HELPER: &str = "credential.helper=!f() { test \"$1\" = get || exit 0; \
      echo username=x-access-token; echo \"password=$MOATLESS_CLONE_TOKEN\"; }; f";
 
-/// Run `git <git_args>`, offering `token` to git only for this process.
-async fn clone_with_token_helper(git_args: &[&str], token: Option<&str>) -> Result<(), String> {
+/// Run `git <git_args>`, offering `token` to git only for this process, and
+/// failing once an HTTP transfer moves under 1 KiB/s for `stall_secs`.
+///
+/// SSH stalls are bounded in the ssh config. No `GIT_SSH_COMMAND` here: it
+/// overrides `core.sshCommand`, and SSH clones lose their identities.
+async fn run_clone(git_args: &[&str], token: Option<&str>, stall_secs: u64) -> Result<(), String> {
     let mut command = Command::new("git");
-    command.env("GIT_TERMINAL_PROMPT", "0");
+    command
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_HTTP_LOW_SPEED_LIMIT", "1000")
+        .env("GIT_HTTP_LOW_SPEED_TIME", stall_secs.to_string());
     if let Some(token) = token {
         command
             .args(["-c", CLONE_TOKEN_HELPER])

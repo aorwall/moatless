@@ -2,8 +2,8 @@
 //! replacement and delivered once when the pod is next open for work.
 //!
 //! A caller that takes the pod down cannot report what it did afterwards — the
-//! process issuing the request dies with the pod. `moat tasks restart --yes` is
-//! the first such caller. It records the note first, and
+//! process issuing the request dies with the pod. `moat tasks stop`, `restart`
+//! and `redeploy` with `--yes` are such callers. Each records the note first, and
 //! [`crate::agent::restart::open_for_work`] delivers it on the next start.
 
 use std::collections::BTreeMap;
@@ -89,7 +89,9 @@ pub async fn cancel(path: &Path, task_id: &str) -> std::io::Result<()> {
 pub async fn take(path: &Path) -> Notes {
     let _guard = NOTES_LOCK.lock().await;
     let mut notes = read(path).await;
-    remove(path).await;
+    if let Err(error) = remove(path).await {
+        warn!(path = %path.display(), %error, "Failed to clear the wake notes");
+    }
     let now = now_unix_ms();
     notes.retain(|task_id, note| {
         let fresh = now.saturating_sub(note.recorded_at_unix_ms) <= MAX_AGE_MS;
@@ -122,8 +124,7 @@ async fn read(path: &Path) -> Notes {
 
 async fn write(path: &Path, notes: &Notes) -> std::io::Result<()> {
     if notes.is_empty() {
-        remove(path).await;
-        return Ok(());
+        return remove(path).await;
     }
     let bytes = serde_json::to_vec(notes)?;
     // Write to a sibling temp file and rename over the target. `rename` is
@@ -140,11 +141,11 @@ async fn write(path: &Path, notes: &Notes) -> std::io::Result<()> {
     Ok(())
 }
 
-async fn remove(path: &Path) {
-    if let Err(error) = tokio::fs::remove_file(path).await {
-        if error.kind() != std::io::ErrorKind::NotFound {
-            warn!(path = %path.display(), %error, "Failed to clear the wake notes");
-        }
+/// Delete the notes file; an absent file is already the wanted state.
+async fn remove(path: &Path) -> std::io::Result<()> {
+    match tokio::fs::remove_file(path).await {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error),
+        _ => Ok(()),
     }
 }
 
@@ -237,6 +238,18 @@ mod tests {
 
         assert!(!path.exists());
         assert!(take(&path).await.is_empty());
+    }
+
+    /// `CancelWakeNote` answers with this result, so a note still on disk
+    /// must not come back as `Ok`.
+    #[tokio::test]
+    async fn emptying_the_notes_reports_a_delete_that_failed() {
+        let path = scratch();
+        // A directory where the file should be: `remove_file` refuses it.
+        tokio::fs::create_dir(&path).await.expect("mkdir");
+
+        assert!(write(&path, &Notes::new()).await.is_err());
+        assert!(write(&scratch(), &Notes::new()).await.is_ok());
     }
 
     #[tokio::test]

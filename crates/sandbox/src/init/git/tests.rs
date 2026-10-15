@@ -710,6 +710,7 @@ async fn a_broker_origin_clone_keeps_no_token_and_fetches_after_a_rotation() {
             token: Some("ghs_first"),
             github_upstream: None,
             broker_origins: std::slice::from_ref(&origin),
+            stall_secs: CLONE_STALL_SECS,
         },
     )
     .await
@@ -763,6 +764,7 @@ async fn a_proxied_github_clone_records_its_github_remote() {
             token: Some("task-token"),
             github_upstream: Some("https://github.com/acme/api.git"),
             broker_origins: std::slice::from_ref(&origin),
+            stall_secs: CLONE_STALL_SECS,
         },
     )
     .await
@@ -830,8 +832,62 @@ const NO_SOURCE: CloneSource<'static> = CloneSource {
     token: None,
     github_upstream: None,
     broker_origins: &[],
+    stall_secs: CLONE_STALL_SECS,
 };
 
 fn probe() -> HttpTimeouts {
     crate::config::SandboxHttpConfig::default().git_probe
+}
+
+/// A host that accepts the connection and never answers must fail the clone
+/// once it stalls, or the startup probe kills init first.
+#[tokio::test]
+async fn a_clone_against_a_silent_host_fails_once_it_stalls() {
+    // Bound but never accepted: the kernel completes the handshake from the
+    // backlog, and git then waits on an HTTP reply that never comes.
+    let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = silent.local_addr().unwrap().port();
+    let tmp = tempfile::tempdir().unwrap();
+
+    let repo = repo_at(port);
+    let dest = tmp.path().join("api").display().to_string();
+    let source = CloneSource {
+        stall_secs: 1,
+        ..NO_SOURCE
+    };
+
+    let started = Instant::now();
+    let clone = clone_checkout(&repo, &dest, &source);
+    tokio::time::timeout(Duration::from_secs(30), clone)
+        .await
+        .expect("the stall limit must end the clone, not this test's timeout")
+        .expect_err("a clone against a silent host must fail");
+
+    assert!(started.elapsed() >= Duration::from_secs(1));
+}
+
+/// An SSH clone has to run the `core.sshCommand` `credentials::ssh` sets,
+/// which is how ssh finds the sandbox's identities and host-key policy.
+#[tokio::test]
+async fn an_ssh_clone_keeps_the_configured_ssh_command() {
+    let tmp = tempfile::tempdir().unwrap();
+    let marker = tmp.path().join("ssh-ran");
+    let dest = tmp.path().join("api").display().to_string();
+    let ssh_command = format!("core.sshCommand=touch {}; false", marker.display());
+
+    run_clone(
+        &[
+            "-c",
+            &ssh_command,
+            "clone",
+            "ssh://git@127.0.0.1/acme/api.git",
+            &dest,
+        ],
+        None,
+        CLONE_STALL_SECS,
+    )
+    .await
+    .expect_err("the stand-in ssh always fails");
+
+    assert!(marker.exists(), "git ran some other ssh command");
 }

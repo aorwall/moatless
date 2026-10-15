@@ -12,10 +12,7 @@ use super::resolve::{
     resolve_workspace_id,
 };
 use super::result::show_result;
-use super::sandbox::{
-    SandboxOperation, cancel_wake_note, format_sandbox_status, record_wake_note, run_diagnose,
-    self_restart_note,
-};
+use super::sandbox::{SandboxOperation, format_sandbox_status, run_diagnose, take_pod_down};
 use super::scripts::{TaskScriptAction, run_task_script_action};
 use crate::client::{ClientError, MoatClient};
 use crate::config::Config;
@@ -160,7 +157,13 @@ pub enum TaskAction {
     /// Start a task
     Start { task_id: String },
     /// Stop a task
-    Stop { task_id: String },
+    Stop {
+        task_id: String,
+        /// Stop this command's own sandbox. Required there, and ignored for
+        /// any other task.
+        #[arg(long)]
+        yes: bool,
+    },
     /// Cancel a task's run and every descendant's: stop their agents and
     /// discard the messages still waiting for them, the cancelled parent's
     /// pending child notices among them. The tasks and their sandboxes stay
@@ -469,9 +472,17 @@ pub async fn run(
             client.api().start_task(&task_id).await?;
             println!("Task {task_id} started.");
         }
-        TaskAction::Stop { task_id } => {
+        TaskAction::Stop { task_id, yes } => {
             let task_id = resolve_task_id(client, &task_id).await?;
-            client.api().stop_task(&task_id).await?;
+            take_pod_down(
+                client,
+                config,
+                &task_id,
+                yes,
+                SandboxOperation::Stop,
+                || client.api().stop_task(&task_id),
+            )
+            .await?;
             println!("Task {task_id} stopped.");
         }
         TaskAction::Cancel { task_id } => {
@@ -562,32 +573,32 @@ pub async fn run(
         }
         TaskAction::Restart { task_id, yes } => {
             let task_id = resolve_task_id(client, &task_id).await?;
-            let note = self_restart_note(config, &task_id, yes, SandboxOperation::Restart)?;
-            record_wake_note(&config.sandbox_grpc_port, &task_id, note.as_deref()).await?;
-            match client.api().restart_sandbox(&task_id).await {
-                Ok(()) => println!("Sandbox for {task_id} restarted."),
-                Err(e) => {
-                    let e = ClientError::from(e);
-                    cancel_wake_note(&config.sandbox_grpc_port, &task_id, note.is_some(), &e).await;
-                    return Err(e);
-                }
-            }
+            take_pod_down(
+                client,
+                config,
+                &task_id,
+                yes,
+                SandboxOperation::Restart,
+                || client.api().restart_sandbox(&task_id),
+            )
+            .await?;
+            println!("Sandbox for {task_id} restarted.");
         }
         TaskAction::Redeploy { task_id, yes } => {
             let task_id = resolve_task_id(client, &task_id).await?;
-            let note = self_restart_note(config, &task_id, yes, SandboxOperation::Redeploy)?;
-            record_wake_note(&config.sandbox_grpc_port, &task_id, note.as_deref()).await?;
-            match client.api().redeploy_sandbox(&task_id).await {
-                Ok(resp) => println!(
-                    "Sandbox for {task_id} redeployed (status: {:?}).",
-                    resp.status
-                ),
-                Err(e) => {
-                    let e = ClientError::from(e);
-                    cancel_wake_note(&config.sandbox_grpc_port, &task_id, note.is_some(), &e).await;
-                    return Err(e);
-                }
-            }
+            let resp = take_pod_down(
+                client,
+                config,
+                &task_id,
+                yes,
+                SandboxOperation::Redeploy,
+                || client.api().redeploy_sandbox(&task_id),
+            )
+            .await?;
+            println!(
+                "Sandbox for {task_id} redeployed (status: {:?}).",
+                resp.status
+            );
         }
         TaskAction::Logs {
             task_id,

@@ -14,6 +14,7 @@ use tokio::fs;
 use tracing::{info, warn};
 
 use crate::config::Config;
+use crate::init::git::CLONE_STALL_SECS;
 
 /// `~/.ssh` must be 0700 and its contents 0600, or ssh refuses to use the keys.
 /// The sandbox home is ephemeral, so we own the whole `~/.ssh/config` file (no
@@ -158,6 +159,11 @@ fn render_ssh_config(identity_files: &[String], known_hosts: &str) -> String {
     // write! into a String is infallible; the Result is discarded intentionally.
     let _ = writeln!(out, "    UserKnownHostsFile {known_hosts}");
     out.push_str("    IdentitiesOnly yes\n");
+    // Fails a black-holed remote within `CLONE_STALL_SECS`, bounding init's clone.
+    let keepalive_secs = (CLONE_STALL_SECS / 4).max(1);
+    let _ = writeln!(out, "    ConnectTimeout {CLONE_STALL_SECS}");
+    let _ = writeln!(out, "    ServerAliveInterval {keepalive_secs}");
+    out.push_str("    ServerAliveCountMax 4\n");
     for path in identity_files {
         let _ = writeln!(out, "    IdentityFile {path}");
     }
@@ -211,6 +217,9 @@ mod tests {
         assert!(cfg.contains("IdentityFile /home/m/.ssh/moatless_a"));
         assert!(cfg.contains("IdentityFile /home/m/.ssh/moatless_b"));
         assert!(cfg.contains("UserKnownHostsFile /home/m/.ssh/known_hosts"));
+        assert!(cfg.contains("ConnectTimeout 60"));
+        assert!(cfg.contains("ServerAliveInterval 15"));
+        assert!(cfg.contains("ServerAliveCountMax 4"));
     }
 
     #[tokio::test]

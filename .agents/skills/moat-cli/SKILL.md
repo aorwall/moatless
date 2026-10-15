@@ -89,16 +89,19 @@ again if it still matters.
 ## Restarting your own sandbox
 
 `moat tasks restart $TASK_ID --yes` and `moat tasks redeploy $TASK_ID --yes`
-replace the pod you are running in. Without `--yes` both refuse and print what
-it costs. Use a restart for a wedged pod, and a redeploy to pick up a new image
-or a changed repository configuration.
+replace the pod you are running in, and `moat tasks stop $TASK_ID --yes` stops
+it. Without `--yes` all three refuse and print what it costs. The same holds for
+any task that shares your sandbox. Use a restart for a wedged pod, and a
+redeploy to pick up a new image or a changed repository configuration.
 
 **The command never returns.** The pod dies while the request is in flight, so
 this `moat` process and your current turn die with it. Say what you need to say
 before you run it.
 
 **You are woken once the pod is back.** The new pod resumes your session and
-sends you a `<sandbox-restart-note>` naming the operation you ran. Treat that as
+sends you a `<sandbox-restart-note>` naming the operation you ran. After a stop
+nothing brings the pod back until a message or a wakeup arrives, and a note
+older than an hour is dropped. Treat that as
 the outcome, and continue from there.
 
 **Gitignored build artifacts do not survive.** The workspace is restored from a
