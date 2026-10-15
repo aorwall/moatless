@@ -27,6 +27,8 @@ use crate::feedback::operations::FeedbackNotes;
 use crate::message::dao::{MessageDao, PgMessageDao};
 use crate::message::operations::Messages;
 use crate::message::send::{MessageSendService, SelfEchoGuard};
+use crate::review_guide::dao::{PgReviewGuideDao, ReviewGuideDao};
+use crate::review_guide::operations::ReviewGuides;
 use crate::tag::dao::{PgTagDao, TagDao};
 use crate::tag::operations::Tags;
 use crate::task::bindings::TaskBindings;
@@ -64,6 +66,7 @@ pub struct TaskGraph {
     events: Arc<dyn TaskEventDao>,
     tags: Arc<dyn TagDao>,
     feedback: Arc<dyn FeedbackDao>,
+    review_guides: Arc<dyn ReviewGuideDao>,
     artifacts: Arc<dyn ArtifactDao>,
 }
 
@@ -78,6 +81,7 @@ pub fn task_graph(db: DbPool) -> TaskGraph {
         events: Arc::new(PgTaskEventDao(db.clone())),
         tags: Arc::new(PgTagDao(db.clone())),
         feedback: Arc::new(PgFeedbackDao(db.clone())),
+        review_guides: Arc::new(PgReviewGuideDao(db.clone())),
         artifacts: Arc::new(PgArtifactDao(db.clone())),
         db,
     }
@@ -169,6 +173,11 @@ impl TaskGraph {
     /// The `feedback` table, as a host reads and writes it.
     pub fn feedback(&self) -> Arc<FeedbackNotes> {
         Arc::new(FeedbackNotes::new(self.feedback.clone()))
+    }
+
+    /// The guided-review tables, as a host reads and writes them.
+    pub fn review_guides(&self) -> Arc<ReviewGuides> {
+        Arc::new(ReviewGuides::new(self.review_guides.clone()))
     }
 
     /// The `task_artifacts` table and its objects in `s3`, with response URLs

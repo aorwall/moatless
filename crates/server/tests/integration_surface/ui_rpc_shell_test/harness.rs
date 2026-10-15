@@ -238,6 +238,7 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
         }),
         relations: app.task_relations.clone(),
         pull_requests: Arc::new(t3code_backend::AppStateBoundPullRequests(app.clone())),
+        pull_request_reviews: Arc::new(t3code_backend::AppStateBoundPullRequests(app.clone())),
         source_control_auth: Arc::new(moatless_t3code::owners::GithubAuth {
             credentials: app.credentials.clone(),
             git_host_tokens: app.git_host_tokens.clone(),

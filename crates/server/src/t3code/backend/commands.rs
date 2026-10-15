@@ -157,7 +157,7 @@ impl AppStateCommands {
             .map_err(|e| create_refusal(task_id, e))
     }
 
-    fn create_ports(&self) -> task_service::CreateTaskPorts<'_> {
+    pub(super) fn create_ports(&self) -> task_service::CreateTaskPorts<'_> {
         task_service::CreateTaskPorts {
             workspaces: self.0.workspace_resolver.as_ref(),
             repositories: self.0.repository_reader.as_ref(),

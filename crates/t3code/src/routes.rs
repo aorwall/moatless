@@ -2,6 +2,7 @@ use crate::assets;
 use crate::attachments;
 use crate::handlers::auth_session;
 use crate::handlers::environment_descriptor;
+use crate::handlers::pull_request_diff_http;
 use crate::handlers::scripts_declare_http;
 use crate::handlers::scripts_list_http;
 use crate::handlers::scripts_remove_http;
@@ -46,7 +47,7 @@ pub(crate) fn router(state: UiRpcState) -> Router {
         )
         .route(
             "/api/orchestration/scripts/{thread_id}",
-            get(scripts_list_http).layer(compression),
+            get(scripts_list_http).layer(compression.clone()),
         )
         .route(
             "/api/orchestration/scripts/{thread_id}/{script_id}/run",
@@ -55,6 +56,10 @@ pub(crate) fn router(state: UiRpcState) -> Router {
         .route(
             "/api/orchestration/scripts/{thread_id}/{script_id}",
             post(scripts_declare_http).delete(scripts_remove_http),
+        )
+        .route(
+            "/api/pull-requests/diff",
+            post(pull_request_diff_http).layer(compression),
         )
         .route(observability::TRACES_ROUTE, post(observability::receive))
         .route("/ws", get(websocket_upgrade))

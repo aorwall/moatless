@@ -7,7 +7,7 @@ use axum::{Json, Router};
 use moatless_core::{config::Config, feature_flags::FeatureFlags};
 use moatless_identity::{auth, secret};
 use moatless_loops::loops;
-use moatless_tasks::{agent, artifact, feedback, message, tag, task, task_event};
+use moatless_tasks::{agent, artifact, feedback, message, review_guide, tag, task, task_event};
 use moatless_workspaces::{plugin, repository, skill, workspace};
 use std::sync::Arc;
 use tracing::info;
@@ -18,6 +18,7 @@ pub(crate) fn domain_routes(app_state: &AppState) -> (Router, utoipa::openapi::O
         task::routes::task_router(app_state.clone()),
         feedback::routes::feedback_router(app_state.clone()),
         artifact::routes::artifact_router(app_state.clone()),
+        review_guide::routes::review_guide_router(app_state.clone()),
         message::routes::message_router(app_state.clone()),
         file_storage::routes::file_storage_router(app_state.clone()),
         repository::routes::repository_router(app_state.clone()),
@@ -68,6 +69,9 @@ pub(crate) async fn ui_rpc(
     app_state: &AppState,
     inputs: UiRpcInputs,
 ) -> Result<Option<moatless_t3code::UiRpc>, Box<dyn std::error::Error>> {
+    let bound_pull_requests = Arc::new(t3code::backend::AppStateBoundPullRequests(
+        app_state.clone(),
+    ));
     moatless_t3code::router_if_enabled(
         &ports.t3_graph,
         moatless_t3code::UiRpcDependencies {
@@ -104,9 +108,8 @@ pub(crate) async fn ui_rpc(
                 skills: app_state.skills.clone(),
             }),
             relations: app_state.task_relations.clone(),
-            pull_requests: Arc::new(t3code::backend::AppStateBoundPullRequests(
-                app_state.clone(),
-            )),
+            pull_requests: bound_pull_requests.clone(),
+            pull_request_reviews: bound_pull_requests,
             source_control_auth: Arc::new(moatless_t3code::owners::GithubAuth {
                 credentials: app_state.credentials.clone(),
                 git_host_tokens: app_state.git_host_tokens.clone(),

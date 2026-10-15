@@ -2,8 +2,10 @@ use crate::authentication::viewer_scope;
 use crate::config::ORCHESTRATION_PROTOCOL_HEADER;
 use crate::config::ORCHESTRATION_PROTOCOL_QUERY_PARAM;
 use crate::config::OrchestrationProtocol;
+use crate::pull_request_review;
 use crate::rpc::config::descriptor;
 use crate::rpc::config::session_state;
+use crate::rpc::errors::pull_request_review_error;
 use crate::rpc::socket::MAX_FRAME_BYTES;
 use crate::rpc::socket::serve_websocket;
 use crate::scripts;
@@ -245,6 +247,64 @@ pub(crate) async fn scripts_run_http(
     {
         Ok(result) => Json(result).into_response(),
         Err(error) => scripts_error_response(&error),
+    }
+}
+
+/// `POST /api/pull-requests/diff`: one page of a linked pull request's change,
+/// read from its git host. A failure is T3's `PullRequestOperationError`, sent
+/// with the 502 its schema declares.
+pub(crate) async fn pull_request_diff_http(
+    State(state): State<UiRpcState>,
+    Extension(identity): Extension<UiRpcAuthIdentity>,
+    body: String,
+) -> Response {
+    const OPERATION: &str = "pullRequests.diff";
+    let refused = |detail: &str| {
+        (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({
+                "_tag": "PullRequestOperationError",
+                "operation": OPERATION,
+                "detail": detail,
+            })),
+        )
+            .into_response()
+    };
+    let payload = match request_payload(&body) {
+        Ok(payload) => payload,
+        Err(detail) => return refused(&detail),
+    };
+    let Some((project_id, repository, number)) = pull_request_review::pull_request_ref(&payload)
+    else {
+        return refused("A pull request reference needs a projectId, repository and number.");
+    };
+    if payload
+        .get("commit")
+        .and_then(Value::as_str)
+        .is_some_and(|commit| !commit.trim().is_empty())
+    {
+        return refused("A single commit's diff is not available here; read the whole change.");
+    }
+    let target = pull_request_review::PullRequestTarget {
+        project_id: &project_id,
+        repository: &repository,
+        number,
+    };
+    let cursor = payload.get("cursor").and_then(Value::as_str);
+    match pull_request_review::diff(
+        &pull_request_review::review_ports(&state),
+        &viewer_scope(&identity),
+        &target,
+        cursor,
+    )
+    .await
+    {
+        Ok(page) => Json(page).into_response(),
+        Err(error) => (
+            StatusCode::BAD_GATEWAY,
+            Json(pull_request_review_error(OPERATION, &error, &identity)),
+        )
+            .into_response(),
     }
 }
 

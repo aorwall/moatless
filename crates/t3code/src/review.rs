@@ -11,7 +11,7 @@
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use super::dao::ConversationDao;
+use super::dao::{Conversation, ConversationDao};
 use super::nominal_path;
 use super::ports::{
     BoundPullRequest, BoundPullRequestSource, BranchListError, RepositoryBranchSource, is_draft,
@@ -598,9 +598,24 @@ pub async fn pull_request_summary(
     repository: &str,
     number: u64,
 ) -> Result<Value, PullRequestSummaryError> {
+    let (_, pr) = readable_binding(conversations, pull_requests, viewer, repository, number)
+        .await?
+        .ok_or(PullRequestSummaryError::Unknown)?;
+    Ok(pull_request_summary_json(project_id, repository, &pr))
+}
+
+/// A Task the viewer may read that is bound to `repository#number`, and that
+/// binding. Reading a linked pull request is authorized through it.
+pub(crate) async fn readable_binding(
+    conversations: &dyn ConversationDao,
+    pull_requests: &dyn BoundPullRequestSource,
+    viewer: &ScopeContext,
+    repository: &str,
+    number: u64,
+) -> Result<Option<(Conversation, BoundPullRequest)>, PullRequestSummaryError> {
     let task_ids = pull_requests.tasks_bound_to(repository, number).await;
     if task_ids.is_empty() {
-        return Err(PullRequestSummaryError::Unknown);
+        return Ok(None);
     }
     let readable = conversations
         .readable_by_ids(viewer, &task_ids)
@@ -611,17 +626,17 @@ pub async fn pull_request_summary(
     // first is what keeps a viewer from spending it on Tasks they cannot read.
     // Every binding on one reference recovers the same pull request, so the
     // first readable Task that still carries it answers for all of them.
-    for conversation in &readable {
+    for conversation in readable {
         if let Some(pr) = pull_requests
             .bound_pull_requests(&conversation.task_id)
             .await
             .into_iter()
             .find(|pr| pr.number == number && pr.repository.eq_ignore_ascii_case(repository))
         {
-            return Ok(pull_request_summary_json(project_id, repository, &pr));
+            return Ok(Some((conversation, pr)));
         }
     }
-    Err(PullRequestSummaryError::Unknown)
+    Ok(None)
 }
 
 fn pull_request_summary_json(project_id: &str, repository: &str, pr: &BoundPullRequest) -> Value {

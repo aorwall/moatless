@@ -31,7 +31,7 @@ const UNSUPPORTED_SURFACES: &[&str] = &[
     "browserHistory",
     "snapShots",
     "checkpointFileRestore",
-    "pullRequestSurface",
+    "pullRequestList",
     "deviceHub",
     "mergeBack",
     "scheduledTasks",
@@ -120,6 +120,11 @@ pub(crate) fn descriptor(config: &UiRpcConfig) -> Value {
             // nothing to unlink, and `linkedPullRequest` beside them is the
             // single reference a client from before this key reads instead.
             "threadPullRequests": true,
+            // `pullRequests.detail`, `reviewGuide`, `generateReviewGuide` and
+            // the HTTP diff, for a pull request a readable Task is bound to.
+            // Listing, conversation and every write to the host are refused,
+            // and `pullRequestList` hides the page that lists them.
+            "pullRequests": true,
             // `thread.pin`, `thread.unpin`, `thread.pin.reorder` and
             // `thread.active.reorder`, stored per viewer on their follow.
             "threadPinning": true,
@@ -253,7 +258,9 @@ pub(crate) async fn server_config(
         ),
         "availableEditors": [],
         "observability": observability,
-        "settings": {},
+        // Partial: the client fills every other server setting with its
+        // default. Guided reviews are written by a Task the viewer starts.
+        "settings": { "reviewGuidesEnabled": true },
         "shellResumeCompletionMarker": true,
         "threadResumeCompletionMarker": true
     })

@@ -55,13 +55,26 @@ pub(super) struct PrInfo {
     /// PR web URL (`html_url`).
     #[serde(default)]
     pub(super) html_url: Option<String>,
-    #[expect(
-        dead_code,
-        reason = "deserialized GitHub field retained for endpoint parity"
-    )]
     pub(super) user: Option<PrInfoUser>,
     pub(super) head: PrRef,
     pub(super) base: PrRef,
+    /// The rest are only on the single-PR endpoint.
+    #[serde(default)]
+    pub(super) body: Option<String>,
+    #[serde(default)]
+    pub(super) additions: Option<u64>,
+    #[serde(default)]
+    pub(super) deletions: Option<u64>,
+    #[serde(default)]
+    pub(super) changed_files: Option<u64>,
+    #[serde(default)]
+    pub(super) created_at: Option<String>,
+    #[serde(default)]
+    pub(super) updated_at: Option<String>,
+    #[serde(default)]
+    pub(super) merged_at: Option<String>,
+    #[serde(default)]
+    pub(super) closed_at: Option<String>,
 }
 
 impl PrInfo {
@@ -73,11 +86,9 @@ impl PrInfo {
 
 #[derive(Debug, Clone, Deserialize)]
 pub(super) struct PrInfoUser {
-    #[expect(
-        dead_code,
-        reason = "deserialized GitHub field retained for endpoint parity"
-    )]
     pub(super) login: String,
+    #[serde(default)]
+    pub(super) avatar_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -85,6 +96,29 @@ pub(super) struct PrRef {
     #[serde(rename = "ref")]
     pub(super) ref_name: String,
     pub(super) sha: String,
+    /// Absent when the head repository was deleted.
+    #[serde(default)]
+    pub(super) repo: Option<PrRepo>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(super) struct PrRepo {
+    pub(super) full_name: String,
+}
+
+/// One changed file of a pull request, as `GET /pulls/{n}/files` lists it.
+#[derive(Debug, Clone, Deserialize)]
+pub(super) struct PrFile {
+    pub(super) filename: String,
+    #[serde(default)]
+    pub(super) previous_filename: Option<String>,
+    /// `added`, `removed`, `modified`, `renamed`, `copied`, `changed` or
+    /// `unchanged`.
+    pub(super) status: String,
+    /// The unified hunks, without file headers. Absent for a binary file or
+    /// one too large for GitHub to diff.
+    #[serde(default)]
+    pub(super) patch: Option<String>,
 }
 
 /// A pull request as returned by `GET /commits/{sha}/pulls` — the minimal
@@ -487,6 +521,37 @@ impl GithubPrApi {
         resp.json()
             .await
             .map_err(|e| SharedAdapterError::provider_response_invalid("GitHub get_pr", e).into())
+    }
+
+    /// One page of a pull request's changed files, `per_page` at a time.
+    pub(super) async fn list_pr_files(
+        &self,
+        owner: &str,
+        repo: &str,
+        pr_number: u64,
+        page: u32,
+        per_page: u32,
+    ) -> Result<Vec<PrFile>, AdapterError> {
+        let url = format!(
+            "{}/repos/{owner}/{repo}/pulls/{pr_number}/files?per_page={per_page}&page={page}",
+            self.base_url
+        );
+        let resp = self
+            .request(reqwest::Method::GET, &url)
+            .send()
+            .await
+            .map_err(|e| SharedAdapterError::provider_unreachable("GitHub list_pr_files", e))?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(SharedAdapterError::AdapterApi(format!(
+                "GitHub list_pr_files returned {status}: {text}"
+            ))
+            .into());
+        }
+        resp.json().await.map_err(|e| {
+            SharedAdapterError::provider_response_invalid("GitHub list_pr_files", e).into()
+        })
     }
 
     /// Fetch PR metadata, polling until GitHub has computed the mergeable state

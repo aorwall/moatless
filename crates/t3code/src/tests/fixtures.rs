@@ -279,6 +279,42 @@ impl ports::BoundPullRequestSource for NoBoundPullRequests {
     }
 }
 
+/// No Task in these tests is bound to a pull request, so the host behind
+/// `pullRequests.detail` and the guided review is never reached.
+struct UnreachablePullRequestReviews;
+
+#[async_trait]
+impl ports::PullRequestReviewSource for UnreachablePullRequestReviews {
+    async fn overview(
+        &self,
+        _viewer: &ScopeContext,
+        _workspace_id: Option<&str>,
+        _repository: &str,
+        _number: u64,
+    ) -> Result<ports::PullRequestOverview, ports::PullRequestError> {
+        unreachable!("no test in this file reads a bound pull request")
+    }
+    async fn patch_page(
+        &self,
+        _viewer: &ScopeContext,
+        _workspace_id: Option<&str>,
+        _repository: &str,
+        _number: u64,
+        _page: u32,
+    ) -> Result<ports::PullRequestPatchPage, ports::PullRequestError> {
+        unreachable!("no test in this file reads a bound pull request")
+    }
+    async fn create_review_guide_task(
+        &self,
+        _viewer: &ScopeContext,
+        _workspace_id: &str,
+        _name: &str,
+        _message: String,
+    ) -> Result<String, ports::PullRequestError> {
+        unreachable!("no test in this file starts a guided review")
+    }
+}
+
 /// The envelope tests never sign in with GitHub; what an authenticated badge
 /// projects to is asserted in `git_actions.rs`.
 struct NoGithubIdentity;
@@ -710,6 +746,11 @@ pub(super) fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore
         branches: Arc::new(UnreachableBranches),
         skills: Arc::new(StubSkills),
         pull_requests: Arc::new(NoBoundPullRequests),
+        pull_request_reviews: Arc::new(UnreachablePullRequestReviews),
+        review_guides: moatless_tasks::compose::task_graph(
+            sqlx::PgPool::connect_lazy("postgres://unused").expect("a lazy pool"),
+        )
+        .review_guides(),
         source_control_auth: Arc::new(NoGithubIdentity),
         commands: Arc::new(UnreachableCommands),
         attachments,

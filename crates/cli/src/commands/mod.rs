@@ -21,6 +21,7 @@ pub mod messages;
 pub mod plugins;
 pub mod provider_apps;
 pub mod repos;
+pub mod review_guide;
 pub mod secrets;
 pub mod send;
 pub mod settings;

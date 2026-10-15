@@ -25,6 +25,7 @@ pub mod feedback;
 pub mod inbox;
 pub mod message;
 pub mod ports;
+pub mod review_guide;
 pub mod search;
 pub mod tag;
 pub mod task;

@@ -8,6 +8,7 @@
 
 mod attachments;
 mod commands;
+mod pull_request_reviews;
 mod pull_requests;
 #[cfg(test)]
 mod tests;

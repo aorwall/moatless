@@ -4,11 +4,14 @@ use crate::authentication::viewer_scope;
 use crate::git_actions;
 use crate::nominal_path;
 use crate::oauth::Scope;
+use crate::pull_request_review;
 use crate::review;
 use crate::rpc::envelope::success_exit;
+use crate::rpc::envelope::typed_failure_exit;
 use crate::rpc::errors::branch_list_exit;
 use crate::rpc::errors::git_action_failure_exit;
 use crate::rpc::errors::pull_request_failure_exit;
+use crate::rpc::errors::pull_request_review_error;
 use crate::rpc::errors::pull_request_summary_failure_exit;
 use crate::rpc::errors::review_failure_exit;
 use crate::rpc::errors::unsupported_exit;
@@ -36,6 +39,21 @@ pub(super) fn vcs_methods() -> MethodTable {
             "git.runStackedAction",
             Scope::OrchestrationOperate,
             git_run_stacked_action,
+        )
+        .detached(
+            "pullRequests.detail",
+            Scope::OrchestrationRead,
+            pull_requests_detail,
+        )
+        .detached(
+            "pullRequests.generateReviewGuide",
+            Scope::OrchestrationOperate,
+            pull_requests_generate_review_guide,
+        )
+        .detached(
+            "pullRequests.reviewGuide",
+            Scope::OrchestrationRead,
+            pull_requests_review_guide,
         )
         .detached(
             "pullRequests.summary",
@@ -189,9 +207,75 @@ pub(super) async fn review_get_diff_preview(request: Request) -> Vec<Value> {
     }
 }
 
-/// The one method of the `pullRequests.*` group this backend serves; the rest
-/// read a git host and are refused, which is why `capabilities.pullRequests`
-/// stays absent.
+/// Which `pullRequests.*` read a request is.
+enum PullRequestRead {
+    Detail,
+    ReviewGuide,
+    GenerateReviewGuide,
+}
+
+pub(super) async fn pull_requests_detail(request: Request) -> Vec<Value> {
+    pull_request_read(request, PullRequestRead::Detail).await
+}
+
+pub(super) async fn pull_requests_review_guide(request: Request) -> Vec<Value> {
+    pull_request_read(request, PullRequestRead::ReviewGuide).await
+}
+
+pub(super) async fn pull_requests_generate_review_guide(request: Request) -> Vec<Value> {
+    pull_request_read(request, PullRequestRead::GenerateReviewGuide).await
+}
+
+/// The linked pull request's detail and guided review. Every other
+/// `pullRequests.*` method but `summary` writes to the host or lists it, and
+/// is refused.
+async fn pull_request_read(request: Request, read: PullRequestRead) -> Vec<Value> {
+    let Request {
+        id,
+        tag,
+        payload,
+        state,
+        identity,
+        ..
+    } = request;
+    let Some((project_id, repository, number)) = pull_request_review::pull_request_ref(&payload)
+    else {
+        return vec![typed_failure_exit(
+            &id,
+            json!({
+                "_tag": "PullRequestOperationError",
+                "operation": tag,
+                "detail": "A pull request reference needs a projectId, repository and number.",
+            }),
+        )];
+    };
+    let target = pull_request_review::PullRequestTarget {
+        project_id: &project_id,
+        repository: &repository,
+        number,
+    };
+    let ports = pull_request_review::review_ports(&state);
+    let viewer = viewer_scope(&identity);
+    let result = match read {
+        PullRequestRead::Detail => pull_request_review::detail(&ports, &viewer, &target).await,
+        PullRequestRead::ReviewGuide => {
+            pull_request_review::review_guide(&ports, &viewer, &target).await
+        }
+        PullRequestRead::GenerateReviewGuide => {
+            pull_request_review::generate_review_guide(&ports, &viewer, &target).await
+        }
+    };
+    match result {
+        Ok(value) => vec![success_exit(&id, value)],
+        Err(error) => vec![typed_failure_exit(
+            &id,
+            pull_request_review_error(tag, &error, &identity),
+        )],
+    }
+}
+
+/// Served off a Task's own binding rather than the git host, so it answers
+/// even where reading the host fails.
 pub(super) async fn pull_requests_summary(request: Request) -> Vec<Value> {
     let Request {
         id,
@@ -200,7 +284,8 @@ pub(super) async fn pull_requests_summary(request: Request) -> Vec<Value> {
         identity,
         ..
     } = request;
-    let Some((project_id, repository, number)) = pull_request_ref(&payload) else {
+    let Some((project_id, repository, number)) = pull_request_review::pull_request_ref(&payload)
+    else {
         return vec![pull_request_summary_failure_exit(
             &id,
             "A pull request reference needs a projectId, repository and number.",
@@ -313,23 +398,6 @@ pub(super) async fn git_run_stacked_action(request: Request) -> Vec<Value> {
         ],
         Err(error) => vec![git_action_failure_exit(&id, &error, &identity)],
     }
-}
-
-/// The `PullRequestRef` a summary request carries.
-fn pull_request_ref(payload: &Value) -> Option<(String, String, u64)> {
-    let text = |key: &str| {
-        payload
-            .get(key)
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string)
-    };
-    let number = payload.get("number").and_then(Value::as_u64)?;
-    if number == 0 {
-        return None;
-    }
-    Some((text("projectId")?, text("repository")?, number))
 }
 
 /// The result of switching a draft thread to a branch, if this is one to

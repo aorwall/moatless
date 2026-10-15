@@ -80,6 +80,7 @@ pub async fn mount(
         skills,
         relations,
         pull_requests,
+        pull_request_reviews,
         source_control_auth,
         commands,
         attachments,
@@ -172,6 +173,8 @@ pub async fn mount(
         branches,
         skills,
         pull_requests,
+        pull_request_reviews,
+        review_guides: graph.review_guides.clone(),
         source_control_auth,
         commands,
         attachments,
@@ -201,6 +204,7 @@ pub struct T3Graph {
     pool: UiRpcDbPool,
     reads: T3Reads,
     usage: Arc<dyn ports::UsageReporter>,
+    review_guides: Arc<moatless_tasks::review_guide::operations::ReviewGuides>,
 }
 
 /// Build the T3 read projections over `db`.
@@ -216,6 +220,7 @@ pub fn t3_graph(db: UiRpcDbPool, tasks: &TaskGraph) -> T3Graph {
     ));
     let usage = tasks.turn_usage();
     T3Graph {
+        review_guides: tasks.review_guides(),
         pool: db.clone(),
         reads: T3Reads::new(
             conversations,
@@ -310,6 +315,9 @@ pub struct UiRpcDependencies {
     /// The pull request a Task is bound to, and reference resolution for the
     /// attach-PR dialog.
     pub pull_requests: Arc<dyn ports::BoundPullRequestSource>,
+    /// Linked pull requests read from their git host, and the Task a guided
+    /// review starts.
+    pub pull_request_reviews: Arc<dyn ports::PullRequestReviewSource>,
     /// The viewer's usable GitHub credential, for the Source Control panel.
     pub source_control_auth: Arc<dyn ports::SourceControlAuthSource>,
     /// Carries out the commands the T3 client dispatches.

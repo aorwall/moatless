@@ -173,6 +173,12 @@ pub(super) enum SharedCommands {
         #[command(subcommand)]
         action: commands::artifact::ArtifactAction,
     },
+    /// Hand back the guided review of a pull request this task was started to
+    /// write
+    ReviewGuide {
+        #[command(subcommand)]
+        action: commands::review_guide::ReviewGuideAction,
+    },
 }
 
 // ---------------------------------------------------------------------------

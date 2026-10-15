@@ -270,6 +270,16 @@ pub const CONCERNS: &[Concern] = &[
         slice: 9,
     },
     Concern {
+        name: "review guides",
+        owner: "moatless-tasks",
+        roots: &["crates/tasks/src/review_guide/dao"],
+        tables: &[
+            "pull_request_review_guide_runs",
+            "pull_request_review_guides",
+        ],
+        slice: 9,
+    },
+    Concern {
         name: "messages",
         owner: "moatless-tasks",
         roots: &[

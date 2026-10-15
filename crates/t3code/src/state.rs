@@ -73,6 +73,11 @@ pub(crate) struct UiRpcState {
     /// The pull request a Task is bound to, and reference resolution for the
     /// attach-PR dialog.
     pub(crate) pull_requests: Arc<dyn ports::BoundPullRequestSource>,
+    /// Linked pull requests read from their git host, and the Task a guided
+    /// review starts.
+    pub(crate) pull_request_reviews: Arc<dyn ports::PullRequestReviewSource>,
+    /// Stored guided reviews and the runs writing them.
+    pub(crate) review_guides: Arc<moatless_tasks::review_guide::operations::ReviewGuides>,
     /// The viewer's usable GitHub credential, for the Source Control panel's
     /// auth badge. Read per request because credentials come and go without a
     /// restart.

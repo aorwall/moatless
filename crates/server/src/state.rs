@@ -39,6 +39,7 @@ use moatless_tasks::event_ingress::EventAdmission;
 use moatless_tasks::feedback::operations::FeedbackNotes;
 use moatless_tasks::message::operations::Messages;
 use moatless_tasks::message::send::MessageSendService;
+use moatless_tasks::review_guide::operations::ReviewGuides;
 use moatless_tasks::tag::operations::Tags;
 use moatless_tasks::task::bindings::TaskBindings;
 use moatless_tasks::task::closer::TaskCloser;
@@ -202,6 +203,7 @@ pub struct AppState {
     /// The conversation behind the published `TranscriptAppend` seam.
     pub transcript: Arc<moatless_tasks::ports::Transcript>,
     pub feedback: Arc<FeedbackNotes>,
+    pub review_guides: Arc<ReviewGuides>,
     pub artifacts: Arc<Artifacts>,
     pub repositories: Arc<Repositories>,
     pub repository_branches:
@@ -317,6 +319,12 @@ impl axum::extract::FromRef<AppState> for Arc<Files> {
 impl axum::extract::FromRef<AppState> for Arc<FeedbackNotes> {
     fn from_ref(state: &AppState) -> Self {
         state.feedback.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<ReviewGuides> {
+    fn from_ref(state: &AppState) -> Self {
+        state.review_guides.clone()
     }
 }
 

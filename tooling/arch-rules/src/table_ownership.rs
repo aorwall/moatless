@@ -40,6 +40,8 @@ pub const TABLES: &[(&str, &str)] = &[
     ("preview_tab_changes", "moatless-core"),
     ("preview_tab_position", "moatless-core"),
     ("provider_tokens", "moatless-identity"),
+    ("pull_request_review_guide_runs", "moatless-tasks"),
+    ("pull_request_review_guides", "moatless-tasks"),
     ("repositories", "moatless-workspaces"),
     ("sandbox_unreported_commands", "moatless-sandbox-control"),
     ("sandboxes", "moatless-sandbox-control"),

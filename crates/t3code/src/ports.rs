@@ -487,6 +487,83 @@ pub trait BoundPullRequestSource: Send + Sync {
     ) -> Option<ResolvedPullRequest>;
 }
 
+/// A pull request as read from its git host, for `pullRequests.detail` and a
+/// guided review's range.
+#[derive(Clone, Debug, Default)]
+pub struct PullRequestOverview {
+    pub number: u64,
+    pub title: String,
+    pub body: String,
+    pub url: String,
+    /// `open`, `closed` or `merged`.
+    pub state: String,
+    pub is_draft: bool,
+    pub author_login: Option<String>,
+    pub author_avatar_url: Option<String>,
+    pub additions: u64,
+    pub deletions: u64,
+    pub changed_files: u64,
+    pub head_ref: String,
+    pub head_sha: String,
+    /// `owner/repo` of the head branch, when that repository still exists.
+    pub head_repository: Option<String>,
+    pub base_ref: String,
+    pub base_sha: String,
+    /// The host's timestamps, RFC 3339.
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+    pub merged_at: Option<String>,
+    pub closed_at: Option<String>,
+    pub mergeable: Option<bool>,
+}
+
+/// One page of a pull request's change, as a `diff --git` patch.
+#[derive(Clone, Debug, Default)]
+pub struct PullRequestPatchPage {
+    pub patch: String,
+    /// The page to ask for next, `None` on the last one.
+    pub next_page: Option<u32>,
+    /// Files on this page the host would not diff, which the patch leaves out.
+    pub omitted_files: usize,
+}
+
+/// A pull request read from its git host, and the Task that writes its guided
+/// review.
+///
+/// Every read takes the Workspace of a Task bound to the pull request, whose
+/// credential stands in when the viewer has none of their own; the caller has
+/// already checked the viewer may read that Task.
+#[async_trait]
+pub trait PullRequestReviewSource: Send + Sync {
+    async fn overview(
+        &self,
+        viewer: &ScopeContext,
+        workspace_id: Option<&str>,
+        repository: &str,
+        number: u64,
+    ) -> Result<PullRequestOverview, PullRequestError>;
+
+    /// Page `page` (from 1) of the change.
+    async fn patch_page(
+        &self,
+        viewer: &ScopeContext,
+        workspace_id: Option<&str>,
+        repository: &str,
+        number: u64,
+        page: u32,
+    ) -> Result<PullRequestPatchPage, PullRequestError>;
+
+    /// Create a Task in `workspace_id`, owned by `viewer`, whose first message
+    /// is `message`, without starting its sandbox. Returns its id.
+    async fn create_review_guide_task(
+        &self,
+        viewer: &ScopeContext,
+        workspace_id: &str,
+        name: &str,
+        message: String,
+    ) -> Result<String, PullRequestError>;
+}
+
 /// The viewer's connected GitHub identity, for the Source Control panel's auth
 /// badge. `account` is the GitHub login the credential recorded, when known.
 pub struct GithubIdentity {

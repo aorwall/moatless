@@ -6,6 +6,7 @@ use crate::oauth::Scope;
 use crate::ports;
 use crate::preview;
 use crate::preview::PreviewError;
+use crate::pull_request_review::PullRequestReviewError;
 use crate::review;
 use crate::rpc::envelope::RequestId;
 use crate::rpc::envelope::failure_exit;
@@ -204,6 +205,46 @@ pub(crate) fn pull_request_summary_failure_exit(request_id: &RequestId, detail: 
             "detail": detail,
         }),
     )
+}
+
+/// A linked pull request's detail or guided review could not be answered, as
+/// the `PullRequestOperationError` the HTTP diff route also sends.
+pub(crate) fn pull_request_review_error(
+    operation: &str,
+    error: &PullRequestReviewError,
+    identity: &UiRpcAuthIdentity,
+) -> Value {
+    let (detail, not_found) = match error {
+        PullRequestReviewError::Unknown => (
+            "No pull request is linked to a task you can read.".to_string(),
+            true,
+        ),
+        PullRequestReviewError::Refused(message) => (message.clone(), false),
+        PullRequestReviewError::Host(ports::PullRequestError::Unavailable(message)) => {
+            (message.clone(), false)
+        }
+        PullRequestReviewError::Host(ports::PullRequestError::NotFound) => (
+            "No pull request was found for that reference.".to_string(),
+            true,
+        ),
+        PullRequestReviewError::Host(ports::PullRequestError::Failed(cause)) => {
+            error!(%cause, %operation, user_id = %identity.user_id, "T3 pull-request host read failed");
+            ("The pull request could not be read.".to_string(), false)
+        }
+        PullRequestReviewError::Store(cause) => {
+            error!(%cause, %operation, user_id = %identity.user_id, "T3 pull-request review read failed");
+            ("The pull request could not be read.".to_string(), false)
+        }
+    };
+    let mut error = json!({
+        "_tag": "PullRequestOperationError",
+        "operation": operation,
+        "detail": detail,
+    });
+    if not_found {
+        error["reason"] = json!("not-found");
+    }
+    error
 }
 
 pub(crate) fn pull_request_failure_exit(
