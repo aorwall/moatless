@@ -121,6 +121,24 @@ pub(super) struct PrFile {
     pub(super) patch: Option<String>,
 }
 
+/// Largest file [`GithubPrApi::file_text`] reads.
+pub(super) const MAX_FILE_BYTES: usize = 4 * 1024 * 1024;
+
+/// One commit as `GET /commits/{sha}` returns it, with one page of its files.
+#[derive(Debug, Clone, Deserialize)]
+pub(super) struct CommitInfo {
+    pub(super) sha: String,
+    #[serde(default)]
+    pub(super) parents: Vec<CommitParent>,
+    #[serde(default)]
+    pub(super) files: Vec<PrFile>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(super) struct CommitParent {
+    pub(super) sha: String,
+}
+
 /// A pull request as returned by `GET /commits/{sha}/pulls` — the minimal
 /// subset needed to identify the merged PR that produced a commit.
 #[derive(Debug, Clone, Deserialize)]
@@ -603,6 +621,132 @@ impl GithubPrApi {
         resp.json().await.map_err(|e| {
             SharedAdapterError::provider_response_invalid("GitHub list_pr_files", e).into()
         })
+    }
+
+    /// One commit with page `page` of its changed files, `per_page` at a time.
+    pub(super) async fn get_commit(
+        &self,
+        owner: &str,
+        repo: &str,
+        sha: &str,
+        page: u32,
+        per_page: u32,
+    ) -> Result<CommitInfo, AdapterError> {
+        let url = format!(
+            "{}/repos/{owner}/{repo}/commits/{sha}?per_page={per_page}&page={page}",
+            self.base_url
+        );
+        let resp = self
+            .request(reqwest::Method::GET, &url)
+            .send()
+            .await
+            .map_err(|e| SharedAdapterError::provider_unreachable("GitHub get_commit", e))?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(SharedAdapterError::AdapterApi(format!(
+                "GitHub get_commit returned {status}: {text}"
+            ))
+            .into());
+        }
+        resp.json().await.map_err(|e| {
+            SharedAdapterError::provider_response_invalid("GitHub get_commit", e).into()
+        })
+    }
+
+    /// The commit `base` and `head` last share: the old side of a pull
+    /// request's three-dot diff.
+    pub(super) async fn merge_base(
+        &self,
+        owner: &str,
+        repo: &str,
+        base: &str,
+        head: &str,
+    ) -> Result<String, AdapterError> {
+        #[derive(Deserialize)]
+        struct Comparison {
+            merge_base_commit: CommitParent,
+        }
+        // `per_page=1` keeps the commits and files GitHub lists alongside small.
+        let url = format!(
+            "{}/repos/{owner}/{repo}/compare/{base}...{head}?per_page=1",
+            self.base_url
+        );
+        let resp = self
+            .request(reqwest::Method::GET, &url)
+            .send()
+            .await
+            .map_err(|e| SharedAdapterError::provider_unreachable("GitHub merge_base", e))?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(SharedAdapterError::AdapterApi(format!(
+                "GitHub merge_base returned {status}: {text}"
+            ))
+            .into());
+        }
+        let comparison: Comparison = resp
+            .json()
+            .await
+            .map_err(|e| SharedAdapterError::provider_response_invalid("GitHub merge_base", e))?;
+        Ok(comparison.merge_base_commit.sha)
+    }
+
+    /// `path` as it is at `revision`, as text. Fails for a file that is
+    /// binary or larger than [`MAX_FILE_BYTES`].
+    pub(super) async fn file_text(
+        &self,
+        owner: &str,
+        repo: &str,
+        path: &str,
+        revision: &str,
+    ) -> Result<String, AdapterError> {
+        let invalid = |detail: String| AdapterError::from(SharedAdapterError::AdapterApi(detail));
+        let mut url = reqwest::Url::parse(&self.base_url)
+            .map_err(|e| invalid(format!("GitHub base URL is not a URL: {e}")))?;
+        url.path_segments_mut()
+            .map_err(|()| invalid("GitHub base URL cannot take a path".to_string()))?
+            .pop_if_empty()
+            .extend(["repos", owner, repo, "contents"])
+            .extend(path.split('/'));
+        url.query_pairs_mut().append_pair("ref", revision);
+        let mut resp = self
+            .request(reqwest::Method::GET, url.as_str())
+            .header("Accept", "application/vnd.github.raw+json")
+            .send()
+            .await
+            .map_err(|e| SharedAdapterError::provider_unreachable("GitHub file_text", e))?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(invalid(format!(
+                "GitHub file_text returned {status}: {text}"
+            )));
+        }
+        let too_large = || invalid(format!("{path} is too large to show"));
+        // Read in chunks so a file of up to GitHub's 100 MB is refused at the
+        // cap rather than first held whole in memory.
+        if resp
+            .content_length()
+            .is_some_and(|length| length > MAX_FILE_BYTES as u64)
+        {
+            return Err(too_large());
+        }
+        let mut bytes = Vec::new();
+        while let Some(chunk) = resp
+            .chunk()
+            .await
+            .map_err(|e| SharedAdapterError::provider_response_invalid("GitHub file_text", e))?
+        {
+            if bytes.len() + chunk.len() > MAX_FILE_BYTES {
+                return Err(too_large());
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        if bytes.contains(&0) {
+            return Err(invalid(format!("{path} is a binary file")));
+        }
+        String::from_utf8(bytes).map_err(|_| invalid(format!("{path} is not UTF-8 text")))
     }
 
     /// Fetch PR metadata, polling until GitHub has computed the mergeable state
@@ -1160,6 +1304,78 @@ mod check_annotation_tests {
             matches!(err, AdapterError::Shared(SharedAdapterError::AdapterApi(_))),
             "got {err:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod file_text_tests {
+    use axum::Router;
+    use axum::extract::RawQuery;
+    use axum::http::Uri;
+    use axum::routing::get;
+
+    use super::*;
+
+    async fn serve() -> GithubPrApi {
+        async fn contents(uri: Uri, RawQuery(query): RawQuery) -> Vec<u8> {
+            match (uri.path(), query.as_deref()) {
+                ("/repos/acme/app/contents/docs/a%20b.md", Some("ref=abc123")) => b"hello".to_vec(),
+                ("/repos/acme/app/contents/logo.png", _) => vec![0x89, 0, 1],
+                ("/repos/acme/app/contents/big.txt", _) => vec![b'a'; MAX_FILE_BYTES + 1],
+                _ => b"unexpected".to_vec(),
+            }
+        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        async fn compare(uri: Uri) -> axum::Json<serde_json::Value> {
+            assert_eq!(uri.path(), "/repos/acme/app/compare/main1...head1");
+            axum::Json(serde_json::json!({ "merge_base_commit": { "sha": "fork1" } }))
+        }
+        let app = Router::new()
+            .route("/repos/acme/app/contents/{*path}", get(contents))
+            .route("/repos/acme/app/compare/{range}", get(compare));
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        GithubPrApi::new(test_client(), "ghp_test", format!("http://{address}"))
+    }
+
+    #[tokio::test]
+    async fn a_file_is_read_at_its_revision_with_its_path_escaped() {
+        let api = serve().await;
+        let text = api
+            .file_text("acme", "app", "docs/a b.md", "abc123")
+            .await
+            .unwrap();
+        assert_eq!(text, "hello");
+    }
+
+    #[tokio::test]
+    async fn a_binary_file_is_refused() {
+        let api = serve().await;
+        let error = api
+            .file_text("acme", "app", "logo.png", "abc123")
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("binary"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn the_merge_base_is_read_from_the_comparison() {
+        let api = serve().await;
+        let base = api
+            .merge_base("acme", "app", "main1", "head1")
+            .await
+            .unwrap();
+        assert_eq!(base, "fork1");
+    }
+
+    #[tokio::test]
+    async fn a_file_over_the_cap_is_refused() {
+        let api = serve().await;
+        let error = api
+            .file_text("acme", "app", "big.txt", "abc123")
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("too large"), "{error}");
     }
 }
 

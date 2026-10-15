@@ -27,6 +27,7 @@ pub mod http;
 pub mod loops;
 pub mod message;
 pub mod model;
+pub mod pull_request_conversation;
 pub mod pull_request_key;
 pub mod sandbox;
 pub mod secret;

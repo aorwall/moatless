@@ -1,7 +1,8 @@
 //! Resolve provider pull requests independently of HTTP.
 use super::adapter::GithubPrAdapter;
 use super::auth::resolve_github_api;
-use moatless_adapter_model::error::AdapterError;
+use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
+use moatless_types::pull_request_conversation::{FileChangeType, FileContentsPair};
 
 /// A pull request resolved for the T3 attach-PR dialog and the creation-time
 /// binding, in the shape T3's `GitResolvedPullRequest` reports.
@@ -153,18 +154,108 @@ pub async fn pull_request_patch_page(
     let files = api
         .list_pr_files(owner, repo, number, page, FILES_PER_PAGE)
         .await?;
+    Ok(patch_page(&files, page))
+}
+
+/// [`pull_request_patch_page`] for the one commit `sha` of `owner/repo`.
+pub async fn commit_patch_page(
+    adapter: &GithubPrAdapter,
+    user_id: &str,
+    workspace_id: Option<&str>,
+    owner: &str,
+    repo: &str,
+    sha: &str,
+    page: u32,
+) -> Result<PullRequestPatchPage, AdapterError> {
+    let api = resolve_github_api(adapter, user_id, workspace_id, owner, repo).await?;
+    let page = page.max(1);
+    let commit = api
+        .get_commit(owner, repo, sha, page, FILES_PER_PAGE)
+        .await?;
+    Ok(patch_page(&commit.files, page))
+}
+
+fn patch_page(files: &[super::api::PrFile], page: u32) -> PullRequestPatchPage {
     let full = u32::try_from(files.len()).unwrap_or(u32::MAX) >= FILES_PER_PAGE;
     let mut patch = String::new();
     let mut omitted_files = 0;
-    for file in &files {
+    for file in files {
         if !push_file_patch(&mut patch, file) {
             omitted_files += 1;
         }
     }
-    Ok(PullRequestPatchPage {
+    PullRequestPatchPage {
         patch,
         next_page: (full && page < MAX_FILE_PAGES).then_some(page + 1),
         omitted_files,
+    }
+}
+
+/// Which version of a pull request, or of one of its commits, a file is read
+/// at.
+pub enum ContentsScope<'a> {
+    /// The whole change: the merge base of its base and head against its
+    /// head, the two sides GitHub's patch was taken between.
+    PullRequest(u64),
+    /// One commit against its first parent.
+    Commit(&'a str),
+}
+
+/// A changed file before and after the change `scope` names, `old_path` read
+/// at the older revision and `new_path` at the newer one. The side `change`
+/// says the file does not exist on is empty.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each argument is one fact of a single read; a struct for them would have one caller"
+)]
+pub async fn file_contents(
+    adapter: &GithubPrAdapter,
+    user_id: &str,
+    workspace_id: Option<&str>,
+    owner: &str,
+    repo: &str,
+    scope: ContentsScope<'_>,
+    change: FileChangeType,
+    old_path: &str,
+    new_path: &str,
+) -> Result<FileContentsPair, AdapterError> {
+    let api = resolve_github_api(adapter, user_id, workspace_id, owner, repo).await?;
+    // A root commit has no parent, so only a file it adds can be shown.
+    let (old_revision, new_revision) = match scope {
+        ContentsScope::PullRequest(number) => {
+            let pr = api.get_pr(owner, repo, number).await?;
+            // Deliberately not `base.sha`: once the base branch has moved on,
+            // its tip holds lines the hunks' left side never had.
+            let base = api
+                .merge_base(owner, repo, &pr.base.sha, &pr.head.sha)
+                .await?;
+            (Some(base), pr.head.sha)
+        }
+        ContentsScope::Commit(sha) => {
+            let commit = api.get_commit(owner, repo, sha, 1, 1).await?;
+            (
+                commit.parents.into_iter().next().map(|parent| parent.sha),
+                commit.sha,
+            )
+        }
+    };
+    let old_contents = if change == FileChangeType::New {
+        String::new()
+    } else {
+        let revision = old_revision.ok_or_else(|| {
+            AdapterError::from(SharedAdapterError::AdapterApi(format!(
+                "{old_path} has no earlier version in a root commit"
+            )))
+        })?;
+        api.file_text(owner, repo, old_path, &revision).await?
+    };
+    let new_contents = match change {
+        FileChangeType::Deleted => String::new(),
+        _ => api.file_text(owner, repo, new_path, &new_revision).await?,
+    };
+    Ok(FileContentsPair {
+        old_contents,
+        new_contents,
     })
 }
 

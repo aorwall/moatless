@@ -5,18 +5,22 @@ use super::commands::{AppStateCommands, create_refusal};
 use super::pull_requests::{AppStateBoundPullRequests, pull_request_error};
 use async_trait::async_trait;
 use moatless_adapter_github_pr::adapter::GithubPrAdapter;
+use moatless_adapter_github_pr::pull_request_lookup::ContentsScope;
 use moatless_adapter_github_pr::pull_request_search::{self, ListedPullRequest};
 use moatless_adapter_github_pr::{
-    pull_request_lookup,
+    pull_request_conversation, pull_request_lookup,
     pull_request_search::{Involvement, PullRequestSearch},
 };
 use moatless_t3code::ports::{
-    CommandRefusal, PullRequestError, PullRequestListItem, PullRequestListPage,
+    ChangedFile, CommandRefusal, PullRequestError, PullRequestListItem, PullRequestListPage,
     PullRequestListQuery, PullRequestOverview, PullRequestPatchPage, PullRequestReviewSource,
 };
 use moatless_tasks::task::service as task_service;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::agent::AgentProfile;
+use moatless_types::pull_request_conversation::{
+    FileContentsPair, PullRequestActivity, PullRequestStatus, ReviewThreadCommentPage,
+};
 use moatless_workspace_types::repository::RepositoryProvider;
 use std::sync::Arc;
 
@@ -170,6 +174,124 @@ impl PullRequestReviewSource for AppStateBoundPullRequests {
             next_page: page.next_page,
             omitted_files: page.omitted_files,
         })
+    }
+
+    async fn commit_patch_page(
+        &self,
+        viewer: &ScopeContext,
+        workspace_id: Option<&str>,
+        repository: &str,
+        sha: &str,
+        page: u32,
+    ) -> Result<PullRequestPatchPage, PullRequestError> {
+        let (owner, repo) = owner_repo(repository)?;
+        let page = pull_request_lookup::commit_patch_page(
+            self.github_pr()?.as_ref(),
+            &viewer.user_id,
+            workspace_id,
+            owner,
+            repo,
+            sha,
+            page,
+        )
+        .await
+        .map_err(pull_request_error)?;
+        Ok(PullRequestPatchPage {
+            patch: page.patch,
+            next_page: page.next_page,
+            omitted_files: page.omitted_files,
+        })
+    }
+
+    async fn activity(
+        &self,
+        viewer: &ScopeContext,
+        workspace_id: Option<&str>,
+        repository: &str,
+        number: u64,
+    ) -> Result<PullRequestActivity, PullRequestError> {
+        let (owner, repo) = owner_repo(repository)?;
+        pull_request_conversation::pull_request_activity(
+            self.github_pr()?.as_ref(),
+            &viewer.user_id,
+            workspace_id,
+            owner,
+            repo,
+            number,
+        )
+        .await
+        .map_err(pull_request_error)
+    }
+
+    async fn thread_comments(
+        &self,
+        viewer: &ScopeContext,
+        workspace_id: Option<&str>,
+        repository: &str,
+        number: u64,
+        thread_id: &str,
+        cursor: Option<&str>,
+    ) -> Result<ReviewThreadCommentPage, PullRequestError> {
+        let (owner, repo) = owner_repo(repository)?;
+        pull_request_conversation::review_thread_comments(
+            self.github_pr()?.as_ref(),
+            &viewer.user_id,
+            workspace_id,
+            owner,
+            repo,
+            number,
+            thread_id,
+            cursor,
+        )
+        .await
+        .map_err(pull_request_error)
+    }
+
+    async fn status(
+        &self,
+        viewer: &ScopeContext,
+        workspace_id: Option<&str>,
+        repository: &str,
+        number: u64,
+    ) -> Result<PullRequestStatus, PullRequestError> {
+        let (owner, repo) = owner_repo(repository)?;
+        pull_request_conversation::pull_request_status(
+            self.github_pr()?.as_ref(),
+            &viewer.user_id,
+            workspace_id,
+            owner,
+            repo,
+            number,
+        )
+        .await
+        .map_err(pull_request_error)
+    }
+
+    async fn file_contents(
+        &self,
+        viewer: &ScopeContext,
+        workspace_id: Option<&str>,
+        repository: &str,
+        number: u64,
+        file: &ChangedFile<'_>,
+    ) -> Result<FileContentsPair, PullRequestError> {
+        let (owner, repo) = owner_repo(repository)?;
+        pull_request_lookup::file_contents(
+            self.github_pr()?.as_ref(),
+            &viewer.user_id,
+            workspace_id,
+            owner,
+            repo,
+            match file.commit {
+                Some(sha) => ContentsScope::Commit(sha),
+                None => ContentsScope::PullRequest(number),
+            },
+            file.change,
+            file.old_path,
+            file.new_path,
+        )
+        .await
+        .map_err(pull_request_error)
     }
 
     async fn create_review_guide_task(

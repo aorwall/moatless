@@ -8,6 +8,10 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use moatless_api_schemas::agent::AgentDescriptor;
 use moatless_types::access_control::ScopeContext;
+use moatless_types::pull_request_conversation::{
+    FileChangeType, FileContentsPair, PullRequestActivity, PullRequestStatus,
+    ReviewThreadCommentPage,
+};
 use moatless_types::store::StoreError;
 use moatless_types::task::{TaskRelationType, Visibility};
 use moatless_workspace_types::schemas::repository::BranchListResponse;
@@ -528,6 +532,15 @@ pub struct PullRequestPatchPage {
     pub omitted_files: usize,
 }
 
+/// The file [`PullRequestReviewSource::file_contents`] reads.
+pub struct ChangedFile<'a> {
+    /// A commit of the pull request; `None` is the whole change.
+    pub commit: Option<&'a str>,
+    pub change: FileChangeType,
+    pub old_path: &'a str,
+    pub new_path: &'a str,
+}
+
 /// What `pullRequests.list` asks of one repository. Every field narrows the
 /// listing; the values are the contract's own (`state` `open`, `closed`,
 /// `merged` or `all`, `review` `changes-requested`, ...).
@@ -630,6 +643,58 @@ pub trait PullRequestReviewSource: Send + Sync {
         number: u64,
         page: u32,
     ) -> Result<PullRequestPatchPage, PullRequestError>;
+
+    /// Page `page` (from 1) of commit `sha`'s own change.
+    async fn commit_patch_page(
+        &self,
+        viewer: &ScopeContext,
+        workspace_id: Option<&str>,
+        repository: &str,
+        sha: &str,
+        page: u32,
+    ) -> Result<PullRequestPatchPage, PullRequestError>;
+
+    /// The pull request's conversation, the people on its review and its
+    /// newest commits.
+    async fn activity(
+        &self,
+        viewer: &ScopeContext,
+        workspace_id: Option<&str>,
+        repository: &str,
+        number: u64,
+    ) -> Result<PullRequestActivity, PullRequestError>;
+
+    /// The page after `cursor` of one review thread's comments. Fails unless
+    /// the thread is on `repository#number`.
+    async fn thread_comments(
+        &self,
+        viewer: &ScopeContext,
+        workspace_id: Option<&str>,
+        repository: &str,
+        number: u64,
+        thread_id: &str,
+        cursor: Option<&str>,
+    ) -> Result<ReviewThreadCommentPage, PullRequestError>;
+
+    /// The pull request's labels, requested reviewers and head commit checks.
+    async fn status(
+        &self,
+        viewer: &ScopeContext,
+        workspace_id: Option<&str>,
+        repository: &str,
+        number: u64,
+    ) -> Result<PullRequestStatus, PullRequestError>;
+
+    /// One changed file of the pull request, or of `file.commit`, before and
+    /// after the change.
+    async fn file_contents(
+        &self,
+        viewer: &ScopeContext,
+        workspace_id: Option<&str>,
+        repository: &str,
+        number: u64,
+        file: &ChangedFile<'_>,
+    ) -> Result<FileContentsPair, PullRequestError>;
 
     /// Create a Task in `workspace_id`, owned by `viewer`, whose first message
     /// is `message`, without starting its sandbox. Returns its id.

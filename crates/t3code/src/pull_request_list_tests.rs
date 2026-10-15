@@ -183,6 +183,67 @@ impl PullRequestReviewSource for ProjectRepositories {
     ) -> Result<crate::ports::PullRequestPatchPage, PullRequestError> {
         unreachable!("no test here reads a pull request")
     }
+    async fn commit_patch_page(
+        &self,
+        _viewer: &ScopeContext,
+        _workspace_id: Option<&str>,
+        _repository: &str,
+        _sha: &str,
+        _page: u32,
+    ) -> Result<crate::ports::PullRequestPatchPage, crate::ports::PullRequestError> {
+        unreachable!("no test here reads a pull request")
+    }
+    async fn activity(
+        &self,
+        _viewer: &ScopeContext,
+        _workspace_id: Option<&str>,
+        _repository: &str,
+        _number: u64,
+    ) -> Result<
+        moatless_types::pull_request_conversation::PullRequestActivity,
+        crate::ports::PullRequestError,
+    > {
+        unreachable!("no test here reads a pull request")
+    }
+    async fn thread_comments(
+        &self,
+        _viewer: &ScopeContext,
+        _workspace_id: Option<&str>,
+        _repository: &str,
+        _number: u64,
+        _thread_id: &str,
+        _cursor: Option<&str>,
+    ) -> Result<
+        moatless_types::pull_request_conversation::ReviewThreadCommentPage,
+        crate::ports::PullRequestError,
+    > {
+        unreachable!("no test here reads a pull request")
+    }
+    async fn status(
+        &self,
+        _viewer: &ScopeContext,
+        _workspace_id: Option<&str>,
+        _repository: &str,
+        _number: u64,
+    ) -> Result<
+        moatless_types::pull_request_conversation::PullRequestStatus,
+        crate::ports::PullRequestError,
+    > {
+        unreachable!("no test here reads a pull request")
+    }
+    async fn file_contents(
+        &self,
+        _viewer: &ScopeContext,
+        _workspace_id: Option<&str>,
+        _repository: &str,
+        _number: u64,
+        _file: &crate::ports::ChangedFile<'_>,
+    ) -> Result<
+        moatless_types::pull_request_conversation::FileContentsPair,
+        crate::ports::PullRequestError,
+    > {
+        unreachable!("no test here reads a pull request")
+    }
     async fn create_review_guide_task(
         &self,
         _viewer: &ScopeContext,

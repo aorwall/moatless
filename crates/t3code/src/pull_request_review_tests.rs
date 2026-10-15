@@ -42,7 +42,12 @@ fn run(task_id: Option<&str>, started_minutes_ago: i64) -> ReviewGuideRun {
 
 #[test]
 fn detail_offers_the_diff_and_no_action() {
-    let detail = detail_json(&target(), "Acme", &overview());
+    let detail = detail_json(
+        &target(),
+        "Acme",
+        &overview(),
+        &PullRequestStatus::default(),
+    );
     assert_eq!(detail["capabilities"]["diff"], true);
     assert_eq!(detail["capabilities"]["actions"], json!([]));
     assert_eq!(detail["viewerPermissions"]["comment"], false);
@@ -52,6 +57,44 @@ fn detail_offers_the_diff_and_no_action() {
     assert_eq!(detail["updatedAt"], detail["createdAt"]);
     assert_eq!(detail["author"], Value::Null);
     assert_eq!(detail["mergeability"], "unknown");
+}
+
+#[test]
+fn detail_carries_the_status_read_beside_it() {
+    use moatless_types::pull_request_conversation::{
+        PullRequestActor, PullRequestCheck, PullRequestCheckStatus, PullRequestLabel,
+    };
+    let status = PullRequestStatus {
+        labels: vec![PullRequestLabel {
+            name: "bug".into(),
+            color: Some("d73a4a".into()),
+        }],
+        requested_reviewers: vec![PullRequestActor {
+            login: "copilot".into(),
+            is_bot: true,
+            ..Default::default()
+        }],
+        checks: vec![PullRequestCheck {
+            name: "lint".into(),
+            status: PullRequestCheckStatus::ActionRequired,
+            description: None,
+            url: None,
+            required: None,
+        }],
+    };
+    let detail = detail_json(&target(), "Acme", &overview(), &status);
+    assert_eq!(
+        detail["labels"],
+        json!([{ "name": "bug", "color": "d73a4a" }])
+    );
+    assert_eq!(
+        detail["reviewers"],
+        json!([{ "login": "copilot", "name": null, "avatarUrl": null, "isBot": true }])
+    );
+    assert_eq!(
+        detail["checks"],
+        json!([{ "name": "lint", "status": "action-required", "description": null, "url": null }])
+    );
 }
 
 #[test]

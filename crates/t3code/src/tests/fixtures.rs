@@ -322,6 +322,63 @@ impl ports::PullRequestReviewSource for UnreachablePullRequestReviews {
     ) -> Result<ports::PullRequestPatchPage, ports::PullRequestError> {
         unreachable!("no test in this file reads a bound pull request")
     }
+    async fn commit_patch_page(
+        &self,
+        _viewer: &ScopeContext,
+        _workspace_id: Option<&str>,
+        _repository: &str,
+        _sha: &str,
+        _page: u32,
+    ) -> Result<ports::PullRequestPatchPage, ports::PullRequestError> {
+        unreachable!("no test in this file reads a bound pull request")
+    }
+    async fn activity(
+        &self,
+        _viewer: &ScopeContext,
+        _workspace_id: Option<&str>,
+        _repository: &str,
+        _number: u64,
+    ) -> Result<
+        moatless_types::pull_request_conversation::PullRequestActivity,
+        ports::PullRequestError,
+    > {
+        unreachable!("no test in this file reads a bound pull request")
+    }
+    async fn thread_comments(
+        &self,
+        _viewer: &ScopeContext,
+        _workspace_id: Option<&str>,
+        _repository: &str,
+        _number: u64,
+        _thread_id: &str,
+        _cursor: Option<&str>,
+    ) -> Result<
+        moatless_types::pull_request_conversation::ReviewThreadCommentPage,
+        ports::PullRequestError,
+    > {
+        unreachable!("no test in this file reads a bound pull request")
+    }
+    async fn status(
+        &self,
+        _viewer: &ScopeContext,
+        _workspace_id: Option<&str>,
+        _repository: &str,
+        _number: u64,
+    ) -> Result<moatless_types::pull_request_conversation::PullRequestStatus, ports::PullRequestError>
+    {
+        unreachable!("no test in this file reads a bound pull request")
+    }
+    async fn file_contents(
+        &self,
+        _viewer: &ScopeContext,
+        _workspace_id: Option<&str>,
+        _repository: &str,
+        _number: u64,
+        _file: &ports::ChangedFile<'_>,
+    ) -> Result<moatless_types::pull_request_conversation::FileContentsPair, ports::PullRequestError>
+    {
+        unreachable!("no test in this file reads a bound pull request")
+    }
     async fn create_review_guide_task(
         &self,
         _viewer: &ScopeContext,

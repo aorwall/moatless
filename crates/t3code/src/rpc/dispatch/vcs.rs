@@ -4,9 +4,11 @@ use crate::authentication::viewer_scope;
 use crate::git_actions;
 use crate::nominal_path;
 use crate::oauth::Scope;
+use crate::pull_request_conversation;
 use crate::pull_request_list;
 use crate::pull_request_review;
 use crate::review;
+use crate::rpc::envelope::RequestId;
 use crate::rpc::envelope::success_exit;
 use crate::rpc::envelope::typed_failure_exit;
 use crate::rpc::errors::branch_list_exit;
@@ -42,14 +44,29 @@ pub(super) fn vcs_methods() -> MethodTable {
             git_run_stacked_action,
         )
         .detached(
+            "pullRequests.activity",
+            Scope::OrchestrationRead,
+            pull_requests_activity,
+        )
+        .detached(
             "pullRequests.detail",
             Scope::OrchestrationRead,
             pull_requests_detail,
         )
         .detached(
+            "pullRequests.diffFileContents",
+            Scope::OrchestrationRead,
+            pull_requests_diff_file_contents,
+        )
+        .detached(
             "pullRequests.generateReviewGuide",
             Scope::OrchestrationOperate,
             pull_requests_generate_review_guide,
+        )
+        .detached(
+            "pullRequests.linkedThreads",
+            Scope::OrchestrationRead,
+            pull_requests_linked_threads,
         )
         .detached(
             "pullRequests.invalidate",
@@ -67,6 +84,11 @@ pub(super) fn vcs_methods() -> MethodTable {
             pull_requests_list_stats,
         )
         .detached(
+            "pullRequests.preview",
+            Scope::OrchestrationRead,
+            pull_requests_preview,
+        )
+        .detached(
             "pullRequests.reviewGuide",
             Scope::OrchestrationRead,
             pull_requests_review_guide,
@@ -75,6 +97,11 @@ pub(super) fn vcs_methods() -> MethodTable {
             "pullRequests.summary",
             Scope::OrchestrationRead,
             pull_requests_summary,
+        )
+        .detached(
+            "pullRequests.threadComments",
+            Scope::OrchestrationRead,
+            pull_requests_thread_comments,
         )
         .detached(
             "review.getDiffPreview",
@@ -259,6 +286,31 @@ enum PullRequestRead {
     Detail,
     ReviewGuide,
     GenerateReviewGuide,
+    Activity,
+    Preview,
+    LinkedThreads,
+    ThreadComments,
+    DiffFileContents,
+}
+
+pub(super) async fn pull_requests_activity(request: Request) -> Vec<Value> {
+    pull_request_read(request, PullRequestRead::Activity).await
+}
+
+pub(super) async fn pull_requests_preview(request: Request) -> Vec<Value> {
+    pull_request_read(request, PullRequestRead::Preview).await
+}
+
+pub(super) async fn pull_requests_linked_threads(request: Request) -> Vec<Value> {
+    pull_request_read(request, PullRequestRead::LinkedThreads).await
+}
+
+pub(super) async fn pull_requests_thread_comments(request: Request) -> Vec<Value> {
+    pull_request_read(request, PullRequestRead::ThreadComments).await
+}
+
+pub(super) async fn pull_requests_diff_file_contents(request: Request) -> Vec<Value> {
+    pull_request_read(request, PullRequestRead::DiffFileContents).await
 }
 
 pub(super) async fn pull_requests_detail(request: Request) -> Vec<Value> {
@@ -285,13 +337,10 @@ async fn pull_request_read(request: Request, read: PullRequestRead) -> Vec<Value
     } = request;
     let Some((project_id, repository, number)) = pull_request_review::pull_request_ref(&payload)
     else {
-        return vec![typed_failure_exit(
+        return vec![bad_reference(
             &id,
-            json!({
-                "_tag": "PullRequestOperationError",
-                "operation": tag,
-                "detail": "A pull request reference needs a projectId, repository and number.",
-            }),
+            tag,
+            "A pull request reference needs a projectId, repository and number.",
         )];
     };
     let target = pull_request_review::PullRequestTarget {
@@ -309,6 +358,51 @@ async fn pull_request_read(request: Request, read: PullRequestRead) -> Vec<Value
         PullRequestRead::GenerateReviewGuide => {
             pull_request_review::generate_review_guide(&ports, &viewer, &target).await
         }
+        PullRequestRead::Activity => {
+            pull_request_conversation::activity(&ports, &viewer, &target).await
+        }
+        PullRequestRead::Preview => {
+            pull_request_conversation::preview(&ports, &viewer, &target).await
+        }
+        PullRequestRead::LinkedThreads => {
+            pull_request_conversation::linked_threads(&ports, &viewer, &target).await
+        }
+        PullRequestRead::ThreadComments => {
+            let text = |key: &str| payload.get(key).and_then(Value::as_str).map(str::trim);
+            match (text("threadId"), text("cursor")) {
+                (Some(thread_id), Some(cursor)) if !thread_id.is_empty() && !cursor.is_empty() => {
+                    pull_request_conversation::thread_comments(
+                        &ports, &viewer, &target, thread_id, cursor,
+                    )
+                    .await
+                }
+                _ => {
+                    return vec![bad_reference(
+                        &id,
+                        tag,
+                        "A thread page needs a threadId and a cursor.",
+                    )];
+                }
+            }
+        }
+        PullRequestRead::DiffFileContents => {
+            match pull_request_conversation::changed_file(&payload) {
+                Some(file)
+                    if file
+                        .commit
+                        .is_none_or(pull_request_conversation::is_commit_sha) =>
+                {
+                    pull_request_conversation::file_contents(&ports, &viewer, &target, &file).await
+                }
+                _ => {
+                    return vec![bad_reference(
+                        &id,
+                        tag,
+                        "A file read needs a changeType, oldPath and newPath, and a commit id if any.",
+                    )];
+                }
+            }
+        }
     };
     match result {
         Ok(value) => vec![success_exit(&id, value)],
@@ -317,6 +411,18 @@ async fn pull_request_read(request: Request, read: PullRequestRead) -> Vec<Value
             pull_request_review_error(tag, &error, &identity),
         )],
     }
+}
+
+/// T3's `PullRequestOperationError` for a request that names nothing to read.
+fn bad_reference(id: &RequestId, tag: &str, detail: &str) -> Value {
+    typed_failure_exit(
+        id,
+        json!({
+            "_tag": "PullRequestOperationError",
+            "operation": tag,
+            "detail": detail,
+        }),
+    )
 }
 
 /// Served off a Task's own binding rather than the git host, so it answers

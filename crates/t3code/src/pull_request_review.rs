@@ -14,6 +14,7 @@ use moatless_tasks::review_guide::models::{
 use moatless_tasks::review_guide::operations::ReviewGuides;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::agent::AgentProfile;
+use moatless_types::pull_request_conversation::PullRequestStatus;
 use moatless_types::task::TurnStatus;
 use serde_json::{Value, json};
 
@@ -25,6 +26,7 @@ use crate::ports::{
     SourceControlAuthSource,
 };
 use crate::providers;
+use crate::pull_request_conversation::{actor_json, check_json, label_json};
 use crate::review::{PullRequestSummaryError, readable_binding};
 use crate::workspace_listing::WorkspaceListing;
 
@@ -128,7 +130,7 @@ pub(crate) fn review_ports(state: &crate::state::UiRpcState) -> ReviewPorts<'_> 
 /// The Workspace the viewer reaches `target` through: the named project when
 /// its primary repository is the pull request's, else that of a readable Task
 /// bound to it. `None` inside `Ok` is a bound Task with no Workspace.
-async fn reach(
+pub(crate) async fn reach(
     ports: &ReviewPorts<'_>,
     viewer: &ScopeContext,
     target: &PullRequestTarget<'_>,
@@ -170,15 +172,27 @@ pub(crate) async fn detail(
     target: &PullRequestTarget<'_>,
 ) -> Result<Value, PullRequestReviewError> {
     let workspace_id = reach(ports, viewer, target).await?;
-    let overview = ports
-        .host
-        .overview(
+    let (overview, status) = futures::join!(
+        ports.host.overview(
             viewer,
             workspace_id.as_deref(),
             target.repository,
             target.number,
-        )
-        .await?;
+        ),
+        ports.host.status(
+            viewer,
+            workspace_id.as_deref(),
+            target.repository,
+            target.number,
+        ),
+    );
+    let overview = overview?;
+    // The pull request reads without its labels, reviewers and checks rather
+    // than not at all.
+    let status = status.unwrap_or_else(|error| {
+        tracing::warn!(?error, repository = %target.repository, number = target.number, "Pull request status read failed");
+        PullRequestStatus::default()
+    });
     let project_title = ports
         .workspaces
         .list_readable_including(viewer, &[target.project_id.to_string()])
@@ -188,13 +202,14 @@ pub(crate) async fn detail(
         .map(|listed| listed.workspace.name)
         .filter(|name| !name.trim().is_empty())
         .unwrap_or_else(|| target.repository.to_string());
-    Ok(detail_json(target, &project_title, &overview))
+    Ok(detail_json(target, &project_title, &overview, &status))
 }
 
 fn detail_json(
     target: &PullRequestTarget<'_>,
     project_title: &str,
     pr: &PullRequestOverview,
+    status: &PullRequestStatus,
 ) -> Value {
     let now = now_rfc3339();
     let created_at = pr.created_at.clone().unwrap_or_else(|| now.clone());
@@ -248,9 +263,9 @@ fn detail_json(
         "createdAt": created_at,
         "mergedAt": pr.merged_at,
         "closedAt": pr.closed_at,
-        "reviewers": [],
-        "labels": [],
-        "checks": [],
+        "reviewers": status.requested_reviewers.iter().map(actor_json).collect::<Vec<_>>(),
+        "labels": status.labels.iter().map(label_json).collect::<Vec<_>>(),
+        "checks": status.checks.iter().map(check_json).collect::<Vec<_>>(),
         "mergeCapabilities": { "merge": false, "squash": false, "rebase": false },
     });
     if !pr.head_sha.trim().is_empty() {
@@ -259,26 +274,43 @@ fn detail_json(
     detail
 }
 
-/// The HTTP `pull-requests/diff` route: one page of the change. `cursor` is
-/// the page number a previous page handed out.
+/// The HTTP `pull-requests/diff` route: one page of the change, or of its
+/// `commit`. `cursor` is the page number a previous page handed out.
 pub(crate) async fn diff(
     ports: &ReviewPorts<'_>,
     viewer: &ScopeContext,
     target: &PullRequestTarget<'_>,
+    commit: Option<&str>,
     cursor: Option<&str>,
 ) -> Result<Value, PullRequestReviewError> {
     let workspace_id = reach(ports, viewer, target).await?;
     let page = cursor.and_then(|cursor| cursor.parse().ok()).unwrap_or(1);
-    let page = ports
-        .host
-        .patch_page(
-            viewer,
-            workspace_id.as_deref(),
-            target.repository,
-            target.number,
-            page,
-        )
-        .await?;
+    let page = match commit {
+        Some(sha) => {
+            ports
+                .host
+                .commit_patch_page(
+                    viewer,
+                    workspace_id.as_deref(),
+                    target.repository,
+                    sha,
+                    page,
+                )
+                .await?
+        }
+        None => {
+            ports
+                .host
+                .patch_page(
+                    viewer,
+                    workspace_id.as_deref(),
+                    target.repository,
+                    target.number,
+                    page,
+                )
+                .await?
+        }
+    };
     Ok(json!({
         "patch": page.patch,
         "truncated": page.omitted_files > 0,
@@ -600,11 +632,11 @@ pub(crate) fn non_empty_or(value: &str, fallback: &str) -> String {
     }
 }
 
-fn rfc3339(at: DateTime<Utc>) -> String {
+pub(crate) fn rfc3339(at: DateTime<Utc>) -> String {
     at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
-fn now_rfc3339() -> String {
+pub(crate) fn now_rfc3339() -> String {
     rfc3339(Utc::now())
 }
 

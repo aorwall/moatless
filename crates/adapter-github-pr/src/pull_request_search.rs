@@ -127,12 +127,7 @@ pub async fn search_pull_requests(
         )))
     })?;
     Ok(PullRequestSearchPage {
-        next_cursor: data
-            .search
-            .page_info
-            .has_next_page
-            .then_some(data.search.page_info.end_cursor)
-            .flatten(),
+        next_cursor: data.search.page_info.next(),
         items: data
             .search
             .nodes
@@ -222,16 +217,23 @@ struct SearchConnection {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct PageInfo {
-    has_next_page: bool,
-    end_cursor: Option<String>,
+pub(super) struct PageInfo {
+    pub(super) has_next_page: bool,
+    pub(super) end_cursor: Option<String>,
+}
+
+impl PageInfo {
+    /// The cursor of the next page, `None` on the last one.
+    pub(super) fn next(self) -> Option<String> {
+        self.has_next_page.then_some(self.end_cursor).flatten()
+    }
 }
 
 #[derive(Deserialize)]
 #[serde(bound = "T: Deserialize<'de>")]
-struct Nodes<T> {
+pub(super) struct Nodes<T> {
     #[serde(default)]
-    nodes: Vec<Option<T>>,
+    pub(super) nodes: Vec<Option<T>>,
 }
 
 impl<T> Default for Nodes<T> {

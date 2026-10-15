@@ -2,6 +2,7 @@ use crate::authentication::viewer_scope;
 use crate::config::ORCHESTRATION_PROTOCOL_HEADER;
 use crate::config::ORCHESTRATION_PROTOCOL_QUERY_PARAM;
 use crate::config::OrchestrationProtocol;
+use crate::pull_request_conversation;
 use crate::pull_request_review;
 use crate::rpc::config::descriptor;
 use crate::rpc::config::session_state;
@@ -278,12 +279,13 @@ pub(crate) async fn pull_request_diff_http(
     else {
         return refused("A pull request reference needs a projectId, repository and number.");
     };
-    if payload
+    let commit = payload
         .get("commit")
         .and_then(Value::as_str)
-        .is_some_and(|commit| !commit.trim().is_empty())
-    {
-        return refused("A single commit's diff is not available here; read the whole change.");
+        .map(str::trim)
+        .filter(|commit| !commit.is_empty());
+    if commit.is_some_and(|commit| !pull_request_conversation::is_commit_sha(commit)) {
+        return refused("A commit is named by its id.");
     }
     let target = pull_request_review::PullRequestTarget {
         project_id: &project_id,
@@ -295,6 +297,7 @@ pub(crate) async fn pull_request_diff_http(
         &pull_request_review::review_ports(&state),
         &viewer_scope(&identity),
         &target,
+        commit,
         cursor,
     )
     .await
