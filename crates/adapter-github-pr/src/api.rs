@@ -188,6 +188,16 @@ pub(super) fn http_client(timeouts: HttpTimeouts) -> Client {
         .expect("the TLS backend initialises")
 }
 
+/// The GraphQL endpoint beside the REST root `base_url`: Enterprise Server
+/// serves REST at `/api/v3` and GraphQL at `/api/graphql`.
+pub(super) fn graphql_url(base_url: &str) -> String {
+    let base = base_url.trim_end_matches('/');
+    match base.strip_suffix("/v3") {
+        Some(api_root) => format!("{api_root}/graphql"),
+        None => format!("{base}/graphql"),
+    }
+}
+
 impl GithubPrApi {
     /// A client for `token` against the REST root `base_url`.
     pub(super) fn new(client: Client, token: &str, base_url: impl Into<String>) -> Self {
@@ -205,6 +215,47 @@ impl GithubPrApi {
             .header("User-Agent", "moatless-vibe")
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
+    }
+
+    /// Run a GraphQL `query` with `variables`, returning its `data`. A
+    /// response carrying `errors` is an error even when `data` is partial.
+    pub(super) async fn graphql(
+        &self,
+        query: &str,
+        variables: serde_json::Value,
+    ) -> Result<serde_json::Value, AdapterError> {
+        let url = graphql_url(&self.base_url);
+        let resp = self
+            .request(reqwest::Method::POST, &url)
+            .json(&serde_json::json!({ "query": query, "variables": variables }))
+            .send()
+            .await
+            .map_err(|e| SharedAdapterError::provider_unreachable("GitHub GraphQL", e))?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(SharedAdapterError::AdapterApi(format!(
+                "GitHub GraphQL returned {status}: {text}"
+            ))
+            .into());
+        }
+        let mut body: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| SharedAdapterError::provider_response_invalid("GitHub GraphQL", e))?;
+        // GitHub answers a per-node failure (a SAML or IP allow-list
+        // `FORBIDDEN`) with `errors` beside usable `data`, so only an answer
+        // without `data` fails.
+        let data = body["data"].take();
+        if let Some(errors) = body.get("errors").filter(|errors| !errors.is_null()) {
+            if data.is_null() {
+                return Err(
+                    SharedAdapterError::AdapterApi(format!("GitHub GraphQL: {errors}")).into(),
+                );
+            }
+            tracing::warn!(%errors, "GitHub GraphQL answered with partial data");
+        }
+        Ok(data)
     }
 
     /// Post a comment on a PR (via the Issues API).

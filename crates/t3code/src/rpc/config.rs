@@ -31,7 +31,6 @@ const UNSUPPORTED_SURFACES: &[&str] = &[
     "browserHistory",
     "snapShots",
     "checkpointFileRestore",
-    "pullRequestList",
     "deviceHub",
     "mergeBack",
     "scheduledTasks",
@@ -120,10 +119,10 @@ pub(crate) fn descriptor(config: &UiRpcConfig) -> Value {
             // nothing to unlink, and `linkedPullRequest` beside them is the
             // single reference a client from before this key reads instead.
             "threadPullRequests": true,
-            // `pullRequests.detail`, `reviewGuide`, `generateReviewGuide` and
-            // the HTTP diff, for a pull request a readable Task is bound to.
-            // Listing, conversation and every write to the host are refused,
-            // and `pullRequestList` hides the page that lists them.
+            // `pullRequests.list` over each readable project's primary GitHub
+            // repository, and `detail`, `reviewGuide`, `generateReviewGuide`
+            // and the HTTP diff for its pull requests or a bound Task's.
+            // Conversation and every write to the host are refused.
             "pullRequests": true,
             // `thread.pin`, `thread.unpin`, `thread.pin.reorder` and
             // `thread.active.reorder`, stored per viewer on their follow.

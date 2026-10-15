@@ -285,6 +285,24 @@ struct UnreachablePullRequestReviews;
 
 #[async_trait]
 impl ports::PullRequestReviewSource for UnreachablePullRequestReviews {
+    async fn project_repository(
+        &self,
+        _viewer: &ScopeContext,
+        _workspace_id: &str,
+    ) -> Result<Option<String>, ports::PullRequestError> {
+        unreachable!("no test in this file lists pull requests")
+    }
+    async fn list(
+        &self,
+        _viewer: &ScopeContext,
+        _workspace_id: &str,
+        _repository: &str,
+        _query: &ports::PullRequestListQuery,
+        _limit: u32,
+        _cursor: Option<&str>,
+    ) -> Result<ports::PullRequestListPage, ports::PullRequestError> {
+        unreachable!("no test in this file lists pull requests")
+    }
     async fn overview(
         &self,
         _viewer: &ScopeContext,

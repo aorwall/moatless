@@ -216,7 +216,7 @@ pub(crate) fn pull_request_review_error(
 ) -> Value {
     let (detail, not_found) = match error {
         PullRequestReviewError::Unknown => (
-            "No pull request is linked to a task you can read.".to_string(),
+            "This pull request is in no project or task you can read.".to_string(),
             true,
         ),
         PullRequestReviewError::Refused(message) => (message.clone(), false),

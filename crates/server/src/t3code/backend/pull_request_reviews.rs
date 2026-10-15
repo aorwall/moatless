@@ -5,18 +5,103 @@ use super::commands::{AppStateCommands, create_refusal};
 use super::pull_requests::{AppStateBoundPullRequests, pull_request_error};
 use async_trait::async_trait;
 use moatless_adapter_github_pr::adapter::GithubPrAdapter;
-use moatless_adapter_github_pr::pull_request_lookup;
+use moatless_adapter_github_pr::pull_request_search::{self, ListedPullRequest};
+use moatless_adapter_github_pr::{
+    pull_request_lookup,
+    pull_request_search::{Involvement, PullRequestSearch},
+};
 use moatless_t3code::ports::{
-    CommandRefusal, PullRequestError, PullRequestOverview, PullRequestPatchPage,
-    PullRequestReviewSource,
+    CommandRefusal, PullRequestError, PullRequestListItem, PullRequestListPage,
+    PullRequestListQuery, PullRequestOverview, PullRequestPatchPage, PullRequestReviewSource,
 };
 use moatless_tasks::task::service as task_service;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::agent::AgentProfile;
+use moatless_workspace_types::repository::RepositoryProvider;
 use std::sync::Arc;
 
 #[async_trait]
 impl PullRequestReviewSource for AppStateBoundPullRequests {
+    async fn project_repository(
+        &self,
+        viewer: &ScopeContext,
+        workspace_id: &str,
+    ) -> Result<Option<String>, PullRequestError> {
+        let store = |e: sqlx::Error| PullRequestError::Failed(e.to_string());
+        let Some(repository_id) = self
+            .0
+            .workspaces
+            .readable_primary_repository(viewer, workspace_id)
+            .await
+            .map_err(store)?
+        else {
+            return Ok(None);
+        };
+        let repository = self
+            .0
+            .repositories
+            .find_by_id(&repository_id, viewer)
+            .await
+            .map_err(store)?;
+        Ok(repository
+            .and_then(|repository| repository.remote?.host_repo)
+            .filter(|repo| repo.provider() == RepositoryProvider::Github)
+            .map(|repo| format!("{}/{}", repo.owner(), repo.name())))
+    }
+
+    async fn list(
+        &self,
+        viewer: &ScopeContext,
+        workspace_id: &str,
+        repository: &str,
+        query: &PullRequestListQuery,
+        limit: u32,
+        cursor: Option<&str>,
+    ) -> Result<PullRequestListPage, PullRequestError> {
+        let (owner, repo) = owner_repo(repository)?;
+        let adapter = self.github_pr()?;
+        let search = PullRequestSearch {
+            state: query.state.clone(),
+            involvement: match (query.involvement.as_deref(), query.viewer_login.clone()) {
+                (Some("authored"), Some(login)) => Some(Involvement::Authored(login)),
+                (Some("reviewing"), Some(login)) => Some(Involvement::ReviewRequested(login)),
+                _ => None,
+            },
+            text: query.text.clone(),
+            draft: query.draft.clone(),
+            review: query.review.clone(),
+            checks: query.checks.clone(),
+            labels: query.labels.clone(),
+            excluded_labels: query.excluded_labels.clone(),
+            author: query.author.clone(),
+        };
+        let mut page = PullRequestListPage {
+            next_cursor: cursor.map(str::to_string),
+            ..Default::default()
+        };
+        // A first read has no cursor; later ones stop when the host runs out.
+        let mut first = true;
+        while (page.items.len() as u32) < limit && (first || page.next_cursor.is_some()) {
+            first = false;
+            let want = (limit - page.items.len() as u32).min(pull_request_search::MAX_PAGE_SIZE);
+            let found = pull_request_search::search_pull_requests(
+                adapter.as_ref(),
+                &viewer.user_id,
+                Some(workspace_id),
+                owner,
+                repo,
+                &search,
+                want,
+                page.next_cursor.as_deref(),
+            )
+            .await
+            .map_err(pull_request_error)?;
+            page.items.extend(found.items.into_iter().map(list_item));
+            page.next_cursor = found.next_cursor;
+        }
+        Ok(page)
+    }
+
     async fn overview(
         &self,
         viewer: &ScopeContext,
@@ -147,6 +232,30 @@ impl AppStateBoundPullRequests {
                     "This deployment has no GitHub integration installed.".to_string(),
                 )
             })
+    }
+}
+
+fn list_item(pr: ListedPullRequest) -> PullRequestListItem {
+    PullRequestListItem {
+        number: pr.number,
+        title: pr.title,
+        url: pr.url,
+        author_login: pr.author_login,
+        author_avatar_url: pr.author_avatar_url,
+        author_is_bot: pr.author_is_bot,
+        head_ref: pr.head_ref,
+        base_ref: pr.base_ref,
+        state: pr.state,
+        is_draft: pr.is_draft,
+        mergeability: pr.mergeability,
+        additions: pr.additions,
+        deletions: pr.deletions,
+        created_at: pr.created_at,
+        updated_at: pr.updated_at,
+        labels: pr.labels,
+        review_decision: pr.review_decision,
+        checks_state: pr.checks_state,
+        requested_reviewers: pr.requested_reviewers,
     }
 }
 

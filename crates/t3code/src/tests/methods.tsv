@@ -43,6 +43,9 @@ projects.searchEntries	orchestration:read	detached	detached	same
 projects.writeFile	orchestration:operate	session	session	same
 pullRequests.detail	orchestration:read	detached	detached	same
 pullRequests.generateReviewGuide	orchestration:operate	detached	detached	same
+pullRequests.invalidate	orchestration:read	detached	detached	same
+pullRequests.list	orchestration:read	detached	detached	same
+pullRequests.listStats	orchestration:read	detached	detached	same
 pullRequests.reviewGuide	orchestration:read	detached	detached	same
 pullRequests.summary	orchestration:read	detached	detached	same
 review.getDiffPreview	review:write	detached	detached	same

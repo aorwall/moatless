@@ -155,3 +155,44 @@ fn truncation_keeps_whole_characters() {
     assert_eq!(truncate("åäö", 2), "åä");
     assert_eq!(truncate("ab", 5), "ab");
 }
+
+/// `ws-1`'s primary repository is `project_repository`; no Task is bound to
+/// the pull request, so a fallback finds nothing. `fallback` is how many
+/// times the bindings are asked.
+async fn reach_with(
+    project_repository: Option<&str>,
+    fallback: usize,
+) -> Result<Option<String>, PullRequestReviewError> {
+    let host =
+        crate::pull_request_list::tests::ProjectRepositories::new(match project_repository {
+            Some("acme/app") => |_| Ok(Some("acme/app".to_string())),
+            Some(_) => |_| Ok(Some("acme/api".to_string())),
+            None => |_| Ok(None),
+        });
+    let mut bound = crate::ports::MockBoundPullRequestSource::new();
+    bound
+        .expect_tasks_bound_to()
+        .times(fallback)
+        .returning(|_, _| Vec::new());
+    let conversations = crate::dao::MockConversationDao::new();
+    let viewer = ScopeContext::user("user-1".to_string());
+    reach_through(&host, &conversations, &bound, &viewer, &target()).await
+}
+
+#[tokio::test]
+async fn a_pull_request_in_the_projects_primary_repository_is_reached_through_it() {
+    let reached = reach_with(Some("acme/app"), 0).await.unwrap();
+    assert_eq!(reached.as_deref(), Some("ws-1"));
+}
+
+#[tokio::test]
+async fn a_pull_request_in_another_repository_needs_a_bound_task() {
+    let reached = reach_with(Some("acme/api"), 1).await;
+    assert!(matches!(reached, Err(PullRequestReviewError::Unknown)));
+}
+
+#[tokio::test]
+async fn an_unreadable_project_falls_back_to_a_bound_task() {
+    let reached = reach_with(None, 1).await;
+    assert!(matches!(reached, Err(PullRequestReviewError::Unknown)));
+}

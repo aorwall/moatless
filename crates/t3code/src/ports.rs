@@ -450,6 +450,7 @@ pub enum PullRequestError {
 ///
 /// A port, not a DAO: resolving a reference reaches the git host, and
 /// `crates/t3code` stays free of any GitHub knowledge.
+#[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait BoundPullRequestSource: Send + Sync {
     /// Every pull request `task_id` is bound to. Access is checked before this
@@ -527,14 +528,91 @@ pub struct PullRequestPatchPage {
     pub omitted_files: usize,
 }
 
-/// A pull request read from its git host, and the Task that writes its guided
+/// What `pullRequests.list` asks of one repository. Every field narrows the
+/// listing; the values are the contract's own (`state` `open`, `closed`,
+/// `merged` or `all`, `review` `changes-requested`, ...).
+#[derive(Clone, Debug, Default)]
+pub struct PullRequestListQuery {
+    pub state: String,
+    /// `authored` or `reviewing`, of `viewer_login`.
+    pub involvement: Option<String>,
+    /// The viewer's own login on the host, which `involvement` names.
+    pub viewer_login: Option<String>,
+    pub text: Option<String>,
+    pub draft: Option<String>,
+    pub review: Option<String>,
+    pub checks: Option<String>,
+    /// Each group matches any of its labels; every group must match.
+    pub labels: Vec<Vec<String>>,
+    pub excluded_labels: Vec<String>,
+    pub author: Option<String>,
+}
+
+/// One pull request in a listing, in the contract's vocabulary.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PullRequestListItem {
+    pub number: u64,
+    pub title: String,
+    pub url: String,
+    pub author_login: Option<String>,
+    pub author_avatar_url: Option<String>,
+    pub author_is_bot: bool,
+    pub head_ref: String,
+    pub base_ref: String,
+    /// `open`, `closed` or `merged`.
+    pub state: String,
+    pub is_draft: bool,
+    /// `mergeable`, `conflicting` or `unknown`.
+    pub mergeability: String,
+    pub additions: u64,
+    pub deletions: u64,
+    /// RFC 3339.
+    pub created_at: String,
+    pub updated_at: String,
+    /// Name and hex colour without `#`.
+    pub labels: Vec<(String, Option<String>)>,
+    pub review_decision: Option<String>,
+    pub checks_state: Option<String>,
+    pub requested_reviewers: Vec<String>,
+}
+
+/// One page of a repository's listing, newest update first.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PullRequestListPage {
+    pub items: Vec<PullRequestListItem>,
+    /// Opaque; hand back for the next page. `None` on the last one.
+    pub next_cursor: Option<String>,
+}
+
+/// Pull requests read from their git host, and the Task that writes a guided
 /// review.
 ///
-/// Every read takes the Workspace of a Task bound to the pull request, whose
-/// credential stands in when the viewer has none of their own; the caller has
-/// already checked the viewer may read that Task.
+/// Every read takes the Workspace the viewer reached the pull request through,
+/// whose credential stands in when the viewer has none of their own; the
+/// caller has already checked the viewer may read it.
 #[async_trait]
 pub trait PullRequestReviewSource: Send + Sync {
+    /// `owner/name` of the GitHub repository `workspace_id` lists pull
+    /// requests of: its primary one. `None` when the viewer cannot read the
+    /// Workspace or its primary repository is not on GitHub.
+    async fn project_repository(
+        &self,
+        viewer: &ScopeContext,
+        workspace_id: &str,
+    ) -> Result<Option<String>, PullRequestError>;
+
+    /// Up to `limit` of `repository`'s pull requests matching `query`, from
+    /// `cursor` on.
+    async fn list(
+        &self,
+        viewer: &ScopeContext,
+        workspace_id: &str,
+        repository: &str,
+        query: &PullRequestListQuery,
+        limit: u32,
+        cursor: Option<&str>,
+    ) -> Result<PullRequestListPage, PullRequestError>;
+
     async fn overview(
         &self,
         viewer: &ScopeContext,

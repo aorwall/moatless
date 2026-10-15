@@ -4,6 +4,7 @@ use crate::authentication::viewer_scope;
 use crate::git_actions;
 use crate::nominal_path;
 use crate::oauth::Scope;
+use crate::pull_request_list;
 use crate::pull_request_review;
 use crate::review;
 use crate::rpc::envelope::success_exit;
@@ -49,6 +50,21 @@ pub(super) fn vcs_methods() -> MethodTable {
             "pullRequests.generateReviewGuide",
             Scope::OrchestrationOperate,
             pull_requests_generate_review_guide,
+        )
+        .detached(
+            "pullRequests.invalidate",
+            Scope::OrchestrationRead,
+            pull_requests_invalidate,
+        )
+        .detached(
+            "pullRequests.list",
+            Scope::OrchestrationRead,
+            pull_requests_list,
+        )
+        .detached(
+            "pullRequests.listStats",
+            Scope::OrchestrationRead,
+            pull_requests_list_stats,
         )
         .detached(
             "pullRequests.reviewGuide",
@@ -207,6 +223,37 @@ pub(super) async fn review_get_diff_preview(request: Request) -> Vec<Value> {
     }
 }
 
+/// Every readable project's pull requests, read from GitHub.
+pub(super) async fn pull_requests_list(request: Request) -> Vec<Value> {
+    let Request {
+        id,
+        tag,
+        payload,
+        state,
+        identity,
+        ..
+    } = request;
+    let ports = pull_request_review::review_ports(&state);
+    match pull_request_list::list(&ports, &viewer_scope(&identity), &payload).await {
+        Ok(value) => vec![success_exit(&id, value)],
+        Err(error) => vec![typed_failure_exit(
+            &id,
+            pull_request_review_error(tag, &error, &identity),
+        )],
+    }
+}
+
+/// No stats: `pullRequests.list` already carries each row's line counts, and
+/// the page keeps those for a row absent here.
+pub(super) async fn pull_requests_list_stats(request: Request) -> Vec<Value> {
+    vec![success_exit(&request.id, json!({ "stats": [] }))]
+}
+
+/// Nothing to forget: no listing, detail or diff is cached here.
+pub(super) async fn pull_requests_invalidate(request: Request) -> Vec<Value> {
+    vec![success_exit(&request.id, Value::Null)]
+}
+
 /// Which `pullRequests.*` read a request is.
 enum PullRequestRead {
     Detail,
@@ -226,9 +273,7 @@ pub(super) async fn pull_requests_generate_review_guide(request: Request) -> Vec
     pull_request_read(request, PullRequestRead::GenerateReviewGuide).await
 }
 
-/// The linked pull request's detail and guided review. Every other
-/// `pullRequests.*` method but `summary` writes to the host or lists it, and
-/// is refused.
+/// A pull request's detail and guided review.
 async fn pull_request_read(request: Request, read: PullRequestRead) -> Vec<Value> {
     let Request {
         id,

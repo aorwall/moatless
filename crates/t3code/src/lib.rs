@@ -28,6 +28,7 @@ pub mod preview_relay;
 pub mod preview_tabs;
 mod projection;
 mod providers;
+mod pull_request_list;
 mod pull_request_review;
 mod reads;
 mod review;

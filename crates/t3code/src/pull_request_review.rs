@@ -1,10 +1,10 @@
-//! A linked pull request read from its git host — `pullRequests.detail`, its
-//! diff — and its guided review, which a Task the viewer starts writes and
-//! submits with `moat review-guide submit`.
+//! A pull request read from its git host — `pullRequests.detail`, its diff —
+//! and its guided review, which a Task the viewer starts writes and submits
+//! with `moat review-guide submit`.
 //!
-//! Every read is authorized through a Task the viewer may read that is bound
-//! to the pull request, as `pullRequests.summary` is: an arbitrary reference
-//! answers not found.
+//! Every read is authorized through the project it names, whose primary
+//! repository must be the pull request's, or else through a Task the viewer
+//! may read that is bound to it: an arbitrary reference answers not found.
 
 use chrono::{DateTime, Duration, Utc};
 use moatless_ports::sandbox::SandboxStarter;
@@ -22,6 +22,7 @@ use crate::dao::{Conversation, ConversationDao};
 use crate::nominal_path;
 use crate::ports::{
     BoundPullRequestSource, PullRequestError, PullRequestOverview, PullRequestReviewSource,
+    SourceControlAuthSource,
 };
 use crate::providers;
 use crate::review::{PullRequestSummaryError, readable_binding};
@@ -90,6 +91,7 @@ pub(crate) struct ReviewPorts<'a> {
     pub(crate) guides: &'a ReviewGuides,
     pub(crate) starter: &'a dyn SandboxStarter,
     pub(crate) model_defaults: &'a AgentModelDefaults,
+    pub(crate) auth: &'a dyn SourceControlAuthSource,
 }
 
 /// The `PullRequestRef` a `pullRequests.*` request carries.
@@ -119,23 +121,44 @@ pub(crate) fn review_ports(state: &crate::state::UiRpcState) -> ReviewPorts<'_> 
         guides: state.review_guides.as_ref(),
         starter: state.sandbox.starter.as_ref(),
         model_defaults: state.model_defaults.as_ref(),
+        auth: state.source_control_auth.as_ref(),
     }
 }
 
-async fn bound_task(
+/// The Workspace the viewer reaches `target` through: the named project when
+/// its primary repository is the pull request's, else that of a readable Task
+/// bound to it. `None` inside `Ok` is a bound Task with no Workspace.
+async fn reach(
     ports: &ReviewPorts<'_>,
     viewer: &ScopeContext,
     target: &PullRequestTarget<'_>,
-) -> Result<Conversation, PullRequestReviewError> {
+) -> Result<Option<String>, PullRequestReviewError> {
+    reach_through(ports.host, ports.conversations, ports.bound, viewer, target).await
+}
+
+/// [`reach`], over only the ports it reads.
+async fn reach_through(
+    host: &dyn PullRequestReviewSource,
+    conversations: &dyn ConversationDao,
+    bound: &dyn BoundPullRequestSource,
+    viewer: &ScopeContext,
+    target: &PullRequestTarget<'_>,
+) -> Result<Option<String>, PullRequestReviewError> {
+    let project_repository = host.project_repository(viewer, target.project_id).await?;
+    if project_repository
+        .is_some_and(|repository| repository.eq_ignore_ascii_case(target.repository))
+    {
+        return Ok(Some(target.project_id.to_string()));
+    }
     readable_binding(
-        ports.conversations,
-        ports.bound,
+        conversations,
+        bound,
         viewer,
         target.repository,
         target.number,
     )
     .await?
-    .map(|(conversation, _)| conversation)
+    .map(|(conversation, _): (Conversation, _)| conversation.workspace_id)
     .ok_or(PullRequestReviewError::Unknown)
 }
 
@@ -146,12 +169,12 @@ pub(crate) async fn detail(
     viewer: &ScopeContext,
     target: &PullRequestTarget<'_>,
 ) -> Result<Value, PullRequestReviewError> {
-    let task = bound_task(ports, viewer, target).await?;
+    let workspace_id = reach(ports, viewer, target).await?;
     let overview = ports
         .host
         .overview(
             viewer,
-            task.workspace_id.as_deref(),
+            workspace_id.as_deref(),
             target.repository,
             target.number,
         )
@@ -244,13 +267,13 @@ pub(crate) async fn diff(
     target: &PullRequestTarget<'_>,
     cursor: Option<&str>,
 ) -> Result<Value, PullRequestReviewError> {
-    let task = bound_task(ports, viewer, target).await?;
+    let workspace_id = reach(ports, viewer, target).await?;
     let page = cursor.and_then(|cursor| cursor.parse().ok()).unwrap_or(1);
     let page = ports
         .host
         .patch_page(
             viewer,
-            task.workspace_id.as_deref(),
+            workspace_id.as_deref(),
             target.repository,
             target.number,
             page,
@@ -270,14 +293,14 @@ pub(crate) async fn review_guide(
     viewer: &ScopeContext,
     target: &PullRequestTarget<'_>,
 ) -> Result<Value, PullRequestReviewError> {
-    let task = bound_task(ports, viewer, target).await?;
+    let workspace_id = reach(ports, viewer, target).await?;
     // A head the host would not report leaves the guide unjudged rather than
     // the whole read failed: the stored guide is still worth showing.
     let current_head = ports
         .host
         .overview(
             viewer,
-            task.workspace_id.as_deref(),
+            workspace_id.as_deref(),
             target.repository,
             target.number,
         )
@@ -295,8 +318,8 @@ pub(crate) async fn generate_review_guide(
     viewer: &ScopeContext,
     target: &PullRequestTarget<'_>,
 ) -> Result<Value, PullRequestReviewError> {
-    let task = bound_task(ports, viewer, target).await?;
-    let workspace_id = task.workspace_id.clone().ok_or_else(|| {
+    let workspace_id = reach(ports, viewer, target).await?;
+    let workspace_id = workspace_id.ok_or_else(|| {
         PullRequestReviewError::Refused(
             "The task linked to this pull request has no workspace to run a guide in.".to_string(),
         )
@@ -569,7 +592,7 @@ fn truncate(text: &str, max_chars: usize) -> &str {
         .map_or(text, |(end, _)| &text[..end])
 }
 
-fn non_empty_or(value: &str, fallback: &str) -> String {
+pub(crate) fn non_empty_or(value: &str, fallback: &str) -> String {
     if value.trim().is_empty() {
         fallback.to_string()
     } else {
