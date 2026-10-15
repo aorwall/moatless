@@ -3741,6 +3741,7 @@ dependencies = [
  "moatless-ports",
  "moatless-types",
  "moatless-workspace-types",
+ "mockall",
  "regex",
  "reqwest",
  "serde",

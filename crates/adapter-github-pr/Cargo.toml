@@ -51,4 +51,5 @@ moatless-adapter-model = { workspace = true, features = ["test-support"] }
 # ports it exercises directly. Production code here names no mock type, so
 # this edge must never appear under `[dependencies]`.
 moatless-ports = { workspace = true, features = ["test-support"] }
+mockall = { workspace = true }
 sha2 = { workspace = true }

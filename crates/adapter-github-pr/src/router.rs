@@ -21,8 +21,23 @@ use moatless_ports::task::RelationRecorder;
 use moatless_ports::task::TaskFinisher;
 use moatless_ports::task::TaskOpener;
 use moatless_ports::task::{TaskReader, TranscriptAppend};
+use moatless_types::store::StoreError;
 
 use super::adapter::GithubPrAdapter;
+
+/// The Tasks behind a pull request's review guide, closed when it is merged.
+#[cfg_attr(test, mockall::automock)]
+#[async_trait::async_trait]
+pub trait ReviewGuideTasks: Send + Sync {
+    /// The Tasks that wrote, or are writing, the review guide of pull request
+    /// `number` in `repository` (`owner/repo`) on `host`.
+    async fn guide_tasks(
+        &self,
+        host: &str,
+        repository: &str,
+        number: u64,
+    ) -> Result<Vec<String>, StoreError>;
+}
 
 /// Constructed-once inbound-routing service for the GitHub PR adapter. Holds
 /// the downward ports the delivery handlers read; see the module doc.
@@ -51,6 +66,8 @@ pub struct GithubPrInboundRouter {
     /// which [`close_subject`](Self::close_subject) delegates to with an
     /// enriched close event.
     pub(super) task_closer: Arc<dyn TaskFinisher>,
+    /// The Tasks that wrote a pull request's review guide, closed on merge.
+    pub(super) review_guides: Arc<dyn ReviewGuideTasks>,
     /// The concrete adapter — `Some` when GitHub PR is configured. Source of
     /// the self-resolved reply instructions and the merge / post-merge
     /// credential.
@@ -61,7 +78,7 @@ impl GithubPrInboundRouter {
     /// Wire the router from the composition root's ports.
     #[expect(
         clippy::too_many_arguments,
-        reason = "the inbound-routing substrate is genuinely wide — twelve downward ports the delivery handlers read. Bundling them into a sub-struct would only shuffle the same fields behind a one-use type; the width is paid once here at construction rather than threaded through register, every delivery closure, and every handler, which is the whole point of a constructed-once service."
+        reason = "the inbound-routing substrate is genuinely wide — thirteen downward ports the delivery handlers read. Bundling them into a sub-struct would only shuffle the same fields behind a one-use type; the width is paid once here at construction rather than threaded through register, every delivery closure, and every handler, which is the whole point of a constructed-once service."
     )]
     pub fn new(
         adapter_connections: Arc<dyn ConnectionLookup>,
@@ -75,6 +92,7 @@ impl GithubPrInboundRouter {
         task_creation: Arc<dyn TaskOpener>,
         message_send: Arc<dyn MessageAcceptor>,
         task_closer: Arc<dyn TaskFinisher>,
+        review_guides: Arc<dyn ReviewGuideTasks>,
         adapter: Option<Arc<GithubPrAdapter>>,
     ) -> Self {
         Self {
@@ -89,6 +107,7 @@ impl GithubPrInboundRouter {
             task_creation,
             message_send,
             task_closer,
+            review_guides,
             adapter,
         }
     }

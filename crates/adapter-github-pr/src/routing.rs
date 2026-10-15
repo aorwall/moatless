@@ -638,7 +638,7 @@ impl GithubPrInboundRouter {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use chrono::Utc;
     use moatless_types::access_control::Scope;
     use moatless_types::adapter::AdapterConnection;
@@ -667,7 +667,7 @@ mod tests {
     /// Builds a full `GithubPrInboundRouter` for the method below, the one
     /// that reads every field. Every port it skips is wired to a lazily
     /// connected pool or an unused mock — no live Postgres needed.
-    mod notify_and_maybe_close_tests {
+    pub(crate) mod notify_and_maybe_close_tests {
         use std::sync::Arc;
 
         use async_trait::async_trait;
@@ -686,6 +686,7 @@ mod tests {
         use moatless_types::loops::RoutingMode;
 
         use super::super::*;
+        use crate::router::MockReviewGuideTasks;
 
         /// Never dispatched by `notify_and_maybe_close_for_pr`: the field only
         /// exists to satisfy `RoutingInputs`, which this test's unused
@@ -791,6 +792,20 @@ mod tests {
             message_send: MockMessageAcceptor,
             task_closer: MockTaskFinisher,
         ) -> GithubPrInboundRouter {
+            router_with(
+                message_send,
+                task_closer,
+                MockTaskReader::new(),
+                MockReviewGuideTasks::new(),
+            )
+        }
+
+        pub(crate) fn router_with(
+            message_send: MockMessageAcceptor,
+            task_closer: MockTaskFinisher,
+            tasks: MockTaskReader,
+            review_guides: MockReviewGuideTasks,
+        ) -> GithubPrInboundRouter {
             let pool = unconnected_pool();
             let connections = moatless_adapter_model::compose::adapter_connections(pool.clone());
             let loop_graph = moatless_loops::compose::loop_graph(pool);
@@ -817,10 +832,11 @@ mod tests {
                 routing,
                 Arc::new(MockTranscriptAppend::new()),
                 Arc::new(MockRelationRecorder::new()),
-                Arc::new(MockTaskReader::new()),
+                Arc::new(tasks),
                 Arc::new(MockTaskOpener::new()),
                 Arc::new(message_send),
                 Arc::new(task_closer),
+                Arc::new(review_guides),
                 None,
             )
         }

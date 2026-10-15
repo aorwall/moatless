@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use crate::adapters::inbound_delivery::InboundMessageHandler;
 use crate::adapters::providers::github_pr::adapter::GithubPrAdapter;
+use crate::adapters::providers::github_pr::router::ReviewGuideTasks;
 use crate::adapters::providers::linear::active_turns::ActiveLinearTurns;
 use crate::adapters::providers::linear::adapter::LinearAdapter;
 use crate::adapters::providers::slack::adapter::SlackAdapter;
@@ -21,6 +22,7 @@ use moatless_adapter_model::delivery::AdapterDeliveryHandlers;
 use moatless_adapter_model::registry::Adapters;
 use moatless_core::config::Config;
 use moatless_loops::adapters::events::TaskEventSubscribers;
+use moatless_types::store::StoreError;
 
 /// The external Adapters installed in one backend process.
 ///
@@ -247,6 +249,7 @@ impl GithubPrInstallation {
                 state.task_creation.clone(),
                 state.message_send.clone(),
                 state.task_closer.clone(),
+                Arc::new(GuideTasks(state.review_guides.clone())),
                 Some(self.adapter.clone()),
             ),
         );
@@ -341,5 +344,39 @@ impl AdapterInstallations {
         &self,
     ) -> Arc<moatless_adapter_linear::installation::Installation> {
         self.linear.oauth.clone()
+    }
+}
+
+/// [`ReviewGuideTasks`] over the review guide tables: the Task that wrote the
+/// stored guide and the one writing the current run.
+struct GuideTasks(Arc<moatless_tasks::review_guide::operations::ReviewGuides>);
+
+#[async_trait::async_trait]
+impl ReviewGuideTasks for GuideTasks {
+    async fn guide_tasks(
+        &self,
+        host: &str,
+        repository: &str,
+        number: u64,
+    ) -> Result<Vec<String>, StoreError> {
+        let key =
+            moatless_tasks::review_guide::models::PullRequestKey::new(host, repository, number);
+        let read = |e| {
+            StoreError::with_source(format!("read the review guide of {repository}#{number}"), e)
+        };
+        let written = self
+            .0
+            .guide(&key)
+            .await
+            .map_err(read)?
+            .map(|guide| guide.task_id);
+        let writing = self
+            .0
+            .run(&key)
+            .await
+            .map_err(read)?
+            .and_then(|run| run.task_id);
+        let writing = writing.filter(|task_id| written.as_ref() != Some(task_id));
+        Ok(written.into_iter().chain(writing).collect())
     }
 }
