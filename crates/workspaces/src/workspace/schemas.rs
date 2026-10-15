@@ -114,6 +114,7 @@ pub fn workspace_response(w: Workspace, repos: Vec<WorkspaceRepo>) -> WorkspaceR
         env_vars: w.env_vars,
         scripts: w.scripts,
         resources: w.resources.map(resource_config_to_wire),
+        language_servers: w.language_servers,
         network_profile: w.network_profile,
         node_selector: w.node_selector,
         default_model: w.default_model,

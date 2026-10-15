@@ -16,6 +16,9 @@ pub fn encode_repo_config(config: &RepoConfig) -> Option<String> {
     if let Some(plugins) = &config.plugins {
         values.insert("plugins".into(), json!(plugins));
     }
+    if let Some(servers) = &config.language_servers {
+        values.insert("languageServers".into(), json!(servers));
+    }
     (!values.is_empty()).then(|| Value::Object(values).to_string())
 }
 
@@ -34,6 +37,20 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<Value>(&encoded).expect("json"),
             json!({"systemPrompt":""})
+        );
+    }
+
+    #[test]
+    fn language_servers_travel_as_their_ids() {
+        let mut config: RepoConfig =
+            serde_json::from_value(json!({"name":"repo"})).expect("config");
+        config.language_servers = Some(vec![
+            moatless_workspace_types::workspace::LanguageServer::Rust,
+        ]);
+        let encoded = encode_repo_config(&config).expect("present");
+        assert_eq!(
+            serde_json::from_str::<Value>(&encoded).expect("json"),
+            json!({"languageServers":["rust"]})
         );
     }
 }

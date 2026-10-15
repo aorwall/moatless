@@ -5,7 +5,7 @@
 
 use super::{
     InitError, InitPhase, claude_code_settings, codex_config, dirs, git, home_skills,
-    plugin_skills, workspace,
+    language_servers, plugin_skills, workspace,
 };
 use crate::agent::restart::{WorkspaceOrigin, open_for_work};
 use crate::credentials::fetch as credentials;
@@ -158,6 +158,19 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
         state.config.openai_base_url.as_deref(),
     )
     .await;
+
+    // 2c. Stage the plugin that gives Claude its `LSP` tool. Non-fatal — the
+    //     agent still runs, only without code intelligence.
+    let claude_config_dir = PathBuf::from(&state.config.claude_config_dir);
+    let servers = state.config.language_servers.clone();
+    let search_path = state.config.search_path.clone();
+    let staged = run_init_blocking("stage_language_servers", move || {
+        language_servers::stage_plugin(&claude_config_dir, &servers, search_path.as_deref())
+    })
+    .await?;
+    if let Err(e) = staged {
+        warn!(error = %e, "Failed to stage the language server plugin");
+    }
 
     {
         *state.init_phase.write().await = InitPhase::FetchingCredentials;

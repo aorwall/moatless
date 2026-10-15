@@ -17,6 +17,7 @@ use tracing::{info, warn};
 use crate::agent::handle::resolve_agent_harness;
 use crate::agent::types::AgentRunRequest;
 use crate::config::Config;
+use crate::init::language_servers;
 
 use super::agent_state::AgentState;
 use super::permission_handler::InteractivePermissionHandler;
@@ -210,12 +211,32 @@ fn disallowed_tools(config: &Config, is_plan_mode: bool) -> Vec<String> {
 /// Build the system prompt configuration.
 #[allow(clippy::unnecessary_wraps)] // Option for caller API consistency
 fn build_system_prompt(config: &Config, request: &AgentRunRequest) -> Option<SystemPrompt> {
+    let mut append = build_prompt_append(config, request);
+    if language_servers::plugin_dir_if_staged(Path::new(&config.claude_config_dir)).is_some() {
+        append.push_str("\n\n");
+        append.push_str(LSP_WARMUP_NOTE);
+    }
     Some(SystemPrompt::Preset {
         prompt_type: "preset".to_string(),
         preset: "claude_code".to_string(),
-        append: Some(build_prompt_append(config, request)),
+        append: Some(append),
     })
 }
+
+/// Claude-only: Codex shares [`build_prompt_append`] and has no `LSP` tool.
+///
+/// Claude Code starts a server on its first `LSP` call and queries it at once,
+/// before it has loaded the project, and reports that as an empty result.
+const LSP_WARMUP_NOTE: &str = "## Code intelligence\n\
+     The `LSP` tool finds definitions, references, implementations, call \
+     hierarchies and types through a language server, which is more precise \
+     than searching text. It takes a line and a column, so read the line \
+     first. Its server starts on the first call and then loads the project: a \
+     few seconds for TypeScript, up to a few minutes for a large Rust \
+     workspace. Until it has, a lookup comes back empty (\"No definition \
+     found\", no references). An empty answer early in a session means the \
+     server is not ready, not that the symbol is missing: carry on with other \
+     work and ask again.";
 
 /// The `--effort` value for a requested effort, or `None` to leave the CLI on
 /// its own default.
@@ -546,7 +567,15 @@ fn repo_instruction_path(dir: &str, filenames: [&'static str; 2]) -> Option<Stri
 /// `${CLAUDE_PLUGIN_ROOT}` to that plugin's hooks and MCP servers and expands
 /// in the skills its Skill tool loads; the SDK has no per-plugin env to set.
 fn build_plugins(config: &Config) -> Vec<PluginConfig> {
-    build_plugins_with_root(&config.plugins_dir())
+    let mut plugins = build_plugins_with_root(&config.plugins_dir());
+    if let Some(dir) = language_servers::plugin_dir_if_staged(Path::new(&config.claude_config_dir))
+    {
+        plugins.push(PluginConfig {
+            plugin_type: "local".to_string(),
+            path: dir.to_string_lossy().into_owned(),
+        });
+    }
+    plugins
 }
 
 fn build_plugins_with_root(plugins_dir: &Path) -> Vec<PluginConfig> {
@@ -742,6 +771,32 @@ mod tests {
         assert_eq!(plugins.len(), 1);
         assert_eq!(plugins[0].plugin_type, "local");
         assert_eq!(plugins[0].path, direct.to_string_lossy());
+    }
+
+    /// The plugin init stages under the Claude config dir reaches Claude as one
+    /// more `--plugin-dir`, and only Claude's prompt says how to use it.
+    #[test]
+    fn a_staged_language_server_plugin_reaches_claude_only() {
+        let root = tempdir().unwrap();
+        let mut config = test_config(false);
+        config.workspace_dir = root.path().join("ws").to_string_lossy().into_owned();
+        config.claude_config_dir = root.path().join("claude").to_string_lossy().into_owned();
+        let request = test_request();
+        let without = build_plugins(&config);
+        assert!(without.is_empty());
+
+        let lsp = root.path().join("claude/moatless-language-servers");
+        write(&lsp.join(".lsp.json"), r#"{"rust":{}}"#);
+
+        let plugins = build_plugins(&config);
+        assert_eq!(plugins.len(), 1);
+        assert_eq!(plugins[0].path, lsp.to_string_lossy());
+        let Some(SystemPrompt::Preset { append, .. }) = build_system_prompt(&config, &request)
+        else {
+            panic!("preset prompt");
+        };
+        assert!(append.unwrap().contains("## Code intelligence"));
+        assert!(!build_prompt_append(&config, &request).contains("## Code intelligence"));
     }
 
     #[test]

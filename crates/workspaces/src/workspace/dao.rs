@@ -339,12 +339,14 @@ impl WorkspaceDao for PgWorkspaceDao {
                    id, name, description, icon, kind,
                    docker_image, docker_access, sandbox_service_account,
                    system_prompt, setup_commands, env_vars, scripts, resources,
-                   network_profile, node_selector, default_model, default_effort,
-                   source, source_repository_id, source_key, source_config_path,
-                   scope, owner_user_id, run_as_user_id, created_by, deleted
+                   language_servers, network_profile, node_selector, default_model,
+                   default_effort, source, source_repository_id, source_key,
+                   source_config_path, scope, owner_user_id, run_as_user_id,
+                   created_by, deleted
                ) VALUES (
                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                   $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26
+                   $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26,
+                   $27
                )"#,
         )
         .bind(&row.id)
@@ -363,6 +365,10 @@ impl WorkspaceDao for PgWorkspaceDao {
         .bind(encode_column(row.env_vars.as_ref(), "env_vars")?)
         .bind(encode_column(row.scripts.as_ref(), "scripts")?)
         .bind(encode_column(row.resources.as_ref(), "resources")?)
+        .bind(encode_column(
+            row.language_servers.as_ref(),
+            "language_servers",
+        )?)
         .bind(&row.network_profile)
         .bind(encode_column(row.node_selector.as_ref(), "node_selector")?)
         .bind(&row.default_model)
@@ -493,6 +499,7 @@ impl WorkspaceDao for PgWorkspaceDao {
         push_set!(env_vars);
         push_set!(scripts);
         push_set!(resources);
+        push_set!(language_servers);
         push_set!(network_profile);
         push_set!(node_selector);
         push_set!(default_model);
@@ -555,6 +562,7 @@ impl WorkspaceDao for PgWorkspaceDao {
         bind_json!(env_vars);
         bind_json!(scripts);
         bind_json!(resources);
+        bind_json!(language_servers);
         bind_opt!(network_profile);
         bind_json!(node_selector);
         bind_opt!(default_model);

@@ -12339,6 +12339,15 @@
               }
             ]
           },
+          "languageServers": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/LanguageServer"
+            }
+          },
           "name": {
             "type": "string"
           },
@@ -13732,6 +13741,14 @@
           "base64",
           "url",
           "unknown"
+        ]
+      },
+      "LanguageServer": {
+        "type": "string",
+        "description": "A language server the sandbox can start for the agent's `LSP` tool.\n\nClosed because each value maps to a binary the sandbox image installs;\nthe sandbox owns that mapping.",
+        "enum": [
+          "typescript",
+          "rust"
         ]
       },
       "LinearCommentCreateRequest": {
@@ -19621,6 +19638,16 @@
               }
             ]
           },
+          "languageServers": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/LanguageServer"
+            },
+            "description": "Send `[]` to start no language server."
+          },
           "name": {
             "type": [
               "string",
@@ -20346,6 +20373,15 @@
           "kind": {
             "type": "string",
             "description": "Derived from the placement count: `blank` (0), `single` (1), `multi`\n(n)."
+          },
+          "languageServers": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/LanguageServer"
+            }
           },
           "name": {
             "type": "string"

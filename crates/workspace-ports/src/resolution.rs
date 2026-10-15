@@ -3,6 +3,7 @@ use moatless_types::access_control::ScopeContext;
 use moatless_types::store::StoreError;
 use moatless_workspace_types::plugin::PluginDelivery;
 use moatless_workspace_types::repository::Repository;
+use moatless_workspace_types::workspace::LanguageServer;
 use moatless_workspace_types::workspace::ResourceConfig;
 use moatless_workspace_types::workspace::Workspace;
 use std::collections::HashMap;
@@ -23,6 +24,7 @@ pub struct ResolvedWorkspace {
     pub setup_commands: Option<Vec<String>>,
     pub env_vars: Option<HashMap<String, String>>,
     pub resources: Option<ResourceConfig>,
+    pub language_servers: Option<Vec<LanguageServer>>,
     pub network_profile: Option<String>,
     /// Extra node labels sandbox pods must match, merged over the
     /// deployment-wide selector.

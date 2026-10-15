@@ -9,6 +9,7 @@ pub(crate) mod git;
 mod git_remotes;
 pub(crate) mod home_skills;
 mod initialization;
+pub(crate) mod language_servers;
 mod models;
 pub(crate) mod plugin_skills;
 #[cfg(test)]

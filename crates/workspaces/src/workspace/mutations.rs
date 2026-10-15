@@ -209,6 +209,7 @@ pub async fn create_workspace(
         env_vars: req.env_vars,
         scripts: req.scripts.map(script_configs_from_wire),
         resources: req.resources.map(resource_config_from_wire).transpose()?,
+        language_servers: req.language_servers,
         network_profile: req.network_profile,
         node_selector: req.node_selector,
         default_model: req.default_model,
@@ -330,6 +331,7 @@ pub async fn update_workspace(
             .resources
             .map(|config| resource_config_from_wire(config).map(Some))
             .transpose()?,
+        language_servers: req.language_servers.map(Some),
         network_profile: req.network_profile.map(Some),
         node_selector: req.node_selector.map(Some),
         icon: req.icon,
@@ -397,6 +399,7 @@ pub async fn override_workspace(
             .resources
             .map(|config| resource_config_from_wire(config).map(Some))
             .transpose()?,
+        language_servers: req.language_servers.map(Some),
         network_profile: req.network_profile.map(Some),
         node_selector: req.node_selector.map(Some),
         icon: req.icon,
@@ -657,6 +660,7 @@ mod tests {
             env_vars: None,
             scripts: None,
             resources: None,
+            language_servers: None,
             network_profile: None,
             node_selector: None,
             source,
@@ -925,6 +929,7 @@ mod tests {
             env_vars: None,
             scripts: None,
             resources: None,
+            language_servers: None,
             network_profile: None,
             node_selector: None,
             default_model: None,

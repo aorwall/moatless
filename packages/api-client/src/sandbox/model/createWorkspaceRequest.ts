@@ -7,6 +7,7 @@
  */
 import type { CreateWorkspaceRequestEnvVars } from './createWorkspaceRequestEnvVars';
 import type { CreateWorkspaceRequestNodeSelector } from './createWorkspaceRequestNodeSelector';
+import type { LanguageServer } from './languageServer';
 import type { ResourceConfig } from './resourceConfig';
 import type { Scope } from './scope';
 import type { WorkspaceIcon } from './workspaceIcon';
@@ -26,6 +27,8 @@ export interface CreateWorkspaceRequest {
   /** @nullable */
   envVars?: CreateWorkspaceRequestEnvVars;
   icon?: null | WorkspaceIcon;
+  /** @nullable */
+  languageServers?: LanguageServer[] | null;
   name: string;
   /** @nullable */
   networkProfile?: string | null;

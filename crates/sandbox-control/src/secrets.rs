@@ -764,6 +764,7 @@ mod tests {
                 setup_commands: None,
                 env_vars: env_vars.clone(),
                 resources: None,
+                language_servers: None,
                 network_profile: None,
                 node_selector: None,
                 run_as_user_id: run_as.clone(),

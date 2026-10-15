@@ -86,6 +86,8 @@ pub struct Workspace {
     /// Named commands run on demand in the sandbox.
     pub scripts: Option<Vec<ScriptConfig>>,
     pub resources: Option<ResourceConfig>,
+    /// Language servers the agent's code-intelligence tool may start.
+    pub language_servers: Option<Vec<LanguageServer>>,
     /// Selects a static `NetworkPolicy` through the pod label. Grants nothing
     /// on its own, and the set of valid names is deployment configuration, so
     /// this stays an open string.
@@ -287,6 +289,19 @@ pub struct ScriptConfig {
     #[serde(default)]
     pub run_on_start: bool,
 }
+
+crate::string_enum!(
+    /// A language server the sandbox can start for the agent's `LSP` tool.
+    ///
+    /// Closed because each value maps to a binary the sandbox image installs;
+    /// the sandbox owns that mapping.
+    LanguageServer [Hash] {
+        /// TypeScript and JavaScript, through TypeScript 7's built-in server.
+        Typescript => "typescript",
+        /// Rust, through rust-analyzer.
+        Rust => "rust",
+    }
+);
 
 crate::string_enum!(
     /// A provider whose credential can be pinned to a Workspace.

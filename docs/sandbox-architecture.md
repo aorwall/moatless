@@ -177,9 +177,14 @@ The `REPO_CONFIG` environment variable contains a JSON-encoded configuration obj
   "codeExecution": {
     "setupCommands": ["npm install", "npm run build"],
     "dockerImage": "aorwall/moatless-sandbox:latest"
-  }
+  },
+  "languageServers": ["typescript", "rust"]
 }
 ```
+
+`languageServers` names the servers init stages as a Claude Code plugin for the
+agent's `LSP` tool (`init::language_servers`); an unknown id, or one whose
+binary is not on `PATH`, is skipped with a warning.
 
 A Script (`ScriptConfig`: name, command, optional label/icon/port/envVars/runOnStart)
 is not passed through `REPO_CONFIG` — it is declared on the Workspace and run

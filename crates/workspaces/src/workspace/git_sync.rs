@@ -34,6 +34,7 @@ use moatless_workspace_types::repository::{GitHostRepo, RepositoryRemote};
 use moatless_workspace_types::schemas::workspace::{
     WorkspaceSyncSkip, WorkspaceSyncSummary, WorkspaceSyncWarning,
 };
+use moatless_workspace_types::workspace::LanguageServer;
 use moatless_workspace_types::workspace::ResourceConfig;
 use moatless_workspace_types::workspace::ScriptConfig;
 
@@ -89,6 +90,9 @@ pub struct MoatlessWorkspaceEntry {
     pub system_prompt: Option<String>,
     pub resources: Option<ResourceConfig>,
     pub env_vars: Option<std::collections::HashMap<String, String>>,
+    /// Ids rather than [`LanguageServer`]: an id this backend does not know
+    /// becomes a warning instead of failing the whole file.
+    pub language_servers: Option<Vec<String>>,
     pub sandbox_service_account: Option<String>,
     pub network_profile: Option<String>,
     #[serde(flatten)]
@@ -168,6 +172,26 @@ fn unknown_key_warnings(file: &MoatlessWorkspacesFile) -> Vec<WorkspaceSyncWarni
         for (j, repo) in entry.repos.iter().enumerate() {
             for key in commentless(&repo.unknown) {
                 ignored(format!("workspaces[{i}].repos[{j}].{key}"));
+            }
+        }
+    }
+    warnings
+}
+
+/// What the sync says about a language server id it does not know.
+const UNKNOWN_LANGUAGE_SERVER: &str = "unknown language server, ignored";
+
+/// Every `languageServers` entry that names no [`LanguageServer`], as JSON
+/// paths into the file.
+fn unknown_language_server_warnings(file: &MoatlessWorkspacesFile) -> Vec<WorkspaceSyncWarning> {
+    let mut warnings = Vec::new();
+    for (i, entry) in file.workspaces.iter().enumerate() {
+        for (j, id) in entry.language_servers.iter().flatten().enumerate() {
+            if id.parse::<LanguageServer>().is_err() {
+                warnings.push(WorkspaceSyncWarning {
+                    path: format!("workspaces[{i}].languageServers[{j}]"),
+                    message: UNKNOWN_LANGUAGE_SERVER.to_string(),
+                });
             }
         }
     }
@@ -309,12 +333,15 @@ impl GitSyncService {
         // Reported before anything is applied, so a repo whose committed config
         // was parsed and partly dropped learns which keys went nowhere.
         summary.warnings = unknown_key_warnings(&file);
+        summary
+            .warnings
+            .extend(unknown_language_server_warnings(&file));
         for warning in &summary.warnings {
             warn!(
                 repository_id = %repo.id,
                 source_config_path = ".moatless/workspaces.json",
                 path = %warning.path,
-                "Ignoring unknown key in git-declared workspace config"
+                "Ignoring unknown entry in git-declared workspace config"
             );
         }
 
@@ -496,6 +523,7 @@ struct RunConfig {
     env_vars: Option<HashMap<String, String>>,
     scripts: Option<Vec<ScriptConfig>>,
     resources: Option<ResourceConfig>,
+    language_servers: Option<Vec<LanguageServer>>,
 }
 
 /// A repository placement whose URL has already been resolved to a repo id.
@@ -543,6 +571,11 @@ fn run_config_from_entry(entry: &MoatlessWorkspaceEntry) -> RunConfig {
         env_vars: entry.env_vars.clone(),
         scripts: entry.scripts.clone(),
         resources: entry.resources.clone(),
+        language_servers: entry.language_servers.as_ref().map(|ids| {
+            ids.iter()
+                .filter_map(|id| id.parse::<LanguageServer>().ok())
+                .collect()
+        }),
     }
 }
 
@@ -615,6 +648,7 @@ impl GitSyncService {
                     env_vars: desired.run.env_vars.clone(),
                     scripts: desired.run.scripts.clone(),
                     resources: desired.run.resources.clone(),
+                    language_servers: desired.run.language_servers.clone(),
                     network_profile: desired.run.network_profile.clone(),
                     source: WorkspaceSource::Git,
                     source_repository_id: Some(repo.id.clone()),
@@ -663,6 +697,7 @@ impl GitSyncService {
             env_vars: Some(desired.run.env_vars.clone()),
             scripts: Some(desired.run.scripts.clone()),
             resources: Some(desired.run.resources.clone()),
+            language_servers: Some(desired.run.language_servers.clone()),
             network_profile: Some(desired.run.network_profile.clone()),
             source: Some(WorkspaceSource::Git),
             source_repository_id: Some(Some(repo.id.clone())),
@@ -1086,6 +1121,30 @@ mod tests {
         assert_eq!(web.name, "Web Only");
         assert!(!web.repos[0].primary);
         assert!(unknown_key_warnings(&file).is_empty());
+    }
+
+    /// A known id applies and an unknown one is named rather than failing the
+    /// file, so a repo can list a server a newer backend adds.
+    #[test]
+    fn language_servers_keep_known_ids_and_name_unknown_ones() {
+        let json = r#"{
+            "workspaces": [{
+                "name": "API",
+                "repos": [],
+                "languageServers": ["rust", "cobol", "typescript"]
+            }]
+        }"#;
+        let file: MoatlessWorkspacesFile = serde_json::from_str(json).expect("parse");
+
+        assert_eq!(
+            run_config_from_entry(&file.workspaces[0]).language_servers,
+            Some(vec![LanguageServer::Rust, LanguageServer::Typescript])
+        );
+        assert!(unknown_key_warnings(&file).is_empty());
+        let warnings = unknown_language_server_warnings(&file);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].path, "workspaces[0].languageServers[1]");
+        assert_eq!(warnings[0].message, UNKNOWN_LANGUAGE_SERVER);
     }
 
     /// The shape that cost two agents a session: `previewConfig` and

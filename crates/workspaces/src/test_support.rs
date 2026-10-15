@@ -73,6 +73,7 @@ pub fn make_workspace_row(id: &str, user_id: &str) -> Workspace {
         env_vars: None,
         scripts: None,
         resources: None,
+        language_servers: None,
         network_profile: None,
         node_selector: None,
         source: moatless_workspace_types::workspace::WorkspaceSource::Manual,

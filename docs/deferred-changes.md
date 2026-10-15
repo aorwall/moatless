@@ -262,6 +262,17 @@ shared warm Sandbox is observed holding members that disagree, with the
 pod-level column kept as the default a member inherits when it asks for
 nothing.
 
+## Language servers
+
+Gaps in the agent's `LSP` tool, which `crates/sandbox/src/init/language_servers.rs`
+wires from a Workspace's `languageServers`.
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| The `typescript` server reports no diagnostics | `language_servers.rs::server_spec` starts `tsc --lsp --stdio`, which offers only pull diagnostics (`textDocument/diagnostic`); Claude Code only consumes pushed `publishDiagnostics`, so the agent gets navigation but no type errors after an edit. `typescript-language-server` pushes them but needs TypeScript 6's `tsserver.js`, which the image's TypeScript 7 lacks | When Claude Code pulls diagnostics, or TypeScript 7 pushes them, or a Workspace needs post-edit type errors badly enough to install TypeScript 6 and `typescript-language-server` alongside |
+| Codex gets no language server | `crates/sandbox/src/agent/options.rs::build_plugins` hands the plugin to Claude only; Codex has no LSP client | When Codex ships an LSP client, or an MCP server wrapping one is adopted for both harnesses |
+| The first `LSP` call on a cold server answers empty | Claude Code starts the server on first use and queries it before the project loads (rust-analyzer on this repo: about 67s to a first answer, 4.5 GB peak). `options.rs::LSP_WARMUP_NOTE` only tells the agent to retry | When agents are seen giving up on empty results, or the UI needs code navigation too: then start and warm one server per checkout at init and share it |
+
 ## Observability
 
 | Deferred | Anchor | Entry condition |

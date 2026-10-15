@@ -7,7 +7,7 @@ use moatless_workspace_types::schemas::workspace::{
     CreateWorkspaceRequest, ScriptConfig, UpdateWorkspaceRequest, WorkspaceRepoInput,
     WorkspaceResponse,
 };
-use moatless_workspace_types::workspace::WorkspaceCredentialProvider;
+use moatless_workspace_types::workspace::{LanguageServer, WorkspaceCredentialProvider};
 
 use crate::client::{ClientError, MoatClient};
 use crate::output;
@@ -50,6 +50,11 @@ pub enum WorkspaceAction {
         /// Resources config as a JSON object
         #[arg(long)]
         resources_json: Option<String>,
+        /// Language servers the agent may start, comma-separated, e.g.
+        /// `typescript,rust`. Pass an empty string to start none. `rust` runs
+        /// rust-analyzer, which can take several GB on a large crate graph.
+        #[arg(long)]
+        language_servers: Option<String>,
         #[arg(long)]
         network_profile: Option<String>,
         /// Extra node labels for this workspace's sandbox pods, as a JSON
@@ -92,6 +97,11 @@ pub enum WorkspaceAction {
         scripts_json: Option<String>,
         #[arg(long)]
         resources_json: Option<String>,
+        /// Language servers the agent may start, comma-separated, e.g.
+        /// `typescript,rust`. Pass an empty string to start none. `rust` runs
+        /// rust-analyzer, which can take several GB on a large crate graph.
+        #[arg(long)]
+        language_servers: Option<String>,
         #[arg(long)]
         network_profile: Option<String>,
         /// Extra node labels for this workspace's sandbox pods, as a JSON
@@ -129,6 +139,11 @@ pub enum WorkspaceAction {
         scripts_json: Option<String>,
         #[arg(long)]
         resources_json: Option<String>,
+        /// Language servers the agent may start, comma-separated, e.g.
+        /// `typescript,rust`. Pass an empty string to start none. `rust` runs
+        /// rust-analyzer, which can take several GB on a large crate graph.
+        #[arg(long)]
+        language_servers: Option<String>,
         #[arg(long)]
         network_profile: Option<String>,
         /// Extra node labels for this workspace's sandbox pods, as a JSON
@@ -297,6 +312,7 @@ pub async fn run(
             env_vars_json,
             scripts_json,
             resources_json,
+            language_servers,
             network_profile,
             node_selector_json,
             run_as_user_id,
@@ -324,6 +340,7 @@ pub async fn run(
                 env_vars: parse_json_opt(&env_vars_json, "--env-vars-json")?,
                 scripts: parse_json_opt(&scripts_json, "--scripts-json")?,
                 resources: parse_json_opt(&resources_json, "--resources-json")?,
+                language_servers: parse_language_servers(language_servers.as_deref())?,
                 network_profile,
                 node_selector: parse_json_opt(&node_selector_json, "--node-selector-json")?,
                 run_as_user_id,
@@ -347,6 +364,7 @@ pub async fn run(
             env_vars_json,
             scripts_json,
             resources_json,
+            language_servers,
             network_profile,
             node_selector_json,
             run_as_user_id,
@@ -368,6 +386,7 @@ pub async fn run(
                 env_vars: parse_json_opt(&env_vars_json, "--env-vars-json")?,
                 scripts: parse_json_opt(&scripts_json, "--scripts-json")?,
                 resources: parse_json_opt(&resources_json, "--resources-json")?,
+                language_servers: parse_language_servers(language_servers.as_deref())?,
                 network_profile,
                 node_selector: parse_json_opt(&node_selector_json, "--node-selector-json")?,
                 run_as_user_id,
@@ -389,6 +408,7 @@ pub async fn run(
             env_vars_json,
             scripts_json,
             resources_json,
+            language_servers,
             network_profile,
             node_selector_json,
             run_as_user_id,
@@ -409,6 +429,7 @@ pub async fn run(
                 env_vars: parse_json_opt(&env_vars_json, "--env-vars-json")?,
                 scripts: parse_json_opt(&scripts_json, "--scripts-json")?,
                 resources: parse_json_opt(&resources_json, "--resources-json")?,
+                language_servers: parse_language_servers(language_servers.as_deref())?,
                 network_profile,
                 node_selector: parse_json_opt(&node_selector_json, "--node-selector-json")?,
                 run_as_user_id,
@@ -798,6 +819,27 @@ fn parse_scope_arg(s: Option<&str>) -> Result<Option<Scope>, ClientError> {
     }
 }
 
+/// `--language-servers`: comma-separated ids, the empty string for none.
+fn parse_language_servers(raw: Option<&str>) -> Result<Option<Vec<LanguageServer>>, ClientError> {
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    raw.split(',')
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(|id| {
+            id.parse().map_err(|_| {
+                let known: Vec<&str> = LanguageServer::ALL.iter().map(|s| s.as_str()).collect();
+                ClientError::Other(format!(
+                    "Invalid --language-servers entry '{id}' (known: {})",
+                    known.join(", ")
+                ))
+            })
+        })
+        .collect::<Result<_, _>>()
+        .map(Some)
+}
+
 fn parse_json_opt<T: serde::de::DeserializeOwned>(
     raw: &Option<String>,
     flag: &str,
@@ -886,6 +928,17 @@ fn format_workspace_detail(w: &WorkspaceResponse) {
             println!("  {} branch={branch}{primary}", r.repository_id);
         }
     }
+    if let Some(ref servers) = w.language_servers {
+        let ids: Vec<&str> = servers.iter().map(|s| s.as_str()).collect();
+        println!(
+            "Language servers: {}",
+            if ids.is_empty() {
+                "none".to_string()
+            } else {
+                ids.join(", ")
+            }
+        );
+    }
     if let Some(ref cmds) = w.setup_commands {
         if !cmds.is_empty() {
             println!("Setup commands:");
@@ -893,5 +946,22 @@ fn format_workspace_detail(w: &WorkspaceResponse) {
                 println!("  - {cmd}");
             }
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, reason = "test assertions")]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn language_servers_flag_parses_ids_and_an_empty_string_clears() {
+        assert_eq!(parse_language_servers(None).unwrap(), None);
+        assert_eq!(parse_language_servers(Some("")).unwrap(), Some(vec![]));
+        assert_eq!(
+            parse_language_servers(Some("typescript, rust")).unwrap(),
+            Some(vec![LanguageServer::Typescript, LanguageServer::Rust])
+        );
+        assert!(parse_language_servers(Some("rust,cobol")).is_err());
     }
 }

@@ -39,10 +39,11 @@ session. A shared sandbox can affect other task members.
 
 Repository commands configure git connection fields: name, URL, branch, provider,
 kind, description, and scope as supported by each command. Workspace commands own
-image, setup commands, scripts, environment, resources, and sandbox service account.
+image, setup commands, scripts, environment, resources, language servers, and
+sandbox service account.
 
 Inspect `moat workspaces update --help` for `--scripts-json`, `--env-vars-json`,
-`--resources-json`, and `--docker-image`. Get the workspace ID from the task.
+`--resources-json`, `--language-servers`, and `--docker-image`. Get the workspace ID from the task.
 For git-managed workspaces, edit `.moatless/workspaces.json` in the owning repository
 or use `moat workspaces override` to take manual ownership. `reset-git` returns
 ownership to git. Explicit `moat repos sync-config` can reclaim overridden

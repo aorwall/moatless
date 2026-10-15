@@ -5,6 +5,7 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { LanguageServer } from './languageServer';
 import type { ResourceConfig } from './resourceConfig';
 import type { Scope } from './scope';
 import type { UpdateWorkspaceRequestEnvVars } from './updateWorkspaceRequestEnvVars';
@@ -31,6 +32,11 @@ export interface UpdateWorkspaceRequest {
   /** @nullable */
   envVars?: UpdateWorkspaceRequestEnvVars;
   icon?: null | WorkspaceIcon;
+  /**
+     * Send `[]` to start no language server.
+     * @nullable
+     */
+  languageServers?: LanguageServer[] | null;
   /** @nullable */
   name?: string | null;
   /** @nullable */

@@ -46,7 +46,8 @@ _Avoid_: putting run-config on a Repository
 
 **Workspace**:
 The composition of one or more repositories plus run-configuration (docker image,
-setup commands, env vars, scripts, resources) that a Task runs against.
+setup commands, env vars, scripts, resources, language servers) that a Task runs
+against.
 A Sandbox materializes it on disk under the workspace directory. `source` is
 `manual` (created via the API) or `git` (reconciled from a repo's
 `.moatless/workspaces.json`). Not the Sandbox (the pod that runs it) nor the

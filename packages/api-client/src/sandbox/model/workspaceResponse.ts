@@ -5,6 +5,7 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { LanguageServer } from './languageServer';
 import type { ResourceConfig } from './resourceConfig';
 import type { Scope } from './scope';
 import type { WorkspaceIcon } from './workspaceIcon';
@@ -49,6 +50,8 @@ export interface WorkspaceResponse {
      * (n).
      */
   kind: string;
+  /** @nullable */
+  languageServers?: LanguageServer[] | null;
   name: string;
   /** @nullable */
   networkProfile?: string | null;

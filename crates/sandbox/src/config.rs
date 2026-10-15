@@ -11,7 +11,7 @@ use std::time::Duration;
 use claude_agent_sdk::PermissionMode;
 use moatless_workspace_types::plugin::PluginDelivery;
 use moatless_workspace_types::workspace::{
-    PROXIED_PROVIDER, RepoCheckout, WORKSPACE_LIMIT_ENV, WORKSPACE_REPOS_ENV,
+    LanguageServer, PROXIED_PROVIDER, RepoCheckout, WORKSPACE_LIMIT_ENV, WORKSPACE_REPOS_ENV,
     proxy_clone_repository_id, proxy_clone_url,
 };
 use serde::Deserialize;
@@ -78,6 +78,10 @@ struct RepoConfigFile {
     code_execution: Option<CodeExecutionConfig>,
     #[serde(default)]
     plugins: Option<Vec<PluginDelivery>>,
+    /// Ids rather than [`LanguageServer`], so an id this sandbox build does not
+    /// know drops alone instead of failing the whole parse.
+    #[serde(default)]
+    language_servers: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -100,6 +104,7 @@ struct ParsedRepoConfig {
     agent_config: AgentConfig,
     setup_commands: Vec<String>,
     plugins: Vec<PluginDelivery>,
+    language_servers: Vec<LanguageServer>,
 }
 
 /// Main sandbox configuration.
@@ -231,6 +236,11 @@ pub struct Config {
     /// The plugins to clone, each with the skills to keep, from
     /// `REPO_CONFIG.plugins`
     pub plugins: Vec<PluginDelivery>,
+    /// The language servers to give the agent, from
+    /// `REPO_CONFIG.languageServers`
+    pub language_servers: Vec<LanguageServer>,
+    /// `PATH`, where init looks for each language server's binary.
+    pub search_path: Option<std::ffi::OsString>,
     /// The timeouts each HTTP client this sandbox builds is given.
     pub http: SandboxHttpConfig,
 }
@@ -626,6 +636,8 @@ impl Config {
             repo_config_raw: env::var("REPO_CONFIG").ok(),
             setup_commands: parsed.setup_commands,
             plugins: parsed.plugins,
+            language_servers: parsed.language_servers,
+            search_path: env::var_os("PATH"),
             http: SandboxHttpConfig::from_vars(|key| env::var(key).ok()),
         })
     }
@@ -729,6 +741,8 @@ pub(crate) mod test_support {
             repo_config_raw: None,
             setup_commands: Vec::new(),
             plugins: Vec::new(),
+            language_servers: Vec::new(),
+            search_path: None,
             http: super::SandboxHttpConfig::default(),
         }
     }
@@ -765,6 +779,7 @@ fn parse_repo_config() -> ParsedRepoConfig {
                 agent_config: AgentConfig::default(),
                 setup_commands: Vec::new(),
                 plugins: Vec::new(),
+                language_servers: Vec::new(),
             };
         }
     };
@@ -777,6 +792,7 @@ fn parse_repo_config() -> ParsedRepoConfig {
                 agent_config: AgentConfig::default(),
                 setup_commands: Vec::new(),
                 plugins: Vec::new(),
+                language_servers: Vec::new(),
             };
         }
     };
@@ -790,12 +806,27 @@ fn parse_repo_config() -> ParsedRepoConfig {
         .unwrap_or_default();
 
     let plugins = repo_config.plugins.unwrap_or_default();
+    let language_servers = parse_language_servers(repo_config.language_servers);
 
     ParsedRepoConfig {
         agent_config,
         setup_commands,
         plugins,
+        language_servers,
     }
+}
+
+/// The known, distinct ids in `REPO_CONFIG.languageServers`, in order.
+fn parse_language_servers(ids: Option<Vec<String>>) -> Vec<LanguageServer> {
+    let mut servers = Vec::new();
+    for id in ids.unwrap_or_default() {
+        match id.parse::<LanguageServer>() {
+            Ok(server) if !servers.contains(&server) => servers.push(server),
+            Ok(_) => {}
+            Err(_) => tracing::warn!(id = %id, "Ignoring unknown language server"),
+        }
+    }
+    servers
 }
 
 #[cfg(test)]
@@ -806,7 +837,7 @@ mod tests {
         env_flag_value_enabled, is_safe_mount_name, parse_permission_mode, parse_repo_checkouts,
         primary_checkout, resolve_agent_config, route_through_proxy,
     };
-    use moatless_workspace_types::workspace::RepoCheckout;
+    use moatless_workspace_types::workspace::{LanguageServer, RepoCheckout};
     use std::collections::HashMap;
     use std::time::Duration;
 
@@ -850,6 +881,19 @@ mod tests {
         assert_eq!(env_flag_override(PROBE), Some(false));
 
         std::env::remove_var(PROBE);
+    }
+
+    /// An id this build does not know drops alone rather than discarding the
+    /// whole `REPO_CONFIG`, and a repeated id starts one server.
+    #[test]
+    fn language_servers_skip_unknown_and_repeated_ids() {
+        let parsed: RepoConfigFile =
+            serde_json::from_str(r#"{"languageServers":["rust","cobol","rust","typescript"]}"#)
+                .expect("valid REPO_CONFIG");
+        assert_eq!(
+            super::parse_language_servers(parsed.language_servers),
+            [LanguageServer::Rust, LanguageServer::Typescript]
+        );
     }
 
     fn agent_config_from_json(raw: &str) -> super::AgentConfig {

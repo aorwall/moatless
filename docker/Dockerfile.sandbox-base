@@ -335,7 +335,9 @@ RUN ARCH=$(dpkg --print-architecture) && \
 # CVE-2026-55697, CVE-2026-55700, CVE-2026-55487, and GHSA-qrv3-253h-g69c /
 # GHSA-72r4-9c5j-mj57 / GHSA-fr4h-3cph-29xv — malicious-lockfile path traversal
 # and code execution, all fixed by 11.8.0).
-RUN npm install -g pnpm@11.9.0 yarn typescript tsx
+# typescript@7 because the `typescript` language server is `tsc --lsp`, which
+# TypeScript 6 lacks.
+RUN npm install -g pnpm@11.9.0 yarn typescript@7 tsx
 
 # Install Vite+ (`vp`), the unified JS toolchain — https://viteplus.dev/guide/
 # VP_HOME sits under /opt like the other toolchains (outside the workspace mount)
@@ -481,6 +483,19 @@ RUN ARCH=$(dpkg --print-architecture) && \
     rm /tmp/ast-grep.zip && \
     chmod +x /usr/local/bin/ast-grep && \
     ast-grep --version
+
+# rust-analyzer for the `rust` language server (crates/sandbox/src/init/language_servers.rs).
+# The rustup proxy of the same name in /opt/cargo/bin comes first on PATH and
+# fails without the component, so it is removed rather than shadowed.
+# renovate: datasource=github-releases depName=rust-lang/rust-analyzer
+ARG RUST_ANALYZER_VERSION=2026-10-12
+RUN ARCH=$(dpkg --print-architecture) && \
+    RA_ARCH=$([ "$ARCH" = "amd64" ] && echo "x86_64" || echo "aarch64") && \
+    curl -fsSL "https://github.com/rust-lang/rust-analyzer/releases/download/${RUST_ANALYZER_VERSION}/rust-analyzer-${RA_ARCH}-unknown-linux-gnu.gz" \
+        | gunzip > /usr/local/bin/rust-analyzer && \
+    chmod +x /usr/local/bin/rust-analyzer && \
+    rm -f /opt/cargo/bin/rust-analyzer && \
+    rust-analyzer --version
 
 # Claude/Codex CLIs. Version source of truth is docker/cli-versions.env, passed
 # in as --build-arg by every build path (ci.yml, build-sandbox.sh); the defaults

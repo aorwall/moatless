@@ -56,6 +56,9 @@ pub struct RepoConfig {
     /// The plugins this task's owner has turned on, each with the skills they
     /// picked. The sandbox clones each one and removes the skills not named.
     pub plugins: Option<Vec<moatless_workspace_types::plugin::PluginDelivery>>,
+    /// Language servers the sandbox configures for the agent's `LSP` tool.
+    #[serde(default)]
+    pub language_servers: Option<Vec<moatless_workspace_types::workspace::LanguageServer>>,
     // --- Docker access (opt-in) ---
     /// Mount Docker socket inside sandbox container (default: false). Overrides
     /// global `DOCKER_ENABLE_SOCKET_MOUNT` when set.

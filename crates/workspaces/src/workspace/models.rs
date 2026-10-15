@@ -14,8 +14,8 @@ use moatless_types::access_control::Scope;
 
 /// The workspace vocabulary a caller reaches through this module.
 pub use moatless_workspace_types::workspace::{
-    ResourceConfig, ScriptConfig, Workspace, WorkspaceIcon, WorkspaceKind, WorkspaceRepo,
-    WorkspaceSource,
+    LanguageServer, ResourceConfig, ScriptConfig, Workspace, WorkspaceIcon, WorkspaceKind,
+    WorkspaceRepo, WorkspaceSource,
 };
 
 // =============================================================================
@@ -41,6 +41,7 @@ pub struct WorkspaceRow {
     pub env_vars: Option<serde_json::Value>,
     pub scripts: Option<serde_json::Value>,
     pub resources: Option<serde_json::Value>,
+    pub language_servers: Option<serde_json::Value>,
     pub network_profile: Option<String>,
     pub node_selector: Option<serde_json::Value>,
     // --- Task defaults ---
@@ -76,6 +77,7 @@ impl TryFrom<WorkspaceRow> for Workspace {
             env_vars: decode_column(row.env_vars, &id, "env_vars"),
             scripts: decode_column(row.scripts, &id, "scripts"),
             resources: decode_column(row.resources, &id, "resources"),
+            language_servers: decode_column(row.language_servers, &id, "language_servers"),
             node_selector: decode_column(row.node_selector, &id, "node_selector"),
             icon: decode_column(row.icon, &id, "icon"),
             id,
@@ -241,6 +243,7 @@ pub struct WorkspacePatch {
     pub env_vars: Option<Option<std::collections::HashMap<String, String>>>,
     pub scripts: Option<Option<Vec<ScriptConfig>>>,
     pub resources: Option<Option<ResourceConfig>>,
+    pub language_servers: Option<Option<Vec<LanguageServer>>>,
     pub network_profile: Option<Option<String>>,
     pub node_selector: Option<Option<std::collections::BTreeMap<String, String>>>,
     pub default_model: Option<Option<String>>,

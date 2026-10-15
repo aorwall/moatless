@@ -25,6 +25,8 @@ where
 /// The domain enum itself — same shape the column stores, no wire conversion.
 pub use crate::workspace::WorkspaceIcon;
 
+pub use crate::workspace::LanguageServer;
+
 // =============================================================================
 // ResourceConfig
 // =============================================================================
@@ -171,6 +173,8 @@ pub struct CreateWorkspaceRequest {
     #[serde(default)]
     pub resources: Option<ResourceConfig>,
     #[serde(default)]
+    pub language_servers: Option<Vec<LanguageServer>>,
+    #[serde(default)]
     pub network_profile: Option<String>,
     /// Extra node labels sandbox pods must match, merged over the
     /// deployment-wide selector. Admin-only, like the two fields above it.
@@ -215,6 +219,8 @@ pub struct UpdateWorkspaceRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = Object, ignore))]
     pub scripts: Option<Vec<ScriptConfig>>,
     pub resources: Option<ResourceConfig>,
+    /// Send `[]` to start no language server.
+    pub language_servers: Option<Vec<LanguageServer>>,
     pub network_profile: Option<String>,
     /// Extra node labels sandbox pods must match, merged over the
     /// deployment-wide selector. Send `{}` to clear.
@@ -306,6 +312,8 @@ pub struct WorkspaceResponse {
     #[cfg_attr(feature = "openapi", schema(value_type = Object, ignore))]
     pub scripts: Option<Vec<ScriptConfig>>,
     pub resources: Option<ResourceConfig>,
+    #[serde(default)]
+    pub language_servers: Option<Vec<LanguageServer>>,
     #[serde(default)]
     pub network_profile: Option<String>,
     #[serde(default)]
