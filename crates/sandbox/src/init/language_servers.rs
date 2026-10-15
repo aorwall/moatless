@@ -12,6 +12,9 @@ use moatless_workspace_types::workspace::LanguageServer;
 use serde_json::{Map, Value, json};
 use tracing::{info, warn};
 
+/// Bridges Claude's stdio to the sandbox's shared server; see `code_intel`.
+const PROXY_COMMAND: &str = "moat";
+
 /// Directory name of the generated plugin under `$CLAUDE_CONFIG_DIR`.
 /// `agent::options` tests stage a plugin under this name by hand.
 const PLUGIN_DIR_NAME: &str = "moatless-language-servers";
@@ -63,11 +66,13 @@ pub(crate) fn plugin_dir_if_staged(claude_config_dir: &Path) -> Option<PathBuf> 
 
 /// Replace the generated plugin with one declaring `servers`.
 ///
-/// Servers whose command is not on `search_path` are left out with a warning:
-/// declared anyway, every `LSP` call on their files would fail. Returns the
-/// servers written; none written leaves no plugin.
+/// A server whose command is not on `search_path` is left out with a warning,
+/// or every `LSP` call on its files would fail. Each is reached through
+/// [`PROXY_COMMAND`] and its socket under `runtime_dir`, or started directly
+/// without `moat`. Returns the servers written; none written leaves no plugin.
 pub(super) fn stage_plugin(
     claude_config_dir: &Path,
+    runtime_dir: &Path,
     servers: &[LanguageServer],
     search_path: Option<&OsStr>,
 ) -> io::Result<Vec<LanguageServer>> {
@@ -77,6 +82,7 @@ pub(super) fn stage_plugin(
         _ => {}
     }
 
+    let proxied = on_path(PROXY_COMMAND, search_path);
     let mut staged = Vec::new();
     let mut lsp = Map::new();
     for &server in servers {
@@ -90,11 +96,17 @@ pub(super) fn stage_plugin(
             .iter()
             .map(|(ext, lang)| ((*ext).to_string(), json!(lang)))
             .collect();
+        let (command, args) = if proxied {
+            let socket = crate::code_intel::socket_path(runtime_dir, server);
+            (PROXY_COMMAND, json!(["lsp-proxy", socket]))
+        } else {
+            (spec.command, json!(spec.args))
+        };
         lsp.insert(
             server.as_str().to_string(),
             json!({
-                "command": spec.command,
-                "args": spec.args,
+                "command": command,
+                "args": args,
                 "extensionToLanguage": extensions,
             }),
         );
@@ -166,6 +178,7 @@ mod tests {
 
         let staged = stage_plugin(
             config.path(),
+            Path::new("/run/moatless"),
             &[LanguageServer::Typescript, LanguageServer::Rust],
             Some(bin.path().as_os_str()),
         )
@@ -196,6 +209,7 @@ mod tests {
 
         let staged = stage_plugin(
             config.path(),
+            Path::new("/run/moatless"),
             &[LanguageServer::Typescript, LanguageServer::Rust],
             Some(bin.path().as_os_str()),
         )
@@ -219,8 +233,13 @@ mod tests {
         fake_bin(local_bin.path(), "rust-analyzer");
         let search_path = std::env::join_paths([cargo_bin.path(), local_bin.path()]).unwrap();
 
-        let staged =
-            stage_plugin(config.path(), &[LanguageServer::Rust], Some(&search_path)).unwrap();
+        let staged = stage_plugin(
+            config.path(),
+            Path::new("/run/moatless"),
+            &[LanguageServer::Rust],
+            Some(&search_path),
+        )
+        .unwrap();
 
         assert!(staged.is_empty());
     }
@@ -234,15 +253,48 @@ mod tests {
         fake_bin(bin.path(), "rust-analyzer");
         stage_plugin(
             config.path(),
+            Path::new("/run/moatless"),
             &[LanguageServer::Rust],
             Some(bin.path().as_os_str()),
         )
         .unwrap();
 
-        let staged = stage_plugin(config.path(), &[], Some(bin.path().as_os_str())).unwrap();
+        let staged = stage_plugin(
+            config.path(),
+            Path::new("/run/moatless"),
+            &[],
+            Some(bin.path().as_os_str()),
+        )
+        .unwrap();
 
         assert!(staged.is_empty());
         assert!(plugin_dir_if_staged(config.path()).is_none());
         assert!(!plugin_dir(config.path()).exists());
+    }
+
+    #[test]
+    fn with_moat_on_path_each_server_is_reached_through_its_socket() {
+        let config = TempDir::new().unwrap();
+        let bin = TempDir::new().unwrap();
+        fake_bin(bin.path(), "moat");
+        fake_bin(bin.path(), "rust-analyzer");
+
+        stage_plugin(
+            config.path(),
+            Path::new("/run/moatless"),
+            &[LanguageServer::Rust],
+            Some(bin.path().as_os_str()),
+        )
+        .unwrap();
+
+        let lsp: Value = serde_json::from_slice(
+            &std::fs::read(plugin_dir(config.path()).join(".lsp.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(lsp["rust"]["command"], "moat");
+        assert_eq!(
+            lsp["rust"]["args"],
+            json!(["lsp-proxy", "/run/moatless/lsp/rust.sock"])
+        );
     }
 }

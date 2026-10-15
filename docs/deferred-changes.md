@@ -272,15 +272,14 @@ nothing.
 ## Language servers
 
 Gaps in the agent's `LSP` tool, which `crates/sandbox/src/init/language_servers.rs`
-wires from a Workspace's `languageServers`, and in the UI's go to definition, which
-`crates/sandbox/src/code_intel.rs` answers from servers of its own.
+wires from a Workspace's `languageServers`, and in the UI's go to definition. Both
+use the servers `crates/sandbox/src/code_intel.rs` runs.
 
 | Deferred | Anchor | Entry condition |
 |---|---|---|
 | The `typescript` server reports no diagnostics | `language_servers.rs::server_spec` starts `tsc --lsp --stdio`, which offers only pull diagnostics (`textDocument/diagnostic`); Claude Code only consumes pushed `publishDiagnostics`, so the agent gets navigation but no type errors after an edit. `typescript-language-server` pushes them but needs TypeScript 6's `tsserver.js`, which the image's TypeScript 7 lacks | When Claude Code pulls diagnostics, or TypeScript 7 pushes them, or a Workspace needs post-edit type errors badly enough to install TypeScript 6 and `typescript-language-server` alongside |
 | Codex gets no language server | `crates/sandbox/src/agent/options.rs::build_plugins` hands the plugin to Claude only; Codex has no LSP client | When Codex ships an LSP client, or an MCP server wrapping one is adopted for both harnesses |
-| The first `LSP` call on a cold server answers empty | Claude Code starts the server on first use and queries it before the project loads (rust-analyzer on this repo: about 67s to a first answer, 4.5 GB peak). `options.rs::LSP_WARMUP_NOTE` only tells the agent to retry | When agents are seen giving up on empty results, or the UI needs code navigation too: then start and warm one server per checkout at init and share it |
-| The UI's go to definition covers TypeScript only | `code_intel/servers.rs::UI_SERVERS` leaves out `rust`: the UI starts its own server beside the one Claude's plugin starts, and a second rust-analyzer (5.7 GB peak on this repo) does not fit in a 12 GiB sandbox | When one server per checkout is shared by the agent and the UI (the cold-start row above), or sandboxes get the memory for two |
+| A warmed rust-analyzer competes with the agent's builds for memory | `app.rs` warms every configured server when init finishes, and `code_intel/agent_socket.rs` shares it with the agent; rust-analyzer on this repo holds about 5.7 GB, and its default `checkOnSave` runs `cargo check` beside the agent's own builds in a 12 GiB sandbox | When a sandbox with `rust` configured is seen OOM-killed: then turn off `checkOnSave` in the `initialize` options, or raise the Workspace's memory |
 
 ## Observability
 

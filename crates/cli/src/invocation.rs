@@ -58,6 +58,7 @@ async fn dispatch_sandbox(
             let task_id = cfg.require_task_id()?;
             commands::cmd::run(action, task_id, json, &cfg.sandbox_grpc_port).await?;
         }
+        SandboxCommands::LspProxy { socket } => commands::lsp_proxy::run(&socket).await?,
     }
 
     Ok(())
@@ -199,10 +200,10 @@ async fn run_shared(
 
 /// `moat cmd` talks only to the sandbox's own loopback gRPC server, so it must
 /// keep working when the backend session is stale — that is exactly when a
-/// build still needs supervising.
+/// build still needs supervising. `moat lsp-proxy` reaches only a local socket.
 fn runs_without_auth_sandbox(cmd: &SandboxCommands) -> bool {
     match cmd {
-        SandboxCommands::Cmd { .. } => true,
+        SandboxCommands::Cmd { .. } | SandboxCommands::LspProxy { .. } => true,
         SandboxCommands::Shared(c) => matches!(
             **c,
             SharedCommands::Status | SharedCommands::K8s { .. } | SharedCommands::Docker { .. }

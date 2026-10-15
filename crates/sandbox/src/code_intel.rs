@@ -1,11 +1,14 @@
-//! Go-to-definition for the UI, answered by language servers this sandbox owns.
+//! Language servers this sandbox owns, shared by the UI's go-to-definition and
+//! the agent's `LSP` tool.
 //!
-//! Separate from the agent's `LSP` tool (`init::language_servers`): Claude Code
-//! starts its own server and nothing outside its CLI can reach it. A server
-//! here starts on the first lookup in a workspace directory and stops after
-//! 15 minutes without one.
+//! A server starts when init finishes, or on first use in a workspace
+//! directory, and stops after 15 minutes with no lookup and no agent session.
+//! The agent reaches it through `moat lsp-proxy` and a socket per server
+//! (`agent_socket`), so a checkout never runs two copies of rust-analyzer.
 
+mod agent_socket;
 mod lsp_client;
 mod servers;
 
+pub use agent_socket::{socket_path, spawn as spawn_shared};
 pub use servers::{CodeIntel, CodeIntelError};

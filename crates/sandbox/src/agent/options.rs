@@ -231,7 +231,7 @@ const LSP_WARMUP_NOTE: &str = "## Code intelligence\n\
      The `LSP` tool finds definitions, references, implementations, call \
      hierarchies and types through a language server, which is more precise \
      than searching text. It takes a line and a column, so read the line \
-     first. Its server starts on the first call and then loads the project: a \
+     first. Its server starts with the sandbox and then loads the project: a \
      few seconds for TypeScript, up to a few minutes for a large Rust \
      workspace. Until it has, a lookup comes back empty (\"No definition \
      found\", no references). An empty answer early in a session means the \

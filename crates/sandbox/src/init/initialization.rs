@@ -163,9 +163,15 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
     //     agent still runs, only without code intelligence.
     let claude_config_dir = PathBuf::from(&state.config.claude_config_dir);
     let servers = state.config.language_servers.clone();
+    let runtime_dir = PathBuf::from(&state.config.runtime_dir);
     let search_path = state.config.search_path.clone();
     let staged = run_init_blocking("stage_language_servers", move || {
-        language_servers::stage_plugin(&claude_config_dir, &servers, search_path.as_deref())
+        language_servers::stage_plugin(
+            &claude_config_dir,
+            &runtime_dir,
+            &servers,
+            search_path.as_deref(),
+        )
     })
     .await?;
     if let Err(e) = staged {

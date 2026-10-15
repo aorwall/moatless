@@ -57,6 +57,11 @@ impl SandboxServiceImpl {
         Self { state, code_intel }
     }
 
+    /// The language servers behind `go_to_definition`, which the agent shares.
+    pub(crate) fn code_intel(&self) -> &CodeIntel {
+        &self.code_intel
+    }
+
     /// Admit an RPC that is itself the only owner of its write, refusing it
     /// once teardown has begun.
     ///
@@ -699,7 +704,9 @@ impl SandboxService for SandboxServiceImpl {
             .await
             .map_err(|e| match e {
                 CodeIntelError::File(e) => file_error_to_status(e),
-                CodeIntelError::Unsupported(_) => Status::failed_precondition(e.to_string()),
+                CodeIntelError::Unsupported(_) | CodeIntelError::Indexing(_) => {
+                    Status::failed_precondition(e.to_string())
+                }
                 CodeIntelError::Server(_) => {
                     warn!(error = %e, path = %req.path, "Go-to-definition failed");
                     Status::unavailable(e.to_string())

@@ -41,6 +41,7 @@ const REGISTRANTS: &[&str] = &[
     "grpc-server",
     "http-server",
     "init",
+    "language-server-sockets",
     "preview-proxy",
     "shutdown-driver",
     "transcript-sync",

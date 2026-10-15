@@ -1,17 +1,17 @@
 //! A minimal LSP client over a child's stdio: framing, request ids, and the
 //! replies a server blocks on when it asks the client something.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::time::Duration;
 
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
-use tokio::sync::{Mutex, oneshot};
+use tokio::sync::{Mutex, broadcast, oneshot};
 use tracing::{debug, warn};
 
 #[derive(Debug, thiserror::Error)]
@@ -25,16 +25,55 @@ pub enum LspError {
     #[error("language server did not answer {0} within {1:?}")]
     Timeout(String, Duration),
     #[error("language server rejected {method}: {message}")]
-    Rejected { method: String, message: String },
+    Rejected {
+        method: String,
+        code: i64,
+        message: String,
+    },
+}
+
+/// The client capabilities Claude Code's `LSP` tool declares, plus
+/// `workDoneProgress` for [`LspClient::is_busy`]. A server shapes its answers to
+/// these, so the agent reading through `shared` gets what it would from its own.
+fn client_capabilities() -> Value {
+    json!({
+        "general": { "positionEncodings": ["utf-16"] },
+        "window": { "workDoneProgress": true },
+        "workspace": { "workspaceFolders": true, "didChangeWatchedFiles": { "dynamicRegistration": false } },
+        "textDocument": {
+            "synchronization": { "dynamicRegistration": false, "didSave": true },
+            "publishDiagnostics": {
+                "relatedInformation": true,
+                "tagSupport": { "valueSet": [1, 2] },
+                "codeDescriptionSupport": true,
+            },
+            "hover": { "contentFormat": ["markdown", "plaintext"] },
+            "definition": { "linkSupport": true },
+            "references": {},
+            "documentSymbol": { "hierarchicalDocumentSymbolSupport": true },
+            "callHierarchy": {},
+        },
+    })
 }
 
 type Pending = Arc<Mutex<HashMap<i64, oneshot::Sender<Result<Value, LspError>>>>>;
+
+/// What `read_loop` observes besides responses.
+#[derive(Clone)]
+struct Observed {
+    notifications: broadcast::Sender<Value>,
+    /// Work-done progress tokens begun and not yet ended.
+    progress: Arc<std::sync::Mutex<HashSet<String>>>,
+    alive: Arc<AtomicBool>,
+}
 
 /// One running server. Dropping it kills the child.
 pub(crate) struct LspClient {
     stdin: Arc<Mutex<ChildStdin>>,
     pending: Pending,
     next_id: AtomicI64,
+    observed: Observed,
+    initialize_result: Value,
     _child: Child,
 }
 
@@ -63,39 +102,65 @@ impl LspClient {
         };
         let stdin = Arc::new(Mutex::new(stdin));
         let pending: Pending = Arc::default();
+        let observed = Observed {
+            notifications: broadcast::channel(256).0,
+            progress: Arc::default(),
+            alive: Arc::new(AtomicBool::new(true)),
+        };
         tokio::spawn(read_loop(
             BufReader::new(stdout),
             Arc::clone(&stdin),
             Arc::clone(&pending),
+            observed.clone(),
         ));
 
-        let client = Self {
+        let mut client = Self {
             stdin,
             pending,
             next_id: AtomicI64::new(1),
+            observed,
+            initialize_result: Value::Null,
             _child: child,
         };
         let root_uri = path_to_uri(root);
-        client
+        client.initialize_result = client
             .request(
                 "initialize",
                 json!({
                     "processId": std::process::id(),
                     "rootUri": root_uri,
                     "workspaceFolders": [{ "uri": root_uri, "name": "workspace" }],
-                    "capabilities": {
-                        "general": { "positionEncodings": ["utf-16"] },
-                        "textDocument": {
-                            "synchronization": { "dynamicRegistration": false },
-                            "definition": { "linkSupport": true },
-                        },
-                    },
+                    "capabilities": client_capabilities(),
                 }),
                 timeout,
             )
             .await?;
         client.notify("initialized", json!({})).await?;
         Ok(client)
+    }
+
+    /// The server's answer to `initialize`.
+    pub(crate) fn initialize_result(&self) -> &Value {
+        &self.initialize_result
+    }
+
+    /// Every notification the server sends from now on.
+    pub(crate) fn subscribe(&self) -> broadcast::Receiver<Value> {
+        self.observed.notifications.subscribe()
+    }
+
+    /// Whether the server reports work in progress, such as indexing, during
+    /// which it may answer a lookup with nothing.
+    pub(crate) fn is_busy(&self) -> bool {
+        self.observed
+            .progress
+            .lock()
+            .is_ok_and(|tokens| !tokens.is_empty())
+    }
+
+    /// False once the server closed its stdout.
+    pub(crate) fn is_alive(&self) -> bool {
+        self.observed.alive.load(Ordering::Relaxed)
     }
 
     pub(crate) async fn request(
@@ -116,8 +181,9 @@ impl LspClient {
         }
         match tokio::time::timeout(timeout, rx).await {
             Ok(Ok(result)) => result.map_err(|e| match e {
-                LspError::Rejected { message, .. } => LspError::Rejected {
+                LspError::Rejected { code, message, .. } => LspError::Rejected {
                     method: method.to_string(),
+                    code,
                     message,
                 },
                 other => other,
@@ -140,7 +206,7 @@ impl LspClient {
     }
 }
 
-async fn write_message(
+pub(super) async fn write_message(
     stdin: &mut (impl AsyncWriteExt + Unpin),
     message: &Value,
 ) -> Result<(), LspError> {
@@ -154,7 +220,9 @@ async fn write_message(
 }
 
 /// Read one framed message; `None` at end of stream.
-async fn read_message(reader: &mut (impl AsyncBufRead + Unpin)) -> std::io::Result<Option<Value>> {
+pub(super) async fn read_message(
+    reader: &mut (impl AsyncBufRead + Unpin),
+) -> std::io::Result<Option<Value>> {
     let mut length = None;
     loop {
         let mut line = String::new();
@@ -179,12 +247,14 @@ async fn read_message(reader: &mut (impl AsyncBufRead + Unpin)) -> std::io::Resu
         .map_err(std::io::Error::other)
 }
 
-/// Route responses to their waiting request and answer the server's own
-/// requests. Ends when the server closes stdout, failing every waiter.
+/// Route responses to their waiting request, answer the server's own requests,
+/// and publish its notifications. Ends when the server closes stdout, failing
+/// every waiter.
 async fn read_loop(
     mut stdout: impl AsyncBufRead + Unpin,
     stdin: Arc<Mutex<ChildStdin>>,
     pending: Pending,
+    observed: Observed,
 ) {
     loop {
         let message = match read_message(&mut stdout).await {
@@ -204,7 +274,13 @@ async fn read_loop(
                     debug!(error = %e, method, "Could not answer language server request");
                 }
             }
-            (Some(_), None) => {}
+            (Some(method), None) => {
+                if method == "$/progress" {
+                    track_progress(&observed.progress, &message);
+                }
+                // No receiver is the usual case; nothing is lost that anyone wanted.
+                let _ = observed.notifications.send(message);
+            }
             (None, Some(id)) => {
                 let Some(id) = id.as_i64() else { continue };
                 let Some(waiter) = pending.lock().await.remove(&id) else {
@@ -213,6 +289,7 @@ async fn read_loop(
                 let result = match message.get("error") {
                     Some(error) => Err(LspError::Rejected {
                         method: String::new(),
+                        code: error.get("code").and_then(Value::as_i64).unwrap_or(-32603),
                         message: error
                             .get("message")
                             .and_then(Value::as_str)
@@ -226,8 +303,31 @@ async fn read_loop(
             (None, None) => {}
         }
     }
+    observed.alive.store(false, Ordering::Relaxed);
     for (_, waiter) in pending.lock().await.drain() {
         let _ = waiter.send(Err(LspError::Exited));
+    }
+}
+
+fn track_progress(progress: &std::sync::Mutex<HashSet<String>>, message: &Value) {
+    let Some(params) = message.get("params") else {
+        return;
+    };
+    let token = params
+        .get("token")
+        .map(Value::to_string)
+        .unwrap_or_default();
+    let Ok(mut tokens) = progress.lock() else {
+        return;
+    };
+    match params.pointer("/value/kind").and_then(Value::as_str) {
+        Some("begin") => {
+            tokens.insert(token);
+        }
+        Some("end") => {
+            tokens.remove(&token);
+        }
+        _ => {}
     }
 }
 
@@ -289,6 +389,17 @@ mod tests {
         let message = read_message(&mut reader).await.unwrap().unwrap();
         assert_eq!(message["id"], 1);
         assert!(read_message(&mut reader).await.unwrap().is_none());
+    }
+
+    #[test]
+    fn progress_is_busy_from_begin_until_end() {
+        let progress = std::sync::Mutex::new(HashSet::new());
+        let report = |kind: &str| json!({ "method": "$/progress", "params": { "token": "rustAnalyzer/Indexing", "value": { "kind": kind } } });
+        track_progress(&progress, &report("begin"));
+        track_progress(&progress, &report("report"));
+        assert_eq!(progress.lock().unwrap().len(), 1);
+        track_progress(&progress, &report("end"));
+        assert!(progress.lock().unwrap().is_empty());
     }
 
     #[test]

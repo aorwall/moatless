@@ -1,3 +1,4 @@
+use crate::code_intel;
 use crate::config::Config;
 use crate::credentials::broker::{self, BrokerState};
 use crate::credentials::{gh_config, github_proxy};
@@ -62,11 +63,11 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // the lifecycle token so SIGTERM stops it cleanly. Fatal: this is the
     // only channel the backend has to reach the pod — before supervision,
     // an early `serve` return left a process nothing could talk to.
-    let grpc_state = state.clone();
+    let svc = SandboxServiceImpl::new(state.clone());
+    let code_intel = svc.code_intel().clone();
     let grpc_port = config.grpc_port;
+    let grpc_shutdown = state.lifecycle_cancel.clone();
     let grpc_server = tokio::spawn(async move {
-        let grpc_shutdown = grpc_state.lifecycle_cancel.clone();
-        let svc = SandboxServiceImpl::new(grpc_state);
         let addr = SocketAddr::from(([0, 0, 0, 0], grpc_port));
         info!(port = grpc_port, "Starting sandbox gRPC server");
         let limit = sandbox_proto::client::MAX_GRPC_MESSAGE_SIZE;
@@ -112,6 +113,15 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     spawn_github_proxy(&state, &registrar).await;
 
+    // Before init, so the sockets exist by the time the agent's first `LSP`
+    // call starts `moat lsp-proxy`. Optional: without them the agent loses
+    // its `LSP` tool, and the UI's lookups are unaffected.
+    let runtime_dir = std::path::Path::new(&state.config.runtime_dir);
+    match code_intel::spawn_shared(&code_intel, runtime_dir, state.lifecycle_cancel.clone()) {
+        Ok(shared) => registrar.supervise("language-server-sockets", Criticality::Optional, shared),
+        Err(e) => tracing::warn!(error = %e, "Could not share language servers with the agent"),
+    }
+
     // Spawns init: credential fetch, git clone, workspace setup, then
     // `process_pending_messages()` for anything that arrived meanwhile.
     //
@@ -121,8 +131,12 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let (init_failure, init_errors) = tokio::sync::oneshot::channel();
     let init_registrar = registrar.clone();
     let init_task = tokio::spawn(async move {
-        if let Err(error) = run_init(init_state, init_registrar).await {
-            let _ = init_failure.send(error);
+        let workspace_dir = init_state.config.workspace_dir.clone();
+        match run_init(init_state, init_registrar).await {
+            Ok(()) => code_intel.warm(&workspace_dir),
+            Err(error) => {
+                let _ = init_failure.send(error);
+            }
         }
     });
     registrar.supervise_finite("init", Criticality::Fatal, init_task);

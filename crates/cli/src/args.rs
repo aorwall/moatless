@@ -219,6 +219,14 @@ pub(super) enum SandboxCommands {
         #[command(subcommand)]
         action: commands::cmd::CmdAction,
     },
+
+    /// Bridge stdio to a shared language server; Claude Code's `LSP` tool
+    /// starts this, not a person.
+    #[command(hide = true)]
+    LspProxy {
+        /// The server's socket under the sandbox's runtime directory
+        socket: std::path::PathBuf,
+    },
 }
 
 // ---------------------------------------------------------------------------
