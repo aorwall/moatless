@@ -1264,7 +1264,9 @@ mod db_tests {
     /// conversation mutation.
     #[sqlx::test]
     async fn an_intent_write_blocked_on_the_sandbox_row_is_not_holding_the_counter(pool: PgPool) {
-        use std::time::Duration;
+        use moatless_core::change_feed::listing::test_support::{
+            Probe, probe_counter, waits_for_a_lock,
+        };
 
         seed(&pool, "t1").await;
 
@@ -1289,25 +1291,20 @@ mod db_tests {
                 .await
                 .unwrap()
         });
-        tokio::time::sleep(Duration::from_millis(300)).await;
         assert!(
-            !write.is_finished(),
+            waits_for_a_lock(&pool, &write).await.unwrap(),
             "the intent write did not wait for the `sandboxes` row, so this \
              proves nothing about the order it takes its locks in"
         );
 
-        let mut unrelated = pool.begin().await.unwrap();
-        tokio::time::timeout(
-            Duration::from_secs(3),
-            moatless_core::change_feed::listing::record_change(&mut unrelated, "t2"),
-        )
-        .await
-        .expect(
+        assert!(
+            matches!(
+                probe_counter(&pool, "t2").await.unwrap(),
+                Probe::Recorded(_)
+            ),
             "the intent write was holding the deployment's counter while it \
-             waited for the `sandboxes` row",
-        )
-        .unwrap();
-        unrelated.commit().await.unwrap();
+             waited for the `sandboxes` row"
+        );
 
         holder.rollback().await.unwrap();
         assert_eq!(write.await.unwrap(), IntentEffect::Changed);

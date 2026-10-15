@@ -31,6 +31,7 @@ use moatless_core::change_feed::listing::current_position;
 use moatless_core::change_feed::listing::prune_changes;
 use moatless_core::change_feed::listing::record_change;
 use moatless_core::change_feed::listing::resume;
+use moatless_core::change_feed::listing::test_support::{Probe, probe_counter, waits_for_a_lock};
 use moatless_tasks::tag::test_support as tag_fixtures;
 use moatless_tasks::task::models::TaskPatch;
 use moatless_tasks::task::models::TaskStatus;
@@ -575,7 +576,7 @@ async fn a_writer_blocked_on_a_task_row_is_not_holding_the_counter(pool: PgPool)
     .await
     .unwrap();
 
-    let wide = wide_pool(&pool, 4).await;
+    let wide = wide_pool(&pool, 6).await;
 
     // Someone renames the conversation and has not committed: they hold the
     // `tasks` row. This is the shape of every change kind ticket 05 adds.
@@ -607,28 +608,21 @@ async fn a_writer_blocked_on_a_task_row_is_not_holding_the_counter(pool: PgPool)
         .await
         .unwrap();
     });
-    tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(
-        !ingress.is_finished(),
+        waits_for_a_lock(&pool, &ingress).await.unwrap(),
         "the ingress should still be waiting on the `tasks` row the rename holds"
     );
 
-    // The counter is free while it waits. Against the other lock order this
-    // times out: the ingress would be holding the counter and blocking on the
-    // `tasks` row, which is one half of the cycle.
-    let mut unrelated = wide.begin().await.unwrap();
-    let position = tokio::time::timeout(
-        Duration::from_secs(3),
-        record_change(&mut unrelated, "task-b"),
-    )
-    .await
-    .expect(
-        "a writer blocked on the `tasks` row was holding the counter; \
-         every conversation mutation in the deployment is now queued behind it, \
-         and the pair deadlocks as soon as one takes the two locks the other way",
-    )
-    .unwrap();
-    unrelated.commit().await.unwrap();
+    // The counter is free while it waits. Against the other lock order the
+    // probe waits on the ingress: the ingress would be holding the counter and
+    // blocking on the `tasks` row, which is one half of the cycle.
+    let Probe::Recorded(position) = probe_counter(&wide, "task-b").await.unwrap() else {
+        panic!(
+            "a writer blocked on the `tasks` row was holding the counter; \
+             every conversation mutation in the deployment is now queued behind it, \
+             and the pair deadlocks as soon as one takes the two locks the other way"
+        )
+    };
     assert_eq!(position, 1, "the unrelated writer allocated first");
 
     renaming.commit().await.unwrap();
@@ -645,8 +639,8 @@ async fn a_writer_blocked_on_a_task_row_is_not_holding_the_counter(pool: PgPool)
 /// waits on another lock.
 ///
 /// A third party holds the row the mutation must take; the mutation is asserted
-/// *waiting* on it, then the counter must be taken on a third connection inside
-/// the timeout.
+/// *waiting* on it, then a third connection must take the counter without
+/// waiting on any lock.
 struct Mutation {
     /// What a person did, in the words the acceptance criteria use.
     what: &'static str,
@@ -838,7 +832,8 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
         },
     ];
 
-    // Four per case: the holder, the mutation, the counter probe, and one spare.
+    // Four per case: the holder, the mutation, the counter probe and its
+    // observer; the rest are spare.
     let wide = wide_pool(&pool, 8).await;
 
     for (index, case) in cases.iter().enumerate() {
@@ -862,33 +857,23 @@ async fn no_mutation_holds_the_counter_while_it_waits_for_another_lock(pool: PgP
         let mutation = tokio::spawn((case.run)(wide.clone(), subject.clone()));
 
         // Without this the probe below would pass against either lock order,
-        // because the mutation would already have committed and be holding
-        // nothing at all.
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        // because the mutation would hold nothing yet, or nothing any more.
         assert!(
-            !mutation.is_finished(),
+            waits_for_a_lock(&pool, &mutation).await.unwrap(),
             "`{}` did not wait for the row it must take before the counter, \
              so this case proves nothing about the order it takes them in",
             case.what
         );
 
-        let mut unrelated = wide.begin().await.unwrap();
-        tokio::time::timeout(
-            Duration::from_secs(3),
-            record_change(&mut unrelated, "unrelated"),
-        )
-        .await
-        .unwrap_or_else(|_| {
+        if let Probe::Blocked(holders) = probe_counter(&wide, "unrelated").await.unwrap() {
             panic!(
-                "`{}` was holding the deployment's counter while it waited for \
-                 another lock; every mutation in the deployment is now queued \
-                 behind it, and the pair deadlocks as soon as one takes the two \
-                 locks the other way",
+                "`{}` was holding the deployment's counter (blocked by {holders:?}) \
+                 while it waited for another lock; every mutation in the deployment \
+                 is now queued behind it, and the pair deadlocks as soon as one \
+                 takes the two locks the other way",
                 case.what
             )
-        })
-        .unwrap();
-        unrelated.commit().await.unwrap();
+        }
 
         // The mutation's own record, once it is let through. A case whose
         // mutation recorded nothing would satisfy every assertion above by
