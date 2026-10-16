@@ -43,7 +43,8 @@ impl TaskListing {
         }
     }
 
-    /// Every open Task the viewer follows and may read, newest first.
+    /// The open Tasks the viewer follows and may read, newest first: at most
+    /// [`FOLLOWED_LIMIT`].
     pub async fn followed(&self, viewer: &ScopeContext) -> Result<Vec<ListedTask>, sqlx::Error> {
         listed_dao::list(
             &self.pool,
@@ -53,7 +54,10 @@ impl TaskListing {
             &[TaskStatus::Open],
             None,
             None,
-            None,
+            Some(Page {
+                cap: FOLLOWED_LIMIT,
+                before: None,
+            }),
         )
         .await
     }
@@ -246,6 +250,13 @@ impl ListingFilter {
 /// can tell a cut list from one that ends exactly on the cap, rather than
 /// calling a complete 200-row list truncated.
 pub const BROWSE_LIMIT: i64 = 200;
+
+/// How many rows the open listing returns: the newest.
+///
+/// A ceiling on what one shell snapshot reads and sends, not a page: an older
+/// open Task past it reaches the sidebar when it next changes, through the
+/// shell feed's re-read by id.
+pub const FOLLOWED_LIMIT: i64 = 500;
 
 /// How many rows the archived listing returns: the newest.
 ///

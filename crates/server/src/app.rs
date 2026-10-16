@@ -321,10 +321,13 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         info!("Domain routes registered");
 
         // Readiness probe — reports the root supervisor's view of
-        // readiness-critical background tasks, plus whether the main database
-        // pool can still serve work promptly.
+        // readiness-critical background tasks, plus whether the database
+        // answers at all.
         router = router.merge(startup::readiness_router(
-            Some(app_state.db.clone()),
+            Some(startup::ReadinessPools {
+                main: app_state.db.clone(),
+                probe: moatless_core::db::create_probe_pool(&app_state.db),
+            }),
             supervisor.health(),
         ));
 

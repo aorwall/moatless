@@ -404,15 +404,15 @@ impl ProtocolSession {
         } = request;
         let viewer = viewer_scope(&identity);
         let task_id = payload.thread_id;
-        let detail = match thread_detail_v2(
+        let deployment = state.deployment();
+        let detail = thread_detail_v2(
             &state.reads,
-            &state.deployment(),
+            &deployment,
             state.subtasks.relations.as_ref(),
             &viewer,
             &task_id,
-        )
-        .await
-        {
+        );
+        let detail = match state.reads.poll_gate().run(detail).await {
             Ok(Some(detail)) => detail,
             Ok(None) => return vec![projection_error(&id, &task_id, "Conversation not found")],
             Err(error) => {
@@ -460,7 +460,8 @@ impl ProtocolSession {
             ..
         } = request;
         let viewer = viewer_scope(&identity);
-        let snapshot = match archived_snapshot(&state, &viewer).await {
+        let snapshot = archived_snapshot(&state, &viewer);
+        let snapshot = match state.reads.poll_gate().run(snapshot).await {
             Ok(snapshot) => snapshot,
             Err(error) => return vec![shell_failure_exit(&id, &error, &identity)],
         };

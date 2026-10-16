@@ -5,6 +5,7 @@ use crate::config::UiRpcConfigError;
 use crate::config::environment_id;
 use crate::dao::PgConversationDao;
 use crate::observability;
+use crate::poll_gate::PollGate;
 use crate::ports;
 use crate::preview::PreviewState;
 use crate::preview_relay::{PreviewRelay, PreviewRelayWorker};
@@ -165,6 +166,7 @@ pub async fn mount(
             stopper,
             operator,
             diagnostics,
+            poll_gate: reads.poll_gate().clone(),
         },
         subtasks: SubtasksState {
             relations,
@@ -229,8 +231,9 @@ pub fn t3_graph(db: UiRpcDbPool, tasks: &TaskGraph) -> T3Graph {
         pool: db.clone(),
         reads: T3Reads::new(
             conversations,
-            moatless_workspaces::compose::workspaces(db),
+            moatless_workspaces::compose::workspaces(db.clone()),
             tasks.task_reader(),
+            PollGate::for_pool(&db),
         ),
         usage,
     }

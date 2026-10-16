@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 use tracing::warn;
 
 use crate::oauth::Scope;
+use crate::poll_gate::{PollGate, first_tick};
 use crate::subscription::{StreamFailure, StreamResult, StreamSink};
 use moatless_ports::sandbox::{
     ClusterDiagnostics, SandboxError, SandboxIntentReader, SandboxObserver, SandboxOperator,
@@ -17,7 +18,7 @@ use moatless_ports::sandbox::{
 };
 use moatless_ports::task::{TaskDescriptor, TaskReader};
 use moatless_types::access_control::ScopeContext;
-use moatless_types::sandbox::SandboxStopReason;
+use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
 
 /// How often a `sandbox.subscribeStatus` subscriber re-reads lifecycle state.
 /// Matched to the server-list poller so the two panels move together.
@@ -43,6 +44,8 @@ pub struct SandboxState {
     /// per-Task, so it takes no `tasks` authorization: the caller's environment
     /// scope is the whole of it.
     pub diagnostics: Arc<dyn ClusterDiagnostics>,
+    /// Shared with [`crate::reads::T3Reads::poll_gate`]: one bound per replica.
+    pub(crate) poll_gate: PollGate,
 }
 
 /// Why a sandbox lifecycle request could not be answered.
@@ -105,18 +108,35 @@ async fn written_task(
         .ok_or(SandboxRpcError::NotFound)
 }
 
+/// The database half of [`status`] and [`detail`], under the replica's
+/// [`PollGate`]. The observer call after it reaches the pod and the sandbox, so
+/// it runs without a permit rather than holding one across a gRPC call.
+async fn gated_reads(
+    state: &SandboxState,
+    viewer: &ScopeContext,
+    task_id: &str,
+) -> Result<(TaskDescriptor, SandboxDesiredState), SandboxRpcError> {
+    state
+        .poll_gate
+        .run(async {
+            let task = readable_task(state, viewer, task_id).await?;
+            let desired = state
+                .intent
+                .desired_state(task_id)
+                .await
+                .map_err(SandboxRpcError::Sandbox)?;
+            Ok((task, desired))
+        })
+        .await
+}
+
 /// A Task's sandbox lifecycle status only, without declared server rows.
 pub async fn status(
     state: &SandboxState,
     viewer: &ScopeContext,
     task_id: &str,
 ) -> Result<Value, SandboxRpcError> {
-    let task = readable_task(state, viewer, task_id).await?;
-    let desired = state
-        .intent
-        .desired_state(task_id)
-        .await
-        .map_err(SandboxRpcError::Sandbox)?;
+    let (task, desired) = gated_reads(state, viewer, task_id).await?;
     let status = state
         .observer
         .live_status(task_id, task.status, desired)
@@ -157,12 +177,7 @@ pub async fn detail(
     viewer: &ScopeContext,
     task_id: &str,
 ) -> Result<Value, SandboxRpcError> {
-    let task = readable_task(state, viewer, task_id).await?;
-    let desired = state
-        .intent
-        .desired_state(task_id)
-        .await
-        .map_err(SandboxRpcError::Sandbox)?;
+    let (task, desired) = gated_reads(state, viewer, task_id).await?;
     let detail = state
         .observer
         .detail(task_id, task.status, desired)
@@ -326,8 +341,10 @@ async fn watch(
     seeded: Value,
 ) -> StreamResult {
     let mut last = Some(seeded);
+    let mut pause = first_tick(watched.interval());
     loop {
-        tokio::time::sleep(watched.interval()).await;
+        tokio::time::sleep(pause).await;
+        pause = watched.interval();
         let snapshot = match watched.read(&state, &viewer, &task_id).await {
             Ok(snapshot) => snapshot,
             Err(SandboxRpcError::NotFound) => {
@@ -629,6 +646,7 @@ mod tests {
             stopper: Arc::new(UnreachableStarter),
             operator: Arc::new(UnreachableStarter),
             diagnostics: Arc::new(UnreachableStarter),
+            poll_gate: PollGate::new(1),
         }
     }
 

@@ -11,6 +11,9 @@ moatless-workspace-ports = { workspace = true }
 # Async runtime
 tokio = { workspace = true, features = ["full"] }
 
+# Global allocator (`src/main.rs`).
+tikv-jemallocator = "0.6"
+
 # HTTP server + client
 axum = { workspace = true, features = ["macros", "ws"] }
 http-body-util = { workspace = true }

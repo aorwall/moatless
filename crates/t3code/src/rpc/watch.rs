@@ -4,6 +4,7 @@ use crate::config::AgentModelDefaults;
 use crate::config::OrchestrationProtocol;
 use crate::dao::ConversationDao;
 use crate::feed;
+use crate::poll_gate::first_tick;
 use crate::reads::T3Reads;
 use crate::review;
 use crate::rpc::metrics::THREAD_SUBSCRIPTIONS;
@@ -45,6 +46,7 @@ pub(crate) async fn watch_vcs_status(
     viewer: ScopeContext,
 ) -> StreamResult {
     let mut last_sent: Option<Value> = None;
+    let mut pause = first_tick(VCS_STATUS_POLL_INTERVAL);
     loop {
         if let Ok(snapshot) = review::status(
             conversations.as_ref(),
@@ -65,7 +67,8 @@ pub(crate) async fn watch_vcs_status(
                 last_sent = Some(snapshot);
             }
         }
-        tokio::time::sleep(VCS_STATUS_POLL_INTERVAL).await;
+        tokio::time::sleep(pause).await;
+        pause = VCS_STATUS_POLL_INTERVAL;
     }
 }
 
@@ -90,7 +93,10 @@ pub(crate) async fn watch_shell(
         let Some(head) = next_change(&mut listing, seen.as_ref(), |_| true).await else {
             return Ok(());
         };
-        let values = match feed.poll_at(&head, &reads, &model_defaults, &viewer).await {
+        // Every shell subscription wakes on the same move, so the gate is what
+        // spreads their reads.
+        let polled = feed.poll_at(&head, &reads, &model_defaults, &viewer);
+        let values = match reads.poll_gate().run(polled).await {
             Ok(values) => values,
             Err(error) => {
                 // The subscription survives a failed poll rather than ending
@@ -157,7 +163,8 @@ pub(crate) async fn watch_thread(
             Ok(None) => return Ok(()),
             Err(_elapsed) => seen,
         };
-        let polled = poll_thread(&mut feed, &reads, &deployment, &viewer).await;
+        let polled = poll_thread(&mut feed, &reads, &deployment, &viewer);
+        let polled = reads.poll_gate().run(polled).await;
         let values = match polled {
             Ok(Some(values)) => values,
             Ok(None) => {
@@ -245,9 +252,8 @@ pub(crate) async fn watch_thread_v2(
             &watched.viewer,
             &watched.task_id,
             watched.lineage.clone(),
-        )
-        .await;
-        let detail = match detail {
+        );
+        let detail = match watched.reads.poll_gate().run(detail).await {
             Ok(Some(detail)) => detail,
             Ok(None) => return Err(StreamFailure::message("Conversation not found")),
             Err(error) => {
@@ -283,23 +289,24 @@ pub(crate) async fn watch_archived_shell(
 ) -> StreamResult {
     let mut last = initial["snapshotSequence"].as_i64();
     let mut sent = Some(initial["threads"].clone());
+    let mut pause = first_tick(ARCHIVED_SHELL_POLL_INTERVAL);
     loop {
-        tokio::time::sleep(ARCHIVED_SHELL_POLL_INTERVAL).await;
+        tokio::time::sleep(pause).await;
+        pause = ARCHIVED_SHELL_POLL_INTERVAL;
         let Some(position) = listing.borrow().as_ref().map(|head| head.position) else {
             continue;
         };
         if last == Some(position) {
             continue;
         }
-        let snapshot = match archived_shell_page(
+        let page = archived_shell_page(
             &reads,
             &model_defaults,
             &viewer,
             None,
             OrchestrationProtocol::V2,
-        )
-        .await
-        {
+        );
+        let snapshot = match reads.poll_gate().run(page).await {
             Ok(snapshot) => snapshot,
             Err(error) => {
                 warn!(%error, user_id = %viewer.user_id, "Failed to read the T3 UI archive");

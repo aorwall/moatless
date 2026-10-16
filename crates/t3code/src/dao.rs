@@ -50,8 +50,8 @@ pub struct InteractiveCall {
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait ConversationDao: Send + Sync {
-    /// Every **open** Task the viewer follows **and** may still read, newest
-    /// first.
+    /// The **open** Tasks the viewer follows **and** may still read, newest
+    /// first: at most [`moatless_tasks::task_listing::FOLLOWED_LIMIT`].
     ///
     /// `error` counts as not-open too, matching the Moatless sidebar's own
     /// filter; a Task returns to `open` the instant its agent produces

@@ -208,16 +208,15 @@ impl ProtocolSession {
             ..
         } = request;
         let viewer = viewer_scope(&identity);
-        let subscription = match shell_subscription(
+        let subscription = shell_subscription(
             &state.reads,
             &state.model_defaults,
             &viewer,
             &state.environment,
             payload.after_sequence,
             shared.protocol,
-        )
-        .await
-        {
+        );
+        let subscription = match state.reads.poll_gate().run(subscription).await {
             Ok(subscription) => subscription,
             Err(error) => return vec![shell_failure_exit(&id, &error, &identity)],
         };
@@ -258,16 +257,16 @@ impl ProtocolSession {
         } = request;
         let viewer = viewer_scope(&identity);
         let task_id = payload.thread_id;
-        let opened = match thread_subscription(
+        let deployment = state.deployment();
+        let opened = thread_subscription(
             &state.reads,
-            &state.deployment(),
+            &deployment,
             &viewer,
             &task_id,
             payload.after_sequence,
             payload.request_completion_marker.unwrap_or(false),
-        )
-        .await
-        {
+        );
+        let opened = match state.reads.poll_gate().run(opened).await {
             Ok(opened) => opened,
             Err(error) => {
                 error!(

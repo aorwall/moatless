@@ -24,6 +24,9 @@ const READINESS_FAILURES: &str = "moatless_database_readiness_failures_total";
 pub enum PoolKind {
     Main,
     Lock,
+    /// [`create_probe_pool`]'s: its one connection is kept open, so a probe
+    /// never pays for connecting.
+    Probe,
 }
 
 /// Create a connection pool to the PostgreSQL database.
@@ -38,13 +41,29 @@ pub async fn create_pool_kind(
     max_connections: u32,
     kind: PoolKind,
 ) -> Result<DbPool, sqlx::Error> {
-    let mut opts = PgPoolOptions::new()
+    pool_options(max_connections, kind)
+        .connect(database_url)
+        .await
+}
+
+fn pool_options(max_connections: u32, kind: PoolKind) -> PgPoolOptions {
+    let opts = PgPoolOptions::new()
         .max_connections(max_connections)
         .acquire_timeout(std::time::Duration::from_secs(5));
-    if kind == PoolKind::Main {
-        opts = opts.idle_timeout(std::time::Duration::from_mins(10));
+    match kind {
+        PoolKind::Main => opts.idle_timeout(std::time::Duration::from_mins(10)),
+        PoolKind::Lock => opts,
+        PoolKind::Probe => opts.min_connections(max_connections),
     }
-    opts.connect(database_url).await
+}
+
+/// Create the readiness probe's own one-connection pool to `main`'s database.
+///
+/// Separate deliberately: probing from a saturated `main` times out, and
+/// Kubernetes then moves the load onto the other replica rather than letting
+/// it drain. Lazy, so a database that is down fails the probe, not startup.
+pub fn create_probe_pool(main: &DbPool) -> DbPool {
+    pool_options(1, PoolKind::Probe).connect_lazy_with((*main.connect_options()).clone())
 }
 
 /// Register and refresh the main pool's operator-facing metrics.

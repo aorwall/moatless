@@ -82,6 +82,7 @@ impl Database {
             self.dao(),
             Arc::new(workspaces),
             Arc::new(MockTaskReader::new()),
+            crate::poll_gate::PollGate::new(4),
         )
     }
 

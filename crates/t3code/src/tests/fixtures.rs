@@ -789,6 +789,7 @@ pub(super) fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore
             conversations.clone(),
             Arc::new(workspaces),
             Arc::new(MockTaskReader::new()),
+            crate::poll_gate::PollGate::new(4),
         ),
         changes: crate::change_watch::ChangeWatch::new(),
         workspace_script_commands: Arc::new(ports::MockWorkspaceScriptCommands::new()),
@@ -813,6 +814,7 @@ pub(super) fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore
             stopper: Arc::new(UnreachableSandboxes),
             operator: Arc::new(UnreachableSandboxes),
             diagnostics: Arc::new(UnreachableSandboxes),
+            poll_gate: crate::poll_gate::PollGate::new(4),
         },
         subtasks: SubtasksState {
             relations: Arc::new(NoChildTasks),

@@ -340,13 +340,22 @@ async fn shutdown_signal() {
 // Readiness
 // =========================================================================
 
+/// The pools `/ready` reads: `main` for its gauges only, `probe` for the round
+/// trip (see [`db::create_probe_pool`]).
+#[derive(Clone)]
+pub struct ReadinessPools {
+    pub main: DbPool,
+    pub probe: DbPool,
+}
+
 /// Build the `/ready` readiness probe, distinct from `/health` (pure liveness).
 ///
 /// Reports unavailable when a readiness-critical supervised task has terminated
-/// or the DB pool can't serve a trivial query promptly, so Kubernetes sheds
-/// traffic to a healthier replica.
+/// or the database can't serve a trivial query promptly, so Kubernetes sheds
+/// traffic to a healthier replica. A saturated main pool alone does not make
+/// the replica unready: it shows as slow requests and in the pool gauges.
 pub fn readiness_router(
-    database: Option<DbPool>,
+    database: Option<ReadinessPools>,
     supervisor: Arc<crate::supervisor::SupervisorHealth>,
 ) -> Router {
     Router::new().route(
@@ -372,11 +381,11 @@ pub fn readiness_router(
                         .into_response();
                 }
 
-                if let Some(pool) = database {
-                    db::record_pool_metrics(&pool);
+                if let Some(pools) = database {
+                    db::record_pool_metrics(&pools.main);
                     match tokio::time::timeout(
                         std::time::Duration::from_millis(500),
-                        moatless_core::db::probe(&pool),
+                        db::probe(&pools.probe),
                     )
                     .await
                     {
@@ -398,9 +407,7 @@ pub fn readiness_router(
                         }
                         Err(_) => {
                             db::record_readiness_failure("timeout");
-                            tracing::warn!(
-                                "Readiness probe: database pool did not answer within 500ms"
-                            );
+                            tracing::warn!("Readiness probe: database did not answer within 500ms");
                             return (
                                 StatusCode::SERVICE_UNAVAILABLE,
                                 axum::Json(serde_json::json!({

@@ -23,6 +23,7 @@ mod nominal_path;
 mod oauth;
 mod observability;
 pub mod owners;
+mod poll_gate;
 pub mod ports;
 mod preview;
 pub mod preview_relay;

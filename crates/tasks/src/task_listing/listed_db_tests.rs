@@ -6,7 +6,7 @@ use moatless_types::task::{TaskStatus, Visibility};
 use moatless_workspaces::test_support::make_repository_row;
 use sqlx::PgPool;
 
-use super::{ListedTask, ListingFilter, TaskListing};
+use super::{FOLLOWED_LIMIT, ListedTask, ListingFilter, TaskListing};
 use crate::task::test_support::{make_task_row, seed_task};
 
 const TASK: &str = "task-listing";
@@ -405,4 +405,51 @@ async fn two_full_listings_at_once_both_complete(pool: PgPool) {
 
     open.expect("the open listing completes");
     closed.expect("the archive listing completes");
+}
+
+/// The open listing stops at [`FOLLOWED_LIMIT`] newest rows, and a Task past
+/// the cap is still read by id, which is how the shell feed brings it back
+/// when it next changes.
+#[sqlx::test]
+async fn the_followed_listing_keeps_the_newest_and_reads_the_rest_by_id(pool: PgPool) {
+    let repo = make_repository_row("repo-1", USER_1);
+    moatless_workspaces::compose::seed_repository(&pool, &repo)
+        .await
+        .expect("seed repo");
+    let ids: Vec<String> = (0..=FOLLOWED_LIMIT)
+        .map(|n| format!("followed-{n:03}"))
+        .collect();
+    for id in &ids {
+        seed_task(&pool, &make_task_row(id, USER_1))
+            .await
+            .expect("seed task");
+        crate::task::test_support::follow_task(&pool, USER_1, id)
+            .await
+            .expect("follow task");
+    }
+    // `followed-000` oldest, one minute apart.
+    sqlx::query(
+        "UPDATE tasks SET updated_at = now() - make_interval(mins => $1 - \
+         substring(task_id from 10)::int) WHERE task_id LIKE 'followed-%'",
+    )
+    .bind(i32::try_from(FOLLOWED_LIMIT).expect("small"))
+    .execute(&pool)
+    .await
+    .expect("age the tasks");
+
+    let listing = listing_over(&pool);
+    let viewer = ScopeContext::user(USER_1.to_string());
+    let followed = listing.followed(&viewer).await.expect("followed");
+
+    assert_eq!(
+        followed.len(),
+        usize::try_from(FOLLOWED_LIMIT).expect("small")
+    );
+    assert_eq!(followed[0].task_id, ids[ids.len() - 1], "newest first");
+    assert!(followed.iter().all(|row| row.task_id != "followed-000"));
+    let past_the_cap = listing
+        .followed_by_ids(&viewer, &["followed-000".to_string()])
+        .await
+        .expect("by id");
+    assert_eq!(past_the_cap.len(), 1);
 }

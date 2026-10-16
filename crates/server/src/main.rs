@@ -2,6 +2,11 @@
 
 use moatless_backend::startup;
 
+/// jemalloc rather than glibc malloc: under glibc the backend's RSS grew in
+/// steps after each reconnect wave and was not returned to the kernel.
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if std::env::args().any(|a| a == "--dump-openapi") {

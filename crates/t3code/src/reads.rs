@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use crate::dao::ConversationDao;
+use crate::poll_gate::PollGate;
 use crate::workspace_listing::WorkspaceListing;
 use moatless_core::change_feed::listing::ListingHead;
 use moatless_ports::task::TaskReader;
@@ -16,6 +17,7 @@ pub struct T3Reads {
     conversations: Arc<dyn ConversationDao>,
     workspaces: Arc<dyn WorkspaceListing>,
     tasks: Arc<dyn TaskReader>,
+    poll_gate: PollGate,
 }
 
 impl T3Reads {
@@ -23,12 +25,20 @@ impl T3Reads {
         conversations: Arc<dyn ConversationDao>,
         workspaces: Arc<dyn WorkspaceListing>,
         tasks: Arc<dyn TaskReader>,
+        poll_gate: PollGate,
     ) -> Self {
         Self {
             conversations,
             workspaces,
             tasks,
+            poll_gate,
         }
+    }
+
+    /// The replica's bound on subscription polls and snapshot builds; shared
+    /// by every clone of these reads.
+    pub(crate) fn poll_gate(&self) -> &PollGate {
+        &self.poll_gate
     }
 
     /// Where the shell change log stands, and which database allocated the

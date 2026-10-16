@@ -25,7 +25,7 @@ use tokio_util::sync::CancellationToken;
 use tower::ServiceExt;
 use tracing_subscriber::fmt::MakeWriter;
 
-use moatless_backend::startup::readiness_router;
+use moatless_backend::startup::{ReadinessPools, readiness_router};
 use moatless_backend::supervisor::{Criticality, ExitCause, Supervisor};
 
 // =========================================================================
@@ -120,7 +120,7 @@ async fn ready_response(
 }
 
 async fn ready_response_with_database(
-    database: Option<sqlx::PgPool>,
+    database: Option<ReadinessPools>,
     health: Arc<moatless_backend::supervisor::SupervisorHealth>,
 ) -> (StatusCode, serde_json::Value) {
     let response = readiness_router(database, health)
@@ -319,11 +319,45 @@ async fn a_database_pool_that_cannot_serve_queries_flips_readiness() {
         .connect_lazy("postgres://readiness:readiness@127.0.0.1:1/readiness")
         .expect("synthetic pool");
     pool.close().await;
+    let pools = ReadinessPools {
+        probe: moatless_core::db::create_probe_pool(&pool),
+        main: pool,
+    };
 
-    let (status, body) = ready_response_with_database(Some(pool), health).await;
+    let (status, body) = ready_response_with_database(Some(pools), health).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(body["status"], "unavailable");
     assert_eq!(body["component"], "database");
+}
+
+/// Request work holding every main-pool connection is slow requests, not an
+/// unready replica: the probe answers from its own connection.
+#[cfg(feature = "db-tests")]
+#[sqlx::test]
+async fn a_saturated_main_pool_leaves_the_replica_ready(pool: sqlx::PgPool) {
+    let health = Supervisor::new(CancellationToken::new()).health();
+    let main = PgPoolOptions::new()
+        .max_connections(2)
+        .connect_with((*pool.connect_options()).clone())
+        .await
+        .expect("main pool");
+    let probe = moatless_core::db::create_probe_pool(&main);
+    // Warm, as on a running replica the probe has already answered.
+    moatless_core::db::probe(&probe)
+        .await
+        .expect("probe connects");
+    let held = (main.acquire().await, main.acquire().await);
+    assert!(
+        held.0.is_ok() && held.1.is_ok(),
+        "hold every main connection"
+    );
+    let saturated = tokio::time::timeout(Duration::from_millis(200), main.acquire()).await;
+    assert!(saturated.is_err(), "the main pool is saturated");
+    let pools = ReadinessPools { main, probe };
+
+    let (status, body) = ready_response_with_database(Some(pools), health).await;
+
+    assert_eq!(status, StatusCode::OK, "{body}");
 }
 
 // =========================================================================

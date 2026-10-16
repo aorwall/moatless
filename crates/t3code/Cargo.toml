@@ -17,6 +17,7 @@ metrics = { workspace = true }
 # The T3 socket accepts a W3C traceparent per request and links each RPC span to
 # it, so the client's trace and this backend's are one trace in Tempo.
 opentelemetry = { version = "0.32", default-features = false, features = ["trace"] }
+rand = { workspace = true }
 # Forwards the T3 client's own OTLP/JSON span batches to a collector — see
 # `observability`. Bytes in, bytes out, so no `json` feature.
 reqwest = { workspace = true, features = ["rustls"] }
