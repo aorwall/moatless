@@ -202,23 +202,24 @@ impl std::fmt::Display for CloneFailure {
     }
 }
 
-/// The provider token `repo` may clone with: none through the backend proxy,
-/// which authenticates the pod's task token and would reject a provider one.
+/// The token `repo` may clone with: the task token through the backend proxy,
+/// which would reject a provider one, else the provider's own.
 fn clone_token(
     config: &Config,
     credentials: &GitCredentials,
     repo: &RepoCheckout,
 ) -> Option<String> {
     if config.clones_through_proxy(repo) {
-        return None;
+        return credentials.task_token.clone();
     }
     credentials.provider_token(&repo.provider, &config.git_provider)
 }
 
 /// What one checkout clones with, beyond its own [`RepoCheckout`].
 struct CloneSource<'a> {
-    /// The provider token git may fall back to. `None` for a checkout cloning
-    /// through the backend proxy, which would reject it as a task token.
+    /// The [`clone_token`] git falls back to, which the retry probe also
+    /// presents: without it the proxy answers 401 and a transfer stall reads
+    /// as permanent.
     token: Option<&'a str>,
     /// The GitHub URL a proxied checkout stands in for, recorded as the
     /// [`GITHUB_REMOTE`] remote.
@@ -593,7 +594,11 @@ pub(crate) use moatless_types::credential_key::GIT_TOKEN;
 /// Handed to [`configure_git`] and [`clone_repositories`] rather than exported
 /// into the process env, where a value would freeze at spawn time.
 #[derive(Clone, Debug, Default)]
-pub struct GitCredentials(HashMap<String, String>);
+pub struct GitCredentials {
+    values: HashMap<String, String>,
+    /// The pod's task token, which the backend git proxy authenticates.
+    task_token: Option<String>,
+}
 
 impl GitCredentials {
     const KEYS: [&str; 5] = [
@@ -606,19 +611,27 @@ impl GitCredentials {
 
     /// Keep the git keys of a fetched credential map, dropping empty values.
     pub fn from_credentials(credentials: &HashMap<String, String>) -> Self {
-        Self(
-            Self::KEYS
+        Self {
+            values: Self::KEYS
                 .iter()
                 .filter_map(|key| {
                     let value = credentials.get(*key).filter(|value| !value.is_empty())?;
                     Some(((*key).to_string(), value.clone()))
                 })
                 .collect(),
-        )
+            task_token: None,
+        }
+    }
+
+    /// Attach the task token a proxied checkout clones with.
+    #[must_use]
+    pub fn with_task_token(mut self, task_token: Option<String>) -> Self {
+        self.task_token = task_token.filter(|token| !token.is_empty());
+        self
     }
 
     fn get(&self, key: &str) -> Option<String> {
-        self.0.get(key).cloned()
+        self.values.get(key).cloned()
     }
 
     /// One provider's clone token. `GIT_TOKEN` backs a checkout only when it

@@ -213,10 +213,10 @@ fn each_checkout_uses_its_own_providers_token() {
     assert_eq!(credentials.provider_token("forgejo", "github"), None);
 }
 
-/// A proxied checkout's URL points at the backend, so no provider token may
-/// be offered to it — not even the pod's own.
+/// A proxied checkout's URL points at the backend, so it is offered the task
+/// token and never a provider token — not even the pod's own.
 #[test]
-fn a_proxied_checkout_is_given_no_provider_token() {
+fn a_proxied_checkout_is_given_the_task_token_only() {
     let credentials = credentials(&[("GITHUB_TOKEN", "pod-token"), (GIT_TOKEN, "pod-token")]);
     let mut config = crate::config::test_support::minimal_config();
     config.backend_api_url = Some("http://backend:8001".to_string());
@@ -225,6 +225,13 @@ fn a_proxied_checkout_is_given_no_provider_token() {
         ..checkout("api", "github", true)
     };
     assert_eq!(clone_token(&config, &credentials, &proxied), None);
+    let with_task_token = credentials
+        .clone()
+        .with_task_token(Some("task-jwt".to_string()));
+    assert_eq!(
+        clone_token(&config, &with_task_token, &proxied).as_deref(),
+        Some("task-jwt")
+    );
     let direct = RepoCheckout {
         clone_url: "https://github.com/acme/api.git".to_string(),
         ..checkout("api", "github", true)
@@ -407,6 +414,48 @@ async fn success_from_the_service_marks_the_failure_as_the_transfer() {
 
     repo.branch = Some("main".to_string());
     assert!(failure_is_retryable(&repo, None, probe()).await);
+}
+
+/// The incident shape behind the backend proxy, which answers `info/refs`
+/// with 401 unless it is shown the task token: a probe without it found the
+/// host reachable and stopped the sandbox for a transfer stall.
+#[tokio::test]
+async fn a_probe_presenting_the_task_token_sees_the_proxy_advertisement() {
+    use base64::Engine as _;
+
+    let credentials = base64::engine::general_purpose::STANDARD.encode("x-access-token:task-jwt");
+    let port = serve_authenticated(format!("Basic {credentials}"), ADVERTISEMENT).await;
+    let repo = repo_at(port);
+    assert!(!failure_is_retryable(&repo, None, probe()).await);
+    assert!(failure_is_retryable(&repo, Some("task-jwt"), probe()).await);
+}
+
+/// Answer `200` with `body` to a request carrying `authorization`, and `401`
+/// to any other.
+async fn serve_authenticated(authorization: String, body: &'static str) -> u16 {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        while let Ok((mut socket, _)) = listener.accept().await {
+            let mut request = [0u8; 4096];
+            let read = socket.read(&mut request).await.unwrap_or(0);
+            let request = String::from_utf8_lossy(&request[..read]).to_ascii_lowercase();
+            let wanted = format!("authorization: {}", authorization.to_ascii_lowercase());
+            let (status, body) = if request.contains(&wanted) {
+                ("200 OK", body)
+            } else {
+                ("401 Unauthorized", "")
+            };
+            let response = format!(
+                "HTTP/1.1 {status}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = socket.write_all(response.as_bytes()).await;
+        }
+    });
+    port
 }
 
 /// A 2xx that is not a git advertisement, such as a login page a redirect

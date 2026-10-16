@@ -159,7 +159,8 @@ pub async fn fetch_and_apply_credentials_with_mode(
                     resp.credentials.insert(GIT_TOKEN.to_string(), token);
                 }
                 *state.git_credentials.write().await =
-                    GitCredentials::from_credentials(&resp.credentials);
+                    GitCredentials::from_credentials(&resp.credentials)
+                        .with_task_token(backend_client.auth_token());
 
                 // Store credentials in state for passing to agent subprocess.
                 // Filter out git-provider tokens so the long-running Claude CLI
