@@ -209,7 +209,7 @@ mod tests {
                 "/home/m/.ssh/moatless_b".to_string(),
             ],
             "/home/m/.ssh/known_hosts",
-            crate::config::DEFAULT_CLONE_STALL_SECS,
+            60,
         );
         assert!(cfg.contains("Host *"));
         assert!(cfg.contains("StrictHostKeyChecking accept-new"));

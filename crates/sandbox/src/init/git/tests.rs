@@ -71,6 +71,63 @@ async fn already_cloned_repos_are_skipped() {
     assert!(!summary.primary_recloned);
 }
 
+/// A clone whose checkout failed leaves `.git` behind, which must not read as
+/// a finished clone on the next init: every file would show as deleted.
+#[tokio::test]
+async fn a_clone_without_a_checkout_is_finished_rather_than_skipped() {
+    finishes_a_clone_without_a_checkout(false).await;
+}
+
+#[tokio::test]
+async fn a_clone_killed_mid_checkout_is_finished_despite_its_lock() {
+    finishes_a_clone_without_a_checkout(true).await;
+}
+
+async fn finishes_a_clone_without_a_checkout(left_index_lock: bool) {
+    let tmp = tempfile::tempdir().unwrap();
+    let workspace = tmp.path().join("workspace");
+    let source = tmp.path().join("source");
+    init_local_source_repo(&source);
+    std::fs::create_dir_all(&workspace).unwrap();
+    run_git_sync(
+        &workspace,
+        &[
+            "clone",
+            "--no-checkout",
+            &source.display().to_string(),
+            "api",
+        ],
+    );
+    if left_index_lock {
+        std::fs::write(workspace.join("api/.git/index.lock"), "").unwrap();
+    }
+
+    let mut config = minimal_config();
+    config.workspace_dir = workspace.display().to_string();
+    config.repo_dir = workspace.join("api").display().to_string();
+    config.git_provider = "local".to_string();
+    config.repos = vec![RepoCheckout {
+        uses_ssh: false,
+        clone_url: source.display().to_string(),
+        repository_id: String::new(),
+        branch: None,
+        provider: "local".to_string(),
+        mount_name: "api".to_string(),
+        is_primary: true,
+    }];
+
+    let summary = clone_repositories(&config, &GitCredentials::default())
+        .await
+        .unwrap();
+
+    assert_eq!(summary.cloned, vec!["api"]);
+    let clone = workspace.join("api");
+    assert!(clone.join("README.md").is_file());
+    let status = git_output(&clone, &["status", "--porcelain"]);
+    assert!(status.status.success());
+    assert!(status.stdout.is_empty(), "the checkout left changes behind");
+}
+
 /// A restore can carry an older workspace shape: the primary repo present
 /// but a later-added sibling absent.
 ///

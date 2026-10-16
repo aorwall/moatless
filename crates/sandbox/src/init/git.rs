@@ -146,8 +146,8 @@ pub async fn scrub_remote_credentials(config: &Config) {
 /// Clone every repository the task's workspace names, each into its own dir.
 ///
 /// Uses each repo's own provider token; a dir already holding `.git` is left
-/// alone (safe across a restart), and every repo is required, so the first
-/// failure aborts.
+/// alone (safe across a restart) unless its checkout never finished, and every
+/// repo is required, so the first failure aborts.
 pub async fn clone_repositories(
     config: &Config,
     credentials: &GitCredentials,
@@ -163,7 +163,7 @@ pub async fn clone_repositories(
         // Skip if already cloned. For the primary, the workspace-root check also
         // covers sandboxes created before SSH clones moved to `repo_dir` — their
         // checkout lives directly in `workspace_dir` on a persistent volume.
-        if Path::new(&dest).join(".git").exists()
+        if (Path::new(&dest).join(".git").exists() && !checkout_incomplete(&dest).await)
             || (repo.is_primary && Path::new(&config.workspace_dir).join(".git").exists())
         {
             info!(mount = %repo.mount_name, "Repository already cloned, skipping");
@@ -252,10 +252,27 @@ async fn clone_with_retry(
     probe: HttpTimeouts,
     deadline: Instant,
 ) -> Result<(), CloneFailure> {
+    let started = Instant::now();
     let mut delay = Duration::from_secs(2);
+    let mut attempts = 0u32;
     loop {
-        let error = match clone_checkout(repo, dest, source).await {
-            Ok(()) => return Ok(()),
+        attempts += 1;
+        let attempt = if checkout_incomplete(dest).await {
+            info!(mount = %repo.mount_name, "Finishing the checkout of an earlier clone");
+            finish_checkout(dest, source).await
+        } else {
+            clone_checkout(repo, dest, source).await
+        };
+        let error = match attempt {
+            Ok(()) => {
+                info!(
+                    mount = %repo.mount_name,
+                    attempts,
+                    duration_ms = started.elapsed().as_millis(),
+                    "Repository ready"
+                );
+                return Ok(());
+            }
             Err(e) => e,
         };
         let message = format!("{} ({}): {error}", repo.mount_name, repo.clone_url);
@@ -285,11 +302,56 @@ async fn clone_with_retry(
             "Clone failed on a condition another attempt could get past — retrying"
         );
         // git refuses to clone into a non-empty directory, so whatever the
-        // failed attempt left behind has to go before the next one.
-        clean_workspace_dir(dest).await;
+        // failed attempt left behind has to go before the next one, unless
+        // only its checkout failed: the next attempt finishes that instead.
+        if !checkout_incomplete(dest).await {
+            clean_workspace_dir(dest).await;
+        }
         tokio::time::sleep(delay).await;
         delay = (delay * 2).min(MAX_CLONE_RETRY_DELAY);
     }
+}
+
+/// Whether `dest` holds a clone whose checkout never completed: `HEAD` names a
+/// commit, but no index was written.
+///
+/// What git leaves after `Clone succeeded, but checkout failed`, such as a
+/// blobless clone whose blob fetch stalled. An unborn `HEAD` deliberately does
+/// not count: that may be a repository with no commits yet and work in it.
+async fn checkout_incomplete(dest: &str) -> bool {
+    let git_dir = Path::new(dest).join(".git");
+    if !git_dir.is_dir() || git_dir.join("index").exists() {
+        return false;
+    }
+    Command::new("git")
+        .args([
+            "-C",
+            dest,
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "HEAD^{commit}",
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .await
+        .is_ok_and(|status| status.success())
+}
+
+/// Write the index and working tree of a [`checkout_incomplete`] clone,
+/// fetching the blobs it lacks from its promisor remote.
+async fn finish_checkout(dest: &str, source: &CloneSource<'_>) -> Result<(), String> {
+    // A checkout killed by the startup probe leaves its lock, failing every
+    // reset with "File exists"; nothing else runs git in `dest` during init.
+    let _ = tokio::fs::remove_file(Path::new(dest).join(".git/index.lock")).await;
+    run_clone(
+        &["-C", dest, "reset", "--hard", "--quiet", "HEAD"],
+        source.token,
+        source.stall_secs,
+    )
+    .await
+    .map_err(|e| format!("finishing the checkout failed: {e}"))
 }
 
 /// Whether a failed clone is worth another attempt.
@@ -567,6 +629,10 @@ async fn clone_checkout(
             Ok(()) => {
                 info!("Repository cloned successfully with token auth");
                 return Ok(());
+            }
+            // `clone_with_retry` finishes it, rather than a plain clone failing auth.
+            Err(e) if checkout_incomplete(dest).await => {
+                return Err(format!("the checkout after a token clone failed: {e}"));
             }
             Err(e) => {
                 warn!(error = %e, "git clone with token failed, trying without auth");

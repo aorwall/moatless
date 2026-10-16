@@ -410,10 +410,11 @@ fn sync_interval(raw: Option<&str>) -> Option<Duration> {
 
 /// How long a clone may receive nothing before git abandons it.
 ///
-/// `GIT_CLONE_STALL_TIMEOUT_SECS` overrides it. Inside the default startup probe
-/// window (150s), so a stalled clone fails in init before the probe kills it;
-/// the backend caps a configured value the same way.
-pub const DEFAULT_CLONE_STALL_SECS: u64 = 60;
+/// `GIT_CLONE_STALL_TIMEOUT_SECS` overrides it. Short enough that a stalled
+/// stream, which does not resume, leaves `CLONE_RETRY_BUDGET` room to retry in
+/// this init; long enough for the host's silent pack generation, which takes
+/// seconds. Inside the startup probe window (150s), as the backend's cap is.
+pub const DEFAULT_CLONE_STALL_SECS: u64 = 30;
 // The default window: `(K8S_POD_STARTUP_TIMEOUT_SECS / 5 + 6) * 5`.
 const _: () = assert!(DEFAULT_CLONE_STALL_SECS < (120 / 5 + 6) * 5);
 
