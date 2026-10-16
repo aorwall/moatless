@@ -146,8 +146,8 @@ pub async fn scrub_remote_credentials(config: &Config) {
 /// Clone every repository the task's workspace names, each into its own dir.
 ///
 /// Uses each repo's own provider token; a dir already holding `.git` is left
-/// alone (safe across a restart) unless its checkout never finished, and every
-/// repo is required, so the first failure aborts.
+/// alone (safe across a restart) unless its fetch or its checkout never
+/// finished, and every repo is required, so the first failure aborts.
 pub async fn clone_repositories(
     config: &Config,
     credentials: &GitCredentials,
@@ -163,7 +163,12 @@ pub async fn clone_repositories(
         // Skip if already cloned. For the primary, the workspace-root check also
         // covers sandboxes created before SSH clones moved to `repo_dir` — their
         // checkout lives directly in `workspace_dir` on a persistent volume.
-        if (Path::new(&dest).join(".git").exists() && !checkout_incomplete(&dest).await)
+        if clone_fetch_incomplete(Path::new(&dest)) {
+            // From a snapshot stored before uploads left such a mount out, or a
+            // volume a killed clone left it on; git refuses to clone into it.
+            info!(mount = %repo.mount_name, "Recloning a clone whose fetch never finished");
+            clean_workspace_dir(&dest).await;
+        } else if (Path::new(&dest).join(".git").exists() && !checkout_incomplete(&dest).await)
             || (repo.is_primary && Path::new(&config.workspace_dir).join(".git").exists())
         {
             info!(mount = %repo.mount_name, "Repository already cloned, skipping");
@@ -337,6 +342,44 @@ async fn checkout_incomplete(dest: &str) -> bool {
         .status()
         .await
         .is_ok_and(|status| status.success())
+}
+
+/// Whether `dir` holds a clone stopped before its fetch wrote a ref: `.git`
+/// has no ref or index, and `dir` nothing else.
+///
+/// Snapshots skip it and init reclones it. Any commit, stash, staged or
+/// untracked file fails this, which an unborn `HEAD` alone would not.
+pub(crate) fn clone_fetch_incomplete(dir: &Path) -> bool {
+    let git_dir = dir.join(".git");
+    let head_names_branch =
+        std::fs::read_to_string(git_dir.join("HEAD")).is_ok_and(|head| head.starts_with("ref: "));
+    // A reftable `.git` keeps its refs where this cannot see them.
+    if !head_names_branch
+        || ["index", "packed-refs", "reftable"]
+            .iter()
+            .any(|name| git_dir.join(name).exists())
+        || holds_a_file(&git_dir.join("refs"))
+    {
+        return false;
+    }
+    std::fs::read_dir(dir).is_ok_and(|mut entries| {
+        entries.all(|entry| entry.is_ok_and(|entry| entry.file_name() == ".git"))
+    })
+}
+
+/// Whether anything but a directory sits under `dir`.
+fn holds_a_file(dir: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        let path = entry.path();
+        match std::fs::symlink_metadata(&path) {
+            Ok(meta) if meta.is_dir() => holds_a_file(&path),
+            // An unreadable entry counts too, so the mount is kept.
+            _ => true,
+        }
+    })
 }
 
 /// Write the index and working tree of a [`checkout_incomplete`] clone,

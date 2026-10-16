@@ -128,6 +128,94 @@ async fn finishes_a_clone_without_a_checkout(left_index_lock: bool) {
     assert!(status.stdout.is_empty(), "the checkout left changes behind");
 }
 
+/// What `git clone` has written into `dir` before its fetch lands a ref.
+fn unfetched_clone(dir: &Path, url: &str) {
+    std::fs::create_dir_all(dir).unwrap();
+    run_git_sync(dir, &["init", "-q", "--initial-branch", "main"]);
+    run_git_sync(dir, &["remote", "add", "origin", url]);
+}
+
+fn local_checkout(mount: &str, source: &Path) -> RepoCheckout {
+    RepoCheckout {
+        uses_ssh: false,
+        clone_url: source.display().to_string(),
+        repository_id: String::new(),
+        branch: None,
+        provider: "local".to_string(),
+        mount_name: mount.to_string(),
+        is_primary: true,
+    }
+}
+
+fn local_config(workspace: &Path, repo: RepoCheckout) -> Config {
+    let mut config = minimal_config();
+    config.workspace_dir = workspace.display().to_string();
+    config.repo_dir = workspace.join(&repo.mount_name).display().to_string();
+    config.git_provider = "local".to_string();
+    config.repos = vec![repo];
+    config
+}
+
+/// A snapshot stored before uploads left such a mount out still restores one.
+#[tokio::test]
+async fn a_restored_clone_whose_fetch_never_finished_is_recloned() {
+    let tmp = tempfile::tempdir().unwrap();
+    let workspace = tmp.path().join("workspace");
+    let source = tmp.path().join("source");
+    init_local_source_repo(&source);
+    unfetched_clone(&workspace.join("api"), &source.display().to_string());
+    let config = local_config(&workspace, local_checkout("api", &source));
+
+    let summary = clone_repositories(&config, &GitCredentials::default())
+        .await
+        .unwrap();
+
+    assert_eq!(summary.cloned, vec!["api"]);
+    assert!(workspace.join("api/README.md").is_file());
+}
+
+/// Each is work in an empty repository that a reclone would discard.
+#[tokio::test]
+async fn an_empty_repository_holding_work_is_not_recloned() {
+    for (work, stage) in [("an untracked file", false), ("a staged file", true)] {
+        let tmp = tempfile::tempdir().unwrap();
+        let workspace = tmp.path().join("workspace");
+        let source = tmp.path().join("source");
+        init_local_source_repo(&source);
+        let api = workspace.join("api");
+        unfetched_clone(&api, &source.display().to_string());
+        std::fs::write(api.join("notes.md"), "draft\n").unwrap();
+        if stage {
+            run_git_sync(&api, &["add", "notes.md"]);
+        }
+        let config = local_config(&workspace, local_checkout("api", &source));
+
+        let summary = clone_repositories(&config, &GitCredentials::default())
+            .await
+            .unwrap();
+
+        assert!(summary.cloned.is_empty(), "{work} was recloned");
+        assert!(api.join("notes.md").is_file(), "{work} was lost");
+        assert!(!api.join("README.md").exists(), "{work} was recloned");
+    }
+}
+
+#[test]
+fn only_a_clone_with_no_ref_index_or_file_reads_as_unfetched() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("api");
+    unfetched_clone(&dir, "https://example.test/acme/api.git");
+    assert!(clone_fetch_incomplete(&dir));
+
+    std::fs::write(dir.join(".git/refs/heads/main"), "0".repeat(40)).unwrap();
+    assert!(!clone_fetch_incomplete(&dir), "a ref");
+
+    let bare = tmp.path().join("bare");
+    std::fs::create_dir_all(bare.join(".git")).unwrap();
+    assert!(!clone_fetch_incomplete(&bare), "no HEAD");
+    assert!(!clone_fetch_incomplete(tmp.path()), "no .git");
+}
+
 /// A restore can carry an older workspace shape: the primary repo present
 /// but a later-added sibling absent.
 ///

@@ -1156,12 +1156,12 @@ pub(super) fn rel_from(root: &Path, path: &Path) -> String {
 /// Recursively append everything under `dir` to the archive, keyed at paths
 /// relative to `root`. Returns whether anything was added.
 ///
-/// A git repo root goes to [`append_repo`] instead; symlinks and non-regular
-/// files are skipped so the walk can't loop or escape `root`.
+/// A git repo root goes to [`append_repo`], an unfetched one nowhere; symlinks
+/// and non-regular files are skipped so the walk can't loop or escape `root`.
 fn append_tree<W: std::io::Write>(builder: &mut tar::Builder<W>, root: &Path, dir: &Path) -> bool {
-    // A git repo root: enumerate via git (honors gitignore) and stop descending.
     if file_set::is_repo_root(dir) {
-        return append_repo(builder, dir, &rel_from(root, dir));
+        return !file_set::clone_fetch_incomplete(dir)
+            && append_repo(builder, dir, &rel_from(root, dir));
     }
 
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -1186,7 +1186,6 @@ fn append_tree<W: std::io::Write>(builder: &mut tar::Builder<W>, root: &Path, di
                 any = true;
             }
         }
-        // symlinks / special files are intentionally skipped
     }
     any
 }
@@ -1391,7 +1390,9 @@ pub(super) fn fingerprint_now(workspace_dir: &Path) -> Option<u64> {
 /// Symlinks/special files are skipped, matching the tar walk.
 fn fingerprint_tree(entries: &mut Vec<(String, u64, u128)>, root: &Path, dir: &Path) {
     if file_set::is_repo_root(dir) {
-        fingerprint_repo(entries, dir, &rel_from(root, dir));
+        if !file_set::clone_fetch_incomplete(dir) {
+            fingerprint_repo(entries, dir, &rel_from(root, dir));
+        }
         return;
     }
     let Ok(dir_entries) = std::fs::read_dir(dir) else {

@@ -1501,3 +1501,93 @@ async fn framing_seen_by_a_server(body: Vec<u8>) -> Option<String> {
         .expect("the throwaway server answers 200");
     server.await.expect("server task")
 }
+
+/// What `git clone` has written into `dir` before its fetch lands a ref.
+fn unfetched_clone(dir: &std::path::Path, url: &str) {
+    init_repo(dir);
+    std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["remote", "add", "origin", url])
+        .output()
+        .unwrap();
+}
+
+fn local_checkout(
+    mount: &str,
+    url: &std::path::Path,
+    is_primary: bool,
+) -> moatless_workspace_types::workspace::RepoCheckout {
+    moatless_workspace_types::workspace::RepoCheckout {
+        uses_ssh: false,
+        clone_url: url.display().to_string(),
+        repository_id: String::new(),
+        branch: None,
+        provider: "local".to_string(),
+        mount_name: mount.to_string(),
+        is_primary,
+    }
+}
+
+/// A pod stopped mid-clone flushes the mount, and init would skip the
+/// restored `.git` as a finished clone, leaving the task an empty checkout.
+#[tokio::test]
+async fn a_clone_stopped_before_its_fetch_is_stored_by_no_upload() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let source = tmp.path().join("source");
+    init_repo(&source);
+    std::fs::write(source.join("README.md"), b"api\n").unwrap();
+    git_add(&source, &["README.md"]);
+    git_commit(&source, "init");
+
+    let ws = tmp.path().join("workspace");
+    let app = ws.join("app");
+    init_repo(&app);
+    std::fs::write(app.join("main.rs"), b"fn main() {}\n").unwrap();
+    git_add(&app, &["main.rs"]);
+    git_commit(&app, "init");
+    unfetched_clone(&ws.join("api"), &source.display().to_string());
+    // A real empty repository, whose untracked work must survive.
+    let notes = ws.join("notes");
+    unfetched_clone(&notes, "https://example.test/acme/notes.git");
+    std::fs::write(notes.join("draft.md"), b"draft\n").unwrap();
+
+    let fingerprint = fingerprint_now(&ws);
+    let restic_set = file_set::collect(&ws);
+    let tar = build_tar(ws.clone()).await.expect("tar built");
+    std::fs::remove_dir_all(ws.join("api")).unwrap();
+    assert_eq!(fingerprint, fingerprint_now(&ws), "the fingerprint saw api");
+    assert!(
+        !restic_set
+            .files
+            .iter()
+            .any(|file| file.starts_with(ws.join("api"))),
+        "the repository snapshot stores api"
+    );
+
+    let dst = tmp.path().join("restored");
+    std::fs::create_dir_all(&dst).unwrap();
+    let restored = extract_workspace(tar, dst.clone(), dst.join("app"), "app".to_string())
+        .await
+        .unwrap();
+    assert!(restored);
+    assert!(!dst.join("api").exists(), "the tar stores api");
+    assert!(dst.join("notes/draft.md").is_file());
+
+    let mut config = sync_config(&dst, true, false);
+    config.repo_dir = dst.join("app").display().to_string();
+    config.git_provider = "local".to_string();
+    config.repos = vec![
+        local_checkout("app", &tmp.path().join("unused"), true),
+        local_checkout("api", &source, false),
+        local_checkout("notes", &tmp.path().join("unused"), false),
+    ];
+    let summary =
+        crate::init::git::clone_repositories(&config, &crate::init::git::GitCredentials::default())
+            .await
+            .unwrap();
+
+    assert_eq!(summary.cloned, vec!["api"]);
+    assert!(dst.join("api/README.md").is_file());
+    assert!(dst.join("notes/draft.md").is_file());
+}

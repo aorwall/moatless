@@ -7,6 +7,8 @@
 
 use std::path::{Path, PathBuf};
 
+pub(super) use crate::init::git::clone_fetch_incomplete;
+
 /// What a sync stores under a workspace, and the directories its walk may skip.
 #[derive(Default)]
 pub(super) struct FileSet {
@@ -30,8 +32,12 @@ pub(super) fn collect(workspace_dir: &Path) -> FileSet {
 }
 
 /// A git repo root is enumerated through git and not descended into; every
-/// other directory is walked.
+/// other directory is walked. A clone whose fetch never finished is left out,
+/// so init reclones it ([`clone_fetch_incomplete`]).
 fn collect_tree(set: &mut FileSet, dir: &Path) {
+    if clone_fetch_incomplete(dir) {
+        return;
+    }
     if is_repo_root(dir) {
         collect_repo(set, dir);
         return;
