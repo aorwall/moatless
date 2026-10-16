@@ -591,7 +591,11 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         // Fatal: without it the process serves nothing.
         Criticality::Fatal,
         tokio::spawn(async move {
-            if let Err(e) = axum::serve(listener, router)
+            // `into_make_service`, rather than the `Router` itself: as a
+            // make-service the `Router` rebuilds every route for each accepted
+            // connection, ~6 MiB here, so a preview's burst of `ForwardAuth`
+            // connections took the backend past its memory limit.
+            if let Err(e) = axum::serve(listener, router.into_make_service())
                 .with_graceful_shutdown(async move { api_cancel.cancelled().await })
                 .await
             {
