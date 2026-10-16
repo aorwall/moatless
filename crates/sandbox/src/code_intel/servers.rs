@@ -140,6 +140,11 @@ impl CodeIntel {
                 REQUEST_TIMEOUT,
             )
             .await;
+        // JDT.LS holds a request until its import ends, so a busy server can
+        // time out where rust-analyzer answers empty.
+        if matches!(result, Err(LspError::Timeout(..))) && server.client.is_busy() {
+            return Err(CodeIntelError::Indexing(language));
+        }
         let found = locations(&result?, &root);
         if found.is_empty() && server.client.is_busy() {
             return Err(CodeIntelError::Indexing(language));
@@ -158,8 +163,10 @@ impl CodeIntel {
         })
     }
 
-    /// The running server for `root`, started when there is none or the last
-    /// one exited.
+    /// The running server whose root is `root` or a directory above it, started
+    /// at `root` when there is none or the last one exited. An agent that has
+    /// `cd`'d into a checkout names that checkout as its root, and still shares
+    /// the server init started for the workspace directory.
     pub(super) async fn server(
         &self,
         root: &Path,
@@ -168,7 +175,11 @@ impl CodeIntel {
         let key = (root.to_path_buf(), language);
         // Held across the start so two first lookups do not start two servers.
         let mut servers = self.servers.lock().await;
-        if let Some(server) = servers.get(&key).filter(|s| s.client.is_alive()) {
+        let live = servers
+            .iter()
+            .filter(|(_, server)| server.client.is_alive())
+            .map(|(key, _)| key);
+        if let Some(server) = covering(live, root, language).and_then(|k| servers.get(k)) {
             server.touch();
             return Ok(Arc::clone(server));
         }
@@ -365,6 +376,23 @@ impl Drop for Held {
     }
 }
 
+/// The key, among `keys`, of the `language` server rooted closest above or at
+/// `root`. Only JDT.LS imports every project below its root; rust-analyzer
+/// looks for `Cargo.toml` one level down, so an ancestor's server would miss
+/// a deeper crate, and the others match their exact root.
+fn covering<'a>(
+    keys: impl Iterator<Item = &'a ServerKey>,
+    root: &Path,
+    language: LanguageServer,
+) -> Option<&'a ServerKey> {
+    let shares_ancestor = language == LanguageServer::Java;
+    keys.filter(|(server_root, server_language)| {
+        *server_language == language
+            && (root == server_root || (shares_ancestor && root.starts_with(server_root)))
+    })
+    .max_by_key(|(server_root, _)| server_root.components().count())
+}
+
 /// Replace an LSP `range` (UTF-16 positions) of `text` with `new_text`.
 fn apply_range(text: &mut String, range: &Value, new_text: &str) {
     let offset = |key: &str| {
@@ -523,6 +551,23 @@ mod tests {
         );
         assert!(intel.server_for(Path::new("/w/lib.rs")).is_none());
         assert!(intel.server_for(Path::new("/w/Makefile")).is_none());
+    }
+
+    #[test]
+    fn a_root_inside_a_served_directory_shares_its_server() {
+        let workspace = (PathBuf::from("/w"), LanguageServer::Java);
+        let checkout = (PathBuf::from("/w/repo"), LanguageServer::Java);
+        let rust = (PathBuf::from("/w"), LanguageServer::Rust);
+        let keys = [workspace.clone(), checkout.clone(), rust.clone()];
+
+        let at = |root: &str, language| covering(keys.iter(), Path::new(root), language);
+
+        assert_eq!(at("/w/repo/sub", LanguageServer::Java), Some(&checkout));
+        assert_eq!(at("/w/other", LanguageServer::Java), Some(&workspace));
+        assert_eq!(at("/w2", LanguageServer::Java), None);
+        assert_eq!(at("/w/repo", LanguageServer::Typescript), None);
+        assert_eq!(at("/w/repo", LanguageServer::Rust), None);
+        assert_eq!(at("/w", LanguageServer::Rust), Some(&rust));
     }
 
     #[test]
