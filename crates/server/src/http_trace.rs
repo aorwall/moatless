@@ -1,5 +1,7 @@
 //! HTTP request tracing and correlation headers.
 
+use moatless_types::http::RelayedUpstreamFailure;
+
 pub(crate) async fn request_trace_middleware(
     req: axum::extract::Request,
     next: axum::middleware::Next,
@@ -31,15 +33,10 @@ pub(crate) async fn request_trace_middleware(
         span.record("status", res.status().as_u16());
         span.record("latency_ms", latency_ms);
         if !is_probe {
-            // Successful requests are high-volume access-log noise → log at
-            // DEBUG. Escalate failures so they stay visible by default: 5xx at
-            // ERROR, 4xx at WARN.
-            if res.status().is_server_error() {
-                tracing::error!("request completed");
-            } else if res.status().is_client_error() {
-                tracing::warn!("request completed");
-            } else {
-                tracing::debug!("request completed");
+            match completion_level(&res) {
+                tracing::Level::ERROR => tracing::error!("request completed"),
+                tracing::Level::WARN => tracing::warn!("request completed"),
+                _ => tracing::debug!("request completed"),
             }
         }
         if let Ok(value) = axum::http::HeaderValue::from_str(&request_id) {
@@ -49,4 +46,46 @@ pub(crate) async fn request_trace_middleware(
     }
     .instrument(span)
     .await
+}
+
+/// Successful requests are high-volume access-log noise, so they log at DEBUG.
+/// A 5xx logs at ERROR unless the handler marked it a
+/// [`RelayedUpstreamFailure`], which logs at WARN like a 4xx.
+fn completion_level(res: &axum::response::Response) -> tracing::Level {
+    let status = res.status();
+    let relayed = res.extensions().get::<RelayedUpstreamFailure>().is_some();
+    if status.is_server_error() && !relayed {
+        tracing::Level::ERROR
+    } else if status.is_server_error() || status.is_client_error() {
+        tracing::Level::WARN
+    } else {
+        tracing::Level::DEBUG
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{http::StatusCode, response::IntoResponse};
+
+    #[test]
+    fn a_backend_5xx_logs_at_error() {
+        let res = StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        assert_eq!(completion_level(&res), tracing::Level::ERROR);
+    }
+
+    #[test]
+    fn a_relayed_upstream_5xx_logs_at_warn() {
+        let mut res = StatusCode::BAD_GATEWAY.into_response();
+        res.extensions_mut().insert(RelayedUpstreamFailure);
+        assert_eq!(completion_level(&res), tracing::Level::WARN);
+    }
+
+    #[test]
+    fn a_4xx_logs_at_warn_and_a_success_at_debug() {
+        let res = StatusCode::BAD_REQUEST.into_response();
+        assert_eq!(completion_level(&res), tracing::Level::WARN);
+        let res = StatusCode::NO_CONTENT.into_response();
+        assert_eq!(completion_level(&res), tracing::Level::DEBUG);
+    }
 }

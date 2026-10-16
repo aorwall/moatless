@@ -1,4 +1,5 @@
-//! The standard JSON error body, and the timeouts an HTTP client is built with.
+//! The standard JSON error body, the timeouts an HTTP client is built with,
+//! and the marker for a relayed upstream failure.
 
 use serde::Serialize;
 
@@ -26,3 +27,8 @@ pub struct HttpStreamTimeouts {
     /// The longest silence allowed between two reads of the body.
     pub idle: std::time::Duration,
 }
+
+/// Marks a 5xx response that relays an upstream service's failure rather than
+/// this backend's own, so request tracing logs it at WARN instead of ERROR.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RelayedUpstreamFailure;

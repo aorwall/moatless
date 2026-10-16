@@ -13,7 +13,7 @@ use axum::{
     http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
-use moatless_types::http::HttpTimeouts;
+use moatless_types::http::{HttpTimeouts, RelayedUpstreamFailure};
 use moatless_types::ui_rpc::UiRpcAuthIdentity;
 use std::sync::Arc;
 use tracing::warn;
@@ -23,7 +23,9 @@ use crate::UiRpcState;
 /// The route the T3 client posts to. Fixed by the client, not chosen here.
 pub(crate) const TRACES_ROUTE: &str = "/api/observability/v1/traces";
 
-/// Client trace batches by `outcome` (`forwarded` | `dropped` | `failed`).
+/// Client trace batches by `outcome`: `forwarded`, `dropped` (no collector
+/// configured), `unreadable`, `refused` (collector answered non-2xx) or
+/// `unreachable`.
 const CLIENT_TRACES: &str = "moatless_ui_rpc_client_trace_batches_total";
 
 /// The largest batch accepted, matching the 4 MiB the collector's own gRPC
@@ -91,7 +93,8 @@ impl ClientTraceForwarder {
 /// Take one OTLP/JSON batch from the browser and forward it.
 ///
 /// Answers `204` whether forwarded or collected by nobody, and `502` only when
-/// a configured collector refused it — the one case worth telling the client.
+/// a configured collector failed it — the one case worth telling the client,
+/// whose exporter then backs off.
 pub(crate) async fn receive(
     State(state): State<UiRpcState>,
     Extension(identity): Extension<UiRpcAuthIdentity>,
@@ -106,7 +109,7 @@ pub(crate) async fn receive(
     let batch = match axum::body::to_bytes(body, MAX_BATCH_BYTES).await {
         Ok(batch) => batch,
         Err(error) => {
-            metrics::counter!(CLIENT_TRACES, "outcome" => "failed").increment(1);
+            metrics::counter!(CLIENT_TRACES, "outcome" => "unreadable").increment(1);
             warn!(
                 %error,
                 user_id = %identity.user_id,
@@ -129,24 +132,32 @@ pub(crate) async fn receive(
             StatusCode::NO_CONTENT.into_response()
         }
         Ok(response) => {
-            metrics::counter!(CLIENT_TRACES, "outcome" => "failed").increment(1);
+            metrics::counter!(CLIENT_TRACES, "outcome" => "refused").increment(1);
             warn!(
                 status = %response.status(),
                 endpoint,
                 "The trace collector refused a T3 client trace batch"
             );
-            (StatusCode::BAD_GATEWAY, "Trace export failed.").into_response()
+            export_failed()
         }
         Err(error) => {
-            metrics::counter!(CLIENT_TRACES, "outcome" => "failed").increment(1);
+            metrics::counter!(CLIENT_TRACES, "outcome" => "unreachable").increment(1);
             warn!(
                 %error,
                 endpoint,
                 "Could not reach the trace collector with a T3 client trace batch"
             );
-            (StatusCode::BAD_GATEWAY, "Trace export failed.").into_response()
+            export_failed()
         }
     }
+}
+
+/// The collector's failure, relayed to the client as `502` and marked so
+/// request tracing does not log a telemetry outage as a backend error.
+fn export_failed() -> Response {
+    let mut response = (StatusCode::BAD_GATEWAY, "Trace export failed.").into_response();
+    response.extensions_mut().insert(RelayedUpstreamFailure);
+    response
 }
 
 #[cfg(test)]
@@ -179,6 +190,18 @@ mod tests {
         assert_eq!(
             forwarder(Some(" http://otel-collector:4318/v1/traces ".to_string())).endpoint(),
             Some("http://otel-collector:4318/v1/traces")
+        );
+    }
+
+    #[test]
+    fn a_failed_export_is_a_502_marked_as_relayed() {
+        let response = export_failed();
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        assert!(
+            response
+                .extensions()
+                .get::<RelayedUpstreamFailure>()
+                .is_some()
         );
     }
 }
