@@ -33,6 +33,14 @@ pub(crate) const ASSET_ROUTE_PATTERN: &str = "/api/assets/{thread_id}/{*relative
 const UPLOAD_ROUTE_PREFIX: &str = "/api/v1/uploads";
 const ARTIFACT_ROUTE_PREFIX: &str = "/api/v1/artifacts";
 
+/// A project favicon's answer, since a Moatless project never has one.
+///
+/// The client reads the last segment against `PROJECT_FAVICON_FALLBACK_MARKER`
+/// and keeps "no icon" as an answer; deliberately not
+/// `AssetProjectFaviconNotFoundError`, which it re-requests on every reconnect.
+/// Nothing serves the URL, and the client never fetches it.
+const PROJECT_FAVICON_MISSING_URL: &str = "/api/assets/project-favicon/project-favicon-missing";
+
 /// How long a minted URL is reported to be good for — a re-mint interval, not
 /// an enforced lifetime, since the URL holds no credential and the route
 /// re-checks the viewer on every request.
@@ -54,9 +62,6 @@ const PREVIEWABLE: [&str; 11] = [
 pub(crate) enum AssetUrlError {
     NotFound,
     NotPreviewable,
-    /// A project favicon, which a Moatless project never has — see
-    /// [`create_url`].
-    NoProjectFavicon,
 }
 
 impl AssetUrlError {
@@ -64,7 +69,6 @@ impl AssetUrlError {
         match self {
             Self::NotFound => "AssetWorkspaceAssetNotFoundError",
             Self::NotPreviewable => "AssetPreviewTypeValidationError",
-            Self::NoProjectFavicon => "AssetProjectFaviconNotFoundError",
         }
     }
 }
@@ -78,7 +82,10 @@ pub(crate) fn create_url(resource: &Value) -> Result<Value, AssetUrlError> {
     match resource["_tag"].as_str() {
         Some("attachment") => attachment_url(resource),
         Some("workspace-file" | "media-file") => file_url(resource),
-        Some("project-favicon") => Err(AssetUrlError::NoProjectFavicon),
+        Some("project-favicon") => Ok(json!({
+            "relativeUrl": PROJECT_FAVICON_MISSING_URL,
+            "expiresAt": Utc::now().timestamp_millis() + URL_TTL_MS
+        })),
         // `native-app-icon` and anything a newer client invents. Logged
         // because this arm is where a resource this surface has never served
         // lands, and answering every one of them "not found" is exactly how
@@ -512,15 +519,15 @@ mod tests {
     }
 
     /// A Moatless project has no root directory to hold an icon, so this
-    /// answers the favicon-specific error rather than a generic not-found.
+    /// answers with the URL the client reads as "this project has none".
     #[test]
-    fn a_project_favicon_has_no_url_and_says_so_as_a_favicon() {
-        let refused = create_url(&json!({
+    fn a_project_favicon_answers_the_missing_marker() {
+        let minted = create_url(&json!({
             "_tag": "project-favicon", "cwd": "/moatless/workspaces/w-1"
         }))
-        .expect_err("a Moatless project has no icon");
-        assert!(matches!(refused, AssetUrlError::NoProjectFavicon));
-        assert_eq!(refused.tag(), "AssetProjectFaviconNotFoundError");
+        .expect("a missing icon is an answer, not a refusal");
+        let url = minted["relativeUrl"].as_str().expect("a URL");
+        assert_eq!(url.rsplit('/').next(), Some("project-favicon-missing"));
     }
 
     /// The web client asks for a chat image, a video, or a file outside the

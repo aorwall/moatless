@@ -10,6 +10,7 @@
 
 use moatless_types::ui_rpc::UiRpcAuthIdentity;
 use serde_json::Value;
+use std::cell::Cell;
 use std::future::Future;
 use std::time::Duration;
 use tracing::Instrument;
@@ -81,6 +82,10 @@ pub(crate) enum Outcome {
     /// `Fail` carrying `EnvironmentAuthorizationError`: this deployment does
     /// not grant the scope the method needs.
     Unauthorized,
+    /// A `Fail` its site marked with [`refused`]: the request named something
+    /// absent or asked in a state that cannot answer it, such as a missing file
+    /// or a stopped sandbox. Not a server failure.
+    Refused,
     /// Any other `Fail`.
     Fail,
     /// `Die`.
@@ -98,6 +103,7 @@ impl Outcome {
             Self::Rejected => "rejected",
             Self::Unsupported => "unsupported",
             Self::Unauthorized => "unauthorized",
+            Self::Refused => "refused",
             Self::Fail => "fail",
             Self::Die => "die",
             Self::Interrupted => "interrupted",
@@ -120,13 +126,28 @@ impl Outcome {
 
     /// Whether the client was told the request failed, for the span status and
     /// the log line. An [`Self::Interrupted`] request is not a failure: the
-    /// client asked for it to stop.
+    /// client asked for it to stop. Nor is a [`Self::Refused`] one: the client
+    /// got the answer the state it asked in has.
     pub(crate) fn is_failure(self) -> bool {
         matches!(
             self,
             Self::Rejected | Self::Unsupported | Self::Unauthorized | Self::Fail | Self::Die
         )
     }
+}
+
+tokio::task_local! {
+    /// Set by [`refused`] inside the request [`answered`] is running.
+    static REFUSED: Cell<bool>;
+}
+
+/// Mark the `Fail` the running request answers with as [`Outcome::Refused`].
+///
+/// Call it where the typed failure is built, from the handler's own task: a
+/// task it spawns does not see the mark, and outside [`answered`] it does
+/// nothing. A `Die` or an `EnvironmentAuthorizationError` keeps its outcome.
+pub(crate) fn refused() {
+    let _ = REFUSED.try_with(|refused| refused.set(true));
 }
 
 /// Read the outcome off the frames one request answered with.
@@ -236,9 +257,21 @@ pub(crate) async fn answered(
         started: std::time::Instant::now(),
         answered: false,
     };
-    let frames = request.instrument(span.clone()).await;
+    let (frames, refused) = REFUSED
+        .scope(Cell::new(false), async {
+            let frames = request.instrument(span.clone()).await;
+            (frames, REFUSED.with(Cell::get))
+        })
+        .await;
     abandoned.answered = true;
-    record_request(span, method, &frames, abandoned.started.elapsed(), identity);
+    record_request(
+        span,
+        method,
+        &frames,
+        refused,
+        abandoned.started.elapsed(),
+        identity,
+    );
     frames
 }
 
@@ -271,17 +304,21 @@ impl Drop for Abandoned<'_> {
 /// Count one answered request, mark its span with what the client was told,
 /// and log the failures nothing else logs.
 ///
-/// Called by [`answered`] alone. Per-domain builders (`file_failure_exit`
-/// and siblings) log their own cause, invisible here — so a `Die` there logs
-/// twice: once here with the tag, once there with the cause.
+/// Called by [`answered`] alone; `refused` is whether the handler called
+/// [`refused`]. A `Die` a per-domain builder logs is logged here again.
 pub(crate) fn record_request(
     span: &tracing::Span,
     method: Option<&'static str>,
     frames: &[Value],
+    refused: bool,
     elapsed: Duration,
     identity: &UiRpcAuthIdentity,
 ) {
-    record(span, method, classify(frames), frames, elapsed, identity);
+    let outcome = match classify(frames) {
+        Outcome::Fail if refused => Outcome::Refused,
+        outcome => outcome,
+    };
+    record(span, method, outcome, frames, elapsed, identity);
 }
 
 /// [`record_request`] for an outcome the frames cannot state, because there are
@@ -448,16 +485,17 @@ mod tests {
         );
     }
 
-    /// `outcome="fail"` is one bucket for every declared refusal a method has,
-    /// so the tag beside it is what makes the bucket readable.
+    /// `outcome="fail"` and `"refused"` are each one bucket for every declared
+    /// error a method has, so the error type on the span is what makes them
+    /// readable.
     #[test]
     fn a_typed_failure_carries_the_tag_the_client_was_given() {
         assert_eq!(
             fail_tag(&exit(json!({
                 "_tag": "Fail",
-                "error": { "_tag": "AssetProjectFaviconNotFoundError" }
+                "error": { "_tag": "AssetWorkspaceAssetNotFoundError" }
             }))),
-            Some("AssetProjectFaviconNotFoundError")
+            Some("AssetWorkspaceAssetNotFoundError")
         );
         assert_eq!(
             fail_tag(&exit(json!({ "_tag": "Die", "defect": "boom" }))),
@@ -495,6 +533,68 @@ mod tests {
         );
     }
 
+    /// The outcome and span status [`answered`] recorded for `request`.
+    async fn answered_outcome(
+        request: impl Future<Output = Vec<Value>>,
+    ) -> (String, opentelemetry::trace::Status) {
+        let exporter = InMemorySpanExporter::default();
+        let provider = SdkTracerProvider::builder()
+            .with_simple_exporter(exporter.clone())
+            .build();
+        let otel_layer = tracing_opentelemetry::layer().with_tracer(provider.tracer("test"));
+        let subscriber = tracing_subscriber::registry().with(otel_layer);
+        let _guard = tracing::subscriber::set_default(subscriber);
+        {
+            let span = request_root_span("projects.readFile", None, None, None);
+            answered(&span, Some("projects.readFile"), &viewer(), request).await;
+        }
+        provider.force_flush().expect("flush the simple exporter");
+        let spans = exporter.get_finished_spans().expect("exporter is readable");
+        let outcome = spans[0]
+            .attributes
+            .iter()
+            .find(|kv| kv.key.as_str() == "outcome")
+            .map(|kv| kv.value.as_str().to_string())
+            .expect("every answered request records an outcome");
+        (outcome, spans[0].status.clone())
+    }
+
+    fn read_file_error() -> Vec<Value> {
+        exit(json!({ "_tag": "Fail", "error": { "_tag": "ProjectReadFileError" } }))
+    }
+
+    /// `fail` is kept for what went wrong on this side, so a missing file the
+    /// handler marked counts apart from it and is not a span error.
+    #[tokio::test]
+    async fn a_fail_its_handler_marked_refused_is_refused() {
+        let (outcome, status) = answered_outcome(async {
+            refused();
+            read_file_error()
+        })
+        .await;
+        assert_eq!(outcome, "refused");
+        assert_ne!(status, opentelemetry::trace::Status::error(""));
+
+        let (outcome, _) = answered_outcome(async { read_file_error() }).await;
+        assert_eq!(outcome, "fail", "unmarked, a typed failure is a failure");
+    }
+
+    /// The mark qualifies a `Fail`; it cannot hide a defect.
+    #[tokio::test]
+    async fn a_die_stays_a_die_when_marked_refused() {
+        let (outcome, _) = answered_outcome(async {
+            refused();
+            exit(json!({ "_tag": "Die", "defect": "boom" }))
+        })
+        .await;
+        assert_eq!(outcome, "die");
+    }
+
+    #[test]
+    fn marking_refused_outside_a_request_does_nothing() {
+        refused();
+    }
+
     /// `duration_ms` remains the handler duration when a later span entry
     /// stretches the exported span duration.
     #[test]
@@ -518,6 +618,7 @@ mod tests {
                     "requestId": "1",
                     "exit": { "_tag": "Success", "value": {} }
                 })],
+                false,
                 Duration::from_millis(7),
                 &viewer(),
             );

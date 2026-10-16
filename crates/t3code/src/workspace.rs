@@ -93,6 +93,21 @@ impl WorkspaceAccessError {
             Self::Database(_) => "This conversation's workspace could not be read.".into(),
         }
     }
+
+    /// Whether this answers the request's own state — a path that is not
+    /// there, a sandbox that is not up — rather than a failure on this side.
+    /// See [`crate::rpc::metrics::refused`].
+    pub(crate) fn is_refusal(&self) -> bool {
+        match self {
+            Self::NoWorktree | Self::Unaddressable | Self::NoControl | Self::NotRunning(_) => true,
+            Self::Sandbox(
+                SandboxError::NotFound(_)
+                | SandboxError::BadRequest(_)
+                | SandboxError::Unsupported { .. },
+            ) => true,
+            Self::Sandbox(_) | Self::Database(_) => false,
+        }
+    }
 }
 
 pub fn sandbox_access(error: SandboxError) -> WorkspaceAccessError {

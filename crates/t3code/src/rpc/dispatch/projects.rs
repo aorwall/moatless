@@ -14,6 +14,7 @@ use crate::rpc::envelope::failure_exit;
 use crate::rpc::envelope::success_exit;
 use crate::rpc::envelope::typed_failure_exit;
 use crate::rpc::errors::file_failure_exit;
+use crate::rpc::metrics as rpc_metrics;
 use crate::rpc::session::SEARCH_ENTRIES_LIMIT;
 use crate::rpc::session::SEARCH_ENTRIES_MAX;
 use crate::rpc::table::MethodTable;
@@ -351,13 +352,17 @@ pub(super) async fn assets_create_url(request: Request<AssetCreateUrlInput>) -> 
     } = request;
     match assets::create_url(&resource) {
         Ok(minted) => vec![success_exit(&id, minted)],
-        Err(error) => vec![typed_failure_exit(
-            &id,
-            json!({
-                "_tag": error.tag(),
-                "resource": resource
-            }),
-        )],
+        Err(error) => {
+            // Each names the resource the client asked for, never this side.
+            rpc_metrics::refused();
+            vec![typed_failure_exit(
+                &id,
+                json!({
+                    "_tag": error.tag(),
+                    "resource": resource
+                }),
+            )]
+        }
     }
 }
 

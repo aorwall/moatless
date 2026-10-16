@@ -42,6 +42,7 @@ pub(super) fn preview_methods() -> MethodTable {
 pub(super) async fn preview_list(request: Request<PreviewInput>) -> Vec<Value> {
     let Request {
         id,
+        scope,
         payload,
         state,
         identity,
@@ -49,6 +50,7 @@ pub(super) async fn preview_list(request: Request<PreviewInput>) -> Vec<Value> {
     } = request;
     preview_answer(
         &id,
+        scope,
         preview::list(&state.preview, &viewer_scope(&identity), &payload).await,
     )
 }
@@ -56,6 +58,7 @@ pub(super) async fn preview_list(request: Request<PreviewInput>) -> Vec<Value> {
 pub(super) async fn preview_open(request: Request<PreviewInput>) -> Vec<Value> {
     let Request {
         id,
+        scope,
         payload,
         state,
         identity,
@@ -63,6 +66,7 @@ pub(super) async fn preview_open(request: Request<PreviewInput>) -> Vec<Value> {
     } = request;
     preview_answer(
         &id,
+        scope,
         preview::open(&state.preview, &viewer_scope(&identity), &payload).await,
     )
 }
@@ -70,6 +74,7 @@ pub(super) async fn preview_open(request: Request<PreviewInput>) -> Vec<Value> {
 pub(super) async fn preview_navigate(request: Request<PreviewInput>) -> Vec<Value> {
     let Request {
         id,
+        scope,
         payload,
         state,
         identity,
@@ -77,6 +82,7 @@ pub(super) async fn preview_navigate(request: Request<PreviewInput>) -> Vec<Valu
     } = request;
     preview_answer(
         &id,
+        scope,
         preview::navigate(&state.preview, &viewer_scope(&identity), &payload).await,
     )
 }
@@ -84,6 +90,7 @@ pub(super) async fn preview_navigate(request: Request<PreviewInput>) -> Vec<Valu
 pub(super) async fn preview_resize(request: Request<PreviewInput>) -> Vec<Value> {
     let Request {
         id,
+        scope,
         payload,
         state,
         identity,
@@ -91,6 +98,7 @@ pub(super) async fn preview_resize(request: Request<PreviewInput>) -> Vec<Value>
     } = request;
     preview_answer(
         &id,
+        scope,
         preview::resize(&state.preview, &viewer_scope(&identity), &payload).await,
     )
 }
@@ -100,6 +108,7 @@ pub(super) async fn preview_resize(request: Request<PreviewInput>) -> Vec<Value>
 pub(super) async fn preview_refresh(request: Request<PreviewInput>) -> Vec<Value> {
     let Request {
         id,
+        scope,
         payload,
         state,
         identity,
@@ -107,6 +116,7 @@ pub(super) async fn preview_refresh(request: Request<PreviewInput>) -> Vec<Value
     } = request;
     preview_answer(
         &id,
+        scope,
         preview::refresh(&state.preview, &viewer_scope(&identity), &payload)
             .await
             .map(|()| Value::Null),
@@ -116,6 +126,7 @@ pub(super) async fn preview_refresh(request: Request<PreviewInput>) -> Vec<Value
 pub(super) async fn preview_report_status(request: Request<PreviewInput>) -> Vec<Value> {
     let Request {
         id,
+        scope,
         payload,
         state,
         identity,
@@ -123,6 +134,7 @@ pub(super) async fn preview_report_status(request: Request<PreviewInput>) -> Vec
     } = request;
     preview_answer(
         &id,
+        scope,
         preview::report_status(&state.preview, &viewer_scope(&identity), &payload)
             .await
             .map(|()| Value::Null),
@@ -132,6 +144,7 @@ pub(super) async fn preview_report_status(request: Request<PreviewInput>) -> Vec
 pub(super) async fn preview_close(request: Request<PreviewInput>) -> Vec<Value> {
     let Request {
         id,
+        scope,
         payload,
         state,
         identity,
@@ -139,6 +152,7 @@ pub(super) async fn preview_close(request: Request<PreviewInput>) -> Vec<Value> 
     } = request;
     preview_answer(
         &id,
+        scope,
         preview::close(&state.preview, &viewer_scope(&identity), &payload)
             .await
             .map(|()| Value::Null),

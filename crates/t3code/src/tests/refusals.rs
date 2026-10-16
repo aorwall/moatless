@@ -117,3 +117,24 @@ async fn a_method_needing_a_scope_this_deployment_withholds_is_refused() {
     assert_eq!(cause["error"]["_tag"], "EnvironmentAuthorizationError");
     assert_eq!(cause["error"]["requiredScope"], "relay:write");
 }
+
+/// `preview.list` declares `EnvironmentAuthorizationError` alone, so a Task
+/// this viewer cannot read has to be that rather than a `Die` defect. The
+/// client asks it for a draft thread the server has never seen.
+#[test]
+fn a_preview_of_an_unreadable_thread_is_unauthorized() {
+    let frames = crate::rpc::errors::preview_answer(
+        &request_id("1"),
+        Scope::OrchestrationRead,
+        Err(crate::preview::PreviewError::NotFound),
+    );
+
+    let cause = &frames[0]["exit"]["cause"][0];
+    assert_eq!(cause["_tag"], "Fail");
+    assert_eq!(cause["error"]["_tag"], "EnvironmentAuthorizationError");
+    assert_eq!(cause["error"]["message"], THREAD_UNAVAILABLE);
+    assert_eq!(
+        rpc_metrics::classify(&frames),
+        rpc_metrics::Outcome::Unauthorized
+    );
+}

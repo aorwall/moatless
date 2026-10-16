@@ -268,6 +268,7 @@ nothing.
 | Deferred | Anchor | Entry condition |
 |---|---|---|
 | The listing executes at about 4–5 ms per row | `crates/tasks/src/task_listing/listed_dao.rs::list` — 200 ids took about 1 s to execute, mostly in the `pending` and `pr` laterals; measured on a saturated Aurora instance, so noisy. Narrowed reads reuse a cached generic plan, so this is execution cost alone | When `moatless_ui_shell_listing_duration_seconds` for the full listing nears its 5 s `statement_timeout`, or a by-ids caller reads hundreds of Tasks per call |
+| The shell listings `Die` when the main pool is exhausted | `crates/t3code/src/rpc/errors.rs::shell_failure_exit`, reached from `snapshots.rs::archived_shell_page` and `orchestration.subscribeShell`. Over 2026-10-09..15 staging logged about 490 of these, almost all `pool timed out while waiting for an open connection` (`crates/core/src/db/pool.rs::create_pool_kind`, 5 s acquire timeout), plus about 40 `statement_timeout` cancels; `moatless_database_pool_connections{state="in_use"}` reached its `max` of 20 on most backend pods that week. These listings are the only callers that log a pool timeout, so the pool's other holders are unmeasured | When the `die` rate on `moatless_ui_rpc_requests_total` is alerted on: then find what holds the pool, per caller, before raising `DATABASE_MAX_CONNECTIONS` |
 
 ## Language servers
 

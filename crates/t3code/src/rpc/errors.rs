@@ -12,6 +12,7 @@ use crate::rpc::envelope::RequestId;
 use crate::rpc::envelope::failure_exit;
 use crate::rpc::envelope::success_exit;
 use crate::rpc::envelope::typed_failure_exit;
+use crate::rpc::metrics as rpc_metrics;
 use crate::sandbox::SandboxRpcError;
 use crate::scripts::ScriptsError;
 use crate::subtasks::SubtasksError;
@@ -62,23 +63,15 @@ pub(crate) fn file_failure_exit(
         "projects.writeFile" => "ProjectWriteFileError",
         _ => "ProjectListEntriesError",
     };
-    match error {
-        WorkspaceAccessError::Database(cause) => {
-            error!(%cause, %tag, user_id = %identity.user_id, "T3 UI workspace file request failed");
-        }
-        WorkspaceAccessError::Sandbox(cause) => {
-            warn!(%cause, %tag, user_id = %identity.user_id, "T3 UI workspace file request failed");
-        }
-        // A sandbox that is not up is the ordinary state of most conversations,
-        // so this one is not a warning about the deployment.
-        WorkspaceAccessError::NotRunning(cause) => {
-            debug!(%cause, %tag, user_id = %identity.user_id, "T3 UI workspace file request refused");
-        }
-        WorkspaceAccessError::NoWorktree
-        | WorkspaceAccessError::Unaddressable
-        | WorkspaceAccessError::NoControl => {
-            debug!(?error, %tag, user_id = %identity.user_id, "T3 UI workspace file request refused");
-        }
+    // A refusal answers the request's own state, such as a stopped sandbox or
+    // a missing file, so it is not a warning about the deployment.
+    if error.is_refusal() {
+        debug!(?error, %tag, user_id = %identity.user_id, "T3 UI workspace file request refused");
+        rpc_metrics::refused();
+    } else if let WorkspaceAccessError::Database(cause) = error {
+        error!(%cause, %tag, user_id = %identity.user_id, "T3 UI workspace file request failed");
+    } else {
+        warn!(?error, %tag, user_id = %identity.user_id, "T3 UI workspace file request failed");
     }
     typed_failure_exit(
         request_id,
@@ -98,23 +91,15 @@ pub(crate) fn review_failure_exit(
     error: &WorkspaceAccessError,
     identity: &UiRpcAuthIdentity,
 ) -> Value {
-    match error {
-        WorkspaceAccessError::Database(cause) => {
-            error!(%cause, %tag, user_id = %identity.user_id, "T3 UI review request failed");
-        }
-        WorkspaceAccessError::Sandbox(cause) => {
-            warn!(%cause, %tag, user_id = %identity.user_id, "T3 UI review request failed");
-        }
-        // A sandbox that is not up is the ordinary state of most conversations,
-        // so this one is not a warning about the deployment.
-        WorkspaceAccessError::NotRunning(cause) => {
-            debug!(%cause, %tag, user_id = %identity.user_id, "T3 UI review request refused");
-        }
-        WorkspaceAccessError::NoWorktree
-        | WorkspaceAccessError::Unaddressable
-        | WorkspaceAccessError::NoControl => {
-            debug!(?error, %tag, user_id = %identity.user_id, "T3 UI review request refused");
-        }
+    // A refusal answers the request's own state, such as a stopped sandbox or
+    // a missing file, so it is not a warning about the deployment.
+    if error.is_refusal() {
+        debug!(?error, %tag, user_id = %identity.user_id, "T3 UI review request refused");
+        rpc_metrics::refused();
+    } else if let WorkspaceAccessError::Database(cause) = error {
+        error!(%cause, %tag, user_id = %identity.user_id, "T3 UI review request failed");
+    } else {
+        warn!(?error, %tag, user_id = %identity.user_id, "T3 UI review request failed");
     }
     // `command` names what was actually attempted. Nothing here shells out to
     // git: the Sandbox answers these over gRPC, and reporting `git` as the
@@ -326,14 +311,19 @@ pub(crate) fn shell_failure_exit(
 /// Answer a `preview.*` call, in the client's own terms where the contract
 /// gives it terms.
 ///
-/// An unknown tab is a `PreviewSessionLookupError`; a store that can't be
-/// reached is a defect, since that isn't one of the method's declared outcomes.
+/// An unreadable Task is `EnvironmentAuthorizationError`, the one error every
+/// preview method declares; an unreachable store is a defect.
 pub(crate) fn preview_answer(
     request_id: &RequestId,
+    scope: Scope,
     result: Result<Value, PreviewError>,
 ) -> Vec<Value> {
     match result {
         Ok(value) => vec![success_exit(request_id, value)],
+        Err(PreviewError::NotFound) => vec![typed_failure_exit(
+            request_id,
+            authorization_error(scope, THREAD_UNAVAILABLE),
+        )],
         Err(error) => {
             if let Some(typed) = preview::typed_error(&error) {
                 vec![typed_failure_exit(request_id, typed)]
