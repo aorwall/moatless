@@ -64,7 +64,7 @@ fn a_deployment_that_configures_no_default_still_reports_a_model() {
 #[test]
 fn only_a_conversation_with_a_turn_warns_about_its_placeholder() {
     let defaults = AgentModelDefaults::default();
-    let mut row = conversation("task-a", "ws-a");
+    let mut row = conversation("task-never-ran", "ws-a");
 
     let (model, warnings) = CapturedLogs::warnings_from(|| model_name(&row, &defaults));
     assert_eq!(model, "unknown");
@@ -77,6 +77,42 @@ fn only_a_conversation_with_a_turn_warns_about_its_placeholder() {
         warnings.contains("No model could be resolved"),
         "{warnings}"
     );
+}
+
+/// A V2 projection resolves the model once per run, and a watched thread is
+/// rebuilt on every head move, so one Task warns once rather than each time.
+#[test]
+fn repeated_projections_of_a_model_less_conversation_warn_once() {
+    let defaults = AgentModelDefaults::default();
+    let mut row = conversation("task-warned-once", "ws-a");
+    row.turn_number = Some(3);
+    row.turn_status = Some("completed".to_string());
+
+    let ((), warnings) = CapturedLogs::warnings_from(|| {
+        for _ in 0..200 {
+            assert_eq!(model_name(&row, &defaults), "unknown");
+        }
+    });
+    assert_eq!(
+        warnings.matches("No model could be resolved").count(),
+        1,
+        "{warnings}"
+    );
+}
+
+/// Tool calls carry no model, so an open turn waits for the agent's first text
+/// reply; a Task started without a model choice reports a placeholder until
+/// then, which is not a warning.
+#[test]
+fn an_open_turn_without_a_reported_model_does_not_warn() {
+    let defaults = AgentModelDefaults::default();
+    let mut row = conversation("task-open-turn", "ws-a");
+    row.turn_number = Some(1);
+    row.turn_status = Some("active".to_string());
+
+    let (model, warnings) = CapturedLogs::warnings_from(|| model_name(&row, &defaults));
+    assert_eq!(model, "unknown");
+    assert_eq!(warnings, "");
 }
 
 #[test]

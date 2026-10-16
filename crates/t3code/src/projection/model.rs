@@ -1,9 +1,13 @@
 //! Which model and agent a conversation reports running.
 
+use std::collections::HashSet;
+use std::sync::{LazyLock, Mutex, PoisonError};
+
 use serde_json::{Value, json};
-use tracing::warn;
+use tracing::{debug, warn};
 
 use super::scalar::non_empty;
+use super::turn::turn_is_open;
 use crate::AgentModelDefaults;
 use crate::agent::catalog;
 use crate::dao::Conversation;
@@ -13,8 +17,21 @@ use moatless_workspaces::workspace::models::Workspace;
 /// The last resort of the model chain, and the only invented value in the row.
 ///
 /// Deliberately not a plausible model name, so a sidebar never shows a
-/// real-looking model nobody chose; every arrival with a Turn is logged.
+/// real-looking model nobody chose; [`report_placeholder`] logs an arrival with a
+/// Turn.
 const UNKNOWN_MODEL: &str = "unknown";
+
+/// How many Tasks [`WARNED`] remembers before it forgets them all and each
+/// warns once more.
+const WARNED_CAPACITY: usize = 4096;
+
+/// The Tasks this process has already warned about. One V2 projection resolves
+/// the model once per run and a watched thread is rebuilt on every head move,
+/// so without this one Task logs hundreds of lines a minute.
+///
+/// Process-global: a test that asserts the warning needs a Task id no other
+/// test resolves.
+static WARNED: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Mutex::default);
 
 /// The provider instance of a conversation whose agent this build does not
 /// know. No instance is published under it, so the thread reads as unavailable.
@@ -63,15 +80,38 @@ pub(super) fn model_name(conversation: &Conversation, defaults: &AgentModelDefau
     // 4. The invention, logged so it is visible rather than silent — except
     //    for a conversation with no Turn, which has no model to find and is
     //    re-listed on every shell listing.
-    if conversation.turn_number.is_none() {
-        return UNKNOWN_MODEL.to_string();
+    if conversation.turn_number.is_some() {
+        report_placeholder(conversation);
     }
+    UNKNOWN_MODEL.to_string()
+}
+
+/// Logs a placeholder model at WARN once per Task per process, and at DEBUG
+/// while the Turn is open.
+///
+/// An open Turn has no model until the agent's first text reply, since tool
+/// calls carry none; a Task started without a model choice, as an adapter
+/// starts one, waits there on every turn.
+fn report_placeholder(conversation: &Conversation) {
+    let task_id = &conversation.task_id;
+    if turn_is_open(conversation) {
+        debug!(%task_id, "No model reported yet for the open turn; reporting a placeholder");
+        return;
+    }
+    let mut warned = WARNED.lock().unwrap_or_else(PoisonError::into_inner);
+    if warned.contains(task_id) {
+        return;
+    }
+    if warned.len() >= WARNED_CAPACITY {
+        warned.clear();
+    }
+    warned.insert(task_id.clone());
+    drop(warned);
     warn!(
-        task_id = %conversation.task_id,
+        %task_id,
         agent_profile = %conversation.agent_profile,
         "No model could be resolved for the conversation; reporting a placeholder"
     );
-    UNKNOWN_MODEL.to_string()
 }
 
 /// The provider instance a model is resolved against.
