@@ -443,15 +443,16 @@ impl CommandRegistry {
         })?;
 
         let now = unix_now_ms();
+        // Masked here once, so every copy the record feeds is; the child runs
+        // `spec.command`. See `command_redact`.
+        let masked = redact_secrets(&spec.command);
         let mut command = CommandRecord {
             id: id.clone(),
-            // Masked here once, so every copy the record feeds is; the child
-            // runs `spec.command`. See `command_redact`.
-            command: redact_secrets(&spec.command),
             label: spec
                 .label
                 .as_deref()
-                .map_or_else(|| preview(&redact_secrets(&spec.command)), redact_secrets),
+                .map_or_else(|| preview(&masked), redact_secrets),
+            command: masked,
             pid: 0,
             started_at_unix_ms: now,
             timeout,
