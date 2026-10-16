@@ -1,6 +1,7 @@
 //! The three git smart-HTTP routes, streamed in both directions.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::body::Body;
 use axum::extract::{Path, Query, State};
@@ -10,6 +11,7 @@ use futures::TryStreamExt;
 use serde::Deserialize;
 use tracing::{info, warn};
 
+use crate::git_proxy::body::WatchedBody;
 use crate::git_proxy::service::{GitProxy, GitProxyError, Upstream};
 
 /// The two git services this proxy forwards.
@@ -25,6 +27,15 @@ impl GitService {
         match self {
             Self::UploadPack => "git-upload-pack",
             Self::ReceivePack => "git-receive-pack",
+        }
+    }
+
+    /// How long the upstream body may stay silent before the proxy logs it.
+    /// `None` for receive-pack, whose host may check a push for longer.
+    fn quiet_limit(self) -> Option<Duration> {
+        match self {
+            Self::UploadPack => Some(Duration::from_secs(20)),
+            Self::ReceivePack => None,
         }
     }
 }
@@ -83,6 +94,7 @@ pub async fn info_refs(
     forward(
         &proxy,
         upstream,
+        (repository_id, service),
         reqwest::Method::GET,
         url,
         &headers,
@@ -125,7 +137,16 @@ async fn service_rpc(
         Err(response) => return response,
     };
     let url = format!("{}/{}", upstream.base_url, service.name());
-    forward(&proxy, upstream, reqwest::Method::POST, url, &headers, body).await
+    forward(
+        &proxy,
+        upstream,
+        (repository_id, service),
+        reqwest::Method::POST,
+        url,
+        &headers,
+        body,
+    )
+    .await
 }
 
 async fn resolve(
@@ -151,6 +172,7 @@ async fn resolve(
 async fn forward(
     proxy: &GitProxy,
     upstream: Upstream,
+    (repository_id, service): (String, GitService),
     method: reqwest::Method,
     url: String,
     headers: &HeaderMap,
@@ -195,11 +217,16 @@ async fn forward(
             }
         }
     }
-    out.body(Body::from_stream(response.bytes_stream()))
-        .unwrap_or_else(|error| {
-            warn!(%error, "Failed to build a proxied git response");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
-        })
+    let body = WatchedBody::new(
+        Box::pin(response.bytes_stream()),
+        service.quiet_limit(),
+        repository_id,
+        service.name(),
+    );
+    out.body(Body::from_stream(body)).unwrap_or_else(|error| {
+        warn!(%error, "Failed to build a proxied git response");
+        StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    })
 }
 
 /// The password half of an HTTP Basic header, which is where git puts a token.

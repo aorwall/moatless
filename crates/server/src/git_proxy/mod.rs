@@ -5,6 +5,7 @@
 //! this module resolves that to the repository's real remote and the token the
 //! task's run-as identity holds for it.
 
+mod body;
 #[cfg(test)]
 mod e2e_tests;
 mod handlers;
