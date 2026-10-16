@@ -783,6 +783,7 @@ pub(super) fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore
             Arc::new(workspaces),
             Arc::new(MockTaskReader::new()),
         ),
+        changes: crate::change_watch::ChangeWatch::new(),
         workspace_script_commands: Arc::new(ports::MockWorkspaceScriptCommands::new()),
         sandboxes: Arc::new(UnreachableSandboxes),
         snapshots: None,

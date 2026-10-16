@@ -35,8 +35,8 @@ pub(crate) const CONNECTION_DEFECTS: &str = "moatless_ui_rpc_connection_defects_
 /// [`answered`], since it measures the connection.
 pub(crate) const CONNECTION_BLOCKED: &str = "moatless_ui_rpc_connection_blocked_seconds";
 
-/// Thread subscriptions open on this process, each polling its conversation
-/// once per `THREAD_POLL_INTERVAL`. Held by `watch_thread` rather than
+/// Thread subscriptions open on this process, each reading its conversation
+/// when the change poller reports it moved. Held by `watch_thread` rather than
 /// [`answered`], since a stream outlives its request.
 pub(crate) const THREAD_SUBSCRIPTIONS: &str = "moatless_ui_rpc_thread_subscriptions_open";
 

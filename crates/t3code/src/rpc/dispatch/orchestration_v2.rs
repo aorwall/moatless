@@ -438,6 +438,7 @@ impl ProtocolSession {
             frontend_url: state.frontend_url.clone(),
             model_defaults: state.model_defaults.clone(),
             viewer,
+            signals: state.changes.thread(&task_id),
             task_id,
             head: detail.head,
         };
@@ -466,9 +467,10 @@ impl ProtocolSession {
         let reads = state.reads.clone();
         let model_defaults = state.model_defaults.clone();
         let initial = vec![json!({ "kind": "snapshot", "snapshot": snapshot.clone() })];
+        let listing = state.changes.listing();
         self.streams
             .start_produced(&id, Some(initial), move |sink| {
-                watch::watch_archived_shell(sink, reads, model_defaults, viewer, snapshot)
+                watch::watch_archived_shell(sink, reads, model_defaults, viewer, snapshot, listing)
             })
     }
 }

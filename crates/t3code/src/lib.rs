@@ -8,6 +8,7 @@ mod assets;
 mod attachments;
 pub mod auth;
 mod authentication;
+pub mod change_watch;
 mod checkout;
 mod commands;
 mod compose;

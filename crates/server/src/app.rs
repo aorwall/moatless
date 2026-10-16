@@ -296,6 +296,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         // Held for the supervision below, out of the same value.
         let mut preview_relay = None;
         let mut terminal_relay = None;
+        let mut change_poller = None;
         if let Some(t3code) = crate::compose::http::ui_rpc(
             &config,
             &ports,
@@ -314,6 +315,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             startup_scripts = Some(t3code.startup_scripts);
             preview_relay = Some(t3code.preview_relay);
             terminal_relay = Some(t3code.terminal_relay);
+            change_poller = Some(t3code.change_poller);
             device_pairing = true;
         }
         info!("Domain routes registered");
@@ -405,6 +407,18 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 // terminal, which is where this stood before the relay.
                 Criticality::Optional,
                 terminal_relay.spawn(cancel.clone()),
+            );
+        }
+
+        // The change counters every T3 subscription on this replica waits on.
+        if let Some(change_poller) = change_poller {
+            supervisor.supervise(
+                "t3-change-poller",
+                // Readiness: without it every open sidebar and conversation on
+                // this replica stops updating while still reporting itself
+                // live, and a restart reconnects them to a replica that serves.
+                Criticality::Readiness,
+                change_poller.spawn(cancel.clone()),
             );
         }
 

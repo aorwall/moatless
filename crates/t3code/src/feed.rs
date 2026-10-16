@@ -16,7 +16,7 @@ use super::{AgentModelDefaults, projection};
 use crate::config::OrchestrationProtocol;
 use crate::dao::ConversationDao;
 use crate::reads::T3Reads;
-use moatless_core::change_feed::listing::EnvironmentIdentity;
+use moatless_core::change_feed::listing::{EnvironmentIdentity, ListingHead};
 use moatless_types::access_control::ScopeContext;
 
 use crate::transcript::Transcript;
@@ -83,6 +83,14 @@ impl ShellFeed {
         self
     }
 
+    /// The listing head this feed has read through, in its database.
+    pub(crate) fn read_through(&self) -> ListingHead {
+        ListingHead {
+            identity: self.identity.clone(),
+            position: self.cursor,
+        }
+    }
+
     /// Everything this viewer should be told since the last poll, oldest first;
     /// empty means nothing changed or nothing is theirs.
     ///
@@ -94,9 +102,21 @@ impl ShellFeed {
         defaults: &AgentModelDefaults,
         viewer: &ScopeContext,
     ) -> Result<Vec<Value>, sqlx::Error> {
+        let head = reads.conversations().listing_head().await?;
+        self.poll_at(&head, reads, defaults, viewer).await
+    }
+
+    /// [`ShellFeed::poll`] against a `head` read by the caller, which may be
+    /// older than the changes this reads past it.
+    pub(crate) async fn poll_at(
+        &mut self,
+        head: &ListingHead,
+        reads: &T3Reads,
+        defaults: &AgentModelDefaults,
+        viewer: &ScopeContext,
+    ) -> Result<Vec<Value>, sqlx::Error> {
         let conversations = reads.conversations();
         let workspaces = reads.workspaces();
-        let head = conversations.listing_head().await?;
         if head.identity != self.identity {
             return self.rebuild(reads, defaults, viewer).await;
         }
@@ -308,7 +328,7 @@ pub struct ThreadFeed {
 
 /// How many recorded changes one poll reads: a cap, not a window — the rest is
 /// read by the next poll, so a client far behind catches up over several
-/// intervals rather than one large frame.
+/// polls rather than one large frame. See [`ThreadFeed::is_behind`].
 const THREAD_POLL_CHANGES: i64 = 512;
 
 impl ThreadFeed {
@@ -347,6 +367,15 @@ impl ThreadFeed {
         );
     }
 
+    /// Whether changes at or below `head` are still unread, as after a poll
+    /// that filled its batch; the caller polls again without waiting for
+    /// `head` to move.
+    pub(crate) fn is_behind(&self, head: ConversationHead) -> bool {
+        // Positions start at 1: a resume from `after = 0` sits at cursor 0 and
+        // is not behind an empty conversation.
+        self.cursor.max(1) <= head.position
+    }
+
     pub(crate) fn task_id(&self) -> &str {
         &self.task_id
     }
@@ -375,7 +404,7 @@ impl ThreadFeed {
         // A silent poll still checks access: closing/deleting leaves no
         // conversation change, so a changes-only check would never end this
         // subscription. Uses `can_read_conversation`, not `readable_by_id`
-        // (too costly run once a second per open thread).
+        // (too costly run on every silent poll of every open thread).
         let Some(last) = changes.last() else {
             if !conversations
                 .can_read_conversation(viewer, &self.task_id)
@@ -740,6 +769,27 @@ mod tests {
 
     fn viewer() -> ScopeContext {
         ScopeContext::user("user-1")
+    }
+
+    #[tokio::test]
+    async fn a_poll_that_fills_its_batch_leaves_the_feed_behind() {
+        let dao = a_dao(vec![change(9, Some("msg-a"))]);
+        let mut feed = ThreadFeed::at("task-a".into(), ConversationHead { position: 8 }, None);
+
+        feed.poll(&dao, &viewer(), "http://localhost:3000")
+            .await
+            .unwrap();
+
+        assert!(feed.is_behind(ConversationHead { position: 9 + 512 }));
+        assert!(!feed.is_behind(ConversationHead { position: 9 }));
+    }
+
+    #[test]
+    fn a_resume_from_nothing_is_not_behind_an_empty_conversation() {
+        let feed = ThreadFeed::resuming_from("task-a".into(), 0);
+
+        assert!(!feed.is_behind(ConversationHead { position: 0 }));
+        assert!(feed.is_behind(ConversationHead { position: 1 }));
     }
 
     /// The whole point of the change log: a conversation that moves costs the

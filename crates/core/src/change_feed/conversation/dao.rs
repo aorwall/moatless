@@ -127,6 +127,26 @@ pub async fn current_head(pool: &PgPool, task_id: &str) -> Result<ConversationHe
     })
 }
 
+/// The head of each of `task_ids` in one read, 0 for a conversation with no
+/// change yet; see [`current_head`] for why the counter is read.
+pub async fn current_heads(
+    pool: &PgPool,
+    task_ids: &[String],
+) -> Result<Vec<(String, ConversationHead)>, sqlx::Error> {
+    let rows: Vec<(String, i64)> = sqlx::query_as(
+        r#"SELECT ids.task_id, COALESCE(p.position, 0)
+           FROM unnest($1::text[]) AS ids(task_id)
+           LEFT JOIN task_conversation_position p ON p.task_id = ids.task_id"#,
+    )
+    .bind(task_ids)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(task_id, position)| (task_id, ConversationHead { position }))
+        .collect())
+}
+
 /// Every change to this conversation at or after `from`, oldest first, capped
 /// at `limit`.
 ///

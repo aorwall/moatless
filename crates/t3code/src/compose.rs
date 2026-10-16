@@ -1,3 +1,4 @@
+use crate::change_watch::{ChangePoller, ChangeWatch};
 use crate::config::AgentModelDefaults;
 use crate::config::UiRpcConfig;
 use crate::config::UiRpcConfigError;
@@ -137,6 +138,8 @@ pub async fn mount(
     // Cloned before the state literal takes it: the worker applies the other
     // replicas' starts into the same hub the routes serve terminal reads from.
     let terminal_relay = TerminalRelayWorker::new(terminal.clone());
+    let changes = ChangeWatch::new();
+    let change_poller = ChangePoller::new(changes.clone(), reads.conversations_arc());
     let startup_scripts = StartupScripts::new(
         scripts.clone(),
         reads.clone(),
@@ -180,6 +183,7 @@ pub async fn mount(
         attachments,
         usage: graph.usage.clone(),
         reads,
+        changes,
         terminal,
         client_traces,
         usage_limit_sources,
@@ -189,6 +193,7 @@ pub async fn mount(
         startup_scripts,
         preview_relay,
         terminal_relay,
+        change_poller,
     })
 }
 
@@ -246,9 +251,8 @@ impl T3Graph {
     }
 }
 
-/// The T3 compatibility module: the routes it serves, the Scripts it starts
-/// when a Sandbox becomes Ready, and the two relays that keep preview tabs and
-/// terminal sessions consistent across replicas.
+/// The T3 compatibility module: its routes, the Scripts it starts at Sandbox
+/// Ready, its two cross-replica relays and its subscriptions' change poller.
 ///
 /// One value because the rest reach only state the router owns; the Task band
 /// subscribes the Scripts and the root supervisor runs the relays.
@@ -257,6 +261,7 @@ pub struct UiRpc {
     pub startup_scripts: StartupScripts,
     pub preview_relay: PreviewRelayWorker,
     pub terminal_relay: TerminalRelayWorker,
+    pub change_poller: ChangePoller,
 }
 
 /// Everything the T3 compatibility routes need from the rest of the backend.

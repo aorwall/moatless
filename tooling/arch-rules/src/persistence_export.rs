@@ -434,6 +434,7 @@ const FEED_OPERATIONS: &[(&str, &str)] = &[
     ),
     ("moatless-core", "change_feed::conversation::changes_from"),
     ("moatless-core", "change_feed::conversation::current_head"),
+    ("moatless-core", "change_feed::conversation::current_heads"),
     ("moatless-core", "change_feed::conversation::prune_changes"),
     (
         "moatless-core",

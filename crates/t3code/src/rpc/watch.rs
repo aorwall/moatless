@@ -1,3 +1,5 @@
+use crate::change_watch::ThreadSignal;
+use crate::change_watch::next_change;
 use crate::config::AgentModelDefaults;
 use crate::config::OrchestrationProtocol;
 use crate::dao::ConversationDao;
@@ -13,17 +15,20 @@ use crate::subscription;
 use crate::subscription::StreamFailure;
 use crate::subscription::StreamResult;
 use crate::subscriptions::SHELL_POLL_INTERVAL;
+use crate::subscriptions::THREAD_ACCESS_RECHECK_INTERVAL;
 use crate::subscriptions::THREAD_POLL_INTERVAL;
 use crate::subscriptions::VCS_STATUS_POLL_INTERVAL;
 use crate::subscriptions::poll_thread;
 use feed::ShellFeed;
 use feed::ThreadFeed;
 use moatless_core::change_feed::conversation::ConversationHead;
+use moatless_core::change_feed::listing::ListingHead;
 use moatless_types::access_control::ScopeContext;
 use serde_json::Value;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::watch;
 use tracing::warn;
 
 /// Reports one conversation's branch state, polled rather than pushed since the
@@ -65,51 +70,65 @@ pub(crate) async fn watch_vcs_status(
 }
 
 /// Watches the listing feed until the socket goes away, delivering at most one
-/// chunk per pass regardless of how many rows changed.
+/// chunk per move of the listing head regardless of how many rows changed.
 ///
 /// Chunks are not gated on the client's `Ack` — it acks as soon as it has
-/// queued the chunk — so the poll interval alone bounds this to four chunks a
-/// second.
+/// queued the chunk — so [`ChangePoller`](crate::change_watch::ChangePoller)'s
+/// interval alone bounds this to four chunks a second.
 pub(crate) async fn watch_shell(
     sink: subscription::StreamSink,
     mut feed: ShellFeed,
     reads: T3Reads,
     model_defaults: Arc<crate::config::AgentModelDefaults>,
     viewer: ScopeContext,
+    mut listing: watch::Receiver<Option<ListingHead>>,
 ) -> StreamResult {
+    // What the feed holds, so a subscription opened at the published head
+    // reads nothing until the head moves.
+    let mut seen = Some(feed.read_through());
     loop {
-        tokio::time::sleep(SHELL_POLL_INTERVAL).await;
-        let values = match feed.poll(&reads, &model_defaults, &viewer).await {
+        let Some(head) = next_change(&mut listing, seen.as_ref(), |_| true).await else {
+            return Ok(());
+        };
+        let values = match feed.poll_at(&head, &reads, &model_defaults, &viewer).await {
             Ok(values) => values,
             Err(error) => {
                 // The subscription survives a failed poll rather than ending
-                // as a dead sidebar; the cursor hasn't moved, so the next
-                // poll retries the same ground. That holds because
-                // [`ShellFeed::poll`] advances the cursor last, after every
+                // as a dead sidebar; neither the cursor nor `seen` has moved,
+                // so the next pass retries the same ground. That holds because
+                // [`ShellFeed::poll_at`] advances the cursor last, after every
                 // read — do not move it back here.
                 warn!(
                     %error,
                     user_id = %viewer.user_id,
                     "Failed to read the T3 UI shell change feed"
                 );
+                tokio::time::sleep(SHELL_POLL_INTERVAL).await;
                 continue;
             }
         };
-        if values.is_empty() {
-            continue;
-        }
+        // A filled batch leaves the cursor short of `head`. Remembering the
+        // cursor instead makes the next pass read the rest one interval from
+        // now, rather than at the next listing move, which may never come.
+        let through = feed.read_through();
+        let behind = through.identity == head.identity && through.position < head.position;
+        seen = Some(if behind { through } else { head });
         // Left where the poll put it: a closed channel means the socket
         // loop (held by `ProtocolSession`) already returned, so no next
         // poll exists to serve a rewound cursor — the client resumes via
         // the snapshot's `afterSequence` on resubscribe instead. Queuing a
         // chunk isn't delivery: it can still fail later in `send_frames`.
-        if !sink.send_values(values).await {
+        if !values.is_empty() && !sink.send_values(values).await {
             return Ok(());
+        }
+        if behind {
+            tokio::time::sleep(SHELL_POLL_INTERVAL).await;
         }
     }
 }
 
-/// Mirrors [`watch_shell`] over the conversation's own change log.
+/// Mirrors [`watch_shell`] over the conversation's own change log, polling
+/// when the conversation or its listing row moves.
 ///
 /// A poll can also answer `None` — the conversation is no longer readable
 /// (deleted, unfollowed, ungrouped) — and the subscription ends rather than
@@ -121,14 +140,23 @@ pub(crate) async fn watch_thread(
     frontend_url: Arc<str>,
     model_defaults: Arc<AgentModelDefaults>,
     viewer: ScopeContext,
+    mut signals: watch::Receiver<Option<ThreadSignal>>,
 ) -> StreamResult {
     let _open = OpenThreadSubscription::count();
     let deployment = Deployment {
         model_defaults: &model_defaults,
         frontend_url: &frontend_url,
     };
+    let mut seen: Option<ThreadSignal> = None;
     loop {
-        tokio::time::sleep(THREAD_POLL_INTERVAL).await;
+        // Polled on the timeout too: access can end without a listing change,
+        // as when a Workspace membership does.
+        let changed = next_change(&mut signals, seen.as_ref(), |_| true);
+        let signal = match tokio::time::timeout(THREAD_ACCESS_RECHECK_INTERVAL, changed).await {
+            Ok(Some(signal)) => Some(signal),
+            Ok(None) => return Ok(()),
+            Err(_elapsed) => seen,
+        };
         let polled = poll_thread(&mut feed, &reads, &deployment, &viewer).await;
         let values = match polled {
             Ok(Some(values)) => values,
@@ -136,22 +164,29 @@ pub(crate) async fn watch_thread(
                 return Err(StreamFailure::message("Conversation not found"));
             }
             Err(error) => {
-                // As in `watch_shell`: a failed poll leaves the cursor where
-                // it was, so the next one covers the same ground and the
-                // subscription survives a transient database error.
+                // As in `watch_shell`: a failed poll leaves the cursor and
+                // `seen` where they were, so the next one covers the same
+                // ground and the subscription survives a transient database
+                // error.
                 warn!(
                     %error,
                     user_id = %viewer.user_id,
                     "Failed to poll the T3 UI conversation"
                 );
+                tokio::time::sleep(THREAD_POLL_INTERVAL).await;
                 continue;
             }
         };
-        if values.is_empty() {
-            continue;
-        }
-        if !sink.send_values(values).await {
+        // A filled batch leaves the feed short of the head it was woken for.
+        // Forgetting `seen` makes the next pass read the rest one interval
+        // from now, rather than at the next move or access recheck.
+        let behind = signal.is_some_and(|signal| feed.is_behind(signal.head));
+        seen = if behind { None } else { signal };
+        if !values.is_empty() && !sink.send_values(values).await {
             return Ok(());
+        }
+        if behind {
+            tokio::time::sleep(THREAD_POLL_INTERVAL).await;
         }
     }
 }
@@ -169,6 +204,7 @@ pub(crate) struct WatchedThreadV2 {
     pub(crate) task_id: String,
     /// The head the client was last sent, or already held.
     pub(crate) head: ConversationHead,
+    pub(crate) signals: watch::Receiver<Option<ThreadSignal>>,
 }
 
 /// The `snapshot` stream item a V2 thread subscription sends.
@@ -195,21 +231,12 @@ pub(crate) async fn watch_thread_v2(
         frontend_url: &watched.frontend_url,
     };
     loop {
-        tokio::time::sleep(THREAD_POLL_INTERVAL).await;
-        let head = match watched
-            .reads
-            .conversations()
-            .conversation_head(&watched.task_id)
-            .await
-        {
-            Ok(head) => head,
-            Err(error) => {
-                warn!(%error, user_id = %watched.viewer.user_id, "Failed to poll the T3 UI conversation");
-                continue;
-            }
-        };
-        if head.position <= watched.head.position {
-            continue;
+        let held = watched.head.position;
+        let moved = next_change(&mut watched.signals, None, |signal| {
+            signal.head.position > held
+        });
+        if moved.await.is_none() {
+            return Ok(());
         }
         let detail = thread_detail_v2_under(
             &watched.reads,
@@ -227,6 +254,7 @@ pub(crate) async fn watch_thread_v2(
                 // As in `watch_thread`: the head is not advanced, so the next
                 // pass rebuilds the same snapshot.
                 warn!(%error, user_id = %watched.viewer.user_id, "Failed to assemble the T3 UI conversation");
+                tokio::time::sleep(THREAD_POLL_INTERVAL).await;
                 continue;
             }
         };
@@ -251,17 +279,14 @@ pub(crate) async fn watch_archived_shell(
     model_defaults: Arc<AgentModelDefaults>,
     viewer: ScopeContext,
     initial: Value,
+    listing: watch::Receiver<Option<ListingHead>>,
 ) -> StreamResult {
     let mut last = initial["snapshotSequence"].as_i64();
     let mut sent = Some(initial["threads"].clone());
     loop {
         tokio::time::sleep(ARCHIVED_SHELL_POLL_INTERVAL).await;
-        let position = match reads.conversations().listing_head().await {
-            Ok(head) => head.position,
-            Err(error) => {
-                warn!(%error, user_id = %viewer.user_id, "Failed to read the T3 UI listing head");
-                continue;
-            }
+        let Some(position) = listing.borrow().as_ref().map(|head| head.position) else {
+            continue;
         };
         if last == Some(position) {
             continue;

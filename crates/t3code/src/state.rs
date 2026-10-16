@@ -1,3 +1,4 @@
+use crate::change_watch::ChangeWatch;
 use crate::config::AgentModelDefaults;
 use crate::config::UiRpcConfig;
 use crate::observability;
@@ -37,6 +38,9 @@ pub(crate) struct UiRpcState {
     pub(crate) pairing: Arc<DevicePairing>,
     /// Every scoped read this surface answers from.
     pub(crate) reads: T3Reads,
+    /// The change counters this replica's subscriptions wait on, read by one
+    /// [`ChangePoller`](crate::change_watch::ChangePoller).
+    pub(crate) changes: ChangeWatch,
     pub(crate) workspace_script_commands: Arc<dyn ports::WorkspaceScriptCommands>,
     /// How a conversation's files are reached. The only piece of Moatless
     /// behind this module that is not a database read: a checkout exists inside

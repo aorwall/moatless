@@ -184,6 +184,13 @@ pub trait ConversationDao: Send + Sync {
     /// The highest position this conversation's change log has reached.
     async fn conversation_head(&self, task_id: &str) -> Result<ConversationHead, sqlx::Error>;
 
+    /// The head of each of `task_ids` in one read, in no particular order; a
+    /// conversation with no change yet is at position 0.
+    async fn conversation_heads(
+        &self,
+        task_ids: &[String],
+    ) -> Result<Vec<(String, ConversationHead)>, sqlx::Error>;
+
     /// This conversation's changes at or after `from`, oldest first, capped at
     /// `limit`. At `from` rather than after it — see
     /// [`moatless_core::change_feed::conversation::changes_from`].
@@ -390,6 +397,13 @@ impl ConversationDao for PgConversationDao {
 
     async fn conversation_head(&self, task_id: &str) -> Result<ConversationHead, sqlx::Error> {
         moatless_core::change_feed::conversation::current_head(&self.pool, task_id).await
+    }
+
+    async fn conversation_heads(
+        &self,
+        task_ids: &[String],
+    ) -> Result<Vec<(String, ConversationHead)>, sqlx::Error> {
+        moatless_core::change_feed::conversation::current_heads(&self.pool, task_ids).await
     }
 
     async fn conversation_changes(

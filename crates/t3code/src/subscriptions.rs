@@ -41,17 +41,23 @@ pub(crate) struct OrchestrationV2SubscribeThreadInput {
     pub(crate) request_completion_marker: Option<bool>,
 }
 
-/// How often a shell subscription asks what has changed.
+/// How often [`ChangePoller`](crate::change_watch::ChangePoller) reads the
+/// listing head, so how often a shell subscription can learn of a change.
 ///
 /// Also the coalescing window: everything recorded for one conversation in it
 /// collapses into a single re-read of that row.
 pub(crate) const SHELL_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
-/// How often an open conversation asks whether it has moved.
+/// How often [`ChangePoller`](crate::change_watch::ChangePoller) reads the
+/// heads of the open conversations.
 ///
 /// Longer than the shell's: the question is cheap (a fingerprint), but a hit
 /// delivers the whole conversation.
 pub(crate) const THREAD_POLL_INTERVAL: Duration = Duration::from_secs(1);
+
+/// The longest an open conversation goes without rechecking that its viewer
+/// may still read it, when nothing it watches has moved.
+pub(crate) const THREAD_ACCESS_RECHECK_INTERVAL: Duration = Duration::from_secs(15);
 
 /// How often an open conversation asks its Sandbox about its branch state.
 ///

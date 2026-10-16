@@ -232,8 +232,16 @@ impl ProtocolSession {
         }
         let reads = state.reads.clone();
         let model_defaults = state.model_defaults.clone();
+        let listing = state.changes.listing();
         self.streams.start_produced(&id, Some(values), move |sink| {
-            watch::watch_shell(sink, subscription.feed, reads, model_defaults, viewer)
+            watch::watch_shell(
+                sink,
+                subscription.feed,
+                reads,
+                model_defaults,
+                viewer,
+                listing,
+            )
         })
     }
 
@@ -277,8 +285,17 @@ impl ProtocolSession {
         let reads = state.reads.clone();
         let frontend_url = state.frontend_url.clone();
         let model_defaults = state.model_defaults.clone();
+        let signals = state.changes.thread(&task_id);
         self.streams.start_produced(&id, Some(values), move |sink| {
-            watch::watch_thread(sink, feed, reads, frontend_url, model_defaults, viewer)
+            watch::watch_thread(
+                sink,
+                feed,
+                reads,
+                frontend_url,
+                model_defaults,
+                viewer,
+                signals,
+            )
         })
     }
 

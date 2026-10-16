@@ -11,6 +11,7 @@
 
 use crate::dao::{ConversationDao, PgConversationDao};
 use moatless_api_schemas::task::{FileContextData, MessageContextInput, PreviewUrlContextData};
+use moatless_core::change_feed::conversation::ConversationHead;
 use moatless_core::change_feed::conversation::changes_from;
 use moatless_core::change_feed::conversation::current_head;
 use moatless_tasks::activities::mapping::BlockContext;
@@ -821,5 +822,33 @@ async fn a_message_reads_the_names_its_origin_resolves_to(pool: PgPool) {
     assert_eq!(
         (plain.binding_url, plain.loop_name, plain.sent_by_name),
         (None, None, None)
+    );
+}
+
+/// The poller's one read answers every watched conversation, including one
+/// with no change yet, at the head each would report alone.
+#[sqlx::test]
+async fn conversation_heads_reads_each_head_in_one_statement(pool: PgPool) {
+    seed_task(&pool).await;
+    append(&pool, "msg-1", tool_use("call-1")).await;
+    let dao = conversations_over(&pool);
+
+    let mut heads = dao
+        .conversation_heads(&[TASK.to_string(), "never-written".to_string()])
+        .await
+        .unwrap();
+    heads.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let head = current_head(&pool, TASK).await.unwrap();
+    assert!(head.position > 0);
+    assert_eq!(
+        heads,
+        vec![
+            (
+                "never-written".to_string(),
+                ConversationHead { position: 0 }
+            ),
+            (TASK.to_string(), head),
+        ]
     );
 }

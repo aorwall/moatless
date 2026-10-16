@@ -8,4 +8,4 @@ pub(crate) mod metrics;
 pub(crate) mod session;
 pub(crate) mod socket;
 pub(crate) mod table;
-mod watch;
+pub(crate) mod watch;

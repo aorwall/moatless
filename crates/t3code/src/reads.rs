@@ -219,6 +219,13 @@ mod refusal {
             self.0.conversation_head(task_id).await
         }
 
+        async fn conversation_heads(
+            &self,
+            task_ids: &[String],
+        ) -> Result<Vec<(String, ConversationHead)>, sqlx::Error> {
+            self.0.conversation_heads(task_ids).await
+        }
+
         async fn conversation_changes(
             &self,
             task_id: &str,
