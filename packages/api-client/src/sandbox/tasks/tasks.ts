@@ -25,6 +25,7 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AddTaskRepositoryRequest,
   CancelTaskResponse,
   CloseTaskRequest,
   CreateTaskRequest,
@@ -36,6 +37,7 @@ import type {
   ListTasksResponse,
   SetTagsRequest,
   TagResponse,
+  TaskRepositoryResponse,
   TaskResponse,
   TaskStatisticsResponse,
   UpdateTaskMetadataRequest,
@@ -1688,6 +1690,250 @@ export const prefetchReopenTaskQuery = async <TData = Awaited<ReturnType<typeof 
   ): Promise<QueryClient> => {
 
   const queryOptions = getReopenTaskQueryOptions(taskId,options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+
+
+export type listTaskRepositoriesResponse200 = {
+  data: TaskRepositoryResponse[]
+  status: 200
+}
+
+export type listTaskRepositoriesResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type listTaskRepositoriesResponseSuccess = (listTaskRepositoriesResponse200) & {
+  headers: Headers;
+};
+export type listTaskRepositoriesResponseError = (listTaskRepositoriesResponse404) & {
+  headers: Headers;
+};
+
+export type listTaskRepositoriesResponse = (listTaskRepositoriesResponseSuccess | listTaskRepositoriesResponseError)
+
+export const getListTaskRepositoriesUrl = (taskId: string,) => {
+
+
+
+
+  return `/api/v1/tasks/${taskId}/repositories`
+}
+
+/**
+ * @summary List the repositories a task works in.
+ */
+export const listTaskRepositories = async (taskId: string, options?: Parameters<typeof customInstance>[1]): Promise<listTaskRepositoriesResponse> => {
+
+  return customInstance<listTaskRepositoriesResponse>(getListTaskRepositoriesUrl(taskId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListTaskRepositoriesMutationKey = () => ['listTaskRepositories'] as const;
+
+export const getListTaskRepositoriesMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof listTaskRepositories>>, TError,ListTaskRepositoriesMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof listTaskRepositories>>, TError,ListTaskRepositoriesMutationVariables, TContext> => {
+
+const mutationKey = getListTaskRepositoriesMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof listTaskRepositories>>, ListTaskRepositoriesMutationVariables> = (props) => {
+          const {taskId} = props ?? {};
+
+          return  listTaskRepositories(taskId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ListTaskRepositoriesMutationResult = NonNullable<Awaited<ReturnType<typeof listTaskRepositories>>>
+
+    export type ListTaskRepositoriesMutationError = ErrorType<ErrorBody>
+    export type ListTaskRepositoriesMutationVariables = {taskId: string}
+
+    /**
+ * @summary List the repositories a task works in.
+ */
+export const useListTaskRepositories = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof listTaskRepositories>>, TError,ListTaskRepositoriesMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof listTaskRepositories>>,
+        TError,
+        ListTaskRepositoriesMutationVariables,
+        TContext
+      > => {
+      return useMutation(getListTaskRepositoriesMutationOptions(options), queryClient);
+    }
+    export type addTaskRepositoryResponse200 = {
+  data: TaskRepositoryResponse[]
+  status: 200
+}
+
+export type addTaskRepositoryResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type addTaskRepositoryResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type addTaskRepositoryResponseSuccess = (addTaskRepositoryResponse200) & {
+  headers: Headers;
+};
+export type addTaskRepositoryResponseError = (addTaskRepositoryResponse403 | addTaskRepositoryResponse404) & {
+  headers: Headers;
+};
+
+export type addTaskRepositoryResponse = (addTaskRepositoryResponseSuccess | addTaskRepositoryResponseError)
+
+export const getAddTaskRepositoryUrl = (taskId: string,) => {
+
+
+
+
+  return `/api/v1/tasks/${taskId}/repositories`
+}
+
+/**
+ * @summary Record a repository the task now works in, such as one it cloned.
+ */
+export const addTaskRepository = async (taskId: string,
+    addTaskRepositoryRequest: AddTaskRepositoryRequest, options?: Parameters<typeof customInstance>[1]): Promise<addTaskRepositoryResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customInstance<addTaskRepositoryResponse>(getAddTaskRepositoryUrl(taskId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(addTaskRepositoryRequest)
+  }
+);}
+
+
+
+
+
+export const getAddTaskRepositoryQueryKey = (taskId: string,
+    addTaskRepositoryRequest?: AddTaskRepositoryRequest,) => {
+    return [
+    'POST', `/api/v1/tasks/${taskId}/repositories`, addTaskRepositoryRequest
+    ] as const;
+    }
+
+
+export const getAddTaskRepositoryQueryOptions = <TData = Awaited<ReturnType<typeof addTaskRepository>>, TError = ErrorType<ErrorBody>>(taskId: string,
+    addTaskRepositoryRequest: AddTaskRepositoryRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof addTaskRepository>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAddTaskRepositoryQueryKey(taskId,addTaskRepositoryRequest);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof addTaskRepository>>> = ({ signal }) => addTaskRepository(taskId,addTaskRepositoryRequest, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: taskId !== null && taskId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof addTaskRepository>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type AddTaskRepositoryQueryResult = NonNullable<Awaited<ReturnType<typeof addTaskRepository>>>
+export type AddTaskRepositoryQueryError = ErrorType<ErrorBody>
+
+
+export function useAddTaskRepository<TData = Awaited<ReturnType<typeof addTaskRepository>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    addTaskRepositoryRequest: AddTaskRepositoryRequest, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof addTaskRepository>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof addTaskRepository>>,
+          TError,
+          Awaited<ReturnType<typeof addTaskRepository>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useAddTaskRepository<TData = Awaited<ReturnType<typeof addTaskRepository>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    addTaskRepositoryRequest: AddTaskRepositoryRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof addTaskRepository>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof addTaskRepository>>,
+          TError,
+          Awaited<ReturnType<typeof addTaskRepository>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useAddTaskRepository<TData = Awaited<ReturnType<typeof addTaskRepository>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    addTaskRepositoryRequest: AddTaskRepositoryRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof addTaskRepository>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Record a repository the task now works in, such as one it cloned.
+ */
+
+export function useAddTaskRepository<TData = Awaited<ReturnType<typeof addTaskRepository>>, TError = ErrorType<ErrorBody>>(
+ taskId: string,
+    addTaskRepositoryRequest: AddTaskRepositoryRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof addTaskRepository>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getAddTaskRepositoryQueryOptions(taskId,addTaskRepositoryRequest,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+/**
+ * @summary Record a repository the task now works in, such as one it cloned.
+ */
+export const prefetchAddTaskRepositoryQuery = async <TData = Awaited<ReturnType<typeof addTaskRepository>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, taskId: string,
+    addTaskRepositoryRequest: AddTaskRepositoryRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof addTaskRepository>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getAddTaskRepositoryQueryOptions(taskId,addTaskRepositoryRequest,options)
 
   await queryClient.prefetchQuery(queryOptions);
 

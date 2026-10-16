@@ -21,6 +21,7 @@ use crate::task::bindings::TaskBindings;
 use crate::task::models::SandboxIntentView;
 #[cfg(test)]
 use crate::task::models::TaskStatus;
+use crate::task::repositories::{TaskRepositories, TaskRepository, TaskRepositorySource};
 use crate::task_turn::operations::TaskTurns;
 use axum::Json;
 use axum::extract::{Path, Query, State};
@@ -946,6 +947,101 @@ pub async fn set_task_tags(
         .collect();
 
     Ok(Json(response))
+}
+
+/// List the repositories a task works in.
+#[utoipa::path(
+    get,
+    path = "/api/v1/tasks/{task_id}/repositories",
+    tag = "tasks",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    responses(
+        (status = 200, description = "The task's repositories, oldest first", body = Vec<TaskRepositoryResponse>),
+        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody)
+    )
+)]
+pub async fn list_task_repositories(
+    State(tasks): State<Arc<TaskCommands>>,
+    State(task_repositories): State<Arc<TaskRepositories>>,
+    auth: AuthUser,
+    Path(task_id): Path<String>,
+) -> Result<Json<Vec<TaskRepositoryResponse>>, TaskError> {
+    tasks
+        .find_by_id(&task_id, &auth.scope_context())
+        .await?
+        .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
+    let rows = task_repositories.list(&task_id).await?;
+    Ok(Json(
+        rows.into_iter().map(task_repository_response).collect(),
+    ))
+}
+
+/// Record a repository the task now works in, such as one it cloned.
+#[utoipa::path(
+    post,
+    path = "/api/v1/tasks/{task_id}/repositories",
+    tag = "tasks",
+    params(
+        ("task_id" = String, Path, description = "Task identifier")
+    ),
+    request_body = AddTaskRepositoryRequest,
+    responses(
+        (status = 200, description = "The task's repositories, oldest first", body = Vec<TaskRepositoryResponse>),
+        (status = 403, description = "The caller cannot use the repository", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Task or repository not found", body = moatless_api_schemas::error::ErrorBody)
+    )
+)]
+pub async fn add_task_repository(
+    State(tasks): State<Arc<TaskCommands>>,
+    State(task_repositories): State<Arc<TaskRepositories>>,
+    State(repositories): State<Arc<dyn RepositoryReader>>,
+    auth: AuthUser,
+    Path(task_id): Path<String>,
+    Json(req): Json<AddTaskRepositoryRequest>,
+) -> Result<Json<Vec<TaskRepositoryResponse>>, TaskError> {
+    let scope_ctx = auth.scope_context();
+    let existing = tasks
+        .find_by_id(&task_id, &scope_ctx)
+        .await?
+        .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
+    if !scope_ctx.can_write(&existing.scoped_resource()) {
+        return Err(TaskError::NotFound(task_id.clone())); // existence hiding
+    }
+    // The rule the git proxy clones under, so a recorded repository is one the
+    // Task could have cloned.
+    let repo = repositories
+        .describe(&scope_ctx, &req.repository_id)
+        .await?
+        .ok_or_else(|| TaskError::RepoNotFound(req.repository_id.clone()))?;
+    moatless_types::access_control::ensure_can_use_repository(
+        &scope_ctx,
+        &moatless_types::access_control::ScopedResource::borrowed(
+            repo.scope,
+            repo.owner_user_id.as_deref().or(repo.created_by.as_deref()),
+        ),
+    )?;
+    task_repositories
+        .record(
+            &task_id,
+            std::slice::from_ref(&repo.id),
+            TaskRepositorySource::Cloned,
+        )
+        .await?;
+    tracing::info!(task_id = %task_id, repository_id = %repo.id, "Task repository recorded");
+    let rows = task_repositories.list(&task_id).await?;
+    Ok(Json(
+        rows.into_iter().map(task_repository_response).collect(),
+    ))
+}
+
+fn task_repository_response(row: TaskRepository) -> TaskRepositoryResponse {
+    TaskRepositoryResponse {
+        repository_id: row.repository_id,
+        source: row.source,
+        added_at: row.added_at.to_rfc3339(),
+    }
 }
 
 /// Update task visibility (public/private).

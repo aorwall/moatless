@@ -135,6 +135,8 @@ fn projects(
 /// which counts the listings asked of it and refuses them.
 pub(crate) struct ProjectRepositories {
     pub(crate) repository_of: fn(&str) -> Result<Option<String>, PullRequestError>,
+    /// What every project's readable Tasks work in.
+    pub(crate) task_repositories: Vec<String>,
     pub(crate) listed: AtomicUsize,
 }
 
@@ -142,6 +144,7 @@ impl ProjectRepositories {
     pub(crate) fn new(repository_of: fn(&str) -> Result<Option<String>, PullRequestError>) -> Self {
         Self {
             repository_of,
+            task_repositories: Vec::new(),
             listed: AtomicUsize::new(0),
         }
     }
@@ -155,6 +158,13 @@ impl PullRequestReviewSource for ProjectRepositories {
         workspace_id: &str,
     ) -> Result<Option<String>, PullRequestError> {
         (self.repository_of)(workspace_id)
+    }
+    async fn task_repositories(
+        &self,
+        _viewer: &ScopeContext,
+        _workspace_id: &str,
+    ) -> Result<Vec<String>, PullRequestError> {
+        Ok(self.task_repositories.clone())
     }
     async fn list(
         &self,

@@ -16,6 +16,7 @@ export * from './loops/loops';
 export * from './messages/messages';
 export * from './plugins/plugins';
 export * from './repositories/repositories';
+export * from './review-guides/review-guides';
 export * from './sandbox/sandbox';
 export * from './secrets/secrets';
 export * from './skills/skills';

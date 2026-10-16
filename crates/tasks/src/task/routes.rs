@@ -18,6 +18,7 @@ use crate::task::creation::TaskCreationService;
 use crate::task::fork::TaskForkService;
 use crate::task::operations::TaskCommands;
 use crate::task::presenter::TaskPresenter;
+use crate::task::repositories::TaskRepositories;
 use crate::task::switch::TaskSwitchService;
 use crate::task_turn::operations::TaskTurns;
 use moatless_core::config::Config;
@@ -51,6 +52,8 @@ use moatless_workspaces::workspace::git_sync::GitSyncService;
         handlers::stop_task,
         handlers::cancel_task,
         handlers::set_task_tags,
+        handlers::list_task_repositories,
+        handlers::add_task_repository,
         handlers::update_visibility,
         handlers::update_ttl,
     )
@@ -69,6 +72,7 @@ where
     Arc<TaskTurns>: FromRef<S>,
     Arc<Messages>: FromRef<S>,
     Arc<Tags>: FromRef<S>,
+    Arc<TaskRepositories>: FromRef<S>,
     Arc<dyn RepositoryReader>: FromRef<S>,
     Arc<dyn WorkspaceResolver>: FromRef<S>,
     Arc<dyn SandboxLifecycle>: FromRef<S>,
@@ -105,6 +109,10 @@ where
         .routes(routes!(handlers::stop_task))
         .routes(routes!(handlers::cancel_task))
         .routes(routes!(handlers::set_task_tags))
+        .routes(routes!(
+            handlers::list_task_repositories,
+            handlers::add_task_repository
+        ))
         .routes(routes!(handlers::update_visibility))
         .routes(routes!(handlers::update_ttl))
         .with_state(state)

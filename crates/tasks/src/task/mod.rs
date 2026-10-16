@@ -12,6 +12,7 @@ pub mod operations;
 pub(crate) mod pin_dao;
 pub mod presenter;
 pub mod relations;
+pub mod repositories;
 pub mod rewind;
 pub(crate) mod rewind_dao;
 pub mod routes;
@@ -35,3 +36,5 @@ pub(crate) mod outbound_events_dao;
 pub(crate) mod fork_dao;
 
 pub(crate) mod relations_dao;
+
+pub(crate) mod repositories_dao;

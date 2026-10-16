@@ -146,8 +146,9 @@ pub(crate) fn review_ports(state: &crate::state::UiRpcState) -> ReviewPorts<'_> 
 }
 
 /// The Workspace the viewer reaches `target` through: the named project when
-/// its primary repository is the pull request's, else that of a readable Task
-/// bound to it. `None` inside `Ok` is a bound Task with no Workspace.
+/// its primary repository is the pull request's or one a readable Task in it
+/// works in, else that of a readable Task bound to it. `None` inside `Ok` is a
+/// bound Task with no Workspace.
 pub(crate) async fn reach(
     ports: &ReviewPorts<'_>,
     viewer: &ScopeContext,
@@ -167,6 +168,14 @@ async fn reach_through(
     let project_repository = host.project_repository(viewer, target.project_id).await?;
     if project_repository
         .is_some_and(|repository| repository.eq_ignore_ascii_case(target.repository))
+    {
+        return Ok(Some(target.project_id.to_string()));
+    }
+    if host
+        .task_repositories(viewer, target.project_id)
+        .await?
+        .iter()
+        .any(|repository| repository.eq_ignore_ascii_case(target.repository))
     {
         return Ok(Some(target.project_id.to_string()));
     }

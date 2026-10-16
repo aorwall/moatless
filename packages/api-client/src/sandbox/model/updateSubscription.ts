@@ -9,7 +9,10 @@ import type { UpdateSubscriptionAdapterConfig } from './updateSubscriptionAdapte
 import type { UpdateSubscriptionEventFilter } from './updateSubscriptionEventFilter';
 
 export interface UpdateSubscription {
-  /** @nullable */
+  /**
+     * `Some(None)` clears the override.
+     * @nullable
+     */
   adapterConfig?: UpdateSubscriptionAdapterConfig;
   /** @nullable */
   allowDirectSend?: boolean | null;
@@ -23,6 +26,9 @@ export interface UpdateSubscription {
   notifyOnSuccess?: boolean | null;
   /** @nullable */
   sourceMatcher?: string | null;
-  /** @nullable */
+  /**
+     * `Some(None)` clears the override.
+     * @nullable
+     */
   sourceName?: string | null;
 }

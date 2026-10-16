@@ -614,6 +614,14 @@ pub trait PullRequestReviewSource: Send + Sync {
         workspace_id: &str,
     ) -> Result<Option<String>, PullRequestError>;
 
+    /// `owner/name` of each GitHub repository a Task in `workspace_id` works
+    /// in, over the Tasks `viewer` may read.
+    async fn task_repositories(
+        &self,
+        viewer: &ScopeContext,
+        workspace_id: &str,
+    ) -> Result<Vec<String>, PullRequestError>;
+
     /// Up to `limit` of `repository`'s pull requests matching `query`, from
     /// `cursor` on.
     async fn list(

@@ -315,7 +315,7 @@ export const getListForgejoConnectionsUrl = () => {
 }
 
 /**
- * Any signed-in caller may read this, unlike [`admin_list_forgejo_instances`],
+ * Any signed-in caller may read this, unlike [`admin_list_provider_apps`],
  * since a hostname isn't a secret.
  * @summary Lists every registered instance with the caller's own connection to each.
  */

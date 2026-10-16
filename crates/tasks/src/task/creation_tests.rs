@@ -4,6 +4,7 @@ use std::sync::Mutex;
 use crate::tag::dao::MockTagDao;
 use crate::task::dao::MockTaskDao;
 use crate::task::relations::MockTaskRelationDao;
+use crate::task::repositories::MockTaskRepositoryDao;
 use async_trait::async_trait;
 use moatless_core::events::test_support::RecordingPublisher;
 use moatless_ports::sandbox::{
@@ -139,13 +140,21 @@ fn service_with(
     repos
         .expect_describe()
         .returning(|_, _| Ok(Some(sample_repo())));
+    let mut workspaces = MockWorkspaceResolver::new();
+    workspaces.expect_placements().returning(|_| Ok(vec![]));
+    let mut task_repositories = MockTaskRepositoryDao::new();
+    task_repositories
+        .expect_record()
+        .returning(|_, _, _| Ok(()));
+    task_repositories.expect_list().returning(|_| Ok(vec![]));
     TaskCreationService::new(
         Arc::new(tasks),
         Arc::new(tags),
         Arc::new(relations),
+        Arc::new(task_repositories),
         Arc::new(forks),
         Arc::new(repos),
-        Arc::new(MockWorkspaceResolver::new()),
+        Arc::new(workspaces),
         Some(publisher as Arc<dyn EventPublisher>),
         Arc::new(starter),
         Arc::new(joiner),
@@ -935,4 +944,59 @@ async fn checkout_mode_without_sandbox_id_is_rejected_before_persistence() {
         err,
         TaskCreationError::BadRequest(msg) if msg.contains("checkout_mode requires sandbox_id")
     ));
+}
+
+#[tokio::test]
+async fn a_new_task_is_given_its_own_and_its_workspaces_repositories() {
+    let mut tasks = MockTaskDao::new();
+    tasks.expect_exists_by_short_id().returning(|_| Ok(false));
+    tasks.expect_insert_task().times(1).returning(|_, _| Ok(()));
+    let mut repos = MockRepositoryReader::new();
+    repos
+        .expect_describe()
+        .returning(|_, _| Ok(Some(sample_repo())));
+    let mut workspaces = MockWorkspaceResolver::new();
+    workspaces.expect_placements().returning(|_| {
+        Ok(["repo2", "repo3"]
+            .into_iter()
+            .map(|id| moatless_workspace_ports::RepoPlacement {
+                repository_id: id.into(),
+                branch: None,
+                mount_name: None,
+                is_primary: id == "repo2",
+                position: 0,
+                repository: None,
+            })
+            .collect())
+    });
+    let mut task_repositories = MockTaskRepositoryDao::new();
+    task_repositories
+        .expect_record()
+        .withf(|_, ids, source| {
+            ids == [
+                "repo2".to_string(),
+                "repo3".to_string(),
+                "repo1".to_string(),
+            ] && *source == TaskRepositorySource::Workspace
+        })
+        .times(1)
+        .returning(|_, _, _| Ok(()));
+    let svc = TaskCreationService::new(
+        Arc::new(tasks),
+        Arc::new(MockTagDao::new()),
+        Arc::new(MockTaskRelationDao::new()),
+        Arc::new(task_repositories),
+        Arc::new(crate::task::fork::MockTaskForkDao::new()),
+        Arc::new(repos),
+        Arc::new(workspaces),
+        None,
+        Arc::new(MockStarter::new()),
+        Arc::new(joiner_never()),
+        preflight_ok(),
+    );
+    let mut req = sample_request();
+    req.provision = false;
+    svc.create(req, empty_payload, no_message)
+        .await
+        .expect("creation succeeds");
 }

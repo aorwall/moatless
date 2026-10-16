@@ -292,6 +292,13 @@ impl ports::PullRequestReviewSource for UnreachablePullRequestReviews {
     ) -> Result<Option<String>, ports::PullRequestError> {
         unreachable!("no test in this file lists pull requests")
     }
+    async fn task_repositories(
+        &self,
+        _viewer: &ScopeContext,
+        _workspace_id: &str,
+    ) -> Result<Vec<String>, ports::PullRequestError> {
+        unreachable!("no test in this file reads a pull request")
+    }
     async fn list(
         &self,
         _viewer: &ScopeContext,

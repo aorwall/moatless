@@ -206,12 +206,22 @@ async fn reach_with(
     project_repository: Option<&str>,
     fallback: usize,
 ) -> Result<Option<String>, PullRequestReviewError> {
-    let host =
+    reach_with_tasks(project_repository, &[], fallback).await
+}
+
+/// [`reach_with`], where `ws-1`'s readable Tasks work in `task_repositories`.
+async fn reach_with_tasks(
+    project_repository: Option<&str>,
+    task_repositories: &[&str],
+    fallback: usize,
+) -> Result<Option<String>, PullRequestReviewError> {
+    let mut host =
         crate::pull_request_list::tests::ProjectRepositories::new(match project_repository {
             Some("acme/app") => |_| Ok(Some("acme/app".to_string())),
             Some(_) => |_| Ok(Some("acme/api".to_string())),
             None => |_| Ok(None),
         });
+    host.task_repositories = task_repositories.iter().map(ToString::to_string).collect();
     let mut bound = crate::ports::MockBoundPullRequestSource::new();
     bound
         .expect_tasks_bound_to()
@@ -238,4 +248,12 @@ async fn a_pull_request_in_another_repository_needs_a_bound_task() {
 async fn an_unreadable_project_falls_back_to_a_bound_task() {
     let reached = reach_with(None, 1).await;
     assert!(matches!(reached, Err(PullRequestReviewError::Unknown)));
+}
+
+#[tokio::test]
+async fn a_pull_request_in_a_repository_a_task_works_in_is_reached_through_the_project() {
+    let reached = reach_with_tasks(Some("acme/api"), &["Acme/App"], 0)
+        .await
+        .unwrap();
+    assert_eq!(reached.as_deref(), Some("ws-1"));
 }

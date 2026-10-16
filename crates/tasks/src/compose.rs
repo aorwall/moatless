@@ -41,6 +41,8 @@ use crate::task::operations::TaskCommands;
 use crate::task::presenter::TaskPresenter;
 use crate::task::relations::TaskRelations;
 use crate::task::relations_dao::{PgTaskRelationDao, TaskRelationDao};
+use crate::task::repositories::TaskRepositories;
+use crate::task::repositories_dao::{PgTaskRepositoryDao, TaskRepositoryDao};
 use crate::task::rewind::TaskRewindService;
 use crate::task::switch::TaskSwitchService;
 use crate::task_event::dao::{PgTaskEventDao, TaskEventDao};
@@ -60,6 +62,7 @@ pub struct TaskGraph {
     db: DbPool,
     tasks: Arc<PgTaskDao>,
     relations: Arc<dyn TaskRelationDao>,
+    repositories: Arc<dyn TaskRepositoryDao>,
     forks: Arc<dyn TaskForkDao>,
     messages: Arc<dyn MessageDao>,
     turns: Arc<dyn TaskTurnDao>,
@@ -75,6 +78,7 @@ pub fn task_graph(db: DbPool) -> TaskGraph {
     TaskGraph {
         tasks: Arc::new(PgTaskDao::new(db.clone())),
         relations: Arc::new(PgTaskRelationDao(db.clone())),
+        repositories: Arc::new(PgTaskRepositoryDao(db.clone())),
         forks: Arc::new(PgTaskForkDao(db.clone())),
         messages: Arc::new(PgMessageDao(db.clone())),
         turns: Arc::new(PgTaskTurnDao(db.clone())),
@@ -108,6 +112,11 @@ impl TaskGraph {
     /// published `RelationRecorder` seam.
     pub fn relation_recorder(&self) -> Arc<TaskRelations> {
         Arc::new(TaskRelations::new(self.relations.clone()))
+    }
+
+    /// The `task_repositories` table, as a host reads and writes it.
+    pub fn task_repositories(&self) -> Arc<TaskRepositories> {
+        Arc::new(TaskRepositories::new(self.repositories.clone()))
     }
 
     /// The `task_forks` table, as the delivery path reads it.
@@ -260,6 +269,7 @@ impl TaskGraph {
                 self.tasks.clone(),
                 self.tags.clone(),
                 self.relations.clone(),
+                self.repositories.clone(),
                 self.forks,
                 repository_reader.clone(),
                 workspace_resolver.clone(),

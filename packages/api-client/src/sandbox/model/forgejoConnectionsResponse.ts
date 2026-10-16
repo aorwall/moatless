@@ -10,7 +10,8 @@ import type { ForgejoProviderTokenStatusResponse } from './forgejoProviderTokenS
 /**
  * Every registered instance, each carrying the caller's own connection to it.
  *
- * Not [`ForgejoInstancesResponse`], the admin view that names a `client_id`.
+ * Not an admin-only view that names a `client_id`: `GET /api/v1/admin/settings/apps`
+ * owns that (`moatless_api_schemas::provider_apps::ProviderAppsResponse`).
  */
 export interface ForgejoConnectionsResponse {
   instances: ForgejoProviderTokenStatusResponse[];

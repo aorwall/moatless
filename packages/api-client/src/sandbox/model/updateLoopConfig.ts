@@ -17,7 +17,10 @@ export interface UpdateLoopConfig {
      * @nullable
      */
   fallbackToOtherAgent?: boolean | null;
-  /** @nullable */
+  /**
+     * See [`LoopConfig::inactive_ttl_days`]. `Some(None)` clears the override.
+     * @nullable
+     */
   inactiveTtlDays?: number | null;
   /**
      * See [`LoopConfig::message_buffer_seconds`]. `Some(None)` clears the
@@ -35,9 +38,15 @@ export interface UpdateLoopConfig {
      * @nullable
      */
   nodeSelector?: UpdateLoopConfigNodeSelector;
-  /** @nullable */
+  /**
+     * `Some(None)` clears the override.
+     * @nullable
+     */
   ongoingTaskId?: string | null;
-  /** @nullable */
+  /**
+     * `Some(None)` clears the override.
+     * @nullable
+     */
   prompt?: string | null;
   routingMode?: null | RoutingMode;
   /** @nullable */
@@ -49,7 +58,10 @@ export interface UpdateLoopConfig {
   stopWhenDone?: boolean | null;
   /** @nullable */
   tagIds?: string[] | null;
-  /** @nullable */
+  /**
+     * `Some(None)` clears the override.
+     * @nullable
+     */
   taskName?: string | null;
   /**
      * See [`LoopConfig::workspace_id`].

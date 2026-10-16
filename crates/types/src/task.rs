@@ -286,6 +286,16 @@ impl TaskRelationType {
 }
 
 crate::string_enum!(
+    /// How a repository came to be one a Task works in.
+    TaskRepositorySource {
+        /// Placed in the Task's Workspace when the Task was created.
+        Workspace => "workspace",
+        /// Cloned from inside the Task's sandbox.
+        Cloned => "cloned",
+    }
+);
+
+crate::string_enum!(
     /// How a task's checkout relates to other members of the same Sandbox.
     CheckoutMode [Default] {
         /// One checkout for every member — the single-member behavior too.
@@ -364,6 +374,17 @@ mod wire_contract {
         ] {
             assert_eq!(value.as_str(), wire);
             assert_eq!(TaskRelationType::try_from(wire), Ok(value));
+            assert_eq!(
+                serde_json::to_string(&value).unwrap(),
+                format!("\"{wire}\"")
+            );
+        }
+        for (value, wire) in [
+            (TaskRepositorySource::Workspace, "workspace"),
+            (TaskRepositorySource::Cloned, "cloned"),
+        ] {
+            assert_eq!(value.as_str(), wire);
+            assert_eq!(TaskRepositorySource::try_from(wire), Ok(value));
             assert_eq!(
                 serde_json::to_string(&value).unwrap(),
                 format!("\"{wire}\"")

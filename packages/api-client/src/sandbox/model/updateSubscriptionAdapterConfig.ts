@@ -7,6 +7,7 @@
  */
 
 /**
+ * `Some(None)` clears the override.
  * @nullable
  */
 export type UpdateSubscriptionAdapterConfig = { [key: string]: unknown } | null;

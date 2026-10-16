@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::bindings::TaskBindingSummary;
 use crate::enums::{
-    CheckoutMode, SandboxDesiredState, SandboxStopReason, Scope, TaskRelationType, TaskStatus,
-    Visibility,
+    CheckoutMode, SandboxDesiredState, SandboxStopReason, Scope, TaskRelationType,
+    TaskRepositorySource, TaskStatus, Visibility,
 };
 use moatless_types::agent::{AgentMode, AgentProfile};
 
@@ -234,6 +234,25 @@ pub struct UpdateTaskTtlRequest {
 #[serde(rename_all = "camelCase")]
 pub struct SetTagsRequest {
     pub tags: Vec<String>,
+}
+
+/// A repository a Task now works in, such as one it cloned.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct AddTaskRepositoryRequest {
+    pub repository_id: String,
+}
+
+/// A repository a Task works in.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct TaskRepositoryResponse {
+    pub repository_id: String,
+    pub source: TaskRepositorySource,
+    /// RFC 3339.
+    pub added_at: String,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]

@@ -6,6 +6,7 @@
 
 use clap::Subcommand;
 use moatless_api_schemas::enums::{RepositoryKind, RepositoryProvider, Scope};
+use moatless_api_schemas::task::AddTaskRepositoryRequest;
 use moatless_workspace_types::schemas::repository::{
     CreateRepositoryRequest, RepositoryResponse, UpdateRepositoryRequest,
 };
@@ -127,11 +128,13 @@ pub enum RepoAction {
 }
 
 /// `env_token_set` is [`Config::github_token_set`](crate::config::Config::github_token_set).
+/// `task_id` is the Task this runs inside, which a clone is recorded on.
 pub async fn run(
     client: &MoatClient,
     action: RepoAction,
     json: bool,
     env_token_set: bool,
+    task_id: Option<&str>,
 ) -> Result<(), ClientError> {
     match action {
         RepoAction::List {
@@ -155,6 +158,25 @@ pub async fn run(
             let target = dir.unwrap_or_else(|| checkout_dir(&repo));
             let branch = branch.or_else(|| repo.default_branch.clone());
             git_clone(&url, &target, branch.as_deref())?;
+            if let Some(task_id) = task_id {
+                // The clone already happened, so a refused record warns rather
+                // than failing it.
+                let recorded = client
+                    .api()
+                    .add_task_repository(
+                        task_id,
+                        &AddTaskRepositoryRequest {
+                            repository_id: repo.id.clone(),
+                        },
+                    )
+                    .await;
+                if let Err(e) = recorded {
+                    eprintln!(
+                        "Warning: could not record {} on task {task_id}: {e}",
+                        repo.name
+                    );
+                }
+            }
             output::emit(
                 json,
                 &serde_json::json!({

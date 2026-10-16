@@ -14,6 +14,7 @@ pub use moatless_types::sandbox::SandboxDesiredState;
 pub use moatless_types::sandbox::SandboxStopReason;
 pub use moatless_types::task::CheckoutMode;
 pub use moatless_types::task::TaskRelationType;
+pub use moatless_types::task::TaskRepositorySource;
 pub use moatless_types::task::TaskStatus;
 pub use moatless_types::task::Visibility;
 pub use moatless_types::user::UserRole;

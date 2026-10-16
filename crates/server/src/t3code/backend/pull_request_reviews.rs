@@ -53,6 +53,42 @@ impl PullRequestReviewSource for AppStateBoundPullRequests {
             .map(|repo| format!("{}/{}", repo.owner(), repo.name())))
     }
 
+    async fn task_repositories(
+        &self,
+        viewer: &ScopeContext,
+        workspace_id: &str,
+    ) -> Result<Vec<String>, PullRequestError> {
+        let store = |e: sqlx::Error| PullRequestError::Failed(e.to_string());
+        let repository_ids = self
+            .0
+            .task_repositories
+            .readable_in_workspace(viewer, workspace_id)
+            .await
+            .map_err(store)?;
+        let mut repositories = Vec::new();
+        // Read as the viewer too, so a Task never reveals a repository its
+        // reader could not see on its own.
+        for id in repository_ids {
+            let Some(repository) = self
+                .0
+                .repositories
+                .find_by_id(&id, viewer)
+                .await
+                .map_err(store)?
+            else {
+                continue;
+            };
+            if let Some(repo) = repository
+                .remote
+                .and_then(|remote| remote.host_repo)
+                .filter(|repo| repo.provider() == RepositoryProvider::Github)
+            {
+                repositories.push(format!("{}/{}", repo.owner(), repo.name()));
+            }
+        }
+        Ok(repositories)
+    }
+
     async fn list(
         &self,
         viewer: &ScopeContext,

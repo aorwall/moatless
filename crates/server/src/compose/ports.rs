@@ -36,6 +36,7 @@ use moatless_tasks::tag::operations::Tags;
 use moatless_tasks::task::fork::TaskForks;
 use moatless_tasks::task::operations::TaskCommands;
 use moatless_tasks::task::relations::TaskRelations;
+use moatless_tasks::task::repositories::TaskRepositories;
 use moatless_tasks::task_event::operations::TaskEvents;
 use moatless_tasks::task_turn::operations::TaskTurns;
 use moatless_types::http::HttpTimeouts;
@@ -61,6 +62,7 @@ pub struct Ports {
     /// import.
     pub task_access: Arc<dyn moatless_core::http_auth::TaskAccess>,
     pub task_relations: Arc<TaskRelations>,
+    pub task_repositories: Arc<TaskRepositories>,
     /// Where a fork's first turn branches from. Read by the creation service
     /// that writes it and by the delivery path that spends it.
     pub task_forks: Arc<TaskForks>,
@@ -265,6 +267,7 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
         task_access: task_graph.task_access(),
         task_reader: task_graph.task_reader(),
         task_relations: task_graph.relation_recorder(),
+        task_repositories: task_graph.task_repositories(),
         task_forks: task_graph.fork_origins(),
         messages: task_graph.messages(),
         transcript: task_graph.transcript(),

@@ -48,6 +48,7 @@ use moatless_tasks::task::fork::TaskForkService;
 use moatless_tasks::task::operations::TaskCommands;
 use moatless_tasks::task::presenter::TaskPresenter;
 use moatless_tasks::task::relations::TaskRelations;
+use moatless_tasks::task::repositories::TaskRepositories;
 use moatless_tasks::task::rewind::TaskRewindService;
 use moatless_tasks::task::switch::TaskSwitchService;
 use moatless_tasks::task_event::operations::TaskEvents;
@@ -167,6 +168,8 @@ pub struct AppState {
     /// reassembling the credential handles and validator per request.
     pub preflight: Arc<dyn PreflightPort>,
     pub task_relations: Arc<TaskRelations>,
+    /// The repositories each Task works in (`task_repositories`).
+    pub task_repositories: Arc<TaskRepositories>,
     /// The one relation a provider records, over the same store.
     pub relation_recorder: Arc<dyn moatless_ports::task::RelationRecorder>,
     /// Task↔external-subject bindings (`task_bindings`) — the return channel a
@@ -576,6 +579,12 @@ impl axum::extract::FromRef<AppState> for Arc<TaskCreationService> {
 impl axum::extract::FromRef<AppState> for Arc<dyn PreflightPort> {
     fn from_ref(state: &AppState) -> Self {
         state.preflight.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<TaskRepositories> {
+    fn from_ref(state: &AppState) -> Self {
+        state.task_repositories.clone()
     }
 }
 

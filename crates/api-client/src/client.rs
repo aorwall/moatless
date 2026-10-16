@@ -320,6 +320,16 @@ impl ApiClient {
             .await
     }
 
+    /// POST `/api/v1/tasks/{task_id}/repositories`
+    pub async fn add_task_repository(
+        &self,
+        task_id: &str,
+        req: &moatless_api_schemas::task::AddTaskRepositoryRequest,
+    ) -> Result<Vec<moatless_api_schemas::task::TaskRepositoryResponse>, ApiError> {
+        self.post(&format!("/api/v1/tasks/{task_id}/repositories"), req)
+            .await
+    }
+
     /// PUT `/api/v1/tasks/{task_id}/ttl`
     pub async fn update_ttl(
         &self,

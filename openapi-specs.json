@@ -1109,139 +1109,6 @@
         }
       }
     },
-    "/api/v1/admin/forgejo-instances": {
-      "get": {
-        "tags": [
-          "app-administration"
-        ],
-        "operationId": "admin_list_forgejo_instances",
-        "responses": {
-          "200": {
-            "description": "Registered instances",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ForgejoInstancesResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Admin only",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/admin/forgejo-instances/{host}": {
-      "put": {
-        "tags": [
-          "app-administration"
-        ],
-        "operationId": "admin_register_forgejo_instance",
-        "parameters": [
-          {
-            "name": "host",
-            "in": "path",
-            "description": "The instance's hostname",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RegisterForgejoInstanceRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Application registered",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ForgejoInstanceSummary"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "The application cannot be stored",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Admin only",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "app-administration"
-        ],
-        "operationId": "admin_remove_forgejo_instance",
-        "parameters": [
-          {
-            "name": "host",
-            "in": "path",
-            "description": "The instance's hostname",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Application removed"
-          },
-          "403": {
-            "description": "Admin only",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No application is registered for that host",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/admin/settings/adapter-apps": {
       "get": {
         "tags": [
@@ -1255,147 +1122,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AdapterAppsResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Not authenticated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Admin only",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/admin/settings/adapter-apps/{adapter_kind}/{app_key}": {
-      "put": {
-        "tags": [
-          "app-administration"
-        ],
-        "operationId": "admin_save_adapter_app",
-        "parameters": [
-          {
-            "name": "adapter_kind",
-            "in": "path",
-            "description": "Adapter kind",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "app_key",
-            "in": "path",
-            "description": "Adapter app key",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SaveAdapterAppRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Adapter app saved",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AdapterAppSummary"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid Adapter app config",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Not authenticated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Admin only",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "app-administration"
-        ],
-        "operationId": "admin_delete_adapter_app",
-        "parameters": [
-          {
-            "name": "adapter_kind",
-            "in": "path",
-            "description": "Adapter kind",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "app_key",
-            "in": "path",
-            "description": "Adapter app key",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Adapter app deleted"
-          },
-          "400": {
-            "description": "Invalid Adapter app",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
                 }
               }
             }
@@ -6273,7 +5999,7 @@
           "git-host-access"
         ],
         "summary": "Lists every registered instance with the caller's own connection to each.",
-        "description": "Any signed-in caller may read this, unlike [`admin_list_forgejo_instances`],\nsince a hostname isn't a secret.",
+        "description": "Any signed-in caller may read this, unlike [`admin_list_provider_apps`],\nsince a hostname isn't a secret.",
         "operationId": "list_forgejo_connections",
         "responses": {
           "200": {
@@ -7763,6 +7489,216 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SendTaskReplyResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/repositories": {
+      "get": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "List the repositories a task works in.",
+        "operationId": "list_task_repositories",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The task's repositories, oldest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TaskRepositoryResponse"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Record a repository the task now works in, such as one it cloned.",
+        "operationId": "add_task_repository",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddTaskRepositoryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The task's repositories, oldest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TaskRepositoryResponse"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller cannot use the repository",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task or repository not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/review-guide": {
+      "get": {
+        "tags": [
+          "review-guides"
+        ],
+        "summary": "The pull request and commit range a Task was started to write a guide for.",
+        "operationId": "get_review_guide_run",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The run the task is writing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewGuideRunResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found, or not writing a guide",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "review-guides"
+        ],
+        "summary": "Submit the guide a Task wrote. The server holds it to the change and stores\nwhat is left as the pull request's guide.",
+        "operationId": "submit_review_guide",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitReviewGuideRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Guide stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmitReviewGuideResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Guide refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found, or not writing a guide",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
                 }
               }
             }
@@ -10364,6 +10300,18 @@
             ],
             "format": "int32"
           },
+          "repositoryId": {
+            "type": "string"
+          }
+        }
+      },
+      "AddTaskRepositoryRequest": {
+        "type": "object",
+        "description": "A repository a Task now works in, such as one it cloned.",
+        "required": [
+          "repositoryId"
+        ],
+        "properties": {
           "repositoryId": {
             "type": "string"
           }
@@ -12971,7 +12919,7 @@
       },
       "ForgejoConnectionsResponse": {
         "type": "object",
-        "description": "Every registered instance, each carrying the caller's own connection to it.\n\nNot [`ForgejoInstancesResponse`], the admin view that names a `client_id`.",
+        "description": "Every registered instance, each carrying the caller's own connection to it.\n\nNot an admin-only view that names a `client_id`: `GET /api/v1/admin/settings/apps`\nowns that (`moatless_api_schemas::provider_apps::ProviderAppsResponse`).",
         "required": [
           "instances"
         ],
@@ -12980,39 +12928,6 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ForgejoProviderTokenStatusResponse"
-            }
-          }
-        }
-      },
-      "ForgejoInstanceSummary": {
-        "type": "object",
-        "required": [
-          "host",
-          "clientId",
-          "updatedAt"
-        ],
-        "properties": {
-          "clientId": {
-            "type": "string"
-          },
-          "host": {
-            "type": "string"
-          },
-          "updatedAt": {
-            "type": "string"
-          }
-        }
-      },
-      "ForgejoInstancesResponse": {
-        "type": "object",
-        "required": [
-          "instances"
-        ],
-        "properties": {
-          "instances": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ForgejoInstanceSummary"
             }
           }
         }
@@ -15625,22 +15540,6 @@
           }
         }
       },
-      "RegisterForgejoInstanceRequest": {
-        "type": "object",
-        "required": [
-          "clientId",
-          "clientSecret"
-        ],
-        "properties": {
-          "clientId": {
-            "type": "string"
-          },
-          "clientSecret": {
-            "type": "string",
-            "description": "Sealed under the instance row's id before it is stored, and never\nreturned by any read path afterwards."
-          }
-        }
-      },
       "RegisterGitHubAppRequest": {
         "type": "object",
         "required": [
@@ -16198,6 +16097,256 @@
           }
         }
       },
+      "ReviewGuideAttention": {
+        "type": "object",
+        "description": "The one call a maintainer should make at a stop.",
+        "required": [
+          "kind",
+          "note"
+        ],
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/ReviewGuideAttentionKind"
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      },
+      "ReviewGuideAttentionKind": {
+        "type": "string",
+        "enum": [
+          "tradeoff",
+          "contract",
+          "product",
+          "risk",
+          "accessibility"
+        ]
+      },
+      "ReviewGuideChange": {
+        "type": "object",
+        "description": "What a guide is held to: the changed paths and the lines each touched.",
+        "required": [
+          "files"
+        ],
+        "properties": {
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Every changed path, in diff order."
+          },
+          "hunks": {
+            "type": "object",
+            "description": "Keyed by the new path, or the old one for a deleted file.",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ReviewGuideFileHunks"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ReviewGuideExcerpt": {
+        "type": "object",
+        "description": "Lines worth reading, inside one hunk of the change.",
+        "required": [
+          "path",
+          "side",
+          "start",
+          "end"
+        ],
+        "properties": {
+          "caption": {
+            "type": "string"
+          },
+          "end": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "path": {
+            "type": "string"
+          },
+          "side": {
+            "$ref": "#/components/schemas/ReviewGuideSide"
+          },
+          "start": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ReviewGuideFile": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "ReviewGuideFileHunks": {
+        "type": "object",
+        "description": "The changed line ranges of one file, on each side of the diff.",
+        "properties": {
+          "new": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReviewGuideLineRange"
+            }
+          },
+          "old": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReviewGuideLineRange"
+            }
+          }
+        }
+      },
+      "ReviewGuideLineRange": {
+        "type": "object",
+        "description": "An inclusive range of line numbers.",
+        "required": [
+          "start",
+          "end"
+        ],
+        "properties": {
+          "end": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "start": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ReviewGuideNote": {
+        "type": "object",
+        "description": "An explanation anchored to a line inside one of its stop's excerpts.",
+        "required": [
+          "path",
+          "line",
+          "title"
+        ],
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "line": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "path": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "ReviewGuideRunResponse": {
+        "type": "object",
+        "description": "Response for `GET /api/v1/tasks/{task_id}/review-guide`: the pull request\nand range the Task was started to write a guide for.",
+        "required": [
+          "repository",
+          "number",
+          "baseSha",
+          "headSha"
+        ],
+        "properties": {
+          "baseSha": {
+            "type": "string",
+            "description": "The base branch's tip when the run started; the change is\n`baseSha...headSha`."
+          },
+          "headSha": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "repository": {
+            "type": "string",
+            "description": "`owner/repo`."
+          }
+        }
+      },
+      "ReviewGuideSide": {
+        "type": "string",
+        "description": "Which side of the diff an excerpt's line numbers count on.",
+        "enum": [
+          "new",
+          "old"
+        ]
+      },
+      "ReviewGuideStop": {
+        "type": "object",
+        "description": "One stop of the tour.",
+        "required": [
+          "title",
+          "summary"
+        ],
+        "properties": {
+          "attention": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ReviewGuideAttention"
+              }
+            ]
+          },
+          "excerpts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReviewGuideExcerpt"
+            }
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReviewGuideFile"
+            },
+            "description": "Changed files the tour never excerpts, each listed by one stop."
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReviewGuideNote"
+            }
+          },
+          "questions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "summary": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
       "RotateGitHubAppKeyRequest": {
         "type": "object",
         "required": [
@@ -16462,73 +16611,6 @@
           "error"
         ]
       },
-      "SaveAdapterAppRequest": {
-        "oneOf": [
-          {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/SaveSlackAdapterAppRequest"
-              },
-              {
-                "type": "object",
-                "required": [
-                  "adapterKind"
-                ],
-                "properties": {
-                  "adapterKind": {
-                    "type": "string",
-                    "enum": [
-                      "slack"
-                    ]
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/SaveTelegramAdapterAppRequest"
-              },
-              {
-                "type": "object",
-                "required": [
-                  "adapterKind"
-                ],
-                "properties": {
-                  "adapterKind": {
-                    "type": "string",
-                    "enum": [
-                      "telegram"
-                    ]
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/SaveLinearAdapterAppRequest"
-              },
-              {
-                "type": "object",
-                "required": [
-                  "adapterKind"
-                ],
-                "properties": {
-                  "adapterKind": {
-                    "type": "string",
-                    "enum": [
-                      "linear"
-                    ]
-                  }
-                }
-              }
-            ]
-          }
-        ]
-      },
       "SaveCodexAgentHarnessCredentialRequest": {
         "type": "object",
         "required": [
@@ -16568,41 +16650,6 @@
           }
         }
       },
-      "SaveLinearAdapterAppRequest": {
-        "type": "object",
-        "properties": {
-          "apiBaseUrl": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "oauthCallbackUrl": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "oauthClientId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "oauthClientSecret": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "webhookSecret": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
       "SaveProviderAppRequest": {
         "type": "object",
         "description": "`PUT /api/v1/admin/settings/apps/{provider}/{key}`.\n\nEvery value is a field named by the provider's spec; an unknown name is\nrejected rather than dropped, so a mistyped secret cannot register an app\nthat authenticates against nothing.",
@@ -16618,44 +16665,6 @@
             "propertyNames": {
               "type": "string"
             }
-          }
-        }
-      },
-      "SaveSlackAdapterAppRequest": {
-        "type": "object",
-        "required": [
-          "botToken",
-          "signingSecret"
-        ],
-        "properties": {
-          "botToken": {
-            "type": "string"
-          },
-          "botUserId": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "signingSecret": {
-            "type": "string"
-          }
-        }
-      },
-      "SaveTelegramAdapterAppRequest": {
-        "type": "object",
-        "required": [
-          "botToken"
-        ],
-        "properties": {
-          "botToken": {
-            "type": "string"
-          },
-          "mode": {
-            "type": [
-              "string",
-              "null"
-            ]
           }
         }
       },
@@ -17933,6 +17942,62 @@
           }
         }
       },
+      "SubmitReviewGuideRequest": {
+        "type": "object",
+        "description": "Request body for `POST /api/v1/tasks/{task_id}/review-guide`.",
+        "required": [
+          "stops",
+          "change"
+        ],
+        "properties": {
+          "change": {
+            "$ref": "#/components/schemas/ReviewGuideChange",
+            "description": "The lines the change touched, read by the CLI from the checkout. The\nserver holds the stops to it."
+          },
+          "stops": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReviewGuideStop"
+            }
+          }
+        }
+      },
+      "SubmitReviewGuideResponse": {
+        "type": "object",
+        "description": "Response for a submitted guide: what was kept once it was held to the\nchange, so the agent can tell a guide that landed from one that was trimmed\nto nothing.",
+        "required": [
+          "stops",
+          "excerpts",
+          "droppedExcerpts",
+          "droppedNotes",
+          "unplacedFiles"
+        ],
+        "properties": {
+          "droppedExcerpts": {
+            "type": "integer",
+            "description": "Excerpts dropped because no line of theirs is inside the change.",
+            "minimum": 0
+          },
+          "droppedNotes": {
+            "type": "integer",
+            "description": "Notes dropped because their line is outside every kept excerpt.",
+            "minimum": 0
+          },
+          "excerpts": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "stops": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unplacedFiles": {
+            "type": "integer",
+            "description": "Changed files no stop placed, gathered into a closing stop.",
+            "minimum": 0
+          }
+        }
+      },
       "Subscription": {
         "type": "object",
         "required": [
@@ -18294,6 +18359,35 @@
           "created_by",
           "related_to",
           "forked_from"
+        ]
+      },
+      "TaskRepositoryResponse": {
+        "type": "object",
+        "description": "A repository a Task works in.",
+        "required": [
+          "repositoryId",
+          "source",
+          "addedAt"
+        ],
+        "properties": {
+          "addedAt": {
+            "type": "string",
+            "description": "RFC 3339."
+          },
+          "repositoryId": {
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/TaskRepositorySource"
+          }
+        }
+      },
+      "TaskRepositorySource": {
+        "type": "string",
+        "description": "How a repository came to be one a Task works in.",
+        "enum": [
+          "workspace",
+          "cloned"
         ]
       },
       "TaskResponse": {
@@ -19214,7 +19308,8 @@
               "integer",
               "null"
             ],
-            "format": "int32"
+            "format": "int32",
+            "description": "See [`LoopConfig::inactive_ttl_days`]. `Some(None)` clears the override."
           },
           "messageBufferSeconds": {
             "type": [
@@ -19242,13 +19337,15 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "`Some(None)` clears the override."
           },
           "prompt": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "`Some(None)` clears the override."
           },
           "routingMode": {
             "oneOf": [
@@ -19289,7 +19386,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "`Some(None)` clears the override."
           },
           "workspaceId": {
             "type": [
@@ -19436,7 +19534,8 @@
             "type": [
               "object",
               "null"
-            ]
+            ],
+            "description": "`Some(None)` clears the override."
           },
           "allowDirectSend": {
             "type": [
@@ -19478,7 +19577,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "`Some(None)` clears the override."
           }
         },
         "additionalProperties": false
@@ -20637,6 +20737,10 @@
     {
       "name": "artifacts",
       "description": "HTML pages published from a Task"
+    },
+    {
+      "name": "review-guides",
+      "description": "Guided pull request reviews written by an agent"
     },
     {
       "name": "file-storage",

@@ -82,6 +82,12 @@ primary first, whose directory is the sandbox's checkout. Distinct from
 Workspace ports), both of which leave `mount_name` open. `RepoCheckout` in
 `moatless_workspace_types::workspace`.
 
+**Task repository**:
+A repository a Task works in: each WorkspaceRepo of its Workspace when it was
+created (`workspace`), and each one cloned with `moat repos clone` since
+(`cloned`). Read by T3's pull request reach. `task_repositories`, in
+`moatless_tasks::task::repositories`.
+
 **Workspace panel** (also **Workspace view**):
 The non-chat side of the task page — the pane that switches between the preview,
 the file explorer, and the sandbox diagnostics for a Task. A UI concept only,

@@ -25,6 +25,7 @@ use crate::task::models::{Task, TaskStatus};
 use crate::task::relations::{
     CreatedByParent, TaskRelationDao, record_created_by, record_forked_from, record_related_to,
 };
+use crate::task::repositories::{TaskRepositoryDao, TaskRepositorySource};
 use crate::task::schemas::MessageContextInput;
 use moatless_core::events::EventPublisher;
 use moatless_types::agent::{AgentMode, AgentProfile};
@@ -225,6 +226,7 @@ pub struct TaskCreationService {
     tasks: Arc<dyn TaskDao>,
     tags: Arc<dyn TagDao>,
     relations: Arc<dyn TaskRelationDao>,
+    task_repositories: Arc<dyn TaskRepositoryDao>,
     forks: Arc<dyn TaskForkDao>,
     repositories: Arc<dyn RepositoryReader>,
     /// Read by the `TaskOpener` port, which resolves a Loop's Workspace before
@@ -237,7 +239,7 @@ pub struct TaskCreationService {
 }
 
 impl TaskCreationService {
-    // reason: independent injected collaborators (four DAOs, the event
+    // reason: independent injected collaborators (five DAOs, the event
     // publisher, the lifecycle seams, the preflight seam); bundling them behind
     // a one-use struct only shuffles the same fields.
     #[allow(clippy::too_many_arguments)]
@@ -245,6 +247,7 @@ impl TaskCreationService {
         tasks: Arc<dyn TaskDao>,
         tags: Arc<dyn TagDao>,
         relations: Arc<dyn TaskRelationDao>,
+        task_repositories: Arc<dyn TaskRepositoryDao>,
         forks: Arc<dyn TaskForkDao>,
         repositories: Arc<dyn RepositoryReader>,
         workspaces: Arc<dyn WorkspaceResolver>,
@@ -257,6 +260,7 @@ impl TaskCreationService {
             tasks,
             tags,
             relations,
+            task_repositories,
             forks,
             repositories,
             workspaces,
@@ -375,6 +379,8 @@ impl TaskCreationService {
             workspace_id = ?row.workspace_id,
             "Task created"
         );
+
+        self.record_repositories(&task_id, &req).await?;
 
         // Tags (best-effort).
         if !req.tag_ids.is_empty() {
@@ -532,6 +538,37 @@ impl TaskCreationService {
             task: row,
             provision,
         })
+    }
+
+    /// Gives the new Task its own repository and its Workspace's, and a fork
+    /// its source Task's first, so an inherited row keeps its `source`. Not
+    /// best-effort: `reach` authorizes reading a pull request through them.
+    async fn record_repositories(
+        &self,
+        task_id: &str,
+        req: &NewTaskRequest,
+    ) -> Result<(), TaskCreationError> {
+        if let Some(fork) = &req.forked_from {
+            for inherited in self.task_repositories.list(&fork.source_task_id).await? {
+                self.task_repositories
+                    .record(task_id, &[inherited.repository_id], inherited.source)
+                    .await?;
+            }
+        }
+        let mut placed: Vec<String> = self
+            .workspaces
+            .placements(&req.workspace_id)
+            .await?
+            .into_iter()
+            .map(|placement| placement.repository_id)
+            .collect();
+        if !placed.contains(&req.repository_id) {
+            placed.push(req.repository_id.clone());
+        }
+        self.task_repositories
+            .record(task_id, &placed, TaskRepositorySource::Workspace)
+            .await?;
+        Ok(())
     }
 
     /// Cuts a `created_by` child joining its parent's Sandbox at the parent's

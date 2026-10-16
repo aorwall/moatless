@@ -114,7 +114,7 @@ async fn run_shared(
             commands::agents::run(moat, action, json).await?;
         }
         SharedCommands::Repos { action } => {
-            commands::repos::run(moat, *action, json, cfg.github_token_set).await?;
+            commands::repos::run(moat, *action, json, cfg.github_token_set, cfg.task_id()).await?;
         }
         SharedCommands::Workspaces { action } => {
             commands::workspaces::run(moat, action, json).await?;
