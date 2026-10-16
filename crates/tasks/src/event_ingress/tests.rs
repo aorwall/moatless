@@ -234,6 +234,26 @@ async fn state_is_committed_before_fan_out() {
 }
 
 #[tokio::test]
+async fn a_state_event_fans_out_with_the_task_agent_profile() {
+    let rec: Recorder = Arc::new(Mutex::new(Vec::new()));
+    let turns: Arc<dyn TaskTurnDao> = Arc::new(RecordingTurns {
+        rec: rec.clone(),
+        fail: false,
+    });
+    let publisher = Arc::new(RecordingPublisher::new());
+
+    EventAdmission::new(Some(turns), None, Some(publisher.clone()))
+        .admit(state_request("evt-5"))
+        .await
+        .expect("state-bearing event is admitted");
+
+    // The agent handlers label `moatless_agent_*` metrics with this profile.
+    let raw = publisher.raw_publishes();
+    assert_eq!(raw.len(), 1);
+    assert_eq!(raw[0].agent_profile.as_deref(), Some("claude-code"));
+}
+
+#[tokio::test]
 async fn failed_state_commit_is_retryable_and_never_fans_out() {
     let rec: Recorder = Arc::new(Mutex::new(Vec::new()));
     let turns: Arc<dyn TaskTurnDao> = Arc::new(RecordingTurns {

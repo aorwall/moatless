@@ -13,6 +13,18 @@ const DURATION_SECONDS_BUCKETS: &[f64] = &[
     0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0,
 ];
 
+/// Histograms named with this prefix: an agent turn's wall-clock and API time.
+const AGENT_TURN_PREFIX: &str = "moatless_agent_turn_";
+
+/// Bucket bounds, in seconds, for [`AGENT_TURN_PREFIX`] histograms.
+///
+/// A turn routinely runs past 600s, where [`DURATION_SECONDS_BUCKETS`] ends, so
+/// that ladder would put its p95 at the top bound rather than the real value.
+const AGENT_TURN_SECONDS_BUCKETS: &[f64] = &[
+    1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, 900.0, 1200.0, 1800.0, 2700.0, 3600.0, 7200.0,
+    14400.0,
+];
+
 /// Metrics state containing the Prometheus handle
 #[derive(Clone)]
 struct MetricsState {
@@ -21,10 +33,10 @@ struct MetricsState {
 
 /// The exporter as this process configures it, before a recorder is built.
 ///
-/// Duration histograms get explicit buckets; without them this exporter
-/// renders every `metrics::histogram!` as a per-process Prometheus
-/// *summary*, unaggregable across replicas for `histogram_quantile`. The
-/// `_seconds` suffix match leaves non-time histograms as plain summaries.
+/// Unbucketed, a `metrics::histogram!` renders as a per-process summary that
+/// `histogram_quantile` cannot aggregate; non-`_seconds` ones stay summaries.
+/// A name both matchers hit takes the prefix ladder: the exporter tries
+/// `Prefix` matchers before `Suffix` ones.
 #[allow(clippy::expect_used)] // fail-fast: metrics is a startup prerequisite
 fn builder() -> PrometheusBuilder {
     PrometheusBuilder::new()
@@ -33,6 +45,11 @@ fn builder() -> PrometheusBuilder {
             DURATION_SECONDS_BUCKETS,
         )
         .expect("the duration bucket ladder is non-empty")
+        .set_buckets_for_metric(
+            Matcher::Prefix(AGENT_TURN_PREFIX.to_owned()),
+            AGENT_TURN_SECONDS_BUCKETS,
+        )
+        .expect("the agent turn bucket ladder is non-empty")
 }
 
 /// Initialize the metrics system and return a handle.
@@ -86,6 +103,33 @@ mod tests {
         assert!(
             rendered.contains("moatless_example_bytes{quantile="),
             "the suffix match leaked onto a non-duration histogram:\n{rendered}"
+        );
+    }
+
+    /// An agent turn runs for tens of minutes, so its histograms need bounds
+    /// past 600s or every long turn lands in `+Inf`.
+    #[test]
+    fn an_agent_turn_histogram_gets_the_long_ladder() {
+        let recorder = builder().build_recorder();
+        metrics::with_local_recorder(&recorder, || {
+            metrics::histogram!("moatless_agent_turn_duration_seconds").record(1500.0);
+            metrics::histogram!("moatless_agent_turn_api_duration_seconds").record(1500.0);
+            metrics::histogram!("moatless_example_duration_seconds").record(1500.0);
+        });
+        let rendered = recorder.handle().render();
+
+        for name in [
+            "moatless_agent_turn_duration_seconds",
+            "moatless_agent_turn_api_duration_seconds",
+        ] {
+            assert!(
+                rendered.contains(&format!("{name}_bucket{{le=\"1800\"}} 1")),
+                "{name} lacks the long ladder:\n{rendered}"
+            );
+        }
+        assert!(
+            !rendered.contains("moatless_example_duration_seconds_bucket{le=\"1800\"}"),
+            "the agent turn ladder leaked onto another duration histogram:\n{rendered}"
         );
     }
 }

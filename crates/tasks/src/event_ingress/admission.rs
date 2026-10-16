@@ -58,13 +58,19 @@ impl EventAdmission {
         self.commit(&request).await?;
 
         if let Some(publisher) = self.publisher.as_ref() {
+            // The handlers' `moatless_agent_*` metrics label by this profile; a
+            // `None` here reaches them as `agent_profile="unknown"`.
+            let agent_profile = request
+                .state
+                .as_ref()
+                .and_then(|state| state.agent_profile.as_deref());
             if let Err(e) = publisher
                 .publish_raw_event_with_id(
                     &request.event_id,
                     &request.task_id,
                     request.event_type,
                     &request.sub_type,
-                    None,
+                    agent_profile,
                     request.turn_number,
                     request.payload,
                 )

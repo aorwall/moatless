@@ -40,6 +40,7 @@ pub enum RecordedEvent {
 #[derive(Debug, Clone)]
 pub struct RawPublish {
     pub event_id: String,
+    pub agent_profile: Option<String>,
     pub payload: Value,
 }
 
@@ -92,6 +93,11 @@ impl RecordingPublisher {
             fail_next: Arc::new(Mutex::new(fail_next)),
             ..Self::default()
         }
+    }
+
+    /// Successful `publish_raw_event_with_id` calls, in order.
+    pub fn raw_publishes(&self) -> Vec<RawPublish> {
+        self.raw.lock().expect("recorder poisoned").clone()
     }
 
     /// `publish_task_event` calls, in order, with actor and payload.
@@ -197,7 +203,7 @@ impl EventPublisher for RecordingPublisher {
         _: &str,
         _: &str,
         _: &str,
-        _: Option<&str>,
+        agent_profile: Option<&str>,
         _: Option<i32>,
         payload: Value,
     ) -> Result<(), PublishError> {
@@ -219,6 +225,7 @@ impl EventPublisher for RecordingPublisher {
             .expect("recorder poisoned")
             .push(RawPublish {
                 event_id: event_id.to_string(),
+                agent_profile: agent_profile.map(str::to_string),
                 payload,
             });
         Ok(())
