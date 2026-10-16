@@ -163,6 +163,37 @@ async fn a_command_sees_the_registrys_own_task_id() {
     assert_eq!(log.trim(), "fork-task", "log was {log:?}");
 }
 
+/// The record is masked and the child is not; see `crate::command_redact`.
+#[tokio::test]
+async fn a_secret_assignment_is_masked_in_the_record_but_reaches_the_child() {
+    let reg = registry(Duration::from_mins(1));
+
+    let cmd = reg
+        .run(CommandSpec {
+            command: "DEPLOY_TOKEN=s3cr3t sh -c 'printf %s \"$DEPLOY_TOKEN\"'".into(),
+            cwd: None,
+            timeout: None,
+            label: None,
+            queue: false,
+        })
+        .await
+        .expect("spawn");
+    assert!(!cmd.command.contains("s3cr3t"), "{}", cmd.command);
+    assert!(!cmd.label.contains("s3cr3t"), "{}", cmd.label);
+    assert!(
+        cmd.command.starts_with("DEPLOY_TOKEN=*** "),
+        "{}",
+        cmd.command
+    );
+
+    let done = wait_terminal(&reg, &cmd.id).await;
+    assert_eq!(done.exit_code, Some(0));
+    let log = tokio::fs::read_to_string(&cmd.log_path)
+        .await
+        .expect("command log");
+    assert_eq!(log.trim(), "s3cr3t", "log was {log:?}");
+}
+
 /// The writer a registry entry stops naming: a command that backgrounds a
 /// process and exits leaves it running, which is why certification reads the
 /// pod's live processes and not this registry.

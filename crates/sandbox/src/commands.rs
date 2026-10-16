@@ -22,6 +22,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use crate::backend_client::BackendClient;
+use crate::command_redact::redact_secrets;
 use crate::events::GrpcEventPublisher;
 
 /// Grace period between the SIGTERM and the SIGKILL of a timed-out command.
@@ -444,8 +445,13 @@ impl CommandRegistry {
         let now = unix_now_ms();
         let mut command = CommandRecord {
             id: id.clone(),
-            command: spec.command.clone(),
-            label: spec.label.clone().unwrap_or_else(|| preview(&spec.command)),
+            // Masked here once, so every copy the record feeds is; the child
+            // runs `spec.command`. See `command_redact`.
+            command: redact_secrets(&spec.command),
+            label: spec
+                .label
+                .as_deref()
+                .map_or_else(|| preview(&redact_secrets(&spec.command)), redact_secrets),
             pid: 0,
             started_at_unix_ms: now,
             timeout,

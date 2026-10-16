@@ -17,6 +17,7 @@
 pub mod agent;
 pub mod backend_client;
 mod code_intel;
+mod command_redact;
 pub mod commands;
 pub mod config;
 pub mod credentials;
