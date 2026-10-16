@@ -1,6 +1,6 @@
 //! The Task listing query: one statement per read, every narrowing a clause.
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use sqlx::AssertSqlSafe;
 use tokio::sync::Semaphore;
@@ -17,6 +17,11 @@ use super::operations::{ListingFilter, status_list};
 
 pub(crate) const FULL_LISTING_CONCURRENCY: usize = 1;
 const FULL_LISTING_STATEMENT_TIMEOUT: &str = "5s";
+/// How long a full listing queues for the replica's permit before it is
+/// refused. Shorter than [`FULL_LISTING_STATEMENT_TIMEOUT`], so a listing stuck
+/// in the database refuses its queue rather than holding it for the full five
+/// seconds.
+pub(crate) const FULL_LISTING_QUEUE_WAIT: Duration = Duration::from_secs(2);
 
 /// A capped read: `cap` rows, newest first, after `before` when given.
 pub(crate) struct Page<'a> {
@@ -65,14 +70,18 @@ pub(crate) async fn list(
     } else {
         "listing"
     };
+    // Queued, not refused at once: a reconnecting client asks for its shell
+    // and its archive in the same instant. The wait holds no connection.
     let _permit = if full_listing {
-        let Ok(permit) = permits.try_acquire() else {
+        let Ok(Ok(permit)) = tokio::time::timeout(FULL_LISTING_QUEUE_WAIT, permits.acquire()).await
+        else {
             metrics::counter!(LISTING_REJECTIONS, "reason" => "at_capacity", "kind" => kind)
                 .increment(1);
             warn!(
                 user_id = %viewer.user_id,
                 kind,
-                "T3 UI full listing rejected; another one is in progress"
+                wait_secs = FULL_LISTING_QUEUE_WAIT.as_secs(),
+                "T3 UI full listing rejected; another one held the permit for the whole wait"
             );
             return Err(sqlx::Error::PoolTimedOut);
         };

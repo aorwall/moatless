@@ -18,8 +18,9 @@ use super::names_dao;
 /// Reads the Task listing for one viewer.
 ///
 /// A read that is not narrowed by task id scans the deployment, so one runs
-/// per replica at a time; another is refused as `sqlx::Error::PoolTimedOut`,
-/// leaving pool capacity for task control, ingress and reconciliation.
+/// per replica at a time; another queues without a connection and is refused
+/// as `sqlx::Error::PoolTimedOut` after `FULL_LISTING_QUEUE_WAIT`, leaving pool
+/// capacity for task control, ingress and reconciliation.
 #[derive(Clone)]
 pub struct TaskListing {
     pool: DbPool,

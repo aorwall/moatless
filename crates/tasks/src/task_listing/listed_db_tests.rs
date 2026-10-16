@@ -389,3 +389,20 @@ async fn a_read_by_id_reuses_the_generic_plan(pool: PgPool) {
     .expect("the listing statement is prepared");
     assert_eq!((generic, custom), (3, 0));
 }
+
+/// A client opening its shell and its archive at once gets both: the second
+/// full listing queues for the replica's permit instead of being refused.
+#[sqlx::test]
+async fn two_full_listings_at_once_both_complete(pool: PgPool) {
+    seed_owned_task(&pool).await;
+    let listing = listing_over(&pool);
+    let owner = ScopeContext::user(USER_1.to_string());
+
+    let (open, closed) = tokio::join!(
+        listing.followed(&owner),
+        listing.followed_closed(&owner, None)
+    );
+
+    open.expect("the open listing completes");
+    closed.expect("the archive listing completes");
+}

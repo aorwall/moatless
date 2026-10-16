@@ -46,8 +46,9 @@ async fn postgres_accepts_the_conversation_query(pool: PgPool) {
 /// The production incident's failure shape, replayed against a real Postgres.
 ///
 /// One shell query blocks in the database while another snapshot request hits
-/// the same backend replica; the second must be rejected before it acquires a
-/// pool connection, and Postgres must cancel the first after five seconds.
+/// the same backend replica; the second must queue without a pool connection
+/// and be refused after its two-second wait, and Postgres must cancel the
+/// first after five seconds.
 #[sqlx::test]
 async fn a_blocked_full_listing_cannot_monopolize_the_pool(pool: PgPool) {
     let mut blocker = pool.begin().await.unwrap();
@@ -77,11 +78,14 @@ async fn a_blocked_full_listing_cannot_monopolize_the_pool(pool: PgPool) {
     let rejected = repository
         .followed_task_ids(&viewer("user-1"))
         .await
-        .expect_err("a second full listing must not enter PostgreSQL");
+        .expect_err(
+            "a second full listing must not enter PostgreSQL while the first holds the permit",
+        );
     assert!(matches!(rejected, sqlx::Error::PoolTimedOut));
+    let waited = rejected_at.elapsed();
     assert!(
-        rejected_at.elapsed() < Duration::from_secs(1),
-        "overload was queued until a pool timeout instead of rejected"
+        waited >= Duration::from_millis(1900) && waited < Duration::from_secs(4),
+        "the queued listing was refused after {waited:?}, not after its two-second wait"
     );
 
     let timed_out = tokio::time::timeout(Duration::from_secs(7), running)
