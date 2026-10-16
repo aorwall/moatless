@@ -359,6 +359,10 @@ pub struct SandboxConfig {
     pub retain_storage_on_close: bool,
     /// Pod startup timeout in seconds
     pub pod_startup_timeout_secs: u64,
+    /// How long a sandbox's init clone may receive nothing before git abandons
+    /// it, forwarded as `GIT_CLONE_STALL_TIMEOUT_SECS`. `None` leaves the
+    /// sandbox's own default. Env `K8S_SANDBOX_GIT_CLONE_STALL_TIMEOUT_SECS`.
+    pub git_clone_stall_timeout_secs: Option<u64>,
     /// Secret for signing task auth JWTs
     pub task_token_secret: Option<String>,
     /// TTL (seconds) for the long-lived user auth token delivered over
@@ -907,6 +911,9 @@ impl Config {
                 node_archive_enabled: env_bool("K8S_SANDBOX_NODE_ARCHIVE_ENABLED", false),
                 retain_storage_on_close: env_bool("SANDBOX_RETAIN_STORAGE_ON_CLOSE", true),
                 pod_startup_timeout_secs: env_or("K8S_POD_STARTUP_TIMEOUT_SECS", 120),
+                git_clone_stall_timeout_secs: env_opt("K8S_SANDBOX_GIT_CLONE_STALL_TIMEOUT_SECS")
+                    .and_then(|raw| raw.trim().parse::<u64>().ok())
+                    .filter(|secs| *secs > 0),
                 task_token_secret: env_opt("TASK_TOKEN_SECRET"),
                 user_token_ttl_secs: env_or("SANDBOX_USER_TOKEN_TTL_SECS", 7 * 24 * 3600),
                 bootstrap_token_ttl_secs: env_or("SANDBOX_BOOTSTRAP_TOKEN_TTL_SECS", 1800),
@@ -1383,6 +1390,7 @@ impl Config {
                 node_archive_enabled: false,
                 retain_storage_on_close: false,
                 pod_startup_timeout_secs: 10,
+                git_clone_stall_timeout_secs: None,
                 task_token_secret: None,
                 user_token_ttl_secs: 7 * 24 * 3600,
                 bootstrap_token_ttl_secs: 1800,

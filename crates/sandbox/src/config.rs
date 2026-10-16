@@ -243,6 +243,10 @@ pub struct Config {
     pub search_path: Option<std::ffi::OsString>,
     /// The timeouts each HTTP client this sandbox builds is given.
     pub http: SandboxHttpConfig,
+    /// How long a clone may receive nothing before git abandons it. Env
+    /// `GIT_CLONE_STALL_TIMEOUT_SECS`; zero or garbage keeps
+    /// [`DEFAULT_CLONE_STALL_SECS`].
+    pub clone_stall_secs: u64,
 }
 
 /// Read the resolved checkouts supplied by the backend, routed as
@@ -401,6 +405,24 @@ fn sync_interval(raw: Option<&str>) -> Option<Duration> {
         Some(Ok(0)) => None,
         Some(Ok(secs)) => Some(Duration::from_secs(secs)),
         _ => Some(Duration::from_secs(DEFAULT_SYNC_INTERVAL_SECS)),
+    }
+}
+
+/// How long a clone may receive nothing before git abandons it.
+///
+/// `GIT_CLONE_STALL_TIMEOUT_SECS` overrides it. Inside the default startup probe
+/// window (150s), so a stalled clone fails in init before the probe kills it;
+/// the backend caps a configured value the same way.
+pub const DEFAULT_CLONE_STALL_SECS: u64 = 60;
+// The default window: `(K8S_POD_STARTUP_TIMEOUT_SECS / 5 + 6) * 5`.
+const _: () = assert!(DEFAULT_CLONE_STALL_SECS < (120 / 5 + 6) * 5);
+
+/// The clone stall limit `raw` names in whole seconds; zero, garbage or
+/// absent keeps [`DEFAULT_CLONE_STALL_SECS`].
+fn clone_stall_secs(raw: Option<String>) -> u64 {
+    match raw.and_then(|raw| raw.trim().parse::<u64>().ok()) {
+        Some(secs) if secs > 0 => secs,
+        _ => DEFAULT_CLONE_STALL_SECS,
     }
 }
 
@@ -639,6 +661,7 @@ impl Config {
             language_servers: parsed.language_servers,
             search_path: env::var_os("PATH"),
             http: SandboxHttpConfig::from_vars(|key| env::var(key).ok()),
+            clone_stall_secs: clone_stall_secs(env::var("GIT_CLONE_STALL_TIMEOUT_SECS").ok()),
         })
     }
 
@@ -744,6 +767,7 @@ pub(crate) mod test_support {
             language_servers: Vec::new(),
             search_path: None,
             http: super::SandboxHttpConfig::default(),
+            clone_stall_secs: super::DEFAULT_CLONE_STALL_SECS,
         }
     }
 }
@@ -840,6 +864,16 @@ mod tests {
     use moatless_workspace_types::workspace::{LanguageServer, RepoCheckout};
     use std::collections::HashMap;
     use std::time::Duration;
+
+    #[test]
+    fn clone_stall_reads_whole_seconds_and_falls_back_to_the_default() {
+        let default = super::DEFAULT_CLONE_STALL_SECS;
+        assert_eq!(super::clone_stall_secs(None), default);
+        assert_eq!(super::clone_stall_secs(Some("180".into())), 180);
+        assert_eq!(super::clone_stall_secs(Some(" 90 ".into())), 90);
+        assert_eq!(super::clone_stall_secs(Some("0".into())), default);
+        assert_eq!(super::clone_stall_secs(Some("garbage".into())), default);
+    }
 
     #[test]
     fn sync_intervals_default_and_disable() {

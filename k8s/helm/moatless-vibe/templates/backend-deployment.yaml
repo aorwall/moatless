@@ -193,6 +193,10 @@ spec:
               value: {{ .Values.kubernetes.podStartupTimeout | default "120" | quote }}
             - name: K8S_SANDBOX_LIVENESS_ENABLED
               value: {{ .Values.kubernetes.sandboxLivenessEnabled | default false | quote }}
+            {{- with .Values.kubernetes.sandboxGitCloneStallTimeout }}
+            - name: K8S_SANDBOX_GIT_CLONE_STALL_TIMEOUT_SECS
+              value: {{ . | quote }}
+            {{- end }}
             {{- if .Values.kubernetes.sandboxTolerations }}
             - name: K8S_SANDBOX_TOLERATIONS
               value: {{ .Values.kubernetes.sandboxTolerations | toJson | quote }}

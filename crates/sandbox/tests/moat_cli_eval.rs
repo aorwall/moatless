@@ -962,6 +962,7 @@ fn build_config(tmp: &TempDir, agent: EvalAgent) -> Config {
         language_servers: Vec::new(),
         search_path: None,
         http: moatless_sandbox::config::SandboxHttpConfig::default(),
+        clone_stall_secs: moatless_sandbox::config::DEFAULT_CLONE_STALL_SECS,
         permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
         workspace_sync_enabled: false,
         headless: true,

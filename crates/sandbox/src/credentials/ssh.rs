@@ -14,7 +14,6 @@ use tokio::fs;
 use tracing::{info, warn};
 
 use crate::config::Config;
-use crate::init::git::CLONE_STALL_SECS;
 
 /// `~/.ssh` must be 0700 and its contents 0600, or ssh refuses to use the keys.
 /// The sandbox home is ephemeral, so we own the whole `~/.ssh/config` file (no
@@ -83,7 +82,7 @@ pub async fn materialize_ssh_keys(config: &Config, ssh_keys: &HashMap<String, St
     }
 
     let config_path = format!("{ssh_dir}/config");
-    let config_body = render_ssh_config(&identity_files, &known_hosts);
+    let config_body = render_ssh_config(&identity_files, &known_hosts, config.clone_stall_secs);
     match fs::write(&config_path, config_body).await {
         Ok(()) => {
             set_mode(&config_path, KEY_FILE_MODE).await;
@@ -153,15 +152,15 @@ fn key_file_name(secret_name: &str) -> String {
 ///
 /// `StrictHostKeyChecking accept-new` trusts a host key on first use,
 /// appropriate for an ephemeral sandbox talking to arbitrary SSH remotes.
-fn render_ssh_config(identity_files: &[String], known_hosts: &str) -> String {
+fn render_ssh_config(identity_files: &[String], known_hosts: &str, stall_secs: u64) -> String {
     let mut out = String::from("Host *\n");
     out.push_str("    StrictHostKeyChecking accept-new\n");
     // write! into a String is infallible; the Result is discarded intentionally.
     let _ = writeln!(out, "    UserKnownHostsFile {known_hosts}");
     out.push_str("    IdentitiesOnly yes\n");
-    // Fails a black-holed remote within `CLONE_STALL_SECS`, bounding init's clone.
-    let keepalive_secs = (CLONE_STALL_SECS / 4).max(1);
-    let _ = writeln!(out, "    ConnectTimeout {CLONE_STALL_SECS}");
+    // Fails a black-holed remote within `stall_secs`, bounding init's clone.
+    let keepalive_secs = (stall_secs / 4).max(1);
+    let _ = writeln!(out, "    ConnectTimeout {stall_secs}");
     let _ = writeln!(out, "    ServerAliveInterval {keepalive_secs}");
     out.push_str("    ServerAliveCountMax 4\n");
     for path in identity_files {
@@ -210,6 +209,7 @@ mod tests {
                 "/home/m/.ssh/moatless_b".to_string(),
             ],
             "/home/m/.ssh/known_hosts",
+            crate::config::DEFAULT_CLONE_STALL_SECS,
         );
         assert!(cfg.contains("Host *"));
         assert!(cfg.contains("StrictHostKeyChecking accept-new"));

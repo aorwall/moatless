@@ -172,6 +172,7 @@ impl RealEnv {
             language_servers: vec![],
             search_path: None,
             http: moatless_sandbox::config::SandboxHttpConfig::default(),
+            clone_stall_secs: moatless_sandbox::config::DEFAULT_CLONE_STALL_SECS,
             permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
             workspace_sync_enabled: false,
             workspace_restore_if_empty: false,

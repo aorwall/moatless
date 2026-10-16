@@ -544,6 +544,7 @@ fn test_config(dir: &std::path::Path) -> Config {
         language_servers: vec![],
         search_path: None,
         http: moatless_sandbox::config::SandboxHttpConfig::default(),
+        clone_stall_secs: moatless_sandbox::config::DEFAULT_CLONE_STALL_SECS,
         frontend_url: None,
         use_tmux: false,
         command_default_timeout_secs: moatless_sandbox::config::DEFAULT_COMMAND_TIMEOUT_SECS,

@@ -724,6 +724,13 @@ kubernetes:
   sandboxGrpcPort: 50052
   # -- Pod startup timeout in seconds
   podStartupTimeout: 120
+  # -- Seconds a sandbox's init clone may receive nothing before git abandons
+  #    it (git's HTTP low-speed time; also the SSH connect timeout). Raise it when
+  #    clones through a busy backend git proxy stall on the ref listing. Empty
+  #    keeps the sandbox default (60s). The backend caps it 30s inside the
+  #    startup probe window, `(podStartupTimeout / 5 + 6) * 5`, so raise
+  #    podStartupTimeout with it.
+  sandboxGitCloneStallTimeout: ""
   # -- Attach a liveness probe to the sandbox container so Kubernetes restarts a
   #    hung-but-alive pod (agent actor loop wedged while /health still reports
   #    Ready). Default off: a false-positive restart kills an in-flight agent

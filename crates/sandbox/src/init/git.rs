@@ -177,7 +177,7 @@ pub async fn clone_repositories(
                 .get(&repo.mount_name)
                 .map(String::as_str),
             broker_origins: &broker_origins,
-            stall_secs: CLONE_STALL_SECS,
+            stall_secs: config.clone_stall_secs,
         };
         clone_with_retry(repo, &dest, &source, config.http.git_probe, deadline).await?;
         summary.cloned.push(repo.mount_name.clone());
@@ -225,7 +225,7 @@ struct CloneSource<'a> {
     github_upstream: Option<&'a str>,
     /// The origins the credential broker answers ([`broker_origins`]).
     broker_origins: &'a [String],
-    /// [`CLONE_STALL_SECS`] outside tests.
+    /// [`Config::clone_stall_secs`] outside tests.
     stall_secs: u64,
 }
 
@@ -235,16 +235,6 @@ struct CloneSource<'a> {
 /// restore, this): the probe may SIGKILL it mid-backoff since the restore's
 /// report matters more, and the container restart is the outer retry.
 const CLONE_RETRY_BUDGET: Duration = Duration::from_secs(45);
-
-/// How long a clone may receive nothing before git abandons it.
-///
-/// A stall limit rather than a wall-clock cap, so a large checkout still
-/// transferring is never cut off. Inside the default startup probe window
-/// (150s), so a host that black-holes the clone fails here and init's error
-/// reaches the termination log rather than the probe's SIGKILL taking it.
-pub(crate) const CLONE_STALL_SECS: u64 = 60;
-// The default window: `(K8S_POD_STARTUP_TIMEOUT_SECS / 5 + 6) * 5`.
-const _: () = assert!(CLONE_STALL_SECS < (120 / 5 + 6) * 5);
 
 /// Longest single backoff between clone attempts.
 const MAX_CLONE_RETRY_DELAY: Duration = Duration::from_secs(8);

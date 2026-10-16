@@ -3,6 +3,7 @@ use super::*;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use crate::config::DEFAULT_CLONE_STALL_SECS;
 use crate::config::test_support::minimal_config;
 
 /// A port nothing listens on. Well below the ephemeral range, so a
@@ -710,7 +711,7 @@ async fn a_broker_origin_clone_keeps_no_token_and_fetches_after_a_rotation() {
             token: Some("ghs_first"),
             github_upstream: None,
             broker_origins: std::slice::from_ref(&origin),
-            stall_secs: CLONE_STALL_SECS,
+            stall_secs: DEFAULT_CLONE_STALL_SECS,
         },
     )
     .await
@@ -764,7 +765,7 @@ async fn a_proxied_github_clone_records_its_github_remote() {
             token: Some("task-token"),
             github_upstream: Some("https://github.com/acme/api.git"),
             broker_origins: std::slice::from_ref(&origin),
-            stall_secs: CLONE_STALL_SECS,
+            stall_secs: DEFAULT_CLONE_STALL_SECS,
         },
     )
     .await
@@ -832,7 +833,7 @@ const NO_SOURCE: CloneSource<'static> = CloneSource {
     token: None,
     github_upstream: None,
     broker_origins: &[],
-    stall_secs: CLONE_STALL_SECS,
+    stall_secs: DEFAULT_CLONE_STALL_SECS,
 };
 
 fn probe() -> HttpTimeouts {
@@ -884,7 +885,7 @@ async fn an_ssh_clone_keeps_the_configured_ssh_command() {
             &dest,
         ],
         None,
-        CLONE_STALL_SECS,
+        DEFAULT_CLONE_STALL_SECS,
     )
     .await
     .expect_err("the stand-in ssh always fails");

@@ -74,3 +74,39 @@ fn liveness_probe_present_with_conservative_settings_when_flag_enabled() {
         Some("/health")
     );
 }
+
+fn clone_stall_env(config: &Config) -> Option<String> {
+    let plan = test_plan();
+    let container = build_sandbox_container(config, "task-1", &plan, None, None).unwrap();
+    container
+        .env
+        .unwrap_or_default()
+        .into_iter()
+        .find(|var| var.name == "GIT_CLONE_STALL_TIMEOUT_SECS")
+        .and_then(|var| var.value)
+}
+
+#[test]
+fn clone_stall_env_absent_when_unconfigured() {
+    assert_eq!(clone_stall_env(&test_config()), None);
+}
+
+#[test]
+fn clone_stall_env_forwards_a_value_inside_the_startup_window() {
+    let mut config = test_config();
+    config.sandbox.pod_startup_timeout_secs = 300;
+    config.sandbox.git_clone_stall_timeout_secs = Some(180);
+
+    assert_eq!(clone_stall_env(&config).as_deref(), Some("180"));
+}
+
+#[test]
+fn clone_stall_env_is_capped_below_the_startup_window() {
+    // 120s startup timeout gives a (120 / 5 + 6) * 5 = 150s probe window; a
+    // stall limit past it would let the probe kill init before git gives up.
+    let mut config = test_config();
+    config.sandbox.pod_startup_timeout_secs = 120;
+    config.sandbox.git_clone_stall_timeout_secs = Some(600);
+
+    assert_eq!(clone_stall_env(&config).as_deref(), Some("120"));
+}

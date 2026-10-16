@@ -344,6 +344,14 @@ pub(super) fn build_sandbox_container(
     let startup_probe_period: i32 = 5;
     let failure_threshold = ((startup_timeout / startup_probe_period as u64) + 6) as i32;
 
+    if let Some(stall_secs) = config.sandbox.git_clone_stall_timeout_secs {
+        let window_secs = failure_threshold as u64 * startup_probe_period as u64;
+        env.push(env_var(
+            "GIT_CLONE_STALL_TIMEOUT_SECS",
+            &clone_stall_within_startup_window(stall_secs, window_secs).to_string(),
+        ));
+    }
+
     let startup_probe = Probe {
         http_get: Some(HTTPGetAction {
             path: Some("/health".to_string()),
@@ -501,6 +509,27 @@ pub(super) fn build_sandbox_container(
         security_context: Some(app_security_context(config)),
         ..Default::default()
     })
+}
+
+/// Headroom the startup probe window keeps for init's work before the clone.
+const CLONE_STALL_STARTUP_HEADROOM_SECS: u64 = 30;
+
+/// `stall_secs`, capped so a stalled clone fails inside the startup probe
+/// window. Past it the probe SIGKILLs init first, and the clone error never
+/// reaches the termination log.
+fn clone_stall_within_startup_window(stall_secs: u64, window_secs: u64) -> u64 {
+    let capped = stall_secs
+        .min(window_secs.saturating_sub(CLONE_STALL_STARTUP_HEADROOM_SECS))
+        .max(1);
+    if capped < stall_secs {
+        warn!(
+            configured_secs = stall_secs,
+            capped_secs = capped,
+            startup_window_secs = window_secs,
+            "Clone stall timeout lowered to fit the sandbox startup probe window; raise podStartupTimeout to allow more"
+        );
+    }
+    capped
 }
 
 /// Serialize the plan's repository checkouts for the `WORKSPACE_REPOS` env.
