@@ -422,7 +422,11 @@ fn build_managed_command_note(config: &Config) -> Option<String> {
          it starts at once. Never wait for a command with a loop over `moat \
          cmd status`, whose output ends with the command's log. Check on one \
          with `moat cmd list` / `moat cmd status <id>` / `moat cmd logs \
-         <id>`, and stop one with `moat cmd kill <id>`. A command is killed \
+         <id>`, and stop one with `moat cmd kill <id>`. A server you start \
+         this way, such as a database for a test run, keeps the sandbox awake \
+         and the task shown as running for as long as it lives, so kill it \
+         once the work that needed it is done, and name any command still \
+         running when you report where your work stands. A command is killed \
          at its deadline (4h by default); pass `--timeout <seconds>` to lower \
          it for something that should finish fast, or raise it for a server \
          meant to run the whole session."
@@ -1288,6 +1292,7 @@ mod tests {
         assert!(subprocess.contains("## Long-running commands"));
         assert!(subprocess.contains("moat cmd run --cwd <dir>"));
         assert!(subprocess.contains("that wake is guaranteed"));
+        assert!(subprocess.contains("kill it once the work that needed it is done"));
 
         let tmux = build_prompt_append(&test_config(true), &test_request());
         assert!(!tmux.contains("## Long-running commands"));
