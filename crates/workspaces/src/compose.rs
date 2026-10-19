@@ -61,11 +61,12 @@ pub fn repository_reader(db: DbPool) -> Arc<dyn RepositoryReader> {
 }
 
 /// Reconciles a repository's git-declared workspaces, reading files within
-/// `git_content`.
+/// `git_content` from GitHub at `github_api_base`.
 pub fn git_sync(
     db: DbPool,
     git_host_tokens: Arc<dyn GitHostTokenIssuer>,
     git_content: HttpTimeouts,
+    github_api_base: String,
 ) -> Arc<GitSyncService> {
     Arc::new(GitSyncService::new(
         db.clone(),
@@ -73,6 +74,7 @@ pub fn git_sync(
         Arc::new(PgRepositoryDao(db)),
         git_host_tokens,
         git_content,
+        github_api_base,
     ))
 }
 

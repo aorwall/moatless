@@ -30,7 +30,7 @@ use moatless_types::access_control::Actor;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::http::HttpTimeouts;
 use moatless_workspace_types::repository::RepositoryKind;
-use moatless_workspace_types::repository::{GitHostRepo, RepositoryRemote};
+use moatless_workspace_types::repository::{GitHostRepo, RepositoryProvider, RepositoryRemote};
 use moatless_workspace_types::schemas::workspace::{
     WorkspaceSyncSkip, WorkspaceSyncSummary, WorkspaceSyncWarning,
 };
@@ -127,19 +127,26 @@ const RETIRED_CONFIG_PATH: &str = ".moatless/config.json";
 /// inventing one from an unreachable provider would explain the wrong thing.
 async fn retired_config_warning(
     http: &reqwest::Client,
+    github_api_base: &str,
     remote: &RepositoryRemote,
     branch: Option<&str>,
     token: Option<&str>,
 ) -> Option<WorkspaceSyncWarning> {
-    fetch_provider_file(http, remote, RETIRED_CONFIG_PATH, branch, token)
-        .await
-        .ok()
-        .flatten()
-        .map(|_| WorkspaceSyncWarning {
-            path: RETIRED_CONFIG_PATH.to_string(),
-            message: "not read: declare workspaces in .moatless/workspaces.json instead"
-                .to_string(),
-        })
+    fetch_provider_file(
+        http,
+        github_api_base,
+        remote,
+        RETIRED_CONFIG_PATH,
+        branch,
+        token,
+    )
+    .await
+    .ok()
+    .flatten()
+    .map(|_| WorkspaceSyncWarning {
+        path: RETIRED_CONFIG_PATH.to_string(),
+        message: "not read: declare workspaces in .moatless/workspaces.json instead".to_string(),
+    })
 }
 
 /// Every key in the file that no field of the schema claims, as JSON paths into
@@ -212,12 +219,20 @@ fn commentless(unknown: &UnknownKeys) -> impl Iterator<Item = &String> {
 /// Returns `Ok(None)` when the file does not exist.
 pub async fn fetch_moatless_workspaces(
     http: &reqwest::Client,
+    github_api_base: &str,
     remote: &RepositoryRemote,
     branch: Option<&str>,
     token: Option<&str>,
 ) -> Result<Option<MoatlessWorkspacesFile>, RepositoryError> {
-    let Some(body) =
-        fetch_provider_file(http, remote, ".moatless/workspaces.json", branch, token).await?
+    let Some(body) = fetch_provider_file(
+        http,
+        github_api_base,
+        remote,
+        ".moatless/workspaces.json",
+        branch,
+        token,
+    )
+    .await?
     else {
         return Ok(None);
     };
@@ -265,6 +280,14 @@ enum UpsertOutcome {
     Skipped,
 }
 
+/// What [`GitSyncService::default_branch_head`] read.
+pub struct BranchHead {
+    pub sha: String,
+    /// Whether a credential was presented. An unauthenticated read spends
+    /// GitHub's shared per-IP budget of 60 requests an hour.
+    pub authenticated: bool,
+}
+
 /// Reconciles a repository's git-declared workspaces, holding the ports the
 /// reconcile tree threads through every frame (the workspace and repository
 /// DAOs, the pool, and the git-host token seam).
@@ -274,6 +297,8 @@ pub struct GitSyncService {
     repositories: Arc<dyn RepositoryDao>,
     git_host_tokens: Arc<dyn GitHostTokenIssuer>,
     http: reqwest::Client,
+    /// `Config::github_api_base`.
+    github_api_base: String,
 }
 
 impl GitSyncService {
@@ -283,6 +308,7 @@ impl GitSyncService {
         repositories: Arc<dyn RepositoryDao>,
         git_host_tokens: Arc<dyn GitHostTokenIssuer>,
         git_content: HttpTimeouts,
+        github_api_base: String,
     ) -> Self {
         Self {
             db,
@@ -290,6 +316,7 @@ impl GitSyncService {
             repositories,
             git_host_tokens,
             http: crate::repository::config_reader::client(git_content),
+            github_api_base,
         }
     }
 
@@ -314,11 +341,14 @@ impl GitSyncService {
         let token_str = token.as_deref();
         let branch = repo.default_branch.as_deref();
 
-        let Some(file) = fetch_moatless_workspaces(&self.http, remote, branch, token_str).await?
+        let Some(file) =
+            fetch_moatless_workspaces(&self.http, &self.github_api_base, remote, branch, token_str)
+                .await?
         else {
             debug!(repository_id = %repo.id, "No .moatless/workspaces.json; nothing to sync");
             if let Some(warning) =
-                retired_config_warning(&self.http, remote, branch, token_str).await
+                retired_config_warning(&self.http, &self.github_api_base, remote, branch, token_str)
+                    .await
             {
                 warn!(
                     repository_id = %repo.id,
@@ -414,6 +444,40 @@ impl GitSyncService {
         Ok(summary)
     }
 
+    /// The commit sha a GitHub repository's default branch points at, read
+    /// with the credential `scope` resolves.
+    ///
+    /// Errors on a non-GitHub remote, and on any answer but a sha.
+    pub async fn default_branch_head(
+        &self,
+        repo: &Repository,
+        scope: &ScopeContext,
+    ) -> Result<BranchHead, RepositoryError> {
+        let remote = repo
+            .remote
+            .as_ref()
+            .ok_or_else(|| RepositoryError::BadRequest("Repository has no remote URL".into()))?;
+        let host_repo = require_host_repo(remote)?;
+        if host_repo.provider() != RepositoryProvider::Github {
+            return Err(RepositoryError::BadRequest(
+                "Only a GitHub repository's head is read".into(),
+            ));
+        }
+        let token = self.resolve_sync_token(scope, host_repo).await;
+        let sha = crate::repository::config_reader::github_branch_head(
+            &self.http,
+            &self.github_api_base,
+            remote,
+            repo.default_branch.as_deref(),
+            token.as_deref(),
+        )
+        .await?;
+        Ok(BranchHead {
+            sha,
+            authenticated: token.is_some(),
+        })
+    }
+
     /// Best-effort auto-sync of a repo's workspace config when a task starts.
     ///
     /// Gated on the repo shipping a `.moatless/` directory. Every failure is
@@ -435,7 +499,11 @@ impl GitSyncService {
         let branch = repo.default_branch.as_deref();
 
         if !crate::repository::config_reader::moatless_dir_exists(
-            &self.http, remote, branch, token_str,
+            &self.http,
+            &self.github_api_base,
+            remote,
+            branch,
+            token_str,
         )
         .await
         {

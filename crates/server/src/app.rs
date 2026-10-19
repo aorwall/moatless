@@ -496,6 +496,10 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             crate::compose::workers::leader(k8s, &config, "moatless-cron-scheduler", 120)
         });
 
+        let loop_sync_leader = reaper_k8s
+            .as_ref()
+            .map(|k8s| crate::compose::workers::leader(k8s, &config, "moatless-loop-sync", 300));
+
         // The desired-state reconciler runs in both modes: lease-elected on K8s,
         // lease-free single-replica on Docker (a `None` guard always reconciles).
         let reconciler_leader = reaper_k8s.as_ref().map(|k8s| {
@@ -556,6 +560,24 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     Criticality::Readiness,
                     crate::compose::workers::schedule_runner(&ports, &app_state)
                         .spawn(cron_leader, cancel.clone()),
+                );
+                supervisor.supervise(
+                    "default-branch-loop-sync",
+                    // Optional: a merged `LOOP.md` waits for `sync-config`
+                    // instead, and every synced Loop keeps firing. Gated with
+                    // the scheduler so a shadow backend sharing the database
+                    // never writes its Loops.
+                    Criticality::Optional,
+                    crate::repository_sync::watch::DefaultBranchWatch::new(
+                        app_state.repositories.clone(),
+                        app_state.loop_sync.clone(),
+                        app_state.git_sync.clone(),
+                    )
+                    .spawn(
+                        loop_sync_leader,
+                        crate::repository_sync::watch::DEFAULT_BRANCH_POLL_INTERVAL,
+                        cancel.clone(),
+                    ),
                 );
             } else {
                 info!("Cron scheduler disabled (CRON_SCHEDULER_ENABLED=false)");

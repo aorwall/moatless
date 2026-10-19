@@ -18,9 +18,10 @@ impl LoopSyncService {
         workspaces: Arc<dyn WorkspaceResolver>,
         git_host_tokens: Arc<dyn GitHostTokenIssuer>,
         git_content: HttpTimeouts,
+        github_api_base: String,
     ) -> Self {
         Self {
-            fetcher: GitHubLoopFetcher::new(git_content),
+            fetcher: GitHubLoopFetcher::new(git_content, github_api_base),
             adapter_connections,
             loops,
             tags,

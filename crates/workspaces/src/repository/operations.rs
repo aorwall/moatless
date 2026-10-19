@@ -33,4 +33,9 @@ impl Repositories {
     ) -> Result<Option<Repository>, sqlx::Error> {
         self.store.find_by_id(id, ctx).await
     }
+
+    /// Every repository the caller may read, by name.
+    pub async fn list_all(&self, ctx: &ScopeContext) -> Result<Vec<Repository>, sqlx::Error> {
+        self.store.list_all(ctx).await
+    }
 }

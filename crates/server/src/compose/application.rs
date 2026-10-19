@@ -122,6 +122,7 @@ impl AppState {
             pool.clone(),
             git_host_tokens.clone(),
             config.http.git_content,
+            config.github_api_base.clone(),
         );
 
         let loop_sync = loop_graph.loop_sync(
@@ -130,6 +131,7 @@ impl AppState {
             workspace_resolver.clone(),
             git_host_tokens.clone(),
             config.http.git_content,
+            config.github_api_base.clone(),
         );
 
         // Hoisted so the self-echo filter and the struct literal share one cache.

@@ -58,9 +58,8 @@ async fn sync_repo_config(
         ));
     }
 
-    // This is the sole repository-wide Loop sync path. Surface fetch and
-    // reconciliation failures so an administrator never mistakes a skipped
-    // refresh for a successful approval revocation.
+    // Surface fetch and reconciliation failures so an administrator never
+    // mistakes a skipped refresh for a successful approval revocation.
     let loops = loop_sync
         .sync_repo_loops_for(repo, ctx)
         .await
@@ -111,6 +110,7 @@ mod tests {
             compose::workspace_resolver(pool.clone()),
             tokens.clone(),
             moatless_core::config::HttpConfig::default().git_content,
+            moatless_core::config::DEFAULT_GITHUB_API_BASE.to_string(),
         );
         (
             loops,
@@ -118,6 +118,7 @@ mod tests {
                 pool,
                 tokens,
                 moatless_core::config::HttpConfig::default().git_content,
+                moatless_core::config::DEFAULT_GITHUB_API_BASE.to_string(),
             ),
         )
     }

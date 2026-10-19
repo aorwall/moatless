@@ -46,6 +46,8 @@ pub trait LoopFetcher: Send + Sync {
 /// GitHub REST API implementation of [`LoopFetcher`].
 pub struct GitHubLoopFetcher {
     client: Client,
+    /// `Config::github_api_base`.
+    api_base: String,
 }
 
 impl GitHubLoopFetcher {
@@ -58,14 +60,14 @@ impl GitHubLoopFetcher {
         clippy::expect_used,
         reason = "sets the timeouts `Config::http` holds, and fails as `Client::new` would"
     )]
-    pub fn new(timeouts: HttpTimeouts) -> Self {
+    pub fn new(timeouts: HttpTimeouts, api_base: String) -> Self {
         let client = Client::builder()
             .connect_timeout(timeouts.connect)
             .timeout(timeouts.total)
             .user_agent("moatless-vibe-backend")
             .build()
             .expect("the TLS backend initialises");
-        Self { client }
+        Self { client, api_base }
     }
 }
 
@@ -97,9 +99,9 @@ impl LoopFetcher for GitHubLoopFetcher {
         let reference = branch
             .map(|branch| format!("?ref={}", urlencoding::encode(branch)))
             .unwrap_or_default();
-        let list_url = format!(
-            "https://api.github.com/repos/{owner}/{repo}/contents/{LOOPS_PREFIX}{reference}"
-        );
+        let api_base = self.api_base.as_str();
+        let list_url =
+            format!("{api_base}/repos/{owner}/{repo}/contents/{LOOPS_PREFIX}{reference}");
         let Some(entries) = send_github_json::<Vec<ContentEntry>>(
             &self.client,
             &list_url,
@@ -109,6 +111,24 @@ impl LoopFetcher for GitHubLoopFetcher {
         )
         .await?
         else {
+            // GitHub answers 404 for a repository the credential cannot see
+            // too, and an empty answer removes every synced Loop: confirm the
+            // repository is visible before reading the 404 as "no Loops".
+            let repo_url = format!("{api_base}/repos/{owner}/{repo}");
+            let visible = send_github_json::<serde_json::Value>(
+                &self.client,
+                &repo_url,
+                "application/vnd.github+json",
+                token,
+                remote_url,
+            )
+            .await?;
+            if visible.is_none() {
+                return Err(LoopError::Fetch {
+                    git_url: remote_url.to_string(),
+                    message: "repository not visible with the credential presented".to_string(),
+                });
+            }
             debug!(remote_url, "No .moatless/loops directory on remote");
             return Ok(Vec::new());
         };
@@ -128,7 +148,7 @@ impl LoopFetcher for GitHubLoopFetcher {
             let reference = reference.clone();
             async move {
                 let file_url = format!(
-                    "https://api.github.com/repos/{owner}/{repo}/contents/{LOOPS_PREFIX}/{dir_name}/LOOP.md{reference}"
+                    "{api_base}/repos/{owner}/{repo}/contents/{LOOPS_PREFIX}/{dir_name}/LOOP.md{reference}"
                 );
                 let content =
                     fetch_github_raw(&client, &file_url, token.as_deref(), &remote_url).await?;
@@ -287,8 +307,10 @@ mod tests {
 
     #[tokio::test]
     async fn non_github_url_returns_empty() {
-        let fetcher =
-            GitHubLoopFetcher::new(moatless_core::config::HttpConfig::default().git_content);
+        let fetcher = GitHubLoopFetcher::new(
+            moatless_core::config::HttpConfig::default().git_content,
+            moatless_core::config::DEFAULT_GITHUB_API_BASE.to_string(),
+        );
         let files = fetcher
             .fetch_loop_files(
                 &RepositoryRemote {

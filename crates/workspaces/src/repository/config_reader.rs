@@ -35,6 +35,7 @@ pub(crate) fn client(timeouts: HttpTimeouts) -> reqwest::Client {
 /// Returns `Ok(None)` on a 404 (file absent).
 pub(crate) async fn fetch_provider_file(
     http: &reqwest::Client,
+    github_api_base: &str,
     remote: &RepositoryRemote,
     path: &str,
     branch: Option<&str>,
@@ -42,7 +43,9 @@ pub(crate) async fn fetch_provider_file(
 ) -> Result<Option<String>, RepositoryError> {
     let provider = require_host_repo(remote)?.provider();
     match provider {
-        RepositoryProvider::Github => fetch_github_file(http, remote, path, branch, token).await,
+        RepositoryProvider::Github => {
+            fetch_github_file(http, github_api_base, remote, path, branch, token).await
+        }
         RepositoryProvider::Gitlab => {
             let token = token.ok_or_else(|| {
                 RepositoryError::BadRequest(
@@ -62,6 +65,7 @@ pub(crate) async fn fetch_provider_file(
 /// attempts the sync rather than silently skipping a repo that has config.
 pub async fn moatless_dir_exists(
     http: &reqwest::Client,
+    github_api_base: &str,
     remote: &RepositoryRemote,
     branch: Option<&str>,
     token: Option<&str>,
@@ -70,7 +74,9 @@ pub async fn moatless_dir_exists(
         return true;
     };
     match host.provider() {
-        RepositoryProvider::Github => github_moatless_dir_exists(http, remote, branch, token).await,
+        RepositoryProvider::Github => {
+            github_moatless_dir_exists(http, github_api_base, remote, branch, token).await
+        }
         RepositoryProvider::Forgejo => {
             forgejo_moatless_dir_exists(http, remote, branch, token).await
         }
@@ -84,6 +90,7 @@ pub async fn moatless_dir_exists(
 /// treated as "no directory"; everything else fails open to `true`.
 async fn github_moatless_dir_exists(
     http: &reqwest::Client,
+    github_api_base: &str,
     remote: &RepositoryRemote,
     branch: Option<&str>,
     token: Option<&str>,
@@ -93,7 +100,7 @@ async fn github_moatless_dir_exists(
     };
     let (owner, repo) = (parsed.owner(), parsed.name());
 
-    let mut url = format!("https://api.github.com/repos/{owner}/{repo}/contents/.moatless");
+    let mut url = format!("{github_api_base}/repos/{owner}/{repo}/contents/.moatless");
     if let Some(r) = branch {
         use std::fmt::Write;
         let _ = write!(url, "?ref={r}");
@@ -205,11 +212,53 @@ fn forgejo_api_url(
     Ok(url)
 }
 
+/// The commit sha `branch` (the default branch when `None`) points at on
+/// GitHub: `GET /repos/{owner}/{repo}/commits/{ref}`.
+///
+/// A 404 is an error, not an absence: GitHub answers 404 for a private
+/// repository the credential cannot see, so it proves nothing about the branch.
+pub(crate) async fn github_branch_head(
+    http: &reqwest::Client,
+    github_api_base: &str,
+    remote: &RepositoryRemote,
+    branch: Option<&str>,
+    token: Option<&str>,
+) -> Result<String, RepositoryError> {
+    let parsed = require_host_repo(remote)?;
+    let (owner, repo) = (parsed.owner(), parsed.name());
+    let reference = urlencoding::encode(branch.unwrap_or("HEAD"));
+    let url = format!("{github_api_base}/repos/{owner}/{repo}/commits/{reference}");
+
+    let mut req = http
+        .get(&url)
+        .header("User-Agent", "moatless-vibe-backend")
+        .header("Accept", "application/vnd.github.sha");
+    if let Some(token) = token {
+        req = req.header("Authorization", format!("Bearer {token}"));
+    }
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| RepositoryError::ProviderError(format!("GitHub API request failed: {e}")))?;
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(RepositoryError::ProviderError(format!(
+            "GitHub API returned {status} reading the head of {owner}/{repo}"
+        )));
+    }
+    let sha = resp
+        .text()
+        .await
+        .map_err(|e| RepositoryError::ProviderError(format!("Failed to read head sha: {e}")))?;
+    Ok(sha.trim().to_string())
+}
+
 /// Fetch a file from GitHub: `GET
 /// /repos/{owner}/{repo}/contents/{path}?ref={branch}`. Returns the raw file
 /// body, or `Ok(None)` on 404.
 async fn fetch_github_file(
     http: &reqwest::Client,
+    github_api_base: &str,
     remote: &RepositoryRemote,
     path: &str,
     branch: Option<&str>,
@@ -218,7 +267,7 @@ async fn fetch_github_file(
     let parsed = require_host_repo(remote)?;
     let (owner, repo) = (parsed.owner(), parsed.name());
 
-    let mut url = format!("https://api.github.com/repos/{owner}/{repo}/contents/{path}");
+    let mut url = format!("{github_api_base}/repos/{owner}/{repo}/contents/{path}");
     if let Some(r) = branch {
         use std::fmt::Write;
         let _ = write!(url, "?ref={r}");
@@ -323,6 +372,7 @@ mod tests {
         assert!(
             moatless_dir_exists(
                 &client(moatless_core::config::HttpConfig::default().git_content),
+                moatless_core::config::DEFAULT_GITHUB_API_BASE,
                 &crate::repository::remote::resolve_remote(
                     Some(RepositoryProvider::Gitlab),
                     "https://gitlab.example.com/x/y.git".to_string()

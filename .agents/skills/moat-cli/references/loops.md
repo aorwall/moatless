@@ -1,8 +1,12 @@
 # Repo Loops — `.moatless/loops/` Reference
 
 Instead of creating triggers by hand, a repo can declare its automations in git
-under `.moatless/loops/<loop-name>/LOOP.md` and have `sync-config` reconcile them
-into the trigger tables. The YAML **frontmatter is the config**; the markdown
+under `.moatless/loops/<loop-name>/LOOP.md`. The backend reconciles them into the
+loop tables on its own: every two minutes it reads each GitHub repository's
+default-branch head, and when the head has moved it syncs that repository's
+workspaces (overrides left alone) and then its Loops. A merged `LOOP.md` shows
+up in `moat loops list` within a few minutes, inactive. `sync-config` runs the
+same Loop sync at once, on request. The YAML **frontmatter is the config**; the markdown
 **body is the prompt** (the agent's `append_system_prompt`) — mirroring Claude
 Code's `SKILL.md`.
 
@@ -66,8 +70,8 @@ Pick up this Linear ticket, implement it, and open a PR linked back to the issue
 ```
 
 ```bash
-moat repos sync-config <repo-id>                  # fetch + reconcile loops
-moat loops list      # synced loops show up here
+moat repos sync-config <repo-id>   # sync now instead of waiting (admin only)
+moat loops list                    # synced loops show up here
 ```
 
 Notes:
@@ -86,8 +90,18 @@ Notes:
   `Slack C0000000001` is the one to avoid — it stutters against the line below it
   and goes stale the moment the channel changes.
 - Synced loops are tracked with `config_source = 'git'`, keyed by
-  `(repository, loop dir name)`. Re-running `sync-config` upserts them and removes
-  loops whose directory was deleted. Manually-created loops are never touched.
+  `(repository, loop dir name)`. Each sync upserts them and removes loops whose
+  directory was deleted. Manually-created loops are never touched.
+- A sync whose fetch fails changes nothing: no loop is deactivated or removed.
+  When the automatic sync's Loop or workspace half fails, it retries the same
+  head on its next pass. A loop it skips (bad frontmatter, unknown workspace,
+  missing connection) is logged at WARN with the reason; `sync-config` returns
+  the same reasons in its summary.
+- The automatic sync runs only when the head moves, so a loop skipped for a
+  reason fixed outside git (a connection added, a workspace created by hand)
+  lands at the next push. Run `sync-config` to land it now.
+- A repository whose creator has no GitHub credential is read unauthenticated,
+  and only every 30 minutes: GitHub allows 60 such requests an hour per IP.
 - **An overridden loop stops reading its `LOOP.md`, and editing that file then
   changes nothing that runs.** `moat loops override --id <id>` (or Override in
   the UI) detaches a synced loop so an administrator's local edits survive the

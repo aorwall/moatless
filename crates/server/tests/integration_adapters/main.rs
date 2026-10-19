@@ -12,6 +12,7 @@ mod adapter_connection_delete_test;
 mod adapter_delivery_github_linear_test;
 mod adapter_inbound_delivery_test;
 mod adapter_installation_test;
+mod default_branch_watch_test;
 mod event_ingress_test;
 mod github_push_claim_test;
 mod github_webhook_redelivery_test;

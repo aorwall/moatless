@@ -114,7 +114,8 @@ impl LoopGraph {
     }
 
     /// Reconciles a repository's git-declared Loops, over the four ports the
-    /// reconcile tree reads, fetching Loop files within `git_content`.
+    /// reconcile tree reads, fetching Loop files within `git_content` from
+    /// GitHub at `github_api_base`.
     pub fn loop_sync(
         &self,
         adapter_connections: Arc<ConnectionRouting>,
@@ -122,6 +123,7 @@ impl LoopGraph {
         workspaces: Arc<dyn WorkspaceResolver>,
         git_host_tokens: Arc<dyn GitHostTokenIssuer>,
         git_content: HttpTimeouts,
+        github_api_base: String,
     ) -> Arc<LoopSyncService> {
         Arc::new(LoopSyncService::new(
             adapter_connections,
@@ -130,6 +132,7 @@ impl LoopGraph {
             workspaces,
             git_host_tokens,
             git_content,
+            github_api_base,
         ))
     }
 

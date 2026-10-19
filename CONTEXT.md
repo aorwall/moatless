@@ -268,8 +268,9 @@ data.
 
 **Loop**:
 A standing, named definition of recurring agent work — the umbrella over automated
-Task creation. Declared in a repo (`.moatless/loops/<name>/LOOP.md`) or authored
-directly. A Loop fires on a Schedule or a Subscription and drives one or more
+Task creation. Declared in a repo (`.moatless/loops/<name>/LOOP.md`), and synced
+when that repo's default branch moves or an admin runs `sync-config`, or
+authored directly. A Loop fires on a Schedule or a Subscription and drives one or more
 Tasks. Manual one-off Tasks are created directly and are not part of a Loop.
 _Avoid_: trigger (as a noun / umbrella) — a Loop is *triggered*, but the thing is
 a Loop

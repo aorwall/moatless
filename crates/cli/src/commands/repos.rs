@@ -112,8 +112,10 @@ pub enum RepoAction {
         dry_run: bool,
     },
     /// Sync .moatless/ loops and workspaces from the remote repository.
-    /// Warning: this is the explicit sync, so it also reclaims workspaces that
-    /// were overridden from the UI/CLI, replacing their local changes.
+    /// The backend already does this when a GitHub default branch moves,
+    /// leaving overrides alone. This explicit sync also reclaims every
+    /// overridden workspace still declared in .moatless/workspaces.json,
+    /// replacing its local changes; an undeclared workspace is never touched.
     SyncConfig {
         /// Repository id, or its name as `repos list` shows it
         repo: String,
