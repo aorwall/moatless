@@ -362,3 +362,28 @@ fn the_workspace_volume_limit_reaches_the_container_env() {
         .expect("SANDBOX_WORKSPACE_LIMIT present");
     assert_eq!(limit, config.sandbox.storage_size);
 }
+
+fn disallowed_tools_env(config: &Config) -> Option<String> {
+    let container = build_sandbox_container(config, "task-1", &test_plan(), None, None).unwrap();
+    container
+        .env
+        .unwrap_or_default()
+        .into_iter()
+        .find(|var| var.name == "SANDBOX_CLAUDE_DISALLOWED_TOOLS")
+        .map(|var| var.value.unwrap_or_default())
+}
+
+#[test]
+fn disallowed_tools_env_is_forwarded_only_when_configured() {
+    let mut config = test_config();
+    assert_eq!(disallowed_tools_env(&config), None);
+
+    config.sandbox.claude_disallowed_tools = Some(String::new());
+    assert_eq!(disallowed_tools_env(&config).as_deref(), Some(""));
+
+    config.sandbox.claude_disallowed_tools = Some("Workflow,DesignSync".into());
+    assert_eq!(
+        disallowed_tools_env(&config).as_deref(),
+        Some("Workflow,DesignSync")
+    );
+}

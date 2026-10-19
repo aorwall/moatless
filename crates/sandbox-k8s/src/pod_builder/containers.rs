@@ -321,6 +321,10 @@ pub(super) fn build_sandbox_container(
         }
     }
 
+    if let Some(ref tools) = config.sandbox.claude_disallowed_tools {
+        env.push(env_var("SANDBOX_CLAUDE_DISALLOWED_TOOLS", tools));
+    }
+
     for (key, value) in &config.sandbox.extra_env {
         env.push(env_var(key, value));
     }

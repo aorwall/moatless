@@ -179,6 +179,7 @@ fn test_config() -> Config {
         workspace_sync_enabled: false,
         workspace_restore_if_empty: false,
         headless: false,
+        claude_disallowed_tools: None,
         credential_refresh_interval: std::time::Duration::from_mins(15),
         transcript_sync_interval: None,
         workspace_sync_interval: None,

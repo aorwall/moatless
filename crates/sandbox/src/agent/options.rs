@@ -187,25 +187,45 @@ pub fn build_options(
     }
 }
 
-/// Tools removed entirely from the CLI's context for this run.
+/// Built-in tools removed when `SANDBOX_CLAUDE_DISALLOWED_TOOLS` is unset.
 ///
-/// Plan mode keeps `ExitPlanMode`, the only way out. Monitor is disallowed
-/// in subprocess mode: its watcher dies at turn end before events reach the
-/// agent (tmux keeps the TUI alive, so it stays allowed there). Headless
-/// interactive tools are disallowed since nobody is watching to answer them.
+/// Mirrors the chart's `kubernetes.sandboxClaudeDisallowedTools`. Keep
+/// `ScheduleWakeup`: [`super::wakeup_job`] serves it.
+const DEFAULT_DISALLOWED_TOOLS: &[&str] = &[
+    "CronCreate",
+    "CronDelete",
+    "CronList",
+    "DesignSync",
+    "EnterWorktree",
+    "ExitWorktree",
+    "NotebookEdit",
+    "ReportFindings",
+    "Workflow",
+];
+
+/// Tools removed from the CLI's context this run, beyond the configured list.
+///
+/// Plan mode keeps `ExitPlanMode`, its only way out. Subprocess mode drops
+/// `Monitor`, whose watcher dies at turn end (tmux keeps it); headless drops the
+/// interactive tools, since nobody is there to answer them.
 fn disallowed_tools(config: &Config, is_plan_mode: bool) -> Vec<String> {
-    let mut tools: Vec<&str> = Vec::new();
+    let mut tools: Vec<String> = config.claude_disallowed_tools.clone().unwrap_or_else(|| {
+        DEFAULT_DISALLOWED_TOOLS
+            .iter()
+            .map(|tool| (*tool).to_string())
+            .collect()
+    });
     if !config.use_tmux {
-        tools.push("Monitor");
+        tools.push("Monitor".to_string());
     }
     if config.headless {
-        tools.push("AskUserQuestion");
-        tools.push("EnterPlanMode");
+        tools.push("AskUserQuestion".to_string());
+        tools.push("EnterPlanMode".to_string());
         if !is_plan_mode {
-            tools.push("ExitPlanMode");
+            tools.push("ExitPlanMode".to_string());
         }
     }
-    tools.into_iter().map(String::from).collect()
+    tools
 }
 
 /// Build the system prompt configuration.
@@ -1109,6 +1129,33 @@ mod tests {
         let disallowed = options.disallowed_tools.expect("disallowed_tools set");
         assert!(!disallowed.contains(&"Monitor".to_string()));
         assert!(!disallowed.contains(&"AskUserQuestion".to_string()));
+    }
+
+    #[test]
+    fn default_tools_are_removed_in_both_transports() {
+        for use_tmux in [false, true] {
+            let disallowed = disallowed_tools(&test_config(use_tmux), false);
+            for tool in DEFAULT_DISALLOWED_TOOLS {
+                assert!(
+                    disallowed.contains(&(*tool).to_string()),
+                    "{tool} must be disallowed (use_tmux={use_tmux})"
+                );
+            }
+            assert!(!disallowed.contains(&"ScheduleWakeup".to_string()));
+        }
+    }
+
+    #[test]
+    fn a_configured_list_replaces_the_default() {
+        let mut config = test_config(true);
+        config.claude_disallowed_tools = Some(vec!["Workflow".to_string()]);
+        assert_eq!(
+            disallowed_tools(&config, false),
+            vec!["Workflow".to_string()]
+        );
+
+        config.claude_disallowed_tools = Some(vec![]);
+        assert!(disallowed_tools(&config, false).is_empty());
     }
 
     /// The tools that block a turn on a person's answer.

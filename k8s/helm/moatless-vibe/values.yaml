@@ -732,6 +732,21 @@ kubernetes:
   #    startup probe window, `(podStartupTimeout / 5 + 6) * 5`, so raise
   #    podStartupTimeout with it.
   sandboxGitCloneStallTimeout: ""
+  # -- Built-in Claude Code tools removed from every sandbox agent's context.
+  #    Each definition is re-read on every API call, so a tool no task uses
+  #    still costs context. `[]` removes none; `null` keeps the sandbox's
+  #    built-in list, which matches this one. Keep `ScheduleWakeup`: the
+  #    sandbox serves it for self-paced `/loop`.
+  sandboxClaudeDisallowedTools:
+    - CronCreate
+    - CronDelete
+    - CronList
+    - DesignSync
+    - EnterWorktree
+    - ExitWorktree
+    - NotebookEdit
+    - ReportFindings
+    - Workflow
   # -- Attach a liveness probe to the sandbox container so Kubernetes restarts a
   #    hung-but-alive pod (agent actor loop wedged while /health still reports
   #    Ready). Default off: a false-positive restart kills an in-flight agent

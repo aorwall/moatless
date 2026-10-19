@@ -195,6 +195,10 @@ pub struct Config {
     /// unwatched. Removes tools that would park the turn on an answer nobody
     /// can give (`AskUserQuestion`, `EnterPlanMode`, `ExitPlanMode`).
     pub headless: bool,
+    /// Built-in tools removed from every Claude run (env:
+    /// `SANDBOX_CLAUDE_DISALLOWED_TOOLS`, comma-separated). `None` when unset
+    /// keeps `agent::options::DEFAULT_DISALLOWED_TOOLS`; empty removes none.
+    pub claude_disallowed_tools: Option<Vec<String>>,
     /// Credential refresh period (env: `CREDENTIAL_REFRESH_INTERVAL_SECS`,
     /// default 900s; `0` or garbage keeps the default).
     pub credential_refresh_interval: Duration,
@@ -452,6 +456,17 @@ impl RescueConfig {
 ///
 /// Inside the workspace (so `workspace_sync` restores it) but a sibling of the
 /// repo checkouts, so it stays out of `git status`.
+/// A comma-separated tool list, trimmed and without empty entries.
+fn tool_list(raw: Option<&str>) -> Option<Vec<String>> {
+    raw.map(|raw| {
+        raw.split(',')
+            .map(str::trim)
+            .filter(|tool| !tool.is_empty())
+            .map(String::from)
+            .collect()
+    })
+}
+
 fn default_upload_dir(workspace_dir: &str) -> String {
     format!("{}/uploads", workspace_dir.trim_end_matches('/'))
 }
@@ -633,6 +648,9 @@ impl Config {
             workspace_sync_enabled: env_flag_enabled("WORKSPACE_SYNC_ENABLED"),
             workspace_restore_if_empty: env_flag_enabled("WORKSPACE_RESTORE_IF_EMPTY"),
             headless: env_flag_enabled("SANDBOX_HEADLESS"),
+            claude_disallowed_tools: tool_list(
+                env::var("SANDBOX_CLAUDE_DISALLOWED_TOOLS").ok().as_deref(),
+            ),
             credential_refresh_interval: refresh_interval(
                 env::var("CREDENTIAL_REFRESH_INTERVAL_SECS").ok().as_deref(),
             ),
@@ -749,6 +767,7 @@ pub(crate) mod test_support {
             workspace_sync_enabled: false,
             workspace_restore_if_empty: false,
             headless: false,
+            claude_disallowed_tools: None,
             credential_refresh_interval: Duration::from_secs(DEFAULT_REFRESH_INTERVAL_SECS),
             transcript_sync_interval: Some(Duration::from_secs(DEFAULT_SYNC_INTERVAL_SECS)),
             workspace_sync_interval: Some(Duration::from_secs(DEFAULT_SYNC_INTERVAL_SECS)),
@@ -860,11 +879,21 @@ mod tests {
     use super::{
         PermissionMode, RepoConfigFile, default_upload_dir, env_flag_override,
         env_flag_value_enabled, is_safe_mount_name, parse_permission_mode, parse_repo_checkouts,
-        primary_checkout, resolve_agent_config, route_through_proxy,
+        primary_checkout, resolve_agent_config, route_through_proxy, tool_list,
     };
     use moatless_workspace_types::workspace::{LanguageServer, RepoCheckout};
     use std::collections::HashMap;
     use std::time::Duration;
+
+    #[test]
+    fn tool_list_tells_unset_from_empty() {
+        assert_eq!(tool_list(None), None);
+        assert_eq!(tool_list(Some("")), Some(vec![]));
+        assert_eq!(
+            tool_list(Some(" CronCreate, ,Workflow ")),
+            Some(vec!["CronCreate".to_string(), "Workflow".to_string()])
+        );
+    }
 
     #[test]
     fn clone_stall_reads_whole_seconds_and_falls_back_to_the_default() {

@@ -966,6 +966,7 @@ fn build_config(tmp: &TempDir, agent: EvalAgent) -> Config {
         permission_mode: claude_agent_sdk::PermissionMode::BypassPermissions,
         workspace_sync_enabled: false,
         headless: true,
+        claude_disallowed_tools: None,
         credential_refresh_interval: std::time::Duration::from_mins(15),
         transcript_sync_interval: None,
         workspace_sync_interval: None,

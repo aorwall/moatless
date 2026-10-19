@@ -452,6 +452,11 @@ pub struct SandboxConfig {
     /// Extra env vars injected into every sandbox pod (parsed from
     /// `K8S_SANDBOX_EXTRA_ENV` JSON)
     pub extra_env: Vec<(String, String)>,
+    /// Comma-separated Claude tools every sandbox run removes, forwarded as
+    /// `SANDBOX_CLAUDE_DISALLOWED_TOOLS`. `None` keeps the sandbox's own
+    /// default; an empty string removes none. Env
+    /// `K8S_SANDBOX_CLAUDE_DISALLOWED_TOOLS`.
+    pub claude_disallowed_tools: Option<String>,
     /// Host directory node-local sandbox storage is rooted at, holding
     /// `workspaces/<task-id>` and `docker/<task-id>`.
     ///
@@ -939,6 +944,7 @@ impl Config {
                 default_model: env_opt("DEFAULT_CLAUDE_CODE_MODEL"),
                 default_codex_model: env_str("DEFAULT_CODEX_MODEL", DEFAULT_CODEX_MODEL),
                 extra_env: parse_extra_env("K8S_SANDBOX_EXTRA_ENV"),
+                claude_disallowed_tools: env_opt("K8S_SANDBOX_CLAUDE_DISALLOWED_TOOLS"),
                 cache_host_root: env_str("K8S_SANDBOX_CACHE_HOST_ROOT", "/mnt/cache"),
                 docker_dind_image: env_str(
                     "K8S_SANDBOX_DOCKER_DIND_IMAGE",
@@ -1413,6 +1419,7 @@ impl Config {
                 default_model: None,
                 default_codex_model: DEFAULT_CODEX_MODEL.to_string(),
                 extra_env: vec![],
+                claude_disallowed_tools: None,
                 cache_host_root: "/mnt/cache".into(),
                 docker_dind_image: "docker:dind".into(),
                 docker_dind_storage_size: "10Gi".into(),
