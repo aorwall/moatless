@@ -5,7 +5,7 @@ runs in the nonprod cluster, so always use the nonprod datasources `prometheus`
 and `loki`, never the `-prod` ones, and filter on `namespace="moatless"`.
 
 ```bash
-echo "${GRAFANA_TOKEN:?GRAFANA_TOKEN is not set in this sandbox; say so in the alert thread}"
+: "${GRAFANA_TOKEN:?GRAFANA_TOKEN is not set in this sandbox; say so in the alert thread}"
 G=https://g-0000000000.grafana-workspace.eu-central-1.amazonaws.com
 ```
 

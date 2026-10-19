@@ -58,8 +58,13 @@ themselves are in soap-infra,
 Find fix tasks by name across every task, not only your own children:
 
 ```bash
-moat tasks list --status open --limit 200 --json \
-  | jq -r '.items[] | select(.name | startswith("alert-fix: ")) | "\(.id)\t\(.name)"'
+offset=0
+while :; do
+  page=$(moat tasks list --status open --limit 200 --offset "$offset" --json)
+  jq -r '.items[] | select((.name // "") | startswith("alert-fix: ")) | "\(.taskId)\t\(.name)"' <<<"$page"
+  [ "$(jq -r '.pagination.hasMore' <<<"$page")" = true ] || break
+  offset=$((offset + 200))
+done
 moat tasks status <task_id> --result     # "Work:" says working, waiting or done
 ```
 
