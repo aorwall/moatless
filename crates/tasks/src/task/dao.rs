@@ -777,8 +777,14 @@ impl TaskDao for PgTaskDao {
             if row.is_total_only() {
                 continue;
             }
+            let task_id = row.task_id.clone().unwrap_or_default();
             tasks.push(row.into_task().ok_or_else(|| {
-                sqlx::Error::Decode("task row has a NULL in a NOT NULL column".into())
+                sqlx::Error::Decode(
+                    format!(
+                        "task row `{task_id}` has a NULL or unknown value in a NOT NULL column"
+                    )
+                    .into(),
+                )
             })?);
         }
 
