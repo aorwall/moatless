@@ -419,16 +419,19 @@ async fn resolve_run_as(
     Ok(Some(target.id.to_string()))
 }
 
+/// The longest `Task.name` [`validate_task_name`] accepts, in bytes.
+pub(super) const MAX_TASK_NAME_BYTES: usize = 200;
+
 pub(super) fn validate_task_name(name: &str) -> Result<(), TaskError> {
     if name.is_empty() {
         return Err(TaskError::BadRequest(
             "Task name cannot be empty".to_string(),
         ));
     }
-    if name.len() > 200 {
-        return Err(TaskError::BadRequest(
-            "Task name too long (max 200)".to_string(),
-        ));
+    if name.len() > MAX_TASK_NAME_BYTES {
+        return Err(TaskError::BadRequest(format!(
+            "Task name too long (max {MAX_TASK_NAME_BYTES})"
+        )));
     }
     Ok(())
 }

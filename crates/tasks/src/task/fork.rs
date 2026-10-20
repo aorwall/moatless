@@ -69,6 +69,33 @@ pub struct ForkPlan {
     pub source_event_id: Option<uuid::Uuid>,
 }
 
+/// What a fork's name starts with until its agent renames it; the prompt
+/// reads it to tell the agent the name is a placeholder.
+pub(crate) const FORK_NAME_PREFIX: &str = "Fork: ";
+
+/// The placeholder name a fork is created with. `None` when the source is
+/// unnamed, so the fork gets the unnamed Task's naming directive.
+fn fork_name(source_name: Option<&str>) -> Option<String> {
+    let name = source_name.map(str::trim).filter(|name| !name.is_empty())?;
+    let mut name = format!(
+        "{FORK_NAME_PREFIX}{}",
+        name.strip_prefix(FORK_NAME_PREFIX).unwrap_or(name)
+    );
+    // `validate_task_name` refuses past `MAX_TASK_NAME_BYTES`; cut on a char
+    // boundary so the prefix never fails the create.
+    while name.len() > service::MAX_TASK_NAME_BYTES {
+        name.pop();
+    }
+    Some(name)
+}
+
+/// The fork's first message, opened by a line naming the Task and turn it was
+/// forked from.
+fn fork_first_message(source_task_id: &str, at_turn: Option<i32>, message: &str) -> String {
+    let cut = at_turn.map_or_else(String::new, |turn| format!(" at turn {turn}"));
+    format!("Forked from task `{source_task_id}`{cut}.\n\n{message}")
+}
+
 /// The refusal for forking or rewinding-by-fork a Task with no trajectory.
 pub(crate) const FROZEN_FORK: &str = "This Task was created before recording and cannot be forked";
 
@@ -354,19 +381,18 @@ impl TaskForkService {
             .await
             .map_err(ForkError::Fork)?;
 
-        // A fork is deliberately unnamed/undescribed: "Fork of X" says where it
-        // came from, not what it's doing — the agent sets both via
-        // `moat set-name` once it knows.
         let create = CreateTaskRequest {
             repository_id: Some(source.repository_id.clone()),
             workspace_id: source.workspace_id.clone(),
             sandbox_id: same_sandbox.then(|| source.sandbox_id.clone()).flatten(),
             checkout_mode: same_sandbox.then_some(CheckoutMode::Shared),
             agent_profile: Some(agent_profile),
-            name: None,
+            name: fork_name(source.name.as_deref()),
             description: None,
             branch: source.branch.clone(),
-            message: request.message,
+            message: request
+                .message
+                .map(|message| fork_first_message(source_task_id, plan.at_turn, &message)),
             model,
             agent_mode: request.agent_mode,
             effort: request.effort,
@@ -442,6 +468,48 @@ mod tests {
             turn,
             agent_turn_id: None,
         }
+    }
+
+    #[test]
+    fn a_fork_is_named_after_its_source() {
+        assert_eq!(
+            fork_name(Some("Fix login")).as_deref(),
+            Some("Fork: Fix login")
+        );
+    }
+
+    /// A fork of a fork reads `Fork: X`, not `Fork: Fork: X`.
+    #[test]
+    fn a_fork_of_a_fork_does_not_stack_the_prefix() {
+        assert_eq!(
+            fork_name(Some("Fork: Fix login")).as_deref(),
+            Some("Fork: Fix login")
+        );
+    }
+
+    #[test]
+    fn a_long_source_name_is_cut_to_the_name_limit() {
+        let name = fork_name(Some(&"é".repeat(100))).unwrap();
+        assert!(name.len() <= service::MAX_TASK_NAME_BYTES);
+        assert!(name.starts_with(FORK_NAME_PREFIX));
+    }
+
+    #[test]
+    fn a_fork_of_an_unnamed_task_is_unnamed() {
+        assert_eq!(fork_name(None), None);
+        assert_eq!(fork_name(Some("  ")), None);
+    }
+
+    #[test]
+    fn the_first_message_opens_with_the_source_and_turn() {
+        assert_eq!(
+            fork_first_message("task-1", Some(3), "try again"),
+            "Forked from task `task-1` at turn 3.\n\ntry again"
+        );
+        assert_eq!(
+            fork_first_message("task-1", None, "try again"),
+            "Forked from task `task-1`.\n\ntry again"
+        );
     }
 
     #[test]

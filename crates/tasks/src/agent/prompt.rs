@@ -14,6 +14,7 @@ use moatless_workspace_ports::WorkspaceResolver;
 
 use crate::memory::operations::Memories;
 use crate::memory::preload::preload_index;
+use crate::task::fork::FORK_NAME_PREFIX;
 use crate::task::models::Task;
 use crate::task::relations::TaskRelations;
 use moatless_types::task::TaskRelationType;
@@ -356,7 +357,8 @@ pub async fn build_for_task(
 pub fn build_append_system_prompt(inputs: &PromptInputs<'_>) -> String {
     let mut sections: Vec<String> = Vec::new();
 
-    sections.push(build_task_identity_section(inputs.task_name));
+    let forked = matches!(inputs.parent, Some(ParentTask::ForkedFrom { .. }));
+    sections.push(build_task_identity_section(inputs.task_name, forked));
 
     if let Some(login) = inputs.task_user {
         sections.push(format!(
@@ -403,11 +405,21 @@ pub fn build_append_system_prompt(inputs: &PromptInputs<'_>) -> String {
     sections.join("\n\n")
 }
 
-/// Either the "# Task Name" rename hint (when the task already has a name) or
-/// the "# Required First Actions" directive (when it doesn't).
-fn build_task_identity_section(task_name: Option<&str>) -> String {
+/// The "# Task Name" rename hint for a task with a name of its own, else the
+/// "# Required First Actions" directive. A fork still on the placeholder
+/// [`FORK_NAME_PREFIX`] name gets the directive too.
+fn build_task_identity_section(task_name: Option<&str>, forked: bool) -> String {
     let trimmed = task_name.map(str::trim).filter(|s| !s.is_empty());
-    if let Some(name) = trimmed {
+    if let Some(name) = trimmed.filter(|name| forked && name.starts_with(FORK_NAME_PREFIX)) {
+        format!(
+            "# Required First Actions\n\n\
+             This task is named **{name}**, a placeholder it got when it was forked. \
+             Before you reply to the first message, run:\n  \
+             `moat set-name \"<name>\"`\n\
+             Choose a short, descriptive name for what this fork is trying, based on its \
+             first message (under 50 characters)."
+        )
+    } else if let Some(name) = trimmed {
         format!(
             "# Task Name\n\nThis task is named **{name}**. If the name no longer reflects what the\n\
              task is about, rename it with:\n  `moat set-name \"<new-name>\"`"
@@ -709,6 +721,35 @@ mod tests {
             at_turn: Some(4),
         });
         assert!(!section.contains("set-name"));
+    }
+
+    #[test]
+    fn a_fork_on_its_placeholder_name_is_told_to_rename_before_it_replies() {
+        let inputs = PromptInputs {
+            task_name: Some("Fork: Fix login"),
+            parent: Some(ParentTask::ForkedFrom {
+                task_id: "source-abc",
+                at_turn: Some(4),
+            }),
+            ..base_inputs("task-123")
+        };
+        let prompt = build_append_system_prompt(&inputs);
+        assert!(prompt.contains("# Required First Actions"));
+        assert!(prompt.contains("**Fork: Fix login**"));
+        assert!(!prompt.contains("# Task Name"));
+    }
+
+    /// Only a fork's name is a placeholder: a Task a person named `Fork: …`
+    /// keeps the ordinary rename hint.
+    #[test]
+    fn a_fork_prefixed_name_on_a_task_that_is_not_a_fork_is_its_own() {
+        let inputs = PromptInputs {
+            task_name: Some("Fork: the repo"),
+            ..base_inputs("task-123")
+        };
+        let prompt = build_append_system_prompt(&inputs);
+        assert!(prompt.contains("# Task Name"));
+        assert!(!prompt.contains("# Required First Actions"));
     }
 
     #[test]
