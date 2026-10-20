@@ -77,8 +77,10 @@ pub enum DataAction {
     Put {
         /// The artifact's slug on the task, or its id
         artifact: String,
-        /// The record's JSON
-        json: String,
+        /// The record's JSON. Not named `json`: that id is the global `--json`
+        /// flag, and clap panics reading this string as its bool.
+        #[arg(value_name = "JSON")]
+        record: String,
         /// Replace the record saved under this key rather than append one
         #[arg(long)]
         key: Option<String>,
@@ -241,12 +243,12 @@ async fn run_data(
         }
         DataAction::Put {
             artifact,
-            json,
+            record,
             key,
             task,
         } => {
-            let data: serde_json::Value =
-                serde_json::from_str(&json).map_err(|e| format!("the record is not JSON: {e}"))?;
+            let data: serde_json::Value = serde_json::from_str(&record)
+                .map_err(|e| format!("the record is not JSON: {e}"))?;
             let artifact_id = resolve_artifact(moat, cfg, &artifact, task).await?;
             let resp = moat
                 .api()
@@ -325,6 +327,41 @@ mod tests {
         std::fs::write(&css, "p{}").unwrap();
         assert!(read_page(dir.path()).is_err());
         assert!(read_page(&css).is_err());
+    }
+
+    /// A parser with the binary's global `--json`, which a positional with the
+    /// same id breaks at runtime.
+    #[derive(clap::Parser)]
+    struct TestCli {
+        #[arg(long, global = true)]
+        json: bool,
+        #[command(subcommand)]
+        action: ArtifactAction,
+    }
+
+    #[test]
+    fn data_put_parses_beside_the_global_json_flag() {
+        use clap::Parser as _;
+        let cli = TestCli::try_parse_from([
+            "moat",
+            "data",
+            "put",
+            "review",
+            r#"{"a":1}"#,
+            "--key",
+            "reply",
+            "--json",
+        ])
+        .expect("the arguments parse");
+        assert!(cli.json);
+        let ArtifactAction::Data {
+            action: DataAction::Put { record, key, .. },
+        } = cli.action
+        else {
+            panic!("expected data put");
+        };
+        assert_eq!(record, r#"{"a":1}"#);
+        assert_eq!(key.as_deref(), Some("reply"));
     }
 
     /// The prompt sends the agent to `--help` for these rules, and `-h` omits them.
