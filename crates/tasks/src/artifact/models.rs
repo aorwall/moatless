@@ -69,9 +69,8 @@ pub struct Reservation {
 /// An `artifact_records` row.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct ArtifactRecord {
-    pub record_id: uuid::Uuid,
     pub artifact_id: String,
-    pub key: Option<String>,
+    pub key: String,
     pub data: serde_json::Value,
     pub submitted_by: String,
     pub created_at: DateTime<Utc>,

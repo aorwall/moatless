@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use clap::Subcommand;
 use moatless_api_client::{ArtifactData, InlineArtifact, PageOptions};
-use moatless_api_schemas::artifact::{MAX_PAGE_BYTES, SaveArtifactRecordRequest};
+use moatless_api_schemas::artifact::{MAX_PAGE_BYTES, WriteArtifactRecordRequest};
 
 use crate::client::MoatClient;
 use crate::config::Config;
@@ -66,6 +66,9 @@ pub enum DataAction {
     List {
         /// The artifact's slug on the task, or its id
         artifact: String,
+        /// Only records whose keys start with this, such as `comments/` for a list
+        #[arg(long)]
+        prefix: Option<String>,
         /// Only records changed after this RFC 3339 time
         #[arg(long)]
         since: Option<String>,
@@ -73,17 +76,49 @@ pub enum DataAction {
         #[arg(long)]
         task: Option<String>,
     },
-    /// Save a record the page can read back, such as a reply to its reader
-    Put {
+    /// Print the record saved under a key as JSON
+    Get {
         /// The artifact's slug on the task, or its id
         artifact: String,
+        /// The record's key
+        key: String,
+        /// Task the slug is on; defaults to `$TASK_ID`
+        #[arg(long)]
+        task: Option<String>,
+    },
+    /// Save a record under a key, such as a reply the page shows its reader
+    Save {
+        /// The artifact's slug on the task, or its id
+        artifact: String,
+        /// The record's key; a record already under it is replaced
+        key: String,
         /// The record's JSON. Not named `json`: that id is the global `--json`
         /// flag, and clap panics reading this string as its bool.
         #[arg(value_name = "JSON")]
         record: String,
-        /// Replace the record saved under this key rather than append one
+        /// Task the slug is on; defaults to `$TASK_ID`
         #[arg(long)]
-        key: Option<String>,
+        task: Option<String>,
+    },
+    /// Append an item to a list, saved under a new key `<list>/<id>`
+    Append {
+        /// The artifact's slug on the task, or its id
+        artifact: String,
+        /// The list's name, such as `comments`
+        list: String,
+        /// The item's JSON
+        #[arg(value_name = "JSON")]
+        record: String,
+        /// Task the slug is on; defaults to `$TASK_ID`
+        #[arg(long)]
+        task: Option<String>,
+    },
+    /// Delete the record under a key
+    Delete {
+        /// The artifact's slug on the task, or its id
+        artifact: String,
+        /// The record's key
+        key: String,
         /// Task the slug is on; defaults to `$TASK_ID`
         #[arg(long)]
         task: Option<String>,
@@ -128,20 +163,23 @@ from its link.
 Interactive pages (--data, --notify)
 
 With --data the page is served with a `window.moatless.artifact` object that
-saves and reads records as the reader viewing the page:
-  await moatless.artifact.save({rating: 4})           append a record
-  await moatless.artifact.save(state, {key: \"state\"})  replace the record under a key
-  await moatless.artifact.list({since})               records, oldest change first
-  await moatless.artifact.get(\"state\")              the record under a key, or null
-  moatless.artifact.viewer                            the reader's login
-Records are JSON of at most 64 KiB, at most 1000 per artifact, and survive
+reads and writes records as the reader viewing the page. A record is JSON
+under a key; keys are `/`-separated, so a list is the keys under one prefix:
+  await moatless.artifact.save(\"state\", state)    save under a key, replacing it
+  await moatless.artifact.append(\"comments\", c)  save under a new comments/<id>
+  await moatless.artifact.delete(\"comments/<id>\") remove a record
+  await moatless.artifact.get(\"state\")            the record under a key, or null
+  await moatless.artifact.list({prefix, since})   records, oldest change first
+  moatless.artifact.viewer                        the reader's login
+Records are JSON of at most 64 KiB, at most 10000 per artifact, and survive
 republishing. The object is missing when the page is opened as a local file
-or downloaded, so check for it before calling it.
+or downloaded, so disable the page's controls without it.
 
-With --notify each record a reader saves is also sent to this task's agent as
-a message with <source>artifact</source>. Read records with
-`moat artifact data list <slug>` and write one the page can show with
-`moat artifact data put <slug> '<json>' --key <key>`.";
+With --notify each write a reader makes is also sent to this task's agent as
+a message with <source>artifact</source> that names the record's key. Read
+records with `moat artifact data get <slug> <key>` or
+`moat artifact data list <slug> [--prefix <list>/]`, and write one the page can
+show with `moat artifact data save <slug> <key> '<json>'`.";
 
 /// The variables T3's bootstrap defines; `scripts/vendor-html-render-bootstrap.sh`
 /// writes it from the same t3code source as the bootstrap.
@@ -228,36 +266,79 @@ async fn run_data(
     action: DataAction,
     cfg: &Config,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    match action {
+    let (artifact, task, req) = match action {
         DataAction::List {
             artifact,
+            prefix,
             since,
             task,
         } => {
             let artifact_id = resolve_artifact(moat, cfg, &artifact, task).await?;
             let resp = moat
                 .api()
-                .list_artifact_records(&artifact_id, since.as_deref())
+                .list_artifact_records(&artifact_id, prefix.as_deref(), since.as_deref())
                 .await?;
             output::print_json_typed(&resp);
+            return Ok(());
         }
-        DataAction::Put {
+        DataAction::Get {
             artifact,
-            record,
             key,
             task,
         } => {
-            let data: serde_json::Value = serde_json::from_str(&record)
-                .map_err(|e| format!("the record is not JSON: {e}"))?;
             let artifact_id = resolve_artifact(moat, cfg, &artifact, task).await?;
             let resp = moat
                 .api()
-                .save_artifact_record(&artifact_id, &SaveArtifactRecordRequest { key, data })
+                .list_artifact_records(&artifact_id, Some(&key), None)
                 .await?;
-            output::print_json_typed(&resp);
+            let record = resp
+                .items
+                .into_iter()
+                .find(|r| r.key == key)
+                .ok_or_else(|| format!("artifact {artifact} has no record under key {key:?}"))?;
+            output::print_json_typed(&record);
+            return Ok(());
         }
-    }
+        DataAction::Save {
+            artifact,
+            key,
+            record,
+            task,
+        } => {
+            let data = parse_record(&record)?;
+            (
+                artifact,
+                task,
+                WriteArtifactRecordRequest::Save { key, data },
+            )
+        }
+        DataAction::Append {
+            artifact,
+            list,
+            record,
+            task,
+        } => {
+            let data = parse_record(&record)?;
+            (
+                artifact,
+                task,
+                WriteArtifactRecordRequest::Append { list, data },
+            )
+        }
+        DataAction::Delete {
+            artifact,
+            key,
+            task,
+        } => (artifact, task, WriteArtifactRecordRequest::Delete { key }),
+    };
+    let artifact_id = resolve_artifact(moat, cfg, &artifact, task).await?;
+    let resp = moat.api().write_artifact_record(&artifact_id, &req).await?;
+    output::print_json_typed(&resp);
     Ok(())
+}
+
+fn parse_record(record: &str) -> Result<serde_json::Value, String> {
+    serde_json::from_str(record).map_err(|e| format!("the record is not JSON: {e}"))
 }
 
 /// The id of the artifact `name` names: a slug on the task, else an id.
@@ -340,28 +421,26 @@ mod tests {
     }
 
     #[test]
-    fn data_put_parses_beside_the_global_json_flag() {
+    fn data_save_takes_a_key_then_json_beside_the_global_json_flag() {
         use clap::Parser as _;
         let cli = TestCli::try_parse_from([
             "moat",
             "data",
-            "put",
+            "save",
             "review",
-            r#"{"a":1}"#,
-            "--key",
             "reply",
+            r#"{"a":1}"#,
             "--json",
         ])
         .expect("the arguments parse");
         assert!(cli.json);
         let ArtifactAction::Data {
-            action: DataAction::Put { record, key, .. },
+            action: DataAction::Save { key, record, .. },
         } = cli.action
         else {
-            panic!("expected data put");
+            panic!("expected data save");
         };
-        assert_eq!(record, r#"{"a":1}"#);
-        assert_eq!(key.as_deref(), Some("reply"));
+        assert_eq!((key.as_str(), record.as_str()), ("reply", r#"{"a":1}"#));
     }
 
     /// The prompt sends the agent to `--help` for these rules, and `-h` omits them.

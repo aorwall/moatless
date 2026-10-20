@@ -68,17 +68,15 @@ pub struct PublishArtifactBody {
 /// Largest JSON document one Artifact record may hold, serialized.
 pub const MAX_RECORD_BYTES: usize = 64 * 1024;
 
-/// One Artifact record: JSON saved against an Artifact, kept across its
-/// versions.
+/// One Artifact record: JSON saved under a key on an Artifact, kept across
+/// its versions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct ArtifactRecordResponse {
-    pub record_id: String,
     pub artifact_id: String,
-    /// `None` for an appended record; a keyed record is replaced by the next
-    /// save under its key.
-    pub key: Option<String>,
+    /// Names the record on its Artifact; the next save under it replaces it.
+    pub key: String,
     #[cfg_attr(feature = "openapi", schema(value_type = Object))]
     pub data: serde_json::Value,
     /// The user id of whoever saved the record last.
@@ -95,14 +93,25 @@ pub struct ListArtifactRecordsResponse {
     pub items: Vec<ArtifactRecordResponse>,
 }
 
-/// Body of a record save.
+/// Body of a record write; each answers with the record it wrote, or for
+/// `delete`, the record as it was.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct SaveArtifactRecordRequest {
-    /// Replace the record saved under this key rather than append one.
-    #[serde(default)]
-    pub key: Option<String>,
-    #[cfg_attr(feature = "openapi", schema(value_type = Object))]
-    pub data: serde_json::Value,
+#[serde(tag = "op", rename_all = "camelCase")]
+pub enum WriteArtifactRecordRequest {
+    /// Save `data` under `key`, replacing the record there.
+    Save {
+        key: String,
+        #[cfg_attr(feature = "openapi", schema(value_type = Object))]
+        data: serde_json::Value,
+    },
+    /// Save `data` under a new key `{list}/{id}`, where the id sorts by
+    /// creation time.
+    Append {
+        list: String,
+        #[cfg_attr(feature = "openapi", schema(value_type = Object))]
+        data: serde_json::Value,
+    },
+    /// Remove the record under `key`.
+    Delete { key: String },
 }

@@ -180,61 +180,63 @@ async fn the_latest_publish_decides_whether_the_page_accepts_data(pool: PgPool) 
 }
 
 #[sqlx::test]
-async fn a_keyed_record_is_replaced_and_an_unkeyed_one_appended(pool: PgPool) {
+async fn a_save_under_a_key_replaces_the_record_there(pool: PgPool) {
     seed_bare_task(&pool, "task-1", "open").await;
     let dao = PgArtifactDao(pool);
     reserve(&dao, "art-a", "report", "Report").await;
-    let first = uuid::Uuid::new_v4();
-    dao.save_record(
-        first,
-        "art-a",
-        Some("state".to_string()),
-        &serde_json::json!({"n": 1}),
-        "user-1",
-    )
-    .await
-    .unwrap();
-    let replaced = dao
-        .save_record(
-            uuid::Uuid::new_v4(),
-            "art-a",
-            Some("state".to_string()),
-            &serde_json::json!({"n": 2}),
-            "user-2",
-        )
+    let first = dao
+        .save_record("art-a", "state", &serde_json::json!({"n": 1}), "user-1")
         .await
         .unwrap();
-    assert_eq!(replaced.record_id, first);
+    let replaced = dao
+        .save_record("art-a", "state", &serde_json::json!({"n": 2}), "user-2")
+        .await
+        .unwrap();
+    assert_eq!(replaced.created_at, first.created_at);
     assert_eq!(replaced.data, serde_json::json!({"n": 2}));
     assert_eq!(replaced.submitted_by, "user-2");
-    for _ in 0..2 {
-        dao.save_record(
-            uuid::Uuid::new_v4(),
-            "art-a",
-            None,
-            &serde_json::json!({}),
-            "user-1",
-        )
-        .await
-        .unwrap();
+    for key in ["vote:a", "vote:b"] {
+        dao.save_record("art-a", key, &serde_json::json!({}), "user-1")
+            .await
+            .unwrap();
     }
 
     assert_eq!(
-        dao.count_records("art-a", Some("state".to_string()))
-            .await
-            .unwrap(),
+        dao.count_records("art-a", "state").await.unwrap(),
         (3, true)
     );
     assert_eq!(
-        dao.count_records("art-a", Some("other".to_string()))
-            .await
-            .unwrap(),
+        dao.count_records("art-a", "other").await.unwrap(),
         (3, false)
     );
-    assert_eq!(dao.list_records("art-a", None).await.unwrap().len(), 3);
+    assert_eq!(
+        dao.list_records("art-a", None, None).await.unwrap().len(),
+        3
+    );
     let since = replaced.updated_at;
     assert_eq!(
-        dao.list_records("art-a", Some(since)).await.unwrap().len(),
+        dao.list_records("art-a", Some(since), None)
+            .await
+            .unwrap()
+            .len(),
+        2
+    );
+    let votes = dao
+        .list_records("art-a", None, Some("vote:".to_string()))
+        .await
+        .unwrap();
+    assert_eq!(votes.len(), 2);
+
+    let deleted = dao.delete_record("art-a", "vote:a").await.unwrap();
+    assert_eq!(deleted.map(|r| r.key).as_deref(), Some("vote:a"));
+    assert!(
+        dao.delete_record("art-a", "vote:a")
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        dao.list_records("art-a", None, None).await.unwrap().len(),
         2
     );
 }

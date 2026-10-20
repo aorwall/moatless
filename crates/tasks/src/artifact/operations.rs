@@ -188,20 +188,13 @@ impl Artifacts {
     /// See [`ArtifactDao::save_record`].
     pub(crate) async fn save_record(
         &self,
-        record_id: uuid::Uuid,
         artifact_id: &str,
-        key: Option<&str>,
+        key: &str,
         data: &serde_json::Value,
         submitted_by: &str,
     ) -> Result<ArtifactRecord, sqlx::Error> {
         self.store
-            .save_record(
-                record_id,
-                artifact_id,
-                key.map(str::to_string),
-                data,
-                submitted_by,
-            )
+            .save_record(artifact_id, key, data, submitted_by)
             .await
     }
 
@@ -209,11 +202,18 @@ impl Artifacts {
     pub(crate) async fn count_records(
         &self,
         artifact_id: &str,
-        key: Option<&str>,
+        key: &str,
     ) -> Result<(i64, bool), sqlx::Error> {
-        self.store
-            .count_records(artifact_id, key.map(str::to_string))
-            .await
+        self.store.count_records(artifact_id, key).await
+    }
+
+    /// See [`ArtifactDao::delete_record`].
+    pub(crate) async fn delete_record(
+        &self,
+        artifact_id: &str,
+        key: &str,
+    ) -> Result<Option<ArtifactRecord>, sqlx::Error> {
+        self.store.delete_record(artifact_id, key).await
     }
 
     /// See [`ArtifactDao::list_records`].
@@ -221,7 +221,10 @@ impl Artifacts {
         &self,
         artifact_id: &str,
         since: Option<chrono::DateTime<chrono::Utc>>,
+        prefix: Option<&str>,
     ) -> Result<Vec<ArtifactRecord>, sqlx::Error> {
-        self.store.list_records(artifact_id, since).await
+        self.store
+            .list_records(artifact_id, since, prefix.map(str::to_string))
+            .await
     }
 }

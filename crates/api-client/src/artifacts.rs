@@ -76,13 +76,23 @@ impl ApiClient {
             .await
     }
 
-    /// GET `/api/v1/artifacts/{artifact_id}/records`
+    /// GET `/api/v1/artifacts/{artifact_id}/records`, filtered by key `prefix`
+    /// and change time `since` when given.
     pub async fn list_artifact_records(
         &self,
         artifact_id: &str,
+        prefix: Option<&str>,
         since: Option<&str>,
     ) -> Result<moatless_api_schemas::artifact::ListArtifactRecordsResponse, ApiError> {
-        let query = since.map_or_else(String::new, |since| format!("?since={}", urlenc(since)));
+        let params: Vec<String> = [("prefix", prefix), ("since", since)]
+            .into_iter()
+            .filter_map(|(name, value)| value.map(|v| format!("{name}={}", urlenc(v))))
+            .collect();
+        let query = if params.is_empty() {
+            String::new()
+        } else {
+            format!("?{}", params.join("&"))
+        };
         self.get(&format!(
             "/api/v1/artifacts/{}/records{query}",
             urlenc(artifact_id)
@@ -91,10 +101,10 @@ impl ApiClient {
     }
 
     /// POST `/api/v1/artifacts/{artifact_id}/records`
-    pub async fn save_artifact_record(
+    pub async fn write_artifact_record(
         &self,
         artifact_id: &str,
-        req: &moatless_api_schemas::artifact::SaveArtifactRecordRequest,
+        req: &moatless_api_schemas::artifact::WriteArtifactRecordRequest,
     ) -> Result<moatless_api_schemas::artifact::ArtifactRecordResponse, ApiError> {
         self.post(
             &format!("/api/v1/artifacts/{}/records", urlenc(artifact_id)),

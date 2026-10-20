@@ -23,9 +23,9 @@ use moatless_core::http_auth::UserTokenVerifier;
         handlers::list_task_artifacts,
         handlers::open_latest_artifact,
         handlers::serve_artifact_page,
-        record_handlers::save_record,
+        record_handlers::write_record,
         record_handlers::list_records,
-        record_handlers::save_page_record,
+        record_handlers::write_page_record,
         record_handlers::list_page_records,
     )
 )]
@@ -47,11 +47,11 @@ where
         .routes(routes!(handlers::open_latest_artifact))
         .routes(routes!(handlers::serve_artifact_page))
         .routes(routes!(
-            record_handlers::save_record,
+            record_handlers::write_record,
             record_handlers::list_records
         ))
         .routes(routes!(
-            record_handlers::save_page_record,
+            record_handlers::write_page_record,
             record_handlers::list_page_records
         ))
         .with_state(state)

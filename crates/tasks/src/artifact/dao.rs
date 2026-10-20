@@ -45,28 +45,32 @@ pub trait ArtifactDao: Send + Sync {
     async fn find_by_id(&self, artifact_id: &str) -> Result<Option<Artifact>, sqlx::Error>;
     /// The Task's published Artifacts, most recently updated first.
     async fn list_for_task(&self, task_id: &str) -> Result<Vec<Artifact>, sqlx::Error>;
-    /// Append a record as `record_id`, or with a `key`, replace the record
-    /// saved under it, keeping that record's id and `created_at`.
+    /// Save `data` under `key`, replacing the record already there but
+    /// keeping its `created_at`.
     async fn save_record(
         &self,
-        record_id: Uuid,
         artifact_id: &str,
-        key: Option<String>,
+        key: &str,
         data: &serde_json::Value,
         submitted_by: &str,
     ) -> Result<ArtifactRecord, sqlx::Error>;
     /// How many records the Artifact holds, and whether one is saved under
     /// `key`.
-    async fn count_records(
+    async fn count_records(&self, artifact_id: &str, key: &str)
+    -> Result<(i64, bool), sqlx::Error>;
+    /// Remove the record under `key`, returning it as it was.
+    async fn delete_record(
         &self,
         artifact_id: &str,
-        key: Option<String>,
-    ) -> Result<(i64, bool), sqlx::Error>;
-    /// The Artifact's records changed after `since`, oldest change first.
+        key: &str,
+    ) -> Result<Option<ArtifactRecord>, sqlx::Error>;
+    /// The Artifact's records changed after `since` whose keys start with
+    /// `prefix`, each when given, oldest change first.
     async fn list_records(
         &self,
         artifact_id: &str,
         since: Option<chrono::DateTime<chrono::Utc>>,
+        prefix: Option<String>,
     ) -> Result<Vec<ArtifactRecord>, sqlx::Error>;
 }
 
@@ -159,22 +163,20 @@ impl ArtifactDao for PgArtifactDao {
 
     async fn save_record(
         &self,
-        record_id: Uuid,
         artifact_id: &str,
-        key: Option<String>,
+        key: &str,
         data: &serde_json::Value,
         submitted_by: &str,
     ) -> Result<ArtifactRecord, sqlx::Error> {
         sqlx::query_as::<_, ArtifactRecord>(
-            r#"INSERT INTO artifact_records (record_id, artifact_id, key, data, submitted_by)
-               VALUES ($1, $2, $3, $4, $5)
-               ON CONFLICT (artifact_id, key) WHERE key IS NOT NULL
+            r#"INSERT INTO artifact_records (artifact_id, key, data, submitted_by)
+               VALUES ($1, $2, $3, $4)
+               ON CONFLICT (artifact_id, key)
                DO UPDATE SET data = EXCLUDED.data,
                              submitted_by = EXCLUDED.submitted_by,
                              updated_at = now()
                RETURNING *"#,
         )
-        .bind(record_id)
         .bind(artifact_id)
         .bind(key)
         .bind(data)
@@ -186,7 +188,7 @@ impl ArtifactDao for PgArtifactDao {
     async fn count_records(
         &self,
         artifact_id: &str,
-        key: Option<String>,
+        key: &str,
     ) -> Result<(i64, bool), sqlx::Error> {
         sqlx::query_as::<_, (i64, bool)>(
             r#"SELECT count(*), COALESCE(bool_or(key = $2), false)
@@ -198,18 +200,35 @@ impl ArtifactDao for PgArtifactDao {
         .await
     }
 
+    async fn delete_record(
+        &self,
+        artifact_id: &str,
+        key: &str,
+    ) -> Result<Option<ArtifactRecord>, sqlx::Error> {
+        sqlx::query_as::<_, ArtifactRecord>(
+            "DELETE FROM artifact_records WHERE artifact_id = $1 AND key = $2 RETURNING *",
+        )
+        .bind(artifact_id)
+        .bind(key)
+        .fetch_optional(&self.0)
+        .await
+    }
+
     async fn list_records(
         &self,
         artifact_id: &str,
         since: Option<chrono::DateTime<chrono::Utc>>,
+        prefix: Option<String>,
     ) -> Result<Vec<ArtifactRecord>, sqlx::Error> {
         sqlx::query_as::<_, ArtifactRecord>(
             r#"SELECT * FROM artifact_records
                WHERE artifact_id = $1 AND ($2::timestamptz IS NULL OR updated_at > $2)
-               ORDER BY updated_at, record_id"#,
+                 AND ($3::text IS NULL OR starts_with(key, $3))
+               ORDER BY updated_at, key"#,
         )
         .bind(artifact_id)
         .bind(since)
+        .bind(prefix)
         .fetch_all(&self.0)
         .await
     }

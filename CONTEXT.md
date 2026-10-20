@@ -155,11 +155,15 @@ itself.
 _Avoid_: asset (an uploaded attachment, not something the agent publishes)
 
 **Artifact record**:
-JSON saved against an Artifact, kept across its versions. A page whose latest
+JSON saved under a key on an Artifact, kept across its versions; a save under
+an existing key replaces it. Keys are `/`-separated, and a list is the records
+under one prefix: an append saves under a new `{list}/{id}`. A page whose latest
 publish set `--data` saves records as the reader viewing it, through a page
-token the serve route writes into the page. With `--notify`, each record a
-reader saves is also an inbox item for the Task, from the `artifact` adapter.
-Records are shared by every reader: each can list and replace the others'.
+token the serve route writes into the page. With `--notify`, each write a
+reader makes is also an inbox item for the Task, from the `artifact` adapter,
+naming the record's key.
+Records are shared by every reader: each can list, replace and delete the
+others'.
 _Avoid_: submission, artifact data (the records as a whole, not one of them)
 
 ### Providers — always qualified

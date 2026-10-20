@@ -16,7 +16,7 @@ use moatless_core::http_auth::AuthUser;
 use super::error::ArtifactError;
 use super::operations::Artifacts;
 use super::schemas::{
-    ArtifactRecordResponse, ListArtifactRecordsResponse, SaveArtifactRecordRequest,
+    ArtifactRecordResponse, ListArtifactRecordsResponse, WriteArtifactRecordRequest,
 };
 
 /// Query parameters of the record lists.
@@ -25,32 +25,44 @@ use super::schemas::{
 pub struct ListRecordsQuery {
     /// RFC 3339 time; only records changed after it are listed.
     pub since: Option<String>,
+    /// Only records whose keys start with it, such as `comments/` for a list.
+    pub prefix: Option<String>,
 }
 
-/// Save a record from a served page, queuing a message to the Task's agent
-/// when the Artifact was published with `notify`.
+impl ListRecordsQuery {
+    fn filter(&self) -> super::records::RecordFilter<'_> {
+        super::records::RecordFilter {
+            prefix: self.prefix.as_deref(),
+            since: self.since.as_deref(),
+        }
+    }
+}
+
+/// Save, append or delete a record from a served page, queuing a message to
+/// the Task's agent when the Artifact was published with `notify`.
 #[utoipa::path(
     post,
     path = "/api/artifact-data/{token}/records",
     tag = "artifacts",
     params(("token" = String, Path, description = "Page token the served page carries")),
-    request_body(content = SaveArtifactRecordRequest, description = "JSON, sent as any content type"),
+    request_body(content = WriteArtifactRecordRequest, description = "JSON, sent as any content type"),
     responses(
-        (status = 200, description = "Record saved", body = ArtifactRecordResponse),
+        (status = 200, description = "The record written, or as it was before a delete", body = ArtifactRecordResponse),
         (status = 400, description = "Invalid record", body = moatless_api_schemas::error::ErrorBody),
         (status = 401, description = "Invalid or expired page token", body = moatless_api_schemas::error::ErrorBody),
         (status = 403, description = "The latest publish accepts no data", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "No record under the key to delete", body = moatless_api_schemas::error::ErrorBody),
         (status = 413, description = "Record too large", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
-pub async fn save_page_record(
+pub async fn write_page_record(
     State(tasks): State<Arc<TaskCommands>>,
     State(artifacts): State<Arc<Artifacts>>,
     State(messages): State<Arc<MessageSendService>>,
     Path(token): Path<String>,
     body: Bytes,
 ) -> Response {
-    let saved = super::records::save_from_page(
+    let saved = super::records::write_from_page(
         tasks.as_ref(),
         artifacts.as_ref(),
         messages.as_ref(),
@@ -81,13 +93,9 @@ pub async fn list_page_records(
     Path(token): Path<String>,
     Query(query): Query<ListRecordsQuery>,
 ) -> Response {
-    let items = super::records::list_for_page(
-        tasks.as_ref(),
-        artifacts.as_ref(),
-        &token,
-        query.since.as_deref(),
-    )
-    .await;
+    let items =
+        super::records::list_for_page(tasks.as_ref(), artifacts.as_ref(), &token, query.filter())
+            .await;
     page_response(items.map(|items| Json(ListArtifactRecordsResponse { items })))
 }
 
@@ -126,29 +134,29 @@ fn page_response(result: Result<impl IntoResponse, ArtifactError>) -> Response {
     response
 }
 
-/// Save a record as the caller, who must be able to change the Task. Queues
-/// no message.
+/// Save, append or delete a record as the caller, who must be able to change
+/// the Task. Queues no message.
 #[utoipa::path(
     post,
     path = "/api/v1/artifacts/{artifact_id}/records",
     tag = "artifacts",
     params(("artifact_id" = String, Path, description = "Artifact identifier")),
-    request_body = SaveArtifactRecordRequest,
+    request_body = WriteArtifactRecordRequest,
     responses(
-        (status = 200, description = "Record saved", body = ArtifactRecordResponse),
+        (status = 200, description = "The record written, or as it was before a delete", body = ArtifactRecordResponse),
         (status = 400, description = "Invalid record", body = moatless_api_schemas::error::ErrorBody),
         (status = 403, description = "Caller cannot change the Task", body = moatless_api_schemas::error::ErrorBody),
-        (status = 404, description = "Artifact not found", body = moatless_api_schemas::error::ErrorBody)
+        (status = 404, description = "Artifact, or the record to delete, not found", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
-pub async fn save_record(
+pub async fn write_record(
     State(tasks): State<Arc<TaskCommands>>,
     State(artifacts): State<Arc<Artifacts>>,
     auth: AuthUser,
     Path(artifact_id): Path<String>,
-    Json(req): Json<SaveArtifactRecordRequest>,
+    Json(req): Json<WriteArtifactRecordRequest>,
 ) -> Result<Json<ArtifactRecordResponse>, ArtifactError> {
-    let record = super::records::save_as_user(
+    let record = super::records::write_as_user(
         tasks.as_ref(),
         artifacts.as_ref(),
         &auth.scope_context(),
@@ -185,7 +193,7 @@ pub async fn list_records(
         artifacts.as_ref(),
         &auth.scope_context(),
         &artifact_id,
-        query.since.as_deref(),
+        query.filter(),
     )
     .await?;
     Ok(Json(ListArtifactRecordsResponse { items }))
