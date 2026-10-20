@@ -11,6 +11,10 @@ the sandbox stops, and anyone who can read the task can open it.
 
 ## Building the page
 
+When they are available, load the `artifact-design` skill before you write
+the page, and the `artifact-diagramming` skill before you draw a diagram in it. They own how the
+page looks; this skill owns how it is published and how it saves data.
+
 1. **Write one self-contained file in a scratch directory, never the repository.**
 
    Use `/opt/moatless/workspace/scratchpad/<slug>.html`. Inline the CSS and

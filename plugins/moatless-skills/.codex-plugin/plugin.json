@@ -1,14 +1,14 @@
 {
   "name": "moatless-skills",
   "version": "0.1.0",
-  "description": "General development workflows and engineering skills for coding agents.",
+  "description": "Moatless workflows for coding agents: Artifact pages, task handoff, feature orchestration, code review and installation.",
   "author": {
     "name": "Albert Örwall"
   },
   "skills": "./skills/",
   "interface": {
     "displayName": "Moatless Skills",
-    "shortDescription": "Reusable engineering workflows for coding agents.",
+    "shortDescription": "Moatless workflows for coding agents.",
     "developerName": "Albert Örwall",
     "category": "Development"
   }

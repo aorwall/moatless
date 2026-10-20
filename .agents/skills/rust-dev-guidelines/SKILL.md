@@ -21,9 +21,7 @@ new conventions without checking that they remain sound.
      an editor against this workspace →
      [build-costs.md](references/build-costs.md)
 3. Define a failing test or reproducible check before implementation.
-4. For a new or materially changed module, interface, or dependency seam, use
-   the `codebase-design` skill before settling the design.
-5. Make the smallest change that satisfies the behavior, then run the owning
+4. Make the smallest change that satisfies the behavior, then run the owning
    crate's mandatory Clippy and test commands from `AGENTS.md`.
 
 ## Core Rules

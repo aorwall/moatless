@@ -11,7 +11,7 @@ Bring a fresh Docker Compose or Kubernetes installation to a healthy deployment,
 
 1. Decide where Moatless will run before executing any setup command.
 
-   Infer the target when the request or environment already makes it clear. Otherwise ask a ranked pick shaped by `/asking-questions` and `/writing-messages`:
+   Infer the target when the request or environment already makes it clear. Otherwise ask a ranked pick, with the recommended target first:
 
    - Recommend Docker Compose for a laptop, evaluation, development, or a single-host installation.
    - Recommend Kubernetes for an existing cluster, a shared installation, or production operations that need ingress, persistent storage, and horizontal scaling. If Kubernetes is selected but no cluster exists, invoke `$provision-moatless-kubernetes` first and resume this skill from its infrastructure handoff.

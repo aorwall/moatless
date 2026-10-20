@@ -1,0 +1,3 @@
+interface:
+  display_name: "Artifact Diagramming"
+  short_description: "Diagrams that show a real mechanism in an Artifact page"

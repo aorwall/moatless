@@ -1,6 +1,6 @@
 ---
 name: orchestrate
-description: "End-to-end feature orchestration: grill requirements, write spec, render HTML for review, break into tickets, spawn parallel child tasks, review PRs, loop until done. Use when a user wants to plan and execute a non-trivial feature across many tasks."
+description: "End-to-end feature orchestration: clarify requirements, write a spec, show it as an Artifact for review, break it into tickets, spawn child tasks, review their PRs, loop until done. Use when a user wants to plan and execute a non-trivial feature across many tasks."
 disable-model-invocation: true
 ---
 
@@ -10,11 +10,11 @@ Drive a feature from idea to merged PRs: clarify → spec → review → tickets
 
 This skill spawns child Moatless tasks to implement work in parallel. Each child creates a PR and reports back; you run code review on each and advance blocked tickets as their dependencies land.
 
-Three artifacts, each with a distinct audience. `/spec` owns when the first two appear; this skill owns the third.
+Three documents, each with a distinct audience.
 
-| Artifact | Path | Lives where | Read by |
+| Document | Path | Lives where | Read by |
 |---|---|---|---|
-| The page | `/opt/moatless/workspace/scratchpad/<feature-slug>.html` | Orchestrator sandbox | The user, until the breakdown is agreed |
+| The page | A Moatless Artifact published from `/opt/moatless/workspace/scratchpad/<feature-slug>.html` | Moatless, outside the sandbox | The user, until the breakdown is agreed |
 | The spec | `<repo>/.plans/<feature-slug>.md` | **Committed to the stack root branch** | The child agents — they read it from their own checkout |
 | Ticket files | `/opt/moatless/workspace/tickets/<feature-slug>/<NN>-<slug>.md` | Orchestrator sandbox | One per child, inlined as its spawn message body |
 
@@ -28,9 +28,19 @@ branch keeps the feature's diff about the feature.
 
 ## Phase 1 — Plan and break down
 
-Run **`/spec`** and follow its workflow to the written spec, then **`/to-tickets`**. Both skills own their own approval gate; don't add a third.
+1. **Clarify.** Read the code the feature touches, then ask the user one
+   question at a time until the scope, the constraints and the acceptance
+   criteria are settled. Look facts up rather than asking for them.
+2. **Write the spec and get it approved.** Draft the problem, the decisions
+   and the acceptance criteria. Publish it as a page with the `artifacts`
+   skill, and revise it until the user approves it.
+3. **Break it into tickets and get the breakdown approved.** Each ticket is a
+   thin vertical slice that works end to end and can merge on its own. Give
+   each a title, what it delivers, its acceptance criteria and the tickets it
+   is blocked by. Show the breakdown on the page, and revise it until the user
+   approves it.
 
-Four things differ at feature size:
+Done when the user has approved both the spec and the breakdown. Then:
 
 1. **The spec is the child tasks' only view.** They run in fresh sandboxes and cannot read the page, the ticket files, or anything else in your sandbox. Whatever is agreed on the page and not written into the spec is lost.
 2. **The approved spec is the first layer of the GitHub stack.** Write it to
@@ -120,10 +130,21 @@ BASE_BRANCH: <branch>               # compatibility alias for STACK_BASE_BRANCH
 STACK_BASE_PR: <pr-url-or-number>   # PR for STACK_BASE_BRANCH; use it to recover local stack tracking
 STACK_BRANCH: ticket-<NN>-<slug>    # branch name to create with moat gh stack add
 
-Use /implement-ticket to implement this work. Because this ticket is stacked,
-its PR creation step is: recover the stack, run 'moat gh stack add
-<STACK_BRANCH>' before coding, then run 'moat gh stack submit --auto --task
-$TASK_ID' when done. Do not use 'moat gh pr create' for this ticket.
+Implement this ticket:
+1. Read the spec. If local stack tracking is missing, run
+   'moat gh stack checkout <STACK_BASE_PR>'. Run 'moat gh stack add
+   <STACK_BRANCH>' before coding. Do not use 'moat gh pr create'.
+2. Write a failing test or a reproducible check for each acceptance
+   criterion, then make it pass, and run the repo's verification steps.
+3. If you learn something that changes the spec or later tickets, send it
+   before you continue:
+   moat send --task <ORCHESTRATOR_TASK_ID> --text 'Finding: <what changed>
+   Impact: <why it matters> Proposed handling: <continue, pause or re-scope>'
+4. Run 'moat gh stack submit --auto --task \$TASK_ID', then report:
+   moat send --task <ORCHESTRATOR_TASK_ID> --text 'PR ready: <PR URL>
+   Branch: <branch> Ticket: <NN> - <title> Findings sent: <yes/no>'
+5. If you are blocked, send 'Blocked on: <description>' with the ticket
+   number, and wait for a reply.
 " --json | jq -r '.taskId')
 echo "Spawned $CHILD_ID for ticket <NN>"
 ```
