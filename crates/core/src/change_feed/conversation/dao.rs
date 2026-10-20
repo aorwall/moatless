@@ -180,10 +180,13 @@ pub async fn changes_from(
 /// racing prunes target the same rows and the second finds nothing. No lease,
 /// no leader.
 pub async fn prune_changes(pool: &PgPool) -> Result<u64, sqlx::Error> {
+    // `p.position > $1` drops every conversation still inside its window before
+    // the join. Without it each tick reads every change row to delete none.
     let deleted = sqlx::query(
         r#"DELETE FROM task_conversation_changes c
            USING task_conversation_position p
-           WHERE c.task_id = p.task_id
+           WHERE p.position > $1
+             AND c.task_id = p.task_id
              AND c.position <= p.position - $1"#,
     )
     .bind(RETAINED_CHANGES)
