@@ -1,0 +1,3 @@
+interface:
+  display_name: "Artifacts"
+  short_description: "Publish HTML pages from a Moatless task, inline or interactive"

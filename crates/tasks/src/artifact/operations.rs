@@ -9,7 +9,7 @@ use moatless_types::activity::ArtifactShown;
 
 use super::dao::ArtifactDao;
 use super::error::ArtifactError;
-use super::models::{Artifact, Reservation};
+use super::models::{Artifact, ArtifactRecord, DataAccess, Reservation};
 
 /// Content type a page is stored and served with, whatever the upload claimed.
 pub(crate) const PAGE_CONTENT_TYPE: &str = "text/html; charset=utf-8";
@@ -26,6 +26,9 @@ pub struct Artifacts {
     /// Origin the absolute URLs in a response start with, without a trailing
     /// slash.
     public_url: String,
+    /// Signs page tokens; `None` serves every page without one, so no page can
+    /// save records.
+    signing_key: Option<String>,
 }
 
 impl Artifacts {
@@ -34,13 +37,19 @@ impl Artifacts {
         s3: Option<S3Storage>,
         s3_config: Arc<S3Config>,
         public_url: &str,
+        signing_key: Option<String>,
     ) -> Self {
         Self {
             store,
             s3,
             s3_config,
             public_url: public_url.trim_end_matches('/').to_string(),
+            signing_key,
         }
+    }
+
+    pub(crate) fn signing_key(&self) -> Option<&str> {
+        self.signing_key.as_deref()
     }
 
     fn object_storage(&self) -> Result<(&S3Storage, &str), ArtifactError> {
@@ -155,10 +164,11 @@ impl Artifacts {
         artifact_id: &str,
         version: i32,
         title: &str,
+        data: DataAccess,
         shown: Option<ArtifactShown>,
     ) -> Result<Option<Artifact>, sqlx::Error> {
         self.store
-            .commit_version(artifact_id, version, title, shown)
+            .commit_version(artifact_id, version, title, data, shown)
             .await
     }
 
@@ -173,5 +183,45 @@ impl Artifacts {
     /// See [`ArtifactDao::list_for_task`].
     pub(crate) async fn list_for_task(&self, task_id: &str) -> Result<Vec<Artifact>, sqlx::Error> {
         self.store.list_for_task(task_id).await
+    }
+
+    /// See [`ArtifactDao::save_record`].
+    pub(crate) async fn save_record(
+        &self,
+        record_id: uuid::Uuid,
+        artifact_id: &str,
+        key: Option<&str>,
+        data: &serde_json::Value,
+        submitted_by: &str,
+    ) -> Result<ArtifactRecord, sqlx::Error> {
+        self.store
+            .save_record(
+                record_id,
+                artifact_id,
+                key.map(str::to_string),
+                data,
+                submitted_by,
+            )
+            .await
+    }
+
+    /// See [`ArtifactDao::count_records`].
+    pub(crate) async fn count_records(
+        &self,
+        artifact_id: &str,
+        key: Option<&str>,
+    ) -> Result<(i64, bool), sqlx::Error> {
+        self.store
+            .count_records(artifact_id, key.map(str::to_string))
+            .await
+    }
+
+    /// See [`ArtifactDao::list_records`].
+    pub(crate) async fn list_records(
+        &self,
+        artifact_id: &str,
+        since: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<Vec<ArtifactRecord>, sqlx::Error> {
+        self.store.list_records(artifact_id, since).await
     }
 }

@@ -51,6 +51,7 @@ pub const TABLES: &[(&str, &str)] = &[
     ("subscriptions", "moatless-loops"),
     ("tags", "moatless-tasks"),
     ("task_artifacts", "moatless-tasks"),
+    ("artifact_records", "moatless-tasks"),
     ("task_bindings", "moatless-loops"),
     ("task_conversation_changes", "moatless-core"),
     ("task_conversation_position", "moatless-core"),

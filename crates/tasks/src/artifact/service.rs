@@ -35,6 +35,11 @@ pub async fn publish(
         _ => slug_from_title(&title),
     };
     check_page(req.file_name.as_deref(), &req.html)?;
+    if req.data.notify_on_data && !req.data.accepts_data {
+        return Err(ArtifactError::BadRequest(
+            "notify needs data: only a page that accepts data can notify".to_string(),
+        ));
+    }
     let task = tasks
         .find_by_id(task_id, scope)
         .await?
@@ -71,7 +76,7 @@ pub async fn publish(
             .clamp(MIN_INLINE_HEIGHT, MAX_INLINE_HEIGHT),
     });
     let row = match artifacts
-        .commit_version(&artifact_id, version, &title, shown)
+        .commit_version(&artifact_id, version, &title, req.data, shown)
         .await
     {
         Ok(Some(row)) => row,
@@ -149,7 +154,11 @@ pub async fn latest_location(
 #[derive(Debug)]
 pub struct Page {
     pub html: Vec<u8>,
+    pub artifact_id: String,
     pub title: String,
+    /// Whether the page is served with a page token and the record script.
+    /// The latest publish decides, whichever version is served.
+    pub accepts_data: bool,
     /// Whether the version was shown inline, and so is served with T3's
     /// bootstrap injected.
     pub inline: bool,
@@ -175,13 +184,15 @@ pub async fn read_page(
         .ok_or_else(not_found)?;
     Ok(Page {
         html,
+        artifact_id: row.artifact_id,
         title: row.title,
+        accepts_data: row.accepts_data,
         inline: row.inline_versions.contains(&version),
     })
 }
 
 /// The Artifact, when it is published on a Task `scope` can read.
-async fn find_readable(
+pub(crate) async fn find_readable(
     tasks: &TaskCommands,
     artifacts: &Artifacts,
     scope: &ScopeContext,
@@ -212,6 +223,8 @@ fn to_response(row: &Artifact, public_url: &str, version: i32, title: &str) -> A
         created_by: row.created_by.clone(),
         created_at: row.created_at.to_rfc3339(),
         updated_at: row.updated_at.to_rfc3339(),
+        accepts_data: row.accepts_data,
+        notify_on_data: row.notify_on_data,
     }
 }
 

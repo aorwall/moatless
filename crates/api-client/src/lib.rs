@@ -1,9 +1,11 @@
 //! Hand-written typed HTTP client for the Moatless API.
 
+mod artifacts;
 mod client;
 mod error;
 
-pub use client::{ApiClient, InlineArtifact};
+pub use artifacts::{ArtifactData, InlineArtifact, PageOptions};
+pub use client::ApiClient;
 pub use error::ApiError;
 /// Wire contracts used by the Rust client.
 pub mod types {

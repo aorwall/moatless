@@ -24,14 +24,45 @@ const RAW_TEXT_TAGS: [&[u8]; 9] = [
 pub(crate) fn inject(html: &[u8]) -> Vec<u8> {
     let scan = blank_non_markup(html);
     let markup = bootstrap_markup(&scan);
+    into_head(html, &scan, &markup)
+}
+
+/// The `moatless.artifact` page script, minified by hand; `__CONFIG__` is
+/// replaced by [`inject_data_script`].
+const DATA_SCRIPT: &str = include_str!("data_script.js");
+
+/// Returns `html` with the `moatless.artifact` script, configured for one
+/// reader's page token, at the start of its head.
+pub(crate) fn inject_data_script(
+    html: &[u8],
+    token: &str,
+    artifact_id: &str,
+    viewer: &str,
+) -> Vec<u8> {
+    let config = serde_json::json!({
+        "token": token,
+        "artifactId": artifact_id,
+        "viewer": viewer,
+    })
+    .to_string()
+    // A `</script>` inside a JSON string still ends the script element.
+    .replace('<', "\\u003c");
+    let markup = format!(
+        "<script>{}</script>",
+        DATA_SCRIPT.trim_end().replace("__CONFIG__", &config)
+    );
+    into_head(html, &blank_non_markup(html), &markup)
+}
+
+fn into_head(html: &[u8], scan: &[u8], markup: &str) -> Vec<u8> {
     let mut out = Vec::with_capacity(html.len() + markup.len() + 32);
-    if let Some(at) = find_open_tag(&scan, b"head") {
+    if let Some(at) = find_open_tag(scan, b"head") {
         out.extend_from_slice(&html[..at]);
         out.extend_from_slice(markup.as_bytes());
         out.extend_from_slice(&html[at..]);
         return out;
     }
-    let at = find_open_tag(&scan, b"html").or_else(|| doctype_end(html));
+    let at = find_open_tag(scan, b"html").or_else(|| doctype_end(html));
     match at {
         Some(at) => out.extend_from_slice(&html[..at]),
         None => out.extend_from_slice(b"<!doctype html>"),
@@ -397,5 +428,27 @@ mod tests {
     fn keeps_non_utf8_bytes() {
         let out = inject(b"<head></head>\xff");
         assert!(out.ends_with(b"</head>\xff"));
+    }
+
+    #[test]
+    fn the_data_script_opens_the_head_with_its_config_escaped() {
+        let out = inject_data_script(
+            b"<html><head><title>x</title></head></html>",
+            "tok.en",
+            "art-1",
+            "</script>",
+        );
+        let out = String::from_utf8(out).unwrap();
+        assert!(
+            out.starts_with("<html><head><script>(function(){var c={"),
+            "{out}"
+        );
+        assert!(out.contains(r#""token":"tok.en""#), "{out}");
+        assert!(!out.contains("__CONFIG__"), "{out}");
+        assert_eq!(out.matches("</script>").count(), 1, "{out}");
+        assert!(
+            out.ends_with("</script><title>x</title></head></html>"),
+            "{out}"
+        );
     }
 }

@@ -24,6 +24,8 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid"] }
 thiserror = { workspace = true }
+# Artifact page tokens.
+jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
 tokio = { workspace = true, features = ["full"] }
 tokio-util = { workspace = true }
 # gRPC status type for the event-ingress admission return.

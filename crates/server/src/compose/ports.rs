@@ -255,6 +255,7 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
         s3.clone(),
         Arc::new(config.s3.clone()),
         &config.auth.frontend_url,
+        moatless_identity::auth::jwt::get_jwt_secret(config).map(String::from),
     );
     let tags = task_graph.tags();
     let tag_resolver = task_graph.tag_catalog();

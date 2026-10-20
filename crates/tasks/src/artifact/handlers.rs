@@ -185,6 +185,11 @@ pub async fn serve_artifact_page(
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
     );
+    let token = if query.download.is_none() {
+        page_token(&artifacts, &auth, &page)
+    } else {
+        None
+    };
     let (cache, body) = if query.download.is_some() {
         let disposition = format!("attachment; filename=\"{}\"", download_name(&page.title));
         if let Ok(value) = HeaderValue::try_from(disposition) {
@@ -200,8 +205,44 @@ pub async fn serve_artifact_page(
     } else {
         ("private, max-age=31536000, immutable", page.html)
     };
+    // The token names this reader, so neither a shared nor a later load may
+    // reuse the page that carries it.
+    let (cache, body) = match token {
+        Some(token) => (
+            "private, no-store",
+            super::bootstrap::inject_data_script(&body, &token, &page.artifact_id, &auth.login),
+        ),
+        None => (cache, body),
+    };
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
     Ok((headers, body).into_response())
+}
+
+/// A page token for `auth` on `page`, or `None` when the page accepts no data
+/// or this deployment has no signing key. A signing failure serves the page
+/// without one, so its saves fail rather than the page.
+fn page_token(
+    artifacts: &Artifacts,
+    auth: &AuthUser,
+    page: &super::service::Page,
+) -> Option<String> {
+    let key = artifacts.signing_key().filter(|_| page.accepts_data)?;
+    let scope = auth.scope_context();
+    super::page_token::mint(
+        key,
+        &scope.user_id,
+        scope.is_admin,
+        &auth.login,
+        &page.artifact_id,
+    )
+    .map_err(|e| {
+        tracing::warn!(
+            error = %e,
+            artifact_id = %page.artifact_id,
+            "Failed to sign an artifact page token"
+        );
+    })
+    .ok()
 }
 
 /// `title` reduced to a file name that needs no quoting in a header.
@@ -229,6 +270,12 @@ async fn read_publish(mut multipart: Multipart) -> Result<PublishRequest, Artifa
         match field.name().unwrap_or_default() {
             "title" => req.title = field.text().await.map_err(multipart_error)?,
             "slug" => req.slug = Some(field.text().await.map_err(multipart_error)?),
+            "data" => {
+                req.data.accepts_data = field.text().await.map_err(multipart_error)? == "true";
+            }
+            "notify" => {
+                req.data.notify_on_data = field.text().await.map_err(multipart_error)? == "true";
+            }
             "inline" => {
                 let value = field.text().await.map_err(multipart_error)?;
                 if value == "true" {

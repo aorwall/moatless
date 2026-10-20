@@ -106,6 +106,14 @@ fn is_exempt(path: &str) -> bool {
         return true;
     }
 
+    // An Artifact page's record routes. Not public: the path segment is a
+    // page token naming the reader and Artifact, verified before any read
+    // (`moatless_tasks::artifact::page_token`). The page runs in an opaque
+    // origin and sends no cookie, so the token is its only credential.
+    if path.starts_with("/api/artifact-data/") {
+        return true;
+    }
+
     // The git smart-HTTP proxy. Not public: git speaks HTTP Basic and nothing
     // else, so the route reads the task token out of the Basic password itself
     // and resolves the acting identity from the sandbox it names. Exempt

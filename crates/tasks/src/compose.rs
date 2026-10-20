@@ -190,18 +190,20 @@ impl TaskGraph {
     }
 
     /// The `task_artifacts` table and its objects in `s3`, with response URLs
-    /// under `public_url`.
+    /// under `public_url` and page tokens signed with `signing_key`.
     pub fn artifacts(
         &self,
         s3: Option<moatless_s3::S3Storage>,
         s3_config: Arc<moatless_core::config::S3Config>,
         public_url: &str,
+        signing_key: Option<String>,
     ) -> Arc<Artifacts> {
         Arc::new(Artifacts::new(
             self.artifacts.clone(),
             s3,
             s3_config,
             public_url,
+            signing_key,
         ))
     }
 

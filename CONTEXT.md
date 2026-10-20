@@ -154,6 +154,14 @@ version published with `--inline` is also shown in the Task's thread as the page
 itself.
 _Avoid_: asset (an uploaded attachment, not something the agent publishes)
 
+**Artifact record**:
+JSON saved against an Artifact, kept across its versions. A page whose latest
+publish set `--data` saves records as the reader viewing it, through a page
+token the serve route writes into the page. With `--notify`, each record a
+reader saves is also an inbox item for the Task, from the `artifact` adapter.
+Records are shared by every reader: each can list and replace the others'.
+_Avoid_: submission, artifact data (the records as a whole, not one of them)
+
 ### Providers — always qualified
 
 "Provider" is never a domain term on its own: five unrelated concepts share the

@@ -1,10 +1,10 @@
-//! Artifact DAO — queries for `task_artifacts`.
+//! Artifact DAO — queries for `task_artifacts` and `artifact_records`.
 
 use async_trait::async_trait;
 use sqlx::PgConnection;
 use uuid::Uuid;
 
-use super::models::{Artifact, Reservation};
+use super::models::{Artifact, ArtifactRecord, DataAccess, Reservation};
 use crate::conversation::projector::Projector;
 use crate::task_event::models::InsertTaskEvent;
 use moatless_core::db::DbPool;
@@ -30,7 +30,7 @@ pub trait ArtifactDao: Send + Sync {
     ) -> Result<Reservation, sqlx::Error>;
     /// Add `version` to `published_versions` and return the row, or `None`
     /// when no row carries `artifact_id`. An older version leaves
-    /// `latest_version` and `title` alone. `shown` also adds it to
+    /// `latest_version`, `title` and `data` alone. `shown` also adds it to
     /// `inline_versions` and stores its `artifact_shown` event in one
     /// transaction.
     async fn commit_version(
@@ -38,12 +38,36 @@ pub trait ArtifactDao: Send + Sync {
         artifact_id: &str,
         version: i32,
         title: &str,
+        data: DataAccess,
         shown: Option<ArtifactShown>,
     ) -> Result<Option<Artifact>, sqlx::Error>;
     /// Find an Artifact by id, published or not.
     async fn find_by_id(&self, artifact_id: &str) -> Result<Option<Artifact>, sqlx::Error>;
     /// The Task's published Artifacts, most recently updated first.
     async fn list_for_task(&self, task_id: &str) -> Result<Vec<Artifact>, sqlx::Error>;
+    /// Append a record as `record_id`, or with a `key`, replace the record
+    /// saved under it, keeping that record's id and `created_at`.
+    async fn save_record(
+        &self,
+        record_id: Uuid,
+        artifact_id: &str,
+        key: Option<String>,
+        data: &serde_json::Value,
+        submitted_by: &str,
+    ) -> Result<ArtifactRecord, sqlx::Error>;
+    /// How many records the Artifact holds, and whether one is saved under
+    /// `key`.
+    async fn count_records(
+        &self,
+        artifact_id: &str,
+        key: Option<String>,
+    ) -> Result<(i64, bool), sqlx::Error>;
+    /// The Artifact's records changed after `since`, oldest change first.
+    async fn list_records(
+        &self,
+        artifact_id: &str,
+        since: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<Vec<ArtifactRecord>, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`ArtifactDao`].
@@ -80,6 +104,7 @@ impl ArtifactDao for PgArtifactDao {
         artifact_id: &str,
         version: i32,
         title: &str,
+        data: DataAccess,
         shown: Option<ArtifactShown>,
     ) -> Result<Option<Artifact>, sqlx::Error> {
         let mut tx = self.0.begin().await?;
@@ -90,6 +115,9 @@ impl ArtifactDao for PgArtifactDao {
                    published_versions = array_append(published_versions, $2),
                    inline_versions = CASE WHEN $4 THEN array_append(inline_versions, $2)
                                           ELSE inline_versions END,
+                   accepts_data = CASE WHEN $2 > latest_version THEN $5 ELSE accepts_data END,
+                   notify_on_data = CASE WHEN $2 > latest_version THEN $6
+                                         ELSE notify_on_data END,
                    updated_at = now()
                WHERE artifact_id = $1
                RETURNING *"#,
@@ -98,6 +126,8 @@ impl ArtifactDao for PgArtifactDao {
         .bind(version)
         .bind(title)
         .bind(shown.is_some())
+        .bind(data.accepts_data)
+        .bind(data.notify_on_data)
         .fetch_optional(&mut *tx)
         .await?;
         if let (Some(row), Some(shown)) = (&row, &shown) {
@@ -123,6 +153,63 @@ impl ArtifactDao for PgArtifactDao {
                ORDER BY updated_at DESC, artifact_id"#,
         )
         .bind(task_id)
+        .fetch_all(&self.0)
+        .await
+    }
+
+    async fn save_record(
+        &self,
+        record_id: Uuid,
+        artifact_id: &str,
+        key: Option<String>,
+        data: &serde_json::Value,
+        submitted_by: &str,
+    ) -> Result<ArtifactRecord, sqlx::Error> {
+        sqlx::query_as::<_, ArtifactRecord>(
+            r#"INSERT INTO artifact_records (record_id, artifact_id, key, data, submitted_by)
+               VALUES ($1, $2, $3, $4, $5)
+               ON CONFLICT (artifact_id, key) WHERE key IS NOT NULL
+               DO UPDATE SET data = EXCLUDED.data,
+                             submitted_by = EXCLUDED.submitted_by,
+                             updated_at = now()
+               RETURNING *"#,
+        )
+        .bind(record_id)
+        .bind(artifact_id)
+        .bind(key)
+        .bind(data)
+        .bind(submitted_by)
+        .fetch_one(&self.0)
+        .await
+    }
+
+    async fn count_records(
+        &self,
+        artifact_id: &str,
+        key: Option<String>,
+    ) -> Result<(i64, bool), sqlx::Error> {
+        sqlx::query_as::<_, (i64, bool)>(
+            r#"SELECT count(*), COALESCE(bool_or(key = $2), false)
+               FROM artifact_records WHERE artifact_id = $1"#,
+        )
+        .bind(artifact_id)
+        .bind(key)
+        .fetch_one(&self.0)
+        .await
+    }
+
+    async fn list_records(
+        &self,
+        artifact_id: &str,
+        since: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<Vec<ArtifactRecord>, sqlx::Error> {
+        sqlx::query_as::<_, ArtifactRecord>(
+            r#"SELECT * FROM artifact_records
+               WHERE artifact_id = $1 AND ($2::timestamptz IS NULL OR updated_at > $2)
+               ORDER BY updated_at, record_id"#,
+        )
+        .bind(artifact_id)
+        .bind(since)
         .fetch_all(&self.0)
         .await
     }

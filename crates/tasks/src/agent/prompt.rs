@@ -114,6 +114,9 @@ The backend routes the reply to the right surface based on `<source>`:
 - `linear` → comment on the same Linear issue
 - `github_pr` → threaded review-comment reply (or top-level PR comment for
   conversation comments)
+- `artifact` → a record a reader saved on one of this task's Artifact pages.
+  It has no reply route: answer through the page, as the `artifacts` skill
+  describes.
 
 You can also `moat messages react --message msg_abc123 --emoji thumbsup` to
 acknowledge with a reaction instead of a reply.
@@ -216,28 +219,14 @@ const ARTIFACTS_PROMPT: &str = "\
 an Artifact: a page stored outside the sandbox, so it stays available after the
 sandbox stops, and visible to anyone who can see the task. Use it when a page
 would be clearer than terminal text, or when the person or their team would use
-the page rather than only read it. An Artifact is one self-contained HTML file:
-inline the CSS and JavaScript, embed images as data URIs, and load libraries
-from a CDN. Write it in a scratch or gitignored directory, not the repository,
-and give the person the URL the command prints.
+the page rather than only read it, and give the person the URL it prints.
+`--inline` shows the page in this conversation, `--data` lets readers save
+input on the page, and `--notify` sends you each save as a message with
+`<source>artifact</source>`.
 
-When finished work is meant for other people, such as a report for a team or
-the case for a decision, publish it and give the link rather than leaving it in
-the conversation or a local file. Publish apps, dashboards and pages the person
-asks to view or share. When they ask for the file itself, give them the file.
-Advice they will act on right away in the code they are working on needs no
-page.
-
-Publishing again with `--slug <slug>` adds a version to the same Artifact, and
-its link always opens the latest one; `moat artifact list` shows what this task
-has published.
-
-Add `--inline` to show a finished page in this conversation itself: a chart, a
-table, a diagram, a mockup. Run it before you write your final reply, and the
-page appears above that reply. The person already sees the page, so do not
-announce it, say where it is, paste its URL or restate it; add only what the
-page does not say. An inline page has its own layout and theme rules: read
-`moat artifact publish --help` before you write one.";
+Before you write a page, load the `artifacts` skill: it covers building the
+page, the inline layout rules and interactive pages. Without that skill, read
+`moat artifact publish --help`.";
 
 /// Build the append-system-prompt for a task.
 ///
@@ -447,6 +436,7 @@ mod tests {
         });
         assert!(on.contains("# Artifacts"), "{on}");
         assert!(on.contains("moat artifact publish <file.html>"), "{on}");
+        assert!(on.contains("`artifacts` skill"), "{on}");
     }
 
     #[test]

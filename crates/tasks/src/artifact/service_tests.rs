@@ -29,6 +29,7 @@ fn artifacts(store: MockArtifactDao) -> Artifacts {
         None,
         s3_config(None),
         "https://moatless.example/",
+        Some("page-key".to_string()),
     )
 }
 
@@ -56,6 +57,8 @@ fn row(task_id: &str, latest_version: i32) -> Artifact {
         latest_version,
         published_versions: (1..=latest_version).collect(),
         inline_versions: Vec::new(),
+        accepts_data: false,
+        notify_on_data: false,
         created_by: Some("user-1".to_string()),
         created_at: Utc::now(),
         updated_at: Utc::now(),
@@ -320,4 +323,20 @@ async fn list_on_an_unreadable_task_is_task_not_found() {
     .await
     .unwrap_err();
     assert!(matches!(err, ArtifactError::TaskNotFound(_)));
+}
+
+#[tokio::test]
+async fn notify_without_data_is_refused() {
+    let mut req = page();
+    req.data.notify_on_data = true;
+    let err = publish(
+        &tasks(),
+        &artifacts(MockArtifactDao::new()),
+        &scope(),
+        "task-1",
+        req,
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(err, ArtifactError::BadRequest(_)), "{err:?}");
 }

@@ -3,6 +3,7 @@
 use sqlx::PgPool;
 
 use super::{ArtifactDao, PgArtifactDao};
+use crate::artifact::models::DataAccess;
 use crate::message::dao::{MessageDao, PgMessageDao};
 use crate::task::test_support::seed_bare_task;
 use moatless_types::activity::ArtifactShown;
@@ -42,7 +43,7 @@ async fn an_unpublished_reservation_is_not_listed(pool: PgPool) {
 
     assert!(dao.list_for_task("task-1").await.unwrap().is_empty());
 
-    dao.commit_version("art-a", 1, "Report", None)
+    dao.commit_version("art-a", 1, "Report", DataAccess::default(), None)
         .await
         .unwrap()
         .expect("row");
@@ -58,9 +59,11 @@ async fn a_late_commit_of_an_older_version_does_not_roll_back_the_latest(pool: P
     reserve(&dao, "art-a", "report", "Old").await;
     reserve(&dao, "art-a", "report", "New").await;
 
-    dao.commit_version("art-a", 2, "New", None).await.unwrap();
+    dao.commit_version("art-a", 2, "New", DataAccess::default(), None)
+        .await
+        .unwrap();
     let row = dao
-        .commit_version("art-a", 1, "Old", None)
+        .commit_version("art-a", 1, "Old", DataAccess::default(), None)
         .await
         .unwrap()
         .expect("row");
@@ -74,7 +77,7 @@ async fn a_late_commit_of_an_older_version_does_not_roll_back_the_latest(pool: P
 async fn committing_an_unknown_artifact_answers_none(pool: PgPool) {
     let dao = PgArtifactDao(pool);
     assert!(
-        dao.commit_version("missing", 1, "T", None)
+        dao.commit_version("missing", 1, "T", DataAccess::default(), None)
             .await
             .unwrap()
             .is_none()
@@ -122,11 +125,11 @@ async fn an_inline_commit_shows_the_version_in_the_thread(pool: PgPool) {
     reserve(&dao, "art-a", "report", "Report").await;
     reserve(&dao, "art-a", "report", "Report").await;
 
-    dao.commit_version("art-a", 1, "Report", None)
+    dao.commit_version("art-a", 1, "Report", DataAccess::default(), None)
         .await
         .unwrap();
     let row = dao
-        .commit_version("art-a", 2, "Report", Some(shown(2)))
+        .commit_version("art-a", 2, "Report", DataAccess::default(), Some(shown(2)))
         .await
         .unwrap()
         .expect("row");
@@ -149,4 +152,89 @@ async fn an_inline_commit_shows_the_version_in_the_thread(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(shown_activities(&pool).await, activities);
+}
+
+#[sqlx::test]
+async fn the_latest_publish_decides_whether_the_page_accepts_data(pool: PgPool) {
+    seed_bare_task(&pool, "task-1", "open").await;
+    let dao = PgArtifactDao(pool);
+    reserve(&dao, "art-a", "report", "Report").await;
+    reserve(&dao, "art-a", "report", "Report").await;
+    let data = DataAccess {
+        accepts_data: true,
+        notify_on_data: true,
+    };
+    let row = dao
+        .commit_version("art-a", 2, "Report", data, None)
+        .await
+        .unwrap()
+        .expect("row");
+    assert!(row.accepts_data && row.notify_on_data);
+
+    let row = dao
+        .commit_version("art-a", 1, "Report", DataAccess::default(), None)
+        .await
+        .unwrap()
+        .expect("row");
+    assert!(row.accepts_data, "an older version left the flags alone");
+}
+
+#[sqlx::test]
+async fn a_keyed_record_is_replaced_and_an_unkeyed_one_appended(pool: PgPool) {
+    seed_bare_task(&pool, "task-1", "open").await;
+    let dao = PgArtifactDao(pool);
+    reserve(&dao, "art-a", "report", "Report").await;
+    let first = uuid::Uuid::new_v4();
+    dao.save_record(
+        first,
+        "art-a",
+        Some("state".to_string()),
+        &serde_json::json!({"n": 1}),
+        "user-1",
+    )
+    .await
+    .unwrap();
+    let replaced = dao
+        .save_record(
+            uuid::Uuid::new_v4(),
+            "art-a",
+            Some("state".to_string()),
+            &serde_json::json!({"n": 2}),
+            "user-2",
+        )
+        .await
+        .unwrap();
+    assert_eq!(replaced.record_id, first);
+    assert_eq!(replaced.data, serde_json::json!({"n": 2}));
+    assert_eq!(replaced.submitted_by, "user-2");
+    for _ in 0..2 {
+        dao.save_record(
+            uuid::Uuid::new_v4(),
+            "art-a",
+            None,
+            &serde_json::json!({}),
+            "user-1",
+        )
+        .await
+        .unwrap();
+    }
+
+    assert_eq!(
+        dao.count_records("art-a", Some("state".to_string()))
+            .await
+            .unwrap(),
+        (3, true)
+    );
+    assert_eq!(
+        dao.count_records("art-a", Some("other".to_string()))
+            .await
+            .unwrap(),
+        (3, false)
+    );
+    assert_eq!(dao.list_records("art-a", None).await.unwrap().len(), 3);
+    let since = replaced.updated_at;
+    assert_eq!(
+        dao.list_records("art-a", Some(since)).await.unwrap().len(),
+        2
+    );
 }

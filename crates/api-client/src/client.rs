@@ -8,12 +8,6 @@ pub struct ApiClient {
     http: reqwest::Client,
 }
 
-/// The inline fields of [`ApiClient::publish_artifact`].
-#[derive(Debug, Clone, Default)]
-pub struct InlineArtifact {
-    pub height: Option<i32>,
-}
-
 impl ApiClient {
     pub fn new(base_url: &str, http: reqwest::Client) -> Self {
         Self {
@@ -46,13 +40,13 @@ impl ApiClient {
     // Internal helpers
     // ========================================================================
 
-    async fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T, ApiError> {
+    pub(crate) async fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T, ApiError> {
         let url = format!("{}{path}", self.base_url);
         let resp = self.http.get(&url).send().await?;
         self.parse_response(resp).await
     }
 
-    async fn post<B: serde::Serialize, T: DeserializeOwned>(
+    pub(crate) async fn post<B: serde::Serialize, T: DeserializeOwned>(
         &self,
         path: &str,
         body: &B,
@@ -110,7 +104,7 @@ impl ApiClient {
         self.check_status(resp).await
     }
 
-    async fn parse_response<T: DeserializeOwned>(
+    pub(crate) async fn parse_response<T: DeserializeOwned>(
         &self,
         resp: reqwest::Response,
     ) -> Result<T, ApiError> {
@@ -1012,54 +1006,6 @@ impl ApiClient {
         self.parse_response(resp).await
     }
 
-    // ========================================================================
-    // Artifacts
-    // ========================================================================
-
-    /// POST `/api/v1/tasks/{task_id}/artifacts` — publish one HTML page,
-    /// named `file_name`, as the next version of an Artifact. `inline` shows
-    /// it in the Task's thread.
-    pub async fn publish_artifact(
-        &self,
-        task_id: &str,
-        title: &str,
-        slug: Option<&str>,
-        inline: Option<&InlineArtifact>,
-        file_name: &str,
-        html: Vec<u8>,
-    ) -> Result<moatless_api_schemas::artifact::ArtifactResponse, ApiError> {
-        let url = format!(
-            "{}/api/v1/tasks/{}/artifacts",
-            self.base_url,
-            urlenc(task_id)
-        );
-        let mut form = reqwest::multipart::Form::new().text("title", title.to_string());
-        if let Some(slug) = slug {
-            form = form.text("slug", slug.to_string());
-        }
-        if let Some(inline) = inline {
-            form = form.text("inline", "true");
-            if let Some(height) = inline.height {
-                form = form.text("height", height.to_string());
-            }
-        }
-        form = form.part(
-            "file",
-            reqwest::multipart::Part::bytes(html).file_name(file_name.to_string()),
-        );
-        let resp = self.http.post(&url).multipart(form).send().await?;
-        self.parse_response(resp).await
-    }
-
-    /// GET `/api/v1/tasks/{task_id}/artifacts`
-    pub async fn list_task_artifacts(
-        &self,
-        task_id: &str,
-    ) -> Result<moatless_api_schemas::artifact::ListArtifactsResponse, ApiError> {
-        self.get(&format!("/api/v1/tasks/{}/artifacts", urlenc(task_id)))
-            .await
-    }
-
     /// GET `/api/v1/tasks/{task_id}/review-guide`
     pub async fn review_guide_run(
         &self,
@@ -1504,7 +1450,7 @@ fn linear_connection_qs(connection_id: Option<&str>) -> String {
 }
 
 /// Percent-encode a value for use in a query string.
-fn urlenc(s: &str) -> String {
+pub(crate) fn urlenc(s: &str) -> String {
     // Simple percent-encoding for query parameters
     s.replace('%', "%25")
         .replace(' ', "%20")

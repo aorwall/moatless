@@ -1383,6 +1383,7 @@ mod tests {
                 region: "us-east-1".to_string(),
             }),
             "https://moatless.example",
+            None,
         )
     }
 

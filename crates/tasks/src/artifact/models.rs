@@ -16,6 +16,10 @@ pub struct Artifact {
     /// The published versions that were shown inline; their page is served
     /// with T3's bootstrap injected.
     pub inline_versions: Vec<i32>,
+    /// See [`DataAccess::accepts_data`]; the latest publish's choice.
+    pub accepts_data: bool,
+    /// See [`DataAccess::notify_on_data`]; the latest publish's choice.
+    pub notify_on_data: bool,
     pub created_by: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -31,6 +35,17 @@ pub struct PublishRequest {
     pub html: Vec<u8>,
     /// Set by `inline=true`: show the page in the Task's thread.
     pub inline: Option<InlineRequest>,
+    pub data: DataAccess,
+}
+
+/// What a publish lets its page do with Artifact records.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DataAccess {
+    /// The page is served with a `moatless.artifact` script that saves and
+    /// lists records as the reader viewing it.
+    pub accepts_data: bool,
+    /// Each record a reader saves also queues a message to the Task's agent.
+    pub notify_on_data: bool,
 }
 
 /// How a publish asked to be shown inline, before validation.
@@ -49,4 +64,16 @@ pub const DEFAULT_INLINE_HEIGHT: i32 = 1200;
 pub struct Reservation {
     pub artifact_id: String,
     pub reserved_version: i32,
+}
+
+/// An `artifact_records` row.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ArtifactRecord {
+    pub record_id: uuid::Uuid,
+    pub artifact_id: String,
+    pub key: Option<String>,
+    pub data: serde_json::Value,
+    pub submitted_by: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }

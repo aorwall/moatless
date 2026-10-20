@@ -19,6 +19,10 @@ pub enum ArtifactError {
     #[error("Not allowed to publish on task {0}")]
     Forbidden(String),
 
+    /// A page token that is missing, expired, or not signed here.
+    #[error("Invalid or expired artifact page token")]
+    Unauthorized,
+
     #[error("Invalid request: {0}")]
     BadRequest(String),
 
@@ -40,6 +44,7 @@ impl IntoResponse for ArtifactError {
         let (status, message) = match &self {
             Self::TaskNotFound(_) | Self::NotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
             Self::Forbidden(_) => (StatusCode::FORBIDDEN, self.to_string()),
+            Self::Unauthorized => (StatusCode::UNAUTHORIZED, self.to_string()),
             Self::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             Self::PayloadTooLarge(_) => (StatusCode::PAYLOAD_TOO_LARGE, self.to_string()),
             Self::StorageNotConfigured => (StatusCode::SERVICE_UNAVAILABLE, self.to_string()),
