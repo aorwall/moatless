@@ -369,7 +369,12 @@ pub const CONCERNS: &[Concern] = &[
         name: "memory",
         owner: "moatless-tasks",
         roots: &["crates/tasks/src/memory/dao"],
-        tables: &["memory_entries", "memory_events", "memory_reads"],
+        tables: &[
+            "memory_entries",
+            "memory_events",
+            "memory_reads",
+            "memory_seen",
+        ],
         slice: 12,
     },
     Concern {

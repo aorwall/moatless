@@ -49,6 +49,10 @@ pub struct AgentDelivery {
     pub start_fresh: bool,
     /// A person's answer, where this delivery is one. See [`PromptResponse`].
     pub prompt_response: Option<PromptResponse>,
+    /// The agent's memory is current once this is accepted: it starts a
+    /// session, whose system prompt lists preloaded memory afresh, or it had
+    /// room for the memory note.
+    pub memory_current: bool,
 }
 
 /// A person's answer to an interactive tool call, as the sandbox resolves it.
@@ -108,6 +112,7 @@ pub struct AgentPromptBuilder<'a> {
     /// Logins already resolved for this fetch, keyed by [`sender_key`], for an
     /// external row's `<from>`.
     sender_logins: &'a HashMap<String, String>,
+    memory_note: Option<String>,
 }
 
 impl<'a> AgentPromptBuilder<'a> {
@@ -128,7 +133,17 @@ impl<'a> AgentPromptBuilder<'a> {
             task_resume_session_id,
             task_skills,
             sender_logins,
+            memory_note: None,
         }
+    }
+
+    /// Text appended to a delivery that resumes its session, answers no parked
+    /// prompt and starts with no slash command, which would take the note as
+    /// its arguments. A fresh session reads the index from its system prompt.
+    #[must_use]
+    pub fn with_memory_note(mut self, note: Option<String>) -> Self {
+        self.memory_note = note;
+        self
     }
 
     /// Build the pending deliveries for this fetch.
@@ -215,6 +230,11 @@ impl<'a> AgentPromptBuilder<'a> {
         // the first is the one the run is parked on. A second in the same batch
         // would be an answer to a call the first has already released.
         let prompt_response = rows.iter().find_map(PromptResponse::read);
+        let note_fits =
+            prompt_response.is_none() && !parts.first().is_some_and(|text| text.starts_with('/'));
+        if let Some(note) = self.memory_note.as_ref().filter(|_| resume && note_fits) {
+            parts.push(note.clone());
+        }
 
         vec![AgentDelivery {
             message_uuids,
@@ -233,6 +253,7 @@ impl<'a> AgentPromptBuilder<'a> {
             },
             resume,
             start_fresh,
+            memory_current: !resume || note_fits,
         }]
     }
 
@@ -678,6 +699,47 @@ mod tests {
         .await;
         assert!(deliveries[0].resume);
         assert!(deliveries[0].skills.is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_memory_note_follows_a_resumed_delivery_only() {
+        let rows = vec![pending_message(1, "msg-1", "carry on")];
+        let logins = HashMap::new();
+        let contexts = HashMap::new();
+        let note = Some("## Memory updated since your last turn".to_string());
+        let resumed = prompt_builder(&logins, Some("session-1".to_string()))
+            .with_memory_note(note.clone())
+            .build_pending_deliveries(&rows, &contexts)
+            .await;
+        assert!(resumed[0].prompt_text.starts_with("carry on"));
+        assert!(
+            resumed[0]
+                .prompt_text
+                .ends_with("## Memory updated since your last turn")
+        );
+        assert!(resumed[0].memory_current);
+
+        let fresh = prompt_builder(&logins, None)
+            .with_memory_note(note)
+            .build_pending_deliveries(&rows, &contexts)
+            .await;
+        assert!(!fresh[0].prompt_text.contains("Memory updated"));
+        assert!(fresh[0].memory_current);
+    }
+
+    /// `/compact <text>` takes the text as compaction instructions, so the
+    /// note waits, and `memory_current` keeps its changes for the next one.
+    #[tokio::test]
+    async fn a_slash_command_takes_no_memory_note() {
+        let rows = vec![pending_message(1, "msg-1", "/compact")];
+        let logins = HashMap::new();
+        let contexts = HashMap::new();
+        let deliveries = prompt_builder(&logins, Some("session-1".to_string()))
+            .with_memory_note(Some("## Memory updated since your last turn".to_string()))
+            .build_pending_deliveries(&rows, &contexts)
+            .await;
+        assert_eq!(deliveries[0].prompt_text, "/compact");
+        assert!(!deliveries[0].memory_current);
     }
 
     /// `start_fresh` cuts the session, which is exactly when they are needed.

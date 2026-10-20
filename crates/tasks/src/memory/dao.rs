@@ -2,11 +2,12 @@
 //! `memory_reads`.
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use sqlx::PgConnection;
 
 use super::models::{
-    ClaimOutcome, ListFilter, MemoryEntryRow, MemoryEventRow, PutEntry, PutOutcome, ScopeRef,
-    TtlChange, Writer,
+    ChangedSince, ClaimOutcome, ListFilter, MemoryEntryRow, MemoryEventRow, PutEntry, PutOutcome,
+    ScopeRef, SeenAt, TtlChange, Writer,
 };
 use moatless_api_schemas::memory::DEFAULT_TTL_SECONDS;
 use moatless_core::db::DbPool;
@@ -66,12 +67,13 @@ pub trait MemoryDao: Send + Sync {
         limit: i64,
     ) -> Result<Vec<MemoryEntryRow>, sqlx::Error>;
     /// Unexpired entries in `scopes` whose key is one of `keys` or starts with
-    /// one of `prefixes`, newest first, at most `limit`.
+    /// one of `prefixes`, newest first, at most `limit`, narrowed by `changed`.
     async fn preload(
         &self,
         scopes: &[ScopeRef],
         keys: &[String],
         prefixes: &[String],
+        changed: Option<ChangedSince>,
         limit: i64,
     ) -> Result<Vec<MemoryEntryRow>, sqlx::Error>;
     /// Record that `task_id` read each `(entry_id, version)`.
@@ -107,6 +109,14 @@ pub trait MemoryDao: Send + Sync {
     async fn delete(&self, entry_id: &str) -> Result<bool, sqlx::Error>;
     /// The entry's history, newest first, at most `limit`.
     async fn log(&self, entry_id: &str, limit: i64) -> Result<Vec<MemoryEventRow>, sqlx::Error>;
+    /// The task's committed `memory_seen` time, with the database's `now()`.
+    async fn seen_at(&self, task_id: &str) -> Result<SeenAt, sqlx::Error>;
+    /// Stage `at`, replacing any staged time an earlier fetch left; `None`
+    /// clears it.
+    async fn stage_seen(&self, task_id: &str, at: Option<DateTime<Utc>>)
+    -> Result<(), sqlx::Error>;
+    /// Commit the staged time, if any.
+    async fn commit_seen(&self, task_id: &str) -> Result<(), sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`MemoryDao`].
@@ -392,6 +402,7 @@ impl MemoryDao for PgMemoryDao {
         scopes: &[ScopeRef],
         keys: &[String],
         prefixes: &[String],
+        changed: Option<ChangedSince>,
         limit: i64,
     ) -> Result<Vec<MemoryEntryRow>, sqlx::Error> {
         let (kinds, ids) = scope_arrays(scopes);
@@ -402,12 +413,16 @@ impl MemoryDao for PgMemoryDao {
             visible!(),
             " AND (e.key = ANY($3) OR EXISTS (",
             "     SELECT 1 FROM unnest($4::text[]) AS p(prefix) WHERE starts_with(e.key, p.prefix)))",
-            " ORDER BY e.updated_at DESC, e.key LIMIT $5"
+            " AND ($5::timestamptz IS NULL OR",
+            "      (e.updated_at > $5 AND e.updated_by_task_id IS DISTINCT FROM $6))",
+            " ORDER BY e.updated_at DESC, e.key LIMIT $7"
         ))
         .bind(kinds)
         .bind(ids)
         .bind(keys)
         .bind(prefixes)
+        .bind(changed.as_ref().map(|c| c.since))
+        .bind(changed.map(|c| c.reader_task_id))
         .bind(limit)
         .fetch_all(&self.0)
         .await
@@ -566,6 +581,43 @@ impl MemoryDao for PgMemoryDao {
         .bind(limit)
         .fetch_all(&self.0)
         .await
+    }
+
+    async fn seen_at(&self, task_id: &str) -> Result<SeenAt, sqlx::Error> {
+        let (read_at, seen_at) = sqlx::query_as::<_, (DateTime<Utc>, Option<DateTime<Utc>>)>(
+            "SELECT now(), (SELECT seen_at FROM memory_seen WHERE task_id = $1)",
+        )
+        .bind(task_id)
+        .fetch_one(&self.0)
+        .await?;
+        Ok(SeenAt { read_at, seen_at })
+    }
+
+    async fn stage_seen(
+        &self,
+        task_id: &str,
+        at: Option<DateTime<Utc>>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"INSERT INTO memory_seen (task_id, staged_at) VALUES ($1, $2)
+               ON CONFLICT (task_id) DO UPDATE SET staged_at = EXCLUDED.staged_at"#,
+        )
+        .bind(task_id)
+        .bind(at)
+        .execute(&self.0)
+        .await?;
+        Ok(())
+    }
+
+    async fn commit_seen(&self, task_id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE memory_seen SET seen_at = staged_at, staged_at = NULL
+               WHERE task_id = $1 AND staged_at IS NOT NULL"#,
+        )
+        .bind(task_id)
+        .execute(&self.0)
+        .await?;
+        Ok(())
     }
 }
 

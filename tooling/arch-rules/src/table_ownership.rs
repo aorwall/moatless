@@ -36,6 +36,7 @@ pub const TABLES: &[(&str, &str)] = &[
     ("memory_entries", "moatless-tasks"),
     ("memory_events", "moatless-tasks"),
     ("memory_reads", "moatless-tasks"),
+    ("memory_seen", "moatless-tasks"),
     ("oidc_identities", "moatless-identity"),
     ("plugin_activations", "moatless-workspaces"),
     ("plugin_skills", "moatless-workspaces"),

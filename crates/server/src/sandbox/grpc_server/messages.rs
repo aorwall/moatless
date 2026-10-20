@@ -226,6 +226,27 @@ pub(super) async fn get_pending_messages(
         }
     }
 
+    // Only a resumed delivery carries the note, and the builder decides that.
+    let preload_memories = match (service.handlers.as_ref(), task.as_ref()) {
+        (Some(handlers), Some(task)) if !task.memory_preload.is_empty() => {
+            Some((handlers.memories.as_ref(), task))
+        }
+        _ => None,
+    };
+    let memory_read = match preload_memories {
+        Some((memories, task)) => moatless_tasks::memory::preload::preload_changes(
+            memories,
+            task,
+            task_resume_session_id.is_some(),
+        )
+        .await
+        .unwrap_or_else(|e| {
+            warn!(error = %e, task_id = %req.task_id, "Failed to read memory changes; no note, seen time kept");
+            moatless_tasks::memory::preload::MemoryRead::default()
+        }),
+        None => moatless_tasks::memory::preload::MemoryRead::default(),
+    };
+
     // The agent's view of a queued item is rebuilt here, not read back: the
     // item stores what the person wrote, and everything around it — preview
     // URL, selected element, sending Task, attached files — is its own field.
@@ -237,10 +258,16 @@ pub(super) async fn get_pending_messages(
         task_resume_session_id,
         task_skills,
         &login_cache,
-    );
+    )
+    .with_memory_note(memory_read.note);
     let deliveries = builder
         .build_pending_deliveries(&pending, &contexts_by_message)
-        .await
+        .await;
+    if let (Some((memories, _)), Some(delivery)) = (preload_memories, deliveries.first()) {
+        let staged = memory_read.read_at.filter(|_| delivery.memory_current);
+        moatless_tasks::memory::preload::stage_seen(memories, &req.task_id, staged).await;
+    }
+    let deliveries = deliveries
         .into_iter()
         .map(|delivery| sandbox_proto::PendingAgentDelivery {
             message_uuids: delivery.message_uuids,
@@ -386,6 +413,12 @@ pub(super) async fn acknowledge_messages(
         .await
     {
         Ok(count) => {
+            if count > 0 {
+                if let Some(handlers) = service.handlers.as_ref() {
+                    moatless_tasks::memory::preload::commit_seen(&handlers.memories, &req.task_id)
+                        .await;
+                }
+            }
             info!(
                 task_id = %req.task_id,
                 session_id = %req.session_id,
@@ -475,8 +508,10 @@ pub(super) async fn enqueue_sandbox_message(
 
 /// Build and return the assembled append-system-prompt for a task.
 ///
-/// Called once per agent run, in `start_session`; the sandbox caches the result
-/// as the fallback for a later failure.
+/// Fetched for every turn, but a live harness session reads it only when it is
+/// spawned, so a resumed turn learns of memory changes from
+/// [`preload_changes`](moatless_tasks::memory::preload::preload_changes)
+/// instead. The sandbox caches the result as the fallback for a later failure.
 pub(super) async fn get_system_prompt(
     service: &BackendSandboxServiceImpl,
     request: Request<GetSystemPromptRequest>,

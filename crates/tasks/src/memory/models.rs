@@ -109,6 +109,24 @@ pub struct ListFilter {
     pub limit: i64,
 }
 
+/// Narrows a preload to entries a Task other than `reader_task_id` wrote
+/// after `since`.
+#[derive(Debug, Clone)]
+pub struct ChangedSince {
+    pub since: DateTime<Utc>,
+    pub reader_task_id: String,
+}
+
+/// A task's `memory_seen` read, timed by the database clock that stamps
+/// `updated_at`.
+#[derive(Debug, Clone, Copy)]
+pub struct SeenAt {
+    /// The database's `now()` when this was read.
+    pub read_at: DateTime<Utc>,
+    /// The committed time; `None` before the task's first commit.
+    pub seen_at: Option<DateTime<Utc>>,
+}
+
 /// A row's `scope_kind`, decoded; `None` for a value the migration's CHECK
 /// would have refused.
 pub(crate) fn decode_scope(row: &MemoryEntryRow) -> Option<MemoryScope> {

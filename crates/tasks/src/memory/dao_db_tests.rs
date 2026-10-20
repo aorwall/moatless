@@ -4,7 +4,7 @@ use sqlx::PgPool;
 
 use super::{MemoryDao, PgMemoryDao};
 use crate::memory::models::{
-    ClaimOutcome, ListFilter, PutEntry, PutOutcome, ScopeRef, TtlChange, Writer,
+    ChangedSince, ClaimOutcome, ListFilter, PutEntry, PutOutcome, ScopeRef, TtlChange, Writer,
 };
 use crate::task::test_support::seed_bare_task;
 use moatless_types::memory::MemoryScope;
@@ -157,11 +157,82 @@ async fn list_filters_by_prefix_and_search_matches_bodies(pool: PgPool) {
             &[loop_scope()],
             &["ci:runner".to_string()],
             &["triage:".to_string()],
+            None,
             10,
         )
         .await
         .expect("preload");
     assert_eq!(preloaded.len(), 3);
+}
+
+#[sqlx::test]
+async fn a_changed_preload_skips_older_entries_and_the_readers_own_writes(pool: PgPool) {
+    let dao = PgMemoryDao(pool.clone());
+    written(&dao, &entry("triage:old", Some("old"), None)).await;
+    sqlx::query("UPDATE memory_entries SET updated_at = now() - interval '1 hour'")
+        .execute(&pool)
+        .await
+        .expect("age");
+    let since = chrono::Utc::now() - chrono::Duration::minutes(1);
+    written(&dao, &entry("triage:mine", Some("mine"), None)).await;
+    let mut theirs = entry("triage:theirs", Some("theirs"), None);
+    theirs.writer = writer("task-2");
+    written(&dao, &theirs).await;
+
+    let changed = ChangedSince {
+        since,
+        reader_task_id: "task-1".to_string(),
+    };
+    let rows = dao
+        .preload(
+            &[loop_scope()],
+            &[],
+            &["triage:".to_string()],
+            Some(changed),
+            10,
+        )
+        .await
+        .expect("preload");
+    assert_eq!(
+        rows.iter().map(|r| r.key.as_str()).collect::<Vec<_>>(),
+        vec!["triage:theirs"]
+    );
+}
+
+#[sqlx::test]
+async fn a_staged_seen_time_counts_only_once_committed(pool: PgPool) {
+    let dao = PgMemoryDao(pool);
+    let first = chrono::Utc::now() - chrono::Duration::minutes(2);
+    let retried = chrono::Utc::now() - chrono::Duration::minutes(1);
+
+    dao.commit_seen("task-1").await.expect("commit nothing");
+    assert_eq!(dao.seen_at("task-1").await.expect("read").seen_at, None);
+
+    dao.stage_seen("task-1", Some(first)).await.expect("stage");
+    assert_eq!(dao.seen_at("task-1").await.expect("read").seen_at, None);
+    dao.stage_seen("task-1", Some(retried))
+        .await
+        .expect("restage");
+    dao.commit_seen("task-1").await.expect("commit");
+    let seen = dao.seen_at("task-1").await.expect("read").seen_at;
+    assert_eq!(
+        seen.map(|t| t.timestamp_micros()),
+        Some(retried.timestamp_micros())
+    );
+
+    dao.stage_seen("task-1", Some(chrono::Utc::now()))
+        .await
+        .expect("stage");
+    dao.stage_seen("task-1", None).await.expect("clear");
+    dao.commit_seen("task-1").await.expect("commit cleared");
+    assert_eq!(
+        dao.seen_at("task-1")
+            .await
+            .expect("read")
+            .seen_at
+            .map(|t| t.timestamp_micros()),
+        Some(retried.timestamp_micros())
+    );
 }
 
 #[sqlx::test]
