@@ -75,6 +75,47 @@ not to one version, so republishing keeps them. `--notify` also sends this
 task's agent a message for each write a reader makes, which starts the
 sandbox when it is stopped.
 
+### When to make a page interactive
+
+Publish with `--data` when the answer you need is easier to give on a page
+than in a chat reply:
+
+- **The reader decides item by item.**
+
+  Triage a list of findings, accept or reject review comments, or tick a
+  checklist. One record per item, keyed by the item's id, beats a reply that
+  lists numbers.
+- **The choice is visual.**
+
+  Pick between mockups, colour schemes or chart variants shown side by side.
+- **Several people answer.**
+
+  A vote or a team review: anyone who can read the task can save a record. A
+  chat question reaches only the person in this thread.
+- **The answer comes later.**
+
+  A reviewer opens the link tomorrow. With `--notify` their answer wakes this
+  task even when its sandbox has stopped.
+
+Add `--notify` when you will act on each answer as it arrives. Leave it off
+when you read the records only when asked, such as a survey you tally at the
+end, or when the page saves often, such as a draft saved while the reader
+types: every write is a message.
+
+Do not use a page:
+
+- **For one short answer from the person you are working with.**
+
+  Ask in the conversation.
+- **For secrets, tokens or personal data.**
+
+  Every reader of the task can list every record.
+- **As the record of a decision.**
+
+  Records live only as long as the Artifact. Write the outcome into the
+  repository, the PR or the ticket too, and into `moat memory` when later
+  tasks need it.
+
 ```bash
 moat artifact publish scratchpad/review.html --title "API naming review" --data --notify
 ```
