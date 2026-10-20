@@ -90,6 +90,7 @@ fn an_older_turn_keeps_its_failure_and_its_stop() {
     assert_eq!(stops.len(), 1);
     assert_eq!(stops[0]["runId"], json!("task-1:2"));
     assert_eq!(stops[0]["status"], json!("interrupted"));
+    assert_eq!(stops[0]["message"], json!("Run stopped before it finished"));
 }
 
 #[test]

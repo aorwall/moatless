@@ -203,7 +203,9 @@ pub(super) fn run_ending_items(
                     "status": "interrupted",
                     "title": "Interrupted",
                     "type": "run_interrupt_result",
-                    "message": "Run interrupted by user"
+                    // No "by user": `reconcile_superseded_turns` also settles a turn a pod
+                    // restart cut off as `stopped`, and the row cannot tell the two apart.
+                    "message": "Run stopped before it finished"
                 })
             };
             Some((at, super::v2_items::layered(base, fields)))
