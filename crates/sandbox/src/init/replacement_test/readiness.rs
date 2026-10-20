@@ -134,7 +134,14 @@ async fn external_dispatch_cannot_preempt_the_precedence_decision() {
         1,
         "the pending message must reach the harness exactly once, got {inputs:?}"
     );
-    assert_eq!(inputs[0].text, "hello", "the pending message is what ran");
+    assert!(
+        inputs[0].text.ends_with("hello"),
+        "the pending message is what ran"
+    );
+    assert!(
+        inputs[0].text.starts_with("<sandbox-restart-note>"),
+        "the superseded interrupted run is noted on the turn"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

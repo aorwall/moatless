@@ -45,6 +45,9 @@ pub struct TaskContext {
     /// parked `AskUserQuestion`/`ExitPlanMode`; kept in memory only, since a
     /// parked prompt dies with its pod.
     self_queued: Arc<Mutex<HashSet<String>>>,
+    /// A `<sandbox-restart-note>` the next dispatched turn leads with, set when
+    /// a queued message took precedence over replaying an interrupted turn.
+    restart_note: Arc<std::sync::Mutex<Option<String>>>,
     /// Tracks credential failures observed on this task's agent stderr.
     pub credential_failures: CredentialFailureDetector,
     /// Last system prompt fetched for this task. Used as a fallback when
@@ -79,9 +82,26 @@ impl TaskContext {
             commands,
             dispatch_lock: Default::default(),
             self_queued: Default::default(),
+            restart_note: Default::default(),
             credential_failures,
             system_prompt_cache,
         }
+    }
+
+    /// Hold `note` for the next dispatched turn. See [`Self::restart_note`].
+    pub(crate) fn set_restart_note(&self, note: String) {
+        *self
+            .restart_note
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(note);
+    }
+
+    /// Take the held note, leaving none for a later turn.
+    pub(crate) fn take_restart_note(&self) -> Option<String> {
+        self.restart_note
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
     }
 
     /// Record a row this pod queued for itself. See [`Self::self_queued`].

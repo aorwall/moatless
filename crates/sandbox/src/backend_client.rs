@@ -156,6 +156,15 @@ pub trait BackendClient: Send + Sync {
         Ok(None)
     }
 
+    /// The turn [`Self::recover_interrupted_run`] would return, read without
+    /// recording a recovery attempt.
+    async fn probe_interrupted_run(
+        &self,
+        _task_id: &str,
+    ) -> Result<Option<InterruptedTurn>, tonic::Status> {
+        Ok(None)
+    }
+
     /// Upload the task's transcript tar to S3 via the backend (the sandbox has
     /// no AWS credentials). The bytes are streamed in chunks. Best-effort at
     /// the call site — failures are logged, never fatal.
@@ -616,6 +625,21 @@ impl BackendClient for BackendGrpcClient {
         let resp = client
             .recover_interrupted_run(RecoverInterruptedRunRequest {
                 task_id: task_id.to_string(),
+                probe_only: false,
+            })
+            .await?;
+        Ok(resp.into_inner().turn)
+    }
+
+    async fn probe_interrupted_run(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<InterruptedTurn>, tonic::Status> {
+        let mut client = self.client.clone();
+        let resp = client
+            .recover_interrupted_run(RecoverInterruptedRunRequest {
+                task_id: task_id.to_string(),
+                probe_only: true,
             })
             .await?;
         Ok(resp.into_inner().turn)

@@ -369,9 +369,49 @@ pub(crate) async fn recover_interrupted_run_unless_pending(
             task_id = %task_id,
             "Pending messages present (or probe failed) on startup; skipping interrupted-run replay"
         );
+        note_superseded_run(state, context, origin).await;
     } else {
         recover_interrupted_run(state, context, origin).await;
     }
+}
+
+/// Hold a restart note for the turn the pending messages open, when they
+/// supersede an interrupted run. Without it the resumed session ends on a cut-off
+/// tool call, which the agent reads as the user interrupting it.
+async fn note_superseded_run(state: &SandboxState, context: &TaskContext, origin: WorkspaceOrigin) {
+    let task_id = &context.task_id;
+    match state.backend_client.probe_interrupted_run(task_id).await {
+        Ok(Some(turn)) => {
+            info!(
+                task_id = %task_id,
+                turn_number = turn.turn_number,
+                "Pending messages supersede the interrupted run; noting it on their turn"
+            );
+            let mut note = superseded_run_note(turn.turn_number);
+            if let Some(workspace) = origin.restart_note(&context.checkout_dir) {
+                note.push_str(&workspace);
+            }
+            context.set_restart_note(note);
+        }
+        Ok(None) => {}
+        Err(e) => {
+            warn!(error = %e, task_id = %task_id, "Failed to probe for a superseded interrupted run");
+        }
+    }
+}
+
+/// Note leading the turn that runs pending messages in place of replaying the
+/// interrupted turn `turn_number`.
+fn superseded_run_note(turn_number: i64) -> String {
+    format!(
+        "<sandbox-restart-note>\n\
+         This sandbox was restarted in the middle of turn {turn_number}, and the \
+         messages below arrived before it could resume, so they run instead of a \
+         replay. If your previous turn ends abruptly or is marked as interrupted \
+         by the user, the restart cut it off: nobody interrupted you. Finish what \
+         it left undone unless the messages below change the plan.\n\
+         </sandbox-restart-note>\n\n"
+    )
 }
 
 /// Detects `context`'s interrupted agent run via the backend RPC and queues a

@@ -83,13 +83,43 @@ async fn pending_message_supersedes_the_interrupted_run() {
     // The authoritative dispatch then drives the pending message, not the Run.
     dispatch_pending_messages(state).await;
     let inputs = recorded_inputs(&recorder, 1).await;
+    assert_eq!(inputs.len(), 1, "one turn runs the pending message");
     assert!(
-        inputs.iter().any(|i| i.text == "new instruction"),
+        inputs[0].text.ends_with("new instruction"),
         "the pending message is what runs"
+    );
+    assert!(
+        inputs[0].text.starts_with("<sandbox-restart-note>")
+            && inputs[0].text.contains("in the middle of turn 1")
+            && inputs[0].text.contains("nobody interrupted you"),
+        "the turn tells the agent a restart cut off turn 1: {}",
+        inputs[0].text
     );
     assert!(
         inputs.iter().all(|i| !resumes_restored_session(i)),
         "no stale restored-session Recover may run"
+    );
+}
+
+#[tokio::test]
+async fn pending_message_without_an_interrupted_run_carries_no_note() {
+    let backend = ReplayBackend::new(Ok(vec![text_message("new instruction", "uuid-new")]), None);
+    let (state, recorder) = recording_state(Some("claude-code"), InitPhase::Ready, backend);
+
+    let context = state.task_context(None).await.expect("boot member");
+    recover_interrupted_run_unless_pending(
+        &state,
+        &context,
+        WorkspaceOrigin::RestoredFromFinalFlush,
+    )
+    .await;
+    dispatch_pending_messages(state).await;
+
+    let inputs = recorded_inputs(&recorder, 1).await;
+    assert_eq!(inputs.len(), 1);
+    assert_eq!(
+        inputs[0].text, "new instruction",
+        "an idle-stop wake has nothing to explain"
     );
 }
 

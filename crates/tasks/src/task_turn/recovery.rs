@@ -34,65 +34,8 @@ pub async fn recover_interrupted_turn(
     let Some(messages) = messages else {
         return Ok(None);
     };
-
-    // Unknown task or intent reads fail open; only confirmed terminal state gates replay.
-    let task = if let Some(tasks) = tasks {
-        // reason: recovery gate reads task status across all owners (no user ctx)
-        #[allow(clippy::disallowed_methods)]
-        let sys = ScopeContext::system();
-        tasks.find_by_id(task_id, &sys).await.ok().flatten()
-    } else {
-        None
-    };
-    if matches!(
-        task.as_ref().map(|t| t.status),
-        Some(moatless_types::task::TaskStatus::Closed)
-    ) {
-        debug!(task_id = %task_id, "recover_interrupted_run: task is Closed, skipping recovery");
+    let Some((interrupted, task)) = gated_interrupted_turn(tasks, messages, task_id).await? else {
         return Ok(None);
-    }
-    // No Sandbox row means the Task never requested runtime resources;
-    // only explicit Stopped or Removed intent gates recovery.
-    let sandbox_desired_state = if let Some(tasks) = tasks {
-        match tasks.get_sandbox_intents(&[task_id.to_owned()]).await {
-            Ok(mut intents) => intents
-                .remove(task_id)
-                .filter(crate::task::models::SandboxIntentView::has_explicit_intent)
-                .map(|intent| intent.desired_state),
-            Err(e) => {
-                warn!(
-                    error = %e,
-                    task_id = %task_id,
-                    "Failed to load Sandbox lifecycle intent for recovery gate"
-                );
-                None
-            }
-        }
-    } else {
-        None
-    };
-    if matches!(
-        sandbox_desired_state,
-        Some(moatless_types::sandbox::SandboxDesiredState::Stopped)
-            | Some(moatless_types::sandbox::SandboxDesiredState::Removed)
-    ) {
-        debug!(
-            task_id = %task_id,
-            "recover_interrupted_run: task does not desire a running sandbox, skipping recovery"
-        );
-        return Ok(None);
-    }
-
-    let interrupted = match messages.find_interrupted_turn(task_id).await {
-        Ok(Some(turn)) => turn,
-        Ok(None) => {
-            debug!(task_id = %task_id, "RecoverInterruptedRun: no interrupted turn");
-            return Ok(None);
-        }
-        Err(e) => {
-            warn!(task_id = %task_id, error = %e, "find_interrupted_turn failed");
-            return Err(RecoveryError::Query(e));
-        }
     };
 
     const MAX_RECOVERY_ATTEMPTS: i32 = 3;
@@ -197,6 +140,93 @@ pub async fn recover_interrupted_turn(
         interrupted,
         agent_profile: task_agent_profile,
     }))
+}
+
+/// The interrupted turn [`recover_interrupted_turn`] would consider, read
+/// without recording an attempt or publishing an event.
+///
+/// Skips the attempt cap, so it may return a turn a replay would refuse as
+/// exhausted.
+pub async fn probe_interrupted_turn(
+    tasks: Option<&TaskCommands>,
+    messages: Option<&Messages>,
+    task_id: &str,
+) -> Result<Option<InterruptedTurn>, RecoveryError> {
+    let Some(messages) = messages else {
+        return Ok(None);
+    };
+    Ok(gated_interrupted_turn(tasks, messages, task_id)
+        .await?
+        .map(|(interrupted, _)| interrupted))
+}
+
+/// The newest interrupted turn, with its Task, unless the Task is Closed or its
+/// Sandbox's intent is Stopped or Removed.
+async fn gated_interrupted_turn(
+    tasks: Option<&TaskCommands>,
+    messages: &Messages,
+    task_id: &str,
+) -> Result<Option<(InterruptedTurn, Option<moatless_types::task::Task>)>, RecoveryError> {
+    // Unknown task or intent reads fail open; only confirmed terminal state gates replay.
+    let task = if let Some(tasks) = tasks {
+        // reason: recovery gate reads task status across all owners (no user ctx)
+        #[allow(clippy::disallowed_methods)]
+        let sys = ScopeContext::system();
+        tasks.find_by_id(task_id, &sys).await.ok().flatten()
+    } else {
+        None
+    };
+    if matches!(
+        task.as_ref().map(|t| t.status),
+        Some(moatless_types::task::TaskStatus::Closed)
+    ) {
+        debug!(task_id = %task_id, "recover_interrupted_run: task is Closed, skipping recovery");
+        return Ok(None);
+    }
+    // No Sandbox row means the Task never requested runtime resources;
+    // only explicit Stopped or Removed intent gates recovery.
+    let sandbox_desired_state = if let Some(tasks) = tasks {
+        match tasks.get_sandbox_intents(&[task_id.to_owned()]).await {
+            Ok(mut intents) => intents
+                .remove(task_id)
+                .filter(crate::task::models::SandboxIntentView::has_explicit_intent)
+                .map(|intent| intent.desired_state),
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    task_id = %task_id,
+                    "Failed to load Sandbox lifecycle intent for recovery gate"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+    if matches!(
+        sandbox_desired_state,
+        Some(moatless_types::sandbox::SandboxDesiredState::Stopped)
+            | Some(moatless_types::sandbox::SandboxDesiredState::Removed)
+    ) {
+        debug!(
+            task_id = %task_id,
+            "recover_interrupted_run: task does not desire a running sandbox, skipping recovery"
+        );
+        return Ok(None);
+    }
+
+    let interrupted = match messages.find_interrupted_turn(task_id).await {
+        Ok(Some(turn)) => turn,
+        Ok(None) => {
+            debug!(task_id = %task_id, "RecoverInterruptedRun: no interrupted turn");
+            return Ok(None);
+        }
+        Err(e) => {
+            warn!(task_id = %task_id, error = %e, "find_interrupted_turn failed");
+            return Err(RecoveryError::Query(e));
+        }
+    };
+    Ok(Some((interrupted, task)))
 }
 
 #[cfg(test)]
@@ -434,6 +464,37 @@ mod tests {
                 .await
                 .unwrap()
                 .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn probe_reports_the_turn_a_replay_would_take() {
+        let mut messages = MockMessageDao::new();
+        messages
+            .expect_find_interrupted_turn()
+            .return_once(|_| Ok(Some(interrupted(2))));
+        let probed = probe_interrupted_turn(None, Some(&transcript(messages)), "task")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(probed.turn_number, 7);
+    }
+
+    #[tokio::test]
+    async fn probe_of_a_closed_task_reads_no_turn() {
+        let mut tasks = MockTaskDao::new();
+        tasks
+            .expect_find_by_id()
+            .return_once(|_, _| Ok(Some(closed_task())));
+        assert!(
+            probe_interrupted_turn(
+                Some(&commands(tasks)),
+                Some(&transcript(MockMessageDao::new())),
+                "task"
+            )
+            .await
+            .unwrap()
+            .is_none()
         );
     }
 }

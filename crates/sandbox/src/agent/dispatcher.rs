@@ -318,6 +318,17 @@ async fn dispatch_pending_messages_for_context(
         return;
     }
 
+    // A preamble ahead of `/compact` turns the command into plain text, so the
+    // note waits for the next turn.
+    let restart_note = if is_slash_command(&text) {
+        None
+    } else {
+        context.take_restart_note()
+    };
+    if let Some(note) = &restart_note {
+        text.insert_str(0, note);
+    }
+
     // After both emptiness gates, so a note about a file nobody will read cannot
     // be the whole turn; and last in the text, so it sits after the attachment
     // lines it contradicts.
@@ -390,6 +401,10 @@ async fn dispatch_pending_messages_for_context(
             };
             let Ok(ack) = ack else {
                 warn!("Agent ack channel dropped — messages not acknowledged");
+                // The redispatch re-fetches the rows, not this text.
+                if let Some(note) = restart_note {
+                    redelivery_context.set_restart_note(note);
+                }
                 drop(permit);
                 drop(dispatch_guard);
                 schedule_redispatch(redelivery_state, redelivery_context).await;

@@ -306,6 +306,19 @@ pub(super) async fn recover_interrupted_run(
 
     let req = request.into_inner();
 
+    if req.probe_only {
+        let turn = moatless_tasks::task_turn::recovery::probe_interrupted_turn(
+            service.handlers.as_ref().map(|h| h.tasks.as_ref()),
+            service.handlers.as_ref().map(|h| h.messages.as_ref()),
+            &req.task_id,
+        )
+        .await
+        .map_err(|error| Status::internal(error.to_string()))?;
+        return Ok(Response::new(RecoverInterruptedRunResponse {
+            turn: turn.map(|interrupted| proto_interrupted_turn(interrupted, None)),
+        }));
+    }
+
     let turn = moatless_tasks::task_turn::recovery::recover_interrupted_turn(
         service.handlers.as_ref().map(|h| h.tasks.as_ref()),
         service.handlers.as_ref().map(|h| h.messages.as_ref()),
@@ -317,19 +330,25 @@ pub(super) async fn recover_interrupted_run(
     .map_err(|error| Status::internal(error.to_string()))?;
     Ok(Response::new(RecoverInterruptedRunResponse {
         turn: turn.map(|recovered| {
-            let interrupted = recovered.interrupted;
-            ProtoInterruptedTurn {
-                session_id: interrupted.session_id,
-                turn_number: i64::from(interrupted.turn_number),
-                prompt_text: interrupted.prompt_text,
-                agent_profile: recovered.agent_profile,
-                agent_mode: interrupted.agent_mode,
-                effort: interrupted.effort,
-                run_id: interrupted.run_id,
-                model: interrupted.model,
-            }
+            proto_interrupted_turn(recovered.interrupted, recovered.agent_profile)
         }),
     }))
+}
+
+fn proto_interrupted_turn(
+    interrupted: moatless_tasks::message::models::InterruptedTurn,
+    agent_profile: Option<String>,
+) -> ProtoInterruptedTurn {
+    ProtoInterruptedTurn {
+        session_id: interrupted.session_id,
+        turn_number: i64::from(interrupted.turn_number),
+        prompt_text: interrupted.prompt_text,
+        agent_profile,
+        agent_mode: interrupted.agent_mode,
+        effort: interrupted.effort,
+        run_id: interrupted.run_id,
+        model: interrupted.model,
+    }
 }
 
 #[cfg(test)]

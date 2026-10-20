@@ -22,7 +22,8 @@ pub(super) struct ReplayBackend {
     /// Rows served to one Member only, keyed by task id. A Member absent here
     /// reads `pending`, which every Member shares.
     member_pending: Mutex<HashMap<String, Vec<PendingAgentDelivery>>>,
-    /// The interrupted turn `recover_interrupted_run` returns (immutable).
+    /// The interrupted turn `recover_interrupted_run` and
+    /// `probe_interrupted_run` return (immutable).
     interrupted: Option<InterruptedTurn>,
     /// The session-state archive `download_transcript` serves (immutable).
     download_tar: Vec<u8>,
@@ -224,6 +225,13 @@ impl BackendClient for ReplayBackend {
             .lock()
             .expect("poisoned")
             .push(task_id.to_string());
+        Ok(self.interrupted.clone())
+    }
+
+    async fn probe_interrupted_run(
+        &self,
+        _task_id: &str,
+    ) -> Result<Option<InterruptedTurn>, tonic::Status> {
         Ok(self.interrupted.clone())
     }
 

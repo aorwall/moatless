@@ -572,6 +572,9 @@ message UploadChunk {
 message RecoverInterruptedRunRequest {
   string task_id = 1;
   // auth via gRPC metadata (authorization: Bearer <token>)
+  // Report the interrupted turn without recording an attempt or publishing
+  // `recovery_started`: the pod has queued messages that run instead.
+  bool probe_only = 2;
 }
 
 message RecoverInterruptedRunResponse {
