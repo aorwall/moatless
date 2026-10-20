@@ -325,6 +325,7 @@ pub async fn normalize(
         ttl_minutes: config.sandbox.idle_timeout_minutes as i32,
         inactive_ttl_days: config.sandbox.inactive_task_timeout_days as i32,
         tag_ids: vec![],
+        memory_preload: Vec::new(),
         skills: req.skills.clone(),
         parent: req.parent_task_id.as_deref().map(|p| CreatedByParent {
             parent_task_id: p.to_string(),
@@ -710,6 +711,7 @@ mod tests {
                 ttl_minutes: 15,
                 inactive_ttl_days: 7,
                 loop_id: None,
+                memory_preload: Vec::new(),
                 skills: Vec::new(),
             }))
         });

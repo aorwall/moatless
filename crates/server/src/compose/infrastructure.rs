@@ -152,6 +152,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     use moatless_tasks::agent::routes::AgentApiDoc;
     use moatless_tasks::artifact::routes::ArtifactApiDoc;
     use moatless_tasks::feedback::routes::FeedbackApiDoc;
+    use moatless_tasks::memory::routes::MemoryApiDoc;
     use moatless_tasks::message::routes::MessageApiDoc;
     use moatless_tasks::review_guide::routes::ReviewGuideApiDoc;
     use moatless_tasks::tag::routes::TagApiDoc;
@@ -209,6 +210,7 @@ pub fn build_merged_openapi() -> utoipa::openapi::OpenApi {
     merged.merge(MessageApiDoc::openapi());
     merged.merge(FeedbackApiDoc::openapi());
     merged.merge(ArtifactApiDoc::openapi());
+    merged.merge(MemoryApiDoc::openapi());
     merged.merge(ReviewGuideApiDoc::openapi());
     merged.merge(FileStorageApiDoc::openapi());
     merged.merge(RepositoryApiDoc::openapi());
@@ -293,6 +295,7 @@ pub fn grpc_service(
             workspace_resolver: p.workspace_resolver.clone(),
             tasks: p.tasks.clone(),
             task_relations: p.task_relations.clone(),
+            memories: p.memories.clone(),
             task_forks: p.task_forks.clone(),
             secrets: p.secrets.clone(),
             credential_sync,

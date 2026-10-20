@@ -53,6 +53,7 @@ struct JoinedLoopRecordRow {
     task_name: Option<String>,
     tag_ids: Vec<String>,
     skills: Vec<String>,
+    memory_preload: Vec<String>,
     run_as_user_id: Option<String>,
     #[sqlx(try_from = "String")]
     agent_profile: AgentProfile,
@@ -107,6 +108,7 @@ impl JoinedLoopRecordRow {
             task_name: self.task_name,
             tag_ids: self.tag_ids,
             skills: self.skills,
+            memory_preload: self.memory_preload,
             run_as_user_id: self.run_as_user_id,
             agent_profile: self.agent_profile,
             model: self.model,
@@ -172,6 +174,7 @@ const LOOP_RECORD_SELECT: &str = r#"
            r.task_name,
            r.tag_ids,
            r.skills,
+           r.memory_preload,
            r.run_as_user_id,
            r.agent_profile,
            r.model,
@@ -370,7 +373,8 @@ impl LoopDao {
                        node_selector = $13,
                        stop_when_done = $14,
                        message_buffer_seconds = $15,
-                       fallback_to_other_agent = $16
+                       fallback_to_other_agent = $16,
+                       memory_preload = $17
                    WHERE loop_id = $1"#,
             )
             .bind(id)
@@ -389,6 +393,7 @@ impl LoopDao {
             .bind(config.stop_when_done)
             .bind(config.message_buffer_seconds)
             .bind(config.fallback_to_other_agent)
+            .bind(&config.memory_preload)
             .execute(&mut *tx)
             .await?;
         }
@@ -745,8 +750,8 @@ impl LoopDao {
                (loop_id, routing_mode, ongoing_task_id, prompt,
                 task_name, tag_ids, skills, run_as_user_id, agent_profile,
                 inactive_ttl_days, model, workspace_id, node_selector, stop_when_done,
-                message_buffer_seconds)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                message_buffer_seconds, memory_preload)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
                ON CONFLICT (loop_id) DO UPDATE
                SET routing_mode      = EXCLUDED.routing_mode,
                    ongoing_task_id   = EXCLUDED.ongoing_task_id,
@@ -761,7 +766,8 @@ impl LoopDao {
                    workspace_id      = EXCLUDED.workspace_id,
                    node_selector     = EXCLUDED.node_selector,
                    stop_when_done    = EXCLUDED.stop_when_done,
-                   message_buffer_seconds = EXCLUDED.message_buffer_seconds"#,
+                   message_buffer_seconds = EXCLUDED.message_buffer_seconds,
+                   memory_preload    = EXCLUDED.memory_preload"#,
         )
         .bind(&row.id)
         .bind(row.routing_mode.as_str())
@@ -778,6 +784,7 @@ impl LoopDao {
         .bind(row.node_selector.as_ref().map(sqlx::types::Json))
         .bind(row.stop_when_done)
         .bind(row.message_buffer_seconds)
+        .bind(&row.memory_preload)
         .execute(&mut *tx)
         .await?;
 
@@ -1185,6 +1192,7 @@ impl LoopDao {
                       r.task_name,
                       r.tag_ids,
                       r.skills,
+                      r.memory_preload,
                       r.run_as_user_id,
                       r.agent_profile,
                       r.model,
@@ -1243,6 +1251,7 @@ const SUBSCRIPTION_MATCH_SELECT: &str = r#"
            r.task_name,
            r.tag_ids,
            r.skills,
+           r.memory_preload,
            r.run_as_user_id,
            r.agent_profile,
            r.model,
@@ -1341,6 +1350,7 @@ async fn replace_managed_loop_rows(
             task_name: None,
             tag_ids: input.tag_ids.clone(),
             skills: input.skills.clone(),
+            memory_preload: input.memory_preload.clone(),
             run_as_user_id,
             agent_profile: input.agent_profile,
             model: input.model.clone(),
@@ -1372,8 +1382,8 @@ async fn insert_config(
            (loop_id, routing_mode, ongoing_task_id, prompt,
             task_name, tag_ids, skills, run_as_user_id, agent_profile,
             inactive_ttl_days, model, workspace_id, node_selector, stop_when_done,
-            message_buffer_seconds, fallback_to_other_agent)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)"#,
+            message_buffer_seconds, fallback_to_other_agent, memory_preload)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)"#,
     )
     .bind(loop_id)
     .bind(config.routing_mode.as_str())
@@ -1391,6 +1401,7 @@ async fn insert_config(
     .bind(config.stop_when_done)
     .bind(config.message_buffer_seconds)
     .bind(config.fallback_to_other_agent)
+    .bind(&config.memory_preload)
     .execute(&mut **tx)
     .await?;
     Ok(())

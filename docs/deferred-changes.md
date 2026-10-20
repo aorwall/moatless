@@ -268,6 +268,19 @@ shared warm Sandbox is observed holding members that disagree, with the
 pod-level column kept as the default a member inherits when it asks for
 nothing.
 
+## Memory
+
+Gaps left by the first Memory change, each reached from `crates/tasks/src/memory/`.
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| Expired entries are never swept | `crates/tasks/src/memory/dao.rs` treats an expired row as absent on read and deletes it only when a put reuses its key, so an entry nobody rewrites stays in `memory_entries` with its events and reads | When `memory_entries` holds more expired rows than live ones, or its size shows on a dashboard. Then delete expired rows from the reaper on a timer |
+| Task-scope entries outlive their Task | `crates/tasks/src/memory/service.rs::visible_scopes` gives the `task` scope the Task's own id, and nothing deletes those rows when the Task closes; only expiry removes them | When task-scope entries are seen accumulating for closed Tasks. Then delete them in `TaskCloser` |
+| No Loop consolidates Memory | Entries are written by many Tasks and nothing merges duplicates or retires contradicted ones; `moat memory verify` renews only what one agent checked | When a Loop's preload index shows near-duplicate summaries. Then add a scheduled consolidation Loop that reads `moat memory list`, merges, and deletes |
+| Memory has no T3 view or export | `crates/tasks/src/memory/routes.rs` serves only the `/api/v1/tasks/{task_id}/memory` routes a Task's own CLI calls, so a person reads Memory only through a Task | When someone asks to browse or edit Memory outside a Task. Then add a port in `moatless-ports` and a T3 view over it |
+| `moat tasks create` cannot set `memory_preload` | `crates/tasks/src/task/service.rs::normalize` stamps an empty `memory_preload`; only a Loop firing (`crates/loops/src/loops/firing/inbound.rs::create_task_from_loop`) sets it | When a person wants a one-off Task to start with a Loop's index. Then add the field to `CreateTaskRequest` and a `--memory-preload` flag |
+| A put cannot clear `data` or `staleAfterSeconds` | `crates/tasks/src/memory/dao.rs::update_existing` keeps an omitted field with `COALESCE`, and `PutMemoryRequest` has no way to say "clear" | When an agent needs to drop an entry's data or staleness window without deleting the entry. Then add `clearData`/`clearStaleAfter` flags, as `noExpiry` does for the TTL |
+
 ## Performance
 
 | Deferred | Anchor | Entry condition |

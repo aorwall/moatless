@@ -749,6 +749,7 @@ fn schedule_upsert(repo: &Repository) -> ManagedLoopUpsert {
         routing_mode: RoutingMode::BySubject,
         prompt: Some("Daily health check.".to_string()),
         tag_ids: Vec::new(),
+        memory_preload: Vec::new(),
         skills: Vec::new(),
         agent_profile: moatless_types::agent::AgentProfile::ClaudeCode,
         model: None,

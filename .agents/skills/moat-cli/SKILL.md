@@ -137,6 +137,35 @@ send secrets, credentials or personal data.
 **A 503 means no provider is configured** on this backend. Do the work yourself.
 `--each` still prints every row when some fail, then exits non-zero.
 
+## Keeping Memory for later Tasks
+
+`moat memory` stores entries outside the sandbox, keyed `area:topic` within a
+scope the Task supplies: its Loop, else the first of its Workspace and
+repository you may write, by default. Writing `workspace` or `repository` memory
+needs write access to that Workspace or repository itself. Each entry has a
+one-line summary that listings show, and a body that only `get` returns.
+
+```bash
+moat memory put ci:flaky-e2e --summary "checkout chain flakes on cold runners" \
+  --text "Retry once; a second failure is real." --cite task:<id> --tag ci
+moat memory list --prefix ci:
+moat memory search "flaky checkout"
+moat memory get ci:flaky-e2e          # full entry; records the read
+moat memory claim triage:SP-12 --ttl 2h && moat memory release triage:SP-12
+```
+
+**Pass `--if-version <n>` when you update an entry you read**, so a concurrent
+write answers 409 rather than being overwritten.
+
+**A claim is advisory:** it refuses only another claim, so other Tasks can
+still append to the entry. Claim before you start work on the item.
+
+**An entry expires 28 days after its last put or verify.** `moat memory verify`
+renews it once its citations still hold, and `--no-expiry` keeps it.
+
+**A Loop preloads only what its LOOP.md names** under `memory: { preload: [...] }`.
+See [loops](references/loops.md).
+
 Read [command workflows](references/command-reference.md) for response shapes,
 workspace ownership, task reuse, and bounded diagnostics. Read
 [Loops](references/loops.md) when installing or operating automation.

@@ -51,6 +51,8 @@ pub struct LoopContext {
     /// Skills every task this Loop spawns activates on each fresh agent
     /// session. Names only; the sandbox resolves each one's `SKILL.md` on disk.
     pub skills: Vec<String>,
+    /// See [`crate::task::Task::memory_preload`].
+    pub memory_preload: Vec<String>,
     pub run_as_user_id: Option<String>,
     pub agent_profile: AgentProfile,
     /// Per-Loop model override. `None` keeps the platform default the sandbox
@@ -127,6 +129,8 @@ pub struct SubscriptionMatch {
     pub task_name: Option<String>,
     pub tag_ids: Vec<String>,
     pub skills: Vec<String>,
+    /// See [`crate::task::Task::memory_preload`].
+    pub memory_preload: Vec<String>,
     pub run_as_user_id: Option<String>,
     pub agent_profile: AgentProfile,
     /// Per-Loop model override. See [`LoopContext::model`].

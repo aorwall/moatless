@@ -37,6 +37,7 @@ use moatless_tasks::artifact::operations::Artifacts;
 use moatless_tasks::credential_sync::CredentialSync;
 use moatless_tasks::event_ingress::EventAdmission;
 use moatless_tasks::feedback::operations::FeedbackNotes;
+use moatless_tasks::memory::operations::Memories;
 use moatless_tasks::message::operations::Messages;
 use moatless_tasks::message::send::MessageSendService;
 use moatless_tasks::review_guide::operations::ReviewGuides;
@@ -208,6 +209,7 @@ pub struct AppState {
     pub feedback: Arc<FeedbackNotes>,
     pub review_guides: Arc<ReviewGuides>,
     pub artifacts: Arc<Artifacts>,
+    pub memories: Arc<Memories>,
     pub repositories: Arc<Repositories>,
     pub repository_branches:
         Arc<moatless_workspaces::repository::branches::RepositoryBranchService>,
@@ -334,6 +336,12 @@ impl axum::extract::FromRef<AppState> for Arc<ReviewGuides> {
 impl axum::extract::FromRef<AppState> for Arc<Artifacts> {
     fn from_ref(state: &AppState) -> Self {
         state.artifacts.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<Memories> {
+    fn from_ref(state: &AppState) -> Self {
+        state.memories.clone()
     }
 }
 

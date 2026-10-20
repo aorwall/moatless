@@ -186,6 +186,9 @@ async fn run_shared(
         SharedCommands::Artifact { action } => {
             commands::artifact::run(moat, action, cfg, json).await?;
         }
+        SharedCommands::Memory { action } => {
+            commands::memory::run(moat, action, cfg, json).await?;
+        }
         SharedCommands::ReviewGuide { action } => {
             commands::review_guide::run(moat, action, cfg, json).await?;
         }

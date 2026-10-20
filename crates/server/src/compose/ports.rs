@@ -30,6 +30,7 @@ use moatless_sandbox_control::compose::SandboxGraph;
 use moatless_tasks::artifact::operations::Artifacts;
 use moatless_tasks::compose::TaskGraph;
 use moatless_tasks::feedback::operations::FeedbackNotes;
+use moatless_tasks::memory::operations::Memories;
 use moatless_tasks::message::operations::Messages;
 use moatless_tasks::review_guide::operations::ReviewGuides;
 use moatless_tasks::tag::operations::Tags;
@@ -79,6 +80,8 @@ pub struct Ports {
     pub review_guides: Arc<ReviewGuides>,
     /// Artifacts: the `task_artifacts` rows and their objects in S3.
     pub artifacts: Arc<Artifacts>,
+    /// Memory: what agents keep for later Tasks.
+    pub memories: Arc<Memories>,
     pub repositories: Arc<Repositories>,
     /// The narrowed read the task and loop bands take, over the same store.
     pub repository_reader: Arc<dyn moatless_workspace_ports::RepositoryReader>,
@@ -257,6 +260,7 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
         &config.auth.frontend_url,
         moatless_identity::auth::jwt::get_jwt_secret(config).map(String::from),
     );
+    let memories = task_graph.memories(repository_reader.clone(), workspace_resolver.clone());
     let tags = task_graph.tags();
     let tag_resolver = task_graph.tag_catalog();
     // The T3 band's own construction root owns its read model; this process
@@ -283,6 +287,7 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
         feedback,
         review_guides,
         artifacts,
+        memories,
         repositories,
         repository_reader,
         workspaces,

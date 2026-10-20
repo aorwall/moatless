@@ -280,6 +280,7 @@ impl Loops {
                     prompt: req.config.prompt.clone(),
                     task_name: req.config.task_name.clone(),
                     tag_ids: req.config.tag_ids.clone().unwrap_or_default(),
+                    memory_preload: Vec::new(),
                     skills: req.config.skills.clone().unwrap_or_default(),
                     run_as_user_id,
                     agent_profile,
@@ -627,6 +628,7 @@ fn next_config(
         tag_ids: rule
             .tag_ids
             .unwrap_or_else(|| current.config.tag_ids.clone()),
+        memory_preload: current.config.memory_preload.clone(),
         skills: rule.skills.unwrap_or_else(|| current.config.skills.clone()),
         run_as_user_id: current.config.run_as_user_id.clone(),
         agent_profile,
@@ -707,6 +709,7 @@ mod tests {
                 prompt: None,
                 task_name: None,
                 tag_ids: vec![],
+                memory_preload: Vec::new(),
                 skills: vec![],
                 run_as_user_id: Some("runner".into()),
                 agent_profile: agent_profile.parse().expect("a catalog agent_profile"),

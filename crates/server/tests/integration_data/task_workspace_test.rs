@@ -52,6 +52,7 @@ fn loop_task(workspace_id: &str) -> NewTask {
         node_selector: None,
         stop_when_done: false,
         tag_ids: Vec::new(),
+        memory_preload: Vec::new(),
         skills: Vec::new(),
         related_to: None,
         event_metadata: serde_json::json!({}),

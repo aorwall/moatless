@@ -330,6 +330,7 @@ fn route_to_config(route: &LoopSpawnConfig, schedule: &Schedule) -> LoopContext 
         scope: route.scope,
         task_name: route.task_name.clone(),
         tag_ids: route.tag_ids.clone(),
+        memory_preload: route.memory_preload.clone(),
         skills: route.skills.clone(),
         run_as_user_id: schedule
             .run_as_user_id
@@ -390,6 +391,7 @@ mod tests {
             scope: Scope::User,
             task_name: Some("Docs Improver".to_string()),
             tag_ids: vec![],
+            memory_preload: Vec::new(),
             skills: vec![],
             run_as_user_id: Some("user-1".to_string()),
             agent_profile: AgentProfile::ClaudeCode,

@@ -41,6 +41,10 @@ pub struct LoopFrontmatter {
     /// the pod that runs the task, so there is nothing to look up here.
     #[serde(default)]
     pub skills: Option<Vec<String>>,
+    /// Memory the spawned tasks' system prompts index
+    /// (`loop_configs.memory_preload`).
+    #[serde(default)]
+    pub memory: Option<LoopMemory>,
     /// Legacy Git field retained for compatibility. Sync reports and ignores it
     /// because only an administrator may approve the run-as identity.
     #[serde(default)]
@@ -113,6 +117,16 @@ pub struct LoopFrontmatter {
     /// Schedule settings — only meaningful when `on: schedule`.
     #[serde(default)]
     pub schedule: Option<LoopSchedule>,
+}
+
+/// `memory` block of a loop's frontmatter.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoopMemory {
+    /// Keys, or `prefix*` patterns, whose one-line summaries each spawned
+    /// task's system prompt lists. Bodies are read with `moat memory get`.
+    #[serde(default)]
+    pub preload: Vec<String>,
 }
 
 /// Schedule block of a `schedule` loop's frontmatter.

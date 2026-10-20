@@ -502,6 +502,7 @@ pub(super) async fn get_system_prompt(
         service.handlers.as_ref().map(|h| h.task_relations.as_ref()),
         service.handlers.as_ref().map(|h| h.user_logins.as_ref()),
         Some(&service.backend_config),
+        service.handlers.as_ref().map(|h| h.memories.as_ref()),
     )
     .await;
 

@@ -34,6 +34,8 @@ pub struct NewTask {
     pub stop_when_done: bool,
     pub tag_ids: Vec<String>,
     pub skills: Vec<String>,
+    /// See [`moatless_types::task::Task::memory_preload`].
+    pub memory_preload: Vec<String>,
     /// A peer Task to link this one to once it exists.
     pub related_to: Option<RelatedTask>,
     /// Merged into the Task's own creation event. The task band forwards it

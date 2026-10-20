@@ -96,6 +96,7 @@ pub async fn create_task_from_loop(
             stop_when_done: config.stop_when_done,
             tag_ids: config.tag_ids.clone(),
             skills: config.skills.clone(),
+            memory_preload: config.memory_preload.clone(),
             related_to: params.related_to,
             event_metadata: params.event_metadata,
         })

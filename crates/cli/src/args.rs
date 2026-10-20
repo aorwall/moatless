@@ -173,6 +173,12 @@ pub(super) enum SharedCommands {
         #[command(subcommand)]
         action: commands::artifact::ArtifactAction,
     },
+    /// Keep what a task learns for later tasks: decisions, conventions, and
+    /// the state of long-running work
+    Memory {
+        #[command(subcommand)]
+        action: commands::memory::MemoryAction,
+    },
     /// Hand back the guided review of a pull request this task was started to
     /// write
     ReviewGuide {

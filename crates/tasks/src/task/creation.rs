@@ -80,6 +80,8 @@ pub struct NewTaskRequest {
     /// Skills every fresh agent session on the task activates — a Loop's
     /// `skills`, or those chosen when the task was created.
     pub skills: Vec<String>,
+    /// See [`Task::memory_preload`].
+    pub memory_preload: Vec<String>,
     /// Optional `created_by` parent relation to record after insert. A child
     /// joining its parent's Sandbox is also cut at the parent's head; see
     /// `TaskCreationService::continue_parent_session`.
@@ -335,6 +337,7 @@ impl TaskCreationService {
             sandbox_id: req.sandbox_id.clone(),
             checkout_mode: persisted_checkout_mode,
             skills: req.skills.clone(),
+            memory_preload: req.memory_preload.clone(),
         };
 
         // Repo is needed for preflight. Reuse a caller-supplied one if present

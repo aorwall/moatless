@@ -24,6 +24,8 @@ use crate::credential_sync::CredentialSync;
 use crate::event_ingress::EventAdmission;
 use crate::feedback::dao::{FeedbackDao, PgFeedbackDao};
 use crate::feedback::operations::FeedbackNotes;
+use crate::memory::dao::{MemoryDao, PgMemoryDao};
+use crate::memory::operations::Memories;
 use crate::message::dao::{MessageDao, PgMessageDao};
 use crate::message::operations::Messages;
 use crate::message::send::{MessageSendService, SelfEchoGuard};
@@ -71,6 +73,7 @@ pub struct TaskGraph {
     feedback: Arc<dyn FeedbackDao>,
     review_guides: Arc<dyn ReviewGuideDao>,
     artifacts: Arc<dyn ArtifactDao>,
+    memories: Arc<dyn MemoryDao>,
 }
 
 /// Build the tasks band's stores over `db`.
@@ -87,6 +90,7 @@ pub fn task_graph(db: DbPool) -> TaskGraph {
         feedback: Arc::new(PgFeedbackDao(db.clone())),
         review_guides: Arc::new(PgReviewGuideDao(db.clone())),
         artifacts: Arc::new(PgArtifactDao(db.clone())),
+        memories: Arc::new(PgMemoryDao(db.clone())),
         db,
     }
 }
@@ -187,6 +191,20 @@ impl TaskGraph {
     /// The guided-review tables, as a host reads and writes them.
     pub fn review_guides(&self) -> Arc<ReviewGuides> {
         Arc::new(ReviewGuides::new(self.review_guides.clone()))
+    }
+
+    /// The memory tables, as a host reads and writes them, with the
+    /// repository and Workspace reads its write check needs.
+    pub fn memories(
+        &self,
+        repositories: Arc<dyn RepositoryReader>,
+        workspaces: Arc<dyn WorkspaceResolver>,
+    ) -> Arc<Memories> {
+        Arc::new(Memories::new(
+            self.memories.clone(),
+            repositories,
+            workspaces,
+        ))
     }
 
     /// The `task_artifacts` table and its objects in `s3`, with response URLs

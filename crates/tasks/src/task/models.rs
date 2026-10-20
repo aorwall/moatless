@@ -90,6 +90,7 @@ pub struct TaskRow {
     /// that spawned it; re-frontloaded after a restart or a start-fresh send,
     /// because the transcript that carried them is gone.
     pub skills: Vec<String>,
+    pub memory_preload: Vec<String>,
 }
 
 /// Parsing a row into the domain Task. A column no variant names, or a
@@ -132,6 +133,7 @@ impl TryFrom<TaskRow> for Task {
             inactive_ttl_days: row.inactive_ttl_days,
             loop_id: row.loop_id,
             skills: row.skills,
+            memory_preload: row.memory_preload,
         })
     }
 }

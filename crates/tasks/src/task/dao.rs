@@ -414,12 +414,12 @@ impl TaskDao for PgTaskDao {
                 created_by, visibility, scope, owner_user_id, run_as_user_id,
                 append_system_prompt, updated_at, headless, ttl_minutes,
                 inactive_ttl_days, loop_id, model,
-                workspace_id, sandbox_id, checkout_mode, skills
+                workspace_id, sandbox_id, checkout_mode, skills, memory_preload
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
                 $21, $22, NOW(), $23, $24, $25, $26,
-                $27, $28, $29, $30, $31
+                $27, $28, $29, $30, $31, $32
             )"#,
         )
         .bind(&row.task_id)
@@ -453,6 +453,7 @@ impl TaskDao for PgTaskDao {
         .bind(&sandbox_id)
         .bind(row.checkout_mode.map(CheckoutMode::as_str))
         .bind(&row.skills)
+        .bind(&row.memory_preload)
         .execute(&mut *tx)
         .await?;
 
@@ -634,6 +635,7 @@ impl TaskDao for PgTaskDao {
             inactive_ttl_days: Option<i32>,
             loop_id: Option<String>,
             skills: Option<Vec<String>>,
+            memory_preload: Option<Vec<String>>,
         }
 
         impl TaskPageRow {
@@ -690,6 +692,7 @@ impl TaskDao for PgTaskDao {
                     // NOT NULL in `tasks`, so only the total-only row can be
                     // NULL here — and that row is rejected before this point.
                     skills: self.skills.unwrap_or_default(),
+                    memory_preload: self.memory_preload.unwrap_or_default(),
                 })
             }
         }
@@ -711,7 +714,7 @@ impl TaskDao for PgTaskDao {
                     t.run_as_user_id,
                     t.created_at_db, t.updated_at, t.append_system_prompt,
                     t.headless, t.ttl_minutes,
-                    t.inactive_ttl_days, t.loop_id, t.skills
+                    t.inactive_ttl_days, t.loop_id, t.skills, t.memory_preload
                 FROM tasks t
                 WHERE {}
                   AND ($3::text IS NULL OR t.status = $3)

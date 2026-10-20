@@ -166,6 +166,30 @@ Records are shared by every reader: each can list, replace and delete the
 others'.
 _Avoid_: submission, artifact data (the records as a whole, not one of them)
 
+**Memory**:
+What agents keep for later Tasks through `moat memory`: decisions, conventions,
+facts that took effort to establish, and the state of long-running work. Stored
+outside the Sandbox and read by every Task that reaches an entry's Memory scope.
+A Task's prompt lists entry summaries only when its Loop's LOOP.md names them
+under `memory.preload`.
+_Avoid_: knowledge base, notes, context (the agent's conversation)
+
+**Memory entry**:
+One keyed item of Memory: a one-line summary, a body, optional JSON data, tags,
+and citations naming where each fact came from. Each write bumps its version and
+records an event. It expires 28 days after its last put or verify unless written
+with no expiry.
+
+**Memory scope**:
+Who shares a Memory entry: `task`, `loop`, `workspace`, `repository`, `user` or
+`global`. The calling Task supplies every scope id, so a request names only the
+kind. A write lands in the Task's Loop, else its Workspace, by default.
+
+**Claim** (Memory):
+A Task's time-limited hold on a Memory entry, so two Tasks do not work the same
+item. It lapses at its deadline or when the holding Task is no longer open.
+_Avoid_: lock, lease
+
 ### Providers — always qualified
 
 "Provider" is never a domain term on its own: five unrelated concepts share the

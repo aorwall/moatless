@@ -463,6 +463,9 @@ pub struct Task {
     /// that spawned it; re-frontloaded after a restart or a start-fresh send,
     /// because the transcript that carried them is gone.
     pub skills: Vec<String>,
+    /// Memory keys, or `prefix*` patterns, whose summaries this task's system
+    /// prompt lists. Set by the Loop that spawned it; empty preloads nothing.
+    pub memory_preload: Vec<String>,
 }
 
 impl Task {

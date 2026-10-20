@@ -68,7 +68,7 @@ impl ApiClient {
         self.check_status(resp).await
     }
 
-    async fn put<B: serde::Serialize, T: DeserializeOwned>(
+    pub(crate) async fn put<B: serde::Serialize, T: DeserializeOwned>(
         &self,
         path: &str,
         body: &B,
@@ -88,7 +88,7 @@ impl ApiClient {
         self.parse_response(resp).await
     }
 
-    async fn delete_request(&self, path: &str) -> Result<(), ApiError> {
+    pub(crate) async fn delete_request(&self, path: &str) -> Result<(), ApiError> {
         let url = format!("{}{path}", self.base_url);
         let resp = self.http.delete(&url).send().await?;
         self.check_status(resp).await
@@ -130,7 +130,7 @@ impl ApiClient {
         })
     }
 
-    async fn check_status(&self, resp: reqwest::Response) -> Result<(), ApiError> {
+    pub(crate) async fn check_status(&self, resp: reqwest::Response) -> Result<(), ApiError> {
         let status = resp.status();
         if status == StatusCode::UNAUTHORIZED {
             return Err(ApiError::Unauthorized);

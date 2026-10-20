@@ -68,6 +68,7 @@ fn sample_request() -> NewTaskRequest {
         ttl_minutes: 15,
         inactive_ttl_days: 7,
         tag_ids: vec![],
+        memory_preload: Vec::new(),
         skills: vec![],
         parent: None,
         related_to: None,

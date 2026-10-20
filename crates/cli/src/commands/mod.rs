@@ -18,6 +18,7 @@ pub mod linear;
 pub mod local_sandbox;
 pub mod loops;
 pub mod lsp_proxy;
+pub mod memory;
 pub mod messages;
 pub mod plugins;
 pub mod provider_apps;

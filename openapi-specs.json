@@ -6,6 +6,138 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/artifact-data/{token}/records": {
+      "get": {
+        "tags": [
+          "artifacts"
+        ],
+        "summary": "List the records of the Artifact a page token names, oldest change first.",
+        "operationId": "list_page_records",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "description": "Page token the served page carries",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "description": "RFC 3339 time; only records changed after it are listed.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Record list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListArtifactRecordsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or expired page token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "artifacts"
+        ],
+        "summary": "Save a record from a served page, queuing a message to the Task's agent\nwhen the Artifact was published with `notify`.",
+        "operationId": "save_page_record",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "description": "Page token the served page carries",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "JSON, sent as any content type",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveArtifactRecordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Record saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactRecordResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or expired page token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The latest publish accepts no data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Record too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/sandbox/v1/tasks/{task_id}/cleanup": {
       "post": {
         "tags": [
@@ -1905,6 +2037,127 @@
         "responses": {
           "302": {
             "description": "Redirect to the latest version"
+          },
+          "404": {
+            "description": "Artifact not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/artifacts/{artifact_id}/records": {
+      "get": {
+        "tags": [
+          "artifacts"
+        ],
+        "summary": "List an Artifact's records, oldest change first.",
+        "operationId": "list_records",
+        "parameters": [
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "description": "Artifact identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "description": "RFC 3339 time; only records changed after it are listed.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Record list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListArtifactRecordsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Artifact not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "artifacts"
+        ],
+        "summary": "Save a record as the caller, who must be able to change the Task. Queues\nno message.",
+        "operationId": "save_record",
+        "parameters": [
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "description": "Artifact identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveArtifactRecordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Record saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactRecordResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Caller cannot change the Task",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
           },
           "404": {
             "description": "Artifact not found",
@@ -7195,6 +7448,645 @@
         }
       }
     },
+    "/api/v1/tasks/{task_id}/memory": {
+      "get": {
+        "tags": [
+          "memory"
+        ],
+        "summary": "List summaries of the memory entries a Task reaches, newest first.",
+        "operationId": "list_memory",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/MemoryScope"
+            }
+          },
+          {
+            "name": "prefix",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "updatedSinceSeconds",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Entry summaries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListMemoryResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/memory/append": {
+      "post": {
+        "tags": [
+          "memory"
+        ],
+        "summary": "Add a dated line to an entry's history.",
+        "operationId": "append_memory",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppendMemoryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The entry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryEntryResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task or entry not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/memory/claim": {
+      "post": {
+        "tags": [
+          "memory"
+        ],
+        "summary": "Claim an entry for the Task.",
+        "operationId": "claim_memory",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClaimMemoryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Claimed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryEntryResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task or entry not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another open Task holds the claim",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/memory/entry": {
+      "get": {
+        "tags": [
+          "memory"
+        ],
+        "summary": "Read whole entries and record the read.",
+        "operationId": "get_memory",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "description": "Every scope the Task reaches, narrowest first, when omitted.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/MemoryScope"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The entry, or every match of a prefix",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetMemoryResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task or entry not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "memory"
+        ],
+        "summary": "Create or update an entry.",
+        "operationId": "put_memory",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutMemoryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The entry as written",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryEntryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Caller cannot write this memory",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ifVersion did not match",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "memory"
+        ],
+        "summary": "Delete an entry and its history.",
+        "operationId": "delete_memory",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "description": "Every scope the Task reaches, narrowest first, when omitted.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/MemoryScope"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "403": {
+            "description": "Caller cannot write this memory",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task or entry not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/memory/log": {
+      "get": {
+        "tags": [
+          "memory"
+        ],
+        "summary": "Read an entry's history, newest first.",
+        "operationId": "memory_log",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/MemoryScope"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The entry's history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryLogResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task or entry not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/memory/release": {
+      "post": {
+        "tags": [
+          "memory"
+        ],
+        "summary": "Drop the Task's claim on an entry.",
+        "operationId": "release_memory",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Released"
+          },
+          "404": {
+            "description": "Task or entry not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The Task holds no claim",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/memory/search": {
+      "get": {
+        "tags": [
+          "memory"
+        ],
+        "summary": "Search entry summaries, best match first.",
+        "operationId": "search_memory",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "A web-search expression: words, `\"phrases\"`, `-excluded`, `or`.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/MemoryScope"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching entry summaries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListMemoryResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/memory/verify": {
+      "post": {
+        "tags": [
+          "memory"
+        ],
+        "summary": "Record that an entry's citations still hold, renewing its expiry.",
+        "operationId": "verify_memory",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The entry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryEntryResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task or entry not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tasks/{task_id}/messages": {
       "get": {
         "tags": [
@@ -10702,6 +11594,72 @@
           }
         }
       },
+      "AppendMemoryRequest": {
+        "type": "object",
+        "description": "Body of `POST /api/v1/tasks/{task_id}/memory/append`.",
+        "required": [
+          "key",
+          "text"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MemoryScope"
+              }
+            ]
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "ArtifactRecordResponse": {
+        "type": "object",
+        "description": "One Artifact record: JSON saved against an Artifact, kept across its\nversions.",
+        "required": [
+          "recordId",
+          "artifactId",
+          "data",
+          "submittedBy",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "artifactId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object"
+          },
+          "key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`None` for an appended record; a keyed record is replaced by the next\nsave under its key."
+          },
+          "recordId": {
+            "type": "string"
+          },
+          "submittedBy": {
+            "type": "string",
+            "description": "The user id of whoever saved the record last."
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        }
+      },
       "ArtifactResponse": {
         "type": "object",
         "description": "One published version of an Artifact, as `POST\n/api/v1/tasks/{task_id}/artifacts` answers it.",
@@ -10717,6 +11675,10 @@
           "updatedAt"
         ],
         "properties": {
+          "acceptsData": {
+            "type": "boolean",
+            "description": "Whether the page may save Artifact records; set by the latest publish."
+          },
           "artifactId": {
             "type": "string"
           },
@@ -10732,6 +11694,10 @@
           "latestUrl": {
             "type": "string",
             "description": "Absolute URL that redirects to whichever version is latest."
+          },
+          "notifyOnData": {
+            "type": "boolean",
+            "description": "Whether a record a reader saves queues a message to the Task's agent."
           },
           "slug": {
             "type": "string"
@@ -10978,6 +11944,33 @@
           "shared",
           "isolated"
         ]
+      },
+      "ClaimMemoryRequest": {
+        "type": "object",
+        "description": "Body of `POST /api/v1/tasks/{task_id}/memory/claim`.",
+        "required": [
+          "key",
+          "ttlSeconds"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MemoryScope"
+              }
+            ]
+          },
+          "ttlSeconds": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
       },
       "CloseTaskRequest": {
         "type": "object",
@@ -13049,6 +14042,21 @@
           }
         }
       },
+      "GetMemoryResponse": {
+        "type": "object",
+        "description": "Response of `GET /api/v1/tasks/{task_id}/memory/entry`.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MemoryEntryResponse"
+            }
+          }
+        }
+      },
       "GetMessagesResponse": {
         "type": "object",
         "description": "Response for GET /messages.",
@@ -14092,6 +15100,21 @@
           }
         }
       },
+      "ListArtifactRecordsResponse": {
+        "type": "object",
+        "description": "Response for listing an Artifact's records, oldest first.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArtifactRecordResponse"
+            }
+          }
+        }
+      },
       "ListArtifactsResponse": {
         "type": "object",
         "description": "Response for `GET /api/v1/tasks/{task_id}/artifacts`, newest first.",
@@ -14138,6 +15161,21 @@
           },
           "origin": {
             "$ref": "#/components/schemas/ContentOrigin"
+          }
+        }
+      },
+      "ListMemoryResponse": {
+        "type": "object",
+        "description": "Response of the list and search routes, newest first.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MemorySummaryResponse"
+            }
           }
         }
       },
@@ -14670,6 +15708,244 @@
       },
       "ManualSource": {
         "type": "object"
+      },
+      "MemoryEntryResponse": {
+        "type": "object",
+        "description": "A whole entry, as a read returns it.",
+        "required": [
+          "key",
+          "scope",
+          "summary",
+          "body",
+          "tags",
+          "citations",
+          "version",
+          "stale",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "claimExpiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "claimedByTaskId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The open Task holding a live claim on the entry."
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "data": {},
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "key": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/MemoryScope"
+          },
+          "stale": {
+            "type": "boolean",
+            "description": "`staleAfterSeconds` has passed since the last put or verify."
+          },
+          "summary": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "updatedByTaskId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "verifiedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "MemoryEventResponse": {
+        "type": "object",
+        "description": "One write in an entry's history.",
+        "required": [
+          "op",
+          "version",
+          "createdAt"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "op": {
+            "$ref": "#/components/schemas/MemoryOp"
+          },
+          "taskId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The appended text, or the summary a put left."
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The entry's version once the write landed."
+          }
+        }
+      },
+      "MemoryKeyRequest": {
+        "type": "object",
+        "description": "Body naming one entry, for verify and release.",
+        "required": [
+          "key"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MemoryScope",
+                "description": "Searches every scope the Task reaches, narrowest first, when omitted."
+              }
+            ]
+          }
+        }
+      },
+      "MemoryLogResponse": {
+        "type": "object",
+        "description": "Response of `GET /api/v1/tasks/{task_id}/memory/log`, newest first.",
+        "required": [
+          "key",
+          "scope",
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MemoryEventResponse"
+            }
+          },
+          "key": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/MemoryScope"
+          }
+        }
+      },
+      "MemoryOp": {
+        "type": "string",
+        "description": "A write recorded in a memory entry's history.",
+        "enum": [
+          "put",
+          "append",
+          "verify",
+          "claim",
+          "release"
+        ]
+      },
+      "MemoryScope": {
+        "type": "string",
+        "description": "Which Tasks share a memory entry. The scope's id is never named by a\ncaller: it comes from the Task the request is made for.",
+        "enum": [
+          "task",
+          "loop",
+          "workspace",
+          "repository",
+          "user",
+          "global"
+        ]
+      },
+      "MemorySummaryResponse": {
+        "type": "object",
+        "description": "An entry without its body or data, as listings return it.",
+        "required": [
+          "key",
+          "scope",
+          "summary",
+          "tags",
+          "version",
+          "stale",
+          "updatedAt"
+        ],
+        "properties": {
+          "claimedByTaskId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "key": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/MemoryScope"
+          },
+          "stale": {
+            "type": "boolean"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
       },
       "MessageContextInput": {
         "oneOf": [
@@ -15419,6 +16695,13 @@
           "file"
         ],
         "properties": {
+          "data": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "`true` lets the page save Artifact records through the\n`moatless.artifact` script injected when it is served."
+          },
           "file": {
             "type": "string",
             "format": "binary",
@@ -15439,6 +16722,13 @@
             ],
             "description": "`true` shows this version in the Task's thread as the page itself, served\nwith T3's theme and height bootstrap."
           },
+          "notify": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "`true` also queues a message to the Task's agent for each record a\nreader saves. Ignored without `data`."
+          },
           "slug": {
             "type": [
               "string",
@@ -15448,6 +16738,89 @@
           },
           "title": {
             "type": "string"
+          }
+        }
+      },
+      "PutMemoryRequest": {
+        "type": "object",
+        "description": "Body of `PUT /api/v1/tasks/{task_id}/memory/entry`. An omitted field keeps\nthe entry's current value; a new entry needs `summary`.",
+        "required": [
+          "key"
+        ],
+        "properties": {
+          "body": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "citations": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Sources the entry rests on: `path:line`, `linear:SP-1`, `task:<id>`, a URL."
+          },
+          "data": {},
+          "ifVersion": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Refuse the write with 409 unless the entry is at this version; 0 means\nit must not exist yet."
+          },
+          "key": {
+            "type": "string"
+          },
+          "noExpiry": {
+            "type": "boolean",
+            "description": "The entry never expires. Conflicts with `ttlSeconds`."
+          },
+          "scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MemoryScope",
+                "description": "`loop` for a Task a Loop fired, `workspace` otherwise."
+              }
+            ]
+          },
+          "staleAfterSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Reads mark the entry stale this long after its last put or verify."
+          },
+          "summary": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "One line saying what the entry is about; listings show only this."
+          },
+          "tags": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "ttlSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           }
         }
       },
@@ -16610,6 +17983,25 @@
           "system",
           "error"
         ]
+      },
+      "SaveArtifactRecordRequest": {
+        "type": "object",
+        "description": "Body of a record save.",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "object"
+          },
+          "key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Replace the record saved under this key rather than append one."
+          }
+        }
       },
       "SaveCodexAgentHarnessCredentialRequest": {
         "type": "object",
@@ -20737,6 +22129,10 @@
     {
       "name": "artifacts",
       "description": "HTML pages published from a Task"
+    },
+    {
+      "name": "memory",
+      "description": "What agents learn, shared across Tasks by scope"
     },
     {
       "name": "review-guides",

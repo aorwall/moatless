@@ -34,6 +34,8 @@ pub struct HandlerDbPorts {
     pub transcript: Arc<moatless_tasks::ports::Transcript>,
     pub tasks: Arc<TaskCommands>,
     pub task_relations: Arc<TaskRelations>,
+    /// Read for the memory index a Loop's `memory.preload` puts in the prompt.
+    pub memories: Arc<moatless_tasks::memory::operations::Memories>,
     /// Where a fork's first turn branches from.
     pub task_forks: Arc<TaskForks>,
     /// Scoped secret resolver for global/team/user secrets.

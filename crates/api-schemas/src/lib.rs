@@ -17,6 +17,7 @@ pub mod file_storage;
 pub mod github;
 pub mod linear;
 pub mod loops;
+pub mod memory;
 pub mod message;
 pub mod patch;
 pub mod provider_apps;

@@ -25,6 +25,7 @@ pub mod feedback;
 pub mod git_host;
 pub mod http;
 pub mod loops;
+pub mod memory;
 pub mod message;
 pub mod model;
 pub mod pull_request_conversation;

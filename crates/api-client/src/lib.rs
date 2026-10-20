@@ -3,10 +3,13 @@
 mod artifacts;
 mod client;
 mod error;
+mod memory;
 
 pub use artifacts::{ArtifactData, InlineArtifact, PageOptions};
 pub use client::ApiClient;
 pub use error::ApiError;
+pub use memory::MemoryListQuery;
+
 /// Wire contracts used by the Rust client.
 pub mod types {
     pub use moatless_api_schemas::*;

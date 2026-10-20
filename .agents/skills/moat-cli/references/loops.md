@@ -20,6 +20,8 @@ routingMode: by_subject  # optional, default by_subject
 workspace: Java Service  # optional — the workspace name tasks run in
 tags: [review]           # optional
 skills: [java-review]    # optional — activated on every fresh agent session
+memory:                  # optional — summaries listed in each task's prompt
+  preload: [review:conventions, review:*]   # keys, or `prefix*`
 # optional: sourceMatcher, teamId, eventFilter, adapterConfig, inactiveTtlDays
 ---
 

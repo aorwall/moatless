@@ -79,6 +79,7 @@ pub fn delivery_only_subscription(
         prompt_template: None,
         task_name: None,
         tag_ids: Vec::new(),
+        memory_preload: Vec::new(),
         skills: Vec::new(),
         // Never `None`: an org connection owned by nobody would otherwise
         // panic every reader of `SubscriptionMatch::effective_user_id`, which
@@ -127,6 +128,7 @@ pub fn subscription_context(subscription: &SubscriptionMatch) -> LoopContext {
         scope: subscription.scope,
         task_name: subscription.task_name.clone(),
         tag_ids: subscription.tag_ids.clone(),
+        memory_preload: subscription.memory_preload.clone(),
         skills: subscription.skills.clone(),
         run_as_user_id: subscription.run_as_user_id.clone(),
         agent_profile: subscription.agent_profile,

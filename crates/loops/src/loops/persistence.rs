@@ -20,6 +20,7 @@ pub struct LoopSpawnConfigRow {
     pub task_name: Option<String>,
     pub tag_ids: Vec<String>,
     pub skills: Vec<String>,
+    pub memory_preload: Vec<String>,
     pub run_as_user_id: Option<String>,
     #[sqlx(try_from = "String")]
     pub agent_profile: AgentProfile,
@@ -49,6 +50,7 @@ impl From<LoopSpawnConfigRow> for LoopSpawnConfig {
             task_name: row.task_name,
             tag_ids: row.tag_ids,
             skills: row.skills,
+            memory_preload: row.memory_preload,
             run_as_user_id: row.run_as_user_id,
             inactive_ttl_days: row.inactive_ttl_days,
             node_selector: row.node_selector.map(|json| json.0),
@@ -80,6 +82,7 @@ pub struct SubscriptionMatchRow {
     pub task_name: Option<String>,
     pub tag_ids: Vec<String>,
     pub skills: Vec<String>,
+    pub memory_preload: Vec<String>,
     pub run_as_user_id: Option<String>,
     #[sqlx(try_from = "String")]
     pub agent_profile: AgentProfile,
@@ -120,6 +123,7 @@ impl From<SubscriptionMatchRow> for SubscriptionMatch {
             task_name: row.task_name,
             tag_ids: row.tag_ids,
             skills: row.skills,
+            memory_preload: row.memory_preload,
             run_as_user_id: row.run_as_user_id,
             inactive_ttl_days: row.inactive_ttl_days,
             node_selector: row.node_selector.map(|json| json.0),

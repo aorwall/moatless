@@ -141,6 +141,7 @@ mod thread_ids {
             workspace_id: None,
             sandbox_id: None,
             checkout_mode: None,
+            memory_preload: Vec::new(),
             skills: Vec::new(),
         }
     }

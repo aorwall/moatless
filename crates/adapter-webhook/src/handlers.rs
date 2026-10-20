@@ -86,6 +86,7 @@ mod tests {
             prompt_template: None,
             task_name: None,
             tag_ids: vec![],
+            memory_preload: Vec::new(),
             skills: vec![],
             run_as_user_id: Some("u_test".into()),
             agent_profile: moatless_types::agent::AgentProfile::ClaudeCode,

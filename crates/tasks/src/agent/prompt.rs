@@ -12,6 +12,8 @@ use moatless_core::config::Config;
 use moatless_ports::identity::UserResolver;
 use moatless_workspace_ports::WorkspaceResolver;
 
+use crate::memory::operations::Memories;
+use crate::memory::preload::preload_index;
 use crate::task::models::Task;
 use crate::task::relations::TaskRelations;
 use moatless_types::task::TaskRelationType;
@@ -51,6 +53,9 @@ pub struct PromptInputs<'a> {
     /// Whether the backend has object storage, so `moat artifact publish`
     /// answers.
     pub artifacts_enabled: bool,
+    /// The summaries [`crate::memory::preload::preload_index`] lists for the
+    /// task's `memory_preload`.
+    pub memory_index: Option<&'a str>,
 }
 
 /// Steers the agent toward `moat gh` and away from the (broken) hosted GitHub
@@ -228,6 +233,33 @@ Before you write a page, load the `artifacts` skill: it covers building the
 page, the inline layout rules and interactive pages. Without that skill, read
 `moat artifact publish --help`.";
 
+/// Names the `moat memory` commands. Entries reach the prompt only through a
+/// Loop's `memory.preload`, appended after this text.
+const MEMORY_PROMPT: &str = "\
+# Memory
+
+`moat memory` keeps what you learn for later Tasks: a decision and why it was
+made, a convention, a fact about the system that took effort to establish, or
+the state of a long-running job. Store only what has no other owner; code,
+commits, PRs, issues and docs already remember their own contents.
+
+- `moat memory list [--prefix <p>]` and `moat memory search \"<words>\"` list
+  one-line summaries; `moat memory get <key>` reads an entry in full.
+- `moat memory put <key> --summary \"<one line>\" --text \"<body>\" [--cite <url>]`
+  writes an entry. Name it `area:topic`, cite where each fact came from, and
+  pass `--if-version <n>` when you update something you read.
+- `moat memory append <key> --text \"<line>\"` adds a dated line to its log.
+- `moat memory verify <key>` records that its citations still hold.
+- `moat memory claim <key> --ttl 2h` and `moat memory release <key>` stop two
+  Tasks working the same item. A claim refuses only another claim, so claim
+  before you start and treat a refused claim as someone else's work.
+
+An entry is saved in this task's Loop, else the first of its Workspace and
+repository you may write, else this task; `--scope repository|user|task`
+picks another. Entries expire after 28 days
+unless verified, updated or written with `--no-expiry`. Memory can be wrong or
+stale: check an entry's citations before you act on it.";
+
 /// Build the append-system-prompt for a task.
 ///
 /// Loads the task's workspace and URL settings, then delegates to
@@ -240,6 +272,7 @@ pub async fn build_for_task(
     task_relations: Option<&TaskRelations>,
     users: Option<&dyn UserResolver>,
     config: Option<&Arc<Config>>,
+    memories: Option<&Memories>,
 ) -> String {
     let workspace = match (task, workspaces) {
         (Some(t), Some(ws)) => match t.workspace_id.as_deref() {
@@ -300,6 +333,11 @@ pub async fn build_for_task(
 
     let frontend_url = config.map(|c| c.auth.frontend_url.as_str());
 
+    let memory_index = match (task, memories) {
+        (Some(t), Some(m)) => preload_index(m, t).await,
+        _ => None,
+    };
+
     build_append_system_prompt(&PromptInputs {
         task_id,
         task_name: task.and_then(|t| t.name.as_deref()),
@@ -310,6 +348,7 @@ pub async fn build_for_task(
         frontend_url,
         decisions_enabled: config.is_some_and(|c| c.decision.provider.is_some()),
         artifacts_enabled: config.is_some_and(|c| c.s3.bucket_name.is_some()),
+        memory_index: memory_index.as_deref(),
     })
 }
 
@@ -354,6 +393,10 @@ pub fn build_append_system_prompt(inputs: &PromptInputs<'_>) -> String {
     }
     if inputs.artifacts_enabled {
         sections.push(ARTIFACTS_PROMPT.to_string());
+    }
+    match inputs.memory_index {
+        Some(index) => sections.push(format!("{MEMORY_PROMPT}\n\n{index}")),
+        None => sections.push(MEMORY_PROMPT.to_string()),
     }
     sections.push(FEEDBACK_PROMPT.to_string());
 
@@ -422,7 +465,24 @@ mod tests {
             frontend_url: None,
             decisions_enabled: false,
             artifacts_enabled: false,
+            memory_index: None,
         }
+    }
+
+    #[test]
+    fn memory_index_follows_the_memory_commands_only_when_preloaded() {
+        let bare = build_append_system_prompt(&base_inputs("t"));
+        assert!(bare.contains("# Memory"));
+        assert!(!bare.contains("## Preloaded memory"));
+
+        let index = "## Preloaded memory\n\n- ci:flaky (loop, 2026-10-01): retry once";
+        let prompt = build_append_system_prompt(&PromptInputs {
+            memory_index: Some(index),
+            ..base_inputs("t")
+        });
+        let commands = prompt.find("# Memory").unwrap_or(usize::MAX);
+        let preloaded = prompt.find("## Preloaded memory").unwrap_or(0);
+        assert!(commands < preloaded, "{prompt}");
     }
 
     #[test]

@@ -366,6 +366,13 @@ pub const CONCERNS: &[Concern] = &[
         slice: 12,
     },
     Concern {
+        name: "memory",
+        owner: "moatless-tasks",
+        roots: &["crates/tasks/src/memory/dao"],
+        tables: &["memory_entries", "memory_events", "memory_reads"],
+        slice: 12,
+    },
+    Concern {
         name: "loop aggregate",
         owner: "moatless-loops",
         roots: &["crates/loops/src/loops/dao"],

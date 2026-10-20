@@ -28,6 +28,7 @@ pub(super) struct ResolvedLoop {
     prompt: Option<String>,
     tag_ids: Vec<String>,
     skills: Vec<String>,
+    memory_preload: Vec<String>,
     inactive_ttl_days: Option<i32>,
     stop_when_done: Option<bool>,
     message_buffer_seconds: Option<i32>,
@@ -61,6 +62,19 @@ pub(super) fn declared_agent_profile(fm: &LoopFrontmatter) -> Result<AgentProfil
     fm.agent_profile
         .as_deref()
         .map_or(Ok(AgentProfile::ClaudeCode), str::parse)
+}
+
+/// The `memory.preload` patterns a Loop declaration lists, or why one is
+/// unusable.
+fn declared_memory_preload(fm: &LoopFrontmatter) -> Result<Vec<String>, String> {
+    let patterns = fm.memory.clone().unwrap_or_default().preload;
+    match patterns
+        .iter()
+        .find_map(|p| moatless_types::memory::preload_pattern_error(p))
+    {
+        Some(e) => Err(e),
+        None => Ok(patterns),
+    }
 }
 
 impl LoopSyncService {
@@ -111,6 +125,10 @@ impl LoopSyncService {
 
         let agent_profile = match declared_agent_profile(fm) {
             Ok(profile) => profile,
+            Err(e) => return Ok(ResolveOutcome::Skipped(e)),
+        };
+        let memory_preload = match declared_memory_preload(fm) {
+            Ok(patterns) => patterns,
             Err(e) => return Ok(ResolveOutcome::Skipped(e)),
         };
         let model = fm.model.clone();
@@ -339,6 +357,7 @@ impl LoopSyncService {
             prompt,
             tag_ids,
             skills,
+            memory_preload,
             inactive_ttl_days: fm.inactive_ttl_days,
             stop_when_done: fm.stop_when_done,
             message_buffer_seconds: fm.message_buffer_seconds,
@@ -393,6 +412,7 @@ pub(super) fn managed_loop_input(
         prompt: resolved.prompt.clone(),
         tag_ids: resolved.tag_ids.clone(),
         skills: resolved.skills.clone(),
+        memory_preload: resolved.memory_preload.clone(),
         agent_profile: resolved.agent_profile,
         model: resolved.model.clone(),
         inactive_ttl_days: resolved.inactive_ttl_days,
@@ -482,6 +502,7 @@ pub(crate) fn build_linear_adapter_config(fm: &LoopFrontmatter) -> serde_json::V
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::loops::sync::models::LoopMemory;
 
     #[test]
     fn default_schedule_message_uses_loop_name() {
@@ -505,6 +526,7 @@ mod tests {
             routing_mode: None,
             tags: None,
             skills: None,
+            memory: None,
             run_as_user_id: None,
             source_matcher: Some("team-uuid".to_string()),
             team_id: None,
@@ -581,5 +603,21 @@ mod tests {
         fm.create_on_status_entry = Some(false);
         let cfg = build_linear_adapter_config(&fm);
         assert_eq!(cfg["create_on_status_entry"], serde_json::json!(false));
+    }
+
+    #[test]
+    fn a_bad_memory_preload_pattern_skips_the_loop() {
+        let mut fm = linear_fm(None, None, None);
+        fm.memory = Some(LoopMemory {
+            preload: vec!["ci:flaky".to_string(), "triage:*".to_string()],
+        });
+        assert_eq!(
+            declared_memory_preload(&fm),
+            Ok(vec!["ci:flaky".to_string(), "triage:*".to_string()])
+        );
+        fm.memory = Some(LoopMemory {
+            preload: vec!["*".to_string()],
+        });
+        assert!(declared_memory_preload(&fm).is_err());
     }
 }

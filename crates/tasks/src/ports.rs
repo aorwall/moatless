@@ -365,6 +365,7 @@ impl TaskOpener for crate::task::creation::TaskCreationService {
                     },
                     tag_ids: req.tag_ids,
                     skills: req.skills,
+                    memory_preload: req.memory_preload,
                     parent: None,
                     related_to: req.related_to,
                     // The bindings runtime and the schedule runner deliver the

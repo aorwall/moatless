@@ -23,6 +23,7 @@ pub mod credential_sync;
 pub mod event_ingress;
 pub mod feedback;
 pub mod inbox;
+pub mod memory;
 pub mod message;
 pub mod ports;
 pub mod review_guide;
