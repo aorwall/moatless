@@ -101,7 +101,10 @@ reader saved. Give per-reader state a key that names the reader, such as
   const api = window.moatless && window.moatless.artifact;
   const form = document.getElementById("f");
   const status = document.getElementById("status");
-  if (!api) status.textContent = "Open this page from its Moatless link to answer.";
+  if (!api) {
+    form.querySelector("button").disabled = true;
+    status.textContent = "Open this page from its Moatless link to answer.";
+  }
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     try {
@@ -114,10 +117,11 @@ reader saved. Give per-reader state a key that names the reader, such as
 </script>
 ```
 
-- **Check for `window.moatless.artifact` before calling it.**
+- **Disable the page's submit button when `window.moatless.artifact` is missing.**
 
   It is missing when the page is opened as a local file, downloaded, or
-  published without `--data`.
+  published without `--data`. A handler that still calls `api.save` then
+  fails with `Cannot read properties of undefined (reading 'save')`.
 - **Show the reader whether the save worked.**
 
   A save rejects with the server's message when the record is too large or
