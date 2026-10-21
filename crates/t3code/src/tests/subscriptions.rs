@@ -346,3 +346,50 @@ async fn a_connection_holding_live_subscriptions_is_refused_at_the_cap() {
     assert_eq!(output.frames[0]["exit"]["cause"][0]["_tag"], "Die");
     assert_eq!(session.streams.len(), MAX_ACTIVE_STREAMS);
 }
+
+/// The client opens a stream per visible sidebar row, so reaching the cap is
+/// its fan-out and must not count toward the `die` outcome that alerts.
+#[tokio::test]
+async fn a_subscription_refused_at_the_cap_is_counted_as_capped() {
+    use opentelemetry::trace::TracerProvider;
+    use opentelemetry_sdk::trace::{InMemorySpanExporter, SdkTracerProvider};
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let mut session = session();
+    for id in 0..MAX_ACTIVE_STREAMS {
+        session
+            .handle_json(
+                &request(&id.to_string(), "subscribeVcsStatus", json!({})),
+                &state(),
+                &viewer(),
+            )
+            .await;
+    }
+    let exporter = InMemorySpanExporter::default();
+    let provider = SdkTracerProvider::builder()
+        .with_simple_exporter(exporter.clone())
+        .build();
+    let otel_layer = tracing_opentelemetry::layer().with_tracer(provider.tracer("test"));
+    let _guard = tracing::subscriber::set_default(tracing_subscriber::registry().with(otel_layer));
+
+    session
+        .handle_json(
+            &request("9999", "subscribeVcsStatus", json!({})),
+            &state(),
+            &viewer(),
+        )
+        .await;
+
+    provider.force_flush().expect("flush the simple exporter");
+    let spans = exporter.get_finished_spans().expect("exporter is readable");
+    let outcome = spans
+        .iter()
+        .find(|span| span.name == "ui_rpc.request")
+        .and_then(|span| {
+            span.attributes
+                .iter()
+                .find(|kv| kv.key.as_str() == "outcome")
+        })
+        .map(|kv| kv.value.as_str().to_string());
+    assert_eq!(outcome.as_deref(), Some("capped"));
+}

@@ -88,6 +88,10 @@ pub(crate) enum Outcome {
     Refused,
     /// Any other `Fail`.
     Fail,
+    /// A `Die` its site marked with [`capped`]: the connection already holds
+    /// [`crate::MAX_ACTIVE_STREAMS`] streams. The client's fan-out reached the
+    /// cap; the server is not broken.
+    Capped,
     /// `Die`.
     Die,
     /// The request stopped without answering: the client sent `Interrupt`, or
@@ -105,6 +109,7 @@ impl Outcome {
             Self::Unauthorized => "unauthorized",
             Self::Refused => "refused",
             Self::Fail => "fail",
+            Self::Capped => "capped",
             Self::Die => "die",
             Self::Interrupted => "interrupted",
         }
@@ -127,7 +132,8 @@ impl Outcome {
     /// Whether the client was told the request failed, for the span status and
     /// the log line. An [`Self::Interrupted`] request is not a failure: the
     /// client asked for it to stop. Nor is a [`Self::Refused`] one: the client
-    /// got the answer the state it asked in has.
+    /// got the answer the state it asked in has. Nor a [`Self::Capped`] one:
+    /// the client's own fan-out reached a per-connection limit.
     pub(crate) fn is_failure(self) -> bool {
         matches!(
             self,
@@ -136,9 +142,20 @@ impl Outcome {
     }
 }
 
+/// What the running request's site said about the failure it answers with.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum Mark {
+    #[default]
+    None,
+    /// Set by [`refused`].
+    Refused,
+    /// Set by [`capped`].
+    Capped,
+}
+
 tokio::task_local! {
-    /// Set by [`refused`] inside the request [`answered`] is running.
-    static REFUSED: Cell<bool>;
+    /// Set inside the request [`answered`] is running.
+    static MARK: Cell<Mark>;
 }
 
 /// Mark the `Fail` the running request answers with as [`Outcome::Refused`].
@@ -147,7 +164,15 @@ tokio::task_local! {
 /// task it spawns does not see the mark, and outside [`answered`] it does
 /// nothing. A `Die` or an `EnvironmentAuthorizationError` keeps its outcome.
 pub(crate) fn refused() {
-    let _ = REFUSED.try_with(|refused| refused.set(true));
+    let _ = MARK.try_with(|mark| mark.set(Mark::Refused));
+}
+
+/// Mark the `Die` the running request answers with as [`Outcome::Capped`].
+///
+/// Bound like [`refused`]: the handler's own task, inside [`answered`]. A
+/// `Fail` keeps its outcome.
+pub(crate) fn capped() {
+    let _ = MARK.try_with(|mark| mark.set(Mark::Capped));
 }
 
 /// Read the outcome off the frames one request answered with.
@@ -257,10 +282,10 @@ pub(crate) async fn answered(
         started: std::time::Instant::now(),
         answered: false,
     };
-    let (frames, refused) = REFUSED
-        .scope(Cell::new(false), async {
+    let (frames, mark) = MARK
+        .scope(Cell::new(Mark::None), async {
             let frames = request.instrument(span.clone()).await;
-            (frames, REFUSED.with(Cell::get))
+            (frames, MARK.with(Cell::get))
         })
         .await;
     abandoned.answered = true;
@@ -268,7 +293,7 @@ pub(crate) async fn answered(
         span,
         method,
         &frames,
-        refused,
+        mark,
         abandoned.started.elapsed(),
         identity,
     );
@@ -304,19 +329,21 @@ impl Drop for Abandoned<'_> {
 /// Count one answered request, mark its span with what the client was told,
 /// and log the failures nothing else logs.
 ///
-/// Called by [`answered`] alone; `refused` is whether the handler called
-/// [`refused`]. A `Die` a per-domain builder logs is logged here again.
+/// Called by [`answered`] alone; `mark` is what the handler set with
+/// [`refused`] or [`capped`]. A `Die` a per-domain builder logs is logged here
+/// again.
 pub(crate) fn record_request(
     span: &tracing::Span,
     method: Option<&'static str>,
     frames: &[Value],
-    refused: bool,
+    mark: Mark,
     elapsed: Duration,
     identity: &UiRpcAuthIdentity,
 ) {
-    let outcome = match classify(frames) {
-        Outcome::Fail if refused => Outcome::Refused,
-        outcome => outcome,
+    let outcome = match (classify(frames), mark) {
+        (Outcome::Fail, Mark::Refused) => Outcome::Refused,
+        (Outcome::Die, Mark::Capped) => Outcome::Capped,
+        (outcome, _) => outcome,
     };
     record(span, method, outcome, frames, elapsed, identity);
 }
@@ -590,6 +617,30 @@ mod tests {
         assert_eq!(outcome, "die");
     }
 
+    /// A connection at its stream cap is told with a `Die`, since no error
+    /// every stream declares fits, but the server is not broken.
+    #[tokio::test]
+    async fn a_die_marked_capped_is_capped() {
+        let (outcome, status) = answered_outcome(async {
+            capped();
+            exit(json!({ "_tag": "Die", "defect": "cap" }))
+        })
+        .await;
+        assert_eq!(outcome, "capped");
+        assert_ne!(status, opentelemetry::trace::Status::error(""));
+    }
+
+    /// The mark qualifies a `Die`; a typed failure keeps its own outcome.
+    #[tokio::test]
+    async fn a_fail_stays_a_fail_when_marked_capped() {
+        let (outcome, _) = answered_outcome(async {
+            capped();
+            read_file_error()
+        })
+        .await;
+        assert_eq!(outcome, "fail");
+    }
+
     #[test]
     fn marking_refused_outside_a_request_does_nothing() {
         refused();
@@ -618,7 +669,7 @@ mod tests {
                     "requestId": "1",
                     "exit": { "_tag": "Success", "value": {} }
                 })],
-                false,
+                Mark::None,
                 Duration::from_millis(7),
                 &viewer(),
             );

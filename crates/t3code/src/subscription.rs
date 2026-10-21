@@ -134,6 +134,7 @@ impl StreamSet {
                 active_streams = self.streams.len(),
                 "T3 UI stream refused; this connection is at its subscription cap"
             );
+            crate::rpc::metrics::capped();
             return vec![failure_exit(
                 id,
                 format!("At most {MAX_ACTIVE_STREAMS} RPC streams may be active"),

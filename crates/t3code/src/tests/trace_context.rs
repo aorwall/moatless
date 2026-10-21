@@ -165,7 +165,7 @@ fn a_failed_request_marks_its_span_as_an_error() {
                 "requestId": "1",
                 "exit": { "_tag": "Failure", "cause": [{ "_tag": "Die", "defect": "boom" }] }
             })],
-            false,
+            rpc_metrics::Mark::None,
             Duration::from_millis(3),
             &viewer(),
         );
@@ -208,7 +208,7 @@ fn a_successful_request_leaves_its_span_unset() {
                 "requestId": "1",
                 "exit": { "_tag": "Success", "value": {} }
             })],
-            false,
+            rpc_metrics::Mark::None,
             Duration::from_millis(1),
             &viewer(),
         );
