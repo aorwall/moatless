@@ -130,18 +130,18 @@ async fn linear_401_stays_unauthorized() {
 
 /// Linear's answer to `issue(id:)` for a key it does not have: HTTP 200, with
 /// the rejection in `errors`. Captured from the live API.
-const ISSUE_NOT_FOUND: &str = r#"{"errors":[{"message":"Entity not found: Issue","locations":[{"line":1,"column":23}],"path":["issue"],"extensions":{"type":"invalid input","code":"INPUT_ERROR","statusCode":400,"userError":true,"userPresentableMessage":"Could not find referenced Issue."}}]}"#;
+pub(super) const ISSUE_NOT_FOUND: &str = r#"{"errors":[{"message":"Entity not found: Issue","locations":[{"line":1,"column":23}],"path":["issue"],"extensions":{"type":"invalid input","code":"INPUT_ERROR","statusCode":400,"userError":true,"userPresentableMessage":"Could not find referenced Issue."}}]}"#;
 
 /// Linear's answer to a query naming a field `Issue` does not have: HTTP 400.
 /// Captured from the live API.
-const UNKNOWN_FIELD: &str = r#"{"errors":[{"message":"Cannot query field \"nonExistentField\" on type \"Issue\".","locations":[{"line":1,"column":32}],"extensions":{"http":{"status":400,"headers":{}},"code":"GRAPHQL_VALIDATION_FAILED","type":"graphql error","userError":true}}]}"#;
+pub(super) const UNKNOWN_FIELD: &str = r#"{"errors":[{"message":"Cannot query field \"nonExistentField\" on type \"Issue\".","locations":[{"line":1,"column":32}],"extensions":{"http":{"status":400,"headers":{}},"code":"GRAPHQL_VALIDATION_FAILED","type":"graphql error","userError":true}}]}"#;
 
 /// Constructed, not captured: every caller-error marker set, so only the
 /// `RATELIMITED` code keeps it off the 400 path.
-const RATE_LIMITED: &str = r#"{"errors":[{"message":"Rate limit exceeded","extensions":{"code":"RATELIMITED","type":"ratelimited","statusCode":400,"userError":true,"userPresentableMessage":"Rate limit exceeded."}}]}"#;
+pub(super) const RATE_LIMITED: &str = r#"{"errors":[{"message":"Rate limit exceeded","extensions":{"code":"RATELIMITED","type":"ratelimited","statusCode":400,"userError":true,"userPresentableMessage":"Rate limit exceeded."}}]}"#;
 
 /// A failure on Linear's side: no `userError`, a 5xx `statusCode`.
-const LINEAR_INTERNAL: &str = r#"{"errors":[{"message":"Internal server error","extensions":{"code":"INTERNAL_SERVER_ERROR","type":"internal error","statusCode":500}}]}"#;
+pub(super) const LINEAR_INTERNAL: &str = r#"{"errors":[{"message":"Internal server error","extensions":{"code":"INTERNAL_SERVER_ERROR","type":"internal error","statusCode":500}}]}"#;
 
 /// The status and body a route renders when Linear answers one call with
 /// `status` and `body`.

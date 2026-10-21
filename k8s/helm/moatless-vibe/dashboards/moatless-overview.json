@@ -4366,7 +4366,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Outbound adapter API call rate per adapter, split by outcome (success / auth_error / error). Sustained auth_error means a workspace OAuth token was revoked/invalidated — re-install with `moat adapters install --adapter linear`.",
+      "description": "Outbound adapter API call rate per adapter, split by outcome (success / client_error / server_error / auth_error; `error` from older releases). Sustained auth_error means a workspace OAuth token was revoked/invalidated — re-install with `moat adapters install --adapter linear`.",
       "fieldConfig": {
         "defaults": {
           "color": {

@@ -7,11 +7,12 @@
 //! Cardinality: loops × connections × adapters × outcomes × reasons ×
 //! `event_types` — keep `reason` small and prune unused loops/connections.
 
+use crate::error::{AdapterError, SharedAdapterError};
+
 pub(crate) const ADAPTER_WEBHOOK_TOTAL: &str = "moatless_adapter_webhook_total";
 
-/// Outbound adapter API call outcomes. Low cardinality: adapter × outcome,
-/// where outcome is one of `success` / `auth_error` / `error`. Safe per the
-/// module doc's cardinality note.
+/// Outbound adapter API call outcomes. Low cardinality: adapter ×
+/// [`ApiCallOutcome`].
 pub(crate) const ADAPTER_API_TOTAL: &str = "moatless_adapter_api_total";
 
 /// Register adapter metric descriptions with the Prometheus recorder.
@@ -24,7 +25,7 @@ pub fn describe_adapter_metrics() {
     );
     metrics::describe_counter!(
         ADAPTER_API_TOTAL,
-        "Outbound adapter API call outcomes (success | auth_error | error) by adapter and outcome"
+        "Outbound adapter API call outcomes (success | client_error | server_error | auth_error) by adapter and outcome"
     );
 }
 
@@ -52,16 +53,55 @@ pub fn record_webhook(
     .increment(1);
 }
 
-/// Record one outbound adapter API call outcome.
+/// The `outcome` label of one outbound provider call.
 ///
-/// `outcome` is one of `"success"`, `"auth_error"`, `"error"`. A 401 healed by
-/// a reactive token refresh records `auth_error` then `success` — the signal
-/// the auth-failure alert keys off.
-pub fn record_api_call(adapter: &'static str, outcome: &'static str) {
+/// An older pod labels every failure but a 401 `error`, so an alert on
+/// `server_error` must match `error` too during a rolling upgrade.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApiCallOutcome {
+    Success,
+    /// The provider rejected the request as the caller's mistake:
+    /// [`SharedAdapterError::BadRequest`] or [`SharedAdapterError::NotFound`].
+    ClientError,
+    /// No usable answer, or the provider's own failure. A rate limit lands
+    /// here, deliberately: it is retryable, not the caller's fault.
+    ServerError,
+    /// The provider refused the credential (HTTP 401).
+    AuthError,
+}
+
+impl ApiCallOutcome {
+    /// Classify a failed call by the error it became, so the label and the
+    /// retry policy read one classification.
+    pub fn of_error(err: &AdapterError) -> Self {
+        match err {
+            AdapterError::Shared(SharedAdapterError::Unauthorized(_)) => Self::AuthError,
+            AdapterError::Shared(
+                SharedAdapterError::BadRequest(_) | SharedAdapterError::NotFound(_),
+            ) => Self::ClientError,
+            _ => Self::ServerError,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Success => "success",
+            Self::ClientError => "client_error",
+            Self::ServerError => "server_error",
+            Self::AuthError => "auth_error",
+        }
+    }
+}
+
+/// Record one outbound adapter API call outcome, once per HTTP request sent.
+///
+/// A 401 healed by a reactive token refresh records `auth_error` then the
+/// retry's outcome — the signal the auth-failure alert keys off.
+pub fn record_api_call(adapter: &'static str, outcome: ApiCallOutcome) {
     metrics::counter!(
         ADAPTER_API_TOTAL,
         "adapter" => adapter,
-        "outcome" => outcome,
+        "outcome" => outcome.as_str(),
     )
     .increment(1);
 }

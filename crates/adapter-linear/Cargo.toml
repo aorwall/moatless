@@ -42,5 +42,7 @@ moatless-loops = { workspace = true, features = ["test-support"] }
 moatless-adapter-model = { workspace = true, features = ["test-support"] }
 # Test-only: `MockProviderIdentityLink`, for the login → Linear-id resolution step.
 moatless-ports = { workspace = true, features = ["test-support"] }
+metrics = { workspace = true }
+metrics-util = { version = "0.20", features = ["debugging"], default-features = false }
 sha2 = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

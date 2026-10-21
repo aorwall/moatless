@@ -15,7 +15,7 @@ use serde::Deserialize;
 use tracing::{info, warn};
 
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_adapter_model::metrics::record_api_call;
+use moatless_adapter_model::metrics::{ApiCallOutcome, record_api_call};
 use std::sync::Arc;
 
 use moatless_ports::identity::{AppCredentials, AppToken};
@@ -316,9 +316,7 @@ impl LinearAgentApi {
         &self,
         body: serde_json::Value,
     ) -> Result<serde_json::Value, AdapterError> {
-        let value = self.graphql_raw(body).await?;
-        check_graphql_errors(&value)?;
-        Ok(value)
+        self.graphql_tolerating(body, |_| false).await
     }
 
     /// Variant for the OAuth-install code path: the access token is in hand
@@ -334,30 +332,57 @@ impl LinearAgentApi {
         access_token: &str,
         body: serde_json::Value,
     ) -> Result<serde_json::Value, AdapterError> {
-        let value = self.graphql_raw_with_token(access_token, body).await?;
-        check_graphql_errors(&value)?;
-        Ok(value)
+        self.send_graphql(access_token, body, |_| false).await
     }
 
-    /// Send a GraphQL request without converting a non-empty `errors` array
-    /// into `AdapterError`. Use to inspect Linear's structured error codes;
-    /// most callers should prefer [`graphql`].
-    async fn graphql_raw(
+    /// [`Self::graphql`], except a response `tolerated` accepts is returned
+    /// with its `errors` array intact, for the caller to inspect.
+    async fn graphql_tolerating(
         &self,
         body: serde_json::Value,
+        tolerated: fn(&serde_json::Value) -> bool,
     ) -> Result<serde_json::Value, AdapterError> {
         let token = self.resolve_access_token().await?;
-        match self.graphql_raw_with_token(&token, body.clone()).await {
+        match self.send_graphql(&token, body.clone(), tolerated).await {
             Err(AdapterError::Shared(SharedAdapterError::Unauthorized(_))) => {
                 warn!(org_id = %self.org_id, "Linear 401 — forcing token refresh and retrying once");
                 let fresh = self.force_refresh_access_token().await?;
-                self.graphql_raw_with_token(&fresh, body).await
+                self.send_graphql(&fresh, body, tolerated).await
             }
             other => other,
         }
     }
 
-    async fn graphql_raw_with_token(
+    /// Send one GraphQL request and record its outcome.
+    ///
+    /// Records after the `errors` array is classified: an HTTP 200 can carry a
+    /// rejection, and a `tolerated` one is a success.
+    async fn send_graphql(
+        &self,
+        access_token: &str,
+        body: serde_json::Value,
+        tolerated: fn(&serde_json::Value) -> bool,
+    ) -> Result<serde_json::Value, AdapterError> {
+        let result = self
+            .post_graphql(access_token, body)
+            .await
+            .and_then(|value| {
+                if !tolerated(&value) {
+                    check_graphql_errors(&value)?;
+                }
+                Ok(value)
+            });
+        let outcome = match &result {
+            Ok(_) => ApiCallOutcome::Success,
+            Err(err) => ApiCallOutcome::of_error(err),
+        };
+        record_api_call(PROVIDER, outcome);
+        result
+    }
+
+    /// POST one GraphQL request and decode its body, leaving any `errors`
+    /// array in it. Records nothing: [`Self::send_graphql`] owns that.
+    async fn post_graphql(
         &self,
         access_token: &str,
         body: serde_json::Value,
@@ -371,20 +396,16 @@ impl LinearAgentApi {
             .json(&body)
             .send()
             .await
-            .map_err(|e| {
-                record_api_call(PROVIDER, "error");
-                SharedAdapterError::provider_unreachable("Linear request", e)
-            })?;
+            .map_err(|e| SharedAdapterError::provider_unreachable("Linear request", e))?;
 
         let status = resp.status();
-        let text = resp.text().await.map_err(|e| {
-            record_api_call(PROVIDER, "error");
-            SharedAdapterError::provider_unreachable("Linear response read", e)
-        })?;
+        let text = resp
+            .text()
+            .await
+            .map_err(|e| SharedAdapterError::provider_unreachable("Linear response read", e))?;
 
         if status == reqwest::StatusCode::UNAUTHORIZED {
             warn!(status = %status, body = %text, "Linear GraphQL 401 unauthorized");
-            record_api_call(PROVIDER, "auth_error");
             return Err(SharedAdapterError::Unauthorized(format!(
                 "Linear API returned {status}: {text}"
             ))
@@ -393,20 +414,11 @@ impl LinearAgentApi {
 
         if !status.is_success() {
             warn!(status = %status, body = %text, "Linear GraphQL HTTP error");
-            record_api_call(PROVIDER, "error");
             return Err(http_rejection(status, &text).into());
         }
 
-        match serde_json::from_str(&text) {
-            Ok(value) => {
-                record_api_call(PROVIDER, "success");
-                Ok(value)
-            }
-            Err(e) => {
-                record_api_call(PROVIDER, "error");
-                Err(SharedAdapterError::provider_response_invalid("Linear JSON", e).into())
-            }
-        }
+        serde_json::from_str(&text)
+            .map_err(|e| SharedAdapterError::provider_response_invalid("Linear JSON", e).into())
     }
 
     /// Emit an activity on a session. Linear infers session state from the
@@ -691,27 +703,27 @@ impl LinearAgentApi {
         title: &str,
     ) -> Result<(), AdapterError> {
         let value = self
-            .graphql_raw(serde_json::json!({
-                "query": "mutation($issueId: String!, $url: String!, $title: String!) { \
-                    attachmentLinkURL(issueId: $issueId, url: $url, title: $title) { \
-                        success attachment { id url } \
-                    } \
-                }",
-                "variables": { "issueId": issue_id, "url": url, "title": title }
-            }))
+            .graphql_tolerating(
+                serde_json::json!({
+                    "query": "mutation($issueId: String!, $url: String!, $title: String!) { \
+                        attachmentLinkURL(issueId: $issueId, url: $url, title: $title) { \
+                            success attachment { id url } \
+                        } \
+                    }",
+                    "variables": { "issueId": issue_id, "url": url, "title": title }
+                }),
+                is_attachment_already_linked,
+            )
             .await?;
 
-        if let Some(errors) = value.get("errors").and_then(serde_json::Value::as_array) {
-            if errors.iter().any(is_attachment_already_linked_error) {
-                info!(
-                    issue = %issue_id,
-                    url = %url,
-                    "Linear attachmentLinkURL: URL already linked to a different issue; treating as success"
-                );
-                return Ok(());
-            }
+        if is_attachment_already_linked(&value) {
+            info!(
+                issue = %issue_id,
+                url = %url,
+                "Linear attachmentLinkURL: URL already linked to a different issue; treating as success"
+            );
+            return Ok(());
         }
-        check_graphql_errors(&value)?;
         require_mutation_success(&value, "/data/attachmentLinkURL", "attachmentLinkURL")
     }
 
@@ -1067,9 +1079,6 @@ botActor { id name type } \
 parent { id } } }";
 
 /// Convert a non-empty top-level `errors` array into `AdapterError`.
-///
-/// Shared by [`LinearAgentApi::graphql`] and callers like `attachment_link_url`
-/// that need to peek at errors before surfacing the standard adapter error.
 fn check_graphql_errors(value: &serde_json::Value) -> Result<(), AdapterError> {
     let Some(errors) = value.get("errors").and_then(serde_json::Value::as_array) else {
         return Ok(());
@@ -1148,6 +1157,15 @@ fn classify_graphql_errors(errors: &[serde_json::Value], http_400: bool) -> Shar
     } else {
         SharedAdapterError::BadRequest(message)
     }
+}
+
+/// Whether any of a response's `errors` is
+/// [`is_attachment_already_linked_error`].
+fn is_attachment_already_linked(value: &serde_json::Value) -> bool {
+    value
+        .get("errors")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|errors| errors.iter().any(is_attachment_already_linked_error))
 }
 
 /// Recognise Linear's "URL already linked with <issue>" response from
@@ -1377,3 +1395,6 @@ mod lookup_tests;
 
 #[cfg(test)]
 mod error_source_tests;
+
+#[cfg(test)]
+mod api_metrics_tests;
