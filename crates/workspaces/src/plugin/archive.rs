@@ -71,7 +71,7 @@ impl PluginArchives {
         known_version: Option<&str>,
     ) -> Result<Option<PluginArchive>, SkillError> {
         let remote = plugin_remote(git_url);
-        let token = plugin_token(self.git_host_tokens.as_ref(), actor, &remote).await;
+        let token = plugin_token(self.git_host_tokens.as_ref(), actor, &remote).await?;
         let commit = self
             .fetcher
             .fetch_version(&remote, token.as_deref())

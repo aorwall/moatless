@@ -20,7 +20,7 @@ use crate::skill::error::SkillError;
 use crate::skill::fetcher::{SkillFetcher, SkillLayout};
 use crate::skill::models::SkillSource;
 use crate::skill::scanner;
-use moatless_ports::identity::GitHostTokenIssuer;
+use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer};
 use moatless_types::access_control::Actor;
 use moatless_workspace_types::repository::RepositoryProvider;
 use moatless_workspace_types::repository::RepositoryRemote;
@@ -147,7 +147,7 @@ impl PluginSyncService {
 
         let remote = plugin_remote(&current.git_url);
         let check = async {
-            let token = plugin_token(self.git_host_tokens.as_ref(), actor, &remote).await;
+            let token = plugin_token(self.git_host_tokens.as_ref(), actor, &remote).await?;
             let version = self
                 .fetcher
                 .fetch_version(&remote, token.as_deref())
@@ -253,29 +253,34 @@ pub(super) fn plugin_remote(git_url: &str) -> RepositoryRemote {
 
 /// `actor`'s own credential for a plugin's repository.
 ///
-/// `None` when unconnected or unmintable — a public plugin still fetches
-/// unauthenticated; a private one fails at the fetch naming authentication,
-/// not here.
+/// `None` only when `actor` has not connected the host, so a public plugin
+/// still fetches unauthenticated. A credential that exists and cannot be used
+/// is an error rather than `None`: GitHub answers an unauthenticated read of a
+/// private repository with 404, which reads as a plugin with no skills.
 pub(super) async fn plugin_token(
     git_host_tokens: &dyn GitHostTokenIssuer,
     actor: &Actor,
     remote: &RepositoryRemote,
-) -> Option<String> {
-    let repo = remote.host_repo.as_ref()?;
+) -> Result<Option<String>, SkillError> {
+    let Some(repo) = remote.host_repo.as_ref() else {
+        return Ok(None);
+    };
     match git_host_tokens
         .token(actor, &repo.credential_account())
         .await
     {
-        Ok(token) => Some(token),
-        Err(e) => {
+        Ok(token) => Ok(Some(token)),
+        Err(GitHostTokenError::NoCredential { .. }) => {
             debug!(
                 git_url = %remote.url,
                 %actor,
-                error = %e,
                 "No GitHub credential for plugin — fetching unauthenticated"
             );
-            None
+            Ok(None)
         }
+        Err(e) => Err(SkillError::RepositoryToken(
+            crate::repository::access::git_host_token_error(e),
+        )),
     }
 }
 
@@ -722,5 +727,49 @@ mod tests {
                 .synced_version,
             Some("sha-1".to_string())
         );
+    }
+
+    /// Answers as an identity whose GitHub App token expired and could not be
+    /// refreshed.
+    struct BrokenTokens;
+
+    #[async_trait]
+    impl GitHostTokenIssuer for BrokenTokens {
+        async fn token(
+            &self,
+            actor: &Actor,
+            _account: &moatless_types::git_host::GitHostAccount,
+        ) -> Result<String, GitHostTokenError> {
+            Err(GitHostTokenError::Broken {
+                actor: actor.clone(),
+                provider: RepositoryProvider::Github,
+                source: "bad_refresh_token".into(),
+            })
+        }
+
+        async fn github_is_usable(&self, _actor: &Actor) -> Result<(), GitHostTokenError> {
+            unimplemented!()
+        }
+    }
+
+    #[tokio::test]
+    async fn a_broken_credential_fails_the_sync_instead_of_fetching_unauthenticated() {
+        let plugins =
+            Arc::new(StubPlugins::with(plugin(Some("sha-old"))).seed_skills(seeded_snapshot()));
+        let fetcher = Arc::new(CountingFetcher::finding_no_skills_at("sha-new"));
+        let sync = PluginSyncService::new(plugins.clone(), fetcher.clone(), Arc::new(BrokenTokens));
+
+        let err = sync
+            .sync(&actor(), &plugin(Some("sha-old")))
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, SkillError::RepositoryToken(_)), "{err}");
+        assert_eq!(
+            fetcher.versions_probed.load(Ordering::SeqCst),
+            0,
+            "an unauthenticated probe of a private repository answers 404"
+        );
+        assert_eq!(plugins.list_skills("p1").await.unwrap(), seeded_snapshot());
     }
 }

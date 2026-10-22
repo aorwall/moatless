@@ -25,7 +25,7 @@ pub enum SkillError {
     #[error("Database error: {0}")]
     Db(#[from] sqlx::Error),
 
-    /// Resolving the git-host token a workspace skill fetch needs failed. A
+    /// Resolving the git-host token a skill or plugin fetch needs failed. A
     /// plain "not connected" is not an error and never reaches here.
     #[error("Repository access token could not be resolved")]
     RepositoryToken(#[source] crate::repository::error::RepositoryError),

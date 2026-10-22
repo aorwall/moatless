@@ -7,6 +7,7 @@ use tonic::{Request, Response, Status};
 use tracing::warn;
 
 use moatless_workspaces::plugin::archive::PluginArchive;
+use moatless_workspaces::repository::error::RepositoryError;
 use moatless_workspaces::skill::error::SkillError;
 use sandbox_proto::{FetchPluginRequest, PluginChunk};
 
@@ -41,6 +42,12 @@ fn archive_status(e: &SkillError) -> Status {
         SkillError::AuthRequired { .. } => Status::permission_denied(e.to_string()),
         SkillError::UnsupportedProvider { .. } => Status::failed_precondition(e.to_string()),
         SkillError::Fetch { .. } => Status::unavailable(e.to_string()),
+        SkillError::RepositoryToken(RepositoryError::Store(_)) => {
+            Status::internal("Failed to fetch plugin")
+        }
+        SkillError::RepositoryToken(_) => {
+            Status::failed_precondition(moatless_core::error::causal_chain(e))
+        }
         _ => Status::internal("Failed to fetch plugin"),
     }
 }
@@ -156,5 +163,23 @@ mod tests {
 
         assert_eq!(chunks.len(), 1);
         assert_eq!(chunks[0].version, "sha-1");
+    }
+
+    #[test]
+    fn only_a_credential_the_user_can_fix_reaches_the_sandbox_with_its_cause() {
+        let broken = SkillError::RepositoryToken(RepositoryError::ProviderError(
+            "the GitHub App authorization must be reconnected".to_string(),
+        ));
+        let store = SkillError::RepositoryToken(RepositoryError::Store(
+            moatless_types::store::StoreError::new("read provider_tokens"),
+        ));
+
+        let broken = archive_status(&broken);
+        let store = archive_status(&store);
+
+        assert_eq!(broken.code(), tonic::Code::FailedPrecondition);
+        assert!(broken.message().contains("must be reconnected"));
+        assert_eq!(store.code(), tonic::Code::Internal);
+        assert!(!store.message().contains("provider_tokens"));
     }
 }
