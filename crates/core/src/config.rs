@@ -761,7 +761,8 @@ impl OtelConfig {
     }
 }
 
-/// The `T3_*` settings; a non-boolean `T3_UI_RPC_ENABLED` fails startup.
+/// The `T3_*` settings; a non-boolean `T3_UI_RPC_ENABLED` or
+/// `T3_UI_RPC_REVIEW_GUIDE_FORK_AUTHOR` fails startup.
 fn t3_ui_rpc_from_env() -> Result<T3UiRpcConfig, ConfigError> {
     Ok(T3UiRpcConfig {
         enabled: parse_enabled("T3_UI_RPC_ENABLED", &env_str("T3_UI_RPC_ENABLED", ""))?,
@@ -773,6 +774,10 @@ fn t3_ui_rpc_from_env() -> Result<T3UiRpcConfig, ConfigError> {
         cliproxy_management_key: env_opt("T3_UI_RPC_CLIPROXY_MANAGEMENT_KEY"),
         cliproxy_label: env_opt("T3_UI_RPC_CLIPROXY_LABEL"),
         orchestration_protocol_version: orchestration_protocol_version_from_env()?,
+        review_guide_fork_author: parse_enabled(
+            "T3_UI_RPC_REVIEW_GUIDE_FORK_AUTHOR",
+            &env_str("T3_UI_RPC_REVIEW_GUIDE_FORK_AUTHOR", ""),
+        )?,
     })
 }
 

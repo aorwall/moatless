@@ -15,6 +15,8 @@ use moatless_t3code::ports::{
     ChangedFile, CommandRefusal, PullRequestError, PullRequestListItem, PullRequestListPage,
     PullRequestListQuery, PullRequestOverview, PullRequestPatchPage, PullRequestReviewSource,
 };
+use moatless_tasks::task::creation::ProvisionOutcome;
+use moatless_tasks::task::fork;
 use moatless_tasks::task::service as task_service;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::agent::AgentProfile;
@@ -376,6 +378,49 @@ impl PullRequestReviewSource for AppStateBoundPullRequests {
         .await
         .map_err(|error| refusal_error(create_refusal(workspace_id, error)))?;
         Ok(outcome.task.task_id)
+    }
+
+    async fn fork_review_guide_task(
+        &self,
+        viewer: &ScopeContext,
+        source_task_id: &str,
+        task_id: &str,
+        name: &str,
+        message: String,
+    ) -> Result<bool, PullRequestError> {
+        let commands = AppStateCommands(self.0.clone());
+        let outcome = self
+            .0
+            .task_fork
+            .fork(
+                fork::ForkCreationPorts {
+                    normalize: commands.create_ports(),
+                    task_creation: &self.0.task_creation,
+                    message_send: self.0.message_send.clone(),
+                    switch: &self.0.task_switch,
+                },
+                viewer,
+                fork::ForkRequest {
+                    source_task_id: source_task_id.to_string(),
+                    new_task_id: Some(task_id.to_string()),
+                    at_turn: None,
+                    message: Some(message),
+                    name: Some(name.to_string()),
+                    same_sandbox: false,
+                    profile: fork::ForkProfile::Source,
+                    model: None,
+                    agent_mode: None,
+                    effort: None,
+                    skills: Vec::new(),
+                },
+                |_| async { serde_json::Value::Null },
+            )
+            .await
+            .map_err(|error| match error {
+                fork::ForkError::Source(e) => refusal_error(create_refusal(source_task_id, e)),
+                fork::ForkError::Fork(e) => refusal_error(create_refusal(task_id, e)),
+            })?;
+        Ok(outcome.provision == ProvisionOutcome::Started)
     }
 }
 

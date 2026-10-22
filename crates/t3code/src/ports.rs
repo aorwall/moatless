@@ -464,7 +464,8 @@ pub trait BoundPullRequestSource: Send + Sync {
     /// with [`primary_pull_request`].
     async fn bound_pull_requests(&self, task_id: &str) -> Vec<BoundPullRequest>;
 
-    /// The Tasks bound to `repository#number`, for the linked-thread summary.
+    /// The Tasks bound to `repository#number`, oldest binding first, for the
+    /// linked-thread summary and the guide author.
     ///
     /// Ids only, no side effect: must not resolve or refresh a binding before
     /// the viewer is authorized against these Tasks — narrow first, then
@@ -713,6 +714,21 @@ pub trait PullRequestReviewSource: Send + Sync {
         name: &str,
         message: String,
     ) -> Result<String, PullRequestError>;
+
+    /// Fork `source_task_id` after its newest settled turn into a Task with
+    /// id `task_id`, owned by `viewer`, whose first message is `message`, and
+    /// start its sandbox. Returns whether the sandbox started.
+    ///
+    /// The fork lands in the source's Workspace with its tags, wherever the
+    /// viewer opened the pull request: its conversation and checkout are there.
+    async fn fork_review_guide_task(
+        &self,
+        viewer: &ScopeContext,
+        source_task_id: &str,
+        task_id: &str,
+        name: &str,
+        message: String,
+    ) -> Result<bool, PullRequestError>;
 }
 
 /// The viewer's connected GitHub identity, for the Source Control panel's auth

@@ -395,6 +395,16 @@ impl ports::PullRequestReviewSource for UnreachablePullRequestReviews {
     ) -> Result<String, ports::PullRequestError> {
         unreachable!("no test in this file starts a guided review")
     }
+    async fn fork_review_guide_task(
+        &self,
+        _viewer: &ScopeContext,
+        _source_task_id: &str,
+        _task_id: &str,
+        _name: &str,
+        _message: String,
+    ) -> Result<bool, ports::PullRequestError> {
+        unreachable!("no test in this file starts a guided review")
+    }
 }
 
 /// The envelope tests never sign in with GitHub; what an authenticated badge
@@ -779,6 +789,7 @@ pub(super) fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore
             attachment_uploads: true,
             usage_limit_sources: false,
             orchestration_protocol_version: 1,
+            review_guide_fork_author: false,
         }),
         environment: Arc::new(stub_identity()),
         session_cookie_name: Arc::from("moatless_session"),

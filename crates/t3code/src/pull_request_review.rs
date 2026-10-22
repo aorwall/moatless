@@ -95,6 +95,8 @@ pub(crate) struct ReviewPorts<'a> {
     pub(crate) starter: &'a dyn SandboxStarter,
     pub(crate) model_defaults: &'a AgentModelDefaults,
     pub(crate) auth: &'a dyn SourceControlAuthSource,
+    /// See [`crate::config::UiRpcConfig::review_guide_fork_author`].
+    pub(crate) fork_author: bool,
 }
 
 /// The contract's `PullRequestRef`, as far as it names a pull request.
@@ -142,6 +144,7 @@ pub(crate) fn review_ports(state: &crate::state::UiRpcState) -> ReviewPorts<'_> 
         starter: state.sandbox.starter.as_ref(),
         model_defaults: state.model_defaults.as_ref(),
         auth: state.source_control_auth.as_ref(),
+        fork_author: state.rpc.review_guide_fork_author,
     }
 }
 
@@ -371,7 +374,9 @@ pub(crate) async fn review_guide(
 }
 
 /// `pullRequests.generateReviewGuide`: start a Task writing a guide for the
-/// pull request's current head, or join the run already writing one.
+/// pull request's current head, or join the run already writing one. Under
+/// `fork_author` the Task is a fork of [`guide_author`], when there is one and
+/// it can be forked.
 pub(crate) async fn generate_review_guide(
     ports: &ReviewPorts<'_>,
     viewer: &ScopeContext,
@@ -403,32 +408,130 @@ pub(crate) async fn generate_review_guide(
         .claim_run(&key, &overview.head_sha, &overview.base_sha)
         .await?
     {
-        let message = guide_prompt(target.repository, &overview);
         let name = format!("Review guide for {}#{}", target.repository, target.number);
-        match ports
-            .host
-            .create_review_guide_task(viewer, &workspace_id, &name, message)
-            .await
-        {
-            // Attached before its sandbox starts, so a slow start cannot
-            // outlast `RUN_TASK_GRACE_MINUTES` and fail the run under it.
-            Ok(task_id) => {
-                if ports.guides.attach_task(&run.run_id, &task_id).await? {
-                    start_guide_task(ports, &run.run_id, &task_id).await?;
-                } else {
-                    tracing::info!(%task_id, run_id = %run.run_id, "Review guide run ended before its task attached; the task is left unstarted");
-                }
+        let author = if ports.fork_author {
+            guide_author(ports, viewer, target).await?
+        } else {
+            None
+        };
+        let forked = match author {
+            Some(author) => {
+                let message = guide_prompt(target.repository, &overview, GuideWriter::Author);
+                fork_guide_task(ports, viewer, &run.run_id, &author, &name, message).await?
             }
-            Err(error) => {
-                ports
-                    .guides
-                    .fail_run(&run.run_id, &start_failure_detail(&error))
-                    .await?;
-            }
+            None => false,
+        };
+        if !forked {
+            let message = guide_prompt(target.repository, &overview, GuideWriter::Fresh);
+            start_fresh_guide_task(ports, viewer, &run.run_id, &workspace_id, &name, message)
+                .await?;
         }
     }
     let current_head = Some(overview.head_sha);
     guide_result(ports, viewer, target, current_head).await
+}
+
+/// Create and start a Task in `workspace_id` to write the run's guide.
+async fn start_fresh_guide_task(
+    ports: &ReviewPorts<'_>,
+    viewer: &ScopeContext,
+    run_id: &str,
+    workspace_id: &str,
+    name: &str,
+    message: String,
+) -> Result<(), PullRequestReviewError> {
+    match ports
+        .host
+        .create_review_guide_task(viewer, workspace_id, name, message)
+        .await
+    {
+        // Attached before its sandbox starts, so a slow start cannot
+        // outlast `RUN_TASK_GRACE_MINUTES` and fail the run under it.
+        Ok(task_id) => {
+            if ports.guides.attach_task(run_id, &task_id).await? {
+                start_guide_task(ports, run_id, &task_id).await?;
+            } else {
+                tracing::info!(%task_id, %run_id, "Review guide run ended before its task attached; the task is left unstarted");
+            }
+        }
+        Err(error) => {
+            ports
+                .guides
+                .fail_run(run_id, &start_failure_detail(&error))
+                .await?;
+        }
+    }
+    Ok(())
+}
+
+/// The Task a guide forks under `fork_author`: the oldest bound to the pull
+/// request that the viewer may read. `moat gh pr create` writes the first
+/// binding, so this is the Task that wrote the change unless the pull request
+/// was opened elsewhere and linked later.
+async fn guide_author(
+    ports: &ReviewPorts<'_>,
+    viewer: &ScopeContext,
+    target: &PullRequestTarget<'_>,
+) -> Result<Option<String>, PullRequestReviewError> {
+    let bound = ports
+        .bound
+        .tasks_bound_to(target.repository, target.number)
+        .await;
+    if bound.is_empty() {
+        return Ok(None);
+    }
+    let readable = ports.conversations.readable_by_ids(viewer, &bound).await?;
+    let readable: Vec<&str> = readable.iter().map(|task| task.task_id.as_str()).collect();
+    Ok(oldest_readable(&bound, &readable).map(str::to_string))
+}
+
+/// The first of `bound`, oldest first, that `readable` holds: the caller's
+/// read answers in no order.
+fn oldest_readable<'a>(bound: &'a [String], readable: &[&str]) -> Option<&'a str> {
+    bound
+        .iter()
+        .map(String::as_str)
+        .find(|task_id| readable.contains(task_id))
+}
+
+/// Fork `author` to write the run's guide. False when the fork was refused and
+/// nothing started, so the caller starts a fresh Task instead.
+async fn fork_guide_task(
+    ports: &ReviewPorts<'_>,
+    viewer: &ScopeContext,
+    run_id: &str,
+    author: &str,
+    name: &str,
+    message: String,
+) -> Result<bool, PullRequestReviewError> {
+    let task_id = uuid::Uuid::new_v4().to_string();
+    // Attached before the fork exists, because the fork starts its sandbox as
+    // it is created. A fresh Task attached after a refusal replaces this id.
+    if !ports.guides.attach_task(run_id, &task_id).await? {
+        tracing::info!(%run_id, "Review guide run ended before its fork was created");
+        return Ok(true);
+    }
+    match ports
+        .host
+        .fork_review_guide_task(viewer, author, &task_id, name, message)
+        .await
+    {
+        Ok(true) => Ok(true),
+        Ok(false) => {
+            ports
+                .guides
+                .fail_run(
+                    run_id,
+                    "The sandbox for the task writing the guide did not start.",
+                )
+                .await?;
+            Ok(true)
+        }
+        Err(error) => {
+            tracing::warn!(%author, ?error, "Review guide could not fork the pull request's task; starting a fresh one");
+            Ok(false)
+        }
+    }
 }
 
 async fn guide_result(
@@ -570,9 +673,23 @@ fn run_json(run: &ReviewGuideRun) -> Value {
     })
 }
 
+/// Who writes a run's guide, which decides how its prompt opens.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GuideWriter {
+    /// A fresh Task that meets the change through its diff.
+    Fresh,
+    /// A fork of [`guide_author`], which already holds the change's history.
+    Author,
+}
+
+/// Where an [`GuideWriter::Author`] fork checks the head out: a worktree,
+/// because a fork restores its source's workspace archive, so its own
+/// checkout holds the author's branch and uncommitted work.
+const AUTHOR_WORKTREE: &str = "/tmp/review-guide-checkout";
+
 /// The first message of a guide-writing Task: T3's guide prompt, with the
 /// steps that put the change in front of the agent and hand the guide back.
-fn guide_prompt(repository: &str, pr: &PullRequestOverview) -> String {
+fn guide_prompt(repository: &str, pr: &PullRequestOverview, writer: GuideWriter) -> String {
     let number = pr.number;
     let base = &pr.base_sha;
     let head = &pr.head_sha;
@@ -583,12 +700,26 @@ fn guide_prompt(repository: &str, pr: &PullRequestOverview) -> String {
     } else {
         description
     };
-    [
-        format!("You prepare a guided tour of pull request #{number} in {repository} for a maintainer deciding whether it should land. You write no code and open no pull request: the tour is your only output, and it goes back through `moat review-guide submit`."),
-        String::new(),
-        "Set up first, in the checkout whose `origin` is this repository:".to_string(),
-        format!("- git fetch origin {} pull/{number}/head", pr.base_ref),
-        format!("- git checkout --detach {head}"),
+    let opening = match writer {
+        GuideWriter::Fresh => vec![
+            format!("You prepare a guided tour of pull request #{number} in {repository} for a maintainer deciding whether it should land. You write no code and open no pull request: the tour is your only output, and it goes back through `moat review-guide submit`."),
+            String::new(),
+            "Set up first, in the checkout whose `origin` is this repository:".to_string(),
+            format!("- git fetch origin {} pull/{number}/head", pr.base_ref),
+            format!("- git checkout --detach {head}"),
+        ],
+        GuideWriter::Author => vec![
+            format!("Stop the work on this change here. This task is a fork of yours, made for one job: you prepare a guided tour of pull request #{number} in {repository}, the change this conversation produced, for a maintainer deciding whether it should land. You write no code, push nothing and post nothing on the pull request: the tour is your only output, and it goes back through `moat review-guide submit`."),
+            String::new(),
+            "You know this change from the inside: why it is shaped this way, which designs were tried and dropped, what reviewers raised and how it was answered, and which calls are still open. Use that to explain intent and to pick the calls only the maintainer can make. Write for a maintainer who never saw this conversation: describe the change as it stands at the head below, not how it evolved, and name things by their place in the repository, never by a term only this conversation defines, such as \"the brief\" or a bare spec section number. Take line numbers and code only from the diff, never from memory.".to_string(),
+            String::new(),
+            "Set up first, from the checkout whose `origin` is this repository, in a separate worktree so your working branch stays as it is:".to_string(),
+            format!("- git fetch origin {} pull/{number}/head", pr.base_ref),
+            format!("- git worktree add --detach {AUTHOR_WORKTREE} {head}"),
+            format!("Run every command below from {AUTHOR_WORKTREE}."),
+        ],
+    };
+    opening.into_iter().chain([
         format!("The change is measured against `{}` at commit {base}; only the range {range} belongs to it.", pr.base_ref),
         String::new(),
         "Review agents have already read every line and reported bugs. Do not hunt for bugs or nitpick naming or placement. The maintainer wants intent and judgment: what this changes, how it is put together, and the few calls only they can make. The reader walks numbered stops through the diff.".to_string(),
@@ -623,7 +754,8 @@ fn guide_prompt(repository: &str, pr: &PullRequestOverview) -> String {
         "<pr_description>".to_string(),
         fenced(description),
         "</pr_description>".to_string(),
-    ]
+    ])
+    .collect::<Vec<_>>()
     .join("\n")
 }
 

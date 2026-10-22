@@ -355,6 +355,7 @@ impl ThreadCommandSink for AppStateCommands {
                     new_task_id: Some(fork.new_task_id),
                     at_turn: fork.at_turn,
                     message: fork.message,
+                    name: None,
                     same_sandbox: fork.same_sandbox,
                     profile: fork
                         .harness

@@ -98,6 +98,7 @@ pub async fn mount(
     let config = UiRpcConfig {
         environment_id: environment_id(&environment),
         orchestration_protocol_version: settings.orchestration_protocol_version,
+        review_guide_fork_author: settings.review_guide_fork_author,
         allowed_origins: settings.allowed_origins,
         otlp_traces_enabled,
         attachment_uploads: session_jwt_secret.is_some(),

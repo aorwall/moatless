@@ -273,6 +273,8 @@ pub struct ForkRequest {
     pub at_turn: Option<i32>,
     /// The fork's own first message. `None` creates it idle.
     pub message: Option<String>,
+    /// The fork's name. `None` names it after the source.
+    pub name: Option<String>,
     /// Join the source's Sandbox on its shared checkout instead of
     /// provisioning one.
     pub same_sandbox: bool,
@@ -292,6 +294,7 @@ impl ForkRequest {
             new_task_id: None,
             at_turn: req.at_turn,
             message: req.message,
+            name: None,
             same_sandbox: req.same_sandbox.unwrap_or(false),
             profile: req
                 .agent_profile
@@ -387,7 +390,7 @@ impl TaskForkService {
             sandbox_id: same_sandbox.then(|| source.sandbox_id.clone()).flatten(),
             checkout_mode: same_sandbox.then_some(CheckoutMode::Shared),
             agent_profile: Some(agent_profile),
-            name: fork_name(source.name.as_deref()),
+            name: request.name.or_else(|| fork_name(source.name.as_deref())),
             description: None,
             branch: source.branch.clone(),
             message: request

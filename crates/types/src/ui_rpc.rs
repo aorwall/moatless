@@ -69,6 +69,9 @@ pub struct T3UiRpcConfig {
     /// only; `2` also serves orchestration V2 to clients that ask for it. Any
     /// other value fails startup.
     pub orchestration_protocol_version: u8,
+    /// `T3_UI_RPC_REVIEW_GUIDE_FORK_AUTHOR`: whether a guided review forks the
+    /// Task bound to the pull request rather than starting a fresh one.
+    pub review_guide_fork_author: bool,
 }
 
 #[allow(clippy::missing_fields_in_debug)]
@@ -88,6 +91,7 @@ impl fmt::Debug for T3UiRpcConfig {
                 "orchestration_protocol_version",
                 &self.orchestration_protocol_version,
             )
+            .field("review_guide_fork_author", &self.review_guide_fork_author)
             .finish()
     }
 }
