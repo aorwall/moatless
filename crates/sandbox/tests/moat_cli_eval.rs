@@ -959,6 +959,7 @@ fn build_config(tmp: &TempDir, agent: EvalAgent) -> Config {
         repo_config_raw: None,
         setup_commands: Vec::new(),
         plugins: Vec::new(),
+        removed_plugins: Vec::new(),
         language_servers: Vec::new(),
         search_path: None,
         http: moatless_sandbox::config::SandboxHttpConfig::default(),

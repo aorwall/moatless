@@ -128,6 +128,7 @@ mod tests {
                     ..Default::default()
                 }),
                 plugins: None,
+                removed_plugins: None,
                 language_servers: None,
                 docker_access: None,
                 docker_networks: None,

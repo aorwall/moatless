@@ -278,6 +278,7 @@ mod tests {
                 code_execution: None,
                 resources: None,
                 plugins: None,
+                removed_plugins: None,
                 language_servers: None,
                 docker_access: None,
                 docker_networks: None,

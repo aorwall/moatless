@@ -209,6 +209,25 @@ impl PluginSyncService {
         skills.sort_by(|a, b| a.name.cmp(&b.name));
         skills.dedup_by(|a, b| a.name == b.name);
 
+        // Refused rather than stored: an empty list drops the plugin from every
+        // sandbox config, and the recorded version stops later syncs refetching.
+        if skills.is_empty() {
+            let stored = self
+                .plugins
+                .list_skills(&current.id)
+                .await
+                .map_err(SkillError::Db)?;
+            if !stored.is_empty() {
+                return Err(SkillError::Fetch {
+                    git_url: current.git_url.clone(),
+                    message: format!(
+                        "found no skills; keeping the {} stored and not recording the version",
+                        stored.len()
+                    ),
+                });
+            }
+        }
+
         self.plugins
             .replace_skills(&current.id, version.clone(), &skills)
             .await
@@ -371,6 +390,7 @@ mod tests {
         versions_probed: AtomicUsize,
         files_fetched: AtomicUsize,
         fail_fetch: bool,
+        finds_none: bool,
         version_delay: Duration,
     }
 
@@ -381,6 +401,7 @@ mod tests {
                 versions_probed: AtomicUsize::new(0),
                 files_fetched: AtomicUsize::new(0),
                 fail_fetch: false,
+                finds_none: false,
                 version_delay: Duration::ZERO,
             }
         }
@@ -388,6 +409,13 @@ mod tests {
         fn hanging_at(version: &str) -> Self {
             Self {
                 version_delay: Duration::from_mins(1),
+                ..Self::at_version(version)
+            }
+        }
+
+        fn finding_no_skills_at(version: &str) -> Self {
+            Self {
+                finds_none: true,
                 ..Self::at_version(version)
             }
         }
@@ -414,6 +442,9 @@ mod tests {
                     git_url: remote.url.clone(),
                     message: "boom".to_string(),
                 });
+            }
+            if self.finds_none {
+                return Ok(Vec::new());
             }
             // Slow enough that a second caller reliably queues behind the
             // first rather than racing it.
@@ -647,6 +678,49 @@ mod tests {
             skills, previous,
             "an unreachable plugin must not empty a skill list other plugins \
              also contribute to"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_sync_finding_no_skills_keeps_the_stored_ones_and_their_version() {
+        let plugins =
+            Arc::new(StubPlugins::with(plugin(Some("sha-old"))).seed_skills(seeded_snapshot()));
+        let fetcher = Arc::new(CountingFetcher::finding_no_skills_at("sha-new"));
+        let sync = service(plugins.clone(), fetcher.clone());
+
+        assert!(sync.sync(&actor(), &plugin(Some("sha-old"))).await.is_err());
+
+        assert_eq!(plugins.list_skills("p1").await.unwrap(), seeded_snapshot());
+        assert_eq!(
+            plugins
+                .find_by_id("p1")
+                .await
+                .unwrap()
+                .unwrap()
+                .synced_version,
+            Some("sha-old".to_string()),
+            "an unrecorded version is what makes the next sync fetch again"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_plugin_with_nothing_stored_may_sync_to_no_skills() {
+        let plugins = Arc::new(StubPlugins::with(plugin(None)));
+        let sync = service(
+            plugins.clone(),
+            Arc::new(CountingFetcher::finding_no_skills_at("sha-1")),
+        );
+
+        sync.sync(&actor(), &plugin(None)).await.unwrap();
+
+        assert_eq!(
+            plugins
+                .find_by_id("p1")
+                .await
+                .unwrap()
+                .unwrap()
+                .synced_version,
+            Some("sha-1".to_string())
         );
     }
 }

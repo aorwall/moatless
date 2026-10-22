@@ -169,6 +169,7 @@ impl RealEnv {
             repo_config_raw: None,
             setup_commands: vec![],
             plugins: vec![],
+            removed_plugins: Vec::new(),
             language_servers: vec![],
             search_path: None,
             http: moatless_sandbox::config::SandboxHttpConfig::default(),

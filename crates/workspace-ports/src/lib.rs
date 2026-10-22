@@ -6,7 +6,7 @@ pub use moatless_workspace_types::repository::Repository;
 mod resolution;
 #[cfg(feature = "test-support")]
 pub use resolution::MockWorkspaceResolver;
-pub use resolution::{RepoPlacement, ResolvedWorkspace, WorkspaceResolver};
+pub use resolution::{PluginDeliveries, RepoPlacement, ResolvedWorkspace, WorkspaceResolver};
 
 mod credentials;
 #[cfg(feature = "test-support")]

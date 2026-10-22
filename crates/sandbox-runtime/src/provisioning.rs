@@ -56,6 +56,10 @@ pub struct RepoConfig {
     /// The plugins this task's owner has turned on, each with the skills they
     /// picked. The sandbox clones each one and removes the skills not named.
     pub plugins: Option<Vec<moatless_workspace_types::plugin::PluginDelivery>>,
+    /// The plugins this task's owner turned off. The sandbox deletes a
+    /// restored copy of one of these, and keeps any other `plugins` omits.
+    #[serde(default)]
+    pub removed_plugins: Option<Vec<String>>,
     /// Language servers the sandbox configures for the agent's `LSP` tool.
     #[serde(default)]
     pub language_servers: Option<Vec<moatless_workspace_types::workspace::LanguageServer>>,

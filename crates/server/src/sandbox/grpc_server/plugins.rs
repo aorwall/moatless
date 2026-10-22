@@ -81,7 +81,11 @@ pub(super) async fn fetch_plugin(
             warn!(task_id, error = %e, "Failed to resolve the task's plugins");
             Status::internal("Failed to resolve plugins")
         })?;
-    let Some(plugin) = deliveries.into_iter().find(|p| p.name == req.plugin_name) else {
+    let Some(plugin) = deliveries
+        .picked
+        .into_iter()
+        .find(|p| p.name == req.plugin_name)
+    else {
         return Err(Status::not_found(format!(
             "Plugin {} is not picked for this task",
             req.plugin_name

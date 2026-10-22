@@ -231,16 +231,38 @@ pub async fn resolve_for(
     user_id: Option<uuid::Uuid>,
     workspace_id: Option<&str>,
 ) -> Result<Vec<(crate::plugin::models::Plugin, PickedSkills)>, sqlx::Error> {
+    Ok(resolve_with_deselected_for(plugins, user_id, workspace_id)
+        .await?
+        .0)
+}
+
+/// [`resolve_for`], plus the plugins [`deselected`] names.
+pub async fn resolve_with_deselected_for(
+    plugins: &crate::plugin::Plugins,
+    user_id: Option<uuid::Uuid>,
+    workspace_id: Option<&str>,
+) -> Result<
+    (
+        Vec<(crate::plugin::models::Plugin, PickedSkills)>,
+        Vec<crate::plugin::models::Plugin>,
+    ),
+    sqlx::Error,
+> {
     let plugins = plugins.store();
     let registered = plugins.list_all().await?;
     if registered.is_empty() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), Vec::new()));
     }
 
     let skills = plugins.list_all_skills().await?;
     let rows = plugins.list_activations_for(user_id, workspace_id).await?;
 
-    Ok(resolve_rows(&registered, &skills, &rows)
+    let resolved = resolve_rows(&registered, &skills, &rows);
+    let removed = deselected(&registered, &skills, &resolved)
+        .into_iter()
+        .cloned()
+        .collect();
+    let picked = resolved
         .into_iter()
         .filter_map(|r| {
             registered
@@ -248,7 +270,25 @@ pub async fn resolve_for(
                 .find(|p| p.id == r.plugin_id)
                 .map(|p| (p.clone(), r.skills))
         })
-        .collect())
+        .collect();
+    Ok((picked, removed))
+}
+
+/// The registered plugins with stored skills that `resolved` picks none of.
+///
+/// A plugin with no stored skills is never deselected: a sync that could not
+/// read it leaves it there, and a sandbox told to remove it would delete a
+/// copy whose skills nobody turned off.
+pub fn deselected<'a>(
+    registered: &'a [crate::plugin::models::Plugin],
+    skills: &[crate::plugin::models::PluginSkill],
+    resolved: &[ResolvedPlugin],
+) -> Vec<&'a crate::plugin::models::Plugin> {
+    registered
+        .iter()
+        .filter(|p| skills.iter().any(|s| s.plugin_id == p.id))
+        .filter(|p| !resolved.iter().any(|r| r.plugin_id == p.id))
+        .collect()
 }
 
 #[cfg(test)]
@@ -719,6 +759,50 @@ mod tests {
             vec!["a"],
             "the two flags travel together: the record that wins is the one \
              that says how the skill arrives"
+        );
+    }
+
+    #[test]
+    fn a_plugin_is_deselected_only_when_it_has_stored_skills_and_none_picked() {
+        let registered: Vec<crate::plugin::models::Plugin> = ["picked", "dropped", "unread"]
+            .into_iter()
+            .map(|id| crate::plugin::models::Plugin {
+                id: id.to_string(),
+                name: id.to_string(),
+                git_url: format!("https://github.com/acme/{id}"),
+                synced_version: None,
+                synced_at: None,
+                created_at: None,
+                updated_at: None,
+            })
+            .collect();
+        let skills: Vec<crate::plugin::models::PluginSkill> = ["picked", "dropped"]
+            .into_iter()
+            .map(|id| crate::plugin::models::PluginSkill {
+                plugin_id: id.to_string(),
+                name: "a".to_string(),
+                description: String::new(),
+                path: "skills/a/SKILL.md".to_string(),
+            })
+            .collect();
+        let resolved = resolve(
+            &[plugin("picked", &["a"]), plugin("dropped", &["a"])],
+            &[
+                act("picked", None, Reach::Everyone, true),
+                act("dropped", None, Reach::Everyone, false),
+            ],
+        );
+
+        let removed: Vec<&str> = deselected(&registered, &skills, &resolved)
+            .into_iter()
+            .map(|p| p.id.as_str())
+            .collect();
+
+        assert_eq!(
+            removed,
+            vec!["dropped"],
+            "`unread` has no stored skills, so leaving it out says nothing \
+             about whether anybody turned it off"
         );
     }
 }

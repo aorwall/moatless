@@ -78,6 +78,8 @@ struct RepoConfigFile {
     code_execution: Option<CodeExecutionConfig>,
     #[serde(default)]
     plugins: Option<Vec<PluginDelivery>>,
+    #[serde(default)]
+    removed_plugins: Option<Vec<String>>,
     /// Ids rather than [`LanguageServer`], so an id this sandbox build does not
     /// know drops alone instead of failing the whole parse.
     #[serde(default)]
@@ -104,6 +106,7 @@ struct ParsedRepoConfig {
     agent_config: AgentConfig,
     setup_commands: Vec<String>,
     plugins: Vec<PluginDelivery>,
+    removed_plugins: Vec<String>,
     language_servers: Vec<LanguageServer>,
 }
 
@@ -240,6 +243,9 @@ pub struct Config {
     /// The plugins to clone, each with the skills to keep, from
     /// `REPO_CONFIG.plugins`
     pub plugins: Vec<PluginDelivery>,
+    /// The plugins to delete a restored copy of, from
+    /// `REPO_CONFIG.removedPlugins`
+    pub removed_plugins: Vec<String>,
     /// The language servers to give the agent, from
     /// `REPO_CONFIG.languageServers`
     pub language_servers: Vec<LanguageServer>,
@@ -677,6 +683,7 @@ impl Config {
             repo_config_raw: env::var("REPO_CONFIG").ok(),
             setup_commands: parsed.setup_commands,
             plugins: parsed.plugins,
+            removed_plugins: parsed.removed_plugins,
             language_servers: parsed.language_servers,
             search_path: env::var_os("PATH"),
             http: SandboxHttpConfig::from_vars(|key| env::var(key).ok()),
@@ -784,6 +791,7 @@ pub(crate) mod test_support {
             repo_config_raw: None,
             setup_commands: Vec::new(),
             plugins: Vec::new(),
+            removed_plugins: Vec::new(),
             language_servers: Vec::new(),
             search_path: None,
             http: super::SandboxHttpConfig::default(),
@@ -823,6 +831,7 @@ fn parse_repo_config() -> ParsedRepoConfig {
                 agent_config: AgentConfig::default(),
                 setup_commands: Vec::new(),
                 plugins: Vec::new(),
+                removed_plugins: Vec::new(),
                 language_servers: Vec::new(),
             };
         }
@@ -836,6 +845,7 @@ fn parse_repo_config() -> ParsedRepoConfig {
                 agent_config: AgentConfig::default(),
                 setup_commands: Vec::new(),
                 plugins: Vec::new(),
+                removed_plugins: Vec::new(),
                 language_servers: Vec::new(),
             };
         }
@@ -850,12 +860,14 @@ fn parse_repo_config() -> ParsedRepoConfig {
         .unwrap_or_default();
 
     let plugins = repo_config.plugins.unwrap_or_default();
+    let removed_plugins = repo_config.removed_plugins.unwrap_or_default();
     let language_servers = parse_language_servers(repo_config.language_servers);
 
     ParsedRepoConfig {
         agent_config,
         setup_commands,
         plugins,
+        removed_plugins,
         language_servers,
     }
 }

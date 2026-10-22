@@ -14,16 +14,15 @@ use crate::backend_client::{BackendClient, PluginFetch};
 use crate::config::Config;
 
 /// Fetch each of the task owner's plugins from the backend into
-/// [`Config::plugins_dir`] and remove the plugins and skills they did not pick.
+/// [`Config::plugins_dir`], remove the skills they did not pick, and remove the
+/// plugins [`Config::removed_plugins`] names.
 ///
 /// Non-fatal per plugin: one the backend cannot serve keeps the restored copy,
 /// pruned like a fresh one. Returns the plugins that are current.
 pub async fn fetch_plugins(config: &Config, backend: &dyn BackendClient) -> Vec<String> {
     let base_dir = config.plugins_dir();
-    for plugin in &config.plugins {
-        restore_interrupted_install(&base_dir, &plugin.name);
-    }
-    remove_unpicked_plugins(&base_dir, &config.plugins).await;
+    restore_interrupted_installs(&base_dir);
+    remove_deselected_plugins(&base_dir, &config.plugins, &config.removed_plugins).await;
     if config.plugins.is_empty() {
         return Vec::new();
     }
@@ -139,7 +138,7 @@ async fn fetch_plugin(
 /// only once the archive has unpacked whole.
 fn install_archive(data: &[u8], base_dir: &Path, name: &str) -> std::io::Result<()> {
     // Dot-prefixed so a leftover from a killed start is not loaded as a plugin;
-    // `remove_unpicked_plugins` clears it on the next one.
+    // `remove_deselected_plugins` clears it on the next one.
     let staging = base_dir.join(format!(".{name}.partial"));
     if staging.exists() {
         std::fs::remove_dir_all(&staging)?;
@@ -161,8 +160,25 @@ fn previous_path(base_dir: &Path, name: &str) -> PathBuf {
     base_dir.join(format!(".{name}.previous"))
 }
 
-/// Put back the copy a start killed between [`unpack_into`]'s two renames left
-/// aside, before `remove_unpicked_plugins` would delete it.
+/// Put back every copy a start killed between [`unpack_into`]'s two renames
+/// left aside, before `remove_deselected_plugins` would delete it.
+fn restore_interrupted_installs(base_dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(base_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let file_name = entry.file_name();
+        let Some(name) = file_name
+            .to_str()
+            .and_then(|n| n.strip_prefix('.'))
+            .and_then(|n| n.strip_suffix(".previous"))
+        else {
+            continue;
+        };
+        restore_interrupted_install(base_dir, name);
+    }
+}
+
 fn restore_interrupted_install(base_dir: &Path, name: &str) {
     let (previous, dest) = (previous_path(base_dir, name), base_dir.join(name));
     if dest.exists() || !previous.exists() {
@@ -195,21 +211,26 @@ fn unpack_into(data: &[u8], staging: &Path, previous: &Path, dest: &Path) -> std
     Ok(())
 }
 
-/// Remove every child of `base_dir` that `picked` does not name.
+/// Remove each plugin `removed` names and `picked` does not, with its
+/// `.{name}.json`, and every other dot-prefixed install leftover.
 ///
-/// The snapshot restores `base_dir` whole, and `agent::options::build_plugins`
-/// loads every child of it, so a plugin dropped between starts would otherwise
-/// come back with all its skills.
-async fn remove_unpicked_plugins(base_dir: &Path, picked: &[PluginDelivery]) {
+/// `agent::options::build_plugins` loads every child of `base_dir`. A plugin
+/// neither list names is kept rather than deleted: the backend omits one whose
+/// skills it could not read, and nobody turned those off.
+async fn remove_deselected_plugins(base_dir: &Path, picked: &[PluginDelivery], removed: &[String]) {
     let Ok(mut entries) = fs::read_dir(base_dir).await else {
         return;
     };
+    let is_removed =
+        |name: &str| removed.iter().any(|r| r == name) && !picked.iter().any(|p| p.name == name);
     while let Ok(Some(entry)) = entries.next_entry().await {
-        let name = entry.file_name();
-        if picked.iter().any(|plugin| {
-            name == plugin.name.as_str()
-                || installed_path(base_dir, &plugin.name).file_name() == Some(name.as_os_str())
-        }) {
+        let file_name = entry.file_name();
+        let name = file_name.to_string_lossy();
+        let doomed = match name.strip_prefix('.') {
+            Some(hidden) => hidden.strip_suffix(".json").is_none_or(&is_removed),
+            None => is_removed(&name),
+        };
+        if !doomed {
             continue;
         }
         let path = entry.path();
@@ -220,9 +241,11 @@ async fn remove_unpicked_plugins(base_dir: &Path, picked: &[PluginDelivery]) {
         };
         match removed {
             Ok(()) => {
-                info!(path = %path.display(), "Removed plugin the task's owner no longer picks");
+                info!(path = %path.display(), "Removed plugin the task's owner deselected");
             }
-            Err(e) => warn!(path = %path.display(), error = %e, "Failed to remove unpicked plugin"),
+            Err(e) => {
+                warn!(path = %path.display(), error = %e, "Failed to remove deselected plugin");
+            }
         }
     }
 }
@@ -315,34 +338,65 @@ mod tests {
         assert!(!root.path().join(".agentops.partial").exists());
     }
 
-    /// The snapshot restores every plugin a previous start fetched, including
-    /// ones the owner has since dropped; those must not survive to be loaded,
-    /// and a kept one the backend cannot serve is still pruned.
+    /// A config that leaves out a restored plugin may only have failed to read
+    /// it, so the copy stays; a kept one the backend cannot serve is still
+    /// pruned to its picks.
     #[tokio::test]
-    async fn a_restored_plugin_the_owner_dropped_is_removed() {
+    async fn a_restored_plugin_the_config_omits_is_kept() {
         let root = tempdir().unwrap();
-        let mut config = crate::config::test_support::minimal_config();
-        config.workspace_dir = root.path().join("ws").to_string_lossy().into_owned();
+        let mut config = config_picking(root.path(), &["review"]);
         let plugins_dir = config.plugins_dir();
-        std::fs::create_dir_all(plugins_dir.join("dropped/skills/x")).unwrap();
-        std::fs::create_dir_all(plugins_dir.join("kept/skills/review")).unwrap();
-        std::fs::create_dir_all(plugins_dir.join("kept/skills/lint")).unwrap();
-        config.plugins = vec![PluginDelivery {
-            name: "kept".to_string(),
-            git_url: "https://github.com/acme/plugins".to_string(),
-            skill_names: vec!["review".to_string()],
-            frontload_skill_names: Vec::new(),
-        }];
+        std::fs::create_dir_all(plugins_dir.join("omitted/skills/x")).unwrap();
+        std::fs::write(plugins_dir.join(".omitted.json"), "{}").unwrap();
+        std::fs::create_dir_all(plugins_dir.join("agentops/skills/review")).unwrap();
+        std::fs::create_dir_all(plugins_dir.join("agentops/skills/lint")).unwrap();
+        std::fs::create_dir_all(plugins_dir.join(".agentops.partial/skills")).unwrap();
         let backend = crate::state::test_support::NoopBackend::default();
 
         assert!(fetch_plugins(&config, &backend).await.is_empty());
-        assert!(plugins_dir.join("kept/skills/review").is_dir());
-        assert!(!plugins_dir.join("kept/skills/lint").exists());
-        assert!(!plugins_dir.join("dropped").exists());
+        assert!(plugins_dir.join("agentops/skills/review").is_dir());
+        assert!(!plugins_dir.join("agentops/skills/lint").exists());
+        assert!(!plugins_dir.join(".agentops.partial").exists());
+        assert!(plugins_dir.join("omitted/skills/x").is_dir());
+        assert!(plugins_dir.join(".omitted.json").is_file());
 
         config.plugins = Vec::new();
         fetch_plugins(&config, &backend).await;
-        assert!(!plugins_dir.join("kept").exists());
+        assert!(plugins_dir.join("agentops/skills/review").is_dir());
+        assert!(plugins_dir.join("omitted/skills/x").is_dir());
+    }
+
+    #[tokio::test]
+    async fn a_restored_plugin_the_config_marks_removed_is_deleted() {
+        let root = tempdir().unwrap();
+        let mut config = config_picking(root.path(), &["review"]);
+        config.removed_plugins = vec!["dropped".to_string()];
+        let plugins_dir = config.plugins_dir();
+        std::fs::create_dir_all(plugins_dir.join("dropped/skills/x")).unwrap();
+        std::fs::write(plugins_dir.join(".dropped.json"), "{}").unwrap();
+        std::fs::create_dir_all(plugins_dir.join("agentops/skills/review")).unwrap();
+        let backend = crate::state::test_support::NoopBackend::default();
+
+        fetch_plugins(&config, &backend).await;
+
+        assert!(!plugins_dir.join("dropped").exists());
+        assert!(!plugins_dir.join(".dropped.json").exists());
+        assert!(plugins_dir.join("agentops/skills/review").is_dir());
+    }
+
+    #[tokio::test]
+    async fn a_copy_left_aside_for_an_omitted_plugin_is_restored() {
+        let root = tempdir().unwrap();
+        let mut config = config_picking(root.path(), &["review"]);
+        config.plugins = Vec::new();
+        let plugins_dir = config.plugins_dir();
+        std::fs::create_dir_all(plugins_dir.join(".omitted.previous/skills/x")).unwrap();
+        let backend = crate::state::test_support::NoopBackend::default();
+
+        fetch_plugins(&config, &backend).await;
+
+        assert!(plugins_dir.join("omitted/skills/x").is_dir());
+        assert!(!plugins_dir.join(".omitted.previous").exists());
     }
 
     #[tokio::test]

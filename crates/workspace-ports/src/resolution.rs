@@ -9,6 +9,16 @@ use moatless_workspace_types::workspace::Workspace;
 use std::collections::HashMap;
 use uuid::Uuid;
 
+/// What [`WorkspaceResolver::plugin_deliveries`] resolved for one identity.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PluginDeliveries {
+    pub picked: Vec<PluginDelivery>,
+    /// Names of plugins with stored skills of which the identity picked none.
+    /// A plugin in neither list is unknown, which is not a deselection: one
+    /// whose skills could not be read is left out of both.
+    pub removed: Vec<String>,
+}
+
 /// A Workspace's run configuration, plus the identity it runs as.
 ///
 /// Exactly the columns a Sandbox plan and an agent prompt read; provenance,
@@ -73,7 +83,7 @@ pub trait WorkspaceResolver: Send + Sync {
         &self,
         user_id: Option<Uuid>,
         workspace_id: &str,
-    ) -> Result<Vec<PluginDelivery>, StoreError>;
+    ) -> Result<PluginDeliveries, StoreError>;
 
     /// Display name per Workspace id. Ids with no Workspace are absent from the
     /// map. Resolves across owners, like the rest of this port.

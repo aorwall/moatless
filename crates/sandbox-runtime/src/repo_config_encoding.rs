@@ -16,6 +16,9 @@ pub fn encode_repo_config(config: &RepoConfig) -> Option<String> {
     if let Some(plugins) = &config.plugins {
         values.insert("plugins".into(), json!(plugins));
     }
+    if let Some(removed) = &config.removed_plugins {
+        values.insert("removedPlugins".into(), json!(removed));
+    }
     if let Some(servers) = &config.language_servers {
         values.insert("languageServers".into(), json!(servers));
     }
@@ -51,6 +54,18 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<Value>(&encoded).expect("json"),
             json!({"languageServers":["rust"]})
+        );
+    }
+
+    #[test]
+    fn removed_plugins_travel_by_name() {
+        let mut config: RepoConfig =
+            serde_json::from_value(json!({"name":"repo"})).expect("config");
+        config.removed_plugins = Some(vec!["soaplabs".to_string()]);
+        let encoded = encode_repo_config(&config).expect("present");
+        assert_eq!(
+            serde_json::from_str::<Value>(&encoded).expect("json"),
+            json!({"removedPlugins":["soaplabs"]})
         );
     }
 }

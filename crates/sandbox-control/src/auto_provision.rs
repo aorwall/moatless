@@ -41,6 +41,7 @@ pub fn build_repo_config_from_workspace(ws: &ResolvedWorkspace) -> RepoConfig {
         code_execution,
         resources,
         plugins: None,
+        removed_plugins: None,
         language_servers: ws.language_servers.clone(),
         docker_access: ws.docker_access,
         docker_networks: None,
@@ -230,15 +231,19 @@ pub(crate) async fn build_provision_request(
         .plugin_deliveries(run_as, &shape.workspace_id)
         .await
     {
-        Ok(deliveries) if !deliveries.is_empty() => {
-            info!(
-                sandbox_id = %sandbox_id,
-                count = deliveries.len(),
-                "Auto-provision: resolved plugins"
-            );
-            repo_config.plugins = Some(deliveries);
+        Ok(deliveries) => {
+            if !deliveries.picked.is_empty() {
+                info!(
+                    sandbox_id = %sandbox_id,
+                    count = deliveries.picked.len(),
+                    "Auto-provision: resolved plugins"
+                );
+                repo_config.plugins = Some(deliveries.picked);
+            }
+            if !deliveries.removed.is_empty() {
+                repo_config.removed_plugins = Some(deliveries.removed);
+            }
         }
-        Ok(_) => {}
         Err(e) => {
             // A task that starts without its plugins is worse than one that
             // does not start at all only in theory; in practice the agent still
@@ -440,6 +445,7 @@ fn minimal_repo_config(name: &str) -> RepoConfig {
         code_execution: None,
         resources: None,
         plugins: None,
+        removed_plugins: None,
         language_servers: None,
         docker_access: None,
         docker_networks: None,

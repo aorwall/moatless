@@ -54,6 +54,7 @@ pub(super) fn test_plan() -> ProvisionPlan {
             code_execution: None,
             resources: None,
             plugins: None,
+            removed_plugins: None,
             language_servers: None,
             docker_access: None,
             docker_networks: None,

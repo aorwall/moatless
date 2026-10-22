@@ -214,6 +214,14 @@ impl RepoApi {
         }
     }
 
+    /// The media type the host answers its JSON endpoints under.
+    fn json_accept(&self) -> &'static str {
+        match self.host {
+            SkillHost::Github => "application/vnd.github+json",
+            SkillHost::Forgejo => "application/json",
+        }
+    }
+
     /// One directory's entries, or `None` when the directory is absent.
     async fn list_dir(
         &self,
@@ -222,12 +230,48 @@ impl RepoApi {
         token: Option<&str>,
         git_url: &str,
     ) -> Result<Option<Vec<ContentEntry>>, SkillError> {
-        let accept = match self.host {
-            SkillHost::Github => "application/vnd.github+json",
-            SkillHost::Forgejo => "application/json",
-        };
-        self.get_json(client, &self.contents_url(path), accept, token, git_url)
-            .await
+        self.get_json(
+            client,
+            &self.contents_url(path),
+            self.json_accept(),
+            token,
+            git_url,
+        )
+        .await
+    }
+
+    /// Fails with [`Self::unreadable`] when the repository itself answers 404,
+    /// so a caller can tell an absent file from an invisible repository.
+    async fn ensure_readable(
+        &self,
+        client: &Client,
+        token: Option<&str>,
+        git_url: &str,
+    ) -> Result<(), SkillError> {
+        let repo: Option<serde_json::Value> = self
+            .get_json(client, &self.root, self.json_accept(), token, git_url)
+            .await?;
+        repo.map(|_| ())
+            .ok_or_else(|| self.unreadable(token, git_url))
+    }
+
+    /// The error for a repository that answered 404 as a whole. GitHub answers
+    /// a private repository `token` cannot read that way. Taking it for an
+    /// empty repository rather than an error stores no skills for a private
+    /// plugin synced with an expired token.
+    fn unreadable(&self, token: Option<&str>, git_url: &str) -> SkillError {
+        match token {
+            None => SkillError::AuthRequired {
+                git_url: git_url.to_string(),
+            },
+            Some(_) => SkillError::Fetch {
+                git_url: git_url.to_string(),
+                message: format!(
+                    "{} has no such repository, or the token cannot read it",
+                    self.host.label()
+                ),
+            },
+        }
     }
 
     /// What a symlinked entry points at — `None` when the entry is absent or
@@ -264,7 +308,7 @@ impl RepoApi {
     }
 
     /// The default branch's head commit SHA, from one request returning 40
-    /// bytes.
+    /// bytes; a 404 is [`Self::unreadable`].
     ///
     /// GitHub only. `Ok(None)` is [`SkillFetcher::fetch_version`]'s "cannot be
     /// asked cheaply": Forgejo answers a page of commit JSON rather than a bare
@@ -286,10 +330,9 @@ impl RepoApi {
                 token,
                 git_url,
             )
-            .await?;
-        Ok(sha
-            .map(|sha| sha.trim().to_string())
-            .filter(|sha| !sha.is_empty()))
+            .await?
+            .ok_or_else(|| self.unreadable(token, git_url))?;
+        Ok(Some(sha.trim().to_string()).filter(|sha| !sha.is_empty()))
     }
 
     /// The repository at `version` as a gzip tarball, or `None` on a 404.
@@ -737,6 +780,7 @@ async fn resolve_plugin_skills_prefixes(
     let Some((marketplace_path, raw)) =
         fetch_first_marketplace(client, api, token, git_url).await?
     else {
+        api.ensure_readable(client, token, git_url).await?;
         return Ok(vec!["skills".to_string()]);
     };
 

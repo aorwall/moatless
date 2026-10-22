@@ -12,8 +12,8 @@ use async_trait::async_trait;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::store::StoreError;
 use moatless_workspace_ports::{
-    PluginDelivery, RepoPlacement, RepositoryReader, ResolvedWorkspace, WorkspaceCredentialReader,
-    WorkspaceResolver,
+    PluginDeliveries, PluginDelivery, RepoPlacement, RepositoryReader, ResolvedWorkspace,
+    WorkspaceCredentialReader, WorkspaceResolver,
 };
 use moatless_workspace_types::repository::Repository;
 use uuid::Uuid;
@@ -124,19 +124,23 @@ impl WorkspaceResolver for WorkspaceProjection {
         &self,
         user_id: Option<Uuid>,
         workspace_id: &str,
-    ) -> Result<Vec<PluginDelivery>, StoreError> {
-        let resolved = activation::resolve_for(&self.plugins, user_id, Some(workspace_id))
-            .await
-            .map_err(|e| StoreError::with_source("resolve plugin activations", e))?;
-        Ok(resolved
-            .into_iter()
-            .map(|(plugin, skills)| PluginDelivery {
-                name: plugin.name,
-                git_url: plugin.git_url,
-                skill_names: skills.names,
-                frontload_skill_names: skills.frontloaded,
-            })
-            .collect())
+    ) -> Result<PluginDeliveries, StoreError> {
+        let (picked, removed) =
+            activation::resolve_with_deselected_for(&self.plugins, user_id, Some(workspace_id))
+                .await
+                .map_err(|e| StoreError::with_source("resolve plugin activations", e))?;
+        Ok(PluginDeliveries {
+            picked: picked
+                .into_iter()
+                .map(|(plugin, skills)| PluginDelivery {
+                    name: plugin.name,
+                    git_url: plugin.git_url,
+                    skill_names: skills.names,
+                    frontload_skill_names: skills.frontloaded,
+                })
+                .collect(),
+            removed: removed.into_iter().map(|plugin| plugin.name).collect(),
+        })
     }
 
     async fn names(&self, workspace_ids: &[String]) -> Result<HashMap<String, String>, StoreError> {

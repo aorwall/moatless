@@ -282,7 +282,7 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
     git::scrub_remote_credentials(&state.config).await;
 
     // 5. Fetch the task's plugins from the backend (non-fatal). Runs with none
-    // picked too, so plugins a restored snapshot still holds are removed. The
+    // picked too, so a restored plugin the owner deselected is removed. The
     // event keeps its `PluginsCloned` reason, which clients match on.
     let fetched = workspace::fetch_plugins(&state.config, state.backend_client.as_ref()).await;
     if !fetched.is_empty() {
