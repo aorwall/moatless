@@ -43,8 +43,29 @@ outside the pod, and `df` reports the node's device. Add up `du -sx` on each
 mount point the volume backs: `/opt/moatless`, `/tmp`, and `/opt/cargo/registry`
 plus `/opt/cargo/git` when the cargo cache is persisted. Overflow can evict the
 pod. `task rust:gc` reclaims incremental units while retaining dependency
-artifacts; `cargo clean` forces a cold rebuild. The cache and GC implementation
+artifacts; `cargo clean` empties `target/`, which a Kubernetes sandbox then
+refills from the shared compile cache below. The cache and GC implementation
 in `Taskfile.yml` owns thresholds.
+
+## Reuse the shared compile cache
+
+In a Kubernetes sandbox rustc runs through sccache against a shared S3 bucket
+(`docker/sccache/sccache-env.sh`), so a fresh `target/` fills mostly from
+objects other sandboxes compiled. sccache keys on the compile's directory and
+the `CARGO_*` variables rustc inherits, so a build hits only when it matches
+theirs:
+
+- Build in the primary checkout's default `target/`. A `CARGO_TARGET_DIR`
+  misses on every crate, and a second worktree misses on every workspace crate.
+- Add no `CARGO_*` variable to a cargo command other than `CARGO_BUILD_JOBS`,
+  which still hits. `CARGO_INCREMENTAL=1` fails every compile under sccache
+  with `incremental compilation is prohibited`.
+- `sccache --show-stats` reports the hits. An empty `RUSTC_WRAPPER` means the
+  shell compiles uncached; a `[sccache]` line on stderr names an unreachable
+  bucket.
+
+In October 2026 the floor line took 3m58s from an empty `target/` with 97% of
+compiles hitting, and peaked at 5.3 GiB.
 
 Historical measurements from September 2026 illustrate the cost, not a timing
 promise for the current crate graph: a cold workspace floor took 6m37s and about
