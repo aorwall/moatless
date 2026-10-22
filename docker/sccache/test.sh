@@ -35,7 +35,7 @@ chmod +x "$work/bin/sccache"
 # Runs `bash -c "$1"` the way an agent's Bash tool does: BASH_ENV only.
 run() {
   env -i PATH="$work/bin:/usr/bin:/bin" HOME="$work/home" TMPDIR="$work/tmp" BASH_ENV="$script" \
-    SCCACHE_S3_BUCKET="${BUCKET-ci-sccache}" AWS_REGION=eu-north-1 \
+    SCCACHE_S3_BUCKET="${BUCKET-ci-sccache}" AWS_REGION=eu-north-1 ${INCREMENTAL+CARGO_INCREMENTAL="$INCREMENTAL"} \
     FAKE_STARTS="$work/starts" FAKE_SEEN="$work/seen" FAKE_FAIL="${FAKE_FAIL:-}" FAKE_SLOW="${FAKE_SLOW:-}" bash -c "$1"
 }
 starts() { if [ -e "$work/starts" ]; then wc -l < "$work/starts"; else echo 0; fi; }
@@ -48,10 +48,11 @@ out="$(BUCKET= run 'printf %s "${RUSTC_WRAPPER-unset}"')"
 [ "$out" = unset ] || fail "unset bucket exported RUSTC_WRAPPER='$out'"
 [ "$(starts)" -eq 0 ] || fail "unset bucket started a server"
 
-# The first bash starts the server with the bucket and wraps rustc.
+# The first bash starts the server with the bucket, wraps rustc and turns
+# incremental compilation off.
 reset
-out="$(run 'printf %s "$RUSTC_WRAPPER $SCCACHE_BUCKET $SCCACHE_REGION"')"
-[ "$out" = "sccache ci-sccache eu-north-1" ] || fail "first bash exported '$out'"
+out="$(run 'printf %s "$RUSTC_WRAPPER $CARGO_INCREMENTAL $SCCACHE_BUCKET $SCCACHE_REGION"')"
+[ "$out" = "sccache 0 ci-sccache eu-north-1" ] || fail "first bash exported '$out'"
 [ "$(cat "$work/seen")" = "ci-sccache moatless/ 0" ] || fail "server started with '$(cat "$work/seen")'"
 
 # A later bash wraps rustc without starting again, and prints nothing.
@@ -85,6 +86,16 @@ mkdir -p "$(dirname "$(status_file)")"
 echo 'failed:junk' > "$(status_file)"
 out="$(run 'printf %s "${RUSTC_WRAPPER-unset}"')"
 [ "$out" = sccache ] || fail "unparsed status exported '$out'"
+
+# An explicit CARGO_INCREMENTAL=1 opts out: sccache would abort every compile.
+reset
+out="$(INCREMENTAL=1 run 'printf %s "${RUSTC_WRAPPER-unset} $CARGO_INCREMENTAL"')"
+[ "$out" = "unset 1" ] || fail "CARGO_INCREMENTAL=1 exported '$out'"
+[ "$(starts)" -eq 0 ] || fail "CARGO_INCREMENTAL=1 started a server"
+
+# An explicit CARGO_INCREMENTAL=0 still wraps.
+out="$(INCREMENTAL=0 run 'printf %s "${RUSTC_WRAPPER-unset}"')"
+[ "$out" = sccache ] || fail "CARGO_INCREMENTAL=0 exported '$out'"
 
 # A caller running under `set -eu` survives sourcing it, either way.
 for fake_fail in "" 1; do

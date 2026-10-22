@@ -11,6 +11,9 @@
 _sccache_env() {
   [ -n "${SCCACHE_S3_BUCKET:-}" ] || return 0
   command -v sccache >/dev/null 2>&1 || return 0
+  # sccache aborts every compile under CARGO_INCREMENTAL=1, so an explicit
+  # non-zero value opts the shell out of the cache.
+  [ "${CARGO_INCREMENTAL:-0}" = 0 ] || return 0
   # Exported to every shell, not only the server's start: a server that dies
   # is restarted by the next compile with the compile's environment. sccache
   # reads EKS Pod Identity credentials itself, from 0.11 on.
@@ -31,8 +34,11 @@ _sccache_env() {
   # Only after a start succeeded: a wrapper whose server cannot reach the
   # bucket fails every compile, and SCCACHE_IGNORE_SERVER_IO_ERROR does not
   # cover that.
-  [ "$status" = ok ] && export RUSTC_WRAPPER=sccache
-  return 0
+  [ "$status" = ok ] || return 0
+  # CARGO_INCREMENTAL=0 rather than cargo's default: incremental crates are
+  # never cached, which leaves every workspace crate to compile in a fresh
+  # sandbox. The value is part of sccache's key, so every sandbox sets it.
+  export RUSTC_WRAPPER=sccache CARGO_INCREMENTAL=0
 }
 
 # True while status `$1` records a failure under five minutes old.
