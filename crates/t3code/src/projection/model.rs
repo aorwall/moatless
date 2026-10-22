@@ -53,10 +53,9 @@ pub(super) fn model_selection(conversation: &Conversation, defaults: &AgentModel
 /// answer.
 pub(super) fn model_name(conversation: &Conversation, defaults: &AgentModelDefaults) -> String {
     // 1. What the newest turn's agent replies said they were produced by. Only
-    //    the agent's own reply carries the identity of the model that ran, and
-    //    it names it by API id, which is not always the published slug.
+    //    the agent's own reply carries the identity of the model that ran.
     if let Some(model) = conversation.assistant_model.as_deref().and_then(non_empty) {
-        return providers::published_slug_for_reported(provider_instance(conversation), &model);
+        return model;
     }
     // 2. What was asked for when that turn started — skipping a catalog choice
     //    that names no model, which is what it actually resolves to.

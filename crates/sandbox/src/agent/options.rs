@@ -977,8 +977,8 @@ mod tests {
     fn a_requested_alias_reaches_the_cli_as_a_model_id() {
         let expected = [
             ("opus", "claude-opus-5-5"),
-            ("sonnet", "claude-sonnet-5"),
-            ("haiku", "claude-haiku-4-5-20251001"),
+            ("sonnet", "claude-sonnet-5-5"),
+            ("haiku", "claude-haiku-5-5"),
             ("fable", "claude-fable-5-1"),
         ];
         for (alias, id) in expected {
@@ -1013,7 +1013,7 @@ mod tests {
 
         assert_eq!(
             options.env.unwrap().get("CLAUDE_CODE_SUBAGENT_MODEL"),
-            Some(&"claude-haiku-4-5-20251001".to_string())
+            Some(&"claude-haiku-5-5".to_string())
         );
     }
 

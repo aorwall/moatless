@@ -6,7 +6,7 @@ use super::*;
 
 #[tokio::test]
 async fn a_published_slug_reaches_the_sink_as_a_catalog_id() {
-    let (_, calls) = run(turn(Some(("claudeAgent", "claude-sonnet-5")))).await;
+    let (_, calls) = run(turn(Some(("claudeAgent", "claude-sonnet-5-5")))).await;
     assert_eq!(
         calls,
         vec![Call::SendTurn {
@@ -88,7 +88,7 @@ fn sent_effort(calls: &[Call]) -> Option<String> {
 async fn a_selected_effort_reaches_the_sink() {
     let command = turn_with_options(
         "claudeAgent",
-        "claude-sonnet-5",
+        "claude-sonnet-5-5",
         json!([{ "id": "effort", "value": "xhigh" }]),
     );
     let (_, calls) = run(command).await;
@@ -114,8 +114,11 @@ async fn a_selection_on_a_thread_running_an_unknown_agent_is_refused() {
         agent_profile: "from-a-newer-backend".to_string().into(),
         ..conversation(AgentProfile::ClaudeCode)
     };
-    let (result, calls) =
-        run_against(turn(Some(("claudeAgent", "claude-sonnet-5"))), Some(found)).await;
+    let (result, calls) = run_against(
+        turn(Some(("claudeAgent", "claude-sonnet-5-5"))),
+        Some(found),
+    )
+    .await;
     assert!(
         matches!(result, Err(CommandRefusal::Rejected { .. })),
         "{result:?}"
@@ -130,7 +133,7 @@ async fn a_selection_on_a_thread_running_an_unknown_agent_is_refused() {
 async fn an_option_the_instance_never_published_is_ignored() {
     let command = turn_with_options(
         "claudeAgent",
-        "claude-sonnet-5",
+        "claude-sonnet-5-5",
         json!([{ "id": "reasoningEffort", "value": "minimal" }, { "id": "verbosity", "value": "high" }]),
     );
     let (_, calls) = run(command).await;
@@ -139,7 +142,7 @@ async fn an_option_the_instance_never_published_is_ignored() {
 
 #[tokio::test]
 async fn a_turn_that_picked_no_effort_leaves_the_agent_on_its_default() {
-    let (_, calls) = run(turn(Some(("claudeAgent", "claude-sonnet-5")))).await;
+    let (_, calls) = run(turn(Some(("claudeAgent", "claude-sonnet-5-5")))).await;
     assert_eq!(sent_effort(&calls), None);
 }
 

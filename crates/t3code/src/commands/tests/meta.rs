@@ -11,7 +11,7 @@ async fn a_meta_update_carries_title_and_translated_model() {
         "commandId": "cmd-1",
         "threadId": "task-1",
         "title": "Fix the checkout",
-        "modelSelection": { "instanceId": "claudeAgent", "model": "claude-haiku-4-5" },
+        "modelSelection": { "instanceId": "claudeAgent", "model": "claude-haiku-5-5" },
         "branch": "feat/checkout",
         "worktreePath": null
     });
@@ -37,7 +37,7 @@ async fn a_title_asserted_while_the_thread_is_unnamed_is_dropped() {
         "commandId": "cmd-1",
         "threadId": "task-1",
         "title": "Doesnt the agent in the sandbox set a task name on...",
-        "modelSelection": { "instanceId": "claudeAgent", "model": "claude-haiku-4-5" }
+        "modelSelection": { "instanceId": "claudeAgent", "model": "claude-haiku-5-5" }
     });
     let (result, calls) = run(command).await;
     assert!(result.is_ok());

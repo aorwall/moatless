@@ -7,9 +7,7 @@
 //! Publishes T3's canonical slugs and names (its alias table maps only towards
 //! them); the `default` sentinel, naming no model, is never published.
 
-use moatless_types::model::{
-    CLAUDE_EFFORT_LEVELS, ClaudeModel, claude_model_alias, claude_model_id, codex_effort_levels,
-};
+use moatless_types::model::{CLAUDE_EFFORT_LEVELS, claude_model_id, codex_effort_levels};
 use serde_json::{Value, json};
 
 use crate::AgentModelDefaults;
@@ -109,54 +107,30 @@ fn capabilities(instance: &str, catalog_model: &str) -> Value {
     })
 }
 
-/// The slug T3's own Claude driver publishes for a model, so a model reads the
-/// same here as in a standalone T3. It is the API id except for Haiku, whose
-/// dated id T3 does not use; [`published_slug_for_reported`] translates back.
-fn t3_claude_slug(model: ClaudeModel) -> &'static str {
-    match model {
-        ClaudeModel::Haiku => "claude-haiku-4-5",
-        ClaudeModel::Opus | ClaudeModel::Sonnet | ClaudeModel::Fable => model.api_id(),
-    }
-}
-
 /// The slug we publish for a catalog model id.
+///
+/// A Claude model goes out under its API id, which is also the slug T3's own
+/// driver publishes. Do not add a model whose id T3 does not use as a slug: a
+/// turn reports the API id, and T3 silently runs its default for a selection
+/// it matches against nothing.
 fn published_slug(instance: &str, catalog_model: &str) -> String {
     if instance == CLAUDE_INSTANCE {
-        if let Some(model) = ClaudeModel::from_alias(catalog_model) {
-            return t3_claude_slug(model).to_string();
+        if let Some(id) = claude_model_id(catalog_model) {
+            return id.to_string();
         }
     }
     catalog_model.to_string()
-}
-
-/// The slug to publish for a model id an agent reported running.
-///
-/// The Sandbox runs the id [`claude_model_id`] resolves, which is not the slug
-/// for `haiku`; reporting it verbatim would leave T3 a selection it matches
-/// against nothing, and it substitutes its default silently rather than saying
-/// so. Anything already in T3's vocabulary passes through.
-pub fn published_slug_for_reported(instance: &str, reported: &str) -> String {
-    if instance == CLAUDE_INSTANCE {
-        if let Some(alias) = claude_model_alias(reported) {
-            return published_slug(instance, alias);
-        }
-    }
-    reported.to_string()
 }
 
 /// The catalog model id behind a slug T3 sent back, or `None` when we never
 /// published it.
 ///
 /// `None` is a refusal, not a fallback cue — substituting an unchosen model is
-/// exactly the failure this translation exists to avoid. The id a turn runs
-/// under is accepted beside the slug, so a stored one still resolves.
+/// exactly the failure this translation exists to avoid.
 pub fn catalog_model_for(agents: &[AgentDescriptor], instance: &str, slug: &str) -> Option<String> {
     models_for(agents, instance)
         .into_iter()
-        .find(|(id, _)| {
-            published_slug(instance, id) == slug
-                || (instance == CLAUDE_INSTANCE && claude_model_id(id) == Some(slug))
-        })
+        .find(|(id, _)| published_slug(instance, id) == slug)
         .map(|(id, _)| id)
 }
 
@@ -389,8 +363,8 @@ mod tests {
             slugs(&list[0]),
             vec![
                 "claude-opus-5-5",
-                "claude-sonnet-5",
-                "claude-haiku-4-5",
+                "claude-sonnet-5-5",
+                "claude-haiku-5-5",
                 "claude-fable-5-1"
             ]
         );
@@ -406,8 +380,8 @@ mod tests {
             names(&list[0]),
             vec![
                 "Claude Opus 5.5",
-                "Claude Sonnet 5",
-                "Claude Haiku 4.5",
+                "Claude Sonnet 5.5",
+                "Claude Haiku 5.5",
                 "Claude Fable 5.1"
             ]
         );
@@ -492,51 +466,6 @@ mod tests {
         }
     }
 
-    /// The Sandbox runs `claude-haiku-4-5-20251001`, so a client that saw that
-    /// id — reported by a turn projected before `model_name` translated it —
-    /// must not be refused the model it is still on.
-    #[test]
-    fn a_model_id_resolves_beside_the_slug_published_for_it() {
-        let agents = agents(true);
-        assert_eq!(
-            catalog_model_for(&agents, CLAUDE_INSTANCE, "claude-haiku-4-5-20251001").as_deref(),
-            Some("haiku")
-        );
-        assert_eq!(
-            catalog_model_for(&agents, CLAUDE_INSTANCE, "claude-haiku-4-5").as_deref(),
-            Some("haiku")
-        );
-    }
-
-    /// What a turn reports is the API id; what T3 matches a selection against
-    /// is the slug. `haiku` is the pair where the two differ.
-    #[test]
-    fn a_reported_model_id_is_published_under_t3s_slug() {
-        assert_eq!(
-            published_slug_for_reported(CLAUDE_INSTANCE, "claude-haiku-4-5-20251001"),
-            "claude-haiku-4-5"
-        );
-        assert_eq!(
-            published_slug_for_reported(CLAUDE_INSTANCE, "claude-opus-5-5"),
-            "claude-opus-5-5"
-        );
-        // Not an id this catalog names — reported as it arrived. `claude-opus-5`
-        // is one of these since `opus` moved to 5.5: a turn that ran before the
-        // move keeps reporting the model it actually ran.
-        assert_eq!(
-            published_slug_for_reported(CLAUDE_INSTANCE, "claude-opus-5"),
-            "claude-opus-5"
-        );
-        assert_eq!(
-            published_slug_for_reported(CLAUDE_INSTANCE, "claude-opus-4-8"),
-            "claude-opus-4-8"
-        );
-        assert_eq!(
-            published_slug_for_reported(CODEX_INSTANCE, "gpt-6-astra"),
-            "gpt-6-astra"
-        );
-    }
-
     #[test]
     fn an_unpublished_slug_is_refused_rather_than_defaulted() {
         let agents = agents(true);
@@ -546,6 +475,11 @@ mod tests {
         );
         assert_eq!(catalog_model_for(&agents, CLAUDE_INSTANCE, "opus"), None);
         assert_eq!(catalog_model_for(&agents, CLAUDE_INSTANCE, "fable"), None);
+        // A generation the catalog moved past, as a stored selection names it.
+        assert_eq!(
+            catalog_model_for(&agents, CLAUDE_INSTANCE, "claude-haiku-4-5"),
+            None
+        );
         assert_eq!(catalog_model_for(&agents, CODEX_INSTANCE, "gpt-4"), None);
     }
 

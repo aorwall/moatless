@@ -10,20 +10,43 @@ schedule:
   # the 03:00 Nightly E2E has released the cluster.
   cron: "0 0 6 * * * *"
   timezone: UTC
-  message: "Check npm for new Claude Code and Codex CLI releases and upgrade the sandbox pins."
+  message: "Check npm for new Claude Code and Codex CLI releases, upgrade the sandbox pins, and move the model catalogs to the current models."
 ---
 
-# Agent CLI upgrade — bump the pins, prove the new CLIs still drive the agent
+# Agent CLI upgrade — bump the pins, move the catalogs, prove the agents run
 
-`@anthropic-ai/claude-code` and `@openai/codex` ship several releases a week.
-The sandbox image bakes one version of each, so the images drift behind the CLIs
-the product is written against. This run closes that gap: read what npm
-publishes, bump every copy of the pin, reconcile the Codex model catalog against
-the new CLI, prove both CLIs still drive the agent, and open one PR.
+`@anthropic-ai/claude-code` and `@openai/codex` ship several releases a week,
+and new Claude and Codex models arrive between them. The sandbox image bakes one
+version of each CLI and the catalog pins each model choice to one model id, so
+both drift behind what the product could run. This run closes that gap: read
+what npm publishes, bump every copy of the pin, reconcile both model catalogs,
+prove both CLIs still drive the agent, and open one PR.
 
-Open a PR only when something moved. Nothing to bump is a normal result — say so
-in one line and stop. Do not open an empty PR, and do not bump anything this
-prompt does not name.
+Open a PR only when something moved. Nothing to bump and no catalog change is a
+normal result — say so in one line and stop. Do not open an empty PR, and do not
+bump anything this prompt does not name.
+
+## 0. Carry on an earlier run's open PR
+
+List this loop's open PRs first:
+
+```bash
+moat gh pr list --state open --search 'in:title "chore: bump claude-code" OR in:title "chore: move the claude catalog"'
+```
+
+When one is open, do this run on its branch rather than beside it: check the
+branch out, `git merge origin/main`, then run every step below. Commit the
+run's changes on top and push with a plain `git push`; rewrite the title and
+body with `moat gh pr edit` so they describe the branch as it now stands.
+
+Never rebase or force-push that branch: a person may have pushed review fixes
+to it, and a rewrite drops them. The repo squash-merges, so the extra commits
+cost nothing. When the merge conflicts, report the conflicting files, push
+nothing, and stop.
+
+Never stop only because a PR is open, and never open a second one: an
+unmerged PR then holds every later release and model back until a person
+notices.
 
 ## 1. Read what is pinned and what is published
 
@@ -38,7 +61,8 @@ npm view @openai/codex version
 Take the `latest` dist-tag, which is what `npm view <pkg> version` prints. Do not
 take `next`.
 
-When both pins already match, stop here.
+When both pins already match, skip to section 3b: a new Claude model needs no
+new CLI when the pinned one already reaches its `minCli`.
 
 ## 2. Bump every copy of the pin
 
@@ -62,6 +86,8 @@ grep -rn "<old-claude-version>\|<old-codex-version>" --include='*' . | grep -v n
 
 ## 3. Reconcile the Codex model catalog
 
+Skip this when the Codex pin did not move.
+
 The Codex model list is baked into each CLI build, so a Codex bump can add,
 remove or re-default a model. Ask the new CLI directly rather than guessing —
 `model/list` over the app-server is the authority.
@@ -82,30 +108,86 @@ proxy's own default marked `isDefault`. Those ids are what would land in the tab
 and no Codex task can run one.
 
 Each line is `id`, `displayName`, `hidden`, `isDefault` and the reasoning
-efforts. Reconcile four places against them:
+efforts. Reconcile these places against them:
 
-- `crates/tasks/src/agent/catalog.rs` — `CODEX.models`, in the order `model/list`
-  returns them, after the `"default"` entry. Skip a `hidden` model.
-- `crates/t3code/src/agent/catalog.rs` — the same list, as `UiRpcModelEntry`.
-- `crates/t3code/src/providers.rs` — `CODEX_EFFORT_LEVELS` names only the models
-  that accept more than `CODEX_BASE_EFFORT_LEVELS`. Codex fails the whole turn on
-  an effort its model rejects, so a row that publishes one hands out a choice
-  that cannot run.
-- `DEFAULT_CODEX_MODEL` in both `crates/core/src/config.rs` and
-  `crates/sandbox/src/agent/codex_app_server/session.rs` — set to the entry whose
-  `isDefault` is true, and keep the two identical.
+- `crates/types/src/model.rs` — `CodexModel`: a variant per model in the order
+  `model/list` returns them, its `id`, `label`, `price` and `effort_levels`.
+  Skip a `hidden` model. Codex fails the whole turn on an effort its model
+  rejects, so `effort_levels` must name only what the probe lists for it.
+- `crates/core/src/agent_catalog.rs` — `CODEX.models`, the same order, after
+  the `DEFAULT_MODEL` entry.
+- `DEFAULT_CODEX_MODEL` in `crates/core/src/config.rs` — set to the entry whose
+  `isDefault` is true.
 
 Label a model the way the catalog already labels its siblings: `GPT-6 Astra` for
-`gpt-6-astra`, spaces rather than the hyphens `displayName` uses.
+`gpt-6-astra`, spaces rather than the hyphens `displayName` uses. Price a new
+model from OpenAI's published rates; when you cannot find them, say so in the
+PR body rather than copying a sibling's.
 
-The published Codex list is asserted verbatim in `providers.rs`'s
-`codex_models_are_published_unchanged`. Update that test to the new list — it is
-what stops a silent drift, so it moves with the catalog, never around it.
+The published Codex list is asserted verbatim in `crates/t3code/src/providers.rs`
+by `codex_models_are_published_unchanged` and
+`codex_models_keep_the_catalogues_own_names`. Update those tests to the new list
+— they are what stops a silent drift, so they move with the catalog, never
+around it.
 
-Claude Code needs no equivalent step. Its catalog entries are the aliases
-(`opus`, `sonnet`, `haiku`, `fable`), and an alias already resolves to the latest
-model behind it. Check `claude --help` for a new alias and add it only if one
-appeared.
+## 3b. Reconcile the Claude model catalog
+
+Run this every time, whether or not a pin moved.
+
+An alias does **not** follow the latest model on its own.
+`ClaudeModel::api_id` in `crates/types/src/model.rs` resolves `opus`, `sonnet`,
+`haiku` and `fable` to one model id before the CLI sees it, because the proxy
+routes on the id. `claude --help` therefore says nothing about what this
+catalog runs. The probe compares that table with upstream T3's model manifest,
+where each current model lists the bare alias it answers to:
+
+```bash
+scripts/claude-model-probe.sh
+```
+
+Act on each line of its `== changes` section, `alias: ours -> latest`:
+
+1. **Move the alias only when it can run.** Its `minCli` must not carry
+   `(>pin)` against the pin this run ends with, and `routable` must be `yes`.
+
+   When either fails, leave the alias and say which in the PR body. A model the
+   proxy does not list fails every turn that picks it.
+2. **Set `ClaudeModel::api_id` to `latest` and `label` to the probe's `name`
+   verbatim.**
+
+   T3 matches a stored selection against the slug and renders the name, and
+   `published_slug` publishes `api_id` as that slug.
+3. **Set `ClaudeModel::price` from the pricing row the probe prints.** Use base
+   input, 5m cache write, cache read and output, in that order.
+
+   A model with several rows is priced by prompt length. Take the shortest
+   prompt's row and say so in the `price` doc.
+4. **Keep the old model priced.** Turns that ran on it are still reported
+   under its id. Add its family to `EARLIER_CLAUDE` with its own row from the
+   pricing page, unless an entry there already prices it right. Keep the list
+   most specific first.
+5. **Update the tests that spell the ids and names out:**
+   `claude_models_are_published_under_t3s_canonical_names` and
+   `claude_models_are_named_the_way_t3_names_them` in
+   `crates/t3code/src/providers.rs`,
+   `a_requested_alias_reaches_the_cli_as_a_model_id` in
+   `crates/sandbox/src/agent/options.rs`, and the tests in
+   `crates/types/src/model.rs`. Then search for the old id
+   (`grep -rn '<old-id>' crates --include='*.rs'`): a test using it as a
+   picker slug moves to the new one; a test about a model the catalog does not
+   name keeps it.
+
+Compare the `catalog:` price printed beside each pricing row even when no
+alias moved, and correct a price that disagrees. A `(no catalog change)` line
+with every price matching needs nothing here.
+
+A line reading `alias: no current model in the manifest` means upstream T3
+dropped or renamed the model the alias answers to. Move nothing for it, and
+name it in the PR body.
+
+A new alias (`claude --help` lists one `ClaudeModel` has no variant for) is a
+new variant across `alias`, `api_id`, `label`, `price` and `ALL`, plus an
+entry in `crates/core/src/agent_catalog.rs`'s Claude model list.
 
 ## 4. Verify
 
@@ -113,9 +195,11 @@ Run the repo's Rust floor first, from the checkout root:
 
 ```bash
 cargo clippy --workspace --all-targets -- -D warnings
+cargo test -p moatless-types
 cargo test -p moatless-t3code
 cargo test -p moatless-tasks
 cargo test -p moatless-core
+cargo test -p moatless-sandbox --lib
 ```
 
 Then prove the new CLIs actually drive the agent. This is the step a version
@@ -124,7 +208,9 @@ CLIs into a temp prefix and point the transport E2E at them.
 
 Install both even when only one moved — the other's version is then the pin
 already in `cli-versions.env`, which keeps one command shape for every run.
-Which transport gates the PR is the rule below the block.
+Which transport gates the PR is the rule below the block. When section 3b moved
+an alias, set `CLAUDE_TEST_MODEL` to the new id, so the run proves the model
+answers through the CLI and not only through `curl`.
 
 ```bash
 npm i --prefix /tmp/cli-probe "@anthropic-ai/claude-code@<new-claude>" "@openai/codex@<new-codex>" --no-audit --no-fund
@@ -158,7 +244,8 @@ Codex 401s through five reconnects, so an empty variable reads as a broken CLI.
 Echo the four variables as non-empty before you trust a failure. A bump verified
 only by `clippy` is a bump nobody checked.
 
-**The gate covers the CLIs this run is bumping, and only those.** When one CLI
+**The gate covers the CLIs this run is bumping and the Claude models it
+moves, and only those.** When one CLI
 is already at `latest`, its transport is not evidence about this change: its
 result goes in the PR body as context, and a failure there does not hold the
 PR. A failing transport for a CLI you *are* bumping is the result of the run —
@@ -180,10 +267,12 @@ One commit, conventional-commit title, header at most 100 characters:
 
 ```
 chore: bump claude-code to <ver> and codex to <ver>
+chore: move the claude catalog to <model ids>     # no pin moved
 ```
 
-Use no scope. The code-review loop's `ignored_title_patterns` skips
-`chore(deps`, and this PR needs a review before a human merges it.
+Name only the CLIs that moved. Use no scope. The code-review loop's
+`ignored_title_patterns` skips `chore(deps`, and this PR needs a review before
+a human merges it.
 
 The body carries what a reviewer cannot get from the diff:
 
@@ -191,6 +280,9 @@ The body carries what a reviewer cannot get from the diff:
 - Every Codex model added, removed or re-defaulted, and the `model/list` field
   that says so. A changed `DEFAULT_CODEX_MODEL` is the line to lead with — it
   changes what every task running "Default" costs.
+- Every Claude alias moved, old id → new id, with its old and new price. An
+  alias the probe flagged but this run left, and why: `minCli` or `routable`.
+- Every price corrected without a model move, old → new.
 - The E2E result per transport: passed, failed, or not run for an explicitly
   named reason. When the failure is a credential, section 4 says whether it
   holds the PR: it does for a CLI this run bumps, and it does not for one
@@ -203,5 +295,4 @@ Create it with `moat gh pr create`, never bare `gh`.
 It does not bump `TASK_VERSION`, `RUST_VERSION` or anything else in
 `cli-versions.env` — those move with the toolchain, not with the agent CLIs, and
 `RUST_VERSION` is pinned to `rust-toolchain.toml` by the `toolchain-drift` CI
-job. It does not merge its own PR, and it does not touch a PR from an earlier
-run: when one is still open, say so and stop.
+job. It does not merge its own PR.
