@@ -139,10 +139,15 @@ RUN ARCH=$(dpkg --print-architecture) && \
 # sccache wrapper (copied in with sccache below). An ENV and bash.bashrc rather
 # than the ENTRYPOINT, deliberately: Kubernetes replaces the ENTRYPOINT with
 # the pod `command`, and a script sourced per shell renews the 12-hour token.
+# Line 1 of bash.bashrc, above its `$PS1` return: a `bash -c` with no SHLVL and
+# a socket on stdin, which is how Claude Code's Bash tool runs, takes bash's
+# rshd path, reads only bash.bashrc and skips BASH_ENV. The perl line fails
+# the build if that shell misses the setup.
 COPY docker/codeartifact/codeartifact-env.sh /etc/codeartifact-env.sh
 RUN printf '%s\n' '. /etc/codeartifact-env.sh' \
         '[ -r /etc/sccache-env.sh ] && . /etc/sccache-env.sh' > /etc/sandbox-env.sh \
-    && echo '. /etc/sandbox-env.sh' >> /etc/bash.bashrc
+    && sed -i '1i . /etc/sandbox-env.sh' /etc/bash.bashrc \
+    && perl -MSocket -e 'socketpair(my $s, my $p, AF_UNIX, SOCK_STREAM, PF_UNSPEC) or die; open(STDIN, "<&", $s) or die; delete $ENV{SHLVL}; exec "bash", "-c", "type -t _codeartifact_env"'
 ENV BASH_ENV=/etc/sandbox-env.sh
 
 # kubectl — pinned. Built with Go 1.24+, which clears the critical go/stdlib

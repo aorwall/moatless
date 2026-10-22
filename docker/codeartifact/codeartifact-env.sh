@@ -1,5 +1,5 @@
 # /etc/codeartifact-env.sh: sourced by every bash through /etc/sandbox-env.sh,
-# which non-interactive ones read as BASH_ENV and interactive ones through
+# which most non-interactive ones read as BASH_ENV and the rest through
 # /etc/bash.bashrc (Dockerfile.sandbox-base).
 # The image wires it there because Kubernetes never runs the ENTRYPOINT.
 #

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Tests docker/sccache/sccache-env.sh against a fake `sccache` on PATH.
 set -euo pipefail
+# A socket on stdin sends the `env -i` shells down bash's rshd path, which
+# skips BASH_ENV (Dockerfile.sandbox-base); Claude Code's Bash tool hands one.
+exec </dev/null
 
 script="$(cd "$(dirname "$0")" && pwd)/sccache-env.sh"
 work="$(mktemp -d)"
