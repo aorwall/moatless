@@ -194,6 +194,7 @@ impl ScheduleRunner {
             )),
             source_task_id: None,
             audience: Audience::Everyone,
+            replies_to: Vec::new(),
         };
 
         let mut is_new_task = false;
@@ -421,6 +422,7 @@ mod tests {
             external_event_id: Some("scheduled:sch-1:1780000000".to_string()),
             source_task_id: None,
             audience: Audience::Everyone,
+            replies_to: Vec::new(),
         }
     }
 

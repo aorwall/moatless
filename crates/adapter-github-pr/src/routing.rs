@@ -7,6 +7,7 @@ use tracing::{debug, info, warn};
 
 use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
 use moatless_adapter_model::binding::CONNECTED_THREAD_BINDING_ORIGIN;
+use moatless_adapter_model::binding::{BindReason, BindScope, hears_only_replies};
 use moatless_adapter_model::capabilities::AdapterInboundPresentation;
 use moatless_adapter_model::error::AdapterError;
 use moatless_adapter_model::loops::delivery_only_subscription;
@@ -49,6 +50,34 @@ pub(super) fn delivery_only_rule(
     delivery_only_subscription(connection, AdapterKind::GithubPr, repo_full_name)
 }
 
+/// What the event says of the task named as its author: that it opened the
+/// pull request or pushed to it, or else commented, with what a reply to that
+/// comment carries.
+fn origin_scope(msg: &InboundMessage) -> BindScope {
+    let event_id = msg.external_event_id.as_deref().unwrap_or_default();
+    if super::external_id::is_opened(event_id) {
+        return BindScope::because(BindReason::Creator);
+    }
+    if super::external_id::is_synchronize(event_id) {
+        return BindScope::because(BindReason::Contributor);
+    }
+    let reply_keys = msg
+        .adapter_context
+        .get(super::reply_keys::OPENS_KEY)
+        .and_then(serde_json::Value::as_array)
+        .map(|keys| {
+            keys.iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    BindScope {
+        reason: Some(BindReason::Commenter),
+        reply_keys,
+    }
+}
+
 impl GithubPrInboundRouter {
     /// Route an inbound GitHub PR message to tasks bound to its pull request.
     ///
@@ -60,7 +89,7 @@ impl GithubPrInboundRouter {
         &self,
         connection: &AdapterConnection,
         rule: Option<&SubscriptionMatch>,
-        msg: InboundMessage,
+        mut msg: InboundMessage,
     ) -> Result<(), AdapterError> {
         if let Some(rule) = rule {
             if !rule.active {
@@ -121,6 +150,14 @@ impl GithubPrInboundRouter {
             },
         };
 
+        // Tasks post as their owner, so a sender match on a task's own
+        // comment would make every task of that owner answer a commenter
+        // who mentioned the owner.
+        if origin_task_id.is_some() {
+            msg.replies_to
+                .retain(|key| !super::reply_keys::is_addressed(key));
+        }
+
         let mut bindings = binding_repo
             .for_subject(ADAPTER, SUBJECT_KIND, &subject_key)
             .await?;
@@ -132,9 +169,16 @@ impl GithubPrInboundRouter {
 
         // If the originating task isn't subscribed yet (e.g. agent ran
         // `gh pr comment` from a task that never connected to the PR), attach a
-        // binding so future events fan out to it too.
+        // binding so future events fan out to it too. A bound task's comment
+        // still writes, to record what a reply to it will carry.
         if let Some(origin_task_id) = origin_task_id.as_deref() {
-            if !bindings.iter().any(|s| s.task_id == origin_task_id) {
+            let scope = origin_scope(&msg);
+            let bound_at = bindings.iter().position(|s| s.task_id == origin_task_id);
+            let widens = |bound: &TaskBinding| {
+                !scope.reply_keys.is_empty()
+                    || (hears_only_replies(bound) && scope.reason > Some(BindReason::Commenter))
+            };
+            if bound_at.is_none_or(|at| widens(&bindings[at])) {
                 match self
                     .upsert_binding(
                         connection,
@@ -142,10 +186,14 @@ impl GithubPrInboundRouter {
                         origin_task_id,
                         &msg.thread_properties,
                         ORIGIN_CONNECTED_THREAD,
+                        &scope,
                     )
                     .await
                 {
-                    Ok(s) => bindings.push(s),
+                    Ok(s) => match bound_at {
+                        Some(at) => bindings[at] = s,
+                        None => bindings.push(s),
+                    },
                     Err(e) => {
                         warn!(
                             task_id = %origin_task_id,
@@ -168,7 +216,7 @@ impl GithubPrInboundRouter {
         // Origin is irrelevant here: an agent-created PR still gets a review task,
         // and a task never receives back an event it is named as the author of.
         let is_pr_open_event = msg.external_event_id.as_deref().is_some_and(|id| {
-            id.starts_with("github:pr:opened:") || id.starts_with("github:pr:reopened:")
+            super::external_id::is_opened(id) || super::external_id::is_reopened(id)
         });
 
         // The binding of a task this very event created, so the shared router can
@@ -215,6 +263,7 @@ impl GithubPrInboundRouter {
                                 &task_id,
                                 &msg.thread_properties,
                                 ORIGIN_ADAPTER_EVENT,
+                                &BindScope::default(),
                             )
                             .await?;
 
@@ -506,6 +555,7 @@ impl GithubPrInboundRouter {
             )),
             source_task_id: None,
             audience: Audience::Everyone,
+            replies_to: Vec::new(),
         }
     }
 
@@ -521,6 +571,7 @@ impl GithubPrInboundRouter {
         task_id: &str,
         thread_properties: &serde_json::Value,
         origin: &str,
+        scope: &BindScope,
     ) -> Result<TaskBinding, AdapterError> {
         let subject = GithubPrSubject::from_thread_properties(thread_properties)?;
         let subject_key = subject.key();
@@ -537,6 +588,7 @@ impl GithubPrInboundRouter {
                 destination_config,
                 origin,
                 None,
+                scope,
             )
             .await
     }
@@ -645,6 +697,57 @@ pub(crate) mod tests {
     use moatless_types::adapter::AdapterKind;
 
     use super::delivery_only_rule;
+    use super::origin_scope;
+    use moatless_adapter_model::binding::BindReason;
+    use moatless_types::adapter::{Audience, InboundMessage};
+
+    fn authored(external_event_id: &str, adapter_context: serde_json::Value) -> InboundMessage {
+        InboundMessage {
+            adapter_kind: AdapterKind::GithubPr,
+            source_id: "acme/widgets".into(),
+            thread_id: None,
+            message_thread_id: "7".into(),
+            user_id: "u_1".into(),
+            author: None,
+            sender_external_id: None,
+            text: String::new(),
+            file_ids: vec![],
+            thread_properties: serde_json::json!({}),
+            adapter_context,
+            external_event_id: Some(external_event_id.into()),
+            source_task_id: Some("t_1".into()),
+            audience: Audience::Everyone,
+            replies_to: Vec::new(),
+        }
+    }
+
+    /// The event a task is named as the author of says why it is bound: the
+    /// pull request it opened or pushed to is its work; a comment is not.
+    #[test]
+    fn the_authored_event_names_the_bind_reason() {
+        assert_eq!(
+            origin_scope(&authored(
+                "github:pr:opened:acme/widgets#7",
+                serde_json::json!({})
+            ))
+            .reason,
+            Some(BindReason::Creator)
+        );
+        assert_eq!(
+            origin_scope(&authored(
+                "github:pr:synchronize:acme/widgets#7:abc",
+                serde_json::json!({})
+            ))
+            .reason,
+            Some(BindReason::Contributor)
+        );
+        let comment = origin_scope(&authored(
+            "github:ic:5",
+            serde_json::json!({ crate::reply_keys::OPENS_KEY: ["github:ic:5"] }),
+        ));
+        assert_eq!(comment.reason, Some(BindReason::Commenter));
+        assert_eq!(comment.reply_keys, vec!["github:ic:5".to_string()]);
+    }
 
     fn connection(owner_user_id: Option<&str>) -> AdapterConnection {
         let now = Utc::now();

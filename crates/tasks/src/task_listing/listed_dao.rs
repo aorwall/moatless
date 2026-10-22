@@ -385,6 +385,7 @@ pub(crate) async fn list(
                                   'status_read_at', bound.status_read_at,
                                   'linked_at', bound.linked_at,
                                   'origin', bound.origin,
+                                  'bind_reason', bound.bind_reason,
                                   'review_decision', bound.review_decision,
                                   'mergeable_state', bound.mergeable_state,
                                   'watching', bound.watching
@@ -408,6 +409,7 @@ pub(crate) async fn list(
                                AS status_read_at,
                            b.created_at AS linked_at,
                            b.origin AS origin,
+                           b.metadata ->> 'bind_reason' AS bind_reason,
                            b.external_review_decision AS review_decision,
                            b.external_mergeable_state AS mergeable_state,
                            b.watching,

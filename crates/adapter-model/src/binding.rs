@@ -40,6 +40,103 @@ pub const CONNECTED_THREAD_BINDING_ORIGIN: &str = "connected_thread";
 /// Producer: a CLI-driven endpoint filed the subject on the task's behalf.
 pub const TASK_OWNED_BINDING_ORIGIN: &str = "task_owned";
 
+/// The role a Binding's task holds on its subject, in `metadata.bind_reason`.
+///
+/// A [`Self::Commenter`] hears only what its adapter marks as answering its
+/// writing; every other role hears every event. Weakest first, persisted:
+/// `PgTaskBindingDao::upsert` keeps the strongest a row has held, in this order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum BindReason {
+    /// The task wrote on the subject without working it, as a comment does.
+    Commenter,
+    /// The task changed the subject's content, as a push to a PR branch does.
+    Contributor,
+    /// The task, or a person for it, asked to follow the subject by name.
+    Follower,
+    /// The task created the subject.
+    Creator,
+}
+
+/// The `metadata` key holding a Binding's [`BindReason`].
+pub const BIND_REASON_KEY: &str = "bind_reason";
+/// The `metadata` key holding the reply keys of what a Binding's task wrote.
+///
+/// A reply key is an adapter-defined string an inbound event lists in
+/// `InboundMessage::replies_to` when it answers that writing.
+pub const REPLY_KEYS_KEY: &str = "reply_keys";
+
+impl BindReason {
+    /// The persisted spelling.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Commenter => "commenter",
+            Self::Contributor => "contributor",
+            Self::Follower => "follower",
+            Self::Creator => "creator",
+        }
+    }
+
+    /// The role `binding` records. `None` for a row written before roles
+    /// were recorded and for a writer that records none: both keep hearing
+    /// every event, so `None` must never be read as [`Self::Commenter`].
+    pub fn of(binding: &TaskBinding) -> Option<Self> {
+        match binding.metadata.get(BIND_REASON_KEY)?.as_str()? {
+            "commenter" => Some(Self::Commenter),
+            "contributor" => Some(Self::Contributor),
+            "follower" => Some(Self::Follower),
+            "creator" => Some(Self::Creator),
+            _ => None,
+        }
+    }
+}
+
+/// Whether `binding`'s task hears only replies to what it wrote.
+pub fn hears_only_replies(binding: &TaskBinding) -> bool {
+    BindReason::of(binding) == Some(BindReason::Commenter)
+}
+
+/// Whether any of `replies_to` names something `binding`'s task wrote.
+pub fn holds_reply_key(binding: &TaskBinding, replies_to: &[String]) -> bool {
+    binding
+        .metadata
+        .get(REPLY_KEYS_KEY)
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|keys| {
+            keys.iter()
+                .filter_map(serde_json::Value::as_str)
+                .any(|key| replies_to.iter().any(|reply| reply == key))
+        })
+}
+
+/// What a bind records beyond the subject: why, and what the task wrote there.
+#[derive(Debug, Clone, Default)]
+pub struct BindScope {
+    /// `None` writes no reason, leaving the row hearing every event.
+    pub reason: Option<BindReason>,
+    /// Added to the keys the row already holds, never replacing them.
+    pub reply_keys: Vec<String>,
+}
+
+impl BindScope {
+    /// A bind for `reason` that records no writing.
+    pub fn because(reason: BindReason) -> Self {
+        Self {
+            reason: Some(reason),
+            reply_keys: Vec::new(),
+        }
+    }
+
+    /// Write this scope into a new row's `metadata`.
+    pub fn write_into(&self, metadata: &mut serde_json::Map<String, serde_json::Value>) {
+        if let Some(reason) = self.reason {
+            metadata.insert(BIND_REASON_KEY.into(), reason.as_str().into());
+        }
+        if !self.reply_keys.is_empty() {
+            metadata.insert(REPLY_KEYS_KEY.into(), self.reply_keys.clone().into());
+        }
+    }
+}
+
 /// Build a provider binding context from a task binding. Never persist this
 /// row.
 pub fn binding_context(binding: &TaskBinding) -> BindingContext {
@@ -111,5 +208,87 @@ impl BindingDestination {
             destination_config,
             last_external_event_id: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BIND_REASON_KEY, BindReason, BindScope, hears_only_replies, holds_reply_key};
+    use chrono::Utc;
+    use moatless_types::adapter::{AdapterKind, TaskBinding};
+
+    fn with_metadata(metadata: serde_json::Value) -> TaskBinding {
+        let now = Utc::now();
+        TaskBinding {
+            id: "ts_1".into(),
+            task_id: "t_1".into(),
+            adapter_kind: AdapterKind::Github,
+            subject_kind: "pull_request".into(),
+            subject_key: "acme/widgets#1".into(),
+            connection_id: "pc_1".into(),
+            loop_id: None,
+            destination_config: serde_json::json!({}),
+            metadata,
+            last_external_event_id: None,
+            origin: "connected_thread".into(),
+            created_at: now,
+            last_event_at: now,
+            external_status: None,
+            external_state_kind: None,
+            external_status_raw: None,
+            external_review_decision: None,
+            external_mergeable_state: None,
+            external_status_updated_at: None,
+            active: true,
+            deactivated_at: None,
+            watching: true,
+        }
+    }
+
+    fn scoped(scope: &BindScope) -> TaskBinding {
+        let mut metadata = serde_json::Map::new();
+        scope.write_into(&mut metadata);
+        with_metadata(metadata.into())
+    }
+
+    /// Weakest first, the order `PgTaskBindingDao::upsert` ranks in SQL.
+    #[test]
+    fn every_reason_reads_back_in_rank_order() {
+        let ranked = [
+            BindReason::Commenter,
+            BindReason::Contributor,
+            BindReason::Follower,
+            BindReason::Creator,
+        ];
+        assert!(ranked.windows(2).all(|pair| pair[0] < pair[1]));
+        for reason in ranked {
+            assert_eq!(
+                BindReason::of(&scoped(&BindScope::because(reason))),
+                Some(reason)
+            );
+        }
+    }
+
+    /// A row with no reason, or one this build does not know, hears everything.
+    #[test]
+    fn only_a_recorded_comment_narrows_a_binding() {
+        assert!(hears_only_replies(&scoped(&BindScope::because(
+            BindReason::Commenter
+        ))));
+        assert!(!hears_only_replies(&with_metadata(serde_json::json!({}))));
+        assert!(!hears_only_replies(&with_metadata(
+            serde_json::json!({ BIND_REASON_KEY: "later" })
+        )));
+    }
+
+    #[test]
+    fn a_reply_key_matches_only_what_the_task_wrote() {
+        let row = scoped(&BindScope {
+            reason: Some(BindReason::Commenter),
+            reply_keys: vec!["k:1".into(), "k:2".into()],
+        });
+        assert!(holds_reply_key(&row, &["k:9".into(), "k:2".into()]));
+        assert!(!holds_reply_key(&row, &["k:9".into()]));
+        assert!(!holds_reply_key(&row, &[]));
     }
 }

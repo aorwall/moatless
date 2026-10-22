@@ -8,6 +8,7 @@ use moatless_api_schemas::user::{SendDmRequest, SendDmResponse};
 use super::access::ensure_task_access_only;
 use super::projection::adapter_connection_response;
 use moatless_adapter_model::access::resolve_scope_for_adapter_create;
+use moatless_adapter_model::binding::BindScope;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::outbound::OutboundReply;
 use moatless_identity::ports::ProviderAccount;
@@ -136,6 +137,7 @@ impl AdapterCommands {
                     result.destination_config.clone(),
                     ORIGIN_CONNECTED_THREAD,
                     Some(result.message_external_id.clone()),
+                    &BindScope::default(),
                 )
                 .await?;
             if let Some(followup) = providers.post_binding_followup(adapter_kind) {
@@ -246,6 +248,7 @@ impl AdapterCommands {
                     result.destination_config.clone(),
                     ORIGIN_CONNECTED_THREAD,
                     Some(result.message_external_id.clone()),
+                    &BindScope::default(),
                 )
                 .await?;
             binding.id

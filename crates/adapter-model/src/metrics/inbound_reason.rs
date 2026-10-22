@@ -18,6 +18,8 @@ pub const DUPLICATE_RECEIPT: &str = "duplicate_receipt";
 pub const CREATION_CLAIMED: &str = "creation_claimed";
 /// The audience named someone else, so this binding holds nothing.
 pub const NOT_IN_AUDIENCE: &str = "not_in_audience";
+/// The binding's task only commented, and the event answers nothing it wrote.
+pub const NOT_A_REPLY: &str = "not_a_reply";
 /// Every binding on a subject that had some was passed over, so the event
 /// reached no task at all. The one outcome that is nobody's correct answer.
 pub const NO_RECIPIENTS: &str = "no_recipients";

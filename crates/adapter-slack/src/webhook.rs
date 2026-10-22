@@ -532,6 +532,7 @@ pub(super) async fn normalize(
             // Slack makes no audience distinction: every event goes to every
             // task bound to the channel or thread, as it always has.
             audience: Audience::Everyone,
+            replies_to: Vec::new(),
         }),
         effects,
     })

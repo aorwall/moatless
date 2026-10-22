@@ -440,6 +440,11 @@ async fn normalize_issue_comment(
     .await;
     message.thread_properties["comment_id"] = serde_json::json!(comment_id);
     message.source_task_id = source_task_id;
+    message.replies_to =
+        super::reply_keys::answered_by_conversation_comment(body, context.sender_login);
+    message.adapter_context[super::reply_keys::OPENS_KEY] = serde_json::json!(
+        super::reply_keys::opened_by_conversation_comment(comment_id, body)
+    );
     Ok(PrimaryWebhook::Message(Box::new(message)))
 }
 
@@ -499,6 +504,10 @@ async fn normalize_review_comment(
     .await;
     message.thread_properties["comment_id"] = serde_json::json!(comment_id);
     message.thread_properties["in_reply_to_id"] = serde_json::json!(in_reply_to_id);
+    message.replies_to = super::reply_keys::answered_by_review_comment(in_reply_to_id);
+    message.adapter_context[super::reply_keys::OPENS_KEY] = serde_json::json!(
+        super::reply_keys::opened_by_review_comment(comment_id, in_reply_to_id)
+    );
     message.source_task_id =
         moatless_adapter_model::footer::parse_task_id_from_body(context.frontend_url, body);
     Ok(PrimaryWebhook::Message(Box::new(message)))
@@ -768,6 +777,7 @@ async fn inbound_message(
         external_event_id: Some(external_event_id),
         source_task_id: None,
         audience,
+        replies_to: Vec::new(),
     }
 }
 

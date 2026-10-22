@@ -180,6 +180,10 @@ pub struct ListedPullRequest {
     pub linked_at: DateTime<Utc>,
     /// `task_bindings.origin`.
     pub origin: String,
+    /// `task_bindings.metadata.bind_reason`; `None` for a Binding that records
+    /// none, and for a blob written before the key was read.
+    #[serde(default)]
+    pub bind_reason: Option<String>,
     /// Latest review verdict, GitHub's spelling. `None` until one is recorded.
     pub review_decision: Option<String>,
     /// GitHub's coarse mergeable state. `None` until it is computed.

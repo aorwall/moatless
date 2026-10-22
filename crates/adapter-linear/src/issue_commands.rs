@@ -12,7 +12,7 @@ use moatless_api_schemas::linear::{
 use serde_json::{Value, json};
 use tracing::warn;
 
-use moatless_adapter_model::binding::TASK_OWNED_BINDING_ORIGIN;
+use moatless_adapter_model::binding::{BindScope, TASK_OWNED_BINDING_ORIGIN};
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_core::config::Config;
 use moatless_loops::adapters::access::ensure_task_access_only;
@@ -891,6 +891,7 @@ async fn create_issue_binding(
             // when the issue reaches a terminal state.
             TASK_OWNED_BINDING_ORIGIN,
             None,
+            &BindScope::default(),
         )
         .await
         .inspect_err(|e| {

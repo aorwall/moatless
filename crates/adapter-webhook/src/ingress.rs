@@ -102,6 +102,7 @@ pub(crate) fn parse_inbound(
             // A webhook payload carries no audience distinction: every event
             // goes to every task bound to the source, as it always has.
             audience: Audience::Everyone,
+            replies_to: Vec::new(),
         },
     })
 }

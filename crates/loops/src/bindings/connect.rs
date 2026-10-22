@@ -9,6 +9,7 @@ use std::sync::Arc;
 use tracing::{info, warn};
 
 use crate::bindings::operations::Bindings;
+use moatless_adapter_model::binding::BindScope;
 use moatless_adapter_model::capabilities::AdapterDestinationBuilder;
 use moatless_adapter_model::connections::ConnectionRouting;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
@@ -53,10 +54,10 @@ impl Connector {
     /// `find_by_subject`.
     #[expect(
         clippy::too_many_arguments,
-        reason = "eight against the threshold of seven: the &self receiver plus seven \
+        reason = "nine against the threshold of seven: the &self receiver plus eight \
                   data parameters, no ports. adapter_label and task_id are read for \
                   the completion log; adapter_destination, source_id, \
-                  external_thread_id, thread_properties, and filter_user_id are \
+                  external_thread_id, thread_properties, filter_user_id, and scope are \
                   forwarded to resolve_connection, resolve_optional_subscription, and \
                   write_binding. The three ports live on Connector's fields, so this \
                   width is the binding's own identity threaded to its three helpers, \
@@ -72,6 +73,7 @@ impl Connector {
         external_thread_id: &str,
         thread_properties: &serde_json::Value,
         filter_user_id: Option<&str>,
+        scope: &BindScope,
     ) -> Result<(Option<SubscriptionMatch>, TaskBinding), AdapterError> {
         let connection = self
             .resolve_connection(adapter_destination, source_id, thread_properties)
@@ -95,6 +97,7 @@ impl Connector {
                 external_thread_id,
                 thread_properties,
                 filter_user_id,
+                scope,
             )
             .await?;
 
@@ -116,13 +119,13 @@ impl Connector {
     /// Subscription, in which case `upsert_binding` writes a `NULL` `loop_id`.
     #[expect(
         clippy::too_many_arguments,
-        reason = "nine against the threshold of seven: the &self receiver plus eight \
+        reason = "ten against the threshold of seven: the &self receiver plus nine \
                   data parameters, no ports. This method builds one binding \
                   destination and upserts it. adapter_destination and filter_user_id \
                   are read (the destination builder; the effective-user resolution at \
                   the top); subscription is read for its effective user and then \
-                  forwarded; connection, source_id, task_id, external_thread_id, and \
-                  thread_properties are forwarded to the destination builder or to \
+                  forwarded; connection, source_id, task_id, external_thread_id, \
+                  thread_properties, and scope are forwarded to the destination builder or to \
                   Bindings::bind. The four ports this file \
                   reads now live on Connector's fields, so the width here is the \
                   binding's own identity, with no frame above to hoist a data argument \
@@ -138,6 +141,7 @@ impl Connector {
         external_thread_id: &str,
         thread_properties: &serde_json::Value,
         filter_user_id: Option<&str>,
+        scope: &BindScope,
     ) -> Result<TaskBinding, AdapterError> {
         let resolved_filter_uid = filter_user_id
             .map(str::to_string)
@@ -162,6 +166,7 @@ impl Connector {
                 destination.destination_config,
                 crate::bindings::runtime::ORIGIN_CONNECTED_THREAD,
                 destination.last_external_event_id,
+                scope,
             )
             .await
     }
@@ -244,6 +249,7 @@ impl Connector {
         task_id: &str,
         thread_properties: serde_json::Value,
         filter_user_id: Option<&str>,
+        scope: &BindScope,
     ) -> Result<(Option<SubscriptionMatch>, TaskBinding), AdapterError> {
         let adapter_destination = self
             .github_destination
@@ -257,6 +263,7 @@ impl Connector {
             "",
             &thread_properties,
             filter_user_id,
+            scope,
         )
         .await
     }

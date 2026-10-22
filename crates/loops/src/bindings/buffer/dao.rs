@@ -320,6 +320,7 @@ mod tests {
             external_event_id: Some(format!("gh:{text}")),
             source_task_id: None,
             audience: Audience::Everyone,
+            replies_to: Vec::new(),
         }
     }
 

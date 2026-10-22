@@ -34,7 +34,7 @@ pub(super) fn thread_pull_requests(conversation: &Conversation) -> Vec<Value> {
                 "repository": repository,
                 "number": pr.number,
                 "url": url,
-                "source": thread_pull_request_source(&pr.origin),
+                "source": thread_pull_request_source(&pr.origin, pr.bind_reason.as_deref()),
                 "linkedAt": instant(pr.linked_at),
                 "snapshot": pull_request_snapshot(pr, &repository),
                 // Moatless reads no stack from GitHub, so a link never carries
@@ -78,14 +78,14 @@ fn pull_request_host(url: &str) -> String {
 
 /// Who linked a pull request, as T3 names it.
 ///
-/// Moatless records the direction a Task and a subject met, not who acted, so
-/// only the CLI-filed binding maps onto one of T3's authors; everything else
-/// reports `manual`.
-fn thread_pull_request_source(origin: &str) -> &'static str {
-    match origin {
-        // `moatless_adapter_model::binding::TASK_OWNED_BINDING_ORIGIN`, spelled
-        // out: that crate sits behind a band this one reaches through a seam.
-        "task_owned" => "created",
+/// Only a Binding whose Task filed or created the subject maps onto one of
+/// T3's authors; everything else reports `manual`.
+fn thread_pull_request_source(origin: &str, bind_reason: Option<&str>) -> &'static str {
+    // `TASK_OWNED_BINDING_ORIGIN` and `BindReason::Creator` from
+    // `moatless_adapter_model::binding`, spelled out: that crate sits behind a
+    // band this one reaches through a seam.
+    match (origin, bind_reason) {
+        ("task_owned", _) | (_, Some("creator")) => "created",
         _ => "manual",
     }
 }

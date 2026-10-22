@@ -8,6 +8,7 @@
 use std::sync::Arc;
 
 use chrono::Utc;
+use moatless_adapter_model::binding::BindScope;
 use moatless_adapter_model::error::AdapterError;
 use moatless_types::adapter::{AdapterConnection, AdapterKind, TaskBinding};
 use moatless_types::loops::SubscriptionMatch;
@@ -105,12 +106,12 @@ impl Bindings {
     }
 
     /// Bind a subject to a Task, or fold this identity into the Binding that
-    /// already joins the two. `loop_id`, `last_external_event_id` and
-    /// `last_event_at` only ever move forward, so a re-bind never drops what an
-    /// earlier one recorded.
+    /// already joins the two. `loop_id`, `last_external_event_id`,
+    /// `last_event_at` and `scope` only ever move forward, so a re-bind never
+    /// drops what an earlier one recorded.
     #[expect(
         clippy::too_many_arguments,
-        reason = "nine binding-identity data parameters; there is no port bundle \
+        reason = "ten binding-identity data parameters; there is no port bundle \
                   to hoist, so the width is the binding's own identity"
     )]
     pub async fn bind(
@@ -124,12 +125,15 @@ impl Bindings {
         destination_config: serde_json::Value,
         origin: &str,
         last_external_event_id: Option<String>,
+        scope: &BindScope,
     ) -> Result<TaskBinding, AdapterError> {
         let now = Utc::now();
         let filter_uid = destination_config
             .get("filter_user_id")
             .cloned()
             .unwrap_or(serde_json::Value::Null);
+        let mut metadata = serde_json::Map::from_iter([("filter_user_id".into(), filter_uid)]);
+        scope.write_into(&mut metadata);
         let binding = TaskBinding {
             id: format!("ts_{}", uuid::Uuid::new_v4()),
             task_id: task_id.to_string(),
@@ -139,7 +143,7 @@ impl Bindings {
             connection_id: connection.id.clone(),
             loop_id: subscription.map(|r| r.id.clone()),
             destination_config,
-            metadata: serde_json::json!({ "filter_user_id": filter_uid }),
+            metadata: metadata.into(),
             last_external_event_id,
             origin: origin.to_string(),
             created_at: now,

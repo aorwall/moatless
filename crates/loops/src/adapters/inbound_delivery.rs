@@ -132,6 +132,7 @@ mod tests {
                 external_event_id: Some("slack:ts:1700000000.000100".into()),
                 source_task_id: None,
                 audience: Audience::Everyone,
+                replies_to: Vec::new(),
             },
         }
     }

@@ -226,6 +226,58 @@ async fn comments_preserve_footer_provenance_and_parent_audience() {
     );
 }
 
+/// A reply carries the keys of the writing it answers, the same keys the
+/// task's own writing recorded when it was posted, so a task that only
+/// commented hears it.
+#[tokio::test]
+async fn a_reply_names_the_writing_it_answers() {
+    let review_reply = serde_json::json!({
+        "action": "created",
+        "sender": {"login": "alice"},
+        "pull_request": {"number": 42},
+        "comment": {"id": 1001, "in_reply_to_id": 555, "body": "Still broken.", "path": "src/lib.rs"}
+    });
+    let review_reply = message(
+        normalize_payload("pull_request_review_comment", &review_reply, &fake_rule())
+            .await
+            .primary,
+    );
+    let task_joined_thread = crate::reply_keys::opened_by_review_comment(999, Some(555));
+    assert!(
+        review_reply
+            .replies_to
+            .iter()
+            .any(|key| task_joined_thread.contains(key))
+    );
+
+    let conversation = serde_json::json!({
+        "action": "created",
+        "sender": {"login": "Alice"},
+        "issue": {"number": 42, "pull_request": {"url": "x"}},
+        "comment": {"id": 125, "body": "Done, rebased."}
+    });
+    let conversation = message(
+        normalize_payload("issue_comment", &conversation, &fake_rule())
+            .await
+            .primary,
+    );
+    let task_asked_alice =
+        crate::reply_keys::opened_by_conversation_comment(124, "@alice please rebase");
+    assert!(
+        conversation
+            .replies_to
+            .iter()
+            .any(|key| task_asked_alice.contains(key))
+    );
+    assert_eq!(
+        conversation.adapter_context[crate::reply_keys::OPENS_KEY],
+        serde_json::json!(crate::reply_keys::opened_by_conversation_comment(
+            125,
+            "Done, rebased."
+        ))
+    );
+}
+
 #[tokio::test]
 async fn close_metadata_and_pr_status_are_normalized_together() {
     let mut rule = fake_rule();

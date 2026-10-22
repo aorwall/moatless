@@ -123,6 +123,11 @@ pub struct InboundMessage {
     /// [`Audience::Everyone`], matching prior routing behavior.
     #[serde(default)]
     pub audience: Audience,
+    /// The adapter-defined reply keys of the writing this event answers,
+    /// matched against a Binding's `metadata.reply_keys`. Only a Binding whose
+    /// task hears nothing but replies reads them.
+    #[serde(default)]
+    pub replies_to: Vec<String>,
 }
 
 /// The external system's handle for whoever wrote an inbound event, or `None`

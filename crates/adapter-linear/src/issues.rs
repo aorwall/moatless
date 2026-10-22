@@ -15,7 +15,7 @@ use tracing::{debug, info, warn};
 
 use moatless_core::config::Config;
 
-use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
+use moatless_adapter_model::binding::{ADAPTER_EVENT_BINDING_ORIGIN, BindScope};
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_loops::bindings::operations::Bindings;
 use moatless_ports::sandbox::SandboxWaker;
@@ -338,6 +338,7 @@ async fn provision_issue_task(
             destination_config,
             ADAPTER_EVENT_BINDING_ORIGIN,
             None,
+            &BindScope::default(),
         )
         .await?;
 

@@ -14,7 +14,7 @@ use crate::bindings::recipients::{EventProvenance, resolve_recipients};
 use crate::loops::dao::LoopDao;
 use crate::loops::firing::inbound;
 use crate::loops::firing::receipts_dao::EventReceipts;
-use moatless_adapter_model::binding::binding_context;
+use moatless_adapter_model::binding::{BindScope, binding_context, hears_only_replies};
 use moatless_adapter_model::connections::ConnectionRouting;
 use moatless_adapter_model::delivery::AdapterDeliveryFailure;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
@@ -183,7 +183,7 @@ impl RoutingService {
         subject_kind: &str,
         subject_key: &str,
         destination_config: serde_json::Value,
-    ) -> Result<String, AdapterError> {
+    ) -> Result<Option<String>, AdapterError> {
         if !subscription.active {
             debug!(subscription_id = %subscription.id, "Ignoring external message: task trigger inactive");
             record_inbound(
@@ -245,6 +245,7 @@ impl RoutingService {
                         destination_config.clone(),
                         ORIGIN_CONNECTED_THREAD,
                         msg.external_event_id.clone(),
+                        &BindScope::default(),
                     )
                     .await?;
                 bindings.push(sub);
@@ -271,6 +272,7 @@ impl RoutingService {
                             destination_config.clone(),
                             ORIGIN_ADAPTER_EVENT,
                             None,
+                            &BindScope::default(),
                         )
                         .await?;
                     bindings.push(sub);
@@ -385,6 +387,7 @@ impl RoutingService {
                             destination_config.clone(),
                             ORIGIN_ADAPTER_EVENT,
                             None,
+                            &BindScope::default(),
                         )
                         .await?;
                     new_task_binding_id = Some(sub.id.clone());
@@ -447,17 +450,17 @@ impl RoutingService {
 
     /// Deliver one event to the bindings on its subject that should receive it.
     ///
-    /// The single delivery decision point: resolves the audience via
-    /// [`resolve_recipients`], checks the redelivery receipt, fails loudly when
-    /// a subject with bindings gets no recipient, and returns the last task
-    /// delivered to (or accounted for, when a skip means it already has it).
+    /// The single delivery decision point, via [`resolve_recipients`]. Fails
+    /// loudly when a subject with bindings reaches no task; returns the last
+    /// task reached, or `None` when every binding only commented and this
+    /// answers none.
     pub(crate) async fn fan_out(
         &self,
         connection: &AdapterConnection,
         subscription: &SubscriptionMatch,
         msg: &InboundMessage,
         subject: Fanout<'_>,
-    ) -> Result<String, AdapterError> {
+    ) -> Result<Option<String>, AdapterError> {
         let Fanout {
             adapter_label,
             binding_provider,
@@ -481,6 +484,7 @@ impl RoutingService {
             EventProvenance {
                 author_task_id,
                 parent_author_task_id: parent_author_task_id.as_deref(),
+                replies_to: &msg.replies_to,
             },
         )
         .into_iter()
@@ -526,20 +530,26 @@ impl RoutingService {
             // is gone); marking here would make a review reaching no task
             // falsely report success — the exact fault this signal catches.
             if !recipient_ids.contains(&binding.id) {
+                let reason = if hears_only_replies(&binding) {
+                    inbound_reason::NOT_A_REPLY
+                } else {
+                    inbound_reason::NOT_IN_AUDIENCE
+                };
                 debug!(
                     task_id = %binding.task_id,
                     subject_key,
                     provider = adapter_label,
+                    reason,
                     "Skipping binding: not in this event's audience"
                 );
                 record_inbound(
                     adapter_label,
                     "ignored",
-                    inbound_reason::NOT_IN_AUDIENCE,
+                    reason,
                     &subscription.id,
                     &connection.id,
                 );
-                passed_over.push((binding.task_id, inbound_reason::NOT_IN_AUDIENCE));
+                passed_over.push((binding.task_id, reason));
                 continue;
             }
 
@@ -606,14 +616,23 @@ impl RoutingService {
             delivered_task_id = Some(binding.task_id);
         }
 
-        if let Some(task_id) = delivered_task_id {
-            return Ok(task_id);
+        if delivered_task_id.is_some() {
+            return Ok(delivered_task_id);
         }
 
         // Nothing was bound to the subject, so nothing was expected of this
         // event. The caller decides whether that is a failure of its own.
         if passed_over.is_empty() {
             return Err(SharedAdapterError::ConfigNotFound(subscription.id.clone()).into());
+        }
+
+        // Every task on the subject only commented and this answers none of
+        // them: nothing was owed, so this is no lost event.
+        if passed_over
+            .iter()
+            .all(|(_, reason)| *reason == inbound_reason::NOT_A_REPLY)
+        {
+            return Ok(None);
         }
 
         // Something *was* expected and no task got it. Report it as an error: at
@@ -973,7 +992,11 @@ impl RoutingService {
                 // A `routing_mode: ongoing` Loop fires into an already-open
                 // task, so the task's own skills are held back during
                 // resume; the Loop still means them, so send them here.
-                skills: config.skills.clone(),
+                skills: if serves_loop(binding, &subscription.id) {
+                    config.skills.clone()
+                } else {
+                    Vec::new()
+                },
             })
             .await
             .map_err(|e| AdapterError::task_handoff("deliver a provider turn to a task", e))?;
@@ -990,6 +1013,15 @@ impl RoutingService {
 
         Ok(())
     }
+}
+
+/// Whether `binding`'s task does the work of Loop `loop_id`, and so gets that
+/// Loop's skills with its events: the Loop spawned it, or it bound under the
+/// Loop for more than a comment. A task that only commented on a reviewed pull
+/// request is not its reviewer.
+fn serves_loop(binding: &TaskBinding, loop_id: &str) -> bool {
+    binding.origin == ORIGIN_ADAPTER_EVENT
+        || (binding.loop_id.as_deref() == Some(loop_id) && !hears_only_replies(binding))
 }
 
 /// One event, the bindings on its subject, and what routing already knows
@@ -1024,6 +1056,9 @@ pub struct Fanout<'a> {
 
 #[cfg(test)]
 mod tests {
+    use super::{ORIGIN_ADAPTER_EVENT, ORIGIN_CONNECTED_THREAD, serves_loop};
+    use moatless_types::adapter::TaskBinding;
+
     #[test]
     fn shared_adapter_files_do_not_own_adapter_subject_or_external_id_builders() {
         let shared_files = [
@@ -1073,6 +1108,75 @@ mod tests {
             !code.contains(concat!("filter_", "user_id")),
             "fan_out must ask provenance only, never a sender identity"
         );
+    }
+
+    fn bound_under(origin: &str, loop_id: Option<&str>, reason: Option<&str>) -> TaskBinding {
+        let now = chrono::Utc::now();
+        TaskBinding {
+            id: "ts_1".into(),
+            task_id: "t_1".into(),
+            adapter_kind: moatless_types::adapter::AdapterKind::Github,
+            subject_kind: "pull_request".into(),
+            subject_key: "acme/widgets#1".into(),
+            connection_id: "pc_1".into(),
+            loop_id: loop_id.map(str::to_string),
+            destination_config: serde_json::json!({}),
+            metadata: reason.map_or_else(
+                || serde_json::json!({}),
+                |reason| serde_json::json!({ "bind_reason": reason }),
+            ),
+            last_external_event_id: None,
+            origin: origin.into(),
+            created_at: now,
+            last_event_at: now,
+            external_status: None,
+            external_state_kind: None,
+            external_status_raw: None,
+            external_review_decision: None,
+            external_mergeable_state: None,
+            external_status_updated_at: None,
+            active: true,
+            deactivated_at: None,
+            watching: true,
+        }
+    }
+
+    /// The review Loop's skills go to the task it spawned and to a task that
+    /// bound under it for more than a comment, never to one that only
+    /// commented on a pull request the Loop reviews.
+    #[test]
+    fn loop_skills_reach_only_the_tasks_that_serve_the_loop() {
+        let cases = [
+            (ORIGIN_ADAPTER_EVENT, Some("lp_review"), None, true),
+            (ORIGIN_ADAPTER_EVENT, None, None, true),
+            (
+                ORIGIN_CONNECTED_THREAD,
+                Some("lp_review"),
+                Some("creator"),
+                true,
+            ),
+            (ORIGIN_CONNECTED_THREAD, Some("lp_review"), None, true),
+            (
+                ORIGIN_CONNECTED_THREAD,
+                Some("lp_review"),
+                Some("commenter"),
+                false,
+            ),
+            (
+                ORIGIN_CONNECTED_THREAD,
+                Some("lp_other"),
+                Some("creator"),
+                false,
+            ),
+            (ORIGIN_CONNECTED_THREAD, None, Some("creator"), false),
+        ];
+        for (origin, loop_id, reason, expected) in cases {
+            assert_eq!(
+                serves_loop(&bound_under(origin, loop_id, reason), "lp_review"),
+                expected,
+                "{origin} under {loop_id:?} for {reason:?}"
+            );
+        }
     }
 
     /// A `Vanished` names the row that is gone so an abandoned delivery says

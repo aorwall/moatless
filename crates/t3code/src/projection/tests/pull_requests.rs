@@ -18,6 +18,7 @@ fn bound(repository: &str, number: i64) -> ConversationPullRequest {
         status_read_at: instant_at("2026-02-03T04:05:06Z"),
         linked_at: instant_at("2026-02-03T04:00:00Z"),
         origin: "connected_thread".to_string(),
+        bind_reason: None,
         review_decision: None,
         mergeable_state: None,
         watching: true,
@@ -90,8 +91,9 @@ fn a_thread_row_links_every_bound_pull_request_with_the_primary_first() {
     assert_eq!(thread["linkedPullRequest"]["number"], 7);
 }
 
-/// Moatless records the direction a Task and a subject met, so the CLI's own
-/// binding is the only one T3 can call `created`.
+/// The CLI's own binding and one whose Task created the pull request are
+/// `created`; a Task that only commented, or one bound before reasons were
+/// recorded, is `manual`.
 #[test]
 fn a_thread_row_reports_a_task_owned_binding_as_created_from_the_thread() {
     let mut row = conversation("task-a", "ws-a");
@@ -100,12 +102,22 @@ fn a_thread_row_reports_a_task_owned_binding_as_created_from_the_thread() {
             origin: "task_owned".to_string(),
             ..bound("acme/web", 42)
         },
+        ConversationPullRequest {
+            bind_reason: Some("creator".to_string()),
+            ..bound("acme/web", 9)
+        },
+        ConversationPullRequest {
+            bind_reason: Some("commenter".to_string()),
+            ..bound("acme/web", 8)
+        },
         bound("acme/web", 7),
     ]));
 
     let thread = one_thread(&row);
-    assert_eq!(thread["pullRequests"][0]["source"], "created");
-    assert_eq!(thread["pullRequests"][1]["source"], "manual");
+    let sources: Vec<&Value> = (0..4)
+        .map(|at| &thread["pullRequests"][at]["source"])
+        .collect();
+    assert_eq!(sources, ["created", "created", "manual", "manual"]);
 }
 
 /// What the rows of the composer's pull-request menu and the sidebar's status

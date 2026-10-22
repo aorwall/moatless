@@ -27,14 +27,15 @@ pub struct SubjectEvent<'a> {
     pub new_task_binding_id: Option<&'a str>,
 }
 
-/// Route an Adapter event to the tasks bound to its external subject.
+/// Route an Adapter event to the tasks bound to its external subject; the task
+/// it reached, as `RoutingService::fan_out` answers it.
 pub async fn route_subject_event(
     routing: &RoutingService,
     connection: &AdapterConnection,
     subscription: &SubscriptionMatch,
     msg: &InboundMessage,
     event: SubjectEvent<'_>,
-) -> Result<String, AdapterError> {
+) -> Result<Option<String>, AdapterError> {
     routing
         .fan_out(
             connection,

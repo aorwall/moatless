@@ -150,6 +150,7 @@ impl GithubPrInboundRouter {
             )),
             source_task_id: None,
             audience: Audience::SubjectProducer,
+            replies_to: Vec::new(),
         };
 
         self.record_state_and_notify(

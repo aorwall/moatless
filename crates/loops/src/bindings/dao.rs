@@ -224,6 +224,11 @@ impl PgTaskBindingDao {
         Ok(rows.into_iter().map(TaskBinding::from).collect())
     }
 
+    /// Insert or fold into the existing row. In `metadata`, `bind_reason`
+    /// keeps the stronger of the two in `BindReason` order and `reply_keys`
+    /// takes the union. A row holding no `bind_reason` keeps none, rather than
+    /// a later comment narrowing a pull request that row's task created
+    /// before reasons were recorded.
     pub(crate) async fn upsert(&self, row: &TaskBinding) -> Result<TaskBinding, sqlx::Error> {
         let mut tx = self.0.begin().await?;
         let row = sqlx::query_as::<_, TaskBindingRow>(
@@ -236,7 +241,36 @@ impl PgTaskBindingDao {
                SET connection_id            = EXCLUDED.connection_id,
                    loop_id               = COALESCE(task_bindings.loop_id, EXCLUDED.loop_id),
                    destination_config      = EXCLUDED.destination_config,
-                   metadata                 = task_bindings.metadata || EXCLUDED.metadata,
+                   metadata                 = task_bindings.metadata
+                                              || (EXCLUDED.metadata - 'bind_reason' - 'reply_keys')
+                                              || CASE
+                                                   WHEN NOT task_bindings.metadata ? 'bind_reason'
+                                                     OR NOT EXCLUDED.metadata ? 'bind_reason'
+                                                     THEN '{}'::jsonb
+                                                   WHEN (CASE EXCLUDED.metadata->>'bind_reason'
+                                                           WHEN 'creator' THEN 4
+                                                           WHEN 'follower' THEN 3
+                                                           WHEN 'contributor' THEN 2
+                                                           WHEN 'commenter' THEN 1
+                                                           ELSE 0 END)
+                                                      > (CASE task_bindings.metadata->>'bind_reason'
+                                                           WHEN 'creator' THEN 4
+                                                           WHEN 'follower' THEN 3
+                                                           WHEN 'contributor' THEN 2
+                                                           WHEN 'commenter' THEN 1
+                                                           ELSE 0 END)
+                                                     THEN jsonb_build_object('bind_reason', EXCLUDED.metadata->'bind_reason')
+                                                   ELSE '{}'::jsonb
+                                                 END
+                                              || CASE
+                                                   WHEN EXCLUDED.metadata ? 'reply_keys' THEN jsonb_build_object(
+                                                     'reply_keys',
+                                                     (SELECT COALESCE(jsonb_agg(DISTINCT reply_key), '[]'::jsonb)
+                                                        FROM jsonb_array_elements_text(
+                                                          COALESCE(task_bindings.metadata->'reply_keys', '[]'::jsonb)
+                                                          || (EXCLUDED.metadata->'reply_keys')) AS reply_key))
+                                                   ELSE '{}'::jsonb
+                                                 END,
                    last_external_event_id   = COALESCE(EXCLUDED.last_external_event_id, task_bindings.last_external_event_id),
                    last_event_at            = GREATEST(task_bindings.last_event_at, EXCLUDED.last_event_at)
                RETURNING id,
@@ -556,5 +590,124 @@ impl PgTaskBindingDao {
         .execute(&self.0)
         .await?;
         Ok(())
+    }
+}
+
+#[cfg(all(test, feature = "db-tests"))]
+mod tests {
+    use chrono::Utc;
+    use moatless_types::adapter::{AdapterKind, TaskBinding};
+    use sqlx::PgPool;
+
+    use super::PgTaskBindingDao;
+
+    async fn dao(pool: PgPool) -> PgTaskBindingDao {
+        sqlx::query(
+            r#"INSERT INTO adapter_connections
+                   (id, adapter_kind, connection_kind, external_account_id, created_by, scope)
+               VALUES ('ac_reason', 'github_pr', 'app', 'acme', 'user-1', 'global')"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        PgTaskBindingDao::new(pool)
+    }
+
+    fn row(metadata: serde_json::Value) -> TaskBinding {
+        let now = Utc::now();
+        TaskBinding {
+            id: format!("ts_{}", uuid::Uuid::new_v4()),
+            task_id: "task-1".into(),
+            adapter_kind: AdapterKind::Github,
+            subject_kind: "github_pr".into(),
+            subject_key: "acme/widgets#1".into(),
+            connection_id: "ac_reason".into(),
+            loop_id: None,
+            destination_config: serde_json::json!({}),
+            metadata,
+            last_external_event_id: None,
+            origin: "connected_thread".into(),
+            created_at: now,
+            last_event_at: now,
+            external_status: None,
+            external_state_kind: None,
+            external_status_raw: None,
+            external_review_decision: None,
+            external_mergeable_state: None,
+            external_status_updated_at: None,
+            active: true,
+            deactivated_at: None,
+            watching: true,
+        }
+    }
+
+    /// A task that commented and then created the pull request is its
+    /// creator, and a later comment does not narrow it back.
+    #[sqlx::test]
+    async fn a_rebind_keeps_the_strongest_reason(pool: PgPool) {
+        let dao = dao(pool).await;
+        dao.upsert(&row(serde_json::json!({ "bind_reason": "commenter" })))
+            .await
+            .unwrap();
+        let created = dao
+            .upsert(&row(serde_json::json!({ "bind_reason": "creator" })))
+            .await
+            .unwrap();
+        assert_eq!(created.metadata["bind_reason"], "creator");
+        let commented = dao
+            .upsert(&row(serde_json::json!({ "bind_reason": "commenter" })))
+            .await
+            .unwrap();
+        assert_eq!(commented.metadata["bind_reason"], "creator");
+    }
+
+    /// A row written before reasons were recorded keeps hearing every event:
+    /// its task's next comment records no reason on it.
+    #[sqlx::test]
+    async fn a_row_without_a_reason_is_not_narrowed_by_a_comment(pool: PgPool) {
+        let dao = dao(pool).await;
+        dao.upsert(&row(serde_json::json!({ "filter_user_id": null })))
+            .await
+            .unwrap();
+        let commented = dao
+            .upsert(&row(serde_json::json!({
+                "bind_reason": "commenter",
+                "reply_keys": ["k:1"],
+            })))
+            .await
+            .unwrap();
+        assert!(commented.metadata.get("bind_reason").is_none());
+        assert_eq!(commented.metadata["reply_keys"], serde_json::json!(["k:1"]));
+    }
+
+    /// Each comment adds what a reply to it carries; none replaces another's.
+    #[sqlx::test]
+    async fn reply_keys_accumulate(pool: PgPool) {
+        let dao = dao(pool).await;
+        dao.upsert(&row(serde_json::json!({
+            "bind_reason": "commenter",
+            "reply_keys": ["k:1", "k:2"],
+        })))
+        .await
+        .unwrap();
+        let second = dao
+            .upsert(&row(serde_json::json!({
+                "bind_reason": "commenter",
+                "reply_keys": ["k:2", "k:3"],
+            })))
+            .await
+            .unwrap();
+        let no_keys = dao
+            .upsert(&row(serde_json::json!({ "bind_reason": "commenter" })))
+            .await
+            .unwrap();
+        let mut keys: Vec<String> =
+            serde_json::from_value(second.metadata["reply_keys"].clone()).unwrap();
+        keys.sort();
+        assert_eq!(keys, ["k:1", "k:2", "k:3"]);
+        assert_eq!(
+            no_keys.metadata["reply_keys"],
+            second.metadata["reply_keys"]
+        );
     }
 }

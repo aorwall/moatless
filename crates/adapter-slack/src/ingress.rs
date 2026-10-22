@@ -1042,6 +1042,7 @@ mod tests {
             external_event_id: external_event_id.map(str::to_string),
             source_task_id: None,
             audience: Audience::Everyone,
+            replies_to: Vec::new(),
         }
     }
 

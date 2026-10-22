@@ -273,6 +273,7 @@ pub(super) async fn normalize(
             // Telegram makes no audience distinction: every event goes to every
             // task bound to the chat or topic, as it always has.
             audience: Audience::Everyone,
+            replies_to: Vec::new(),
         }),
         effects: vec![],
     })

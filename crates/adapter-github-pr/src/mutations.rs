@@ -11,6 +11,7 @@ use moatless_api_schemas::github::{
 use serde_json::{Value, json};
 use tracing::{info, warn};
 
+use moatless_adapter_model::binding::{BindReason, BindScope};
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::footer::FOOTER_MARKER;
 use moatless_loops::adapters::access::{ensure_task_access_only, ensure_task_access_with};
@@ -21,6 +22,7 @@ use super::adapter::GithubPrAdapter;
 use super::api::MAX_COMMENT_LENGTH;
 use super::auth::resolve_github_api;
 use super::external_id;
+use super::reply_keys;
 use super::subject::GithubPrSubject;
 use super::text::truncate_on_char_boundary;
 
@@ -100,6 +102,7 @@ pub(crate) async fn create_pr(
             created.number,
             task_id,
             &ctx.user_id,
+            &BindScope::because(BindReason::Creator),
         )
         .await;
         note_external_event(
@@ -231,6 +234,10 @@ pub(crate) async fn post_comment(
             number,
             task_id,
             &ctx.user_id,
+            &BindScope {
+                reason: Some(BindReason::Commenter),
+                reply_keys: reply_keys::opened_by_conversation_comment(comment_id, &req.body),
+            },
         )
         .await
     } else {
@@ -305,6 +312,10 @@ pub(crate) async fn reply_to_review_comment(
             number,
             task_id,
             &ctx.user_id,
+            &BindScope {
+                reason: Some(BindReason::Commenter),
+                reply_keys: reply_keys::opened_by_review_comment(new_id, Some(comment_id)),
+            },
         )
         .await
     } else {
@@ -351,6 +362,7 @@ pub(crate) async fn bind_pr(
         number,
         &req.task_id,
         &ctx.user_id,
+        &BindScope::because(BindReason::Follower),
     )
     .await;
 
@@ -545,6 +557,7 @@ async fn bind_task_to_pr(
     pr_number: u64,
     task_id: &str,
     user_id: &str,
+    scope: &BindScope,
 ) -> Option<String> {
     let Some(connector) = connector else {
         warn!(
@@ -560,7 +573,7 @@ async fn bind_task_to_pr(
         "pr_number": pr_number,
     });
     match connector
-        .connect_github_binding(&source_id, task_id, thread_properties, Some(user_id))
+        .connect_github_binding(&source_id, task_id, thread_properties, Some(user_id), scope)
         .await
     {
         Ok((rule, binding)) => {

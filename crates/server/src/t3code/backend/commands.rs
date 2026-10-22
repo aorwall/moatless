@@ -859,6 +859,9 @@ impl ThreadCommandSink for AppStateCommands {
                     "pr_number": reference.number,
                 }),
                 Some(&viewer.user_id),
+                &moatless_adapter_model::binding::BindScope::because(
+                    moatless_adapter_model::binding::BindReason::Follower,
+                ),
             )
             .await
             .map_err(|error| {

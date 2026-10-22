@@ -342,6 +342,7 @@ mod tests {
             external_event_id: Some("github:pr:opened:42".to_string()),
             source_task_id: None,
             audience: Audience::Everyone,
+            replies_to: Vec::new(),
         }
     }
 

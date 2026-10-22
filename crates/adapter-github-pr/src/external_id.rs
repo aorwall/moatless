@@ -51,6 +51,21 @@ pub(super) fn pr_synchronize(subject: &GithubPrSubject, sha: &str) -> String {
 /// The prefix [`aliases`] recognises a `synchronize` id by.
 const SYNCHRONIZE_PREFIX: &str = "github:pr:synchronize:";
 
+/// Whether `external_id` names a pull request being opened.
+pub(super) fn is_opened(external_id: &str) -> bool {
+    external_id.starts_with("github:pr:opened:")
+}
+
+/// Whether `external_id` names a pull request being reopened.
+pub(super) fn is_reopened(external_id: &str) -> bool {
+    external_id.starts_with("github:pr:reopened:")
+}
+
+/// Whether `external_id` names a push to a pull request's branch.
+pub(super) fn is_synchronize(external_id: &str) -> bool {
+    external_id.starts_with(SYNCHRONIZE_PREFIX)
+}
+
 /// `github:push:<owner>/<repo>:<sha>` - a sha the Task pushed.
 ///
 /// Carries no PR number, since the sandbox files the claim before the PR exists

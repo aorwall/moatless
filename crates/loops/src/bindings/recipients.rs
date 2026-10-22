@@ -9,6 +9,7 @@
 //! anyone posting under the same identity a provider uses.
 
 use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
+use moatless_adapter_model::binding::{hears_only_replies, holds_reply_key};
 use moatless_types::adapter::Audience;
 use moatless_types::adapter::TaskBinding;
 
@@ -25,6 +26,8 @@ pub struct EventProvenance<'a> {
     /// [`Audience::ParentAuthor`]. `None` for every other audience, and for a
     /// parent that resolves to no task.
     pub parent_author_task_id: Option<&'a str>,
+    /// The event's [`InboundMessage::replies_to`](moatless_types::adapter::InboundMessage::replies_to).
+    pub replies_to: &'a [String],
 }
 
 /// The bindings that should receive an event with this `audience`, in
@@ -48,8 +51,7 @@ pub fn resolve_recipients<'b>(
         Audience::SubjectProducer => or_everyone(named_by(bindings, is_producer), bindings),
         Audience::ParentAuthor { .. } => or_everyone(
             named_by(bindings, |binding| {
-                is_producer(binding)
-                    || provenance.parent_author_task_id == Some(binding.task_id.as_str())
+                is_producer(binding) || answers(binding, provenance)
             }),
             bindings,
         ),
@@ -58,8 +60,17 @@ pub fn resolve_recipients<'b>(
     // A task never receives back what it is named as the author of.
     named
         .into_iter()
+        .filter(|binding| !hears_only_replies(binding) || answers(binding, provenance))
         .filter(|binding| provenance.author_task_id != Some(binding.task_id.as_str()))
         .collect()
+}
+
+/// Whether the event replies to something `binding`'s task wrote: the parent
+/// it names, or a reply key the binding recorded. The only way a
+/// [`hears_only_replies`] binding, which no fallback names, receives an event.
+fn answers(binding: &TaskBinding, provenance: EventProvenance<'_>) -> bool {
+    provenance.parent_author_task_id == Some(binding.task_id.as_str())
+        || holds_reply_key(binding, provenance.replies_to)
 }
 
 fn named_by(
@@ -85,14 +96,13 @@ fn or_everyone<'b>(
     }
 }
 
-/// A binding formed task-to-subject: the task existed first and reached out.
-///
-/// Stated as the negation of the responder direction, deliberately: the
-/// responder has exactly one origin (the one the router writes from an inbound
-/// event), and `origin` is an open column — matching a list of producers
-/// instead would read an undeclared origin as a responder.
+/// A binding formed task-to-subject, the task reaching out first, unless it
+/// only commented: a commenter counted as producer takes build results from
+/// the review task. Negates the one responder origin, deliberately: `origin`
+/// is an open column, and a list of producers would read an undeclared origin
+/// as a responder.
 fn is_producer(binding: &TaskBinding) -> bool {
-    binding.origin != ADAPTER_EVENT_BINDING_ORIGIN
+    binding.origin != ADAPTER_EVENT_BINDING_ORIGIN && !hears_only_replies(binding)
 }
 
 #[cfg(test)]
@@ -102,6 +112,9 @@ mod tests {
     use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
     use moatless_adapter_model::binding::CONNECTED_THREAD_BINDING_ORIGIN;
     use moatless_adapter_model::binding::TASK_OWNED_BINDING_ORIGIN;
+    use moatless_adapter_model::binding::{
+        BIND_REASON_KEY, BindReason, REPLY_KEYS_KEY, hears_only_replies, holds_reply_key,
+    };
     use moatless_types::adapter::Audience;
     use moatless_types::adapter::TaskBinding;
 
@@ -153,6 +166,27 @@ mod tests {
         binding(task_id, TASK_OWNED_BINDING_ORIGIN)
     }
 
+    /// A task that only commented, holding the reply keys of what it wrote.
+    fn commenter(task_id: &str, reply_keys: &[&str]) -> TaskBinding {
+        let mut row = binding(task_id, CONNECTED_THREAD_BINDING_ORIGIN);
+        row.metadata = serde_json::json!({
+            BIND_REASON_KEY: BindReason::Commenter.as_str(),
+            REPLY_KEYS_KEY: reply_keys,
+        });
+        row
+    }
+
+    /// A task that created the subject, recorded as such.
+    fn creator(task_id: &str) -> TaskBinding {
+        let mut row = binding(task_id, CONNECTED_THREAD_BINDING_ORIGIN);
+        row.metadata = serde_json::json!({ BIND_REASON_KEY: BindReason::Creator.as_str() });
+        row
+    }
+
+    fn keys(keys: &[&str]) -> Vec<String> {
+        keys.iter().map(|key| (*key).to_string()).collect()
+    }
+
     fn parent_reply(parent: &str) -> Audience {
         Audience::ParentAuthor {
             parent_external_event_id: Some(parent.to_string()),
@@ -179,6 +213,7 @@ mod tests {
         bindings: Vec<TaskBinding>,
         author_task_id: Option<&'static str>,
         parent_author_task_id: Option<&'static str>,
+        replies_to: Vec<String>,
         expected: Vec<&'static str>,
     }
 
@@ -196,6 +231,7 @@ mod tests {
                 bindings: vec![producer("t_prod"), responder("t_resp")],
                 author_task_id: None,
                 parent_author_task_id: None,
+                replies_to: vec![],
                 expected: vec!["t_prod", "t_resp"],
             },
             Row {
@@ -204,6 +240,7 @@ mod tests {
                 bindings: vec![],
                 author_task_id: None,
                 parent_author_task_id: None,
+                replies_to: vec![],
                 expected: vec![],
             },
             Row {
@@ -212,6 +249,7 @@ mod tests {
                 bindings: vec![producer("t_prod"), responder("t_resp")],
                 author_task_id: Some("t_prod"),
                 parent_author_task_id: None,
+                replies_to: vec![],
                 expected: vec!["t_resp"],
             },
             Row {
@@ -220,6 +258,7 @@ mod tests {
                 bindings: vec![producer("t_prod"), responder("t_resp")],
                 author_task_id: Some("t_resp"),
                 parent_author_task_id: None,
+                replies_to: vec![],
                 expected: vec!["t_prod"],
             },
             Row {
@@ -228,6 +267,7 @@ mod tests {
                 bindings: vec![producer("t_prod"), responder("t_resp")],
                 author_task_id: Some("t_stranger"),
                 parent_author_task_id: None,
+                replies_to: vec![],
                 expected: vec!["t_prod", "t_resp"],
             },
             Row {
@@ -236,6 +276,7 @@ mod tests {
                 bindings: vec![producer("t_prod")],
                 author_task_id: Some("t_prod"),
                 parent_author_task_id: None,
+                replies_to: vec![],
                 expected: vec![],
             },
             // ---- The subject's producer --------------------------------
@@ -248,6 +289,7 @@ mod tests {
                 bindings: vec![producer("t_prod"), responder("t_resp")],
                 author_task_id: None,
                 parent_author_task_id: None,
+                replies_to: vec![],
                 expected: vec!["t_prod"],
             },
             Row {
@@ -256,6 +298,7 @@ mod tests {
                 bindings: vec![responder("t_resp"), responder("t_resp2")],
                 author_task_id: None,
                 parent_author_task_id: None,
+                replies_to: vec![],
                 expected: vec!["t_resp", "t_resp2"],
             },
             Row {
@@ -269,6 +312,7 @@ mod tests {
                 bindings: vec![producer("t_prod"), responder("t_resp")],
                 author_task_id: Some("t_prod"),
                 parent_author_task_id: None,
+                replies_to: vec![],
                 expected: vec![],
             },
             Row {
@@ -277,6 +321,7 @@ mod tests {
                 bindings: vec![producer("t_prod"), producer("t_prod2"), responder("t_resp")],
                 author_task_id: None,
                 parent_author_task_id: None,
+                replies_to: vec![],
                 expected: vec!["t_prod", "t_prod2"],
             },
             Row {
@@ -285,6 +330,7 @@ mod tests {
                 bindings: vec![task_owned_producer("t_prod"), responder("t_resp")],
                 author_task_id: None,
                 parent_author_task_id: None,
+                replies_to: vec![],
                 expected: vec!["t_prod"],
             },
             Row {
@@ -293,6 +339,7 @@ mod tests {
                 bindings: vec![],
                 author_task_id: None,
                 parent_author_task_id: None,
+                replies_to: vec![],
                 expected: vec![],
             },
             // ---- A named parent's author -------------------------------
@@ -306,6 +353,7 @@ mod tests {
                 ],
                 author_task_id: None,
                 parent_author_task_id: Some("t_resp"),
+                replies_to: vec![],
                 expected: vec!["t_prod", "t_resp"],
             },
             Row {
@@ -314,6 +362,7 @@ mod tests {
                 bindings: vec![producer("t_prod"), responder("t_resp")],
                 author_task_id: None,
                 parent_author_task_id: Some("t_prod"),
+                replies_to: vec![],
                 expected: vec!["t_prod"],
             },
             Row {
@@ -322,6 +371,7 @@ mod tests {
                 bindings: vec![producer("t_prod"), responder("t_resp")],
                 author_task_id: None,
                 parent_author_task_id: None,
+                replies_to: vec![],
                 expected: vec!["t_prod"],
             },
             Row {
@@ -332,6 +382,7 @@ mod tests {
                 bindings: vec![producer("t_prod"), responder("t_resp")],
                 author_task_id: None,
                 parent_author_task_id: None,
+                replies_to: vec![],
                 expected: vec!["t_prod"],
             },
             Row {
@@ -344,6 +395,7 @@ mod tests {
                 ],
                 author_task_id: None,
                 parent_author_task_id: Some("t_resp"),
+                replies_to: vec![],
                 expected: vec!["t_prod", "t_resp"],
             },
             Row {
@@ -352,6 +404,7 @@ mod tests {
                 bindings: vec![responder("t_resp"), responder("t_other")],
                 author_task_id: None,
                 parent_author_task_id: Some("t_resp"),
+                replies_to: vec![],
                 expected: vec!["t_resp"],
             },
             Row {
@@ -360,6 +413,7 @@ mod tests {
                 bindings: vec![producer("t_prod"), responder("t_resp")],
                 author_task_id: Some("t_resp"),
                 parent_author_task_id: Some("t_resp"),
+                replies_to: vec![],
                 expected: vec!["t_prod"],
             },
             Row {
@@ -372,6 +426,7 @@ mod tests {
                 bindings: vec![producer("t_prod"), responder("t_resp")],
                 author_task_id: Some("t_prod"),
                 parent_author_task_id: Some("t_prod"),
+                replies_to: vec![],
                 expected: vec![],
             },
             Row {
@@ -384,6 +439,7 @@ mod tests {
                 bindings: vec![responder("t_resp"), responder("t_other")],
                 author_task_id: None,
                 parent_author_task_id: None,
+                replies_to: vec![],
                 expected: vec!["t_resp", "t_other"],
             },
             Row {
@@ -394,7 +450,100 @@ mod tests {
                 bindings: vec![responder("t_resp"), responder("t_other")],
                 author_task_id: None,
                 parent_author_task_id: None,
+                replies_to: vec![],
                 expected: vec!["t_resp", "t_other"],
+            },
+            // ---- A task that only commented ----------------------------
+            Row {
+                case: "everyone, a push with a commenter bound — only the review task receives",
+                audience: Audience::Everyone,
+                bindings: vec![commenter("t_comm", &["k:thread"]), responder("t_resp")],
+                author_task_id: None,
+                parent_author_task_id: None,
+                replies_to: vec![],
+                expected: vec!["t_resp"],
+            },
+            Row {
+                case: "everyone, a push with only a commenter bound — nobody receives",
+                audience: Audience::Everyone,
+                bindings: vec![commenter("t_comm", &["k:thread"])],
+                author_task_id: None,
+                parent_author_task_id: None,
+                replies_to: vec![],
+                expected: vec![],
+            },
+            Row {
+                case: "everyone, a conversation comment answering the commenter — both receive",
+                audience: Audience::Everyone,
+                bindings: vec![commenter("t_comm", &["k:comment"]), responder("t_resp")],
+                author_task_id: None,
+                parent_author_task_id: None,
+                replies_to: keys(&["k:other", "k:comment"]),
+                expected: vec!["t_comm", "t_resp"],
+            },
+            Row {
+                // The row that failed in production: a commenter counted as
+                // the producer took build results from the review task.
+                case: "producer, a build result with a commenter bound — the review task receives",
+                audience: Audience::SubjectProducer,
+                bindings: vec![commenter("t_comm", &[]), responder("t_resp")],
+                author_task_id: None,
+                parent_author_task_id: None,
+                replies_to: vec![],
+                expected: vec!["t_resp"],
+            },
+            Row {
+                case: "producer, the creator and a commenter bound — only the creator receives",
+                audience: Audience::SubjectProducer,
+                bindings: vec![
+                    commenter("t_comm", &[]),
+                    creator("t_prod"),
+                    responder("t_resp"),
+                ],
+                author_task_id: None,
+                parent_author_task_id: None,
+                replies_to: vec![],
+                expected: vec!["t_prod"],
+            },
+            Row {
+                case: "producer, only a commenter bound — nobody receives",
+                audience: Audience::SubjectProducer,
+                bindings: vec![commenter("t_comm", &[])],
+                author_task_id: None,
+                parent_author_task_id: None,
+                replies_to: vec![],
+                expected: vec![],
+            },
+            Row {
+                case: "parent's author, a reply in a thread the commenter joined — it and the producer receive",
+                audience: parent_reply("evt:root"),
+                bindings: vec![
+                    creator("t_prod"),
+                    commenter("t_comm", &["k:thread"]),
+                    responder("t_resp"),
+                ],
+                author_task_id: None,
+                parent_author_task_id: None,
+                replies_to: keys(&["k:thread"]),
+                expected: vec!["t_prod", "t_comm"],
+            },
+            Row {
+                case: "parent's author, a reply to the commenter's own comment — it receives",
+                audience: parent_reply("evt:root"),
+                bindings: vec![commenter("t_comm", &[]), responder("t_resp")],
+                author_task_id: None,
+                parent_author_task_id: Some("t_comm"),
+                replies_to: vec![],
+                expected: vec!["t_comm"],
+            },
+            Row {
+                case: "parent's author, a reply in another thread — the commenter is no fallback",
+                audience: parent_reply("evt:root"),
+                bindings: vec![commenter("t_comm", &["k:thread"]), responder("t_resp")],
+                author_task_id: None,
+                parent_author_task_id: None,
+                replies_to: keys(&["k:elsewhere"]),
+                expected: vec!["t_resp"],
             },
         ]
     }
@@ -408,6 +557,7 @@ mod tests {
                 EventProvenance {
                     author_task_id: row.author_task_id,
                     parent_author_task_id: row.parent_author_task_id,
+                    replies_to: &row.replies_to,
                 },
             );
             assert_eq!(got, row.expected, "{}", row.case);
@@ -415,9 +565,10 @@ mod tests {
     }
 
     /// The invariant across the table: an event for everyone reaches every
-    /// active binding it is not itself authored by. An empty result therefore
-    /// means every bound task wrote the event — never that the rules quietly
-    /// ate it, which is how a real review was lost.
+    /// active binding it is not itself authored by, save a commenter it does
+    /// not answer. An empty result therefore means every bound task wrote the
+    /// event or only commented — never that the rules quietly ate it, which is
+    /// how a real review was lost.
     #[test]
     fn an_event_for_everyone_reaches_every_binding_that_did_not_write_it() {
         for row in table() {
@@ -428,6 +579,9 @@ mod tests {
                 .bindings
                 .iter()
                 .filter(|binding| row.author_task_id != Some(binding.task_id.as_str()))
+                .filter(|binding| {
+                    !hears_only_replies(binding) || holds_reply_key(binding, &row.replies_to)
+                })
                 .map(|binding| binding.task_id.clone())
                 .collect();
             let got = recipients(
@@ -436,22 +590,25 @@ mod tests {
                 EventProvenance {
                     author_task_id: row.author_task_id,
                     parent_author_task_id: row.parent_author_task_id,
+                    replies_to: &row.replies_to,
                 },
             );
             assert_eq!(got, not_the_author, "{}", row.case);
             assert_eq!(
                 got.is_empty(),
                 not_the_author.is_empty(),
-                "an empty result for `everyone` is only ever the author's own event: {}",
+                "an empty result for `everyone` is only ever the author's own event, \
+                 or one no commenter is answered by: {}",
                 row.case
             );
         }
     }
 
     /// What the fallbacks buy: a recipient set is empty only where every
-    /// binding the audience named is excluded as the event's author, never
-    /// because the rules quietly narrowed it to nobody — the property the
-    /// router relies on to tell "reached nobody" from "never for anyone".
+    /// binding the audience named is excluded as the event's author, or every
+    /// binding only commented, never because the rules quietly narrowed it to
+    /// nobody — the property `fan_out` relies on to tell "reached nobody" from
+    /// "never for anyone".
     #[test]
     fn an_empty_result_can_always_name_the_task_that_wrote_the_event() {
         for row in table() {
@@ -461,9 +618,10 @@ mod tests {
                 EventProvenance {
                     author_task_id: row.author_task_id,
                     parent_author_task_id: row.parent_author_task_id,
+                    replies_to: &row.replies_to,
                 },
             );
-            if !got.is_empty() || row.bindings.is_empty() {
+            if !got.is_empty() || row.bindings.iter().all(hears_only_replies) {
                 continue;
             }
             let author_is_bound = row.author_task_id.is_some_and(|author| {

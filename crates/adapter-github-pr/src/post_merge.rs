@@ -222,6 +222,7 @@ impl GithubPrInboundRouter {
             external_event_id: Some(super::external_id::workflow_run(execution.run.run_id)),
             source_task_id: None,
             audience: Audience::SubjectProducer,
+            replies_to: Vec::new(),
         };
 
         info!(subject_key, "Delivering post-merge CI notification");
