@@ -69,3 +69,4 @@ pub use client::ClaudeClient;
 pub use error::{Result, SdkError};
 pub use query::{QueryHandle, query, query_streaming};
 pub use tmux::{has_resumable_transcript, query_tmux, query_tmux_streaming, transcript_dir};
+pub use transcripts::project_dir_name;

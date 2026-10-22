@@ -404,14 +404,11 @@ fn replace_fields(payload: &str, fields: &[(&str, String)], new_id: &str) -> Str
 pub struct ClaudeSessionFormat;
 
 impl ClaudeSessionFormat {
-    /// Claude's project directory name: every character of the canonical cwd
-    /// that is not ASCII alphanumeric becomes `-`.
+    /// Claude's project directory name for the canonical cwd, as
+    /// [`claude_agent_sdk::project_dir_name`] derives it.
     pub fn project_dir(cwd: &Path) -> String {
         let cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
-        cwd.to_string_lossy()
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-            .collect()
+        claude_agent_sdk::project_dir_name(&cwd.to_string_lossy())
     }
 }
 

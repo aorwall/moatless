@@ -7,10 +7,6 @@ use std::path::{Path, PathBuf};
 
 /// Lexically normalise a raw cwd to match `canonicalize`'s no-trailing-slash
 /// form: trim a trailing `/` (preserving root `/`).
-///
-/// [`resolve_project_dir`]'s dashed encoding is just `replace('/', "-")`, so
-/// matching the trailing-slash shape is all that's needed for the names to line
-/// up.
 fn lexical_cwd(c: &str) -> String {
     let trimmed = c.trim_end_matches('/');
     if trimmed.is_empty() {
@@ -32,8 +28,8 @@ pub fn transcript_dir(cwd: Option<&str>, config_dir: Option<&str>) -> Result<Pat
 }
 
 /// Resolves `<claude-config-dir>/projects/<dashed-cwd>/`: the config dir is
-/// [`ClaudeOptions::config_dir`], else `~/.claude`, and the cwd has `/` as `-`. A
-/// `canonicalize` failure falls back to a lexically-normalised cwd, since a
+/// [`ClaudeOptions::config_dir`], else `~/.claude`, and the cwd is named by
+/// [`project_dir_name`]. A `canonicalize` failure falls back to a lexically-normalised cwd, since a
 /// transient failure on a good path must not be fatal.
 pub(crate) fn resolve_project_dir(options: &ClaudeOptions) -> Result<PathBuf> {
     let cwd_str = if let Some(c) = &options.cwd {
@@ -55,11 +51,56 @@ pub(crate) fn resolve_project_dir(options: &ClaudeOptions) -> Result<PathBuf> {
             .into_owned()
     };
 
-    let dashed = cwd_str.replace('/', "-");
-
     Ok(crate::config_dir::claude_config_dir(options)
         .join("projects")
-        .join(dashed))
+        .join(project_dir_name(&cwd_str)))
+}
+
+/// Longest name the CLI keeps before cutting it and appending a hash.
+const MAX_PROJECT_DIR_NAME: usize = 200;
+
+/// The directory the Claude CLI names for `cwd` under `projects/`.
+///
+/// Every UTF-16 unit that is not ASCII alphanumeric becomes `-`, so `.` and `_`
+/// do too: a cwd under `.moatless/members/` missed by dashing only `/` loses
+/// its transcript, and a resume reports the Session's whole cost as its own. A
+/// name past 200 units is cut there and suffixed with `cli_path_hash`.
+pub fn project_dir_name(cwd: &str) -> String {
+    let dashed: String = cwd
+        .encode_utf16()
+        .map(|unit| match char::from_u32(u32::from(unit)) {
+            Some(c) if c.is_ascii_alphanumeric() => c,
+            _ => '-',
+        })
+        .collect();
+    if dashed.len() <= MAX_PROJECT_DIR_NAME {
+        return dashed;
+    }
+    format!(
+        "{}-{}",
+        &dashed[..MAX_PROJECT_DIR_NAME],
+        base36(cli_path_hash(cwd).unsigned_abs())
+    )
+}
+
+/// The CLI's 32-bit string hash, `h = h * 31 + unit` over UTF-16 units.
+fn cli_path_hash(cwd: &str) -> i32 {
+    cwd.encode_utf16().fold(0i32, |hash, unit| {
+        hash.wrapping_mul(31).wrapping_add(i32::from(unit))
+    })
+}
+
+fn base36(mut n: u32) -> String {
+    const DIGITS: &[u8; 36] = b"0123456789abcdefghijklmnopqrstuvwxyz";
+    let mut out = Vec::new();
+    loop {
+        out.push(char::from(DIGITS[(n % 36) as usize]));
+        n /= 36;
+        if n == 0 {
+            break;
+        }
+    }
+    out.iter().rev().collect()
 }
 
 /// Handles resume shapes that append to an EXISTING transcript: `--resume <id>`
@@ -168,7 +209,7 @@ mod tests {
         let tmp = std::env::temp_dir();
         let canonical = tmp.canonicalize().expect("temp_dir should canonicalize");
         let cwd_str = canonical.to_string_lossy().into_owned();
-        let dashed = cwd_str.replace('/', "-");
+        let dashed = project_dir_name(&cwd_str);
         let config_dir = tmp.join("tmux-test-config");
         let options = ClaudeOptions {
             cwd: Some(cwd_str.clone()),
@@ -197,6 +238,41 @@ mod tests {
         assert_eq!(
             resolved,
             config_dir.join("projects").join("-nonexistent-abc")
+        );
+    }
+
+    // Expected names come from the CLI's own function in Claude Code 2.1.308.
+    #[test]
+    fn project_dir_name_matches_the_cli() {
+        assert_eq!(
+            project_dir_name("/opt/moatless/workspace/.moatless/members/8cef52b2-d877"),
+            "-opt-moatless-workspace--moatless-members-8cef52b2-d877"
+        );
+        assert_eq!(project_dir_name("/w/my_repo"), "-w-my-repo");
+        assert_eq!(project_dir_name("/w/caf\u{e9}/\u{1f600}"), "-w-caf----");
+
+        let long = format!("/w/{}", "a".repeat(210));
+        assert_eq!(
+            project_dir_name(&long),
+            format!("-w-{}-u83o13", "a".repeat(197))
+        );
+    }
+
+    #[test]
+    fn project_dir_resolves_a_member_checkout_to_the_cli_dir() {
+        let config_dir = std::env::temp_dir().join("tmux-test-config-member");
+        let options = ClaudeOptions {
+            cwd: Some("/nonexistent/workspace/.moatless/members/abc".into()),
+            config_dir: Some(config_dir.to_string_lossy().into_owned()),
+            ..Default::default()
+        };
+
+        let resolved = resolve_project_dir(&options).expect("resolve");
+        assert_eq!(
+            resolved,
+            config_dir
+                .join("projects")
+                .join("-nonexistent-workspace--moatless-members-abc")
         );
     }
 
@@ -229,7 +305,7 @@ mod tests {
         // Use an existing directory so canonicalize() succeeds — tempdir works.
         let cwd = std::env::temp_dir();
         let canonical = cwd.canonicalize().expect("temp_dir should canonicalize");
-        let dashed = canonical.to_string_lossy().replace('/', "-");
+        let dashed = project_dir_name(&canonical.to_string_lossy());
 
         let config_dir = tempfile::tempdir().expect("create tempdir");
         let config_dir_str = config_dir.path().to_string_lossy().into_owned();
