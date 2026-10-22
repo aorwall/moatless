@@ -1,5 +1,6 @@
-# /etc/codeartifact-env.sh: sourced by every bash, non-interactive ones through
-# BASH_ENV and interactive ones through /etc/bash.bashrc (Dockerfile.sandbox-base).
+# /etc/codeartifact-env.sh: sourced by every bash through /etc/sandbox-env.sh,
+# which non-interactive ones read as BASH_ENV and interactive ones through
+# /etc/bash.bashrc (Dockerfile.sandbox-base).
 # The image wires it there because Kubernetes never runs the ENTRYPOINT.
 #
 # Exports CODEARTIFACT_AUTH_TOKEN for repos whose .npmrc reads it, and keeps

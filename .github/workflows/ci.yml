@@ -148,6 +148,7 @@ jobs:
               - 'docker/playwright-consumers.json'
               - 'docker/cli-versions.env'
               - 'docker/codeartifact/**'
+              - 'docker/sccache/**'
               - '.github/scripts/install-mold.sh'
               - '.github/workflows/ci.yml'
               # Built into the image, so a change here has to rebuild it.
@@ -1146,6 +1147,9 @@ jobs:
 
       - name: Test codeartifact-env.sh
         run: bash docker/codeartifact/test.sh
+
+      - name: Test sccache-env.sh
+        run: bash docker/sccache/test.sh
 
       - name: Load CLI versions
         run: grep -E '^[A-Z_]+=' docker/cli-versions.env >> "$GITHUB_ENV"

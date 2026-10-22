@@ -125,8 +125,7 @@ RUN install -m 0755 -d /etc/apt/keyrings && \
     rm -rf /var/lib/apt/lists/*
 
 # Install AWS CLI v2 — used by the CodeArtifact token mint in
-# /etc/codeartifact-env.sh and /etc/mavenrc, and by the sccache S3 credential
-# export in docker-entrypoint-sandbox.sh (all gated on env vars, no-op if
+# /etc/codeartifact-env.sh and /etc/mavenrc (gated on env vars, no-op if
 # unset). Fork-wide infrastructure, not soap/Java-specific, so it lives here
 # rather than behind a feature only Java recipes pull in. Arch-aware.
 RUN ARCH=$(dpkg --print-architecture) && \
@@ -136,12 +135,15 @@ RUN ARCH=$(dpkg --print-architecture) && \
     /tmp/aws/install && \
     rm -rf /tmp/aws /tmp/awscliv2.zip
 
-# CodeArtifact credentials for npm, bun and pip. An ENV and bash.bashrc rather
+# Per-shell setup: CodeArtifact credentials for npm, bun and pip, and the
+# sccache wrapper (copied in with sccache below). An ENV and bash.bashrc rather
 # than the ENTRYPOINT, deliberately: Kubernetes replaces the ENTRYPOINT with
 # the pod `command`, and a script sourced per shell renews the 12-hour token.
 COPY docker/codeartifact/codeartifact-env.sh /etc/codeartifact-env.sh
-RUN echo '. /etc/codeartifact-env.sh' >> /etc/bash.bashrc
-ENV BASH_ENV=/etc/codeartifact-env.sh
+RUN printf '%s\n' '. /etc/codeartifact-env.sh' \
+        '[ -r /etc/sccache-env.sh ] && . /etc/sccache-env.sh' > /etc/sandbox-env.sh \
+    && echo '. /etc/sandbox-env.sh' >> /etc/bash.bashrc
+ENV BASH_ENV=/etc/sandbox-env.sh
 
 # kubectl — pinned. Built with Go 1.24+, which clears the critical go/stdlib
 # CVEs flagged by AWS Inspector for older kubectl builds.
@@ -285,18 +287,17 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no
 # mold takes over /usr/bin/ld — no cargo config, RUSTFLAGS or linker-driver
 # flag, and nothing to undo for a project that wants its own linker.
 #
-# sccache is inert until docker-entrypoint-sandbox.sh finds SCCACHE_S3_BUCKET
-# and usable AWS credentials, so this layer is safe in local and docker-mode
-# sandboxes that have neither.
+# sccache is inert until /etc/sccache-env.sh finds SCCACHE_S3_BUCKET and a
+# bucket it can reach, so this layer is safe in local and docker-mode sandboxes
+# that have neither.
 #
-# SCCACHE_VERSION tracks .github/scripts/setup-sccache.sh so the bucket holds one
-# generation of objects, not one per consumer. Sandboxes hit each other, not CI:
-# sccache keys on absolute paths and the two disagree on the checkout dir and
-# CARGO_HOME.
+# At least 0.11, deliberately ahead of .github/scripts/setup-sccache.sh: older
+# releases cannot read EKS Pod Identity credentials. The two never share
+# objects anyway, since sccache keys on CI's different checkout and CARGO_HOME.
 # renovate: datasource=github-releases depName=rui314/mold
 ARG MOLD_VERSION=2.40.4
 # renovate: datasource=github-releases depName=mozilla/sccache
-ARG SCCACHE_VERSION=v0.10.0
+ARG SCCACHE_VERSION=v0.18.0
 COPY .github/scripts/install-mold.sh /tmp/install-mold.sh
 RUN MOLD_VERSION="${MOLD_VERSION}" bash /tmp/install-mold.sh \
     && rm /tmp/install-mold.sh \
@@ -310,6 +311,7 @@ RUN MOLD_VERSION="${MOLD_VERSION}" bash /tmp/install-mold.sh \
         | tar -xz -C /usr/local/bin --strip-components=1 --no-anchored sccache \
     && chmod +x /usr/local/bin/sccache \
     && sccache --version
+COPY docker/sccache/sccache-env.sh /etc/sccache-env.sh
 
 # Install Bun (also exposed as /usr/local/bin/bun and /usr/local/bin/bunx)
 ARG BUN_VERSION=1.3.6
