@@ -609,6 +609,80 @@ mod tests {
         );
     }
 
+    fn ci_payload(event_type: &str, head_sha: &str) -> serde_json::Value {
+        serde_json::json!({
+            "action": "completed",
+            "repository": {
+                "full_name": "acme/widgets",
+                "owner": { "login": "acme" },
+            },
+            "sender": { "login": "github-actions[bot]" },
+            event_type: {
+                "id": 7,
+                "head_sha": head_sha,
+                "conclusion": "success",
+                "pull_requests": [{ "number": 42 }],
+            },
+        })
+    }
+
+    /// One CI push fans out into many `check_run` webhooks, and each
+    /// merge-conflict check on a bound PR reads the PR through one user's
+    /// quota, so only a suite's completion schedules one.
+    #[tokio::test]
+    async fn only_completed_check_suites_admit_a_merge_conflict_check() {
+        let connections =
+            InMemoryConnections::new(vec![connection("conn-1", AdapterKind::Github, "acme")]);
+        let mut users = MockProviderIdentityLink::new();
+        users.expect_user_with_login().returning(|_, _| Ok(None));
+        let task_bindings = unconnected_bindings();
+        let admission = FakeAdmission::new(FakeAdmissionAnswer::Admitted);
+        let github_provider = GithubPrAdapter::new(
+            None,
+            "https://app.example".to_string(),
+            "https://api.github.com".to_string(),
+            std::sync::Arc::new(MockGitHostTokenIssuer::new()),
+            moatless_types::http::HttpTimeouts {
+                connect: Duration::from_secs(5),
+                total: Duration::from_secs(30),
+            },
+        );
+
+        let deliveries = [
+            ("check_run", "run-1", "abc"),
+            ("check_run", "run-2", "abc"),
+            ("check_suite", "suite-1", "abc"),
+            ("check_suite", "suite-2", "abc"),
+            ("check_suite", "suite-3", "def"),
+        ];
+        for (event_type, delivery_id, head_sha) in deliveries {
+            let body = serde_json::to_vec(&ci_payload(event_type, head_sha)).expect("serializes");
+            receive(
+                &connections as &dyn ConnectionLookup,
+                &NoSubscriptions as &dyn LoopReader,
+                &users,
+                &task_bindings,
+                &admission,
+                &github_provider,
+                WebhookRequest::new(event_type, delivery_id, "", &body),
+            )
+            .await
+            .expect("a CI webhook is accepted");
+        }
+
+        let checks: Vec<String> = admission
+            .seen()
+            .into_iter()
+            .filter(|request| request.kind == super::super::delivery::kind::MERGE_CONFLICT)
+            .map(|request| request.event_id)
+            .collect();
+        assert_eq!(
+            checks,
+            ["suite-1", "suite-2", "suite-3"],
+            "no check per run; each suite rechecks, so the last one records the settled state"
+        );
+    }
+
     #[test]
     fn the_delivery_header_is_the_idempotency_key() {
         assert_eq!(delivery_event_id("d-1", b"{}"), "d-1");

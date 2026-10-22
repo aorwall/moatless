@@ -30,6 +30,10 @@ pub(super) struct Execution {
 }
 
 /// Derive a merge-conflict candidate from an event without I/O.
+///
+/// No `check_run` candidate: its suite's completion rechecks the same head
+/// once per suite rather than once per run, and the last suite to finish still
+/// records the post-CI `mergeable_state`.
 pub(super) fn candidate(event_type: &str, payload: &serde_json::Value) -> Option<Candidate> {
     let pr_number = match event_type {
         "pull_request" => {
@@ -49,12 +53,14 @@ pub(super) fn candidate(event_type: &str, payload: &serde_json::Value) -> Option
                 .pointer("/issue/number")
                 .and_then(serde_json::Value::as_u64)
         }
-        "check_run" => payload
-            .pointer("/check_run/pull_requests/0/number")
-            .and_then(serde_json::Value::as_u64),
-        "check_suite" => payload
-            .pointer("/check_suite/pull_requests/0/number")
-            .and_then(serde_json::Value::as_u64),
+        "check_suite" => {
+            if payload.get("action").and_then(serde_json::Value::as_str) != Some("completed") {
+                return None;
+            }
+            payload
+                .pointer("/check_suite/pull_requests/0/number")
+                .and_then(serde_json::Value::as_u64)
+        }
         _ => None,
     }?;
 
@@ -269,13 +275,18 @@ mod tests {
             ),
             (
                 "check_run",
-                serde_json::json!({"check_run": {"pull_requests": [{"number": 9}]}}),
-                Some(9),
+                serde_json::json!({"action": "completed", "check_run": {"pull_requests": [{"number": 9}]}}),
+                None,
             ),
             (
                 "check_suite",
-                serde_json::json!({"check_suite": {"pull_requests": [{"number": 10}]}}),
+                serde_json::json!({"action": "completed", "check_suite": {"pull_requests": [{"number": 10}]}}),
                 Some(10),
+            ),
+            (
+                "check_suite",
+                serde_json::json!({"action": "requested", "check_suite": {"pull_requests": [{"number": 10}]}}),
+                None,
             ),
             ("push", serde_json::json!({}), None),
         ];
