@@ -104,8 +104,23 @@ impl LoopSyncService {
         // unnamed one resolves to the repository's own Workspace, primary
         // placement first, because every Loop stores a concrete Workspace.
         let placed = self.workspaces.for_repository(&repo.id).await?;
-        let workspace_id = match fm.workspace.as_deref().map(str::trim) {
-            None | Some("") => {
+        let declared_workspace = fm.workspace.as_deref().map(str::trim);
+        // `auto` resolves each Task's Workspace from its pull request's
+        // repository; the Loop still stores this repository's own as the
+        // concrete one every Loop carries.
+        if declared_workspace == Some(super::super::check_run_trigger::AUTO_WORKSPACE)
+            && (fm.on.trim() != "github_pr"
+                || !super::super::check_run_trigger::creates_on_check_run(
+                    fm.adapter_config.as_ref(),
+                ))
+        {
+            return Ok(ResolveOutcome::Skipped(
+                "`workspace: auto` needs `on: github_pr` with `adapterConfig.create_on: check_run`"
+                    .to_string(),
+            ));
+        }
+        let workspace_id = match declared_workspace {
+            None | Some("") | Some(super::super::check_run_trigger::AUTO_WORKSPACE) => {
                 let Some(workspace) = placed.into_iter().next() else {
                     return Ok(ResolveOutcome::Skipped(
                         "no workspace holds this repository — declare `workspace:` or place it in one"
@@ -183,6 +198,20 @@ impl LoopSyncService {
                     .source_matcher
                     .clone()
                     .unwrap_or_else(|| format!("{owner}/{repo_name}"));
+                if let Some(e) = super::super::check_run_trigger::adapter_source_error(
+                    "github",
+                    &source_matcher,
+                    fm.adapter_config.as_ref(),
+                ) {
+                    return Ok(ResolveOutcome::Skipped(e));
+                }
+                if super::super::check_run_trigger::is_org_wildcard(&source_matcher)
+                    && source_matcher.strip_suffix("/*") != Some(owner)
+                {
+                    return Ok(ResolveOutcome::Skipped(format!(
+                        "source matcher `{source_matcher}` names another org than `{owner}`, whose connection this loop uses"
+                    )));
+                }
                 let event_filter = fm
                     .event_filter
                     .clone()

@@ -26,6 +26,11 @@ pub(super) const POST_MERGE: &str = "post_merge";
 /// carrying `merged: true`.
 pub(super) const PR_MERGED: &str = "pr_merged";
 
+/// Derived event name for a `check_run` matching a `create_on: check_run`
+/// loop's trigger, so a loop can ignore it without dropping failed-check
+/// notices.
+pub(super) const CHECK_RUN_TRIGGER: &str = "check_run_trigger";
+
 /// Every event name a loop's include/ignore list can name: the GitHub webhook
 /// event types this adapter handles, plus the three derived signals above.
 ///
@@ -42,7 +47,44 @@ pub(super) const KNOWN_EVENTS: &[&str] = &[
     MERGE_CONFLICT,
     POST_MERGE,
     PR_MERGED,
+    CHECK_RUN_TRIGGER,
 ];
+
+/// What creates a Task under a loop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) enum CreateOn {
+    /// A pull request opening or reopening.
+    #[default]
+    PrOpened,
+    /// A completed check run matching [`CheckRunTriggerConfig`]; an opening
+    /// creates nothing.
+    CheckRun,
+}
+
+/// `adapter_config.check_run`: which completed check runs trigger the loop.
+/// A check run must match all three lists.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(super) struct CheckRunTriggerConfig {
+    /// Check run names. Empty matches none.
+    pub names: Vec<String>,
+    /// GitHub App ids whose check runs are trusted. Empty trusts none, so a
+    /// loop that forgot the key creates no Task from anyone's check run.
+    pub app_ids: Vec<u64>,
+    /// Accepted conclusions. `None` (the key absent) accepts any.
+    pub conclusions: Option<Vec<String>>,
+}
+
+impl CheckRunTriggerConfig {
+    /// Whether a completed check run with these facts triggers the loop.
+    pub(super) fn matches(&self, name: &str, app_id: Option<u64>, conclusion: &str) -> bool {
+        self.names.iter().any(|n| n == name)
+            && app_id.is_some_and(|id| self.app_ids.contains(&id))
+            && self
+                .conclusions
+                .as_ref()
+                .is_none_or(|accepted| accepted.iter().any(|c| c == conclusion))
+    }
+}
 
 /// Extracted GitHub-specific knobs from an `SubscriptionMatch`.
 #[derive(Debug, Clone)]
@@ -70,6 +112,13 @@ pub(super) struct GithubPrRuleConfig {
     /// (applies to `pull_request` opened/reopened only). Empty/absent = no
     /// filtering.
     pub ignored_title_patterns: Vec<String>,
+    /// `adapter_config.create_on`: `pr_opened` (the default) or `check_run`.
+    pub create_on: CreateOn,
+    pub check_run: CheckRunTriggerConfig,
+    /// `provision.workspace_template`: the Workspace whose settings a new
+    /// per-repository Workspace copies under `workspace: auto`. `None` never
+    /// creates one.
+    pub workspace_template: Option<String>,
 }
 
 impl GithubPrRuleConfig {
@@ -92,6 +141,14 @@ impl GithubPrRuleConfig {
             ignored_events: string_array(rule.adapter_config.as_ref(), "ignored_events"),
             ignored_senders: ignored_senders(rule.adapter_config.as_ref()),
             ignored_title_patterns: ignored_title_patterns(rule.adapter_config.as_ref()),
+            create_on: create_on(rule.adapter_config.as_ref()),
+            check_run: check_run(rule.adapter_config.as_ref()),
+            workspace_template: rule
+                .adapter_config
+                .as_ref()
+                .and_then(|pc| pc.pointer("/provision/workspace_template"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string),
         }
     }
 
@@ -186,6 +243,46 @@ fn string_array(adapter_config: Option<&serde_json::Value>, key: &str) -> Vec<St
 /// non-array value all yield an empty list (no filtering).
 pub(super) fn ignored_title_patterns(adapter_config: Option<&serde_json::Value>) -> Vec<String> {
     string_array(adapter_config, "ignored_title_patterns")
+}
+
+/// Parse `create_on`. Anything but `check_run` keeps the default: sync
+/// refuses the wildcard source and `workspace: auto` on such a loop, so a typo
+/// cannot widen what creates Tasks.
+fn create_on(adapter_config: Option<&serde_json::Value>) -> CreateOn {
+    match adapter_config
+        .and_then(|pc| pc.get("create_on"))
+        .and_then(serde_json::Value::as_str)
+    {
+        Some("check_run") => CreateOn::CheckRun,
+        _ => CreateOn::PrOpened,
+    }
+}
+
+fn check_run(adapter_config: Option<&serde_json::Value>) -> CheckRunTriggerConfig {
+    let Some(section) = adapter_config.and_then(|pc| pc.get("check_run")) else {
+        return CheckRunTriggerConfig::default();
+    };
+    let strings = |key: &str| {
+        section
+            .get(key)
+            .and_then(serde_json::Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .map(str::to_string)
+                    .collect::<Vec<_>>()
+            })
+    };
+    CheckRunTriggerConfig {
+        names: strings("names").unwrap_or_default(),
+        app_ids: section
+            .get("app_ids")
+            .and_then(serde_json::Value::as_array)
+            .map(|ids| ids.iter().filter_map(serde_json::Value::as_u64).collect())
+            .unwrap_or_default(),
+        conclusions: strings("conclusions"),
+    }
 }
 
 #[cfg(test)]
@@ -507,5 +604,76 @@ mod tests {
         let cfg = GithubPrRuleConfig::from_rule(&rule);
         // default ignored senders is non-empty, but an empty login must not match.
         assert!(!cfg.is_ignored_sender(""));
+    }
+
+    #[test]
+    fn create_on_defaults_to_pr_opened() {
+        let rule = rule_with(serde_json::json!([]), true, false);
+        let cfg = GithubPrRuleConfig::from_rule(&rule);
+        assert_eq!(cfg.create_on, CreateOn::PrOpened);
+        assert_eq!(cfg.check_run, CheckRunTriggerConfig::default());
+        assert!(cfg.workspace_template.is_none());
+    }
+
+    #[test]
+    fn parses_the_check_run_section_and_provision() {
+        let rule = rule_with_adapter_config(
+            serde_json::json!([]),
+            true,
+            false,
+            Some(serde_json::json!({
+                "create_on": "check_run",
+                "check_run": {
+                    "names": ["gate"],
+                    "app_ids": [5_421_124],
+                    "conclusions": ["neutral"],
+                },
+                "provision": {"workspace_template": "review-template"},
+            })),
+        );
+        let cfg = GithubPrRuleConfig::from_rule(&rule);
+        assert_eq!(cfg.create_on, CreateOn::CheckRun);
+        assert_eq!(
+            cfg.check_run,
+            CheckRunTriggerConfig {
+                names: vec!["gate".to_string()],
+                app_ids: vec![5_421_124],
+                conclusions: Some(vec!["neutral".to_string()]),
+            }
+        );
+        assert_eq!(cfg.workspace_template.as_deref(), Some("review-template"));
+    }
+
+    #[test]
+    fn an_unknown_create_on_keeps_the_default() {
+        let rule = rule_with_adapter_config(
+            serde_json::json!([]),
+            true,
+            false,
+            Some(serde_json::json!({"create_on": "review_request"})),
+        );
+        assert_eq!(
+            GithubPrRuleConfig::from_rule(&rule).create_on,
+            CreateOn::PrOpened
+        );
+    }
+
+    #[test]
+    fn a_trigger_needs_its_name_app_and_conclusion() {
+        let trigger = CheckRunTriggerConfig {
+            names: vec!["gate".to_string()],
+            app_ids: vec![7],
+            conclusions: Some(vec!["neutral".to_string()]),
+        };
+        assert!(trigger.matches("gate", Some(7), "neutral"));
+        assert!(!trigger.matches("CI", Some(7), "neutral"));
+        assert!(!trigger.matches("gate", Some(8), "neutral"));
+        assert!(!trigger.matches("gate", None, "neutral"));
+        assert!(!trigger.matches("gate", Some(7), "failure"));
+        let any_conclusion = CheckRunTriggerConfig {
+            conclusions: None,
+            ..trigger
+        };
+        assert!(any_conclusion.matches("gate", Some(7), "failure"));
     }
 }

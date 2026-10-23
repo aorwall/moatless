@@ -219,6 +219,13 @@ impl Loops {
                 ))
                 .into());
             }
+            if let Some(e) = super::check_run_trigger::adapter_source_error(
+                &adapter_kind,
+                &source.source_matcher,
+                source.adapter_config.as_ref(),
+            ) {
+                return Err(SharedAdapterError::BadRequest(e).into());
+            }
         }
 
         let next_fire = if let Some(source) = schedule_source {
@@ -393,7 +400,7 @@ impl Loops {
                     )
                     .into());
                 };
-                Some(StoreUpdateSource::AdapterEvent(AdapterSourceUpdate {
+                let update = AdapterSourceUpdate {
                     connection_id: source
                         .connection_id
                         .unwrap_or_else(|| current_source.connection_id.clone()),
@@ -418,7 +425,15 @@ impl Loops {
                     notify_on_success: source
                         .notify_on_success
                         .unwrap_or(current_source.notify_on_success),
-                }))
+                };
+                if let Some(e) = super::check_run_trigger::adapter_source_error(
+                    current_source.adapter_kind.as_str(),
+                    &update.source_matcher,
+                    update.adapter_config.as_ref(),
+                ) {
+                    return Err(SharedAdapterError::BadRequest(e).into());
+                }
+                Some(StoreUpdateSource::AdapterEvent(update))
             }
             Some(UpdateLoopSource::Schedule(source)) => {
                 let LoopSourceRow::Schedule(current_source) = &current.source else {

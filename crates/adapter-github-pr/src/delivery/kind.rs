@@ -11,3 +11,5 @@ pub const POST_MERGE: &str = "github.post_merge";
 pub const MERGE_CONFLICT: &str = "github.merge_conflict";
 /// Read a failed check run's annotations and announce it to the PR's tasks.
 pub const CHECK_RUN: &str = "github.check_run";
+/// Open the Task a check-run trigger asks for, or add skills to it.
+pub const CHECK_RUN_TRIGGER: &str = "github.check_run_trigger";

@@ -85,6 +85,7 @@ fn message(
     match primary.expect("normalization should succeed") {
         PrimaryWebhook::Message(message) => message,
         PrimaryWebhook::CheckRun(_) => panic!("expected message, got check run"),
+        PrimaryWebhook::CheckRunTrigger(_) => panic!("expected message, got check-run trigger"),
         PrimaryWebhook::CloseTask(_) => panic!("expected message, got close"),
         PrimaryWebhook::Ignore(reason) => panic!("expected message, ignored as {reason:?}"),
     }
@@ -191,18 +192,18 @@ async fn comments_preserve_footer_provenance_and_parent_audience() {
             "path": "src/lib.rs"
         }
     });
-    let review_message = message(
+    let trigger_message = message(
         normalize_payload("pull_request_review_comment", &review, &fake_rule())
             .await
             .primary,
     );
-    assert_eq!(review_message.source_task_id.as_deref(), Some("task-B"));
+    assert_eq!(trigger_message.source_task_id.as_deref(), Some("task-B"));
     assert_eq!(
-        review_message.external_event_id.as_deref(),
+        trigger_message.external_event_id.as_deref(),
         Some("github:rc:999")
     );
     assert_eq!(
-        review_message.audience,
+        trigger_message.audience,
         Audience::ParentAuthor {
             parent_external_event_id: Some("github:rc:555".into())
         }

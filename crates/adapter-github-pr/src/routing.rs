@@ -34,12 +34,12 @@ pub(super) use super::subject::SUBJECT_KIND;
 /// same as the legacy ones.
 pub(super) const ADAPTER_LABEL: &str = AdapterKind::GithubPr.as_str();
 
-const ORIGIN_ADAPTER_EVENT: &str = ADAPTER_EVENT_BINDING_ORIGIN;
+pub(super) const ORIGIN_ADAPTER_EVENT: &str = ADAPTER_EVENT_BINDING_ORIGIN;
 const ORIGIN_CONNECTED_THREAD: &str = CONNECTED_THREAD_BINDING_ORIGIN;
 
 /// Always prepended to the `append_system_prompt` of tasks created from a
 /// GitHub PR event, so loop/trigger prompts don't have to restate the origin.
-const PR_ORIGIN_CONTEXT: &str = "This task was created from a GitHub Pull Request.";
+pub(super) const PR_ORIGIN_CONTEXT: &str = "This task was created from a GitHub Pull Request.";
 
 /// This adapter's [`delivery_only_subscription`]: the Subscription a PR event
 /// delivers under when the connection has no matching trigger.
@@ -48,6 +48,32 @@ pub(super) fn delivery_only_rule(
     repo_full_name: &str,
 ) -> SubscriptionMatch {
     delivery_only_subscription(connection, AdapterKind::GithubPr, repo_full_name)
+}
+
+/// The source matcher of an org's check-run trigger loop, which matches every
+/// repository of `org` that has no loop of its own.
+pub(super) fn org_wildcard(org: &str) -> String {
+    format!("{org}/*")
+}
+
+/// `rule` as it applies to `repo_full_name`. An org wildcard loop's matcher is
+/// replaced by the repository: everything downstream reads `source_matcher`
+/// as the event's `owner/repo`, and would otherwise fail to parse `owner/*`.
+pub(super) fn for_repository(
+    mut rule: SubscriptionMatch,
+    repo_full_name: &str,
+) -> SubscriptionMatch {
+    if rule.source_matcher.ends_with("/*") {
+        rule.source_matcher = repo_full_name.to_string();
+    }
+    rule
+}
+
+/// Whether a pull request opening creates a Task under `rule`. Under a
+/// `create_on: check_run` loop only a trigger check run does.
+fn opening_creates_task(rule: &SubscriptionMatch) -> bool {
+    super::config::GithubPrRuleConfig::from_rule(rule).create_on
+        == super::config::CreateOn::PrOpened
 }
 
 /// What the event says of the task named as its author: that it opened the
@@ -217,7 +243,7 @@ impl GithubPrInboundRouter {
         // and a task never receives back an event it is named as the author of.
         let is_pr_open_event = msg.external_event_id.as_deref().is_some_and(|id| {
             super::external_id::is_opened(id) || super::external_id::is_reopened(id)
-        });
+        }) && rule.is_none_or(opening_creates_task);
 
         // The binding of a task this very event created, so the shared router can
         // tell it apart from one that was already bound.
@@ -942,6 +968,7 @@ pub(crate) mod tests {
                 Arc::new(message_send),
                 Arc::new(task_closer),
                 Arc::new(review_guides),
+                Arc::new(crate::check_run_trigger::MockTriggerWorkspaces::new()),
                 None,
             )
         }
@@ -1007,6 +1034,30 @@ pub(crate) mod tests {
                 )
                 .await;
         }
+    }
+
+    #[test]
+    fn an_org_wildcard_rule_names_the_events_repository() {
+        let mut rule = delivery_only_rule(&connection(None), "acme/*");
+        rule.source_matcher = super::org_wildcard("acme");
+        assert_eq!(
+            super::for_repository(rule.clone(), "acme/widget").source_matcher,
+            "acme/widget"
+        );
+        rule.source_matcher = "acme/gadget".to_string();
+        assert_eq!(
+            super::for_repository(rule, "acme/widget").source_matcher,
+            "acme/gadget",
+            "an exact rule keeps its own matcher"
+        );
+    }
+
+    #[test]
+    fn a_pr_opening_creates_nothing_under_a_check_run_loop() {
+        let mut rule = delivery_only_rule(&connection(None), "acme/widget");
+        assert!(super::opening_creates_task(&rule));
+        rule.adapter_config = Some(serde_json::json!({"create_on": "check_run"}));
+        assert!(!super::opening_creates_task(&rule));
     }
 
     #[test]

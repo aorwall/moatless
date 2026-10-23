@@ -24,6 +24,7 @@ use moatless_ports::task::{TaskReader, TranscriptAppend};
 use moatless_types::store::StoreError;
 
 use super::adapter::GithubPrAdapter;
+use super::check_run_trigger::TriggerWorkspaces;
 
 /// The Tasks behind a pull request's review guide, closed when it is merged.
 #[cfg_attr(test, mockall::automock)]
@@ -68,6 +69,8 @@ pub struct GithubPrInboundRouter {
     pub(super) task_closer: Arc<dyn TaskFinisher>,
     /// The Tasks that wrote a pull request's review guide, closed on merge.
     pub(super) review_guides: Arc<dyn ReviewGuideTasks>,
+    /// Finds or creates the Workspace a check-run trigger's Task runs in.
+    pub(super) trigger_workspaces: Arc<dyn TriggerWorkspaces>,
     /// The concrete adapter — `Some` when GitHub PR is configured. Source of
     /// the self-resolved reply instructions and the merge / post-merge
     /// credential.
@@ -78,7 +81,7 @@ impl GithubPrInboundRouter {
     /// Wire the router from the composition root's ports.
     #[expect(
         clippy::too_many_arguments,
-        reason = "the inbound-routing substrate is genuinely wide — thirteen downward ports the delivery handlers read. Bundling them into a sub-struct would only shuffle the same fields behind a one-use type; the width is paid once here at construction rather than threaded through register, every delivery closure, and every handler, which is the whole point of a constructed-once service."
+        reason = "the inbound-routing substrate is genuinely wide — fourteen downward ports the delivery handlers read. Bundling them into a sub-struct would only shuffle the same fields behind a one-use type; the width is paid once here at construction rather than threaded through register, every delivery closure, and every handler, which is the whole point of a constructed-once service."
     )]
     pub fn new(
         adapter_connections: Arc<dyn ConnectionLookup>,
@@ -93,6 +96,7 @@ impl GithubPrInboundRouter {
         message_send: Arc<dyn MessageAcceptor>,
         task_closer: Arc<dyn TaskFinisher>,
         review_guides: Arc<dyn ReviewGuideTasks>,
+        trigger_workspaces: Arc<dyn TriggerWorkspaces>,
         adapter: Option<Arc<GithubPrAdapter>>,
     ) -> Self {
         Self {
@@ -108,6 +112,7 @@ impl GithubPrInboundRouter {
             message_send,
             task_closer,
             review_guides,
+            trigger_workspaces,
             adapter,
         }
     }

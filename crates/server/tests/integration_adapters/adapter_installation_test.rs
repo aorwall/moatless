@@ -51,6 +51,7 @@ async fn installation_registers_capabilities_deliveries_and_handler_access(pool:
         kinds,
         [
             "github.check_run",
+            "github.check_run_trigger",
             "github.close",
             "github.merge_conflict",
             "github.post_merge",

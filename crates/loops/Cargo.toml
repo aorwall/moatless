@@ -52,6 +52,7 @@ workspace = true
 
 [dev-dependencies]
 moatless-adapter-model = { workspace = true, features = ["test-support"] }
+moatless-ports = { workspace = true, features = ["test-support"] }
 async-trait = { workspace = true }
 http-body-util = { workspace = true }
 tokio-test = { workspace = true }

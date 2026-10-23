@@ -848,6 +848,36 @@ pub(crate) async fn replace_git_placements(
     tx.commit().await
 }
 
+/// Take the session advisory lock serializing loop workspace provisioning for one
+/// repository URL, on a connection detached from the pool.
+///
+/// Detached deliberately: dropped on a panic it closes, which releases the
+/// lock, where a pooled one would return to the pool still holding it.
+pub(crate) async fn lock_workspace_provision(
+    db: &DbPool,
+    url_key: &str,
+) -> Result<sqlx::PgConnection, sqlx::Error> {
+    let mut lock = db.acquire().await?.detach();
+    sqlx::query("SELECT pg_advisory_lock(hashtext($1))")
+        .bind(format!("workspace-provision:{url_key}"))
+        .execute(&mut lock)
+        .await?;
+    Ok(lock)
+}
+
+/// Release [`lock_workspace_provision`]'s lock and close its connection.
+pub(crate) async fn unlock_workspace_provision(
+    mut lock: sqlx::PgConnection,
+    url_key: &str,
+) -> Result<(), sqlx::Error> {
+    let unlocked = sqlx::query("SELECT pg_advisory_unlock(hashtext($1))")
+        .bind(format!("workspace-provision:{url_key}"))
+        .execute(&mut lock)
+        .await;
+    let _ = sqlx::Connection::close(lock).await;
+    unlocked.map(drop)
+}
+
 #[cfg(all(test, feature = "db-tests"))]
 #[path = "dao_db_tests.rs"]
 mod db_tests;

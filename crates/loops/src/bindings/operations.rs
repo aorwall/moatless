@@ -223,6 +223,16 @@ impl Bindings {
         self.store.update_mergeable_state(id, mergeable_state).await
     }
 
+    /// Merge `patch`'s top-level keys into the Binding's `metadata`, for an
+    /// Adapter's own state. [`Self::bind`] keeps keys it does not write.
+    pub async fn merge_metadata(
+        &self,
+        id: &str,
+        patch: &serde_json::Value,
+    ) -> Result<(), sqlx::Error> {
+        self.store.merge_metadata(id, patch).await
+    }
+
     /// Record that this Binding's thread has carried a task-provenance footer,
     /// so later replies in the same thread do not repeat it.
     pub async fn mark_task_link_sent(&self, id: &str) -> Result<(), sqlx::Error> {

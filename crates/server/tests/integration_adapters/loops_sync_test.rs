@@ -883,3 +883,59 @@ async fn concurrent_activation_and_resync_finish_in_a_serial_state(pool: PgPool)
         "the final row must equal activation-last or sync-last, never a half-approved merge"
     );
 }
+
+const ORG_TRIGGER_LOOP: &str = "---\non: github_pr\nname: gate-review\nsourceMatcher: test/*\nworkspace: auto\nskills: [pr-review]\nadapterConfig:\n  create_on: check_run\n  check_run:\n    names: [soap-review-request]\n    app_ids: [5421124]\n---\n\nReview this PR.\n";
+const ORG_WILDCARD_WITHOUT_CREATE_ON: &str =
+    "---\non: github_pr\nname: org-review\nsourceMatcher: test/*\n---\n\nReview this PR.\n";
+const AUTO_WORKSPACE_WITHOUT_CREATE_ON: &str =
+    "---\non: github_pr\nname: auto-review\nworkspace: auto\n---\n\nReview this PR.\n";
+
+#[sqlx::test]
+async fn an_org_trigger_loop_syncs_only_with_create_on_check_run(pool: PgPool) {
+    let repo = make_repository_row("repo-org-review", "user-1");
+    seed_team(&pool, "user-1").await;
+    compose::seed_repository(&pool, &repo).await.unwrap();
+    common::seed_workspace_placing(&pool, "ws-1", &repo.id, "user-1").await;
+    insert_github_connection(&pool, "test").await;
+    let state = test_app_state(pool.clone());
+
+    let summary = state
+        .loop_sync
+        .sync_loops(
+            &repo,
+            &auth("user-1"),
+            vec![
+                parse_loop(ORG_TRIGGER_LOOP, "gate-review").unwrap(),
+                parse_loop(ORG_WILDCARD_WITHOUT_CREATE_ON, "org-review").unwrap(),
+                parse_loop(AUTO_WORKSPACE_WITHOUT_CREATE_ON, "auto-review").unwrap(),
+            ],
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(summary.created, 1, "skipped: {:?}", summary.skipped);
+    let mut reasons: Vec<&str> = summary
+        .skipped
+        .iter()
+        .map(|skip| skip.reason.as_str())
+        .collect();
+    reasons.sort_unstable();
+    assert_eq!(reasons.len(), 2);
+    assert!(
+        reasons
+            .iter()
+            .all(|reason| reason.contains("create_on: check_run")),
+        "{reasons:?}"
+    );
+    let (source_matcher, workspace_id): (String, String) = sqlx::query_as(
+        "SELECT s.source_matcher, c.workspace_id FROM loops l \
+         JOIN subscriptions s ON s.loop_id = l.id \
+         JOIN loop_configs c ON c.loop_id = l.id \
+         WHERE l.name = 'gate-review'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(source_matcher, "test/*");
+    assert_eq!(workspace_id, "ws-1");
+}

@@ -38,6 +38,9 @@ pub(super) enum PrimaryWebhook {
     /// apart from [`Self::Message`] so the read happens under the delivery
     /// record's retries rather than inside the webhook request.
     CheckRun(Box<super::check_run::Execution>),
+    /// A check run matching a `create_on: check_run` loop's trigger; the pull
+    /// request is read and the Task opened under the delivery record's retries.
+    CheckRunTrigger(Box<super::check_run_trigger::Execution>),
     CloseTask(PrCloseInfo),
     Ignore(IgnoredWebhook),
 }
@@ -55,6 +58,9 @@ pub(super) enum IgnoredWebhook {
     NotificationDisabled,
     NonNotifiableConclusion,
     MissingPullRequest,
+    /// A trusted trigger check run whose marker is unreadable, names a bad
+    /// skill or another head, or that names no pull request.
+    InvalidCheckRunTrigger,
 }
 
 impl IgnoredWebhook {
@@ -70,6 +76,7 @@ impl IgnoredWebhook {
             Self::NotificationDisabled => "notification_disabled",
             Self::NonNotifiableConclusion => "non_notifiable_conclusion",
             Self::MissingPullRequest => "missing_pull_request",
+            Self::InvalidCheckRunTrigger => "invalid_check_run_trigger",
         }
     }
 }
@@ -156,7 +163,11 @@ pub(super) async fn normalize(
         .flatten();
     let mut status_observations = Vec::new();
 
-    let primary = if config.event_filtered_out(event_type) {
+    let primary = if let Some(request) =
+        super::check_run_trigger::normalize(event_type, payload, context, &config)
+    {
+        Ok(request)
+    } else if config.event_filtered_out(event_type) {
         Ok(PrimaryWebhook::Ignore(IgnoredWebhook::EventFiltered))
     } else {
         match event_type {

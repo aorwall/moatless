@@ -34,6 +34,12 @@ pub(super) fn pr_event(action: &str, subject: &GithubPrSubject, sha: Option<&str
     }
 }
 
+/// `github:pr:check_run_trigger:<owner>/<repo>#<number>:<sha>` - a check-run
+/// trigger on head `sha`. A trigger that adds skills appends them to `sha`.
+pub(super) fn check_run_trigger(subject: &GithubPrSubject, sha: &str) -> String {
+    pr_event("check_run_trigger", subject, Some(sha))
+}
+
 /// `github:pr:opened:<owner>/<repo>#<number>`.
 pub(super) fn pr_opened(subject: &GithubPrSubject) -> String {
     pr_event("opened", subject, None)

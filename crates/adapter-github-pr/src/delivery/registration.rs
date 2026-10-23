@@ -59,6 +59,10 @@ pub fn register(handlers: &mut AdapterDeliveryHandlers, router: Arc<GithubPrInbo
         let router = router.clone();
         move |delivery, payload| execute_check_run(router.clone(), delivery, payload)
     });
+    register_typed_delivery::<CheckRunTriggerDelivery, _, _>(handlers, kind::CHECK_RUN_TRIGGER, {
+        let router = router.clone();
+        move |delivery, payload| execute_check_run_trigger(router.clone(), delivery, payload)
+    });
 }
 
 // =============================================================================
@@ -106,6 +110,8 @@ impl DeliveryContext {
                 .map_err(AdapterDeliveryFailure::retryable)?,
             None => None,
         };
+        let trigger =
+            trigger.map(|rule| crate::routing::for_repository(rule, &self.repo_full_name));
         Ok((connection, trigger))
     }
 
@@ -175,6 +181,15 @@ pub(crate) struct CheckRunDelivery {
     pub(crate) context: DeliveryContext,
     #[serde(flatten)]
     pub(crate) execution: crate::check_run::Execution,
+}
+
+/// Open or grow the Task a check-run trigger asks for.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct CheckRunTriggerDelivery {
+    #[serde(flatten)]
+    pub(crate) context: DeliveryContext,
+    #[serde(flatten)]
+    pub(crate) execution: crate::check_run_trigger::Execution,
 }
 
 /// Failures this module raises on its own behalf, as opposed to those it
@@ -295,6 +310,18 @@ async fn execute_check_run(
     let (connection, trigger) = payload.context.resolve(&router).await?;
     router
         .run_check_run(&connection, trigger.as_ref(), &payload.execution)
+        .await
+        .map_err(AdapterDeliveryFailure::from)
+}
+
+async fn execute_check_run_trigger(
+    router: Arc<GithubPrInboundRouter>,
+    _delivery: moatless_adapter_model::delivery::AdapterDelivery,
+    payload: CheckRunTriggerDelivery,
+) -> Result<(), AdapterDeliveryFailure> {
+    let (connection, trigger) = payload.context.resolve(&router).await?;
+    router
+        .run_check_run_trigger(&connection, trigger.as_ref(), &payload.execution)
         .await
         .map_err(AdapterDeliveryFailure::from)
 }
@@ -505,6 +532,38 @@ mod tests {
         assert_eq!(serde_json::to_value(&back).expect("serialize"), stored);
     }
 
+    #[test]
+    fn a_check_run_trigger_payload_survives_the_round_trip() {
+        let delivery = CheckRunTriggerDelivery {
+            context: context(),
+            execution: crate::check_run_trigger::Execution {
+                owner: "acme".to_string(),
+                repo: "widgets".to_string(),
+                pr_number: 42,
+                head_sha: "deadbeef".to_string(),
+                check_name: "soap-review-request".to_string(),
+                conclusion: "neutral".to_string(),
+                output_title: "Review requested".to_string(),
+                output_summary: String::new(),
+                skills: vec!["pr-review".to_string()],
+                matched: vec![crate::check_run_trigger::MatchedRule {
+                    id: "infra".to_string(),
+                    skills: vec!["pr-review".to_string()],
+                }],
+                message: Some("Focus on the migration.".to_string()),
+                default_branch: Some("main".to_string()),
+                description: None,
+            },
+        };
+        let stored = serde_json::to_value(&delivery).expect("serialize");
+        let back: CheckRunTriggerDelivery =
+            serde_json::from_value(stored.clone()).expect("deserialize");
+
+        assert_eq!(back.execution.pr_number, 42);
+        assert_eq!(back.execution.matched[0].id, "infra");
+        assert_eq!(serde_json::to_value(&back).expect("serialize"), stored);
+    }
+
     /// A record's kind names its handler; the request must carry the kind and
     /// the sender's own key, not a generated one.
     #[test]
@@ -536,6 +595,7 @@ mod tests {
             kind::POST_MERGE,
             kind::MERGE_CONFLICT,
             kind::CHECK_RUN,
+            kind::CHECK_RUN_TRIGGER,
         ];
         let mut unique = kinds.to_vec();
         unique.sort_unstable();

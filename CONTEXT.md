@@ -338,6 +338,14 @@ A Loop's event-based firing condition: the Loop subscribes to an Adapter's event
 (a PR opened, a Slack mention, a Linear issue).
 _Avoid_: trigger source, adapter-event trigger, TaskTrigger, TaskRoute
 
+**Check-run trigger**:
+A completed GitHub check run, from a trusted App and matching a `github_pr`
+Subscription's `check_run` names and conclusions, that fires the Subscription
+instead of PR open (`create_on: check_run`); such a Subscription may match a
+whole org as `<owner>/*`. Example: a review gate's neutral
+`soap-review-request` check run naming the skills to review with.
+_Avoid_: review request, gate event
+
 **Firing** (also **activation**):
 A single occurrence that starts one cycle of a Loop. "Trigger" is only the verb
 for this — an event *triggers* the Loop; there is no "trigger" noun.

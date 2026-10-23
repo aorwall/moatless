@@ -6,6 +6,7 @@
 //! [`firing`], [`sync`] (reconciling `.moatless/loops/<name>/LOOP.md`),
 //! [`http`], and [`ports`] (the Subscription reads Adapters make).
 
+pub(crate) mod check_run_trigger;
 pub(crate) mod dao;
 pub mod firing;
 pub mod http;

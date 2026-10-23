@@ -13,6 +13,7 @@ mod api;
 pub mod api_routes;
 mod auth;
 mod check_run;
+pub mod check_run_trigger;
 mod config;
 pub mod delivery;
 mod external_id;

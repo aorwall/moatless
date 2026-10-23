@@ -11,6 +11,7 @@ pub mod git_sync;
 pub(crate) mod handlers;
 pub mod models;
 pub mod operations;
+pub mod provision;
 pub mod routes;
 pub mod schemas;
 pub mod scripts;

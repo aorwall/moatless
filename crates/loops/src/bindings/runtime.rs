@@ -285,49 +285,15 @@ impl RoutingService {
             .should_create_binding_task(subscription, &bindings)
             .await?
         {
-            // Reading bindings then creating is two statements, not one
-            // transaction, across replicas, so two events for one subject
-            // can both see no binding and both try to create (seen for
-            // real: duplicate Slack events ~300ms apart). One
-            // `claim_task_creation` wins; losers retry onto its binding.
-            let claimed = self
-                .event_receipts
-                .claim_task_creation(
-                    &subscription.id,
-                    subject_kind,
-                    subject_key,
-                    adapter_label,
-                    msg.external_event_id.as_deref(),
-                )
-                .await?
-                || self
-                    .take_over_closed_claim(
-                        &subscription.id,
-                        subject_kind,
-                        subject_key,
-                        adapter_label,
-                        msg.external_event_id.as_deref(),
-                    )
-                    .await?;
-            if !claimed {
-                debug!(
-                    subscription_id = %subscription.id,
-                    subject_key,
-                    provider = adapter_label,
-                    "Lost the task-creation claim for this subject; retrying to reach the winner"
-                );
-                record_inbound(
-                    adapter_label,
-                    "retry",
-                    inbound_reason::CREATION_CLAIMED,
-                    &subscription.id,
-                    &connection.id,
-                );
-                return Err(AdapterError::CreationClaimed {
-                    subject_kind: subject_kind.to_string(),
-                    subject_key: subject_key.to_string(),
-                });
-            }
+            self.claim_task_creation(
+                connection,
+                subscription,
+                subject_kind,
+                subject_key,
+                adapter_label,
+                msg.external_event_id.as_deref(),
+            )
+            .await?;
 
             // The earliest binding for this subject, if any, belongs to the
             // task that originated it — typically a `connected_thread`
@@ -392,10 +358,7 @@ impl RoutingService {
                         .await?;
                     new_task_binding_id = Some(sub.id.clone());
                     bindings.push(sub);
-                    // Point the claim at the task it produced. A later delivery
-                    // that loses the claim can then be told what won it.
-                    self.event_receipts
-                        .record_claimed_task(&subscription.id, subject_kind, subject_key, &task_id)
+                    self.record_created_task(&subscription.id, subject_kind, subject_key, &task_id)
                         .await?;
                     info!(task_id = %task_id, subscription_id = %subscription.id, provider = adapter_label, "Created task from provider event");
                 }
@@ -405,12 +368,7 @@ impl RoutingService {
                 // but fall through to existing bindings and return `Ok` —
                 // a 5xx would make it redeliver and duplicate the error.
                 Err(TaskOpenError::Refused(reason)) => {
-                    // The claim bought the right to create and no task came of
-                    // it. Hand it back, or every later event for this subject
-                    // loses a claim held by nothing and retries until its
-                    // budget runs out.
-                    self.event_receipts
-                        .release_claim(&subscription.id, subject_kind, subject_key)
+                    self.release_task_creation(&subscription.id, subject_kind, subject_key)
                         .await?;
                     warn!(subscription_id = %subscription.id, provider = adapter_label, reason = %reason, "Skipping task creation from provider event: preflight failed");
                 }
@@ -420,8 +378,7 @@ impl RoutingService {
                     // Transient, so the sender retries — but the claim must not
                     // outlive the attempt that took it, or the retry loses to
                     // itself.
-                    self.event_receipts
-                        .release_claim(&subscription.id, subject_kind, subject_key)
+                    self.release_task_creation(&subscription.id, subject_kind, subject_key)
                         .await?;
                     return Err(AdapterError::task_handoff(
                         "open a task from a provider event",
@@ -714,6 +671,91 @@ impl RoutingService {
         Ok(self.open_ongoing_task_id(subscription).await.is_none())
     }
 
+    /// Claim the right to open `subject_key`'s Task, taking over a claim
+    /// whose Task has closed. Two events can both read no Binding (seen: Slack
+    /// duplicates ~300ms apart); a loser gets `CreationClaimed` and retries
+    /// onto the winner's Binding. End a won claim with
+    /// [`Self::record_created_task`] or [`Self::release_task_creation`].
+    pub async fn claim_task_creation(
+        &self,
+        connection: &AdapterConnection,
+        subscription: &SubscriptionMatch,
+        subject_kind: &str,
+        subject_key: &str,
+        adapter_label: &str,
+        external_event_id: Option<&str>,
+    ) -> Result<(), AdapterError> {
+        let claimed = self
+            .event_receipts
+            .claim_task_creation(
+                &subscription.id,
+                subject_kind,
+                subject_key,
+                adapter_label,
+                external_event_id,
+            )
+            .await?
+            || self
+                .take_over_closed_claim(
+                    &subscription.id,
+                    subject_kind,
+                    subject_key,
+                    adapter_label,
+                    external_event_id,
+                )
+                .await?;
+        if claimed {
+            return Ok(());
+        }
+        debug!(
+            subscription_id = %subscription.id,
+            subject_key,
+            provider = adapter_label,
+            "Lost the task-creation claim for this subject; retrying to reach the winner"
+        );
+        record_inbound(
+            adapter_label,
+            "retry",
+            inbound_reason::CREATION_CLAIMED,
+            &subscription.id,
+            &connection.id,
+        );
+        Err(AdapterError::CreationClaimed {
+            subject_kind: subject_kind.to_string(),
+            subject_key: subject_key.to_string(),
+        })
+    }
+
+    /// Point a held claim at the Task it produced, so a later delivery that
+    /// loses the claim can be told what won it.
+    pub async fn record_created_task(
+        &self,
+        loop_id: &str,
+        subject_kind: &str,
+        subject_key: &str,
+        task_id: &str,
+    ) -> Result<(), AdapterError> {
+        Ok(self
+            .event_receipts
+            .record_claimed_task(loop_id, subject_kind, subject_key, task_id)
+            .await?)
+    }
+
+    /// Hand back a held claim no Task came of, or every later event for the
+    /// subject loses a claim held by nothing and retries until its budget runs
+    /// out.
+    pub async fn release_task_creation(
+        &self,
+        loop_id: &str,
+        subject_kind: &str,
+        subject_key: &str,
+    ) -> Result<(), AdapterError> {
+        Ok(self
+            .event_receipts
+            .release_claim(loop_id, subject_kind, subject_key)
+            .await?)
+    }
+
     /// Take over the subject's claim when the task it produced is no longer open.
     ///
     /// A claim outlives its task, so an event after a close would otherwise
@@ -805,6 +847,33 @@ impl RoutingService {
             "Buffered an inbound event for its binding's window"
         );
         Ok(())
+    }
+
+    /// Deliver `msg` to `binding` at once, activating `skills` in place of
+    /// `subscription`'s when the binding serves it (see `serves_loop`).
+    ///
+    /// Bypasses the buffer deliberately: a flush re-reads the Loop and would
+    /// send its skills rather than these.
+    pub async fn deliver_with_skills(
+        &self,
+        subscription: &SubscriptionMatch,
+        binding: &TaskBinding,
+        msg: &InboundMessage,
+        adapter_label: &str,
+        skills: Vec<String>,
+    ) -> Result<(), AdapterError> {
+        let subscription = SubscriptionMatch {
+            skills,
+            ..subscription.clone()
+        };
+        self.deliver_now(
+            &subscription,
+            binding,
+            std::slice::from_ref(msg),
+            adapter_label,
+            false,
+        )
+        .await
     }
 
     /// Deliver one Binding's buffered events as a single turn.
@@ -1231,3 +1300,7 @@ mod error_source_tests {
         assert_eq!(body, r#"{"error":"Internal server error"}"#);
     }
 }
+
+#[cfg(all(test, feature = "db-tests"))]
+#[path = "runtime_claim_db_tests.rs"]
+mod claim_db_tests;

@@ -181,6 +181,7 @@ pub(crate) async fn receive(
         && rule_config.event_filtered_out(super::config::MERGE_CONFLICT)
         && rule_config.event_filtered_out(super::config::POST_MERGE)
         && rule_config.event_filtered_out(super::config::PR_MERGED)
+        && rule_config.event_filtered_out(super::config::CHECK_RUN_TRIGGER)
     {
         debug!(
             event_type,
@@ -267,6 +268,19 @@ pub(crate) async fn receive(
                     super::delivery::kind::CHECK_RUN,
                     event_id.clone(),
                     &super::delivery::CheckRunDelivery {
+                        context: delivery_context.clone(),
+                        execution: *execution,
+                    },
+                )
+                .map_err(ingress)?,
+            );
+        }
+        PrimaryWebhook::CheckRunTrigger(execution) => {
+            plan.push(
+                super::delivery::request(
+                    super::delivery::kind::CHECK_RUN_TRIGGER,
+                    event_id.clone(),
+                    &super::delivery::CheckRunTriggerDelivery {
                         context: delivery_context.clone(),
                         execution: *execution,
                     },
@@ -405,20 +419,34 @@ async fn resolve_provider_event(
         return Ok(None);
     };
 
-    let rule = loops
+    let same_connection = |rule: &SubscriptionMatch| {
+        let same = rule.connection_id == connection.id;
+        if !same {
+            debug!(
+                source_matcher = %rule.source_matcher,
+                "Task trigger belongs to a different connection — ignoring trigger; \
+                 delivering to existing bindings only"
+            );
+        }
+        same
+    };
+    let mut rule = loops
         .subscription_for_source(super::delivery::ADAPTER, repo_full_name)
         .await?
-        .filter(|rule| {
-            let same_connection = rule.connection_id == connection.id;
-            if !same_connection {
-                debug!(
-                    source_matcher = %repo_full_name,
-                    "Task trigger belongs to a different connection — ignoring trigger; \
-                     delivering to existing bindings only"
-                );
-            }
-            same_connection
-        });
+        .filter(same_connection);
+    // An exact loop wins. The org's `<owner>/*` loop is only ever a check-run
+    // trigger, re-checked here so a row written past sync's check
+    // cannot turn every repository's PR openings into Tasks.
+    if rule.is_none() {
+        rule = loops
+            .subscription_for_source(super::delivery::ADAPTER, &super::routing::org_wildcard(org))
+            .await?
+            .filter(same_connection)
+            .filter(|rule| {
+                GithubPrRuleConfig::from_rule(rule).create_on == super::config::CreateOn::CheckRun
+            })
+            .map(|rule| super::routing::for_repository(rule, repo_full_name));
+    }
 
     Ok(Some((connection, rule)))
 }
@@ -681,6 +709,180 @@ mod tests {
             ["suite-1", "suite-2", "suite-3"],
             "no check per run; each suite rechecks, so the last one records the settled state"
         );
+    }
+
+    /// Subscriptions keyed by their exact source matcher, as
+    /// `find_subscription_by_source_matcher` reads them.
+    struct ByMatcher(Vec<SubscriptionMatch>);
+
+    #[async_trait]
+    impl LoopReader for ByMatcher {
+        async fn subscription(&self, id: &str) -> Result<Option<SubscriptionMatch>, StoreError> {
+            Ok(self.0.iter().find(|s| s.id == id).cloned())
+        }
+
+        async fn runnable_subscription(
+            &self,
+            id: &str,
+        ) -> Result<Option<SubscriptionMatch>, StoreError> {
+            self.subscription(id).await
+        }
+
+        async fn subscription_for_source(
+            &self,
+            _adapter_kind: &str,
+            source_matcher: &str,
+        ) -> Result<Option<SubscriptionMatch>, StoreError> {
+            Ok(self
+                .0
+                .iter()
+                .find(|s| s.source_matcher == source_matcher)
+                .cloned())
+        }
+
+        async fn subscriptions_for_source(
+            &self,
+            _adapter_kind: &str,
+            _source_matcher: &str,
+        ) -> Result<Vec<SubscriptionMatch>, StoreError> {
+            Ok(vec![])
+        }
+
+        async fn wildcard_subscription(
+            &self,
+            _adapter_kind: &str,
+        ) -> Result<Option<SubscriptionMatch>, StoreError> {
+            Ok(None)
+        }
+    }
+
+    fn loop_for(
+        id: &str,
+        source_matcher: &str,
+        adapter_config: serde_json::Value,
+    ) -> SubscriptionMatch {
+        let conn = connection("conn-1", AdapterKind::Github, "acme");
+        SubscriptionMatch {
+            id: id.to_string(),
+            source_matcher: source_matcher.to_string(),
+            adapter_config: Some(adapter_config),
+            ..super::super::routing::delivery_only_rule(&conn, source_matcher)
+        }
+    }
+
+    fn trigger_config() -> serde_json::Value {
+        serde_json::json!({
+            "create_on": "check_run",
+            "check_run": {"names": ["soap-review-request"], "app_ids": [7]},
+        })
+    }
+
+    async fn resolved_loop(loops: &ByMatcher) -> Option<SubscriptionMatch> {
+        let connections =
+            InMemoryConnections::new(vec![connection("conn-1", AdapterKind::Github, "acme")]);
+        resolve_provider_event(&connections, loops, "acme", "acme/widgets")
+            .await
+            .expect("resolves")
+            .expect("has a connection")
+            .1
+    }
+
+    #[tokio::test]
+    async fn a_repository_without_a_loop_falls_back_to_the_org_trigger_loop() {
+        let rule = resolved_loop(&ByMatcher(vec![loop_for(
+            "tr_org",
+            "acme/*",
+            trigger_config(),
+        )]))
+        .await
+        .expect("the org loop");
+        assert_eq!(rule.id, "tr_org");
+        assert_eq!(rule.source_matcher, "acme/widgets");
+    }
+
+    #[tokio::test]
+    async fn an_exact_loop_wins_over_the_org_trigger_loop() {
+        let rule = resolved_loop(&ByMatcher(vec![
+            loop_for("tr_org", "acme/*", trigger_config()),
+            loop_for("tr_exact", "acme/widgets", serde_json::json!({})),
+        ]))
+        .await
+        .expect("the exact loop");
+        assert_eq!(rule.id, "tr_exact");
+    }
+
+    #[tokio::test]
+    async fn an_org_wildcard_without_create_on_is_never_matched() {
+        let rule = resolved_loop(&ByMatcher(vec![loop_for(
+            "tr_org",
+            "acme/*",
+            serde_json::json!({}),
+        )]))
+        .await;
+        assert!(rule.is_none());
+    }
+
+    /// The whole ingress path: a gate's check run on a repository only the org
+    /// loop covers is admitted as a check-run trigger under that loop.
+    #[tokio::test]
+    async fn a_check_run_trigger_is_admitted_under_the_org_loop() {
+        let connections =
+            InMemoryConnections::new(vec![connection("conn-1", AdapterKind::Github, "acme")]);
+        let loops = ByMatcher(vec![loop_for("tr_org", "acme/*", trigger_config())]);
+        let mut users = MockProviderIdentityLink::new();
+        users.expect_user_with_login().returning(|_, _| Ok(None));
+        let admission = FakeAdmission::new(FakeAdmissionAnswer::Admitted);
+        let github_provider = GithubPrAdapter::new(
+            None,
+            "https://app.example".to_string(),
+            "https://api.github.com".to_string(),
+            std::sync::Arc::new(MockGitHostTokenIssuer::new()),
+            moatless_types::http::HttpTimeouts {
+                connect: Duration::from_secs(5),
+                total: Duration::from_secs(30),
+            },
+        );
+        let marker = format!(
+            "{}{} -->",
+            crate::check_run_trigger::MARKER_PREFIX,
+            serde_json::json!({"head": "abc", "skills": ["pr-review"], "matched": []})
+        );
+        let body = serde_json::to_vec(&serde_json::json!({
+            "action": "completed",
+            "repository": {"full_name": "acme/widgets", "owner": {"login": "acme"}},
+            "sender": {"login": "gate[bot]"},
+            "check_run": {
+                "id": 1,
+                "name": "soap-review-request",
+                "head_sha": "abc",
+                "conclusion": "neutral",
+                "app": {"id": 7},
+                "output": {"text": marker},
+                "pull_requests": [{"number": 42}],
+            },
+        }))
+        .expect("serializes");
+
+        receive(
+            &connections as &dyn ConnectionLookup,
+            &loops as &dyn LoopReader,
+            &users,
+            &unconnected_bindings(),
+            &admission,
+            &github_provider,
+            WebhookRequest::new("check_run", "delivery-1", "", &body),
+        )
+        .await
+        .expect("accepted");
+
+        let requests: Vec<_> = admission
+            .seen()
+            .into_iter()
+            .filter(|request| request.kind == super::super::delivery::kind::CHECK_RUN_TRIGGER)
+            .collect();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].payload["loop_id"], "tr_org");
+        assert_eq!(requests[0].payload["pr_number"], 42);
     }
 
     #[test]

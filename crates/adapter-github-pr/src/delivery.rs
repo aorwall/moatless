@@ -5,6 +5,7 @@ mod registration;
 
 pub use registration::register;
 pub(crate) use registration::{
-    ADAPTER, CheckRunDelivery, CloseDelivery, DeliveryContext, MergeConflictDelivery,
-    PostMergeDelivery, PrMergedDelivery, PrMessageDelivery, log_admission, request,
+    ADAPTER, CheckRunDelivery, CheckRunTriggerDelivery, CloseDelivery, DeliveryContext,
+    MergeConflictDelivery, PostMergeDelivery, PrMergedDelivery, PrMessageDelivery, log_admission,
+    request,
 };

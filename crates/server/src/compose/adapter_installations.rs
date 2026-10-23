@@ -10,6 +10,9 @@ use std::sync::Arc;
 
 use crate::adapters::inbound_delivery::InboundMessageHandler;
 use crate::adapters::providers::github_pr::adapter::GithubPrAdapter;
+use crate::adapters::providers::github_pr::check_run_trigger::{
+    TriggerWorkspace, TriggerWorkspaceRequest, TriggerWorkspaces,
+};
 use crate::adapters::providers::github_pr::router::ReviewGuideTasks;
 use crate::adapters::providers::linear::active_turns::ActiveLinearTurns;
 use crate::adapters::providers::linear::adapter::LinearAdapter;
@@ -250,6 +253,13 @@ impl GithubPrInstallation {
                 state.message_send.clone(),
                 state.task_closer.clone(),
                 Arc::new(GuideTasks(state.review_guides.clone())),
+                Arc::new(ProvisionedWorkspaces {
+                    workspaces: state.workspaces.clone(),
+                    repositories: state.repositories.clone(),
+                    users: state.user_directory.clone(),
+                    git_sync: state.git_sync.clone(),
+                    pool: state.db.clone(),
+                }),
                 Some(self.adapter.clone()),
             ),
         );
@@ -378,5 +388,69 @@ impl ReviewGuideTasks for GuideTasks {
             .and_then(|run| run.task_id);
         let writing = writing.filter(|task_id| written.as_ref() != Some(task_id));
         Ok(written.into_iter().chain(writing).collect())
+    }
+}
+
+/// [`TriggerWorkspaces`] over the Workspace band's provisioning.
+struct ProvisionedWorkspaces {
+    workspaces: Arc<moatless_workspaces::workspace::Workspaces>,
+    repositories: Arc<moatless_workspaces::repository::operations::Repositories>,
+    users: Arc<moatless_identity::ports::UserDirectory>,
+    git_sync: Arc<moatless_workspaces::workspace::git_sync::GitSyncService>,
+    pool: moatless_core::db::DbPool,
+}
+
+#[async_trait::async_trait]
+impl TriggerWorkspaces for ProvisionedWorkspaces {
+    async fn workspace_for(
+        &self,
+        request: &TriggerWorkspaceRequest,
+    ) -> Result<TriggerWorkspace, StoreError> {
+        use moatless_workspaces::workspace::provision::{
+            ProvisionError, ProvisionRequest, ProvisionStores, Provisioned, provision_workspace,
+        };
+        // Only an administrator creates or syncs a Loop, so its creator may
+        // register the global repository and Workspace this makes.
+        let ctx = moatless_types::access_control::ScopeContext::admin(&request.acting_user_id);
+        let outcome = provision_workspace(
+            &ProvisionStores {
+                workspaces: &self.workspaces,
+                repositories: &self.repositories,
+                users: self.users.as_ref(),
+                git_sync: &self.git_sync,
+                pool: &self.pool,
+            },
+            &ctx,
+            &ProvisionRequest {
+                owner: request.owner.clone(),
+                repo: request.repo.clone(),
+                default_branch: request.default_branch.clone(),
+                description: request.description.clone(),
+                template: request.template.clone(),
+                preferred_workspace_id: Some(request.loop_workspace_id.clone()),
+            },
+        )
+        .await;
+        match outcome {
+            Ok(Provisioned::Workspace(id)) => Ok(TriggerWorkspace::Found(id)),
+            Ok(Provisioned::RepositoryDeleted) => Ok(TriggerWorkspace::Skipped(
+                "the repository was deleted".to_string(),
+            )),
+            Ok(Provisioned::NoTemplate) => Ok(TriggerWorkspace::Skipped(
+                "no workspace holds the repository and the loop sets no \
+                 provision.workspace_template"
+                    .to_string(),
+            )),
+            Err(error @ ProvisionError::TemplateMissing(_)) => {
+                Ok(TriggerWorkspace::Skipped(error.to_string()))
+            }
+            Err(error) => Err(StoreError::with_source(
+                format!(
+                    "provision a workspace for {}/{}",
+                    request.owner, request.repo
+                ),
+                error,
+            )),
+        }
     }
 }

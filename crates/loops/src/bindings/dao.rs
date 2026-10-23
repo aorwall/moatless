@@ -454,6 +454,23 @@ impl PgTaskBindingDao {
         Ok(())
     }
 
+    /// Merge `patch`'s top-level keys into `metadata`, replacing any it
+    /// already holds.
+    pub(crate) async fn merge_metadata(
+        &self,
+        id: &str,
+        patch: &serde_json::Value,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE task_bindings SET metadata = COALESCE(metadata, '{}'::jsonb) || $2 WHERE id = $1",
+        )
+        .bind(id)
+        .bind(patch)
+        .execute(&self.0)
+        .await?;
+        Ok(())
+    }
+
     /// Record that this binding's thread has carried a task-provenance footer,
     /// so later replies in the same thread do not repeat it. Merges into
     /// `metadata` rather than a column, since the footer is presentation state,

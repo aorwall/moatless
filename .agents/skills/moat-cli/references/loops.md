@@ -117,6 +117,46 @@ Notes:
 - `github_pr` loops need a pre-existing GitHub **connection** for the org (it
   holds the webhook secret and can't be committed to git). With no connection the
   loop is **skipped** with a reason, not errored. Schedule loops need no connection.
+- A `github_pr` loop with `adapterConfig.create_on: check_run` opens its task
+  only when a trusted GitHub App completes a matching check run, never on PR
+  open. The check run must match all of `check_run.names` (required),
+  `check_run.app_ids` (required) and `check_run.conclusions` (optional; absent
+  accepts any). Sync skips, and the Loop API refuses, a loop missing either
+  required list. Any other check run takes the ordinary failed-check path; a
+  failed run that matches is a trigger instead, so a bound task never gets its
+  failed-check notice. Set `conclusions` to keep failures on that path. Its `output.text` may carry an
+  optional marker, every field optional:
+  `<!-- moatless-request:v1 {"pr":7,"head":"<sha>","skills":[...],"matched":[{"id":..,"skills":[..]}],"message":"..."} -->`.
+  `pr` names the PR, else the check run's first `pull_requests` entry does
+  (GitHub leaves that empty for a fork's head). `head`, when given, must equal
+  the check run's head. An unreadable marker is ignored and logged. A trigger
+  is dropped unless the PR is open, not a draft, and still at that head. The
+  first turn is the PR-opened text plus the check's conclusion and output and
+  the marker's `message`. The marker's skills join the loop's `skills`; a
+  later trigger with new skills sends the open task one turn naming them.
+  Once the task has closed, the next trigger opens a new one. Two keys are
+  allowed only with `create_on: check_run`: `sourceMatcher: <owner>/*` serves
+  every repo of the connection's org that has no exact loop of its own, and
+  `workspace: auto` runs each task in the repo's Workspace (the loop's own
+  when it holds the repo), registering the repo and copying a Workspace from
+  `provision.workspace_template` when it has none. Ignore triggers with
+  `ignored_events: [check_run_trigger]`. A review gate is the example:
+
+  ```yaml
+  on: github_pr
+  name: gate-review
+  sourceMatcher: soaplabs/*
+  workspace: auto
+  skills: [pr-review]
+  adapterConfig:
+    create_on: check_run
+    check_run:
+      names: [soap-review-request]
+      app_ids: [5421124]
+      conclusions: [neutral]
+    provision:
+      workspace_template: review-template
+  ```
 - `slack` loops resolve their **connection** from `teamId` (the Slack workspace id,
   e.g. `T0000000001`); if `teamId` is omitted and exactly one slack connection
   exists it's used, otherwise the loop is **skipped** with a reason. `sourceMatcher`

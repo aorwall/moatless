@@ -204,22 +204,47 @@ pub(super) fn check_run_failed_text(p: &CheckRunFailedText<'_>) -> String {
         let _ = writeln!(text, "**Link:** {}", p.html_url);
     }
 
-    if !p.output_title.is_empty() || !p.output_summary.is_empty() {
-        text.push_str("\n### Output\n");
-        if !p.output_title.is_empty() {
-            let _ = writeln!(text, "**{}**", p.output_title);
-        }
-        if !p.output_summary.is_empty() {
-            let summary = truncate_on_char_boundary(p.output_summary, CHECK_RUN_SUMMARY_MAX_LEN);
-            let ellipsis = if summary.len() < p.output_summary.len() {
-                "..."
-            } else {
-                ""
-            };
-            let _ = writeln!(text, "{summary}{ellipsis}");
-        }
-    }
+    push_check_output(&mut text, p.output_title, p.output_summary);
+    text
+}
 
+/// Append a check run's `### Output` block, unless it has neither a title nor
+/// a summary.
+fn push_check_output(text: &mut String, title: &str, summary: &str) {
+    if title.is_empty() && summary.is_empty() {
+        return;
+    }
+    text.push_str("\n### Output\n");
+    if !title.is_empty() {
+        let _ = writeln!(text, "**{title}**");
+    }
+    if !summary.is_empty() {
+        let shown = truncate_on_char_boundary(summary, CHECK_RUN_SUMMARY_MAX_LEN);
+        let ellipsis = if shown.len() < summary.len() {
+            "..."
+        } else {
+            ""
+        };
+        let _ = writeln!(text, "{shown}{ellipsis}");
+    }
+}
+
+/// Inputs for [`check_run_trigger_text`].
+pub(super) struct CheckRunTriggerText<'a> {
+    pub(super) name: &'a str,
+    pub(super) conclusion: &'a str,
+    pub(super) output_title: &'a str,
+    pub(super) output_summary: &'a str,
+}
+
+/// The block naming the check run that opened a Task, appended to
+/// [`pr_opened_text`]. Ends on a newline.
+pub(super) fn check_run_trigger_text(p: &CheckRunTriggerText<'_>) -> String {
+    let mut text = format!(
+        "\n## Triggered by check: {}\n\n**Conclusion:** {}\n",
+        p.name, p.conclusion,
+    );
+    push_check_output(&mut text, p.output_title, p.output_summary);
     text
 }
 
