@@ -209,6 +209,9 @@ async fn forward(
 
     let status = StatusCode::from_u16(response.status().as_u16())
         .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    if status == StatusCode::NOT_FOUND {
+        return (status, proxy.refusal(&upstream).await).into_response();
+    }
     let mut out = Response::builder().status(status);
     for name in FORWARDED_RESPONSE_HEADERS {
         if let Some(value) = response.headers().get(&name) {

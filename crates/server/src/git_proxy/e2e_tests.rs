@@ -98,6 +98,7 @@ async fn proxy(env: &Env, repository_id: &str) -> GitProxy {
     repositories.expect_describe().returning(|_, _| Ok(None));
     let mut users = MockCommitIdentity::new();
     users.expect_is_platform_admin().returning(|_| Ok(false));
+    users.expect_git_identity().returning(|_| Ok(None));
 
     GitProxy::new(
         ingress,

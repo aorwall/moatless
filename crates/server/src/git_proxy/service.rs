@@ -26,6 +26,35 @@ pub struct Upstream {
     pub token: String,
     /// For the request log. The token is never logged.
     pub host: String,
+    /// `{owner}/{name}` on `host`.
+    pub path: String,
+    /// The Moatless user whose `host` credential `token` is, unless the
+    /// Workspace pins one.
+    pub run_as_user_id: String,
+    /// The Workspace of the Sandbox the task token names.
+    pub workspace_id: String,
+}
+
+/// What git shows, as `remote:` lines, when `upstream`'s host answers 404.
+///
+/// Safe to name the repository: the proxy only reaches the host for one the
+/// caller may already use here, so this confirms no guessed id. `login` is the
+/// Moatless login of [`Upstream::run_as_user_id`], not the host account.
+fn refusal_message(upstream: &Upstream, login: Option<&str>) -> String {
+    let user = match login {
+        Some(login) => format!("{login} ({})", upstream.run_as_user_id),
+        None => upstream.run_as_user_id.clone(),
+    };
+    format!(
+        "{host} answered not found for {path}.\n\
+         The proxy presented the {host} credential of Moatless user {user}, this task's \
+         run-as identity, or the one workspace {workspace} pins for {host}, which outranks it.\n\
+         Either {path} does not exist on {host}, or the account behind that credential \
+         cannot read it: grant that account read access on {host}.\n",
+        host = upstream.host,
+        path = upstream.path,
+        workspace = upstream.workspace_id,
+    )
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -193,7 +222,25 @@ impl GitProxy {
             base_url: format!("https://{host}/{}/{}.git", repo.owner(), repo.name()),
             host,
             token,
+            path: format!("{}/{}", repo.owner(), repo.name()),
+            run_as_user_id: actor.user_id().to_string(),
+            workspace_id,
         })
+    }
+
+    /// The body answering a 404 from `upstream`'s host; see [`refusal_message`].
+    ///
+    /// Reads the login here rather than in [`Self::resolve`], which every
+    /// proxied request pays for.
+    pub async fn refusal(&self, upstream: &Upstream) -> String {
+        let login = match self.users.git_identity(&upstream.run_as_user_id).await {
+            Ok(identity) => identity.map(|identity| identity.login),
+            Err(e) => {
+                warn!(error = %e, user_id = %upstream.run_as_user_id, "Failed to read the run-as login for a git refusal");
+                None
+            }
+        };
+        refusal_message(upstream, login.as_deref())
     }
 }
 
@@ -344,6 +391,35 @@ mod tests {
                 .await
                 .is_none()
         );
+    }
+
+    fn upstream() -> Upstream {
+        Upstream {
+            base_url: "https://github.com/soaplabs/moatless.git".to_string(),
+            token: "secret-token".to_string(),
+            host: "github.com".to_string(),
+            path: "soaplabs/moatless".to_string(),
+            run_as_user_id: POD_USER.to_string(),
+            workspace_id: "ws_1".to_string(),
+        }
+    }
+
+    #[test]
+    fn a_refusal_names_the_repository_the_host_and_the_moatless_run_as_user() {
+        let refusal = refusal_message(&upstream(), Some("SoapBot"));
+
+        assert!(refusal.starts_with("github.com answered not found for soaplabs/moatless.\n"));
+        assert!(refusal.contains("Moatless user SoapBot (user-1)"));
+        assert!(refusal.contains("workspace ws_1"));
+        assert!(refusal.contains("does not exist on github.com"));
+        assert!(!refusal.contains("secret-token"));
+    }
+
+    #[test]
+    fn a_refusal_without_a_login_names_the_user_id() {
+        let refusal = refusal_message(&upstream(), None);
+
+        assert!(refusal.contains("Moatless user user-1, this task's run-as identity"));
     }
 
     #[test]
