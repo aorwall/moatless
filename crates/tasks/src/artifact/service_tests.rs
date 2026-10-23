@@ -7,6 +7,7 @@ use super::*;
 use crate::artifact::dao::MockArtifactDao;
 use crate::task::dao::MockTaskDao;
 use crate::task::test_support::make_task_row;
+use moatless_types::task::Visibility;
 
 fn scope() -> ScopeContext {
     ScopeContext::user("user-1")
@@ -59,6 +60,7 @@ fn row(task_id: &str, latest_version: i32) -> Artifact {
         inline_versions: Vec::new(),
         accepts_data: false,
         notify_on_data: false,
+        visibility: Visibility::Private,
         created_by: Some("user-1".to_string()),
         created_at: Utc::now(),
         updated_at: Utc::now(),
@@ -178,6 +180,21 @@ async fn an_artifact_on_an_unreadable_task_is_not_found() {
     .await
     .unwrap_err();
     assert!(matches!(err, ArtifactError::NotFound(_)));
+}
+
+#[tokio::test]
+async fn a_public_artifact_on_an_unreadable_task_is_readable() {
+    let mut public = row("task-other", 2);
+    public.visibility = Visibility::Public;
+    let location = latest_location(
+        &tasks(),
+        &artifacts(store_with(Some(public))),
+        &scope(),
+        "art-1",
+    )
+    .await
+    .unwrap();
+    assert_eq!(location, "/api/v1/artifacts/art-1/v2");
 }
 
 #[tokio::test]

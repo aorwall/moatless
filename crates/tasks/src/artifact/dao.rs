@@ -10,7 +10,7 @@ use crate::task_event::models::InsertTaskEvent;
 use moatless_core::db::DbPool;
 use moatless_types::activity::ArtifactShown;
 use moatless_types::event::EventType;
-use moatless_types::task::TaskSubType;
+use moatless_types::task::{TaskSubType, Visibility};
 
 /// DAO trait for Artifact persistence. Callers check Task access first:
 /// `task_artifacts` carries no scope columns of its own.
@@ -29,16 +29,16 @@ pub trait ArtifactDao: Send + Sync {
         created_by: &str,
     ) -> Result<Reservation, sqlx::Error>;
     /// Add `version` to `published_versions` and return the row, or `None`
-    /// when no row carries `artifact_id`. An older version leaves
-    /// `latest_version`, `title` and `data` alone. `shown` also adds it to
-    /// `inline_versions` and stores its `artifact_shown` event in one
-    /// transaction.
+    /// when no row carries `artifact_id`. Only a newer version sets the other
+    /// arguments. `shown` also adds it to `inline_versions` and stores its
+    /// `artifact_shown` event in one transaction.
     async fn commit_version(
         &self,
         artifact_id: &str,
         version: i32,
         title: &str,
         data: DataAccess,
+        visibility: Visibility,
         shown: Option<ArtifactShown>,
     ) -> Result<Option<Artifact>, sqlx::Error>;
     /// Find an Artifact by id, published or not.
@@ -109,6 +109,7 @@ impl ArtifactDao for PgArtifactDao {
         version: i32,
         title: &str,
         data: DataAccess,
+        visibility: Visibility,
         shown: Option<ArtifactShown>,
     ) -> Result<Option<Artifact>, sqlx::Error> {
         let mut tx = self.0.begin().await?;
@@ -122,6 +123,7 @@ impl ArtifactDao for PgArtifactDao {
                    accepts_data = CASE WHEN $2 > latest_version THEN $5 ELSE accepts_data END,
                    notify_on_data = CASE WHEN $2 > latest_version THEN $6
                                          ELSE notify_on_data END,
+                   visibility = CASE WHEN $2 > latest_version THEN $7 ELSE visibility END,
                    updated_at = now()
                WHERE artifact_id = $1
                RETURNING *"#,
@@ -132,6 +134,7 @@ impl ArtifactDao for PgArtifactDao {
         .bind(shown.is_some())
         .bind(data.accepts_data)
         .bind(data.notify_on_data)
+        .bind(visibility.as_str())
         .fetch_optional(&mut *tx)
         .await?;
         if let (Some(row), Some(shown)) = (&row, &shown) {

@@ -7,6 +7,7 @@ use super::*;
 use crate::artifact::dao::MockArtifactDao;
 use crate::task::dao::MockTaskDao;
 use crate::task::test_support::make_task_row;
+use moatless_types::task::Visibility;
 
 const KEY: &str = "page-key";
 
@@ -52,6 +53,7 @@ fn row(task_id: &str, accepts_data: bool) -> Artifact {
         inline_versions: Vec::new(),
         accepts_data,
         notify_on_data: accepts_data,
+        visibility: Visibility::Private,
         created_by: Some("user-1".to_string()),
         created_at: Utc::now(),
         updated_at: Utc::now(),
@@ -107,6 +109,32 @@ async fn a_reader_who_lost_the_task_is_refused() {
     let err = page_reader(&tasks(), &artifacts, &token("user-1"))
         .await
         .unwrap_err();
+    assert!(matches!(err, ArtifactError::NotFound(_)), "{err:?}");
+}
+
+#[tokio::test]
+async fn a_reader_of_a_public_page_needs_no_access_to_its_task() {
+    let mut public = row("task-other", true);
+    public.visibility = Visibility::Public;
+    let (claims, _) = page_reader(&tasks(), &artifacts(store_with(public)), &token("user-3"))
+        .await
+        .unwrap();
+    assert_eq!(claims.sub, "user-3");
+}
+
+#[tokio::test]
+async fn a_public_page_does_not_let_its_reader_write_as_a_user() {
+    let mut public = row("task-other", true);
+    public.visibility = Visibility::Public;
+    let err = write_as_user(
+        &tasks(),
+        &artifacts(store_with(public)),
+        &ScopeContext::user("user-3"),
+        "art-1",
+        save("a"),
+    )
+    .await
+    .unwrap_err();
     assert!(matches!(err, ArtifactError::NotFound(_)), "{err:?}");
 }
 

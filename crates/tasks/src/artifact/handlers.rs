@@ -11,6 +11,7 @@ use axum_extra::extract::multipart::MultipartError;
 
 use crate::task::operations::TaskCommands;
 use moatless_core::http_auth::AuthUser;
+use moatless_types::task::Visibility;
 
 use super::error::ArtifactError;
 use super::models::{InlineRequest, PublishRequest};
@@ -275,6 +276,11 @@ async fn read_publish(mut multipart: Multipart) -> Result<PublishRequest, Artifa
             }
             "notify" => {
                 req.data.notify_on_data = field.text().await.map_err(multipart_error)? == "true";
+            }
+            "visibility" => {
+                let value = field.text().await.map_err(multipart_error)?;
+                req.visibility =
+                    Visibility::try_from(value.as_str()).map_err(ArtifactError::BadRequest)?;
             }
             "inline" => {
                 let value = field.text().await.map_err(multipart_error)?;

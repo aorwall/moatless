@@ -7,6 +7,7 @@ use crate::artifact::models::DataAccess;
 use crate::message::dao::{MessageDao, PgMessageDao};
 use crate::task::test_support::seed_bare_task;
 use moatless_types::activity::ArtifactShown;
+use moatless_types::task::Visibility;
 
 async fn reserve(dao: &PgArtifactDao, id: &str, slug: &str, title: &str) -> (String, i32) {
     let r = dao
@@ -43,10 +44,17 @@ async fn an_unpublished_reservation_is_not_listed(pool: PgPool) {
 
     assert!(dao.list_for_task("task-1").await.unwrap().is_empty());
 
-    dao.commit_version("art-a", 1, "Report", DataAccess::default(), None)
-        .await
-        .unwrap()
-        .expect("row");
+    dao.commit_version(
+        "art-a",
+        1,
+        "Report",
+        DataAccess::default(),
+        Visibility::Public,
+        None,
+    )
+    .await
+    .unwrap()
+    .expect("row");
     let listed = dao.list_for_task("task-1").await.unwrap();
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].latest_version, 1);
@@ -59,11 +67,25 @@ async fn a_late_commit_of_an_older_version_does_not_roll_back_the_latest(pool: P
     reserve(&dao, "art-a", "report", "Old").await;
     reserve(&dao, "art-a", "report", "New").await;
 
-    dao.commit_version("art-a", 2, "New", DataAccess::default(), None)
-        .await
-        .unwrap();
+    dao.commit_version(
+        "art-a",
+        2,
+        "New",
+        DataAccess::default(),
+        Visibility::Public,
+        None,
+    )
+    .await
+    .unwrap();
     let row = dao
-        .commit_version("art-a", 1, "Old", DataAccess::default(), None)
+        .commit_version(
+            "art-a",
+            1,
+            "Old",
+            DataAccess::default(),
+            Visibility::Public,
+            None,
+        )
         .await
         .unwrap()
         .expect("row");
@@ -77,10 +99,17 @@ async fn a_late_commit_of_an_older_version_does_not_roll_back_the_latest(pool: P
 async fn committing_an_unknown_artifact_answers_none(pool: PgPool) {
     let dao = PgArtifactDao(pool);
     assert!(
-        dao.commit_version("missing", 1, "T", DataAccess::default(), None)
-            .await
-            .unwrap()
-            .is_none()
+        dao.commit_version(
+            "missing",
+            1,
+            "T",
+            DataAccess::default(),
+            Visibility::Public,
+            None
+        )
+        .await
+        .unwrap()
+        .is_none()
     );
 }
 
@@ -125,11 +154,25 @@ async fn an_inline_commit_shows_the_version_in_the_thread(pool: PgPool) {
     reserve(&dao, "art-a", "report", "Report").await;
     reserve(&dao, "art-a", "report", "Report").await;
 
-    dao.commit_version("art-a", 1, "Report", DataAccess::default(), None)
-        .await
-        .unwrap();
+    dao.commit_version(
+        "art-a",
+        1,
+        "Report",
+        DataAccess::default(),
+        Visibility::Public,
+        None,
+    )
+    .await
+    .unwrap();
     let row = dao
-        .commit_version("art-a", 2, "Report", DataAccess::default(), Some(shown(2)))
+        .commit_version(
+            "art-a",
+            2,
+            "Report",
+            DataAccess::default(),
+            Visibility::Public,
+            Some(shown(2)),
+        )
         .await
         .unwrap()
         .expect("row");
@@ -165,18 +208,64 @@ async fn the_latest_publish_decides_whether_the_page_accepts_data(pool: PgPool) 
         notify_on_data: true,
     };
     let row = dao
-        .commit_version("art-a", 2, "Report", data, None)
+        .commit_version("art-a", 2, "Report", data, Visibility::Public, None)
         .await
         .unwrap()
         .expect("row");
     assert!(row.accepts_data && row.notify_on_data);
 
     let row = dao
-        .commit_version("art-a", 1, "Report", DataAccess::default(), None)
+        .commit_version(
+            "art-a",
+            1,
+            "Report",
+            DataAccess::default(),
+            Visibility::Public,
+            None,
+        )
         .await
         .unwrap()
         .expect("row");
     assert!(row.accepts_data, "an older version left the flags alone");
+}
+
+#[sqlx::test]
+async fn the_latest_publish_decides_the_visibility(pool: PgPool) {
+    seed_bare_task(&pool, "task-1", "open").await;
+    let dao = PgArtifactDao(pool);
+    reserve(&dao, "art-a", "report", "Report").await;
+    reserve(&dao, "art-a", "report", "Report").await;
+    let row = dao
+        .commit_version(
+            "art-a",
+            2,
+            "Report",
+            DataAccess::default(),
+            Visibility::Private,
+            None,
+        )
+        .await
+        .unwrap()
+        .expect("row");
+    assert_eq!(row.visibility, Visibility::Private);
+
+    let row = dao
+        .commit_version(
+            "art-a",
+            1,
+            "Report",
+            DataAccess::default(),
+            Visibility::Public,
+            None,
+        )
+        .await
+        .unwrap()
+        .expect("row");
+    assert_eq!(
+        row.visibility,
+        Visibility::Private,
+        "an older version left it alone"
+    );
 }
 
 #[sqlx::test]

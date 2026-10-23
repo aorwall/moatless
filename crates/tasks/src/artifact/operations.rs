@@ -6,6 +6,7 @@ use std::sync::Arc;
 use moatless_core::config::S3Config;
 use moatless_s3::S3Storage;
 use moatless_types::activity::ArtifactShown;
+use moatless_types::task::Visibility;
 
 use super::dao::ArtifactDao;
 use super::error::ArtifactError;
@@ -165,10 +166,11 @@ impl Artifacts {
         version: i32,
         title: &str,
         data: DataAccess,
+        visibility: Visibility,
         shown: Option<ArtifactShown>,
     ) -> Result<Option<Artifact>, sqlx::Error> {
         self.store
-            .commit_version(artifact_id, version, title, data, shown)
+            .commit_version(artifact_id, version, title, data, visibility, shown)
             .await
     }
 

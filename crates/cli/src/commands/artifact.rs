@@ -43,6 +43,10 @@ pub enum ArtifactAction {
         /// Queue a message to this task's agent for each record a reader saves
         #[arg(long, requires = "data")]
         notify: bool,
+        /// Let only users who can see the task open the page and its records.
+        /// Without it any signed-in user can, even when the task is private
+        #[arg(long)]
+        private: bool,
         /// Task to publish on; defaults to `$TASK_ID`
         #[arg(long)]
         task: Option<String>,
@@ -204,6 +208,7 @@ pub async fn run(
             height,
             data,
             notify,
+            private,
             task,
         } => {
             let task_id = task.map_or_else(|| cfg.require_task_id(), Ok)?;
@@ -214,6 +219,7 @@ pub async fn run(
                     accepts: data,
                     notify,
                 },
+                private,
             };
             let resp = moat
                 .api()
@@ -247,12 +253,16 @@ pub async fn run(
                             a.slug,
                             format!("v{}", a.version),
                             a.title,
+                            a.visibility.to_string(),
                             a.updated_at,
                             a.latest_url,
                         ]
                     })
                     .collect();
-                output::print_table(&["SLUG", "VERSION", "TITLE", "UPDATED", "URL"], &rows);
+                output::print_table(
+                    &["SLUG", "VERSION", "TITLE", "VISIBILITY", "UPDATED", "URL"],
+                    &rows,
+                );
             }
         }
         ArtifactAction::Data { action } => run_data(moat, action, cfg).await?,

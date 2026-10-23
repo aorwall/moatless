@@ -9,6 +9,8 @@ pub struct PageOptions {
     /// Show the page in the Task's thread.
     pub inline: Option<InlineArtifact>,
     pub data: ArtifactData,
+    /// Limit the page to readers of the Task rather than any signed-in user.
+    pub private: bool,
 }
 
 /// The inline fields of [`PageOptions`].
@@ -58,6 +60,9 @@ impl ApiClient {
         }
         if options.data.notify {
             form = form.text("notify", "true");
+        }
+        if options.private {
+            form = form.text("visibility", "private");
         }
         form = form.part(
             "file",

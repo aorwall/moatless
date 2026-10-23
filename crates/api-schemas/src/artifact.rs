@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::enums::Visibility;
+
 /// Largest HTML page one version may hold.
 pub const MAX_PAGE_BYTES: usize = 10 * 1024 * 1024;
 
@@ -30,6 +32,15 @@ pub struct ArtifactResponse {
     /// Whether a record a reader saves queues a message to the Task's agent.
     #[serde(default)]
     pub notify_on_data: bool,
+    /// `public` lets any signed-in user read the page, whatever the Task's
+    /// visibility; `private` limits it to readers of the Task. `private` from
+    /// a server older than the field, which only had Task-scoped pages.
+    #[serde(default = "task_scoped")]
+    pub visibility: Visibility,
+}
+
+fn task_scoped() -> Visibility {
+    Visibility::Private
 }
 
 /// Response for `GET /api/v1/tasks/{task_id}/artifacts`, newest first.
@@ -60,6 +71,10 @@ pub struct PublishArtifactBody {
     /// `true` also queues a message to the Task's agent for each record a
     /// reader saves. Ignored without `data`.
     pub notify: Option<bool>,
+    /// `private` limits the page and its records to readers of the Task;
+    /// `public`, the default, lets any signed-in user read them. Every version
+    /// follows the latest publish.
+    pub visibility: Option<Visibility>,
     /// One self-contained page, with a `.html` or `.htm` filename.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "binary"))]
     pub file: Vec<u8>,

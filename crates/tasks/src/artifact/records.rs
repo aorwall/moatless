@@ -25,7 +25,7 @@ const NOTICE_DATA_CHARS: usize = 2000;
 pub const NOTICE_ADAPTER: &str = "artifact";
 
 /// The reader and Artifact a page token names, after checking that the reader
-/// can still read the Task and that the latest publish still accepts data.
+/// can still read the Artifact and that the latest publish still accepts data.
 pub async fn page_reader(
     tasks: &TaskCommands,
     artifacts: &Artifacts,
@@ -92,7 +92,8 @@ pub struct RecordFilter<'a> {
     pub since: Option<&'a str>,
 }
 
-/// The records of an Artifact on a Task `scope` can read.
+/// The records of an Artifact `scope` can read; see
+/// [`super::service::find_readable`].
 pub async fn list(
     tasks: &TaskCommands,
     artifacts: &Artifacts,

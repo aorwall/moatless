@@ -8,6 +8,7 @@ use super::schemas::ArtifactResponse;
 use crate::task::operations::TaskCommands;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::activity::ArtifactShown;
+use moatless_types::task::Visibility;
 
 pub use moatless_api_schemas::artifact::MAX_PAGE_BYTES;
 const MAX_TITLE_LEN: usize = 200;
@@ -76,7 +77,14 @@ pub async fn publish(
             .clamp(MIN_INLINE_HEIGHT, MAX_INLINE_HEIGHT),
     });
     let row = match artifacts
-        .commit_version(&artifact_id, version, &title, req.data, shown)
+        .commit_version(
+            &artifact_id,
+            version,
+            &title,
+            req.data,
+            req.visibility,
+            shown,
+        )
         .await
     {
         Ok(Some(row)) => row,
@@ -191,7 +199,8 @@ pub async fn read_page(
     })
 }
 
-/// The Artifact, when it is published on a Task `scope` can read.
+/// The Artifact, when it is published and either public or on a Task `scope`
+/// can read.
 pub(crate) async fn find_readable(
     tasks: &TaskCommands,
     artifacts: &Artifacts,
@@ -204,6 +213,9 @@ pub(crate) async fn find_readable(
         .await?
         .filter(|row| row.latest_version > 0)
         .ok_or_else(not_found)?;
+    if row.visibility == Visibility::Public {
+        return Ok(row);
+    }
     tasks
         .find_by_id(&row.task_id, scope)
         .await?
@@ -225,6 +237,7 @@ fn to_response(row: &Artifact, public_url: &str, version: i32, title: &str) -> A
         updated_at: row.updated_at.to_rfc3339(),
         accepts_data: row.accepts_data,
         notify_on_data: row.notify_on_data,
+        visibility: row.visibility,
     }
 }
 

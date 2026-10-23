@@ -223,9 +223,13 @@ const ARTIFACTS_PROMPT: &str = "\
 
 `moat artifact publish <file.html> --title \"<title>\"` publishes an HTML page as
 an Artifact: a page stored outside the sandbox, so it stays available after the
-sandbox stops, and visible to anyone who can see the task. Use it when a page
-would be clearer than terminal text, or when the person or their team would use
-the page rather than only read it, and give the person the URL it prints.
+sandbox stops, and visible to any signed-in user even when the task is private.
+Use it when a page would be clearer than terminal text, or when the person or
+their team would use the page rather than only read it, and give the person the
+URL it prints. `--private` limits the page to those who can see the task;
+pass it when the page shows anything the task's audience alone should read.
+On a public page any signed-in user can read and save its records, and with
+`--notify` send you a message.
 `--inline` shows the page in this conversation, `--data` lets readers save
 input on the page, and `--notify` sends you each save as a message with
 `<source>artifact</source>`.
