@@ -1024,3 +1024,61 @@ fn a_repository_that_reads_whole_reports_nothing() {
         );
     }
 }
+
+/// Back `dir` up the way [`snapshot`] does, stamped with `host` the way a pod's
+/// own hostname stamps it.
+fn map_backup_from_pod(backend: &MapBackend, dir: &Path, host: &str) -> SnapshotFile {
+    let repo = Repository::new(&map_options(), &map_backends(backend))
+        .expect("repository")
+        .open(&RepoCredentials::password(MAP_PASSWORD))
+        .expect("open")
+        .to_indexed_ids()
+        .expect("index");
+    let mut backup = backup_options();
+    // The shared glob file belongs to whichever test wrote it last.
+    backup.excludes.glob_files.clear();
+    let paths = PathList::from_string(&dir.to_string_lossy()).expect("paths");
+    let snapshot = SnapshotOptions::default()
+        .label(Some(SNAPSHOT_LABEL.to_string()))
+        .host(Some(host.to_string()))
+        .to_snapshot()
+        .expect("metadata");
+    repo.backup(&backup, &paths, snapshot).expect("backup")
+}
+
+/// A pod restores a tree another pod stored, and its first snapshot of that
+/// tree must reuse the stored one: re-reading every restored file is what ran
+/// a 4.7 GiB shutdown flush out of its budget.
+#[test]
+fn the_first_snapshot_after_a_restore_reads_no_unchanged_file() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let source = tmp.path().join("source");
+    let into = tmp.path().join("into");
+    let backend = map_repo();
+
+    std::fs::create_dir_all(&source).expect("mkdir");
+    for name in ["a.txt", "b.txt", "c.txt"] {
+        std::fs::write(source.join(name), name.repeat(1000)).expect("write");
+    }
+    _ = map_backup_from_pod(&backend, &source, "pod-a");
+    _ = map_restore(&backend, &into, UnreadableSnapshot::Refuse)
+        .expect("restore")
+        .expect("a snapshot");
+
+    let written = map_backup_from_pod(&backend, &into, "pod-b");
+
+    assert!(
+        !written.get_parents().is_empty(),
+        "the previous pod's snapshot was not picked as the parent"
+    );
+    let summary = written.summary.expect("summary");
+    assert_eq!(
+        (
+            summary.files_new,
+            summary.files_changed,
+            summary.files_unmodified
+        ),
+        (0, 0, 3),
+        "restored files were read as new or changed"
+    );
+}

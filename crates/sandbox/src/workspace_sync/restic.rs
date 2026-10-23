@@ -53,7 +53,7 @@ fn glob_file() -> PathBuf {
 
 /// The snapshot label, which must never vary.
 ///
-/// Parent grouping is hostname + label + paths; a label that changed per
+/// Parent grouping is label + paths ([`backup_options`]); a label that changed per
 /// snapshot would find no parent and re-read every file as new (measured 1.92s
 /// vs 546ms for the same delta).
 const SNAPSHOT_LABEL: &str = "workspace";
@@ -62,7 +62,7 @@ const SNAPSHOT_LABEL: &str = "workspace";
 /// [`restore_from`] reads back to tell a final tree from a mid-turn capture.
 ///
 /// Safe to vary per snapshot where [`SNAPSHOT_LABEL`] is not:
-/// `SnapshotGroupCriterion::default()` leaves `tags` false, so parent detection
+/// [`backup_options`] leaves `tags` out of parent grouping, so parent detection
 /// ignores it and a tagged snapshot still finds its parent.
 const SHUTDOWN_TAG: &str = "shutdown-flush";
 
@@ -399,6 +399,13 @@ fn backup_options() -> BackupOptions {
     backup.as_path = Some(PathBuf::from(SNAPSHOT_ROOT));
     backup.ignore_filter_opts.git_ignore = false;
     backup.parent_opts.force = false;
+    // Not the default, which adds hostname: that is the pod's name, so each
+    // pod's first snapshot would find no parent and re-read the whole restored
+    // tree, long enough to run a shutdown flush out of its budget.
+    backup.parent_opts.group_by = Some(SnapshotGroupCriterion::new().label(true).paths(true));
+    // Restore keeps size and mtime but cannot keep ctime, so a ctime check
+    // reads every restored file as changed.
+    backup.parent_opts.ignore_ctime = true;
     backup
 }
 
