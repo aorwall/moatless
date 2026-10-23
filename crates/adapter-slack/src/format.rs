@@ -171,14 +171,14 @@ fn extract_rich_text_element(element: &serde_json::Value, parts: &mut Vec<String
         for child in inner {
             let child_type = child.get("type").and_then(|t| t.as_str()).unwrap_or("");
             match child_type {
-                "text" | "link" | "emoji" => {
+                "link" => {
+                    if let Some(link) = rich_text_link(child) {
+                        line_parts.push(link);
+                    }
+                }
+                "text" | "emoji" => {
                     if let Some(text) = child.get("text").and_then(|t| t.as_str()) {
                         line_parts.push(text.to_string());
-                    } else if child_type == "link" {
-                        // Link without text label — use the url
-                        if let Some(url) = child.get("url").and_then(|u| u.as_str()) {
-                            line_parts.push(url.to_string());
-                        }
                     }
                 }
                 "user" => {
@@ -202,6 +202,23 @@ fn extract_rich_text_element(element: &serde_json::Value, parts: &mut Vec<String
         if !line.is_empty() {
             parts.push(line);
         }
+    }
+}
+
+/// A `link` element as `[label](url)`, or the bare url when it has no label.
+///
+/// Keep the url even when a label exists: Slack shortens a pasted long url
+/// into a label ending in `…`, so the label alone loses the link.
+fn rich_text_link(link: &serde_json::Value) -> Option<String> {
+    let url = link.get("url").and_then(|u| u.as_str());
+    let label = link
+        .get("text")
+        .and_then(|t| t.as_str())
+        .filter(|t| !t.is_empty());
+    match (url, label) {
+        (Some(url), Some(label)) if label != url => Some(format!("[{label}]({url})")),
+        (Some(url), _) => Some(url.to_string()),
+        (None, label) => label.map(str::to_string),
     }
 }
 
@@ -502,7 +519,7 @@ mod tests {
         ]);
         assert_eq!(
             extract_text_from_blocks(blocks.as_array().unwrap()),
-            "Check the dashboard"
+            "Check the [dashboard](https://example.com)"
         );
     }
 
@@ -612,6 +629,26 @@ mod tests {
             { "type": "image", "image_url": "https://example.com/img.png", "alt_text": "img" }
         ]);
         assert_eq!(extract_text_from_blocks(blocks.as_array().unwrap()), "");
+    }
+
+    #[test]
+    fn blocks_link_with_shortened_label_keeps_the_url() {
+        let url = "https://moatless.example.test/api/v1/artifacts/a1b2c3/versions/v10";
+        let blocks = serde_json::json!([
+            {
+                "type": "rich_text",
+                "elements": [
+                    {
+                        "type": "rich_text_section",
+                        "elements": [
+                            { "type": "link", "url": url,
+                              "text": "moatless.example.test/api/v1/…/v10" }
+                        ]
+                    }
+                ]
+            }
+        ]);
+        assert!(extract_text_from_blocks(blocks.as_array().unwrap()).contains(url));
     }
 
     #[test]
