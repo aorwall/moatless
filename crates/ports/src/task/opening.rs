@@ -26,7 +26,8 @@ pub struct NewTask {
     pub loop_id: String,
     pub append_system_prompt: Option<String>,
     pub ttl_minutes: i32,
-    pub inactive_ttl_days: i32,
+    pub close_after_settled_days: i32,
+    pub settle_after_hours: Option<i32>,
     /// See [`moatless_types::loops::LoopContext::node_selector`]. `None` leaves
     /// the sandbox on whatever its Workspace declares.
     pub node_selector: Option<std::collections::BTreeMap<String, String>>,

@@ -18,6 +18,7 @@ pub(crate) mod rewind_dao;
 pub mod routes;
 pub mod schemas;
 pub mod service;
+pub(crate) mod settle_dao;
 pub mod statistics;
 pub mod switch;
 pub(crate) mod switch_dao;

@@ -414,9 +414,13 @@ pub struct SandboxConfig {
     pub idle_timeout_minutes: u64,
     /// How often to check for idle sandboxes (seconds, default: 300 = 5 min)
     pub idle_check_interval_secs: u64,
-    /// Auto-close Open tasks inactive for this many days. `0` disables
-    /// auto-close. Env: `TASK_INACTIVE_TIMEOUT_DAYS` (default: 7).
-    pub inactive_task_timeout_days: u64,
+    /// Auto-close an Open task this many days after it was settled. `0`
+    /// disables auto-close. Env: `TASK_CLOSE_AFTER_SETTLED_DAYS` (default: 7).
+    pub close_after_settled_days: u64,
+    /// Settle a task idle this many hours, for a task that names no
+    /// `settle_after_hours` of its own. `0` never settles. Env:
+    /// `TASK_SETTLE_AFTER_HOURS` (default: 0).
+    pub settle_after_hours: u64,
     /// Reclaim a Stopped sandbox's Deployment and PVC after this many hours,
     /// leaving the S3 snapshot as the only copy; a later start restores it.
     ///
@@ -938,7 +942,8 @@ impl Config {
                 liveness_enabled: env_bool("K8S_SANDBOX_LIVENESS_ENABLED", false),
                 idle_timeout_minutes: env_or("SANDBOX_IDLE_TIMEOUT_MINUTES", 15),
                 idle_check_interval_secs: env_or("SANDBOX_IDLE_CHECK_INTERVAL_SECS", 300),
-                inactive_task_timeout_days: env_or("TASK_INACTIVE_TIMEOUT_DAYS", 7),
+                close_after_settled_days: env_or("TASK_CLOSE_AFTER_SETTLED_DAYS", 7),
+                settle_after_hours: env_or("TASK_SETTLE_AFTER_HOURS", 0),
                 cold_after_hours: env_or("SANDBOX_COLD_AFTER_HOURS", 24),
                 orphan_gc_enabled: env_bool("SANDBOX_ORPHAN_GC_ENABLED", true),
                 codex_refresher_interval_secs: env_or("CODEX_REFRESHER_INTERVAL_SECS", 3600),
@@ -1413,7 +1418,8 @@ impl Config {
                 liveness_enabled: false,
                 idle_timeout_minutes: 15,
                 idle_check_interval_secs: 300,
-                inactive_task_timeout_days: 0,
+                close_after_settled_days: 0,
+                settle_after_hours: 0,
                 cold_after_hours: 0,
                 orphan_gc_enabled: false,
                 codex_refresher_interval_secs: 0,

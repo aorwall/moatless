@@ -70,7 +70,8 @@ pub struct NewTaskRequest {
     pub vibe: Option<bool>,
     pub append_system_prompt: Option<String>,
     pub ttl_minutes: i32,
-    pub inactive_ttl_days: i32,
+    pub close_after_settled_days: i32,
+    pub settle_after_hours: Option<i32>,
     /// What the firing Loop imposes on the Sandbox row written alongside the
     /// Task. Default on every path but a Loop firing.
     pub sandbox_placement: crate::task::models::SandboxPlacement,
@@ -331,7 +332,8 @@ impl TaskCreationService {
             append_system_prompt: req.append_system_prompt.clone(),
             headless: req.headless,
             ttl_minutes: req.ttl_minutes,
-            inactive_ttl_days: req.inactive_ttl_days,
+            close_after_settled_days: req.close_after_settled_days,
+            settle_after_hours: req.settle_after_hours,
             loop_id: req.loop_id.clone(),
             workspace_id: Some(req.workspace_id.clone()),
             sandbox_id: req.sandbox_id.clone(),

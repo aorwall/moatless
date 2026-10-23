@@ -69,7 +69,8 @@ moat tasks status <task_id> --result     # "Work:" says working, waiting or done
 ```
 
 `moat tasks children` would miss tasks started by an earlier monitor: the loop
-replaces this task after `inactiveTtlDays` without activity, and the new monitor
+replaces this task once it has been settled (after `settleAfterHours` idle) for
+`closeAfterSettledDays`, and the new monitor
 starts with no children.
 
 - **A child named `alert-fix: <fingerprint>` is still working or has an open PR.**

@@ -58,7 +58,8 @@ struct JoinedLoopRecordRow {
     #[sqlx(try_from = "String")]
     agent_profile: AgentProfile,
     model: Option<String>,
-    inactive_ttl_days: Option<i32>,
+    close_after_settled_days: Option<i32>,
+    settle_after_hours: Option<i32>,
     node_selector: Option<sqlx::types::Json<std::collections::BTreeMap<String, String>>>,
     stop_when_done: Option<bool>,
     message_buffer_seconds: Option<i32>,
@@ -112,7 +113,8 @@ impl JoinedLoopRecordRow {
             run_as_user_id: self.run_as_user_id,
             agent_profile: self.agent_profile,
             model: self.model,
-            inactive_ttl_days: self.inactive_ttl_days,
+            close_after_settled_days: self.close_after_settled_days,
+            settle_after_hours: self.settle_after_hours,
             node_selector: self.node_selector.map(|json| json.0),
             stop_when_done: self.stop_when_done,
             message_buffer_seconds: self.message_buffer_seconds,
@@ -178,7 +180,8 @@ const LOOP_RECORD_SELECT: &str = r#"
            r.run_as_user_id,
            r.agent_profile,
            r.model,
-           r.inactive_ttl_days,
+           r.close_after_settled_days,
+           r.settle_after_hours,
            r.node_selector,
            r.stop_when_done,
            r.message_buffer_seconds,
@@ -367,14 +370,15 @@ impl LoopDao {
                        skills = $7,
                        run_as_user_id = $8,
                        agent_profile = $9,
-                       inactive_ttl_days = $10,
+                       close_after_settled_days = $10,
                        model = $11,
                        workspace_id = $12,
                        node_selector = $13,
                        stop_when_done = $14,
                        message_buffer_seconds = $15,
                        fallback_to_other_agent = $16,
-                       memory_preload = $17
+                       memory_preload = $17,
+                       settle_after_hours = $18
                    WHERE loop_id = $1"#,
             )
             .bind(id)
@@ -386,7 +390,7 @@ impl LoopDao {
             .bind(&config.skills)
             .bind(&config.run_as_user_id)
             .bind(config.agent_profile.as_str())
-            .bind(config.inactive_ttl_days)
+            .bind(config.close_after_settled_days)
             .bind(&config.model)
             .bind(&config.workspace_id)
             .bind(config.node_selector.as_ref().map(sqlx::types::Json))
@@ -394,6 +398,7 @@ impl LoopDao {
             .bind(config.message_buffer_seconds)
             .bind(config.fallback_to_other_agent)
             .bind(&config.memory_preload)
+            .bind(config.settle_after_hours)
             .execute(&mut *tx)
             .await?;
         }
@@ -749,9 +754,9 @@ impl LoopDao {
             r#"INSERT INTO loop_configs
                (loop_id, routing_mode, ongoing_task_id, prompt,
                 task_name, tag_ids, skills, run_as_user_id, agent_profile,
-                inactive_ttl_days, model, workspace_id, node_selector, stop_when_done,
-                message_buffer_seconds, memory_preload)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+                close_after_settled_days, model, workspace_id, node_selector, stop_when_done,
+                message_buffer_seconds, memory_preload, settle_after_hours)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
                ON CONFLICT (loop_id) DO UPDATE
                SET routing_mode      = EXCLUDED.routing_mode,
                    ongoing_task_id   = EXCLUDED.ongoing_task_id,
@@ -761,13 +766,14 @@ impl LoopDao {
                    skills            = EXCLUDED.skills,
                    run_as_user_id    = EXCLUDED.run_as_user_id,
                    agent_profile        = EXCLUDED.agent_profile,
-                   inactive_ttl_days = EXCLUDED.inactive_ttl_days,
+                   close_after_settled_days = EXCLUDED.close_after_settled_days,
                    model             = EXCLUDED.model,
                    workspace_id      = EXCLUDED.workspace_id,
                    node_selector     = EXCLUDED.node_selector,
                    stop_when_done    = EXCLUDED.stop_when_done,
                    message_buffer_seconds = EXCLUDED.message_buffer_seconds,
-                   memory_preload    = EXCLUDED.memory_preload"#,
+                   memory_preload    = EXCLUDED.memory_preload,
+                   settle_after_hours = EXCLUDED.settle_after_hours"#,
         )
         .bind(&row.id)
         .bind(row.routing_mode.as_str())
@@ -778,13 +784,14 @@ impl LoopDao {
         .bind(&row.skills)
         .bind(&row.run_as_user_id)
         .bind(row.agent_profile.as_str())
-        .bind(row.inactive_ttl_days)
+        .bind(row.close_after_settled_days)
         .bind(&row.model)
         .bind(&row.workspace_id)
         .bind(row.node_selector.as_ref().map(sqlx::types::Json))
         .bind(row.stop_when_done)
         .bind(row.message_buffer_seconds)
         .bind(&row.memory_preload)
+        .bind(row.settle_after_hours)
         .execute(&mut *tx)
         .await?;
 
@@ -1196,7 +1203,8 @@ impl LoopDao {
                       r.run_as_user_id,
                       r.agent_profile,
                       r.model,
-                      r.inactive_ttl_days,
+                      r.close_after_settled_days,
+                      r.settle_after_hours,
                       r.node_selector,
                       r.stop_when_done,
                       r.message_buffer_seconds,
@@ -1255,7 +1263,8 @@ const SUBSCRIPTION_MATCH_SELECT: &str = r#"
            r.run_as_user_id,
            r.agent_profile,
            r.model,
-           r.inactive_ttl_days,
+           r.close_after_settled_days,
+           r.settle_after_hours,
            r.node_selector,
            r.stop_when_done,
            r.message_buffer_seconds,
@@ -1354,7 +1363,8 @@ async fn replace_managed_loop_rows(
             run_as_user_id,
             agent_profile: input.agent_profile,
             model: input.model.clone(),
-            inactive_ttl_days: input.inactive_ttl_days,
+            close_after_settled_days: input.close_after_settled_days,
+            settle_after_hours: input.settle_after_hours,
             node_selector: node_selector.map(|json| json.0),
             stop_when_done: input.stop_when_done,
             message_buffer_seconds: input.message_buffer_seconds,
@@ -1381,9 +1391,11 @@ async fn insert_config(
         r#"INSERT INTO loop_configs
            (loop_id, routing_mode, ongoing_task_id, prompt,
             task_name, tag_ids, skills, run_as_user_id, agent_profile,
-            inactive_ttl_days, model, workspace_id, node_selector, stop_when_done,
-            message_buffer_seconds, fallback_to_other_agent, memory_preload)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)"#,
+            close_after_settled_days, model, workspace_id, node_selector, stop_when_done,
+            message_buffer_seconds, fallback_to_other_agent, memory_preload,
+            settle_after_hours)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+                   $18)"#,
     )
     .bind(loop_id)
     .bind(config.routing_mode.as_str())
@@ -1394,7 +1406,7 @@ async fn insert_config(
     .bind(&config.skills)
     .bind(&config.run_as_user_id)
     .bind(config.agent_profile.as_str())
-    .bind(config.inactive_ttl_days)
+    .bind(config.close_after_settled_days)
     .bind(&config.model)
     .bind(&config.workspace_id)
     .bind(config.node_selector.as_ref().map(sqlx::types::Json))
@@ -1402,6 +1414,7 @@ async fn insert_config(
     .bind(config.message_buffer_seconds)
     .bind(config.fallback_to_other_agent)
     .bind(&config.memory_preload)
+    .bind(config.settle_after_hours)
     .execute(&mut **tx)
     .await?;
     Ok(())

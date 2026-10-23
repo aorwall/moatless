@@ -7,7 +7,7 @@ teamId: T0000000001               # Soap Labs Slack workspace
 routingMode: ongoing              # one long-lived monitor task, not one per alert
 agentProfile: claude-code
 model: opus
-inactiveTtlDays: 7                # the monitor's conversation is its memory of open fixes
+closeAfterSettledDays: 7                # the monitor's conversation is its memory of open fixes
 tags: [alert-fix, alerts-moatless]
 skills: [alert-fix]
 adapterConfig:

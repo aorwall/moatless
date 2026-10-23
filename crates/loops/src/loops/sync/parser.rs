@@ -80,15 +80,16 @@ mod tests {
             Some(&["review".to_string()][..])
         );
         assert_eq!(loop_.prompt_body, "Review this PR.");
-        // Absent inactiveTtlDays inherits the platform default (None).
-        assert_eq!(loop_.frontmatter.inactive_ttl_days, None);
+        // Absent closeAfterSettledDays inherits the platform default (None).
+        assert_eq!(loop_.frontmatter.close_after_settled_days, None);
     }
 
     #[test]
-    fn parses_inactive_ttl_days() {
-        let content = "---\non: github_pr\nname: Java Review\ninactiveTtlDays: 1\n---\n\nbody\n";
+    fn parses_close_after_settled_days() {
+        let content =
+            "---\non: github_pr\nname: Java Review\ncloseAfterSettledDays: 1\n---\n\nbody\n";
         let loop_ = parse_loop(content, "java-review").expect("valid loop parses");
-        assert_eq!(loop_.frontmatter.inactive_ttl_days, Some(1));
+        assert_eq!(loop_.frontmatter.close_after_settled_days, Some(1));
     }
 
     #[test]

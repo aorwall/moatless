@@ -11,6 +11,7 @@ use super::models::{
     TaskPatch, TaskStatus, Visibility, sandbox_intent_epoch,
 };
 use super::pin_dao::{self, OrderSlot};
+use super::settle_dao;
 use moatless_core::db::DbPool;
 use moatless_core::db_enum::decode_optional;
 use moatless_types::access_control::{Scope, ScopeContext, ScopedEntity};
@@ -165,12 +166,30 @@ pub(crate) trait TaskDao: Send + Sync {
         &self,
         task_ids: &[String],
     ) -> Result<HashMap<String, i32>, sqlx::Error>;
-    /// Batch-fetch `inactive_ttl_days` for the given tasks. Tasks with no row
+    /// Batch-fetch `close_after_settled_days` for the given tasks. Tasks with no row
     /// are omitted (not present in the map).
-    async fn get_inactive_ttl_days_map(
+    async fn get_close_after_settled_days_map(
         &self,
         task_ids: &[String],
     ) -> Result<HashMap<String, i32>, sqlx::Error>;
+    /// Batch-fetch `settle_after_hours` for the given tasks. Like
+    /// `get_cold_after_hours_map`, an absent entry means "deployment default".
+    async fn get_settle_after_hours_map(
+        &self,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, i32>, sqlx::Error>;
+    /// When each of the given tasks became settled, for those that are: every
+    /// follower has settled it, or nobody follows it and the reaper settled it.
+    /// The latest settle time of the task and its followers wins.
+    async fn get_settled_since_map(
+        &self,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error>;
+    /// Settle `task_id` for every follower who has neither pinned it nor
+    /// explicitly unsettled it, and stamp the task's own `auto_settled_at`. Returns
+    /// whether any row moved.
+    async fn auto_settle_task(&self, task_id: &str, at: DateTime<Utc>)
+    -> Result<bool, sqlx::Error>;
     /// Batch-fetch `cold_after_hours` for the given tasks. The column is
     /// nullable and tasks that leave it unset are omitted, so an absent entry
     /// and a `NULL` both mean "follow the deployment default".
@@ -413,13 +432,14 @@ impl TaskDao for PgTaskDao {
                 vibe, name, description, site_id, site_provider, branch,
                 created_by, visibility, scope, owner_user_id, run_as_user_id,
                 append_system_prompt, updated_at, headless, ttl_minutes,
-                inactive_ttl_days, loop_id, model,
-                workspace_id, sandbox_id, checkout_mode, skills, memory_preload
+                close_after_settled_days, loop_id, model,
+                workspace_id, sandbox_id, checkout_mode, skills, memory_preload,
+                settle_after_hours
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
                 $21, $22, NOW(), $23, $24, $25, $26,
-                $27, $28, $29, $30, $31, $32
+                $27, $28, $29, $30, $31, $32, $33
             )"#,
         )
         .bind(&row.task_id)
@@ -446,7 +466,7 @@ impl TaskDao for PgTaskDao {
         .bind(&row.append_system_prompt)
         .bind(row.headless)
         .bind(row.ttl_minutes)
-        .bind(row.inactive_ttl_days)
+        .bind(row.close_after_settled_days)
         .bind(&row.loop_id)
         .bind(&row.model)
         .bind(&workspace_id)
@@ -454,6 +474,7 @@ impl TaskDao for PgTaskDao {
         .bind(row.checkout_mode.map(CheckoutMode::as_str))
         .bind(&row.skills)
         .bind(&row.memory_preload)
+        .bind(row.settle_after_hours)
         .execute(&mut *tx)
         .await?;
 
@@ -632,7 +653,8 @@ impl TaskDao for PgTaskDao {
             append_system_prompt: Option<String>,
             headless: Option<bool>,
             ttl_minutes: Option<i32>,
-            inactive_ttl_days: Option<i32>,
+            close_after_settled_days: Option<i32>,
+            settle_after_hours: Option<i32>,
             loop_id: Option<String>,
             skills: Option<Vec<String>>,
             memory_preload: Option<Vec<String>>,
@@ -687,7 +709,8 @@ impl TaskDao for PgTaskDao {
                     append_system_prompt: self.append_system_prompt,
                     headless: self.headless?,
                     ttl_minutes: self.ttl_minutes?,
-                    inactive_ttl_days: self.inactive_ttl_days?,
+                    close_after_settled_days: self.close_after_settled_days?,
+                    settle_after_hours: self.settle_after_hours,
                     loop_id: self.loop_id,
                     // NOT NULL in `tasks`, so only the total-only row can be
                     // NULL here — and that row is rejected before this point.
@@ -714,7 +737,8 @@ impl TaskDao for PgTaskDao {
                     t.run_as_user_id,
                     t.created_at_db, t.updated_at, t.append_system_prompt,
                     t.headless, t.ttl_minutes,
-                    t.inactive_ttl_days, t.loop_id, t.skills, t.memory_preload
+                    t.close_after_settled_days, t.settle_after_hours, t.loop_id, t.skills,
+                    t.memory_preload
                 FROM tasks t
                 WHERE {}
                   AND ($3::text IS NULL OR t.status = $3)
@@ -872,8 +896,8 @@ impl TaskDao for PgTaskDao {
         if let Some(ttl_minutes) = patch.ttl_minutes {
             run_field!("ttl_minutes = $2", ttl_minutes);
         }
-        if let Some(inactive_ttl_days) = patch.inactive_ttl_days {
-            run_field!("inactive_ttl_days = $2", inactive_ttl_days);
+        if let Some(close_after_settled_days) = patch.close_after_settled_days {
+            run_field!("close_after_settled_days = $2", close_after_settled_days);
         }
         // Last, after every `tasks` statement above — `record_change`'s "call
         // this last". Gated twice: on `rows_affected`, because a patch the
@@ -1077,7 +1101,7 @@ impl TaskDao for PgTaskDao {
         Ok(rows.into_iter().collect())
     }
 
-    async fn get_inactive_ttl_days_map(
+    async fn get_close_after_settled_days_map(
         &self,
         task_ids: &[String],
     ) -> Result<HashMap<String, i32>, sqlx::Error> {
@@ -1086,7 +1110,7 @@ impl TaskDao for PgTaskDao {
         }
 
         let rows: Vec<(String, i32)> = sqlx::query_as(
-            r#"SELECT task_id, inactive_ttl_days FROM tasks WHERE task_id = ANY($1)"#,
+            r#"SELECT task_id, close_after_settled_days FROM tasks WHERE task_id = ANY($1)"#,
         )
         .bind(task_ids)
         .fetch_all(&self.pool)
@@ -1114,6 +1138,40 @@ impl TaskDao for PgTaskDao {
         .await?;
 
         Ok(rows.into_iter().collect())
+    }
+
+    async fn get_settle_after_hours_map(
+        &self,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, i32>, sqlx::Error> {
+        if task_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let rows: Vec<(String, i32)> = sqlx::query_as(
+            r#"SELECT task_id, settle_after_hours FROM tasks
+               WHERE task_id = ANY($1) AND settle_after_hours IS NOT NULL"#,
+        )
+        .bind(task_ids)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.into_iter().collect())
+    }
+
+    async fn get_settled_since_map(
+        &self,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error> {
+        settle_dao::settled_since(&self.pool, task_ids).await
+    }
+
+    async fn auto_settle_task(
+        &self,
+        task_id: &str,
+        at: DateTime<Utc>,
+    ) -> Result<bool, sqlx::Error> {
+        settle_dao::auto_settle(&self.pool, task_id, at).await
     }
 
     async fn list_open_task_ids(&self) -> Result<Vec<String>, sqlx::Error> {
@@ -1333,53 +1391,11 @@ impl TaskDao for PgTaskDao {
         task_id: &str,
         at: DateTime<Utc>,
     ) -> Result<(), sqlx::Error> {
-        let mut tx = self.pool.begin().await?;
-        let res = sqlx::query(
-            // Settling is "I'm done with this", so it also drops the pin and
-            // both arranged slots, as T3's own server does.
-            r#"UPDATE task_follows
-                  SET settled_at = CASE WHEN settled_override = 'settled'
-                                        THEN settled_at ELSE $3 END,
-                      settled_override = 'settled',
-                      pinned_at = NULL,
-                      pin_order_key = NULL,
-                      active_order_key = NULL
-                WHERE user_id = $1 AND task_id = $2
-                  AND (settled_override IS DISTINCT FROM 'settled'
-                       OR pinned_at IS NOT NULL
-                       OR pin_order_key IS NOT NULL
-                       OR active_order_key IS NOT NULL)"#,
-        )
-        .bind(user_id)
-        .bind(task_id)
-        .bind(at)
-        .execute(&mut *tx)
-        .await?;
-        if res.rows_affected() > 0 {
-            moatless_core::change_feed::listing::record_change(&mut tx, task_id).await?;
-        }
-        tx.commit().await?;
-        Ok(())
+        settle_dao::settle(&self.pool, user_id, task_id, at).await
     }
 
     async fn unsettle_task(&self, user_id: &str, task_id: &str) -> Result<(), sqlx::Error> {
-        let mut tx = self.pool.begin().await?;
-        let res = sqlx::query(
-            r#"UPDATE task_follows
-                  SET settled_override = 'active',
-                      settled_at = NULL
-                WHERE user_id = $1 AND task_id = $2
-                  AND (settled_override IS DISTINCT FROM 'active' OR settled_at IS NOT NULL)"#,
-        )
-        .bind(user_id)
-        .bind(task_id)
-        .execute(&mut *tx)
-        .await?;
-        if res.rows_affected() > 0 {
-            moatless_core::change_feed::listing::record_change(&mut tx, task_id).await?;
-        }
-        tx.commit().await?;
-        Ok(())
+        settle_dao::unsettle(&self.pool, user_id, task_id).await
     }
 
     async fn snooze_task(
@@ -1537,23 +1553,7 @@ impl TaskDao for PgTaskDao {
     }
 }
 
-/// Clear `settled_override`/`settled_at` for every follower of `task_id`.
-pub(crate) async fn clear_settled_for_all_followers(
-    tx: &mut sqlx::PgConnection,
-    task_id: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r#"UPDATE task_follows
-              SET settled_override = NULL,
-                  settled_at = NULL
-            WHERE task_id = $1
-              AND (settled_override IS NOT NULL OR settled_at IS NOT NULL)"#,
-    )
-    .bind(task_id)
-    .execute(tx)
-    .await?;
-    Ok(())
-}
+pub(crate) use super::settle_dao::clear_settled_for_all_followers;
 
 /// Record a deleted Task on the listing feed, and each of its `parents` (read
 /// before the delete) so their child counts and Waiting state are re-read.

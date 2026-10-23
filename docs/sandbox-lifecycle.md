@@ -274,12 +274,19 @@ promptly instead of riding termination grace into a SIGKILL/137), then scale
 the Deployment to 0, then publish `sandbox/stopped` with
 `lifecycle_event: "idle_reaped"`.
 
-### 3. Inactive-task close
+### 3. Auto-settle and auto-close
 
-Open tasks idle past `inactive_ttl_days` (default 7; `0` = never) are
-auto-closed: same `cleanup` + `Closed` status + `task/closed` event sequence
-as the manual close handler. Close supersedes stop (cleanup tears down the
-Deployment either way).
+An Open task idle past `settle_after_hours` is settled for every follower who
+has neither pinned it nor unsettled it by hand, and the task records its own
+`auto_settled_at`. Loop tasks default to 1 hour; other tasks follow
+`TASK_SETTLE_AFTER_HOURS` (default `0` = never). New activity clears both.
+
+A task counts as settled once every follower has settled it, or, with no
+followers, once the reaper has. `close_after_settled_days` (default 7; `0` =
+never) after that it is auto-closed: same `cleanup` + `Closed` status +
+`task/closed` event sequence as the manual close handler. A task nobody
+settles stays open. Close supersedes stop (cleanup tears down the Deployment
+either way).
 
 ### 4. Orphaned-turn closer
 
@@ -416,7 +423,8 @@ All read from env at backend startup (`backend/src/config.rs`).
 | `SANDBOX_IDLE_REAPER_ENABLED` | `true` | Master switch for the reaper |
 | `SANDBOX_IDLE_CHECK_INTERVAL_SECS` | `300` | Reap cycle interval (lease = 2×) |
 | `SANDBOX_IDLE_TIMEOUT_MINUTES` | `15` | Default idle TTL (per-task `ttl_minutes` overrides; 0 = never) |
-| `TASK_INACTIVE_TIMEOUT_DAYS` | `7` | Auto-close floor for Open tasks (per-task override; 0 = never) |
+| `TASK_SETTLE_AFTER_HOURS` | `0` | Idle hours before a task is auto-settled, for tasks without a per-task value (Loop tasks default to 1; 0 = never) |
+| `TASK_CLOSE_AFTER_SETTLED_DAYS` | `7` | Days from settling to auto-close (per-task override; 0 = never) |
 | `SANDBOX_MAX_CRASH_RESTART_COUNT` | `5` | Restarts before crash-loop classification |
 | `SANDBOX_ORPHAN_GC_ENABLED` | `true` | Taskless-resource GC pass |
 | `SANDBOX_RETAIN_STORAGE_ON_CLOSE` | `false` | Preserve S3 and managed provider-local disk archives on close so an explicit reopen can revive them |

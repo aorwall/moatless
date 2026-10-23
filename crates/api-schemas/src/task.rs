@@ -222,11 +222,15 @@ pub struct UpdateTaskTtlRequest {
     /// leave the current idle TTL unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ttl_minutes: Option<i32>,
-    /// New inactivity TTL in days. Must be `>= 0`. `0` disables auto-close for
-    /// this task (it stays Open until closed explicitly). Omit to leave the
-    /// current inactivity TTL unchanged.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub inactive_ttl_days: Option<i32>,
+    /// New days from settling to auto-closing. Must be `>= 0`. `0` disables
+    /// auto-close for this task (it stays Open until closed explicitly). Omit
+    /// to leave the current value unchanged.
+    #[serde(
+        default,
+        alias = "inactiveTtlDays",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub close_after_settled_days: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -343,9 +347,13 @@ pub struct TaskResponse {
     /// Idle TTL in minutes. The reaper stops the sandbox when no activity has
     /// occurred for this many minutes. `0` means "never reap".
     pub ttl_minutes: i32,
-    /// Inactive TTL in days. The reaper auto-closes the task when no activity
-    /// has occurred for this many days. `0` means "never auto-close".
-    pub inactive_ttl_days: i32,
+    /// Days the reaper waits after the task is settled before closing it.
+    /// `0` means "never auto-close".
+    pub close_after_settled_days: i32,
+    /// Idle hours after which the reaper settles the task. `None` follows
+    /// the deployment default (`TASK_SETTLE_AFTER_HOURS`); `0` never settles.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub settle_after_hours: Option<i32>,
     /// RFC3339 timestamp of when the sandbox was last started. `None` if the
     /// task has never had a sandbox running.
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -1094,7 +1094,7 @@ pub async fn update_visibility(
 }
 
 /// Update a task's TTLs. `ttl_minutes` is idle TTL (`0` disables the reaper);
-/// `inactive_ttl_days` is inactivity TTL (`0` disables auto-close). Both
+/// `close_after_settled_days` is days from settling to auto-close (`0` disables it). Both
 /// optional; at least one required.
 #[utoipa::path(
     put,

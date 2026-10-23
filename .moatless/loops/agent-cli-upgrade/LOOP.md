@@ -4,7 +4,7 @@ name: Agent CLI Upgrade
 agentProfile: claude-code
 tags:
   - agent-cli-upgrade
-inactiveTtlDays: 1
+closeAfterSettledDays: 1
 schedule:
   # 7 fields: sec min hour day-of-month month day-of-week year. 06:00 UTC, after
   # the 03:00 Nightly E2E has released the cluster.

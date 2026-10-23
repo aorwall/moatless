@@ -58,10 +58,14 @@ pub struct LoopContext {
     /// Per-Loop model override. `None` keeps the platform default the sandbox
     /// resolves for `agent_profile`. Flows into `tasks.model` at task creation.
     pub model: Option<String>,
-    /// Per-Loop inactivity TTL override (days). `None` means the reaper falls
-    /// back to the platform-wide default (`TASK_INACTIVE_TIMEOUT_DAYS`). Flows
-    /// into `tasks.inactive_ttl_days` at task creation time.
-    pub inactive_ttl_days: Option<i32>,
+    /// Per-Loop days from settling to auto-closing. `None` falls back to the
+    /// platform-wide default (`TASK_CLOSE_AFTER_SETTLED_DAYS`). Flows into
+    /// `tasks.close_after_settled_days` at task creation time.
+    pub close_after_settled_days: Option<i32>,
+    /// Per-Loop idle hours before the reaper settles a spawned task. `None`
+    /// falls back to `DEFAULT_LOOP_SETTLE_AFTER_HOURS`. Flows into
+    /// `tasks.settle_after_hours` at task creation time.
+    pub settle_after_hours: Option<i32>,
     /// Extra node labels for the sandboxes this Loop spawns, merged over the
     /// deployment-wide selector. Outranks the Workspace's own value, and `None`
     /// falls back to it.
@@ -135,7 +139,8 @@ pub struct SubscriptionMatch {
     pub agent_profile: AgentProfile,
     /// Per-Loop model override. See [`LoopContext::model`].
     pub model: Option<String>,
-    pub inactive_ttl_days: Option<i32>,
+    pub close_after_settled_days: Option<i32>,
+    pub settle_after_hours: Option<i32>,
     /// See [`LoopContext::node_selector`].
     pub node_selector: Option<BTreeMap<String, String>>,
     /// See [`LoopContext::stop_when_done`]. `None` is the Loop declaring

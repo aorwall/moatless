@@ -31,6 +31,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "prefix",
+            "in": "query",
+            "description": "Only records whose keys start with it, such as `comments/` for a list.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -60,8 +69,8 @@
         "tags": [
           "artifacts"
         ],
-        "summary": "Save a record from a served page, queuing a message to the Task's agent\nwhen the Artifact was published with `notify`.",
-        "operationId": "save_page_record",
+        "summary": "Save, append or delete a record from a served page, queuing a message to\nthe Task's agent when the Artifact was published with `notify`.",
+        "operationId": "write_page_record",
         "parameters": [
           {
             "name": "token",
@@ -78,7 +87,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SaveArtifactRecordRequest"
+                "$ref": "#/components/schemas/WriteArtifactRecordRequest"
               }
             }
           },
@@ -86,7 +95,7 @@
         },
         "responses": {
           "200": {
-            "description": "Record saved",
+            "description": "The record written, or as it was before a delete",
             "content": {
               "application/json": {
                 "schema": {
@@ -117,6 +126,16 @@
           },
           "403": {
             "description": "The latest publish accepts no data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No record under the key to delete",
             "content": {
               "application/json": {
                 "schema": {
@@ -2076,6 +2095,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "prefix",
+            "in": "query",
+            "description": "Only records whose keys start with it, such as `comments/` for a list.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -2105,8 +2133,8 @@
         "tags": [
           "artifacts"
         ],
-        "summary": "Save a record as the caller, who must be able to change the Task. Queues\nno message.",
-        "operationId": "save_record",
+        "summary": "Save, append or delete a record as the caller, who must be able to change\nthe Task. Queues no message.",
+        "operationId": "write_record",
         "parameters": [
           {
             "name": "artifact_id",
@@ -2122,7 +2150,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SaveArtifactRecordRequest"
+                "$ref": "#/components/schemas/WriteArtifactRecordRequest"
               }
             }
           },
@@ -2130,7 +2158,7 @@
         },
         "responses": {
           "200": {
-            "description": "Record saved",
+            "description": "The record written, or as it was before a delete",
             "content": {
               "application/json": {
                 "schema": {
@@ -2160,7 +2188,7 @@
             }
           },
           "404": {
-            "description": "Artifact not found",
+            "description": "Artifact, or the record to delete, not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -8883,7 +8911,7 @@
         "tags": [
           "tasks"
         ],
-        "summary": "Update a task's TTLs. `ttl_minutes` is idle TTL (`0` disables the reaper);\n`inactive_ttl_days` is inactivity TTL (`0` disables auto-close). Both\noptional; at least one required.",
+        "summary": "Update a task's TTLs. `ttl_minutes` is idle TTL (`0` disables the reaper);\n`close_after_settled_days` is days from settling to auto-close (`0` disables it). Both\noptional; at least one required.",
         "operationId": "update_ttl",
         "parameters": [
           {
@@ -11622,10 +11650,10 @@
       },
       "ArtifactRecordResponse": {
         "type": "object",
-        "description": "One Artifact record: JSON saved against an Artifact, kept across its\nversions.",
+        "description": "One Artifact record: JSON saved under a key on an Artifact, kept across\nits versions.",
         "required": [
-          "recordId",
           "artifactId",
+          "key",
           "data",
           "submittedBy",
           "createdAt",
@@ -11642,14 +11670,8 @@
             "type": "object"
           },
           "key": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "`None` for an appended record; a keyed record is replaced by the next\nsave under its key."
-          },
-          "recordId": {
-            "type": "string"
+            "type": "string",
+            "description": "Names the record on its Artifact; the next save under it replaces it."
           },
           "submittedBy": {
             "type": "string",
@@ -12606,19 +12628,19 @@
               "null"
             ]
           },
+          "closeAfterSettledDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
           "fallbackToOtherAgent": {
             "type": [
               "boolean",
               "null"
             ],
             "description": "See [`LoopConfig::fallback_to_other_agent`]. `None` is on."
-          },
-          "inactiveTtlDays": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32"
           },
           "messageBufferSeconds": {
             "type": [
@@ -12662,6 +12684,14 @@
               "string",
               "null"
             ]
+          },
+          "settleAfterHours": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "See [`LoopConfig::settle_after_hours`]."
           },
           "skills": {
             "type": [
@@ -15366,17 +15396,17 @@
           "agentProfile": {
             "type": "string"
           },
-          "fallbackToOtherAgent": {
-            "type": "boolean",
-            "description": "Re-run a spawned Task's failed turn once on the other agent (`codex` or\n`claude-code`), in the same Task, when the turn's error reason is\n`usage_limit`, `rate_limit` or `provider_unavailable`. The sandbox\nreports the last two only once its retries are spent."
-          },
-          "inactiveTtlDays": {
+          "closeAfterSettledDays": {
             "type": [
               "integer",
               "null"
             ],
             "format": "int32",
-            "description": "Per-Loop inactivity TTL in days. `None` means \"inherit the global\ndefault\" (`TASK_INACTIVE_TIMEOUT_DAYS`). Flows into\n`tasks.inactive_ttl_days` when this Loop spawns a task."
+            "description": "See [`moatless_types::loops::LoopContext::close_after_settled_days`]."
+          },
+          "fallbackToOtherAgent": {
+            "type": "boolean",
+            "description": "Re-run a spawned Task's failed turn once on the other agent (`codex` or\n`claude-code`), in the same Task, when the turn's error reason is\n`usage_limit`, `rate_limit` or `provider_unavailable`. The sandbox\nreports the last two only once its retries are spent."
           },
           "messageBufferSeconds": {
             "type": [
@@ -15420,6 +15450,14 @@
               "string",
               "null"
             ]
+          },
+          "settleAfterHours": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "See [`moatless_types::loops::LoopContext::settle_after_hours`]; `0`\nnever auto-settles."
           },
           "skills": {
             "type": "array",
@@ -17984,25 +18022,6 @@
           "error"
         ]
       },
-      "SaveArtifactRecordRequest": {
-        "type": "object",
-        "description": "Body of a record save.",
-        "required": [
-          "data"
-        ],
-        "properties": {
-          "data": {
-            "type": "object"
-          },
-          "key": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Replace the record saved under this key rather than append one."
-          }
-        }
-      },
       "SaveCodexAgentHarnessCredentialRequest": {
         "type": "object",
         "required": [
@@ -19797,7 +19816,7 @@
           "scope",
           "tags",
           "ttlMinutes",
-          "inactiveTtlDays",
+          "closeAfterSettledDays",
           "sandboxDesiredState",
           "sandboxDesiredStateUpdatedAt"
         ],
@@ -19834,6 +19853,11 @@
               }
             ]
           },
+          "closeAfterSettledDays": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Days the reaper waits after the task is settled before closing it.\n`0` means \"never auto-close\"."
+          },
           "createdAt": {
             "type": "string"
           },
@@ -19865,11 +19889,6 @@
                 "description": "Set when this task was branched off another one. `parent_task_id` names\nthe same task; this field says the edge is a fork and where it was cut."
               }
             ]
-          },
-          "inactiveTtlDays": {
-            "type": "integer",
-            "format": "int32",
-            "description": "Inactive TTL in days. The reaper auto-closes the task when no activity\nhas occurred for this many days. `0` means \"never auto-close\"."
           },
           "isFollowing": {
             "type": [
@@ -19964,6 +19983,14 @@
           },
           "scope": {
             "$ref": "#/components/schemas/Scope"
+          },
+          "settleAfterHours": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Idle hours after which the reaper settles the task. `None` follows\nthe deployment default (`TASK_SETTLE_AFTER_HOURS`); `0` never settles."
           },
           "shortId": {
             "type": [
@@ -20688,20 +20715,20 @@
               "null"
             ]
           },
+          "closeAfterSettledDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "See [`LoopConfig::close_after_settled_days`]. `Some(None)` clears the override."
+          },
           "fallbackToOtherAgent": {
             "type": [
               "boolean",
               "null"
             ],
             "description": "See [`LoopConfig::fallback_to_other_agent`]. `None` keeps the current\nvalue."
-          },
-          "inactiveTtlDays": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "description": "See [`LoopConfig::inactive_ttl_days`]. `Some(None)` clears the override."
           },
           "messageBufferSeconds": {
             "type": [
@@ -20748,6 +20775,14 @@
                 "$ref": "#/components/schemas/RoutingMode"
               }
             ]
+          },
+          "settleAfterHours": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "See [`LoopConfig::settle_after_hours`]. `Some(None)` clears the override."
           },
           "skills": {
             "type": [
@@ -21009,13 +21044,13 @@
       "UpdateTaskTtlRequest": {
         "type": "object",
         "properties": {
-          "inactiveTtlDays": {
+          "closeAfterSettledDays": {
             "type": [
               "integer",
               "null"
             ],
             "format": "int32",
-            "description": "New inactivity TTL in days. Must be `>= 0`. `0` disables auto-close for\nthis task (it stays Open until closed explicitly). Omit to leave the\ncurrent inactivity TTL unchanged."
+            "description": "New days from settling to auto-closing. Must be `>= 0`. `0` disables\nauto-close for this task (it stays Open until closed explicitly). Omit\nto leave the current value unchanged."
           },
           "ttlMinutes": {
             "type": [
@@ -22074,6 +22109,76 @@
             "description": "Where the key sits in the declaring file, as a JSON path\n(`workspaces[0].previewConfig`)."
           }
         }
+      },
+      "WriteArtifactRecordRequest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Save `data` under `key`, replacing the record there.",
+            "required": [
+              "key",
+              "data",
+              "op"
+            ],
+            "properties": {
+              "data": {
+                "type": "object"
+              },
+              "key": {
+                "type": "string"
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "save"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Save `data` under a new key `{list}/{id}`, where the id sorts by\ncreation time.",
+            "required": [
+              "list",
+              "data",
+              "op"
+            ],
+            "properties": {
+              "data": {
+                "type": "object"
+              },
+              "list": {
+                "type": "string"
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "append"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Remove the record under `key`.",
+            "required": [
+              "key",
+              "op"
+            ],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "op": {
+                "type": "string",
+                "enum": [
+                  "delete"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Body of a record write; each answers with the record it wrote, or for\n`delete`, the record as it was."
       },
       "WriteFileRequestBody": {
         "type": "object",

@@ -3,7 +3,7 @@ on: schedule
 name: Nightly E2E
 tags:
   - e2e-nightly
-inactiveTtlDays: 1
+closeAfterSettledDays: 1
 schedule:
   # 7 fields: sec min hour day-of-month month day-of-week year. Evaluated in
   # UTC by the runner, so `timezone` records the intent rather than shifting the

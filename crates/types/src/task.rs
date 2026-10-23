@@ -453,9 +453,12 @@ pub struct Task {
     /// Idle TTL in minutes. The reaper stops the sandbox when no activity has
     /// occurred for this many minutes. `0` means "indefinite — never reap".
     pub ttl_minutes: i32,
-    /// Inactive TTL in days. The reaper auto-closes the task when no activity
-    /// has occurred for this many days. `0` means "indefinite — never close".
-    pub inactive_ttl_days: i32,
+    /// Days the reaper waits after the task is settled before closing it.
+    /// `0` means "indefinite — never close".
+    pub close_after_settled_days: i32,
+    /// Idle hours after which the reaper settles the task. `None` follows the
+    /// deployment default (`TASK_SETTLE_AFTER_HOURS`); `0` never settles.
+    pub settle_after_hours: Option<i32>,
     /// Loop that spawned this task (subscription + schedule). Independent from
     /// any communication binding — schedule loops never create a binding.
     pub loop_id: Option<String>,

@@ -1205,3 +1205,109 @@ async fn the_readable_status_follows_the_read_rule(pool: PgPool) {
     assert_eq!(status(owner).await, Some(row.status));
     assert_eq!(status("user-2").await, None);
 }
+
+async fn seed_public_task(pool: &PgPool, task_id: &str) {
+    seed_repo(pool, "repo-1", "user-1").await;
+    let mut row = make_task_row(task_id, "user-1");
+    row.visibility = Visibility::Public;
+    seed_task(pool, &row).await.unwrap();
+    // `insert_task` auto-follows the creator; left in, `user-1` is an unsettled
+    // follower that keeps every task here from counting as settled.
+    store_over(pool)
+        .unfollow_task("user-1", task_id)
+        .await
+        .unwrap();
+}
+
+#[sqlx::test]
+async fn a_task_nobody_follows_is_settled_only_once_the_reaper_settles_it(pool: PgPool) {
+    seed_public_task(&pool, "task-unfollowed").await;
+    let repo = store_over(&pool);
+    let ids = vec!["task-unfollowed".to_string()];
+    assert!(repo.get_settled_since_map(&ids).await.unwrap().is_empty());
+
+    let at = Utc::now() - Duration::hours(2);
+    assert!(repo.auto_settle_task("task-unfollowed", at).await.unwrap());
+    assert!(
+        !repo
+            .auto_settle_task("task-unfollowed", Utc::now())
+            .await
+            .unwrap(),
+        "a second settle moves no row and keeps the first stamp"
+    );
+
+    let settled = repo.get_settled_since_map(&ids).await.unwrap();
+    assert_eq!(
+        settled.get("task-unfollowed").map(DateTime::timestamp),
+        Some(at.timestamp())
+    );
+}
+
+#[sqlx::test]
+async fn a_followed_task_is_settled_from_when_its_last_follower_settled_it(pool: PgPool) {
+    seed_public_task(&pool, "task-two-followers").await;
+    let repo = store_over(&pool);
+    let ids = vec!["task-two-followers".to_string()];
+    repo.follow_task("user-2", "task-two-followers")
+        .await
+        .unwrap();
+    repo.follow_task("user-3", "task-two-followers")
+        .await
+        .unwrap();
+
+    let first = Utc::now() - Duration::days(3);
+    repo.settle_task("user-2", "task-two-followers", first)
+        .await
+        .unwrap();
+    assert!(
+        repo.get_settled_since_map(&ids).await.unwrap().is_empty(),
+        "user-3 still has it open"
+    );
+
+    let last = Utc::now() - Duration::days(1);
+    repo.settle_task("user-3", "task-two-followers", last)
+        .await
+        .unwrap();
+    let settled = repo.get_settled_since_map(&ids).await.unwrap();
+    assert_eq!(
+        settled.get("task-two-followers").map(DateTime::timestamp),
+        Some(last.timestamp())
+    );
+}
+
+#[sqlx::test]
+async fn auto_settle_leaves_a_hand_unsettled_follower_and_the_task_open(pool: PgPool) {
+    seed_public_task(&pool, "task-kept").await;
+    let repo = store_over(&pool);
+    let ids = vec!["task-kept".to_string()];
+    repo.follow_task("user-2", "task-kept").await.unwrap();
+    repo.follow_task("user-3", "task-kept").await.unwrap();
+    repo.unsettle_task("user-3", "task-kept").await.unwrap();
+
+    repo.auto_settle_task("task-kept", Utc::now())
+        .await
+        .unwrap();
+
+    let (user2, _, _, _) = follow_state(&pool, "user-2", "task-kept").await.unwrap();
+    let (user3, _, _, _) = follow_state(&pool, "user-3", "task-kept").await.unwrap();
+    assert_eq!(user2.as_deref(), Some("settled"));
+    assert_eq!(user3.as_deref(), Some("active"), "a hand unsettle stands");
+    assert!(repo.get_settled_since_map(&ids).await.unwrap().is_empty());
+}
+
+#[sqlx::test]
+async fn new_activity_clears_the_reaper_settle(pool: PgPool) {
+    seed_public_task(&pool, "task-reactivated").await;
+    let repo = store_over(&pool);
+    let ids = vec!["task-reactivated".to_string()];
+    repo.auto_settle_task("task-reactivated", Utc::now())
+        .await
+        .unwrap();
+
+    let mut conn = pool.acquire().await.unwrap();
+    crate::task::dao::clear_settled_for_all_followers(&mut conn, "task-reactivated")
+        .await
+        .unwrap();
+
+    assert!(repo.get_settled_since_map(&ids).await.unwrap().is_empty());
+}

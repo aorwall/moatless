@@ -49,10 +49,12 @@ pub struct LoopConfig {
     /// for `agent_profile`". Flows into `tasks.model` when this Loop spawns a
     /// task.
     pub model: Option<String>,
-    /// Per-Loop inactivity TTL in days. `None` means "inherit the global
-    /// default" (`TASK_INACTIVE_TIMEOUT_DAYS`). Flows into
-    /// `tasks.inactive_ttl_days` when this Loop spawns a task.
-    pub inactive_ttl_days: Option<i32>,
+    /// See [`moatless_types::loops::LoopContext::close_after_settled_days`].
+    #[serde(alias = "inactiveTtlDays")]
+    pub close_after_settled_days: Option<i32>,
+    /// See [`moatless_types::loops::LoopContext::settle_after_hours`]; `0`
+    /// never auto-settles.
+    pub settle_after_hours: Option<i32>,
     /// Extra node labels for the sandboxes this Loop spawns, merged over the
     /// deployment-wide selector and outranking the Workspace's own value.
     /// Admin-only, and never declared in `LOOP.md`.
@@ -89,7 +91,10 @@ pub struct CreateLoopConfig {
     pub agent_profile: Option<String>,
     /// See [`LoopConfig::model`].
     pub model: Option<String>,
-    pub inactive_ttl_days: Option<i32>,
+    #[serde(alias = "inactiveTtlDays")]
+    pub close_after_settled_days: Option<i32>,
+    /// See [`LoopConfig::settle_after_hours`].
+    pub settle_after_hours: Option<i32>,
     /// See [`LoopConfig::node_selector`].
     #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
     pub node_selector: Option<std::collections::BTreeMap<String, String>>,
@@ -139,13 +144,21 @@ pub struct UpdateLoopConfig {
         deserialize_with = "deserialize_optional_nullable_field"
     )]
     pub model: Option<Option<String>>,
-    /// See [`LoopConfig::inactive_ttl_days`]. `Some(None)` clears the override.
+    /// See [`LoopConfig::close_after_settled_days`]. `Some(None)` clears the override.
+    #[serde(
+        default,
+        alias = "inactiveTtlDays",
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable_field"
+    )]
+    pub close_after_settled_days: Option<Option<i32>>,
+    /// See [`LoopConfig::settle_after_hours`]. `Some(None)` clears the override.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "deserialize_optional_nullable_field"
     )]
-    pub inactive_ttl_days: Option<Option<i32>>,
+    pub settle_after_hours: Option<Option<i32>>,
     /// See [`LoopConfig::node_selector`]. `Some(None)` clears the override.
     #[serde(
         default,
@@ -455,7 +468,7 @@ mod tests {
         assert_eq!(set.model, Some(Some("fable".to_string())));
     }
 
-    /// `ongoing_task_id`, `task_name`, `prompt` and `inactive_ttl_days` all
+    /// `ongoing_task_id`, `task_name`, `prompt` and `close_after_settled_days` all
     /// carry the same tri-state attribute as `model`; an explicit `null` must
     /// reach the server as `Some(None)`, not collapse into "omitted".
     #[test]
@@ -464,31 +477,31 @@ mod tests {
         assert_eq!(omitted.ongoing_task_id, None);
         assert_eq!(omitted.task_name, None);
         assert_eq!(omitted.prompt, None);
-        assert_eq!(omitted.inactive_ttl_days, None);
+        assert_eq!(omitted.close_after_settled_days, None);
 
         let cleared: UpdateLoopConfig = serde_json::from_value(json!({
             "ongoingTaskId": null,
             "taskName": null,
             "prompt": null,
-            "inactiveTtlDays": null,
+            "closeAfterSettledDays": null,
         }))
         .unwrap();
         assert_eq!(cleared.ongoing_task_id, Some(None));
         assert_eq!(cleared.task_name, Some(None));
         assert_eq!(cleared.prompt, Some(None));
-        assert_eq!(cleared.inactive_ttl_days, Some(None));
+        assert_eq!(cleared.close_after_settled_days, Some(None));
 
         let set: UpdateLoopConfig = serde_json::from_value(json!({
             "ongoingTaskId": "task-1",
             "taskName": "name",
             "prompt": "do it",
-            "inactiveTtlDays": 7,
+            "closeAfterSettledDays": 7,
         }))
         .unwrap();
         assert_eq!(set.ongoing_task_id, Some(Some("task-1".to_string())));
         assert_eq!(set.task_name, Some(Some("name".to_string())));
         assert_eq!(set.prompt, Some(Some("do it".to_string())));
-        assert_eq!(set.inactive_ttl_days, Some(Some(7)));
+        assert_eq!(set.close_after_settled_days, Some(Some(7)));
     }
 
     /// `source_name` and `adapter_config` carry the same tri-state attribute;

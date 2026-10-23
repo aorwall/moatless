@@ -323,7 +323,9 @@ pub async fn normalize(
         vibe: if is_template { Some(true) } else { None },
         append_system_prompt: None,
         ttl_minutes: config.sandbox.idle_timeout_minutes as i32,
-        inactive_ttl_days: config.sandbox.inactive_task_timeout_days as i32,
+        close_after_settled_days: config.sandbox.close_after_settled_days as i32,
+        // `None` follows `TASK_SETTLE_AFTER_HOURS` as the reaper reads it.
+        settle_after_hours: None,
         tag_ids: vec![],
         memory_preload: Vec::new(),
         skills: req.skills.clone(),
@@ -514,9 +516,9 @@ pub async fn update_ttl(
     task_id: String,
     req: super::schemas::UpdateTaskTtlRequest,
 ) -> Result<Task, TaskError> {
-    if req.ttl_minutes.is_none() && req.inactive_ttl_days.is_none() {
+    if req.ttl_minutes.is_none() && req.close_after_settled_days.is_none() {
         return Err(TaskError::BadRequest(
-            "provide ttl_minutes and/or inactive_ttl_days".to_string(),
+            "provide ttl_minutes and/or close_after_settled_days".to_string(),
         ));
     }
     if req.ttl_minutes.is_some_and(|v| v < 0) {
@@ -524,9 +526,9 @@ pub async fn update_ttl(
             "ttl_minutes must be >= 0".to_string(),
         ));
     }
-    if req.inactive_ttl_days.is_some_and(|v| v < 0) {
+    if req.close_after_settled_days.is_some_and(|v| v < 0) {
         return Err(TaskError::BadRequest(
-            "inactive_ttl_days must be >= 0".to_string(),
+            "close_after_settled_days must be >= 0".to_string(),
         ));
     }
 
@@ -535,7 +537,7 @@ pub async fn update_ttl(
             &task_id,
             &super::models::TaskPatch {
                 ttl_minutes: req.ttl_minutes,
-                inactive_ttl_days: req.inactive_ttl_days,
+                close_after_settled_days: req.close_after_settled_days,
                 ..Default::default()
             },
             scope_ctx,
@@ -548,7 +550,7 @@ pub async fn update_ttl(
         task_id = %task_id,
         user_id = %scope_ctx.user_id,
         ttl_minutes = ?req.ttl_minutes,
-        inactive_ttl_days = ?req.inactive_ttl_days,
+        close_after_settled_days = ?req.close_after_settled_days,
         "Task TTL updated"
     );
 
@@ -712,7 +714,8 @@ mod tests {
                 append_system_prompt: None,
                 headless: false,
                 ttl_minutes: 15,
-                inactive_ttl_days: 7,
+                close_after_settled_days: 7,
+                settle_after_hours: None,
                 loop_id: None,
                 memory_preload: Vec::new(),
                 skills: Vec::new(),

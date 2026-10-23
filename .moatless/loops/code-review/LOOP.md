@@ -3,7 +3,7 @@ on: github_pr
 name: Full-Repo Code Review
 agentProfile: claude-code
 model: opus
-inactiveTtlDays: 1
+closeAfterSettledDays: 1
 # sourceMatcher defaults to this repo's owner/repo; the org's
 # GitHub App connection is resolved automatically.
 adapterConfig:

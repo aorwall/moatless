@@ -89,9 +89,14 @@ pub async fn create_task_from_loop(
             loop_id: config.id.clone(),
             append_system_prompt,
             ttl_minutes: moatless_tasks::task::models::DEFAULT_TTL_MINUTES,
-            inactive_ttl_days: config
-                .inactive_ttl_days
-                .unwrap_or(moatless_tasks::task::models::DEFAULT_INACTIVE_TTL_DAYS),
+            close_after_settled_days: config
+                .close_after_settled_days
+                .unwrap_or(moatless_tasks::task::models::DEFAULT_CLOSE_AFTER_SETTLED_DAYS),
+            settle_after_hours: Some(
+                config
+                    .settle_after_hours
+                    .unwrap_or(moatless_tasks::task::models::DEFAULT_LOOP_SETTLE_AFTER_HOURS),
+            ),
             node_selector: config.node_selector.clone(),
             stop_when_done: config.stop_when_done,
             tag_ids: config.tag_ids.clone(),

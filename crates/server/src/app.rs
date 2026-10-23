@@ -702,7 +702,7 @@ fn spawn_event_handler(
     Some(handle)
 }
 
-/// Spawn the unified task reaper (idle-sandbox stop + inactive-task close) if
+/// Spawn the unified task reaper (idle-sandbox stop, auto-settle and auto-close) if
 /// enabled. `None` when the reaper is switched off.
 fn spawn_task_reaper(
     app_state: &AppState,
@@ -714,7 +714,8 @@ fn spawn_task_reaper(
     info!(
         idle_timeout_minutes = app_state.config.sandbox.idle_timeout_minutes,
         check_interval_secs = app_state.config.sandbox.idle_check_interval_secs,
-        inactive_task_timeout_days = app_state.config.sandbox.inactive_task_timeout_days,
+        settle_after_hours = app_state.config.sandbox.settle_after_hours,
+        close_after_settled_days = app_state.config.sandbox.close_after_settled_days,
         "Task reaper spawned"
     );
     Some(handle)

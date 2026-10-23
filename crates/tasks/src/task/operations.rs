@@ -191,12 +191,37 @@ impl TaskCommands {
         self.store.get_ttl_minutes_map(task_ids).await
     }
 
-    /// See [`TaskDao::get_inactive_ttl_days_map`].
-    pub async fn get_inactive_ttl_days_map(
+    /// See [`TaskDao::get_close_after_settled_days_map`].
+    pub async fn get_close_after_settled_days_map(
         &self,
         task_ids: &[String],
     ) -> Result<HashMap<String, i32>, sqlx::Error> {
-        self.store.get_inactive_ttl_days_map(task_ids).await
+        self.store.get_close_after_settled_days_map(task_ids).await
+    }
+
+    /// See [`TaskDao::get_settle_after_hours_map`].
+    pub async fn get_settle_after_hours_map(
+        &self,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, i32>, sqlx::Error> {
+        self.store.get_settle_after_hours_map(task_ids).await
+    }
+
+    /// See [`TaskDao::get_settled_since_map`].
+    pub async fn get_settled_since_map(
+        &self,
+        task_ids: &[String],
+    ) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error> {
+        self.store.get_settled_since_map(task_ids).await
+    }
+
+    /// See [`TaskDao::auto_settle_task`].
+    pub async fn auto_settle_task(
+        &self,
+        task_id: &str,
+        at: DateTime<Utc>,
+    ) -> Result<bool, sqlx::Error> {
+        self.store.auto_settle_task(task_id, at).await
     }
 
     /// See [`TaskDao::get_cold_after_hours_map`].

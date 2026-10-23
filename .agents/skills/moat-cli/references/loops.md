@@ -22,7 +22,7 @@ tags: [review]           # optional
 skills: [java-review]    # optional — activated on every fresh agent session
 memory:                  # optional — summaries listed in each task's prompt
   preload: [review:conventions, review:*]   # keys, or `prefix*`
-# optional: sourceMatcher, teamId, eventFilter, adapterConfig, inactiveTtlDays
+# optional: sourceMatcher, teamId, eventFilter, adapterConfig, settleAfterHours, closeAfterSettledDays
 ---
 
 Review this pull request. Post inline comments.

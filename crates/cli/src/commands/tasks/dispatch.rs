@@ -195,15 +195,15 @@ pub enum TaskAction {
         #[arg(long)]
         agent_profile: Option<String>,
     },
-    /// Update a task's TTLs (idle sandbox stop and/or inactivity auto-close)
+    /// Update a task's TTLs (idle sandbox stop and/or auto-close after settling)
     Ttl {
         task_id: String,
         /// Idle TTL in minutes (0 = never stop the sandbox)
         #[arg(long)]
         ttl_minutes: Option<i32>,
-        /// Inactivity TTL in days (0 = never auto-close the task)
-        #[arg(long)]
-        inactive_ttl_days: Option<i32>,
+        /// Days from settling to auto-closing the task (0 = never auto-close)
+        #[arg(long, alias = "inactive-ttl-days")]
+        close_after_settled_days: Option<i32>,
     },
     /// Show full task status (environment, agent)
     Status {
@@ -542,24 +542,24 @@ pub async fn run(
         TaskAction::Ttl {
             task_id,
             ttl_minutes,
-            inactive_ttl_days,
+            close_after_settled_days,
         } => {
             let task_id = resolve_task_id(client, &task_id).await?;
-            if ttl_minutes.is_none() && inactive_ttl_days.is_none() {
+            if ttl_minutes.is_none() && close_after_settled_days.is_none() {
                 return Err(ClientError::Api {
                     status: 400,
-                    body: "Provide --ttl-minutes and/or --inactive-ttl-days".to_string(),
+                    body: "Provide --ttl-minutes and/or --close-after-settled-days".to_string(),
                 });
             }
             let req = UpdateTaskTtlRequest {
                 ttl_minutes,
-                inactive_ttl_days,
+                close_after_settled_days,
             };
             let updated = client.api().update_ttl(&task_id, &req).await?;
             output::emit(json, &updated, || {
                 println!(
-                    "Task {} TTL updated (idle={}m, inactive={}d).",
-                    updated.task_id, updated.ttl_minutes, updated.inactive_ttl_days
+                    "Task {} TTL updated (idle={}m, close after settled={}d).",
+                    updated.task_id, updated.ttl_minutes, updated.close_after_settled_days
                 );
             });
         }

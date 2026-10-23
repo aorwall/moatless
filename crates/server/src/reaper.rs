@@ -1,10 +1,11 @@
 //! Unified task reaper.
 //!
 //! Background job that periodically stops idle sandbox Deployments (short TTL
-//! `ttl_minutes`), auto-closes inactive Open tasks (long TTL
-//! `inactive_ttl_days`), and reclaims the Deployment/volume of a long-stopped
-//! sandbox (`cold_after_hours`), leaving the S3 snapshot as the only copy; the
-//! task stays Open and a later start restores a fresh volume. Runs on the
+//! `ttl_minutes`), settles Open tasks idle past `settle_after_hours`, closes
+//! them `close_after_settled_days` after they were settled, and reclaims the
+//! Deployment/volume of a long-stopped sandbox (`cold_after_hours`), leaving
+//! the S3 snapshot as the only copy; the task stays Open and a later start
+//! restores a fresh volume. Runs on the
 //! elected leader only (one lease, `moatless-task-reaper`).
 
 use std::collections::{HashMap, HashSet};
@@ -16,6 +17,11 @@ use moatless_types::task::{TaskSubType, TaskTurnSubType};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
+
+use crate::reaper_decisions::{
+    CloseDecision, ReapDecision, decide_close, decide_cold, decide_reap, decide_settle,
+    fold_latest_activity, fold_reap_floor, fold_ttl_minutes,
+};
 
 use crate::event_handler::agent_handlers::AgentErrorPorts;
 use moatless_core::config::Config;
@@ -60,7 +66,9 @@ const ORPHANED_TURN_RECOVERY_WINDOW_SECS: i64 = 15 * 60;
 #[derive(Clone, Copy)]
 struct ReapCycleDefaults {
     ttl_minutes: i32,
-    inactive_ttl_days: i32,
+    /// `0` disables auto-settle for tasks that name no TTL of their own.
+    settle_after_hours: i32,
+    close_after_settled_days: i32,
     /// `0` disables the cold branch for the deployment.
     cold_after_hours: i32,
     orphan_gc_enabled: bool,
@@ -201,7 +209,8 @@ impl TaskReaper {
         let identity = self.config.server.worker_identity.clone();
         let interval = Duration::from_secs(self.config.sandbox.idle_check_interval_secs);
         let default_ttl_minutes = self.config.sandbox.idle_timeout_minutes as i32;
-        let default_inactive_ttl_days = self.config.sandbox.inactive_task_timeout_days as i32;
+        let default_settle_after_hours = self.config.sandbox.settle_after_hours as i32;
+        let default_close_after_settled_days = self.config.sandbox.close_after_settled_days as i32;
         let default_cold_after_hours = self.config.sandbox.cold_after_hours as i32;
         let orphan_gc_enabled = self.config.sandbox.orphan_gc_enabled;
 
@@ -218,7 +227,8 @@ impl TaskReaper {
                         if let Err(e) = self
                             .run_reap_cycle(ReapCycleDefaults {
                                 ttl_minutes: default_ttl_minutes,
-                                inactive_ttl_days: default_inactive_ttl_days,
+                                settle_after_hours: default_settle_after_hours,
+                                close_after_settled_days: default_close_after_settled_days,
                                 cold_after_hours: default_cold_after_hours,
                                 orphan_gc_enabled,
                             })
@@ -246,8 +256,8 @@ impl TaskReaper {
         })
     }
 
-    /// Run one reap cycle: close inactive Open tasks, stop idle sandboxes, then
-    /// reclaim the storage of the ones that have been stopped long enough.
+    /// Run one reap cycle: settle idle Open tasks, close settled ones, stop idle
+    /// sandboxes, then reclaim the storage of the ones stopped long enough.
     async fn run_reap_cycle(&self, defaults: ReapCycleDefaults) -> Result<(), ReaperError> {
         // The running Sandbox set for this cycle. A failed LIST aborts the cycle
         // (`?`) rather than letting an empty set be read as "nothing is running"
@@ -373,7 +383,10 @@ struct ReaperSnapshot {
     open_ids: Vec<String>,
     latest_times: HashMap<String, DateTime<Utc>>,
     ttl_map: HashMap<String, i32>,
-    inactive_map: HashMap<String, i32>,
+    settle_map: HashMap<String, i32>,
+    close_map: HashMap<String, i32>,
+    /// See [`moatless_tasks::task::dao::TaskDao::get_settled_since_map`].
+    settled_since: HashMap<String, DateTime<Utc>>,
     cold_map: HashMap<String, i32>,
     /// When each stopped task's sandbox stopped, for the ones that still own
     /// storage. Absent means nothing to reclaim — never had a sandbox, still
@@ -381,7 +394,8 @@ struct ReaperSnapshot {
     stopped_since: HashMap<String, DateTime<Utc>>,
     agent_lifecycle: HashMap<String, (String, DateTime<Utc>)>,
     default_ttl_minutes: i32,
-    default_inactive_ttl_days: i32,
+    default_settle_after_hours: i32,
+    default_close_after_settled_days: i32,
     default_cold_after_hours: i32,
     now: DateTime<Utc>,
 }
@@ -389,6 +403,7 @@ struct ReaperSnapshot {
 #[derive(Clone, Copy)]
 struct ReaperStats {
     stopped: u32,
+    settled: u32,
     closed: u32,
     reclaimed: u32,
 }
@@ -406,7 +421,7 @@ impl TaskReaper {
         let open_ids = match self.tasks.list_open_task_ids().await {
             Ok(ids) => ids,
             Err(e) => {
-                warn!(error = %e, "Failed to list open tasks, skipping inactive-task close");
+                warn!(error = %e, "Failed to list open tasks, skipping auto-settle and auto-close");
                 Vec::new()
             }
         };
@@ -433,7 +448,9 @@ impl TaskReaper {
 
         let latest_times = self.load_latest_activity_times(&all_ids).await?;
         let ttl_map = load_ttl_map(&self.tasks, &all_ids).await;
-        let inactive_map = load_inactive_ttl_map(&self.tasks, &all_ids).await;
+        let settle_map = load_settle_map(&self.tasks, &all_ids).await;
+        let close_map = load_close_map(&self.tasks, &all_ids).await;
+        let settled_since = self.load_settled_since(&open_ids).await;
         let cold_map = load_cold_map(&self.tasks, &all_ids).await;
         let stopped_since = self.load_stopped_since(&open_ids).await;
         let agent_lifecycle = self.load_agent_lifecycle(live_ids).await;
@@ -444,15 +461,30 @@ impl TaskReaper {
             open_ids,
             latest_times,
             ttl_map,
-            inactive_map,
+            settle_map,
+            close_map,
+            settled_since,
             cold_map,
             stopped_since,
             agent_lifecycle,
             default_ttl_minutes: defaults.ttl_minutes,
-            default_inactive_ttl_days: defaults.inactive_ttl_days,
+            default_settle_after_hours: defaults.settle_after_hours,
+            default_close_after_settled_days: defaults.close_after_settled_days,
             default_cold_after_hours: defaults.cold_after_hours,
             now: Utc::now(),
         }))
+    }
+
+    /// When each settled Open task was settled. Failure yields an empty map,
+    /// which closes nothing and lets the settle branch re-settle at most.
+    async fn load_settled_since(&self, open_ids: &[String]) -> HashMap<String, DateTime<Utc>> {
+        self.tasks
+            .get_settled_since_map(open_ids)
+            .await
+            .unwrap_or_else(|e| {
+                warn!(error = %e, "Failed to read settled tasks, skipping auto-close this cycle");
+                HashMap::new()
+            })
     }
 
     /// When each Open task's sandbox stopped, for those that still own storage.
@@ -536,15 +568,22 @@ async fn load_ttl_map(tasks: &Arc<TaskCommands>, all_ids: &[String]) -> HashMap<
     })
 }
 
-async fn load_inactive_ttl_map(
-    tasks: &Arc<TaskCommands>,
-    all_ids: &[String],
-) -> HashMap<String, i32> {
+async fn load_settle_map(tasks: &Arc<TaskCommands>, all_ids: &[String]) -> HashMap<String, i32> {
     tasks
-        .get_inactive_ttl_days_map(all_ids)
+        .get_settle_after_hours_map(all_ids)
         .await
         .unwrap_or_else(|e| {
-            warn!(error = %e, "Failed to fetch inactive_ttl_days map, falling back to default for all tasks");
+            warn!(error = %e, "Failed to fetch settle_after_hours map, falling back to default for all tasks");
+            HashMap::new()
+        })
+}
+
+async fn load_close_map(tasks: &Arc<TaskCommands>, all_ids: &[String]) -> HashMap<String, i32> {
+    tasks
+        .get_close_after_settled_days_map(all_ids)
+        .await
+        .unwrap_or_else(|e| {
+            warn!(error = %e, "Failed to fetch close_after_settled_days map, falling back to default for all tasks");
             HashMap::new()
         })
 }
@@ -582,6 +621,7 @@ impl TaskReaper {
     async fn apply_reaper_decisions(&self, snapshot: ReaperSnapshot) -> ReaperStats {
         let mut stats = ReaperStats {
             stopped: 0,
+            settled: 0,
             closed: 0,
             reclaimed: 0,
         };
@@ -593,9 +633,9 @@ impl TaskReaper {
         stats
     }
 
-    /// The per-Task pass: auto-close an inactive Open task, or reclaim the
-    /// storage of one whose sandbox has been stopped long enough. Returns the
-    /// tasks it closed.
+    /// The per-Task pass: auto-close a settled Open task, auto-settle an idle
+    /// one, or reclaim the storage of one whose sandbox has been stopped long
+    /// enough. Returns the tasks it closed.
     async fn apply_task_decisions(
         &self,
         snapshot: &ReaperSnapshot,
@@ -614,25 +654,51 @@ impl TaskReaper {
                 continue;
             }
             let latest_at = snapshot.latest_times.get(task_id).copied();
-            let inactive_ttl_days = snapshot
-                .inactive_map
+            let settled_at = snapshot.settled_since.get(task_id).copied();
+            let close_after_settled_days = snapshot
+                .close_map
                 .get(task_id)
                 .copied()
-                .unwrap_or(snapshot.default_inactive_ttl_days);
+                .unwrap_or(snapshot.default_close_after_settled_days);
 
             // Close supersedes stop — `auto_close_task` calls `cleanup`, which
             // tears down the Deployment regardless of whether it was scaled to 0.
-            if decide_close(inactive_ttl_days, latest_at, snapshot.now) == CloseDecision::Close {
+            if decide_close(close_after_settled_days, settled_at, snapshot.now)
+                == CloseDecision::Close
+            {
                 info!(
                     task_id = %task_id,
-                    inactive_ttl_days,
-                    last_activity = ?latest_at,
-                    "Auto-closing inactive task"
+                    close_after_settled_days,
+                    settled_at = ?settled_at,
+                    "Auto-closing settled task"
                 );
                 self.auto_close_task(task_id).await;
                 closed.insert(task_id.clone());
                 stats.closed += 1;
                 continue;
+            }
+
+            let settle_after_hours = snapshot
+                .settle_map
+                .get(task_id)
+                .copied()
+                .unwrap_or(snapshot.default_settle_after_hours);
+            // A pinned or hand-unsettled follower keeps `settled_at` at `None`, so
+            // this runs every cycle for such a task; only a moved row is news.
+            if settled_at.is_none() && decide_settle(settle_after_hours, latest_at, snapshot.now) {
+                match self.tasks.auto_settle_task(task_id, snapshot.now).await {
+                    Ok(true) => {
+                        info!(
+                            task_id = %task_id,
+                            settle_after_hours,
+                            last_activity = ?latest_at,
+                            "Auto-settled idle task"
+                        );
+                        stats.settled += 1;
+                    }
+                    Ok(false) => {}
+                    Err(e) => warn!(task_id = %task_id, error = %e, "auto-settle failed"),
+                }
             }
 
             // A task running inside a pod still holds its volume, so the cold
@@ -801,9 +867,10 @@ fn agent_holds_the_sandbox(status: &str) -> bool {
 }
 
 fn log_reaper_stats(stats: ReaperStats) {
-    if stats.stopped > 0 || stats.closed > 0 || stats.reclaimed > 0 {
+    if stats.stopped > 0 || stats.settled > 0 || stats.closed > 0 || stats.reclaimed > 0 {
         info!(
             stopped_count = stats.stopped,
+            settled_count = stats.settled,
             closed_count = stats.closed,
             reclaimed_count = stats.reclaimed,
             "Task reaper cycle complete"
@@ -1339,172 +1406,6 @@ fn reconcile_error_event(turn: &UnclosedTurn) -> AgentEvent {
     }
 }
 
-/// Outcome of evaluating a sandbox for the idle-stop branch.
-#[derive(Debug, PartialEq, Eq)]
-enum ReapDecision {
-    /// Sandbox is idle past its TTL — stop it.
-    Stop,
-    /// Sandbox is still within its TTL — leave it running.
-    Keep,
-    /// Cannot decide (no activity timestamp, or TTL disabled). Reason is for
-    /// logs.
-    Skip(&'static str),
-}
-
-/// Whether an `agent` lifecycle `sub_type` marks the agent's run as ended.
-///
-/// The DAO query restricts to four sub-types, so anything not terminal here is
-/// `started` (a running agent).
-fn is_terminal_agent_sub_type(sub_type: &str) -> bool {
-    matches!(sub_type, "completed" | "stopped" | "error")
-}
-
-/// Compute the idle-stop floor for a sandbox task, folding the latest agent
-/// run-state into the raw activity floor.
-///
-/// A running agent floors to `now` (never reaped); a stopped agent floors to
-/// `max(activity_floor, stop_time)` so the TTL counts from when it stopped, not
-/// the last message; no agent event leaves `activity_floor` unchanged.
-fn compute_reap_floor(
-    agent_event: Option<&(String, DateTime<Utc>)>,
-    activity_floor: Option<DateTime<Utc>>,
-    now: DateTime<Utc>,
-) -> Option<DateTime<Utc>> {
-    match agent_event {
-        Some((sub_type, _)) if !is_terminal_agent_sub_type(sub_type) => Some(now),
-        Some((_, stopped_at)) => Some(match activity_floor {
-            Some(existing) if existing > *stopped_at => existing,
-            _ => *stopped_at,
-        }),
-        None => activity_floor,
-    }
-}
-
-/// The idle-stop floor for a whole Sandbox: the newest [`compute_reap_floor`]
-/// across its Members.
-///
-/// A running Member contributes `now`, keeping the pod alive for every other
-/// Member on it.
-fn fold_reap_floor(
-    members: &[String],
-    agent_lifecycle: &HashMap<String, (String, DateTime<Utc>)>,
-    latest_times: &HashMap<String, DateTime<Utc>>,
-    now: DateTime<Utc>,
-) -> Option<DateTime<Utc>> {
-    members
-        .iter()
-        .filter_map(|member| {
-            compute_reap_floor(
-                agent_lifecycle.get(member),
-                latest_times.get(member).copied(),
-                now,
-            )
-        })
-        .max()
-}
-
-/// The newest activity timestamp across a Sandbox's Members. Reported on the
-/// stop, and never a decision input.
-fn fold_latest_activity(
-    members: &[String],
-    latest_times: &HashMap<String, DateTime<Utc>>,
-) -> Option<DateTime<Utc>> {
-    members
-        .iter()
-        .filter_map(|member| latest_times.get(member).copied())
-        .max()
-}
-
-/// The idle TTL for a whole Sandbox: the largest across its Members, and `0`
-/// when any Member is pinned.
-///
-/// `decide_reap` reads `0` as indefinite, so a pinned Member pins the pod it
-/// shares — matching the teardown guard in `run_remove`.
-fn fold_ttl_minutes(
-    members: &[String],
-    ttl_map: &HashMap<String, i32>,
-    default_ttl_minutes: i32,
-) -> i32 {
-    let mut folded = 0;
-    for member in members {
-        let ttl = ttl_map
-            .get(member)
-            .copied()
-            .unwrap_or(default_ttl_minutes)
-            .max(0);
-        if ttl == 0 {
-            return 0;
-        }
-        folded = folded.max(ttl);
-    }
-    folded
-}
-
-/// Pure decision function: decide whether to reap a single sandbox.
-///
-/// `ttl_minutes == 0` means pinned indefinitely — never reap; a missing
-/// `latest_at` (no message, sandbox-start, or creation timestamp) skips rather
-/// than risking a brand-new sandbox.
-fn decide_reap(
-    ttl_minutes: i32,
-    latest_at: Option<DateTime<Utc>>,
-    now: DateTime<Utc>,
-) -> ReapDecision {
-    if ttl_minutes <= 0 {
-        return ReapDecision::Skip("ttl_minutes is 0 (indefinite)");
-    }
-    let Some(latest_at) = latest_at else {
-        return ReapDecision::Skip("no activity timestamp");
-    };
-    let cutoff = now - chrono::Duration::minutes(ttl_minutes as i64);
-    if latest_at < cutoff {
-        ReapDecision::Stop
-    } else {
-        ReapDecision::Keep
-    }
-}
-
-/// Outcome of evaluating an Open task for the auto-close branch.
-#[derive(Debug, PartialEq, Eq)]
-enum CloseDecision {
-    /// Task has been inactive past its TTL — close it.
-    Close,
-    /// Task is still within its TTL — leave it open.
-    Keep,
-    /// Cannot decide (no activity timestamp, or TTL disabled).
-    Skip(&'static str),
-}
-
-/// Pure decision function: decide whether to auto-close a single Open task.
-fn decide_close(
-    inactive_ttl_days: i32,
-    latest_at: Option<DateTime<Utc>>,
-    now: DateTime<Utc>,
-) -> CloseDecision {
-    if inactive_ttl_days <= 0 {
-        return CloseDecision::Skip("inactive_ttl_days is 0 (indefinite)");
-    }
-    let Some(latest_at) = latest_at else {
-        return CloseDecision::Skip("no activity timestamp");
-    };
-    let cutoff = now - chrono::Duration::days(inactive_ttl_days as i64);
-    if latest_at < cutoff {
-        CloseDecision::Close
-    } else {
-        CloseDecision::Keep
-    }
-}
-
-/// Whether a stopped sandbox has been stopped long enough to reclaim its
-/// storage.
-///
-/// `cold_after_hours <= 0` disables the branch (`0` means indefinite, like
-/// the other TTLs); `stopped_at` also anchors the pre-stop archive push, so
-/// it drives both this clock and the freshness proof downstream.
-fn decide_cold(cold_after_hours: i32, stopped_at: DateTime<Utc>, now: DateTime<Utc>) -> bool {
-    cold_after_hours > 0 && now - stopped_at >= chrono::Duration::hours(i64::from(cold_after_hours))
-}
-
 impl TaskReaper {
     /// Mirror of [`moatless_tasks::task::handlers::close_task`] for unattended
     /// use; every step logs on failure but never propagates, so the reaper
@@ -1572,7 +1473,7 @@ impl TaskReaper {
                 )
                 .await;
         }
-        info!(task_id, "Task auto-closed (inactive past TTL)");
+        info!(task_id, "Task auto-closed (settled past TTL)");
     }
 }
 

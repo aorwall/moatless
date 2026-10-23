@@ -8,12 +8,12 @@
 
 export interface UpdateTaskTtlRequest {
   /**
-     * New inactivity TTL in days. Must be `>= 0`. `0` disables auto-close for
-     * this task (it stays Open until closed explicitly). Omit to leave the
-     * current inactivity TTL unchanged.
+     * New days from settling to auto-closing. Must be `>= 0`. `0` disables
+     * auto-close for this task (it stays Open until closed explicitly). Omit
+     * to leave the current value unchanged.
      * @nullable
      */
-  inactiveTtlDays?: number | null;
+  closeAfterSettledDays?: number | null;
   /**
      * New idle TTL in minutes. Must be `>= 0`. `0` disables the idle reaper
      * for this task (sandbox stays alive until explicitly stopped). Omit to

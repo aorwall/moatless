@@ -12,16 +12,16 @@ export interface UpdateLoopConfig {
   /** @nullable */
   agentProfile?: string | null;
   /**
+     * See [`LoopConfig::close_after_settled_days`]. `Some(None)` clears the override.
+     * @nullable
+     */
+  closeAfterSettledDays?: number | null;
+  /**
      * See [`LoopConfig::fallback_to_other_agent`]. `None` keeps the current
      * value.
      * @nullable
      */
   fallbackToOtherAgent?: boolean | null;
-  /**
-     * See [`LoopConfig::inactive_ttl_days`]. `Some(None)` clears the override.
-     * @nullable
-     */
-  inactiveTtlDays?: number | null;
   /**
      * See [`LoopConfig::message_buffer_seconds`]. `Some(None)` clears the
      * override.
@@ -49,6 +49,11 @@ export interface UpdateLoopConfig {
      */
   prompt?: string | null;
   routingMode?: null | RoutingMode;
+  /**
+     * See [`LoopConfig::settle_after_hours`]. `Some(None)` clears the override.
+     * @nullable
+     */
+  settleAfterHours?: number | null;
   /** @nullable */
   skills?: string[] | null;
   /**

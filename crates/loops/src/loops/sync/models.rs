@@ -91,10 +91,14 @@ pub struct LoopFrontmatter {
     /// because Git configuration cannot approve Loop execution.
     #[serde(default)]
     pub active: Option<bool>,
-    /// Per-loop task inactivity TTL in days (`loop_configs.inactive_ttl_days`).
-    /// `None` inherits the platform default (`TASK_INACTIVE_TIMEOUT_DAYS`).
+    /// Days from settling to auto-closing (`loop_configs.close_after_settled_days`).
+    /// `None` inherits the platform default (`TASK_CLOSE_AFTER_SETTLED_DAYS`).
+    #[serde(default, alias = "inactiveTtlDays")]
+    pub close_after_settled_days: Option<i32>,
+    /// Idle hours before auto-settling (`loop_configs.settle_after_hours`).
+    /// `None` uses the Loop default of 1.
     #[serde(default)]
-    pub inactive_ttl_days: Option<i32>,
+    pub settle_after_hours: Option<i32>,
     /// Stop the loop's sandbox as soon as the agent run finishes, rather than
     /// holding the pod for the idle TTL
     /// ([`moatless_types::loops::LoopContext::stop_when_done`]).

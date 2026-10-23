@@ -26,7 +26,8 @@ pub struct LoopSpawnConfig {
     /// Per-Loop model override. See
     /// [`moatless_types::loops::LoopContext::model`].
     pub model: Option<String>,
-    pub inactive_ttl_days: Option<i32>,
+    pub close_after_settled_days: Option<i32>,
+    pub settle_after_hours: Option<i32>,
     /// See [`moatless_types::loops::LoopContext::node_selector`].
     pub node_selector: Option<std::collections::BTreeMap<String, String>>,
     /// See [`moatless_types::loops::LoopContext::stop_when_done`].
@@ -108,7 +109,8 @@ pub(crate) struct LoopConfigRow {
     pub run_as_user_id: Option<String>,
     pub agent_profile: AgentProfile,
     pub model: Option<String>,
-    pub inactive_ttl_days: Option<i32>,
+    pub close_after_settled_days: Option<i32>,
+    pub settle_after_hours: Option<i32>,
     /// See [`moatless_types::loops::LoopContext::node_selector`].
     pub node_selector: Option<std::collections::BTreeMap<String, String>>,
     /// See [`moatless_types::loops::LoopContext::stop_when_done`].
@@ -195,7 +197,8 @@ pub struct NewLoopConfig {
     pub run_as_user_id: Option<String>,
     pub agent_profile: AgentProfile,
     pub model: Option<String>,
-    pub inactive_ttl_days: Option<i32>,
+    pub close_after_settled_days: Option<i32>,
+    pub settle_after_hours: Option<i32>,
     /// See [`moatless_types::loops::LoopContext::node_selector`].
     pub node_selector: Option<std::collections::BTreeMap<String, String>>,
     /// See [`moatless_types::loops::LoopContext::stop_when_done`].
@@ -280,7 +283,8 @@ pub struct ManagedLoopUpsert {
     pub memory_preload: Vec<String>,
     pub agent_profile: AgentProfile,
     pub model: Option<String>,
-    pub inactive_ttl_days: Option<i32>,
+    pub close_after_settled_days: Option<i32>,
+    pub settle_after_hours: Option<i32>,
     /// See [`moatless_types::loops::LoopContext::stop_when_done`]. Unlike
     /// `node_selector`, this one is declarable in `LOOP.md`: it only shortens a
     /// sandbox's life, so commit access buys no capacity.

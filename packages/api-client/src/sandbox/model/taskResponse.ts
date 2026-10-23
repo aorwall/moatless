@@ -25,6 +25,11 @@ export interface TaskResponse {
   /** @nullable */
   branch?: string | null;
   checkoutMode?: null | CheckoutMode;
+  /**
+     * Days the reaper waits after the task is settled before closing it.
+     * `0` means "never auto-close".
+     */
+  closeAfterSettledDays: number;
   createdAt: string;
   /** @nullable */
   createdBy?: string | null;
@@ -33,11 +38,6 @@ export interface TaskResponse {
   /** @nullable */
   description?: string | null;
   forkedFrom?: null | ForkOrigin;
-  /**
-     * Inactive TTL in days. The reaper auto-closes the task when no activity
-     * has occurred for this many days. `0` means "never auto-close".
-     */
-  inactiveTtlDays: number;
   /**
      * Whether the requesting user follows this task. Followed tasks appear in
      * the user's personal task list. `None` when the response was built
@@ -93,6 +93,12 @@ export interface TaskResponse {
   sandboxStartedAt?: string | null;
   sandboxStopReason?: null | SandboxStopReason;
   scope: Scope;
+  /**
+     * Idle hours after which the reaper settles the task. `None` follows
+     * the deployment default (`TASK_SETTLE_AFTER_HOURS`); `0` never settles.
+     * @nullable
+     */
+  settleAfterHours?: number | null;
   /** @nullable */
   shortId?: string | null;
   /** @nullable */

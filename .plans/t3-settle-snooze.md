@@ -48,7 +48,7 @@ The consequence: once `threadSettlement` is true, **every Task quietly leaves a 
 
 **`TaskMessage` carries no sender identity** (`message/models.rs:35`). The insert transaction in `message/dao.rs` cannot scope a write by `user_id`. Anything per-sender must happen in `message/service.rs`, which holds `Sender { user_id, scope, is_agent_context }` (`message/service.rs:51`).
 
-**A closed Task leaves the listing entirely.** The CTE filters `t.status = '{open}'` (`crates/t3code/src/dao.rs:328`), and the inactive reaper closes Tasks on `inactive_ttl_days` with no per-user input (`task/reaper.rs:400`), default 7 days (`task/models.rs:23`). A snooze does not protect a Task from that.
+**A closed Task leaves the listing entirely.** The CTE filters `t.status = '{open}'` (`crates/t3code/src/dao.rs:328`), and the reaper closes a Task `close_after_settled_days` after it is settled (`crates/server/src/reaper.rs`), default 7 days. Auto-settle (`settle_after_hours`) skips a follower who pinned or unsettled it, but a snooze does not protect a Task.
 
 **Moatless already stores per-user view state at this exact grain.** `task_read_receipts` is `PRIMARY KEY ("user_id", "task_id")` (`migrations/0067_task_read_receipts.sql:5`) with a monotonic upsert (`task/dao.rs:729`). It is the precedent for a per-person column set, and it is deliberately not where these four columns go — see the Data model.
 

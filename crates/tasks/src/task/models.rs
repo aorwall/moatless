@@ -20,10 +20,15 @@ pub use moatless_types::task::{CheckoutMode, Task, TaskStatus, Visibility};
 /// `tasks.ttl_minutes` column default.
 pub const DEFAULT_TTL_MINUTES: i32 = 15;
 
-/// Default inactive TTL in days when the caller has no platform config access
-/// (e.g. adapter runtimes). Matches `TASK_INACTIVE_TIMEOUT_DAYS` and the
-/// `tasks.inactive_ttl_days` column default.
-pub const DEFAULT_INACTIVE_TTL_DAYS: i32 = 7;
+/// Default days from settling to closing, for callers without platform config.
+///
+/// Matches `TASK_CLOSE_AFTER_SETTLED_DAYS` and the
+/// `tasks.close_after_settled_days` column default.
+pub const DEFAULT_CLOSE_AFTER_SETTLED_DAYS: i32 = 7;
+
+/// Idle hours after which the reaper settles a task a Loop spawned, when the
+/// Loop names no `settle_after_hours` of its own.
+pub const DEFAULT_LOOP_SETTLE_AFTER_HOURS: i32 = 1;
 
 // =============================================================================
 // Task (DB)
@@ -80,9 +85,12 @@ pub struct TaskRow {
     /// Idle TTL in minutes. The reaper stops the sandbox when no activity has
     /// occurred for this many minutes. `0` means "indefinite — never reap".
     pub ttl_minutes: i32,
-    /// Inactive TTL in days. The reaper auto-closes the task when no activity
-    /// has occurred for this many days. `0` means "indefinite — never close".
-    pub inactive_ttl_days: i32,
+    /// Days the reaper waits after the task is settled before closing it.
+    /// `0` means "indefinite — never close".
+    pub close_after_settled_days: i32,
+    /// Idle hours after which the reaper settles the task. `None` follows the
+    /// deployment default (`TASK_SETTLE_AFTER_HOURS`); `0` never settles.
+    pub settle_after_hours: Option<i32>,
     /// Loop that spawned this task (subscription + schedule). Independent from
     /// any communication binding — schedule loops never create a binding.
     pub loop_id: Option<String>,
@@ -130,7 +138,8 @@ impl TryFrom<TaskRow> for Task {
             append_system_prompt: row.append_system_prompt,
             headless: row.headless,
             ttl_minutes: row.ttl_minutes,
-            inactive_ttl_days: row.inactive_ttl_days,
+            close_after_settled_days: row.close_after_settled_days,
+            settle_after_hours: row.settle_after_hours,
             loop_id: row.loop_id,
             skills: row.skills,
             memory_preload: row.memory_preload,
@@ -232,7 +241,7 @@ pub struct TaskPatch {
     pub model: Option<String>,
     pub append_system_prompt: Option<Option<String>>,
     pub ttl_minutes: Option<i32>,
-    pub inactive_ttl_days: Option<i32>,
+    pub close_after_settled_days: Option<i32>,
 }
 
 impl TaskPatch {
@@ -245,7 +254,7 @@ impl TaskPatch {
             || self.description.is_some()
             || self.visibility.is_some()
             || self.ttl_minutes.is_some()
-            || self.inactive_ttl_days.is_some()
+            || self.close_after_settled_days.is_some()
     }
 }
 

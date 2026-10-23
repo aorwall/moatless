@@ -116,7 +116,8 @@ async fn seed_bound_thread(state: &AppState, pool: &PgPool, window: i32) {
             run_as_user_id: Some(USER_1.to_string()),
             agent_profile: moatless_types::agent::AgentProfile::ClaudeCode,
             model: None,
-            inactive_ttl_days: None,
+            close_after_settled_days: None,
+            settle_after_hours: None,
             node_selector: None,
             stop_when_done: None,
             // The whole subject of this file. Slack buffers for nothing by

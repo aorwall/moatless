@@ -11,13 +11,13 @@ import type { RoutingMode } from './routingMode';
 export interface CreateLoopConfig {
   /** @nullable */
   agentProfile?: string | null;
+  /** @nullable */
+  closeAfterSettledDays?: number | null;
   /**
      * See [`LoopConfig::fallback_to_other_agent`]. `None` is on.
      * @nullable
      */
   fallbackToOtherAgent?: boolean | null;
-  /** @nullable */
-  inactiveTtlDays?: number | null;
   /**
      * See [`LoopConfig::message_buffer_seconds`].
      * @nullable
@@ -40,6 +40,11 @@ export interface CreateLoopConfig {
   routingMode: RoutingMode;
   /** @nullable */
   runAsUserId?: string | null;
+  /**
+     * See [`LoopConfig::settle_after_hours`].
+     * @nullable
+     */
+  settleAfterHours?: number | null;
   /** @nullable */
   skills?: string[] | null;
   /**

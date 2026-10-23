@@ -285,7 +285,8 @@ impl Loops {
                     run_as_user_id,
                     agent_profile,
                     model: req.config.model.clone(),
-                    inactive_ttl_days: req.config.inactive_ttl_days,
+                    close_after_settled_days: req.config.close_after_settled_days,
+                    settle_after_hours: req.config.settle_after_hours,
                     node_selector: req.config.node_selector.clone(),
                     stop_when_done: req.config.stop_when_done,
                     message_buffer_seconds: req.config.message_buffer_seconds,
@@ -633,9 +634,12 @@ fn next_config(
         run_as_user_id: current.config.run_as_user_id.clone(),
         agent_profile,
         model,
-        inactive_ttl_days: rule
-            .inactive_ttl_days
-            .unwrap_or(current.config.inactive_ttl_days),
+        close_after_settled_days: rule
+            .close_after_settled_days
+            .unwrap_or(current.config.close_after_settled_days),
+        settle_after_hours: rule
+            .settle_after_hours
+            .unwrap_or(current.config.settle_after_hours),
         node_selector: rule
             .node_selector
             .unwrap_or_else(|| current.config.node_selector.clone()),
@@ -714,7 +718,8 @@ mod tests {
                 run_as_user_id: Some("runner".into()),
                 agent_profile: agent_profile.parse().expect("a catalog agent_profile"),
                 model: model.map(ToString::to_string),
-                inactive_ttl_days: None,
+                close_after_settled_days: None,
+                settle_after_hours: None,
                 node_selector: None,
                 stop_when_done: None,
                 message_buffer_seconds: None,

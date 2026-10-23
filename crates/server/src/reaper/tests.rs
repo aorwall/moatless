@@ -2,6 +2,7 @@
 //! what it stops, closes and reclaims, and which turn it reconciles.
 
 use super::*;
+use crate::reaper_decisions::{compute_reap_floor, is_terminal_agent_sub_type};
 
 /// The reconcile event's shape. The id must be deterministic per `(task, turn)`
 /// so a cycle that repeats while the terminal event is still missing upserts
@@ -334,13 +335,13 @@ fn pinned_12h_stops_after_13h_idle() {
 // =========================================================================
 
 #[test]
-fn close_zero_inactive_ttl_is_indefinite() {
+fn close_zero_ttl_is_indefinite() {
     let now = Utc::now();
     let very_old = now - chrono::Duration::days(30);
     let decision = decide_close(0, Some(very_old), now);
     assert_eq!(
         decision,
-        CloseDecision::Skip("inactive_ttl_days is 0 (indefinite)")
+        CloseDecision::Skip("close_after_settled_days is 0 (indefinite)")
     );
 }
 
@@ -356,6 +357,54 @@ fn close_within_ttl_keeps() {
     let now = Utc::now();
     let decision = decide_close(7, Some(now - chrono::Duration::days(1)), now);
     assert_eq!(decision, CloseDecision::Keep);
+}
+
+#[test]
+fn close_never_closes_an_unsettled_task() {
+    let now = Utc::now();
+    assert_eq!(
+        decide_close(7, None, now),
+        CloseDecision::Skip("not settled")
+    );
+}
+
+// =========================================================================
+// decide_settle
+// =========================================================================
+
+#[test]
+fn settle_zero_hours_never_settles() {
+    let now = Utc::now();
+    assert!(!decide_settle(
+        0,
+        Some(now - chrono::Duration::days(30)),
+        now
+    ));
+}
+
+#[test]
+fn settle_beyond_the_clock_settles() {
+    let now = Utc::now();
+    assert!(decide_settle(
+        1,
+        Some(now - chrono::Duration::minutes(61)),
+        now
+    ));
+}
+
+#[test]
+fn settle_within_the_clock_waits() {
+    let now = Utc::now();
+    assert!(!decide_settle(
+        1,
+        Some(now - chrono::Duration::minutes(59)),
+        now
+    ));
+}
+
+#[test]
+fn settle_without_activity_waits() {
+    assert!(!decide_settle(1, None, Utc::now()));
 }
 
 // =========================================================================

@@ -145,10 +145,14 @@ pub enum LoopsAction {
         /// the agent profile.
         #[arg(long)]
         clear_model: bool,
-        #[arg(long, value_name = "DAYS")]
-        inactive_ttl_days: Option<i32>,
+        #[arg(long, value_name = "DAYS", alias = "inactive-ttl-days")]
+        close_after_settled_days: Option<i32>,
+        #[arg(long, alias = "clear-inactive-ttl-days")]
+        clear_close_after_settled_days: bool,
+        #[arg(long, value_name = "HOURS")]
+        settle_after_hours: Option<i32>,
         #[arg(long)]
-        clear_inactive_ttl_days: bool,
+        clear_settle_after_hours: bool,
         /// Extra node labels for this loop's sandbox pods, as a JSON object,
         /// e.g. `{"workload":"moatless-od"}`.
         #[arg(long, value_name = "JSON")]
@@ -279,11 +283,15 @@ pub struct CreateConfigArgs {
     /// session. Repeat for several.
     #[arg(long = "skill")]
     skills: Vec<String>,
-    /// Per-loop inactivity TTL in days. Tasks spawned by this loop auto-close
-    /// after this many days of inactivity (0 = never close). Omit to inherit
-    /// the platform-wide default (`TASK_INACTIVE_TIMEOUT_DAYS`).
+    /// Tasks spawned by this loop auto-close this many days after they are
+    /// settled (0 = never close). Omit to inherit the platform-wide default
+    /// (`TASK_CLOSE_AFTER_SETTLED_DAYS`).
+    #[arg(long, alias = "inactive-ttl-days")]
+    close_after_settled_days: Option<i32>,
+    /// Tasks spawned by this loop are settled after this many idle hours
+    /// (0 = never settle). Omit for the loop default of 1.
     #[arg(long)]
-    inactive_ttl_days: Option<i32>,
+    settle_after_hours: Option<i32>,
     /// Extra node labels for this loop's sandbox pods, as a JSON object, e.g.
     /// `{"workload":"moatless-od"}`. Outranks the workspace's own value.
     #[arg(long, value_name = "JSON")]
@@ -404,8 +412,10 @@ pub async fn run_loops(
             agent_profile,
             model,
             clear_model,
-            inactive_ttl_days,
-            clear_inactive_ttl_days,
+            close_after_settled_days,
+            clear_close_after_settled_days,
+            settle_after_hours,
+            clear_settle_after_hours,
             node_selector,
             clear_node_selector,
             stop_when_done,
@@ -461,8 +471,10 @@ pub async fn run_loops(
                 agent_profile,
                 model,
                 clear_model,
-                inactive_ttl_days,
-                clear_inactive_ttl_days,
+                close_after_settled_days,
+                clear_close_after_settled_days,
+                settle_after_hours,
+                clear_settle_after_hours,
                 node_selector,
                 clear_node_selector,
                 stop_when_done,
@@ -562,7 +574,8 @@ fn create_config(args: CreateConfigArgs) -> Result<CreateLoopConfig, ClientError
         run_as_user_id: args.run_as_user_id,
         agent_profile: Some(args.agent_profile),
         model: args.model,
-        inactive_ttl_days: args.inactive_ttl_days,
+        close_after_settled_days: args.close_after_settled_days,
+        settle_after_hours: args.settle_after_hours,
         node_selector: parse_node_selector(args.node_selector.as_deref())?,
         stop_when_done: args.stop_when_done,
         message_buffer_seconds: args.message_buffer_seconds,
@@ -589,8 +602,10 @@ fn update_config(
     agent_profile: Option<String>,
     model: Option<String>,
     clear_model: bool,
-    inactive_ttl_days: Option<i32>,
-    clear_inactive_ttl_days: bool,
+    close_after_settled_days: Option<i32>,
+    clear_close_after_settled_days: bool,
+    settle_after_hours: Option<i32>,
+    clear_settle_after_hours: bool,
     node_selector: Option<String>,
     clear_node_selector: bool,
     stop_when_done: Option<bool>,
@@ -610,10 +625,15 @@ fn update_config(
         skills,
         agent_profile,
         model: fold_clearable(model, clear_model, "model")?,
-        inactive_ttl_days: fold_clearable(
-            inactive_ttl_days,
-            clear_inactive_ttl_days,
-            "inactive-ttl-days",
+        close_after_settled_days: fold_clearable(
+            close_after_settled_days,
+            clear_close_after_settled_days,
+            "close-after-settled-days",
+        )?,
+        settle_after_hours: fold_clearable(
+            settle_after_hours,
+            clear_settle_after_hours,
+            "settle-after-hours",
         )?,
         node_selector: fold_clearable(
             parse_node_selector(node_selector.as_deref())?,
@@ -637,7 +657,8 @@ fn update_config(
         && config.skills.is_none()
         && config.agent_profile.is_none()
         && config.model.is_none()
-        && config.inactive_ttl_days.is_none()
+        && config.close_after_settled_days.is_none()
+        && config.settle_after_hours.is_none()
         && config.node_selector.is_none()
         && config.stop_when_done.is_none()
         && config.message_buffer_seconds.is_none()
@@ -1112,6 +1133,8 @@ mod tests {
             None,
             model.map(ToString::to_string),
             clear,
+            None,
+            false,
             None,
             false,
             None,
