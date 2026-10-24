@@ -55,7 +55,6 @@
   .fix .cluster { background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--radius, 10px); padding: 16px 18px 16px 8px; }
   .close .cluster, .later .cluster { border-top: 1px solid var(--rule); grid-template-columns: minmax(0, 1fr); }
   .close .cluster .body, .later .cluster .body { grid-column: 1; }
-  .why { font-weight: 600; }
 
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .chip { font: 500 0.78rem/1.6 var(--font-data); padding: 0 8px; border-radius: 999px; border: 1px solid var(--rule); color: var(--ink-2); }
@@ -68,6 +67,14 @@
   .pips { display: inline-flex; gap: 2px; }
   .pip { width: 8px; height: 8px; border-radius: 2px; border: 1px solid var(--signal); }
   .pip.on { background: var(--signal); }
+  details.reasons > summary { cursor: pointer; list-style: none; }
+  details.reasons > summary::-webkit-details-marker { display: none; }
+  details.reasons .more { color: var(--signal); font-size: 0.82rem; text-decoration: underline; text-underline-offset: 2px; }
+  details.reasons[open] .more { text-decoration: none; }
+  details.reasons dl { margin-top: 8px; padding: 10px 12px; border-left: 2px solid var(--signal); background: var(--signal-wash); border-radius: 0 6px 6px 0; }
+  details.reasons dt { text-transform: capitalize; }
+  .change { display: grid; gap: 2px; padding: 8px 12px; border: 1px solid var(--rule); border-radius: 8px; }
+  .change p { font-weight: 500; }
 
   dl { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: 6px 16px; margin: 0; font-size: 0.93rem; }
   dt { color: var(--ink-2); }
@@ -91,6 +98,18 @@
   button:disabled { opacity: 0.5; cursor: not-allowed; }
   button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
   .status { font-size: 0.86rem; color: var(--ink-2); }
+  .sendbar { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; padding: 12px 16px; background: var(--sheet); border: 1px solid var(--signal); border-radius: var(--radius, 10px); box-shadow: 0 -6px 18px light-dark(rgb(0 0 0 / 0.08), rgb(0 0 0 / 0.4)); }
+  .sendbar[hidden] { display: none; }
+  .sendbar p { margin: 0; font-size: 0.93rem; }
+  .sendbar button { border-color: var(--signal); background: var(--signal); color: var(--sheet); }
+  .sent { display: grid; gap: 10px; }
+  .sent article { border-top: 1px solid var(--rule); padding-top: 10px; font-size: 0.93rem; }
+  .sent ul { margin: 4px 0 0; padding-left: 18px; }
+  .sent .acted { color: var(--done); }
+  .pending { color: var(--signal); }
+  .outcome { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; font-size: 0.93rem; }
+  .chip.state.on { color: var(--signal); border-color: currentColor; }
+  .chip.state.done { color: var(--done); border-color: currentColor; background: var(--done-wash); }
   .decisions { margin: 0; padding-left: 18px; font-size: 0.86rem; color: var(--ink-2); }
 
   details.later > summary.fold { cursor: pointer; font-size: 1.35rem; font-weight: 600; }
@@ -116,18 +135,30 @@
     <p class="muted">
       Each cluster groups recent feedback that shares one root cause, and names the repository
       that owns its fix. If the owner is wrong, say so in your note. Only a decision from a
-      Moatless admin counts. For now nothing acts on a decision, so no task is created and no
-      feedback is closed.
+      Moatless admin counts. A decision saves when you click it, and the agent acts on
+      it when someone presses Notify the agent, or at the next scheduled run. Approving a
+      cluster to fix creates one fix task in the owning repository, and its items close
+      when that PR merges. Approving one under "Close these" closes its items; rejecting
+      closes them as not relevant.
     </p>
   </header>
   <div class="tally" id="tally"></div>
   <div id="clusters" style="display: grid; gap: 36px;"></div>
+  <section class="section" id="sent-section" hidden>
+    <header><span class="eyebrow">Notifications</span><h3>Sent to the agent</h3></header>
+    <div class="sent" id="sent"></div>
+  </section>
+  <div class="sendbar" id="sendbar" hidden>
+    <p id="pending-text"></p>
+    <span class="status" id="send-status" role="status"></span>
+    <button type="button" id="send">Notify the agent</button>
+  </div>
 </main>
 <script>
   const api = window.moatless && window.moatless.artifact;
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-  const state = { clusters: new Map(), decisions: new Map(), meta: null };
+  const state = { clusters: new Map(), decisions: new Map(), notices: new Map(), meta: null, people: {}, admins: null };
   // Cluster text marks commands and paths with backticks.
   const prose = (s) => esc(s).replace(/`([^`]+)`/g, "<code>$1</code>");
   const day = (iso) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
@@ -140,9 +171,80 @@
     return [...state.decisions.values()].filter((r) => r.key.startsWith(`decisions/${slug}/`));
   }
 
+  const AXES = { impact: 5, ease: 3 };
+
+  // `reasons` is optional, so a page published before the skill wrote it still renders the bare meter.
   function meter(p) {
-    const axis = (name, n) => `<span class="axis">${name}<span class="pips" aria-label="${name} ${n} of 3">${[1, 2, 3].map((i) => `<span class="pip${i <= n ? " on" : ""}"></span>`).join("")}</span></span>`;
-    return `<div class="meter"><span class="score tnum">${esc(p.score)}/15</span>${axis("impact", p.impact)}${axis("reach", p.reach)}${axis("urgency", p.urgency)}${axis("ease", p.ease)}</div>`;
+    const axis = (name, n) => `<span class="axis">${name}<span class="pips" aria-label="${name} ${n} of ${AXES[name]}">${Array.from({ length: AXES[name] }, (_, i) => `<span class="pip${i < n ? " on" : ""}"></span>`).join("")}</span></span>`;
+    const names = Object.keys(AXES);
+    const bar = `<span class="score tnum">${esc(p.score)}/8</span>${names.map((a) => axis(a, p[a])).join("")}`;
+    const r = p.reasons || {};
+    if (!names.some((a) => r[a])) return `<div class="meter">${bar}</div>`;
+    const rows = names.map((a) => `<dt>${a} <span class="tnum">${esc(p[a])}/${AXES[a]}</span></dt><dd>${prose(r[a] || "")}</dd>`).join("");
+    return `<details class="reasons"><summary class="meter">${bar}<span class="more">Why these scores</span></summary><dl>${rows}</dl></details>`;
+  }
+
+  // `meta/people` maps user ids to logins; the run writes it when it reads the decisions.
+  const who = (id) => state.people[id] ?? (api && id === api.viewerId ? "you" : `user ${String(id).slice(0, 8)}`);
+
+  function outcome(c) {
+    const d = c.decision;
+    const by = d && d.login ? ` by ${esc(d.login)}` : "";
+    const pr = c.pr ? ` <a href="${esc(c.pr)}">${esc(c.pr.replace(/^https:\/\/github.com\/soaplabs\//, ""))}</a>` : "";
+    const lines = {
+      "in-progress": () => `<span class="chip state on">In progress</span> Approved${by}. <a href="/tasks/${esc(c.childTaskId)}">The fix task</a> is working on it.${pr ? ` PR:${pr}` : ""}`,
+      fixed: () => `<span class="chip state done">Fixed</span> ${pr ? `Merged${pr}, items closed.` : `Approved${by}, items closed as fixed.`}`,
+      closed: () => `<span class="chip state done">Closed</span> Closed as not relevant${by}.`,
+      rejected: () => `<span class="chip state done">Rejected</span> Rejected${by}; items closed as not relevant.`,
+      deferred: () => `<span class="chip state">Deferred</span> Deferred${by} until ${esc(c.deferUntil)}.`,
+    };
+    const line = lines[c.status] ? lines[c.status]() : "";
+    const extra = [c.followUp ? `Needs a new decision: ${esc(c.followUp)}.` : "", c.recurred ? "Reported again after it was closed." : ""].filter(Boolean).join(" ");
+    return line || extra ? `<p class="outcome">${line}${line && extra ? " " : ""}${extra}</p>` : "";
+  }
+
+  // A decision counts as sent when a `notify/` record carries its key at this `updatedAt`: a later edit needs a new notify.
+  const stamp = (r) => `${r.key}@${r.updatedAt}`;
+  const slugOf = (key) => key.split("/")[1];
+  const sentKeys = () => new Set([...state.notices.values()].flatMap((n) => (n.data.decisions || []).map((d) => `${d.key}@${d.updatedAt}`)));
+  // Matches step 2's skip check: a run has handled a decision it stored as `decision` or in `laterDecisions`.
+  const handled = (c, key, updatedAt) => !!c && [c.decision, ...(c.laterDecisions || [])].some((d) => d && d.key === key && d.updatedAt === updatedAt);
+  const actedOn = (r) => handled(state.clusters.get(slugOf(r.key)), r.key, r.updatedAt);
+  // `meta/admins` is null until a run saves it; until then every reader's decision can be pending.
+  const counts = (r) => !state.admins || state.admins.includes(r.submittedBy);
+  // Pending: a cluster's newest counting decision, neither sent nor handled. An older or non-admin one never clears.
+  const pending = () => {
+    const sent = sentKeys();
+    const newest = new Map();
+    for (const r of state.decisions.values()) {
+      if (!counts(r)) continue;
+      const slug = slugOf(r.key);
+      if (!newest.has(slug) || String(r.updatedAt) > String(newest.get(slug).updatedAt)) newest.set(slug, r);
+    }
+    return [...newest.values()].filter((r) => !sent.has(stamp(r)) && !actedOn(r));
+  };
+  const titleOf = (slug) => state.clusters.get(slug)?.title ?? slug;
+
+  function renderSent() {
+    const list = [...state.notices.values()].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+    $("sent-section").hidden = !list.length;
+    $("sent").innerHTML = list.map((n) => {
+      const items = (n.data.decisions || []).map((d) => {
+        const c = state.clusters.get(slugOf(d.key));
+        const acted = handled(c, d.key, d.updatedAt);
+        return `<li>${esc(d.decision)} <b>${prose(titleOf(slugOf(d.key)))}</b> by ${esc(who(d.by))}${acted ? ` <span class="acted">· acted on</span>` : ""}</li>`;
+      }).join("");
+      const at = new Date(n.updatedAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+      return `<article><span class="tnum">${esc(at)}</span>, ${esc(who(n.submittedBy))} sent ${esc((n.data.decisions || []).length)} decision${(n.data.decisions || []).length === 1 ? "" : "s"}<ul>${items}</ul></article>`;
+    }).join("");
+    const waiting = pending();
+    $("sendbar").hidden = !(api && api.viewerId) || !waiting.length;
+    $("pending-text").textContent = `${waiting.length} saved decision${waiting.length === 1 ? "" : "s"} not sent to the agent yet.`;
+  }
+
+  function mark(r) {
+    if (!counts(r)) return ` <span class="muted">· not counted: not a Moatless admin</span>`;
+    return pending().some((p) => p.key === r.key) ? ` <span class="pending">· not sent yet</span>` : "";
   }
 
   function renderCluster(c, slug) {
@@ -151,7 +253,7 @@
     const mine = api && decisionsFor(slug).find((r) => r.submittedBy === api.viewerId);
     const picked = mine ? mine.data.decision : null;
     const others = decisionsFor(slug)
-      .map((r) => `<li>${esc(r.data.decision)} by <span class="mono">${esc(r.submittedBy)}</span>${r.data.note ? `: ${esc(r.data.note)}` : ""}</li>`)
+      .map((r) => `<li>${esc(r.data.decision)} by ${esc(who(r.submittedBy))}${r.data.note ? `: ${esc(r.data.note)}` : ""}${mark(r)}</li>`)
       .join("");
     const samples = (c.samples || [])
       .map((s) => `<blockquote>${esc(s.comment)}<span class="mono">${esc(s.feedbackId)}</span></blockquote>`)
@@ -168,12 +270,13 @@
       <div class="body">
         <h2>${prose(c.title)}</h2>
         <div class="chips"><span class="chip owner">${esc(c.owner)}</span><span class="chip tnum">${esc(c.count)} item${c.count === 1 ? "" : "s"}</span><span class="chip">${esc(c.label)}</span></div>
-        ${fix && p && p.why ? `<p class="why">${prose(p.why)}</p>` : ""}
+        ${outcome(c)}
         ${p && p.score && c.bucket !== "close" ? meter(p) : ""}
         <p>${prose(c.bucket === "close" ? c.brief : c.summary)}</p>
+        ${fix ? `<div class="change"><span class="eyebrow">Suggested change</span><p>${prose(c.brief)}</p></div>` : ""}
         <details class="samples"><summary>Details, ${esc((c.samples || []).length)} sample comments</summary>
           <dl>
-            ${c.bucket === "close" ? `<dt>What happened</dt><dd>${prose(c.summary)}</dd>` : `<dt>Proposed fix</dt><dd>${prose(c.brief)}</dd>`}
+            ${c.bucket === "close" ? `<dt>What happened</dt><dd>${prose(c.summary)}</dd>` : fix ? "" : `<dt>Proposed fix</dt><dd>${prose(c.brief)}</dd>`}
             ${c.ownerReason ? `<dt>Why this owner</dt><dd>${esc(c.ownerReason)}</dd>` : ""}
             <dt>Reported from</dt><dd>${esc((c.reportedFrom || []).join(", "))}</dd>
             <dt>Existing work</dt><dd>${existing}</dd>
@@ -184,7 +287,6 @@
         <form>
           <span class="seg" role="group" aria-label="Decision">${buttons}</span>
           <input type="text" id="note-${esc(slug)}" name="note" aria-label="Note" placeholder="Note, or the right owning repository" value="${esc(mine ? mine.data.note : "")}">
-          <button type="submit">Save</button>
           <span class="status" role="status"></span>
         </form>
         ${others ? `<ul class="decisions">${others}</ul>` : ""}
@@ -206,64 +308,97 @@
       $("lede").textContent = m.processed
         ? `${m.processed} open items from the last ${m.windowDays ?? 7} days, grouped into ${m.clusters} clusters. Older open feedback is left alone.`
         : `No open feedback arrived in the last ${m.windowDays ?? 7} days.`;
+      const pace = [
+        m.closedThisWeek != null ? `${m.closedThisWeek} items closed this week` : "",
+        m.medianDaysToClose != null ? `a median ${m.medianDaysToClose} days from report to close` : "",
+        m.medianDaysApprovalToMerge != null ? `${m.medianDaysApprovalToMerge} days from approval to merged fix` : "",
+        m.oldestOpen ? `oldest open item from ${day(m.oldestOpen)}` : "",
+        m.recurred ? `${m.recurred} closed clusters came back` : "",
+      ].filter(Boolean);
+      if (pace.length) $("lede").textContent += ` ${pace.join(", ").replace(/^./, (c) => c.toUpperCase())}.`;
       $("tally").innerHTML = tally(`Last ${m.windowDays ?? 7} days`, m.processed) + tally("Clusters", m.clusters)
-        + tally("Fix first", fix.length, true) + tally("Open in total", m.openTotal);
+        + tally("Fix first", fix.filter(([, c]) => c.priority?.rank).length, true) + tally("Open in total", m.openTotal);
     }
     // Each record re-renders every cluster, so keep what a reader is typing.
     const typed = new Map([...document.querySelectorAll(".cluster")].map((el) => [el.dataset.slug, el.querySelector("input").value]));
     const laterOpen = document.querySelector("details.later")?.open ?? false;
     const cards = (list) => list.length ? list.map(([slug, c]) => renderCluster(c, slug)).join("") : `<p class="empty">None this run.</p>`;
     $("clusters").innerHTML =
-      `<section class="section fix"><header><span class="eyebrow">Ranked by impact, reach, urgency and ease</span><h3>Fix first</h3></header><div class="list">${cards(fix)}</div></section>`
-      + `<section class="section close"><header><span class="eyebrow">Already fixed, or nothing to fix</span><h3>Close these</h3><p class="muted">Approve to close the items once closing ships.</p></header><div class="list">${cards(close)}</div></section>`
+      `<section class="section fix"><header><span class="eyebrow">Ranked by impact and ease</span><h3>Fix first</h3></header><div class="list">${cards(fix)}</div></section>`
+      + `<section class="section close"><header><span class="eyebrow">Already fixed, or nothing to fix</span><h3>Close these</h3><p class="muted">Approve to close the items when the agent is notified.</p></header><div class="list">${cards(close)}</div></section>`
       + `<section class="section later"><details class="later"${laterOpen ? " open" : ""}><summary class="fold">Everything else (${later.length})</summary><div class="list">${cards(later)}</div></details></section>`;
     for (const el of document.querySelectorAll(".cluster")) {
       if (typed.has(el.dataset.slug)) el.querySelector("input").value = typed.get(el.dataset.slug);
       wire(el);
     }
+    renderSent();
   }
 
   function wire(el) {
     const form = el.querySelector("form");
     const status = el.querySelector(".status");
-    let decision = el.querySelector("button[aria-pressed=true]")?.dataset.decision ?? null;
     if (!api || !api.viewerId) {
-      for (const b of form.querySelectorAll("button")) b.disabled = true;
+      for (const b of form.querySelectorAll("button, input")) b.disabled = true;
       status.textContent = api ? "This page cannot tell who you are, so it cannot save a decision." : "Open this page from its Moatless link to decide.";
       return;
     }
-    for (const b of form.querySelectorAll("button[data-decision]")) {
-      b.addEventListener("click", () => {
-        decision = b.dataset.decision;
-        for (const o of form.querySelectorAll("button[data-decision]")) o.setAttribute("aria-pressed", o === b);
-      });
-    }
-    form.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      if (!decision) { status.textContent = "Pick approve, reject or defer first."; return; }
+    const store = async (decision) => {
       const note = form.elements.note.value.trim();
       try {
         // `append` picks a key no other reader can claim first; a later change updates that record.
         const mine = decisionsFor(el.dataset.slug).find((r) => r.submittedBy === api.viewerId);
-        if (mine) await api.save(mine.key, { decision, note });
-        else {
-          // Recorded now, so a second save before `subscribe` delivers this one updates it.
-          const record = await api.append(`decisions/${el.dataset.slug}`, { decision, note });
-          state.decisions.set(record.key, record);
-        }
-        status.textContent = "Saved.";
+        // Recorded now, so a second click before `subscribe` delivers this one updates it.
+        const record = mine ? await api.save(mine.key, { decision, note }) : await api.append(`decisions/${el.dataset.slug}`, { decision, note });
+        if (record && record.key) state.decisions.set(record.key, record);
+        status.textContent = "Saved. Notify the agent to act on it now.";
+        renderSent();
       } catch (error) {
         status.textContent = error.code === "permission-denied" ? "Not saved: this page refused the write." : `Not saved: ${error.message}`;
       }
+    };
+    for (const b of form.querySelectorAll("button[data-decision]")) {
+      b.addEventListener("click", () => {
+        for (const o of form.querySelectorAll("button[data-decision]")) o.setAttribute("aria-pressed", o === b);
+        store(b.dataset.decision);
+      });
+    }
+    form.elements.note.addEventListener("change", () => {
+      const picked = form.querySelector("button[aria-pressed=true]")?.dataset.decision;
+      if (picked) store(picked);
+    });
+    // Enter in the note field submits the form; store the note then rather than waiting for blur.
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const picked = form.querySelector("button[aria-pressed=true]")?.dataset.decision;
+      if (picked) store(picked);
     });
   }
+
+  $("send").addEventListener("click", async () => {
+    const decisions = pending().map((r) => ({ key: r.key, updatedAt: r.updatedAt, decision: r.data.decision, by: r.submittedBy }));
+    if (!decisions.length) return;
+    $("send").disabled = true;
+    try {
+      const record = await api.append("notify", { decisions });
+      if (record && record.key) state.notices.set(record.key, record);
+      $("send-status").textContent = "";
+      renderSent();
+    } catch (error) {
+      $("send-status").textContent = error.code === "permission-denied" ? "Not sent: this page refused the write." : `Not sent: ${error.message}`;
+    } finally {
+      $("send").disabled = false;
+    }
+  });
 
   if (api) {
     api.subscribe({ prefix: "", onError: (e) => { $("lede").textContent = `Stopped updating: ${e}. Reload the page.`; } }, (records) => {
       for (const r of records) {
         if (r.key.startsWith("clusters/")) state.clusters.set(r.key.slice("clusters/".length), r.data);
         else if (r.key.startsWith("decisions/")) state.decisions.set(r.key, r);
+        else if (r.key.startsWith("notify/")) state.notices.set(r.key, r);
         else if (r.key === "meta/run") state.meta = r.data;
+        else if (r.key === "meta/people") state.people = r.data || {};
+        else if (r.key === "meta/admins") state.admins = Array.isArray(r.data) ? r.data : null;
       }
       render();
     });
