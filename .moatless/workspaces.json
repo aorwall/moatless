@@ -22,6 +22,29 @@
         "limits": { "cpu": "4", "memory": "8Gi" },
         "storage": "60Gi"
       }
+    },
+    {
+      "key": "admin",
+      "name": "moatless-admin",
+      "description": "Cluster-admin sandbox: moatless-admin SA + moatless-admin network profile for kubectl against the nonprod cluster, with a DinD sidecar for the Docker Compose E2E suite. No shadow-dev servers.",
+      "repos": [
+        { "url": "https://github.com/soaplabs/moatless.git", "primary": true }
+      ],
+      "dockerImage": "aorwall/moatless-sandbox-recipe:soaplabs",
+      "dockerAccess": true,
+      "envVars": {
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "SCCACHE_S3_BUCKET": "soap-platform-ci-sccache"
+      },
+      "languageServers": ["typescript"],
+      "resources": {
+        "requests": { "cpu": "1", "memory": "6Gi" },
+        "limits": { "cpu": "4", "memory": "14Gi" },
+        "storage": "60Gi"
+      },
+      "sandboxServiceAccount": "moatless-admin",
+      "networkProfile": "moatless-admin"
     }
   ]
 }
