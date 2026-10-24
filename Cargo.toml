@@ -223,6 +223,17 @@ debug = false
 [profile.dev.package.moatless-arch-rules]
 opt-level = 3
 
+# Every rustic repository open derives its key with scrypt; unoptimized, that
+# held each `workspace_sync::restic` test at 40-53s.
+[profile.dev.package.scrypt]
+opt-level = 3
+[profile.dev.package.salsa20]
+opt-level = 3
+[profile.dev.package.pbkdf2]
+opt-level = 3
+[profile.dev.package.sha2]
+opt-level = 3
+
 # Line tables only (not full DWARF): backtraces still resolve to file:line,
 # but the linker has far less debug info to process on every build.
 [profile.dev]

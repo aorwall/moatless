@@ -404,13 +404,13 @@ jobs:
   # the repo's 10 GB cache budget and evicting the build caches. That seeding is
   # the ONLY reason these run on push to main: `save-if` can never fire on a
   # `pull_request` event, where `github.ref` is `refs/pull/N/merge`. They were
-  # PR-only for months and the pairing was silently dead — no `rust-clippy` or
-  # `rust-test` entry ever existed, every PR started from an empty `target/`,
+  # PR-only for months and the pairing was silently dead — no entry for either
+  # job ever existed, every PR started from an empty `target/`,
   # and both jobs logged `No cache found`. Narrowing either condition again
   # without the other re-breaks it.
-  # rust-clippy and rust-test share the existing rust-test debug-profile cache.
-  # Only those two full-workspace jobs save it. The old rust-clippy generations
-  # are read no more and the main-branch pruner retires them.
+  # Each job saves its own key: one shared key holds whichever job finished
+  # first, plus both jobs' leftovers. A save starts from an empty `target/`, so
+  # an entry holds one run's units rather than every generation's before it.
   rust-clippy:
     name: Rust clippy
     needs: detect-changes
@@ -428,7 +428,6 @@ jobs:
       # Deps build under `dev`, not `test` — trimming only the test profile
       # left all ~612 carrying full debug info. Line numbers survive.
       CARGO_PROFILE_DEV_DEBUG: line-tables-only
-      # Keep the debug-profile cache key aligned with rust-test, which shares it.
       CARGO_PROFILE_TEST_DEBUG: 0
       SCCACHE_S3_BUCKET: ${{ vars.SCCACHE_S3_BUCKET }}
       SCCACHE_S3_REGION: ${{ vars.SCCACHE_S3_REGION }}
@@ -463,11 +462,20 @@ jobs:
         run: .github/scripts/setup-sccache.sh
 
       - name: Cache Rust dependencies
+        id: rust-cache
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: ". -> target"
-          shared-key: rust-test
+          shared-key: rust-clippy
           save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # rust-cache prunes by crate name only, so an entry seeded from the last
+      # generation keeps every stale `-<hash>` copy it restored: `rust-test`
+      # reached 18 GB with 20+ copies of `libaws_sdk_s3`. Only a run that will
+      # save starts empty; a PR keeps the restored units.
+      - name: Seed a new cache generation from an empty target
+        if: github.ref == 'refs/heads/main' && steps.rust-cache.outputs.cache-hit != 'true'
+        run: rm -rf target
 
       - name: Measure restored Rust cache footprint
         run: .github/scripts/measure-rust-cache.sh debug
@@ -598,21 +606,28 @@ jobs:
         run: .github/scripts/setup-sccache.sh
 
       - name: Cache Rust dependencies
+        id: rust-cache
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: ". -> target"
-          shared-key: rust-test
+          shared-key: rust-nextest
           save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # Why: the rust-clippy step of the same name.
+      - name: Seed a new cache generation from an empty target
+        if: github.ref == 'refs/heads/main' && steps.rust-cache.outputs.cache-hit != 'true'
+        run: rm -rf target
 
       - name: Measure restored Rust cache footprint
         run: .github/scripts/measure-rust-cache.sh debug
 
       # install-action apt-installs jq itself, which needs HTTPS sources here.
-      - name: Install install-action prerequisites
+      # psql tunes the db-tests tier's server.
+      - name: Install apt prerequisites
         run: |
           .github/scripts/apt-https-mirrors.sh
           apt-get update
-          apt-get install -y --no-install-recommends jq
+          apt-get install -y --no-install-recommends jq postgresql-client
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2.84.0
@@ -718,6 +733,24 @@ jobs:
             # Exported here rather than on the job, so the tiers above run
             # against no database and cannot come to depend on one.
             export DATABASE_URL=postgres://postgres:postgres@postgres:5432/postgres
+            # sqlx migrates each test's fresh database, ~3s a test under this
+            # load. A migrated `template1` leaves it nothing to apply (see
+            # `crates/core/examples/migrate.rs`), and a throwaway server needs
+            # no durability. Separate `-c`s: ALTER SYSTEM refuses a transaction
+            # block.
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q \
+              -c "ALTER SYSTEM SET fsync = off" \
+              -c "ALTER SYSTEM SET synchronous_commit = off" \
+              -c "ALTER SYSTEM SET full_page_writes = off" \
+              -c "SELECT pg_reload_conf()"
+            # Inside the db-tests selection rather than `-p moatless-core`
+            # alone, which resolves its own features and compiles a second
+            # `sqlx` and `aws-sdk-s3`.
+            # shellcheck disable=SC2086
+            cargo build -q $DB_TEST_ARGS --features "$DB_TEST_FEATURES" \
+              -p moatless-core --example migrate
+            target/debug/examples/migrate \
+              postgres://postgres:postgres@postgres:5432/template1
             # One unified pass builds the overlapping graph once. The isolated
             # loop runs only on a manifest change, which is what can break the
             # feature wiring it guards — unified sibling features mask a crate
@@ -1523,8 +1556,9 @@ jobs:
           total_freed=0
 
           for spec in \
-            "rust-clippy 0" \
-            "rust-test 2" \
+            "rust-clippy 1" \
+            "rust-nextest 2" \
+            "rust-test 0" \
             "rust-ci 2" \
             "rust-arch 1"; do
             set -- $spec
