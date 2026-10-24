@@ -68,6 +68,7 @@ pub async fn create_plugin(
     responses(
         (status = 204, description = "Deleted"),
         (status = 404, description = "Not found", body = moatless_types::http::ErrorBody),
+        (status = 409, description = "Declared by the deployment", body = moatless_types::http::ErrorBody),
         (status = 500, description = "Internal error", body = moatless_types::http::ErrorBody)
     )
 )]
@@ -322,6 +323,8 @@ fn to_response(r: Plugin) -> PluginResponse {
         id: r.id,
         name: r.name,
         git_url: r.git_url,
+        source: r.source,
         synced_version: r.synced_version,
+        disabled_at: r.disabled_at,
     }
 }

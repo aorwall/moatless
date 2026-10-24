@@ -425,6 +425,11 @@ export type deletePluginResponse404 = {
   status: 404
 }
 
+export type deletePluginResponse409 = {
+  data: ErrorBody
+  status: 409
+}
+
 export type deletePluginResponse500 = {
   data: ErrorBody
   status: 500
@@ -433,7 +438,7 @@ export type deletePluginResponse500 = {
 export type deletePluginResponseSuccess = (deletePluginResponse204) & {
   headers: Headers;
 };
-export type deletePluginResponseError = (deletePluginResponse404 | deletePluginResponse500) & {
+export type deletePluginResponseError = (deletePluginResponse404 | deletePluginResponse409 | deletePluginResponse500) & {
   headers: Headers;
 };
 

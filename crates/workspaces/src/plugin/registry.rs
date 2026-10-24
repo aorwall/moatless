@@ -3,6 +3,7 @@ use super::error::PluginError;
 use super::models::Plugin;
 use super::schemas::CreatePluginRequest;
 use moatless_types::access_control::ScopeContext;
+use moatless_workspace_types::plugin::PluginSource;
 
 pub(super) fn ensure_admin(auth: &ScopeContext, action: &str) -> Result<(), PluginError> {
     if auth.is_admin {
@@ -26,8 +27,10 @@ pub async fn create_plugin(
         id: id.clone(),
         name: req.name,
         git_url: req.git_url,
+        source: PluginSource::Manual,
         synced_version: None,
         synced_at: None,
+        disabled_at: None,
         created_at: None,
         updated_at: None,
     };
@@ -53,6 +56,16 @@ pub async fn delete_plugin(
     id: String,
 ) -> Result<(), PluginError> {
     ensure_admin(auth, "manage the plugin registry")?;
+    let plugin = plugins
+        .find_by_id(&id)
+        .await?
+        .ok_or_else(|| PluginError::NotFound(format!("Plugin '{id}' not found")))?;
+    if plugin.source == PluginSource::Deployment && plugin.disabled_at.is_none() {
+        return Err(PluginError::Conflict(format!(
+            "Plugin '{}' is declared by the deployment; remove it from the Helm value `plugins.repositories` first",
+            plugin.name
+        )));
+    }
     let deleted = plugins.delete(&id).await?;
     if !deleted {
         return Err(PluginError::NotFound(format!("Plugin '{id}' not found")));

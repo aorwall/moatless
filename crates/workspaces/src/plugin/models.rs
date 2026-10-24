@@ -1,6 +1,7 @@
 //! Plugin domain types — DB row structs.
 
 use chrono::{DateTime, Utc};
+use moatless_workspace_types::plugin::PluginSource;
 use uuid::Uuid;
 
 /// Row from the `plugins` table.
@@ -9,11 +10,16 @@ pub struct Plugin {
     pub id: String,
     pub name: String,
     pub git_url: String,
+    #[sqlx(try_from = "String")]
+    pub source: PluginSource,
     /// What the source called its current state at the last successful sync —
     /// for GitHub, the default branch's head commit SHA. `None` until a first
     /// sync succeeds.
     pub synced_version: Option<String>,
     pub synced_at: Option<DateTime<Utc>>,
+    /// Set while a `Deployment` plugin is no longer declared. A disabled
+    /// plugin resolves to no skills; its own skills and activations are kept.
+    pub disabled_at: Option<DateTime<Utc>>,
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
 }

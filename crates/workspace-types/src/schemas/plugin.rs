@@ -20,10 +20,16 @@ pub struct PluginResponse {
     pub id: String,
     pub name: String,
     pub git_url: String,
+    pub source: crate::plugin::PluginSource,
     /// What the source called its current state at the last successful sync.
     /// Absent until a first sync succeeds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub synced_version: Option<String>,
+    /// When the deployment stopped declaring this plugin. Absent while it is
+    /// live; a disabled plugin delivers no skills.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<String>, format = DateTime))]
+    pub disabled_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// One skill inside a plugin, as stored at the plugin's synced version.

@@ -1351,6 +1351,17 @@ sandboxAccess:
       # -- Extra egress appended verbatim (e.g. the database, to run psql).
       extraEgress: []
 
+# Plugins (git repositories of skills) the deployment owns, rendered as
+# PLUGIN_REPOSITORIES_JSON and reconciled on every backend start: a missing
+# one is created and a changed gitUrl updated. One removed from this list is
+# disabled, delivering no skills, and keeps its activations until it is
+# declared again. The admin API can delete one only once it is disabled, and
+# the reconcile never touches an admin-registered plugin of the same name.
+# Turning skills on stays in the Plugins admin UI.
+plugins:
+  # -- e.g. `[{name: general, gitUrl: "https://github.com/acme/plugins"}]`
+  repositories: []
+
 # Extra environment variables (dynamically injected into deployment)
 # Add any custom environment variables here as key-value pairs
 extraEnv:

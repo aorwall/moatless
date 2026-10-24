@@ -2,6 +2,17 @@
 
 use serde::{Deserialize, Serialize};
 
+crate::string_enum!(
+    /// Who declared a Plugin.
+    PluginSource {
+        /// Registered through the admin API, which may delete it.
+        Manual => "manual",
+        /// Declared by the deployment's `PLUGIN_REPOSITORIES_JSON` and
+        /// reconciled on every start. Read-only to the admin API.
+        Deployment => "deployment",
+    }
+);
+
 /// Repo-relative skill roots, in precedence order; both are scanned and merged,
 /// so `.agents/skills` (Codex) is found whether or not `.claude/skills` (Claude)
 /// symlinks to it.

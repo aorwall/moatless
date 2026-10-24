@@ -92,6 +92,17 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let ports: Option<Ports> = db_pool
         .as_ref()
         .map(|pool| compose(pool.clone(), &config, s3_client.clone()));
+    if let Some(ref ports) = ports {
+        // A shadow backend (`run_migrations` off) shares the real deployment's
+        // database but not its Helm values, so it would disable every declared
+        // plugin there.
+        if config.database.run_migrations {
+            ports
+                .plugins
+                .reconcile_declared(&config.declared_plugins)
+                .await;
+        }
+    }
     let event_publisher = crate::compose::infrastructure::init_event_publisher(db_pool.as_ref());
     let (sse_state, sse_feed) = startup::init_sse(
         &config,

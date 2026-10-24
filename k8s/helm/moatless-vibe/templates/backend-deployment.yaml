@@ -440,6 +440,10 @@ spec:
             - name: ADMIN_USER_IDS
               value: {{ .Values.auth.adminUserIds | join "," | quote }}
             {{- end }}
+            {{- with .Values.plugins.repositories }}
+            - name: PLUGIN_REPOSITORIES_JSON
+              value: {{ . | toJson | quote }}
+            {{- end }}
             # Dynamic extra env vars from values
             {{- range $key, $value := .Values.extraEnv }}
             - name: {{ $key }}

@@ -257,7 +257,14 @@ pub async fn resolve_with_deselected_for(
     let skills = plugins.list_all_skills().await?;
     let rows = plugins.list_activations_for(user_id, workspace_id).await?;
 
-    let resolved = resolve_rows(&registered, &skills, &rows);
+    // Resolved over the live plugins but deselected over all of them, so a
+    // sandbox already holding a disabled plugin is told to remove it.
+    let live: Vec<_> = registered
+        .iter()
+        .filter(|p| p.disabled_at.is_none())
+        .cloned()
+        .collect();
+    let resolved = resolve_rows(&live, &skills, &rows);
     let removed = deselected(&registered, &skills, &resolved)
         .into_iter()
         .cloned()
@@ -770,8 +777,10 @@ mod tests {
                 id: id.to_string(),
                 name: id.to_string(),
                 git_url: format!("https://github.com/acme/{id}"),
+                source: moatless_workspace_types::plugin::PluginSource::Manual,
                 synced_version: None,
                 synced_at: None,
+                disabled_at: None,
                 created_at: None,
                 updated_at: None,
             })

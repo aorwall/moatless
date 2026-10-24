@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use uuid::Uuid;
 
 use super::models::{ActivationRow, ActivationWrite, DeclaredActivation, Plugin, PluginSkill};
+use moatless_core::config::DeclaredPlugin;
 use moatless_core::db::DbPool;
 
 /// DAO trait for plugin persistence.
@@ -13,6 +14,16 @@ pub(crate) trait PluginDao: Send + Sync {
     async fn find_by_id(&self, id: &str) -> Result<Option<Plugin>, sqlx::Error>;
     async fn insert(&self, row: &Plugin) -> Result<(), sqlx::Error>;
     async fn delete(&self, id: &str) -> Result<bool, sqlx::Error>;
+
+    /// Make the `deployment` rows match `declared`, in one transaction: create
+    /// the missing, re-enable a disabled one, update a changed `git_url`
+    /// (clearing its stored skills and synced version so the next read
+    /// refetches), and disable the rest. Never touches a `manual` row or an
+    /// activation; returns the declared names a `manual` row already holds.
+    async fn reconcile_declared(
+        &self,
+        declared: &[DeclaredPlugin],
+    ) -> Result<Vec<String>, sqlx::Error>;
 
     /// The skills stored for a plugin, by name.
     async fn list_skills(&self, plugin_id: &str) -> Result<Vec<PluginSkill>, sqlx::Error>;
@@ -93,6 +104,59 @@ impl PluginDao for PgPluginDao {
             .execute(&self.0)
             .await?;
         Ok(result.rows_affected() > 0)
+    }
+
+    async fn reconcile_declared(
+        &self,
+        declared: &[DeclaredPlugin],
+    ) -> Result<Vec<String>, sqlx::Error> {
+        let names: Vec<&str> = declared.iter().map(|d| d.name.as_str()).collect();
+        let mut tx = self.0.begin().await?;
+        sqlx::query(
+            "UPDATE plugins SET disabled_at = now() WHERE source = 'deployment' AND disabled_at IS NULL AND NOT (name = ANY($1))",
+        )
+            .bind(&names)
+            .execute(&mut *tx)
+            .await?;
+        for plugin in declared {
+            // Before the update below, while the old URL still tells a moved
+            // row apart: otherwise an unreadable new URL would keep serving
+            // the old repository's skills, since a sync never stores none.
+            sqlx::query(
+                r#"DELETE FROM plugin_skills USING plugins
+                   WHERE plugin_skills.plugin_id = plugins.id AND plugins.source = 'deployment'
+                     AND plugins.name = $1 AND plugins.git_url <> $2"#,
+            )
+            .bind(&plugin.name)
+            .bind(&plugin.git_url)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query(
+                r#"INSERT INTO plugins (id, name, git_url, source) VALUES ($1, $2, $3, 'deployment')
+                   ON CONFLICT (name) DO UPDATE
+                   SET git_url = EXCLUDED.git_url,
+                       synced_version = CASE WHEN plugins.git_url = EXCLUDED.git_url
+                                             THEN plugins.synced_version END,
+                       synced_at = CASE WHEN plugins.git_url = EXCLUDED.git_url
+                                        THEN plugins.synced_at END,
+                       disabled_at = NULL, updated_at = now()
+                   WHERE plugins.source = 'deployment'
+                     AND (plugins.git_url <> EXCLUDED.git_url OR plugins.disabled_at IS NOT NULL)"#,
+            )
+            .bind(Uuid::new_v4().to_string())
+            .bind(&plugin.name)
+            .bind(&plugin.git_url)
+            .execute(&mut *tx)
+            .await?;
+        }
+        let shadowed: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM plugins WHERE source = 'manual' AND name = ANY($1) ORDER BY name",
+        )
+        .bind(&names)
+        .fetch_all(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(shadowed)
     }
 
     async fn list_skills(&self, plugin_id: &str) -> Result<Vec<PluginSkill>, sqlx::Error> {

@@ -5,14 +5,22 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { PluginSource } from './pluginSource';
 
 /**
  * Plugin response.
  */
 export interface PluginResponse {
+  /**
+     * When the deployment stopped declaring this plugin. Absent while it is
+     * live; a disabled plugin delivers no skills.
+     * @nullable
+     */
+  disabledAt?: string | null;
   gitUrl: string;
   id: string;
   name: string;
+  source: PluginSource;
   /**
      * What the source called its current state at the last successful sync.
      * Absent until a first sync succeeds.

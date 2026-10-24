@@ -219,6 +219,7 @@ export * from './pickDecisionRequest';
 export * from './pickDecisionResponse';
 export * from './pluginResponse';
 export * from './pluginSkillResponse';
+export * from './pluginSource';
 export * from './previewUrlContextData';
 export * from './providerAppField';
 export * from './providerAppSpec';

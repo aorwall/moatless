@@ -340,6 +340,13 @@ mod tests {
             unimplemented!()
         }
 
+        async fn reconcile_declared(
+            &self,
+            _declared: &[moatless_core::config::DeclaredPlugin],
+        ) -> Result<Vec<String>, sqlx::Error> {
+            unimplemented!()
+        }
+
         async fn list_skills(&self, _plugin_id: &str) -> Result<Vec<PluginSkill>, sqlx::Error> {
             Ok(self.skills.lock().unwrap().clone())
         }
@@ -486,8 +493,10 @@ mod tests {
             id: "p1".to_string(),
             name: "moatless-skills".to_string(),
             git_url: "https://github.com/acme/plugins".to_string(),
+            source: moatless_workspace_types::plugin::PluginSource::Manual,
             synced_version: synced_version.map(str::to_string),
             synced_at: None,
+            disabled_at: None,
             created_at: None,
             updated_at: None,
         }

@@ -571,3 +571,37 @@ fn t3_gate_parser_rejects_invalid_values() {
         ConfigError::Invalid(message) if message == "T3_UI_RPC_ENABLED must be true or false"
     ));
 }
+
+// =========================================================================
+// Declared plugins
+// =========================================================================
+
+#[test]
+fn declared_plugins_parse_from_the_helm_rendered_json() {
+    let declared = parse_declared_plugins(Some(
+        r#"[{"name":"general","gitUrl":"https://github.com/acme/plugins"}]"#.to_string(),
+    ))
+    .expect("valid JSON");
+    assert_eq!(
+        declared,
+        vec![DeclaredPlugin {
+            name: "general".to_string(),
+            git_url: "https://github.com/acme/plugins".to_string(),
+        }]
+    );
+}
+
+#[test]
+fn declared_plugins_unset_declare_none() {
+    assert!(parse_declared_plugins(None).expect("unset").is_empty());
+    assert!(
+        parse_declared_plugins(Some("  ".to_string()))
+            .expect("blank")
+            .is_empty()
+    );
+}
+
+#[test]
+fn malformed_declared_plugins_fail_the_load() {
+    assert!(parse_declared_plugins(Some(r#"[{"name":"x"}]"#.to_string())).is_err());
+}

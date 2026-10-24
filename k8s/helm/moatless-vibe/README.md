@@ -141,6 +141,7 @@ helm install moatless ./k8s/helm/moatless-vibe -n moatless -f k8s/local/values-l
 | `backend.image.tag` | Backend image tag | `latest` |
 | `sandboxImage.repository` | Sandbox image repository | `aorwall/moatless-sandbox` |
 | `sandboxImage.pullPolicy` | Sandbox image pull policy | `Always` |
+| `plugins.repositories` | Plugins (`{name, gitUrl}`) reconciled on every backend start: created, updated, or disabled (keeping their activations) when removed. Read-only to the admin API while declared; activations are not set | `[]` |
 
 ### S3-only EKS Fargate
 

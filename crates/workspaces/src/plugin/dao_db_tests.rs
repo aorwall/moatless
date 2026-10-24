@@ -8,6 +8,7 @@ use crate::plugin::dao::{PgPluginDao, PluginDao};
 use crate::plugin::models::{
     ActivationRow, ActivationWrite, DeclaredActivation, Plugin, PluginSkill,
 };
+use moatless_workspace_types::plugin::PluginSource;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -34,8 +35,10 @@ fn plugin(id: &str) -> Plugin {
         id: id.to_string(),
         name: format!("plugin-{id}"),
         git_url: format!("https://github.com/acme/{id}"),
+        source: PluginSource::Manual,
         synced_version: None,
         synced_at: None,
+        disabled_at: None,
         created_at: None,
         updated_at: None,
     }
@@ -580,4 +583,176 @@ async fn replacing_a_workspaces_records_leaves_every_other_subject_alone(pool: P
         3,
         "global, personal and the other Workspace's stay"
     );
+}
+
+fn declared(name: &str, url: &str) -> moatless_core::config::DeclaredPlugin {
+    moatless_core::config::DeclaredPlugin {
+        name: name.to_string(),
+        git_url: url.to_string(),
+    }
+}
+
+#[sqlx::test]
+async fn reconcile_updates_a_changed_url_in_place(pool: PgPool) {
+    let dao = PgPluginDao(pool);
+    dao.reconcile_declared(&[declared("general", "https://github.com/acme/general")])
+        .await
+        .expect("first reconcile");
+    let general = dao.list_all().await.expect("list")[0].clone();
+    dao.replace_skills(
+        &general.id,
+        Some("sha-1".to_string()),
+        &[skill(&general.id, "a")],
+    )
+    .await
+    .expect("store skills");
+
+    dao.reconcile_declared(&[declared("general", "https://github.com/acme/moved")])
+        .await
+        .expect("second reconcile");
+
+    let stored = dao.list_all().await.expect("list");
+    assert_eq!(stored.len(), 1);
+    assert_eq!(stored[0].id, general.id, "a changed url keeps the row");
+    assert_eq!(stored[0].git_url, "https://github.com/acme/moved");
+    assert_eq!(stored[0].source, PluginSource::Deployment);
+    assert_eq!(stored[0].disabled_at, None);
+    assert_eq!(stored[0].synced_version, None, "the next read refetches");
+    assert!(
+        dao.list_skills(&general.id)
+            .await
+            .expect("skills")
+            .is_empty(),
+        "an unreadable new url must not keep serving the old repository's skills"
+    );
+}
+
+/// Declares `general`, stores a skill and turns it on for everyone, then
+/// reconciles with an empty list.
+async fn declared_then_removed(dao: &PgPluginDao) -> Plugin {
+    dao.reconcile_declared(&[declared("general", "https://github.com/acme/general")])
+        .await
+        .expect("declare");
+    let general = dao.list_all().await.expect("list")[0].clone();
+    dao.replace_skills(
+        &general.id,
+        Some("sha-1".to_string()),
+        &[skill(&general.id, "a")],
+    )
+    .await
+    .expect("store skills");
+    dao.set_activation(&ActivationWrite {
+        plugin_id: general.id.clone(),
+        enabled: true,
+        ..Default::default()
+    })
+    .await
+    .expect("activate");
+    dao.reconcile_declared(&[]).await.expect("remove");
+    general
+}
+
+#[sqlx::test]
+async fn a_removed_plugin_is_disabled_and_keeps_its_skills_and_activations(pool: PgPool) {
+    let dao = PgPluginDao(pool.clone());
+    let general = declared_then_removed(&dao).await;
+
+    let stored = dao
+        .find_by_id(&general.id)
+        .await
+        .expect("read")
+        .expect("kept");
+    assert!(stored.disabled_at.is_some());
+    assert_eq!(dao.list_skills(&general.id).await.expect("skills").len(), 1);
+    assert_eq!(
+        dao.list_activations_for(None, None)
+            .await
+            .expect("activations")
+            .len(),
+        1
+    );
+
+    let plugins = crate::plugin::Plugins::new(std::sync::Arc::new(PgPluginDao(pool)));
+    let (picked, removed) =
+        crate::plugin::activation::resolve_with_deselected_for(&plugins, None, None)
+            .await
+            .expect("resolve");
+    assert!(picked.is_empty(), "a disabled plugin delivers no skills");
+    assert_eq!(
+        removed.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
+        vec![general.id.as_str()],
+        "a sandbox already holding it is told to remove it"
+    );
+}
+
+#[sqlx::test]
+async fn a_redeclared_plugin_is_enabled_with_its_activations(pool: PgPool) {
+    let dao = PgPluginDao(pool.clone());
+    let general = declared_then_removed(&dao).await;
+
+    dao.reconcile_declared(&[declared("general", "https://github.com/acme/general")])
+        .await
+        .expect("redeclare");
+
+    let stored = dao
+        .find_by_id(&general.id)
+        .await
+        .expect("read")
+        .expect("kept");
+    assert_eq!(stored.disabled_at, None);
+    assert_eq!(stored.synced_version.as_deref(), Some("sha-1"));
+    let plugins = crate::plugin::Plugins::new(std::sync::Arc::new(PgPluginDao(pool)));
+    let picked = crate::plugin::activation::resolve_for(&plugins, None, None)
+        .await
+        .expect("resolve");
+    assert_eq!(picked.len(), 1, "the kept activation applies again");
+}
+
+#[sqlx::test]
+async fn reconcile_never_touches_an_admin_registered_plugin(pool: PgPool) {
+    let dao = PgPluginDao(pool);
+    let mut manual = plugin("p1");
+    manual.name = "general".to_string();
+    dao.insert(&manual).await.expect("insert plugin");
+    dao.insert(&plugin("p2")).await.expect("insert plugin");
+
+    let shadowed = dao
+        .reconcile_declared(&[declared("general", "https://github.com/other/url")])
+        .await
+        .expect("reconcile");
+
+    assert_eq!(shadowed, vec!["general".to_string()]);
+    let stored = dao.list_all().await.expect("list");
+    assert_eq!(
+        stored.len(),
+        2,
+        "an undeclared manual plugin is not removed"
+    );
+    let general = stored.iter().find(|p| p.name == "general").expect("kept");
+    assert_eq!(general.git_url, manual.git_url);
+    assert_eq!(general.source, PluginSource::Manual);
+}
+
+#[sqlx::test]
+async fn the_admin_api_deletes_a_declared_plugin_only_once_disabled(pool: PgPool) {
+    let dao = PgPluginDao(pool);
+    dao.reconcile_declared(&[declared("general", "https://github.com/acme/general")])
+        .await
+        .expect("reconcile");
+    let id = dao.list_all().await.expect("list")[0].id.clone();
+
+    let admin = moatless_types::access_control::ScopeContext::admin("root");
+
+    let refused = crate::plugin::registry::delete_plugin(&dao, &admin, id.clone()).await;
+    assert!(matches!(
+        refused,
+        Err(crate::plugin::error::PluginError::Conflict(_))
+    ));
+    assert_eq!(dao.list_all().await.expect("list").len(), 1);
+
+    dao.reconcile_declared(&[]).await.expect("remove");
+    crate::plugin::registry::delete_plugin(&dao, &admin, id)
+        .await
+        .expect("a disabled plugin is the admin's to delete");
+    assert!(dao.list_all().await.expect("list").is_empty());
 }

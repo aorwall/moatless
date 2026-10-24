@@ -184,6 +184,24 @@ fn csrf_trusted_origins_from_env() -> Vec<AllowedOrigin> {
     )
 }
 
+/// One Plugin the deployment declares, from `PLUGIN_REPOSITORIES_JSON`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeclaredPlugin {
+    pub name: String,
+    pub git_url: String,
+}
+
+/// Parse `PLUGIN_REPOSITORIES_JSON`, a JSON array of `{"name", "gitUrl"}`.
+/// Malformed JSON fails the load: read as empty, it would disable them all.
+fn parse_declared_plugins(raw: Option<String>) -> Result<Vec<DeclaredPlugin>, ConfigError> {
+    let Some(raw) = raw.filter(|r| !r.trim().is_empty()) else {
+        return Ok(vec![]);
+    };
+    serde_json::from_str(raw.trim())
+        .map_err(|e| ConfigError::Invalid(format!("PLUGIN_REPOSITORIES_JSON: {e}")))
+}
+
 /// Read an environment variable as a boolean (true if "true" or "1").
 fn env_bool(key: &str, default: bool) -> bool {
     match env::var(key) {
@@ -824,6 +842,8 @@ pub struct Config {
     pub linear: LinearConfig,
     pub decision: DecisionConfig,
     pub skill: SkillConfig,
+    /// The Plugins the deployment owns; see `Plugins::reconcile_declared`.
+    pub declared_plugins: Vec<DeclaredPlugin>,
     pub secrets: SecretsConfig,
     pub codex_oauth: CodexOAuthConfig,
     pub otel: OtelConfig,
@@ -1097,6 +1117,7 @@ impl Config {
                 cache_ttl_secs: env_or("BACKEND_SKILL_CACHE_TTL_SECONDS", 3_600),
             },
 
+            declared_plugins: parse_declared_plugins(env_opt("PLUGIN_REPOSITORIES_JSON"))?,
             secrets: SecretsConfig {
                 encryption_key: env_opt("SECRETS_ENCRYPTION_KEY"),
                 kms_key_id: env_opt("SECRETS_KMS_KEY_ID").or_else(|| env_opt("AWS_KMS_KEY_ID")),
@@ -1517,6 +1538,7 @@ impl Config {
             },
             decision: DecisionConfig { provider: None },
             skill: SkillConfig { cache_ttl_secs: 60 },
+            declared_plugins: vec![],
             secrets: SecretsConfig {
                 encryption_key: Some("0123456789abcdef0123456789abcdef".to_string()),
                 kms_key_id: None,

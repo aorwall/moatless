@@ -4990,6 +4990,16 @@
               }
             }
           },
+          "409": {
+            "description": "Declared by the deployment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal error",
             "content": {
@@ -16510,9 +16520,18 @@
         "required": [
           "id",
           "name",
-          "gitUrl"
+          "gitUrl",
+          "source"
         ],
         "properties": {
+          "disabledAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the deployment stopped declaring this plugin. Absent while it is\nlive; a disabled plugin delivers no skills."
+          },
           "gitUrl": {
             "type": "string"
           },
@@ -16521,6 +16540,9 @@
           },
           "name": {
             "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/PluginSource"
           },
           "syncedVersion": {
             "type": [
@@ -16551,6 +16573,14 @@
             "description": "Path of the `SKILL.md` inside the plugin repository. Same contract as\n`SkillResponse::path`, which states what a reader does with it."
           }
         }
+      },
+      "PluginSource": {
+        "type": "string",
+        "description": "Who declared a Plugin.",
+        "enum": [
+          "manual",
+          "deployment"
+        ]
       },
       "PreviewUrlContextData": {
         "type": "object",

@@ -131,8 +131,10 @@ mod tests {
             id: id.to_string(),
             name: name.to_string(),
             git_url: format!("https://github.com/acme/{name}"),
+            source: moatless_workspace_types::plugin::PluginSource::Manual,
             synced_version: None,
             synced_at: None,
+            disabled_at: None,
             created_at: None,
             updated_at: None,
         }

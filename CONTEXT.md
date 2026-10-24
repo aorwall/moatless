@@ -413,7 +413,10 @@ provider's own confidence thresholds.
 
 **Plugin**:
 A git repository of agent capabilities — skills, commands, agents — registered
-once by an admin and thereafter available to everyone. A Plugin is a container,
+once — by an admin, or by the deployment's Helm value `plugins.repositories`
+(`source = 'deployment'`, read-only to the admin API, and disabled rather
+than deleted when the value drops it) — and thereafter
+available to everyone. A Plugin is a container,
 not a thing an agent is given: what reaches an agent is always Skills. One word
 through the whole stack, which is where a synonym like "marketplace" would
 otherwise creep in: the table is `plugins`, the DAO is `PluginDao`, the API is
