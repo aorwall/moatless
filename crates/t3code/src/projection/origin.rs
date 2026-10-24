@@ -49,16 +49,12 @@ pub(super) fn message_origin(
         .as_deref()
         .or(message.sent_by_name.as_deref());
     if adapter == SCHEDULED_ORIGIN {
-        // `external_source_name` is the Loop's id; without its name the Loop
-        // is gone, and so is the page a link would open.
-        let name = message.loop_name.as_deref();
+        // No link: a Loop is configured with the moat CLI and in git, and T3
+        // Code has no Loop page for one to open.
         return Some(json!({
             "kind": adapter,
-            "label": name,
-            "url": name.and(message.external_source_name.as_deref()).map(|loop_id| format!(
-                "{}/settings/loops/{loop_id}",
-                origins.frontend_url.trim_end_matches('/')
-            )),
+            "label": message.loop_name.as_deref(),
+            "url": Value::Null,
             "user": author
         }));
     }

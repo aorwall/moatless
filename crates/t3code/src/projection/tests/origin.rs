@@ -245,9 +245,9 @@ fn an_assistant_bubble_never_carries_an_origin() {
     assert!(bubble.get("origin").is_none());
 }
 
-/// A Loop-sent Message is labelled with the Loop's name and links to its page.
+/// A Loop-sent Message is labelled with the Loop's name and carries no link.
 #[test]
-fn a_scheduled_message_names_and_links_the_loop_that_fired_it() {
+fn a_scheduled_message_names_the_loop_that_fired_it_without_a_link() {
     let mut msg = message(1, MessageType::User, "Run the nightly sweep");
     msg.external_adapter = Some("scheduled".into());
     msg.external_source_name = Some("loop-123".into());
@@ -262,16 +262,13 @@ fn a_scheduled_message_names_and_links_the_loop_that_fired_it() {
     .expect("a scheduled message has an origin");
     assert_eq!(origin["kind"], "scheduled");
     assert_eq!(origin["label"], "Nightly sweep");
-    assert_eq!(
-        origin["url"],
-        "https://moatless.example/settings/loops/loop-123"
-    );
+    assert_eq!(origin["url"], Value::Null);
     assert_eq!(origin["user"], Value::Null);
 }
 
-/// A deleted Loop leaves the Message's kind but neither a name nor a link.
+/// A deleted Loop leaves the Message's kind but no name.
 #[test]
-fn a_scheduled_message_from_a_deleted_loop_has_neither_name_nor_link() {
+fn a_scheduled_message_from_a_deleted_loop_has_no_name() {
     let mut msg = message(1, MessageType::User, "Run the nightly sweep");
     msg.external_adapter = Some("scheduled".into());
     msg.external_source_name = Some("loop-gone".into());
