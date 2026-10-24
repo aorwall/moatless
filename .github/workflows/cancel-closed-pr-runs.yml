@@ -1,0 +1,38 @@
+# Cancels a PR's unfinished workflow runs once it is merged or closed, since
+# their checks no longer gate anything (runner cost: see `ci.yml`'s
+# `concurrency`). Only this repository's `pull_request` runs on the PR's head
+# branch are touched, so the push-to-main run a merge starts keeps running.
+name: Cancel closed PR runs
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  actions: write
+
+jobs:
+  cancel:
+    name: Cancel unfinished runs
+    # A fork PR's token cannot cancel runs, and its branch name is not unique.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: staging-runners
+    steps:
+      - name: Cancel the PR's queued and in-progress runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          SELF_RUN_ID: ${{ github.run_id }}
+        run: |
+          for status in queued in_progress waiting pending requested; do
+            # `head_repository` drops an open fork PR's run on a same-named branch.
+            gh api -X GET "repos/$GH_REPO/actions/runs" \
+              -f branch="$HEAD_REF" -f event=pull_request -f status="$status" \
+              -F per_page=100 \
+              --jq ".workflow_runs[] | select(.head_repository.full_name == \"$GH_REPO\") | .id"
+          done | sort -u | while read -r id; do
+            [ "$id" = "$SELF_RUN_ID" ] && continue
+            echo "Cancelling run $id"
+            gh run cancel "$id" || echo "::warning::could not cancel run $id"
+          done
