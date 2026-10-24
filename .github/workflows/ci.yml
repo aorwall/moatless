@@ -65,7 +65,14 @@ jobs:
     # Only workflow_dispatch bypasses change detection. On a PR paths-filter
     # diffs against the base ref, so a docs-only PR runs no clippy and no
     # TypeScript type-check.
-    if: github.event_name != 'workflow_dispatch'
+    # A PR that a bot other than `soap-agentops[bot]` triggered (Renovate's
+    # `soapgitops[bot]`) builds and tests nothing: skipping this job skips every
+    # job gated on its outputs, and `rust-clippy`, `rust-test` and
+    # `architecture` repeat the gate. `triggering_actor` rather than the author,
+    # so a person re-running the workflow or pushing to the PR gets full CI.
+    if: >-
+      github.event_name != 'workflow_dispatch' &&
+      (github.event_name != 'pull_request' || !endsWith(github.triggering_actor, '[bot]') || github.triggering_actor == 'soap-agentops[bot]')
     # paths-filter reads the PR's changed-file list over the API rather than
     # diffing locally, so it needs this even though checkout only needs contents.
     # `actions: read` lets the base step find the last green push run.
@@ -214,6 +221,8 @@ jobs:
 
   architecture:
     name: Rust architecture
+    # Bot PR gate: see `detect-changes`.
+    if: (github.event_name != 'pull_request' || !endsWith(github.triggering_actor, '[bot]') || github.triggering_actor == 'soap-agentops[bot]')
     runs-on: staging-runners-large
     container:
       image: rust:1.97-bookworm
@@ -405,8 +414,10 @@ jobs:
   rust-clippy:
     name: Rust clippy
     needs: detect-changes
+    # Bot PR gate: see `detect-changes`.
     if: >-
       always() &&
+      (github.event_name != 'pull_request' || !endsWith(github.triggering_actor, '[bot]') || github.triggering_actor == 'soap-agentops[bot]') &&
       (github.event_name == 'pull_request' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: staging-runners-large
@@ -531,9 +542,10 @@ jobs:
     name: Rust tests
     needs: detect-changes
     # Runs on push to main only to seed the shared debug-profile Rust cache —
-    # see the note above rust-clippy.
+    # see the note above rust-clippy. Bot PR gate: see `detect-changes`.
     if: >-
       always() &&
+      (github.event_name != 'pull_request' || !endsWith(github.triggering_actor, '[bot]') || github.triggering_actor == 'soap-agentops[bot]') &&
       (github.event_name == 'pull_request' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: staging-runners-large
