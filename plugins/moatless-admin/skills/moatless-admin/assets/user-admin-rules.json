@@ -1,0 +1,5 @@
+{"rulesVersion": 1, "prefixes": {
+  "requests/":  {"read": "anyone", "create": "anyone", "notify": ["create"]},
+  "approvals/": {"read": "anyone", "create": "anyone", "notify": ["create"]},
+  "plans/":     {"read": "anyone"},
+  "results/":   {"read": "anyone"}}}

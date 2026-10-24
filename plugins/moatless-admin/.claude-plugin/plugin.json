@@ -1,6 +1,6 @@
 {
   "name": "moatless-admin",
-  "description": "Operational skills for running the Moatless platform — sandbox resource tuning, cluster right-sizing and daily health reporting.",
+  "description": "Operational skills for running the Moatless platform — administering its configuration, sandbox resource tuning, cluster right-sizing and daily health reporting.",
   "author": {
     "name": "Albert Örwall"
   },

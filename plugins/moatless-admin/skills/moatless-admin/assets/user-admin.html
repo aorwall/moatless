@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>User admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600&family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Layout: a count strip, then a directory ledger with a change slip beside it, and the request log below. */
+:root {
+  --paper: light-dark(#f3f5f4, #0f1312);
+  --sheet: light-dark(#ffffff, #171c1b);
+  --ink: light-dark(#18211f, #e3e9e7);
+  --quiet: light-dark(#5d6b67, #93a29e);
+  --rule: light-dark(#d9e0dd, #2a3331);
+  --edit: light-dark(#fff3d6, #3a2f12);
+  --signal: light-dark(#1f6f5c, #5cc7a8);
+  --ok: light-dark(#1d7a3e, #6bd690);
+  --warn: light-dark(#9a5b00, #f0b45a);
+  --bad: light-dark(#b0302a, #ff8a80);
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body: "Public Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 400 1rem/1.5 var(--body); }
+main { max-width: 1180px; margin: 0 auto; padding: 24px 16px 48px; display: grid; gap: 24px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 24px; }
+h1 { font: 600 1.9rem/1.1 var(--display); margin: 0; text-wrap: balance; }
+h2 { font: 600 1.15rem/1.2 var(--display); margin: 0; }
+.meta { color: var(--quiet); font: 400 .85rem var(--mono); }
+.notice { padding: 10px 14px; border-radius: var(--radius, 8px); background: var(--edit); }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; align-items: start; }
+@media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+.panel { background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--radius, 8px); padding: 16px; display: grid; gap: 12px; min-width: 0; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: .93rem; }
+th { text-align: left; font: 500 .72rem var(--body); text-transform: uppercase; letter-spacing: .06em; color: var(--quiet); padding: 6px 8px; border-bottom: 1px solid var(--rule); }
+td { padding: 4px 8px; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+tr.disabled td.login { color: var(--quiet); text-decoration: line-through; }
+td.login { font: 500 .88rem var(--mono); white-space: nowrap; }
+td.login small { display: block; font: 400 .72rem var(--mono); color: var(--quiet); text-decoration: none; }
+input, select, textarea, button { font: inherit; color: var(--ink); }
+input, select, textarea { width: 100%; min-width: 120px; background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 4px 6px; }
+input[type="email"] { min-width: 210px; }
+input:hover, select:hover { border-color: var(--rule); }
+input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--signal); outline-offset: 1px; }
+.changed { background: var(--edit); border-color: var(--warn); }
+textarea { border-color: var(--rule); min-height: 60px; resize: vertical; }
+button { cursor: pointer; border: 1px solid var(--signal); background: var(--signal); color: var(--sheet); border-radius: 6px; padding: 7px 14px; font-weight: 600; }
+button.ghost { background: transparent; color: var(--signal); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+ul.changes { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+ul.changes li { font-size: .9rem; display: grid; gap: 2px; }
+.who { font: 500 .85rem var(--mono); }
+.diff { color: var(--quiet); word-break: break-word; }
+.diff b { color: var(--ink); font-weight: 500; }
+.chip { display: inline-block; font: 500 .72rem var(--body); text-transform: uppercase; letter-spacing: .06em; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; }
+.s-waiting { color: var(--quiet); } .s-ready { color: var(--warn); } .s-approved { color: var(--signal); }
+.s-applied { color: var(--ok); } .s-rejected, .s-failed { color: var(--bad); } .s-partial { color: var(--warn); }
+.req { border-top: 1px solid var(--rule); padding-top: 12px; display: grid; gap: 8px; }
+.req:first-of-type { border-top: 0; padding-top: 0; }
+.mark-ok { color: var(--ok); } .mark-bad { color: var(--bad); }
+.empty { color: var(--quiet); }
+.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 0; }
+.summary div { display: grid; gap: 2px; padding: 10px 14px; border: 1px solid var(--rule); border-radius: var(--radius, 8px); background: var(--sheet); }
+.summary dt { order: 2; font: 500 .72rem var(--body); text-transform: uppercase; letter-spacing: .06em; color: var(--quiet); }
+.summary dd { order: 1; margin: 0; font: 600 1.5rem/1.1 var(--display); font-variant-numeric: tabular-nums; }
+td.seen { font: 400 .8rem var(--mono); color: var(--quiet); white-space: nowrap; font-variant-numeric: tabular-nums; }
+td.seen.stale { color: var(--warn); }
+#status { min-height: 1.5em; font-size: .9rem; }
+@media (prefers-reduced-motion: no-preference) { .changed { transition: background .15s; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>User admin</h1>
+    <span class="meta" id="meta"></span>
+  </header>
+  <dl class="summary" id="summary"></dl>
+  <p class="notice" id="nodata" hidden>Open this page from its Moatless link to request changes.</p>
+
+  <div class="layout">
+    <section class="panel">
+      <div class="row" style="justify-content:space-between">
+        <h2>Directory</h2>
+        <label class="row meta"><input type="checkbox" id="showDisabled" style="width:auto;min-width:0"> Show disabled</label>
+      </div>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Login</th><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Last sign-in</th></tr></thead>
+          <tbody id="users"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <h2>Your changes</h2>
+      <ul class="changes" id="pending"></ul>
+      <label for="note" class="meta">Note for the log (optional)</label>
+      <textarea id="note"></textarea>
+      <div class="row">
+        <button id="submit" disabled>Request changes</button>
+        <button id="reset" class="ghost" disabled>Discard</button>
+      </div>
+      <p id="status" role="status"></p>
+      <p class="meta">The agent checks each request against the live directory and shows you a plan. Nothing changes until you press Apply on that plan.</p>
+    </aside>
+  </div>
+
+  <section class="panel">
+    <h2>Requests</h2>
+    <div id="requests"><p class="empty">No requests yet.</p></div>
+  </section>
+</main>
+
+<script id="snapshot" type="application/json">__SNAPSHOT__</script>
+<script>
+const snapshot = JSON.parse(document.getElementById("snapshot").textContent);
+const api = window.moatless && window.moatless.artifact;
+const FIELDS = ["name", "email", "role", "status"];
+const OPTIONS = { role: ["user", "admin"], status: ["active", "disabled"] };
+const edits = new Map(); // `${userId}:${field}` -> new value
+const byId = new Map(snapshot.users.map(u => [u.id, u]));
+const $ = id => document.getElementById(id);
+const STALE_DAYS = 90;
+
+function renderSummary() {
+  const people = snapshot.users.filter(u => !u.isBot);
+  const active = people.filter(u => u.status === "active");
+  const cutoff = Date.parse(snapshot.takenAt) - STALE_DAYS * 864e5;
+  const counts = [
+    ["Active people", active.length],
+    ["Active admins", active.filter(u => u.role === "admin").length],
+    [`No sign-in in ${STALE_DAYS} d`, active.filter(u => !u.lastLoginAt || Date.parse(u.lastLoginAt) < cutoff).length],
+    ["Disabled", people.length - active.length],
+  ];
+  $("summary").replaceChildren(...counts.map(([label, n]) => {
+    const div = document.createElement("div");
+    const dt = document.createElement("dt");
+    dt.textContent = label;
+    const dd = document.createElement("dd");
+    dd.textContent = n;
+    div.append(dt, dd);
+    return div;
+  }));
+}
+
+$("meta").textContent = `Snapshot ${new Date(snapshot.takenAt).toLocaleString()}` + (api ? ` · signed in as ${api.viewer}` : "");
+if (!api) $("nodata").hidden = false;
+
+function loginCounts() {
+  const n = new Map();
+  for (const u of snapshot.users) n.set(u.login, (n.get(u.login) || 0) + 1);
+  return n;
+}
+
+function renderUsers() {
+  const show = $("showDisabled").checked;
+  const counts = loginCounts();
+  const tbody = $("users");
+  tbody.replaceChildren();
+  for (const u of snapshot.users) {
+    if (!show && u.status === "disabled" && !edits.has(`${u.id}:status`)) continue;
+    const tr = document.createElement("tr");
+    if (u.status === "disabled") tr.className = "disabled";
+    const login = document.createElement("td");
+    login.className = "login";
+    login.textContent = u.login;
+    const sub = document.createElement("small");
+    sub.textContent = counts.get(u.login) > 1 ? `${u.id.slice(0, 8)} · shared login` : (u.isBot ? "bot" : u.provider);
+    login.append(sub);
+    tr.append(login);
+    for (const field of FIELDS) {
+      const td = document.createElement("td");
+      const key = `${u.id}:${field}`;
+      let el;
+      if (OPTIONS[field]) {
+        el = document.createElement("select");
+        for (const o of OPTIONS[field]) el.add(new Option(o, o));
+      } else {
+        el = document.createElement("input");
+        el.type = field === "email" ? "email" : "text";
+      }
+      el.id = `f-${u.id}-${field}`;
+      el.setAttribute("aria-label", `${field} for ${u.login}`);
+      el.value = edits.has(key) ? (edits.get(key) ?? "") : (u[field] ?? "");
+      el.disabled = !api;
+      el.classList.toggle("changed", edits.has(key));
+      el.addEventListener("change", () => {
+        const original = u[field] ?? "";
+        if (el.value === original) edits.delete(key); else edits.set(key, el.value);
+        el.classList.toggle("changed", edits.has(key));
+        renderPending();
+      });
+      td.append(el);
+      tr.append(td);
+    }
+    const seen = document.createElement("td");
+    seen.className = "seen";
+    if (u.lastLoginAt) {
+      const days = Math.floor((Date.parse(snapshot.takenAt) - Date.parse(u.lastLoginAt)) / 864e5);
+      seen.textContent = days < 1 ? "today" : `${days} d ago`;
+      seen.title = new Date(u.lastLoginAt).toLocaleString();
+      seen.classList.toggle("stale", !u.isBot && days > STALE_DAYS);
+    } else {
+      seen.textContent = "never";
+      seen.classList.toggle("stale", !u.isBot);
+    }
+    tr.append(seen);
+    tbody.append(tr);
+  }
+}
+
+function describe(c) {
+  const li = document.createElement("li");
+  const who = document.createElement("span");
+  who.className = "who";
+  who.textContent = `${c.login} · ${c.field}`;
+  const diff = document.createElement("span");
+  diff.className = "diff";
+  const to = document.createElement("b");
+  to.textContent = c.to === null || c.to === "" ? "(empty)" : c.to;
+  diff.append(`${c.from === null || c.from === "" ? "(empty)" : c.from} → `, to);
+  li.append(who, diff);
+  return li;
+}
+
+function pendingChanges() {
+  return [...edits].map(([key, to]) => {
+    const [userId, field] = key.split(":");
+    const u = byId.get(userId);
+    return { userId, login: u.login, field, from: u[field] ?? null, to };
+  });
+}
+
+function renderPending() {
+  const list = $("pending");
+  list.replaceChildren();
+  const changes = pendingChanges();
+  if (!changes.length) {
+    const li = document.createElement("li");
+    li.className = "empty";
+    li.textContent = "Edit a cell in the directory to start a request.";
+    list.append(li);
+  }
+  for (const c of changes) list.append(describe(c));
+  $("submit").disabled = !api || !changes.length;
+  $("reset").disabled = !changes.length;
+}
+
+$("showDisabled").addEventListener("change", renderUsers);
+$("reset").addEventListener("click", () => { edits.clear(); renderUsers(); renderPending(); $("status").textContent = ""; });
+$("submit").addEventListener("click", async () => {
+  $("submit").disabled = true;
+  try {
+    await api.append("requests", { changes: pendingChanges(), note: $("note").value, snapshotAt: snapshot.takenAt });
+    edits.clear();
+    $("note").value = "";
+    renderUsers(); renderPending();
+    $("status").textContent = "Sent. The agent's plan appears under Requests.";
+  } catch (error) {
+    $("status").textContent = `Not sent: ${failure(error)}`;
+    $("submit").disabled = false;
+  }
+});
+
+function stateOf(r) {
+  if (r.result) return r.result.data.status;
+  if (r.approval) return "approved";
+  if (r.plan) return r.plan.data.status;
+  return "waiting";
+}
+const LABEL = { waiting: "Waiting for agent", ready: "Plan ready", approved: "Applying", applied: "Applied", partial: "Partly applied", failed: "Failed", rejected: "Rejected" };
+
+function renderRequests(records) {
+  const reqs = new Map();
+  for (const rec of records) {
+    const [kind, id] = rec.key.split("/");
+    if (!id) continue;
+    if (!reqs.has(id)) reqs.set(id, { id });
+    const slot = { requests: "request", plans: "plan", approvals: "approval", results: "result" }[kind];
+    if (slot) reqs.get(id)[slot] = rec;
+  }
+  const items = [...reqs.values()].filter(r => r.request).sort((a, b) => b.request.createdAt.localeCompare(a.request.createdAt));
+  const box = $("requests");
+  box.replaceChildren();
+  if (!items.length) { box.innerHTML = '<p class="empty">No requests yet.</p>'; return; }
+  for (const r of items) {
+    const state = stateOf(r);
+    const div = document.createElement("div");
+    div.className = "req";
+    const head = document.createElement("div");
+    head.className = "row";
+    const chip = document.createElement("span");
+    chip.className = `chip s-${state}`;
+    chip.textContent = LABEL[state] || state;
+    const when = document.createElement("span");
+    when.className = "meta";
+    const by = byIdLogin(r.request.submittedBy);
+    when.textContent = `${new Date(r.request.createdAt).toLocaleString()} · ${by}`;
+    head.append(chip, when);
+    div.append(head);
+    const verdict = (r.result || r.plan);
+    if (verdict && verdict.data.reason) {
+      const p = document.createElement("p");
+      p.className = "mark-bad";
+      p.style.margin = "0";
+      p.textContent = verdict.data.reason;
+      div.append(p);
+    }
+    const ul = document.createElement("ul");
+    ul.className = "changes";
+    const changes = verdict ? verdict.data.changes : r.request.data.changes;
+    for (const c of changes || []) {
+      const li = describe(c);
+      if (verdict && c.reason) {
+        const why = document.createElement("span");
+        why.className = c.ok ? "mark-ok" : "mark-bad";
+        why.textContent = c.ok ? (c.reason === "applied" ? "✓ applied" : "✓ will apply") : `✗ ${c.reason}`;
+        li.append(why);
+      } else if (verdict && c.ok) {
+        const why = document.createElement("span");
+        why.className = "mark-ok";
+        why.textContent = "✓ will apply";
+        li.append(why);
+      }
+      ul.append(li);
+    }
+    div.append(ul);
+    if (state === "ready" && api) {
+      const row = document.createElement("div");
+      row.className = "row";
+      const apply = document.createElement("button");
+      apply.id = `apply-${r.id}`;
+      apply.textContent = "Apply";
+      const msg = document.createElement("span");
+      msg.className = "meta";
+      apply.addEventListener("click", async () => {
+        apply.disabled = true;
+        try { await api.save(`approvals/${r.id}`, { approve: true }); msg.textContent = "Approved. The agent is applying it."; }
+        catch (error) { msg.textContent = `Not approved: ${failure(error)}`; apply.disabled = false; }
+      });
+      row.append(apply, msg);
+      div.append(row);
+    }
+    box.append(div);
+  }
+}
+
+function byIdLogin(id) {
+  const u = byId.get(id);
+  return u ? u.login : (id || "unknown");
+}
+
+function failure(error) {
+  return error.code === "permission-denied" ? `you may not write under ${error.prefix}` : error.message;
+}
+
+renderSummary();
+renderUsers();
+renderPending();
+if (api) api.subscribe({
+  onError: code => { $("status").textContent = code === "unauthenticated" ? "This page has been open too long. Reload it to see new requests." : `Live updates stopped: ${code}`; },
+}, renderRequests);
+</script>
+</body>
+</html>
