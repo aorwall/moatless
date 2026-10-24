@@ -135,6 +135,7 @@ moat artifact publish scratchpad/review.html --title "API naming review" --data 
 | `await moatless.artifact.delete("comments/<id>")` | Removes the record and returns it as it was |
 | `await moatless.artifact.get("state")` | The record under a key, or `null` |
 | `await moatless.artifact.list({ prefix, since })` | Records whose keys start with `prefix`, changed after `since`, oldest change first |
+| `moatless.artifact.subscribe({ prefix, onError }, onChange)` | Calls `onChange(records)` with the records under `prefix` now and after every change anyone makes, yours included; returns a function that stops it |
 | `moatless.artifact.viewer` | The reader's login |
 | `moatless.artifact.viewerId` | The reader's user id, what `submittedBy` holds |
 | `moatless.artifact.rules` | The page's record rules, or `null` |
@@ -159,6 +160,13 @@ Pick the call by what readers do:
 - **Shared state everyone edits: `save` under one fixed key.**
 
   The later save wins, so keep such state small.
+
+Use `subscribe` rather than polling `list` when the page shows what other
+readers or you write, such as a queue of requests or a plan you are filling
+in. It pushes each change within about a second, from any reader, and falls
+back to polling every 5 seconds when the page cannot hold its socket open.
+`onError` hears why it stopped, such as `"unauthenticated"` once the page has
+been open for 12 hours, after which the reader reloads the page.
 
 Without rules, records are shared by every reader of the page: `list`
 returns each reader's records with their user id, and any reader can replace
@@ -262,7 +270,8 @@ delete it quotes what the record held.
    There is no channel back to the reader's browser. Write a record the page
    reads, such as `moat artifact data save <slug> reply '{"text":"Renamed to fetchUser"}'`
    or `moat artifact data append <slug> comments '{"text":"Done"}'`, or
-   publish a new version that shows the outcome.
+   publish a new version that shows the outcome. A page that calls
+   `subscribe` shows the record without a reload.
 
 Several writes made during one of your turns arrive together as the next
 turn.

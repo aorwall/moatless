@@ -132,13 +132,16 @@ pub async fn list_for_page(
     let rows = list_rows(artifacts, &row.artifact_id, filter).await?;
     Ok(rows
         .iter()
-        .filter(|record| {
-            row.record_rules
-                .as_ref()
-                .is_none_or(|rules| rules.can_read(record, &claims.sub))
-        })
+        .filter(|record| readable_by(&row, record, &claims.sub))
         .map(to_response)
         .collect())
+}
+
+/// Whether `row`'s record rules let a page of `viewer` read `record`.
+pub(super) fn readable_by(row: &Artifact, record: &ArtifactRecord, viewer: &str) -> bool {
+    row.record_rules
+        .as_ref()
+        .is_none_or(|rules| rules.can_read(record, viewer))
 }
 
 async fn list_rows(
@@ -463,7 +466,7 @@ fn notice_text(row: &Artifact, written: &Written) -> String {
     )
 }
 
-fn to_response(record: &ArtifactRecord) -> ArtifactRecordResponse {
+pub(super) fn to_response(record: &ArtifactRecord) -> ArtifactRecordResponse {
     ArtifactRecordResponse {
         artifact_id: record.artifact_id.clone(),
         key: record.key.clone(),

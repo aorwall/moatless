@@ -54,12 +54,22 @@ where
             record_handlers::write_page_record,
             record_handlers::list_page_records
         ))
-        .with_state(state)
+        .with_state(state.clone())
         .split_for_parts();
-    let router = router.route(
-        super::page_token::PAGE_RECORDS_ROUTE,
-        axum::routing::options(record_handlers::page_records_preflight),
-    );
+    // No OpenAPI path for the socket: utoipa has no WebSocket operation, and
+    // its frames are described in `record_socket`.
+    let socket = axum::Router::new()
+        .route(
+            super::record_socket::PAGE_SOCKET_ROUTE,
+            axum::routing::get(super::record_socket::page_socket),
+        )
+        .with_state(state);
+    let router = router
+        .route(
+            super::page_token::PAGE_RECORDS_ROUTE,
+            axum::routing::options(record_handlers::page_records_preflight),
+        )
+        .merge(socket);
 
     (router, api)
 }

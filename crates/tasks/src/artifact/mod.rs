@@ -9,6 +9,8 @@ pub mod models;
 pub mod operations;
 pub mod page_token;
 pub mod record_handlers;
+pub mod record_socket;
+mod record_watch;
 pub mod records;
 pub mod routes;
 pub mod rules;

@@ -8,9 +8,13 @@ use moatless_s3::S3Storage;
 use moatless_types::activity::ArtifactShown;
 use moatless_types::task::Visibility;
 
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
+
 use super::dao::ArtifactDao;
 use super::error::ArtifactError;
 use super::models::{Artifact, ArtifactRecord, DataAccess, Reservation};
+use super::record_watch::RecordWatch;
 use moatless_api_schemas::artifact::RecordWriter;
 
 /// Content type a page is stored and served with, whatever the upload claimed.
@@ -31,6 +35,7 @@ pub struct Artifacts {
     /// Signs page tokens; `None` serves every page without one, so no page can
     /// save records.
     signing_key: Option<String>,
+    record_watch: RecordWatch,
 }
 
 impl Artifacts {
@@ -47,6 +52,7 @@ impl Artifacts {
             s3_config,
             public_url: public_url.trim_end_matches('/').to_string(),
             signing_key,
+            record_watch: RecordWatch::default(),
         }
     }
 
@@ -278,5 +284,46 @@ impl Artifacts {
         self.store
             .list_records(artifact_id, since, prefix.map(str::to_string))
             .await
+    }
+
+    /// See [`ArtifactDao::find_records`].
+    pub(crate) async fn find_records(
+        &self,
+        artifact_id: &str,
+        keys: &[String],
+    ) -> Result<Vec<ArtifactRecord>, sqlx::Error> {
+        self.store.find_records(artifact_id, keys).await
+    }
+
+    /// The Artifact's `record_seq`; see [`ArtifactDao::record_heads`].
+    pub(crate) async fn record_head(&self, artifact_id: &str) -> Result<i64, sqlx::Error> {
+        let heads = self.store.record_heads(&[artifact_id.to_string()]).await?;
+        Ok(heads.first().map_or(0, |(_, seq)| *seq))
+    }
+
+    /// See [`ArtifactDao::record_changes`].
+    pub(crate) async fn record_changes(
+        &self,
+        artifact_id: &str,
+        after: i64,
+    ) -> Result<(i64, Vec<(i64, String)>), sqlx::Error> {
+        self.store.record_changes(artifact_id, after).await
+    }
+
+    /// This replica's watch on the `record_seq` of the Artifacts pages here
+    /// are subscribed to.
+    pub(crate) fn record_watch(&self) -> &RecordWatch {
+        &self.record_watch
+    }
+
+    /// Keep [`Self::record_watch`] current until `cancel`.
+    pub fn spawn_record_watch(self: &Arc<Self>, cancel: CancellationToken) -> JoinHandle<()> {
+        let artifacts = Arc::clone(self);
+        tokio::spawn(async move {
+            artifacts
+                .record_watch
+                .run(artifacts.store.as_ref(), cancel)
+                .await;
+        })
     }
 }

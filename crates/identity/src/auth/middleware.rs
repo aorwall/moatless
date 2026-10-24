@@ -106,10 +106,11 @@ fn is_exempt(path: &str) -> bool {
         return true;
     }
 
-    // An Artifact page's record routes. Not public: the path segment is a
-    // page token naming the reader and Artifact, verified before any read
-    // (`moatless_tasks::artifact::page_token`). The page runs in an opaque
-    // origin and sends no cookie, so the token is its only credential.
+    // An Artifact page's record routes and record socket. Not public: the
+    // path segment is a page token naming the reader and Artifact, verified
+    // before any read (`moatless_tasks::artifact::page_token`). The page runs
+    // in an opaque origin and sends no cookie, so the token is its only
+    // credential.
     if path.starts_with("/api/artifact-data/") {
         return true;
     }

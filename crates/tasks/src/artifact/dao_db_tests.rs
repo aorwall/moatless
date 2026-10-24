@@ -2,7 +2,7 @@
 
 use sqlx::PgPool;
 
-use super::{ArtifactDao, PgArtifactDao};
+use super::{ArtifactDao, KEPT_CHANGES, PgArtifactDao};
 use crate::artifact::models::DataAccess;
 use crate::message::dao::{MessageDao, PgMessageDao};
 use crate::task::test_support::seed_bare_task;
@@ -502,4 +502,85 @@ async fn a_conditional_write_keeps_the_owner_and_misses_a_record_that_changed(po
         .unwrap()
         .expect("deleted");
     assert_eq!(deleted.data, serde_json::json!({"n": 2}));
+}
+
+#[sqlx::test]
+async fn every_record_write_is_logged_in_order_and_the_log_keeps_the_latest(pool: PgPool) {
+    seed_bare_task(&pool, "task-1", "open").await;
+    let dao = PgArtifactDao(pool.clone());
+    reserve(&dao, "art-a", "report", "Report").await;
+    let saved = dao
+        .save_record(
+            "art-a",
+            "a",
+            &serde_json::json!({}),
+            "user-1",
+            RecordWriter::Page,
+        )
+        .await
+        .unwrap();
+    dao.insert_record(
+        "art-a",
+        "b",
+        &serde_json::json!({}),
+        "user-1",
+        RecordWriter::Page,
+    )
+    .await
+    .unwrap();
+    dao.update_record("art-a", "a", &serde_json::json!({"n": 1}), saved.updated_at)
+        .await
+        .unwrap();
+    dao.delete_record("art-a", "b").await.unwrap();
+    let unchanged = dao
+        .insert_record(
+            "art-a",
+            "a",
+            &serde_json::json!({}),
+            "user-2",
+            RecordWriter::Page,
+        )
+        .await
+        .unwrap();
+    assert!(unchanged.is_none());
+    dao.delete_record("art-a", "never-saved").await.unwrap();
+
+    let (head, changes) = dao.record_changes("art-a", 1).await.unwrap();
+    assert_eq!(head, 4);
+    assert_eq!(
+        changes,
+        vec![
+            (2, "b".to_string()),
+            (3, "a".to_string()),
+            (4, "b".to_string())
+        ]
+    );
+    assert_eq!(
+        dao.record_heads(&["art-a".to_string(), "missing".to_string()])
+            .await
+            .unwrap(),
+        vec![("art-a".to_string(), 4)]
+    );
+    let current = dao
+        .find_records("art-a", &["a".to_string(), "b".to_string()])
+        .await
+        .unwrap();
+    assert_eq!(current.len(), 1);
+    assert_eq!(current[0].data, serde_json::json!({"n": 1}));
+
+    for _ in 0..KEPT_CHANGES {
+        dao.save_record(
+            "art-a",
+            "a",
+            &serde_json::json!({}),
+            "user-1",
+            RecordWriter::Page,
+        )
+        .await
+        .unwrap();
+    }
+    let (head, changes) = dao.record_changes("art-a", 0).await.unwrap();
+    assert_eq!(head, 4 + KEPT_CHANGES);
+    assert_eq!(changes.len(), usize::try_from(KEPT_CHANGES).unwrap());
+    assert_eq!(changes[0].0, 5);
 }

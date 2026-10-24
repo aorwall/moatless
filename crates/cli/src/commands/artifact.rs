@@ -179,6 +179,8 @@ under a key; keys are `/`-separated, so a list is the keys under one prefix:
   await moatless.artifact.delete(\"comments/<id>\") remove a record
   await moatless.artifact.get(\"state\")            the record under a key, or null
   await moatless.artifact.list({prefix, since})   records, oldest change first
+  moatless.artifact.subscribe({prefix}, onChange) calls onChange(records) on
+                                                  every change; returns stop()
   moatless.artifact.viewer                        the reader's login
   moatless.artifact.viewerId                      the reader's user id
 Records are JSON of at most 64 KiB, at most 10000 per artifact, and survive

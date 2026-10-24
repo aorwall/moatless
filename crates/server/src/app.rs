@@ -427,6 +427,16 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             );
         }
 
+        // The record heads every Artifact page socket on this replica waits on.
+        supervisor.supervise(
+            "artifact-record-watch",
+            // Optional: without it a socket still rereads the change log on its
+            // 15 s access recheck, so a page updates late rather than never.
+            // Shedding traffic over it would be the larger outage.
+            Criticality::Optional,
+            app_state.artifacts.spawn_record_watch(cancel.clone()),
+        );
+
         // The Task listing feed's retention. `task_listing_changes` is written
         // by Task mutations whether or not the T3 compatibility module is
         // enabled, so this is not gated on it. What it deletes is what

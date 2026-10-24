@@ -108,6 +108,56 @@ pub trait ArtifactDao: Send + Sync {
         since: Option<chrono::DateTime<chrono::Utc>>,
         prefix: Option<String>,
     ) -> Result<Vec<ArtifactRecord>, sqlx::Error>;
+    /// The records under `keys`; a key with no record is left out.
+    async fn find_records(
+        &self,
+        artifact_id: &str,
+        keys: &[String],
+    ) -> Result<Vec<ArtifactRecord>, sqlx::Error>;
+    /// Each listed Artifact's `record_seq`, the count of record writes so far.
+    async fn record_heads(
+        &self,
+        artifact_ids: &[String],
+    ) -> Result<Vec<(String, i64)>, sqlx::Error>;
+    /// The Artifact's `record_seq`, and the `(seq, key)` of each logged change
+    /// after `after` up to it, oldest first. A change pruned from the log is
+    /// missing, so the first `seq` is past `after + 1`.
+    async fn record_changes(
+        &self,
+        artifact_id: &str,
+        after: i64,
+    ) -> Result<(i64, Vec<(i64, String)>), sqlx::Error>;
+}
+
+/// How many changes per Artifact `artifact_record_changes` keeps.
+const KEPT_CHANGES: i64 = 1000;
+
+/// Log a record write to `key`. Call it first in the write's transaction: the
+/// row lock it takes on `task_artifacts` orders `seq` by commit, and taking it
+/// before the record's lock matches the order a cascading delete takes them.
+/// A write that changes no record drops its transaction, so it logs nothing.
+async fn log_change(
+    conn: &mut PgConnection,
+    artifact_id: &str,
+    key: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"WITH bumped AS (
+               UPDATE task_artifacts SET record_seq = record_seq + 1
+               WHERE artifact_id = $1 RETURNING record_seq
+           ), logged AS (
+               INSERT INTO artifact_record_changes (artifact_id, seq, key)
+               SELECT $1, record_seq, $2 FROM bumped RETURNING seq
+           )
+           DELETE FROM artifact_record_changes
+           WHERE artifact_id = $1 AND seq <= (SELECT seq FROM logged) - $3"#,
+    )
+    .bind(artifact_id)
+    .bind(key)
+    .bind(KEPT_CHANGES)
+    .execute(conn)
+    .await?;
+    Ok(())
 }
 
 /// PostgreSQL implementation of [`ArtifactDao`].
@@ -211,7 +261,9 @@ impl ArtifactDao for PgArtifactDao {
         submitted_by: &str,
         writer: RecordWriter,
     ) -> Result<ArtifactRecord, sqlx::Error> {
-        sqlx::query_as::<_, ArtifactRecord>(
+        let mut tx = self.0.begin().await?;
+        log_change(&mut tx, artifact_id, key).await?;
+        let record = sqlx::query_as::<_, ArtifactRecord>(
             r#"INSERT INTO artifact_records (artifact_id, key, data, submitted_by, writer)
                VALUES ($1, $2, $3, $4, $5)
                ON CONFLICT (artifact_id, key)
@@ -226,8 +278,10 @@ impl ArtifactDao for PgArtifactDao {
         .bind(data)
         .bind(submitted_by)
         .bind(writer.as_str())
-        .fetch_one(&self.0)
-        .await
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(record)
     }
 
     async fn insert_record(
@@ -238,7 +292,9 @@ impl ArtifactDao for PgArtifactDao {
         submitted_by: &str,
         writer: RecordWriter,
     ) -> Result<Option<ArtifactRecord>, sqlx::Error> {
-        sqlx::query_as::<_, ArtifactRecord>(
+        let mut tx = self.0.begin().await?;
+        log_change(&mut tx, artifact_id, key).await?;
+        let record = sqlx::query_as::<_, ArtifactRecord>(
             r#"INSERT INTO artifact_records (artifact_id, key, data, submitted_by, writer)
                VALUES ($1, $2, $3, $4, $5)
                ON CONFLICT (artifact_id, key) DO NOTHING
@@ -249,8 +305,12 @@ impl ArtifactDao for PgArtifactDao {
         .bind(data)
         .bind(submitted_by)
         .bind(writer.as_str())
-        .fetch_optional(&self.0)
-        .await
+        .fetch_optional(&mut *tx)
+        .await?;
+        if record.is_some() {
+            tx.commit().await?;
+        }
+        Ok(record)
     }
 
     async fn update_record(
@@ -260,10 +320,12 @@ impl ArtifactDao for PgArtifactDao {
         data: &serde_json::Value,
         stored_at: chrono::DateTime<chrono::Utc>,
     ) -> Result<Option<ArtifactRecord>, sqlx::Error> {
+        let mut tx = self.0.begin().await?;
+        log_change(&mut tx, artifact_id, key).await?;
         // Strictly later than the `updated_at` it replaces, so two updates
         // whose transactions started in the same microsecond cannot both
         // match one `stored_at`.
-        sqlx::query_as::<_, ArtifactRecord>(
+        let record = sqlx::query_as::<_, ArtifactRecord>(
             r#"UPDATE artifact_records
                SET data = $3,
                    updated_at = GREATEST(clock_timestamp(), updated_at + interval '1 microsecond')
@@ -274,8 +336,12 @@ impl ArtifactDao for PgArtifactDao {
         .bind(key)
         .bind(data)
         .bind(stored_at)
-        .fetch_optional(&self.0)
-        .await
+        .fetch_optional(&mut *tx)
+        .await?;
+        if record.is_some() {
+            tx.commit().await?;
+        }
+        Ok(record)
     }
 
     async fn delete_record_at(
@@ -284,7 +350,9 @@ impl ArtifactDao for PgArtifactDao {
         key: &str,
         stored_at: chrono::DateTime<chrono::Utc>,
     ) -> Result<Option<ArtifactRecord>, sqlx::Error> {
-        sqlx::query_as::<_, ArtifactRecord>(
+        let mut tx = self.0.begin().await?;
+        log_change(&mut tx, artifact_id, key).await?;
+        let record = sqlx::query_as::<_, ArtifactRecord>(
             r#"DELETE FROM artifact_records
                WHERE artifact_id = $1 AND key = $2 AND updated_at = $3
                RETURNING *"#,
@@ -292,8 +360,12 @@ impl ArtifactDao for PgArtifactDao {
         .bind(artifact_id)
         .bind(key)
         .bind(stored_at)
-        .fetch_optional(&self.0)
-        .await
+        .fetch_optional(&mut *tx)
+        .await?;
+        if record.is_some() {
+            tx.commit().await?;
+        }
+        Ok(record)
     }
 
     async fn find_record(
@@ -330,13 +402,19 @@ impl ArtifactDao for PgArtifactDao {
         artifact_id: &str,
         key: &str,
     ) -> Result<Option<ArtifactRecord>, sqlx::Error> {
-        sqlx::query_as::<_, ArtifactRecord>(
+        let mut tx = self.0.begin().await?;
+        log_change(&mut tx, artifact_id, key).await?;
+        let record = sqlx::query_as::<_, ArtifactRecord>(
             "DELETE FROM artifact_records WHERE artifact_id = $1 AND key = $2 RETURNING *",
         )
         .bind(artifact_id)
         .bind(key)
-        .fetch_optional(&self.0)
-        .await
+        .fetch_optional(&mut *tx)
+        .await?;
+        if record.is_some() {
+            tx.commit().await?;
+        }
+        Ok(record)
     }
 
     async fn list_records(
@@ -356,6 +434,58 @@ impl ArtifactDao for PgArtifactDao {
         .bind(prefix)
         .fetch_all(&self.0)
         .await
+    }
+
+    async fn find_records(
+        &self,
+        artifact_id: &str,
+        keys: &[String],
+    ) -> Result<Vec<ArtifactRecord>, sqlx::Error> {
+        sqlx::query_as::<_, ArtifactRecord>(
+            "SELECT * FROM artifact_records WHERE artifact_id = $1 AND key = ANY($2)",
+        )
+        .bind(artifact_id)
+        .bind(keys)
+        .fetch_all(&self.0)
+        .await
+    }
+
+    async fn record_heads(
+        &self,
+        artifact_ids: &[String],
+    ) -> Result<Vec<(String, i64)>, sqlx::Error> {
+        sqlx::query_as::<_, (String, i64)>(
+            "SELECT artifact_id, record_seq FROM task_artifacts WHERE artifact_id = ANY($1)",
+        )
+        .bind(artifact_ids)
+        .fetch_all(&self.0)
+        .await
+    }
+
+    async fn record_changes(
+        &self,
+        artifact_id: &str,
+        after: i64,
+    ) -> Result<(i64, Vec<(i64, String)>), sqlx::Error> {
+        let head: Option<i64> =
+            sqlx::query_scalar("SELECT record_seq FROM task_artifacts WHERE artifact_id = $1")
+                .bind(artifact_id)
+                .fetch_optional(&self.0)
+                .await?;
+        let head = head.unwrap_or_default();
+        // Bounded by `head` so the caller's gap check compares a head and a
+        // log read as of the same write.
+        let changes = sqlx::query_as::<_, (i64, String)>(
+            r#"SELECT seq, key FROM artifact_record_changes
+               WHERE artifact_id = $1 AND seq > $2 AND seq <= $3
+               ORDER BY seq"#,
+        )
+        .bind(artifact_id)
+        .bind(after)
+        .bind(head)
+        .fetch_all(&self.0)
+        .await?;
+        Ok((head, changes))
     }
 }
 
