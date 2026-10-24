@@ -471,8 +471,8 @@ impl GitSyncService {
                     repository_id = %repo.id,
                     source_config_path = ".moatless/workspaces.json",
                     path = %warning.path,
-                    message = %warning.message,
-                    "Ignoring skill name in git-declared workspace config"
+                    reason = %warning.message,
+                    "Skill name in git-declared workspace config needs attention"
                 );
             }
             let placements = self.resolve_placements(repo, &entry.repos).await?;
