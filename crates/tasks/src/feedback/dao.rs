@@ -237,7 +237,7 @@ impl FeedbackDao for PgFeedbackDao {
                         status_updated_at: self.status_updated_at,
                     },
                     task_title,
-                    repository_id: self.repository_id?,
+                    repository_id: self.repository_id,
                     // Left for the handler to fill in: `repositories` is owned
                     // by `crates/workspaces`, so this DAO cannot join it.
                     repository_name: None,

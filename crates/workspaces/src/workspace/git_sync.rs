@@ -90,9 +90,13 @@ pub struct MoatlessWorkspaceEntry {
     /// A value rather than [`WorkspaceIcon`]: a malformed icon becomes a
     /// warning instead of failing the whole file.
     pub icon: Option<serde_json::Value>,
-    /// Empty places the declaring repository alone.
+    /// Empty places the declaring repository alone, unless
+    /// [`Self::place_repository`] is `false`.
     #[serde(default)]
     pub repos: Vec<MoatlessWorkspaceRepoRef>,
+    /// `false` places no repository, so its Tasks start with nothing cloned.
+    /// Honoured only by [`places_no_repository`].
+    pub place_repository: Option<bool>,
     // --- Task defaults ---
     pub default_model: Option<String>,
     pub default_effort: Option<String>,
@@ -135,6 +139,16 @@ pub struct MoatlessWorkspaceRepoRef {
 pub const DEFAULT_WORKSPACE_KEY: &str = "default";
 
 const WORKSPACES_PATH: &str = ".moatless/workspaces.json";
+
+/// What the sync says about a `placeRepository: false` it did not honour.
+const KEPT_PLACEMENT: &str =
+    "ignored: only an entry other than `default`, with no `repos`, can place no repository";
+
+/// Whether `entry` places no repository at all: `placeRepository: false` on an
+/// entry with no `repos` that is not the repository's `default` Workspace.
+fn places_no_repository(entry: &MoatlessWorkspaceEntry, is_default: bool) -> bool {
+    entry.place_repository == Some(false) && entry.repos.is_empty() && !is_default
+}
 
 /// What the sync says about a key it read but did not apply.
 const UNKNOWN_KEY: &str = "unknown key, ignored: nothing in the sandbox reads it";
@@ -567,7 +581,19 @@ impl GitSyncService {
             }
             None => None,
         };
-        let placements = if entry.repos.is_empty() {
+        let places_nothing = places_no_repository(entry, is_default);
+        if entry.place_repository == Some(false) && !places_nothing {
+            summary.warnings.push(WorkspaceSyncWarning {
+                path: match index {
+                    Some(i) => format!("workspaces[{i}].placeRepository"),
+                    None => "placeRepository".to_string(),
+                },
+                message: KEPT_PLACEMENT.to_string(),
+            });
+        }
+        let placements = if places_nothing {
+            Vec::new()
+        } else if entry.repos.is_empty() {
             vec![ResolvedPlacement {
                 repository_id: repo.id.clone(),
                 branch: None,

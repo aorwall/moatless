@@ -216,39 +216,6 @@ fn the_periodic_loop_runs_only_without_a_durable_volume() {
     assert!(!is_periodic_enabled(&sync_config(dir, false, false)));
 }
 
-#[tokio::test]
-async fn a_committed_repo_is_usable() {
-    let tmp = tempfile::tempdir().unwrap();
-    let repo = tmp.path().join("repo");
-    init_repo(&repo);
-    std::fs::write(repo.join("a.txt"), "hello").unwrap();
-    git_add(&repo, &["a.txt"]);
-    git_commit(&repo, "init");
-
-    assert!(primary_repo_is_usable(&repo).await);
-}
-
-#[tokio::test]
-async fn an_empty_or_broken_repo_is_not_usable() {
-    let tmp = tempfile::tempdir().unwrap();
-
-    // Nothing there at all — a freshly created PVC.
-    let missing = tmp.path().join("missing");
-    assert!(!primary_repo_is_usable(&missing).await);
-
-    // A directory with files but no `.git` — a half-extracted tar.
-    let no_git = tmp.path().join("no-git");
-    std::fs::create_dir_all(&no_git).unwrap();
-    std::fs::write(no_git.join("a.txt"), "hello").unwrap();
-    assert!(!primary_repo_is_usable(&no_git).await);
-
-    // A `.git` that exists but cannot answer `rev-parse HEAD` — an init'd
-    // repo with no commit, or one corrupted by a kill mid-write.
-    let no_head = tmp.path().join("no-head");
-    init_repo(&no_head);
-    assert!(!primary_repo_is_usable(&no_head).await);
-}
-
 /// The overlay is owed only when nothing authoritative is already in place.
 ///
 /// A durable volume we chose to keep must suppress it exactly like a
@@ -990,6 +957,7 @@ async fn a_restored_snapshot_reintroduces_a_lock_for_the_sweep_to_clear() {
         ws.clone(),
         repo_dir.clone(),
         "soap-tm".to_string(),
+        false,
     )
     .await
     .unwrap();
@@ -1162,6 +1130,7 @@ async fn an_uncompressed_archive_still_restores() {
         ws.clone(),
         repo_dir.clone(),
         "primary".to_string(),
+        false,
     )
     .await
     .unwrap();
@@ -1277,9 +1246,15 @@ async fn snapshot_captures_all_data_and_honors_repo_gitignore() {
     // repo's subdir name.
     let dst = tmp.path().join("restored-ws");
     tokio::fs::create_dir_all(&dst).await.unwrap();
-    let restored = extract_workspace(tar, dst.clone(), dst.join("soap-tm"), "soap-tm".to_string())
-        .await
-        .unwrap();
+    let restored = extract_workspace(
+        tar,
+        dst.clone(),
+        dst.join("soap-tm"),
+        "soap-tm".to_string(),
+        false,
+    )
+    .await
+    .unwrap();
     assert!(restored, "primary repo present → skip clone");
 
     assert!(dst.join("soap-tm").join("main.rs").exists());
@@ -1324,6 +1299,7 @@ async fn a_committed_symlink_survives_a_snapshot_round_trip() {
         dst.clone(),
         dst.join("moatless"),
         "moatless".to_string(),
+        false,
     )
     .await
     .unwrap();
@@ -1371,6 +1347,7 @@ async fn repo_relative_archive_restores_to_repo_dir() {
         ws.clone(),
         repo_dir.clone(),
         "soap-tm".to_string(),
+        false,
     )
     .await
     .unwrap();
@@ -1404,6 +1381,7 @@ async fn working_tree_only_archive_is_declined() {
         ws.clone(),
         repo_dir.clone(),
         "soap-tm".to_string(),
+        false,
     )
     .await
     .unwrap();
@@ -1567,7 +1545,7 @@ async fn a_clone_stopped_before_its_fetch_is_stored_by_no_upload() {
 
     let dst = tmp.path().join("restored");
     std::fs::create_dir_all(&dst).unwrap();
-    let restored = extract_workspace(tar, dst.clone(), dst.join("app"), "app".to_string())
+    let restored = extract_workspace(tar, dst.clone(), dst.join("app"), "app".to_string(), false)
         .await
         .unwrap();
     assert!(restored);

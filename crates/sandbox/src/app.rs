@@ -345,6 +345,7 @@ fn spawn_git_push_watcher(state: &SandboxState, registrar: &crate::supervisor::R
     let watcher_task = crate::git_push_watcher::spawn(
         state.config.task_id.clone(),
         state.config.repo_dirs(),
+        state.config.workspace_dir.clone(),
         state.config.backend_api_url.clone(),
         std::sync::Arc::clone(&state.backend_client),
         state.lifecycle_cancel.clone(),

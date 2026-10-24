@@ -201,15 +201,22 @@ impl RealPreflight {
     }
 
     /// Both checks, cheapest first, in the rich error type.
-    async fn check(&self, task: &Task, repo: &Repository) -> Result<(), PreflightError> {
+    async fn check(&self, task: &Task, repo: Option<&Repository>) -> Result<(), PreflightError> {
         preflight_validate_task_control(self.creds.users.as_ref(), task).await?;
+        let Some(repo) = repo else {
+            return Ok(());
+        };
         preflight_validate_git_credential(&self.creds, task, repo, self.validator.as_ref()).await
     }
 }
 
 #[async_trait]
 impl PreflightPort for RealPreflight {
-    async fn validate(&self, task: &Task, repo: &Repository) -> Result<(), PreflightRejection> {
+    async fn validate<'a>(
+        &self,
+        task: &Task,
+        repo: Option<&'a Repository>,
+    ) -> Result<(), PreflightRejection> {
         self.check(task, repo)
             .await
             .map_err(|e| PreflightRejection {
@@ -444,7 +451,7 @@ mod tests {
             created_at: chrono::Utc::now(),
             last_message_at: chrono::Utc::now(),
             agent_profile: moatless_types::agent::AgentProfile::ClaudeCode,
-            repository_id: "r".to_string(),
+            repository_id: Some("r".to_string()),
             status: moatless_types::task::TaskStatus::Open,
             total_cost_usd: 0.0,
             site_url: None,

@@ -174,7 +174,7 @@ pub async fn list_all_feedback(
 
     let repo_ids: Vec<String> = rows
         .iter()
-        .map(|r| r.repository_id.clone())
+        .filter_map(|r| r.repository_id.clone())
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .collect();
@@ -218,7 +218,11 @@ fn to_list_item(
     Ok(FeedbackListItem {
         feedback: to_response(&row.feedback)?,
         task_title: row.task_title.clone(),
-        repository_name: repo_names.get(&row.repository_id).cloned(),
+        repository_name: row
+            .repository_id
+            .as_ref()
+            .and_then(|id| repo_names.get(id))
+            .cloned(),
         repository_id: row.repository_id.clone(),
         workspace_id: row.workspace_id.clone(),
     })

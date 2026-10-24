@@ -414,3 +414,20 @@ fn a_recognised_key_or_a_comment_is_not_reported_as_unknown() {
 
     assert!(unknown_key_warnings(&file).is_empty());
 }
+
+#[test]
+fn place_repository_false_places_nothing_only_on_a_non_default_entry_without_repos() {
+    let blank = parse_entry(r#"{ "name": "Scratch", "placeRepository": false }"#);
+    assert!(places_no_repository(&blank, false));
+    // The repository's own Workspace always places it.
+    assert!(!places_no_repository(&blank, true));
+
+    let listed = parse_entry(
+        r#"{ "name": "Pair", "placeRepository": false,
+             "repos": [{ "url": "https://github.com/acme/web.git" }] }"#,
+    );
+    assert!(!places_no_repository(&listed, false));
+
+    let unset = parse_entry(r#"{ "name": "API" }"#);
+    assert!(!places_no_repository(&unset, false));
+}

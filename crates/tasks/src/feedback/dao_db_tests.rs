@@ -25,7 +25,7 @@ async fn seed_task(pool: &PgPool, task_id: &str, repo_id: &str, workspace_id: Op
         .expect("seed repo");
 
     let mut task = make_task_row(task_id, USER);
-    task.repository_id = repo_id.to_string();
+    task.repository_id = Some(repo_id.to_string());
     if let Some(workspace_id) = workspace_id {
         task.workspace_id = Some(workspace_id.to_string());
     }
@@ -276,7 +276,7 @@ async fn list_returns_newest_first_with_task_context(pool: PgPool) {
     assert_eq!(total, 2);
     assert_eq!(items[0].feedback.feedback_id, "fb-new");
     assert_eq!(items[1].feedback.feedback_id, "fb-old");
-    assert_eq!(items[0].repository_id, "repo-a");
+    assert_eq!(items[0].repository_id.as_deref(), Some("repo-a"));
     // `repositories` is owned by `crates/workspaces`; the DAO leaves the name
     // for the handler to resolve via `RepositoryReader`.
     assert_eq!(items[0].repository_name, None);

@@ -55,12 +55,17 @@ pub async fn start_task(
     // Pre-flight: validate the GitHub token + repo access before any
     // sandbox resources are created. On failure: mark Error, publish a
     // sandbox.error event, and return 400.
-    let repo = repositories
-        .describe(scope_ctx, &row.repository_id)
-        .await?
-        .ok_or_else(|| TaskError::RepoNotFound(row.repository_id.clone()))?;
+    let repo = match &row.repository_id {
+        Some(repository_id) => Some(
+            repositories
+                .describe(scope_ctx, repository_id)
+                .await?
+                .ok_or_else(|| TaskError::RepoNotFound(repository_id.clone()))?,
+        ),
+        None => None,
+    };
 
-    if let Err(e) = preflight.validate(&row, &repo).await {
+    if let Err(e) = preflight.validate(&row, repo.as_ref()).await {
         tracing::warn!(task_id = %task_id, error = %e, "Start preflight failed");
         if let Err(db_err) = tasks
             .update_task(
@@ -99,9 +104,11 @@ pub async fn start_task(
     // Best-effort: if the repo ships a `.moatless/` directory, reconcile its
     // workspace config before provisioning. Loops are never synchronized as a
     // side effect of task start.
-    git_sync
-        .sync_repo_config_on_start_for(scope_ctx, &repo)
-        .await;
+    if let Some(repo) = &repo {
+        git_sync
+            .sync_repo_config_on_start_for(scope_ctx, repo)
+            .await;
+    }
 
     sandbox.start(&task_id).await?;
 

@@ -76,11 +76,14 @@ impl TaskPresenter {
         // task's configured repository name is part of that task's own data.
         #[allow(clippy::disallowed_methods)]
         let sys_ctx = ScopeContext::system();
-        let repo_name = self
-            .repositories
-            .describe(&sys_ctx, &row.repository_id)
-            .await?
-            .map(|r| r.name);
+        let repo_name = match &row.repository_id {
+            Some(repository_id) => self
+                .repositories
+                .describe(&sys_ctx, repository_id)
+                .await?
+                .map(|r| r.name),
+            None => None,
+        };
 
         // Same reasoning as `repo_name` above — labelling the workspace the caller
         // already has access to via the task.

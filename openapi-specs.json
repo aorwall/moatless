@@ -19260,7 +19260,6 @@
           "title",
           "status",
           "agentProfile",
-          "repositoryId",
           "createdAt",
           "lastMessageAt",
           "totalCostUsd",
@@ -19392,7 +19391,11 @@
             "description": "Typed relations this task has to other tasks."
           },
           "repositoryId": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`None` for a task on a Workspace that places no repository."
           },
           "repositoryName": {
             "type": [

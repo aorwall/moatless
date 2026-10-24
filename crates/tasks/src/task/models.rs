@@ -43,7 +43,8 @@ pub struct TaskRow {
     pub last_message_at: String,
     #[sqlx(try_from = "String")]
     pub agent_profile: AgentProfile,
-    pub repository_id: String,
+    /// `None` for a task on a Workspace that places no repository.
+    pub repository_id: Option<String>,
     /// Workspace this task runs against, and what provisioning resolves the
     /// repository composition through. Nullable only for rows predating
     /// Workspaces; see `docs/deferred-changes.md`.

@@ -23,6 +23,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use super::phases::Phases;
+use super::volume::volume_is_usable;
 use super::{file_set, restic};
 use crate::agent::types::AgentStatus;
 use crate::backend_client::BackendClient;
@@ -338,26 +339,6 @@ pub fn is_periodic_enabled(config: &Config) -> bool {
     config.workspace_sync_enabled && !config.workspace_restore_if_empty
 }
 
-/// Whether the local volume already holds a usable primary repo.
-///
-/// Deliberately the same test the agent would fail on: a `.git` that exists
-/// *and* answers `git rev-parse HEAD`. Anything else — empty, half-extracted,
-/// corrupted — reads as "not usable" and lets the snapshot win.
-pub(super) async fn primary_repo_is_usable(repo_dir: &Path) -> bool {
-    if !repo_dir.join(".git").exists() {
-        return false;
-    }
-    tokio::process::Command::new("git")
-        .arg("-C")
-        .arg(repo_dir)
-        .args(["rev-parse", "HEAD"])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .await
-        .is_ok_and(|status| status.success())
-}
-
 /// What [`restore_on_start`] decided, and what the caller still owes.
 ///
 /// Not a bool: collapsing "volume already has the repo" and "nothing restored"
@@ -538,8 +519,8 @@ pub async fn restore_on_start(state: &SandboxState) -> RestoreDecision {
 
     // A durable volume is the live copy: the snapshot is behind it by at most a
     // turn, so extracting it over a populated PVC would silently revert work.
-    if state.config.workspace_restore_if_empty && primary_repo_is_usable(&repo_dir).await {
-        info!(task_id = %task_id, dir = %repo_dir.display(), "Volume already holds the primary repo; keeping it and skipping the S3 restore");
+    if state.config.workspace_restore_if_empty && volume_is_usable(&state.config).await {
+        info!(task_id = %task_id, dir = %repo_dir.display(), "Volume already holds the workspace; keeping it and skipping the S3 restore");
         return RestoreDecision::UseExistingVolume;
     }
 
@@ -605,6 +586,7 @@ pub async fn restore_on_start(state: &SandboxState) -> RestoreDecision {
         workspace_dir.clone(),
         repo_dir.clone(),
         primary_prefix,
+        state.config.repos.is_empty(),
     )
     .await
     {
@@ -1488,16 +1470,22 @@ fn mtime_nanos(meta: &std::fs::Metadata) -> u128 {
 /// Extract a repo-set archive, picking the extraction root by its shape.
 ///
 /// `Ok(true)`: the primary repo (with `.git`) was restored, so the caller skips
-/// the clone; `Ok(false)`: working-tree-only, caller clones and overlays. The
-/// `tar` crate rejects path-traversal (`..`) entries by default.
+/// the clone; `Ok(false)`: working-tree-only, caller clones and overlays. A
+/// task that clones nothing (`no_checkout`) restores whatever the archive
+/// holds. The `tar` crate rejects path-traversal (`..`) entries by default.
 async fn extract_workspace(
     bytes: Vec<u8>,
     workspace_dir: PathBuf,
     repo_dir: PathBuf,
     primary_prefix: String,
+    no_checkout: bool,
 ) -> std::io::Result<bool> {
     tokio::task::spawn_blocking(move || {
         let bytes = decompress_if_gzip(bytes)?;
+        if no_checkout {
+            tar::Archive::new(std::io::Cursor::new(&bytes)).unpack(&workspace_dir)?;
+            return Ok(true);
+        }
         let sub_marker = if primary_prefix.is_empty() {
             String::new()
         } else {

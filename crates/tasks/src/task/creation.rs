@@ -47,7 +47,8 @@ pub const TASK_ERRORED_LIFECYCLE_EVENTS: &[&str] = &[PREFLIGHT_FAILED, FIRST_MES
 /// into this. Scope/ownership are absent — derived from `created_by` in
 /// [`TaskCreationService::create`], not from the caller.
 pub struct NewTaskRequest {
-    pub repository_id: String,
+    /// The Workspace's primary repository; `None` when it places none.
+    pub repository_id: Option<String>,
     pub agent_profile: AgentProfile,
     pub name: Option<String>,
     pub description: Option<String>,
@@ -110,8 +111,8 @@ pub struct NewTaskRequest {
     /// loop/adapter paths. Kept per-caller by design.
     pub event_subtype: TaskSubType,
     /// Optionally pre-fetched repository. `Some` skips the service's own lookup
-    /// (already done for access control); `None` fetches it, surfacing
-    /// [`TaskCreationError::RepoNotFound`] if unknown.
+    /// (already done for access control); `None` fetches `repository_id`, if
+    /// any, surfacing [`TaskCreationError::RepoNotFound`] if unknown.
     pub repository: Option<Repository>,
 }
 
@@ -345,24 +346,28 @@ impl TaskCreationService {
         // Repo is needed for preflight. Reuse a caller-supplied one if present
         // (the HTTP path already fetched it); otherwise look it up, which also
         // yields the 404 for an unknown id.
-        let repo = if let Some(repo) = req.repository.take() {
-            repo
-        } else {
-            // reason: non-HTTP creation paths (adapters, loops) resolve
-            // the repository configured on the Loop, not user input; the
-            // HTTP path passes an already access-checked repository.
-            #[allow(clippy::disallowed_methods)]
-            let sys_ctx = ScopeContext::system();
-            self.repositories
-                .describe(&sys_ctx, &req.repository_id)
-                .await?
-                .ok_or_else(|| TaskCreationError::RepoNotFound(req.repository_id.clone()))?
+        let repo = match (req.repository.take(), &req.repository_id) {
+            (Some(repo), _) => Some(repo),
+            (None, None) => None,
+            (None, Some(repository_id)) => {
+                // reason: non-HTTP creation paths (adapters, loops) resolve
+                // the repository configured on the Loop, not user input; the
+                // HTTP path passes an already access-checked repository.
+                #[allow(clippy::disallowed_methods)]
+                let sys_ctx = ScopeContext::system();
+                Some(
+                    self.repositories
+                        .describe(&sys_ctx, repository_id)
+                        .await?
+                        .ok_or_else(|| TaskCreationError::RepoNotFound(repository_id.clone()))?,
+                )
+            }
         };
 
         // Preflight. On failure persist the row as `Error` and publish a
         // sandbox error event (the `start_task` pattern) so the task surfaces as
         // errored rather than silently proceeding; then surface the typed error.
-        if let Err(e) = self.preflight.validate(&row, &repo).await {
+        if let Err(e) = self.preflight.validate(&row, repo.as_ref()).await {
             tracing::warn!(task_id = %task_id, error = %e, "Task creation preflight failed");
             row.status = TaskStatus::Error;
             self.tasks.insert_task(&row, &req.sandbox_placement).await?;
@@ -380,7 +385,7 @@ impl TaskCreationService {
         tracing::info!(
             task_id = %task_id,
             created_by = ?row.created_by,
-            repository_id = %row.repository_id,
+            repository_id = ?row.repository_id,
             workspace_id = ?row.workspace_id,
             "Task created"
         );
@@ -567,8 +572,10 @@ impl TaskCreationService {
             .into_iter()
             .map(|placement| placement.repository_id)
             .collect();
-        if !placed.contains(&req.repository_id) {
-            placed.push(req.repository_id.clone());
+        if let Some(repository_id) = &req.repository_id {
+            if !placed.contains(repository_id) {
+                placed.push(repository_id.clone());
+            }
         }
         self.task_repositories
             .record(task_id, &placed, TaskRepositorySource::Workspace)

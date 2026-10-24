@@ -255,3 +255,41 @@ async fn a_granted_identity_in_git_reaches_the_registered_workspace(pool: PgPool
     assert_eq!(workspace.scope, Scope::User);
     assert_eq!(workspace.owner_user_id.as_deref(), Some("admin-1"));
 }
+
+#[sqlx::test]
+async fn an_entry_that_places_no_repository_syncs_a_blank_workspace(pool: PgPool) {
+    let github = FakeGithub::start().await;
+    github.set_org("acme", vec![listed("ops", false)]);
+    github.put_file(
+        "acme/ops",
+        ".moatless/workspaces.json",
+        r#"{"workspaces":[{"key":"scratch","name":"Scratch","placeRepository":false}]}"#,
+    );
+
+    org_sync(&pool, &github, WorkspaceIdentityGrants::default())
+        .sync_org("acme")
+        .await
+        .unwrap();
+
+    let ops = PgRepositoryDao(pool.clone())
+        .find_by_normalized_remote_url("https://github.com/acme/ops", Scope::Global, None)
+        .await
+        .unwrap()
+        .unwrap();
+    let keys = crate::workspace::dao::git_source_keys(&pool, &ops.id)
+        .await
+        .unwrap();
+    let (scratch, _) = keys
+        .iter()
+        .find(|(_, key)| key.as_deref() == Some("scratch"))
+        .expect("the scratch entry is synced");
+    let dao = PgWorkspaceDao(pool);
+    let workspace = dao.find_by_id(scratch, &admin()).await.unwrap().unwrap();
+    assert_eq!(
+        workspace.kind,
+        moatless_workspace_types::workspace::WorkspaceKind::Blank
+    );
+    assert!(dao.find_repos(scratch).await.unwrap().is_empty());
+    // The repository's own default Workspace still places it.
+    assert_eq!(dao.find_by_repository(&ops.id).await.unwrap().len(), 1);
+}

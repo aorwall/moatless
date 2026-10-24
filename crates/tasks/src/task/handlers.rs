@@ -287,7 +287,7 @@ pub async fn list_tasks(
     // Batch resolve repository names (single query instead of N+1)
     let repo_ids: Vec<String> = rows
         .iter()
-        .map(|r| r.repository_id.clone())
+        .filter_map(|r| r.repository_id.clone())
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .collect();
@@ -355,7 +355,11 @@ pub async fn list_tasks(
                 .and_then(|uid| user_names.get(uid))
                 .cloned();
 
-            let repo_name = repo_names.get(&row.repository_id).cloned();
+            let repo_name = row
+                .repository_id
+                .as_ref()
+                .and_then(|id| repo_names.get(id))
+                .cloned();
             let workspace_name = row
                 .workspace_id
                 .as_ref()

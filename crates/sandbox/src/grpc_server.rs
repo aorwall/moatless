@@ -837,7 +837,13 @@ impl SandboxService for SandboxServiceImpl {
     ) -> Result<Response<GetGitStatusResponse>, Status> {
         let req = request.into_inner();
         let context = self.resolve_member_context(req.task_id.as_deref()).await?;
-        let status = files::review::status(&context.workspace_dir, &context.checkout_dir).await;
+        let checkout = self
+            .state
+            .config
+            .primary_checkout()
+            .map(|_| context.checkout_dir.as_str());
+        let primary = files::review::primary_repo_dir(&context.workspace_dir, checkout).await;
+        let status = files::review::status(&context.workspace_dir, &primary).await;
 
         Ok(Response::new(GetGitStatusResponse {
             is_repo: status.is_repo,
@@ -868,7 +874,13 @@ impl SandboxService for SandboxServiceImpl {
     ) -> Result<Response<ListGitRefsResponse>, Status> {
         let req = request.into_inner();
         let context = self.resolve_member_context(req.task_id.as_deref()).await?;
-        let listing = files::review::list_refs(&context.checkout_dir).await;
+        let checkout = self
+            .state
+            .config
+            .primary_checkout()
+            .map(|_| context.checkout_dir.as_str());
+        let primary = files::review::primary_repo_dir(&context.workspace_dir, checkout).await;
+        let listing = files::review::list_refs(&primary).await;
 
         Ok(Response::new(ListGitRefsResponse {
             is_repo: listing.is_repo,

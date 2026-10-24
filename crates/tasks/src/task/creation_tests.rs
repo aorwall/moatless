@@ -46,7 +46,7 @@ fn sample_repo() -> Repository {
 fn sample_request() -> NewTaskRequest {
     NewTaskRequest {
         sandbox_placement: crate::task::models::SandboxPlacement::default(),
-        repository_id: "repo1".into(),
+        repository_id: Some("repo1".into()),
         agent_profile: AgentProfile::ClaudeCode,
         name: Some("t".into()),
         description: None,

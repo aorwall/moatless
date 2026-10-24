@@ -35,6 +35,9 @@ const ZERO_SHA: &str = "0000000000000000000000000000000000000000";
 
 const GIT_TIMEOUT_SECS: u64 = 5;
 
+/// How often the workspace is listed for a repository cloned since startup.
+const RESCAN_INTERVAL: Duration = Duration::from_secs(5);
+
 /// One checkout being watched.
 struct Repo {
     /// Working-tree directory, which `git -C` is run against.
@@ -47,29 +50,43 @@ struct Repo {
 /// Spawn the watcher. Returns immediately; it runs until `cancel` fires.
 ///
 /// `backend_api_url` identifies a push to a backend-proxied `origin`, which is
-/// claimed under the checkout's [`GITHUB_REMOTE`].
+/// claimed under the checkout's [`GITHUB_REMOTE`]. Beside `repo_dirs`, every
+/// repository cloned into `workspace_dir` is watched, including one cloned
+/// after it starts, within [`RESCAN_INTERVAL`].
 pub fn spawn(
     task_id: String,
     repo_dirs: Vec<String>,
+    workspace_dir: String,
     backend_api_url: Option<String>,
     backend_client: Arc<dyn BackendClient>,
     cancel: CancellationToken,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        if let Err(e) = run(task_id, repo_dirs, backend_api_url, backend_client, cancel).await {
+        let watched = Watched {
+            task_id,
+            backend_api_url,
+            backend_client,
+        };
+        if let Err(e) = run(watched, repo_dirs, workspace_dir, cancel).await {
             warn!(error = %e, "Git push watcher exited with error");
         }
     })
 }
 
-async fn run(
+/// What a claim is filed under and through.
+struct Watched {
     task_id: String,
-    repo_dirs: Vec<String>,
     backend_api_url: Option<String>,
     backend_client: Arc<dyn BackendClient>,
+}
+
+async fn run(
+    watched: Watched,
+    repo_dirs: Vec<String>,
+    workspace_dir: String,
     cancel: CancellationToken,
 ) -> Result<(), String> {
-    let mut repos = Vec::new();
+    let mut repos: Vec<Repo> = Vec::new();
     for dir in repo_dirs {
         if let Some(repo) = resolve_repo(&dir).await {
             repos.push(repo);
@@ -77,10 +94,7 @@ async fn run(
             debug!(dir, "Not a git checkout — not watching it for pushes");
         }
     }
-    if repos.is_empty() {
-        info!("No git checkouts to watch for pushes");
-        return Ok(());
-    }
+    repos.extend(discover_new_repos(&workspace_dir, &repos).await);
 
     // Every sha already pushed before this pod started. GitHub delivered those
     // webhooks long ago, so claiming them now would only write dead rows.
@@ -105,19 +119,42 @@ async fn run(
     .map_err(|e| format!("failed to create file watcher: {e}"))?;
 
     for repo in &repos {
-        // Recursive: the per-remote subdirectory does not exist until the first
-        // push, and a branch name may add more levels under it.
-        watcher
-            .watch(&repo.remote_logs, RecursiveMode::Recursive)
-            .map_err(|e| format!("failed to watch {}: {e}", repo.remote_logs.display()))?;
-        info!(dir = %repo.dir, "Watching checkout for pushes");
+        watch_repo(&mut watcher, repo)?;
     }
+    if repos.is_empty() {
+        info!("No git checkouts yet; rescanning the workspace for a clone");
+    }
+
+    // A poll rather than a watch on the workspace root: `git clone` creates its
+    // directory before `.git` is readable, and nothing at the root changes after.
+    let mut rescan = tokio::time::interval(RESCAN_INTERVAL);
+    rescan.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    rescan.tick().await;
 
     loop {
         tokio::select! {
             () = cancel.cancelled() => {
                 info!("Git push watcher shutting down");
                 return Ok(());
+            }
+            _ = rescan.tick() => {
+                // Not seeded into `claimed` like the startup set: a clone this
+                // pod saw appear can only hold pushes this Task made since.
+                let found = discover_new_repos(&workspace_dir, &repos).await;
+                if found.is_empty() {
+                    continue;
+                }
+                for repo in found {
+                    // Left out of `repos` on failure, so the next rescan
+                    // retries it; `?` here would end the watch on every
+                    // checkout already watched.
+                    if let Err(e) = watch_repo(&mut watcher, &repo) {
+                        warn!(dir = %repo.dir, error = %e, "Not watching the new clone for pushes");
+                        continue;
+                    }
+                    repos.push(repo);
+                }
+                claim_new_pushes(&watched, &repos, &mut claimed).await;
             }
             received = rx.recv() => {
                 if received.is_none() {
@@ -136,17 +173,56 @@ async fn run(
                     }
                 }
 
-                claim_new_pushes(
-                    &task_id,
-                    &repos,
-                    backend_api_url.as_deref(),
-                    &mut claimed,
-                    backend_client.as_ref(),
-                )
-                .await;
+                claim_new_pushes(&watched, &repos, &mut claimed).await;
             }
         }
     }
+}
+
+/// Recursive: the per-remote subdirectory does not exist until the first push,
+/// and a branch name may add more levels under it.
+fn watch_repo(watcher: &mut impl Watcher, repo: &Repo) -> Result<(), String> {
+    watcher
+        .watch(&repo.remote_logs, RecursiveMode::Recursive)
+        .map_err(|e| format!("failed to watch {}: {e}", repo.remote_logs.display()))?;
+    info!(dir = %repo.dir, "Watching checkout for pushes");
+    Ok(())
+}
+
+/// The repositories cloned directly under `workspace_dir` that `known` does not
+/// already hold.
+///
+/// Runs every [`RESCAN_INTERVAL`] in every sandbox, so a child already known or
+/// with no `.git` entry is skipped on a `stat` before any `git` process starts.
+async fn discover_new_repos(workspace_dir: &str, known: &[Repo]) -> Vec<Repo> {
+    let Ok(mut entries) = tokio::fs::read_dir(workspace_dir).await else {
+        return Vec::new();
+    };
+    let mut found = Vec::new();
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        if entry.file_name().to_string_lossy().starts_with('.') {
+            continue;
+        }
+        let path = entry.path();
+        let dir = path.to_string_lossy();
+        if known
+            .iter()
+            .any(|repo| repo.dir.trim_end_matches('/') == dir)
+        {
+            continue;
+        }
+        if !tokio::fs::try_exists(path.join(".git"))
+            .await
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        if let Some(repo) = resolve_repo(&dir).await {
+            found.push(repo);
+        }
+    }
+    found.sort_by(|left, right| left.dir.cmp(&right.dir));
+    found
 }
 
 /// Locate a checkout's remote reflog directory, creating it so the watch handle
@@ -170,13 +246,10 @@ struct Push {
     sha: String,
 }
 
-async fn claim_new_pushes(
-    task_id: &str,
-    repos: &[Repo],
-    backend_api_url: Option<&str>,
-    claimed: &mut HashSet<String>,
-    backend_client: &dyn BackendClient,
-) {
+async fn claim_new_pushes(watched: &Watched, repos: &[Repo], claimed: &mut HashSet<String>) {
+    let task_id = watched.task_id.as_str();
+    let backend_api_url = watched.backend_api_url.as_deref();
+    let backend_client = watched.backend_client.as_ref();
     for repo in repos {
         for push in read_pushes(repo).await {
             if claimed.contains(&push.sha) {
@@ -372,6 +445,31 @@ mod tests {
         let reflog = "0000000000000000000000000000000000000000 b9c0ef1c338ef60e94064536272030d9e7bc498b t <t@t> 1788408360 +0000\tfetch -q origin: storing head\n\
                       b9c0ef1c338ef60e94064536272030d9e7bc498b cafe000000000000000000000000000000000000 t <t@t> 1788408361 +0000\tfetch: fast-forward\n";
         assert!(pushed_shas(reflog).is_empty());
+    }
+
+    /// A repository cloned into the workspace after startup is found once,
+    /// and a plain directory beside it never is.
+    #[tokio::test]
+    async fn a_clone_in_the_workspace_is_discovered_once() {
+        let workspace = tempfile::tempdir().unwrap();
+        let ws = workspace.path().to_str().unwrap();
+        std::fs::create_dir(workspace.path().join("notes")).unwrap();
+        assert!(discover_new_repos(ws, &[]).await.is_empty());
+
+        let clone = workspace.path().join("api");
+        std::fs::create_dir(&clone).unwrap();
+        let status = std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&clone)
+            .status()
+            .unwrap();
+        assert!(status.success());
+
+        let found = discover_new_repos(ws, &[]).await;
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].dir, clone.to_str().unwrap());
+        assert!(found[0].remote_logs.is_dir(), "the watch target is created");
+        assert!(discover_new_repos(ws, &found).await.is_empty());
     }
 
     #[test]

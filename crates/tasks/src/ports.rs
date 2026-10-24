@@ -326,12 +326,7 @@ impl TaskOpener for crate::task::creation::TaskCreationService {
         }
         let repository_id =
             crate::task::service::primary_repository_id(self.workspaces.as_ref(), &workspace_id)
-                .await?
-                .ok_or_else(|| {
-                    TaskOpenError::BadRequest(format!(
-                        "workspace {workspace_id} places no repository"
-                    ))
-                })?;
+                .await?;
         let outcome = self
             .create(
                 crate::task::creation::NewTaskRequest {

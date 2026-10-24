@@ -199,7 +199,7 @@ pub struct CreateTaskPorts<'a> {
 
 /// The repository a Task in this Workspace runs against, whatever repository
 /// the caller also named: the Workspace's primary placement. `None` when the
-/// Workspace places none, which each caller words for its own surface.
+/// Workspace places none, and the Task then runs with no repository.
 pub(crate) async fn primary_repository_id(
     workspaces: &dyn WorkspaceResolver,
     workspace_id: &str,
@@ -248,26 +248,27 @@ pub async fn normalize(
         )));
     }
 
-    let repository_id = primary_repository_id(workspaces, &workspace.id)
-        .await?
-        .ok_or_else(|| {
-            TaskError::BadRequest(format!(
-                "Workspace {} has no primary repository",
-                workspace.id
-            ))
-        })?;
-
-    let repo = repositories
-        .describe(scope_ctx, &repository_id)
-        .await?
-        .ok_or_else(|| TaskError::RepoNotFound(repository_id.clone()))?;
-    ensure_can_use_repository(
-        scope_ctx,
-        &ScopedResource::borrowed(
-            repo.scope,
-            repo.owner_user_id.as_deref().or(repo.created_by.as_deref()),
+    // A Workspace that places no repository runs its Task in an empty
+    // workspace directory, so there is nothing to check access to.
+    let repository_id = primary_repository_id(workspaces, &workspace.id).await?;
+    let repo = match &repository_id {
+        Some(repository_id) => Some(
+            repositories
+                .describe(scope_ctx, repository_id)
+                .await?
+                .ok_or_else(|| TaskError::RepoNotFound(repository_id.clone()))?,
         ),
-    )?;
+        None => None,
+    };
+    if let Some(repo) = &repo {
+        ensure_can_use_repository(
+            scope_ctx,
+            &ScopedResource::borrowed(
+                repo.scope,
+                repo.owner_user_id.as_deref().or(repo.created_by.as_deref()),
+            ),
+        )?;
+    }
 
     if let Some(ref name) = req.name {
         validate_task_name(name)?;
@@ -275,7 +276,9 @@ pub async fn normalize(
 
     let run_as_user_id = resolve_run_as(users, scope_ctx, req.run_as_user_id.as_deref()).await?;
 
-    let is_template = repo.kind == RepositoryKind::Template;
+    let is_template = repo
+        .as_ref()
+        .is_some_and(|repo| repo.kind == RepositoryKind::Template);
 
     // Fast-fail codex tasks with no usable credential: a missing connection
     // or permanent refresh failure would otherwise surface minutes later as
@@ -305,7 +308,10 @@ pub async fn normalize(
         agent_profile,
         name: req.name.clone(),
         description: req.description.clone(),
-        branch: req.branch.clone().or(repo.default_branch.clone()),
+        branch: req
+            .branch
+            .clone()
+            .or_else(|| repo.as_ref().and_then(|repo| repo.default_branch.clone())),
         model: req.model.clone(),
         created_by: Some(user_id.to_string()),
         run_as_user_id,
@@ -316,7 +322,7 @@ pub async fn normalize(
         sandbox_id: req.sandbox_id.clone(),
         checkout_mode: req.checkout_mode,
         template_id: if is_template {
-            Some(repository_id)
+            repository_id.clone()
         } else {
             None
         },
@@ -362,7 +368,7 @@ pub async fn normalize(
         event_subtype: TaskSubType::Created,
         // Reuse the repo already fetched for access control so the service
         // skips a redundant lookup.
-        repository: Some(repo),
+        repository: repo,
     })
 }
 
@@ -690,7 +696,7 @@ mod tests {
                 created_at: now,
                 last_message_at: now,
                 agent_profile: AgentProfile::ClaudeCode,
-                repository_id: "repo-1".to_string(),
+                repository_id: Some("repo-1".to_string()),
                 workspace_id: workspace_id.map(str::to_string),
                 sandbox_id: None,
                 checkout_mode: None,

@@ -231,7 +231,7 @@ impl GitHubProxy {
             Some(Err(e)) => Err(credential_error(&e)),
             None => Err(GitHubProxyError::NoGitHubIdentity(
                 "This task has no GitHub identity: its workspace's primary repository is not on \
-                 GitHub, and the workspace pins no GITHUB_TOKEN"
+                 GitHub or it places none, and the workspace pins no GITHUB_TOKEN"
                     .to_string(),
             )),
         }

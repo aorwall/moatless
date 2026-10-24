@@ -410,7 +410,9 @@ pub struct Task {
     pub created_at: DateTime<Utc>,
     pub last_message_at: DateTime<Utc>,
     pub agent_profile: AgentProfile,
-    pub repository_id: String,
+    /// The Workspace's primary repository when the task was created. `None`
+    /// for a task on a Workspace that places no repository.
+    pub repository_id: Option<String>,
     /// Workspace this task runs against, which provisioning resolves the
     /// repository composition through.
     ///

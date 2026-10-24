@@ -109,11 +109,29 @@ mod db_tests {
     #[sqlx::test]
     async fn bad_plan_is_permanent_rejected(pool: PgPool) {
         seed_task_with(&pool, "t1", "open", "running").await;
+        sqlx::query(
+            "INSERT INTO workspace_repos (id, workspace_id, repository_id, is_primary)
+             VALUES ('wr-gone', 'ws_repo-x', 'repo-gone', true)",
+        )
+        .execute(&pool)
+        .await
+        .expect("seed a placement whose repository is gone");
         let error = deps_from_pool(&pool)
             .build_request("t1")
             .await
-            .expect_err("missing repository is an unbuildable plan");
+            .expect_err("a placement naming a missing repository is an unbuildable plan");
         assert!(matches!(error, RuntimeError::Rejected(_)), "got {error:?}");
         assert_eq!(error.class(), ErrorClass::Permanent);
+    }
+
+    #[sqlx::test]
+    async fn a_workspace_placing_no_repository_plans_an_empty_checkout(pool: PgPool) {
+        seed_task_with(&pool, "t1", "open", "running").await;
+        let request = deps_from_pool(&pool)
+            .build_request("t1")
+            .await
+            .expect("a workspace with no placements still provisions");
+        assert!(request.plan.repos.is_empty());
+        assert_eq!(request.plan.git_clone_url, "");
     }
 }

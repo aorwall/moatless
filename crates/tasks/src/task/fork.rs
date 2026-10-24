@@ -385,7 +385,7 @@ impl TaskForkService {
             .map_err(ForkError::Fork)?;
 
         let create = CreateTaskRequest {
-            repository_id: Some(source.repository_id.clone()),
+            repository_id: source.repository_id.clone(),
             workspace_id: source.workspace_id.clone(),
             sandbox_id: same_sandbox.then(|| source.sandbox_id.clone()).flatten(),
             checkout_mode: same_sandbox.then_some(CheckoutMode::Shared),

@@ -46,6 +46,9 @@ deletes legacy manual rows, and edits nothing.
 Every repository has a `default` Workspace. To change it, or to add another,
 edit `.moatless/workspaces.json` in the owning repository: an entry with
 `"key": "default"` overrides the default and needs neither `name` nor `repos`.
+An entry with no `repos` places the owning repository alone; add
+`"placeRepository": false` to place none, so its Tasks start with nothing
+cloned.
 An entry also takes `icon`, `defaultModel`, `defaultEffort`, and
 `"skills": {"enable": [...], "disable": [...]}` naming `<plugin>` or
 `<plugin>:<skill>`, which replaces the Workspace's activation records on every

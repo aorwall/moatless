@@ -37,7 +37,7 @@ async fn seed_task(pool: &PgPool, task_id: &str, user: &str) {
         .await
         .expect("seed repo");
     let mut task = make_task_row(task_id, user);
-    task.repository_id = repo.id.clone();
+    task.repository_id = Some(repo.id.clone());
     let workspace_id = format!("ws_{}", repo.id);
     common::seed_workspace(pool, &workspace_id, user).await;
     task.workspace_id = Some(workspace_id);

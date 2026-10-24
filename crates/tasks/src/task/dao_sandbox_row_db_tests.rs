@@ -38,7 +38,7 @@ fn task_row(task_id: &str) -> Task {
         created_at: now,
         last_message_at: now,
         agent_profile: AgentProfile::ClaudeCode,
-        repository_id: "repo-x".to_string(),
+        repository_id: Some("repo-x".to_string()),
         status: TaskStatus::Open,
         total_cost_usd: 0.0,
         site_url: None,

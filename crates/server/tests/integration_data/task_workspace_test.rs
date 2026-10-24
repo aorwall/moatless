@@ -81,7 +81,7 @@ async fn a_loop_opens_its_task_in_the_workspace_it_names(pool: PgPool) {
         .unwrap()
         .expect("task present");
     assert_eq!(stored.workspace_id.as_deref(), Some("ws-named"));
-    assert_eq!(stored.repository_id, "repo-1");
+    assert_eq!(stored.repository_id.as_deref(), Some("repo-1"));
 }
 
 #[sqlx::test]
@@ -142,17 +142,30 @@ async fn a_loop_naming_a_workspace_it_cannot_read_is_refused(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn a_workspace_that_places_no_repository_is_refused(pool: PgPool) {
+async fn a_workspace_that_places_no_repository_opens_a_task_with_none(pool: PgPool) {
     common::seed_workspace(&pool, "ws-empty", common::USER_1).await;
+    insert_manual_loop(&pool, "loop-1", "loop", "ws-empty")
+        .await
+        .unwrap();
     let state = common::test_app_state(pool.clone());
 
-    let error = state
+    let opened = state
         .task_creation
         .open(loop_task("ws-empty"))
         .await
-        .expect_err("a workspace with no repository cannot open a task");
-    assert!(
-        matches!(&error, TaskOpenError::BadRequest(message) if message.contains("places no repository")),
-        "unexpected error: {error}"
-    );
+        .expect("a workspace with no repository opens a task");
+
+    let stored = find_task(&pool, &opened.task_id, &scope_ctx(common::USER_1))
+        .await
+        .unwrap()
+        .expect("task present");
+    assert_eq!(stored.workspace_id.as_deref(), Some("ws-empty"));
+    assert_eq!(stored.repository_id, None);
+    let recorded: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM task_repositories WHERE task_id = $1")
+            .bind(&opened.task_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(recorded, 0);
 }

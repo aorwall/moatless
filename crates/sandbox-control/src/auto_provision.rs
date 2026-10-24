@@ -109,28 +109,30 @@ pub(crate) async fn build_provision_request(
     // repository row already resolved. A read failure is transient and
     // propagates; a placement pointing at a row that is gone is a permanent
     // misconfiguration, reported below.
+    // A Workspace that places none provisions a sandbox that clones nothing.
     let placements = workspaces.placements(&shape.workspace_id).await?;
-    let primary = placements.first().ok_or_else(|| {
-        SandboxError::BadRequest(format!(
-            "Workspace '{}' has no primary repository; \
-             refusing to provision sandbox '{sandbox_id}'",
-            shape.workspace_id
-        ))
-    })?;
-    let repository_id = primary.repository_id.clone();
+    let primary = placements
+        .first()
+        .map(|primary| {
+            primary
+                .repository
+                .clone()
+                .map(|repo| (primary.repository_id.clone(), repo))
+                .ok_or_else(|| {
+                    SandboxError::BadRequest(format!(
+                        "Repository '{}' not found in database",
+                        primary.repository_id
+                    ))
+                })
+        })
+        .transpose()?;
 
     info!(
         sandbox_id = %sandbox_id,
-        repository_id = %repository_id,
+        repository_id = ?primary.as_ref().map(|(id, _)| id),
         workspace_id = %shape.workspace_id,
         "Auto-provision: sandbox found in DB"
     );
-
-    let repo = primary.repository.clone().ok_or_else(|| {
-        SandboxError::BadRequest(format!(
-            "Repository '{repository_id}' not found in database"
-        ))
-    })?;
 
     // 3. Control check, before anything is built or scheduled.
     if let Err(e) = preflight_validate_sandbox_control(users, sandbox_id, &shape).await {
@@ -142,14 +144,15 @@ pub(crate) async fn build_provision_request(
         return Err(SandboxError::Forbidden(e.user_message()));
     }
 
-    let git_provider = repo.provider.map_or("", |provider| provider.as_str());
-
+    let repo = primary.as_ref().map(|(_, repo)| repo);
+    let git_provider = repo
+        .and_then(|repo| repo.provider)
+        .map_or("", |provider| provider.as_str());
     let git_clone_url = repo
-        .remote
-        .as_ref()
+        .and_then(|repo| repo.remote.as_ref())
         .map(|remote| remote.url.clone())
         .unwrap_or_default();
-    let git_branch = shape.branch.clone().or(repo.default_branch.clone());
+    let git_branch = repo.and_then(|repo| shape.branch.clone().or(repo.default_branch.clone()));
     // The identity the pod authenticates back to the backend as — the one the
     // gRPC control gate checks, which is why it is the Sandbox's owner and not
     // the account it acts as outward.
@@ -166,11 +169,12 @@ pub(crate) async fn build_provision_request(
     let resolved = resolve_placements(&placements, sandbox_id, &shape.workspace_id);
     let repo_checkouts = build_repo_checkouts(
         &resolved,
-        &repository_id,
+        primary.as_ref().map_or("", |(id, _)| id.as_str()),
         &git_clone_url,
         git_branch.as_deref(),
         git_provider,
-        repo.remote.as_ref().is_some_and(|remote| remote.uses_ssh),
+        repo.and_then(|repo| repo.remote.as_ref())
+            .is_some_and(|remote| remote.uses_ssh),
     );
     if repo_checkouts.len() > 1 {
         info!(
@@ -192,7 +196,10 @@ pub(crate) async fn build_provision_request(
             workspace_id = %shape.workspace_id,
             "Auto-provision: sandbox workspace is missing; provisioning with git-connection only"
         );
-        (minimal_repo_config(&repo.name), None)
+        (
+            minimal_repo_config(repo.map_or(shape.workspace_id.as_str(), |repo| &repo.name)),
+            None,
+        )
     };
 
     // The Sandbox row already holds the Loop-over-Workspace resolution made when

@@ -70,7 +70,11 @@ export interface TaskResponse {
   parentTaskId?: string | null;
   /** Typed relations this task has to other tasks. */
   relations?: TaskRelationDto[];
-  repositoryId: string;
+  /**
+     * `None` for a task on a Workspace that places no repository.
+     * @nullable
+     */
+  repositoryId?: string | null;
   /** @nullable */
   repositoryName?: string | null;
   /**

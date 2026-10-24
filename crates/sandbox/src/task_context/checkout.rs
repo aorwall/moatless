@@ -63,13 +63,8 @@ fn isolated_workspace_dir(root_workspace_dir: &str, task_id: &str) -> Result<Str
 }
 
 fn primary_repo_dir_for_workspace(config: &Config) -> String {
-    config
-        .repos
-        .iter()
-        .find(|repo| repo.is_primary)
-        .or_else(|| config.repos.first())
-        .map_or_else(
-            || config.workspace_dir.clone(),
-            |repo| repo.dir(&config.workspace_dir),
-        )
+    config.primary_checkout().map_or_else(
+        || config.workspace_dir.clone(),
+        |repo| repo.dir(&config.workspace_dir),
+    )
 }

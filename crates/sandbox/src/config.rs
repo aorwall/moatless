@@ -506,6 +506,12 @@ impl Config {
         Path::new(&self.workspace_dir).join(".plugins")
     }
 
+    /// The checkout repo-scoped work targets, or `None` when the workspace
+    /// places no repository and nothing was cloned at startup.
+    pub fn primary_checkout(&self) -> Option<&RepoCheckout> {
+        primary_checkout(&self.repos)
+    }
+
     /// Absolute checkout directories, primary first, falling back to a nonempty `repo_dir`.
     pub fn repo_dirs(&self) -> Vec<String> {
         if self.repos.is_empty() {

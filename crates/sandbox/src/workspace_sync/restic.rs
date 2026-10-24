@@ -27,9 +27,9 @@ use super::file_set;
 use super::phases::Phases;
 use super::sync::{
     Capture, NotStored, RestoreAttempt, RestoreDecision, SyncOutcome, clear_dir_contents,
-    fingerprint_now, is_feature_disabled, primary_repo_is_usable,
-    report_skipped_unreadable_snapshot,
+    fingerprint_now, is_feature_disabled, report_skipped_unreadable_snapshot,
 };
+use super::volume::primary_repo_is_usable;
 use crate::backend_client::BackendClient;
 use crate::config::Config;
 use crate::state::SandboxState;
@@ -588,8 +588,9 @@ pub(super) async fn restore_on_start(state: &SandboxState) -> RestoreAttempt {
                 report_skipped_unreadable_snapshot(state);
             }
             // A snapshot that turned out not to carry the primary repo is not
-            // one a clone can be skipped after.
-            if primary_repo_is_usable(&repo_dir).await {
+            // one a clone can be skipped after. A task with no checkout has no
+            // clone to skip, so any snapshot is its whole tree.
+            if state.config.repos.is_empty() || primary_repo_is_usable(&repo_dir).await {
                 RestoreAttempt::Restored(RestoreDecision::RestoredSnapshot {
                     taken_at: restored.taken_at,
                     final_flush: restored.final_flush,

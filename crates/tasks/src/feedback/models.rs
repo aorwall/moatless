@@ -67,7 +67,8 @@ pub struct FeedbackWithTask {
     pub feedback: Feedback,
     /// `tasks.name`, falling back to the first line of `tasks.description`.
     pub task_title: String,
-    pub repository_id: String,
+    /// `None` for a task on a Workspace that places no repository.
+    pub repository_id: Option<String>,
     pub repository_name: Option<String>,
     pub workspace_id: Option<String>,
 }

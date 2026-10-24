@@ -45,9 +45,10 @@ WorkspaceRepo placements.
 _Avoid_: putting run-config on a Repository
 
 **Workspace**:
-The composition of one or more repositories plus run-configuration (docker image,
-setup commands, env vars, scripts, resources, language servers) that a Task runs
-against.
+The composition of zero or more repositories plus run-configuration (docker
+image, setup commands, env vars, scripts, resources, language servers) that a
+Task runs against. One that places none (`"placeRepository": false` in git,
+`kind = blank`) runs its Task with nothing cloned and no repository on the Task.
 A Sandbox materializes it on disk under the workspace directory. Every
 Workspace is declared in git and reconciled from its repository (`source =
 git`); a legacy `manual` row is only listed, deleted, or reclaimed by the sync.
@@ -79,7 +80,8 @@ _Avoid_: server, preview server
 **WorkspaceRepo**:
 A single repository's placement inside a Workspace — its branch override, mount
 name (subdir under the workspace directory), primary flag, and ordering. Exactly
-one placement is primary (the repo used for diffs, PRs, and AGENTS.md).
+one placement is primary once the Workspace holds any (the repo used for diffs,
+PRs, and AGENTS.md).
 
 **Repo checkout**:
 A WorkspaceRepo placement resolved for provisioning — `clone_url` taken from the
@@ -340,8 +342,8 @@ is reflected in code: the whole domain lives in one `loops/` module, the config
 is `LoopConfig` (API) / `LoopSpawnConfig` (runtime), and the public
 `Trigger`/`TaskRoute` types and the API `rule` field are gone (the wire keeps the
 `rule` JSON key via `#[serde(rename)]` for alias compatibility). A Loop names the
-Workspace its Tasks run in, and that Workspace's primary placement is the
-repository they run against.
+Workspace its Tasks run in, and that Workspace's primary placement, if it has
+one, is the repository they run against.
 
 **Schedule**:
 A Loop's time-based firing condition (cron expression + timezone).

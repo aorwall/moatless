@@ -118,7 +118,9 @@ pub struct FeedbackListItem {
     pub feedback: FeedbackResponse,
     /// `Task.name`, falling back to the first line of its description.
     pub task_title: String,
-    pub repository_id: String,
+    /// `None` for a task on a Workspace that places no repository.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repository_id: Option<String>,
     /// `None` when the repository row was deleted.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repository_name: Option<String>,

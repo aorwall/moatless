@@ -683,7 +683,7 @@ impl TaskDao for PgTaskDao {
                     created_at: timestamp(&self.created_at?)?,
                     last_message_at: timestamp(&self.last_message_at?)?,
                     agent_profile: AgentProfile::parse(&self.agent_profile?)?,
-                    repository_id: self.repository_id?,
+                    repository_id: self.repository_id,
                     workspace_id: self.workspace_id,
                     sandbox_id: self.sandbox_id,
                     checkout_mode: self

@@ -272,7 +272,7 @@ mod tests {
                 .expect("fixture timestamp")
                 .with_timezone(&chrono::Utc),
             agent_profile: AgentProfile::Codex,
-            repository_id: "repo-1".to_string(),
+            repository_id: Some("repo-1".to_string()),
             status: TaskStatus::Closed,
             total_cost_usd: 0.0,
             site_url: None,

@@ -52,7 +52,7 @@ pub fn visible_scopes(task: &Task) -> Vec<ScopeRef> {
     };
     push(MemoryScope::Loop, task.loop_id.as_deref());
     push(MemoryScope::Workspace, task.workspace_id.as_deref());
-    push(MemoryScope::Repository, Some(task.repository_id.as_str()));
+    push(MemoryScope::Repository, task.repository_id.as_deref());
     push(MemoryScope::User, owner(task));
     scopes.push(ScopeRef {
         scope: MemoryScope::Global,

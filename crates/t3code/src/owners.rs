@@ -105,7 +105,8 @@ fn branch_list_error(error: RepositoryError) -> BranchListError {
     }
 }
 
-/// The skills of a Workspace's primary repository.
+/// The skills of a Workspace's primary repository, or its plugin skills alone
+/// when it places none.
 pub struct WorkspaceSkills {
     pub workspaces: Arc<Workspaces>,
     pub skills: Arc<SkillService>,
@@ -122,19 +123,23 @@ impl SkillCatalog for WorkspaceSkills {
         // Unscoped, and safe to be: the placement only names a repository id,
         // and `list_for_repository` refuses both a workspace and a repository
         // this viewer cannot resolve.
-        let primary = match self.workspaces.find_primary_repo(workspace_id).await {
-            Ok(Some(placement)) => placement,
-            Ok(None) => return Vec::new(),
+        let listed = match self.workspaces.find_primary_repo(workspace_id).await {
+            Ok(Some(primary)) => {
+                self.skills
+                    .list_for_repository(&primary.repository_id, Some(workspace_id), caller, viewer)
+                    .await
+            }
+            Ok(None) => {
+                self.skills
+                    .list_for_workspace_without_repository(workspace_id, caller, viewer)
+                    .await
+            }
             Err(error) => {
                 tracing::warn!(%error, workspace_id, "T3 skill listing found no repository");
                 return Vec::new();
             }
         };
-        match self
-            .skills
-            .list_for_repository(&primary.repository_id, Some(workspace_id), caller, viewer)
-            .await
-        {
+        match listed {
             Ok(skills) => skills
                 .into_iter()
                 .map(|skill| WorkspaceSkill {

@@ -271,6 +271,23 @@ fn prefix_args(repo_prefix: &str) -> Vec<String> {
 
 // ─── Branch state ────────────────────────────────────────────────
 
+/// The directory [`status`] and [`list_refs`] read as the primary repository.
+///
+/// `checkout`, the directory the workspace's primary repository was checked
+/// out to, or `None` when it places none: then the first repository cloned
+/// into `workspace_dir` since stands in, so a `moat repos clone` shows up in
+/// review, and with none `workspace_dir` itself.
+pub async fn primary_repo_dir(workspace_dir: &str, checkout: Option<&str>) -> String {
+    if let Some(checkout) = checkout {
+        return checkout.to_string();
+    }
+    git::discover_git_repos(workspace_dir)
+        .await
+        .into_iter()
+        .next()
+        .map_or_else(|| workspace_dir.to_string(), |repo| repo.abs_path)
+}
+
 /// The primary repository's branch state, with the whole workspace's
 /// uncommitted changes beside it, at workspace-relative paths.
 pub async fn status(workspace_dir: &str, repo_dir: &str) -> RepoStatus {
@@ -1142,6 +1159,27 @@ mod tests {
             let refs = list_refs(root(&workspace)).await;
             assert!(!refs.is_repo);
             assert!(refs.refs.is_empty());
+            assert_eq!(
+                primary_repo_dir(root(&workspace), None).await,
+                root(&workspace)
+            );
+        }
+
+        /// A task that checked nothing out reviews the repository it cloned
+        /// since, rather than the empty workspace root.
+        #[tokio::test]
+        async fn a_repository_cloned_into_an_empty_workspace_is_the_primary() {
+            let workspace = workspace();
+            let ws = root(&workspace);
+            let repo = workspace.path().join("repo");
+
+            let primary = primary_repo_dir(ws, None).await;
+            assert_eq!(primary, repo.to_str().expect("a utf-8 path"));
+            assert!(status(ws, &primary).await.is_repo);
+            // A checkout the backend supplied is never second-guessed.
+            let elsewhere = workspace.path().join("other");
+            let elsewhere = elsewhere.to_str().expect("a utf-8 path");
+            assert_eq!(primary_repo_dir(ws, Some(elsewhere)).await, elsewhere);
         }
 
         #[tokio::test]

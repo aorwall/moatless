@@ -181,7 +181,8 @@ pub async fn list(
                 f.status,
                 item.repository_name
                     .as_deref()
-                    .unwrap_or(&item.repository_id),
+                    .or(item.repository_id.as_deref())
+                    .unwrap_or("-"),
                 item.task_title
             );
             println!("task {}  feedback {}", f.task_id, f.feedback_id);
@@ -204,7 +205,8 @@ pub async fn list(
                     f.status.to_string(),
                     item.repository_name
                         .clone()
-                        .unwrap_or_else(|| item.repository_id.clone()),
+                        .or_else(|| item.repository_id.clone())
+                        .unwrap_or_else(|| "-".to_string()),
                     output::truncate(&item.task_title, 30),
                     output::truncate(&f.comment.replace('\n', " "), COMMENT_WIDTH),
                 ]

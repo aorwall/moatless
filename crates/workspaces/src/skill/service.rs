@@ -100,19 +100,49 @@ impl SkillService {
         }
 
         let workspace = self.workspace_skills(&repo, &actor).await?;
+        let from_plugins = self
+            .activated_plugin_skills(&actor, caller, workspace_id)
+            .await?;
+        let merged = merge_skills(workspace.as_ref().clone(), from_plugins);
+        Ok(merged.into_iter().map(SkillResponse::from).collect())
+    }
 
-        // Whatever this caller's activation records give them in this
-        // Workspace, in stable order from the DAO.
+    /// The skill list a caller gets in a Workspace that places no repository:
+    /// [`Self::list_for_repository`]'s plugin half alone.
+    pub async fn list_for_workspace_without_repository(
+        &self,
+        workspace_id: &str,
+        caller: Uuid,
+        ctx: &ScopeContext,
+    ) -> Result<Vec<SkillResponse>, SkillError> {
+        self.workspaces
+            .find_by_id(workspace_id, ctx)
+            .await?
+            .ok_or_else(|| SkillError::WorkspaceNotFound(workspace_id.to_string()))?;
+        let actor = Actor::caller(ctx);
+        let from_plugins = self
+            .activated_plugin_skills(&actor, caller, Some(workspace_id))
+            .await?;
+        let merged = merge_skills(Vec::new(), from_plugins);
+        Ok(merged.into_iter().map(SkillResponse::from).collect())
+    }
+
+    /// Whatever this caller's activation records give them in `workspace_id`,
+    /// in stable order from the DAO, each plugin's skills with the names picked.
+    async fn activated_plugin_skills(
+        &self,
+        actor: &Actor,
+        caller: Uuid,
+        workspace_id: Option<&str>,
+    ) -> Result<Vec<(Vec<Skill>, Vec<String>)>, SkillError> {
         let resolved =
             crate::plugin::activation::resolve_for(&self.plugins, Some(caller), workspace_id)
                 .await?;
-        let mut from_plugins: Vec<(Vec<Skill>, Vec<String>)> = Vec::with_capacity(resolved.len());
+        let mut from_plugins = Vec::with_capacity(resolved.len());
         for (plugin, picked) in resolved {
-            from_plugins.push((self.plugin_skills(&actor, &plugin).await?, picked.names));
+            from_plugins.push((self.plugin_skills(actor, &plugin).await?, picked.names));
         }
-
-        let merged = merge_skills(workspace.as_ref().clone(), from_plugins);
-        Ok(merged.into_iter().map(SkillResponse::from).collect())
+        Ok(from_plugins)
     }
 
     async fn workspace_skills(

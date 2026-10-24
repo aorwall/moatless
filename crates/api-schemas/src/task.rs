@@ -297,7 +297,8 @@ pub struct TaskResponse {
     pub description: Option<String>,
     pub status: TaskStatus,
     pub agent_profile: AgentProfile,
-    pub repository_id: String,
+    /// `None` for a task on a Workspace that places no repository.
+    pub repository_id: Option<String>,
     pub repository_name: Option<String>,
     /// Workspace the task runs in. Every task has one, so this is only `None`
     /// for a response built without reading the persisted row.

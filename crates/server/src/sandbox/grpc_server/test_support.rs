@@ -32,7 +32,7 @@ pub(super) fn task_fixture(scope: Scope, owner_user_id: Option<&str>) -> Task {
         created_at: chrono::Utc::now(),
         last_message_at: chrono::Utc::now(),
         agent_profile: moatless_types::agent::AgentProfile::ClaudeCode,
-        repository_id: "repo-1".to_string(),
+        repository_id: Some("repo-1".to_string()),
         status: moatless_types::task::TaskStatus::Open,
         total_cost_usd: 0.0,
         site_url: None,
