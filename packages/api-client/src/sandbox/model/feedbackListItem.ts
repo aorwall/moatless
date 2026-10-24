@@ -12,7 +12,11 @@ import type { FeedbackResponse } from './feedbackResponse';
  * task context that makes a cross-task listing readable without a second call.
  */
 export type FeedbackListItem = FeedbackResponse & ({
-  repositoryId: string;
+  /**
+     * `None` for a task on a Workspace that places no repository.
+     * @nullable
+     */
+  repositoryId?: string | null;
   /**
      * `None` when the repository row was deleted.
      * @nullable

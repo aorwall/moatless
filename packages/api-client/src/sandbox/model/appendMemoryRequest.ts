@@ -13,5 +13,10 @@ import type { MemoryScope } from './memoryScope';
 export interface AppendMemoryRequest {
   key: string;
   scope?: null | MemoryScope;
+  /**
+     * The summary of the entry an append creates; the key when absent.
+     * @nullable
+     */
+  summary?: string | null;
   text: string;
 }

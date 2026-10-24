@@ -11204,6 +11204,13 @@
               }
             ]
           },
+          "summary": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The summary of the entry an append creates; the key when absent."
+          },
           "text": {
             "type": "string"
           }
@@ -13043,12 +13050,15 @@
           {
             "type": "object",
             "required": [
-              "taskTitle",
-              "repositoryId"
+              "taskTitle"
             ],
             "properties": {
               "repositoryId": {
-                "type": "string"
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "`None` for a task on a Workspace that places no repository."
               },
               "repositoryName": {
                 "type": [

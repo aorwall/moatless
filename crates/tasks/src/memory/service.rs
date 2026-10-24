@@ -366,7 +366,9 @@ async fn writable_entry(
     Ok((row, writer))
 }
 
-/// Add a dated line to an entry's history.
+/// Add a dated line to an entry's history, first creating the entry with
+/// `req.summary`, or the key cut to a summary's length, when the scope the
+/// append resolves to has none.
 pub async fn append(
     tasks: &TaskCommands,
     memories: &Memories,
@@ -380,7 +382,28 @@ pub async fn append(
             "text must be 1-{MAX_APPEND_BYTES} bytes"
         )));
     }
-    let (row, writer) = writable_entry(tasks, memories, ctx, task_id, &req.key, req.scope).await?;
+    let found = writable_entry(tasks, memories, ctx, task_id, &req.key, req.scope).await;
+    let (row, writer) = match found {
+        Err(MemoryError::NotFound(_)) => {
+            let create = PutMemoryRequest {
+                key: req.key.clone(),
+                scope: req.scope,
+                summary: Some(req.summary.clone().unwrap_or_else(|| {
+                    // A key may be longer than a summary may be.
+                    req.key.chars().take(MAX_SUMMARY_CHARS).collect()
+                })),
+                if_version: Some(0),
+                ..PutMemoryRequest::default()
+            };
+            match put(tasks, memories, ctx, task_id, create).await {
+                // A concurrent append created it first.
+                Ok(_) | Err(MemoryError::Conflict(_)) => {}
+                Err(e) => return Err(e),
+            }
+            writable_entry(tasks, memories, ctx, task_id, &req.key, req.scope).await?
+        }
+        found => found?,
+    };
     let row = memories
         .store
         .append(&row.entry_id, text, &writer)

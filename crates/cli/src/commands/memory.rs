@@ -49,11 +49,15 @@ pub enum MemoryAction {
         #[command(flatten)]
         target: Target,
     },
-    /// Add a dated line to an entry's log without rewriting it
+    /// Add a dated line to an entry's log without rewriting it, creating
+    /// the entry when it does not exist
     Append {
         key: String,
         #[arg(long)]
         text: String,
+        /// Summary for the entry when the append creates it; the key otherwise
+        #[arg(long)]
+        summary: Option<String>,
         #[command(flatten)]
         target: Target,
     },
@@ -224,12 +228,18 @@ pub async fn run(
                 .await?;
             emit_summaries(json, &resp, &resp.items);
         }
-        MemoryAction::Append { key, text, target } => {
+        MemoryAction::Append {
+            key,
+            text,
+            summary,
+            target,
+        } => {
             let task_id = task_id(cfg, target.task)?;
             let req = AppendMemoryRequest {
                 key,
                 scope: target.scope,
                 text,
+                summary,
             };
             let entry = api.append_memory(&task_id, &req).await?;
             output::emit(json, &entry, || {

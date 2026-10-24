@@ -362,6 +362,7 @@ async fn a_scoped_append_writes_only_the_entry_in_that_scope() {
         key: "log".to_string(),
         scope: Some(MemoryScope::Loop),
         text: "run 3".to_string(),
+        summary: None,
     };
     let result = append(&tasks(), &memories(store), &ctx("user-1"), "task-1", req).await;
     assert!(result.is_ok());
@@ -399,4 +400,103 @@ fn a_summary_is_one_short_line() {
     assert!(validate_summary("fine").is_ok());
     assert!(validate_summary("two\nlines").is_err());
     assert!(validate_summary(&"x".repeat(MAX_SUMMARY_CHARS + 1)).is_err());
+}
+
+/// A store with no `key` until its first `put`, recording each put.
+fn store_creating_on_put(puts: Arc<Mutex<Vec<PutEntry>>>, put: PutOutcome) -> MockMemoryDao {
+    let created = Arc::new(Mutex::new(false));
+    let mut store = MockMemoryDao::new();
+    let seen = Arc::clone(&created);
+    store.expect_find().returning(move |_, key| {
+        let found = *seen.lock().unwrap();
+        Ok(if found {
+            vec![row(key, MemoryScope::Loop, "loop-1")]
+        } else {
+            Vec::new()
+        })
+    });
+    let put = Mutex::new(Some(put));
+    store.expect_put().times(1).returning(move |entry| {
+        puts.lock().unwrap().push(entry.clone());
+        *created.lock().unwrap() = true;
+        Ok(put.lock().unwrap().take().unwrap())
+    });
+    store
+        .expect_append()
+        .times(1)
+        .returning(|entry_id, text, _| {
+            // `row` names an entry `{scope}-{key}`: the one `find` returned.
+            let key = entry_id.strip_prefix("loop-").expect("a found entry");
+            let mut appended = row(key, MemoryScope::Loop, "loop-1");
+            appended.body = text.to_string();
+            Ok(Some(appended))
+        });
+    store
+}
+
+fn append_req(summary: Option<&str>) -> AppendMemoryRequest {
+    append_req_for("admin:changes", summary)
+}
+
+fn append_req_for(key: &str, summary: Option<&str>) -> AppendMemoryRequest {
+    AppendMemoryRequest {
+        key: key.to_string(),
+        scope: None,
+        text: "a line".to_string(),
+        summary: summary.map(str::to_string),
+    }
+}
+
+#[tokio::test]
+async fn an_append_to_a_missing_key_creates_the_entry_first() {
+    let puts = Arc::new(Mutex::new(Vec::new()));
+    let store = store_creating_on_put(
+        Arc::clone(&puts),
+        PutOutcome::Written(Box::new(row("admin:changes", MemoryScope::Loop, "loop-1"))),
+    );
+    let entry = append(
+        &tasks(),
+        &memories(store),
+        &ctx("user-1"),
+        "task-1",
+        append_req(None),
+    )
+    .await
+    .map_err(|e| e.to_string());
+    assert_eq!(entry.map(|e| e.key), Ok("admin:changes".to_string()));
+    let puts = puts.lock().unwrap();
+    assert_eq!(puts[0].summary.as_deref(), Some("admin:changes"));
+    assert_eq!(puts[0].if_version, Some(0));
+    assert_eq!(puts[0].scope.scope, MemoryScope::Loop);
+}
+
+#[tokio::test]
+async fn an_append_that_loses_the_race_to_create_appends_to_the_winner() {
+    let puts = Arc::new(Mutex::new(Vec::new()));
+    let store = store_creating_on_put(
+        Arc::clone(&puts),
+        PutOutcome::VersionMismatch { current: Some(1) },
+    );
+    let req = append_req(Some("Log of admin changes"));
+    let result = append(&tasks(), &memories(store), &ctx("user-1"), "task-1", req).await;
+    assert!(result.is_ok(), "{:?}", result.err());
+    assert_eq!(
+        puts.lock().unwrap()[0].summary.as_deref(),
+        Some("Log of admin changes")
+    );
+}
+
+#[tokio::test]
+async fn an_append_creating_a_key_longer_than_a_summary_cuts_the_summary() {
+    let puts = Arc::new(Mutex::new(Vec::new()));
+    let store = store_creating_on_put(
+        Arc::clone(&puts),
+        PutOutcome::Written(Box::new(row("admin:changes", MemoryScope::Loop, "loop-1"))),
+    );
+    let key = format!("log:{}", "k".repeat(MAX_SUMMARY_CHARS));
+    let req = append_req_for(&key, None);
+    let result = append(&tasks(), &memories(store), &ctx("user-1"), "task-1", req).await;
+    assert!(result.is_ok(), "{:?}", result.err());
+    let summary = puts.lock().unwrap()[0].summary.clone().unwrap_or_default();
+    assert_eq!(summary.chars().count(), MAX_SUMMARY_CHARS);
 }

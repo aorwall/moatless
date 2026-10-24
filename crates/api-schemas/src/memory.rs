@@ -75,6 +75,9 @@ pub struct AppendMemoryRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<MemoryScope>,
     pub text: String,
+    /// The summary of the entry an append creates; the key when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
 }
 
 /// Body of `POST /api/v1/tasks/{task_id}/memory/claim`.

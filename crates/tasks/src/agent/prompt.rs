@@ -253,7 +253,7 @@ commits, PRs, issues and docs already remember their own contents.
 - `moat memory put <key> --summary \"<one line>\" --text \"<body>\" [--cite <url>]`
   writes an entry. Name it `area:topic`, cite where each fact came from, and
   pass `--if-version <n>` when you update something you read.
-- `moat memory append <key> --text \"<line>\"` adds a dated line to its log.
+- `moat memory append <key> --text \"<line>\"` adds a dated line to its log, creating the entry when it does not exist.
 - `moat memory verify <key>` records that its citations still hold.
 - `moat memory claim <key> --ttl 2h` and `moat memory release <key>` stop two
   Tasks working the same item. A claim refuses only another claim, so claim
