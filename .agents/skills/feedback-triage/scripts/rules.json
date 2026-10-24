@@ -1,0 +1,4 @@
+{"rulesVersion": 1, "prefixes": {
+  "clusters/":  {"read": "anyone"},
+  "meta/":      {"read": "anyone"},
+  "decisions/": {"read": "anyone", "create": "anyone", "update": "owner", "delete": "owner"}}}

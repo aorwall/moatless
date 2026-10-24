@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Feedback triage</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
+<style>
+  /* Layout: a dispatch sheet. Ranked work orders as cards, then plain ruled rows to close, then the rest folded away. */
+  :root {
+    --paper: light-dark(#f3f5f4, #101615);
+    --sheet: light-dark(#ffffff, #18201f);
+    --ink: light-dark(#17211f, #dfe8e5);
+    --ink-2: light-dark(#5a6966, #92a29e);
+    --rule: light-dark(#d5dddb, #2b3634);
+    --signal: light-dark(#0b6e66, #4fc7b8);
+    --signal-wash: light-dark(#e1f1ee, #173330);
+    --done: light-dark(#4f6b2a, #9ccc65);
+    --done-wash: light-dark(#ecf2e2, #1f2a17);
+    --font-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+    --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-data: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 1rem/1.55 var(--font-body); }
+  main { max-width: 56rem; margin: 0 auto; padding: 28px 16px 64px; display: grid; gap: 28px; }
+  h1, h2, h3, summary.fold { font-family: var(--font-display); text-wrap: balance; margin: 0; }
+  h1 { font-size: 1.9rem; font-weight: 600; line-height: 1.15; }
+  h3 { font-size: 1.35rem; font-weight: 600; }
+  .eyebrow { font: 500 0.78rem/1 var(--font-data); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+  .muted { color: var(--ink-2); }
+  .mono { font-family: var(--font-data); font-size: 0.86rem; }
+  .tnum { font-variant-numeric: tabular-nums; }
+  header { display: grid; gap: 8px; }
+  header p { margin: 0; max-width: 65ch; }
+
+  .tally { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-block: 1px solid var(--rule); }
+  .tally div { padding: 12px 16px; display: grid; gap: 4px; }
+  .tally div + div { border-left: 1px solid var(--rule); }
+  .tally b { font: 600 1.6rem/1 var(--font-display); font-variant-numeric: tabular-nums; }
+  .tally b.signal { color: var(--signal); }
+
+  .section { display: grid; gap: 14px; }
+  .section > header p { font-size: 0.93rem; }
+  .list { display: grid; gap: 12px; }
+  .empty { margin: 0; color: var(--ink-2); font-style: italic; }
+
+  .cluster { display: grid; grid-template-columns: 3rem minmax(0, 1fr); gap: 4px 12px; padding: 16px 0; }
+  .cluster .body { display: grid; gap: 8px; min-width: 0; grid-column: 2; }
+  .cluster h2 { font-size: 1.15rem; font-weight: 600; line-height: 1.3; }
+  .cluster p { margin: 0; max-width: 65ch; }
+  .rank { grid-row: 1 / span 2; font: 600 2rem/1 var(--font-display); color: var(--signal); font-variant-numeric: tabular-nums; }
+  .fix .cluster { background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--radius, 10px); padding: 16px 18px 16px 8px; }
+  .close .cluster, .later .cluster { border-top: 1px solid var(--rule); grid-template-columns: minmax(0, 1fr); }
+  .close .cluster .body, .later .cluster .body { grid-column: 1; }
+  .why { font-weight: 600; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font: 500 0.78rem/1.6 var(--font-data); padding: 0 8px; border-radius: 999px; border: 1px solid var(--rule); color: var(--ink-2); }
+  .chip.owner { color: var(--signal); border-color: currentColor; background: var(--signal-wash); }
+  .close .chip.owner { color: var(--done); background: var(--done-wash); }
+
+  .meter { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; font-size: 0.86rem; }
+  .meter .score { font: 600 0.95rem/1 var(--font-data); }
+  .axis { display: inline-flex; gap: 6px; align-items: center; color: var(--ink-2); }
+  .pips { display: inline-flex; gap: 2px; }
+  .pip { width: 8px; height: 8px; border-radius: 2px; border: 1px solid var(--signal); }
+  .pip.on { background: var(--signal); }
+
+  dl { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: 6px 16px; margin: 0; font-size: 0.93rem; }
+  dt { color: var(--ink-2); }
+  dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+  a { color: var(--signal); }
+  code { font-family: var(--font-data); font-size: 0.88em; font-weight: 400; overflow-wrap: anywhere; }
+
+  details.samples summary { cursor: pointer; color: var(--ink-2); font-size: 0.9rem; }
+  blockquote { margin: 8px 0; padding: 2px 0 2px 12px; border-left: 2px solid var(--rule); color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.9rem; }
+  blockquote .mono { display: block; margin-top: 4px; font-size: 0.78rem; }
+  .ids { overflow-wrap: anywhere; font-size: 0.78rem; }
+
+  form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding-top: 4px; }
+  .seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; }
+  .seg button + button { border-left: 1px solid var(--rule); }
+  form input[type=text] { flex: 1 1 14rem; min-width: 0; padding: 6px 10px; font: inherit; font-size: 0.93rem; background: var(--sheet); color: var(--ink); border: 1px solid var(--rule); border-radius: 8px; }
+  button { font: 500 0.9rem/1 var(--font-body); padding: 8px 12px; border-radius: 8px; border: 1px solid var(--rule); background: var(--sheet); color: var(--ink); cursor: pointer; }
+  button[aria-pressed=true] { background: var(--signal); color: var(--sheet); }
+  button[type=submit] { border-color: var(--signal); color: var(--signal); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+  .status { font-size: 0.86rem; color: var(--ink-2); }
+  .decisions { margin: 0; padding-left: 18px; font-size: 0.86rem; color: var(--ink-2); }
+
+  details.later > summary.fold { cursor: pointer; font-size: 1.35rem; font-weight: 600; }
+
+  @media (max-width: 560px) {
+    .tally { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .tally div:nth-child(3) { border-left: 0; }
+    .tally div:nth-child(n+3) { border-top: 1px solid var(--rule); }
+    dl { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+    dd + dt { margin-top: 6px; }
+    .cluster { grid-template-columns: 2.2rem minmax(0, 1fr); }
+    .rank { font-size: 1.5rem; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <span class="eyebrow" id="eyebrow">Feedback triage</span>
+    <h1 id="title">Feedback triage</h1>
+    <p class="muted" id="lede">Loading the run…</p>
+    <p class="muted">
+      Each cluster groups recent feedback that shares one root cause, and names the repository
+      that owns its fix. If the owner is wrong, say so in your note. Only a decision from a
+      Moatless admin counts. For now nothing acts on a decision, so no task is created and no
+      feedback is closed.
+    </p>
+  </header>
+  <div class="tally" id="tally"></div>
+  <div id="clusters" style="display: grid; gap: 36px;"></div>
+</main>
+<script>
+  const api = window.moatless && window.moatless.artifact;
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  const state = { clusters: new Map(), decisions: new Map(), meta: null };
+  // Cluster text marks commands and paths with backticks.
+  const prose = (s) => esc(s).replace(/`([^`]+)`/g, "<code>$1</code>");
+  const day = (iso) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+
+  function tally(label, value, signal) {
+    return `<div><span class="eyebrow">${esc(label)}</span><b class="${signal ? "signal" : ""}">${esc(value)}</b></div>`;
+  }
+
+  function decisionsFor(slug) {
+    return [...state.decisions.values()].filter((r) => r.key.startsWith(`decisions/${slug}/`));
+  }
+
+  function meter(p) {
+    const axis = (name, n) => `<span class="axis">${name}<span class="pips" aria-label="${name} ${n} of 3">${[1, 2, 3].map((i) => `<span class="pip${i <= n ? " on" : ""}"></span>`).join("")}</span></span>`;
+    return `<div class="meter"><span class="score tnum">${esc(p.score)}/15</span>${axis("impact", p.impact)}${axis("reach", p.reach)}${axis("urgency", p.urgency)}${axis("ease", p.ease)}</div>`;
+  }
+
+  function renderCluster(c, slug) {
+    const p = c.priority;
+    const fix = c.bucket === "fix";
+    const mine = api && decisionsFor(slug).find((r) => r.submittedBy === api.viewerId);
+    const picked = mine ? mine.data.decision : null;
+    const others = decisionsFor(slug)
+      .map((r) => `<li>${esc(r.data.decision)} by <span class="mono">${esc(r.submittedBy)}</span>${r.data.note ? `: ${esc(r.data.note)}` : ""}</li>`)
+      .join("");
+    const samples = (c.samples || [])
+      .map((s) => `<blockquote>${esc(s.comment)}<span class="mono">${esc(s.feedbackId)}</span></blockquote>`)
+      .join("");
+    const existing = (c.existing || []).length
+      ? c.existing.map((e) => `<a href="${esc(e.url)}">${esc(e.label || e.url)}</a>`).join(", ")
+      : "None found";
+    const buttons = ["approve", "reject", "defer"]
+      .map((d) => `<button type="button" data-decision="${d}" aria-pressed="${picked === d}">${d[0].toUpperCase() + d.slice(1)}</button>`)
+      .join("");
+    const seen = c.firstSeen ? `${day(c.firstSeen)} to ${day(c.lastSeen)}` : "";
+    return `<article class="cluster" data-slug="${esc(slug)}">
+      ${fix && p && p.rank ? `<span class="rank">${esc(p.rank)}</span>` : ""}
+      <div class="body">
+        <h2>${prose(c.title)}</h2>
+        <div class="chips"><span class="chip owner">${esc(c.owner)}</span><span class="chip tnum">${esc(c.count)} item${c.count === 1 ? "" : "s"}</span><span class="chip">${esc(c.label)}</span></div>
+        ${fix && p && p.why ? `<p class="why">${prose(p.why)}</p>` : ""}
+        ${p && p.score && c.bucket !== "close" ? meter(p) : ""}
+        <p>${prose(c.bucket === "close" ? c.brief : c.summary)}</p>
+        <details class="samples"><summary>Details, ${esc((c.samples || []).length)} sample comments</summary>
+          <dl>
+            ${c.bucket === "close" ? `<dt>What happened</dt><dd>${prose(c.summary)}</dd>` : `<dt>Proposed fix</dt><dd>${prose(c.brief)}</dd>`}
+            ${c.ownerReason ? `<dt>Why this owner</dt><dd>${esc(c.ownerReason)}</dd>` : ""}
+            <dt>Reported from</dt><dd>${esc((c.reportedFrom || []).join(", "))}</dd>
+            <dt>Existing work</dt><dd>${existing}</dd>
+            <dt>Seen</dt><dd class="tnum">${esc(seen)}</dd>
+          </dl>
+          ${samples}<p class="mono ids muted">${(c.members || []).map(esc).join(" ")}</p>
+        </details>
+        <form>
+          <span class="seg" role="group" aria-label="Decision">${buttons}</span>
+          <input type="text" id="note-${esc(slug)}" name="note" aria-label="Note" placeholder="Note, or the right owning repository" value="${esc(mine ? mine.data.note : "")}">
+          <button type="submit">Save</button>
+          <span class="status" role="status"></span>
+        </form>
+        ${others ? `<ul class="decisions">${others}</ul>` : ""}
+      </div>
+    </article>`;
+  }
+
+  function render() {
+    const m = state.meta;
+    const all = [...state.clusters.entries()];
+    const inBucket = (name) => all.filter(([, c]) => (c.bucket || "later") === name);
+    const byCount = (a, b) => (b[1].count - a[1].count) || a[0].localeCompare(b[0]);
+    const fix = inBucket("fix").sort((a, b) => (a[1].priority?.rank ?? 99) - (b[1].priority?.rank ?? 99));
+    const close = inBucket("close").sort(byCount);
+    const later = inBucket("later").sort((a, b) => ((b[1].priority?.score ?? 0) - (a[1].priority?.score ?? 0)) || byCount(a, b));
+    if (m) {
+      $("eyebrow").textContent = `Feedback triage · last ${m.windowDays ?? 7} days`;
+      $("title").textContent = `What agents hit, ${day(m.windowFrom)} to ${day(m.windowTo)}`;
+      $("lede").textContent = m.processed
+        ? `${m.processed} open items from the last ${m.windowDays ?? 7} days, grouped into ${m.clusters} clusters. Older open feedback is left alone.`
+        : `No open feedback arrived in the last ${m.windowDays ?? 7} days.`;
+      $("tally").innerHTML = tally(`Last ${m.windowDays ?? 7} days`, m.processed) + tally("Clusters", m.clusters)
+        + tally("Fix first", fix.length, true) + tally("Open in total", m.openTotal);
+    }
+    // Each record re-renders every cluster, so keep what a reader is typing.
+    const typed = new Map([...document.querySelectorAll(".cluster")].map((el) => [el.dataset.slug, el.querySelector("input").value]));
+    const laterOpen = document.querySelector("details.later")?.open ?? false;
+    const cards = (list) => list.length ? list.map(([slug, c]) => renderCluster(c, slug)).join("") : `<p class="empty">None this run.</p>`;
+    $("clusters").innerHTML =
+      `<section class="section fix"><header><span class="eyebrow">Ranked by impact, reach, urgency and ease</span><h3>Fix first</h3></header><div class="list">${cards(fix)}</div></section>`
+      + `<section class="section close"><header><span class="eyebrow">Already fixed, or nothing to fix</span><h3>Close these</h3><p class="muted">Approve to close the items once closing ships.</p></header><div class="list">${cards(close)}</div></section>`
+      + `<section class="section later"><details class="later"${laterOpen ? " open" : ""}><summary class="fold">Everything else (${later.length})</summary><div class="list">${cards(later)}</div></details></section>`;
+    for (const el of document.querySelectorAll(".cluster")) {
+      if (typed.has(el.dataset.slug)) el.querySelector("input").value = typed.get(el.dataset.slug);
+      wire(el);
+    }
+  }
+
+  function wire(el) {
+    const form = el.querySelector("form");
+    const status = el.querySelector(".status");
+    let decision = el.querySelector("button[aria-pressed=true]")?.dataset.decision ?? null;
+    if (!api || !api.viewerId) {
+      for (const b of form.querySelectorAll("button")) b.disabled = true;
+      status.textContent = api ? "This page cannot tell who you are, so it cannot save a decision." : "Open this page from its Moatless link to decide.";
+      return;
+    }
+    for (const b of form.querySelectorAll("button[data-decision]")) {
+      b.addEventListener("click", () => {
+        decision = b.dataset.decision;
+        for (const o of form.querySelectorAll("button[data-decision]")) o.setAttribute("aria-pressed", o === b);
+      });
+    }
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!decision) { status.textContent = "Pick approve, reject or defer first."; return; }
+      const note = form.elements.note.value.trim();
+      try {
+        // `append` picks a key no other reader can claim first; a later change updates that record.
+        const mine = decisionsFor(el.dataset.slug).find((r) => r.submittedBy === api.viewerId);
+        if (mine) await api.save(mine.key, { decision, note });
+        else {
+          // Recorded now, so a second save before `subscribe` delivers this one updates it.
+          const record = await api.append(`decisions/${el.dataset.slug}`, { decision, note });
+          state.decisions.set(record.key, record);
+        }
+        status.textContent = "Saved.";
+      } catch (error) {
+        status.textContent = error.code === "permission-denied" ? "Not saved: this page refused the write." : `Not saved: ${error.message}`;
+      }
+    });
+  }
+
+  if (api) {
+    api.subscribe({ prefix: "", onError: (e) => { $("lede").textContent = `Stopped updating: ${e}. Reload the page.`; } }, (records) => {
+      for (const r of records) {
+        if (r.key.startsWith("clusters/")) state.clusters.set(r.key.slice("clusters/".length), r.data);
+        else if (r.key.startsWith("decisions/")) state.decisions.set(r.key, r);
+        else if (r.key === "meta/run") state.meta = r.data;
+      }
+      render();
+    });
+  } else {
+    $("lede").textContent = "Open this page from its Moatless link: the clusters load from its records.";
+  }
+</script>
+</body>
+</html>
