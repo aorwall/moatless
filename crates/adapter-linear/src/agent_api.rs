@@ -269,12 +269,12 @@ impl LinearAgentApi {
     async fn refresh_tokens(&self, refresh_token: &str) -> Result<TokenResponse, AdapterError> {
         let client_id = self.oauth_client_id.as_deref().ok_or_else(|| {
             SharedAdapterError::AdapterApi(
-                "LINEAR_OAUTH_CLIENT_ID is not configured; cannot refresh Linear token".into(),
+                "The Linear app has no oauth_client_id; cannot refresh Linear token".into(),
             )
         })?;
         let client_secret = self.oauth_client_secret.as_deref().ok_or_else(|| {
             SharedAdapterError::AdapterApi(
-                "LINEAR_OAUTH_CLIENT_SECRET is not configured; cannot refresh Linear token".into(),
+                "The Linear app has no oauth_client_secret; cannot refresh Linear token".into(),
             )
         })?;
 

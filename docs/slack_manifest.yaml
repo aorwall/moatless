@@ -6,10 +6,10 @@
 #   2. Go to https://api.slack.com/apps → "Create New App" → "From a manifest",
 #      pick your workspace, and paste this file.
 #   3. After the app is created, click "Install to Workspace" and approve scopes.
-#   4. Copy the credentials into the backend env vars (see backend/src/config.rs
-#      `SlackConfig`):
-#        - "Bot User OAuth Token" (xoxb-...)  -> SLACK_BOT_TOKEN
-#        - "Signing Secret"                   -> SLACK_SIGNING_SECRET
+#   4. Register the credentials as the Slack app in Moatless admin settings
+#      (or `moat app set slack default --field ...`):
+#        - "Bot User OAuth Token" (xoxb-...)  -> bot_token
+#        - "Signing Secret"                   -> signing_secret
 #
 # The scopes and bot events below match what the SlackAdapter in
 # backend/src/adapters/slack/ uses. When that adapter starts calling a new

@@ -37,8 +37,8 @@ use super::status;
 
 /// Linear adapter.
 pub struct LinearAdapter {
-    /// Global webhook secret from env (`LINEAR_CHANNEL_WEBHOOK_SECRET`). Used
-    /// as a fallback when the connection has no `webhook_secret` set.
+    /// The stored Linear app's `webhook_secret`. Used as a fallback when the
+    /// connection has no `webhook_secret` set.
     pub(crate) global_webhook_secret: Option<String>,
     /// How this Adapter's outbound calls authenticate, and which host they
     /// reach. Owned by [`auth`](super::auth), which is the only module that

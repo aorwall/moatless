@@ -10,7 +10,7 @@ use std::str::FromStr;
 
 use moatless_types::adapter::{LinearConfig, MessageBufferConfig};
 use moatless_types::agent::CodexOAuthConfig;
-use moatless_types::auth::{AllowedOrigin, AuthConfig, AuthProvider, GitHubAppConfig, OidcConfig};
+use moatless_types::auth::{AllowedOrigin, AuthConfig, AuthProvider, OidcConfig};
 use moatless_types::model::CodexModel;
 use moatless_types::sandbox::SandboxProviderType;
 use moatless_types::secret::SecretsConfig;
@@ -182,34 +182,6 @@ fn csrf_trusted_origins_from_env() -> Vec<AllowedOrigin> {
     moatless_types::auth::parse_allowed_origins(
         &env_opt("CSRF_TRUSTED_ORIGINS").unwrap_or_default(),
     )
-}
-
-/// Parse the `GITHUB_APPS_JSON` env var into a list of `GitHubAppConfig`.
-///
-/// Converts `\\n` in `private_key` to real newlines for PEM-friendly env-var
-/// usage; parse failure warns and returns an empty vec.
-fn parse_github_apps_json(raw: Option<String>) -> Vec<GitHubAppConfig> {
-    let Some(raw) = raw else {
-        return vec![];
-    };
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return vec![];
-    }
-    match serde_json::from_str::<Vec<GitHubAppConfig>>(trimmed) {
-        Ok(mut apps) => {
-            for app in &mut apps {
-                if app.private_key.contains("\\n") {
-                    app.private_key = app.private_key.replace("\\n", "\n");
-                }
-            }
-            apps
-        }
-        Err(e) => {
-            tracing::warn!(error = %e, "Failed to parse GITHUB_APPS_JSON — ignoring");
-            vec![]
-        }
-    }
 }
 
 /// Read an environment variable as a boolean (true if "true" or "1").
@@ -599,7 +571,7 @@ pub struct SseConfig {
 /// Slack adapter settings.
 ///
 /// Implements a custom `Debug` to redact secrets.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct SlackConfig {
     /// Slack bot token
     pub bot_token: Option<String>,
@@ -641,6 +613,15 @@ impl fmt::Debug for TelegramConfig {
             .field("bot_token", &self.bot_token.as_ref().map(|_| "[REDACTED]"))
             .field("mode", &self.mode)
             .finish()
+    }
+}
+
+impl Default for TelegramConfig {
+    fn default() -> Self {
+        Self {
+            bot_token: None,
+            mode: "webhook".to_string(),
+        }
     }
 }
 
@@ -1087,7 +1068,6 @@ impl Config {
                     .map(|s| s.replace("\\n", "\n")),
                 github_app_default_installation_id: env_opt("GITHUB_APP_DEFAULT_INSTALLATION_ID")
                     .and_then(|v| v.parse().ok()),
-                github_apps: parse_github_apps_json(env_opt("GITHUB_APPS_JSON")),
             },
 
             s3: S3Config {
@@ -1099,29 +1079,17 @@ impl Config {
                 region: env_str("S3_REGION", "us-east-1"),
             },
 
-            slack: SlackConfig {
-                bot_token: env_opt("SLACK_BOT_TOKEN"),
-                signing_secret: env_opt("SLACK_SIGNING_SECRET"),
-                bot_user_id: env_opt("SLACK_BOT_USER_ID"),
-            },
-
-            telegram: TelegramConfig {
-                bot_token: env_opt("TELEGRAM_BOT_TOKEN"),
-                mode: env_opt("TELEGRAM_MODE").unwrap_or_else(|| "webhook".into()),
-            },
+            // Adapter app credentials load from `adapter_apps` after the DB is
+            // up; see `moatless_server::compose::adapter_config`.
+            slack: SlackConfig::default(),
+            telegram: TelegramConfig::default(),
 
             github_pr: GithubPrConfig {
                 webhook_secret: env_opt("GITHUB_CHANNEL_WEBHOOK_SECRET"),
             },
             github_api_base: github_api_base_from_env(),
 
-            linear: LinearConfig {
-                webhook_secret: env_opt("LINEAR_CHANNEL_WEBHOOK_SECRET"),
-                oauth_client_id: env_opt("LINEAR_OAUTH_CLIENT_ID"),
-                oauth_client_secret: env_opt("LINEAR_OAUTH_CLIENT_SECRET"),
-                oauth_callback_url: env_opt("LINEAR_OAUTH_CALLBACK_URL"),
-                api_base_url: env_opt("LINEAR_API_BASE_URL"),
-            },
+            linear: LinearConfig::default(),
 
             decision: DecisionConfig::from_env()?,
 
@@ -1518,7 +1486,6 @@ impl Config {
                 github_app_id: None,
                 github_app_private_key: None,
                 github_app_default_installation_id: None,
-                github_apps: vec![],
             },
             s3: S3Config {
                 bucket_name: None,

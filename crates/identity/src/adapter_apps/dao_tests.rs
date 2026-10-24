@@ -1,10 +1,8 @@
 //! GitHub App registration tests against Postgres.
 //!
 //! Proves what a unit test cannot: a registration made through one registry
-//! instance is visible to another sharing the database (the two-replica case),
-//! and the one-time carry-over of `GITHUB_APPS_JSON` converges to a single
-//! record when several backends run it at once. GitHub is stubbed at the
-//! REST root [`stub_github`] returns.
+//! instance is visible to another sharing the database (the two-replica case).
+//! GitHub is stubbed at the REST root [`stub_github`] returns.
 
 use std::net::SocketAddr;
 use std::sync::{Arc, OnceLock};
@@ -16,7 +14,7 @@ use moatless_types::secret::SecretsConfig;
 use sqlx::PgPool;
 
 use super::PgAdapterAppDao;
-use super::{AdapterAppDao, ENV_CARRY_OVER, GitHubAppAuditEntry, GitHubAppRecord, NewGitHubApp};
+use super::{AdapterAppDao, GitHubAppAuditEntry, GitHubAppRecord, NewGitHubApp};
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
 use crate::secret::service::{LocalEnvelopeSecretCipher, SecretCipher};
@@ -277,60 +275,6 @@ async fn removing_an_app_stops_it_answering_everywhere(pool: PgPool) {
 
     assert!(backend_a.get("review-bot").await.unwrap().is_none());
     assert!(backend_b.get("review-bot").await.unwrap().is_none());
-}
-
-#[sqlx::test]
-async fn the_carry_over_produces_one_record_when_several_backends_run_it(pool: PgPool) {
-    let entries = vec![app_config("env-bot", 4242)];
-
-    let backends: Vec<GitHubAppRegistry> = (0..3).map(|_| registry(&pool)).collect();
-    // Started together, as a rollout starts them.
-    futures::future::join_all(
-        backends
-            .iter()
-            .map(|backend| backend.carry_over_env_apps(&entries)),
-    )
-    .await;
-
-    let stored = PgAdapterAppDao(pool.clone())
-        .list_github_apps()
-        .await
-        .unwrap();
-    assert_eq!(stored.len(), 1, "expected exactly one carried-over App");
-    assert_eq!(stored[0].app_key, "env-bot");
-    assert_eq!(stored[0].bot_login, "reviewer[bot]");
-}
-
-#[sqlx::test]
-async fn a_deleted_carried_over_app_is_not_resurrected_by_a_restart(pool: PgPool) {
-    let entries = vec![app_config("env-bot", 4242)];
-
-    registry(&pool).carry_over_env_apps(&entries).await;
-    assert!(
-        PgAdapterAppDao(pool.clone())
-            .delete_github_app("env-bot")
-            .await
-            .unwrap()
-    );
-
-    // Whether the carry-over has run is recorded in its own right, so a
-    // restart with the variable still set does not undo the deletion.
-    registry(&pool).carry_over_env_apps(&entries).await;
-
-    assert!(
-        PgAdapterAppDao(pool.clone())
-            .find_github_app_by_key("env-bot")
-            .await
-            .unwrap()
-            .is_none()
-    );
-    let claimed: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM adapter_app_migrations WHERE name = $1")
-            .bind(ENV_CARRY_OVER)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    assert_eq!(claimed, 1, "the carry-over must stay recorded as done");
 }
 
 #[sqlx::test]

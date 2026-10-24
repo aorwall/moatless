@@ -346,7 +346,7 @@ pub struct InboundDeliveryPayload {
 /// Linear adapter settings.
 ///
 /// Implements a custom `Debug` to redact secrets.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct LinearConfig {
     /// Global webhook secret for verifying Linear webhook signatures.
     pub webhook_secret: Option<String>,
@@ -357,7 +357,7 @@ pub struct LinearConfig {
     /// OAuth `redirect_uri` registered on the Linear OAuth2 app.
     pub oauth_callback_url: Option<String>,
     /// API host every Linear client talks to, GraphQL and OAuth alike (`None` =
-    /// Linear itself; env `LINEAR_API_BASE_URL`).
+    /// Linear itself; `api_base_url` in the stored Linear app's config).
     ///
     /// The Adapter's injection seam: `LinearAgentApi` is built deep inside
     /// paths holding only an `AppState`, so redirecting it must travel there.

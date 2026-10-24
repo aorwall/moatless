@@ -146,14 +146,6 @@ pub struct AuthConfig {
     pub github_app_private_key: Option<String>,
     /// Default installation ID for server-to-server operations.
     pub github_app_default_installation_id: Option<u64>,
-
-    /// Additional GitHub Apps registered as bot identities (e.g. `dev-bot`,
-    /// `review-bot`).
-    ///
-    /// `GITHUB_APPS_JSON` is a one-time upgrade: the first start after
-    /// upgrading copies each entry here and ignores the env var after. A bot
-    /// user's `provider_tokens.provider_user_id` stores the matching `key`.
-    pub github_apps: Vec<GitHubAppConfig>,
 }
 
 impl AuthConfig {
@@ -346,7 +338,6 @@ impl fmt::Debug for AuthConfig {
                 "github_app_default_installation_id",
                 &self.github_app_default_installation_id,
             )
-            .field("github_apps", &self.github_apps)
             .finish()
     }
 }

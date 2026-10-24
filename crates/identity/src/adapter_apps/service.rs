@@ -131,35 +131,6 @@ fn seal(input: AdapterAppInput, cipher: &dyn SecretCipher) -> Result<SealedAdapt
     })
 }
 
-pub async fn carry_over_one(
-    db: &DbPool,
-    cipher: &dyn SecretCipher,
-    marker: &'static str,
-    input: AdapterAppInput,
-) {
-    if matches!(super::app_dao::has_marker(db, marker).await, Ok(true)) {
-        return;
-    }
-    if let Err(e) = validate_adapter_app(&input) {
-        warn!(
-            adapter_kind = input.adapter_kind,
-            app_key = %input.app_key,
-            error = %e,
-            "Not carrying over Adapter app env config"
-        );
-        return;
-    }
-
-    let input = match seal(input, cipher) {
-        Ok(input) => input,
-        Err(error) => {
-            warn!(marker, %error, "Could not seal Adapter app carry-over");
-            return;
-        }
-    };
-    super::app_dao::carry_over(db, marker, input).await;
-}
-
 async fn app_secrets(
     db: &DbPool,
     config: &Config,

@@ -68,12 +68,12 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await?;
     let config = if let Some(ref pool) = db_pool {
-        match crate::compose::adapter_config::carry_over_env_and_load_config(&config, pool).await {
+        match crate::compose::adapter_config::load_adapter_app_config(&config, pool).await {
             Ok(config) => config,
             Err(e) => {
                 warn!(
                     error = %e,
-                    "Failed to load DB-backed Adapter app config; using deployment config"
+                    "Failed to load Adapter app config from the DB; Slack, Telegram and Linear stay unconfigured"
                 );
                 config
             }
@@ -92,15 +92,6 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let ports: Option<Ports> = db_pool
         .as_ref()
         .map(|pool| compose(pool.clone(), &config, s3_client.clone()));
-    if let Some(ref ports) = ports {
-        // Off the boot path: carrying over proves each App against GitHub, and
-        // the API must not wait on GitHub to start answering.
-        tokio::spawn({
-            let github_apps = ports.github_apps.clone();
-            let entries = config.auth.github_apps.clone();
-            async move { github_apps.carry_over_env_apps(&entries).await }
-        });
-    }
     let event_publisher = crate::compose::infrastructure::init_event_publisher(db_pool.as_ref());
     let (sse_state, sse_feed) = startup::init_sse(
         &config,

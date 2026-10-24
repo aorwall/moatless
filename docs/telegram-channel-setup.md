@@ -15,20 +15,22 @@ Connect a Telegram bot to your Moatless instance so users can send messages via 
 
 ## 2. Configure the Backend
 
-Set the following environment variables:
+Register the bot as the Telegram app, either in the admin settings UI or with the CLI:
 
 ```bash
-TELEGRAM_BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
+moat app set telegram default --field bot_token=- --field mode=webhook
 ```
+
+The backend reads the app when it starts, so restart it after a change.
 
 ### Ingress Mode
 
-The backend supports two ways to receive messages from Telegram:
+The backend supports two ways to receive messages from Telegram, chosen by the app's `mode` field:
 
-| Mode | Env Var | When to Use |
-|------|---------|-------------|
-| **Webhook** (default) | `TELEGRAM_MODE=webhook` | Server is publicly reachable by Telegram |
-| **Polling** | `TELEGRAM_MODE=polling` | Server is behind NAT/firewall, no public URL |
+| Mode | `mode` | When to Use |
+|------|--------|-------------|
+| **Webhook** (default) | `webhook` | Server is publicly reachable by Telegram |
+| **Polling** | `polling` | Server is behind NAT/firewall, no public URL |
 
 #### Webhook Mode (default)
 
@@ -51,9 +53,7 @@ The `secret_token` should match the `secret_token` in your channel config's `pro
 
 The backend calls Telegram's `getUpdates` API in a loop (long-polling). No inbound network access required.
 
-```bash
-TELEGRAM_MODE=polling
-```
+Set `mode=polling` on the Telegram app.
 
 When polling starts, the backend automatically deletes any existing webhook so `getUpdates` works. The poller uses 30-second long-poll requests with exponential backoff on errors (1s to 30s).
 
@@ -171,9 +171,9 @@ Telegram message routed for processing
 | Bot ignores messages in groups | Ensure `bot_username` is set in `provider_config` and the bot is mentioned (or is an admin with access to all messages via BotFather's `/setprivacy` -> Disable). |
 | Duplicate messages | Routing is deduplicated by `update_id` in the `adapter_delivery` table, so a re-delivered update never produces a second task or message -- across restarts and replicas, for as long as the record is retained (7 days after success). A re-delivery does re-run the pre-admission replies: `/start`, `/help`, and any pairing message are sent again. |
 
-## Environment Variables Reference
+## Telegram App Fields
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `TELEGRAM_BOT_TOKEN` | Yes | -- | Bot token from BotFather |
-| `TELEGRAM_MODE` | No | `webhook` | `webhook` or `polling` |
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `bot_token` | Yes | -- | Bot token from BotFather |
+| `mode` | No | `webhook` | `webhook` or `polling` |

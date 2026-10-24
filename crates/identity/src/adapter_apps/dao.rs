@@ -19,9 +19,6 @@ use crate::secret::models::EncryptedSecretValue;
 use crate::secret::service::SecretCipher;
 use moatless_core::db::DbPool;
 
-/// Name of the one-time carry-over of `GITHUB_APPS_JSON` into durable storage.
-pub(crate) const ENV_CARRY_OVER: &str = "github_apps_json_carry_over";
-
 /// A registered GitHub App.
 #[derive(Clone)]
 pub(crate) struct GitHubAppRecord {
@@ -179,20 +176,6 @@ pub(crate) trait AdapterAppDao: Send + Sync {
 
     /// Remove an App. `false` when no App holds that key.
     async fn delete_github_app(&self, app_key: &str) -> Result<bool, AuthError>;
-
-    /// Stores carried-over Apps and marks the carry-over done, atomically — a
-    /// crash between the two can't leave the marker claimed with the Apps
-    /// unwritten.
-    ///
-    /// `Ok(None)` means another backend already did it; `Ok(Some(keys))` names
-    /// Apps skipped, not overwritten, because that key was already registered.
-    async fn carry_over_github_apps(
-        &self,
-        marker: &str,
-        detail: &str,
-        records: &[GitHubAppRecord],
-        actor_id: &str,
-    ) -> Result<Option<Vec<String>>, AuthError>;
 
     async fn record_github_app_audit(
         &self,
@@ -454,43 +437,6 @@ impl AdapterAppDao for PgAdapterAppDao {
         Ok(deleted.rows_affected() > 0)
     }
 
-    async fn carry_over_github_apps(
-        &self,
-        marker: &str,
-        detail: &str,
-        records: &[GitHubAppRecord],
-        actor_id: &str,
-    ) -> Result<Option<Vec<String>>, AuthError> {
-        let mut tx = self.0.begin().await?;
-
-        // Claimed first *within the transaction*, so a second backend blocks on
-        // this row until the first commits and then sees it taken. Nothing is
-        // visible to anyone until the Apps are written alongside it.
-        let claimed = sqlx::query(
-            r#"INSERT INTO adapter_app_migrations (name, detail)
-               VALUES ($1, $2)
-               ON CONFLICT (name) DO NOTHING"#,
-        )
-        .bind(marker)
-        .bind(detail)
-        .execute(&mut *tx)
-        .await?;
-        if claimed.rows_affected() == 0 {
-            tx.rollback().await?;
-            return Ok(None);
-        }
-
-        let mut skipped = Vec::new();
-        for record in records {
-            if !insert_app(&mut tx, record, actor_id).await? {
-                skipped.push(record.app_key.clone());
-            }
-        }
-
-        tx.commit().await?;
-        Ok(Some(skipped))
-    }
-
     async fn record_github_app_audit(
         &self,
         entry: GitHubAppAuditEntry<'_>,
@@ -532,11 +478,9 @@ pub(crate) mod test_support {
     pub struct InMemoryAdapterAppDao {
         apps: Mutex<HashMap<String, GitHubAppRecord>>,
         adapter_apps: Mutex<HashMap<(String, String), crate::adapter_apps::StoredAdapterApp>>,
-        migrations: Mutex<Vec<String>>,
         audits: Mutex<Vec<(String, String, String)>>,
         pub reads: Mutex<usize>,
         pub fail_reads: Mutex<bool>,
-        pub fail_writes: Mutex<bool>,
     }
 
     impl InMemoryAdapterAppDao {
@@ -545,15 +489,6 @@ pub(crate) mod test_support {
                 .lock()
                 .expect("lock")
                 .insert(record.app_key.clone(), record);
-        }
-
-        /// Has the one-time carry-over been recorded as done?
-        pub fn migration_claimed(&self, marker: &str) -> bool {
-            self.migrations
-                .lock()
-                .expect("lock")
-                .iter()
-                .any(|m| m == marker)
         }
 
         /// Simulate an edit landing between two lookups.
@@ -687,38 +622,6 @@ pub(crate) mod test_support {
 
         async fn delete_github_app(&self, app_key: &str) -> Result<bool, AuthError> {
             Ok(self.apps.lock().expect("lock").remove(app_key).is_some())
-        }
-
-        async fn carry_over_github_apps(
-            &self,
-            marker: &str,
-            _detail: &str,
-            records: &[GitHubAppRecord],
-            _actor_id: &str,
-        ) -> Result<Option<Vec<String>>, AuthError> {
-            // Held across the whole operation, which is what the Postgres
-            // store gets from doing all of this in one transaction.
-            let mut migrations = self.migrations.lock().expect("lock");
-            if migrations.iter().any(|m| m == marker) {
-                return Ok(None);
-            }
-            if *self.fail_writes.lock().expect("lock") {
-                // Nothing written, and crucially the marker is not recorded —
-                // the next start must try again.
-                return Err(AuthError::Internal("store unavailable".into()));
-            }
-            migrations.push(marker.to_string());
-
-            let mut apps = self.apps.lock().expect("lock");
-            let mut skipped = Vec::new();
-            for record in records {
-                if apps.contains_key(&record.app_key) {
-                    skipped.push(record.app_key.clone());
-                    continue;
-                }
-                apps.insert(record.app_key.clone(), record.clone());
-            }
-            Ok(Some(skipped))
         }
 
         async fn record_github_app_audit(

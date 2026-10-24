@@ -10,13 +10,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use tokio::sync::RwLock;
-use tracing::{info, warn};
+use tracing::warn;
 
-use crate::adapter_apps::dao::{AdapterAppDao, ENV_CARRY_OVER, GitHubAppRecord, NewGitHubApp};
+use crate::adapter_apps::dao::{AdapterAppDao, GitHubAppRecord};
 use crate::auth::error::AuthError;
 use crate::auth::github::service::GitHubAppService;
 use crate::secret::service::SecretCipher;
-use moatless_types::auth::GitHubAppConfig;
 use moatless_types::http::HttpTimeouts;
 
 /// A live App service, and which stored record it was built from.
@@ -231,107 +230,12 @@ impl GitHubAppRegistry {
     pub async fn forget(&self, key: &str) {
         self.cache.write().await.remove(key);
     }
-
-    /// Moves Apps configured through `GITHUB_APPS_JSON` into durable storage
-    /// once, on the first start after upgrading; deleting the env var afterward
-    /// does not remove the carried Apps.
-    ///
-    /// Never fails a start-up — an App that can't be carried is only named in
-    /// the log with the reason, for an admin to register from the UI.
-    pub async fn carry_over_env_apps(&self, entries: &[GitHubAppConfig]) {
-        if entries.is_empty() {
-            return;
-        }
-        let (Some(store), Some(cipher)) = (&self.store, &self.cipher) else {
-            warn!(
-                count = entries.len(),
-                "GITHUB_APPS_JSON is set but this installation cannot store Apps, \
-                 so they remain environment-only"
-            );
-            return;
-        };
-
-        // Everything that can fail per-entry happens before storage is touched:
-        // an installation that cannot reach GitHub on this start has carried
-        // nothing, and tries again on the next one rather than recording the
-        // move as done.
-        let mut records = Vec::new();
-        for entry in entries {
-            let Some(service) = GitHubAppService::from_app_config(entry, &self.api_base, self.http)
-            else {
-                warn!(
-                    app_key = %entry.key,
-                    "Not carrying over GitHub App: its private key does not parse"
-                );
-                continue;
-            };
-            let app = match service.prove().await {
-                Ok(app) => app,
-                Err(e) => {
-                    warn!(
-                        app_key = %entry.key,
-                        error = %e,
-                        "Not carrying over GitHub App: GitHub did not confirm it"
-                    );
-                    continue;
-                }
-            };
-            let new_app = NewGitHubApp {
-                app_key: entry.key.clone(),
-                app_id: app.app_id,
-                name: app.name,
-                slug: app.slug,
-                bot_login: app.bot_login,
-                private_key_pem: entry.private_key.clone(),
-                default_installation_id: entry.default_installation_id,
-            };
-            match GitHubAppRecord::seal(new_app, cipher.as_ref(), None) {
-                Ok(record) => records.push(record),
-                Err(e) => {
-                    warn!(app_key = %entry.key, error = %e, "Could not seal GitHub App for storage");
-                }
-            }
-        }
-        if records.is_empty() {
-            return;
-        }
-
-        // The Apps and the marker land together. A failure here leaves the
-        // marker unclaimed, so the next start carries them properly rather
-        // than believing a migration that never happened.
-        let detail = format!("{} App(s) proved", records.len());
-        let skipped = match store
-            .carry_over_github_apps(ENV_CARRY_OVER, &detail, &records, ENV_CARRY_OVER)
-            .await
-        {
-            Ok(Some(skipped)) => skipped,
-            Ok(None) => return,
-            Err(e) => {
-                warn!(
-                    error = %e,
-                    "Could not carry GITHUB_APPS_JSON Apps into storage — will retry on the next start"
-                );
-                return;
-            }
-        };
-
-        for app_key in &skipped {
-            warn!(
-                app_key = %app_key,
-                "Not carrying over GitHub App: that key is already registered"
-            );
-        }
-        info!(
-            carried = records.len() - skipped.len(),
-            configured = entries.len(),
-            "Carried GITHUB_APPS_JSON Apps into storage — the environment variable can now be removed"
-        );
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::adapter_apps::dao::NewGitHubApp;
     use crate::adapter_apps::dao::test_support::InMemoryAdapterAppDao;
     use crate::secret::service::LocalEnvelopeSecretCipher;
     use moatless_types::secret::SecretsConfig;
@@ -452,31 +356,6 @@ mod tests {
 
         let after = registry.get("reviewer").await.expect("get").expect("app");
         assert!(!Arc::ptr_eq(&before, &after));
-    }
-
-    #[tokio::test]
-    async fn a_failed_carry_over_leaves_nothing_claimed_so_the_next_start_retries() {
-        // Recording the move as done before the Apps are written would lose
-        // them permanently: the environment variable is still set, and nothing
-        // would ever read it again.
-        let store = Arc::new(InMemoryAdapterAppDao::default());
-        let registry = registry(Arc::clone(&store), cipher());
-        *store.fail_writes.lock().expect("lock") = true;
-
-        let entries = vec![GitHubAppConfig {
-            key: "env-bot".into(),
-            app_id: 42,
-            private_key: TEST_PEM.to_string(),
-            client_id: None,
-            client_secret: None,
-            default_installation_id: None,
-        }];
-        // `prove` cannot reach GitHub here, so this stops before storage — which
-        // is itself the guarantee: an unreachable GitHub claims nothing either.
-        registry.carry_over_env_apps(&entries).await;
-
-        assert!(!store.migration_claimed(ENV_CARRY_OVER));
-        assert!(store.list_github_apps().await.expect("list").is_empty());
     }
 
     #[tokio::test]

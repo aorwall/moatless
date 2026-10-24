@@ -84,7 +84,7 @@ sequenceDiagram
         Dispatcher-->>Linear: 200 (ignored — unknown workspace)
     end
     Dispatcher->>Sig: verify(secret, body, signature)
-    Note over Sig: connection.webhook_secret OR<br/>LINEAR_CHANNEL_WEBHOOK_SECRET env
+    Note over Sig: connection.webhook_secret OR<br/>the Linear app's webhook_secret
     alt invalid signature
         Sig-->>Dispatcher: AdapterError::SignatureInvalid
         Dispatcher-->>Linear: 200 (logged as error)

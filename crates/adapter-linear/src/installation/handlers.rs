@@ -19,8 +19,8 @@ pub(super) async fn install(
     let state = state.ok_or_else(|| AuthError::Config("Linear OAuth not configured".into()))?;
     let Some(provider) = state.provider.as_ref() else {
         return Err(AuthError::Config(
-            "Linear OAuth not configured (set LINEAR_OAUTH_CLIENT_ID, \
-             LINEAR_OAUTH_CLIENT_SECRET, LINEAR_OAUTH_CALLBACK_URL)"
+            "Linear OAuth not configured (set oauth_client_id, oauth_client_secret \
+             and oauth_callback_url on the Linear app in admin settings)"
                 .into(),
         ));
     };
