@@ -8,10 +8,12 @@ use super::error::ArtifactError;
 use super::models::{Artifact, ArtifactRecord};
 use super::operations::Artifacts;
 use super::page_token::{self, PageClaims};
+use super::rules::{RecordRules, WriteOp};
 use super::schemas::{ArtifactRecordResponse, MAX_RECORD_BYTES, WriteArtifactRecordRequest};
 use super::service::find_readable;
 use crate::message::send::MessageSendService;
 use crate::task::operations::TaskCommands;
+use moatless_api_schemas::artifact::RecordWriter;
 
 /// Most records one Artifact holds, list items included; a write that would
 /// add one more is refused, so a page stuck in a loop cannot fill the table.
@@ -41,8 +43,9 @@ pub async fn page_reader(
     Ok((claims, row))
 }
 
-/// Apply a reader's write from their page, then queue the message to the
-/// Task's agent when the latest publish asked for one.
+/// Apply a reader's write from their page, under the Artifact's record rules
+/// when it has any, then queue the message to the Task's agent when the rules,
+/// or without rules the latest publish, ask for one.
 ///
 /// A message that cannot be queued is logged rather than returned: the write
 /// is already applied, and the agent can still list the records.
@@ -55,15 +58,26 @@ pub async fn write_from_page(
 ) -> Result<ArtifactRecordResponse, ArtifactError> {
     let (claims, row) = page_reader(tasks, artifacts, token).await?;
     let req = parse_write(body)?;
-    let written = write(artifacts, &row, req, &claims.sub).await?;
-    if row.notify_on_data {
+    let (written, notifies) = match &row.record_rules {
+        Some(rules) => {
+            let (written, op) = write_under_rules(artifacts, &row, rules, req, &claims.sub).await?;
+            let notifies = rules.notifies(op, &written.record().key);
+            (written, notifies)
+        }
+        None => (
+            write(artifacts, &row, req, &claims.sub, RecordWriter::Page).await?,
+            row.notify_on_data,
+        ),
+    };
+    if notifies {
         notify(messages, &row, &written, &claims).await;
     }
     Ok(to_response(written.record()))
 }
 
-/// Apply a write as a user who can change the Task, such as its agent. Never
-/// queues a message: the agent does not need telling what it wrote.
+/// Apply a write as a user who can change the Task, such as its agent, past
+/// the record rules. Never queues a message: the agent does not need telling
+/// what it wrote.
 pub async fn write_as_user(
     tasks: &TaskCommands,
     artifacts: &Artifacts,
@@ -80,7 +94,7 @@ pub async fn write_as_user(
         return Err(ArtifactError::Forbidden(row.task_id));
     }
     let req = checked(req)?;
-    let written = write(artifacts, &row, req, &scope.user_id).await?;
+    let written = write(artifacts, &row, req, &scope.user_id, RecordWriter::Agent).await?;
     Ok(to_response(written.record()))
 }
 
@@ -102,25 +116,36 @@ pub async fn list(
     filter: RecordFilter<'_>,
 ) -> Result<Vec<ArtifactRecordResponse>, ArtifactError> {
     let row = find_readable(tasks, artifacts, scope, artifact_id).await?;
-    list_rows(artifacts, &row.artifact_id, filter).await
+    let rows = list_rows(artifacts, &row.artifact_id, filter).await?;
+    Ok(rows.iter().map(to_response).collect())
 }
 
-/// The records of the Artifact a page token names.
+/// The records of the Artifact a page token names that its record rules let
+/// the reader read.
 pub async fn list_for_page(
     tasks: &TaskCommands,
     artifacts: &Artifacts,
     token: &str,
     filter: RecordFilter<'_>,
 ) -> Result<Vec<ArtifactRecordResponse>, ArtifactError> {
-    let (_, row) = page_reader(tasks, artifacts, token).await?;
-    list_rows(artifacts, &row.artifact_id, filter).await
+    let (claims, row) = page_reader(tasks, artifacts, token).await?;
+    let rows = list_rows(artifacts, &row.artifact_id, filter).await?;
+    Ok(rows
+        .iter()
+        .filter(|record| {
+            row.record_rules
+                .as_ref()
+                .is_none_or(|rules| rules.can_read(record, &claims.sub))
+        })
+        .map(to_response)
+        .collect())
 }
 
 async fn list_rows(
     artifacts: &Artifacts,
     artifact_id: &str,
     filter: RecordFilter<'_>,
-) -> Result<Vec<ArtifactRecordResponse>, ArtifactError> {
+) -> Result<Vec<ArtifactRecord>, ArtifactError> {
     let since = filter.since;
     let since = since
         .map(|s| {
@@ -131,10 +156,9 @@ async fn list_rows(
                 })
         })
         .transpose()?;
-    let rows = artifacts
+    Ok(artifacts
         .list_records(artifact_id, since, filter.prefix)
-        .await?;
-    Ok(rows.iter().map(to_response).collect())
+        .await?)
 }
 
 /// What a write did, for its response and the agent's message.
@@ -162,12 +186,13 @@ async fn write(
     row: &Artifact,
     req: WriteArtifactRecordRequest,
     submitted_by: &str,
+    writer: RecordWriter,
 ) -> Result<Written, ArtifactError> {
     match req {
         WriteArtifactRecordRequest::Save { key, data } => {
             under_cap(artifacts, row, &key).await?;
             let record = artifacts
-                .save_record(&row.artifact_id, &key, &data, submitted_by)
+                .save_record(&row.artifact_id, &key, &data, submitted_by, writer)
                 .await?;
             Ok(Written::Saved(record))
         }
@@ -175,7 +200,7 @@ async fn write(
             let key = item_key(&list);
             under_cap(artifacts, row, &key).await?;
             let record = artifacts
-                .save_record(&row.artifact_id, &key, &data, submitted_by)
+                .save_record(&row.artifact_id, &key, &data, submitted_by, writer)
                 .await?;
             Ok(Written::Appended { list, record })
         }
@@ -185,6 +210,91 @@ async fn write(
             .map(Written::Deleted)
             .ok_or_else(|| ArtifactError::NotFound(format!("record {key:?} on {}", row.slug))),
     }
+}
+
+/// How often a page's write is judged again after the record it was judged
+/// on changed before the write landed.
+const WRITE_ATTEMPTS: usize = 3;
+
+/// Apply a page's write once `rules` allow it, answering what it did and the
+/// operation the rules judged it as.
+///
+/// A write lands only on the record it was judged on, and is judged again
+/// when that record changed first, rather than landing on one its rule never
+/// saw. An update keeps `submitted_by`, so it never makes a reader the owner.
+async fn write_under_rules(
+    artifacts: &Artifacts,
+    row: &Artifact,
+    rules: &RecordRules,
+    req: WriteArtifactRecordRequest,
+    viewer: &str,
+) -> Result<(Written, WriteOp), ArtifactError> {
+    let id = row.artifact_id.as_str();
+    let allow = |op: WriteOp, key: &str, stored: Option<&ArtifactRecord>| {
+        rules
+            .check_write(op, key, stored, viewer)
+            .map_err(|denied| ArtifactError::PermissionDenied {
+                op,
+                key: key.to_string(),
+                prefix: denied.prefix,
+            })
+    };
+    match req {
+        WriteArtifactRecordRequest::Save { key, data } => {
+            for _ in 0..WRITE_ATTEMPTS {
+                if let Some(stored) = artifacts.find_record(id, &key).await? {
+                    allow(WriteOp::Update, &key, Some(&stored))?;
+                    if let Some(record) = artifacts
+                        .update_record(id, &key, &data, stored.updated_at)
+                        .await?
+                    {
+                        return Ok((Written::Saved(record), WriteOp::Update));
+                    }
+                } else {
+                    allow(WriteOp::Create, &key, None)?;
+                    under_cap(artifacts, row, &key).await?;
+                    if let Some(record) = artifacts
+                        .insert_record(id, &key, &data, viewer, RecordWriter::Page)
+                        .await?
+                    {
+                        return Ok((Written::Saved(record), WriteOp::Create));
+                    }
+                }
+            }
+            Err(contended(&key, row))
+        }
+        WriteArtifactRecordRequest::Append { list, data } => {
+            let key = item_key(&list);
+            allow(WriteOp::Create, &key, None)?;
+            under_cap(artifacts, row, &key).await?;
+            let record = artifacts
+                .save_record(id, &key, &data, viewer, RecordWriter::Page)
+                .await?;
+            Ok((Written::Appended { list, record }, WriteOp::Create))
+        }
+        WriteArtifactRecordRequest::Delete { key } => {
+            for _ in 0..WRITE_ATTEMPTS {
+                let stored = artifacts.find_record(id, &key).await?.ok_or_else(|| {
+                    ArtifactError::NotFound(format!("record {key:?} on {}", row.slug))
+                })?;
+                allow(WriteOp::Delete, &key, Some(&stored))?;
+                if let Some(record) = artifacts
+                    .delete_record_at(id, &key, stored.updated_at)
+                    .await?
+                {
+                    return Ok((Written::Deleted(record), WriteOp::Delete));
+                }
+            }
+            Err(contended(&key, row))
+        }
+    }
+}
+
+fn contended(key: &str, row: &Artifact) -> ArtifactError {
+    ArtifactError::Conflict(format!(
+        "record {key:?} on {} kept changing while this write was judged; try again",
+        row.slug
+    ))
 }
 
 /// The key an append to `list` saves under: a v7 UUID sorts by creation time,
@@ -359,6 +469,7 @@ fn to_response(record: &ArtifactRecord) -> ArtifactRecordResponse {
         key: record.key.clone(),
         data: record.data.clone(),
         submitted_by: record.submitted_by.clone(),
+        writer: record.writer,
         created_at: record.created_at.to_rfc3339(),
         updated_at: record.updated_at.to_rfc3339(),
     }

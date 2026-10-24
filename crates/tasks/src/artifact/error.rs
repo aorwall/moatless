@@ -1,7 +1,10 @@
 //! Artifact error types.
 
+use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+
+use super::rules::WriteOp;
 
 use moatless_core::error::{error_response, internal_error};
 
@@ -19,12 +22,25 @@ pub enum ArtifactError {
     #[error("Not allowed to publish on task {0}")]
     Forbidden(String),
 
+    /// The Artifact's record rules refuse a page this write. `prefix` is the
+    /// rule that refused it, `None` when no rule covers `key`.
+    #[error("{}", denial(*op, key, prefix.as_deref()))]
+    PermissionDenied {
+        op: WriteOp,
+        key: String,
+        prefix: Option<String>,
+    },
+
     /// A page token that is missing, expired, or not signed here.
     #[error("Invalid or expired artifact page token")]
     Unauthorized,
 
     #[error("Invalid request: {0}")]
     BadRequest(String),
+
+    /// Other writes kept changing the record a page's write was judged on.
+    #[error("Conflict: {0}")]
+    Conflict(String),
 
     #[error("Payload too large: {0}")]
     PayloadTooLarge(String),
@@ -39,13 +55,34 @@ pub enum ArtifactError {
     Db(#[from] sqlx::Error),
 }
 
+fn denial(op: WriteOp, key: &str, prefix: Option<&str>) -> String {
+    let op = op.as_str();
+    match prefix {
+        Some(prefix) => {
+            format!("The rule for prefix {prefix:?} does not let this page {op} {key:?}")
+        }
+        None => format!("No record rule covers {key:?}, so this page cannot {op} it"),
+    }
+}
+
 impl IntoResponse for ArtifactError {
     fn into_response(self) -> Response {
         let (status, message) = match &self {
+            Self::PermissionDenied { prefix, .. } => {
+                // `code` and `prefix` are what the page script puts on the
+                // error it rejects with; a page tells this refusal apart by them.
+                let body = serde_json::json!({
+                    "error": self.to_string(),
+                    "code": "permission-denied",
+                    "prefix": prefix,
+                });
+                return (StatusCode::FORBIDDEN, Json(body)).into_response();
+            }
             Self::TaskNotFound(_) | Self::NotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
             Self::Forbidden(_) => (StatusCode::FORBIDDEN, self.to_string()),
             Self::Unauthorized => (StatusCode::UNAUTHORIZED, self.to_string()),
             Self::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            Self::Conflict(_) => (StatusCode::CONFLICT, self.to_string()),
             Self::PayloadTooLarge(_) => (StatusCode::PAYLOAD_TOO_LARGE, self.to_string()),
             Self::StorageNotConfigured => (StatusCode::SERVICE_UNAVAILABLE, self.to_string()),
             Self::Storage(_) | Self::Db(_) => {

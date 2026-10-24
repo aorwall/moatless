@@ -37,6 +37,11 @@ pub struct ArtifactResponse {
     /// a server older than the field, which only had Task-scoped pages.
     #[serde(default = "task_scoped")]
     pub visibility: Visibility,
+    /// The record rules the latest publish set, as published; `None` lets a
+    /// page perform every record operation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
+    pub record_rules: Option<serde_json::Value>,
 }
 
 fn task_scoped() -> Visibility {
@@ -71,6 +76,10 @@ pub struct PublishArtifactBody {
     /// `true` also queues a message to the Task's agent for each record a
     /// reader saves. Ignored without `data`.
     pub notify: Option<bool>,
+    /// Record rules as JSON: per key prefix, the operations a reader's page
+    /// may perform and the ones that notify the agent. Needs `data`, and
+    /// replaces `notify`.
+    pub rules: Option<String>,
     /// `private` limits the page and its records to readers of the Task;
     /// `public`, the default, lets any signed-in user read them. Every version
     /// follows the latest publish.
@@ -96,6 +105,10 @@ pub struct ArtifactRecordResponse {
     pub data: serde_json::Value,
     /// The user id of whoever saved the record last.
     pub submitted_by: String,
+    /// Whether the last write came from a page or from a user who can change
+    /// the Task, such as its agent.
+    #[serde(default)]
+    pub writer: RecordWriter,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -129,4 +142,38 @@ pub enum WriteArtifactRecordRequest {
     },
     /// Remove the record under `key`.
     Delete { key: String },
+}
+
+/// Where an Artifact record's last write came from.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "lowercase")]
+pub enum RecordWriter {
+    /// A reader's page, through its page token. A server older than the field
+    /// had no other kind of record a page could tell apart.
+    #[default]
+    Page,
+    /// A user who can change the Task, such as its agent's CLI.
+    Agent,
+}
+
+impl RecordWriter {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Page => "page",
+            Self::Agent => "agent",
+        }
+    }
+}
+
+impl TryFrom<String> for RecordWriter {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, String> {
+        match value.as_str() {
+            "page" => Ok(Self::Page),
+            "agent" => Ok(Self::Agent),
+            other => Err(format!("unknown RecordWriter: {other:?}")),
+        }
+    }
 }

@@ -5,6 +5,7 @@ use moatless_core::config::S3Config;
 
 use super::*;
 use crate::artifact::dao::MockArtifactDao;
+use crate::artifact::models::DataAccess;
 use crate::task::dao::MockTaskDao;
 use crate::task::test_support::make_task_row;
 use moatless_types::task::Visibility;
@@ -60,6 +61,7 @@ fn row(task_id: &str, latest_version: i32) -> Artifact {
         inline_versions: Vec::new(),
         accepts_data: false,
         notify_on_data: false,
+        record_rules: None,
         visibility: Visibility::Private,
         created_by: Some("user-1".to_string()),
         created_at: Utc::now(),
@@ -356,4 +358,38 @@ async fn notify_without_data_is_refused() {
     .await
     .unwrap_err();
     assert!(matches!(err, ArtifactError::BadRequest(_)), "{err:?}");
+}
+
+#[tokio::test]
+async fn rules_need_data_and_replace_notify() {
+    let rules = crate::artifact::rules::RecordRules::parse(
+        r#"{"rulesVersion": 1, "prefixes": {"votes/": {"create": "anyone"}}}"#,
+    )
+    .unwrap();
+    let mut without_data = page();
+    without_data.data.rules = Some(rules.clone());
+    let mut with_notify = page();
+    with_notify.data = DataAccess {
+        accepts_data: true,
+        notify_on_data: true,
+        rules: Some(rules),
+    };
+    for (req, wanted) in [
+        (without_data, "rules need data"),
+        (with_notify, "rules replace notify"),
+    ] {
+        let err = publish(
+            &tasks(),
+            &artifacts(MockArtifactDao::new()),
+            &scope(),
+            "task-1",
+            req,
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(&err, ArtifactError::BadRequest(m) if m.contains(wanted)),
+            "{err:?}"
+        );
+    }
 }

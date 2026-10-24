@@ -11,6 +11,7 @@ use moatless_types::task::Visibility;
 use super::dao::ArtifactDao;
 use super::error::ArtifactError;
 use super::models::{Artifact, ArtifactRecord, DataAccess, Reservation};
+use moatless_api_schemas::artifact::RecordWriter;
 
 /// Content type a page is stored and served with, whatever the upload claimed.
 pub(crate) const PAGE_CONTENT_TYPE: &str = "text/html; charset=utf-8";
@@ -165,7 +166,7 @@ impl Artifacts {
         artifact_id: &str,
         version: i32,
         title: &str,
-        data: DataAccess,
+        data: &DataAccess,
         visibility: Visibility,
         shown: Option<ArtifactShown>,
     ) -> Result<Option<Artifact>, sqlx::Error> {
@@ -194,10 +195,59 @@ impl Artifacts {
         key: &str,
         data: &serde_json::Value,
         submitted_by: &str,
+        writer: RecordWriter,
     ) -> Result<ArtifactRecord, sqlx::Error> {
         self.store
-            .save_record(artifact_id, key, data, submitted_by)
+            .save_record(artifact_id, key, data, submitted_by, writer)
             .await
+    }
+
+    /// See [`ArtifactDao::insert_record`].
+    pub(crate) async fn insert_record(
+        &self,
+        artifact_id: &str,
+        key: &str,
+        data: &serde_json::Value,
+        submitted_by: &str,
+        writer: RecordWriter,
+    ) -> Result<Option<ArtifactRecord>, sqlx::Error> {
+        self.store
+            .insert_record(artifact_id, key, data, submitted_by, writer)
+            .await
+    }
+
+    /// See [`ArtifactDao::update_record`].
+    pub(crate) async fn update_record(
+        &self,
+        artifact_id: &str,
+        key: &str,
+        data: &serde_json::Value,
+        stored_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Option<ArtifactRecord>, sqlx::Error> {
+        self.store
+            .update_record(artifact_id, key, data, stored_at)
+            .await
+    }
+
+    /// See [`ArtifactDao::delete_record_at`].
+    pub(crate) async fn delete_record_at(
+        &self,
+        artifact_id: &str,
+        key: &str,
+        stored_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Option<ArtifactRecord>, sqlx::Error> {
+        self.store
+            .delete_record_at(artifact_id, key, stored_at)
+            .await
+    }
+
+    /// See [`ArtifactDao::find_record`].
+    pub(crate) async fn find_record(
+        &self,
+        artifact_id: &str,
+        key: &str,
+    ) -> Result<Option<ArtifactRecord>, sqlx::Error> {
+        self.store.find_record(artifact_id, key).await
     }
 
     /// See [`ArtifactDao::count_records`].

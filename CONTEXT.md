@@ -164,8 +164,12 @@ publish set `--data` saves records as the reader viewing it, through a page
 token the serve route writes into the page. With `--notify`, each write a
 reader makes is also an inbox item for the Task, from the `artifact` adapter,
 naming the record's key.
-Records are shared by every reader: each can list, replace and delete the
-others'.
+A record's `writer` is `agent` when a user who can change the Task wrote it,
+and `page` when a reader did. Without record rules, every reader can list,
+replace and delete the others' records. Record rules, set per key prefix at
+publish, say which of read, create, update and delete a page may do, as
+anyone or as the record's owner (its `submitted_by`, which an update keeps),
+and which writes notify the Task; agent writes skip them.
 _Avoid_: submission, artifact data (the records as a whole, not one of them)
 
 **Memory**:

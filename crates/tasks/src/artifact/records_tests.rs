@@ -53,6 +53,7 @@ fn row(task_id: &str, accepts_data: bool) -> Artifact {
         inline_versions: Vec::new(),
         accepts_data,
         notify_on_data: accepts_data,
+        record_rules: None,
         visibility: Visibility::Private,
         created_by: Some("user-1".to_string()),
         created_at: Utc::now(),
@@ -151,6 +152,7 @@ fn record(key: &str, data: serde_json::Value) -> ArtifactRecord {
         key: key.to_string(),
         data,
         submitted_by: "user-1".to_string(),
+        writer: RecordWriter::Page,
         created_at: Utc::now(),
         updated_at: Utc::now(),
     }
@@ -164,7 +166,7 @@ fn writable_store(count: i64) -> MockArtifactDao {
         .returning(move |_, key| Ok((count, key == "state")));
     store
         .expect_save_record()
-        .returning(|_, key, data, _| Ok(record(key, data.clone())));
+        .returning(|_, key, data, _, _| Ok(record(key, data.clone())));
     store
 }
 
@@ -305,4 +307,288 @@ fn the_notice_names_the_key_and_marks_the_record_as_data() {
     assert!(text.contains("deleted `vote`, which held"), "{text}");
     assert!(text.contains("the rest is gone"), "{text}");
     assert!(!text.contains("read the record"), "{text}");
+}
+
+const RULES: &str = r#"{
+  "rulesVersion": 1,
+  "prefixes": {
+    "requests/": { "read": "anyone", "create": "anyone", "notify": ["create"] },
+    "drafts/":   { "read": "owner", "create": "anyone", "update": "owner", "delete": "owner" }
+  }
+}"#;
+
+fn ruled_row() -> Artifact {
+    let mut row = row("task-1", true);
+    row.notify_on_data = false;
+    row.record_rules = Some(RecordRules::parse(RULES).unwrap());
+    row
+}
+
+fn rules() -> RecordRules {
+    RecordRules::parse(RULES).unwrap()
+}
+
+/// A store whose `find_record` answers `stored` and which counts no records.
+fn ruled_store(stored: Option<ArtifactRecord>) -> MockArtifactDao {
+    let mut store = store_with(ruled_row());
+    store
+        .expect_find_record()
+        .returning(move |_, _| Ok(stored.clone()));
+    store
+        .expect_count_records()
+        .returning(|_, _| Ok((0, false)));
+    store
+}
+
+fn owned_by(key: &str, user: &str) -> ArtifactRecord {
+    ArtifactRecord {
+        submitted_by: user.to_string(),
+        ..record(key, serde_json::json!({}))
+    }
+}
+
+#[tokio::test]
+async fn a_create_under_a_rule_is_an_insert_the_rule_notifies() {
+    let mut store = ruled_store(None);
+    store
+        .expect_insert_record()
+        .withf(|_, _, _, by, writer| by == "user-1" && *writer == RecordWriter::Page)
+        .returning(|_, key, data, _, _| Ok(Some(record(key, data.clone()))));
+    let (written, op) = write_under_rules(
+        &artifacts(store),
+        &ruled_row(),
+        &rules(),
+        save("requests/1"),
+        "user-1",
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        (written.record().key.as_str(), op),
+        ("requests/1", WriteOp::Create)
+    );
+    assert!(rules().notifies(op, "requests/1"));
+}
+
+#[tokio::test]
+async fn a_rule_without_update_makes_a_record_write_once() {
+    let artifacts = artifacts(ruled_store(Some(owned_by("requests/1", "user-1"))));
+    let err = write_under_rules(
+        &artifacts,
+        &ruled_row(),
+        &rules(),
+        save("requests/1"),
+        "user-1",
+    )
+    .await
+    .err()
+    .unwrap();
+    assert!(
+        matches!(&err, ArtifactError::PermissionDenied { op: WriteOp::Update, prefix: Some(p), .. } if p == "requests/"),
+        "{err:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_create_that_loses_a_race_is_judged_as_an_update() {
+    let mut store = store_with(ruled_row());
+    let reads = std::sync::atomic::AtomicUsize::new(0);
+    store.expect_find_record().returning(move |_, key| {
+        let first = reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0;
+        Ok((!first).then(|| owned_by(key, "user-2")))
+    });
+    store
+        .expect_count_records()
+        .returning(|_, _| Ok((0, false)));
+    store
+        .expect_insert_record()
+        .returning(|_, _, _, _, _| Ok(None));
+    let err = write_under_rules(
+        &artifacts(store),
+        &ruled_row(),
+        &rules(),
+        save("drafts/1"),
+        "user-1",
+    )
+    .await
+    .err()
+    .unwrap();
+    assert!(
+        matches!(
+            &err,
+            ArtifactError::PermissionDenied {
+                op: WriteOp::Update,
+                ..
+            }
+        ),
+        "{err:?}"
+    );
+}
+
+#[tokio::test]
+async fn an_update_keeps_the_owner_and_lands_only_on_the_record_it_was_judged_on() {
+    let rules = RecordRules::parse(
+        r#"{"rulesVersion": 1, "prefixes": {"board/": {"read": "anyone", "create": "anyone", "update": "anyone", "delete": "owner"}}}"#,
+    )
+    .unwrap();
+    let stored = owned_by("board/1", "user-2");
+    let stored_at = stored.updated_at;
+    // No `expect_save_record`: an upsert would make the updater the owner.
+    let mut store = ruled_store(Some(stored));
+    store
+        .expect_update_record()
+        .withf(move |_, key, _, at| key == "board/1" && *at == stored_at)
+        .returning(|_, key, _, _| Ok(Some(owned_by(key, "user-2"))));
+    let (written, op) = write_under_rules(
+        &artifacts(store),
+        &ruled_row(),
+        &rules,
+        save("board/1"),
+        "user-1",
+    )
+    .await
+    .unwrap();
+    assert_eq!(op, WriteOp::Update);
+    assert_eq!(written.record().submitted_by, "user-2");
+}
+
+#[tokio::test]
+async fn an_update_whose_record_was_deleted_meanwhile_is_judged_as_a_create() {
+    let mut store = store_with(ruled_row());
+    let reads = std::sync::atomic::AtomicUsize::new(0);
+    store.expect_find_record().returning(move |_, key| {
+        let first = reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0;
+        Ok(first.then(|| owned_by(key, "user-1")))
+    });
+    store
+        .expect_count_records()
+        .returning(|_, _| Ok((0, false)));
+    store
+        .expect_update_record()
+        .returning(|_, _, _, _| Ok(None));
+    store
+        .expect_insert_record()
+        .returning(|_, key, data, _, _| Ok(Some(record(key, data.clone()))));
+    let (_, op) = write_under_rules(
+        &artifacts(store),
+        &ruled_row(),
+        &rules(),
+        save("drafts/1"),
+        "user-1",
+    )
+    .await
+    .unwrap();
+    assert_eq!(op, WriteOp::Create);
+}
+
+#[tokio::test]
+async fn a_delete_whose_record_changed_meanwhile_is_judged_again() {
+    let mut store = store_with(ruled_row());
+    let reads = std::sync::atomic::AtomicUsize::new(0);
+    store.expect_find_record().returning(move |_, key| {
+        let first = reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0;
+        Ok(Some(owned_by(key, if first { "user-1" } else { "user-2" })))
+    });
+    store
+        .expect_delete_record_at()
+        .returning(|_, _, _| Ok(None));
+    let delete = WriteArtifactRecordRequest::Delete {
+        key: "drafts/1".to_string(),
+    };
+    let err = write_under_rules(&artifacts(store), &ruled_row(), &rules(), delete, "user-1")
+        .await
+        .err()
+        .unwrap();
+    assert!(
+        matches!(
+            &err,
+            ArtifactError::PermissionDenied {
+                op: WriteOp::Delete,
+                ..
+            }
+        ),
+        "{err:?}"
+    );
+}
+
+#[tokio::test]
+async fn only_the_owner_deletes_under_an_owner_rule() {
+    let delete = || WriteArtifactRecordRequest::Delete {
+        key: "drafts/1".to_string(),
+    };
+    let artifacts_for = || {
+        let mut store = ruled_store(Some(owned_by("drafts/1", "user-2")));
+        store
+            .expect_delete_record_at()
+            .returning(|_, key, _| Ok(Some(owned_by(key, "user-2"))));
+        artifacts(store)
+    };
+    let err = write_under_rules(&artifacts_for(), &ruled_row(), &rules(), delete(), "user-1")
+        .await
+        .err()
+        .unwrap();
+    assert!(
+        matches!(err, ArtifactError::PermissionDenied { .. }),
+        "{err:?}"
+    );
+    let (written, op) =
+        write_under_rules(&artifacts_for(), &ruled_row(), &rules(), delete(), "user-2")
+            .await
+            .unwrap();
+    assert!(matches!(written, Written::Deleted(_)));
+    assert_eq!(op, WriteOp::Delete);
+}
+
+#[tokio::test]
+async fn a_user_who_can_change_the_task_writes_past_the_rules_as_the_agent() {
+    let mut store = store_with(ruled_row());
+    store
+        .expect_count_records()
+        .returning(|_, _| Ok((0, false)));
+    store
+        .expect_save_record()
+        .withf(|_, _, _, _, writer| *writer == RecordWriter::Agent)
+        .returning(|_, key, data, _, writer| {
+            Ok(ArtifactRecord {
+                writer,
+                ..record(key, data.clone())
+            })
+        });
+    let written = write_as_user(
+        &tasks(),
+        &artifacts(store),
+        &ScopeContext::user("user-1"),
+        "art-1",
+        save("plans/1"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(written.writer, RecordWriter::Agent);
+}
+
+#[tokio::test]
+async fn a_page_lists_only_what_the_read_rules_show_its_reader() {
+    let mut store = store_with(ruled_row());
+    store.expect_list_records().returning(|_, _, _| {
+        Ok(vec![
+            owned_by("requests/1", "user-2"),
+            owned_by("drafts/mine", "user-1"),
+            owned_by("drafts/theirs", "user-2"),
+            ArtifactRecord {
+                writer: RecordWriter::Agent,
+                ..owned_by("drafts/agent", "user-2")
+            },
+            owned_by("unruled", "user-1"),
+        ])
+    });
+    let listed = list_for_page(
+        &tasks(),
+        &artifacts(store),
+        &token("user-1"),
+        RecordFilter::default(),
+    )
+    .await
+    .unwrap();
+    let keys: Vec<&str> = listed.iter().map(|r| r.key.as_str()).collect();
+    assert_eq!(keys, ["requests/1", "drafts/mine", "drafts/agent"]);
 }

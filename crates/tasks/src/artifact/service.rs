@@ -4,6 +4,7 @@
 use super::error::ArtifactError;
 use super::models::{Artifact, DEFAULT_INLINE_HEIGHT, PublishRequest};
 use super::operations::Artifacts;
+use super::rules::RecordRules;
 use super::schemas::ArtifactResponse;
 use crate::task::operations::TaskCommands;
 use moatless_types::access_control::ScopeContext;
@@ -39,6 +40,17 @@ pub async fn publish(
     if req.data.notify_on_data && !req.data.accepts_data {
         return Err(ArtifactError::BadRequest(
             "notify needs data: only a page that accepts data can notify".to_string(),
+        ));
+    }
+    if req.data.rules.is_some() && !req.data.accepts_data {
+        return Err(ArtifactError::BadRequest(
+            "rules need data: only a page that accepts data has records to rule".to_string(),
+        ));
+    }
+    if req.data.rules.is_some() && req.data.notify_on_data {
+        return Err(ArtifactError::BadRequest(
+            "rules replace notify: name the writes that notify in the rules' notify lists"
+                .to_string(),
         ));
     }
     let task = tasks
@@ -81,7 +93,7 @@ pub async fn publish(
             &artifact_id,
             version,
             &title,
-            req.data,
+            &req.data,
             req.visibility,
             shown,
         )
@@ -170,6 +182,8 @@ pub struct Page {
     /// Whether the version was shown inline, and so is served with T3's
     /// bootstrap injected.
     pub inline: bool,
+    /// The latest publish's record rules, which the page script exposes.
+    pub record_rules: Option<RecordRules>,
 }
 
 /// The HTML page of a published version. `version` is the URL segment, as in
@@ -196,6 +210,7 @@ pub async fn read_page(
         title: row.title,
         accepts_data: row.accepts_data,
         inline: row.inline_versions.contains(&version),
+        record_rules: row.record_rules,
     })
 }
 
@@ -238,6 +253,13 @@ fn to_response(row: &Artifact, public_url: &str, version: i32, title: &str) -> A
         accepts_data: row.accepts_data,
         notify_on_data: row.notify_on_data,
         visibility: row.visibility,
+        record_rules: row.record_rules.as_ref().and_then(|rules| {
+            serde_json::to_value(rules)
+                .inspect_err(|error| {
+                    tracing::error!(%error, "Failed to encode an artifact's record rules");
+                })
+                .ok()
+        }),
     }
 }
 

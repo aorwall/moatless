@@ -20,12 +20,14 @@ pub struct InlineArtifact {
 }
 
 /// What a page may do with Artifact records.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct ArtifactData {
     /// The page may save records as the reader viewing it.
     pub accepts: bool,
     /// Each record a reader saves queues a message to the Task's agent.
     pub notify: bool,
+    /// Record rules JSON, which the server checks; replaces `notify`.
+    pub rules: Option<String>,
 }
 
 impl ApiClient {
@@ -60,6 +62,9 @@ impl ApiClient {
         }
         if options.data.notify {
             form = form.text("notify", "true");
+        }
+        if let Some(rules) = &options.data.rules {
+            form = form.text("rules", rules.clone());
         }
         if options.private {
             form = form.text("visibility", "private");

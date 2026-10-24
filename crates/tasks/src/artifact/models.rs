@@ -1,7 +1,10 @@
 //! Artifact domain types.
 
 use chrono::{DateTime, Utc};
+use moatless_api_schemas::artifact::RecordWriter;
 use moatless_types::task::Visibility;
+
+use super::rules::RecordRules;
 
 /// A `task_artifacts` row.
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -21,6 +24,9 @@ pub struct Artifact {
     pub accepts_data: bool,
     /// See [`DataAccess::notify_on_data`]; the latest publish's choice.
     pub notify_on_data: bool,
+    /// See [`DataAccess::rules`]; the latest publish's choice.
+    #[sqlx(json(nullable))]
+    pub record_rules: Option<RecordRules>,
     /// `Public` lets any signed-in user read the pages and records, whatever
     /// the Task's visibility; the latest publish's choice.
     #[sqlx(try_from = "String")]
@@ -60,13 +66,16 @@ impl Default for PublishRequest {
 }
 
 /// What a publish lets its page do with Artifact records.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DataAccess {
     /// The page is served with a `moatless.artifact` script that saves and
     /// lists records as the reader viewing it.
     pub accepts_data: bool,
     /// Each record a reader saves also queues a message to the Task's agent.
+    /// Refused together with `rules`, whose `notify` lists replace it.
     pub notify_on_data: bool,
+    /// The operations a page may perform, per key prefix; `None` allows all.
+    pub rules: Option<RecordRules>,
 }
 
 /// How a publish asked to be shown inline, before validation.
@@ -94,6 +103,8 @@ pub struct ArtifactRecord {
     pub key: String,
     pub data: serde_json::Value,
     pub submitted_by: String,
+    #[sqlx(try_from = "String")]
+    pub writer: RecordWriter,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

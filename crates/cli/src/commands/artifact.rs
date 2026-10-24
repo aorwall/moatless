@@ -43,6 +43,11 @@ pub enum ArtifactAction {
         /// Queue a message to this task's agent for each record a reader saves
         #[arg(long, requires = "data")]
         notify: bool,
+        /// JSON file of record rules: per key prefix, what a reader's page may
+        /// do and which of its writes notify this task's agent. Replaces
+        /// --notify
+        #[arg(long, requires = "data", conflicts_with = "notify")]
+        rules: Option<PathBuf>,
         /// Let only users who can see the task open the page and its records.
         /// Without it any signed-in user can, even when the task is private
         #[arg(long)]
@@ -164,7 +169,7 @@ colour and font from them, sets the body margin to 0 and hides the page's
 scrollbar; your own CSS overrides it. The page looks the same when it is opened
 from its link.
 
-Interactive pages (--data, --notify)
+Interactive pages (--data, --notify, --rules)
 
 With --data the page is served with a `window.moatless.artifact` object that
 reads and writes records as the reader viewing the page. A record is JSON
@@ -175,6 +180,7 @@ under a key; keys are `/`-separated, so a list is the keys under one prefix:
   await moatless.artifact.get(\"state\")            the record under a key, or null
   await moatless.artifact.list({prefix, since})   records, oldest change first
   moatless.artifact.viewer                        the reader's login
+  moatless.artifact.viewerId                      the reader's user id
 Records are JSON of at most 64 KiB, at most 10000 per artifact, and survive
 republishing. The object is missing when the page is opened as a local file
 or downloaded, so disable the page's controls without it.
@@ -183,7 +189,23 @@ With --notify each write a reader makes is also sent to this task's agent as
 a message with <source>artifact</source> that names the record's key. Read
 records with `moat artifact data get <slug> <key>` or
 `moat artifact data list <slug> [--prefix <list>/]`, and write one the page can
-show with `moat artifact data save <slug> <key> '<json>'`.";
+show with `moat artifact data save <slug> <key> '<json>'`. Records you write
+carry `writer: \"agent\"`; a page's carry `writer: \"page\"`.
+
+With --rules <file> the server checks each page operation against per-prefix
+rules, and only the writes a rule lists under notify reach this task's agent:
+  {\"rulesVersion\": 1, \"prefixes\": {
+    \"requests/\": {\"read\": \"anyone\", \"create\": \"anyone\", \"notify\": [\"create\"]},
+    \"plans/\":    {\"read\": \"anyone\"},
+    \"drafts/\":   {\"read\": \"owner\", \"create\": \"anyone\", \"update\": \"owner\", \"delete\": \"owner\"}}}
+read, update and delete take \"anyone\" or \"owner\" (the reader who created the
+record; an update keeps its owner); create takes \"anyone\". An operation left out is refused to pages,
+so leaving out update and delete makes a record write-once. The longest
+matching prefix decides, \"\" matches every key, and a key no prefix matches
+is refused. Under an \"owner\" read rule a page lists its reader's own records
+and every record you wrote. A refused write rejects with code
+\"permission-denied\". Your own writes skip the rules. Each publish sets the
+rules again, so pass --rules every time.";
 
 /// The variables T3's bootstrap defines; `scripts/vendor-html-render-bootstrap.sh`
 /// writes it from the same t3code source as the bootstrap.
@@ -208,16 +230,24 @@ pub async fn run(
             height,
             data,
             notify,
+            rules,
             private,
             task,
         } => {
             let task_id = task.map_or_else(|| cfg.require_task_id(), Ok)?;
             let (file_name, html) = read_page(&path)?;
+            let rules = rules
+                .map(|path| {
+                    std::fs::read_to_string(&path)
+                        .map_err(|e| format!("cannot read {}: {e}", path.display()))
+                })
+                .transpose()?;
             let options = PageOptions {
                 inline: inline.then_some(InlineArtifact { height }),
                 data: ArtifactData {
                     accepts: data,
                     notify,
+                    rules,
                 },
                 private,
             };

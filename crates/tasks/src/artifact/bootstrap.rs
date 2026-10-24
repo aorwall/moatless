@@ -31,22 +31,32 @@ pub(crate) fn inject(html: &[u8]) -> Vec<u8> {
 /// replaced by [`inject_data_script`].
 const DATA_SCRIPT: &str = include_str!("data_script.js");
 
+/// What the `moatless.artifact` script of one reader's page is configured
+/// with, as the script reads it.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DataScriptConfig<'a> {
+    pub(crate) token: &'a str,
+    pub(crate) artifact_id: &'a str,
+    /// The reader's login.
+    pub(crate) viewer: &'a str,
+    /// The reader's user id, which their records' `submittedBy` holds.
+    pub(crate) viewer_id: &'a str,
+    pub(crate) rules: Option<&'a super::rules::RecordRules>,
+}
+
 /// Returns `html` with the `moatless.artifact` script, configured for one
 /// reader's page token, at the start of its head.
-pub(crate) fn inject_data_script(
-    html: &[u8],
-    token: &str,
-    artifact_id: &str,
-    viewer: &str,
-) -> Vec<u8> {
-    let config = serde_json::json!({
-        "token": token,
-        "artifactId": artifact_id,
-        "viewer": viewer,
-    })
-    .to_string()
-    // A `</script>` inside a JSON string still ends the script element.
-    .replace('<', "\\u003c");
+pub(crate) fn inject_data_script(html: &[u8], config: &DataScriptConfig<'_>) -> Vec<u8> {
+    // `null` leaves the page without `moatless.artifact`, which a page already
+    // handles, rather than a script that fails to parse.
+    let config = serde_json::to_string(config)
+        .unwrap_or_else(|error| {
+            tracing::error!(%error, "Failed to encode an artifact page's data script config");
+            "null".to_string()
+        })
+        // A `</script>` inside a JSON string still ends the script element.
+        .replace('<', "\\u003c");
     let markup = format!(
         "<script>{}</script>",
         DATA_SCRIPT.trim_end().replace("__CONFIG__", &config)
@@ -434,9 +444,13 @@ mod tests {
     fn the_data_script_opens_the_head_with_its_config_escaped() {
         let out = inject_data_script(
             b"<html><head><title>x</title></head></html>",
-            "tok.en",
-            "art-1",
-            "</script>",
+            &DataScriptConfig {
+                token: "tok.en",
+                artifact_id: "art-1",
+                viewer: "</script>",
+                viewer_id: "user-1",
+                rules: None,
+            },
         );
         let out = String::from_utf8(out).unwrap();
         assert!(
@@ -444,6 +458,7 @@ mod tests {
             "{out}"
         );
         assert!(out.contains(r#""token":"tok.en""#), "{out}");
+        assert!(out.contains(r#""viewerId":"user-1","rules":null"#), "{out}");
         assert!(!out.contains("__CONFIG__"), "{out}");
         assert_eq!(out.matches("</script>").count(), 1, "{out}");
         assert!(

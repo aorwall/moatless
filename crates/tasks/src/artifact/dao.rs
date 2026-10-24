@@ -7,6 +7,7 @@ use uuid::Uuid;
 use super::models::{Artifact, ArtifactRecord, DataAccess, Reservation};
 use crate::conversation::projector::Projector;
 use crate::task_event::models::InsertTaskEvent;
+use moatless_api_schemas::artifact::RecordWriter;
 use moatless_core::db::DbPool;
 use moatless_types::activity::ArtifactShown;
 use moatless_types::event::EventType;
@@ -37,7 +38,7 @@ pub trait ArtifactDao: Send + Sync {
         artifact_id: &str,
         version: i32,
         title: &str,
-        data: DataAccess,
+        data: &DataAccess,
         visibility: Visibility,
         shown: Option<ArtifactShown>,
     ) -> Result<Option<Artifact>, sqlx::Error>;
@@ -53,7 +54,42 @@ pub trait ArtifactDao: Send + Sync {
         key: &str,
         data: &serde_json::Value,
         submitted_by: &str,
+        writer: RecordWriter,
     ) -> Result<ArtifactRecord, sqlx::Error>;
+    /// Save `data` under `key` only when no record is there, answering `None`
+    /// when one is.
+    async fn insert_record(
+        &self,
+        artifact_id: &str,
+        key: &str,
+        data: &serde_json::Value,
+        submitted_by: &str,
+        writer: RecordWriter,
+    ) -> Result<Option<ArtifactRecord>, sqlx::Error>;
+    /// Replace the data of the record under `key` while it is still as it was
+    /// at `stored_at`, its `updated_at`, keeping its `submitted_by` and
+    /// `writer`. Answers `None` when the record changed or is gone.
+    async fn update_record(
+        &self,
+        artifact_id: &str,
+        key: &str,
+        data: &serde_json::Value,
+        stored_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Option<ArtifactRecord>, sqlx::Error>;
+    /// Remove the record under `key` while it is still as it was at
+    /// `stored_at`, returning it as it was; `None` when it changed or is gone.
+    async fn delete_record_at(
+        &self,
+        artifact_id: &str,
+        key: &str,
+        stored_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Option<ArtifactRecord>, sqlx::Error>;
+    /// The record under `key`, if any.
+    async fn find_record(
+        &self,
+        artifact_id: &str,
+        key: &str,
+    ) -> Result<Option<ArtifactRecord>, sqlx::Error>;
     /// How many records the Artifact holds, and whether one is saved under
     /// `key`.
     async fn count_records(&self, artifact_id: &str, key: &str)
@@ -108,7 +144,7 @@ impl ArtifactDao for PgArtifactDao {
         artifact_id: &str,
         version: i32,
         title: &str,
-        data: DataAccess,
+        data: &DataAccess,
         visibility: Visibility,
         shown: Option<ArtifactShown>,
     ) -> Result<Option<Artifact>, sqlx::Error> {
@@ -124,6 +160,8 @@ impl ArtifactDao for PgArtifactDao {
                    notify_on_data = CASE WHEN $2 > latest_version THEN $6
                                          ELSE notify_on_data END,
                    visibility = CASE WHEN $2 > latest_version THEN $7 ELSE visibility END,
+                   record_rules = CASE WHEN $2 > latest_version THEN $8
+                                       ELSE record_rules END,
                    updated_at = now()
                WHERE artifact_id = $1
                RETURNING *"#,
@@ -135,6 +173,7 @@ impl ArtifactDao for PgArtifactDao {
         .bind(data.accepts_data)
         .bind(data.notify_on_data)
         .bind(visibility.as_str())
+        .bind(data.rules.as_ref().map(sqlx::types::Json))
         .fetch_optional(&mut *tx)
         .await?;
         if let (Some(row), Some(shown)) = (&row, &shown) {
@@ -170,13 +209,15 @@ impl ArtifactDao for PgArtifactDao {
         key: &str,
         data: &serde_json::Value,
         submitted_by: &str,
+        writer: RecordWriter,
     ) -> Result<ArtifactRecord, sqlx::Error> {
         sqlx::query_as::<_, ArtifactRecord>(
-            r#"INSERT INTO artifact_records (artifact_id, key, data, submitted_by)
-               VALUES ($1, $2, $3, $4)
+            r#"INSERT INTO artifact_records (artifact_id, key, data, submitted_by, writer)
+               VALUES ($1, $2, $3, $4, $5)
                ON CONFLICT (artifact_id, key)
                DO UPDATE SET data = EXCLUDED.data,
                              submitted_by = EXCLUDED.submitted_by,
+                             writer = EXCLUDED.writer,
                              updated_at = now()
                RETURNING *"#,
         )
@@ -184,7 +225,88 @@ impl ArtifactDao for PgArtifactDao {
         .bind(key)
         .bind(data)
         .bind(submitted_by)
+        .bind(writer.as_str())
         .fetch_one(&self.0)
+        .await
+    }
+
+    async fn insert_record(
+        &self,
+        artifact_id: &str,
+        key: &str,
+        data: &serde_json::Value,
+        submitted_by: &str,
+        writer: RecordWriter,
+    ) -> Result<Option<ArtifactRecord>, sqlx::Error> {
+        sqlx::query_as::<_, ArtifactRecord>(
+            r#"INSERT INTO artifact_records (artifact_id, key, data, submitted_by, writer)
+               VALUES ($1, $2, $3, $4, $5)
+               ON CONFLICT (artifact_id, key) DO NOTHING
+               RETURNING *"#,
+        )
+        .bind(artifact_id)
+        .bind(key)
+        .bind(data)
+        .bind(submitted_by)
+        .bind(writer.as_str())
+        .fetch_optional(&self.0)
+        .await
+    }
+
+    async fn update_record(
+        &self,
+        artifact_id: &str,
+        key: &str,
+        data: &serde_json::Value,
+        stored_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Option<ArtifactRecord>, sqlx::Error> {
+        // Strictly later than the `updated_at` it replaces, so two updates
+        // whose transactions started in the same microsecond cannot both
+        // match one `stored_at`.
+        sqlx::query_as::<_, ArtifactRecord>(
+            r#"UPDATE artifact_records
+               SET data = $3,
+                   updated_at = GREATEST(clock_timestamp(), updated_at + interval '1 microsecond')
+               WHERE artifact_id = $1 AND key = $2 AND updated_at = $4
+               RETURNING *"#,
+        )
+        .bind(artifact_id)
+        .bind(key)
+        .bind(data)
+        .bind(stored_at)
+        .fetch_optional(&self.0)
+        .await
+    }
+
+    async fn delete_record_at(
+        &self,
+        artifact_id: &str,
+        key: &str,
+        stored_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Option<ArtifactRecord>, sqlx::Error> {
+        sqlx::query_as::<_, ArtifactRecord>(
+            r#"DELETE FROM artifact_records
+               WHERE artifact_id = $1 AND key = $2 AND updated_at = $3
+               RETURNING *"#,
+        )
+        .bind(artifact_id)
+        .bind(key)
+        .bind(stored_at)
+        .fetch_optional(&self.0)
+        .await
+    }
+
+    async fn find_record(
+        &self,
+        artifact_id: &str,
+        key: &str,
+    ) -> Result<Option<ArtifactRecord>, sqlx::Error> {
+        sqlx::query_as::<_, ArtifactRecord>(
+            "SELECT * FROM artifact_records WHERE artifact_id = $1 AND key = $2",
+        )
+        .bind(artifact_id)
+        .bind(key)
+        .fetch_optional(&self.0)
         .await
     }
 

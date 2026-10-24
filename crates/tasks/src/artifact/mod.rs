@@ -11,5 +11,6 @@ pub mod page_token;
 pub mod record_handlers;
 pub mod records;
 pub mod routes;
+pub mod rules;
 pub mod schemas;
 pub mod service;

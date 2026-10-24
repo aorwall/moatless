@@ -16,6 +16,7 @@ use moatless_types::task::Visibility;
 use super::error::ArtifactError;
 use super::models::{InlineRequest, PublishRequest};
 use super::operations::{Artifacts, PAGE_CONTENT_TYPE};
+use super::rules::RecordRules;
 use super::schemas::{ArtifactResponse, ListArtifactsResponse, PublishArtifactBody};
 use super::service::MAX_PAGE_BYTES;
 
@@ -211,7 +212,16 @@ pub async fn serve_artifact_page(
     let (cache, body) = match token {
         Some(token) => (
             "private, no-store",
-            super::bootstrap::inject_data_script(&body, &token, &page.artifact_id, &auth.login),
+            super::bootstrap::inject_data_script(
+                &body,
+                &super::bootstrap::DataScriptConfig {
+                    token: &token,
+                    artifact_id: &page.artifact_id,
+                    viewer: &auth.login,
+                    viewer_id: &auth.scope_context().user_id,
+                    rules: page.record_rules.as_ref(),
+                },
+            ),
         ),
         None => (cache, body),
     };
@@ -276,6 +286,11 @@ async fn read_publish(mut multipart: Multipart) -> Result<PublishRequest, Artifa
             }
             "notify" => {
                 req.data.notify_on_data = field.text().await.map_err(multipart_error)? == "true";
+            }
+            "rules" => {
+                let text = field.text().await.map_err(multipart_error)?;
+                req.data.rules =
+                    Some(RecordRules::parse(&text).map_err(ArtifactError::BadRequest)?);
             }
             "visibility" => {
                 let value = field.text().await.map_err(multipart_error)?;

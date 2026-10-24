@@ -73,7 +73,7 @@ it; write only what the page does not say.
   `--primary`, `--chart-1` to `--chart-6` and others follow the reader's theme
   and light or dark mode live. `moat artifact publish --help` lists them all.
 
-## Making a page interactive (`--data`, `--notify`)
+## Making a page interactive (`--data`, `--notify`, `--rules`)
 
 `--data` serves the page with a `window.moatless.artifact` object that reads
 and writes JSON records as the reader viewing the page. A record is a value
@@ -136,9 +136,12 @@ moat artifact publish scratchpad/review.html --title "API naming review" --data 
 | `await moatless.artifact.get("state")` | The record under a key, or `null` |
 | `await moatless.artifact.list({ prefix, since })` | Records whose keys start with `prefix`, changed after `since`, oldest change first |
 | `moatless.artifact.viewer` | The reader's login |
+| `moatless.artifact.viewerId` | The reader's user id, what `submittedBy` holds |
+| `moatless.artifact.rules` | The page's record rules, or `null` |
 
-Each call resolves to records shaped `{ key, data, submittedBy, createdAt,
-updatedAt }`. A key is up to 200 characters of `/`-separated segments, each
+Each call resolves to records shaped `{ key, data, submittedBy, writer,
+createdAt, updatedAt }`, where `writer` is `"agent"` for a record you wrote
+with `moat artifact data` and `"page"` for a reader's. A key is up to 200 characters of `/`-separated segments, each
 letters, digits, `-`, `_`, `.` or `:`. A record is JSON of at most 64 KiB, and
 an Artifact holds at most 10000 records, list items included.
 
@@ -157,9 +160,42 @@ Pick the call by what readers do:
 
   The later save wins, so keep such state small.
 
-Records are shared by every reader of the page: `list` returns each reader's
-records with their user id, and any reader can replace or delete a record
-another reader saved.
+Without rules, records are shared by every reader of the page: `list`
+returns each reader's records with their user id, and any reader can replace
+or delete a record another reader saved.
+
+### Limiting what readers may do (`--rules`)
+
+Publish with `--rules <file>` when a reader must not overwrite another's
+record, or must not touch records you write, such as a plan a reader
+approves. The server checks each page operation against the rule of the
+longest prefix the key starts with:
+
+```json
+{"rulesVersion": 1, "prefixes": {
+  "requests/": {"read": "anyone", "create": "anyone", "notify": ["create"]},
+  "plans/":    {"read": "anyone"},
+  "drafts/":   {"read": "owner", "create": "anyone", "update": "owner", "delete": "owner"}}}
+```
+
+- **`read`, `update` and `delete` take `"anyone"` or `"owner"`; `create` takes only `"anyone"`.**
+
+  `owner` is the reader whose user id is the record's `submittedBy`: the
+  reader who created it, since an update keeps it. Under an `owner` read rule,
+  `list` shows a reader their own records and every record you wrote.
+- **An operation a rule leaves out is refused to pages, and so is a key no prefix matches.**
+
+  Leaving out `update` and `delete` makes a record write-once; `""` matches
+  every key. Your own `moat artifact data` writes skip the rules.
+- **`notify` lists the writes that message you, and replaces `--notify`.**
+
+  Each publish sets the rules again, so pass `--rules` every time; `--rules`
+  needs `--data`.
+
+A refused call rejects with an error whose `code` is `"permission-denied"`
+and whose `prefix` names the rule, so show the reader what they may not do.
+A write that kept racing other writes to its record rejects with
+`"conflict"`; it is safe to try again.
 
 ```html
 <form id="f">
@@ -203,9 +239,10 @@ another reader saved.
 
 ## When a reader writes a record
 
-With `--notify`, each save, append or delete a reader makes arrives as a
-message headed `<source>artifact</source>`, `<thread>` with the slug and
-`<from>` with the reader's login. Its body names the key, and for an append
+With `--notify`, or for a write its rule lists under `notify`, each save,
+append or delete a reader makes arrives as a message headed
+`<source>artifact</source>`, `<thread>` with the slug and `<from>` with the
+reader's login. Its body names the key, and for an append
 the list, and quotes the record's JSON, cut after about 2000 characters. For a
 delete it quotes what the record held.
 
