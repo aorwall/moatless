@@ -16,8 +16,8 @@ use moatless_types::access_control::{Scope, ScopeContext, resolve_scope_for_crea
 ///
 /// The subject is the Workspace's provenance, not the field: a git-synced one
 /// refuses the whole `PATCH`, even fields `GitSyncService` never reconciles
-/// (`run_as_user_id`, `icon`, `default_model`, `default_effort`) — editing
-/// those is `override_workspace`, the write that stops it being git's.
+/// (`run_as_user_id`, `node_selector`) — editing those is `override_workspace`,
+/// the write that stops it being git's.
 fn ensure_workspace_mutable(ws: &Workspace) -> Result<(), WorkspaceError> {
     if ws.deleted {
         return Err(WorkspaceError::Conflict(

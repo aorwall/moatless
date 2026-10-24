@@ -37,6 +37,7 @@ use moatless_workspace_types::schemas::workspace::{
 use moatless_workspace_types::workspace::LanguageServer;
 use moatless_workspace_types::workspace::ResourceConfig;
 use moatless_workspace_types::workspace::ScriptConfig;
+use moatless_workspace_types::workspace::WorkspaceIcon;
 
 // =============================================================================
 // `.moatless/` file schemas
@@ -81,7 +82,13 @@ pub struct MoatlessWorkspaceEntry {
     pub key: Option<String>,
     pub name: String,
     pub description: Option<String>,
+    /// A value rather than [`WorkspaceIcon`]: a malformed icon becomes a
+    /// warning instead of failing the whole file.
+    pub icon: Option<serde_json::Value>,
     pub repos: Vec<MoatlessWorkspaceRepoRef>,
+    // --- Task defaults ---
+    pub default_model: Option<String>,
+    pub default_effort: Option<String>,
     // --- Run configuration ---
     pub docker_image: Option<String>,
     pub docker_access: Option<bool>,
@@ -203,6 +210,30 @@ fn unknown_language_server_warnings(file: &MoatlessWorkspacesFile) -> Vec<Worksp
         }
     }
     warnings
+}
+
+/// What the sync says about an `icon` that is no [`WorkspaceIcon`].
+const INVALID_ICON: &str = "not a lucide or emoji icon, ignored";
+
+/// Every `icon` that does not parse as a [`WorkspaceIcon`], as JSON paths into
+/// the file.
+fn invalid_icon_warnings(file: &MoatlessWorkspacesFile) -> Vec<WorkspaceSyncWarning> {
+    file.workspaces
+        .iter()
+        .enumerate()
+        .filter(|(_, entry)| entry.icon.is_some() && parse_icon(entry).is_none())
+        .map(|(i, _)| WorkspaceSyncWarning {
+            path: format!("workspaces[{i}].icon"),
+            message: INVALID_ICON.to_string(),
+        })
+        .collect()
+}
+
+fn parse_icon(entry: &MoatlessWorkspaceEntry) -> Option<WorkspaceIcon> {
+    entry
+        .icon
+        .clone()
+        .and_then(|icon| serde_json::from_value(icon).ok())
 }
 
 /// The unclaimed keys that are not a comment.
@@ -366,6 +397,7 @@ impl GitSyncService {
         summary
             .warnings
             .extend(unknown_language_server_warnings(&file));
+        summary.warnings.extend(invalid_icon_warnings(&file));
         for warning in &summary.warnings {
             warn!(
                 repository_id = %repo.id,
@@ -580,8 +612,12 @@ fn strip_git_declared_identity(
     stripped
 }
 
-/// The run-config fields a git-declared workspace carries.
+/// The run-config fields a git-declared workspace carries, with its icon and
+/// Task defaults.
 struct RunConfig {
+    icon: Option<WorkspaceIcon>,
+    default_model: Option<String>,
+    default_effort: Option<String>,
     docker_image: Option<String>,
     docker_access: Option<bool>,
     sandbox_service_account: Option<String>,
@@ -627,6 +663,9 @@ fn source_key_for(entry: &MoatlessWorkspaceEntry) -> String {
 
 fn run_config_from_entry(entry: &MoatlessWorkspaceEntry) -> RunConfig {
     RunConfig {
+        icon: parse_icon(entry),
+        default_model: entry.default_model.clone(),
+        default_effort: entry.default_effort.clone(),
         docker_image: entry.docker_image.clone(),
         docker_access: entry.docker_access,
         sandbox_service_account: entry.sandbox_service_account.clone(),
@@ -703,10 +742,9 @@ impl GitSyncService {
                     id: id.clone(),
                     name: desired.name.clone(),
                     description: desired.description.clone(),
-                    // Presentation and Task defaults are not declared in git.
-                    icon: None,
-                    default_model: None,
-                    default_effort: None,
+                    icon: desired.run.icon.clone(),
+                    default_model: desired.run.default_model.clone(),
+                    default_effort: desired.run.default_effort.clone(),
                     kind: WorkspaceKind::Single, // refresh_kind fixes below
                     docker_image: desired.run.docker_image.clone(),
                     docker_access: desired.run.docker_access,
@@ -752,11 +790,9 @@ impl GitSyncService {
             // Absent from the patch, so a reconcile leaves whatever an admin set.
             run_as_user_id: None,
             node_selector: None,
-            // Likewise: never declared in git, so a reconcile must not clear
-            // what a user picked in the settings UI.
-            icon: None,
-            default_model: None,
-            default_effort: None,
+            icon: Some(desired.run.icon.clone()),
+            default_model: Some(desired.run.default_model.clone()),
+            default_effort: Some(desired.run.default_effort.clone()),
             docker_image: Some(desired.run.docker_image.clone()),
             docker_access: Some(desired.run.docker_access),
             sandbox_service_account: Some(desired.run.sandbox_service_account.clone()),
@@ -1213,6 +1249,62 @@ mod tests {
         assert_eq!(warnings.len(), 1);
         assert_eq!(warnings[0].path, "workspaces[0].languageServers[1]");
         assert_eq!(warnings[0].message, UNKNOWN_LANGUAGE_SERVER);
+    }
+
+    /// The Task defaults and the icon reach the row from git, so changing one
+    /// no longer costs an override; an absent key clears the column.
+    #[test]
+    fn task_defaults_and_icon_sync_from_git() {
+        let json = r#"{
+            "workspaces": [
+                {
+                    "name": "API",
+                    "repos": [],
+                    "defaultModel": "opus",
+                    "defaultEffort": "high",
+                    "icon": { "kind": "lucide", "name": "rocket", "color": "blue" }
+                },
+                { "name": "Web", "repos": [] }
+            ]
+        }"#;
+        let file: MoatlessWorkspacesFile = serde_json::from_str(json).expect("parse");
+
+        let api = run_config_from_entry(&file.workspaces[0]);
+        assert_eq!(api.default_model.as_deref(), Some("opus"));
+        assert_eq!(api.default_effort.as_deref(), Some("high"));
+        assert_eq!(
+            api.icon,
+            Some(WorkspaceIcon::Lucide {
+                name: "rocket".to_string(),
+                color: "blue".to_string(),
+            })
+        );
+        let web = run_config_from_entry(&file.workspaces[1]);
+        assert!(web.default_model.is_none());
+        assert!(web.default_effort.is_none());
+        assert!(web.icon.is_none());
+        assert!(unknown_key_warnings(&file).is_empty());
+        assert!(invalid_icon_warnings(&file).is_empty());
+    }
+
+    /// A malformed icon is named and dropped rather than failing the file:
+    /// a glyph must not stop every other Workspace in it syncing.
+    #[test]
+    fn an_icon_of_unknown_shape_is_named_rather_than_failing_the_file() {
+        let json = r#"{
+            "workspaces": [{
+                "name": "API",
+                "repos": [],
+                "icon": { "kind": "svg", "path": "logo.svg" }
+            }]
+        }"#;
+        let file: MoatlessWorkspacesFile = serde_json::from_str(json).expect("parse");
+
+        assert!(run_config_from_entry(&file.workspaces[0]).icon.is_none());
+        let warnings = invalid_icon_warnings(&file);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].path, "workspaces[0].icon");
+        assert_eq!(warnings[0].message, INVALID_ICON);
     }
 
     /// The shape that cost two agents a session: `previewConfig` and

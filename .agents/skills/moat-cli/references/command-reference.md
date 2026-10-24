@@ -45,11 +45,13 @@ sandbox service account.
 Inspect `moat workspaces update --help` for `--scripts-json`, `--env-vars-json`,
 `--resources-json`, `--language-servers`, and `--docker-image`. Get the workspace ID from the task.
 For git-managed workspaces, edit `.moatless/workspaces.json` in the owning repository
-or use `moat workspaces override` to take manual ownership. `reset-git` returns
-ownership to git. Explicit `moat repos sync-config` reclaims every overridden
-workspace still declared in `.moatless/workspaces.json`, discarding its local
-changes; an overridden workspace no longer declared there is left alone. The
-automatic sync when a GitHub default branch moves reclaims none.
+(it also takes `icon`, `defaultModel` and `defaultEffort`; `runAsUserId` and
+`nodeSelector` are admin-API-only) or use `moat workspaces override` to take
+manual ownership. `reset-git` returns ownership to git. Explicit
+`moat repos sync-config` reclaims every overridden workspace still declared in
+`.moatless/workspaces.json`, discarding its local changes; an overridden
+workspace no longer declared there is left alone. The automatic sync when a
+GitHub default branch moves reclaims none.
 
 Secrets use the singular `moat secret` group. Automation uses `moat loops`.
 
