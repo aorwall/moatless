@@ -86,6 +86,8 @@ struct OidcIdentity {
 /// Result of a verified OIDC callback.
 pub struct OidcAuthentication {
     pub user: User,
+    /// The ID token's `sub`, unique within the provider.
+    pub subject: String,
     pub redirect_after_login: Option<String>,
     pub cli_callback_port: Option<i32>,
 }
@@ -246,6 +248,7 @@ impl OidcService {
 
         Ok(OidcAuthentication {
             user,
+            subject: identity.subject,
             redirect_after_login: transaction.redirect_after_login,
             cli_callback_port: transaction.cli_callback_port,
         })

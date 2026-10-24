@@ -101,6 +101,8 @@ moat k8s secrets set OIDC_CLIENT_SECRET \
   --namespace <namespace>
 ```
 
+Every OIDC account is provisioned with the `user` role. To make the first operator an admin, add `auth.adminUserIds: ["<provider-id>|<sub>"]`, where `<sub>` is the account's ID-token subject as the identity provider shows it. That account becomes admin at its next sign-in. Removing an entry later never demotes anyone.
+
 The Kubernetes reference must bootstrap secrets with this edited `values.local.yaml`; that is how the CLI detects that the OIDC credentials are required.
 
 ## Verify

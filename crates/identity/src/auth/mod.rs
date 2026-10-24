@@ -48,6 +48,7 @@ pub use authentication::{Authentication, AuthenticationPorts};
 mod account_dao;
 mod account_status;
 mod accounts;
+mod admin_grant;
 mod password_operations;
 
 pub(crate) mod api_keys_dao;

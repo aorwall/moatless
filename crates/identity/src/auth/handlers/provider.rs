@@ -239,6 +239,14 @@ pub(in crate::auth) async fn oidc_callback_handler(
             return Err(error);
         }
     };
+    crate::auth::admin_grant::grant_listed_admin(
+        state.users.as_ref(),
+        &state.config.auth.admin_user_ids,
+        &result.user.id,
+        oidc.provider_id(),
+        &result.subject,
+    )
+    .await?;
     if let Some(port) = result.cli_callback_port {
         let key = api_key::generate_key(
             state.api_keys.as_ref(),

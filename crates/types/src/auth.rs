@@ -113,6 +113,9 @@ pub struct AuthConfig {
     /// Password for the bootstrap admin (env: `ADMIN_PASSWORD`). When unset a
     /// random one is generated on first boot and logged once at WARN.
     pub admin_password: Option<String>,
+    /// `provider|subject` identities promoted to admin at sign-in (env:
+    /// `ADMIN_USER_IDS`, comma-separated); see `grant_listed_admin`.
+    pub admin_user_ids: Vec<String>,
     /// Register the unadvertised administrator-only password login route.
     pub break_glass_enabled: bool,
     /// Auth cache TTL in seconds (default: 30).
@@ -318,6 +321,7 @@ impl fmt::Debug for AuthConfig {
                 "admin_password",
                 &self.admin_password.as_ref().map(|_| "[REDACTED]"),
             )
+            .field("admin_user_ids", &self.admin_user_ids)
             .field("break_glass_enabled", &self.break_glass_enabled)
             .field(
                 "session_jwt_secret",

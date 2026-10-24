@@ -87,6 +87,14 @@ pub(in crate::auth) async fn complete_login(
         state.config.auth.session_absolute_age_secs,
     )
     .await?;
+    crate::auth::admin_grant::grant_listed_admin(
+        state.users.as_ref(),
+        &state.config.auth.admin_user_ids,
+        &user_id,
+        provider_key,
+        &user_info.id,
+    )
+    .await?;
 
     let cli_key = if cli {
         Some(

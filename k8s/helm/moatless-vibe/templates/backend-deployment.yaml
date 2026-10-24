@@ -440,10 +440,6 @@ spec:
             - name: ADMIN_USER_IDS
               value: {{ .Values.auth.adminUserIds | join "," | quote }}
             {{- end }}
-            {{- if .Values.auth.adminReadAll }}
-            - name: ADMIN_READ_ALL
-              value: "true"
-            {{- end }}
             # Dynamic extra env vars from values
             {{- range $key, $value := .Values.extraEnv }}
             - name: {{ $key }}

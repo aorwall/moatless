@@ -1091,6 +1091,15 @@ impl Config {
                 admin_username: env_str("ADMIN_USERNAME", "admin"),
                 admin_email: Some(env_str("ADMIN_EMAIL", "admin@localhost")),
                 admin_password: env_opt("ADMIN_PASSWORD"),
+                admin_user_ids: env_opt("ADMIN_USER_IDS")
+                    .map(|s| {
+                        s.split(',')
+                            .map(str::trim)
+                            .filter(|id| !id.is_empty())
+                            .map(String::from)
+                            .collect()
+                    })
+                    .unwrap_or_default(),
                 break_glass_enabled: env_bool("AUTH_BREAK_GLASS_ENABLED", false),
                 cache_ttl_secs: env_or("AUTH_CACHE_TTL_SECS", 30),
                 session_jwt_secret: env_opt("SESSION_JWT_SECRET"),
@@ -1524,6 +1533,7 @@ impl Config {
                 admin_username: "admin".into(),
                 admin_email: Some("admin@example.com".into()),
                 admin_password: None,
+                admin_user_ids: Vec::new(),
                 break_glass_enabled: false,
                 cache_ttl_secs: 0,
                 session_jwt_secret: Some("test-session-secret".into()),

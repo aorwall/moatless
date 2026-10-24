@@ -589,13 +589,13 @@ auth:
     enabled: false
     callbackUrl: ""
     audience: ""
-  # -- List of user IDs that have admin access (for bootstrapping)
-  # These users bypass role checks and have full admin privileges
-  # Example: ["github|12345", "auth0|abc123"]
+  # -- Sign-in identities granted the admin role (rendered as ADMIN_USER_IDS).
+  # Each entry is `provider|subject`: `github|<numeric GitHub user id>`,
+  # `auth0|<Auth0 sub>` (e.g. `auth0|auth0|abc123`), or
+  # `<oidc.providerId>|<OIDC sub>`. A listed user becomes admin at sign-in;
+  # removing an entry never demotes anyone.
+  # Example: ["github|12345", "company|00u1abcd"]
   adminUserIds: []
-  # -- Enable admin users to read all entities (tasks, repositories) regardless of visibility
-  # When enabled, admin users bypass visibility scope filtering for read operations
-  adminReadAll: false
 
 # Database configuration (PostgreSQL required)
 database:
