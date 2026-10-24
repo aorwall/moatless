@@ -20,6 +20,7 @@ use crate::feature_flags::FeatureFlags;
 use crate::sandbox_identities::SandboxIdentities;
 
 pub use crate::http_config::HttpConfig;
+pub use crate::s3_config::S3Config;
 
 pub use crate::decision_config::{
     DEFAULT_JEV_MODEL, DecisionConfig, DecisionProviderConfig, JevConfig,
@@ -593,34 +594,6 @@ pub struct ProxyConfig {
 pub struct SseConfig {
     /// Broadcast buffer capacity for SSE fan-out (default: 4096)
     pub broadcast_capacity: usize,
-}
-
-/// S3 / file storage settings.
-#[derive(Debug, Clone)]
-pub struct S3Config {
-    /// S3 bucket name for file uploads.
-    pub bucket_name: Option<String>,
-    /// S3 key prefix for uploaded files (default: "uploads")
-    pub key_prefix: String,
-    /// S3 key prefix for sandbox Claude transcripts, stored under
-    /// `<prefix>/<task_id>/transcripts.tar` (default "transcripts").
-    ///
-    /// Reuses the uploads bucket — the backend IRSA already has read/write on
-    /// it. Env `TRANSCRIPT_S3_PREFIX`.
-    pub transcript_prefix: String,
-    /// S3 key prefix for the `s3` storage backend's workspace archives, under
-    /// `<prefix>/<task_id>/workspace.tar`. Reuses the uploads bucket.
-    ///
-    /// The sandbox never gets S3 credentials — the backend presigns PUT/GET
-    /// URLs scoped to this prefix. Env `WORKSPACE_S3_PREFIX` (default
-    /// "workspaces").
-    pub workspace_prefix: String,
-    /// S3 key prefix for published Artifacts, under
-    /// `<prefix>/<task_id>/<artifact_id>/v<n>.html`. Reuses the uploads
-    /// bucket. Env `ARTIFACT_S3_PREFIX` (default "artifacts").
-    pub artifact_prefix: String,
-    /// S3 region (default: "us-east-1")
-    pub region: String,
 }
 
 /// Slack adapter settings.
