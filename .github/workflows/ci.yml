@@ -68,9 +68,11 @@ jobs:
     if: github.event_name != 'workflow_dispatch'
     # paths-filter reads the PR's changed-file list over the API rather than
     # diffing locally, so it needs this even though checkout only needs contents.
+    # `actions: read` lets the base step find the last green push run.
     permissions:
       contents: read
       pull-requests: read
+      actions: read
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
       typescript: ${{ steps.filter.outputs.typescript }}
@@ -87,9 +89,41 @@ jobs:
       changed-files: ${{ steps.filter.outputs.everything_files }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      # A push diffs against the last green push to main rather than
+      # `github.event.before`: concurrency cancels a pending run when a newer
+      # push lands, and its changes would otherwise reach no filter, so an image
+      # only it touched is never published. Both diffs are two-tree, so a
+      # depth-1 fetch of the base is enough.
+      - name: Fetch the base commit
+        id: base
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          BASE_SHA="$PR_BASE_SHA"
+          if [ -z "$BASE_SHA" ]; then
+            BASE_SHA=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1" \
+              --jq '.workflow_runs[0].head_sha // empty') || BASE_SHA=""
+            if [ -z "$BASE_SHA" ]; then
+              echo "::warning::Found no green push run on main; diffing against ${BEFORE_SHA:-<none>}"
+              BASE_SHA="$BEFORE_SHA"
+            fi
+          fi
+          if git fetch --quiet --depth=1 origin "$BASE_SHA"; then
+            echo "Diffing against ${BASE_SHA}"
+            echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Could not fetch base ${BASE_SHA:-<none>}; the sandbox binaries rebuild"
+          fi
+
       - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4
         id: filter
         with:
+          # Empty on a PR or a failed fetch: a PR diffs against its base ref
+          # and a push falls back to `github.event.before`.
+          base: ${{ github.event_name == 'push' && steps.base.outputs.sha || '' }}
           list-files: shell
           filters: |
             everything:
@@ -164,17 +198,6 @@ jobs:
 
       # The dependency closure of `sandbox` and `moat`, rather than `crates/**`:
       # a backend-only change republishes no sandbox image.
-      - name: Fetch the base commit
-        id: base
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: |
-          if git fetch --quiet --depth=1 origin "$BASE_SHA"; then
-            echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
-          else
-            echo "::notice::Could not fetch base ${BASE_SHA:-<none>}; the sandbox binaries rebuild"
-          fi
-
       - name: Test the sandbox rebuild check
         run: python3 .github/scripts/test_sandbox_rebuild_needed.py
 
