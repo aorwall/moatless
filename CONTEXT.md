@@ -48,10 +48,26 @@ _Avoid_: putting run-config on a Repository
 The composition of one or more repositories plus run-configuration (docker image,
 setup commands, env vars, scripts, resources, language servers) that a Task runs
 against.
-A Sandbox materializes it on disk under the workspace directory. `source` is
-`manual` (created via the API) or `git` (reconciled from a repo's
-`.moatless/workspaces.json`). Not the Sandbox (the pod that runs it) nor the
-Workspace panel (a task-page UI view).
+A Sandbox materializes it on disk under the workspace directory. Every
+Workspace is declared in git and reconciled from its repository (`source =
+git`); a legacy `manual` row is only listed, deleted, or reclaimed by the sync.
+Not the Sandbox (the pod that runs it) nor the Workspace panel (a task-page UI
+view).
+
+**Default Workspace**:
+The Workspace with key `default` that every registered repository has, with
+the repository alone as primary. An entry with `"key": "default"` in its
+`.moatless/workspaces.json` overrides its settings.
+
+**Identity grant**:
+A deployment's `WORKSPACE_IDENTITY_GRANTS` entry that lets one repository's
+Workspace keep the admin-only `sandboxServiceAccount`, `networkProfile` or
+`nodeSelector` its git entry declares, and optionally makes it private to one
+user. An ungranted value is dropped with a sync warning.
+
+**Org sync**:
+The backend job that registers every repository of a configured GitHub
+organization as a global repository, and soft-deletes one archived or gone.
 
 **Script**:
 A named command (`ScriptConfig`: name, command, optional label/icon/port/envVars/
@@ -59,14 +75,6 @@ runOnStart) a Workspace declares, run as a terminal session inside a Task's
 Sandbox. A Script with a `port` earns a preview URL, published on the fly under
 Kubernetes; Docker never publishes it, so a Docker Task's Script has no preview.
 _Avoid_: server, preview server
-
-**Override** (of a Workspace):
-Flipping a git-declared Workspace to `source = manual` so it can be edited from
-the UI/CLI, keeping the provenance (`source_repository_id`, `source_key`,
-`source_config_path`) that makes a later reset possible. The automatic sync on
-task start respects an override; the explicit syncs (a repo's `sync-config`, a
-workspace's `reset-git`) reclaim it, replacing the local edits.
-_Avoid_: fork, detach
 
 **WorkspaceRepo**:
 A single repository's placement inside a Workspace — its branch override, mount

@@ -5,12 +5,19 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { Visibility } from './visibility';
 
 /**
  * Doc-only type for the multipart body of `POST
  * /api/v1/tasks/{task_id}/artifacts`.
  */
 export interface PublishArtifactBody {
+  /**
+     * `true` lets the page save Artifact records through the
+     * `moatless.artifact` script injected when it is served.
+     * @nullable
+     */
+  data?: boolean | null;
   /** One self-contained page, with a `.html` or `.htm` filename. */
   file: Blob;
   /**
@@ -26,10 +33,24 @@ export interface PublishArtifactBody {
      */
   inline?: boolean | null;
   /**
+     * `true` also queues a message to the Task's agent for each record a
+     * reader saves. Ignored without `data`.
+     * @nullable
+     */
+  notify?: boolean | null;
+  /**
+     * Record rules as JSON: per key prefix, the operations a reader's page
+     * may perform and the ones that notify the agent. Needs `data`, and
+     * replaces `notify`.
+     * @nullable
+     */
+  rules?: string | null;
+  /**
      * Stable name that later publishes of the same page reuse; derived from
      * the title when omitted.
      * @nullable
      */
   slug?: string | null;
   title: string;
+  visibility?: null | Visibility;
 }

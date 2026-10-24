@@ -129,38 +129,6 @@ fn env_str(key: &str, default: &str) -> String {
     env::var(key).unwrap_or_else(|_| default.to_string())
 }
 
-const MESSAGE_BUFFER_ENV: &str = "ADAPTER_MESSAGE_BUFFER_SECONDS";
-
-fn message_buffer_from_env() -> MessageBufferConfig {
-    let seconds = |key: &str, raw: &str| match raw.trim().parse::<i32>() {
-        Ok(seconds) if seconds >= 0 => Some(seconds),
-        _ => {
-            tracing::warn!(key, value = %raw, "Ignoring unparseable inbound buffer window");
-            None
-        }
-    };
-    let mut config = MessageBufferConfig::default();
-    // `vars_os`, not `vars`: `vars` panics on any non-Unicode entry, even an
-    // unrelated one, and would stop the backend starting.
-    for (key, raw) in env::vars_os() {
-        let Some(key) = key.to_str().filter(|k| k.starts_with(MESSAGE_BUFFER_ENV)) else {
-            continue;
-        };
-        let raw = raw.to_string_lossy();
-        if key == MESSAGE_BUFFER_ENV {
-            config.global_seconds = seconds(key, &raw);
-        } else if let Some(kind) = key
-            .strip_prefix(MESSAGE_BUFFER_ENV)
-            .and_then(|k| k.strip_prefix('_'))
-        {
-            if let Some(value) = seconds(key, &raw) {
-                config.per_kind_seconds.insert(kind.to_string(), value);
-            }
-        }
-    }
-    config
-}
-
 /// OpenAI's Codex refresh-token endpoint.
 pub const CODEX_REFRESH_URL_DEFAULT: &str = "https://auth.openai.com/oauth/token";
 
@@ -851,6 +819,7 @@ pub struct Config {
     pub feature_flags: FeatureFlags,
     pub message_buffer: MessageBufferConfig,
     pub http: HttpConfig,
+    pub workspace_sync: WorkspaceSyncConfig,
 }
 
 /// Configuration validation errors.
@@ -1132,8 +1101,16 @@ impl Config {
             otel: OtelConfig::from_env(),
             t3_ui_rpc: t3_ui_rpc_from_env()?,
             feature_flags: FeatureFlags::from_lookup(env_opt),
-            message_buffer: message_buffer_from_env(),
+            // `vars_os`, not `vars`: `vars` panics on any non-Unicode entry, even
+            // an unrelated one, and would stop the backend starting.
+            message_buffer: crate::message_buffer_config::parse(env::vars_os()),
             http: HttpConfig::from_vars(|key| env::var(key).ok()),
+            workspace_sync: WorkspaceSyncConfig::parse(
+                env_csv("GITHUB_ORG_SYNC_ORGS"),
+                env_opt("GITHUB_ORG_SYNC_USER_ID"),
+                env_opt("WORKSPACE_IDENTITY_GRANTS"),
+            )
+            .map_err(ConfigError::Invalid)?,
         };
 
         config.validate()?;
@@ -1144,6 +1121,11 @@ impl Config {
     ///
     /// Made `pub(crate)` so tests can call it directly without env vars.
     pub(crate) fn validate(&self) -> Result<(), ConfigError> {
+        self.workspace_sync
+            .identity_grants
+            .check(&self.sandbox.identities())
+            .map_err(|e| ConfigError::Invalid(format!("WORKSPACE_IDENTITY_GRANTS: {e}")))?;
+
         // Production must authenticate sandbox gRPC calls: without the signing
         // secret, verification falls back to its dev bypass (trusting every
         // caller), so refuse to boot. Dev/local may omit it and run unauthenticated.
@@ -1557,9 +1539,12 @@ impl Config {
             feature_flags: FeatureFlags::default(),
             message_buffer: MessageBufferConfig::default(),
             http: HttpConfig::default(),
+            workspace_sync: WorkspaceSyncConfig::default(),
         }
     }
 }
 
 #[cfg(test)]
 mod tests;
+
+pub use crate::workspace_identity_grants::WorkspaceSyncConfig;

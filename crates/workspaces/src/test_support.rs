@@ -52,9 +52,8 @@ pub fn make_repository_row(id: &str, user_id: &str) -> Repository {
 
 /// A minimal user-scoped Workspace.
 ///
-/// `kind` starts at `blank`; call `refresh_kind` after adding placements to
-/// derive the real label. Run-config columns are left empty — placement and ACL
-/// behaviour is what the store tests exercise.
+/// `kind` stays `blank` whatever placements are added. Run-config columns are
+/// left empty — placement and ACL behaviour is what the store tests exercise.
 pub fn make_workspace_row(id: &str, user_id: &str) -> Workspace {
     let now = chrono::Utc::now();
     Workspace {

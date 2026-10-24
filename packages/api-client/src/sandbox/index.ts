@@ -13,6 +13,7 @@ export * from './git-host-access/git-host-access';
 export * from './github/github';
 export * from './linear/linear';
 export * from './loops/loops';
+export * from './memory/memory';
 export * from './messages/messages';
 export * from './plugins/plugins';
 export * from './repositories/repositories';

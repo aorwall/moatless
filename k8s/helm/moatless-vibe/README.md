@@ -143,6 +143,18 @@ helm install moatless ./k8s/helm/moatless-vibe -n moatless -f k8s/local/values-l
 | `sandboxImage.pullPolicy` | Sandbox image pull policy | `Always` |
 | `plugins.repositories` | Plugins (`{name, gitUrl}`) reconciled on every backend start: created, updated, or disabled (keeping their activations) when removed. Read-only to the admin API while declared; activations are not set | `[]` |
 
+### Workspace sync
+
+A Workspace is declared only in git, in a repository's
+`.moatless/workspaces.json`, and every repository gets a `default` Workspace an
+entry with `"key": "default"` overrides.
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `workspaceSync.githubOrgs` | GitHub organizations whose repositories are registered as global repositories every ten minutes; one the listing leaves out is soft-deleted only once GitHub confirms it archived, renamed, transferred or deleted | `[]` |
+| `workspaceSync.orgSyncUserId` | User whose GitHub credential lists the organizations; required with `githubOrgs` | `""` |
+| `workspaceSync.identityGrants` | Grants that let a repository's Workspace keep a git-declared `sandboxServiceAccount`, `networkProfile` or `nodeSelector`, and optionally make it private to `ownerUserId` | `[]` |
+
 ### S3-only EKS Fargate
 
 Fargate sandboxes use API-backed S3 workspace sync and pod-local disk. They do

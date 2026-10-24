@@ -11,6 +11,8 @@
 //! backend stays the composition root wiring these ports into `AppState`.
 
 pub mod compose;
+#[cfg(all(test, feature = "db-tests"))]
+mod fake_github;
 pub mod plugin;
 pub mod ports;
 pub mod repository;

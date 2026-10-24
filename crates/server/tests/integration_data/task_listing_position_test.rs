@@ -380,12 +380,7 @@ async fn workspace_mutations_do_not_advance_the_task_listing(pool: PgPool) {
     git.source_repository_id = Some("repo-a".to_string());
     git.source_key = Some("api".to_string());
     workspaces.insert_workspace(&git).await.unwrap();
-    assert!(
-        workspaces
-            .soft_delete_git_origin("ws-git", &viewer)
-            .await
-            .unwrap()
-    );
+    assert!(workspaces.soft_delete("ws-git", &viewer).await.unwrap());
 
     assert_eq!(current_position(&pool).await.unwrap(), 0);
     assert!(changes_after(&pool, 0, 10).await.unwrap().is_empty());

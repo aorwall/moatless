@@ -1,11 +1,9 @@
 //! Reconcile a repo's git-declared workspaces into `workspaces` rows.
 //!
-//! Rows from `.moatless/workspaces.json` are flagged `source = 'git'`, keyed by
-//! `(source_repository_id, source_key)` so reconciliation never touches manual
-//! workspaces, bypassing the write API's read-only guard via the DAO directly.
-//!
-//! `override` flips a workspace to `source = 'manual'` so auto-sync leaves it
-//! alone; [`SyncForce`] decides which syncs reclaim an active override.
+//! Git is the only writer of a Workspace. Every repository has a `default`
+//! Workspace placing it alone, which a `.moatless/workspaces.json` entry keyed
+//! `default` overrides; the file's other entries add Workspaces. Rows are
+//! flagged `source = 'git'` and keyed by `(source_repository_id, source_key)`.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
@@ -28,9 +26,10 @@ use crate::workspace::git_skills::{SkillActivations, resolve_declared};
 use crate::workspace::models::WorkspacePatch;
 use crate::workspace::models::{Workspace, WorkspaceKind, WorkspaceRepo, WorkspaceSource};
 use moatless_core::db::DbPool;
+use moatless_core::workspace_identity_grants::{WorkspaceIdentityGrant, WorkspaceIdentityGrants};
 use moatless_ports::identity::GitHostTokenIssuer;
 use moatless_types::access_control::Actor;
-use moatless_types::access_control::ScopeContext;
+use moatless_types::access_control::{Scope, ScopeContext};
 use moatless_types::http::HttpTimeouts;
 use moatless_workspace_types::repository::RepositoryKind;
 use moatless_workspace_types::repository::{GitHostRepo, RepositoryProvider, RepositoryRemote};
@@ -77,17 +76,22 @@ pub struct MoatlessWorkspacesFile {
 }
 
 /// One workspace entry in `.moatless/workspaces.json`.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MoatlessWorkspaceEntry {
     /// Stable natural key within the repo. When present, renaming `name` keeps
     /// the workspace identity; when absent, the slugified `name` is the key.
+    /// [`DEFAULT_WORKSPACE_KEY`] overrides the repository's own Workspace.
     pub key: Option<String>,
-    pub name: String,
+    /// Required unless `key` is [`DEFAULT_WORKSPACE_KEY`], which defaults it to
+    /// the repository's name.
+    pub name: Option<String>,
     pub description: Option<String>,
     /// A value rather than [`WorkspaceIcon`]: a malformed icon becomes a
     /// warning instead of failing the whole file.
     pub icon: Option<serde_json::Value>,
+    /// Empty places the declaring repository alone.
+    #[serde(default)]
     pub repos: Vec<MoatlessWorkspaceRepoRef>,
     // --- Task defaults ---
     pub default_model: Option<String>,
@@ -103,8 +107,11 @@ pub struct MoatlessWorkspaceEntry {
     /// Ids rather than [`LanguageServer`]: an id this backend does not know
     /// becomes a warning instead of failing the whole file.
     pub language_servers: Option<Vec<String>>,
+    /// This and the next two are honoured only as a
+    /// [`WorkspaceIdentityGrant`] names them; see [`apply_identity_grant`].
     pub sandbox_service_account: Option<String>,
     pub network_profile: Option<String>,
+    pub node_selector: Option<BTreeMap<String, String>>,
     /// See [`crate::workspace::git_skills`].
     pub skills: Option<SkillActivations>,
     #[serde(flatten)]
@@ -123,6 +130,11 @@ pub struct MoatlessWorkspaceRepoRef {
     #[serde(flatten)]
     pub unknown: UnknownKeys,
 }
+
+/// The `source_key` of the Workspace every repository has.
+pub const DEFAULT_WORKSPACE_KEY: &str = "default";
+
+const WORKSPACES_PATH: &str = ".moatless/workspaces.json";
 
 /// What the sync says about a key it read but did not apply.
 const UNKNOWN_KEY: &str = "unknown key, ignored: nothing in the sandbox reads it";
@@ -269,7 +281,7 @@ pub async fn fetch_moatless_workspaces(
         http,
         github_api_base,
         remote,
-        ".moatless/workspaces.json",
+        WORKSPACES_PATH,
         branch,
         token,
     )
@@ -287,38 +299,12 @@ pub async fn fetch_moatless_workspaces(
 // Sync service
 // =============================================================================
 
-/// Whether a sync reclaims workspaces that were manually overridden.
-///
-/// An override (`source = 'manual'`) exists to survive the automatic sync on
-/// task start; only an explicit, user-initiated sync discards it.
-pub enum SyncForce {
-    /// Leave overridden workspaces alone (task-start auto-sync, repo create).
-    RespectOverrides,
-    /// Reclaim every overridden workspace in the repo (`sync-config`).
-    All,
-    /// Reclaim just this one workspace (per-workspace `reset-git`).
-    Only(String),
-}
-
-impl SyncForce {
-    /// Whether an overridden workspace with this id is taken back under git.
-    fn reclaims(&self, workspace_id: &str) -> bool {
-        match self {
-            Self::RespectOverrides => false,
-            Self::All => true,
-            Self::Only(id) => id == workspace_id,
-        }
-    }
-}
-
 /// What happened to one git-declared workspace during a sync.
 enum UpsertOutcome {
     Created,
     Updated,
-    /// Was manually overridden and taken back under git control.
+    /// A legacy manual override taken back under git control.
     Reclaimed,
-    /// Manually overridden and left untouched.
-    Skipped,
 }
 
 /// What [`GitSyncService::default_branch_head`] read.
@@ -342,9 +328,14 @@ pub struct GitSyncService {
     http: reqwest::Client,
     /// `Config::github_api_base`.
     github_api_base: String,
+    identity_grants: WorkspaceIdentityGrants,
 }
 
 impl GitSyncService {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "`compose::git_sync`, the one caller, names each store and setting"
+    )]
     pub(crate) fn new(
         db: DbPool,
         workspaces: Arc<dyn WorkspaceDao>,
@@ -353,6 +344,7 @@ impl GitSyncService {
         git_host_tokens: Arc<dyn GitHostTokenIssuer>,
         git_content: HttpTimeouts,
         github_api_base: String,
+        identity_grants: WorkspaceIdentityGrants,
     ) -> Self {
         Self {
             db,
@@ -362,19 +354,20 @@ impl GitSyncService {
             git_host_tokens,
             http: crate::repository::config_reader::client(git_content),
             github_api_base,
+            identity_grants,
         }
     }
 
     /// Fetch, resolve, and reconcile the workspaces declared in a repository.
     ///
-    /// A repo with no `.moatless/workspaces.json` reconciles and deletes
-    /// nothing — an empty desired set would otherwise tombstone every workspace
-    /// and Task in it. Best-effort/non-fatal: callers log the outcome.
+    /// A repo with no `.moatless/workspaces.json` syncs its default Workspace
+    /// and deletes nothing: a provider answering 404 for a file it would not
+    /// let us read would otherwise tombstone every other Workspace and Task in
+    /// it. Best-effort/non-fatal: callers log the outcome.
     pub async fn sync_repo_workspaces_for(
         &self,
         repo: &Repository,
         scope: &ScopeContext,
-        force: &SyncForce,
     ) -> Result<WorkspaceSyncSummary, RepositoryError> {
         let mut summary = WorkspaceSyncSummary::default();
 
@@ -385,12 +378,13 @@ impl GitSyncService {
         let token = self.resolve_sync_token(scope, host_repo).await;
         let token_str = token.as_deref();
         let branch = repo.default_branch.as_deref();
+        let full_name = format!("{}/{}", host_repo.owner(), host_repo.name());
 
         let Some(file) =
             fetch_moatless_workspaces(&self.http, &self.github_api_base, remote, branch, token_str)
                 .await?
         else {
-            debug!(repository_id = %repo.id, "No .moatless/workspaces.json; nothing to sync");
+            debug!(repository_id = %repo.id, "No .moatless/workspaces.json; syncing the default workspace");
             if let Some(warning) =
                 retired_config_warning(&self.http, &self.github_api_base, remote, branch, token_str)
                     .await
@@ -401,6 +395,14 @@ impl GitSyncService {
                     "Repository declares its config in a file the sync no longer reads"
                 );
                 summary.warnings.push(warning);
+            }
+            let entry = default_entry();
+            if let Some(desired) = self
+                .desired_workspace(repo, &full_name, &entry, None, None, &mut summary)
+                .await?
+            {
+                let outcome = self.upsert_git_workspace(repo, &desired).await?;
+                record_outcome(&mut summary, outcome);
             }
             return Ok(summary);
         };
@@ -415,7 +417,7 @@ impl GitSyncService {
         for warning in &summary.warnings {
             warn!(
                 repository_id = %repo.id,
-                source_config_path = ".moatless/workspaces.json",
+                source_config_path = WORKSPACES_PATH,
                 path = %warning.path,
                 "Ignoring unknown entry in git-declared workspace config"
             );
@@ -431,67 +433,45 @@ impl GitSyncService {
             None
         };
 
+        let synthesized = default_entry();
+        let declares_default = file
+            .workspaces
+            .iter()
+            .any(|e| source_key_for(e).as_deref() == Some(DEFAULT_WORKSPACE_KEY));
+        let entries = file
+            .workspaces
+            .iter()
+            .enumerate()
+            .map(|(i, e)| (Some(i), e))
+            .chain((!declares_default).then_some((None, &synthesized)));
+
         // source_keys present in git this round — reconcile-delete keeps only these.
         let mut present: HashSet<String> = HashSet::new();
-        let mut seen_keys: HashSet<String> = HashSet::new();
-        for (i, entry) in file.workspaces.iter().enumerate() {
-            let source_key = source_key_for(entry);
-            if !seen_keys.insert(source_key.clone()) {
+        for (index, entry) in entries {
+            let Some(desired) = self
+                .desired_workspace(
+                    repo,
+                    &full_name,
+                    entry,
+                    index,
+                    registry.as_ref(),
+                    &mut summary,
+                )
+                .await?
+            else {
+                continue;
+            };
+            if !present.insert(desired.source_key.clone()) {
                 // A duplicate source_key would violate workspaces_git_source_unique.
-                warn!(repository_id = %repo.id, %source_key, "Duplicate workspace source_key; skipping later entry");
+                warn!(repository_id = %repo.id, source_key = %desired.source_key, "Duplicate workspace source_key; skipping later entry");
                 summary.skipped.push(WorkspaceSyncSkip {
-                    source_key,
+                    source_key: desired.source_key,
                     reason: "duplicate source_key".to_string(),
                 });
                 continue;
             }
-            if let Err(e) = validate_non_secret_env_vars(entry.env_vars.as_ref()) {
-                warn!(repository_id = %repo.id, %source_key, error = %e, "Skipping workspace with invalid envVars");
-                summary.skipped.push(WorkspaceSyncSkip {
-                    source_key,
-                    reason: e.to_string(),
-                });
-                continue;
-            }
-
-            let mut run = run_config_from_entry(entry);
-            for field in
-                strip_git_declared_identity(&mut run, &repo.id, ".moatless/workspaces.json")
-            {
-                summary.warnings.push(WorkspaceSyncWarning {
-                    path: format!("workspaces[{i}].{field}"),
-                    message: ADMIN_ONLY_IDENTITY.to_string(),
-                });
-            }
-            let reported = summary.warnings.len();
-            let activations =
-                declared_activations(entry, registry.as_ref(), i, &mut summary.warnings);
-            for warning in &summary.warnings[reported..] {
-                warn!(
-                    repository_id = %repo.id,
-                    source_config_path = ".moatless/workspaces.json",
-                    path = %warning.path,
-                    reason = %warning.message,
-                    "Skill name in git-declared workspace config needs attention"
-                );
-            }
-            let placements = self.resolve_placements(repo, &entry.repos).await?;
-
-            present.insert(source_key.clone());
-            let desired = DesiredWorkspace {
-                source_key,
-                source_config_path: ".moatless/workspaces.json".to_string(),
-                name: entry.name.clone(),
-                description: entry.description.clone(),
-                run,
-                placements,
-                activations,
-            };
-            record_outcome(
-                &mut summary,
-                self.upsert_git_workspace(repo, &desired, force).await?,
-                &desired.source_key,
-            );
+            let outcome = self.upsert_git_workspace(repo, &desired).await?;
+            record_outcome(&mut summary, outcome);
         }
 
         // Reconcile-delete: soft-delete any git workspace for this repo whose
@@ -511,6 +491,108 @@ impl GitSyncService {
         }
 
         Ok(summary)
+    }
+
+    /// Resolve one entry to the Workspace it declares, or `None` with the
+    /// reason pushed onto `summary.skipped`.
+    ///
+    /// `index` is the entry's position in the file, `None` for the synthesized
+    /// default, and prefixes the JSON path of every warning.
+    async fn desired_workspace(
+        &self,
+        repo: &Repository,
+        full_name: &str,
+        entry: &MoatlessWorkspaceEntry,
+        index: Option<usize>,
+        registry: Option<&(Vec<Plugin>, Vec<PluginSkill>)>,
+        summary: &mut WorkspaceSyncSummary,
+    ) -> Result<Option<DesiredWorkspace>, RepositoryError> {
+        let Some(source_key) = source_key_for(entry) else {
+            summary.skipped.push(WorkspaceSyncSkip {
+                source_key: String::new(),
+                reason: "an entry needs a name or a key".to_string(),
+            });
+            return Ok(None);
+        };
+        let is_default = source_key == DEFAULT_WORKSPACE_KEY;
+        let Some(name) = entry
+            .name
+            .clone()
+            .or_else(|| is_default.then(|| repo.name.clone()))
+        else {
+            summary.skipped.push(WorkspaceSyncSkip {
+                source_key,
+                reason: "name is required".to_string(),
+            });
+            return Ok(None);
+        };
+        if let Err(e) = validate_non_secret_env_vars(entry.env_vars.as_ref()) {
+            warn!(repository_id = %repo.id, %source_key, error = %e, "Skipping workspace with invalid envVars");
+            summary.skipped.push(WorkspaceSyncSkip {
+                source_key,
+                reason: e.to_string(),
+            });
+            return Ok(None);
+        }
+
+        let mut run = run_config_from_entry(entry);
+        // Only the global registration: anyone may register a remote for
+        // themselves, and would otherwise receive its grant.
+        let grant = (repo.scope == Scope::Global)
+            .then(|| self.identity_grants.find(full_name, &source_key))
+            .flatten();
+        for field in apply_identity_grant(&mut run, grant, &repo.id, &source_key) {
+            summary.warnings.push(WorkspaceSyncWarning {
+                path: match index {
+                    Some(i) => format!("workspaces[{i}].{field}"),
+                    None => field.to_string(),
+                },
+                message: UNGRANTED_IDENTITY.to_string(),
+            });
+        }
+        let activations = match index {
+            Some(i) => {
+                let reported = summary.warnings.len();
+                let activations = declared_activations(entry, registry, i, &mut summary.warnings);
+                for warning in &summary.warnings[reported..] {
+                    warn!(
+                        repository_id = %repo.id,
+                        source_config_path = WORKSPACES_PATH,
+                        path = %warning.path,
+                        message = %warning.message,
+                        "Ignoring skill name in git-declared workspace config"
+                    );
+                }
+                activations
+            }
+            None => None,
+        };
+        let placements = if entry.repos.is_empty() {
+            vec![ResolvedPlacement {
+                repository_id: repo.id.clone(),
+                branch: None,
+                mount_name: None,
+                primary: true,
+            }]
+        } else {
+            self.resolve_placements(repo, &entry.repos).await?
+        };
+        let (scope, owner_user_id) = match grant.and_then(|g| g.owner_user_id.clone()) {
+            Some(owner) => (Scope::User, Some(owner)),
+            None => (repo.scope, repo.owner_user_id.clone()),
+        };
+
+        Ok(Some(DesiredWorkspace {
+            source_key,
+            source_config_path: WORKSPACES_PATH.to_string(),
+            name,
+            description: entry.description.clone(),
+            scope,
+            owner_user_id,
+            run,
+            placements,
+            activations,
+        }))
     }
 
     /// The commit sha a GitHub repository's default branch points at, read
@@ -580,16 +662,13 @@ impl GitSyncService {
             return;
         }
 
-        // Automatic sync: workspaces the user overrode from the UI/CLI stay
-        // overridden — only an explicit sync-config or reset-git reclaims them.
-        let force = SyncForce::RespectOverrides;
-        match self.sync_repo_workspaces_for(repo, scope, &force).await {
+        match self.sync_repo_workspaces_for(repo, scope).await {
             Ok(workspaces) => {
                 info!(
                     repository_id = %repo.id,
                     workspaces_created = workspaces.created,
                     workspaces_updated = workspaces.updated,
-                    workspaces_overridden = workspaces.skipped.len(),
+                    workspaces_skipped = workspaces.skipped.len(),
                     workspaces_warnings = workspaces.warnings.len(),
                     "Workspace config auto-sync on task start complete"
                 );
@@ -602,49 +681,65 @@ impl GitSyncService {
 }
 
 /// Fold one upsert outcome into the running summary.
-fn record_outcome(summary: &mut WorkspaceSyncSummary, outcome: UpsertOutcome, source_key: &str) {
+fn record_outcome(summary: &mut WorkspaceSyncSummary, outcome: UpsertOutcome) {
     match outcome {
         UpsertOutcome::Created => summary.created += 1,
         UpsertOutcome::Updated => summary.updated += 1,
         UpsertOutcome::Reclaimed => summary.reclaimed += 1,
-        UpsertOutcome::Skipped => summary.skipped.push(WorkspaceSyncSkip {
-            source_key: source_key.to_string(),
-            reason: "manually overridden".to_string(),
-        }),
+    }
+}
+
+/// The entry a repository with no `default` entry is synced from.
+fn default_entry() -> MoatlessWorkspaceEntry {
+    MoatlessWorkspaceEntry {
+        key: Some(DEFAULT_WORKSPACE_KEY.to_string()),
+        ..MoatlessWorkspaceEntry::default()
     }
 }
 
 /// What the sync says about an identity field it dropped.
-const ADMIN_ONLY_IDENTITY: &str = "ignored: a privileged sandbox identity is admin-only";
+const UNGRANTED_IDENTITY: &str =
+    "ignored: no WORKSPACE_IDENTITY_GRANTS entry grants this value to this workspace";
 
-/// Drop a privileged sandbox identity from repo config, naming what it took.
+/// Drop each privileged sandbox field whose declared value `grant` does not
+/// name, returning the fields dropped.
 ///
-/// Honouring `sandbox_service_account`/`network_profile` from a file anyone
-/// with commit access can edit would escalate them to admin-gated Secrets.
-/// Dropped rather than rejected, so one stray field cannot fail the whole sync.
-fn strip_git_declared_identity(
+/// Anyone with commit access edits the file, so an ungranted value would
+/// reach admin-gated Secrets. Dropped rather than rejected, so one stray
+/// field cannot fail the whole sync.
+fn apply_identity_grant(
     run: &mut RunConfig,
+    grant: Option<&WorkspaceIdentityGrant>,
     repository_id: &str,
-    source_config_path: &str,
+    source_key: &str,
 ) -> Vec<&'static str> {
     let mut stripped = Vec::new();
-    if let Some(account) = run.sandbox_service_account.take() {
-        warn!(
-            %repository_id,
-            source_config_path,
-            declared = %account,
-            "Ignoring repo-declared sandboxServiceAccount: a privileged sandbox identity is admin-only"
-        );
+    if run.sandbox_service_account.is_some()
+        && run.sandbox_service_account.as_ref()
+            != grant.and_then(|g| g.sandbox_service_account.as_ref())
+    {
+        run.sandbox_service_account = None;
         stripped.push("sandboxServiceAccount");
     }
-    if let Some(profile) = run.network_profile.take() {
+    if run.network_profile.is_some()
+        && run.network_profile.as_ref() != grant.and_then(|g| g.network_profile.as_ref())
+    {
+        run.network_profile = None;
+        stripped.push("networkProfile");
+    }
+    if run.node_selector.is_some()
+        && run.node_selector.as_ref() != grant.and_then(|g| g.node_selector.as_ref())
+    {
+        run.node_selector = None;
+        stripped.push("nodeSelector");
+    }
+    for field in &stripped {
         warn!(
             %repository_id,
-            source_config_path,
-            declared = %profile,
-            "Ignoring repo-declared networkProfile: a privileged sandbox identity is admin-only"
+            %source_key,
+            field,
+            "Ignoring a repo-declared sandbox identity no grant allows"
         );
-        stripped.push("networkProfile");
     }
     stripped
 }
@@ -659,6 +754,7 @@ struct RunConfig {
     docker_access: Option<bool>,
     sandbox_service_account: Option<String>,
     network_profile: Option<String>,
+    node_selector: Option<BTreeMap<String, String>>,
     system_prompt: Option<String>,
     setup_commands: Option<Vec<String>>,
     env_vars: Option<HashMap<String, String>>,
@@ -682,6 +778,9 @@ struct DesiredWorkspace {
     source_config_path: String,
     name: String,
     description: Option<String>,
+    /// The repository's, unless a grant makes the Workspace user-scoped.
+    scope: Scope,
+    owner_user_id: Option<String>,
     run: RunConfig,
     placements: Vec<ResolvedPlacement>,
     /// `None` when the entry has no `skills` key, which leaves the
@@ -690,15 +789,17 @@ struct DesiredWorkspace {
 }
 
 /// The stable natural key for a workspaces.json entry: its `key`, else the
-/// slugified `name`. Documenting `key` as the stability contract — renaming a
-/// keyed entry updates in place; a name-keyed entry churns (prune + create).
-fn source_key_for(entry: &MoatlessWorkspaceEntry) -> String {
+/// slugified `name`, `None` with neither. Documenting `key` as the stability
+/// contract — renaming a keyed entry updates in place; a name-keyed entry
+/// churns (prune + create).
+fn source_key_for(entry: &MoatlessWorkspaceEntry) -> Option<String> {
     entry
         .key
         .as_deref()
         .map(str::trim)
         .filter(|k| !k.is_empty())
-        .map_or_else(|| slugify(&entry.name), str::to_string)
+        .map(str::to_string)
+        .or_else(|| entry.name.as_deref().map(slugify))
 }
 
 /// The records an entry's `skills` declares, reporting each name it cannot
@@ -726,6 +827,7 @@ fn run_config_from_entry(entry: &MoatlessWorkspaceEntry) -> RunConfig {
         docker_access: entry.docker_access,
         sandbox_service_account: entry.sandbox_service_account.clone(),
         network_profile: entry.network_profile.clone(),
+        node_selector: entry.node_selector.clone(),
         system_prompt: entry.system_prompt.clone(),
         setup_commands: entry
             .code_execution
@@ -742,56 +844,28 @@ fn run_config_from_entry(entry: &MoatlessWorkspaceEntry) -> RunConfig {
     }
 }
 
-/// What to do with an existing `source = 'manual'` row that a git-declared
-/// workspace maps onto: `None` leaves the override/tombstone in place,
-/// `Some(outcome)` writes git's config over it.
-fn reclaim_override(
-    workspace_id: &str,
-    deleted: Option<bool>,
-    force: &SyncForce,
-) -> Option<UpsertOutcome> {
-    if deleted == Some(true) {
-        return matches!(force, SyncForce::Only(id) if id == workspace_id)
-            .then_some(UpsertOutcome::Reclaimed);
-    }
-    force
-        .reclaims(workspace_id)
-        .then_some(UpsertOutcome::Reclaimed)
-}
-
 impl GitSyncService {
     /// Insert or update the workspace row + placements for one desired
-    /// workspace.
-    ///
-    /// Returns [`UpsertOutcome::Skipped`] when the workspace is manually
-    /// overridden (`source = 'manual'`) and `force` does not reclaim it.
+    /// workspace, taking back a legacy manual override that holds its key.
     async fn upsert_git_workspace(
         &self,
         repo: &Repository,
         desired: &DesiredWorkspace,
-        force: &SyncForce,
     ) -> Result<UpsertOutcome, RepositoryError> {
         // reason: git sync writes workspaces derived from repository content, not
         // caller input; scope/owner are inherited from the repository row.
         #[allow(clippy::disallowed_methods)]
         let sys_ctx = ScopeContext::system();
-        // Look up by natural key — include 'manual' so an overridden workspace
-        // is found and skipped (or reclaimed) rather than re-created under the
-        // same key. Soft-deleted rows are reused too, so a delete never orphans
-        // the key behind a row that no lookup would find again.
+        // Look up by natural key — include 'manual' so a legacy override is
+        // reclaimed rather than re-created under the same key. Soft-deleted
+        // rows are reused too, so a delete never orphans the key behind a row
+        // that no lookup would find again.
         let existing =
             super::dao::workspace_for_git_source(&self.db, &repo.id, &desired.source_key).await?;
 
         let (workspace_id, outcome) = match existing {
-            Some((id, source, deleted)) if source == "manual" => {
-                let Some(outcome) = reclaim_override(&id, deleted, force) else {
-                    debug!(workspace_id = %id, source_key = %desired.source_key,
-                        "skipping git sync — workspace has been manually overridden");
-                    return Ok(UpsertOutcome::Skipped);
-                };
-                (id, outcome)
-            }
-            Some((id, _, _)) => (id, UpsertOutcome::Updated),
+            Some((id, source)) if source == "manual" => (id, UpsertOutcome::Reclaimed),
+            Some((id, _)) => (id, UpsertOutcome::Updated),
             None => {
                 let id = format!("ws_{}", uuid::Uuid::new_v4());
                 let row = Workspace {
@@ -801,7 +875,7 @@ impl GitSyncService {
                     icon: desired.run.icon.clone(),
                     default_model: desired.run.default_model.clone(),
                     default_effort: desired.run.default_effort.clone(),
-                    kind: WorkspaceKind::Single, // refresh_kind fixes below
+                    kind: WorkspaceKind::Single, // `replace_git_placements` derives it
                     docker_image: desired.run.docker_image.clone(),
                     docker_access: desired.run.docker_access,
                     sandbox_service_account: desired.run.sandbox_service_account.clone(),
@@ -816,13 +890,12 @@ impl GitSyncService {
                     source_repository_id: Some(repo.id.clone()),
                     source_key: Some(desired.source_key.clone()),
                     source_config_path: Some(desired.source_config_path.clone()),
-                    scope: repo.scope,
-                    owner_user_id: repo.owner_user_id.clone(),
+                    scope: desired.scope,
+                    owner_user_id: desired.owner_user_id.clone(),
                     // Never declared in git: commit access to a repository
-                    // would otherwise name the account its Tasks act as, or
-                    // move its sandboxes onto dedicated capacity.
+                    // would otherwise name the account its Tasks act as.
                     run_as_user_id: None,
-                    node_selector: None,
+                    node_selector: desired.run.node_selector.clone(),
                     created_by: repo.created_by.clone(),
                     deleted: false,
                     created_at: None,
@@ -841,11 +914,11 @@ impl GitSyncService {
             name: Some(desired.name.clone()),
             description: Some(desired.description.clone()),
             kind: None,
-            scope: Some(repo.scope),
-            owner_user_id: Some(repo.owner_user_id.clone()),
+            scope: Some(desired.scope),
+            owner_user_id: Some(desired.owner_user_id.clone()),
             // Absent from the patch, so a reconcile leaves whatever an admin set.
             run_as_user_id: None,
-            node_selector: None,
+            node_selector: Some(desired.run.node_selector.clone()),
             icon: Some(desired.run.icon.clone()),
             default_model: Some(desired.run.default_model.clone()),
             default_effort: Some(desired.run.default_effort.clone()),
@@ -902,7 +975,7 @@ impl GitSyncService {
         if matches!(outcome, UpsertOutcome::Reclaimed) {
             info!(
                 %workspace_id, source_key = %desired.source_key,
-                "Reclaimed manually overridden workspace from git; local edits replaced"
+                "Reclaimed a manual override from git; local edits replaced"
             );
         }
         Ok(outcome)
@@ -1050,9 +1123,8 @@ pub async fn log_workspace_sync_for(
     repo: &Repository,
     scope: &ScopeContext,
     phase: &str,
-    force: &SyncForce,
 ) -> WorkspaceSyncSummary {
-    match git_sync.sync_repo_workspaces_for(repo, scope, force).await {
+    match git_sync.sync_repo_workspaces_for(repo, scope).await {
         Ok(summary) => {
             if summary.created + summary.updated + summary.reclaimed + summary.removed > 0
                 || !summary.skipped.is_empty()
@@ -1078,398 +1150,4 @@ pub async fn log_workspace_sync_for(
 }
 
 #[cfg(test)]
-mod tests {
-    use moatless_workspace_types::workspace::Memory;
-
-    use super::*;
-
-    #[test]
-    fn force_only_reclaims_its_own_workspace() {
-        assert!(!SyncForce::RespectOverrides.reclaims("ws_1"));
-        assert!(SyncForce::All.reclaims("ws_1"));
-
-        let only = SyncForce::Only("ws_1".to_string());
-        assert!(only.reclaims("ws_1"));
-        // A repo-wide sync triggered by one workspace's reset must not drag
-        // every other overridden workspace back under git.
-        assert!(!only.reclaims("ws_2"));
-    }
-
-    #[test]
-    fn overrides_and_deleted_tombstones_block_automatic_sync() {
-        // Live override: kept by the automatic sync, reclaimed by an explicit one.
-        assert!(reclaim_override("ws_1", Some(false), &SyncForce::RespectOverrides).is_none());
-        assert!(matches!(
-            reclaim_override("ws_1", Some(false), &SyncForce::All),
-            Some(UpsertOutcome::Reclaimed)
-        ));
-
-        // Deleted override: a tombstone blocks automatic and repo-wide sync, so
-        // a git entry is not recreated unless this exact workspace is reset.
-        assert!(reclaim_override("ws_1", Some(true), &SyncForce::RespectOverrides).is_none());
-        assert!(reclaim_override("ws_1", Some(true), &SyncForce::All).is_none());
-
-        let only_this = SyncForce::Only("ws_1".to_string());
-        assert!(matches!(
-            reclaim_override("ws_1", Some(true), &only_this),
-            Some(UpsertOutcome::Reclaimed)
-        ));
-
-        let only_other = SyncForce::Only("ws_2".to_string());
-        assert!(reclaim_override("ws_1", Some(true), &only_other).is_none());
-    }
-
-    #[test]
-    fn slugify_produces_stable_keys() {
-        assert_eq!(slugify("API Server"), "api-server");
-        assert_eq!(slugify("  Web / Frontend  "), "web-frontend");
-        assert_eq!(slugify("a__b--c"), "a-b-c");
-        assert_eq!(slugify("!!!"), "workspace");
-        assert_eq!(slugify(""), "workspace");
-    }
-
-    #[test]
-    fn repo_name_from_url_takes_last_segment() {
-        assert_eq!(repo_name_from_url("https://github.com/acme/api.git"), "api");
-        assert_eq!(repo_name_from_url("https://github.com/acme/web/"), "web");
-        assert_eq!(repo_name_from_url("https://gitlab.com/g/sub/proj"), "proj");
-    }
-
-    /// One entry of a `.moatless/workspaces.json`, parsed.
-    fn parse_entry(json: &str) -> MoatlessWorkspaceEntry {
-        serde_json::from_str(json).expect("parse workspace entry")
-    }
-
-    /// Repo config may not hand a sandbox an elevated Kubernetes identity —
-    /// otherwise anyone with commit access could grant themselves the same
-    /// access the admin-only API gate withholds.
-    #[test]
-    fn git_declared_privileged_identity_is_stripped() {
-        let entry = parse_entry(
-            r#"{
-                "name": "API",
-                "repos": [],
-                "dockerImage": "myregistry/custom-sandbox:latest",
-                "systemPrompt": "Be helpful",
-                "sandboxServiceAccount": "moatless-admin",
-                "networkProfile": "moatless-admin"
-            }"#,
-        );
-
-        let mut run = run_config_from_entry(&entry);
-        let stripped = strip_git_declared_identity(&mut run, "repo-1", ".moatless/workspaces.json");
-
-        assert_eq!(stripped, ["sandboxServiceAccount", "networkProfile"]);
-        assert!(run.sandbox_service_account.is_none());
-        assert!(run.network_profile.is_none());
-        // Everything else the repo declares still syncs.
-        assert_eq!(
-            run.docker_image,
-            Some("myregistry/custom-sandbox:latest".to_string())
-        );
-        assert_eq!(run.system_prompt, Some("Be helpful".to_string()));
-    }
-
-    /// Stripping is unconditional, so a repo declaring neither is unaffected
-    /// and reports nothing.
-    #[test]
-    fn strip_is_a_noop_without_declared_identity() {
-        let entry = parse_entry(r#"{ "name": "API", "repos": [] }"#);
-
-        let mut run = run_config_from_entry(&entry);
-        let stripped = strip_git_declared_identity(&mut run, "repo-1", ".moatless/workspaces.json");
-
-        assert!(stripped.is_empty());
-        assert!(run.sandbox_service_account.is_none());
-        assert!(run.network_profile.is_none());
-    }
-
-    #[test]
-    fn config_carries_storage_switches_from_git_repo() {
-        // A repo turning the PVC off and keeping the S3 snapshot. The nested
-        // `ResourceConfig` must read the camelCase keys and round-trip back to
-        // camelCase in the stored JSONB so the provision-time deserialize reads
-        // it correctly.
-        let entry = parse_entry(
-            r#"{
-                "name": "API",
-                "repos": [],
-                "resources": { "pvcEnabled": false, "s3Enabled": true, "storage": "8Gi" }
-            }"#,
-        );
-        let resources = entry.resources.as_ref().expect("resources present");
-        assert_eq!(resources.pvc_enabled, Some(false));
-        assert_eq!(resources.s3_enabled, Some(true));
-        assert_eq!(resources.storage.as_ref().map(Memory::as_str), Some("8Gi"));
-
-        let run = run_config_from_entry(&entry);
-        let stored = run.resources.expect("resources value present");
-        let value = serde_json::to_value(&stored).expect("serialize");
-        assert_eq!(value.get("pvcEnabled"), Some(&serde_json::json!(false)));
-        assert_eq!(value.get("s3Enabled"), Some(&serde_json::json!(true)));
-        assert_eq!(value.get("storage"), Some(&serde_json::json!("8Gi")));
-        assert!(
-            value.get("pvc_enabled").is_none(),
-            "snake_case key must not leak into stored JSONB"
-        );
-    }
-
-    /// The removed `storageMode` is an unknown field, not an error: a repo that
-    /// still carries one loads and simply falls back to the deployment
-    /// defaults.
-    #[test]
-    fn a_stale_storage_mode_is_ignored() {
-        let entry = parse_entry(
-            r#"{
-                "name": "API",
-                "repos": [],
-                "resources": { "storageMode": "ephemeral", "storage": "8Gi" }
-            }"#,
-        );
-        let resources = entry.resources.as_ref().expect("resources present");
-        assert_eq!(resources.pvc_enabled, None);
-        assert_eq!(resources.s3_enabled, None);
-        assert_eq!(resources.storage.as_ref().map(Memory::as_str), Some("8Gi"));
-    }
-
-    #[test]
-    fn parse_workspaces_json() {
-        let json = r#"{
-            "version": 1,
-            "workspaces": [
-                {
-                    "key": "api",
-                    "name": "API",
-                    "description": "backend",
-                    "repos": [
-                        { "url": "https://github.com/acme/api", "primary": true },
-                        { "url": "https://github.com/acme/shared", "mountName": "shared" }
-                    ],
-                    "dockerImage": "acme/sandbox:latest",
-                    "codeExecution": { "setupCommands": ["bun install"] },
-                    "scripts": [{ "name": "dev", "command": "bun dev", "port": 3000 }],
-                    "envVars": { "LOG_LEVEL": "debug" },
-                    "networkProfile": "sealed"
-                },
-                { "name": "Web Only", "repos": [{ "url": "https://github.com/acme/web" }] }
-            ]
-        }"#;
-
-        let file: MoatlessWorkspacesFile = serde_json::from_str(json).unwrap();
-        assert_eq!(file.version, Some(1));
-        assert_eq!(file.workspaces.len(), 2);
-
-        let api = &file.workspaces[0];
-        assert_eq!(api.key.as_deref(), Some("api"));
-        assert_eq!(api.name, "API");
-        assert_eq!(api.repos.len(), 2);
-        assert!(api.repos[0].primary);
-        assert_eq!(api.repos[0].url, "https://github.com/acme/api");
-        assert_eq!(api.repos[1].mount_name.as_deref(), Some("shared"));
-        assert!(!api.repos[1].primary);
-        assert_eq!(api.docker_image.as_deref(), Some("acme/sandbox:latest"));
-        assert_eq!(
-            api.code_execution
-                .as_ref()
-                .unwrap()
-                .setup_commands
-                .as_ref()
-                .unwrap(),
-            &vec!["bun install".to_string()]
-        );
-        assert_eq!(api.network_profile.as_deref(), Some("sealed"));
-
-        // Missing key → resolved later from the name; primary defaults to false.
-        let web = &file.workspaces[1];
-        assert!(web.key.is_none());
-        assert_eq!(web.name, "Web Only");
-        assert!(!web.repos[0].primary);
-        assert!(unknown_key_warnings(&file).is_empty());
-    }
-
-    /// A known id applies and an unknown one is named rather than failing the
-    /// file, so a repo can list a server a newer backend adds.
-    #[test]
-    fn language_servers_keep_known_ids_and_name_unknown_ones() {
-        let json = r#"{
-            "workspaces": [{
-                "name": "API",
-                "repos": [],
-                "languageServers": ["rust", "cobol", "typescript"]
-            }]
-        }"#;
-        let file: MoatlessWorkspacesFile = serde_json::from_str(json).expect("parse");
-
-        assert_eq!(
-            run_config_from_entry(&file.workspaces[0]).language_servers,
-            Some(vec![LanguageServer::Rust, LanguageServer::Typescript])
-        );
-        assert!(unknown_key_warnings(&file).is_empty());
-        let warnings = unknown_language_server_warnings(&file);
-        assert_eq!(warnings.len(), 1);
-        assert_eq!(warnings[0].path, "workspaces[0].languageServers[1]");
-        assert_eq!(warnings[0].message, UNKNOWN_LANGUAGE_SERVER);
-    }
-
-    /// The Task defaults and the icon reach the row from git, so changing one
-    /// no longer costs an override; an absent key clears the column.
-    #[test]
-    fn task_defaults_and_icon_sync_from_git() {
-        let json = r#"{
-            "workspaces": [
-                {
-                    "name": "API",
-                    "repos": [],
-                    "defaultModel": "opus",
-                    "defaultEffort": "high",
-                    "icon": { "kind": "lucide", "name": "rocket", "color": "blue" }
-                },
-                { "name": "Web", "repos": [] }
-            ]
-        }"#;
-        let file: MoatlessWorkspacesFile = serde_json::from_str(json).expect("parse");
-
-        let api = run_config_from_entry(&file.workspaces[0]);
-        assert_eq!(api.default_model.as_deref(), Some("opus"));
-        assert_eq!(api.default_effort.as_deref(), Some("high"));
-        assert_eq!(
-            api.icon,
-            Some(WorkspaceIcon::Lucide {
-                name: "rocket".to_string(),
-                color: "blue".to_string(),
-            })
-        );
-        let web = run_config_from_entry(&file.workspaces[1]);
-        assert!(web.default_model.is_none());
-        assert!(web.default_effort.is_none());
-        assert!(web.icon.is_none());
-        assert!(unknown_key_warnings(&file).is_empty());
-        assert!(invalid_icon_warnings(&file).is_empty());
-    }
-
-    /// A malformed icon is named and dropped rather than failing the file:
-    /// a glyph must not stop every other Workspace in it syncing.
-    #[test]
-    fn an_icon_of_unknown_shape_is_named_rather_than_failing_the_file() {
-        let json = r#"{
-            "workspaces": [{
-                "name": "API",
-                "repos": [],
-                "icon": { "kind": "svg", "path": "logo.svg" }
-            }]
-        }"#;
-        let file: MoatlessWorkspacesFile = serde_json::from_str(json).expect("parse");
-
-        assert!(run_config_from_entry(&file.workspaces[0]).icon.is_none());
-        let warnings = invalid_icon_warnings(&file);
-        assert_eq!(warnings.len(), 1);
-        assert_eq!(warnings[0].path, "workspaces[0].icon");
-        assert_eq!(warnings[0].message, INVALID_ICON);
-    }
-
-    /// `skills` is a recognised key, a stray one inside it is named, and an
-    /// entry without it declares nothing, which leaves its records alone.
-    #[test]
-    fn skills_resolve_against_the_registry_and_stray_keys_inside_are_named() {
-        let json = r#"{
-            "workspaces": [
-                { "name": "API", "repos": [], "skills": { "enable": ["general"], "only": [] } },
-                { "name": "Web", "repos": [] }
-            ]
-        }"#;
-        let file: MoatlessWorkspacesFile = serde_json::from_str(json).expect("parse");
-        let registry = (
-            vec![Plugin {
-                id: "p1".to_string(),
-                name: "general".to_string(),
-                git_url: "https://github.com/acme/general".to_string(),
-                source: moatless_workspace_types::plugin::PluginSource::Manual,
-                synced_version: None,
-                synced_at: None,
-                disabled_at: None,
-                created_at: None,
-                updated_at: None,
-            }],
-            Vec::new(),
-        );
-
-        let paths: Vec<String> = unknown_key_warnings(&file)
-            .into_iter()
-            .map(|w| w.path)
-            .collect();
-        assert_eq!(paths, ["workspaces[0].skills.only"]);
-
-        let mut warnings = Vec::new();
-        let api = declared_activations(&file.workspaces[0], Some(&registry), 0, &mut warnings);
-        assert_eq!(
-            api,
-            Some(vec![DeclaredActivation {
-                plugin_id: "p1".to_string(),
-                skill_name: None,
-                enabled: true,
-            }])
-        );
-        assert!(warnings.is_empty());
-        assert_eq!(
-            declared_activations(&file.workspaces[1], Some(&registry), 1, &mut warnings),
-            None
-        );
-    }
-
-    /// The shape that cost two agents a session: `previewConfig` and
-    /// `codeExecution.envVars` parse without error, nothing reads them, and the
-    /// committed file reads as authoritative. Each one has to be named.
-    #[test]
-    fn unknown_keys_are_named_with_the_path_they_sit_at() {
-        let json = r#"{
-            "version": 1,
-            "previewConfig": { "serverStartCommands": ["bun run dev --turbo"] },
-            "workspaces": [
-                {
-                    "name": "Frontend",
-                    "repos": [{ "url": "https://github.com/acme/web", "revision": "main" }],
-                    "previewConfig": { "serverStartCommands": ["bun run dev"] },
-                    "codeExecution": { "envVars": { "VITE_BACKEND_URL": "https://api" } }
-                }
-            ]
-        }"#;
-        let file: MoatlessWorkspacesFile = serde_json::from_str(json).expect("parse");
-
-        let warnings = unknown_key_warnings(&file);
-        let paths: Vec<String> = warnings
-            .iter()
-            .map(|warning| warning.path.clone())
-            .collect();
-        assert_eq!(
-            paths,
-            [
-                "previewConfig",
-                "workspaces[0].previewConfig",
-                "workspaces[0].codeExecution.envVars",
-                "workspaces[0].repos[0].revision",
-            ]
-        );
-        assert!(warnings.iter().all(|w| w.message == UNKNOWN_KEY));
-    }
-
-    /// A key the schema does claim must never be reported: a warning on a
-    /// working config is the same misdirection as silence on a broken one. A
-    /// `"//"` comment is not a mistake either — `workspaces.shadow.json` is
-    /// written that way.
-    #[test]
-    fn a_recognised_key_or_a_comment_is_not_reported_as_unknown() {
-        let json = r#"{
-            "//": "the shadow workspace",
-            "workspaces": [{
-                "//1": "runs two scripts",
-                "name": "Frontend",
-                "repos": [{ "url": "https://github.com/acme/web", "mountName": "web" }],
-                "codeExecution": { "setupCommands": ["bun install"] },
-                "envVars": { "LOG_LEVEL": "debug" }
-            }]
-        }"#;
-        let file: MoatlessWorkspacesFile = serde_json::from_str(json).expect("parse");
-
-        assert!(unknown_key_warnings(&file).is_empty());
-    }
-}
+mod tests;

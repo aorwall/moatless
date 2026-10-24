@@ -18,8 +18,8 @@ export interface WorkspaceSyncSummary {
      */
   created: number;
   /**
-     * Manually overridden workspaces taken back under git control by an
-     * explicit sync, discarding the local edits.
+     * Legacy manual overrides taken back under git control, discarding their
+     * local edits.
      * @minimum 0
      */
   reclaimed: number;

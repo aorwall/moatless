@@ -3,19 +3,20 @@
 
 use std::sync::Arc;
 
-use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer, MockUserResolver};
+use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer};
 use moatless_types::access_control::{Actor, Scope, ScopeContext};
 use moatless_types::git_host::GitHostAccount;
 use sqlx::PgPool;
 
 use super::*;
+use crate::fake_github::FakeGithub;
 use crate::repository::dao::PgRepositoryDao;
 use crate::repository::dao::RepositoryDao;
 use crate::test_support::{make_repository_row, make_workspace_repo_row, make_workspace_row};
 use crate::workspace::dao::{PgWorkspaceDao, WorkspaceDao};
 
-/// The git sync `create_repository` runs reads `.moatless/workspaces.json`
-/// through this; refusing leaves the sync a logged no-op.
+/// Refusing every token makes the git sync read the fake GitHub
+/// unauthenticated.
 struct NoGitTokens;
 
 #[async_trait::async_trait]
@@ -41,11 +42,12 @@ struct Fixture {
     workspaces: Arc<Workspaces>,
     repositories: Arc<Repositories>,
     git_sync: Arc<GitSyncService>,
-    users: MockUserResolver,
 }
 
 impl Fixture {
-    fn new(pool: PgPool) -> Self {
+    /// Reads repository files from `github`, which serves none until a test
+    /// puts one.
+    fn new(pool: PgPool, github: &FakeGithub) -> Self {
         Self {
             workspaces: crate::compose::workspaces(pool.clone()),
             repositories: crate::compose::repositories(pool.clone()),
@@ -53,9 +55,9 @@ impl Fixture {
                 pool.clone(),
                 Arc::new(NoGitTokens),
                 moatless_core::config::HttpConfig::default().git_content,
-                "http://127.0.0.1:1".to_string(),
+                github.base.clone(),
+                Default::default(),
             ),
-            users: MockUserResolver::new(),
             pool,
         }
     }
@@ -64,7 +66,6 @@ impl Fixture {
         ProvisionStores {
             workspaces: &self.workspaces,
             repositories: &self.repositories,
-            users: &self.users,
             git_sync: &self.git_sync,
             pool: &self.pool,
         }
@@ -86,22 +87,6 @@ fn request(template: Option<&str>) -> ProvisionRequest {
     }
 }
 
-/// A global template Workspace carrying the settings a new one copies.
-async fn seed_template(pool: &PgPool) {
-    let mut template = make_workspace_row("ws-template", "admin-1");
-    template.name = "review-template".to_string();
-    template.scope = Scope::Global;
-    template.owner_user_id = None;
-    template.docker_image = Some("aorwall/moatless-sandbox-recipe:soaplabs".to_string());
-    template.setup_commands = Some(vec!["bun install".to_string()]);
-    template.default_model = Some("opus".to_string());
-    template.system_prompt = Some("not copied".to_string());
-    PgWorkspaceDao(pool.clone())
-        .insert_workspace(&template)
-        .await
-        .unwrap();
-}
-
 /// A global repository already registered for `soaplabs/widgets`.
 async fn seed_repository(pool: &PgPool) -> String {
     let mut repo = make_repository_row("repo-known", "admin-1");
@@ -116,24 +101,20 @@ async fn seed_repository(pool: &PgPool) -> String {
 }
 
 async fn workspace_count(pool: &PgPool) -> i64 {
-    sqlx::query_scalar("SELECT count(*) FROM workspaces WHERE name = 'widgets'")
+    sqlx::query_scalar("SELECT count(*) FROM workspaces WHERE NOT deleted")
         .fetch_one(pool)
         .await
         .unwrap()
 }
 
 #[sqlx::test]
-async fn an_unknown_repository_is_registered_with_a_workspace_from_the_template(pool: PgPool) {
-    seed_template(&pool).await;
-    let fixture = Fixture::new(pool.clone());
+async fn an_unknown_repository_is_registered_with_its_default_workspace(pool: PgPool) {
+    let github = FakeGithub::start().await;
+    let fixture = Fixture::new(pool.clone(), &github);
 
-    let outcome = provision_workspace(
-        &fixture.stores(),
-        &admin(),
-        &request(Some("review-template")),
-    )
-    .await
-    .unwrap();
+    let outcome = provision_workspace(&fixture.stores(), &admin(), &request(Some("any")))
+        .await
+        .unwrap();
 
     let Provisioned::Workspace(workspace_id) = outcome else {
         panic!("expected a workspace, got {outcome:?}");
@@ -153,17 +134,7 @@ async fn an_unknown_repository_is_registered_with_a_workspace_from_the_template(
         .unwrap();
     assert_eq!(workspace.name, "widgets");
     assert_eq!(workspace.scope, Scope::Global);
-    assert_eq!(
-        workspace.docker_image.as_deref(),
-        Some("aorwall/moatless-sandbox-recipe:soaplabs")
-    );
-    assert_eq!(
-        workspace.setup_commands,
-        Some(vec!["bun install".to_string()])
-    );
-    assert_eq!(workspace.default_model.as_deref(), Some("opus"));
-    assert_eq!(workspace.system_prompt, None);
-    assert_eq!(workspace.run_as_user_id, None);
+    assert_eq!(workspace.source_key.as_deref(), Some("default"));
     let primary = PgWorkspaceDao(pool)
         .find_primary_repo(&workspace_id)
         .await
@@ -172,19 +143,49 @@ async fn an_unknown_repository_is_registered_with_a_workspace_from_the_template(
     assert_eq!(primary.repository_id, repository.id);
 }
 
+/// The repository's own `default` entry overrides the synthesized one.
 #[sqlx::test]
-async fn a_known_repository_gets_only_a_workspace(pool: PgPool) {
-    seed_template(&pool).await;
-    let repository_id = seed_repository(&pool).await;
-    let fixture = Fixture::new(pool.clone());
+async fn a_default_entry_in_git_overrides_the_default_workspace(pool: PgPool) {
+    let github = FakeGithub::start().await;
+    github.put_file(
+        "soaplabs/widgets",
+        ".moatless/workspaces.json",
+        r#"{"workspaces":[{"key":"default","dockerImage":"img:1","codeExecution":{"setupCommands":["bun install"]}}]}"#,
+    );
+    let fixture = Fixture::new(pool.clone(), &github);
 
-    let outcome = provision_workspace(
-        &fixture.stores(),
-        &admin(),
-        &request(Some("review-template")),
-    )
-    .await
-    .unwrap();
+    let Provisioned::Workspace(workspace_id) =
+        provision_workspace(&fixture.stores(), &admin(), &request(Some("any")))
+            .await
+            .unwrap()
+    else {
+        panic!("expected a workspace");
+    };
+
+    let workspace = PgWorkspaceDao(pool.clone())
+        .find_by_id(&workspace_id, &admin())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(workspace.name, "widgets");
+    assert_eq!(workspace.docker_image.as_deref(), Some("img:1"));
+    assert_eq!(
+        workspace.setup_commands,
+        Some(vec!["bun install".to_string()])
+    );
+    assert_eq!(workspace_count(&pool).await, 1);
+}
+
+/// A repository registered before every repository had a default Workspace.
+#[sqlx::test]
+async fn a_known_repository_without_a_workspace_is_synced_once(pool: PgPool) {
+    let repository_id = seed_repository(&pool).await;
+    let github = FakeGithub::start().await;
+    let fixture = Fixture::new(pool.clone(), &github);
+
+    let outcome = provision_workspace(&fixture.stores(), &admin(), &request(None))
+        .await
+        .unwrap();
 
     assert!(matches!(outcome, Provisioned::Workspace(_)));
     let repositories: i64 = sqlx::query_scalar("SELECT count(*) FROM repositories")
@@ -212,7 +213,8 @@ async fn an_existing_workspace_is_reused(pool: PgPool) {
     )
     .await
     .unwrap();
-    let fixture = Fixture::new(pool);
+    let github = FakeGithub::start().await;
+    let fixture = Fixture::new(pool, &github);
 
     // No template: finding needs none.
     let outcome = provision_workspace(&fixture.stores(), &admin(), &request(None))
@@ -238,7 +240,8 @@ async fn the_preferred_workspace_wins_when_it_holds_the_repository(pool: PgPool)
         .await
         .unwrap();
     }
-    let fixture = Fixture::new(pool);
+    let github = FakeGithub::start().await;
+    let fixture = Fixture::new(pool, &github);
 
     for (preferred, expected) in [
         ("ws-loop", "ws-loop"),
@@ -262,21 +265,17 @@ async fn the_preferred_workspace_wins_when_it_holds_the_repository(pool: PgPool)
 
 #[sqlx::test]
 async fn a_soft_deleted_repository_is_skipped(pool: PgPool) {
-    seed_template(&pool).await;
     let repository_id = seed_repository(&pool).await;
     PgRepositoryDao(pool.clone())
         .soft_delete(&repository_id, &admin())
         .await
         .unwrap();
-    let fixture = Fixture::new(pool.clone());
+    let github = FakeGithub::start().await;
+    let fixture = Fixture::new(pool.clone(), &github);
 
-    let outcome = provision_workspace(
-        &fixture.stores(),
-        &admin(),
-        &request(Some("review-template")),
-    )
-    .await
-    .unwrap();
+    let outcome = provision_workspace(&fixture.stores(), &admin(), &request(Some("any")))
+        .await
+        .unwrap();
 
     assert_eq!(outcome, Provisioned::RepositoryDeleted);
     assert_eq!(workspace_count(&pool).await, 0);
@@ -284,7 +283,8 @@ async fn a_soft_deleted_repository_is_skipped(pool: PgPool) {
 
 #[sqlx::test]
 async fn no_template_creates_nothing(pool: PgPool) {
-    let fixture = Fixture::new(pool.clone());
+    let github = FakeGithub::start().await;
+    let fixture = Fixture::new(pool.clone(), &github);
 
     let outcome = provision_workspace(&fixture.stores(), &admin(), &request(None))
         .await
@@ -299,28 +299,12 @@ async fn no_template_creates_nothing(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn a_missing_template_is_a_named_error(pool: PgPool) {
-    seed_repository(&pool).await;
-    let fixture = Fixture::new(pool);
-
-    let error = provision_workspace(&fixture.stores(), &admin(), &request(Some("gone")))
-        .await
-        .unwrap_err();
-
-    assert!(matches!(&error, ProvisionError::TemplateMissing(name) if name == "gone"));
-    assert_eq!(
-        error.to_string(),
-        "workspace template `gone` does not exist"
-    );
-}
-
-#[sqlx::test]
 async fn concurrent_requests_create_one_workspace(pool: PgPool) {
-    seed_template(&pool).await;
-    let fixture = Fixture::new(pool.clone());
+    let github = FakeGithub::start().await;
+    let fixture = Fixture::new(pool.clone(), &github);
     let stores = fixture.stores();
     let ctx = admin();
-    let req = request(Some("review-template"));
+    let req = request(Some("any"));
 
     let (first, second) = tokio::join!(
         provision_workspace(&stores, &ctx, &req),

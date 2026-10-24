@@ -11,5 +11,6 @@
 pub mod handlers;
 pub mod routes;
 
+pub mod org_watch;
 mod sync;
 pub mod watch;

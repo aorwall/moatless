@@ -112,10 +112,7 @@ pub enum RepoAction {
         dry_run: bool,
     },
     /// Sync .moatless/ loops and workspaces from the remote repository.
-    /// The backend already does this when a GitHub default branch moves,
-    /// leaving overrides alone. This explicit sync also reclaims every
-    /// overridden workspace still declared in .moatless/workspaces.json,
-    /// replacing its local changes; an undeclared workspace is never touched.
+    /// The backend already does this when a GitHub default branch moves.
     SyncConfig {
         /// Repository id, or its name as `repos list` shows it
         repo: String,
@@ -309,7 +306,7 @@ pub async fn run(
                 );
                 if workspaces.reclaimed > 0 {
                     println!(
-                        "  warning: {} overridden workspace(s) reclaimed from git; local changes replaced.",
+                        "  warning: {} manual workspace(s) reclaimed by git; their settings replaced.",
                         workspaces.reclaimed
                     );
                 }

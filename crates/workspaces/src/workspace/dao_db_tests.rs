@@ -2,9 +2,7 @@
 //!
 //! Covers the invariants the CRUD/composition handlers rely on:
 //! - `find_by_id` / `list` access control (owner vs other vs global).
-//! - `set_primary` — exactly one primary per workspace, transactionally.
-//! - `add_repo` / `remove_repo` + the partial-unique mount-name guard.
-//! - `refresh_kind` — `blank` / `single` / `multi` derived from placement count.
+//! - `add_repo` + the partial-unique mount-name guard.
 //! - `find_repos_for_workspaces` — batched placement fetch (no N+1).
 
 use std::collections::HashMap;
@@ -75,12 +73,11 @@ async fn find_and_list_keep_git_origin_tombstones_visible(pool: PgPool) {
     ws.source_key = Some("api".to_string());
     ws.source_config_path = Some(".moatless/workspaces.json".to_string());
     repo.insert_workspace(&ws).await.unwrap();
-
-    assert!(
-        repo.soft_delete_git_origin("ws-git-del", &scope_ctx("user-1"))
-            .await
-            .unwrap()
-    );
+    // A legacy tombstone: a git Workspace a user deleted, turned `manual`.
+    sqlx::query("UPDATE workspaces SET source = 'manual', deleted = true WHERE id = 'ws-git-del'")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let found = repo
         .find_by_id("ws-git-del", &scope_ctx("user-1"))
@@ -211,53 +208,8 @@ async fn update_jsonb_run_config_round_trips(pool: PgPool) {
 }
 
 // =========================================================================
-// placements — add / set_primary invariant / remove / refresh_kind
+// placements
 // =========================================================================
-
-#[sqlx::test]
-async fn set_primary_keeps_exactly_one_primary(pool: PgPool) {
-    let repo = PgWorkspaceDao(pool.clone());
-    repo.insert_workspace(&make_workspace_row("ws-p", "user-1"))
-        .await
-        .unwrap();
-
-    // Two placements; the first is elected primary at insert time.
-    repo.add_repo(
-        &make_workspace_repo_row("wsr-a", "ws-p", "repo-a", true, 0),
-        &scope_ctx("user-1"),
-    )
-    .await
-    .unwrap();
-    repo.add_repo(
-        &make_workspace_repo_row("wsr-b", "ws-p", "repo-b", false, 1),
-        &scope_ctx("user-1"),
-    )
-    .await
-    .unwrap();
-
-    // Promote B — A must be demoted in the same transaction.
-    assert!(
-        repo.set_primary("ws-p", "wsr-b", &scope_ctx("user-1"))
-            .await
-            .unwrap()
-    );
-
-    let placements = repo.find_repos("ws-p").await.unwrap();
-    let primaries: Vec<&str> = placements
-        .iter()
-        .filter(|p| p.is_primary)
-        .map(|p| p.id.as_str())
-        .collect();
-    assert_eq!(primaries, vec!["wsr-b"], "exactly one primary, and it's B");
-
-    // set_primary on a placement that doesn't belong to the workspace is a no-op.
-    assert!(
-        !repo
-            .set_primary("ws-p", "wsr-missing", &scope_ctx("user-1"))
-            .await
-            .unwrap()
-    );
-}
 
 #[sqlx::test]
 async fn add_repo_rejects_duplicate_mount_name(pool: PgPool) {
@@ -278,63 +230,6 @@ async fn add_repo_rejects_duplicate_mount_name(pool: PgPool) {
     let mut ok = make_workspace_repo_row("wsr-3", "ws-m", "repo-3", false, 2);
     ok.mount_name = Some("backend".to_string());
     repo.add_repo(&ok, &scope_ctx("user-1")).await.unwrap();
-}
-
-#[sqlx::test]
-async fn refresh_kind_derives_label_and_remove_repo(pool: PgPool) {
-    let repo = PgWorkspaceDao(pool.clone());
-    repo.insert_workspace(&make_workspace_row("ws-k", "user-1"))
-        .await
-        .unwrap();
-
-    // 0 placements → blank.
-    repo.refresh_kind("ws-k", &scope_ctx("user-1"))
-        .await
-        .unwrap();
-    assert_eq!(kind_of(&repo, "ws-k").await, WorkspaceKind::Blank);
-
-    // 1 placement → single.
-    repo.add_repo(
-        &make_workspace_repo_row("wsr-1", "ws-k", "repo-1", true, 0),
-        &scope_ctx("user-1"),
-    )
-    .await
-    .unwrap();
-    repo.refresh_kind("ws-k", &scope_ctx("user-1"))
-        .await
-        .unwrap();
-    assert_eq!(kind_of(&repo, "ws-k").await, WorkspaceKind::Single);
-
-    // 2 placements → multi.
-    repo.add_repo(
-        &make_workspace_repo_row("wsr-2", "ws-k", "repo-2", false, 1),
-        &scope_ctx("user-1"),
-    )
-    .await
-    .unwrap();
-    repo.refresh_kind("ws-k", &scope_ctx("user-1"))
-        .await
-        .unwrap();
-    assert_eq!(kind_of(&repo, "ws-k").await, WorkspaceKind::Multi);
-
-    // Remove one → back to single. remove_repo is scoped to the workspace.
-    assert!(
-        repo.remove_repo("ws-k", "wsr-2", &scope_ctx("user-1"))
-            .await
-            .unwrap()
-    );
-    repo.refresh_kind("ws-k", &scope_ctx("user-1"))
-        .await
-        .unwrap();
-    assert_eq!(kind_of(&repo, "ws-k").await, WorkspaceKind::Single);
-
-    // Removing a placement that isn't there is a no-op.
-    assert!(
-        !repo
-            .remove_repo("ws-k", "wsr-2", &scope_ctx("user-1"))
-            .await
-            .unwrap()
-    );
 }
 
 #[sqlx::test]
@@ -388,15 +283,6 @@ async fn find_repos_for_workspaces_batches_by_id(pool: PgPool) {
             .unwrap()
             .is_empty()
     );
-}
-
-/// Read a workspace's derived `kind` label via the scoped finder.
-async fn kind_of(repo: &PgWorkspaceDao, id: &str) -> WorkspaceKind {
-    repo.find_by_id(id, &scope_ctx("user-1"))
-        .await
-        .unwrap()
-        .unwrap()
-        .kind
 }
 
 #[sqlx::test]

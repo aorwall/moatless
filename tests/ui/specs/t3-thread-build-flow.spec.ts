@@ -7,8 +7,8 @@
  * A second instruction changes the page, and the change must reach the Script
  * that is already running. Last, it archives the thread.
  *
- * `beforeAll` declares the Script on the project when it is missing, and it
- * stays there for later runs.
+ * `beforeAll` requires the project's Workspace to declare the Script in its
+ * repository's `.moatless/workspaces.json`; the API cannot add one.
  *
  * Chain:
  *   T3UI-01 → T3UI-02 → T3UI-03 → T3UI-04 → T3UI-05 → T3UI-06
@@ -56,9 +56,7 @@ test.describe('Chain: T3 thread build, preview, change and archive', () => {
   // the signed-in state and base URL explicitly.
   test.beforeAll(async ({ browser }) => {
     backend = await Backend.open(env)
-    if (await backend.ensureWorkspaceScript(env.project, DEV_SERVER)) {
-      console.log(`[ui setup] declared the ${DEV_SERVER.label} Script on ${env.project}`)
-    }
+    await backend.requireWorkspaceScript(env.project, DEV_SERVER)
     const context = await browser.newContext({
       baseURL: env.baseUrl,
       storageState: storageStatePath,

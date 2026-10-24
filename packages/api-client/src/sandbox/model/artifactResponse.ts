@@ -5,18 +5,30 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { ArtifactResponseRecordRules } from './artifactResponseRecordRules';
+import type { Visibility } from './visibility';
 
 /**
  * One published version of an Artifact, as `POST
  * /api/v1/tasks/{task_id}/artifacts` answers it.
  */
 export interface ArtifactResponse {
+  /** Whether the page may save Artifact records; set by the latest publish. */
+  acceptsData?: boolean;
   artifactId: string;
   createdAt: string;
   /** @nullable */
   createdBy?: string | null;
   /** Absolute URL that redirects to whichever version is latest. */
   latestUrl: string;
+  /** Whether a record a reader saves queues a message to the Task's agent. */
+  notifyOnData?: boolean;
+  /**
+     * The record rules the latest publish set, as published; `None` lets a
+     * page perform every record operation.
+     * @nullable
+     */
+  recordRules?: ArtifactResponseRecordRules;
   slug: string;
   taskId: string;
   title: string;
@@ -25,4 +37,10 @@ export interface ArtifactResponse {
   url: string;
   /** The latest published version, starting at 1. */
   version: number;
+  /**
+     * `public` lets any signed-in user read the page, whatever the Task's
+     * visibility; `private` limits it to readers of the Task. `private` from
+     * a server older than the field, which only had Task-scoped pages.
+     */
+  visibility?: Visibility;
 }

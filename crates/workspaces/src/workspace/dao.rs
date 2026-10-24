@@ -5,7 +5,7 @@ use sqlx::AssertSqlSafe;
 
 use super::models::{
     ListedWorkspace, ListedWorkspaceRow, ScriptConfig, UpdateOutcome, Workspace, WorkspacePatch,
-    WorkspaceRepo, WorkspaceRepoRow, WorkspaceRow, WorkspaceScriptsTarget, encode_column,
+    WorkspaceRepo, WorkspaceRepoRow, WorkspaceRow, encode_column,
 };
 use moatless_core::db::DbPool;
 use moatless_types::access_control::{ScopeContext, ScopedEntity};
@@ -19,23 +19,6 @@ const ACTIVE_OR_GIT_TOMBSTONE: &str = "((deleted IS NULL OR deleted = false) OR 
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub(crate) trait WorkspaceDao: Send + Sync {
-    /// Read an active workspace's scripts for replacement under the caller's
-    /// read grant.
-    async fn scripts_write_target(
-        &self,
-        ctx: &ScopeContext,
-        workspace_id: &str,
-    ) -> Result<Option<WorkspaceScriptsTarget>, sqlx::Error>;
-
-    /// Replace scripts only while the workspace remains readable, active and
-    /// not Git-owned.
-    async fn replace_scripts(
-        &self,
-        ctx: &ScopeContext,
-        workspace_id: &str,
-        scripts: &[ScriptConfig],
-    ) -> Result<bool, sqlx::Error>;
-
     /// A live Workspace's Scripts, unscoped: `None` when it is gone or
     /// deleted. A stored value that will not decode reads as no Scripts.
     ///
@@ -128,44 +111,13 @@ pub(crate) trait WorkspaceDao: Send + Sync {
     /// already deleted, missing, or caller cannot control the row.
     async fn soft_delete(&self, id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error>;
 
-    /// Soft-delete a git-origin workspace as a manual tombstone. The provenance
-    /// key remains occupied so automatic and repo-wide syncs do not recreate
-    /// it.
-    async fn soft_delete_git_origin(
-        &self,
-        id: &str,
-        ctx: &ScopeContext,
-    ) -> Result<bool, sqlx::Error>;
-
     /// Insert a `workspace_repo` placement, gated on caller controlling the
     /// workspace.
+    #[allow(
+        dead_code,
+        reason = "only `Workspaces::add_repo`, built under `test-support`, calls it"
+    )]
     async fn add_repo(&self, row: &WorkspaceRepo, ctx: &ScopeContext) -> Result<bool, sqlx::Error>;
-
-    /// Remove a placement from a workspace, gated on caller controlling the
-    /// workspace. Returns `false` when not found or caller cannot control the
-    /// workspace.
-    async fn remove_repo(
-        &self,
-        workspace_id: &str,
-        placement_id: &str,
-        ctx: &ScopeContext,
-    ) -> Result<bool, sqlx::Error>;
-
-    /// Make `placement_id` the sole primary placement in the workspace
-    /// (transactionally clears any existing primary first). Returns `false`
-    /// when the placement does not belong to the workspace or caller cannot
-    /// control it.
-    async fn set_primary(
-        &self,
-        workspace_id: &str,
-        placement_id: &str,
-        ctx: &ScopeContext,
-    ) -> Result<bool, sqlx::Error>;
-
-    /// Recompute and persist the derived `kind` (`blank`/`single`/`multi`) from
-    /// the current placement count.
-    async fn refresh_kind(&self, workspace_id: &str, ctx: &ScopeContext)
-    -> Result<(), sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`WorkspaceDao`].
@@ -173,56 +125,6 @@ pub(crate) struct PgWorkspaceDao(pub(crate) DbPool);
 
 #[async_trait]
 impl WorkspaceDao for PgWorkspaceDao {
-    async fn scripts_write_target(
-        &self,
-        viewer: &ScopeContext,
-        workspace_id: &str,
-    ) -> Result<Option<WorkspaceScriptsTarget>, sqlx::Error> {
-        let access =
-            moatless_core::db::access_control::access_filter(ScopedEntity::Resource, "", 2);
-        let sql = format!(
-            "SELECT source, COALESCE(scripts, '[]'::jsonb) FROM workspaces WHERE id = $1 AND (deleted IS NULL OR deleted = false) AND {}",
-            access.sql()
-        );
-        let row = sqlx::query_as::<_, (String, serde_json::Value)>(AssertSqlSafe(sql))
-            .bind(workspace_id)
-            .bind(viewer.is_admin)
-            .bind(&viewer.user_id)
-            .fetch_optional(&self.0)
-            .await?;
-        Ok(row.map(|(source, scripts)| WorkspaceScriptsTarget {
-            source,
-            // An unreadable value loses hidden-field carry-over so a caller can
-            // replace corrupt configuration with a readable list.
-            scripts: serde_json::from_value(scripts).unwrap_or_default(),
-        }))
-    }
-
-    async fn replace_scripts(
-        &self,
-        viewer: &ScopeContext,
-        workspace_id: &str,
-        scripts: &[ScriptConfig],
-    ) -> Result<bool, sqlx::Error> {
-        let access =
-            moatless_core::db::access_control::access_filter(ScopedEntity::Resource, "", 3);
-        let sql = format!(
-            // Access and source can change after scripts_write_target; recheck
-            // both in this statement to prevent a write outside the caller's scope.
-            "UPDATE workspaces SET scripts = $2, updated_at = NOW() WHERE id = $1 AND (deleted IS NULL OR deleted = false) AND source <> 'git' AND {}",
-            access.sql()
-        );
-        let scripts = serde_json::to_value(scripts).unwrap_or_else(|_| serde_json::json!([]));
-        let result = sqlx::query(AssertSqlSafe(sql))
-            .bind(workspace_id)
-            .bind(scripts)
-            .bind(viewer.is_admin)
-            .bind(&viewer.user_id)
-            .execute(&self.0)
-            .await?;
-        Ok(result.rows_affected() > 0)
-    }
-
     async fn scripts_unscoped(
         &self,
         workspace_id: &str,
@@ -603,32 +505,6 @@ impl WorkspaceDao for PgWorkspaceDao {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn soft_delete_git_origin(
-        &self,
-        id: &str,
-        ctx: &ScopeContext,
-    ) -> Result<bool, sqlx::Error> {
-        let control = moatless_core::db::access_control::write_filter("", 3);
-        let sql = format!(
-            "UPDATE workspaces \
-             SET deleted = true, source = 'manual', updated_at = $2 \
-             WHERE id = $1 \
-               AND (deleted IS NULL OR deleted = false) \
-               AND source_repository_id IS NOT NULL \
-               AND source_key IS NOT NULL \
-               AND {}",
-            control.sql()
-        );
-        let result = sqlx::query(AssertSqlSafe(sql))
-            .bind(id)
-            .bind(chrono::Utc::now())
-            .bind(ctx.is_admin)
-            .bind(&ctx.user_id)
-            .execute(&self.0)
-            .await?;
-        Ok(result.rows_affected() > 0)
-    }
-
     async fn add_repo(&self, row: &WorkspaceRepo, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
         // Gate on caller controlling the workspace via EXISTS subquery.
         let control = moatless_core::db::access_control::write_filter("w.", 8);
@@ -656,99 +532,6 @@ impl WorkspaceDao for PgWorkspaceDao {
             .execute(&self.0)
             .await?;
         Ok(result.rows_affected() > 0)
-    }
-
-    async fn remove_repo(
-        &self,
-        workspace_id: &str,
-        placement_id: &str,
-        ctx: &ScopeContext,
-    ) -> Result<bool, sqlx::Error> {
-        let control = moatless_core::db::access_control::write_filter("w.", 3);
-        let sql = format!(
-            "DELETE FROM workspace_repos \
-             WHERE id = $1 AND workspace_id = $2 \
-             AND EXISTS (SELECT 1 FROM workspaces w WHERE w.id = $2 AND {})",
-            control.sql()
-        );
-        let result = sqlx::query(AssertSqlSafe(sql))
-            .bind(placement_id)
-            .bind(workspace_id)
-            .bind(ctx.is_admin)
-            .bind(&ctx.user_id)
-            .execute(&self.0)
-            .await?;
-        Ok(result.rows_affected() > 0)
-    }
-
-    async fn set_primary(
-        &self,
-        workspace_id: &str,
-        placement_id: &str,
-        ctx: &ScopeContext,
-    ) -> Result<bool, sqlx::Error> {
-        let mut tx = self.0.begin().await?;
-
-        // Check the placement belongs to this workspace AND caller controls it.
-        let control = moatless_core::db::access_control::write_filter("w.", 3);
-        let check_sql = format!(
-            "SELECT count(*) FROM workspace_repos wr \
-             JOIN workspaces w ON w.id = wr.workspace_id \
-             WHERE wr.id = $1 AND wr.workspace_id = $2 AND {}",
-            control.sql()
-        );
-        let belongs: i64 = sqlx::query_scalar(AssertSqlSafe(check_sql))
-            .bind(placement_id)
-            .bind(workspace_id)
-            .bind(ctx.is_admin)
-            .bind(&ctx.user_id)
-            .fetch_one(&mut *tx)
-            .await?;
-        if belongs == 0 {
-            return Ok(false);
-        }
-
-        // Clear the existing primary first so the partial unique index
-        // (`workspace_repos_one_primary`) never sees two primaries.
-        sqlx::query(
-            "UPDATE workspace_repos SET is_primary = false \
-             WHERE workspace_id = $1 AND is_primary = true",
-        )
-        .bind(workspace_id)
-        .execute(&mut *tx)
-        .await?;
-
-        sqlx::query("UPDATE workspace_repos SET is_primary = true WHERE id = $1")
-            .bind(placement_id)
-            .execute(&mut *tx)
-            .await?;
-
-        tx.commit().await?;
-        Ok(true)
-    }
-
-    async fn refresh_kind(
-        &self,
-        workspace_id: &str,
-        ctx: &ScopeContext,
-    ) -> Result<(), sqlx::Error> {
-        let control = moatless_core::db::access_control::write_filter("", 3);
-        let sql = format!(
-            "UPDATE workspaces \
-             SET kind = CASE (SELECT count(*) FROM workspace_repos WHERE workspace_id = $1) \
-                        WHEN 0 THEN 'blank' WHEN 1 THEN 'single' ELSE 'multi' END, \
-                 updated_at = $2 \
-             WHERE id = $1 AND {}",
-            control.sql()
-        );
-        sqlx::query(AssertSqlSafe(sql))
-            .bind(workspace_id)
-            .bind(chrono::Utc::now())
-            .bind(ctx.is_admin)
-            .bind(&ctx.user_id)
-            .execute(&self.0)
-            .await?;
-        Ok(())
     }
 }
 
@@ -783,16 +566,21 @@ pub(crate) async fn git_source_keys(
     .await
 }
 
-/// Find a Git source's workspace, including manual overrides and tombstones.
+/// The id and `source` of a Git source's workspace, including a legacy manual override and
+/// a tombstone.
+///
+/// The `git` row wins over a manual one sharing the key: reclaiming the manual
+/// row instead would violate `workspaces_git_source_unique`.
 pub(crate) async fn workspace_for_git_source(
     db: &DbPool,
     repository_id: &str,
     source_key: &str,
-) -> Result<Option<(String, String, Option<bool>)>, sqlx::Error> {
+) -> Result<Option<(String, String)>, sqlx::Error> {
     sqlx::query_as(
-        "SELECT id, source, deleted FROM workspaces \
+        "SELECT id, source FROM workspaces \
              WHERE source_repository_id = $1 AND source_key = $2 \
                AND source IN ('git', 'manual') \
+             ORDER BY (source = 'git') DESC, (deleted IS TRUE) ASC \
              LIMIT 1",
     )
     .bind(repository_id)

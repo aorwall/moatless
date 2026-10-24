@@ -508,6 +508,10 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             crate::compose::workers::leader(k8s, &config, "moatless-cron-scheduler", 120)
         });
 
+        let org_sync_leader = reaper_k8s
+            .as_ref()
+            .map(|k8s| crate::compose::workers::leader(k8s, &config, "moatless-org-sync", 900));
+
         let loop_sync_leader = reaper_k8s
             .as_ref()
             .map(|k8s| crate::compose::workers::leader(k8s, &config, "moatless-loop-sync", 300));
@@ -591,6 +595,29 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                         cancel.clone(),
                     ),
                 );
+                if let Some(org_sync) = moatless_workspaces::compose::org_sync(
+                    app_state.db.clone(),
+                    app_state.repositories.clone(),
+                    app_state.git_sync.clone(),
+                    app_state.git_host_tokens.clone(),
+                    config.http.git_content,
+                    config.github_api_base.clone(),
+                    &config.workspace_sync,
+                ) {
+                    supervisor.supervise(
+                        "github-org-sync",
+                        // Optional: a new organization repository waits for an
+                        // explicit registration, and every registered one keeps
+                        // working. Gated with the scheduler, as above.
+                        Criticality::Optional,
+                        crate::repository_sync::org_watch::spawn(
+                            org_sync,
+                            org_sync_leader,
+                            crate::repository_sync::org_watch::ORG_SYNC_INTERVAL,
+                            cancel.clone(),
+                        ),
+                    );
+                }
             } else {
                 info!("Cron scheduler disabled (CRON_SCHEDULER_ENABLED=false)");
             }

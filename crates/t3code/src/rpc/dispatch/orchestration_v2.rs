@@ -78,7 +78,6 @@ pub(super) fn command_context<'a>(
         conversations: state.reads.conversations(),
         agents: state.agents.as_ref(),
         sink: state.commands.as_ref(),
-        workspace_script_commands: state.workspace_script_commands.as_ref(),
         skills: state.skills.as_ref(),
         caller: identity.user_id,
     }

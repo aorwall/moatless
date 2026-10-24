@@ -688,14 +688,6 @@ pub(super) async fn dispatch_against(
     dao: MockConversationDao,
     command: Value,
 ) -> (Result<Value, CommandRefusal>, Vec<Call>) {
-    dispatch_with_workspaces(dao, MockWorkspaceScriptCommands::new(), command).await
-}
-
-pub(super) async fn dispatch_with_workspaces(
-    dao: MockConversationDao,
-    workspaces: MockWorkspaceScriptCommands,
-    command: Value,
-) -> (Result<Value, CommandRefusal>, Vec<Call>) {
     let sink = RecordingSink::default();
     let agents = StubAgents;
     let skills = StubSkills;
@@ -703,7 +695,6 @@ pub(super) async fn dispatch_with_workspaces(
         conversations: &dao,
         agents: &agents,
         sink: &sink,
-        workspace_script_commands: &workspaces,
         skills: &skills,
         caller: Uuid::nil(),
     };

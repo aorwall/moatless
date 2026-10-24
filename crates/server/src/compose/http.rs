@@ -81,7 +81,6 @@ pub(crate) async fn ui_rpc(
             session_cookie_name: config.auth.session_cookie_name.clone(),
             session_jwt_secret: auth::jwt::get_jwt_secret(config).map(String::from),
             pairing: ports.pairing.clone(),
-            workspace_script_commands: app_state.workspaces.clone(),
             workspace_scripts: Arc::new(moatless_t3code::owners::TaskWorkspaceScripts {
                 tasks: app_state.task_reader.clone(),
                 workspaces: app_state.workspaces.clone(),

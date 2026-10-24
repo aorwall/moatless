@@ -180,7 +180,9 @@ async fn loop_id(pool: &PgPool, source_key: &str) -> String {
 }
 
 #[sqlx::test]
-async fn a_moved_default_branch_syncs_new_loops_and_keeps_approval_and_overrides(pool: PgPool) {
+async fn a_moved_default_branch_syncs_new_loops_keeps_approval_and_reclaims_workspaces(
+    pool: PgPool,
+) {
     let (state, watch, branch) = watched(&pool, nightly_only()).await;
 
     watch.tick(&CancellationToken::new()).await;
@@ -190,7 +192,8 @@ async fn a_moved_default_branch_syncs_new_loops_and_keeps_approval_and_overrides
         "a Loop synced without an admin lands inactive with no run-as user"
     );
 
-    // An admin approves the Loop and overrides the git-declared workspace.
+    // An admin approves the Loop, and a legacy manual override holds the
+    // git-declared workspace.
     let nightly = loop_id(&pool, "nightly").await;
     activate_loop(
         &state.loops,
@@ -233,8 +236,8 @@ async fn a_moved_default_branch_syncs_new_loops_and_keeps_approval_and_overrides
     .unwrap();
     assert_eq!(
         (source.as_str(), image.as_deref()),
-        ("manual", Some("override:1")),
-        "the automatic sync never reclaims an overridden workspace"
+        ("git", Some("app:2")),
+        "git owns every declared workspace, so a manual override is reclaimed"
     );
 }
 

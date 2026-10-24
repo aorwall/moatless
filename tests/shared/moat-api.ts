@@ -15,7 +15,6 @@ import type {
   CreateFeedbackRequest,
   CreateRepositoryRequest,
   CreateTaskBindingRequest,
-  CreateWorkspaceRequest,
   FeedbackResponse,
   GetMessagesResponse,
   GithubCommentRequest,
@@ -27,7 +26,6 @@ import type {
   Loop,
   LoopRecentTaskItem,
   RepositoryResponse,
-  ResetGitWorkspaceResponse,
   SandboxStatusFullResponse,
   SendMessageResponse,
   SendTaskReplyRequest,
@@ -37,7 +35,6 @@ import type {
   TaskBindingResponse,
   TaskResponse,
   UpdateRepositoryRequest,
-  UpdateWorkspaceRequest,
   WorkspaceResponse,
 } from '@moatless/api-client/sandbox/model'
 import type { Moat, RawResponse } from './moat'
@@ -230,59 +227,8 @@ export class MoatApi {
   // Workspaces
   // =========================================================================
 
-  /**
-   * Create a workspace.
-   *
-   * Run configuration — image, setup commands, scripts — lives here, not on
-   * the repository, so a test that needs a deliberately broken sandbox builds
-   * a workspace for it rather than a repository.
-   */
-  async createWorkspace(config: CreateWorkspaceRequest): Promise<WorkspaceResponse> {
-    const args = ['workspaces', 'create', '--name', scopedName(config.name)]
-    if (config.description) args.push('--description', config.description)
-    if (config.scope) args.push('--scope', config.scope)
-    if (config.dockerImage) args.push('--docker-image', config.dockerImage)
-    if (config.systemPrompt) args.push('--system-prompt', config.systemPrompt)
-    if (config.setupCommands)
-      args.push('--setup-commands-json', JSON.stringify(config.setupCommands))
-    if (config.envVars) args.push('--env-vars-json', JSON.stringify(config.envVars))
-    if (config.repos) args.push('--repos-json', JSON.stringify(config.repos))
-    return this.moat.json<WorkspaceResponse>(args)
-  }
-
   async getWorkspace(id: string): Promise<WorkspaceResponse> {
     return this.expect<WorkspaceResponse>(await this.moat.raw('GET', `/api/v1/workspaces/${id}`))
-  }
-
-  async updateWorkspaceRaw(id: string, data: UpdateWorkspaceRequest): Promise<RawResponse> {
-    return this.moat.raw('PATCH', `/api/v1/workspaces/${id}`, data)
-  }
-
-  async updateWorkspace(id: string, data: UpdateWorkspaceRequest): Promise<WorkspaceResponse> {
-    return this.expect<WorkspaceResponse>(await this.updateWorkspaceRaw(id, data))
-  }
-
-  /**
-   * Take manual ownership of a workspace a repository declares.
-   *
-   * An empty patch is meaningful: it claims the workspace without changing
-   * anything about how it runs.
-   */
-  async overrideWorkspace(
-    id: string,
-    data: UpdateWorkspaceRequest = {},
-  ): Promise<WorkspaceResponse> {
-    return this.expect<WorkspaceResponse>(
-      await this.moat.raw('PATCH', `/api/v1/workspaces/${id}/override`, data),
-    )
-  }
-
-  async resetGitWorkspaceRaw(id: string): Promise<RawResponse> {
-    return this.moat.raw('POST', `/api/v1/workspaces/${id}/reset-git`)
-  }
-
-  async resetGitWorkspace(id: string): Promise<ResetGitWorkspaceResponse> {
-    return this.expect<ResetGitWorkspaceResponse>(await this.resetGitWorkspaceRaw(id))
   }
 
   async listWorkspaces(): Promise<WorkspaceResponse[]> {
@@ -290,7 +236,7 @@ export class MoatApi {
   }
 
   /**
-   * A live workspace placing the template repository, created on first use.
+   * The template repository's default Workspace.
    *
    * Every Task and every Loop names a workspace, so a test that only cares
    * about the repository still needs one to run in.
@@ -300,21 +246,42 @@ export class MoatApi {
     return this.ensureWorkspaceFor(repo.id)
   }
 
-  /** A live workspace placing only `repositoryId`, created on first use. */
+  /**
+   * The repository's default Workspace.
+   *
+   * Registering a repository with a GitHub remote creates a git-synced
+   * Workspace with source key `default`. When none is found, the repository's
+   * `.moatless/` config is synced once before giving up, because the
+   * Workspace may predate the repository's remote or its config.
+   */
   async ensureWorkspaceFor(repositoryId: string): Promise<WorkspaceResponse> {
-    const existing = (await this.listWorkspaces()).find(
-      (workspace) =>
-        !workspace.deleted &&
-        workspace.repos.length === 1 &&
-        workspace.repos[0].repositoryId === repositoryId,
-    )
+    const find = async (): Promise<WorkspaceResponse | undefined> => {
+      const live = (await this.listWorkspaces()).filter((workspace) => !workspace.deleted)
+      return (
+        live.find(
+          (workspace) =>
+            workspace.sourceKey === 'default' && workspace.sourceRepositoryId === repositoryId,
+        ) ??
+        live.find(
+          (workspace) =>
+            workspace.repos.length === 1 && workspace.repos[0].repositoryId === repositoryId,
+        )
+      )
+    }
+    const existing = await find()
     if (existing) {
       return existing
     }
-    return this.createWorkspace({
-      name: 'template',
-      repos: [{ repositoryId }],
-    })
+    await this.moat.json(['repos', 'sync-config', repositoryId])
+    const synced = await find()
+    if (!synced) {
+      throw new Error(
+        `Repository ${repositoryId} has no default Workspace, even after \`moat repos sync-config\`. ` +
+          'A default Workspace exists only for a repository with a GitHub remote; a template ' +
+          'repository on another host needs a `.moatless/workspaces.json` entry with key "default".',
+      )
+    }
+    return synced
   }
 
   async deleteWorkspace(id: string): Promise<void> {

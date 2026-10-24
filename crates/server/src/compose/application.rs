@@ -124,6 +124,7 @@ impl AppState {
             git_host_tokens.clone(),
             config.http.git_content,
             config.github_api_base.clone(),
+            config.workspace_sync.identity_grants.clone(),
         );
 
         let loop_sync = loop_graph.loop_sync(

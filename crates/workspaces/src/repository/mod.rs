@@ -13,6 +13,7 @@ pub(crate) mod seed;
 
 pub mod branches;
 pub(crate) mod mutations;
+pub mod org_sync;
 
 pub mod secret_migration;
 mod secret_migration_dao;

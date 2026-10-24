@@ -98,24 +98,24 @@ export class Backend {
   }
 
   /**
-   * Declares `script` on the named project's workspace unless a Script with
-   * its name exists, and returns whether it added one. The T3 form cannot do
-   * this: it saves through `server.updateSettings`, which the backend refuses.
+   * Requires the named project's workspace to declare a Script named
+   * `script.name`. The API can no longer write Scripts: the project's
+   * repository declares them in `.moatless/workspaces.json`, synced with
+   * `moat repos sync-config <repo>`.
    */
-  async ensureWorkspaceScript(project: string, script: WorkspaceScript): Promise<boolean> {
+  async requireWorkspaceScript(project: string, script: WorkspaceScript): Promise<void> {
     const workspaces = await this.json<{ id: string; name: string }[]>('/api/v1/workspaces')
     const workspace = workspaces.find((w) => w.name === project)
     if (!workspace) throw new Error(`No workspace is named ${project}`)
     const { scripts } = await this.json<{ scripts: WorkspaceScript[] }>(
       `/api/v1/workspaces/${workspace.id}`,
     )
-    if (scripts.some((s) => s.name === script.name)) return false
-    const updated = await this.http.patch(`/api/v1/workspaces/${workspace.id}`, {
-      data: { scripts: [...scripts, script] },
-    })
-    if (!updated.ok())
-      throw new Error(`Adding the ${script.name} Script answered HTTP ${updated.status()}`)
-    return true
+    if (scripts.some((s) => s.name === script.name)) return
+    throw new Error(
+      `Workspace ${project} declares no "${script.name}" Script. Add ${JSON.stringify(script)} ` +
+        "to its entry in the repository's .moatless/workspaces.json, commit it, and run " +
+        '`moat repos sync-config <repo>`.',
+    )
   }
 
   async scripts(taskId: string): Promise<TaskScript[]> {

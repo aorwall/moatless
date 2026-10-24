@@ -38,24 +38,22 @@ session. A shared sandbox can affect other task members.
 ## Configuration ownership
 
 Repository commands configure git connection fields: name, URL, branch, provider,
-kind, description, and scope as supported by each command. Workspace commands own
+kind, description, and scope as supported by each command. A Workspace owns
 image, setup commands, scripts, environment, resources, language servers, and
-sandbox service account.
+sandbox identity, and is edited only in git: `moat workspaces` lists, shows and
+deletes legacy manual rows, and edits nothing.
 
-Inspect `moat workspaces update --help` for `--scripts-json`, `--env-vars-json`,
-`--resources-json`, `--language-servers`, and `--docker-image`. Get the workspace ID from the task.
-For git-managed workspaces, edit `.moatless/workspaces.json` in the owning repository
-(it also takes `icon`, `defaultModel` and `defaultEffort`, and
+Every repository has a `default` Workspace. To change it, or to add another,
+edit `.moatless/workspaces.json` in the owning repository: an entry with
+`"key": "default"` overrides the default and needs neither `name` nor `repos`.
+An entry also takes `icon`, `defaultModel`, `defaultEffort`, and
 `"skills": {"enable": [...], "disable": [...]}` naming `<plugin>` or
-`<plugin>:<skill>`, which replaces the workspace's own activation records on
-every sync — deleting the key keeps the last ones, so commit `{}` to clear;
-`runAsUserId` and `nodeSelector` are admin-API-only) or use
-`moat workspaces override` to take manual ownership. `reset-git` returns
-ownership to git. Explicit
-`moat repos sync-config` reclaims every overridden workspace still declared in
-`.moatless/workspaces.json`, discarding its local changes; an overridden
-workspace no longer declared there is left alone. The automatic sync when a
-GitHub default branch moves reclaims none.
+`<plugin>:<skill>`, which replaces the Workspace's activation records on every
+sync (deleting the key keeps the last ones, so commit `{}` to clear).
+`sandboxServiceAccount`, `networkProfile` and `nodeSelector` are kept only when
+the deployment's `workspaceSync.identityGrants` grants that repository and key
+the same value; an ungranted value is dropped with a sync warning. The sync runs
+when a GitHub default branch moves; `moat repos sync-config` runs it at once.
 
 Secrets use the singular `moat secret` group. Automation uses `moat loops`.
 

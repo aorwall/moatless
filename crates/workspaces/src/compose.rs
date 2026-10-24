@@ -5,8 +5,9 @@
 
 use std::sync::Arc;
 
+use moatless_core::config::WorkspaceSyncConfig;
 use moatless_core::db::DbPool;
-use moatless_core::sandbox_identities::SandboxIdentities;
+use moatless_core::workspace_identity_grants::WorkspaceIdentityGrants;
 use moatless_identity::secret::audit::SecretAudit;
 use moatless_identity::secret::service::SecretCipher;
 use moatless_ports::identity::GitHostTokenIssuer;
@@ -21,6 +22,7 @@ use crate::ports::{RepositoryProjection, WorkspaceProjection};
 use crate::repository::branches::RepositoryBranchService;
 use crate::repository::dao::PgRepositoryDao;
 use crate::repository::operations::Repositories;
+use crate::repository::org_sync::OrgSync;
 use crate::skill::fetcher::SkillFetcher;
 use crate::skill::service::SkillService;
 use crate::workspace::credentials::dao::PgWorkspaceCredentialDao;
@@ -34,16 +36,9 @@ pub fn repositories(db: DbPool) -> Arc<Repositories> {
     Arc::new(Repositories::new(Arc::new(PgRepositoryDao(db))))
 }
 
-/// The `workspaces` and `workspace_repos` tables, accepting any
-/// `networkProfile` or `sandboxServiceAccount` a write names.
+/// The `workspaces` and `workspace_repos` tables.
 pub fn workspaces(db: DbPool) -> Arc<Workspaces> {
-    workspaces_checked(db, SandboxIdentities::default())
-}
-
-/// [`workspaces`], refusing a write that names an identity outside
-/// `identities`. The routes a host serves are built over this one.
-pub fn workspaces_checked(db: DbPool, identities: SandboxIdentities) -> Arc<Workspaces> {
-    Arc::new(Workspaces::new(Arc::new(PgWorkspaceDao(db)), identities))
+    Arc::new(Workspaces::new(Arc::new(PgWorkspaceDao(db))))
 }
 
 /// The plugin, skill and activation tables, as a host and the plugin routes
@@ -74,6 +69,7 @@ pub fn git_sync(
     git_host_tokens: Arc<dyn GitHostTokenIssuer>,
     git_content: HttpTimeouts,
     github_api_base: String,
+    identity_grants: WorkspaceIdentityGrants,
 ) -> Arc<GitSyncService> {
     Arc::new(GitSyncService::new(
         db.clone(),
@@ -83,7 +79,30 @@ pub fn git_sync(
         git_host_tokens,
         git_content,
         github_api_base,
+        identity_grants,
     ))
+}
+
+/// Mirrors the GitHub organizations `config` names into the registry; `None`
+/// when it names none.
+pub fn org_sync(
+    db: DbPool,
+    repositories: Arc<Repositories>,
+    git_sync: Arc<GitSyncService>,
+    git_host_tokens: Arc<dyn GitHostTokenIssuer>,
+    git_content: HttpTimeouts,
+    github_api_base: String,
+    config: &WorkspaceSyncConfig,
+) -> Option<OrgSync> {
+    OrgSync::new(
+        repositories,
+        git_sync,
+        db,
+        git_host_tokens,
+        git_content,
+        github_api_base,
+        config,
+    )
 }
 
 /// Lists the branches of a repository the caller may read.

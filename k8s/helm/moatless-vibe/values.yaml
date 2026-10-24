@@ -527,6 +527,26 @@ storage:
   # uploads ride the workspace snapshot and survive a sandbox restart.
   sandboxMountPath: "/opt/moatless/workspace/uploads"
 
+# Where repositories and their Workspaces come from in git. Workspaces are
+# declared in each repository's `.moatless/workspaces.json`; every repository
+# also gets a `default` Workspace.
+workspaceSync:
+  # -- GitHub organizations (or users) whose repositories are registered as
+  # global repositories every ten minutes. One a listing leaves out is
+  # soft-deleted only once `GET /repos/{owner}/{name}` shows it archived,
+  # renamed, transferred or deleted. Empty disables the org sync.
+  githubOrgs: []
+  # -- The user whose GitHub credential lists `githubOrgs`, recorded as each
+  # registered repository's creator. Required with `githubOrgs`.
+  orgSyncUserId: ""
+  # -- Admin-only fields a git-declared Workspace may carry. A git value for
+  # `sandboxServiceAccount`, `networkProfile` or `nodeSelector` is kept only
+  # when a grant for that repository and Workspace key names the same value;
+  # `ownerUserId` makes the Workspace private to that user.
+  # e.g. [{repository: soaplabs/soap-specs, workspace: default,
+  #        sandboxServiceAccount: moatless-soap-nonprod-admin}]
+  identityGrants: []
+
 # Application configuration
 config:
   # -- Log level
@@ -1381,7 +1401,8 @@ extraEnv:
   # Shows the Forgejo tab in settings. The Forgejo API routes ignore this flag.
   FF_FORGEJO_ENABLED: "false"
   # Lets the T3 project settings page edit the workspace behind the project.
-  FF_WORKSPACE_SETTINGS: "true"
+  # Off: a Workspace is edited only in git, so the page's writes are refused.
+  FF_WORKSPACE_SETTINGS: "false"
   # Session
   SESSION_MAX_AGE: "604800"
   # Default visibility for new repositories (valid: "private" | "public")

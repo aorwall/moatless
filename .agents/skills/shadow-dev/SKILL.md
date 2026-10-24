@@ -13,8 +13,9 @@ an extra backend or inherit its elevated service account.
 ## Workspace setup
 
 Read [shadow configuration](../../../scripts/shadow/workspaces.shadow.json) and
-[the shadow runbook](../../../scripts/shadow/README.md), then create or update a
-workspace with the repository binding and the backend Script. Run configuration
+[the shadow runbook](../../../scripts/shadow/README.md), then declare a
+Workspace entry in `.moatless/workspaces.json` with the repository and the
+backend Script. Run configuration
 belongs to the workspace, not the repository git record.
 
 - Backend Script: name `backend`, command `bash scripts/shadow/up.sh`, port 8080,
@@ -22,11 +23,11 @@ belongs to the workspace, not the repository git record.
 - Set `SHADOW_CARGO_PROFILE=dev` in the backend Script's `envVars` and in the shell
   running rebuilds. Both scripts default to release; mismatching profiles makes
   the Script start a different binary from the one rebuilt.
-- Set resources through `--resources-json`, for example
-  `{"storage":"40Gi","pvcEnabled":false,"s3Enabled":true}` when snapshot-backed
-  ephemeral storage matches the cluster. Check available disk before compiling.
-- Image selection uses `moat workspaces update <workspace-id> --docker-image
-  <image>`. The optional dev image comes from
+- Set resources in the Workspace's `.moatless/workspaces.json` entry, for example
+  `"resources": {"storage":"40Gi","pvcEnabled":false,"s3Enabled":true}` when
+  snapshot-backed ephemeral storage matches the cluster. Check available disk
+  before compiling.
+- Image selection is the entry's `dockerImage`. The optional dev image comes from
   [Dockerfile.sandbox-dev](../../../docker/Dockerfile.sandbox-dev).
 - `sync-env.sh` needs access to the source backend deployment and Secrets.
   Provisioning child sandboxes additionally needs the chart's `shadowDev` RBAC

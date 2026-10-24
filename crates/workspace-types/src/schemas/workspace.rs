@@ -9,16 +9,6 @@ use std::collections::{BTreeMap, HashMap};
 use serde::{Deserialize, Serialize};
 
 use moatless_types::access_control::Scope;
-#[allow(clippy::option_option)]
-fn deserialize_optional_nullable_field<'de, D, T>(
-    deserializer: D,
-) -> Result<Option<Option<T>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    Option::<T>::deserialize(deserializer).map(Some)
-}
 
 /// The glyph a client renders beside a Workspace name.
 ///
@@ -110,163 +100,6 @@ pub struct ResourceConfig {
 /// `name` is the identity, since it must survive a git round trip; no id is
 /// allocated by the backend.
 pub use crate::workspace::ScriptConfig;
-
-// =============================================================================
-// WorkspaceRepoInput — a repository placement in create/add requests
-// =============================================================================
-
-/// A repository placement inside a workspace (create/add payload).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct WorkspaceRepoInput {
-    pub repository_id: String,
-    /// Override the repository's default branch for this placement.
-    #[serde(default)]
-    pub branch: Option<String>,
-    /// Subdir under the workspace dir (defaults to the repo name at runtime).
-    #[serde(default)]
-    pub mount_name: Option<String>,
-    /// Mark this placement as the primary (diff/PR/AGENTS.md) repo. At most one
-    /// primary is kept per workspace; when several are flagged the first wins.
-    #[serde(default)]
-    pub is_primary: Option<bool>,
-    #[serde(default)]
-    pub position: Option<i32>,
-}
-
-// =============================================================================
-// CreateWorkspaceRequest
-// =============================================================================
-
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct CreateWorkspaceRequest {
-    pub name: String,
-    #[serde(default)]
-    pub description: Option<String>,
-    #[serde(default)]
-    pub icon: Option<WorkspaceIcon>,
-    #[serde(default)]
-    pub scope: Option<Scope>,
-    /// Identity every Task on this Workspace acts as on a git host. When set it
-    /// outranks the Task's own owner.
-    #[serde(default)]
-    pub run_as_user_id: Option<String>,
-    // --- Run configuration (mirrors repositories) ---
-    #[serde(default)]
-    pub docker_image: Option<String>,
-    #[serde(default)]
-    pub docker_access: Option<bool>,
-    #[serde(default)]
-    pub sandbox_service_account: Option<String>,
-    #[serde(default)]
-    pub system_prompt: Option<String>,
-    #[serde(default)]
-    pub setup_commands: Option<Vec<String>>,
-    #[serde(default)]
-    pub env_vars: Option<HashMap<String, String>>,
-    #[serde(default)]
-    #[cfg_attr(feature = "openapi", schema(value_type = Object, ignore))]
-    pub scripts: Option<Vec<ScriptConfig>>,
-    #[serde(default)]
-    pub resources: Option<ResourceConfig>,
-    #[serde(default)]
-    pub language_servers: Option<Vec<LanguageServer>>,
-    #[serde(default)]
-    pub network_profile: Option<String>,
-    /// Extra node labels sandbox pods must match, merged over the
-    /// deployment-wide selector. Admin-only, like the two fields above it.
-    #[serde(default)]
-    pub node_selector: Option<BTreeMap<String, String>>,
-    // --- Task defaults ---
-    #[serde(default)]
-    pub default_model: Option<String>,
-    #[serde(default)]
-    pub default_effort: Option<String>,
-    // --- Composition ---
-    /// Repository placements. May be empty (a blank/scratch workspace).
-    #[serde(default)]
-    pub repos: Vec<WorkspaceRepoInput>,
-}
-
-// =============================================================================
-// UpdateWorkspaceRequest
-// =============================================================================
-
-#[derive(Debug, Default, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateWorkspaceRequest {
-    pub name: Option<String>,
-    pub description: Option<String>,
-    /// Change the workspace's access scope (`global` requires admin).
-    ///
-    /// Promotes every repository already placed to `global` too — repos added
-    /// later keep their own scope — and returning to `user` does not demote
-    /// them back.
-    pub scope: Option<Scope>,
-    /// Identity every Task on this Workspace acts as on a git host. When set it
-    /// outranks the Task's own owner. An explicit empty string clears it.
-    pub run_as_user_id: Option<String>,
-    pub docker_image: Option<String>,
-    pub docker_access: Option<bool>,
-    pub sandbox_service_account: Option<String>,
-    pub system_prompt: Option<String>,
-    pub setup_commands: Option<Vec<String>>,
-    pub env_vars: Option<HashMap<String, String>>,
-    #[cfg_attr(feature = "openapi", schema(value_type = Object, ignore))]
-    pub scripts: Option<Vec<ScriptConfig>>,
-    pub resources: Option<ResourceConfig>,
-    /// Send `[]` to start no language server.
-    pub language_servers: Option<Vec<LanguageServer>>,
-    pub network_profile: Option<String>,
-    /// Extra node labels sandbox pods must match, merged over the
-    /// deployment-wide selector. Send `{}` to clear.
-    pub node_selector: Option<BTreeMap<String, String>>,
-    /// Omit to leave the icon unchanged; send `null` to clear it back to the
-    /// client's automatic glyph. The same holds for the two fields below.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "deserialize_optional_nullable_field"
-    )]
-    pub icon: Option<Option<WorkspaceIcon>>,
-    /// Model catalog id a new Task on this Workspace starts with.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "deserialize_optional_nullable_field"
-    )]
-    pub default_model: Option<Option<String>>,
-    /// Reasoning-effort level paired with `default_model`.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "deserialize_optional_nullable_field"
-    )]
-    pub default_effort: Option<Option<String>>,
-}
-
-// =============================================================================
-// AddRepoRequest
-// =============================================================================
-
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct AddRepoRequest {
-    pub repository_id: String,
-    #[serde(default)]
-    pub branch: Option<String>,
-    #[serde(default)]
-    pub mount_name: Option<String>,
-    #[serde(default)]
-    pub is_primary: Option<bool>,
-    #[serde(default)]
-    pub position: Option<i32>,
-}
 
 // =============================================================================
 // WorkspaceRepoResponse
@@ -402,8 +235,8 @@ pub struct WorkspaceSyncSummary {
     pub created: u32,
     /// Existing git-synced workspaces updated in place.
     pub updated: u32,
-    /// Manually overridden workspaces taken back under git control by an
-    /// explicit sync, discarding the local edits.
+    /// Legacy manual overrides taken back under git control, discarding their
+    /// local edits.
     pub reclaimed: u32,
     /// Workspaces soft-deleted because git no longer declares them.
     pub removed: u32,
@@ -411,22 +244,6 @@ pub struct WorkspaceSyncSummary {
     pub skipped: Vec<WorkspaceSyncSkip>,
     /// Keys the file declared that the sync read but did not apply.
     pub warnings: Vec<WorkspaceSyncWarning>,
-}
-
-/// Response for `POST /api/v1/workspaces/{id}/reset-git`.
-///
-/// `resynced` reports whether the re-sync found the workspace still declared in
-/// git; only then does `source` return to `"git"`.
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
-pub struct ResetGitWorkspaceResponse {
-    pub workspace: WorkspaceResponse,
-    /// Whether the workspace was reclaimed from git during this call.
-    pub resynced: bool,
-    /// Why the re-sync did not take effect (unreachable provider, or the entry
-    /// is no longer declared in the config file). `None` when `resynced`.
-    pub error: Option<String>,
 }
 
 // =============================================================================
@@ -462,69 +279,6 @@ pub struct WorkspaceCredentialResponse {
     pub updated_by: String,
     pub created_at: String,
     pub updated_at: String,
-}
-
-#[cfg(test)]
-mod update_workspace_request_tests {
-    use super::{UpdateWorkspaceRequest, WorkspaceIcon};
-    use serde_json::json;
-
-    #[test]
-    fn the_clearable_fields_distinguish_omitted_null_and_value() {
-        let omitted: UpdateWorkspaceRequest = serde_json::from_value(json!({})).unwrap();
-        assert_eq!(omitted.icon, None);
-        assert_eq!(omitted.default_model, None);
-        assert_eq!(omitted.default_effort, None);
-
-        let cleared: UpdateWorkspaceRequest = serde_json::from_value(json!({
-            "icon": null,
-            "defaultModel":null,
-            "defaultEffort":null,
-        }))
-        .unwrap();
-        assert_eq!(cleared.icon, Some(None));
-        assert_eq!(cleared.default_model, Some(None));
-        assert_eq!(cleared.default_effort, Some(None));
-
-        let set: UpdateWorkspaceRequest = serde_json::from_value(json!({
-            "icon": { "kind": "emoji", "emoji": "🚀" },
-            "defaultModel":"opus",
-            "defaultEffort":"high",
-        }))
-        .unwrap();
-        assert_eq!(
-            set.icon,
-            Some(Some(WorkspaceIcon::Emoji {
-                emoji: "🚀".to_string()
-            }))
-        );
-        assert_eq!(set.default_model, Some(Some("opus".to_string())));
-        assert_eq!(set.default_effort, Some(Some("high".to_string())));
-    }
-
-    /// `moat workspaces update` sends this struct with every field it has no
-    /// flag for left `None`, so an omitted field must not arrive as a clear.
-    #[test]
-    fn an_omitted_field_survives_a_round_trip_as_omitted() {
-        let round_trip = |patch: UpdateWorkspaceRequest| -> UpdateWorkspaceRequest {
-            serde_json::from_str(&serde_json::to_string(&patch).unwrap()).unwrap()
-        };
-
-        let omitted = round_trip(UpdateWorkspaceRequest::default());
-        assert_eq!(omitted.icon, None);
-        assert_eq!(omitted.default_model, None);
-        assert_eq!(omitted.default_effort, None);
-
-        let cleared = round_trip(UpdateWorkspaceRequest {
-            icon: Some(None),
-            default_model: Some(None),
-            default_effort: Some(None),
-            ..UpdateWorkspaceRequest::default()
-        });
-        assert_eq!(cleared.icon, Some(None));
-        assert_eq!(cleared.default_model, Some(None));
-        assert_eq!(cleared.default_effort, Some(None));
-    }
 }
 
 #[cfg(test)]

@@ -628,11 +628,7 @@ async fn tombstoning_a_git_declared_project_waits_for_the_next_snapshot(pool: Pg
     assert_eq!(held.projects, ["ws-git"]);
     let watched_from = head(&pool).await.position;
 
-    assert!(
-        repo.soft_delete_git_origin("ws-git", &viewer)
-            .await
-            .unwrap()
-    );
+    assert!(repo.soft_delete("ws-git", &viewer).await.unwrap());
     assert_eq!(
         recorded_after(&pool, watched_from).await,
         0,
@@ -658,11 +654,7 @@ async fn a_tombstoned_project_keeps_the_conversations_still_running_in_it(pool: 
     seed_task(&pool, "t-running", "user-1", Some("ws-git")).await;
 
     let viewer = viewer("user-1");
-    assert!(
-        repo.soft_delete_git_origin("ws-git", &viewer)
-            .await
-            .unwrap()
-    );
+    assert!(repo.soft_delete("ws-git", &viewer).await.unwrap());
 
     let held = Held::opening(&pool, &viewer).await;
     assert_eq!(held.projects, ["ws-git"]);

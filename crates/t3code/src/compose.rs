@@ -64,7 +64,6 @@ pub async fn mount(
         session_cookie_name,
         session_jwt_secret,
         pairing,
-        workspace_script_commands,
         workspace_scripts,
         sandboxes,
         snapshots,
@@ -155,7 +154,6 @@ pub async fn mount(
         frontend_url: Arc::from(frontend_url),
         session_jwt_secret: session_jwt_secret.map(Arc::from),
         pairing,
-        workspace_script_commands,
         sandboxes,
         snapshots,
         scripts,
@@ -281,7 +279,6 @@ pub struct UiRpcDependencies {
     /// before mounting this router.
     pub session_jwt_secret: Option<String>,
     pub pairing: Arc<DevicePairing>,
-    pub workspace_script_commands: Arc<dyn ports::WorkspaceScriptCommands>,
     /// Reads the Scripts of the Workspace a Task runs against, under the Task's
     /// scope; the gate every Script read and write passes.
     pub workspace_scripts: Arc<dyn ports::WorkspaceScriptSource>,

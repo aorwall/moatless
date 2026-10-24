@@ -6,11 +6,10 @@ use super::schemas::{CreateRepositoryRequest, UpdateRepositoryRequest};
 use crate::repository::remote::{
     ensure_no_provider_mismatch, ensure_remote_url_scheme_allowed, normalize_remote_url,
 };
-use crate::workspace::git_sync::{GitSyncService, SyncForce, log_workspace_sync_for};
+use crate::workspace::git_sync::{GitSyncService, log_workspace_sync_for};
 use moatless_core::db::DbPool;
 use moatless_types::access_control::{Scope, ScopeContext, resolve_scope_for_create};
 use moatless_workspace_types::repository::RepositoryKind;
-use std::collections::HashSet;
 use tracing::warn;
 
 async fn ensure_unique_remote_url(
@@ -103,17 +102,10 @@ pub async fn create_repository(
         .unwrap_or(row);
 
     if final_row.remote.is_some() {
-        // Sync git-declared workspaces (`.moatless/workspaces.json`).
+        // Sync the default and git-declared workspaces.
         // Loop sync is deliberately never automatic:
         // an administrator must invoke the explicit sync endpoint.
-        log_workspace_sync_for(
-            git_sync,
-            &final_row,
-            ctx,
-            "create",
-            &SyncForce::RespectOverrides,
-        )
-        .await;
+        log_workspace_sync_for(git_sync, &final_row, ctx, "create").await;
     }
 
     Ok(final_row)
@@ -206,82 +198,6 @@ pub async fn update_repository(
         .ok_or_else(|| RepositoryError::NotFound(repository_id))?;
 
     Ok(updated)
-}
-
-/// Move each repository to [`Scope::Global`], dropping its owner.
-///
-/// One-directional: a Workspace moving back to user scope leaves its
-/// repositories global, since promotion already dropped the owner to hand them
-/// back to. A repository the caller cannot read (soft-deleted) is skipped
-/// rather than rejected.
-pub(crate) async fn promote_repositories_to_global(
-    repositories: &dyn RepositoryDao,
-    ctx: &ScopeContext,
-    repository_ids: &[String],
-) -> Result<(), RepositoryError> {
-    // Check every repository before writing any: a promotion drops the owner and
-    // cannot be undone, so a collision on a later one must not leave an earlier
-    // one global. Two passes are still not a transaction — a DB error on the
-    // write pass, or a row inserted between the passes, splits it anyway.
-    let mut pending = Vec::new();
-    let mut claimed: HashSet<String> = HashSet::new();
-    let mut seen: HashSet<&str> = HashSet::new();
-    for repository_id in repository_ids {
-        // One repository placed twice — at two branches, under two mount names —
-        // is one row to promote, and its second visit would claim its own URL.
-        if !seen.insert(repository_id.as_str()) {
-            continue;
-        }
-
-        let Some(existing) = repositories.find_by_id(repository_id, ctx).await? else {
-            continue;
-        };
-        if existing.scope == Scope::Global {
-            continue;
-        }
-
-        ensure_unique_remote_url(
-            repositories,
-            Some(repository_id),
-            existing.remote.as_ref().map(|remote| remote.url.as_str()),
-            Scope::Global,
-            None,
-        )
-        .await?;
-
-        // The batch collides with itself too, and the query above cannot see it:
-        // two user-scoped rows may hold one URL under different owners, which
-        // `repositories_active_owner_remote_url_uq` allows and dropping both
-        // owners does not.
-        if let Some(remote_url) = existing.remote.as_ref().map(|remote| remote.url.as_str()) {
-            if !claimed.insert(normalize_remote_url(remote_url)) {
-                return Err(RepositoryError::Conflict(remote_url.to_string()));
-            }
-        }
-
-        pending.push((repository_id, existing));
-    }
-
-    for (repository_id, existing) in pending {
-        let patch = RepositoryPatch {
-            scope: Some(Scope::Global),
-            owner_user_id: Some(None),
-            ..Default::default()
-        };
-        let applied = repositories
-            .update(repository_id, &patch, ctx)
-            .await
-            .map_err(|error| {
-                RepositoryError::from_write_error(
-                    error,
-                    existing.remote.as_ref().map(|remote| remote.url.as_str()),
-                )
-            })?;
-        if !applied {
-            return Err(RepositoryError::NotFound(repository_id.clone()));
-        }
-    }
-    Ok(())
 }
 
 /// Apply the repository mutation with caller scope and existing write policy.

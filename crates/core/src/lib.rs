@@ -34,9 +34,11 @@ pub mod secret_keys;
 pub mod change_feed;
 pub mod db_enum;
 
+pub(crate) mod message_buffer_config;
 pub mod sandbox_identities;
 pub mod sandbox_jwt;
 mod user_agent;
+pub mod workspace_identity_grants;
 pub mod workspace_repository;
 
 pub use user_agent::USER_AGENT;

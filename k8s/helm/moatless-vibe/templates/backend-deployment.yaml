@@ -80,6 +80,18 @@ spec:
               value: {{ .Values.backend.logLevel | default "info" | quote }}
             - name: RUST_BACKTRACE
               value: {{ .Values.backend.backtrace | default "1" | quote }}
+            {{- with .Values.workspaceSync }}
+            {{- if .githubOrgs }}
+            - name: GITHUB_ORG_SYNC_ORGS
+              value: {{ join "," .githubOrgs | quote }}
+            - name: GITHUB_ORG_SYNC_USER_ID
+              value: {{ required "workspaceSync.orgSyncUserId is required with workspaceSync.githubOrgs" .orgSyncUserId | quote }}
+            {{- end }}
+            {{- if .identityGrants }}
+            - name: WORKSPACE_IDENTITY_GRANTS
+              value: {{ toJson .identityGrants | quote }}
+            {{- end }}
+            {{- end }}
             {{- with .Values.backend.otel.otlpEndpoint }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ . | quote }}

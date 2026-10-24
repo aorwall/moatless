@@ -10217,54 +10217,6 @@
             }
           }
         }
-      },
-      "post": {
-        "tags": [
-          "workspaces"
-        ],
-        "operationId": "create_workspace",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateWorkspaceRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Workspace created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WorkspaceResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
       }
     },
     "/api/v1/workspaces/{workspace_id}": {
@@ -10346,68 +10298,9 @@
                 }
               }
             }
-          }
-        }
-      },
-      "patch": {
-        "tags": [
-          "workspaces"
-        ],
-        "operationId": "update_workspace",
-        "parameters": [
-          {
-            "name": "workspace_id",
-            "in": "path",
-            "description": "Workspace id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateWorkspaceRequest"
-              }
-            }
           },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Workspace updated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WorkspaceResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found",
+          "409": {
+            "description": "Workspace is synced from Git",
             "content": {
               "application/json": {
                 "schema": {
@@ -10603,332 +10496,6 @@
           },
           "404": {
             "description": "No such credential",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/workspaces/{workspace_id}/override": {
-      "patch": {
-        "tags": [
-          "workspaces"
-        ],
-        "summary": "Override a git-synced workspace. Sets `source = \"manual\"` so that git sync\nskips this workspace going forward. Provenance fields are preserved. Use\n`POST /{id}/reset-git` to re-enable git sync.",
-        "operationId": "override_workspace",
-        "parameters": [
-          {
-            "name": "workspace_id",
-            "in": "path",
-            "description": "Workspace id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateWorkspaceRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Workspace overridden; source set to manual",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WorkspaceResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/workspaces/{workspace_id}/repos": {
-      "post": {
-        "tags": [
-          "workspaces"
-        ],
-        "operationId": "add_workspace_repo",
-        "parameters": [
-          {
-            "name": "workspace_id",
-            "in": "path",
-            "description": "Workspace id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AddRepoRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Repo added",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WorkspaceResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/workspaces/{workspace_id}/repos/{placement_id}": {
-      "delete": {
-        "tags": [
-          "workspaces"
-        ],
-        "operationId": "remove_workspace_repo",
-        "parameters": [
-          {
-            "name": "workspace_id",
-            "in": "path",
-            "description": "Workspace id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "placement_id",
-            "in": "path",
-            "description": "Placement id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Repo removed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WorkspaceResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/workspaces/{workspace_id}/repos/{placement_id}/primary": {
-      "post": {
-        "tags": [
-          "workspaces"
-        ],
-        "operationId": "set_workspace_primary_repo",
-        "parameters": [
-          {
-            "name": "workspace_id",
-            "in": "path",
-            "description": "Workspace id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "placement_id",
-            "in": "path",
-            "description": "Placement id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Primary set",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WorkspaceResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/workspaces/{workspace_id}/reset-git": {
-      "post": {
-        "tags": [
-          "workspaces"
-        ],
-        "summary": "Discard a workspace's local override and take its run-config from git again.",
-        "description": "Implemented as a re-sync of just this workspace, not a flag flip, so\n`source` only returns to `\"git\"` when the repository still declares the\nentry — never claiming git provenance while holding config git never\nproduced.",
-        "operationId": "reset_git_workspace",
-        "parameters": [
-          {
-            "name": "workspace_id",
-            "in": "path",
-            "description": "Workspace id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Re-sync attempted; `resynced` reports whether it took effect",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ResetGitWorkspaceResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Workspace was never synced from git",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -11216,42 +10783,6 @@
           "emoji": {
             "type": "string",
             "description": "Emoji name (e.g. \"thumbsup\", \"+1\", \"rocket\"). Platform-native names\naccepted."
-          }
-        }
-      },
-      "AddRepoRequest": {
-        "type": "object",
-        "required": [
-          "repositoryId"
-        ],
-        "properties": {
-          "branch": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "isPrimary": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "mountName": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "position": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32"
-          },
-          "repositoryId": {
-            "type": "string"
           }
         }
       },
@@ -11709,6 +11240,10 @@
           },
           "updatedAt": {
             "type": "string"
+          },
+          "writer": {
+            "$ref": "#/components/schemas/RecordWriter",
+            "description": "Whether the last write came from a page or from a user who can change\nthe Task, such as its agent."
           }
         }
       },
@@ -11751,6 +11286,13 @@
             "type": "boolean",
             "description": "Whether a record a reader saves queues a message to the Task's agent."
           },
+          "recordRules": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "The record rules the latest publish set, as published; `None` lets a\npage perform every record operation."
+          },
           "slug": {
             "type": "string"
           },
@@ -11771,6 +11313,10 @@
             "type": "integer",
             "format": "int32",
             "description": "The latest published version, starting at 1."
+          },
+          "visibility": {
+            "$ref": "#/components/schemas/Visibility",
+            "description": "`public` lets any signed-in user read the page, whatever the Task's\nvisibility; `private` limits it to readers of the Task. `private` from\na server older than the field, which only had Task-scoped pages."
           }
         }
       },
@@ -13279,152 +12825,6 @@
           },
           "role": {
             "type": "string"
-          }
-        }
-      },
-      "CreateWorkspaceRequest": {
-        "type": "object",
-        "required": [
-          "name"
-        ],
-        "properties": {
-          "defaultEffort": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "defaultModel": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "description": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "dockerAccess": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "dockerImage": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "envVars": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "additionalProperties": {
-              "type": "string"
-            },
-            "propertyNames": {
-              "type": "string"
-            }
-          },
-          "icon": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/WorkspaceIcon"
-              }
-            ]
-          },
-          "languageServers": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "$ref": "#/components/schemas/LanguageServer"
-            }
-          },
-          "name": {
-            "type": "string"
-          },
-          "networkProfile": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "nodeSelector": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "description": "Extra node labels sandbox pods must match, merged over the\ndeployment-wide selector. Admin-only, like the two fields above it.",
-            "additionalProperties": {
-              "type": "string"
-            },
-            "propertyNames": {
-              "type": "string"
-            }
-          },
-          "repos": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/WorkspaceRepoInput"
-            },
-            "description": "Repository placements. May be empty (a blank/scratch workspace)."
-          },
-          "resources": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ResourceConfig"
-              }
-            ]
-          },
-          "runAsUserId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Identity every Task on this Workspace acts as on a git host. When set it\noutranks the Task's own owner."
-          },
-          "sandboxServiceAccount": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "scope": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/Scope"
-              }
-            ]
-          },
-          "setupCommands": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
-          "systemPrompt": {
-            "type": [
-              "string",
-              "null"
-            ]
           }
         }
       },
@@ -16817,6 +16217,13 @@
             ],
             "description": "`true` also queues a message to the Task's agent for each record a\nreader saves. Ignored without `data`."
           },
+          "rules": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Record rules as JSON: per key prefix, the operations a reader's page\nmay perform and the ones that notify the agent. Needs `data`, and\nreplaces `notify`."
+          },
           "slug": {
             "type": [
               "string",
@@ -16826,6 +16233,17 @@
           },
           "title": {
             "type": "string"
+          },
+          "visibility": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Visibility",
+                "description": "`private` limits the page and its records to readers of the Task;\n`public`, the default, lets any signed-in user read them. Every version\nfollows the latest publish."
+              }
+            ]
           }
         }
       },
@@ -17000,6 +16418,14 @@
             "type": "string"
           }
         }
+      },
+      "RecordWriter": {
+        "type": "string",
+        "description": "Where an Artifact record's last write came from.",
+        "enum": [
+          "page",
+          "agent"
+        ]
       },
       "RegisterGitHubAppRequest": {
         "type": "object",
@@ -17270,30 +16696,6 @@
           },
           "resynced": {
             "type": "boolean"
-          }
-        }
-      },
-      "ResetGitWorkspaceResponse": {
-        "type": "object",
-        "description": "Response for `POST /api/v1/workspaces/{id}/reset-git`.\n\n`resynced` reports whether the re-sync found the workspace still declared in\ngit; only then does `source` return to `\"git\"`.",
-        "required": [
-          "workspace",
-          "resynced"
-        ],
-        "properties": {
-          "error": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Why the re-sync did not take effect (unreachable provider, or the entry\nis no longer declared in the config file). `None` when `resynced`."
-          },
-          "resynced": {
-            "type": "boolean",
-            "description": "Whether the workspace was reclaimed from git during this call."
-          },
-          "workspace": {
-            "$ref": "#/components/schemas/WorkspaceResponse"
           }
         }
       },
@@ -21158,150 +20560,6 @@
           }
         }
       },
-      "UpdateWorkspaceRequest": {
-        "type": "object",
-        "properties": {
-          "defaultEffort": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Reasoning-effort level paired with `default_model`."
-          },
-          "defaultModel": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Model catalog id a new Task on this Workspace starts with."
-          },
-          "description": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "dockerAccess": {
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "dockerImage": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "envVars": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "additionalProperties": {
-              "type": "string"
-            },
-            "propertyNames": {
-              "type": "string"
-            }
-          },
-          "icon": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/WorkspaceIcon",
-                "description": "Omit to leave the icon unchanged; send `null` to clear it back to the\nclient's automatic glyph. The same holds for the two fields below."
-              }
-            ]
-          },
-          "languageServers": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "$ref": "#/components/schemas/LanguageServer"
-            },
-            "description": "Send `[]` to start no language server."
-          },
-          "name": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "networkProfile": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "nodeSelector": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "description": "Extra node labels sandbox pods must match, merged over the\ndeployment-wide selector. Send `{}` to clear.",
-            "additionalProperties": {
-              "type": "string"
-            },
-            "propertyNames": {
-              "type": "string"
-            }
-          },
-          "resources": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ResourceConfig"
-              }
-            ]
-          },
-          "runAsUserId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Identity every Task on this Workspace acts as on a git host. When set it\noutranks the Task's own owner. An explicit empty string clears it."
-          },
-          "sandboxServiceAccount": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "scope": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/Scope",
-                "description": "Change the workspace's access scope (`global` requires admin).\n\nPromotes every repository already placed to `global` too — repos added\nlater keep their own scope — and returning to `user` does not demote\nthem back."
-              }
-            ]
-          },
-          "setupCommands": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "string"
-            }
-          },
-          "systemPrompt": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
       "UploadFileBody": {
         "type": "object",
         "description": "Doc-only type for multipart upload body.",
@@ -21779,46 +21037,6 @@
         ],
         "description": "The glyph a client renders beside a Workspace name.\n\nMirrors the T3 client's `ProjectIconOverride`, the only surface that picks\none; its own schema enumerates legal glyph names and colours, not restated\nhere to avoid drift."
       },
-      "WorkspaceRepoInput": {
-        "type": "object",
-        "description": "A repository placement inside a workspace (create/add payload).",
-        "required": [
-          "repositoryId"
-        ],
-        "properties": {
-          "branch": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Override the repository's default branch for this placement."
-          },
-          "isPrimary": {
-            "type": [
-              "boolean",
-              "null"
-            ],
-            "description": "Mark this placement as the primary (diff/PR/AGENTS.md) repo. At most one\nprimary is kept per workspace; when several are flagged the first wins."
-          },
-          "mountName": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Subdir under the workspace dir (defaults to the repo name at runtime)."
-          },
-          "position": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32"
-          },
-          "repositoryId": {
-            "type": "string"
-          }
-        }
-      },
       "WorkspaceRepoResponse": {
         "type": "object",
         "required": [
@@ -22111,7 +21329,7 @@
           "reclaimed": {
             "type": "integer",
             "format": "int32",
-            "description": "Manually overridden workspaces taken back under git control by an\nexplicit sync, discarding the local edits.",
+            "description": "Legacy manual overrides taken back under git control, discarding their\nlocal edits.",
             "minimum": 0
           },
           "removed": {
@@ -22367,7 +21585,7 @@
     },
     {
       "name": "workspaces",
-      "description": "Workspace CRUD + composition"
+      "description": "Workspaces synced from git, and their credentials"
     }
   ]
 }

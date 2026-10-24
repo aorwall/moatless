@@ -19,19 +19,6 @@ use uuid::Uuid;
 
 use moatless_types::agent::{AgentMode, Harness};
 
-/// Workspace-owned replacement of declared scripts, retaining hidden
-/// configuration.
-#[cfg_attr(test, mockall::automock)]
-#[async_trait]
-pub trait WorkspaceScriptCommands: Send + Sync {
-    async fn replace_scripts(
-        &self,
-        viewer: &ScopeContext,
-        workspace_id: &str,
-        scripts: &[moatless_workspace_types::workspace::ScriptConfig],
-    ) -> Result<(), crate::scripts::ScriptsWriteError>;
-}
-
 /// The Workspace Scripts a Task runs against, read through the Task.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]

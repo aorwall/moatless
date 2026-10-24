@@ -22,9 +22,8 @@ const DEFAULT_SCRIPT_ICON: &str = "play";
 
 /// Whether the contract would accept this icon.
 ///
-/// The read path tolerates anything and reports the default; the write path
-/// ([`scripts::replace`](crate::scripts::replace)) stores nothing it could not
-/// read back.
+/// The read path tolerates anything and reports the default; the Task-script
+/// decoder stores only icons this accepts.
 #[must_use]
 pub(crate) fn is_script_icon(icon: &str) -> bool {
     SCRIPT_ICONS.contains(&icon)

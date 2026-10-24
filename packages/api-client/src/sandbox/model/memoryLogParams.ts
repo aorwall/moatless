@@ -5,8 +5,10 @@
  * Sandbox orchestration and authentication for Moatless Vibe
  * OpenAPI spec version: 0.1.0
  */
+import type { MemoryScope } from './memoryScope';
 
-/**
- * @nullable
- */
-export type UpdateWorkspaceRequestEnvVars = {[key: string]: string} | null;
+export type MemoryLogParams = {
+key: string;
+scope?: MemoryScope;
+limit?: number;
+};

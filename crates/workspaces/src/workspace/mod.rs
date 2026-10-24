@@ -21,7 +21,6 @@ pub mod scripts;
 mod git_placements_test;
 
 pub(crate) mod mutations;
-pub(crate) mod reset;
 
 pub(crate) mod config_validation;
 

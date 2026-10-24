@@ -217,13 +217,6 @@ impl TryFrom<ListedWorkspaceRow> for ListedWorkspace {
     }
 }
 
-/// Source ownership and the stored scripts needed for a guarded replacement.
-#[derive(Debug, Clone)]
-pub struct WorkspaceScriptsTarget {
-    pub source: String,
-    pub scripts: Vec<ScriptConfig>,
-}
-
 /// Patch struct for partial workspace updates. Outer `Option` = "field present
 /// in the patch"; inner `Option` = the nullable column value.
 #[derive(Default)]

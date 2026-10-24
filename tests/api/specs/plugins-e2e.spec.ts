@@ -50,12 +50,10 @@ test.describe('Chain: Plugins E2E', () => {
   })
 
   test.afterAll(async ({ api }) => {
-    // Deleting the plugin cascades its skills and activation records away.
+    // Deleting the plugin cascades its skills and activation records away. The
+    // repository's default Workspace is shared and git-synced, so it stays.
     if (pluginId) {
       await api.deletePlugin(pluginId).catch(() => {})
-    }
-    if (workspaceId) {
-      await api.deleteWorkspace(workspaceId).catch(() => {})
     }
     // Stop + delete task
     await discardTask(api, ctx.taskId)
@@ -163,10 +161,7 @@ test.describe('Chain: Plugins E2E', () => {
   // --- PLUGIN-05: A workspace narrows what loads in it ----------------------
 
   test('PLUGIN-05: A workspace record keeps a globally-on plugin out of it', async ({ api }) => {
-    const ws = await api.createWorkspace({
-      name: 'plugin-scoped-workspace',
-      repos: [{ repositoryId: ctx.repositoryId!, isPrimary: true }],
-    })
+    const ws = await api.ensureWorkspaceFor(ctx.repositoryId!)
     workspaceId = ws.id
 
     await api.setPluginActivation(pluginId, {

@@ -1,8 +1,7 @@
 //! Automatic Loop and workspace sync when a repository's default branch moves.
 //!
 //! Each tick reads every GitHub repository's default-branch head and syncs the
-//! repositories whose head changed since the last successful sync. Workspaces
-//! sync with [`SyncForce::RespectOverrides`], as on task start; Loops land
+//! repositories whose head changed since the last successful sync. Loops land
 //! inactive and keep any approval, as in the explicit `sync-config`.
 
 use std::collections::HashMap;
@@ -14,7 +13,7 @@ use moatless_loops::loops::sync::LoopSyncService;
 use moatless_types::access_control::ScopeContext;
 use moatless_workspace_types::repository::RepositoryProvider;
 use moatless_workspaces::repository::{Repositories, models::Repository};
-use moatless_workspaces::workspace::git_sync::{GitSyncService, SyncForce};
+use moatless_workspaces::workspace::git_sync::GitSyncService;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
@@ -154,10 +153,7 @@ impl DefaultBranchWatch {
         // Workspaces first: a Loop resolves its `workspace:` against them. A
         // failure still lets the Loops sync, but leaves the head unrecorded so
         // a Loop naming a workspace this head adds is retried next tick.
-        let workspaces = self
-            .git_sync
-            .sync_repo_workspaces_for(repo, &ctx, &SyncForce::RespectOverrides)
-            .await;
+        let workspaces = self.git_sync.sync_repo_workspaces_for(repo, &ctx).await;
 
         let summary = match self.loop_sync.sync_repo_loops_for(repo, &ctx).await {
             Ok(summary) => summary,

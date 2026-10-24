@@ -11,7 +11,6 @@
 | Stops after inactivity | Lifecycle events and configured idle timeout | Confirm idle policy before treating an intentional stop as a crash. |
 | CLI and pod disagree | Timestamps, pod UID, all matching sandbox pods | Trace watcher and status resolver in the code map; do not assume the newest Running pod is ready. |
 
-Resource changes belong to `moat workspaces update <workspace-id> --resources-json`.
-Read the existing config and preserve all fields when replacing JSON. For git-owned
-configuration, edit its source or explicitly take manual ownership. Existing
+Resource changes belong to the Workspace's `resources` in its repository's
+`.moatless/workspaces.json`, then `moat repos sync-config <repo>`. Existing
 containers require reprovisioning to receive changed container limits.

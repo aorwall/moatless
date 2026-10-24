@@ -7,8 +7,8 @@
  */
 
 /**
- * Extra node labels sandbox pods must match, merged over the
- * deployment-wide selector. Send `{}` to clear.
+ * The record rules the latest publish set, as published; `None` lets a
+ * page perform every record operation.
  * @nullable
  */
-export type UpdateWorkspaceRequestNodeSelector = {[key: string]: string} | null;
+export type ArtifactResponseRecordRules = { [key: string]: unknown } | null;

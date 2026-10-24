@@ -5,7 +5,7 @@ use moatless_loops::loops::sync::LoopSyncService;
 use moatless_types::access_control::ScopeContext;
 use moatless_workspace_types::schemas::workspace::WorkspaceSyncSummary;
 use moatless_workspaces::repository::{Repositories, error::RepositoryError, models::Repository};
-use moatless_workspaces::workspace::git_sync::{GitSyncService, SyncForce, log_workspace_sync_for};
+use moatless_workspaces::workspace::git_sync::{GitSyncService, log_workspace_sync_for};
 
 /// Repository configuration and both synchronization summaries.
 pub struct SyncResult {
@@ -33,10 +33,7 @@ pub async fn sync_config(
         .await?
         .ok_or_else(|| RepositoryError::NotFound(repository_id.to_string()))?;
 
-    // Explicit, user-initiated sync: git is authoritative again, so overridden
-    // workspaces are reclaimed. The automatic sync on task start is not.
-    let (updated, loops, workspaces) =
-        sync_repo_config(loop_sync, git_sync, &repo, ctx, &SyncForce::All).await?;
+    let (updated, loops, workspaces) = sync_repo_config(loop_sync, git_sync, &repo, ctx).await?;
 
     Ok(SyncResult {
         repository: updated,
@@ -50,7 +47,6 @@ async fn sync_repo_config(
     git_sync: &GitSyncService,
     repo: &Repository,
     ctx: &ScopeContext,
-    force: &SyncForce,
 ) -> Result<(Repository, LoopSyncSummary, WorkspaceSyncSummary), RepositoryError> {
     if repo.remote.is_none() {
         return Err(RepositoryError::BadRequest(
@@ -65,7 +61,7 @@ async fn sync_repo_config(
         .await
         .map_err(|error| RepositoryError::ProviderError(error.to_string()))?;
 
-    let workspaces = log_workspace_sync_for(git_sync, repo, ctx, "sync-config", force).await;
+    let workspaces = log_workspace_sync_for(git_sync, repo, ctx, "sync-config").await;
 
     Ok((repo.clone(), loops, workspaces))
 }
@@ -119,6 +115,7 @@ mod tests {
                 tokens,
                 moatless_core::config::HttpConfig::default().git_content,
                 moatless_core::config::DEFAULT_GITHUB_API_BASE.to_string(),
+                Default::default(),
             ),
         )
     }
@@ -157,14 +154,8 @@ mod tests {
             created_at: None,
             updated_at: None,
         };
-        let result = sync_repo_config(
-            &loops,
-            &git,
-            &repository,
-            &ScopeContext::admin("admin"),
-            &SyncForce::All,
-        )
-        .await;
+        let result =
+            sync_repo_config(&loops, &git, &repository, &ScopeContext::admin("admin")).await;
         assert!(
             matches!(result, Err(RepositoryError::BadRequest(message)) if message == "Repository has no remote URL")
         );

@@ -18,15 +18,13 @@ use moatless_workspaces::repository::branches::RepositoryBranchService;
 use moatless_workspaces::repository::error::RepositoryError;
 use moatless_workspaces::skill::service::SkillService;
 use moatless_workspaces::workspace::Workspaces;
-use moatless_workspaces::workspace::error::WorkspaceScriptsError;
 use uuid::Uuid;
 
 use crate::ports::{
     AgentCatalogSource, BranchListError, ChildTask, GithubIdentity, ParentTask,
     RepositoryBranchSource, SkillCatalog, SourceControlAuthSource, TaskRelationSource,
-    WorkspaceScriptCommands, WorkspaceScriptSource, WorkspaceSkill,
+    WorkspaceScriptSource, WorkspaceSkill,
 };
-use crate::scripts::ScriptsWriteError;
 
 /// The agent catalog over the credentials a viewer has stored.
 pub struct AgentCatalog {
@@ -43,30 +41,6 @@ impl AgentCatalogSource for AgentCatalog {
             viewer,
         )
         .await
-    }
-}
-
-#[async_trait]
-impl WorkspaceScriptCommands for Workspaces {
-    async fn replace_scripts(
-        &self,
-        viewer: &ScopeContext,
-        workspace_id: &str,
-        scripts: &[ScriptConfig],
-    ) -> Result<(), ScriptsWriteError> {
-        moatless_workspaces::workspace::scripts::replace_scripts_preserving_env(
-            self,
-            viewer,
-            workspace_id,
-            scripts,
-        )
-        .await
-        .map_err(|error| match error {
-            WorkspaceScriptsError::NotFound => ScriptsWriteError::NotFound,
-            WorkspaceScriptsError::GitSynced => ScriptsWriteError::GitSynced,
-            WorkspaceScriptsError::Invalid(message) => ScriptsWriteError::Invalid(message),
-            WorkspaceScriptsError::Database(source) => ScriptsWriteError::Database(source),
-        })
     }
 }
 

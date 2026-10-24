@@ -25,11 +25,16 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  ArtifactRecordResponse,
   ArtifactResponse,
   ErrorBody,
+  ListArtifactRecordsResponse,
   ListArtifactsResponse,
+  ListPageRecordsParams,
+  ListRecordsParams,
   PublishArtifactBody,
-  ServeArtifactPageParams
+  ServeArtifactPageParams,
+  WriteArtifactRecordRequest
 } from '../model';
 
 import { customInstance } from '../../../custom-instance';
@@ -58,6 +63,277 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   }
   return result;
 };
+
+export type listPageRecordsResponse200 = {
+  data: ListArtifactRecordsResponse
+  status: 200
+}
+
+export type listPageRecordsResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+
+export type listPageRecordsResponseSuccess = (listPageRecordsResponse200) & {
+  headers: Headers;
+};
+export type listPageRecordsResponseError = (listPageRecordsResponse401) & {
+  headers: Headers;
+};
+
+export type listPageRecordsResponse = (listPageRecordsResponseSuccess | listPageRecordsResponseError)
+
+export const getListPageRecordsUrl = (token: string,
+    params?: ListPageRecordsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/artifact-data/${token}/records?${stringifiedParams}` : `/api/artifact-data/${token}/records`
+}
+
+/**
+ * @summary List the records of the Artifact a page token names, oldest change first.
+ */
+export const listPageRecords = async (token: string,
+    params?: ListPageRecordsParams, options?: Parameters<typeof customInstance>[1]): Promise<listPageRecordsResponse> => {
+
+  return customInstance<listPageRecordsResponse>(getListPageRecordsUrl(token,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPageRecordsMutationKey = () => ['listPageRecords'] as const;
+
+export const getListPageRecordsMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof listPageRecords>>, TError,ListPageRecordsMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof listPageRecords>>, TError,ListPageRecordsMutationVariables, TContext> => {
+
+const mutationKey = getListPageRecordsMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof listPageRecords>>, ListPageRecordsMutationVariables> = (props) => {
+          const {token,params} = props ?? {};
+
+          return  listPageRecords(token,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ListPageRecordsMutationResult = NonNullable<Awaited<ReturnType<typeof listPageRecords>>>
+
+    export type ListPageRecordsMutationError = ErrorType<ErrorBody>
+    export type ListPageRecordsMutationVariables = {token: string;params?: ListPageRecordsParams}
+
+    /**
+ * @summary List the records of the Artifact a page token names, oldest change first.
+ */
+export const useListPageRecords = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof listPageRecords>>, TError,ListPageRecordsMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof listPageRecords>>,
+        TError,
+        ListPageRecordsMutationVariables,
+        TContext
+      > => {
+      return useMutation(getListPageRecordsMutationOptions(options), queryClient);
+    }
+    export type writePageRecordResponse200 = {
+  data: ArtifactRecordResponse
+  status: 200
+}
+
+export type writePageRecordResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type writePageRecordResponse401 = {
+  data: ErrorBody
+  status: 401
+}
+
+export type writePageRecordResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type writePageRecordResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type writePageRecordResponse413 = {
+  data: ErrorBody
+  status: 413
+}
+
+export type writePageRecordResponseSuccess = (writePageRecordResponse200) & {
+  headers: Headers;
+};
+export type writePageRecordResponseError = (writePageRecordResponse400 | writePageRecordResponse401 | writePageRecordResponse403 | writePageRecordResponse404 | writePageRecordResponse413) & {
+  headers: Headers;
+};
+
+export type writePageRecordResponse = (writePageRecordResponseSuccess | writePageRecordResponseError)
+
+export const getWritePageRecordUrl = (token: string,) => {
+
+
+
+
+  return `/api/artifact-data/${token}/records`
+}
+
+/**
+ * @summary Save, append or delete a record from a served page, queuing a message to
+the Task's agent when the Artifact was published with `notify`.
+ */
+export const writePageRecord = async (token: string,
+    writeArtifactRecordRequest: WriteArtifactRecordRequest, options?: Parameters<typeof customInstance>[1]): Promise<writePageRecordResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customInstance<writePageRecordResponse>(getWritePageRecordUrl(token),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(writeArtifactRecordRequest)
+  }
+);}
+
+
+
+
+
+export const getWritePageRecordQueryKey = (token: string,
+    writeArtifactRecordRequest?: WriteArtifactRecordRequest,) => {
+    return [
+    'POST', `/api/artifact-data/${token}/records`, writeArtifactRecordRequest
+    ] as const;
+    }
+
+
+export const getWritePageRecordQueryOptions = <TData = Awaited<ReturnType<typeof writePageRecord>>, TError = ErrorType<ErrorBody>>(token: string,
+    writeArtifactRecordRequest: WriteArtifactRecordRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof writePageRecord>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getWritePageRecordQueryKey(token,writeArtifactRecordRequest);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof writePageRecord>>> = ({ signal }) => writePageRecord(token,writeArtifactRecordRequest, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: token !== null && token !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof writePageRecord>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type WritePageRecordQueryResult = NonNullable<Awaited<ReturnType<typeof writePageRecord>>>
+export type WritePageRecordQueryError = ErrorType<ErrorBody>
+
+
+export function useWritePageRecord<TData = Awaited<ReturnType<typeof writePageRecord>>, TError = ErrorType<ErrorBody>>(
+ token: string,
+    writeArtifactRecordRequest: WriteArtifactRecordRequest, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof writePageRecord>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof writePageRecord>>,
+          TError,
+          Awaited<ReturnType<typeof writePageRecord>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useWritePageRecord<TData = Awaited<ReturnType<typeof writePageRecord>>, TError = ErrorType<ErrorBody>>(
+ token: string,
+    writeArtifactRecordRequest: WriteArtifactRecordRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof writePageRecord>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof writePageRecord>>,
+          TError,
+          Awaited<ReturnType<typeof writePageRecord>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useWritePageRecord<TData = Awaited<ReturnType<typeof writePageRecord>>, TError = ErrorType<ErrorBody>>(
+ token: string,
+    writeArtifactRecordRequest: WriteArtifactRecordRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof writePageRecord>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Save, append or delete a record from a served page, queuing a message to
+the Task's agent when the Artifact was published with `notify`.
+ */
+
+export function useWritePageRecord<TData = Awaited<ReturnType<typeof writePageRecord>>, TError = ErrorType<ErrorBody>>(
+ token: string,
+    writeArtifactRecordRequest: WriteArtifactRecordRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof writePageRecord>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getWritePageRecordQueryOptions(token,writeArtifactRecordRequest,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+/**
+ * @summary Save, append or delete a record from a served page, queuing a message to
+the Task's agent when the Artifact was published with `notify`.
+ */
+export const prefetchWritePageRecordQuery = async <TData = Awaited<ReturnType<typeof writePageRecord>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, token: string,
+    writeArtifactRecordRequest: WriteArtifactRecordRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof writePageRecord>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getWritePageRecordQueryOptions(token,writeArtifactRecordRequest,options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+
 
 export type openLatestArtifactResponse302 = {
   data: void
@@ -149,7 +425,268 @@ export const useOpenLatestArtifact = <TError = ErrorType<void | ErrorBody>,
       > => {
       return useMutation(getOpenLatestArtifactMutationOptions(options), queryClient);
     }
-    export type serveArtifactPageResponse200 = {
+    export type listRecordsResponse200 = {
+  data: ListArtifactRecordsResponse
+  status: 200
+}
+
+export type listRecordsResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type listRecordsResponseSuccess = (listRecordsResponse200) & {
+  headers: Headers;
+};
+export type listRecordsResponseError = (listRecordsResponse404) & {
+  headers: Headers;
+};
+
+export type listRecordsResponse = (listRecordsResponseSuccess | listRecordsResponseError)
+
+export const getListRecordsUrl = (artifactId: string,
+    params?: ListRecordsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/artifacts/${artifactId}/records?${stringifiedParams}` : `/api/v1/artifacts/${artifactId}/records`
+}
+
+/**
+ * @summary List an Artifact's records, oldest change first.
+ */
+export const listRecords = async (artifactId: string,
+    params?: ListRecordsParams, options?: Parameters<typeof customInstance>[1]): Promise<listRecordsResponse> => {
+
+  return customInstance<listRecordsResponse>(getListRecordsUrl(artifactId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListRecordsMutationKey = () => ['listRecords'] as const;
+
+export const getListRecordsMutationOptions = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof listRecords>>, TError,ListRecordsMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof listRecords>>, TError,ListRecordsMutationVariables, TContext> => {
+
+const mutationKey = getListRecordsMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof listRecords>>, ListRecordsMutationVariables> = (props) => {
+          const {artifactId,params} = props ?? {};
+
+          return  listRecords(artifactId,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ListRecordsMutationResult = NonNullable<Awaited<ReturnType<typeof listRecords>>>
+
+    export type ListRecordsMutationError = ErrorType<ErrorBody>
+    export type ListRecordsMutationVariables = {artifactId: string;params?: ListRecordsParams}
+
+    /**
+ * @summary List an Artifact's records, oldest change first.
+ */
+export const useListRecords = <TError = ErrorType<ErrorBody>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof listRecords>>, TError,ListRecordsMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof listRecords>>,
+        TError,
+        ListRecordsMutationVariables,
+        TContext
+      > => {
+      return useMutation(getListRecordsMutationOptions(options), queryClient);
+    }
+    export type writeRecordResponse200 = {
+  data: ArtifactRecordResponse
+  status: 200
+}
+
+export type writeRecordResponse400 = {
+  data: ErrorBody
+  status: 400
+}
+
+export type writeRecordResponse403 = {
+  data: ErrorBody
+  status: 403
+}
+
+export type writeRecordResponse404 = {
+  data: ErrorBody
+  status: 404
+}
+
+export type writeRecordResponseSuccess = (writeRecordResponse200) & {
+  headers: Headers;
+};
+export type writeRecordResponseError = (writeRecordResponse400 | writeRecordResponse403 | writeRecordResponse404) & {
+  headers: Headers;
+};
+
+export type writeRecordResponse = (writeRecordResponseSuccess | writeRecordResponseError)
+
+export const getWriteRecordUrl = (artifactId: string,) => {
+
+
+
+
+  return `/api/v1/artifacts/${artifactId}/records`
+}
+
+/**
+ * @summary Save, append or delete a record as the caller, who must be able to change
+the Task. Queues no message.
+ */
+export const writeRecord = async (artifactId: string,
+    writeArtifactRecordRequest: WriteArtifactRecordRequest, options?: Parameters<typeof customInstance>[1]): Promise<writeRecordResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Array.isArray(h)) return Object.fromEntries(h);
+    return h;
+  };
+return customInstance<writeRecordResponse>(getWriteRecordUrl(artifactId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(writeArtifactRecordRequest)
+  }
+);}
+
+
+
+
+
+export const getWriteRecordQueryKey = (artifactId: string,
+    writeArtifactRecordRequest?: WriteArtifactRecordRequest,) => {
+    return [
+    'POST', `/api/v1/artifacts/${artifactId}/records`, writeArtifactRecordRequest
+    ] as const;
+    }
+
+
+export const getWriteRecordQueryOptions = <TData = Awaited<ReturnType<typeof writeRecord>>, TError = ErrorType<ErrorBody>>(artifactId: string,
+    writeArtifactRecordRequest: WriteArtifactRecordRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof writeRecord>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getWriteRecordQueryKey(artifactId,writeArtifactRecordRequest);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof writeRecord>>> = ({ signal }) => writeRecord(artifactId,writeArtifactRecordRequest, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: artifactId !== null && artifactId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof writeRecord>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type WriteRecordQueryResult = NonNullable<Awaited<ReturnType<typeof writeRecord>>>
+export type WriteRecordQueryError = ErrorType<ErrorBody>
+
+
+export function useWriteRecord<TData = Awaited<ReturnType<typeof writeRecord>>, TError = ErrorType<ErrorBody>>(
+ artifactId: string,
+    writeArtifactRecordRequest: WriteArtifactRecordRequest, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof writeRecord>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof writeRecord>>,
+          TError,
+          Awaited<ReturnType<typeof writeRecord>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useWriteRecord<TData = Awaited<ReturnType<typeof writeRecord>>, TError = ErrorType<ErrorBody>>(
+ artifactId: string,
+    writeArtifactRecordRequest: WriteArtifactRecordRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof writeRecord>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof writeRecord>>,
+          TError,
+          Awaited<ReturnType<typeof writeRecord>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useWriteRecord<TData = Awaited<ReturnType<typeof writeRecord>>, TError = ErrorType<ErrorBody>>(
+ artifactId: string,
+    writeArtifactRecordRequest: WriteArtifactRecordRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof writeRecord>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Save, append or delete a record as the caller, who must be able to change
+the Task. Queues no message.
+ */
+
+export function useWriteRecord<TData = Awaited<ReturnType<typeof writeRecord>>, TError = ErrorType<ErrorBody>>(
+ artifactId: string,
+    writeArtifactRecordRequest: WriteArtifactRecordRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof writeRecord>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getWriteRecordQueryOptions(artifactId,writeArtifactRecordRequest,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+/**
+ * @summary Save, append or delete a record as the caller, who must be able to change
+the Task. Queues no message.
+ */
+export const prefetchWriteRecordQuery = async <TData = Awaited<ReturnType<typeof writeRecord>>, TError = ErrorType<ErrorBody>>(
+ queryClient: QueryClient, artifactId: string,
+    writeArtifactRecordRequest: WriteArtifactRecordRequest, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof writeRecord>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+
+  ): Promise<QueryClient> => {
+
+  const queryOptions = getWriteRecordQueryOptions(artifactId,writeArtifactRecordRequest,options)
+
+  await queryClient.prefetchQuery(queryOptions);
+
+  return queryClient;
+}
+
+
+
+
+
+export type serveArtifactPageResponse200 = {
   data: string
   status: 200
 }
@@ -397,6 +934,9 @@ export const getPublishArtifactUrl = (taskId: string,) => {
 export const publishArtifact = async (taskId: string,
     publishArtifactBody: PublishArtifactBody, options?: Parameters<typeof customInstance>[1]): Promise<publishArtifactResponse> => {
     const formData = new FormData();
+if(publishArtifactBody.data !== undefined && publishArtifactBody.data !== null) {
+ formData.append(`data`, publishArtifactBody.data.toString())
+ }
 formData.append(`file`, publishArtifactBody.file);
 if(publishArtifactBody.height !== undefined && publishArtifactBody.height !== null) {
  formData.append(`height`, publishArtifactBody.height.toString())
@@ -404,10 +944,19 @@ if(publishArtifactBody.height !== undefined && publishArtifactBody.height !== nu
 if(publishArtifactBody.inline !== undefined && publishArtifactBody.inline !== null) {
  formData.append(`inline`, publishArtifactBody.inline.toString())
  }
+if(publishArtifactBody.notify !== undefined && publishArtifactBody.notify !== null) {
+ formData.append(`notify`, publishArtifactBody.notify.toString())
+ }
+if(publishArtifactBody.rules !== undefined && publishArtifactBody.rules !== null) {
+ formData.append(`rules`, publishArtifactBody.rules);
+ }
 if(publishArtifactBody.slug !== undefined && publishArtifactBody.slug !== null) {
  formData.append(`slug`, publishArtifactBody.slug);
  }
 formData.append(`title`, publishArtifactBody.title);
+if(publishArtifactBody.visibility !== undefined && publishArtifactBody.visibility !== null) {
+ formData.append(`visibility`, publishArtifactBody.visibility);
+ }
 
   return customInstance<publishArtifactResponse>(getPublishArtifactUrl(taskId),
   {

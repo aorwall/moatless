@@ -369,9 +369,7 @@ pub(crate) async fn declare(
         command: required_str(payload, "command")?.to_string(),
         label: optional_str(payload, "label").filter(|label| label != name),
         icon: optional_str(payload, "icon").filter(|icon| projection::is_script_icon(icon)),
-        port: port(payload)
-            .map_err(|error| ScriptsError::Invalid(error.to_string()))?
-            .map(u32::from),
+        port: port(payload)?.map(u32::from),
         run_on_start: payload
             .get("runOnStart")
             .and_then(Value::as_bool)
@@ -471,109 +469,11 @@ const SETUP_GATE: &str = concat!(
     "fi; ",
 );
 
-/// Why a Scripts write could not be carried out.
-///
-/// Separate from [`ScriptsError`]: running is an RPC that fails, editing is a
-/// dispatched command that is *refused*.
-#[derive(Debug, thiserror::Error)]
-pub enum ScriptsWriteError {
-    /// The viewer cannot be shown this Workspace, or it does not exist. One
-    /// answer, as everywhere else a scoped read finds nothing.
-    #[error("workspace not found")]
-    NotFound,
-    /// The Workspace's run config is synced from git, so a write here would be
-    /// undone by the next reconcile. Refused rather than silently lost.
-    #[error("workspace is synced from Git")]
-    GitSynced,
-    /// The submitted list is not one this surface can store.
-    #[error("{0}")]
-    Invalid(String),
-    #[error("the workspace could not be written")]
-    Database(#[source] sqlx::Error),
-}
-
-impl From<sqlx::Error> for ScriptsWriteError {
-    fn from(value: sqlx::Error) -> Self {
-        Self::Database(value)
-    }
-}
-
-/// Decode the client list and dispatch its replacement to the Workspace owner.
-pub async fn replace(
-    commands: &dyn crate::ports::WorkspaceScriptCommands,
-    viewer: &ScopeContext,
-    workspace_id: &str,
-    submitted: &Value,
-) -> Result<(), ScriptsWriteError> {
-    let submitted = submitted
-        .as_array()
-        .ok_or_else(|| ScriptsWriteError::Invalid("`scripts` must be a list.".to_string()))?;
-    let next = submitted
-        .iter()
-        .map(script_config)
-        .collect::<Result<Vec<_>, _>>()?;
-    commands.replace_scripts(viewer, workspace_id, &next).await
-}
-
-/// One wire Script as a stored one.
-fn script_config(script: &Value) -> Result<ScriptConfig, ScriptsWriteError> {
-    // `id` is the stored name: the projection reports the name as the id
-    // precisely because a Script has no backend-allocated id to report.
-    let name = required_field(script, "id")?;
-    let command = required_field(script, "command")?;
-
-    // The display name, kept only when it says something the name does not.
-    // Writing it back unconditionally would give every Script a label equal to
-    // its name, which reads as deliberate and is not.
-    let label = script
-        .get("name")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|label| !label.is_empty() && *label != name)
-        .map(str::to_string);
-
-    let icon = script
-        .get("icon")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|icon| projection::is_script_icon(icon))
-        .map(str::to_string);
-
-    // Absent, null and non-bool all mean "run only on request": the flag is the
-    // client's `runOnWorktreeCreate`, and a client that does not know about it
-    // must not silently start turning it off.
-    let run_on_start = script
-        .get("runOnWorktreeCreate")
-        .and_then(Value::as_bool)
-        .unwrap_or_default();
-
-    Ok(ScriptConfig {
-        env_vars: None,
-        port: port(script)?,
-        name,
-        label,
-        command,
-        icon,
-        run_on_start,
-    })
-}
-
-/// A trimmed, non-empty string field, or the refusal that says which one.
-fn required_field(script: &Value, field: &str) -> Result<String, ScriptsWriteError> {
-    script
-        .get(field)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| ScriptsWriteError::Invalid(format!("Every script needs a {field}.")))
-}
-
 /// The port a Script serves on, if it declares one.
 ///
 /// Absent and null both mean "serves nothing". Out-of-range is refused, not
 /// clamped, so a mistyped port never silently becomes 65535.
-fn port(script: &Value) -> Result<Option<u16>, ScriptsWriteError> {
+fn port(script: &Value) -> Result<Option<u16>, ScriptsError> {
     let Some(port) = script.get("port") else {
         return Ok(None);
     };
@@ -584,7 +484,7 @@ fn port(script: &Value) -> Result<Option<u16>, ScriptsWriteError> {
         .filter(|port| (1..=u64::from(u16::MAX)).contains(port))
         .map(|port| Some(port as u16))
         .ok_or_else(|| {
-            ScriptsWriteError::Invalid(format!(
+            ScriptsError::Invalid(format!(
                 "`{port}` is not a port. Use a number from 1 to 65535, or leave it empty."
             ))
         })
@@ -661,38 +561,6 @@ mod tests {
     #[test]
     fn every_line_ends_with_the_carriage_return_that_runs_it() {
         assert!(exec_line("true").ends_with('\r'));
-    }
-
-    /// The flag the client calls `runOnWorktreeCreate` is stored as
-    /// `run_on_start`, and an edit that carries it back must not lose it.
-    #[test]
-    fn a_flagged_wire_script_is_stored_as_run_on_start() {
-        let stored = script_config(&json!({
-            "id": "dev",
-            "command": "bun run dev",
-            "runOnWorktreeCreate": true
-        }))
-        .expect("a script with an id and a command decodes");
-
-        assert!(stored.run_on_start);
-    }
-
-    /// Absent, null and a non-bool are one answer, so a malformed flag cannot
-    /// make a Script start by itself.
-    #[test]
-    fn an_absent_or_unreadable_flag_means_run_on_request() {
-        for script in [
-            json!({"id": "dev", "command": "bun run dev"}),
-            json!({"id": "dev", "command": "bun run dev", "runOnWorktreeCreate": null}),
-            json!({"id": "dev", "command": "bun run dev", "runOnWorktreeCreate": "yes"}),
-        ] {
-            assert!(
-                !script_config(&script)
-                    .expect("a script with an id and a command decodes")
-                    .run_on_start,
-                "{script}"
-            );
-        }
     }
 
     fn config(name: &str, command: &str) -> ScriptConfig {

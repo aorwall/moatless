@@ -4,13 +4,10 @@
 use tracing::info;
 
 use moatless_core::db::DbPool;
-use moatless_ports::identity::UserResolver;
 use moatless_types::access_control::{Scope, ScopeContext};
 use moatless_workspace_types::repository::{RepositoryKind, RepositoryProvider};
 
-use super::error::WorkspaceError;
 use super::operations::Workspaces;
-use super::schemas::{CreateWorkspaceRequest, WorkspaceRepoInput, resource_config_to_wire};
 use crate::repository::error::RepositoryError;
 use crate::repository::operations::Repositories;
 use crate::repository::remote::normalize_remote_url;
@@ -25,8 +22,9 @@ pub struct ProvisionRequest {
     /// From the webhook's `repository` object; stored on a new repository.
     pub default_branch: Option<String>,
     pub description: Option<String>,
-    /// The Workspace a new one copies its run settings from. `None` finds an
-    /// existing Workspace but never creates one.
+    /// `provision.workspace_template`. Set, it lets an unknown repository be
+    /// registered, which gives it its default Workspace; `None` finds an
+    /// existing Workspace but never registers one. Its value is not read.
     pub template: Option<String>,
     /// Chosen over the repository's other Workspaces when it holds the
     /// repository, so a loop's named Workspace wins for its own repository.
@@ -46,12 +44,12 @@ pub enum Provisioned {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProvisionError {
-    #[error("workspace template `{0}` does not exist")]
-    TemplateMissing(String),
+    /// The git sync registering the repository ran gave it no Workspace, as
+    /// when its host could not be read.
+    #[error("repository `{0}` has no workspace after its git sync")]
+    NoWorkspace(String),
     #[error(transparent)]
     Repository(#[from] RepositoryError),
-    #[error(transparent)]
-    Workspace(#[from] WorkspaceError),
     #[error("database error: {0}")]
     Db(#[from] sqlx::Error),
 }
@@ -60,13 +58,12 @@ pub enum ProvisionError {
 pub struct ProvisionStores<'a> {
     pub workspaces: &'a Workspaces,
     pub repositories: &'a Repositories,
-    pub users: &'a dyn UserResolver,
     pub git_sync: &'a GitSyncService,
     pub pool: &'a DbPool,
 }
 
 /// Find or register the global repository for `request`, then its preferred
-/// or first Workspace, creating one from the template if it has none.
+/// or first Workspace.
 ///
 /// Serialized per repository URL by a Postgres advisory lock, so two triggers
 /// for one new repository create one repository and one Workspace.
@@ -135,73 +132,31 @@ async fn provision_locked(
         repository
     };
 
-    // The git sync `create_repository` ran may already have declared one.
-    let holding = stores
+    // The git sync `create_repository` ran declared at least the default one;
+    // a repository registered before every repository had one syncs it here.
+    let mut holding = stores
         .workspaces
         .store()
         .find_by_repository(&repository.id)
         .await?;
+    if holding.is_empty() {
+        stores
+            .git_sync
+            .sync_repo_workspaces_for(&repository, ctx)
+            .await?;
+        holding = stores
+            .workspaces
+            .store()
+            .find_by_repository(&repository.id)
+            .await?;
+    }
     let preferred = holding
         .iter()
         .find(|w| Some(&w.id) == request.preferred_workspace_id.as_ref());
-    if let Some(workspace) = preferred.or(holding.first()) {
-        return Ok(Provisioned::Workspace(workspace.id.clone()));
-    }
-
-    let Some(template_name) = request.template.as_deref() else {
-        return Ok(Provisioned::NoTemplate);
-    };
-    let template = stores
-        .workspaces
-        .store()
-        .list(ctx)
-        .await?
-        .into_iter()
-        .find(|w| !w.deleted && w.name == template_name)
-        .ok_or_else(|| ProvisionError::TemplateMissing(template_name.to_string()))?;
-
-    let workspace_id = super::mutations::create_workspace(
-        stores.workspaces.store(),
-        stores.workspaces.identities(),
-        repositories,
-        stores.users,
-        ctx,
-        CreateWorkspaceRequest {
-            name: request.repo.clone(),
-            description: None,
-            icon: None,
-            scope: Some(Scope::Global),
-            run_as_user_id: None,
-            docker_image: template.docker_image,
-            docker_access: None,
-            sandbox_service_account: None,
-            system_prompt: None,
-            setup_commands: template.setup_commands,
-            env_vars: template.env_vars,
-            scripts: None,
-            resources: template.resources.map(resource_config_to_wire),
-            language_servers: template.language_servers,
-            network_profile: template.network_profile,
-            node_selector: template.node_selector,
-            default_model: template.default_model,
-            default_effort: template.default_effort,
-            repos: vec![WorkspaceRepoInput {
-                repository_id: repository.id.clone(),
-                branch: None,
-                mount_name: None,
-                is_primary: Some(true),
-                position: None,
-            }],
-        },
-    )
-    .await?;
-    info!(
-        workspace_id = %workspace_id,
-        repository_id = %repository.id,
-        template = template_name,
-        "Created a workspace for a check-run trigger"
-    );
-    Ok(Provisioned::Workspace(workspace_id))
+    preferred
+        .or(holding.first())
+        .map(|workspace| Provisioned::Workspace(workspace.id.clone()))
+        .ok_or_else(|| ProvisionError::NoWorkspace(repository.id.clone()))
 }
 
 #[cfg(all(test, feature = "db-tests"))]

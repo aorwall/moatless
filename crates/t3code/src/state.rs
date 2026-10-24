@@ -41,7 +41,6 @@ pub(crate) struct UiRpcState {
     /// The change counters this replica's subscriptions wait on, read by one
     /// [`ChangePoller`](crate::change_watch::ChangePoller).
     pub(crate) changes: ChangeWatch,
-    pub(crate) workspace_script_commands: Arc<dyn ports::WorkspaceScriptCommands>,
     /// How a conversation's files are reached. The only piece of Moatless
     /// behind this module that is not a database read: a checkout exists inside
     /// its Sandbox and nowhere else.

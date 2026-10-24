@@ -256,7 +256,6 @@ impl GithubPrInstallation {
                 Arc::new(ProvisionedWorkspaces {
                     workspaces: state.workspaces.clone(),
                     repositories: state.repositories.clone(),
-                    users: state.user_directory.clone(),
                     git_sync: state.git_sync.clone(),
                     pool: state.db.clone(),
                 }),
@@ -395,7 +394,6 @@ impl ReviewGuideTasks for GuideTasks {
 struct ProvisionedWorkspaces {
     workspaces: Arc<moatless_workspaces::workspace::Workspaces>,
     repositories: Arc<moatless_workspaces::repository::operations::Repositories>,
-    users: Arc<moatless_identity::ports::UserDirectory>,
     git_sync: Arc<moatless_workspaces::workspace::git_sync::GitSyncService>,
     pool: moatless_core::db::DbPool,
 }
@@ -416,7 +414,6 @@ impl TriggerWorkspaces for ProvisionedWorkspaces {
             &ProvisionStores {
                 workspaces: &self.workspaces,
                 repositories: &self.repositories,
-                users: self.users.as_ref(),
                 git_sync: &self.git_sync,
                 pool: &self.pool,
             },
@@ -441,7 +438,7 @@ impl TriggerWorkspaces for ProvisionedWorkspaces {
                  provision.workspace_template"
                     .to_string(),
             )),
-            Err(error @ ProvisionError::TemplateMissing(_)) => {
+            Err(error @ ProvisionError::NoWorkspace(_)) => {
                 Ok(TriggerWorkspace::Skipped(error.to_string()))
             }
             Err(error) => Err(StoreError::with_source(

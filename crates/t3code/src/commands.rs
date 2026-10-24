@@ -23,7 +23,6 @@ use super::ports::{
     TurnAttachment,
 };
 use super::providers;
-use crate::scripts::{self, ScriptsWriteError};
 use crate::skills;
 use moatless_types::activity as mapping;
 use moatless_types::agent::{AgentMode, Harness};
@@ -35,7 +34,6 @@ pub struct CommandContext<'a> {
     pub conversations: &'a dyn ConversationDao,
     pub agents: &'a dyn AgentCatalogSource,
     pub sink: &'a dyn ThreadCommandSink,
-    pub workspace_script_commands: &'a dyn crate::ports::WorkspaceScriptCommands,
     /// The skills of the Workspace a turn runs in, for resolving the `$name`
     /// mentions the composer leaves in the prompt.
     pub skills: &'a dyn SkillCatalog,
@@ -198,7 +196,7 @@ pub async fn dispatch(
         "thread.delete" => {
             ctx.sink.delete(viewer, thread_id(command)?).await?;
         }
-        "project.meta.update" => project_meta_update(ctx, viewer, command).await?,
+        "project.meta.update" => project_meta_update(command)?,
         "project.create" | "project.delete" => {
             return Err(CommandRefusal::Unsupported {
                 command: tag,
@@ -696,18 +694,13 @@ async fn regenerate_title(
         .await
 }
 
-/// The project fields this surface changes: its Workspace's Scripts, and
-/// nothing else.
+/// Refuses every project change: a Workspace is edited only in Git.
 ///
-/// `project.meta.update` carries fields that describe a Moatless Workspace
-/// projection (`PROJECT_FIELDS_MOATLESS_OWNS`); each is refused by name
-/// instead of silently dropped, so a client never sees a false save.
-async fn project_meta_update(
-    ctx: &CommandContext<'_>,
-    viewer: &ScopeContext,
-    command: &Value,
-) -> Result<(), CommandRefusal> {
-    let workspace_id = command
+/// Each `PROJECT_FIELDS_MOATLESS_OWNS` field and a non-null `scripts` is
+/// refused by name rather than dropped, so a client never sees a false save;
+/// an update carrying none is a no-op.
+fn project_meta_update(command: &Value) -> Result<(), CommandRefusal> {
+    command
         .get("projectId")
         .and_then(Value::as_str)
         .map(str::trim)
@@ -724,31 +717,16 @@ async fn project_meta_update(
         });
     }
 
-    let Some(scripts) = command.get("scripts") else {
-        // Nothing asked for. Not an error — the client folds unrelated project
-        // state into this command — and nothing to write.
+    if command.get("scripts").is_none_or(Value::is_null) {
+        // The client folds unrelated project state into this command.
         return Ok(());
-    };
+    }
 
-    scripts::replace(ctx.workspace_script_commands, viewer, workspace_id, scripts)
-        .await
-        .map_err(|error| match error {
-            ScriptsWriteError::NotFound => CommandRefusal::Rejected {
-                message: "That project is not one you can change from here.".to_string(),
-            },
-            ScriptsWriteError::GitSynced => CommandRefusal::Rejected {
-                message: "This workspace is synced from Git. Edit \
-                          `.moatless/workspaces.json`, or override the workspace in Moatless."
-                    .to_string(),
-            },
-            ScriptsWriteError::Invalid(message) => CommandRefusal::Rejected { message },
-            ScriptsWriteError::Database(error) => {
-                warn!(%error, workspace_id, "Failed to write workspace scripts");
-                CommandRefusal::Failed {
-                    message: "The scripts could not be saved.".to_string(),
-                }
-            }
-        })
+    Err(CommandRefusal::Rejected {
+        message: "Workspaces are managed in Git. Edit `.moatless/workspaces.json` in the \
+                  repository to change its scripts."
+            .into(),
+    })
 }
 
 /// The `project.meta.update` fields that describe a Moatless Workspace rather

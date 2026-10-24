@@ -525,53 +525,9 @@ impl ApiClient {
             .await
     }
 
-    /// POST /api/v1/workspaces
-    pub async fn create_workspace(
-        &self,
-        req: &moatless_workspace_types::schemas::workspace::CreateWorkspaceRequest,
-    ) -> Result<moatless_workspace_types::schemas::workspace::WorkspaceResponse, ApiError> {
-        self.post("/api/v1/workspaces", req).await
-    }
-
-    /// PATCH `/api/v1/workspaces/{workspace_id}`
-    pub async fn update_workspace(
-        &self,
-        workspace_id: &str,
-        req: &moatless_workspace_types::schemas::workspace::UpdateWorkspaceRequest,
-    ) -> Result<moatless_workspace_types::schemas::workspace::WorkspaceResponse, ApiError> {
-        self.patch(&format!("/api/v1/workspaces/{workspace_id}"), req)
-            .await
-    }
-
     /// DELETE `/api/v1/workspaces/{workspace_id}`
     pub async fn delete_workspace(&self, workspace_id: &str) -> Result<(), ApiError> {
         self.delete_request(&format!("/api/v1/workspaces/{workspace_id}"))
-            .await
-    }
-
-    /// PATCH `/api/v1/workspaces/{workspace_id}/override`
-    ///
-    /// Sets `source = "manual"` so git sync skips this workspace;
-    /// `reset_git_workspace` re-enables sync.
-    pub async fn override_workspace(
-        &self,
-        workspace_id: &str,
-        req: &moatless_workspace_types::schemas::workspace::UpdateWorkspaceRequest,
-    ) -> Result<moatless_workspace_types::schemas::workspace::WorkspaceResponse, ApiError> {
-        self.patch(&format!("/api/v1/workspaces/{workspace_id}/override"), req)
-            .await
-    }
-
-    /// POST /api/v1/workspaces/{workspace_id}/reset-git
-    ///
-    /// Discards the local override and re-syncs run-config from the repository;
-    /// `resynced` reports whether it took effect.
-    pub async fn reset_git_workspace(
-        &self,
-        workspace_id: &str,
-    ) -> Result<moatless_workspace_types::schemas::workspace::ResetGitWorkspaceResponse, ApiError>
-    {
-        self.post_no_body(&format!("/api/v1/workspaces/{workspace_id}/reset-git"))
             .await
     }
 

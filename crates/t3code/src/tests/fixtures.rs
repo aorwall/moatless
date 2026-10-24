@@ -803,7 +803,6 @@ pub(super) fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore
             crate::poll_gate::PollGate::new(4),
         ),
         changes: crate::change_watch::ChangeWatch::new(),
-        workspace_script_commands: Arc::new(ports::MockWorkspaceScriptCommands::new()),
         sandboxes: Arc::new(UnreachableSandboxes),
         snapshots: None,
         scripts: ScriptsState {

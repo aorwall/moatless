@@ -13,6 +13,8 @@ own the schema. `moat k8s init` generates the starting file; review it before ap
 | `postgres.enabled` | False requires an external `DATABASE_URL`; true uses the bundled Postgres. |
 | `externalSecrets.enabled`, `externalSecrets.secretName` | Reference the prepared app Secret. |
 | `kubernetes.sandboxStorage` | Match the compute substrate, StorageClass, and namespace. |
+| `workspaceSync.githubOrgs`, `workspaceSync.orgSyncUserId` | Set both or neither; the user must hold a GitHub credential that reads every listed organization's private repositories. |
+| `workspaceSync.identityGrants` | One entry per repository and Workspace key that may set `sandboxServiceAccount`, `networkProfile` or `nodeSelector`; each value must exist in the cluster. |
 
 Use [secret keys](secrets.md) for credentials; keep values files free of real keys.
 The installer storage-mode option and workspace `ResourceConfig` are different

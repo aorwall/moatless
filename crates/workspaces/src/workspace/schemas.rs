@@ -13,7 +13,6 @@ use moatless_workspace_types::workspace::{
 use super::error::WorkspaceError;
 
 use super::models::{Workspace, WorkspaceRepo, WorkspaceSource};
-use moatless_workspace_types::workspace::ScriptConfig as DomainScriptConfig;
 
 /// Parse one wire quantity, naming the field in the rejection message.
 fn parse_quantity<T: std::str::FromStr>(
@@ -78,10 +77,6 @@ pub fn resource_config_to_wire(config: DomainResourceConfig) -> ResourceConfig {
     }
 }
 
-pub(super) fn script_configs_from_wire(configs: Vec<ScriptConfig>) -> Vec<DomainScriptConfig> {
-    configs
-}
-
 pub fn workspace_repo_response(r: WorkspaceRepo) -> WorkspaceRepoResponse {
     WorkspaceRepoResponse {
         id: r.id,
@@ -138,6 +133,8 @@ pub fn workspace_response(w: Workspace, repos: Vec<WorkspaceRepo>) -> WorkspaceR
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+
+    use moatless_workspace_types::workspace::ScriptConfig as DomainScriptConfig;
 
     use super::*;
 
