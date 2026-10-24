@@ -33,8 +33,8 @@ struct SkillRoot {
 /// Prepend a preamble per resolved skill to `prompt`, in the order the backend
 /// listed them.
 ///
-/// A name that resolves nowhere is warned about and skipped; returns `prompt`
-/// unchanged when nothing resolves.
+/// A name that resolves nowhere is skipped and listed in a notice before
+/// `prompt`, so the agent can report it rather than work without the rules.
 pub(crate) async fn frontload_skills(config: &Config, skills: &[String], prompt: &str) -> String {
     if skills.is_empty() {
         return prompt.to_string();
@@ -42,6 +42,7 @@ pub(crate) async fn frontload_skills(config: &Config, skills: &[String], prompt:
 
     let roots = skill_roots(config).await;
     let mut out = String::new();
+    let mut missing = Vec::new();
     for name in skills {
         if !is_safe_skill_name(name) {
             warn!(skill = %name, "Skipping skill with an unusable name");
@@ -52,7 +53,16 @@ pub(crate) async fn frontload_skills(config: &Config, skills: &[String], prompt:
             out.push_str(&preamble(&label, &body));
         } else {
             warn!(skill = %name, "Skill not found in any skill root; skipping");
+            missing.push(format!("`{name}`"));
         }
+    }
+    // Stays empty for the dispatcher's empty-prompt check in
+    // `dispatch_pending_messages_for_context`.
+    let nothing_to_send = out.is_empty() && prompt.is_empty();
+    if !missing.is_empty() && !nothing_to_send {
+        out.push_str("Not installed in this sandbox, so not loaded: ");
+        out.push_str(&missing.join(", "));
+        out.push_str(". Tell the user these skills are missing before you work without them.\n\n");
     }
 
     if out.is_empty() {
@@ -449,9 +459,10 @@ mod tests {
         );
     }
 
-    /// A name that resolves nowhere must not cost the turn.
+    /// A name that resolves nowhere must not cost the turn, but the agent has
+    /// to learn its rules are absent.
     #[tokio::test]
-    async fn an_unresolvable_skill_is_skipped() {
+    async fn an_unresolvable_skill_is_skipped_and_named() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let config = config_in(tmp.path(), "claude-code");
         write_skill(
@@ -461,7 +472,21 @@ mod tests {
         );
 
         let out = frontload_skills(&config, &["ghost".to_string(), "real".to_string()], "go").await;
-        assert_eq!(out, "Activated .agents/skills/real:\n\nbody\n\ngo");
+        assert_eq!(
+            out,
+            "Activated .agents/skills/real:\n\nbody\n\n\
+             Not installed in this sandbox, so not loaded: `ghost`. Tell the user these \
+             skills are missing before you work without them.\n\ngo"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_skills_only_delivery_that_resolves_nothing_stays_empty() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let config = config_in(tmp.path(), "claude-code");
+
+        let out = frontload_skills(&config, &["ghost".to_string()], "").await;
+        assert_eq!(out, "");
     }
 
     #[tokio::test]
