@@ -412,6 +412,14 @@ spec:
             # CodeArtifact access); otherwise they fall back to the backend SA.
             - name: K8S_SANDBOX_SERVICE_ACCOUNT
               value: {{ .Values.kubernetes.sandboxServiceAccount | default (include "moatless-vibe.serviceAccountName" .) | quote }}
+            # Names a workspace may set, so a typo is refused at write time;
+            # egressProxy.profiles travel in SANDBOX_EGRESS_PROXY_PROFILES.
+            - name: SANDBOX_NETWORK_PROFILES
+              value: {{ include "moatless-vibe.sandboxNetworkProfiles" . | quote }}
+            {{- with include "moatless-vibe.allowedSandboxServiceAccounts" . }}
+            - name: K8S_ALLOWED_SANDBOX_SERVICE_ACCOUNTS
+              value: {{ . | quote }}
+            {{- end }}
             - name: K8S_RESOURCE_LIMIT_CPU
               value: {{ .Values.kubernetes.sandboxResources.limits.cpu | quote }}
             - name: K8S_RESOURCE_LIMIT_MEMORY

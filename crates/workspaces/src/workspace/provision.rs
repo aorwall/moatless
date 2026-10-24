@@ -162,6 +162,7 @@ async fn provision_locked(
 
     let workspace_id = super::mutations::create_workspace(
         stores.workspaces.store(),
+        stores.workspaces.identities(),
         repositories,
         stores.users,
         ctx,

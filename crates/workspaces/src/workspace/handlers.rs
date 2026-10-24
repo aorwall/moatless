@@ -55,6 +55,7 @@ pub async fn create_workspace(
 ) -> Result<(StatusCode, Json<WorkspaceResponse>), WorkspaceError> {
     let workspace_id = super::mutations::create_workspace(
         workspaces.store(),
+        workspaces.identities(),
         repositories.store(),
         users.as_ref(),
         &auth.scope_context(),
@@ -123,6 +124,7 @@ pub async fn get_workspace(
     request_body = UpdateWorkspaceRequest,
     responses(
         (status = 200, description = "Workspace updated", body = WorkspaceResponse),
+        (status = 400, description = "Invalid request", body = moatless_types::http::ErrorBody),
         (status = 403, description = "Forbidden", body = moatless_types::http::ErrorBody),
         (status = 404, description = "Not found", body = moatless_types::http::ErrorBody)
     )
@@ -137,6 +139,7 @@ pub async fn update_workspace(
 ) -> Result<Json<WorkspaceResponse>, WorkspaceError> {
     super::mutations::update_workspace(
         workspaces.store(),
+        workspaces.identities(),
         repositories.store(),
         users.as_ref(),
         &auth.scope_context(),
@@ -177,6 +180,7 @@ pub async fn delete_workspace(
     request_body = UpdateWorkspaceRequest,
     responses(
         (status = 200, description = "Workspace overridden; source set to manual", body = WorkspaceResponse),
+        (status = 400, description = "Invalid request", body = moatless_types::http::ErrorBody),
         (status = 403, description = "Forbidden", body = moatless_types::http::ErrorBody),
         (status = 404, description = "Not found", body = moatless_types::http::ErrorBody)
     )
@@ -193,6 +197,7 @@ pub async fn override_workspace(
 ) -> Result<Json<WorkspaceResponse>, WorkspaceError> {
     super::mutations::override_workspace(
         workspaces.store(),
+        workspaces.identities(),
         users.as_ref(),
         &auth.scope_context(),
         workspace_id.clone(),

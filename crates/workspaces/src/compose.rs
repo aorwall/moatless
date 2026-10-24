@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use moatless_core::db::DbPool;
+use moatless_core::sandbox_identities::SandboxIdentities;
 use moatless_identity::secret::audit::SecretAudit;
 use moatless_identity::secret::service::SecretCipher;
 use moatless_ports::identity::GitHostTokenIssuer;
@@ -33,10 +34,16 @@ pub fn repositories(db: DbPool) -> Arc<Repositories> {
     Arc::new(Repositories::new(Arc::new(PgRepositoryDao(db))))
 }
 
-/// The `workspaces` and `workspace_repos` tables, as a host and the workspace
-/// routes reach them.
+/// The `workspaces` and `workspace_repos` tables, accepting any
+/// `networkProfile` or `sandboxServiceAccount` a write names.
 pub fn workspaces(db: DbPool) -> Arc<Workspaces> {
-    Arc::new(Workspaces::new(Arc::new(PgWorkspaceDao(db))))
+    workspaces_checked(db, SandboxIdentities::default())
+}
+
+/// [`workspaces`], refusing a write that names an identity outside
+/// `identities`. The routes a host serves are built over this one.
+pub fn workspaces_checked(db: DbPool, identities: SandboxIdentities) -> Arc<Workspaces> {
+    Arc::new(Workspaces::new(Arc::new(PgWorkspaceDao(db)), identities))
 }
 
 /// The plugin, skill and activation tables, as a host and the plugin routes

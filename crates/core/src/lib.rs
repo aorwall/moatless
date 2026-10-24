@@ -33,6 +33,7 @@ pub mod secret_keys;
 pub mod change_feed;
 pub mod db_enum;
 
+pub mod sandbox_identities;
 pub mod sandbox_jwt;
 mod user_agent;
 pub mod workspace_repository;

@@ -149,3 +149,31 @@ fn egress_proxy_env_injected_only_for_opted_in_profile() {
     let pod = build_pod(&config, "task-1", &plan, None, None).unwrap();
     assert!(sandbox_proxy(&pod, "HTTPS_PROXY").is_none());
 }
+
+/// Once the deployment lists permitted service accounts, a plan naming any
+/// other one fails to build, the deployment's default SA included: naming it
+/// mounts its token.
+#[test]
+fn service_account_outside_the_allowlist_refuses_the_pod() {
+    let mut config = test_config();
+    config.sandbox.service_account_name = Some("moatless-sandbox".to_string());
+    config.sandbox.allowed_service_accounts = vec!["moatless-cluster-reader".to_string()];
+
+    let mut plan = test_plan();
+    plan.repo_config.sandbox_service_account = Some("moatless-backend".to_string());
+    let err = build_pod(&config, "task-1", &plan, None, None).unwrap_err();
+    assert!(err.contains("moatless-backend"), "{err}");
+
+    plan.repo_config.sandbox_service_account = Some("moatless-sandbox".to_string());
+    assert!(build_pod(&config, "task-1", &plan, None, None).is_err());
+
+    plan.repo_config.sandbox_service_account = Some("moatless-cluster-reader".to_string());
+    assert!(build_pod(&config, "task-1", &plan, None, None).is_ok());
+
+    config.sandbox.allowed_service_accounts.clear();
+    plan.repo_config.sandbox_service_account = Some("moatless-backend".to_string());
+    assert!(
+        build_pod(&config, "task-1", &plan, None, None).is_ok(),
+        "an empty allowlist restricts nothing"
+    );
+}

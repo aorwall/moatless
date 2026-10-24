@@ -41,4 +41,5 @@ pub(crate) use placement::{pin_pod_to_node, retained_node_affinity};
 pub use pod::{
     POD_SPEC_HASH_ANNOTATION, build_pod, pod_spec_fingerprint, stamp_operation_generation,
 };
+pub(crate) use security::validate_service_account;
 pub use tokens::{SandboxAuthTokens, mint_sandbox_tokens};

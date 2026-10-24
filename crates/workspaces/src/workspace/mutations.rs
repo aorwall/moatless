@@ -9,6 +9,7 @@ use super::schemas::{
 use crate::repository::dao::RepositoryDao;
 use crate::repository::error::RepositoryError;
 use crate::repository::mutations::promote_repositories_to_global;
+use moatless_core::sandbox_identities::SandboxIdentities;
 use moatless_ports::identity::UserResolver;
 use moatless_types::access_control::{Scope, ScopeContext, resolve_scope_for_create};
 
@@ -114,6 +115,42 @@ fn ensure_privileged_sandbox_fields(
     )))
 }
 
+/// Refuses a `sandboxServiceAccount` or `networkProfile` this deployment does
+/// not define, so a typo fails here rather than at the next pod start.
+///
+/// A value equal to the `stored` row's passes unchecked, so a client that
+/// resends the whole Workspace can still edit a row written before the lists
+/// existed; `build_pod` still refuses that service account at start.
+fn ensure_known_identities(
+    identities: &SandboxIdentities,
+    stored: Option<&Workspace>,
+    sandbox_service_account: Option<&String>,
+    network_profile: Option<&String>,
+) -> Result<(), WorkspaceError> {
+    if let Some(account) = changed(
+        sandbox_service_account,
+        stored.and_then(|w| w.sandbox_service_account.as_ref()),
+    ) {
+        identities
+            .check_service_account(account)
+            .map_err(WorkspaceError::BadRequest)?;
+    }
+    if let Some(profile) = changed(
+        network_profile,
+        stored.and_then(|w| w.network_profile.as_ref()),
+    ) {
+        identities
+            .check_network_profile(profile)
+            .map_err(WorkspaceError::BadRequest)?;
+    }
+    Ok(())
+}
+
+/// `sent`, unless it repeats the stored value.
+fn changed<'a>(sent: Option<&'a String>, kept: Option<&String>) -> Option<&'a String> {
+    sent.filter(|s| Some(*s) != kept)
+}
+
 async fn resolve_run_as_user(
     ctx: &ScopeContext,
     users: &dyn UserResolver,
@@ -175,6 +212,7 @@ async fn ensure_writable(
 /// Apply the caller-authorized workspace mutation.
 pub async fn create_workspace(
     workspaces: &dyn WorkspaceDao,
+    identities: &SandboxIdentities,
     repositories: &dyn RepositoryDao,
     users: &dyn UserResolver,
     ctx: &ScopeContext,
@@ -187,6 +225,12 @@ pub async fn create_workspace(
         req.sandbox_service_account.as_ref(),
         req.network_profile.as_ref(),
         req.node_selector.as_ref(),
+    )?;
+    ensure_known_identities(
+        identities,
+        None,
+        req.sandbox_service_account.as_ref(),
+        req.network_profile.as_ref(),
     )?;
     let run_as_user_id = resolve_run_as_user(ctx, users, req.run_as_user_id.as_ref())
         .await?
@@ -270,6 +314,7 @@ pub async fn create_workspace(
 /// Apply the caller-authorized workspace mutation.
 pub async fn update_workspace(
     workspaces: &dyn WorkspaceDao,
+    identities: &SandboxIdentities,
     repositories: &dyn RepositoryDao,
     users: &dyn UserResolver,
     ctx: &ScopeContext,
@@ -286,6 +331,12 @@ pub async fn update_workspace(
         req.sandbox_service_account.as_ref(),
         req.network_profile.as_ref(),
         req.node_selector.as_ref(),
+    )?;
+    ensure_known_identities(
+        identities,
+        Some(&existing),
+        req.sandbox_service_account.as_ref(),
+        req.network_profile.as_ref(),
     )?;
     let run_as_user_id = resolve_run_as_user(ctx, users, req.run_as_user_id.as_ref()).await?;
 
@@ -355,6 +406,7 @@ pub async fn update_workspace(
 /// Apply the caller-authorized workspace mutation.
 pub async fn override_workspace(
     workspaces: &dyn WorkspaceDao,
+    identities: &SandboxIdentities,
     users: &dyn UserResolver,
     ctx: &ScopeContext,
     workspace_id: String,
@@ -380,6 +432,12 @@ pub async fn override_workspace(
         req.sandbox_service_account.as_ref(),
         req.network_profile.as_ref(),
         req.node_selector.as_ref(),
+    )?;
+    ensure_known_identities(
+        identities,
+        Some(&existing),
+        req.sandbox_service_account.as_ref(),
+        req.network_profile.as_ref(),
     )?;
     let run_as_user_id = resolve_run_as_user(ctx, users, req.run_as_user_id.as_ref()).await?;
 
@@ -780,6 +838,57 @@ mod tests {
         workspaces
     }
 
+    /// An admin naming a profile or service account the deployment does not
+    /// define is refused with a 400 before anything is written; `MockWorkspaceDao`
+    /// expects no `update`, so reaching the write would fail the test.
+    #[tokio::test]
+    async fn an_update_naming_an_undefined_identity_is_a_bad_request() {
+        let identities = SandboxIdentities::new(
+            vec!["admin".to_string()],
+            vec!["moatless-admin".to_string()],
+        );
+        let requests = [
+            UpdateWorkspaceRequest {
+                network_profile: Some("admn".to_string()),
+                ..Default::default()
+            },
+            UpdateWorkspaceRequest {
+                sandbox_service_account: Some("moatless-backend".to_string()),
+                ..Default::default()
+            },
+        ];
+        for req in requests {
+            let mut workspaces = MockWorkspaceDao::new();
+            workspaces
+                .expect_find_by_id()
+                .returning(|_, _| Ok(Some(workspace_with_source(WorkspaceSource::Manual))));
+            let err = update_workspace(
+                &workspaces,
+                &identities,
+                &MockRepositoryDao::new(),
+                &MockUserResolver::new(),
+                &ctx(true),
+                "ws_1".to_string(),
+                req,
+            )
+            .await
+            .unwrap_err();
+            assert!(matches!(err, WorkspaceError::BadRequest(_)), "{err:?}");
+        }
+    }
+
+    /// A row already holding a profile the deployment no longer defines can
+    /// still be edited by a client that resends it unchanged.
+    #[test]
+    fn an_unchanged_stored_identity_is_not_rechecked() {
+        let identities = SandboxIdentities::new(vec!["admin".to_string()], vec![]);
+        let mut stored = workspace_with_source(WorkspaceSource::Manual);
+        stored.network_profile = Some("legacy".to_string());
+        let legacy = "legacy".to_string();
+        assert!(ensure_known_identities(&identities, Some(&stored), None, Some(&legacy)).is_ok());
+        assert!(ensure_known_identities(&identities, None, None, Some(&legacy)).is_err());
+    }
+
     fn scope_request(scope: Scope) -> UpdateWorkspaceRequest {
         UpdateWorkspaceRequest {
             scope: Some(scope),
@@ -821,6 +930,7 @@ mod tests {
 
         update_workspace(
             &workspaces,
+            &SandboxIdentities::default(),
             &repositories,
             &MockUserResolver::new(),
             &ctx(true),
@@ -840,6 +950,7 @@ mod tests {
 
         update_workspace(
             &workspaces,
+            &SandboxIdentities::default(),
             &repositories,
             &MockUserResolver::new(),
             &ctx(true),
@@ -866,6 +977,7 @@ mod tests {
 
         let err = update_workspace(
             &workspaces,
+            &SandboxIdentities::default(),
             &MockRepositoryDao::new(),
             &MockUserResolver::new(),
             &ctx(true),
@@ -955,6 +1067,7 @@ mod tests {
 
         let err = create_workspace(
             &workspaces,
+            &SandboxIdentities::default(),
             &repositories,
             &MockUserResolver::new(),
             &ctx(true),
@@ -982,6 +1095,7 @@ mod tests {
 
         let err = create_workspace(
             &workspaces,
+            &SandboxIdentities::default(),
             &repositories,
             &MockUserResolver::new(),
             &ctx(true),
@@ -1053,6 +1167,7 @@ mod tests {
 
         let err = update_workspace(
             &workspaces,
+            &SandboxIdentities::default(),
             &repositories,
             &MockUserResolver::new(),
             &ctx(true),
@@ -1091,6 +1206,7 @@ mod tests {
 
         update_workspace(
             &workspaces,
+            &SandboxIdentities::default(),
             &repositories,
             &MockUserResolver::new(),
             &ctx(true),
@@ -1133,6 +1249,7 @@ mod tests {
 
         let err = update_workspace(
             &workspaces,
+            &SandboxIdentities::default(),
             &repositories,
             &MockUserResolver::new(),
             &ctx(true),

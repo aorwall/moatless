@@ -95,7 +95,7 @@ mod tests {
 
     /// The operation handle over a steered store.
     fn over(dao: MockWorkspaceDao) -> Workspaces {
-        Workspaces::new(Arc::new(dao))
+        Workspaces::new(Arc::new(dao), Default::default())
     }
 
     fn viewer() -> ScopeContext {

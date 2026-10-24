@@ -334,3 +334,36 @@ Usage: {{ include "moatless-vibe.accessPreset" (dict "name" $name "profile" $p) 
 {{- end -}}
 {{- .profile.access -}}
 {{- end -}}
+
+{{/*
+Comma-joined network profiles a chart template selects, beyond
+egressProxy.profiles: every sandboxAccess profile key (enabled or not, so
+disabling a profile does not fail a write that names it), every
+networkPolicy.sandbox.profileEgress key, and kubernetes.extraNetworkProfiles
+for policies managed outside the chart.
+*/}}
+{{- define "moatless-vibe.sandboxNetworkProfiles" -}}
+{{- $names := list -}}
+{{- range $name, $_ := .Values.sandboxAccess.profiles }}{{ $names = append $names $name }}{{ end -}}
+{{- range $name, $_ := .Values.networkPolicy.sandbox.profileEgress }}{{ $names = append $names $name }}{{ end -}}
+{{- range .Values.kubernetes.extraNetworkProfiles }}{{ $names = append $names . }}{{ end -}}
+{{- $names | uniq | join "," -}}
+{{- end -}}
+
+{{/*
+Comma-joined service accounts a workspace may run its sandboxes as, or empty
+(no restriction) while kubernetes.allowedSandboxServiceAccounts is empty. Once
+set, the ServiceAccounts the chart creates for enabled sandboxAccess profiles
+and shadowDev join it. K8S_SANDBOX_SERVICE_ACCOUNT deliberately does not: a
+workspace naming it mounts its token, and by default it is the backend SA.
+*/}}
+{{- define "moatless-vibe.allowedSandboxServiceAccounts" -}}
+{{- with .Values.kubernetes.allowedSandboxServiceAccounts -}}
+{{- $names := . -}}
+{{- range $_, $profile := $.Values.sandboxAccess.profiles }}
+{{- if $profile.enabled }}{{ $names = append $names $profile.serviceAccount }}{{ end }}
+{{- end -}}
+{{- if $.Values.shadowDev.enabled }}{{ $names = append $names $.Values.shadowDev.serviceAccount }}{{ end -}}
+{{- $names | uniq | join "," -}}
+{{- end -}}
+{{- end -}}

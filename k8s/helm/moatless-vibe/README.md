@@ -366,6 +366,8 @@ fronts the deployment.
 |-----------|-------------|---------|
 | `kubernetes.enabled` | Enable Kubernetes execution mode | `true` |
 | `kubernetes.namespace` | Namespace for sandbox pods | Release namespace |
+| `kubernetes.allowedSandboxServiceAccounts` | Service accounts a workspace may name, plus the chart-created ones; empty restricts nothing (see [Sandbox access](#sandbox-access-using-the-cluster-from-a-sandbox)) | `[]` |
+| `kubernetes.extraNetworkProfiles` | Network profiles selected by policies outside the chart, accepted beside the chart's own | `[]` |
 | `kubernetes.sandboxStorage.enabled` | Global kill switch for per-task PVCs | `true` |
 | `kubernetes.sandboxStorage.defaultPvc` | Give each task a durable per-task PVC by default | `true` |
 | `kubernetes.sandboxStorage.defaultS3` | Snapshot each task's workspace to S3 by default | `true` |
@@ -681,12 +683,27 @@ one workspace at it" would be advice rather than a control:
 
 | Path | Behaviour |
 |------|-----------|
-| `POST /workspaces`, `PATCH /workspaces/{id}`, `POST /workspaces/{id}/override` | 403 for non-admins, via `handlers.rs::ensure_privileged_sandbox_fields`. Only fires when the request carries a field, so ordinary non-admin edits are unaffected. |
+| `POST /workspaces`, `PATCH /workspaces/{id}`, `POST /workspaces/{id}/override` | 403 for non-admins, via `mutations.rs::ensure_privileged_sandbox_fields`. Only fires when the request carries a field, so ordinary non-admin edits are unaffected. |
 | Git sync — `.moatless/workspaces.json` | Both fields stripped, and each one reported in the sync summary, via `git_sync.rs::strip_git_declared_identity`. Repo files are writable by anyone with commit access, a wider set than "admin". |
 
 Taking ownership of a git-synced workspace through `override` is deliberately
 not a way around this: that endpoint skips the mutability check but keeps the
 privilege gate.
+
+Admins are checked too, against the names this chart defines. The backend
+answers 400 to a write whose `networkProfile` is not a `sandboxAccess.profiles`
+key, an `egressProxy.profiles` entry, a `networkPolicy.sandbox.profileEgress`
+key or one of `kubernetes.extraNetworkProfiles`, so a typo fails at write time
+instead of yielding a pod no policy selects. `sandboxServiceAccount` is
+restricted only once `kubernetes.allowedSandboxServiceAccounts` is non-empty.
+From then on the backend permits the listed accounts and the ones this chart
+creates (enabled profiles, `shadowDev`). The default sandbox account is not
+permitted unless listed: a workspace that names it explicitly mounts its token,
+and on a default install it is the backend's own. The backend answers 400 to a
+write naming any other account and refuses to start a sandbox under one, which
+covers workspaces written before the list was set. A write that resends the
+value already stored passes, so a client sending the whole workspace can still
+edit an older row.
 
 Verify from inside a sandbox of that workspace:
 

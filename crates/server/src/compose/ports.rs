@@ -186,7 +186,8 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
     let secret_audits = moatless_identity::compose::secret_audit(pool.clone());
     let secrets = moatless_identity::compose::secret_service(pool.clone(), cipher.clone());
 
-    let workspaces = moatless_workspaces::compose::workspaces(pool.clone());
+    let workspaces =
+        moatless_workspaces::compose::workspaces_checked(pool.clone(), config.sandbox.identities());
     let workspace_credentials = moatless_workspaces::compose::workspace_credentials(
         pool.clone(),
         secret_audits.clone(),

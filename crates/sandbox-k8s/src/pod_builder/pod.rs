@@ -9,7 +9,7 @@ use super::placement::{
     node_docker_host_path, resolve_dind_storage_backend, resolve_dind_storage_size,
     resolve_sandbox_size,
 };
-use super::security::pod_security_context;
+use super::security::{pod_security_context, validate_service_account};
 use super::*;
 
 /// Build a complete Pod spec from config + plan (no template).
@@ -24,6 +24,7 @@ pub fn build_pod(
     tokens: Option<SandboxAuthTokens<'_>>,
 ) -> Result<Pod, String> {
     validate_compute_mode(config, plan, pvc_name)?;
+    validate_service_account(config, plan)?;
     let pod_name = generate_pod_name(&plan.repo_config.name, task_id);
     let namespace = config.sandbox.namespace.clone();
 

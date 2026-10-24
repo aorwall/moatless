@@ -32,6 +32,21 @@ pub(super) fn app_security_context(config: &Config) -> SecurityContext {
     }
 }
 
+/// Refuses a plan whose `sandbox_service_account` the deployment's allowlist
+/// does not permit (see [`moatless_core::config::SandboxConfig::identities`]).
+///
+/// Every path that starts a pod calls this, including the scale-up of a stopped
+/// Deployment whose frozen template never passes through [`super::build_pod`].
+pub(crate) fn validate_service_account(
+    config: &Config,
+    plan: &ProvisionPlan,
+) -> Result<(), String> {
+    match plan.repo_config.sandbox_service_account.as_deref() {
+        Some(account) => config.sandbox.identities().check_service_account(account),
+        None => Ok(()),
+    }
+}
+
 /// Pod-level securityContext, populated only when `K8S_SANDBOX_RUN_AS_NON_ROOT`
 /// is enabled; `None` leaves containers running as root.
 ///

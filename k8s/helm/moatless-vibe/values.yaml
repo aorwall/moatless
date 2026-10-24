@@ -680,6 +680,20 @@ kubernetes:
     tag: ""
   # -- Service account for sandbox pods
   sandboxServiceAccount: ""
+  # -- Service accounts a workspace's `sandboxServiceAccount` may name. Empty
+  # (the default) restricts nothing. Once set, the backend refuses a workspace
+  # write or a sandbox start naming any other account; the accounts this chart
+  # creates (enabled `sandboxAccess.profiles`, `shadowDev`) are permitted
+  # without being listed. The default sandbox account is not: a workspace that
+  # names it explicitly mounts its token, and on a default install it is the
+  # backend's own. Opt in with an account you already use, e.g.
+  # `[moatless-cluster-reader]`.
+  allowedSandboxServiceAccounts: []
+  # -- Network profiles selected by NetworkPolicies managed outside this chart.
+  # The backend refuses a workspace write whose `networkProfile` is neither one
+  # of these nor a profile the chart defines (`sandboxAccess.profiles`,
+  # `egressProxy.profiles`, `networkPolicy.sandbox.profileEgress`).
+  extraNetworkProfiles: []
   # -- Resource limits for sandbox pods. The memory limit is raised to allow
   # many agents running in parallel inside one sandbox (each subagent + its
   # build children add memory); the 8Gi limit OOM-killed on concurrent-agent

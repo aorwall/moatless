@@ -17,6 +17,7 @@ use moatless_types::secret::SecretsConfig;
 use moatless_types::ui_rpc::T3UiRpcConfig;
 
 use crate::feature_flags::FeatureFlags;
+use crate::sandbox_identities::SandboxIdentities;
 
 pub use crate::http_config::HttpConfig;
 
@@ -107,6 +108,19 @@ fn parse_extra_env(key: &str) -> Vec<(String, String)> {
 /// Read an environment variable as `Option<String>`.
 fn env_opt(key: &str) -> Option<String> {
     env::var(key).ok()
+}
+
+/// Read a comma-separated environment variable, dropping blank entries.
+fn env_csv(key: &str) -> Vec<String> {
+    env_opt(key)
+        .map(|s| {
+            s.split(',')
+                .map(str::trim)
+                .filter(|p| !p.is_empty())
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Read an environment variable with a string default.
@@ -508,6 +522,15 @@ pub struct SandboxConfig {
     /// Env `SANDBOX_EGRESS_PROXY_PROFILES` (comma-separated). Opt-in: empty
     /// means no pod gets the proxy even with a URL set.
     pub egress_proxy_profiles: Vec<String>,
+    /// Network profiles the chart's templates select, beyond
+    /// [`SandboxConfig::egress_proxy_profiles`]; see
+    /// [`SandboxConfig::identities`]. Env `SANDBOX_NETWORK_PROFILES`
+    /// (comma-separated).
+    pub network_profiles: Vec<String>,
+    /// Service accounts a Workspace may run its sandboxes as; see
+    /// [`SandboxConfig::identities`]. Env
+    /// `K8S_ALLOWED_SANDBOX_SERVICE_ACCOUNTS` (comma-separated).
+    pub allowed_service_accounts: Vec<String>,
     /// `NO_PROXY` value paired with [`SandboxConfig::egress_proxy_url`] so
     /// in-cluster traffic (gRPC, DNS, kube-apiserver, link-local metadata)
     /// bypasses the proxy.
@@ -518,6 +541,16 @@ pub struct SandboxConfig {
     /// The backend's own values for [`LOCAL_PASSTHROUGH_ENV`], which a local
     /// sandbox process (`SANDBOX_PROVIDER=local`) inherits.
     pub local_passthrough_env: Vec<(String, String)>,
+}
+
+impl SandboxConfig {
+    /// The network profiles and service accounts a Workspace may name: every
+    /// profile the chart selects, and the allowlisted accounts.
+    pub fn identities(&self) -> SandboxIdentities {
+        let mut profiles = self.network_profiles.clone();
+        profiles.extend(self.egress_proxy_profiles.iter().cloned());
+        SandboxIdentities::new(profiles, self.allowed_service_accounts.clone())
+    }
 }
 
 /// The credentials and `PATH` a local sandbox process takes from the backend.
@@ -969,15 +1002,9 @@ impl Config {
                 ),
                 docker_dind_memory_limit: env_str("K8S_SANDBOX_DOCKER_DIND_MEMORY_LIMIT", "4Gi"),
                 egress_proxy_url: env_opt("SANDBOX_EGRESS_PROXY_URL"),
-                egress_proxy_profiles: env_opt("SANDBOX_EGRESS_PROXY_PROFILES")
-                    .map(|s| {
-                        s.split(',')
-                            .map(str::trim)
-                            .filter(|p| !p.is_empty())
-                            .map(String::from)
-                            .collect()
-                    })
-                    .unwrap_or_default(),
+                egress_proxy_profiles: env_csv("SANDBOX_EGRESS_PROXY_PROFILES"),
+                network_profiles: env_csv("SANDBOX_NETWORK_PROFILES"),
+                allowed_service_accounts: env_csv("K8S_ALLOWED_SANDBOX_SERVICE_ACCOUNTS"),
                 egress_proxy_no_proxy: env_str(
                     "SANDBOX_EGRESS_PROXY_NO_PROXY",
                     "localhost,127.0.0.1,::1,.svc,.svc.cluster.local,.cluster.local,\
@@ -1440,6 +1467,8 @@ impl Config {
                 docker_dind_memory_limit: "4Gi".into(),
                 egress_proxy_url: None,
                 egress_proxy_profiles: vec![],
+                network_profiles: vec![],
+                allowed_service_accounts: vec![],
                 egress_proxy_no_proxy: "localhost,.svc.cluster.local".into(),
                 local_passthrough_env: vec![],
             },

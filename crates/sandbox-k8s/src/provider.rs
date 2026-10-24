@@ -132,6 +132,8 @@ impl K8sSandboxAdapter {
                 });
             }
             ExistingPodResult::Stopped { current_image } => {
+                pod_builder::validate_service_account(&self.config, plan)
+                    .map_err(SandboxError::PodBuildError)?;
                 let existing_deployment = deployment::find_deployment(&self.k8s, task_id)
                     .await
                     .map_err(|e| SandboxError::KubeError(Box::new(e)))?

@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use moatless_core::sandbox_identities::SandboxIdentities;
 use moatless_types::access_control::ScopeContext;
 use moatless_workspace_types::workspace::ScriptConfig;
 
@@ -18,11 +19,18 @@ use super::models::{UpdateOutcome, Workspace, WorkspacePatch};
 /// instead.
 pub struct Workspaces {
     store: Arc<dyn WorkspaceDao>,
+    identities: SandboxIdentities,
 }
 
 impl Workspaces {
-    pub(crate) fn new(store: Arc<dyn WorkspaceDao>) -> Self {
-        Self { store }
+    pub(crate) fn new(store: Arc<dyn WorkspaceDao>, identities: SandboxIdentities) -> Self {
+        Self { store, identities }
+    }
+
+    /// The names a workspace write may set as `networkProfile` and
+    /// `sandboxServiceAccount`.
+    pub(crate) fn identities(&self) -> &SandboxIdentities {
+        &self.identities
     }
 
     /// The store, for this crate's own handlers and mutations.
