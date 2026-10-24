@@ -70,7 +70,7 @@ Run these after every change; pre-push runs only Biome and type-check.
   `commitlint.config.ts` owns the types and scopes; test a header with
   `printf 'feat: x\n' | bunx commitlint`.
 - The repo squash-merges, so the PR title becomes the commit on `main`. Lint the
-  title too: its CI check is advisory and blocks no merge.
+  title too: no hook or CI job checks it.
 - Land one commit per PR, and sequence anything a reader needs in the PR body.
 - Record a real problem you are deliberately not fixing in
   `docs/deferred-changes.md`, with an anchor and the condition that makes it

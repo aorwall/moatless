@@ -336,8 +336,8 @@ chosen: no accessor is public for a test's sake alone.
 get a ruling, *then* build. Several rulings this program reversed a lane's lean; all of them were
 cheaper before the branch than after.
 
-**The six gates.** A subset gate reporting "clean" is the single most repeated failure here. Run all
-six before every push:
+**The five gates.** A subset gate reporting "clean" is the single most repeated failure here. Run all
+five before every push:
 
 ```
 ./scripts/check-plan-assertions.sh
@@ -345,7 +345,6 @@ six before every push:
 ./scripts/check-appstate-composition-root.sh
 ./scripts/check-bindings-adapters-baseline.sh
 ./scripts/check-dao-composition-root.sh
-./scripts/check-pr-title.sh
 ```
 
 Plus `cargo clippy --all-targets --features db-tests -- -D warnings` and the test suite.
@@ -524,6 +523,6 @@ effect" is a conclusion from a model of production.
 ## Out of scope / parked
 
 Slack's retrofit to adapter-carries-ports (still has the 6-extractor shape); the `cargo fmt` sweep
-(parked on measured facts — see spec); making the pr-title check required; the stale `commitlint`
+(parked on measured facts — see spec); the stale `commitlint`
 `scope-enum`; 59 Dependabot vulnerabilities on the default branch; PRs #422, #394, and **#379 (ignore)**.
 The linear close-core delegation is a **hypothesis, not scheduled** — if walked, walk it cold.
