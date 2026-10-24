@@ -40,16 +40,23 @@ pub(super) fn session_created(session_id: &str) -> String {
     format!("linear:session:created:{session_id}")
 }
 
-/// The inbound prompt of a task spawned from an issue entering a trigger state.
+/// The inbound prompt of a task spawned for an issue: a trigger state entered or
+/// a trigger label added.
 pub(super) fn issue_created(issue_id: &str) -> String {
     format!("linear:issue:created:{issue_id}")
+}
+
+/// A label trigger delivered to a Loop's ongoing task, named by the issue and
+/// the issue's `updatedAt` (`created` for an issue created with the label).
+pub(super) fn issue_labeled(issue_id: &str, clock: &str) -> String {
+    format!("linear:issue-labeled:{issue_id}:{clock}")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// The five formats, as literal strings.
+    /// The six formats, as literal strings.
     ///
     /// Asserted against literals, not against each other: a test comparing two
     /// functions would still pass if both changed together — precisely the
@@ -67,6 +74,10 @@ mod tests {
             "linear:session:created:session-1"
         );
         assert_eq!(issue_created("issue-1"), "linear:issue:created:issue-1");
+        assert_eq!(
+            issue_labeled("issue-1", "2026-08-10T03:20:08.000Z"),
+            "linear:issue-labeled:issue-1:2026-08-10T03:20:08.000Z"
+        );
     }
 
     /// No two formats collide on a shared prefix.
@@ -83,6 +94,7 @@ mod tests {
             issue_state("x", "from:to:1"),
             session_created("x"),
             issue_created("x"),
+            issue_labeled("x", "1"),
         ];
         for (i, a) in ids.iter().enumerate() {
             for (j, b) in ids.iter().enumerate() {

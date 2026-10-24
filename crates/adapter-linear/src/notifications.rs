@@ -74,9 +74,8 @@ pub(super) async fn handle_issue_status_notification(
     };
 
     let rule_config = LinearRuleConfig::from_rule(rule);
-    let state_kind = issue.state_kind();
     if rule_config.close_task_on_close
-        && rule_config.terminal_states.iter().any(|s| s == state_kind)
+        && rule_config.is_terminal(issue.state_kind(), issue.state_name())
     {
         close_active_bindings_for_issue(
             task_bindings,

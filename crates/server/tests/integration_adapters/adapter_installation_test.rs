@@ -58,6 +58,7 @@ async fn installation_registers_capabilities_deliveries_and_handler_access(pool:
             "github.pr_merged",
             "github.pr_message",
             "linear.comment",
+            "linear.issue_labeled",
             "linear.issue_update",
             "linear.notification",
             "linear.session_prompt",

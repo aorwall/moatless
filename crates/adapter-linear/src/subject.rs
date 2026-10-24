@@ -262,6 +262,8 @@ mod tests {
             project: None,
             updated_at: None,
             state: None,
+            label_ids: Vec::new(),
+            labels: Vec::new(),
         };
         let config = issue_destination_config(&issue, "team-1");
         assert!(

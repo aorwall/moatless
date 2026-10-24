@@ -49,13 +49,13 @@ use common::{
 };
 
 const SECRET: &str = "linear-webhook-secret";
-const ORG: &str = "org-1";
-const TEAM: &str = "team-1";
-const ISSUE: &str = "issue-1";
+pub(super) const ORG: &str = "org-1";
+pub(super) const TEAM: &str = "team-1";
+pub(super) const ISSUE: &str = "issue-1";
 const CONNECTION: &str = "conn-linear-1";
 const SESSION: &str = "session-1";
-const TASK: &str = "task-linear-1";
-const RULE: &str = "trigger-linear-1";
+pub(super) const TASK: &str = "task-linear-1";
+pub(super) const RULE: &str = "trigger-linear-1";
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -68,8 +68,13 @@ type HmacSha256 = Hmac<Sha256>;
 /// One union body serves every call, keyed by field name (e.g.
 /// `agentActivityCreate` reads `/data/agentActivityCreate`); the issue it
 /// returns carries no project and no labels.
-async fn linear_stub() -> ProviderStub {
-    ProviderStub::start(|_path| {
+pub(super) async fn linear_stub() -> ProviderStub {
+    linear_stub_with_labels(serde_json::json!([])).await
+}
+
+/// [`linear_stub`] whose `issue` carries `labels` (`[{"id", "name"}]`).
+pub(super) async fn linear_stub_with_labels(labels: serde_json::Value) -> ProviderStub {
+    ProviderStub::start(move |_path| {
         serde_json::json!({
             "data": {
                 "agentActivityCreate": {"success": true, "agentActivity": {"id": "activity-stub"}},
@@ -86,7 +91,9 @@ async fn linear_stub() -> ProviderStub {
                     "title": "Fix it",
                     "url": "https://linear.app/acme/issue/ENG-7",
                     "project": null,
-                    "labels": {"nodes": []},
+                    "team": {"id": TEAM, "key": "ENG", "name": "Engineering"},
+                    "state": {"id": "s0", "name": "Todo", "type": "unstarted"},
+                    "labels": {"nodes": labels.clone()},
                 },
                 "workflowStates": {"nodes": [{"id": "state-started", "name": "In Progress"}]},
             }
@@ -100,7 +107,7 @@ async fn linear_stub() -> ProviderStub {
 /// The base URL travels on `Config`, the only seam through which a workflow's
 /// calls can be redirected and budgeted from deep inside webhook/worker paths
 /// holding only an `AppState`.
-fn replica(pool: &PgPool, stub: &ProviderStub) -> AppState {
+pub(super) fn replica(pool: &PgPool, stub: &ProviderStub) -> AppState {
     let mut config = test_config();
     config.linear = linear_config(Some(SECRET), Some(stub.base_url()));
     test_app_state_with_linear(pool.clone(), config)
@@ -110,7 +117,7 @@ fn replica(pool: &PgPool, stub: &ProviderStub) -> AppState {
 // Delivery
 // =========================================================================
 
-async fn deliver(state: &AppState, envelope: &serde_json::Value) -> StatusCode {
+pub(super) async fn deliver(state: &AppState, envelope: &serde_json::Value) -> StatusCode {
     let body = serde_json::to_vec(envelope).expect("serialize envelope");
     let mut mac = HmacSha256::new_from_slice(SECRET.as_bytes()).expect("hmac key");
     mac.update(&body);
@@ -133,7 +140,7 @@ async fn deliver(state: &AppState, envelope: &serde_json::Value) -> StatusCode {
 }
 
 /// Run the real worker until every admitted record is terminal.
-async fn drain(pool: &PgPool, stub: &ProviderStub) {
+pub(super) async fn drain(pool: &PgPool, stub: &ProviderStub) {
     drain_linear_adapter_delivery(pool, replica(pool, stub)).await;
 }
 
@@ -158,7 +165,7 @@ async fn drain_recording(pool: &PgPool, stub: &ProviderStub) -> Arc<RecordingPub
 /// Both are required before any Linear call leaves the process:
 /// `api_for_connection` reads `api_base_url` from the app row to find `stub`;
 /// without it every budget below silently reads as zero.
-async fn seed_connection(pool: &PgPool, stub: &ProviderStub) {
+pub(super) async fn seed_connection(pool: &PgPool, stub: &ProviderStub) {
     sqlx::query(
         "INSERT INTO adapter_connections \
          (id, adapter_kind, connection_kind, external_account_id, created_by, scope, owner_user_id) \
@@ -178,7 +185,7 @@ async fn seed_connection(pool: &PgPool, stub: &ProviderStub) {
 /// Without it every budget below silently reads as zero. Set deliberately far
 /// from expiry so no call triggers a token-refresh round trip that would show
 /// up as an extra `POST /oauth/token`.
-async fn seed_workspace_token(pool: &PgPool) {
+pub(super) async fn seed_workspace_token(pool: &PgPool) {
     sqlx::query(
         "INSERT INTO provider_tokens \
          (provider, auth_method, access_token, token_type, connected_at, updated_at, \
@@ -196,7 +203,7 @@ async fn seed_workspace_token(pool: &PgPool) {
 ///
 /// `make_repository_row` defaults to a GitHub-backed repository, which fails
 /// preflight without a token; that failure has its own budget row below.
-async fn seed_local_repository(pool: &PgPool) {
+pub(super) async fn seed_local_repository(pool: &PgPool) {
     seed_team(pool, &format!("personal-{USER_1}")).await;
     let mut repo = make_repository_row("repo-1", USER_1);
     repo.provider = None;
@@ -218,13 +225,27 @@ async fn seed_preflight_failing_repository(pool: &PgPool) {
 }
 
 /// An active Linear Subscription for the team.
-async fn seed_rule(state: &AppState, config: Option<serde_json::Value>) {
+pub(super) async fn seed_rule(state: &AppState, config: Option<serde_json::Value>) {
     seed_rule_with_id(state, RULE, config).await;
 }
 
 /// A second Subscription, so a binding can name a rule that is not the one the
 /// close path is acting for.
-async fn seed_rule_with_id(state: &AppState, id: &str, config: Option<serde_json::Value>) {
+pub(super) async fn seed_rule_with_id(
+    state: &AppState,
+    id: &str,
+    config: Option<serde_json::Value>,
+) {
+    seed_rule_routed(state, id, RoutingMode::BySubject, config).await;
+}
+
+/// A Subscription with an explicit routing mode.
+pub(super) async fn seed_rule_routed(
+    state: &AppState,
+    id: &str,
+    routing_mode: RoutingMode,
+    config: Option<serde_json::Value>,
+) {
     let now = Utc::now();
     moatless_loops::loops::test_support::upsert_subscription(
         &state.loops,
@@ -235,7 +256,7 @@ async fn seed_rule_with_id(state: &AppState, id: &str, config: Option<serde_json
             connection_id: CONNECTION.to_string(),
             source_matcher: TEAM.to_string(),
             source_name: Some("Engineering".to_string()),
-            routing_mode: RoutingMode::BySubject,
+            routing_mode,
             event_filter: serde_json::json!([]),
             workspace_id: "ws-1".to_string(),
             prompt_template: None,
@@ -280,7 +301,7 @@ async fn seed_rule_with_id(state: &AppState, id: &str, config: Option<serde_json
 
 /// A task with one active binding of `subject_kind` on `subject_key`.
 #[allow(clippy::too_many_arguments)]
-async fn seed_binding(
+pub(super) async fn seed_binding(
     state: &AppState,
     pool: &PgPool,
     binding_id: &str,
@@ -360,7 +381,7 @@ async fn seed_bound_session(state: &AppState, pool: &PgPool) {
 // Envelopes
 // =========================================================================
 
-fn session_created() -> serde_json::Value {
+pub(super) fn session_created() -> serde_json::Value {
     serde_json::json!({
         "action": "created",
         "type": "AgentSessionEvent",
@@ -418,7 +439,12 @@ fn comment_created(comment_id: &str, parent_id: Option<&str>, body: &str) -> ser
 }
 
 /// An issue update. `from` equal to `to` is the no-transition case.
-fn issue_updated(from: &str, to: &str, to_name: &str, to_kind: &str) -> serde_json::Value {
+pub(super) fn issue_updated(
+    from: &str,
+    to: &str,
+    to_name: &str,
+    to_kind: &str,
+) -> serde_json::Value {
     serde_json::json!({
         "action": "update",
         "type": "Issue",
@@ -467,7 +493,7 @@ async fn sandbox_desired_state(pool: &PgPool, task_id: &str) -> Option<String> {
 
 /// Every external id the Linear adapter has written onto a forwarded message,
 /// oldest first. The literal strings are the persisted formats.
-async fn forwarded_ids(pool: &PgPool) -> Vec<String> {
+pub(super) async fn forwarded_ids(pool: &PgPool) -> Vec<String> {
     sqlx::query_scalar::<_, String>(
         "SELECT external_message_id FROM task_inbox \
          WHERE adapter = 'linear' AND external_message_id IS NOT NULL ORDER BY created_at, id",

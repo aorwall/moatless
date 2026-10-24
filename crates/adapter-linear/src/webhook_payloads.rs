@@ -245,6 +245,21 @@ pub struct IssuePayload {
     pub updated_at: Option<String>,
     #[serde(default)]
     pub state: Option<LinearWorkflowState>,
+    /// The issue's current label ids. Paired with `updatedFrom.labelIds` to
+    /// tell which labels an update added.
+    #[serde(default, rename = "labelIds")]
+    pub label_ids: Vec<String>,
+    /// The issue's current labels, when the webhook embeds them.
+    #[serde(default)]
+    pub labels: Vec<LinearLabelRef>,
+}
+
+/// A label as the `Issue` webhook embeds it.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct LinearLabelRef {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
 }
 
 impl IssuePayload {

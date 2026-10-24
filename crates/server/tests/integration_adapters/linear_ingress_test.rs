@@ -461,12 +461,12 @@ async fn an_action_this_adapter_does_not_act_on_is_unsupported_action(pool: PgPo
     let state = replica(&pool, &stub);
     seed_connection(&pool, &stub).await;
 
-    let mut created_issue = issue_envelope(true);
-    created_issue["action"] = serde_json::json!("create");
+    let mut removed_issue = issue_envelope(true);
+    removed_issue["action"] = serde_json::json!("remove");
 
     for envelope in [
         comment_envelope("update", "c-1"),
-        created_issue,
+        removed_issue,
         session_envelope("archived"),
     ] {
         assert_eq!(

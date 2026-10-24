@@ -424,7 +424,7 @@ fn dedup_key(envelope: &LinearWebhookEnvelope) -> String {
             .as_ref()
             .map(|activity| activity.id.clone()),
         "AgentSessionEvent" => envelope.agent_session.as_ref().map(|s| s.id.clone()),
-        "Issue" => issue_transition_resource_id(envelope),
+        "Issue" => issue_resource_id(envelope),
         "Comment" => resource_uuid(envelope.data.as_ref()),
         "AppUserNotification" => resource_uuid(envelope.notification.as_ref()),
         _ => None,
@@ -452,10 +452,47 @@ fn resource_uuid(payload: Option<&serde_json::Value>) -> Option<String> {
         .map(str::to_string)
 }
 
-fn issue_transition_resource_id(envelope: &LinearWebhookEnvelope) -> Option<String> {
+/// A created issue is named by its id alone; an update by its state
+/// transition, else (a label edit) by the issue's own `updatedAt`.
+fn issue_resource_id(envelope: &LinearWebhookEnvelope) -> Option<String> {
     let issue_id = resource_uuid(envelope.data.as_ref())?;
-    let transition_id = issue_state_transition_id(envelope)?;
-    Some(format!("{issue_id}:{transition_id}"))
+    if envelope.action == "create" {
+        return Some(issue_id);
+    }
+    if let Some(transition_id) = issue_state_transition_id(envelope) {
+        return Some(format!("{issue_id}:{transition_id}"));
+    }
+    let updated_at = envelope
+        .data
+        .as_ref()?
+        .get("updatedAt")
+        .and_then(serde_json::Value::as_str)?;
+    Some(format!("{issue_id}:labels:{updated_at}"))
+}
+
+/// The label ids an `Issue`/`update` added: those in `data.labelIds` absent
+/// from `updatedFrom.labelIds`. Empty when the update touched no labels.
+pub(crate) fn added_label_ids(envelope: &LinearWebhookEnvelope) -> Vec<String> {
+    let Some(previous) = envelope
+        .updated_from
+        .as_ref()
+        .and_then(|v| v.get("labelIds"))
+        .and_then(serde_json::Value::as_array)
+    else {
+        return Vec::new();
+    };
+    let current = envelope
+        .data
+        .as_ref()
+        .and_then(|v| v.get("labelIds"))
+        .and_then(serde_json::Value::as_array);
+    current
+        .into_iter()
+        .flatten()
+        .filter(|id| !previous.contains(id))
+        .filter_map(serde_json::Value::as_str)
+        .map(str::to_string)
+        .collect()
 }
 
 /// The state the issue left.
@@ -680,6 +717,67 @@ mod tests {
         );
     }
 
+    /// A label edit moves no state, so its identity is the issue's own clock: a
+    /// retimed retry collapses, a second edit does not.
+    #[test]
+    fn a_label_edit_is_keyed_on_the_issue_clock_and_a_create_on_the_issue() {
+        let edit = |updated_at: &str, timestamp: i64| {
+            envelope(serde_json::json!({
+                "action": "update",
+                "type": "Issue",
+                "webhookTimestamp": timestamp,
+                "updatedFrom": {"labelIds": []},
+                "data": {"id": "issue-1", "updatedAt": updated_at, "labelIds": ["l-1"]}
+            }))
+        };
+        assert_eq!(
+            dedup_key(&edit("2026-08-10T03:20:08.000Z", 1)),
+            dedup_key(&edit("2026-08-10T03:20:08.000Z", 2))
+        );
+        assert_ne!(
+            dedup_key(&edit("2026-08-10T03:20:08.000Z", 1)),
+            dedup_key(&edit("2026-08-10T03:30:00.000Z", 1))
+        );
+
+        let create = |timestamp: i64| {
+            envelope(serde_json::json!({
+                "action": "create",
+                "type": "Issue",
+                "webhookTimestamp": timestamp,
+                "data": {"id": "issue-1", "labelIds": ["l-1"]}
+            }))
+        };
+        assert_eq!(dedup_key(&create(1)), "Issue:create:issue-1");
+        assert_eq!(dedup_key(&create(1)), dedup_key(&create(2)));
+    }
+
+    #[test]
+    fn added_label_ids_are_the_current_ids_the_diff_did_not_have() {
+        let update = |updated_from: serde_json::Value| {
+            envelope(serde_json::json!({
+                "action": "update",
+                "type": "Issue",
+                "updatedFrom": updated_from,
+                "data": {"id": "issue-1", "labelIds": ["l-1", "l-2"]}
+            }))
+        };
+        assert_eq!(
+            added_label_ids(&update(serde_json::json!({"labelIds": ["l-1"]}))),
+            vec!["l-2"]
+        );
+        assert!(
+            added_label_ids(&update(
+                serde_json::json!({"labelIds": ["l-1", "l-2", "l-3"]})
+            ))
+            .is_empty(),
+            "a removal adds nothing"
+        );
+        assert!(
+            added_label_ids(&update(serde_json::json!({"title": "old"}))).is_empty(),
+            "an update that did not touch labels adds nothing"
+        );
+    }
+
     /// Two issues moving at the same instant are still two deliveries — the
     /// transition clock discriminates changes to one issue, it does not replace
     /// the issue id.
@@ -790,6 +888,7 @@ mod tests {
             reason::NO_SUBSCRIPTION,
             reason::EMPTY_BODY,
             reason::NOT_A_STATE_CHANGE,
+            reason::UNLABELED_CREATE,
         ];
         assert_eq!(
             reasons,
@@ -802,6 +901,7 @@ mod tests {
                 "no_subscription",
                 "empty_body",
                 "not_a_state_change",
+                "unlabeled_create",
             ]
         );
     }

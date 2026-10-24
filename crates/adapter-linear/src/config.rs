@@ -12,8 +12,8 @@ const DEFAULT_TRIGGER_STATES: &[&str] = &["Todo", "In Progress"];
 /// Default workflow state TYPES whose ENTRY closes associated tasks (gated by
 /// `close_task_on_close`).
 ///
-/// Matched against Linear's stable `state.type` enum, not the display name, so
-/// a workspace that renames "Done" to "Shipped" still closes correctly.
+/// Type names rather than display names, so a workspace that renames "Done" to
+/// "Shipped" still closes correctly.
 const DEFAULT_TERMINAL_STATES: &[&str] = &["completed", "canceled"];
 
 /// Extracted Linear-specific knobs from a `SubscriptionMatch`.
@@ -26,12 +26,13 @@ pub struct LinearRuleConfig {
     /// each subscription can configure different trigger states (e.g. one
     /// listener fires on "Todo", another on "In Progress").
     pub trigger_states: Vec<String>,
-    /// State TYPES (Linear's `state.type` enum, e.g. `"completed"`,
-    /// `"canceled"`) whose ENTRY closes tasks owned by this listener, gated by
-    /// `close_task_on_close`.
-    ///
-    /// Matched against `state.type` rather than `state.name`, so renamed
-    /// workspace states still trigger close.
+    /// Whether `trigger_states` came from the config rather than the default.
+    /// Only an explicit list gates [`Self::label_trigger_allows_state`].
+    pub trigger_states_explicit: bool,
+    /// States whose ENTRY closes tasks owned by this listener, gated by
+    /// `close_task_on_close`. Each entry matches either the state type (e.g.
+    /// `"completed"`) or the state name, case-insensitively; see
+    /// [`Self::is_terminal`].
     pub terminal_states: Vec<String>,
     /// Mirror of the subscription's scalar `close_task_on_close` column.
     pub close_task_on_close: bool,
@@ -49,6 +50,12 @@ pub struct LinearRuleConfig {
     /// task is created (e.g. `"In Progress"`), so the board reflects that the
     /// agent picked the ticket up. `None` leaves the issue's state unchanged.
     pub start_state: Option<String>,
+    /// Label names (case-insensitive) whose addition to an issue, or presence
+    /// on a newly created one, fires this listener. Empty = no label trigger.
+    pub trigger_labels: Vec<String>,
+    /// Label names (case-insensitive) that stop every trigger of this listener
+    /// for an issue carrying one: mention, delegation, status entry, label.
+    pub exclude_labels: Vec<String>,
 }
 
 impl LinearRuleConfig {
@@ -67,7 +74,9 @@ impl LinearRuleConfig {
 
         let require_labels = string_list(filter, "require_labels").unwrap_or_default();
 
-        let trigger_states = string_list(filter, "trigger_states").unwrap_or_else(|| {
+        let explicit_trigger_states = string_list(filter, "trigger_states");
+        let trigger_states_explicit = explicit_trigger_states.is_some();
+        let trigger_states = explicit_trigger_states.unwrap_or_else(|| {
             DEFAULT_TRIGGER_STATES
                 .iter()
                 .copied()
@@ -99,22 +108,30 @@ impl LinearRuleConfig {
         Self {
             require_labels,
             trigger_states,
+            trigger_states_explicit,
             terminal_states,
             close_task_on_close: rule.close_task_on_close,
             create_on_status_entry,
             project_ids,
             start_state,
+            trigger_labels: string_list(filter, "trigger_labels").unwrap_or_default(),
+            exclude_labels: string_list(filter, "exclude_labels").unwrap_or_default(),
         }
     }
 
     /// Whether this listener should spawn a task when the issue enters
     /// `state_name`.
     ///
-    /// Requires the opt-in flag and a non-empty `trigger_states` containing the
-    /// state; an explicit empty `trigger_states` disables creation even when
-    /// the flag is set.
+    /// Requires the opt-in flag and `trigger_states` naming the state, case-
+    /// insensitively. A listener with `trigger_labels` needs `trigger_states`
+    /// written out: the default list would fire a label Loop on every Todo.
     pub fn creates_on_status(&self, state_name: &str) -> bool {
-        self.create_on_status_entry && self.trigger_states.iter().any(|s| s == state_name)
+        self.create_on_status_entry
+            && (self.trigger_labels.is_empty() || self.trigger_states_explicit)
+            && self
+                .trigger_states
+                .iter()
+                .any(|s| s.eq_ignore_ascii_case(state_name))
     }
 
     /// Whether `project_id` passes this listener's project allowlist. An empty
@@ -136,6 +153,51 @@ impl LinearRuleConfig {
             .iter()
             .all(|req| labels.iter().any(|l| l == req))
     }
+
+    /// Whether an issue carrying `labels` is excluded from every trigger.
+    pub fn excluded(&self, labels: &[String]) -> bool {
+        any_label_matches(&self.exclude_labels, labels)
+    }
+
+    /// The first of `added` (label names) that fires this listener's label
+    /// trigger.
+    pub fn trigger_label_in<'a>(&self, added: &'a [String]) -> Option<&'a str> {
+        added
+            .iter()
+            .find(|l| {
+                self.trigger_labels
+                    .iter()
+                    .any(|t| t.eq_ignore_ascii_case(l))
+            })
+            .map(String::as_str)
+    }
+
+    /// Whether a label trigger may fire while the issue sits in `state_name`.
+    ///
+    /// Gated only by an explicit, non-empty `trigger_states`: the default list
+    /// would silently confine every label Loop to Todo and In Progress.
+    pub fn label_trigger_allows_state(&self, state_name: &str) -> bool {
+        !self.trigger_states_explicit
+            || self.trigger_states.is_empty()
+            || self
+                .trigger_states
+                .iter()
+                .any(|s| s.eq_ignore_ascii_case(state_name))
+    }
+
+    /// Whether a state with this type and name is one of `terminal_states`.
+    pub fn is_terminal(&self, state_kind: &str, state_name: &str) -> bool {
+        self.terminal_states.iter().any(|s| {
+            (!state_kind.is_empty() && s.eq_ignore_ascii_case(state_kind))
+                || (!state_name.is_empty() && s.eq_ignore_ascii_case(state_name))
+        })
+    }
+}
+
+fn any_label_matches(configured: &[String], labels: &[String]) -> bool {
+    configured
+        .iter()
+        .any(|c| labels.iter().any(|l| l.eq_ignore_ascii_case(c)))
 }
 
 /// Extract a `Vec<String>` from a JSONB key. Returns `None` when the key is
@@ -184,24 +246,25 @@ pub fn select_spawn_rule<'a>(
 /// Whether selecting a spawn listener requires fetching the full issue (project
 /// + labels).
 ///
-/// True iff any listener is project-scoped; when every listener is unscoped,
-/// [`select_spawn_rule`] can't be influenced by project/labels, so the caller
-/// skips the extra API round-trip entirely.
+/// True iff any listener is project-scoped or excludes labels; otherwise
+/// neither [`select_spawn_rule`] nor [`LinearRuleConfig::excluded`] reads the
+/// issue, so the caller skips the extra API round-trip entirely.
 pub fn rules_need_issue_fetch(rules: &[SubscriptionMatch]) -> bool {
-    rules
-        .iter()
-        .any(|r| !LinearRuleConfig::from_rule(r).project_ids.is_empty())
+    rules.iter().any(|r| {
+        let cfg = LinearRuleConfig::from_rule(r);
+        !cfg.project_ids.is_empty() || !cfg.exclude_labels.is_empty()
+    })
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use chrono::Utc;
     use moatless_types::access_control::Scope;
     use moatless_types::adapter::AdapterKind;
     use moatless_types::loops::RoutingMode;
 
-    fn rule_with(
+    pub(crate) fn rule_with(
         adapter_config: serde_json::Value,
         close_task_on_close: bool,
     ) -> SubscriptionMatch {
@@ -254,6 +317,65 @@ mod tests {
     }
 
     #[test]
+    fn label_triggers_and_exclusions_match_names_case_insensitively() {
+        let cfg = LinearRuleConfig::from_rule(&rule_with(
+            serde_json::json!({
+                "trigger_labels": ["Factory"],
+                "exclude_labels": ["no-agent"],
+            }),
+            true,
+        ));
+        assert_eq!(
+            cfg.trigger_label_in(&["bug".into(), "factory".into()]),
+            Some("factory")
+        );
+        assert_eq!(cfg.trigger_label_in(&["bug".into()]), None);
+        assert!(cfg.excluded(&["No-Agent".into()]));
+        assert!(!cfg.excluded(&["factory".into()]));
+
+        let none = LinearRuleConfig::from_rule(&rule_with(serde_json::json!({}), true));
+        assert_eq!(none.trigger_label_in(&["factory".into()]), None);
+        assert!(!none.excluded(&["no-agent".into()]));
+    }
+
+    #[test]
+    fn only_explicit_trigger_states_gate_a_label_trigger() {
+        // The default `trigger_states` would confine a label Loop to Todo and
+        // In Progress; only a list the Loop wrote may.
+        let defaulted = LinearRuleConfig::from_rule(&rule_with(serde_json::json!({}), true));
+        assert!(defaulted.label_trigger_allows_state("Backlog"));
+
+        let gated = LinearRuleConfig::from_rule(&rule_with(
+            serde_json::json!({ "trigger_states": ["Todo"] }),
+            true,
+        ));
+        assert!(gated.label_trigger_allows_state("todo"));
+        assert!(!gated.label_trigger_allows_state("Backlog"));
+
+        let cleared = LinearRuleConfig::from_rule(&rule_with(
+            serde_json::json!({ "trigger_states": [] }),
+            true,
+        ));
+        assert!(cleared.label_trigger_allows_state("Backlog"));
+    }
+
+    #[test]
+    fn terminal_states_match_a_state_type_or_a_state_name() {
+        let defaulted = LinearRuleConfig::from_rule(&rule_with(serde_json::json!({}), true));
+        assert!(defaulted.is_terminal("completed", "Shipped"));
+        assert!(!defaulted.is_terminal("started", "In Progress"));
+
+        let named = LinearRuleConfig::from_rule(&rule_with(
+            serde_json::json!({ "terminal_states": ["Done", "Won't Do"] }),
+            true,
+        ));
+        assert!(named.is_terminal("completed", "done"));
+        assert!(named.is_terminal("canceled", "Won't Do"));
+        assert!(!named.is_terminal("completed", "Shipped"));
+        assert!(!named.is_terminal("", ""));
+    }
+
+    #[test]
     fn create_on_status_requires_opt_in_flag() {
         // Default config has the legacy non-empty trigger_states but the flag
         // off — it must NOT create on status entry.
@@ -268,7 +390,29 @@ mod tests {
             true,
         ));
         assert!(on.creates_on_status("Ready"));
+        assert!(on.creates_on_status("ready"), "matched case-insensitively");
         assert!(!on.creates_on_status("Todo"));
+    }
+
+    #[test]
+    fn a_label_listener_creates_on_status_only_in_states_it_names() {
+        // Sync turns `create_on_status_entry` on for every Linear Loop, so a
+        // label-only Loop must not inherit the default Todo/In Progress.
+        let label_only = LinearRuleConfig::from_rule(&rule_with(
+            serde_json::json!({ "create_on_status_entry": true, "trigger_labels": ["factory"] }),
+            true,
+        ));
+        assert!(!label_only.creates_on_status("Todo"));
+
+        let both = LinearRuleConfig::from_rule(&rule_with(
+            serde_json::json!({
+                "create_on_status_entry": true,
+                "trigger_labels": ["factory"],
+                "trigger_states": ["Todo"],
+            }),
+            true,
+        ));
+        assert!(both.creates_on_status("Todo"));
     }
 
     #[test]
@@ -503,6 +647,12 @@ mod tests {
     fn rules_need_issue_fetch_true_when_any_scoped() {
         let rules = vec![unscoped_rule(), scoped_rule()];
         assert!(rules_need_issue_fetch(&rules));
+    }
+
+    #[test]
+    fn rules_need_issue_fetch_true_when_any_excludes_labels() {
+        let excluding = rule_with(serde_json::json!({ "exclude_labels": ["no-agent"] }), false);
+        assert!(rules_need_issue_fetch(&[unscoped_rule(), excluding]));
     }
 
     #[test]

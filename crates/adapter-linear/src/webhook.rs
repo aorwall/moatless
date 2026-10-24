@@ -147,17 +147,18 @@ fn agent_session_event(
     }
 }
 
-/// An issue state change.
+/// An issue state change, a label added to an issue, or an issue created with
+/// labels.
 ///
-/// Guards are unchanged minus the rule lookup: active rules are re-resolved
-/// when the record executes, so disabling one between delivery and execution
-/// still stops the work.
+/// Rules are re-resolved when the record executes, so disabling one before
+/// then still stops the work. An update that moves the issue and adds a label
+/// admits two records under one identity, told apart by kind.
 fn issue_event(
     envelope: &LinearWebhookEnvelope,
     connection_id: &str,
     event_id: &str,
 ) -> Result<Plan, IngressError> {
-    if envelope.action != "update" {
+    if envelope.action != "update" && envelope.action != "create" {
         return Ok(Plan::Ignored {
             reason: reason::UNSUPPORTED_ACTION,
         });
@@ -182,13 +183,47 @@ fn issue_event(
         });
     }
 
-    // Settled before the identity below it: an update that moved no state is
-    // ordinary Linear traffic with no work behind it, and refusing one as
-    // unidentifiable would 400 every title and label edit in the workspace.
+    if envelope.action == "create" {
+        if issue.label_ids.is_empty() && issue.labels.is_empty() {
+            return Ok(Plan::Ignored {
+                reason: reason::UNLABELED_CREATE,
+            });
+        }
+        let added = if issue.label_ids.is_empty() {
+            issue.labels.iter().map(|l| l.id.clone()).collect()
+        } else {
+            issue.label_ids.clone()
+        };
+        return Ok(admit(super::delivery::issue_labeled_request(
+            event_id,
+            connection_id,
+            &issue,
+            added,
+            super::delivery::LabelTrigger::Created,
+            envelope.actor.as_ref(),
+        )?));
+    }
+
+    let added = super::ingress::added_label_ids(envelope);
+
+    // Settled before the identity below it: an update that moved no state and
+    // added no label is ordinary Linear traffic with no work behind it, and
+    // refusing one as unidentifiable would 400 every title edit in the
+    // workspace.
     if super::ingress::previous_state_id(envelope).is_none() {
-        return Ok(Plan::Ignored {
-            reason: reason::NOT_A_STATE_CHANGE,
-        });
+        if added.is_empty() {
+            return Ok(Plan::Ignored {
+                reason: reason::NOT_A_STATE_CHANGE,
+            });
+        }
+        return Ok(admit(super::delivery::issue_labeled_request(
+            event_id,
+            connection_id,
+            &issue,
+            added,
+            super::delivery::LabelTrigger::Added,
+            envelope.actor.as_ref(),
+        )?));
     }
 
     // `updatedFrom` says the issue moved, so a payload naming no state it moved
@@ -210,14 +245,30 @@ fn issue_event(
         ));
     };
 
-    Ok(admit(super::delivery::issue_update_request(
+    let mut requests = vec![super::delivery::issue_update_request(
         event_id,
         connection_id,
         &issue,
         envelope.updated_from.as_ref(),
         &transition_id,
         envelope.webhook_timestamp.unwrap_or(0),
-    )?))
+        envelope.actor.as_ref(),
+    )?];
+    if !added.is_empty() {
+        requests.push(super::delivery::issue_labeled_request(
+            event_id,
+            connection_id,
+            &issue,
+            added,
+            super::delivery::LabelTrigger::Added,
+            envelope.actor.as_ref(),
+        )?);
+    }
+    Ok(Plan::Admit {
+        requests,
+        effects: Vec::new(),
+        requires: None,
+    })
 }
 
 /// A comment on an issue.
@@ -496,9 +547,63 @@ mod tests {
     }
 
     #[test]
+    fn a_created_issue_with_a_label_plans_a_label_trigger_and_one_without_is_ignored() {
+        let mut labeled = issue("create");
+        labeled["data"]["labelIds"] = serde_json::json!(["l-factory"]);
+        assert_eq!(
+            admitted(labeled).0,
+            vec![super::super::delivery::ISSUE_LABELED]
+        );
+
+        // The webhook may embed `labels` without `labelIds`.
+        let mut embedded = issue("create");
+        embedded["data"]["labels"] = serde_json::json!([{"id": "l-1", "name": "factory"}]);
+        assert_eq!(
+            admitted(embedded).0,
+            vec![super::super::delivery::ISSUE_LABELED]
+        );
+
+        assert_eq!(ignored(issue("create")), reason::UNLABELED_CREATE);
+    }
+
+    #[test]
+    fn an_update_adding_a_label_plans_a_label_trigger_and_a_removal_does_not() {
+        let mut added = issue("update");
+        added["updatedFrom"] = serde_json::json!({"labelIds": ["l-bug"]});
+        added["data"]["labelIds"] = serde_json::json!(["l-bug", "l-factory"]);
+        assert_eq!(
+            admitted(added).0,
+            vec![super::super::delivery::ISSUE_LABELED]
+        );
+
+        let mut removed = issue("update");
+        removed["updatedFrom"] = serde_json::json!({"labelIds": ["l-bug", "l-factory"]});
+        removed["data"]["labelIds"] = serde_json::json!(["l-bug"]);
+        assert_eq!(ignored(removed), reason::NOT_A_STATE_CHANGE);
+    }
+
+    #[test]
+    fn an_update_that_moves_and_labels_plans_both_under_one_identity() {
+        let mut both = issue("update");
+        both["updatedFrom"] = serde_json::json!({"stateId": "s0", "labelIds": []});
+        both["data"]["labelIds"] = serde_json::json!(["l-factory"]);
+        let Plan::Admit { requests, .. } = plan(both) else {
+            panic!("expected an admission");
+        };
+        assert_eq!(
+            kinds(&requests),
+            vec![
+                super::super::delivery::ISSUE_UPDATE,
+                super::super::delivery::ISSUE_LABELED
+            ]
+        );
+        assert!(requests.iter().all(|r| r.event_id == EVENT_ID));
+    }
+
+    #[test]
     fn an_action_this_adapter_does_not_act_on_is_unsupported_action() {
         assert_eq!(ignored(comment("update")), reason::UNSUPPORTED_ACTION);
-        assert_eq!(ignored(issue("create")), reason::UNSUPPORTED_ACTION);
+        assert_eq!(ignored(issue("remove")), reason::UNSUPPORTED_ACTION);
         assert_eq!(ignored(session("archived")), reason::UNSUPPORTED_ACTION);
     }
 

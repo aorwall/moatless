@@ -726,6 +726,13 @@ impl RoutingService {
         })
     }
 
+    /// Record `task_id` as the Loop's ongoing Task, for an Adapter that opens one
+    /// outside [`Self::route_inbound_message`]. Hold the creation claim while
+    /// calling this.
+    pub async fn set_ongoing_task(&self, loop_id: &str, task_id: &str) -> Result<(), AdapterError> {
+        Ok(self.loops.set_ongoing_task(loop_id, task_id).await?)
+    }
+
     /// Point a held claim at the Task it produced, so a later delivery that
     /// loses the claim can be told what won it.
     pub async fn record_created_task(
@@ -797,7 +804,8 @@ impl RoutingService {
             .await?)
     }
 
-    async fn open_ongoing_task_id(&self, subscription: &SubscriptionMatch) -> Option<String> {
+    /// The Loop's ongoing Task, when it names one that is still open.
+    pub async fn open_ongoing_task_id(&self, subscription: &SubscriptionMatch) -> Option<String> {
         let task_id = subscription.ongoing_task_id.as_deref()?;
         #[allow(clippy::disallowed_methods)]
         // reason: event routing is a background path with no caller identity

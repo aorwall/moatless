@@ -174,7 +174,20 @@ Notes:
   moves the issue into that workflow state (e.g. `In Progress`) when the task is
   picked up, so the board reflects the agent took it — resolved within the
   issue's team and skipped if the issue is already there. When the issue reaches
-  a terminal state (`completed`/`canceled`) the spawned task is auto-closed.
+  a terminal state the spawned task is auto-closed; `adapterConfig.terminal_states`
+  (default `completed`, `canceled`) matches a state type or a state name,
+  case-insensitively. A task still open when its issue re-enters a trigger
+  state is told so, with who moved it, instead of a second task starting; every
+  task bound to the whole issue hears each state change.
+  `adapterConfig.trigger_labels` (label names, case-insensitive) also fires the
+  loop when an issue is created carrying one or an update adds one; when the
+  loop lists `triggerStates`, the issue must also sit in one of them. A loop with
+  `trigger_labels` fires on status entry only for the `triggerStates` it lists,
+  never the default. `adapterConfig.exclude_labels` stops every trigger,
+  mention and delegation included, for an issue carrying one of them.
+  `routingMode: ongoing` sends each status-entry or label event, as a message
+  naming the issue, its state, URL and the reason, to the loop's one ongoing
+  task (opened by the first event) and binds nothing to the issue.
   The same knobs work on a hand-made trigger:
   `moat loops create-subscription --adapter linear --connection-id <id>
   --name "Ready Pool" --workspace-id <workspace-id> --source-matcher <team-uuid> --adapter-config

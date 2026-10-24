@@ -1,14 +1,12 @@
-//! What an issue changing state does.
+//! What an issue changing state, or gaining a label, does.
 //!
-//! Three independent things: every bound Task hears the issue moved; a
-//! configured state may spawn a Task with no Linear session behind it; and a
-//! terminal state may close the Tasks it produced (see
-//! [`close`](super::close)).
-//!
-//! A state change's identity is the issue plus Linear's delivery timestamp, not
-//! the state — leaving and re-entering a state produces two separate changes,
-//! so naming by state would drop the second as a duplicate.
+//! Every bound Task hears the issue moved; a configured state or label spawns a
+//! Task with no Linear session behind it, or reaches a Loop's ongoing Task; a
+//! terminal state may close the Tasks it produced (see [`close`](super::close)).
+//! A state change is named by the issue plus Linear's clock, not the state, so
+//! re-entering a state is a second change rather than a duplicate.
 
+use std::collections::HashSet;
 use std::fmt::Write as _;
 
 use tracing::{debug, info, warn};
@@ -18,56 +16,69 @@ use moatless_core::config::Config;
 use moatless_adapter_model::binding::{ADAPTER_EVENT_BINDING_ORIGIN, BindScope};
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_loops::bindings::operations::Bindings;
+use moatless_loops::bindings::runtime::RoutingService;
 use moatless_ports::sandbox::SandboxWaker;
 use moatless_ports::task::TaskFinisher;
 use moatless_ports::task::TaskOpener;
 use moatless_ports::task::TaskReader;
 use moatless_ports::task::{InboundTurn, MessageAcceptor, TurnOrigin};
 use moatless_types::adapter::AdapterConnection;
-use moatless_types::loops::SubscriptionMatch;
+use moatless_types::loops::{RoutingMode, SubscriptionMatch};
 use moatless_types::task::Visibility;
 
 use super::active_turns::ActiveLinearTurns;
 use super::agent_api::{LinearAgentApi, LookupKind};
 use super::close::close_active_bindings_for_issue;
 use super::config::LinearRuleConfig;
+use super::delivery::{IssueLabeledDelivery, IssueUpdateDelivery, LabelTrigger};
 use super::subject::{ADAPTER, SUBJECT_KIND_SESSION as SUBJECT_KIND};
-use super::webhook_payloads::IssuePayload;
+use super::webhook_payloads::{IssuePayload, LinearActor, LinearLabelRef, actor_handle};
 
 const ADAPTER_LABEL: &str = moatless_types::adapter::AdapterKind::Linear.as_str();
+
+/// Subject kind of the creation claim on a Loop's ongoing Task, keyed by the
+/// Loop id. No Binding carries it.
+const ONGOING_SUBJECT_KIND: &str = "linear_loop";
+
+/// The downward ports the issue workflows read, borrowed from
+/// [`LinearInboundRouter`](super::delivery::LinearInboundRouter).
+pub(super) struct IssuePorts<'a> {
+    pub(super) task_bindings: &'a Bindings,
+    pub(super) tasks: &'a dyn TaskReader,
+    pub(super) config: &'a Config,
+    pub(super) task_closer: &'a dyn TaskFinisher,
+    pub(super) sandbox_waker: &'a dyn SandboxWaker,
+    pub(super) linear_active_turns: &'a ActiveLinearTurns,
+    pub(super) task_creation: &'a dyn TaskOpener,
+    pub(super) message_send: &'a dyn MessageAcceptor,
+    pub(super) routing: &'a RoutingService,
+}
+
+/// What [`provision_issue_task`] did.
+#[derive(Debug, PartialEq, Eq)]
+enum Provisioned {
+    Created(String),
+    /// The `(issue, Loop)` pair already has an active Task.
+    Existing,
+}
 
 /// Handle an `Issue.update` payload.
 ///
 /// On a real state transition, notifies every bound task; if the new state
-/// is in `terminal_states` and `close_task_on_close` is set, also runs the
-/// close path. `transition_id` is the semantic transition, falling back to
-/// `delivered_at` for older records.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "a fan-out root dispatching to persist/notify/close/status-entry, \
-              whose width is the union of four independent jobs' ports; the only \
-              sub-threshold alternative is re-bagging them into the AppState we \
-              are un-bagging"
-)]
+/// is terminal and `close_task_on_close` is set, also runs the close path.
+/// `transition_id` is the semantic transition, falling back to `delivered_at`
+/// for older records.
 pub(super) async fn handle_issue_update(
-    task_bindings: &Bindings,
-    tasks: &dyn TaskReader,
-    config: &Config,
-    task_closer: &dyn TaskFinisher,
-    sandbox_waker: &dyn SandboxWaker,
-    linear_active_turns: &ActiveLinearTurns,
-    task_creation: &dyn TaskOpener,
-    message_send: &dyn MessageAcceptor,
+    ports: &IssuePorts<'_>,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
     rules: &[SubscriptionMatch],
-    envelope_updated_from: Option<&serde_json::Value>,
-    issue: &IssuePayload,
-    transition_id: Option<&str>,
-    delivered_at: i64,
+    update: &IssueUpdateDelivery,
 ) -> Result<(), AdapterError> {
-    let state_kind = issue.state_kind();
-    let prev_state_id = envelope_updated_from
+    let issue = &update.issue;
+    let prev_state_id = update
+        .updated_from
+        .as_ref()
         .and_then(|v| v.get("stateId"))
         .and_then(serde_json::Value::as_str);
     let new_state_id = issue.state.as_ref().map(|s| s.id.as_str());
@@ -78,7 +89,7 @@ pub(super) async fn handle_issue_update(
 
     // Persist the new workflow state onto every binding for this issue — for
     // every transition, not just terminal ones. Best-effort.
-    persist_issue_status(task_bindings, connection, issue).await;
+    persist_issue_status(ports.task_bindings, connection, issue).await;
 
     let Some(rule) = rules.first() else {
         debug!(issue = %issue.identifier, "No Linear rule found for team — ignoring update");
@@ -86,26 +97,30 @@ pub(super) async fn handle_issue_update(
     };
     let rule_config = LinearRuleConfig::from_rule(rule);
 
+    let transition_id = update
+        .transition_id
+        .clone()
+        .unwrap_or_else(|| update.delivered_at.to_string());
+
     // Forward a state-change notification to every bound task (best-effort).
     notify_bindings_of_state_change(
-        task_bindings,
-        message_send,
-        sandbox_waker,
+        ports,
         connection,
+        rules,
         issue,
-        transition_id,
-        delivered_at,
+        &transition_id,
+        update.actor.as_ref(),
     )
     .await;
 
     if rule_config.close_task_on_close
-        && rule_config.terminal_states.iter().any(|s| s == state_kind)
+        && rule_config.is_terminal(issue.state_kind(), issue.state_name())
     {
         close_active_bindings_for_issue(
-            task_bindings,
-            tasks,
-            config,
-            task_closer,
+            ports.task_bindings,
+            ports.tasks,
+            ports.config,
+            ports.task_closer,
             api,
             rule,
             issue,
@@ -113,52 +128,329 @@ pub(super) async fn handle_issue_update(
         .await?;
     }
 
-    // Status-entry creation: spawn a fresh task for every rule opted into
-    // `create_on_status_entry` whose `trigger_states` include the new state.
-    // Independent of the notify/close paths above (which only touch already-
-    // bound tasks). Best-effort — failures are logged per rule.
-    create_tasks_for_status_entry(
-        task_bindings,
-        tasks,
-        config,
-        linear_active_turns,
-        task_creation,
-        message_send,
-        api,
-        connection,
-        rules,
-        issue,
-    )
-    .await;
+    // Independent of the notify/close paths above, which only touch
+    // already-bound tasks.
+    create_tasks_for_status_entry(ports, api, connection, rules, issue, &transition_id).await
+}
 
+/// Act on labels added to an issue, or an issue created with labels: fire every
+/// rule whose `trigger_labels` names one of them.
+///
+/// Fails, so the record retries, only when the label names can't be read or
+/// [`must_retry`]; other per-rule failures are logged.
+pub(super) async fn handle_issue_labeled(
+    ports: &IssuePorts<'_>,
+    api: &LinearAgentApi,
+    connection: &AdapterConnection,
+    rules: &[SubscriptionMatch],
+    labeled: &IssueLabeledDelivery,
+    delivery_event_id: &str,
+) -> Result<(), AdapterError> {
+    let issue = &labeled.issue;
+    let candidates: Vec<(&SubscriptionMatch, LinearRuleConfig)> = rules
+        .iter()
+        .map(|r| (r, LinearRuleConfig::from_rule(r)))
+        .filter(|(_, cfg)| !cfg.trigger_labels.is_empty())
+        .collect();
+    if candidates.is_empty() {
+        return Ok(());
+    }
+
+    let facts = if issue.labels.is_empty() {
+        IssueFacts::fetch(api, issue).await?
+    } else {
+        IssueFacts::from_payload(issue)
+    };
+    let added: Vec<String> = facts
+        .labels
+        .iter()
+        .filter(|l| labeled.added_label_ids.contains(&l.id))
+        .map(|l| l.name.clone())
+        .collect();
+
+    let state_name = issue.state_name();
+    for (rule, cfg) in candidates {
+        let Some(label) = cfg.trigger_label_in(&added) else {
+            continue;
+        };
+        if cfg.is_terminal(issue.state_kind(), state_name)
+            || !cfg.label_trigger_allows_state(state_name)
+        {
+            debug!(
+                issue = %issue.identifier,
+                subscription_id = %rule.id,
+                state = state_name,
+                "Linear label trigger skipped: issue state not admitted"
+            );
+            continue;
+        }
+        if let Some(refusal) = facts.refusal(&cfg) {
+            debug!(
+                issue = %issue.identifier,
+                subscription_id = %rule.id,
+                refusal,
+                "Linear label trigger skipped"
+            );
+            continue;
+        }
+
+        let by = actor_handle(labeled.actor.as_ref())
+            .map(|name| format!(" by {name}"))
+            .unwrap_or_default();
+        let (reason, clock) = match labeled.trigger {
+            LabelTrigger::Created => (
+                format!("was created with the label \"{label}\"{by}"),
+                "created".to_string(),
+            ),
+            LabelTrigger::Added => (
+                format!("was labeled \"{label}\"{by}"),
+                issue
+                    .updated_at
+                    .clone()
+                    .unwrap_or_else(|| delivery_event_id.to_string()),
+            ),
+        };
+        let event_id = super::external_id::issue_labeled(&issue.id, &clock);
+        match fire_rule(
+            ports, api, connection, rule, &cfg, issue, &reason, &event_id,
+        )
+        .await
+        {
+            Ok(()) => {}
+            Err(e) if must_retry(rule, &e) => return Err(e),
+            Err(e) => warn!(
+                issue = %issue.identifier,
+                subscription_id = %rule.id,
+                error = %e,
+                "Failed to act on Linear label trigger"
+            ),
+        }
+    }
     Ok(())
 }
 
-/// Spawn tasks for rules opted into `create_on_status_entry` whose
-/// `trigger_states` include the new state, applying project/label filters;
-/// idempotent per `(issue, trigger)`.
+/// The issue's project and labels, as the rule filters read them.
+struct IssueFacts {
+    project_id: Option<String>,
+    labels: Vec<LinearLabelRef>,
+}
+
+impl IssueFacts {
+    fn from_payload(issue: &IssuePayload) -> Self {
+        Self {
+            project_id: issue.resolved_project_id().map(str::to_string),
+            labels: issue.labels.clone(),
+        }
+    }
+
+    async fn fetch(api: &LinearAgentApi, issue: &IssuePayload) -> Result<Self, AdapterError> {
+        let detail = api.get_issue(&issue.id).await?;
+        Ok(Self::from_graphql(&detail, issue))
+    }
+
+    /// Falls back to the webhook's project when the fetched issue names none.
+    fn from_graphql(detail: &serde_json::Value, issue: &IssuePayload) -> Self {
+        let labels = detail
+            .pointer("/labels/nodes")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+        Self {
+            project_id: detail
+                .pointer("/project/id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+                .or_else(|| issue.resolved_project_id().map(str::to_string)),
+            labels,
+        }
+    }
+
+    fn label_names(&self) -> Vec<String> {
+        self.labels.iter().map(|l| l.name.clone()).collect()
+    }
+
+    /// Why `cfg` refuses this issue, or `None` when it admits it.
+    fn refusal(&self, cfg: &LinearRuleConfig) -> Option<&'static str> {
+        let names = self.label_names();
+        if !cfg.project_allowed(self.project_id.as_deref()) {
+            Some("issue project not in allowlist")
+        } else if !cfg.labels_allowed(&names) {
+            Some("required labels missing")
+        } else if cfg.excluded(&names) {
+            Some("issue carries an excluded label")
+        } else {
+            None
+        }
+    }
+}
+
+/// Start `rule`'s work for `issue`: a message to the Loop's ongoing Task when
+/// it routes `ongoing`, else a Task bound to the issue.
 ///
-/// Fetches the issue via `get_issue` once a rule filters on project/labels
-/// the webhook omits, falling back to the webhook project id, empty labels.
+/// `reason` completes "Linear issue X …"; `event_id` names the ongoing message.
 #[expect(
     clippy::too_many_arguments,
-    reason = "forwards the six ports the per-rule provisioning path reads \
-              (bindings, tasks, config, active-turns, task-creation, \
-              message-send) inverted out of the single AppState; any narrower \
-              grouping is that AppState-shaped bag under a new name"
+    reason = "the issue, the rule that fired and the two strings naming why; \
+              each is read by one of the two routes"
 )]
+async fn fire_rule(
+    ports: &IssuePorts<'_>,
+    api: &LinearAgentApi,
+    connection: &AdapterConnection,
+    rule: &SubscriptionMatch,
+    cfg: &LinearRuleConfig,
+    issue: &IssuePayload,
+    reason: &str,
+    event_id: &str,
+) -> Result<(), AdapterError> {
+    if rule.routing_mode == RoutingMode::Ongoing {
+        let text = ongoing_text(issue, reason);
+        return deliver_to_ongoing_task(ports, connection, rule, issue, &text, event_id).await;
+    }
+    match provision_issue_task(ports, api, connection, rule, cfg, issue).await? {
+        Provisioned::Created(task_id) => info!(
+            task_id = %task_id,
+            issue = %issue.identifier,
+            subscription_id = %rule.id,
+            reason,
+            "Created task from Linear issue trigger"
+        ),
+        // A re-entered trigger state reaches these through
+        // `notify_bindings_of_state_change`.
+        Provisioned::Existing => info!(
+            issue = %issue.identifier,
+            subscription_id = %rule.id,
+            "Linear issue already has an active task for this trigger — skipping creation"
+        ),
+    }
+    Ok(())
+}
+
+/// Whether a failed [`fire_rule`] must fail the record so it retries, rather
+/// than be logged. An ongoing Loop's event reaches no Task otherwise: the retry
+/// finds the Task through `open_ongoing_task_id` and repeats the same event id.
+fn must_retry(rule: &SubscriptionMatch, e: &AdapterError) -> bool {
+    rule.routing_mode == RoutingMode::Ongoing || matches!(e, AdapterError::CreationClaimed { .. })
+}
+
+/// The message a Loop's ongoing Task gets for one issue event.
+fn ongoing_text(issue: &IssuePayload, reason: &str) -> String {
+    let mut text = format!(
+        "Linear issue {} \"{}\" {reason}.\n\nState: {}",
+        issue.identifier,
+        issue.title,
+        issue.state_name()
+    );
+    if let Some(url) = issue.url.as_deref().filter(|u| !u.is_empty()) {
+        let _ = write!(text, "\n{url}");
+    }
+    text
+}
+
+/// Deliver `text` to `rule`'s ongoing Task, opening that Task first when the
+/// Loop has none open. Binds nothing to the issue: the Loop owns the Task.
+async fn deliver_to_ongoing_task(
+    ports: &IssuePorts<'_>,
+    connection: &AdapterConnection,
+    rule: &SubscriptionMatch,
+    issue: &IssuePayload,
+    text: &str,
+    event_id: &str,
+) -> Result<(), AdapterError> {
+    let turn = |task_id: &str, resume: bool| InboundTurn {
+        task_id: task_id.to_string(),
+        text: text.to_string(),
+        file_ids: Vec::new(),
+        resume,
+        origin: TurnOrigin {
+            event_id: Some(event_id.to_string()),
+            adapter: Some(ADAPTER_LABEL.to_string()),
+            subject_key: Some(issue.id.clone()),
+            source_name: Some(rule.source_matcher.clone()),
+            author: None,
+            sender_id: None,
+        },
+        sent_by: None,
+        skills: Vec::new(),
+    };
+
+    if let Some(task_id) = ports.routing.open_ongoing_task_id(rule).await {
+        ports
+            .message_send
+            .accept(turn(&task_id, true))
+            .await
+            .map_err(|e| AdapterError::task_handoff("deliver to the ongoing task", e))?;
+        if let Err(e) = ports.sandbox_waker.wake(&task_id).await {
+            warn!(task_id = %task_id, error = %e, "Failed to wake the ongoing task");
+        }
+        return Ok(());
+    }
+
+    ports
+        .routing
+        .claim_task_creation(
+            connection,
+            rule,
+            ONGOING_SUBJECT_KIND,
+            &rule.id,
+            ADAPTER_LABEL,
+            Some(event_id),
+        )
+        .await?;
+    // Named after the Loop, not the issue that happened to open it.
+    let named = SubscriptionMatch {
+        task_name: rule.task_name.clone().or_else(|| Some(rule.name.clone())),
+        ..rule.clone()
+    };
+    let task_id = match insert_event_task(
+        ports.task_creation,
+        &named,
+        &issue.identifier,
+        &issue.title,
+        text,
+    )
+    .await
+    {
+        Ok(task_id) => task_id,
+        Err(e) => {
+            ports
+                .routing
+                .release_task_creation(&rule.id, ONGOING_SUBJECT_KIND, &rule.id)
+                .await?;
+            return Err(e);
+        }
+    };
+    ports.routing.set_ongoing_task(&rule.id, &task_id).await?;
+    ports
+        .routing
+        .record_created_task(&rule.id, ONGOING_SUBJECT_KIND, &rule.id, &task_id)
+        .await?;
+    ports
+        .message_send
+        .accept(turn(&task_id, false))
+        .await
+        .map_err(|e| AdapterError::task_handoff("deliver to the ongoing task", e))?;
+    info!(
+        task_id = %task_id,
+        subscription_id = %rule.id,
+        issue = %issue.identifier,
+        "Opened the Loop's ongoing task from a Linear issue event"
+    );
+    Ok(())
+}
+
+/// Fire every rule opted into `create_on_status_entry` whose `trigger_states`
+/// include the new state, applying project/label/exclude filters.
+///
+/// Fetches the issue once a rule filters on labels or a project the webhook
+/// omits, else uses the payload. Best-effort per rule, except [`must_retry`].
 async fn create_tasks_for_status_entry(
-    task_bindings: &Bindings,
-    tasks: &dyn TaskReader,
-    config: &Config,
-    linear_active_turns: &ActiveLinearTurns,
-    task_creation: &dyn TaskOpener,
-    message_send: &dyn MessageAcceptor,
+    ports: &IssuePorts<'_>,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
     rules: &[SubscriptionMatch],
     issue: &IssuePayload,
-) {
+    transition_id: &str,
+) -> Result<(), AdapterError> {
     let state_name = issue.state_name();
     let candidates: Vec<(&SubscriptionMatch, LinearRuleConfig)> = rules
         .iter()
@@ -166,150 +458,104 @@ async fn create_tasks_for_status_entry(
         .filter(|(_, cfg)| cfg.creates_on_status(state_name))
         .collect();
     if candidates.is_empty() {
-        return;
+        return Ok(());
     }
 
-    let webhook_project = issue.resolved_project_id().map(str::to_string);
-    let needs_labels = candidates
-        .iter()
-        .any(|(_, cfg)| !cfg.require_labels.is_empty());
-    let needs_project_fetch = webhook_project.is_none()
+    let needs_labels = issue.labels.is_empty()
+        && candidates
+            .iter()
+            .any(|(_, cfg)| !cfg.require_labels.is_empty() || !cfg.exclude_labels.is_empty());
+    let needs_project_fetch = issue.resolved_project_id().is_none()
         && candidates
             .iter()
             .any(|(_, cfg)| !cfg.project_ids.is_empty());
 
-    let detail = if needs_labels || needs_project_fetch {
-        match api.get_issue(&issue.id).await {
-            Ok(v) => Some(v),
+    let facts = if needs_labels || needs_project_fetch {
+        match IssueFacts::fetch(api, issue).await {
+            Ok(facts) => facts,
             Err(e) => {
                 warn!(
                     issue = %issue.identifier,
                     error = %e,
                     "Failed to fetch Linear issue for status-entry filtering; using webhook payload"
                 );
-                None
+                IssueFacts::from_payload(issue)
             }
         }
     } else {
-        None
+        IssueFacts::from_payload(issue)
     };
 
-    let project_id: Option<String> = detail
-        .as_ref()
-        .and_then(|d| d.pointer("/project/id"))
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_string)
-        .or(webhook_project);
-
-    let labels: Vec<String> = detail
-        .as_ref()
-        .and_then(|d| d.pointer("/labels/nodes"))
-        .and_then(serde_json::Value::as_array)
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|n| n.get("name").and_then(serde_json::Value::as_str))
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
-
+    let reason = format!("entered \"{state_name}\"");
+    let event_id = super::external_id::issue_state(&issue.id, transition_id);
     for (rule, cfg) in candidates {
-        if !cfg.project_allowed(project_id.as_deref()) {
+        if let Some(refusal) = facts.refusal(&cfg) {
             debug!(
                 issue = %issue.identifier,
                 subscription_id = %rule.id,
-                "Linear status-entry skipped: issue project not in allowlist"
+                refusal,
+                "Linear status-entry skipped"
             );
             continue;
         }
-        if !cfg.labels_allowed(&labels) {
-            debug!(
-                issue = %issue.identifier,
-                subscription_id = %rule.id,
-                "Linear status-entry skipped: required labels missing"
-            );
-            continue;
-        }
-        if let Err(e) = provision_issue_task(
-            task_bindings,
-            tasks,
-            config,
-            linear_active_turns,
-            task_creation,
-            message_send,
-            api,
-            connection,
-            rule,
-            &cfg,
-            issue,
+        match fire_rule(
+            ports, api, connection, rule, &cfg, issue, &reason, &event_id,
         )
         .await
         {
-            warn!(
+            Ok(()) => {}
+            Err(e) if must_retry(rule, &e) => return Err(e),
+            Err(e) => warn!(
                 issue = %issue.identifier,
                 subscription_id = %rule.id,
                 error = %e,
-                "Failed to provision Linear status-entry task"
-            );
+                "Failed to act on Linear status entry"
+            ),
         }
     }
+    Ok(())
 }
 
-/// Create + provision a task for an `Issue.update` status-entry match, bind
-/// it to the issue via `linear_issue`, link it back, and forward the inbound
-/// "read the ticket" prompt.
+/// Create + provision a task for `issue` under `rule`, bind it to the issue via
+/// `linear_issue`, link it back, and forward the inbound "read the ticket"
+/// prompt.
 ///
-/// Idempotent per `(issue, trigger)`: an existing active binding for this
-/// trigger+connection returns early, so re-entering doesn't double-create.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the six downward ports one status-entry provisioning reads \
-              (bindings, tasks, config, active-turns, task-creation, \
-              message-send) inverted out of the single AppState; there is no \
-              narrower grouping that is not itself that AppState-shaped bag"
-)]
+/// Idempotent per `(issue, rule)`: an existing active binding for this
+/// rule+connection returns [`Provisioned::Existing`] and creates nothing.
 async fn provision_issue_task(
-    task_bindings: &Bindings,
-    tasks: &dyn TaskReader,
-    config: &Config,
-    linear_active_turns: &ActiveLinearTurns,
-    task_creation: &dyn TaskOpener,
-    message_send: &dyn MessageAcceptor,
+    ports: &IssuePorts<'_>,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
     rule: &SubscriptionMatch,
     cfg: &LinearRuleConfig,
     issue: &IssuePayload,
-) -> Result<(), AdapterError> {
-    let existing = task_bindings
+) -> Result<Provisioned, AdapterError> {
+    let has_active = ports
+        .task_bindings
         .active_by_destination_field(ADAPTER, super::SUBJECT_KIND_ISSUE, "issue_id", &issue.id)
-        .await?;
-    if existing
-        .iter()
-        .any(|b| b.connection_id == connection.id && b.loop_id.as_deref() == Some(rule.id.as_str()))
-    {
-        info!(
-            issue = %issue.identifier,
-            subscription_id = %rule.id,
-            "Linear issue already has an active task for this trigger — skipping status-entry creation"
-        );
-        return Ok(());
+        .await?
+        .into_iter()
+        .any(|b| {
+            b.connection_id == connection.id && b.loop_id.as_deref() == Some(rule.id.as_str())
+        });
+    if has_active {
+        return Ok(Provisioned::Existing);
     }
 
-    let preview = super::text::build_issue_inbound_text(issue);
+    let inbound_text = super::text::build_issue_inbound_text(issue);
     let task_id = match insert_event_task(
-        task_creation,
+        ports.task_creation,
         rule,
         &issue.identifier,
         &issue.title,
-        &preview,
+        &inbound_text,
     )
     .await
     {
         Ok(id) => id,
-        // Preflight failed: surface the reason as an issue comment (the
-        // status-entry path has no agent session), then bail out — the errored
-        // task gets no binding or prompt.
+        // Preflight failed: surface the reason as an issue comment (this path
+        // has no agent session), then bail out — the errored task gets no
+        // binding or prompt.
         Err(AdapterError::Shared(SharedAdapterError::AccessDenied(msg))) => {
             if let Err(e) = api
                 .create_comment(&issue.id, &format!("Couldn't start this task: {msg}"))
@@ -323,11 +569,12 @@ async fn provision_issue_task(
     };
     // Open the Linear turn gate so sandbox/agent events on this task surface in
     // Linear's UI. Provisioning already ran inside the creation service.
-    linear_active_turns.open(&task_id);
+    ports.linear_active_turns.open(&task_id);
 
     let team_id = issue.resolved_team_id().unwrap_or_default().to_string();
     let destination_config = super::subject::issue_destination_config(issue, &team_id);
-    let binding = task_bindings
+    let binding = ports
+        .task_bindings
         .bind(
             connection,
             Some(rule),
@@ -342,9 +589,9 @@ async fn provision_issue_task(
         )
         .await?;
 
-    let task_url = super::text::task_url(config, &task_id);
+    let task_url = super::text::task_url(ports.config, &task_id);
     let attachment_title = super::task_links::task_attachment_title(
-        tasks,
+        ports.tasks,
         &task_id,
         super::text::ATTACHMENT_TITLE_CHILD,
     )
@@ -360,17 +607,16 @@ async fn provision_issue_task(
         );
     }
 
-    // Forward the inbound prompt: issue link + read-the-ticket instructions.
-    let inbound_text = super::text::build_issue_inbound_text(issue);
     let external_event_id = super::external_id::issue_created(&issue.id);
-    if let Err(e) = message_send
+    if let Err(e) = ports
+        .message_send
         .accept(InboundTurn {
             task_id: task_id.clone(),
-            text: inbound_text.clone(),
+            text: inbound_text,
             file_ids: Vec::new(),
             resume: false,
             origin: TurnOrigin {
-                event_id: Some(external_event_id.clone()),
+                event_id: Some(external_event_id),
                 adapter: Some(ADAPTER_LABEL.to_string()),
                 subject_key: Some(binding.subject_key.clone()),
                 source_name: Some(rule.source_matcher.clone()),
@@ -401,21 +647,10 @@ async fn provision_issue_task(
         }
     }
 
-    info!(
-        task_id = %task_id,
-        issue = %issue.identifier,
-        subscription_id = %rule.id,
-        "Created task from Linear issue status entry"
-    );
-    Ok(())
+    Ok(Provisioned::Created(task_id))
 }
 
-/// Best-effort: resolve `start_state` to a team-scoped workflow-state id and
-/// move the issue into it via `issueUpdate`.
-///
-/// Shared by the status-entry and mention/assignment paths, which carry
-/// different issue payload types, so this takes plain ids. Failures are
-/// logged and swallowed — a missed transition must not fail the pickup.
+/// Move the issue to `state_name`; best-effort, so failures are only logged.
 pub(super) async fn transition_issue_state(
     api: &LinearAgentApi,
     team_id: &str,
@@ -522,88 +757,128 @@ async fn persist_issue_status(
     }
 }
 
-/// Post a state-change message to every active agent-session binding for the
-/// issue, then wake that task's sandbox so the message actually runs.
+/// Post a state-change message to every Task bound to the issue, through a
+/// session or an issue Binding, then wake it so the message actually runs.
 ///
-/// The wake matches every other inbound path: an unwoken pending message leaves
-/// the turn unopened and the task reads as still working. Best-effort —
-/// failures are logged so the close path still runs.
+/// A Task bound under a rule whose trigger states include the new state hears
+/// the issue *re-entered* it, as [`provision_issue_task`] starts no second
+/// Task. Failures are logged so the close path still runs.
 async fn notify_bindings_of_state_change(
-    task_bindings: &Bindings,
-    message_send: &dyn MessageAcceptor,
-    sandbox_waker: &dyn SandboxWaker,
+    ports: &IssuePorts<'_>,
     connection: &AdapterConnection,
+    rules: &[SubscriptionMatch],
     issue: &IssuePayload,
-    transition_id: Option<&str>,
-    delivered_at: i64,
+    transition_id: &str,
+    actor: Option<&LinearActor>,
 ) {
-    let bindings = match super::subject::active_bindings_on_issue(
-        task_bindings,
-        connection,
-        SUBJECT_KIND,
-        &issue.id,
-    )
-    .await
-    {
-        Ok(rows) => rows,
-        Err(e) => {
-            warn!(
-                issue = %issue.identifier,
-                error = %e,
-                "Failed to look up bindings for Linear state-change notification"
-            );
-            return;
-        }
-    };
-
     let new_state = issue.state_name();
-    let mut body = format!(
-        "Linear issue {} moved to \"{}\".",
-        issue.identifier, new_state
-    );
+    let external_event_id = super::external_id::issue_state(&issue.id, transition_id);
+    let mut notified = HashSet::new();
+
+    for subject_kind in [SUBJECT_KIND, super::SUBJECT_KIND_ISSUE] {
+        let bindings = match super::subject::active_bindings_on_issue(
+            ports.task_bindings,
+            connection,
+            subject_kind,
+            &issue.id,
+        )
+        .await
+        {
+            Ok(rows) => rows,
+            Err(e) => {
+                warn!(
+                    issue = %issue.identifier,
+                    subject_kind,
+                    error = %e,
+                    "Failed to look up bindings for Linear state-change notification"
+                );
+                continue;
+            }
+        };
+
+        // A Binding scoped to a comment its Task posted hears only replies to it
+        // (`comments::hears_comment`), so a state change is not for it.
+        for binding in bindings
+            .into_iter()
+            .filter(|b| !super::subject::is_comment_scoped_issue(b))
+        {
+            if !notified.insert(binding.task_id.clone()) {
+                continue;
+            }
+            let reentered = subject_kind == super::SUBJECT_KIND_ISSUE
+                && binding
+                    .loop_id
+                    .as_deref()
+                    .and_then(|id| rules.iter().find(|r| r.id == id))
+                    .is_some_and(|r| LinearRuleConfig::from_rule(r).creates_on_status(new_state));
+            let body = state_change_text(issue, actor, reentered);
+
+            if let Err(e) = ports
+                .message_send
+                .accept(InboundTurn {
+                    task_id: binding.task_id.clone(),
+                    text: body,
+                    file_ids: Vec::new(),
+                    resume: true,
+                    origin: TurnOrigin {
+                        event_id: Some(external_event_id.clone()),
+                        adapter: Some(ADAPTER_LABEL.to_string()),
+                        subject_key: Some(binding.subject_key.clone()),
+                        ..TurnOrigin::default()
+                    },
+                    sent_by: None,
+                    skills: Vec::new(),
+                })
+                .await
+            {
+                warn!(
+                    task_id = %binding.task_id,
+                    issue = %issue.identifier,
+                    error = %e,
+                    "Failed to forward Linear state change to task"
+                );
+                continue;
+            }
+
+            if let Err(e) = ports.sandbox_waker.wake(&binding.task_id).await {
+                warn!(
+                    task_id = %binding.task_id,
+                    issue = %issue.identifier,
+                    error = %e,
+                    "Failed to ensure sandbox for Linear state change"
+                );
+            }
+        }
+    }
+}
+
+/// The state-change message: "moved to", or "re-entered" for a Task that state
+/// started.
+fn state_change_text(issue: &IssuePayload, actor: Option<&LinearActor>, reentered: bool) -> String {
+    let state = issue.state_name();
+    let by = actor_handle(actor);
+    let mut body = if reentered {
+        let mut body = format!("Linear issue {} re-entered \"{state}\"", issue.identifier);
+        if let Some(by) = by {
+            let _ = write!(body, " (moved by {by})");
+        }
+        body.push_str(
+            ". This task is still open for it, so no new task was started: read the \
+             issue's latest comments for why it came back.",
+        );
+        body
+    } else {
+        let mut body = format!("Linear issue {} moved to \"{state}\"", issue.identifier);
+        if let Some(by) = by {
+            let _ = write!(body, " by {by}");
+        }
+        body.push('.');
+        body
+    };
     if let Some(ref url) = issue.url {
         let _ = write!(body, "\n\n{url}");
     }
-
-    let transition_id = transition_id.map_or_else(|| delivered_at.to_string(), str::to_string);
-    let external_event_id = super::external_id::issue_state(&issue.id, &transition_id);
-
-    for binding in bindings {
-        if let Err(e) = message_send
-            .accept(InboundTurn {
-                task_id: binding.task_id.clone(),
-                text: body.clone(),
-                file_ids: Vec::new(),
-                resume: true,
-                origin: TurnOrigin {
-                    event_id: Some(external_event_id.clone()),
-                    adapter: Some(ADAPTER_LABEL.to_string()),
-                    subject_key: Some(binding.subject_key.clone()),
-                    ..TurnOrigin::default()
-                },
-                sent_by: None,
-                skills: Vec::new(),
-            })
-            .await
-        {
-            warn!(
-                task_id = %binding.task_id,
-                issue = %issue.identifier,
-                error = %e,
-                "Failed to forward Linear state change to task"
-            );
-            continue;
-        }
-
-        if let Err(e) = sandbox_waker.wake(&binding.task_id).await {
-            warn!(
-                task_id = %binding.task_id,
-                issue = %issue.identifier,
-                error = %e,
-                "Failed to ensure sandbox for Linear state change"
-            );
-        }
-    }
+    body
 }
 
 /// Build + insert the Task row shared by the session- and issue-initiated

@@ -36,7 +36,7 @@ use moatless_types::adapter::AdapterConnection;
 
 use super::active_turns::ActiveLinearTurns;
 use super::webhook_payloads::{
-    AgentSession, AppUserNotificationData, CommentPayloadData, IssuePayload,
+    AgentSession, AppUserNotificationData, CommentPayloadData, IssuePayload, LinearActor,
 };
 
 /// Adapter name on every record this module admits.
@@ -52,13 +52,17 @@ pub const SESSION_PROMPT: &str = "linear.session_prompt";
 /// task creation.
 pub const ISSUE_UPDATE: &str = "linear.issue_update";
 
+/// Act on a label added to an issue, or an issue created with labels: the
+/// `trigger_labels` path.
+pub const ISSUE_LABELED: &str = "linear.issue_labeled";
+
 /// Forward a comment on a bound issue to the tasks listening to it.
 pub const COMMENT: &str = "linear.comment";
 
 /// Act on a workspace notification from Linear's OAuth-app inbox stream.
 pub const NOTIFICATION: &str = "linear.notification";
 
-/// The Linear side of durable delivery: the five worker entry points as
+/// The Linear side of durable delivery: the six worker entry points as
 /// methods, over the downward ports they read.
 ///
 /// Built once at the composition root and shared via `Arc` by [`register`];
@@ -84,7 +88,7 @@ pub struct LinearInboundRouter {
 impl LinearInboundRouter {
     #[expect(
         clippy::too_many_arguments,
-        reason = "the fourteen ports the five linear delivery handlers read, \
+        reason = "the fourteen ports the six linear delivery handlers read, \
                   wired in from the composition root; the rejected alternatives \
                   are threading thirteen params through five delivery closures, \
                   and extending the shared RoutingService with one provider's \
@@ -171,6 +175,18 @@ pub fn register(handlers: &mut AdapterDeliveryHandlers, router: Arc<LinearInboun
             }
         },
     );
+    register_connection_delivery::<IssueLabeledDelivery, _, _>(
+        handlers,
+        ISSUE_LABELED,
+        router.adapter_connections.clone(),
+        {
+            let router = router.clone();
+            move |delivery, connection, payload| {
+                let router = router.clone();
+                async move { router.issue_labeled(delivery, connection, payload).await }
+            }
+        },
+    );
     register_connection_delivery::<CommentDelivery, _, _>(
         handlers,
         COMMENT,
@@ -251,9 +267,40 @@ pub(super) struct IssueUpdateDelivery {
     #[serde(default)]
     pub(super) transition_id: Option<String>,
     pub(super) delivered_at: i64,
+    /// Who moved the issue, named in the re-entry message.
+    #[serde(default)]
+    pub(super) actor: Option<LinearActor>,
 }
 
 impl ConnectionDeliveryPayload for IssueUpdateDelivery {
+    fn connection_id(&self) -> &str {
+        &self.connection_id
+    }
+}
+
+/// How an issue came to carry the labels a [`IssueLabeledDelivery`] names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum LabelTrigger {
+    /// The issue was created carrying them.
+    Created,
+    /// An update added them.
+    Added,
+}
+
+/// Everything the label-trigger handler needs to act on one label change.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(super) struct IssueLabeledDelivery {
+    pub(super) connection_id: String,
+    pub(super) issue: IssuePayload,
+    /// Ids of the labels this event added; every label on a created issue.
+    pub(super) added_label_ids: Vec<String>,
+    pub(super) trigger: LabelTrigger,
+    #[serde(default)]
+    pub(super) actor: Option<LinearActor>,
+}
+
+impl ConnectionDeliveryPayload for IssueLabeledDelivery {
     fn connection_id(&self) -> &str {
         &self.connection_id
     }
@@ -357,6 +404,7 @@ pub(super) fn issue_update_request(
     updated_from: Option<&serde_json::Value>,
     transition_id: &str,
     delivered_at: i64,
+    actor: Option<&LinearActor>,
 ) -> Result<AdapterDeliveryRequest, AdapterError> {
     request(
         ISSUE_UPDATE,
@@ -367,6 +415,29 @@ pub(super) fn issue_update_request(
             updated_from: updated_from.cloned(),
             transition_id: Some(transition_id.to_string()),
             delivered_at,
+            actor: actor.cloned(),
+        },
+    )
+}
+
+/// Build the admission request for one label change.
+pub(super) fn issue_labeled_request(
+    event_id: &str,
+    connection_id: &str,
+    issue: &IssuePayload,
+    added_label_ids: Vec<String>,
+    trigger: LabelTrigger,
+    actor: Option<&LinearActor>,
+) -> Result<AdapterDeliveryRequest, AdapterError> {
+    request(
+        ISSUE_LABELED,
+        event_id,
+        &IssueLabeledDelivery {
+            connection_id: connection_id.to_string(),
+            issue: issue.clone(),
+            added_label_ids,
+            trigger,
+            actor: actor.cloned(),
         },
     )
 }
@@ -561,25 +632,71 @@ impl LinearInboundRouter {
         )
         .await
         .map_err(AdapterDeliveryFailure::from)?;
-        super::issues::handle_issue_update(
-            self.task_bindings.as_ref(),
-            self.tasks.as_ref(),
-            &self.config,
-            self.task_closer.as_ref(),
-            self.sandbox_waker.as_ref(),
-            &self.linear_active_turns,
-            self.task_creation.as_ref(),
-            self.message_send.as_ref(),
+        super::issues::handle_issue_update(&self.issue_ports(), &api, &connection, &rules, &payload)
+            .await
+            .map_err(AdapterDeliveryFailure::from)
+    }
+
+    async fn issue_labeled(
+        &self,
+        delivery: moatless_adapter_model::delivery::AdapterDelivery,
+        connection: AdapterConnection,
+        payload: IssueLabeledDelivery,
+    ) -> Result<(), AdapterDeliveryFailure> {
+        // Re-resolved for the reason `issue_update` gives.
+        let team_id = payload.issue.resolved_team_id().unwrap_or_default();
+        let rules = super::subscription_rules::resolve_rules_for_team(
+            self.loops.as_ref(),
+            &connection,
+            team_id,
+        )
+        .await
+        .map_err(AdapterDeliveryFailure::from)?;
+        if !rules.iter().any(|r| {
+            !super::config::LinearRuleConfig::from_rule(r)
+                .trigger_labels
+                .is_empty()
+        }) {
+            debug!(
+                issue = %payload.issue.identifier,
+                team_id,
+                "Linear label change skipped: no active rule has trigger_labels"
+            );
+            return Ok(());
+        }
+
+        let api = super::auth::api_for_connection(
+            self.config.http.linear,
+            self.app_tokens.clone(),
+            self.apps.as_ref(),
+            &connection,
+        )
+        .await
+        .map_err(AdapterDeliveryFailure::from)?;
+        super::issues::handle_issue_labeled(
+            &self.issue_ports(),
             &api,
             &connection,
             &rules,
-            payload.updated_from.as_ref(),
-            &payload.issue,
-            payload.transition_id.as_deref(),
-            payload.delivered_at,
+            &payload,
+            &delivery.event_id,
         )
         .await
         .map_err(AdapterDeliveryFailure::from)
+    }
+
+    fn issue_ports(&self) -> super::issues::IssuePorts<'_> {
+        super::issues::IssuePorts {
+            task_bindings: self.task_bindings.as_ref(),
+            tasks: self.tasks.as_ref(),
+            config: &self.config,
+            task_closer: self.task_closer.as_ref(),
+            sandbox_waker: self.sandbox_waker.as_ref(),
+            linear_active_turns: &self.linear_active_turns,
+            task_creation: self.task_creation.as_ref(),
+            message_send: self.message_send.as_ref(),
+            routing: &self.routing,
+        }
     }
 
     async fn comment(
@@ -733,6 +850,7 @@ mod tests {
             SESSION_PROVISION,
             SESSION_PROMPT,
             ISSUE_UPDATE,
+            ISSUE_LABELED,
             COMMENT,
             NOTIFICATION,
         ];
@@ -806,6 +924,11 @@ mod tests {
             Some(&updated_from),
             "s1:s2:2026-08-10T03:20:08.000Z",
             1_700_000_000_000,
+            Some(&LinearActor {
+                id: "user-1".to_string(),
+                name: "Alice".to_string(),
+                email: None,
+            }),
         )
         .expect("serialize");
         assert_eq!(request.kind, "linear.issue_update");
@@ -829,6 +952,54 @@ mod tests {
             Some("s1:s2:2026-08-10T03:20:08.000Z")
         );
         assert_eq!(back.delivered_at, 1_700_000_000_000);
+        assert_eq!(
+            back.actor.as_ref().map(|a| a.name.as_str()),
+            Some("Alice"),
+            "the re-entry message names who moved the issue"
+        );
+    }
+
+    /// A record admitted before `actor` existed still deserializes.
+    #[test]
+    fn an_issue_record_without_an_actor_still_deserializes() {
+        let back: IssueUpdateDelivery = serde_json::from_value(serde_json::json!({
+            "connection_id": "conn-1",
+            "issue": {"id": "issue-1"},
+            "delivered_at": 1
+        }))
+        .expect("deserialize");
+        assert!(back.actor.is_none());
+    }
+
+    #[test]
+    fn a_label_payload_survives_the_round_trip_with_its_label_names() {
+        let issue: IssuePayload = serde_json::from_value(serde_json::json!({
+            "id": "issue-1",
+            "identifier": "ENG-7",
+            "teamId": "team-1",
+            "labelIds": ["l-1"],
+            "labels": [{"id": "l-1", "name": "factory", "color": "#fff"}],
+            "state": {"id": "s1", "name": "Todo", "type": "unstarted"}
+        }))
+        .expect("parse issue");
+
+        let request = issue_labeled_request(
+            "Issue:create:issue-1",
+            "conn-1",
+            &issue,
+            vec!["l-1".to_string()],
+            LabelTrigger::Created,
+            None,
+        )
+        .expect("serialize");
+        assert_eq!(request.kind, "linear.issue_labeled");
+
+        let back: IssueLabeledDelivery =
+            serde_json::from_value(request.payload).expect("deserialize");
+        assert_eq!(back.added_label_ids, vec!["l-1"]);
+        assert_eq!(back.trigger, LabelTrigger::Created);
+        assert_eq!(back.issue.labels[0].name, "factory");
+        assert_eq!(back.issue.label_ids, vec!["l-1"]);
     }
 
     #[test]

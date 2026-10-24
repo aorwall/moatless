@@ -42,6 +42,11 @@ const ADAPTER_LABEL: &str = moatless_types::adapter::AdapterKind::Linear.as_str(
 /// `error` closes a panel stuck `active` from the ephemeral heartbeat alone.
 pub(super) const NO_ACTIVE_RULE_DECLINE: &str = "No Moatless automation is configured for this Linear team, so I can't start a task for this issue.";
 
+/// Body of the terminal `error` activity posted when the issue carries one of
+/// the selected rule's `exclude_labels`.
+pub(super) const EXCLUDED_LABEL_DECLINE: &str =
+    "This issue carries a label that keeps Moatless agents off it, so I won't start a task for it.";
+
 /// Close a Linear agent session with a terminal `error` activity when no task
 /// will be provisioned behind it.
 ///
@@ -93,7 +98,9 @@ pub(super) async fn provision_selected_session_task(
         .as_ref()
         .map(|i| (i.id.as_str(), i.identifier.as_str()))
         .unwrap_or_default();
-    let Some(rule) = select_session_spawn_rule(api, rules, issue_id, issue_identifier).await else {
+    let Some((rule, labels)) =
+        select_session_spawn_rule(api, rules, issue_id, issue_identifier).await
+    else {
         warn!(
             session_id = %session.id,
             "Linear session created but no spawn rule selected — skipping task creation"
@@ -102,6 +109,16 @@ pub(super) async fn provision_selected_session_task(
         decline_session(api, &session.id, NO_ACTIVE_RULE_DECLINE).await;
         return Ok(());
     };
+    if LinearRuleConfig::from_rule(&rule).excluded(&labels) {
+        info!(
+            session_id = %session.id,
+            issue = %issue_identifier,
+            subscription_id = %rule.id,
+            "Linear session declined: the issue carries an excluded label"
+        );
+        decline_session(api, &session.id, EXCLUDED_LABEL_DECLINE).await;
+        return Ok(());
+    }
 
     provision_session_task(
         task_bindings,
@@ -119,20 +136,19 @@ pub(super) async fn provision_selected_session_task(
     .await
 }
 
-/// Project/label-aware spawn-rule selection for a mention/assignment session.
+/// Project/label-aware spawn-rule selection for a mention/assignment session,
+/// returned with the issue's label names.
 ///
-/// Skips the Linear API when no rule is project-scoped
-/// ([`rules_need_issue_fetch`] is false); otherwise fetches the issue once,
-/// mirroring [`create_tasks_for_status_entry`]. A fetch failure degrades to
-/// `(None, &[])`, routing to the unscoped/oldest catch-all rule.
+/// Fetches the issue once, unless [`rules_need_issue_fetch`] is false. A fetch
+/// failure degrades to `(None, &[])`: the oldest catch-all rule, unexcluded.
 async fn select_session_spawn_rule(
     api: &LinearAgentApi,
     rules: &[SubscriptionMatch],
     issue_id: &str,
     issue_identifier: &str,
-) -> Option<SubscriptionMatch> {
+) -> Option<(SubscriptionMatch, Vec<String>)> {
     if !rules_need_issue_fetch(rules) {
-        return rules.first().cloned();
+        return rules.first().cloned().map(|rule| (rule, Vec::new()));
     }
 
     let (project_id, labels): (Option<String>, Vec<String>) = match api.get_issue(issue_id).await {
@@ -163,7 +179,9 @@ async fn select_session_spawn_rule(
         }
     };
 
-    select_spawn_rule(rules, project_id.as_deref(), &labels).cloned()
+    select_spawn_rule(rules, project_id.as_deref(), &labels)
+        .cloned()
+        .map(|rule| (rule, labels))
 }
 
 /// Route an `AgentSessionEvent.prompted` payload to the bound task.

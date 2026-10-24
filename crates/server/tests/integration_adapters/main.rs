@@ -19,6 +19,7 @@ mod github_webhook_redelivery_test;
 mod inbound_message_buffer_test;
 mod linear_admission_test;
 mod linear_delivery_identity_test;
+mod linear_factory_test;
 mod linear_ingress_test;
 mod linear_webhook_metrics_test;
 mod linear_workflow_test;

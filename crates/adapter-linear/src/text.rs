@@ -172,6 +172,8 @@ mod tests {
             project: None,
             updated_at: None,
             state: None,
+            label_ids: Vec::new(),
+            labels: Vec::new(),
         };
         let from_issue = build_issue_inbound_text(&issue);
         // Identical to the session-initiated prompt for the same issue identity.
