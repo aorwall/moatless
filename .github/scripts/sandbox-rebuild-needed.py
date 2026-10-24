@@ -18,7 +18,9 @@ import sys
 ROOTS = ("moatless-sandbox", "moatless-cli")
 
 # How the binaries are built rather than what they are built from. `ci.yml`
-# stays so an edit to the build step republishes what it describes.
+# stays so an edit to the build step republishes what it describes. Also list
+# a file a closure crate reads other than through `SOURCE_REF` (a `build.rs`
+# read, say): nothing else finds it, so it can change without a rebuild.
 ALWAYS = (
     "rust-toolchain.toml",
     ".cargo/config.toml",

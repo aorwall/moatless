@@ -35,18 +35,11 @@ reaches them only by setting its workspace `dockerImage` to
 
 ## Deciding whether the sandbox binaries changed
 
-**Run `task sandbox:rebuild-needed [BASE=<rev>]` to learn whether a change
-needs new `sandbox` and `moat` binaries.** It prints `true` or `false` for the
-commits since `BASE`; uncommitted edits do not count. `ci.yml`'s
-`detect-changes` job runs the same script to gate `build-sandbox-tools` and
-`build-sandbox`.
-
-**When a closure crate starts reading a file in a way other than a literal
-`include_str!`, `include_bytes!` or `#[path]`, add that file to `ALWAYS` in
-`.github/scripts/sandbox-rebuild-needed.py`.**
-
-The script finds outside inputs only through those three literals. A file read
-any other way, for example by a `build.rs`, can change without a rebuild.
+**Run `task sandbox:rebuild-needed [BASE=<rev>]`** to learn whether the commits
+since `BASE` need new `sandbox` and `moat` binaries; `ci.yml`'s `detect-changes`
+gates both builds on the same script. A file a closure crate reads other than
+through a literal `include_str!`, `include_bytes!` or `#[path]` goes in the
+script's `ALWAYS`.
 
 ## Ordering layers in Dockerfile.sandbox-base
 
@@ -69,13 +62,9 @@ to `type=gha`.** `image-manifest=true,oci-mediatypes=true` pushes the cache as
 an ordinary image manifest, which Docker Hub accepts. `sandbox-base` uses
 `mode=max`, and the leaf images use `mode=min`.
 
-`sandbox-base`'s `mode=max` export is about 7 GB against the repository's 10 GB
-Actions-cache budget, so it evicts its own previous entry and the hit rate falls
-to 0% on byte-identical inputs — 606s of an 840s build writing a cache nothing
-reads. That budget is shared and LRU, so nothing in `ci.yml` should hold space
-in it except the Rust target dirs and the per-run binary handoffs.
-
-A `:buildcache` ref that does not exist yet misses once, then starts hitting.
+`type=gha` breaks because `sandbox-base`'s 7 GB export evicts its own previous
+entry from the 10 GB shared, LRU Actions cache, so it never hits. Only the Rust
+target dirs and per-run binary handoffs belong in that cache.
 
 `RUN --mount=type=cache` is worth nothing here. Every job gets a fresh
 `docker-container` buildx driver, and a cache mount is builder-local and
@@ -96,17 +85,13 @@ Delete a pin when you delete its consumer: a pin nothing consumes still triggers
 a full rebuild when it is bumped.
 
 **The `agent-cli-upgrade` loop bumps `CLAUDE_CLI_VERSION` and
-`CODEX_CLI_VERSION`** (`.moatless/loops/agent-cli-upgrade/LOOP.md`). Renovate
-does not: the `# renovate:` customManager in `renovate.json` is correct, but the
-bot is not onboarded here, so those annotations describe a backstop that never
-runs. Do not hand the two pins to it if that changes — the shared preset
-schedules Mondays behind a three-day `minimumReleaseAge`, landing a CLI that
-ships several releases a week up to ten days late, where the loop runs daily and
-drives candidates through `crates/sandbox/tests/agent_transport_e2e.rs` first.
+`CODEX_CLI_VERSION`** (`.moatless/loops/agent-cli-upgrade/LOOP.md`). The
+`# renovate:` annotations never run: Renovate is not onboarded here. Do not hand
+it the two pins: its Monday schedule and three-day `minimumReleaseAge` land a
+CLI up to ten days late, and skip the loop's `agent_transport_e2e.rs` check.
 
-A Claude bump moves five files and a Codex bump moves two. The loop file lists
-them. Bump all of them when you bump by hand: `crates/claude-agent-sdk`'s smoke
-test asserts the version and fails on a partial bump.
+A hand bump moves every file the loop file lists, five for Claude and two for
+Codex: `crates/claude-agent-sdk`'s smoke test fails on a partial bump.
 
 ## Building a recipe
 
