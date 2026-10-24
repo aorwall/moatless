@@ -33,6 +33,21 @@ JDK, Maven and `psql` come from `docker/recipes/soaplabs.json`. A Java repo
 reaches them only by setting its workspace `dockerImage` to
 `<REGISTRY_ORG>/moatless-sandbox-recipe:soaplabs`.
 
+## Deciding whether the sandbox binaries changed
+
+**Run `task sandbox:rebuild-needed [BASE=<rev>]` to learn whether a change
+needs new `sandbox` and `moat` binaries.** It prints `true` or `false` for the
+commits since `BASE`; uncommitted edits do not count. `ci.yml`'s
+`detect-changes` job runs the same script to gate `build-sandbox-tools` and
+`build-sandbox`.
+
+**When a closure crate starts reading a file in a way other than a literal
+`include_str!`, `include_bytes!` or `#[path]`, add that file to `ALWAYS` in
+`.github/scripts/sandbox-rebuild-needed.py`.**
+
+The script finds outside inputs only through those three literals. A file read
+any other way, for example by a `build.rs`, can change without a rebuild.
+
 ## Ordering layers in Dockerfile.sandbox-base
 
 **Order layers volatile-last. Keep the Claude and Codex CLI layers at the

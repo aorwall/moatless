@@ -82,6 +82,12 @@ tasks:
         --load
         -f docker/Dockerfile.backend-cross .
 
+  sandbox:rebuild-needed:
+    desc: "Print true when this branch's commits since BASE (default origin/main) can change the sandbox or moat binary"
+    cmds:
+      # From the merge base: a plain diff against BASE also counts what BASE gained since the fork.
+      - python3 .github/scripts/sandbox-rebuild-needed.py "$(git merge-base {{.BASE | default "origin/main"}} HEAD)"
+
   build:sandbox:
     desc: Build sandbox Docker image
     cmds:

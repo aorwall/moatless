@@ -76,7 +76,7 @@ jobs:
       typescript: ${{ steps.filter.outputs.typescript }}
       skill-scripts: ${{ steps.filter.outputs.skill-scripts }}
       docker-backend: ${{ steps.filter.outputs.docker-backend }}
-      sandbox-binaries: ${{ steps.filter.outputs.sandbox-binaries }}
+      sandbox-binaries: ${{ steps.sandbox-binaries.outputs.needed }}
       sandbox-tools: ${{ steps.filter.outputs.sandbox-tools }}
       sandbox-base: ${{ steps.filter.outputs.sandbox-base }}
       sandbox-image: ${{ steps.filter.outputs.sandbox-image }}
@@ -126,16 +126,9 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'docker/Dockerfile.backend-cross'
-            # The sandbox filters below gate the sandbox binaries and the four
-            # sandbox images. `.github/workflows/ci.yml` is in each of them so an
-            # edit to this file republishes what it describes.
-            sandbox-binaries:
-              - 'crates/sandbox/**'
-              - 'crates/**'
-              - 'Cargo.toml'
-              - 'Cargo.lock'
-              - 'rust-toolchain.toml'
-              - '.github/workflows/ci.yml'
+            # The sandbox filters below gate the sandbox images; the binaries are
+            # gated by the `sandbox-binaries` step. `.github/workflows/ci.yml` is
+            # in each of them so an edit to this file republishes what it describes.
             sandbox-tools:
               - 'docker/Dockerfile.sandbox-tools'
               - 'docker/docker-entrypoint-sandbox.sh'
@@ -168,6 +161,33 @@ jobs:
               - '.github/scripts/apt-https-mirrors.sh'
             helm:
               - 'k8s/helm/**'
+
+      # The dependency closure of `sandbox` and `moat`, rather than `crates/**`:
+      # a backend-only change republishes no sandbox image.
+      - name: Fetch the base commit
+        id: base
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if git fetch --quiet --depth=1 origin "$BASE_SHA"; then
+            echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Could not fetch base ${BASE_SHA:-<none>}; the sandbox binaries rebuild"
+          fi
+
+      - name: Test the sandbox rebuild check
+        run: python3 .github/scripts/test_sandbox_rebuild_needed.py
+
+      - name: Decide whether the sandbox binaries changed
+        id: sandbox-binaries
+        env:
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+        run: |
+          if [ -z "$BASE_SHA" ]; then
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "needed=$(python3 .github/scripts/sandbox-rebuild-needed.py "$BASE_SHA")" >> "$GITHUB_OUTPUT"
+          fi
 
   architecture:
     name: Rust architecture
