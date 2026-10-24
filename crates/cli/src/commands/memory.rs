@@ -98,9 +98,8 @@ pub enum MemoryAction {
 /// The scope and the task a command acts for.
 #[derive(Args)]
 pub struct Target {
-    /// task, loop, workspace, repository, user or global. Reads search every
-    /// scope the task reaches when omitted; writes go to its Loop, else its
-    /// Workspace.
+    /// task, loop, workspace, repository, user or global. Reads and writes
+    /// reach this scope only; without it, the task's Loop, else the task.
     #[arg(long, value_parser = parse_scope)]
     scope: Option<MemoryScope>,
     /// Task to act for; defaults to `$TASK_ID`
@@ -357,6 +356,14 @@ fn print_entry(entry: &MemoryEntryResponse) {
     println!("# {} ({}, v{})", entry.key, entry.scope, entry.version);
     println!("{}", entry.summary);
     println!("updated {}", entry.updated_at);
+    if let Some(task) = &entry.created_by_task_id {
+        let by_loop = entry
+            .created_by_loop_id
+            .as_deref()
+            .map(|l| format!(" (loop {l})"))
+            .unwrap_or_default();
+        println!("created {} by task {task}{by_loop}", entry.created_at);
+    }
     if entry.stale {
         println!("STALE: verify its citations before relying on it");
     }

@@ -87,6 +87,9 @@ fn row(key: &str, scope: MemoryScope, scope_id: &str) -> MemoryEntryRow {
         claimed_by_task_id: None,
         claim_expires_at: None,
         updated_by_task_id: Some("task-1".to_string()),
+        created_by_task_id: None,
+        created_by_loop_id: None,
+        created_by_user_id: None,
         created_at: now,
         updated_at: now,
         stale: false,
@@ -101,23 +104,23 @@ fn put_req(key: &str) -> PutMemoryRequest {
     }
 }
 
+/// A put that lands in `scope`/`id` and answers with the row it wrote.
+fn store_expecting_put(scope: MemoryScope, id: &'static str) -> MockMemoryDao {
+    let mut store = MockMemoryDao::new();
+    store.expect_put().returning(move |entry| {
+        assert_eq!(entry.scope.scope, scope);
+        assert_eq!(entry.scope.id, id);
+        assert_eq!(entry.writer.task_id, "task-1");
+        Ok(PutOutcome::Written(Box::new(row(&entry.key, scope, id))))
+    });
+    store
+}
+
 #[tokio::test]
 async fn a_put_without_a_scope_lands_in_the_tasks_loop() {
-    let mut store = MockMemoryDao::new();
-    store.expect_put().returning(|entry| {
-        assert_eq!(entry.scope.scope, MemoryScope::Loop);
-        assert_eq!(entry.scope.id, "loop-1");
-        assert_eq!(entry.writer.task_id, "task-1");
-        assert_eq!(entry.ttl, TtlChange::Keep);
-        Ok(PutOutcome::Written(Box::new(row(
-            &entry.key,
-            MemoryScope::Loop,
-            "loop-1",
-        ))))
-    });
     let entry = put(
         &tasks(),
-        &memories(store),
+        &memories(store_expecting_put(MemoryScope::Loop, "loop-1")),
         &ctx("user-1"),
         "task-1",
         put_req("ci:flaky"),
@@ -128,14 +131,15 @@ async fn a_put_without_a_scope_lands_in_the_tasks_loop() {
 }
 
 #[tokio::test]
-async fn a_put_without_a_scope_or_a_loop_lands_in_the_workspace() {
+async fn a_put_without_a_scope_or_a_loop_lands_in_the_task() {
     let mut store = MockMemoryDao::new();
     store.expect_put().returning(|entry| {
-        assert_eq!(entry.scope.scope, MemoryScope::Workspace);
+        assert_eq!(entry.scope.scope, MemoryScope::Task);
+        assert_eq!(entry.scope.id, "task-plain");
         Ok(PutOutcome::Written(Box::new(row(
             &entry.key,
-            MemoryScope::Workspace,
-            "w",
+            MemoryScope::Task,
+            "task-plain",
         ))))
     });
     let result = put(
@@ -151,13 +155,54 @@ async fn a_put_without_a_scope_or_a_loop_lands_in_the_workspace() {
 
 #[tokio::test]
 async fn global_memory_is_refused_to_a_user_task() {
-    let store = MockMemoryDao::new();
     let req = PutMemoryRequest {
         scope: Some(MemoryScope::Global),
         ..put_req("a")
     };
-    let result = put(&tasks(), &memories(store), &ctx("user-1"), "task-1", req).await;
+    let result = put(
+        &tasks(),
+        &memories(MockMemoryDao::new()),
+        &ctx("user-1"),
+        "task-1",
+        req,
+    )
+    .await;
     assert!(matches!(result, Err(MemoryError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn a_put_naming_a_scope_lands_only_in_that_scope() {
+    let req = PutMemoryRequest {
+        scope: Some(MemoryScope::Loop),
+        ..put_req("state")
+    };
+    let entry = put(
+        &tasks(),
+        &memories(store_expecting_put(MemoryScope::Loop, "loop-1")),
+        &ctx("user-1"),
+        "task-1",
+        req,
+    )
+    .await
+    .map_err(|e| e.to_string());
+    assert_eq!(entry.map(|e| e.scope), Ok(MemoryScope::Loop));
+}
+
+#[tokio::test]
+async fn a_scope_the_task_lacks_is_a_bad_request() {
+    let req = PutMemoryRequest {
+        scope: Some(MemoryScope::Loop),
+        ..put_req("state")
+    };
+    let result = put(
+        &tasks(),
+        &memories(MockMemoryDao::new()),
+        &ctx("user-1"),
+        "task-plain",
+        req,
+    )
+    .await;
+    assert!(matches!(result, Err(MemoryError::BadRequest(_))));
 }
 
 #[tokio::test]
@@ -175,28 +220,6 @@ async fn repository_memory_on_a_shared_repository_is_refused_to_a_user() {
     )
     .await;
     assert!(matches!(result, Err(MemoryError::Forbidden(_))));
-}
-
-#[tokio::test]
-async fn a_put_without_a_scope_skips_a_shared_workspace_and_repository() {
-    let mut store = MockMemoryDao::new();
-    store.expect_put().returning(|entry| {
-        assert_eq!(entry.scope.scope, MemoryScope::Task);
-        Ok(PutOutcome::Written(Box::new(row(
-            &entry.key,
-            MemoryScope::Task,
-            "task-plain",
-        ))))
-    });
-    let result = put(
-        &tasks(),
-        &memories_over(store, Scope::Global),
-        &ctx("user-1"),
-        "task-plain",
-        put_req("a"),
-    )
-    .await;
-    assert!(result.is_ok());
 }
 
 #[tokio::test]
@@ -246,55 +269,101 @@ async fn ttl_and_no_expiry_together_are_refused() {
 }
 
 #[tokio::test]
-async fn a_key_only_get_returns_the_narrowest_entry_and_records_the_read() {
-    let reads: Arc<Mutex<Vec<(String, i32)>>> = Arc::default();
-    let mut store = MockMemoryDao::new();
-    store.expect_find().returning(|_, key| {
-        Ok(vec![
-            row(key, MemoryScope::Workspace, "w"),
-            row(key, MemoryScope::Loop, "loop-1"),
-        ])
-    });
-    let seen = reads.clone();
-    store.expect_record_reads().returning(move |task_id, r| {
-        assert_eq!(task_id, "task-1");
-        seen.lock().map(|mut s| s.extend_from_slice(r)).ok();
-        Ok(())
-    });
-    let got = get(
-        &tasks(),
-        &memories(store),
-        &ctx("user-1"),
-        "task-1",
-        "ci:flaky",
-        None,
-    )
-    .await
-    .map_err(|e| e.to_string());
-    let scopes: Option<Vec<MemoryScope>> = got.ok().map(|v| v.iter().map(|e| e.scope).collect());
-    assert_eq!(scopes, Some(vec![MemoryScope::Loop]));
-    let recorded = reads.lock().map(|r| r.clone()).unwrap_or_default();
-    assert_eq!(recorded, vec![("loop-ci:flaky".to_string(), 3)]);
+async fn a_get_reads_one_scope_the_loop_by_default_and_records_the_read() {
+    for (scope, expected) in [
+        (
+            Some(MemoryScope::Loop),
+            ScopeRef {
+                scope: MemoryScope::Loop,
+                id: "loop-1".to_string(),
+            },
+        ),
+        (
+            None,
+            ScopeRef {
+                scope: MemoryScope::Loop,
+                id: "loop-1".to_string(),
+            },
+        ),
+        (
+            Some(MemoryScope::Global),
+            ScopeRef {
+                scope: MemoryScope::Global,
+                id: String::new(),
+            },
+        ),
+    ] {
+        let reads: Arc<Mutex<Vec<(String, i32)>>> = Arc::default();
+        let mut store = MockMemoryDao::new();
+        let want = expected.clone();
+        store.expect_find().returning(move |scopes, key| {
+            assert_eq!(scopes, std::slice::from_ref(&want));
+            Ok(vec![row(key, want.scope, &want.id)])
+        });
+        let seen = reads.clone();
+        store.expect_record_reads().returning(move |task_id, r| {
+            assert_eq!(task_id, "task-1");
+            seen.lock().map(|mut s| s.extend_from_slice(r)).ok();
+            Ok(())
+        });
+        let got = get(
+            &tasks(),
+            &memories(store),
+            &ctx("user-1"),
+            "task-1",
+            "state",
+            scope,
+        )
+        .await
+        .map_err(|e| e.to_string());
+        let scopes: Option<Vec<MemoryScope>> =
+            got.ok().map(|v| v.iter().map(|e| e.scope).collect());
+        assert_eq!(scopes, Some(vec![expected.scope]));
+        let recorded = reads.lock().map(|r| r.clone()).unwrap_or_default();
+        assert_eq!(recorded, vec![(format!("{}-state", expected.scope), 3)]);
+    }
 }
 
 #[tokio::test]
 async fn a_reader_of_someone_elses_task_does_not_reach_the_owners_user_memory() {
-    let mut store = MockMemoryDao::new();
-    store.expect_list().returning(|scopes, _| {
-        assert!(
-            scopes.iter().all(|s| s.scope != MemoryScope::User),
-            "{scopes:?}"
-        );
-        Ok(Vec::new())
-    });
+    let params = ListParams {
+        scope: Some(MemoryScope::User),
+        ..ListParams::default()
+    };
     let result = list(
         &tasks(),
-        &memories(store),
+        &memories(MockMemoryDao::new()),
         &ctx("user-1"),
         "task-public",
-        ListParams::default(),
+        params,
     )
     .await;
+    assert!(matches!(result, Err(MemoryError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn a_scoped_append_writes_only_the_entry_in_that_scope() {
+    let mut store = MockMemoryDao::new();
+    store.expect_find().returning(|scopes, key| {
+        assert_eq!(
+            scopes,
+            [ScopeRef {
+                scope: MemoryScope::Loop,
+                id: "loop-1".to_string(),
+            }]
+        );
+        Ok(vec![row(key, MemoryScope::Loop, "loop-1")])
+    });
+    store.expect_append().returning(|entry_id, _, _| {
+        assert_eq!(entry_id, "loop-log");
+        Ok(Some(row("log", MemoryScope::Loop, "loop-1")))
+    });
+    let req = AppendMemoryRequest {
+        key: "log".to_string(),
+        scope: Some(MemoryScope::Loop),
+        text: "run 3".to_string(),
+    };
+    let result = append(&tasks(), &memories(store), &ctx("user-1"), "task-1", req).await;
     assert!(result.is_ok());
 }
 

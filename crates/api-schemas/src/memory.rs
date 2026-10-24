@@ -1,7 +1,9 @@
 //! Memory request/response types.
 //!
 //! Every route sits under `/api/v1/tasks/{task_id}/memory`: the Task names the
-//! scope ids, so a request only ever names a [`MemoryScope`].
+//! scope ids, so a request only ever names a [`MemoryScope`]. A request
+//! reaches that one scope, or the Task's Loop, else the Task, when it names
+//! none.
 
 use serde::{Deserialize, Serialize};
 
@@ -22,7 +24,8 @@ pub const DEFAULT_TTL_SECONDS: i64 = 28 * 24 * 60 * 60;
 #[serde(rename_all = "camelCase")]
 pub struct PutMemoryRequest {
     pub key: String,
-    /// `loop` for a Task a Loop fired, `workspace` otherwise.
+    /// The one scope the write lands in; the Task's Loop, else the Task, when
+    /// omitted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<MemoryScope>,
     /// One line saying what the entry is about; listings show only this.
@@ -57,7 +60,8 @@ pub struct PutMemoryRequest {
 #[serde(rename_all = "camelCase")]
 pub struct MemoryKeyRequest {
     pub key: String,
-    /// Searches every scope the Task reaches, narrowest first, when omitted.
+    /// The one scope the entry is in; the Task's Loop, else the Task, when
+    /// omitted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<MemoryScope>,
 }
@@ -111,6 +115,13 @@ pub struct MemoryEntryResponse {
     pub claim_expires_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updated_by_task_id: Option<String>,
+    /// The Task whose put created the entry; never changed by later writes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_by_task_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_by_loop_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_by_user_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }

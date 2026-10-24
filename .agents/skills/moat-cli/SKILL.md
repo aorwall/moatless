@@ -139,10 +139,12 @@ send secrets, credentials or personal data.
 
 ## Keeping Memory for later Tasks
 
-`moat memory` stores entries outside the sandbox, keyed `area:topic` within a
-scope the Task supplies: its Loop, else the first of its Workspace and
-repository you may write, by default. Writing `workspace` or `repository` memory
-needs write access to that Workspace or repository itself. Each entry has a
+`moat memory` stores entries outside the sandbox, keyed `area:topic` within one
+scope. Without `--scope`, every command reaches the Task's Loop, else the Task.
+`--scope workspace|repository|user|global` picks another, and only a command
+naming the same scope reaches it. Writing `workspace` or `repository` memory
+needs write access to that Workspace or repository itself, and `global` needs
+an admin. Each entry has a
 one-line summary that listings show, and a body that only `get` returns.
 
 ```bash
@@ -163,7 +165,8 @@ still append to the entry. Claim before you start work on the item.
 **An entry expires 28 days after its last put or verify.** `moat memory verify`
 renews it once its citations still hold, and `--no-expiry` keeps it.
 
-**A Loop preloads only what its LOOP.md names** under `memory: { preload: [...] }`.
+**A Loop preloads only what its LOOP.md names** under `memory: { preload: [...] }`,
+and only from its own `loop` scope.
 See [loops](references/loops.md).
 
 Read [command workflows](references/command-reference.md) for response shapes,

@@ -22,7 +22,7 @@ use super::service::{self, ListParams};
 #[into_params(parameter_in = Query)]
 pub struct EntryQuery {
     pub key: String,
-    /// Every scope the Task reaches, narrowest first, when omitted.
+    /// The Task's Loop, else the Task, when omitted.
     pub scope: Option<MemoryScope>,
 }
 

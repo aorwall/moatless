@@ -1,6 +1,8 @@
 //! The memory index a Task's system prompt carries when its Loop's LOOP.md
 //! declares `memory.preload`, and the note a resumed turn carries of what
 //! changed since: one summary line per entry, never a body.
+//!
+//! Only the Loop's own scope is preloaded.
 
 use std::fmt::Write as _;
 
@@ -8,7 +10,7 @@ use chrono::{DateTime, Utc};
 
 use super::models::{ChangedSince, MemoryEntryRow, decode_scope};
 use super::operations::Memories;
-use super::service::visible_scopes;
+use super::service::loop_scope;
 use crate::task::models::Task;
 
 /// Most entries the index lists, so a broad prefix cannot flood the prompt.
@@ -90,14 +92,14 @@ async fn matching(
     task: &Task,
     changed: Option<ChangedSince>,
 ) -> Result<Vec<MemoryEntryRow>, sqlx::Error> {
-    if task.memory_preload.is_empty() {
+    let Some(scope) = loop_scope(task).filter(|_| !task.memory_preload.is_empty()) else {
         return Ok(Vec::new());
-    }
+    };
     let (keys, prefixes) = split_patterns(&task.memory_preload);
     memories
         .store
         .preload(
-            &visible_scopes(task),
+            &[scope],
             &keys,
             &prefixes,
             changed,

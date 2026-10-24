@@ -259,11 +259,12 @@ commits, PRs, issues and docs already remember their own contents.
   Tasks working the same item. A claim refuses only another claim, so claim
   before you start and treat a refused claim as someone else's work.
 
-An entry is saved in this task's Loop, else the first of its Workspace and
-repository you may write, else this task; `--scope repository|user|task`
-picks another. Entries expire after 28 days
-unless verified, updated or written with `--no-expiry`. Memory can be wrong or
-stale: check an entry's citations before you act on it.";
+Every command reaches one scope: this task's Loop, else this task, unless
+`--scope workspace|repository|user|global|task|loop` names another. Pass the
+same `--scope` to read an entry back. A Loop's `memory.preload` reads only its
+`loop` scope. Entries expire after 28 days unless verified, updated or written
+with `--no-expiry`. Memory can be wrong or stale: check an entry's citations
+before you act on it.";
 
 /// Build the append-system-prompt for a task.
 ///

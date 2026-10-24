@@ -35,100 +35,78 @@ const MAX_LOG_LIMIT: i64 = 200;
 /// Most entries one `prefix*` get returns.
 const MAX_PREFIX_GET: i64 = 50;
 
-/// The scopes `task` reaches, narrowest first: the order a key-only lookup
-/// picks the entry in.
-pub fn visible_scopes(task: &Task) -> Vec<ScopeRef> {
-    let mut scopes = vec![ScopeRef {
-        scope: MemoryScope::Task,
-        id: task.task_id.clone(),
-    }];
-    let mut push = |scope, id: Option<&str>| {
-        if let Some(id) = id.filter(|id| !id.is_empty()) {
-            scopes.push(ScopeRef {
-                scope,
-                id: id.to_string(),
-            });
-        }
+/// `requested` as `task` reaches it, or when the request names none the
+/// Task's Loop, else the Task itself. A request reaches one scope only,
+/// deliberately: a read merged across scopes made two scopes' `state` keys
+/// collide.
+fn scope_ref(
+    ctx: &ScopeContext,
+    task: &Task,
+    requested: Option<MemoryScope>,
+) -> Result<ScopeRef, MemoryError> {
+    let requested = requested.unwrap_or_else(|| default_scope(task));
+    // The owner's own memory: a caller who can merely read someone else's
+    // Task does not reach it.
+    if requested == MemoryScope::User && owner(task).is_some_and(|o| o != ctx.user_id) {
+        return Err(MemoryError::Forbidden(format!(
+            "only the owner of task {} reaches its user memory",
+            task.task_id
+        )));
+    }
+    let id = match requested {
+        MemoryScope::Task => Some(task.task_id.as_str()),
+        MemoryScope::Loop => task.loop_id.as_deref(),
+        MemoryScope::Workspace => task.workspace_id.as_deref(),
+        MemoryScope::Repository => task.repository_id.as_deref(),
+        MemoryScope::User => owner(task),
+        MemoryScope::Global => Some(""),
     };
-    push(MemoryScope::Loop, task.loop_id.as_deref());
-    push(MemoryScope::Workspace, task.workspace_id.as_deref());
-    push(MemoryScope::Repository, task.repository_id.as_deref());
-    push(MemoryScope::User, owner(task));
-    scopes.push(ScopeRef {
-        scope: MemoryScope::Global,
-        id: String::new(),
-    });
-    scopes
+    id.filter(|id| !id.is_empty() || requested == MemoryScope::Global)
+        .map(|id| ScopeRef {
+            scope: requested,
+            id: id.to_string(),
+        })
+        .ok_or_else(|| {
+            MemoryError::BadRequest(format!("task {} has no {requested} scope", task.task_id))
+        })
+}
+
+/// The Loop scope of `task`, which a Loop's `memory.preload` reads.
+pub fn loop_scope(task: &Task) -> Option<ScopeRef> {
+    task.loop_id
+        .as_deref()
+        .filter(|id| !id.is_empty())
+        .map(|id| ScopeRef {
+            scope: MemoryScope::Loop,
+            id: id.to_string(),
+        })
+}
+
+/// The private scope an unscoped request reaches, deliberately rather than
+/// `global`: an unscoped put on a private repository must not publish its
+/// text to every user.
+fn default_scope(task: &Task) -> MemoryScope {
+    if loop_scope(task).is_some() {
+        MemoryScope::Loop
+    } else {
+        MemoryScope::Task
+    }
 }
 
 fn owner(task: &Task) -> Option<&str> {
     task.owner_user_id.as_deref().or(task.created_by.as_deref())
 }
 
-/// [`visible_scopes`] as `ctx` reaches them: the `user` scope is the owner's,
-/// so a caller who can merely read someone else's Task does not reach it.
-fn caller_scopes(ctx: &ScopeContext, task: &Task) -> Vec<ScopeRef> {
-    let is_owner = owner(task) == Some(ctx.user_id.as_str());
-    visible_scopes(task)
-        .into_iter()
-        .filter(|s| s.scope != MemoryScope::User || is_owner)
-        .collect()
-}
-
-/// `requested` as `task` reaches it.
-fn scope_ref(
-    ctx: &ScopeContext,
-    task: &Task,
-    requested: MemoryScope,
-) -> Result<ScopeRef, MemoryError> {
-    caller_scopes(ctx, task)
-        .into_iter()
-        .find(|v| v.scope == requested)
-        .ok_or_else(|| {
-            MemoryError::BadRequest(format!("task {} has no {requested} scope", task.task_id))
-        })
-}
-
-/// The scope a write lands in: `requested`, else the first of the Task's
-/// Loop, Workspace and repository that `ctx` may write, else the Task.
+/// The scope a write lands in, after its write check.
 async fn write_scope(
     memories: &Memories,
     ctx: &ScopeContext,
     task: &Task,
     requested: Option<MemoryScope>,
 ) -> Result<ScopeRef, MemoryError> {
-    if let Some(scope) = requested {
-        let scope = scope_ref(ctx, task, scope)?;
-        check_scope_write(memories, ctx, task, &scope).await?;
-        return Ok(scope);
-    }
-    let visible = caller_scopes(ctx, task);
-    for kind in [
-        MemoryScope::Loop,
-        MemoryScope::Workspace,
-        MemoryScope::Repository,
-    ] {
-        if let Some(scope) = visible.iter().find(|v| v.scope == kind) {
-            match check_scope_write(memories, ctx, task, scope).await {
-                Ok(()) => return Ok(scope.clone()),
-                Err(MemoryError::Forbidden(_)) => {}
-                Err(e) => return Err(e),
-            }
-        }
-    }
-    scope_ref(ctx, task, MemoryScope::Task)
-}
-
-/// The scopes a read covers: `requested` alone, or everything visible.
-fn read_scopes(
-    ctx: &ScopeContext,
-    task: &Task,
-    requested: Option<MemoryScope>,
-) -> Result<Vec<ScopeRef>, MemoryError> {
-    match requested {
-        Some(scope) => Ok(vec![scope_ref(ctx, task, scope)?]),
-        None => Ok(caller_scopes(ctx, task)),
-    }
+    let scope = scope_ref(ctx, task, requested)?;
+    check_scope_write(memories, ctx, task, &scope).await?;
+    Ok(scope)
 }
 
 /// The Task, when `ctx` can read it.
@@ -166,7 +144,7 @@ async fn writable_task(
 /// Refuse a write to a scope other users' Tasks read unless `ctx` may write
 /// what it belongs to: the Workspace or repository itself, and for `global`
 /// an admin or a global Task. Writing the Task is not enough: on a shared
-/// repository it would let any user put text in another user's preload.
+/// repository it would let any user put text in another user's memory.
 async fn check_scope_write(
     memories: &Memories,
     ctx: &ScopeContext,
@@ -269,9 +247,6 @@ pub async fn put(
 
 /// Whole entries for `key`, or for every key starting with it when it ends
 /// in `*`, and record that the Task read them.
-///
-/// Without `scope`, a plain key returns the entry in the narrowest scope that
-/// has one; a prefix returns matches from every scope.
 pub async fn get(
     tasks: &TaskCommands,
     memories: &Memories,
@@ -281,7 +256,7 @@ pub async fn get(
     scope: Option<MemoryScope>,
 ) -> Result<Vec<MemoryEntryResponse>, MemoryError> {
     let task = readable_task(tasks, ctx, task_id).await?;
-    let scopes = read_scopes(ctx, &task, scope)?;
+    let scopes = [scope_ref(ctx, &task, scope)?];
     let rows = if let Some(prefix) = key.strip_suffix('*') {
         if !prefix.is_empty() {
             validate_key(prefix)?;
@@ -294,8 +269,7 @@ pub async fn get(
         memories.store.list(&scopes, &filter).await?
     } else {
         validate_key(key)?;
-        let found = memories.store.find(&scopes, key).await?;
-        narrowest(&scopes, found).into_iter().collect()
+        memories.store.find(&scopes, key).await?
     };
     if rows.is_empty() {
         return Err(MemoryError::NotFound(key.to_string()));
@@ -330,7 +304,7 @@ pub async fn list(
     params: ListParams,
 ) -> Result<Vec<MemorySummaryResponse>, MemoryError> {
     let task = readable_task(tasks, ctx, task_id).await?;
-    let scopes = read_scopes(ctx, &task, params.scope)?;
+    let scopes = [scope_ref(ctx, &task, params.scope)?];
     let updated_since = params
         .updated_since_seconds
         .map(|s| validate_seconds("updatedSinceSeconds", s).map(|s| since(Utc::now(), s)))
@@ -363,7 +337,7 @@ pub async fn search(
         return Err(MemoryError::BadRequest("q must not be empty".to_string()));
     }
     let task = readable_task(tasks, ctx, task_id).await?;
-    let scopes = read_scopes(ctx, &task, scope)?;
+    let scopes = [scope_ref(ctx, &task, scope)?];
     let limit = clamp_limit(limit, DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT);
     let rows = memories.store.search(&scopes, query, limit).await?;
     Ok(rows.iter().map(summary_response).collect())
@@ -380,14 +354,15 @@ async fn writable_entry(
 ) -> Result<(MemoryEntryRow, Writer), MemoryError> {
     validate_key(key)?;
     let (task, writer) = writable_task(tasks, ctx, task_id).await?;
-    let scopes = read_scopes(ctx, &task, scope)?;
-    let row = narrowest(&scopes, memories.store.find(&scopes, key).await?)
+    let scopes = [scope_ref(ctx, &task, scope)?];
+    check_scope_write(memories, ctx, &task, &scopes[0]).await?;
+    let row = memories
+        .store
+        .find(&scopes, key)
+        .await?
+        .into_iter()
+        .next()
         .ok_or_else(|| MemoryError::NotFound(key.to_string()))?;
-    let row_scope = ScopeRef {
-        scope: decode_scope(&row).unwrap_or(MemoryScope::Global),
-        id: row.scope_id.clone(),
-    };
-    check_scope_write(memories, ctx, &task, &row_scope).await?;
     Ok((row, writer))
 }
 
@@ -500,8 +475,13 @@ pub async fn log(
 ) -> Result<MemoryLogResponse, MemoryError> {
     validate_key(key)?;
     let task = readable_task(tasks, ctx, task_id).await?;
-    let scopes = read_scopes(ctx, &task, scope)?;
-    let row = narrowest(&scopes, memories.store.find(&scopes, key).await?)
+    let scopes = [scope_ref(ctx, &task, scope)?];
+    let row = memories
+        .store
+        .find(&scopes, key)
+        .await?
+        .into_iter()
+        .next()
         .ok_or_else(|| MemoryError::NotFound(key.to_string()))?;
     let limit = clamp_limit(limit, DEFAULT_LOG_LIMIT, MAX_LOG_LIMIT);
     let events = memories.store.log(&row.entry_id, limit).await?;
@@ -509,15 +489,6 @@ pub async fn log(
         key: row.key.clone(),
         scope: decode_scope(&row).unwrap_or(MemoryScope::Global),
         items: events.iter().filter_map(event_response).collect(),
-    })
-}
-
-/// The row in the first of `scopes` that has one.
-fn narrowest(scopes: &[ScopeRef], rows: Vec<MemoryEntryRow>) -> Option<MemoryEntryRow> {
-    scopes.iter().find_map(|s| {
-        rows.iter()
-            .find(|r| r.scope_kind == s.scope.as_str() && r.scope_id == s.id)
-            .cloned()
     })
 }
 
@@ -625,6 +596,9 @@ pub(crate) fn entry_response(row: &MemoryEntryRow) -> MemoryEntryResponse {
             .map(rfc3339),
         claimed_by_task_id: row.claimed_by_task_id.clone(),
         updated_by_task_id: row.updated_by_task_id.clone(),
+        created_by_task_id: row.created_by_task_id.clone(),
+        created_by_loop_id: row.created_by_loop_id.clone(),
+        created_by_user_id: row.created_by_user_id.clone(),
         created_at: rfc3339(row.created_at),
         updated_at: rfc3339(row.updated_at),
     }

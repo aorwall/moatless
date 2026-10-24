@@ -23,7 +23,8 @@ macro_rules! entry_columns {
          CASE WHEN e.claim_expires_at > now() AND EXISTS ( \
              SELECT 1 FROM tasks t WHERE t.task_id = e.claimed_by_task_id AND t.status = 'open' \
          ) THEN e.claimed_by_task_id END AS claimed_by_task_id, \
-         e.claim_expires_at, e.updated_by_task_id, e.created_at, e.updated_at, \
+         e.claim_expires_at, e.updated_by_task_id, e.created_by_task_id, \
+         e.created_by_loop_id, e.created_by_user_id, e.created_at, e.updated_at, \
          (e.stale_after_seconds IS NOT NULL AND COALESCE(e.verified_at, e.updated_at) \
              + (e.stale_after_seconds::double precision * interval '1 second') < now()) AS stale"
     };
@@ -197,11 +198,12 @@ async fn insert_new(
         r#"INSERT INTO memory_entries (
                entry_id, scope_kind, scope_id, key, summary, body, data, tags, citations,
                ttl_seconds, expires_at, stale_after_seconds,
-               updated_by_task_id, updated_by_loop_id, updated_by_user_id
+               updated_by_task_id, updated_by_loop_id, updated_by_user_id,
+               created_by_task_id, created_by_loop_id, created_by_user_id
            ) VALUES (
                $1, $2, $3, $4, $5, $6, $7, $8, $9,
                $10, now() + ($10::double precision * interval '1 second'), $11,
-               $12, $13, $14
+               $12, $13, $14, $12, $13, $14
            )
            ON CONFLICT (scope_kind, scope_id, key) DO NOTHING
            RETURNING entry_id"#,

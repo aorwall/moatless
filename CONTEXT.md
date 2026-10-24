@@ -199,7 +199,8 @@ with no expiry.
 **Memory scope**:
 Who shares a Memory entry: `task`, `loop`, `workspace`, `repository`, `user` or
 `global`. The calling Task supplies every scope id, so a request names only the
-kind. A write lands in the Task's Loop, else its Workspace, by default.
+kind. A request reaches the one scope it names, or the Task's Loop, else the
+Task, when it names none.
 
 **Claim** (Memory):
 A Task's time-limited hold on a Memory entry, so two Tasks do not work the same

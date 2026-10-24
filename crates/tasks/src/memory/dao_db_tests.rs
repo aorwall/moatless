@@ -77,6 +77,28 @@ async fn a_put_creates_then_patches_and_bumps_the_version(pool: PgPool) {
 }
 
 #[sqlx::test]
+async fn the_creator_is_kept_when_another_task_updates_the_entry(pool: PgPool) {
+    let dao = PgMemoryDao(pool);
+    written(&dao, &entry("state", Some("s"), Some("v1"))).await;
+    let mut update = entry("state", None, Some("v2"));
+    update.writer = Writer {
+        task_id: "task-2".to_string(),
+        loop_id: None,
+        user_id: "user-2".to_string(),
+    };
+    let row = written(&dao, &update).await;
+    assert_eq!(row.updated_by_task_id.as_deref(), Some("task-2"));
+    assert_eq!(
+        (
+            row.created_by_task_id.as_deref(),
+            row.created_by_loop_id.as_deref(),
+            row.created_by_user_id.as_deref()
+        ),
+        (Some("task-1"), Some("loop-1"), Some("user-1"))
+    );
+}
+
+#[sqlx::test]
 async fn a_new_key_without_a_summary_is_refused(pool: PgPool) {
     let dao = PgMemoryDao(pool);
     let outcome = dao.put(&entry("a", None, Some("x"))).await.expect("put");

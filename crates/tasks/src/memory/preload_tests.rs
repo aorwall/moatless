@@ -4,9 +4,10 @@ use chrono::{TimeZone, Utc};
 
 use super::*;
 use crate::memory::dao::MockMemoryDao;
-use crate::memory::models::SeenAt;
+use crate::memory::models::{ScopeRef, SeenAt};
 use crate::task::models::Task;
 use crate::task::test_support::make_task_row;
+use moatless_types::memory::MemoryScope;
 use moatless_workspace_ports::{MockRepositoryReader, MockWorkspaceResolver};
 
 fn row(key: &str, scope: &str, stale: bool) -> MemoryEntryRow {
@@ -32,6 +33,9 @@ fn row(key: &str, scope: &str, stale: bool) -> MemoryEntryRow {
         claimed_by_task_id: None,
         claim_expires_at: None,
         updated_by_task_id: None,
+        created_by_task_id: None,
+        created_by_loop_id: None,
+        created_by_user_id: None,
         created_at: at,
         updated_at: at,
         stale,
@@ -92,6 +96,7 @@ fn memories(store: MockMemoryDao) -> Memories {
 
 fn preloading_task() -> Task {
     let mut task = make_task_row("task-1", "user-1");
+    task.loop_id = Some("loop-1".to_string());
     task.memory_preload = vec!["ci:flaky".to_string(), "triage:*".to_string()];
     task
 }
@@ -109,8 +114,13 @@ async fn changes_ask_only_for_what_another_task_wrote_since_the_seen_time() {
         .returning(move |_| Ok(seen(since, Some(since))));
     store
         .expect_preload()
-        .withf(move |_, keys, prefixes, changed, _| {
-            keys == ["ci:flaky"]
+        .withf(move |scopes, keys, prefixes, changed, _| {
+            scopes
+                == [ScopeRef {
+                    scope: MemoryScope::Loop,
+                    id: "loop-1".to_string(),
+                }]
+                && keys == ["ci:flaky"]
                 && prefixes == ["triage:"]
                 && changed
                     .as_ref()
@@ -172,4 +182,17 @@ async fn a_task_preloading_nothing_reads_nothing() {
         .await
         .expect("read");
     assert!(read.note.is_none() && read.read_at.is_none());
+}
+
+/// No `expect_preload`: only a Loop's own scope is preloaded, so a Task
+/// without a Loop reads nothing however many patterns it carries.
+#[tokio::test]
+async fn a_task_without_a_loop_preloads_nothing() {
+    let mut task = preloading_task();
+    task.loop_id = None;
+    assert!(
+        preload_index(&memories(MockMemoryDao::new()), &task)
+            .await
+            .is_none()
+    );
 }
