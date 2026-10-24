@@ -105,7 +105,11 @@ pub(super) async fn fetch_plugin(
         targets.run_as_user_id.as_deref(),
         &grant.ctx.user_id,
     )
-    .await;
+    .await
+    // A Workspace admin picked this Plugin, so the owner's own access does not
+    // cap it: capping would withhold a picked Plugin from an owner who cannot
+    // read its repository.
+    .on_behalf_of(None);
     let known_version = Some(req.known_version.as_str()).filter(|v| !v.is_empty());
     let archive = handlers
         .plugin_archives

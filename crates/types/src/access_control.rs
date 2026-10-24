@@ -213,6 +213,8 @@ impl ScopeContext {
 pub struct Actor {
     user_id: String,
     workspace_id: Option<String>,
+    /// The person whose work this identity runs, when the two differ.
+    person: Option<String>,
 }
 
 impl Actor {
@@ -223,6 +225,7 @@ impl Actor {
         Self {
             user_id: user_id.into(),
             workspace_id: None,
+            person: None,
         }
     }
 
@@ -268,8 +271,26 @@ impl Actor {
         self
     }
 
+    /// The same identity, running work owned by `person`.
+    ///
+    /// A `person` equal to the identity itself, or empty, is no person: the
+    /// identity already acts with that person's own access.
+    #[must_use]
+    pub fn on_behalf_of(mut self, person: Option<&str>) -> Self {
+        self.person = person
+            .filter(|id| !id.is_empty() && *id != self.user_id)
+            .map(ToOwned::to_owned);
+        self
+    }
+
     pub fn user_id(&self) -> &str {
         &self.user_id
+    }
+
+    /// The person whose repository access caps a token minted for this
+    /// identity, if it runs someone else's work.
+    pub fn person(&self) -> Option<&str> {
+        self.person.as_deref()
     }
 
     /// The Workspace whose pinned credentials this call may present, if any.
@@ -510,6 +531,17 @@ user   public  admin read=allow interact=allow control=allow write=allow";
             "an empty column is not a named identity"
         );
         assert_eq!(Actor::run_as(None, None), None);
+    }
+
+    #[test]
+    fn an_identity_running_its_own_work_has_no_person() {
+        assert_eq!(
+            Actor::of("bot").on_behalf_of(Some("ada")).person(),
+            Some("ada")
+        );
+        assert_eq!(Actor::of("ada").on_behalf_of(Some("ada")).person(), None);
+        assert_eq!(Actor::of("bot").on_behalf_of(Some("")).person(), None);
+        assert_eq!(Actor::of("bot").on_behalf_of(None).person(), None);
     }
 }
 

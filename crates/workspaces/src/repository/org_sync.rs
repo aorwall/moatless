@@ -377,6 +377,7 @@ impl OrgSync {
                 &Actor::of(&self.acting_user_id),
                 &GitHostAccount::Github {
                     owner: org.to_string(),
+                    repository: None,
                 },
             )
             .await

@@ -195,7 +195,12 @@ impl GitHostTokens {
     }
 
     /// GitHub dispatches on the row's `auth_method`.
-    async fn github_token(&self, actor: &Actor, owner: &str) -> Result<String, GitHostTokenError> {
+    async fn github_token(
+        &self,
+        actor: &Actor,
+        owner: &str,
+        repository: Option<&str>,
+    ) -> Result<String, GitHostTokenError> {
         let Some(row) = self
             .provider_tokens
             .find_github_row(actor.user_id())
@@ -209,10 +214,23 @@ impl GitHostTokens {
             });
         };
 
-        let resolved = match row.auth_method.as_deref() {
-            Some(AUTH_METHOD_APP_INSTALLATION) => self.mint_installation_token(&row, owner).await,
-            Some(AUTH_METHOD_SECRET_REF) => self.read_secret_ref_token(actor, GITHUB_TOKEN).await,
-            Some(AUTH_METHOD_APP_USER) => self.refreshed_oauth_token(&row, actor).await,
+        let resolved = match (row.auth_method.as_deref(), actor.person()) {
+            (Some(AUTH_METHOD_APP_INSTALLATION), Some(person)) => match repository {
+                Some(repository) => {
+                    return self
+                        .mint_token_for_person(actor, &row, owner, repository, person)
+                        .await;
+                }
+                // A person's role exists only per repository.
+                None => Err(AuthError::Forbidden),
+            },
+            (Some(AUTH_METHOD_APP_INSTALLATION), None) => {
+                self.mint_installation_token(&row, owner).await
+            }
+            (Some(AUTH_METHOD_SECRET_REF), _) => {
+                self.read_secret_ref_token(actor, GITHUB_TOKEN).await
+            }
+            (Some(AUTH_METHOD_APP_USER), _) => self.refreshed_oauth_token(&row, actor).await,
             _ => Ok(row.access_token.clone()),
         };
 
@@ -221,10 +239,81 @@ impl GitHostTokens {
                 actor,
                 GitHostAccount::Github {
                     owner: owner.to_string(),
+                    repository: repository.map(str::to_string),
                 },
                 source,
             )
         })
+    }
+
+    /// An installation token for `owner/repository` alone, capped by
+    /// `person`'s role there.
+    ///
+    /// A refusal for `person`'s own missing connection or role names them, so
+    /// it points at the access to grant; a failure minting names `actor`. A
+    /// `person` whose row is an App installation gets the uncapped token.
+    async fn mint_token_for_person(
+        &self,
+        actor: &Actor,
+        row: &ProviderToken,
+        owner: &str,
+        repository: &str,
+        person: &str,
+    ) -> Result<String, GitHostTokenError> {
+        let account = || GitHostAccount::Github {
+            owner: owner.to_string(),
+            repository: Some(repository.to_string()),
+        };
+        let as_actor = |source| classify(actor, account(), source);
+        let person_actor = Actor::of(person);
+        let person_row = self
+            .provider_tokens
+            .find_github_row(person)
+            .await
+            .map_err(|e| StoreError::with_source(format!("read {person}'s GitHub row"), e))?
+            .ok_or_else(|| GitHostTokenError::NoCredential {
+                actor: person_actor.clone(),
+                provider: RepositoryProvider::Github,
+                host: None,
+            })?;
+        if person_row.auth_method.as_deref() == Some(AUTH_METHOD_APP_INSTALLATION) {
+            return self
+                .mint_installation_token(row, owner)
+                .await
+                .map_err(as_actor);
+        }
+        let login = github_login(&person_row).ok_or_else(|| GitHostTokenError::Broken {
+            actor: person_actor.clone(),
+            provider: RepositoryProvider::Github,
+            source: "the GitHub connection records no login to check repository access for".into(),
+        })?;
+        let refused = || GitHostTokenError::Forbidden {
+            actor: person_actor.clone(),
+            account: Box::new(account()),
+            source: format!("{login} has no role on {owner}/{repository} the App can act with")
+                .into(),
+        };
+
+        let app = self.installation_app(row).await.map_err(as_actor)?;
+        let installation = app.resolve_installation_id(owner).await.map_err(as_actor)?;
+        let Some(role) = app
+            .repository_role(installation, owner, repository, &login)
+            .await
+            .map_err(as_actor)?
+        else {
+            return Err(refused());
+        };
+        let permissions = role.cap(
+            &app.installation_permissions(installation)
+                .await
+                .map_err(as_actor)?,
+        );
+        if permissions.is_empty() {
+            return Err(refused());
+        }
+        app.get_repository_installation_token(installation, owner, repository, &permissions)
+            .await
+            .map_err(as_actor)
     }
 
     /// An App-installation row mints an installation-wide token: it can reach
@@ -437,6 +526,21 @@ impl GitHostTokens {
     }
 }
 
+/// The GitHub login a row was connected as: the column the App user flow
+/// writes, else the `login` a PAT's metadata records.
+fn github_login(row: &ProviderToken) -> Option<String> {
+    row.provider_login
+        .clone()
+        .or_else(|| {
+            row.metadata
+                .as_ref()?
+                .get("login")?
+                .as_str()
+                .map(str::to_string)
+        })
+        .filter(|login| !login.is_empty())
+}
+
 /// The stored token after its refresh failed, while it is still in date.
 ///
 /// Once it has expired GitHub answers it with 401, so handing it on only moves
@@ -530,7 +634,9 @@ impl GitHostTokenIssuer for GitHostTokens {
             return Ok(pinned);
         }
         match account {
-            GitHostAccount::Github { owner } => self.github_token(actor, owner).await,
+            GitHostAccount::Github { owner, repository } => {
+                self.github_token(actor, owner, repository.as_deref()).await
+            }
             GitHostAccount::Gitlab => {
                 self.stored_host_token(actor, RepositoryProvider::Gitlab)
                     .await
@@ -545,6 +651,9 @@ impl GitHostTokenIssuer for GitHostTokens {
 }
 
 #[cfg(test)]
+mod person_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -556,6 +665,7 @@ mod tests {
     fn github_account() -> GitHostAccount {
         GitHostAccount::Github {
             owner: "acme".into(),
+            repository: Some("repo".into()),
         }
     }
 

@@ -264,7 +264,8 @@ the identifier — that already means a Secret's name and an API key.
 A user representing a GitHub App's bot identity, which work is attributed to. It
 never signs in and holds no personal credential; its usable token is minted from
 its App on demand, and its name and address are what commits, pull requests and
-comments carry.
+comments carry. Running a person's Task, it holds no more than that person's own
+role on the repository, and never administration.
 _Avoid_: service account, machine user, bare "bot"
 
 **Binding**:

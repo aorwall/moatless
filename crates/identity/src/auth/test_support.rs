@@ -26,6 +26,9 @@ pub struct StubProviderTokens {
     /// it to assert that a caller reaches nothing when they hold no row of
     /// their own.
     pub global_row: Option<ProviderToken>,
+    /// Rows for further users, each found only at its own user scope and
+    /// ahead of [`Self::user_row`].
+    pub other_rows: Vec<(String, ProviderToken)>,
     /// Number of persistence mutations attempted through this stub.
     pub writes: AtomicUsize,
     /// The last row [`ProviderTokenDao::upsert_token_with_auth_method`] was
@@ -62,12 +65,21 @@ impl StubProviderTokens {
         }
     }
 
+    /// Add a row that exists only at `user_id`'s scope.
+    pub fn with_row_for(mut self, user_id: &str, row: ProviderToken) -> Self {
+        self.other_rows.push((user_id.to_string(), row));
+        self
+    }
+
     pub fn with_global_row(mut self, row: ProviderToken) -> Self {
         self.global_row = Some(row);
         self
     }
 
     fn user_row(&self, user_id: &str) -> Option<&ProviderToken> {
+        if let Some((_, row)) = self.other_rows.iter().find(|(id, _)| id == user_id) {
+            return Some(row);
+        }
         self.user_row
             .as_ref()
             .filter(|_| self.user_id.as_deref().is_none_or(|id| id == user_id))

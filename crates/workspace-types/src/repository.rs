@@ -91,6 +91,7 @@ impl GitHostRepo {
         match self.provider {
             RepositoryProvider::Github => GitHostAccount::Github {
                 owner: self.owner.clone(),
+                repository: Some(self.name.clone()),
             },
             RepositoryProvider::Forgejo => GitHostAccount::Forgejo {
                 host: self.host.clone(),

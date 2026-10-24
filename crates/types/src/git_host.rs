@@ -12,8 +12,15 @@ crate::string_enum!(
 /// The account or instance whose git credential is requested.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GitHostAccount {
-    Github { owner: String },
-    Forgejo { host: String },
+    /// `repository` is the name within `owner` the credential is used for;
+    /// `None` asks for the whole account, which a capped identity is refused.
+    Github {
+        owner: String,
+        repository: Option<String>,
+    },
+    Forgejo {
+        host: String,
+    },
     Gitlab,
 }
 
@@ -30,7 +37,7 @@ impl GitHostAccount {
 impl std::fmt::Display for GitHostAccount {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Github { owner } => write!(f, "github account {owner}"),
+            Self::Github { owner, .. } => write!(f, "github account {owner}"),
             Self::Forgejo { host } => write!(f, "forgejo instance {host}"),
             Self::Gitlab => f.write_str("gitlab"),
         }

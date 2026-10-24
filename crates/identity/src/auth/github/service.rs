@@ -16,6 +16,7 @@ use tracing::{debug, info, warn};
 
 use crate::adapter_apps::dao::GitHubAppRecord;
 use crate::auth::error::AuthError;
+use crate::auth::github::repository_role::RepositoryRole;
 use crate::auth::models::OAuthTokens;
 use moatless_core::config::Config;
 use moatless_types::auth::GitHubAppConfig;
@@ -25,7 +26,23 @@ use moatless_types::http::HttpTimeouts;
 struct CachedToken {
     token: String,
     expires_at: DateTime<Utc>,
+    /// What GitHub granted the token, as on [`Installation::permissions`].
+    permissions: BTreeMap<String, String>,
 }
+
+/// How long a person's repository role is trusted before it is asked again.
+const ROLE_TTL: chrono::Duration = chrono::Duration::minutes(5);
+
+/// A repository-restricted token's cache key: installation, lowercased
+/// repository name, and the permissions it was minted with.
+type RepositoryTokenKey = (u64, String, Vec<(String, String)>);
+
+/// A role lookup's cache key: installation, lowercased `owner/repo`, and
+/// lowercased login.
+type RoleKey = (u64, String, String);
+
+/// A person's role as GitHub last answered it, and when.
+type CachedRole = (Option<RepositoryRole>, DateTime<Utc>);
 
 /// Resolved bot identity for a configured GitHub App.
 ///
@@ -52,7 +69,9 @@ pub struct GitHubAppService {
     api_base: String,
     http: reqwest::Client,
     token_cache: RwLock<HashMap<u64, CachedToken>>,
-    repository_token_cache: RwLock<HashMap<(u64, String), CachedToken>>,
+    repository_token_cache: RwLock<HashMap<RepositoryTokenKey, CachedToken>>,
+    /// `None` is a person with no access, cached like any other answer.
+    role_cache: RwLock<HashMap<RoleKey, CachedRole>>,
     /// Cached `installation_id` per `owner` (org or user login).
     installation_by_owner: RwLock<HashMap<String, u64>>,
     /// Cached bot identity (populated lazily).
@@ -71,6 +90,13 @@ struct AppJwtClaims {
 struct InstallationTokenResponse {
     token: String,
     expires_at: String,
+    #[serde(default)]
+    permissions: BTreeMap<String, String>,
+}
+
+#[derive(Deserialize)]
+struct CollaboratorPermission {
+    permission: String,
 }
 
 #[derive(Deserialize)]
@@ -287,6 +313,7 @@ impl GitHubAppService {
             http,
             token_cache: RwLock::new(HashMap::new()),
             repository_token_cache: RwLock::new(HashMap::new()),
+            role_cache: RwLock::new(HashMap::new()),
             installation_by_owner: RwLock::new(HashMap::new()),
             bot_identity: RwLock::new(None),
         })
@@ -319,6 +346,31 @@ impl GitHubAppService {
 
     /// Get an installation access token, using cache when available.
     pub async fn get_installation_token(&self, installation_id: u64) -> Result<String, AuthError> {
+        Ok(self.installation_access(installation_id).await?.0)
+    }
+
+    /// The permissions the installation grants the App, as its unrestricted
+    /// token reports them.
+    ///
+    /// An empty set is an error rather than an App holding nothing: every App
+    /// holds `metadata`, so it means GitHub left the field out.
+    pub(crate) async fn installation_permissions(
+        &self,
+        installation_id: u64,
+    ) -> Result<BTreeMap<String, String>, AuthError> {
+        let permissions = self.installation_access(installation_id).await?.1;
+        if permissions.is_empty() {
+            return Err(AuthError::OAuth(format!(
+                "GitHub reported no permissions for installation {installation_id}"
+            )));
+        }
+        Ok(permissions)
+    }
+
+    async fn installation_access(
+        &self,
+        installation_id: u64,
+    ) -> Result<(String, BTreeMap<String, String>), AuthError> {
         {
             let cache = self.token_cache.read().await;
             if let Some(cached) = cache.get(&installation_id) {
@@ -326,7 +378,7 @@ impl GitHubAppService {
                 let margin = Utc::now() + chrono::Duration::minutes(5);
                 if cached.expires_at > margin {
                     debug!(installation_id, "Using cached installation token");
-                    return Ok(cached.token.clone());
+                    return Ok((cached.token.clone(), cached.permissions.clone()));
                 }
             }
         }
@@ -374,22 +426,38 @@ impl GitHubAppService {
                 CachedToken {
                     token: data.token.clone(),
                     expires_at,
+                    permissions: data.permissions.clone(),
                 },
             );
         }
 
         info!(installation_id, "Obtained new GitHub installation token");
-        Ok(data.token)
+        Ok((data.token, data.permissions))
     }
 
-    /// Mint an installation token restricted by GitHub to one repository.
+    /// Mint an installation token restricted by GitHub to one repository and
+    /// to `permissions`, each of which the installation must grant.
+    ///
+    /// An empty `permissions` is refused: GitHub reads an absent set as every
+    /// permission the installation holds.
     pub async fn get_repository_installation_token(
         &self,
         installation_id: u64,
         owner: &str,
         repository: &str,
+        permissions: &BTreeMap<String, String>,
     ) -> Result<String, AuthError> {
-        let cache_key = (installation_id, repository.to_ascii_lowercase());
+        if permissions.is_empty() {
+            return Err(AuthError::Forbidden);
+        }
+        let cache_key = (
+            installation_id,
+            repository.to_ascii_lowercase(),
+            permissions
+                .iter()
+                .map(|(name, level)| (name.clone(), level.clone()))
+                .collect(),
+        );
         {
             let cache = self.repository_token_cache.read().await;
             if let Some(cached) = cache.get(&cache_key) {
@@ -414,7 +482,10 @@ impl GitHubAppService {
             .header("Authorization", format!("Bearer {app_jwt}"))
             .header("Accept", "application/vnd.github+json")
             .header("User-Agent", "moatless-vibe-backend")
-            .json(&serde_json::json!({ "repositories": [repository] }))
+            .json(&serde_json::json!({
+                "repositories": [repository],
+                "permissions": permissions,
+            }))
             .send()
             .await
             .map_err(|e| {
@@ -435,8 +506,12 @@ impl GitHubAppService {
             let repository_id = self
                 .find_installation_repository_id(installation_id, owner, repository)
                 .await?;
-            self.get_repository_installation_token_by_id(installation_id, repository_id)
-                .await?
+            self.get_repository_installation_token_by_id(
+                installation_id,
+                repository_id,
+                permissions,
+            )
+            .await?
         } else {
             if !resp.status().is_success() {
                 let status = resp.status();
@@ -461,6 +536,7 @@ impl GitHubAppService {
             CachedToken {
                 token: data.token.clone(),
                 expires_at,
+                permissions: data.permissions,
             },
         );
 
@@ -475,6 +551,7 @@ impl GitHubAppService {
         &self,
         installation_id: u64,
         repository_id: u64,
+        permissions: &BTreeMap<String, String>,
     ) -> Result<InstallationTokenResponse, AuthError> {
         let app_jwt = self.generate_app_jwt()?;
         let resp = self
@@ -486,7 +563,10 @@ impl GitHubAppService {
             .header("Authorization", format!("Bearer {app_jwt}"))
             .header("Accept", "application/vnd.github+json")
             .header("User-Agent", "moatless-vibe-backend")
-            .json(&serde_json::json!({ "repository_ids": [repository_id] }))
+            .json(&serde_json::json!({
+                "repository_ids": [repository_id],
+                "permissions": permissions,
+            }))
             .send()
             .await
             .map_err(|e| {
@@ -568,6 +648,67 @@ impl GitHubAppService {
              to repository '{repository}'. Update the App installation on GitHub to include that \
              repository, or bind a different installation."
         )))
+    }
+
+    /// `login`'s role on `owner/repository`, asked through the installation
+    /// and cached for [`ROLE_TTL`]; `None` when they have no access.
+    pub(crate) async fn repository_role(
+        &self,
+        installation_id: u64,
+        owner: &str,
+        repository: &str,
+        login: &str,
+    ) -> Result<Option<RepositoryRole>, AuthError> {
+        let key = (
+            installation_id,
+            format!("{owner}/{repository}").to_ascii_lowercase(),
+            login.to_ascii_lowercase(),
+        );
+        if let Some((role, at)) = self.role_cache.read().await.get(&key) {
+            if *at + ROLE_TTL > Utc::now() {
+                return Ok(*role);
+            }
+        }
+
+        let token = self.get_installation_token(installation_id).await?;
+        let resp = self
+            .http
+            .get(format!(
+                "{}/repos/{owner}/{repository}/collaborators/{login}/permission",
+                self.api_base
+            ))
+            .header("Authorization", format!("Bearer {token}"))
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "moatless-vibe-backend")
+            .send()
+            .await
+            .map_err(|e| {
+                AuthError::OAuth(format!(
+                    "GitHub collaborator permission request failed: {e}"
+                ))
+            })?;
+        // GitHub answers 404 for a login that is not a collaborator at all.
+        let role = if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            None
+        } else if resp.status().is_success() {
+            let data: CollaboratorPermission = resp.json().await.map_err(|e| {
+                AuthError::OAuth(format!(
+                    "Failed to parse GitHub collaborator permission response: {e}"
+                ))
+            })?;
+            RepositoryRole::from_permission(&data.permission)
+        } else {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(AuthError::OAuth(format!(
+                "GitHub collaborator permission request returned {status}: {body}"
+            )));
+        };
+        self.role_cache
+            .write()
+            .await
+            .insert(key, (role, Utc::now()));
+        Ok(role)
     }
 
     /// Get an installation token using the default installation ID.
@@ -960,7 +1101,12 @@ mod tests {
         serde_json::json!({
             "token": token,
             "expires_at": "2099-01-01T00:00:00Z",
+            "permissions": { "contents": "write", "metadata": "read" },
         })
+    }
+
+    fn contents_write() -> BTreeMap<String, String> {
+        BTreeMap::from([("contents".to_string(), "write".to_string())])
     }
 
     async fn github_token_stub(
@@ -1041,6 +1187,20 @@ mod tests {
                     }
                 }),
             )
+            .route(
+                "/repos/Acme/repo/collaborators/{login}/permission",
+                get(
+                    |axum::extract::Path(login): axum::extract::Path<String>| async move {
+                        match login.as_str() {
+                            "ada" => Json(serde_json::json!({ "permission": "admin" }))
+                                .into_response(),
+                            "bob" => Json(serde_json::json!({ "permission": "read" }))
+                                .into_response(),
+                            _ => StatusCode::NOT_FOUND.into_response(),
+                        }
+                    },
+                ),
+            )
             .with_state(requests.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -1118,16 +1278,64 @@ mod tests {
 
         let token = test_app()
             .with_api_base(format!("http://{addr}"))
-            .get_repository_installation_token(42, "Acme", "repo")
+            .get_repository_installation_token(42, "Acme", "repo", &contents_write())
             .await
             .expect("repository-id retry succeeds");
 
         assert_eq!(token, "repo-id-token");
         let requests = requests.lock().await;
         assert_eq!(requests.len(), 3, "name request, unscoped token, id retry");
-        assert_eq!(requests[0], serde_json::json!({ "repositories": ["repo"] }));
+        let permissions = serde_json::json!({ "contents": "write" });
+        assert_eq!(
+            requests[0],
+            serde_json::json!({ "repositories": ["repo"], "permissions": permissions })
+        );
         assert_eq!(requests[1], serde_json::Value::Null);
-        assert_eq!(requests[2], serde_json::json!({ "repository_ids": [987] }));
+        assert_eq!(
+            requests[2],
+            serde_json::json!({ "repository_ids": [987], "permissions": permissions })
+        );
+    }
+
+    #[tokio::test]
+    async fn a_repository_role_is_read_from_the_collaborator_permission() {
+        let (addr, _requests) = github_token_stub(vec![]).await;
+        let app = test_app().with_api_base(format!("http://{addr}"));
+
+        for (login, role) in [
+            ("ada", Some(RepositoryRole::Write)),
+            ("bob", Some(RepositoryRole::Read)),
+            ("eve", None),
+        ] {
+            let found = app
+                .repository_role(42, "Acme", "repo", login)
+                .await
+                .expect("the stub answers");
+            assert_eq!(found, role, "{login}");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_installation_permissions_come_from_its_token() {
+        let (addr, _requests) = github_token_stub(vec![]).await;
+        let permissions = test_app()
+            .with_api_base(format!("http://{addr}"))
+            .installation_permissions(42)
+            .await
+            .expect("the stub mints");
+        assert_eq!(
+            permissions.get("contents").map(String::as_str),
+            Some("write")
+        );
+    }
+
+    #[tokio::test]
+    async fn no_permissions_mint_nothing_rather_than_everything() {
+        let error = test_app()
+            .get_repository_installation_token(42, "Acme", "repo", &BTreeMap::new())
+            .await
+            .expect_err("an empty set would ask GitHub for every permission");
+        assert!(matches!(error, AuthError::Forbidden), "{error}");
     }
 
     #[tokio::test]
@@ -1148,7 +1356,7 @@ mod tests {
 
         let token = test_app()
             .with_api_base(format!("http://{addr}"))
-            .get_repository_installation_token(42, "Acme", "repo")
+            .get_repository_installation_token(42, "Acme", "repo", &contents_write())
             .await
             .expect("late-page repository-id retry succeeds");
 
@@ -1165,7 +1373,7 @@ mod tests {
 
         let error = test_app()
             .with_api_base(format!("http://{addr}"))
-            .get_repository_installation_token(42, "Acme", "repo")
+            .get_repository_installation_token(42, "Acme", "repo", &contents_write())
             .await
             .expect_err("missing selected repository is an access error");
 

@@ -286,9 +286,20 @@ pub fn is_git_auth_key(key: &str) -> bool {
 /// The identity a Task's sandbox acts as on a git host: `task_run_as` when set,
 /// else the Workspace's `run_as_user_id`, else the Task's owner.
 ///
-/// An unreadable Workspace degrades to the Task's owner, narrowing access
-/// rather than widening it.
+/// Any other identity carries the owner as its [`Actor::person`]. An
+/// unreadable Workspace degrades to the Task's owner, narrowing access.
 pub async fn resolve_task_actor(
+    workspaces: Option<&Arc<dyn WorkspaceResolver>>,
+    workspace_id: Option<&str>,
+    task_run_as: Option<&str>,
+    owner_user_id: &str,
+) -> Actor {
+    run_as_identity(workspaces, workspace_id, task_run_as, owner_user_id)
+        .await
+        .on_behalf_of(Some(owner_user_id))
+}
+
+async fn run_as_identity(
     workspaces: Option<&Arc<dyn WorkspaceResolver>>,
     workspace_id: Option<&str>,
     task_run_as: Option<&str>,
@@ -934,6 +945,25 @@ mod tests {
         let workspaces = workspace_running_as(Some("bot"));
         let actor = resolve_task_actor(Some(&workspaces), Some("ws_1"), None, "starter").await;
         assert_eq!(actor.user_id(), "bot");
+    }
+
+    #[tokio::test]
+    async fn a_run_as_identity_carries_the_owner_whose_access_caps_it() {
+        let workspaces = workspace_running_as(Some("bot"));
+        let actor = resolve_task_actor(Some(&workspaces), Some("ws_1"), None, "starter").await;
+        assert_eq!(actor.person(), Some("starter"));
+
+        let actor =
+            resolve_task_actor(Some(&workspaces), Some("ws_1"), Some("reviewer"), "starter").await;
+        assert_eq!(actor.person(), Some("starter"));
+
+        let workspaces = workspace_running_as(None);
+        let actor = resolve_task_actor(Some(&workspaces), Some("ws_1"), None, "starter").await;
+        assert_eq!(
+            actor.person(),
+            None,
+            "the owner acting as itself is uncapped"
+        );
     }
 
     #[tokio::test]

@@ -8,5 +8,6 @@
 //! in [`crate::auth::oauth`].
 
 pub mod registry;
+pub(crate) mod repository_role;
 pub mod service;
 pub(crate) mod user_credential;
