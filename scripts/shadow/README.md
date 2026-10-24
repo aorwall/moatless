@@ -125,9 +125,8 @@ bash scripts/shadow/up.sh          # sync env -> build -> run backend on :8080, 
     workload (webhook→task triggers, message routing). A dev shadow must not act
     on the global event stream. Its SSE feed needs no such flag: that cursor is
     per-process and in memory, so it reads the feed without claiming from it.
-  - `SANDBOX_IDLE_REAPER_ENABLED=false` + `RECONCILE_*_ENABLED=false` so the
-    shadow can never stop/delete/reprovision real sandboxes even if it won the
-    (leader-elected) reaper lease.
+  - `SANDBOX_IDLE_REAPER_ENABLED=false` so the shadow can never stop or delete
+    real sandboxes even if it won the (leader-elected) reaper lease.
   - `RUN_MIGRATIONS=false` — the shadow shares the real dev Postgres, so it must
     not apply pending migrations (that would alter the schema the real backend
     depends on). It runs against whatever schema is already there. Need new

@@ -58,8 +58,6 @@ spec:
               name: grpc
               protocol: TCP
           env:
-            - name: PROXY_PORT
-              value: "8080"
             - name: PROXY_DOMAIN
               value: {{ .Values.proxy.domain | quote }}
             - name: PROXY_PROTOCOL
@@ -109,10 +107,6 @@ spec:
               value: {{ .Values.kubernetes.serverResources.requests.cpu | quote }}
             - name: SERVER_RESOURCES_MEMORY_REQUEST
               value: {{ .Values.kubernetes.serverResources.requests.memory | quote }}
-            {{- with .Values.backend.sandboxImage }}
-            - name: K8S_SANDBOX_IMAGE
-              value: {{ . | quote }}
-            {{- end }}
             - name: K8S_SANDBOX_RUN_AS_NON_ROOT
               value: {{ .Values.kubernetes.sandboxRunAsNonRoot | default false | quote }}
             - name: K8S_SANDBOX_SHARED_DATA_SIZE
@@ -225,17 +219,6 @@ spec:
             - name: SANDBOX_EGRESS_PROXY_NO_PROXY
               value: {{ .Values.egressProxy.noProxy | quote }}
             {{- end }}
-            {{- with .Values.kubernetes.reconcile }}
-            # Desired-vs-actual reconcile pass in the task reaper (all OFF by default)
-            - name: RECONCILE_REPROVISION_ENABLED
-              value: {{ .reprovisionEnabled | quote }}
-            - name: RECONCILE_PENDING_TIMEOUT_ENABLED
-              value: {{ .pendingTimeoutEnabled | quote }}
-            - name: RECONCILE_PENDING_TIMEOUT_MINUTES
-              value: {{ .pendingTimeoutMinutes | quote }}
-            - name: RECONCILE_MAX_REPROVISION_ATTEMPTS
-              value: {{ .maxReprovisionAttempts | quote }}
-            {{- end }}
             - name: TASK_TOKEN_SECRET
               valueFrom:
                 secretKeyRef:
@@ -282,14 +265,8 @@ spec:
                   name: {{ include "moatless-vibe.secretsName" . }}
                   key: SECRETS_ENCRYPTION_KEY
                   optional: true
-            {{- with .Values.backend.sharedStoragePvcName }}
-            - name: SHARED_STORAGE_PVC_NAME
-              value: {{ . | quote }}
-            {{- end }}
             # Storage configuration
             {{- if eq .Values.storage.backend "s3" }}
-            - name: FILE_STORAGE_BACKEND
-              value: "s3"
             - name: S3_BUCKET_NAME
               value: {{ .Values.storage.s3.bucketName | quote }}
             - name: S3_REGION
@@ -300,21 +277,6 @@ spec:
             - name: SANDBOX_WORKSPACE_REPOSITORY_ROLE_ARN
               value: {{ . | quote }}
             {{- end }}
-            {{- if .Values.storage.s3.createSharedVolume }}
-            - name: SHARED_STORAGE_PVC_NAME
-              value: {{ include "moatless-vibe.fullname" . }}-shared-storage
-            {{- end }}
-            {{- else if eq .Values.storage.backend "azure-blob" }}
-            - name: FILE_STORAGE_BACKEND
-              value: "azure-blob"
-            - name: AZURE_STORAGE_ACCOUNT
-              value: {{ .Values.storage.azureBlob.accountName | quote }}
-            - name: AZURE_STORAGE_CONTAINER
-              value: {{ .Values.storage.azureBlob.containerName | quote }}
-            - name: AZURE_STORAGE_KEY_PREFIX
-              value: {{ .Values.storage.azureBlob.keyPrefix | quote }}
-            - name: SHARED_STORAGE_PVC_NAME
-              value: {{ include "moatless-vibe.fullname" . }}-shared-storage
             {{- end }}
             - name: SANDBOX_FILE_MOUNT_PATH
               value: {{ .Values.storage.sandboxMountPath | quote }}
@@ -445,20 +407,11 @@ spec:
             {{- end }}
             {{- end }}
             {{- if .Values.kubernetes.enabled }}
-            # Kubernetes execution mode
-            - name: K8S_NAMESPACE
-              value: {{ include "moatless-vibe.sandboxNamespace" . | quote }}
-            - name: K8S_SANDBOX_IMAGE
-              value: {{ include "moatless-vibe.sandboxImage" . | quote }}
             # Sandbox pods run under their own SA when kubernetes.sandboxServiceAccount
             # is set (e.g. a dedicated identity bound to an EKS Pod Identity for
             # CodeArtifact access); otherwise they fall back to the backend SA.
             - name: K8S_SANDBOX_SERVICE_ACCOUNT
               value: {{ .Values.kubernetes.sandboxServiceAccount | default (include "moatless-vibe.serviceAccountName" .) | quote }}
-            - name: K8S_POD_STARTUP_TIMEOUT
-              value: {{ .Values.kubernetes.podStartupTimeout | quote }}
-            - name: K8S_HEALTH_CHECK_INTERVAL
-              value: {{ .Values.kubernetes.healthCheckInterval | quote }}
             - name: K8S_RESOURCE_LIMIT_CPU
               value: {{ .Values.kubernetes.sandboxResources.limits.cpu | quote }}
             - name: K8S_RESOURCE_LIMIT_MEMORY
@@ -467,12 +420,9 @@ spec:
               value: {{ .Values.kubernetes.sandboxResources.requests.cpu | quote }}
             - name: K8S_RESOURCE_REQUEST_MEMORY
               value: {{ .Values.kubernetes.sandboxResources.requests.memory | quote }}
-            - name: WORKSPACE_INACTIVITY_TIMEOUT_MINUTES
+            - name: SANDBOX_IDLE_TIMEOUT_MINUTES
               value: {{ .Values.kubernetes.inactivityTimeoutMinutes | quote }}
             {{- end }}
-            # Hostname-based routing configuration
-            - name: USE_HOSTNAME_ROUTING
-              value: "true"
             - name: TRAEFIK_AUTH_MIDDLEWARE_NAME
               value: {{ .Values.proxy.authMiddlewareName | default "preview-auth" | quote }}
             - name: TRAEFIK_AUTH_MIDDLEWARE_NAMESPACE

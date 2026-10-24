@@ -341,7 +341,7 @@ else
 fi
 
 echo -e "\n${GREEN}To use in Kubernetes:${NC}"
-echo "  K8S_SANDBOX_IMAGE=${REGISTRY}/moatless-sandbox-js:${TAG}"
+echo "  --set kubernetes.sandboxImage=${REGISTRY}/moatless-sandbox-js:${TAG}"
 
 if [ "$MULTI_ARCH" = true ]; then
   echo -e "\n${GREEN}To use with Docker (works on both amd64 and arm64):${NC}"
