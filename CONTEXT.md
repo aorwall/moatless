@@ -475,7 +475,10 @@ Writing one takes the reach's own authority: an admin for everyone's, your own o
 an admin acting for you for a person's, and control of that one Workspace — its
 owner, or an admin — for a Workspace's. Control and not read, because a global
 Workspace reads to everybody signed in while its records decide what loads for
-everybody working in it.
+everybody working in it. A git-declared Workspace's own records come from the
+`skills` key of its `.moatless/workspaces.json` entry when it has one, which then
+replaces them on every sync. Without the key the sync leaves them alone, so
+deleting it keeps git's last records; commit `"skills": {}` first to clear them.
 
 Only Plugin Skills have Activations. A Repository's own Skills always load in
 work on that Repository; there is no record that withholds them.

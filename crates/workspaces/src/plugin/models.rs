@@ -65,3 +65,13 @@ pub struct ActivationWrite {
     pub always: Option<bool>,
     pub frontload: Option<bool>,
 }
+
+/// One Workspace-reach record a `.moatless/workspaces.json` sync writes, with
+/// `always` and `frontload` off.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DeclaredActivation {
+    pub plugin_id: String,
+    /// `None` means the whole plugin.
+    pub skill_name: Option<String>,
+    pub enabled: bool,
+}

@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 use uuid::Uuid;
 
-use super::models::{ActivationRow, ActivationWrite, Plugin, PluginSkill};
+use super::models::{ActivationRow, ActivationWrite, DeclaredActivation, Plugin, PluginSkill};
 use moatless_core::db::DbPool;
 
 /// DAO trait for plugin persistence.
@@ -217,6 +217,40 @@ impl PluginDao for PgPluginDao {
         .await?;
         Ok(result.rows_affected() > 0)
     }
+}
+
+/// Replace every record of one Workspace's reach with `records`, in one
+/// transaction, so no resolution reads half of git's declaration.
+///
+/// `always` and `frontload` are written false: git does not declare them.
+pub(crate) async fn replace_workspace_activations(
+    db: &DbPool,
+    workspace_id: &str,
+    records: &[DeclaredActivation],
+) -> Result<(), sqlx::Error> {
+    let mut tx = db.begin().await?;
+    sqlx::query("DELETE FROM plugin_activations WHERE workspace_id = $1")
+        .bind(workspace_id)
+        .execute(&mut *tx)
+        .await?;
+    for record in records {
+        // `ON CONFLICT` because a concurrent sync of the same Workspace may
+        // commit its insert between this delete and this insert.
+        sqlx::query(
+            r#"INSERT INTO plugin_activations (plugin_id, skill_name, workspace_id, enabled, "always", frontload)
+               VALUES ($1, $2, $3, $4, false, false)
+               ON CONFLICT (plugin_id, skill_name, user_id, workspace_id)
+               DO UPDATE SET enabled = EXCLUDED.enabled, "always" = false,
+                             frontload = false, updated_at = now()"#,
+        )
+        .bind(&record.plugin_id)
+        .bind(&record.skill_name)
+        .bind(workspace_id)
+        .bind(record.enabled)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await
 }
 
 #[cfg(all(test, feature = "db-tests"))]

@@ -78,7 +78,8 @@ pub fn git_sync(
     Arc::new(GitSyncService::new(
         db.clone(),
         Arc::new(PgWorkspaceDao(db.clone())),
-        Arc::new(PgRepositoryDao(db)),
+        Arc::new(PgRepositoryDao(db.clone())),
+        Arc::new(PgPluginDao(db)),
         git_host_tokens,
         git_content,
         github_api_base,

@@ -7,6 +7,7 @@
 pub mod credentials;
 pub(crate) mod dao;
 pub mod error;
+pub mod git_skills;
 pub mod git_sync;
 pub(crate) mod handlers;
 pub mod models;

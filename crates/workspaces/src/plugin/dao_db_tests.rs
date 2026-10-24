@@ -5,7 +5,9 @@
 //! in-memory stub used by the sync unit tests.
 
 use crate::plugin::dao::{PgPluginDao, PluginDao};
-use crate::plugin::models::{ActivationRow, ActivationWrite, Plugin, PluginSkill};
+use crate::plugin::models::{
+    ActivationRow, ActivationWrite, DeclaredActivation, Plugin, PluginSkill,
+};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -509,5 +511,73 @@ async fn a_write_that_says_nothing_about_a_flag_leaves_it_standing(pool: PgPool)
     assert!(
         cleared.frontload,
         "naming one flag must not take the other with it"
+    );
+}
+
+/// Git's declaration is the whole of a Workspace's reach: an API-written
+/// record it does not name goes, and no other subject's record is touched.
+#[sqlx::test]
+async fn replacing_a_workspaces_records_leaves_every_other_subject_alone(pool: PgPool) {
+    use crate::plugin::dao::replace_workspace_activations;
+
+    let dao = PgPluginDao(pool.clone());
+    dao.insert(&plugin("p1")).await.expect("insert plugin");
+    let alice_id = user(&pool, "alice").await;
+    let mine = workspace(&pool, "ws1").await;
+    let theirs = workspace(&pool, "ws2").await;
+    for row in [
+        write(None, None, None, true),
+        write(None, Some(alice_id), None, false),
+        write(Some("build-check"), None, Some(&mine), true),
+        write(None, None, Some(&theirs), false),
+    ] {
+        dao.set_activation(&row).await.expect("seed");
+    }
+    dao.set_activation(&ActivationWrite {
+        frontload: Some(true),
+        ..write(Some("code-review"), None, Some(&mine), true)
+    })
+    .await
+    .expect("seed flagged record");
+
+    replace_workspace_activations(
+        &pool,
+        &mine,
+        &[DeclaredActivation {
+            plugin_id: "p1".to_string(),
+            skill_name: Some("code-review".to_string()),
+            enabled: false,
+        }],
+    )
+    .await
+    .expect("replace");
+
+    let mine_now: Vec<ActivationRow> = dao
+        .list_activations_for(None, Some(&mine))
+        .await
+        .expect("list")
+        .into_iter()
+        .filter(|r| r.workspace_id.is_some())
+        .collect();
+    assert_eq!(mine_now.len(), 1, "{mine_now:?}");
+    assert_eq!(mine_now[0].skill_name.as_deref(), Some("code-review"));
+    assert!(!mine_now[0].enabled);
+    assert!(
+        !mine_now[0].frontload,
+        "git declares no flags, so it does not inherit the API's"
+    );
+
+    let all: Vec<ActivationRow> = sqlx::query_as(
+        r#"SELECT plugin_id, skill_name, user_id, workspace_id, enabled, "always", frontload
+           FROM plugin_activations WHERE workspace_id IS DISTINCT FROM $1"#,
+    )
+    .bind(&mine)
+    .fetch_all(&pool)
+    .await
+    .expect("others");
+    assert_eq!(
+        all.len(),
+        3,
+        "global, personal and the other Workspace's stay"
     );
 }

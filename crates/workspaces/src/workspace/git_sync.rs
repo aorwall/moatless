@@ -14,6 +14,8 @@ use chrono::Utc;
 use serde::Deserialize;
 use tracing::{debug, info, warn};
 
+use crate::plugin::dao::{PluginDao, replace_workspace_activations};
+use crate::plugin::models::{DeclaredActivation, Plugin, PluginSkill};
 use crate::repository::config_reader::fetch_provider_file;
 use crate::repository::dao::RepositoryDao;
 use crate::repository::error::{RepositoryError, is_remote_url_conflict};
@@ -22,6 +24,7 @@ use crate::repository::remote::require_host_repo;
 use crate::repository::remote::{ensure_remote_url_scheme_allowed, normalize_remote_url};
 use crate::workspace::config_validation::validate_non_secret_env_vars;
 use crate::workspace::dao::WorkspaceDao;
+use crate::workspace::git_skills::{SkillActivations, resolve_declared};
 use crate::workspace::models::WorkspacePatch;
 use crate::workspace::models::{Workspace, WorkspaceKind, WorkspaceRepo, WorkspaceSource};
 use moatless_core::db::DbPool;
@@ -49,7 +52,7 @@ use moatless_workspace_types::workspace::WorkspaceIcon;
 /// Serde routes what the named fields did not match into it, so a field added
 /// above drops out of here with no second list to keep in step — which is what
 /// lets [`unknown_key_warnings`] name a misspelled key rather than drop it.
-type UnknownKeys = BTreeMap<String, serde_json::Value>;
+pub(crate) type UnknownKeys = BTreeMap<String, serde_json::Value>;
 
 /// Code execution settings.
 #[derive(Debug, Deserialize)]
@@ -102,6 +105,8 @@ pub struct MoatlessWorkspaceEntry {
     pub language_servers: Option<Vec<String>>,
     pub sandbox_service_account: Option<String>,
     pub network_profile: Option<String>,
+    /// See [`crate::workspace::git_skills`].
+    pub skills: Option<SkillActivations>,
     #[serde(flatten)]
     pub unknown: UnknownKeys,
 }
@@ -181,6 +186,11 @@ fn unknown_key_warnings(file: &MoatlessWorkspacesFile) -> Vec<WorkspaceSyncWarni
         if let Some(code_execution) = entry.code_execution.as_ref() {
             for key in commentless(&code_execution.unknown) {
                 ignored(format!("workspaces[{i}].codeExecution.{key}"));
+            }
+        }
+        if let Some(skills) = entry.skills.as_ref() {
+            for key in commentless(&skills.unknown) {
+                ignored(format!("workspaces[{i}].skills.{key}"));
             }
         }
         for (j, repo) in entry.repos.iter().enumerate() {
@@ -326,6 +336,8 @@ pub struct GitSyncService {
     db: DbPool,
     workspaces: Arc<dyn WorkspaceDao>,
     repositories: Arc<dyn RepositoryDao>,
+    /// Read for the registry a `skills` key resolves against.
+    plugins: Arc<dyn PluginDao>,
     git_host_tokens: Arc<dyn GitHostTokenIssuer>,
     http: reqwest::Client,
     /// `Config::github_api_base`.
@@ -337,6 +349,7 @@ impl GitSyncService {
         db: DbPool,
         workspaces: Arc<dyn WorkspaceDao>,
         repositories: Arc<dyn RepositoryDao>,
+        plugins: Arc<dyn PluginDao>,
         git_host_tokens: Arc<dyn GitHostTokenIssuer>,
         git_content: HttpTimeouts,
         github_api_base: String,
@@ -345,6 +358,7 @@ impl GitSyncService {
             db,
             workspaces,
             repositories,
+            plugins,
             git_host_tokens,
             http: crate::repository::config_reader::client(git_content),
             github_api_base,
@@ -407,6 +421,16 @@ impl GitSyncService {
             );
         }
 
+        // Read once, and only when some entry declares `skills`.
+        let registry = if file.workspaces.iter().any(|e| e.skills.is_some()) {
+            Some((
+                self.plugins.list_all().await?,
+                self.plugins.list_all_skills().await?,
+            ))
+        } else {
+            None
+        };
+
         // source_keys present in git this round — reconcile-delete keeps only these.
         let mut present: HashSet<String> = HashSet::new();
         let mut seen_keys: HashSet<String> = HashSet::new();
@@ -439,6 +463,18 @@ impl GitSyncService {
                     message: ADMIN_ONLY_IDENTITY.to_string(),
                 });
             }
+            let reported = summary.warnings.len();
+            let activations =
+                declared_activations(entry, registry.as_ref(), i, &mut summary.warnings);
+            for warning in &summary.warnings[reported..] {
+                warn!(
+                    repository_id = %repo.id,
+                    source_config_path = ".moatless/workspaces.json",
+                    path = %warning.path,
+                    message = %warning.message,
+                    "Ignoring skill name in git-declared workspace config"
+                );
+            }
             let placements = self.resolve_placements(repo, &entry.repos).await?;
 
             present.insert(source_key.clone());
@@ -449,6 +485,7 @@ impl GitSyncService {
                 description: entry.description.clone(),
                 run,
                 placements,
+                activations,
             };
             record_outcome(
                 &mut summary,
@@ -647,6 +684,9 @@ struct DesiredWorkspace {
     description: Option<String>,
     run: RunConfig,
     placements: Vec<ResolvedPlacement>,
+    /// `None` when the entry has no `skills` key, which leaves the
+    /// Workspace's activation records alone.
+    activations: Option<Vec<DeclaredActivation>>,
 }
 
 /// The stable natural key for a workspaces.json entry: its `key`, else the
@@ -659,6 +699,22 @@ fn source_key_for(entry: &MoatlessWorkspaceEntry) -> String {
         .map(str::trim)
         .filter(|k| !k.is_empty())
         .map_or_else(|| slugify(&entry.name), str::to_string)
+}
+
+/// The records an entry's `skills` declares, reporting each name it cannot
+/// honour into `warnings`.
+fn declared_activations(
+    entry: &MoatlessWorkspaceEntry,
+    registry: Option<&(Vec<Plugin>, Vec<PluginSkill>)>,
+    index: usize,
+    warnings: &mut Vec<WorkspaceSyncWarning>,
+) -> Option<Vec<DeclaredActivation>> {
+    let declared = entry.skills.as_ref()?;
+    let (plugins, skills) = registry?;
+    let path = format!("workspaces[{index}].skills");
+    let (activations, found) = resolve_declared(declared, plugins, skills, &path);
+    warnings.extend(found);
+    Some(activations)
 }
 
 fn run_config_from_entry(entry: &MoatlessWorkspaceEntry) -> RunConfig {
@@ -838,6 +894,10 @@ impl GitSyncService {
             primary.as_deref(),
         )
         .await?;
+
+        if let Some(activations) = &desired.activations {
+            replace_workspace_activations(&self.db, &workspace_id, activations).await?;
+        }
 
         if matches!(outcome, UpsertOutcome::Reclaimed) {
             info!(
@@ -1305,6 +1365,53 @@ mod tests {
         assert_eq!(warnings.len(), 1);
         assert_eq!(warnings[0].path, "workspaces[0].icon");
         assert_eq!(warnings[0].message, INVALID_ICON);
+    }
+
+    /// `skills` is a recognised key, a stray one inside it is named, and an
+    /// entry without it declares nothing, which leaves its records alone.
+    #[test]
+    fn skills_resolve_against_the_registry_and_stray_keys_inside_are_named() {
+        let json = r#"{
+            "workspaces": [
+                { "name": "API", "repos": [], "skills": { "enable": ["general"], "only": [] } },
+                { "name": "Web", "repos": [] }
+            ]
+        }"#;
+        let file: MoatlessWorkspacesFile = serde_json::from_str(json).expect("parse");
+        let registry = (
+            vec![Plugin {
+                id: "p1".to_string(),
+                name: "general".to_string(),
+                git_url: "https://github.com/acme/general".to_string(),
+                synced_version: None,
+                synced_at: None,
+                created_at: None,
+                updated_at: None,
+            }],
+            Vec::new(),
+        );
+
+        let paths: Vec<String> = unknown_key_warnings(&file)
+            .into_iter()
+            .map(|w| w.path)
+            .collect();
+        assert_eq!(paths, ["workspaces[0].skills.only"]);
+
+        let mut warnings = Vec::new();
+        let api = declared_activations(&file.workspaces[0], Some(&registry), 0, &mut warnings);
+        assert_eq!(
+            api,
+            Some(vec![DeclaredActivation {
+                plugin_id: "p1".to_string(),
+                skill_name: None,
+                enabled: true,
+            }])
+        );
+        assert!(warnings.is_empty());
+        assert_eq!(
+            declared_activations(&file.workspaces[1], Some(&registry), 1, &mut warnings),
+            None
+        );
     }
 
     /// The shape that cost two agents a session: `previewConfig` and
