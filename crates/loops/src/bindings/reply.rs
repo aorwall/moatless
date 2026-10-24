@@ -21,8 +21,12 @@ use moatless_adapter_model::connections::{AdapterConnections, ConnectionRouting}
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::registry::Adapters;
 use moatless_ports::task::{
-    TaskReader, TranscriptAppend, TranscriptEntry, TranscriptEntryKind, TurnCounter,
+    TaskReader, TranscriptAppend, TranscriptEntry, TranscriptEntryKind, TranscriptOrigin,
+    TurnCounter,
 };
+use moatless_tasks::artifact::error::ArtifactError;
+use moatless_tasks::artifact::notice_reply::NoticeReplies;
+use moatless_tasks::artifact::records::NOTICE_ADAPTER;
 use moatless_types::adapter::AdapterKind;
 
 /// Reply delivery for external threads.
@@ -41,6 +45,7 @@ pub struct ExternalReplyService {
     recently_sent: Arc<RecentlySent>,
     task_turns: Arc<dyn TurnCounter>,
     outbound: Arc<OutboundSender>,
+    notice_replies: Arc<NoticeReplies>,
 }
 
 impl ExternalReplyService {
@@ -58,6 +63,7 @@ impl ExternalReplyService {
         recently_sent: Arc<RecentlySent>,
         task_turns: Arc<dyn TurnCounter>,
         outbound: Arc<OutboundSender>,
+        notice_replies: Arc<NoticeReplies>,
     ) -> Self {
         Self {
             adapters,
@@ -70,6 +76,7 @@ impl ExternalReplyService {
             recently_sent,
             task_turns,
             outbound,
+            notice_replies,
         }
     }
 
@@ -185,6 +192,17 @@ impl ExternalReplyService {
         let provider_key = msg.external_adapter.clone().ok_or_else(|| {
             SharedAdapterError::BadRequest("Message has no external_adapter".into())
         })?;
+        // No Binding or connection exists for an Artifact page: the reply is a
+        // record on the Artifact the notice names.
+        if provider_key == NOTICE_ADAPTER {
+            if !file_ids.is_empty() {
+                return Err(SharedAdapterError::BadRequest(
+                    "A reply to an artifact message cannot carry files".into(),
+                )
+                .into());
+            }
+            return self.reply_to_notice(ctx, &msg, message_id, text).await;
+        }
         let binding = self
             .load_binding_for_message_and_adapter(
                 &msg.task_id,
@@ -336,6 +354,39 @@ impl ExternalReplyService {
         Ok(())
     }
 
+    async fn reply_to_notice(
+        &self,
+        ctx: &ScopeContext,
+        msg: &TranscriptOrigin,
+        message_id: &str,
+        text: &str,
+    ) -> Result<ReplyToMessageResponse, AdapterError> {
+        let slug = msg.external_subject_key.as_deref().ok_or_else(|| {
+            SharedAdapterError::BadRequest("The artifact message names no Artifact".into())
+        })?;
+        let saved = self
+            .notice_replies
+            .reply(ctx, &msg.task_id, slug, message_id, text)
+            .await
+            .map_err(notice_reply_error)?;
+        // Best effort, as on the binding path: the reader already has the reply.
+        if let Err(e) = self
+            .append_internal_assistant_reply(&msg.task_id, text)
+            .await
+        {
+            tracing::warn!(
+                error = %e,
+                task_id = %msg.task_id,
+                message_id,
+                "Failed to record an artifact reply in the transcript"
+            );
+        }
+        Ok(ReplyToMessageResponse {
+            ok: true,
+            external_id: Some(saved.key),
+        })
+    }
+
     async fn load_binding_for_message_and_adapter(
         &self,
         task_id: &str,
@@ -364,6 +415,24 @@ impl ExternalReplyService {
                 SharedAdapterError::NotFound(format!("No {adapter_key} binding for task {task_id}"))
                     .into()
             })
+    }
+}
+
+fn notice_reply_error(e: ArtifactError) -> AdapterError {
+    match e {
+        ArtifactError::TaskNotFound(what) | ArtifactError::NotFound(what) => {
+            SharedAdapterError::NotFound(format!("artifact {what}")).into()
+        }
+        ArtifactError::Forbidden(task_id) => {
+            SharedAdapterError::AccessDenied(format!("cannot change task {task_id}")).into()
+        }
+        ArtifactError::BadRequest(why) | ArtifactError::PayloadTooLarge(why) => {
+            SharedAdapterError::BadRequest(why).into()
+        }
+        e => AdapterError::TaskHandoff {
+            context: "Saving the reply on the artifact failed".to_string(),
+            source: Box::new(e),
+        },
     }
 }
 

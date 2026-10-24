@@ -52,7 +52,10 @@ without the host stylesheet still renders.
 - `localStorage`, `sessionStorage` and cookies throw `SecurityError`. Keep state in memory, or in the `artifacts` skill's records when it must survive a reload.
 - Links open in a new tab through the host. Use real `<a href>` links.
 
-**Libraries and fonts.** The CSP has no host allowlist, so any CDN loads. Pin every
+**Libraries and fonts.** The page's CSP loads scripts and styles from
+`cdn.jsdelivr.net` only, fonts from Google Fonts or jsdelivr, and images only as
+`data:` or `blob:` URLs; a `fetch` reaches the Moatless backend and nothing else,
+and an `<iframe>` loads nothing. Pin every
 script URL to an exact version (`cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js`),
 never a bare name, a range or `@latest`, and place it before the inline script
 that uses it. Load fonts from Google Fonts and give every face a real fallback

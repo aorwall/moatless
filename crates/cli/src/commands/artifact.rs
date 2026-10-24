@@ -188,11 +188,13 @@ republishing. The object is missing when the page is opened as a local file
 or downloaded, so disable the page's controls without it.
 
 With --notify each write a reader makes is also sent to this task's agent as
-a message with <source>artifact</source> that names the record's key. Read
-records with `moat artifact data get <slug> <key>` or
+a message with <source>artifact</source> that names the record's key. While
+it waits for a turn, the same reader's later writes join it as a list of
+keys. Read records with `moat artifact data get <slug> <key>` or
 `moat artifact data list <slug> [--prefix <list>/]`, and write one the page can
-show with `moat artifact data save <slug> <key> '<json>'`. Records you write
-carry `writer: \"agent\"`; a page's carry `writer: \"page\"`.
+show with `moat artifact data save <slug> <key> '<json>'`. `moat messages reply`
+on that message saves the reply as the record `agent-reply/<message id>`.
+Records you write carry `writer: \"agent\"`; a page's carry `writer: \"page\"`.
 
 With --rules <file> the server checks each page operation against per-prefix
 rules, and only the writes a rule lists under notify reach this task's agent:

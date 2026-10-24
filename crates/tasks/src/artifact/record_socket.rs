@@ -27,8 +27,9 @@ use crate::task::operations::TaskCommands;
 
 /// The page's record socket; `{token}` is the page token.
 ///
-/// `data_script.js` holds a copy of this literal, and the auth middleware
-/// exempts every `/api/artifact-data/` path; rename them together.
+/// `data_script.js` holds a copy of this literal, and the auth middleware and
+/// the request span's token redaction (`moatless_backend::http_trace`) match
+/// every `/api/artifact-data/` path; rename them together.
 pub const PAGE_SOCKET_ROUTE: &str = "/api/artifact-data/{token}/ws";
 
 /// The one method the socket answers: stream the records under a prefix.

@@ -116,6 +116,22 @@ pub struct DeliveryOptions {
     /// parent; T3 shows it as a notification rather than a message.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub child_outcome: Option<ChildOutcome>,
+    /// This item is an `artifact` notice, and these are the records it reports.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub record_notice: Option<RecordNotice>,
+}
+
+/// The records one pending `artifact` notice reports. The same reader's write
+/// while it is pending joins it rather than queueing another
+/// (`crate::artifact::records::notify`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RecordNotice {
+    /// Each distinct key written, oldest first, up to the notice's listing cap.
+    pub keys: Vec<String>,
+    /// Writes to unlisted keys past the cap, counted and not listed; a key
+    /// written twice counts twice.
+    pub unlisted: u32,
 }
 
 /// How a child Task's run ended, as its parent's notice records it.
@@ -140,6 +156,7 @@ impl Default for DeliveryOptions {
             agent_fallback: false,
             queue: false,
             child_outcome: None,
+            record_notice: None,
         }
     }
 }

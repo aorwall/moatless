@@ -105,6 +105,7 @@ It is never deleted, and it never fails for the wrong reason.
 | `githubRepositories` | create and delete real repositories on GitHub | when `GITHUB_PAT` is set |
 | `localImages` | run an image built here | no — sandboxes are processes |
 | `storedWorkspace` | read a stopped task's files from the store | no — no bucket |
+| `artifactPages` | publish an Artifact and open its page with a token | when the base env sets `S3_BUCKET_NAME` and `SESSION_JWT_SECRET` or `TASK_TOKEN_SECRET` |
 | `sandboxReadyEvent` | a watcher publishes `sandbox.ready` | no — `sandbox-local` has no lifecycle watcher |
 | `workspaceImage` | the runtime runs the workspace's `dockerImage` | no — sandboxes run on the host |
 

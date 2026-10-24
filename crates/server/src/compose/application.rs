@@ -305,6 +305,10 @@ impl AppState {
             recently_sent: recently_sent.clone(),
             task_turns: turn_counter.clone(),
             outbound: outbound_sender,
+            notice_replies: Arc::new(moatless_tasks::artifact::notice_reply::NoticeReplies::new(
+                tasks.clone(),
+                artifacts.clone(),
+            )),
         });
 
         let adapter_commands = Arc::new(crate::adapters::operations::AdapterCommands {

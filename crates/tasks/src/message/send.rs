@@ -7,7 +7,7 @@ use std::sync::Arc;
 use crate::conversation::projector::Projector;
 use crate::inbox::{
     AdapterChannel, ChildOutcome, DeliveryOptions, ExternalSender, InboxContext, InboxItem,
-    InboxOrigin, InboxService, NewInboxItem,
+    InboxOrigin, InboxService, NewInboxItem, RecordNotice,
 };
 use crate::message::dao::MessageDao;
 use crate::message::models::MessageType;
@@ -353,6 +353,21 @@ impl MessageSendService {
             .map_err(MessageError::PersistMessage)
     }
 
+    /// See [`InboxService::rewrite_pending_from_subject`].
+    pub(crate) async fn rewrite_pending_from_subject(
+        &self,
+        task_id: &str,
+        adapter: &str,
+        subject_key: &str,
+        sender_id: &str,
+        rewrite: impl FnOnce(&InboxItem) -> Option<(String, DeliveryOptions)>,
+    ) -> Result<bool, MessageError> {
+        self.inbox
+            .rewrite_pending_from_subject(task_id, adapter, subject_key, sender_id, rewrite)
+            .await
+            .map_err(MessageError::PersistMessage)
+    }
+
     /// Move a waiting `queue` Message to just before `before`, or to the end.
     /// `false` when it is not one still waiting.
     pub async fn reorder_queued(
@@ -404,6 +419,7 @@ impl MessageSendService {
         // in. See [`DeliveryOptions::queue`].
         queue: bool,
         child_outcome: Option<ChildOutcome>,
+        record_notice: Option<RecordNotice>,
     ) -> Result<Option<String>, MessageError> {
         // A closed task is terminal (no reopen), so no send may persist a
         // message or wake the agent. Inbound external sends are dropped
@@ -556,6 +572,7 @@ impl MessageSendService {
                 agent_fallback: false,
                 queue,
                 child_outcome,
+                record_notice,
             },
             answers_tool_use_id: None,
             origin: inbox_origin(&origin, sent_by),

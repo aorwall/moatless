@@ -6,7 +6,7 @@ use uuid::Uuid;
 use moatless_core::db::DbPool;
 
 use super::dao;
-use super::models::{InboxItem, NewInboxItem, RunStamp};
+use super::models::{DeliveryOptions, InboxItem, NewInboxItem, RunStamp};
 
 /// How many pending items one fetch reads; the rest wait for the next.
 pub(crate) const PENDING_LIMIT: u32 = 100;
@@ -83,6 +83,35 @@ impl InboxService {
             return Ok(false);
         }
         record_queue_change(&mut tx, task_id, &[id]).await?;
+        tx.commit().await?;
+        Ok(true)
+    }
+
+    /// Rewrite the newest pending item `sender_id` sent through `adapter` about
+    /// `subject_key` with what `rewrite` makes of it. `false` when there is
+    /// none, or `rewrite` declines it, so the caller submits a new item instead.
+    pub(crate) async fn rewrite_pending_from_subject(
+        &self,
+        task_id: &str,
+        adapter: &str,
+        subject_key: &str,
+        sender_id: &str,
+        rewrite: impl FnOnce(&InboxItem) -> Option<(String, DeliveryOptions)>,
+    ) -> Result<bool, sqlx::Error> {
+        let mut tx = self.0.begin().await?;
+        let Some(item) =
+            dao::lock_pending_from_subject(&mut tx, task_id, adapter, subject_key, sender_id)
+                .await?
+        else {
+            return Ok(false);
+        };
+        let Some((text, options)) = rewrite(&item) else {
+            return Ok(false);
+        };
+        if !dao::rewrite_pending(&mut tx, item.id, &text, &options).await? {
+            return Ok(false);
+        }
+        record_queue_change(&mut tx, task_id, &[item.id]).await?;
         tx.commit().await?;
         Ok(true)
     }

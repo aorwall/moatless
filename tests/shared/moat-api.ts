@@ -12,6 +12,8 @@
  */
 
 import type {
+  ArtifactRecordResponse,
+  ArtifactResponse,
   CreateFeedbackRequest,
   CreateRepositoryRequest,
   CreateTaskBindingRequest,
@@ -25,6 +27,7 @@ import type {
   ListFeedbackResponse,
   Loop,
   LoopRecentTaskItem,
+  ReplyToMessageResponse,
   RepositoryResponse,
   SandboxStatusFullResponse,
   SendMessageResponse,
@@ -607,6 +610,65 @@ export class MoatApi {
   async getTaskMessagesSummary(taskId: string): Promise<GetMessagesResponse> {
     const response = await this.moat.raw('GET', `/api/v1/tasks/${taskId}/messages?summary=true`)
     return response.body as GetMessagesResponse
+  }
+
+  /** Reply to one message through the route its source decides. */
+  async replyToMessage(messageId: string, text: string): Promise<ReplyToMessageResponse> {
+    return this.moat.json<ReplyToMessageResponse>([
+      'messages',
+      'reply',
+      '--message',
+      messageId,
+      '--text',
+      text,
+    ])
+  }
+
+  // =========================================================================
+  // Artifacts
+  // =========================================================================
+
+  /** Publish `path` as the next version of the Artifact `slug` on `taskId`. */
+  async publishArtifact(
+    taskId: string,
+    path: string,
+    options: { title: string; slug: string; data?: boolean; notify?: boolean },
+  ): Promise<ArtifactResponse> {
+    const args = ['artifact', 'publish', path, '--task', taskId]
+    args.push('--title', options.title, '--slug', options.slug)
+    if (options.data) args.push('--data')
+    if (options.notify) args.push('--notify')
+    return this.moat.json<ArtifactResponse>(args)
+  }
+
+  /** The record saved under `key`, read as the Task's agent reads it. */
+  async getArtifactRecord(
+    taskId: string,
+    slug: string,
+    key: string,
+  ): Promise<ArtifactRecordResponse> {
+    return this.moat.json<ArtifactRecordResponse>([
+      'artifact',
+      'data',
+      'get',
+      slug,
+      key,
+      '--task',
+      taskId,
+    ])
+  }
+
+  /**
+   * Write a record as the served page does: with its page token and no
+   * credential, so the write is the reader's and not this driver's.
+   */
+  async writePageRecord(
+    token: string,
+    request: { op: 'save'; key: string; data: unknown },
+  ): Promise<ArtifactRecordResponse> {
+    return this.expect(
+      await this.moat.unauthenticated().raw('POST', `/api/artifact-data/${token}/records`, request),
+    )
   }
 
   // =========================================================================

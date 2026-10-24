@@ -175,13 +175,10 @@ pub async fn serve_artifact_page(
         header::CONTENT_TYPE,
         HeaderValue::from_static(PAGE_CONTENT_TYPE),
     );
-    // Agent-written and served from the application's own origin. No
-    // `allow-same-origin`, so it renders in an opaque one.
+    let csp = page_csp(artifacts.public_url());
     headers.insert(
         header::CONTENT_SECURITY_POLICY,
-        HeaderValue::from_static(
-            "sandbox allow-scripts allow-forms allow-popups; frame-ancestors 'self'",
-        ),
+        HeaderValue::try_from(csp).unwrap_or(HeaderValue::from_static(PAGE_CSP)),
     );
     headers.insert(
         header::X_CONTENT_TYPE_OPTIONS,
@@ -254,6 +251,32 @@ fn page_token(
         );
     })
     .ok()
+}
+
+/// The page's policy, less the backend origin [`page_csp`] adds. No
+/// `allow-same-origin`, so the page runs in an opaque origin, where `'self'`
+/// still matches the serving origin over `https:` and `wss:` in Chromium and
+/// Firefox. `default-src` does not cover `form-action`, and `allow-forms` would
+/// let a submit send the page's data to any host.
+const PAGE_CSP: &str = "sandbox allow-scripts allow-forms allow-popups; frame-ancestors 'self'; \
+    default-src 'none'; base-uri 'none'; form-action 'none'; \
+    script-src 'unsafe-inline' https://cdn.jsdelivr.net; \
+    style-src 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; \
+    font-src https://fonts.gstatic.com https://cdn.jsdelivr.net data:; \
+    img-src data: blob:; connect-src 'self'";
+
+/// [`PAGE_CSP`] with `public_url` and its socket origin added to
+/// `connect-src`, for a browser whose `'self'` does not match the serving
+/// origin inside the sandbox.
+fn page_csp(public_url: &str) -> String {
+    let socket = if let Some(host) = public_url.strip_prefix("https://") {
+        format!("wss://{host}")
+    } else if let Some(host) = public_url.strip_prefix("http://") {
+        format!("ws://{host}")
+    } else {
+        return PAGE_CSP.to_string();
+    };
+    format!("{PAGE_CSP} {public_url} {socket}")
 }
 
 /// `title` reduced to a file name that needs no quoting in a header.
@@ -346,5 +369,55 @@ fn multipart_error(e: MultipartError) -> ArtifactError {
         ArtifactError::PayloadTooLarge(e.body_text())
     } else {
         ArtifactError::BadRequest(format!("multipart error: {}", e.body_text()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn directive<'a>(csp: &'a str, name: &str) -> &'a str {
+        csp.split(';')
+            .map(str::trim)
+            .find(|d| d.split_whitespace().next() == Some(name))
+            .unwrap_or_else(|| panic!("no {name} in {csp}"))
+    }
+
+    #[test]
+    fn the_page_policy_allows_only_the_skill_hosts_and_the_backend() {
+        let csp = page_csp("https://moatless.example.com");
+        assert_eq!(
+            directive(&csp, "sandbox"),
+            "sandbox allow-scripts allow-forms allow-popups"
+        );
+        assert_eq!(directive(&csp, "default-src"), "default-src 'none'");
+        assert_eq!(
+            directive(&csp, "script-src"),
+            "script-src 'unsafe-inline' https://cdn.jsdelivr.net"
+        );
+        assert_eq!(directive(&csp, "img-src"), "img-src data: blob:");
+        assert_eq!(directive(&csp, "form-action"), "form-action 'none'");
+        assert_eq!(
+            directive(&csp, "connect-src"),
+            "connect-src 'self' https://moatless.example.com wss://moatless.example.com"
+        );
+    }
+
+    #[test]
+    fn a_plain_http_backend_is_reached_over_ws() {
+        let csp = page_csp("http://localhost:8080");
+        assert_eq!(
+            directive(&csp, "connect-src"),
+            "connect-src 'self' http://localhost:8080 ws://localhost:8080"
+        );
+    }
+
+    #[test]
+    fn a_public_url_without_a_scheme_leaves_only_self() {
+        assert_eq!(
+            directive(&page_csp("moatless"), "connect-src"),
+            "connect-src 'self'"
+        );
+        assert!(HeaderValue::try_from(page_csp("https://moatless.example.com")).is_ok());
     }
 }

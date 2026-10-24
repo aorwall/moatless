@@ -43,6 +43,11 @@ export interface Capabilities {
    * running".
    */
   storedWorkspace: boolean
+  /**
+   * Artifacts can be published and their pages carry a token. Needs an S3
+   * bucket and a session signing key.
+   */
+  artifactPages: boolean
   /** A runtime watcher publishes `sandbox.ready` when a sandbox comes up. */
   sandboxReadyEvent: boolean
   /** The runtime runs the workspace's `dockerImage`, so a bad image fails the sandbox. */
@@ -111,6 +116,7 @@ function dockerProfile(): Profile {
       localImages: true,
       // The compose stack configures no bucket, so nothing is stored.
       storedWorkspace: false,
+      artifactPages: false,
       sandboxReadyEvent: true,
       workspaceImage: true,
     },
@@ -151,6 +157,7 @@ function k8sProfile(): Profile {
       githubRepositories: Boolean(process.env.GITHUB_PAT),
       localImages: false,
       storedWorkspace: true,
+      artifactPages: true,
       sandboxReadyEvent: true,
       workspaceImage: true,
     },
@@ -187,6 +194,8 @@ function localProfile(): Profile {
       // Sandboxes are processes, not images.
       localImages: false,
       storedWorkspace: false,
+      // The harness sets this when its base env names a bucket and a key.
+      artifactPages: process.env.E2E_ARTIFACT_PAGES === '1',
       // `sandbox-local` has no lifecycle watcher.
       sandboxReadyEvent: false,
       // Sandboxes run on the host; `dockerImage` is ignored.

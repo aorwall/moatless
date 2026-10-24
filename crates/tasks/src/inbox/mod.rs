@@ -12,6 +12,6 @@ pub mod view;
 
 pub use models::{
     AdapterChannel, ChildOutcome, DeliveryOptions, ExternalSender, InboxContext, InboxItem,
-    InboxOrigin, InboxStatus, NewInboxItem, RunStamp,
+    InboxOrigin, InboxStatus, NewInboxItem, RecordNotice, RunStamp,
 };
 pub(crate) use service::{InboxService, PENDING_LIMIT};

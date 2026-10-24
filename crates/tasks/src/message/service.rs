@@ -135,6 +135,7 @@ pub async fn send_user_message(
                     message.message_uuid,
                     message.queue,
                     None,
+                    None,
                 )
                 .await?
         }

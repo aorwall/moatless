@@ -19,6 +19,7 @@ use moatless_ports::task::TagResolver;
 use moatless_ports::task::{
     MessageAcceptor, TaskOpener, TaskReader, TranscriptAppend, TurnCounter,
 };
+use moatless_tasks::artifact::notice_reply::NoticeReplies;
 use moatless_types::adapter::MessageBufferConfig;
 use moatless_types::auth::AuthConfig;
 use moatless_types::http::HttpTimeouts;
@@ -200,6 +201,7 @@ impl LoopGraph {
             inputs.recently_sent,
             inputs.task_turns,
             inputs.outbound,
+            inputs.notice_replies,
         ))
     }
 
@@ -266,4 +268,5 @@ pub struct ExternalReplyInputs {
     pub recently_sent: Arc<RecentlySent>,
     pub task_turns: Arc<dyn TurnCounter>,
     pub outbound: Arc<OutboundSender>,
+    pub notice_replies: Arc<NoticeReplies>,
 }

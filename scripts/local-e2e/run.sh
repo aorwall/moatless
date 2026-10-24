@@ -248,12 +248,23 @@ SQL
   unset CODEX_BLOB
 fi
 
+# Publishing needs a bucket, and a page's token needs a signing key.
+ARTIFACT_PAGES="$(
+  set -a
+  # shellcheck disable=SC1090
+  source "$BASE_ENV"
+  if [ -n "${S3_BUCKET_NAME:-}" ] && [ -n "${SESSION_JWT_SECRET:-${TASK_TOKEN_SECRET:-}}" ]; then
+    echo 1
+  fi
+)"
+
 log "Running the suite (profile local)"
 # A sandbox's own login outranks MOATLESS_API_KEY in the CLI, so it goes.
 env -u IS_SANDBOX -u TASK_ID -u SANDBOX_ID \
   USER_AUTH_TOKEN= \
   HOME="$RUN_DIR" \
   E2E_PROFILE=local \
+  E2E_ARTIFACT_PAGES="$ARTIFACT_PAGES" \
   MOATLESS_API_URL="$BASE_URL" \
   FRONTEND_URL="$BASE_URL" \
   ADMIN_USERNAME="$RUN_ADMIN_EMAIL" \

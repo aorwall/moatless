@@ -49,6 +49,7 @@ pub async fn run(client: &MoatClient, args: ApiArgs) -> Result<(), ClientError> 
     // the request went.
     let output = serde_json::json!({
         "status": response.status,
+        "headers": response.headers,
         "body": response.body,
     });
     println!("{}", serde_json::to_string(&output).unwrap_or_default());

@@ -66,6 +66,8 @@ pub struct MoatClient {
 /// A response whose status is part of the answer, not an error to raise.
 pub struct RawResponse {
     pub status: u16,
+    /// Lowercase names; a repeated header keeps its last value.
+    pub headers: std::collections::BTreeMap<String, String>,
     pub body: serde_json::Value,
 }
 
@@ -353,13 +355,22 @@ impl MoatClient {
 
         let resp = request.send().await?;
         let status = resp.status().as_u16();
+        let headers = resp
+            .headers()
+            .iter()
+            .filter_map(|(name, value)| Some((name.to_string(), value.to_str().ok()?.to_string())))
+            .collect();
         let text = resp.text().await?;
         let body = if text.is_empty() {
             serde_json::Value::Null
         } else {
             serde_json::from_str(&text).unwrap_or(serde_json::Value::String(text))
         };
-        Ok(RawResponse { status, body })
+        Ok(RawResponse {
+            status,
+            headers,
+            body,
+        })
     }
 
     async fn handle_response(

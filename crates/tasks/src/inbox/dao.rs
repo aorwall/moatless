@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use moatless_core::db::DbPool;
 
-use super::models::{InboxItem, InboxRow, NewInboxItem, RunStamp};
+use super::models::{DeliveryOptions, InboxItem, InboxRow, NewInboxItem, RunStamp};
 
 /// Inserts `item`, or returns `None` when its id or its Adapter message id is
 /// already stored: a redelivery, which must not wake the Sandbox again.
@@ -220,6 +220,56 @@ pub(crate) async fn reorder_queued(
     .execute(&mut **tx)
     .await?;
     Ok(order)
+}
+
+/// The newest pending item on `task_id` that `sender_id` sent through
+/// `adapter` about `subject_key`, locked until `tx` ends.
+pub(crate) async fn lock_pending_from_subject(
+    tx: &mut Transaction<'_, Postgres>,
+    task_id: &str,
+    adapter: &str,
+    subject_key: &str,
+    sender_id: &str,
+) -> Result<Option<InboxItem>, sqlx::Error> {
+    let row: Option<InboxRow> = sqlx::query_as(
+        r#"SELECT * FROM task_inbox
+            WHERE task_id = $1 AND status = 'pending'
+              AND adapter = $2 AND external_subject_key = $3
+              AND external_sender_id = $4
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+            FOR UPDATE"#,
+    )
+    .bind(task_id)
+    .bind(adapter)
+    .bind(subject_key)
+    .bind(sender_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    row.map(InboxItem::try_from).transpose()
+}
+
+/// Replace a pending item's text and delivery options. `false` when it is no
+/// longer pending.
+pub(crate) async fn rewrite_pending(
+    tx: &mut Transaction<'_, Postgres>,
+    id: Uuid,
+    text: &str,
+    options: &DeliveryOptions,
+) -> Result<bool, sqlx::Error> {
+    let options = serde_json::to_value(options).map_err(|e| sqlx::Error::Encode(e.into()))?;
+    let rewritten: Option<Uuid> = sqlx::query_scalar(
+        r#"UPDATE task_inbox
+              SET text = $2, delivery_options = $3
+            WHERE id = $1 AND status = 'pending'
+        RETURNING id"#,
+    )
+    .bind(id)
+    .bind(text)
+    .bind(options)
+    .fetch_optional(&mut **tx)
+    .await?;
+    Ok(rewritten.is_some())
 }
 
 /// Cancel every pending item addressed to one of `task_ids`, and returns how

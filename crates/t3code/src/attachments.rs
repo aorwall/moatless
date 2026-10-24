@@ -27,7 +27,8 @@ use crate::ports::{AttachmentStore, AttachmentStoreError, DeclaredAttachment};
 /// at; the rest of the path is the signed token.
 ///
 /// Exempt from the auth middleware's cookie handling in
-/// `moatless_identity::auth::middleware`, which knows this prefix by name.
+/// `moatless_identity::auth::middleware`, and redacted from request logs by
+/// `moatless_backend::http_trace`; both know this prefix by name.
 pub(crate) const UPLOAD_ROUTE_PREFIX: &str = "/api/attachments";
 pub(crate) const UPLOAD_ROUTE_PATTERN: &str = "/api/attachments/{token}";
 

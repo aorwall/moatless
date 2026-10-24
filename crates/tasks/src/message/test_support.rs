@@ -215,6 +215,7 @@ fn inbox_item(
             agent_fallback: false,
             queue: false,
             child_outcome: None,
+            record_notice: None,
         },
         answers_tool_use_id: msg
             .tool_response

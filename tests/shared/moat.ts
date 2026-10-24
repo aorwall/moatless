@@ -25,6 +25,8 @@ const DEFAULT_TIMEOUT_MS = 120_000
 /** A raw HTTP response, for tests that assert on how a request was rejected. */
 export interface RawResponse {
   status: number
+  /** Lowercase header names. */
+  headers: Record<string, string>
   body: unknown
 }
 
@@ -170,8 +172,12 @@ export class Moat {
       stdin: body === undefined ? undefined : JSON.stringify(body),
       timeoutMs: options?.timeoutMs,
     })
-    const parsed = JSON.parse(stdout) as { status: number; body: unknown }
-    return { status: parsed.status, body: parsed.body }
+    const parsed = JSON.parse(stdout) as {
+      status: number
+      headers?: Record<string, string>
+      body: unknown
+    }
+    return { status: parsed.status, headers: parsed.headers ?? {}, body: parsed.body }
   }
 
   /**

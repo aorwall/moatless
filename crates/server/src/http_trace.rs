@@ -1,6 +1,13 @@
 //! HTTP request tracing and correlation headers.
 
+use std::borrow::Cow;
+
 use moatless_types::http::RelayedUpstreamFailure;
+
+/// Path prefixes whose next segment is a page or attachment upload token.
+/// Copies of `PAGE_RECORDS_ROUTE`'s and `UPLOAD_ROUTE_PREFIX`'s prefixes: a
+/// route renamed without this list writes its token to every request log.
+const TOKEN_PATH_PREFIXES: [&str; 2] = ["/api/artifact-data/", "/api/attachments/"];
 
 pub(crate) async fn request_trace_middleware(
     req: axum::extract::Request,
@@ -19,7 +26,7 @@ pub(crate) async fn request_trace_middleware(
         "http_request",
         request_id = %request_id,
         method = %method,
-        path = %path,
+        path = %redact_path(&path),
         user_id = tracing::field::Empty,
         status = tracing::field::Empty,
         latency_ms = tracing::field::Empty,
@@ -48,6 +55,18 @@ pub(crate) async fn request_trace_middleware(
     .await
 }
 
+/// Replaces the token segment after a [`TOKEN_PATH_PREFIXES`] entry with
+/// `:token`, keeping any suffix such as `/records` or `/ws`.
+fn redact_path(path: &str) -> Cow<'_, str> {
+    for prefix in TOKEN_PATH_PREFIXES {
+        if let Some(rest) = path.strip_prefix(prefix) {
+            let suffix = rest.find('/').map_or("", |at| &rest[at..]);
+            return Cow::Owned(format!("{prefix}:token{suffix}"));
+        }
+    }
+    Cow::Borrowed(path)
+}
+
 /// Successful requests are high-volume access-log noise, so they log at DEBUG.
 /// A 5xx logs at ERROR unless the handler marked it a
 /// [`RelayedUpstreamFailure`], which logs at WARN like a 4xx.
@@ -67,6 +86,41 @@ fn completion_level(res: &axum::response::Response) -> tracing::Level {
 mod tests {
     use super::*;
     use axum::{http::StatusCode, response::IntoResponse};
+
+    #[test]
+    fn a_page_token_is_redacted_on_every_artifact_data_route() {
+        assert_eq!(
+            redact_path("/api/artifact-data/abc.def/records"),
+            "/api/artifact-data/:token/records"
+        );
+        assert_eq!(
+            redact_path("/api/artifact-data/abc.def/records/vote%2F1"),
+            "/api/artifact-data/:token/records/vote%2F1"
+        );
+        assert_eq!(
+            redact_path("/api/artifact-data/abc.def/ws"),
+            "/api/artifact-data/:token/ws"
+        );
+        assert_eq!(
+            redact_path("/api/artifact-data/abc.def"),
+            "/api/artifact-data/:token"
+        );
+    }
+
+    #[test]
+    fn an_attachment_upload_token_is_redacted() {
+        assert_eq!(
+            redact_path("/api/attachments/abc.def"),
+            "/api/attachments/:token"
+        );
+    }
+
+    #[test]
+    fn a_path_without_a_token_is_borrowed_unchanged() {
+        for path in ["/api/v1/tasks/1", "/api/artifact-data", "/health"] {
+            assert!(matches!(redact_path(path), Cow::Borrowed(p) if p == path));
+        }
+    }
 
     #[test]
     fn a_backend_5xx_logs_at_error() {

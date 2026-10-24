@@ -6,6 +6,7 @@ pub(crate) mod dao;
 pub mod error;
 pub mod handlers;
 pub mod models;
+pub mod notice_reply;
 pub mod operations;
 pub mod page_token;
 pub mod record_handlers;

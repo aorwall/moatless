@@ -11,7 +11,8 @@ use serde::{Deserialize, Serialize};
 ///
 /// The `#[utoipa::path]` attributes, `data_script.js` and the auth-middleware
 /// exemption in `moatless_identity::auth::middleware` each hold a copy of this
-/// literal: rename all four together, or the page's saves get a 401.
+/// literal: rename all four together, or the page's saves get a 401. The
+/// request span's redaction in `moatless_backend::http_trace` holds its prefix.
 pub const PAGE_RECORDS_ROUTE: &str = "/api/artifact-data/{token}/records";
 
 /// Long enough for a page left open through a working day.

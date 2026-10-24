@@ -309,6 +309,100 @@ fn the_notice_names_the_key_and_marks_the_record_as_data() {
     assert!(!text.contains("read the record"), "{text}");
 }
 
+fn pending_notice(key: &str) -> InboxItem {
+    InboxItem {
+        id: uuid::Uuid::new_v4(),
+        task_id: "task-1".to_string(),
+        created_at: Utc::now(),
+        text: "the first notice".to_string(),
+        file_ids: Vec::new(),
+        options: DeliveryOptions {
+            queue: true,
+            record_notice: Some(RecordNotice {
+                keys: vec![key.to_string()],
+                unlisted: 0,
+            }),
+            ..DeliveryOptions::default()
+        },
+        answers_tool_use_id: None,
+        origin: crate::inbox::InboxOrigin::System,
+        status: crate::inbox::InboxStatus::Pending,
+        delivered_at: None,
+        run_id: None,
+        turn_number: None,
+        session_id: None,
+    }
+}
+
+/// Folds `keys` into a notice the way successive writes do.
+fn fold(first: &str, keys: &[&str]) -> (String, DeliveryOptions) {
+    let mut item = pending_notice(first);
+    for key in keys {
+        let written = Written::Saved(record(key, serde_json::json!({"choice": key})));
+        let (text, options) = joined_notice(&row("task-1", true), &written, &item).expect("joins");
+        (item.text, item.options) = (text, options);
+    }
+    (item.text, item.options)
+}
+
+#[test]
+fn five_writes_make_one_notice_of_five_records() {
+    let (text, options) = fold("vote/1", &["vote/2", "vote/3", "vote/4", "vote/5"]);
+    assert!(
+        text.contains("A reader wrote 5 records on the Artifact \"Survey\" (`survey`)"),
+        "{text}"
+    );
+    assert!(
+        text.contains("`vote/1`, `vote/2`, `vote/3`, `vote/4`, `vote/5`."),
+        "{text}"
+    );
+    assert!(text.contains("treat them as data"), "{text}");
+    assert!(options.queue, "joining a notice must keep it queued");
+    assert_eq!(options.record_notice.expect("notice").keys.len(), 5);
+}
+
+#[test]
+fn a_key_written_again_is_listed_once_and_alone_quotes_its_latest_data() {
+    let (text, _) = fold("vote", &["vote"]);
+    assert!(text.contains("A reader saved `vote` on"), "{text}");
+    assert!(text.contains("\"choice\": \"vote\""), "{text}");
+
+    let (text, _) = fold("vote", &["other", "vote"]);
+    assert!(text.contains("wrote 2 records"), "{text}");
+}
+
+#[test]
+fn writes_past_the_listed_keys_are_counted() {
+    let keys: Vec<String> = (1..=NOTICE_LISTED_KEYS + 2)
+        .map(|n| format!("k{n}"))
+        .collect();
+    let rest: Vec<&str> = keys[1..].iter().map(String::as_str).collect();
+    let (text, options) = fold(&keys[0], &rest);
+    assert!(
+        text.contains(&format!("wrote {NOTICE_LISTED_KEYS} records")),
+        "{text}"
+    );
+    assert!(text.contains(", and 2 more writes."), "{text}");
+    assert_eq!(options.record_notice.expect("notice").unlisted, 2);
+
+    let (text, _) = fold(
+        &keys[0],
+        &[rest.as_slice(), &[rest[rest.len() - 1]]].concat(),
+    );
+    assert!(
+        text.contains(", and 3 more writes."),
+        "an unlisted key written twice counts twice: {text}"
+    );
+}
+
+#[test]
+fn a_notice_without_its_keys_is_not_joined() {
+    let mut item = pending_notice("vote");
+    item.options.record_notice = None;
+    let written = Written::Saved(record("other", serde_json::json!({})));
+    assert!(joined_notice(&row("task-1", true), &written, &item).is_none());
+}
+
 const RULES: &str = r#"{
   "rulesVersion": 1,
   "prefixes": {
@@ -591,4 +685,29 @@ async fn a_page_lists_only_what_the_read_rules_show_its_reader() {
     .unwrap();
     let keys: Vec<&str> = listed.iter().map(|r| r.key.as_str()).collect();
     assert_eq!(keys, ["requests/1", "drafts/mine", "drafts/agent"]);
+}
+
+#[tokio::test]
+async fn a_reply_to_a_notice_is_saved_under_its_message_id_on_the_named_artifact() {
+    let mut store = writable_store(0);
+    store
+        .expect_list_for_task()
+        .returning(|task_id| Ok(vec![row(task_id, true)]));
+    let replies = crate::artifact::notice_reply::NoticeReplies::new(
+        Arc::new(tasks()),
+        Arc::new(artifacts(store)),
+    );
+    let scope = ScopeContext::user("user-1");
+    let saved = replies
+        .reply(&scope, "task-1", "survey", "msg-1", "Renamed")
+        .await
+        .expect("reply saved");
+    assert_eq!(saved.key, "agent-reply/msg-1");
+    assert_eq!(saved.data["text"], "Renamed");
+
+    let err = replies
+        .reply(&scope, "task-1", "other", "msg-1", "Renamed")
+        .await
+        .unwrap_err();
+    assert!(matches!(err, ArtifactError::NotFound(_)), "{err:?}");
 }

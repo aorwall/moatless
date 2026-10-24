@@ -423,3 +423,113 @@ async fn a_waiting_queue_item_can_be_removed_edited_and_moved(pool: PgPool) {
         "a delivered item is the agent's"
     );
 }
+
+fn artifact_notice(task_id: &str, external_id: &str) -> NewInboxItem {
+    NewInboxItem {
+        origin: InboxOrigin::Adapter {
+            channel: AdapterChannel {
+                adapter: "artifact".to_string(),
+                external_message_id: external_id.to_string(),
+                subject_key: Some("survey".to_string()),
+                source_name: None,
+            },
+            sender: ExternalSender {
+                id: Some("reader-1".to_string()),
+                author: None,
+            },
+            sent_by: None,
+        },
+        ..user_item(task_id, Uuid::new_v4(), "one record")
+    }
+}
+
+async fn rewrite(inbox: &InboxService, text: &str) -> bool {
+    inbox
+        .rewrite_pending_from_subject("t1", "artifact", "survey", "reader-1", |item| {
+            Some((text.to_string(), item.options.clone()))
+        })
+        .await
+        .expect("rewrite")
+}
+
+#[sqlx::test]
+async fn a_pending_notice_is_rewritten_until_it_is_delivered(pool: PgPool) {
+    seed_bare_task(&pool, "t1", "open").await;
+    let inbox = InboxService::new(pool.clone());
+    let mut tx = pool.begin().await.expect("begin");
+    let first = dao::submit(&mut tx, &artifact_notice("t1", "e1"))
+        .await
+        .expect("submit")
+        .expect("new");
+    tx.commit().await.expect("commit");
+
+    for n in 2..=5 {
+        assert!(
+            rewrite(&inbox, &format!("{n} records")).await,
+            "a write while the notice is pending must join it"
+        );
+    }
+    let pending = inbox.pending("t1", 10, false).await.expect("pending");
+    assert_eq!(
+        pending.len(),
+        1,
+        "five writes must leave one pending notice"
+    );
+    assert_eq!(pending[0].text, "5 records");
+
+    let run = RunStamp {
+        run_id: None,
+        session_id: "s1".to_string(),
+        turn_number: 1,
+    };
+    let mut tx = pool.begin().await.expect("begin");
+    dao::mark_delivered(&mut tx, "t1", &[first.id], &run)
+        .await
+        .expect("deliver");
+    tx.commit().await.expect("commit");
+    assert!(
+        !rewrite(&inbox, "6 records").await,
+        "a write after delivery must queue a new notice, not rewrite the delivered one"
+    );
+}
+
+#[sqlx::test]
+async fn another_subject_adapter_or_reader_is_never_rewritten(pool: PgPool) {
+    seed_bare_task(&pool, "t1", "open").await;
+    let inbox = InboxService::new(pool.clone());
+    let mut tx = pool.begin().await.expect("begin");
+    dao::submit(&mut tx, &adapter_item("t1", Uuid::new_v4(), "e1"))
+        .await
+        .expect("submit");
+    tx.commit().await.expect("commit");
+    assert!(
+        !inbox
+            .rewrite_pending_from_subject("t1", "artifact", "T1:C1:1.0", "U1", |_| Some((
+                String::new(),
+                DeliveryOptions::default()
+            )))
+            .await
+            .expect("rewrite"),
+        "a Slack message must never be taken for an artifact notice"
+    );
+    assert!(
+        !rewrite(&inbox, "x").await,
+        "no notice is pending for `survey`"
+    );
+
+    let mut tx = pool.begin().await.expect("begin");
+    dao::submit(&mut tx, &artifact_notice("t1", "e2"))
+        .await
+        .expect("submit");
+    tx.commit().await.expect("commit");
+    assert!(
+        !inbox
+            .rewrite_pending_from_subject("t1", "artifact", "survey", "reader-2", |item| Some((
+                String::new(),
+                item.options.clone()
+            )))
+            .await
+            .expect("rewrite"),
+        "another reader's write must queue its own notice, sent as that reader"
+    );
+}

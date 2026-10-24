@@ -121,8 +121,8 @@ The backend routes the reply to the right surface based on `<source>`:
 - `github_pr` → threaded review-comment reply (or top-level PR comment for
   conversation comments)
 - `artifact` → a record a reader saved on one of this task's Artifact pages.
-  It has no reply route: answer through the page, as the `artifacts` skill
-  describes.
+  The reply is saved on that Artifact as the record `agent-reply/<message id>`,
+  which the page shows, as the `artifacts` skill describes.
 
 You can also `moat messages react --message msg_abc123 --emoji thumbsup` to
 acknowledge with a reaction instead of a reply.

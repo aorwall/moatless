@@ -94,6 +94,7 @@ where
                         fm.message_uuid,
                         false,
                         None,
+                        None,
                     )
                     .await
                     .map(|_| ())
