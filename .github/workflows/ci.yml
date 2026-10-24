@@ -25,6 +25,10 @@ on:
 # the superseded commit's checks are worthless and the Rust jobs hold a large
 # runner for minutes. Push-to-main and workflow_dispatch runs never cancel:
 # they publish images and the Helm chart.
+#
+# A job-level `if:` uses `!cancelled()` rather than `always()`: a cancel
+# re-evaluates it, so an `always()` job keeps running to the end. Only
+# `cleanup-run-caches` keeps `always()`, to drop a cancelled run's caches.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -416,7 +420,7 @@ jobs:
     needs: detect-changes
     # Bot PR gate: see `detect-changes`.
     if: >-
-      always() &&
+      !cancelled() &&
       (github.event_name != 'pull_request' || !endsWith(github.triggering_actor, '[bot]') || github.triggering_actor == 'soap-agentops[bot]') &&
       (github.event_name == 'pull_request' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
@@ -552,7 +556,7 @@ jobs:
     # Runs on push to main only to seed the shared debug-profile Rust cache —
     # see the note above rust-clippy. Bot PR gate: see `detect-changes`.
     if: >-
-      always() &&
+      !cancelled() &&
       (github.event_name != 'pull_request' || !endsWith(github.triggering_actor, '[bot]') || github.triggering_actor == 'soap-agentops[bot]') &&
       (github.event_name == 'pull_request' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
@@ -837,7 +841,7 @@ jobs:
     name: Build Rust binaries
     needs: detect-changes
     if: >-
-      always() &&
+      !cancelled() &&
       (
         (
           github.event_name == 'push' &&
@@ -998,7 +1002,7 @@ jobs:
     name: Generate TS client
     needs: [detect-changes, build-rust]
     if: >-
-      always() &&
+      !cancelled() &&
       needs.build-rust.result == 'success' &&
       (github.event_name != 'push' ||
        needs.detect-changes.outputs.rust == 'true' ||
@@ -1040,7 +1044,7 @@ jobs:
     name: Lint TypeScript
     needs: detect-changes
     if: >-
-      always() &&
+      !cancelled() &&
       (
         needs.detect-changes.outputs.typescript == 'true' ||
         needs.detect-changes.outputs.skill-scripts == 'true' ||
@@ -1083,7 +1087,7 @@ jobs:
     name: Type check TypeScript
     needs: [detect-changes, generate-ts-client]
     if: >-
-      always() &&
+      !cancelled() &&
       needs.generate-ts-client.result != 'failure' &&
       (
         needs.detect-changes.outputs.typescript == 'true' ||
@@ -1164,7 +1168,7 @@ jobs:
     name: Build & push backend image
     needs: [detect-changes, build-rust]
     if: >-
-      always() &&
+      !cancelled() &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
        (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)) &&
       (needs.detect-changes.outputs.docker-backend == 'true' ||
@@ -1272,7 +1276,7 @@ jobs:
     name: Build & push sandbox-base (stable)
     needs: detect-changes
     if: >-
-      always() &&
+      !cancelled() &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
        (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)) &&
       (
@@ -1324,7 +1328,7 @@ jobs:
     name: Build & push sandbox-tools
     needs: [detect-changes, build-rust]
     if: >-
-      always() &&
+      !cancelled() &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
        (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)) &&
       (
@@ -1388,7 +1392,7 @@ jobs:
     name: Build & push sandbox (+ sandbox-js alias)
     needs: [detect-changes, build-rust, build-sandbox-tools, build-sandbox-base]
     if: >-
-      always() &&
+      !cancelled() &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
        (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)) &&
       (
@@ -1457,7 +1461,7 @@ jobs:
     name: Publish dev Helm chart
     needs: [detect-changes, build-backend-image]
     if: >-
-      always() &&
+      !cancelled() &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
        (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)) &&
       !contains(needs.*.result, 'failure') &&
@@ -1535,7 +1539,7 @@ jobs:
       - build-rust
       - architecture
     if: >-
-      always() &&
+      !cancelled() &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
        (github.event_name == 'workflow_dispatch' && inputs.prune_rust_caches_dry_run))
     runs-on: staging-runners
