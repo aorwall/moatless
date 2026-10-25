@@ -23,6 +23,10 @@ ASSETS = Path(__file__).resolve().parent.parent / "assets"
 TEMPLATE = ASSETS / "user-admin.html"
 RULES = ASSETS / "user-admin-rules.json"
 LOG_KEY = "admin:changes"
+PAGE_KEY = f"admin:pages:{SLUG}"
+# Without `--scope`, memory lands in the task's Loop or the task itself, where
+# the next admin task never reads it. Global needs an admin, as this script does.
+SCOPE = "global"
 FIELDS = {"name", "email", "role", "status"}
 ROLES = {"admin", "user"}
 STATUSES = {"active", "disabled"}
@@ -131,10 +135,28 @@ def validate(request, users):
 
 
 def log_change(line):
-    if moat("memory", "get", LOG_KEY, check=False).returncode != 0:
-        moat("memory", "put", LOG_KEY, "--summary",
-             "Log of admin changes made to the Moatless deployment", "--text", "")
-    moat("memory", "append", LOG_KEY, "--text", line)
+    moat("memory", "append", LOG_KEY, "--scope", SCOPE, "--summary",
+         "Log of admin changes made to the Moatless deployment", "--text", line)
+
+
+def previous_page():
+    proc = moat("memory", "get", PAGE_KEY, "--scope", SCOPE, "--json", check=False)
+    if proc.returncode != 0:
+        return None
+    items = json.loads(proc.stdout).get("items") or [{}]
+    return items[0].get("data")
+
+
+def unresolved(artifact_id):
+    """The request ids on a page with neither a result nor a rejected plan."""
+    proc = moat("artifact", "data", "list", artifact_id, "--json", check=False)
+    if proc.returncode != 0:
+        return None
+    records = {r["key"]: r.get("data") or {} for r in json.loads(proc.stdout)["items"]}
+    ids = [k.split("/", 1)[1] for k in records if k.startswith("requests/")]
+    return sorted(i for i in ids if f"results/{i}" not in records
+                  and records.get(f"plans/{i}", {}).get("status") != "rejected")
+
 
 
 def cmd_plan(args):
@@ -212,8 +234,21 @@ def publish(out):
     page.write_text(TEMPLATE.read_text().replace("__SNAPSHOT__", data))
     # --private: the page lists every user's email. --rules again on every
     # publish, or the page loses them.
-    print(moat("artifact", "publish", str(page), "--title", TITLE, "--slug", SLUG,
-               "--private", "--data", "--rules", str(RULES)).stdout)
+    proc = moat("artifact", "publish", str(page), "--title", TITLE, "--slug", SLUG,
+                "--private", "--data", "--rules", str(RULES), "--json")
+    published = json.loads(proc.stdout)
+    previous = previous_page()
+    if previous and previous.get("artifactId") != published["artifactId"]:
+        left = unresolved(previous["artifactId"])
+        if left:
+            print(f"previous page {previous['url']} (task {previous['taskId']}) has open "
+                  f"requests: {', '.join(left)}")
+    index = {k: published[k] for k in ("artifactId", "taskId", "url", "latestUrl")}
+    index.update(template=str(TEMPLATE.relative_to(ASSETS.parent)), publishedAt=now())
+    moat("memory", "put", PAGE_KEY, "--scope", SCOPE, "--summary",
+         f"The {TITLE} page: its latest artifact, task and template",
+         "--data", json.dumps(index), "--cite", f"task:{published['taskId']}")
+    print(published["latestUrl"])
 
 
 def main():

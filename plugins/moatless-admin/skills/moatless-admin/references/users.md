@@ -39,7 +39,8 @@ lock-out changes above. `apply` applies only changes the approved plan
 marked ok, even if a change it rejected would pass now. Any active admin may
 approve, the submitter included; when the person wants a second admin to
 approve, run `apply --distinct-approver`. `apply` republishes the page and
-logs each change to `admin:changes`. `--out <dir>` sets where the rendered
+logs each change to `admin:changes`. `publish` writes `admin:pages:user-admin`
+and prints the previous page's open requests. `--out <dir>` sets where the rendered
 page is written; it defaults to `scratchpad/user-admin`.
 
 To show more numbers, such as each user's task count, fetch them in `publish`,
