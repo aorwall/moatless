@@ -76,7 +76,7 @@ republishes.
 
 ## Read the request first
 
-Decide the treatment; designing is a given. A report gets the same craft as a
+Decide the treatment. A report gets the same craft as a
 landing page; only the treatment differs.
 
 Many requests call for a utilitarian treatment: a report, a plan, a review, a
@@ -236,6 +236,6 @@ subject, and follow it exactly.
 
 - **The hero states the thesis.** Open with the most characteristic thing in the subject's world: a headline, an image, a live demo, an interactive moment.
 - **Typography sets the personality.** Pair display and body faces you would not use on any other project, with a clear scale and deliberate weights, widths and spacing. Make the type treatment a memorable part of the design.
-- **Use motion deliberately.** One orchestrated moment, such as a page-load sequence, usually does more than scattered effects. Sometimes less is more: extra animation makes a page look generated.
+- **Use motion deliberately.** One orchestrated moment, such as a page-load sequence, usually does more than scattered effects. Extra animation makes a page look generated.
 - **Match complexity to the vision.** A maximalist direction needs elaborate execution; a minimal one needs precision in spacing, type and detail.
 - **Put the boldness in one place and keep everything around it quiet.** If the accent clashes with the ground, shift it to an analogous hue or desaturate it rather than replacing it.

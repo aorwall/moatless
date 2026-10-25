@@ -70,7 +70,7 @@ Fixed. A reader who stops after the first screen should already have the three f
 | 5 | `Feedback report` | Category split, then clusters |
 | 6 | `Method and caveats` | Sources, windows, what was not verified |
 
-There is no separate recommendations section: the fix card carries the action, so a closing *What to do with this* would say it a second time. A chart in section 4 that a fix cites refers back to it by number — "fix 2 above shows" — rather than restating it.
+A chart in section 4 that a fix cites refers back to it by number — "fix 2 above shows" — rather than restating it.
 
 **Write the section's name as its heading.** No kicker line above it, and no descriptive headline in its place: `Feedback report`, not *31 items carrying 40 distinct problems*. The one exception is the page header's environment line, which is context rather than a section label.
 
@@ -132,8 +132,6 @@ The markup — theme variables only, never a Tailwind palette utility like `bg-s
 The three cards go in one `<div class="space-y-4">`, passed to `section({ heading: "Three things to fix", body })` at the default spacing. `scripts/example-fixes.html` is the worked instance.
 
 ## Gotchas
-
-These defeat a reasonable assumption, and each one has produced a wrong number here before.
 
 - **A `count_over_time(...[1h])` sample at `t` covers `(t-1h, t]`.** Query `start` at the day's 01:00 and `end` at the next day's 00:00, and label each sample with the hour *before* it. Querying 00:00–24:00 gives you 25 buckets whose first is the previous day.
 - **The Kubernetes event stream carries `Normal` events too**, and they outnumber the warnings roughly four to one. Extract `type` and filter `etype="Warning"` — an unfiltered count reads as a catastrophe.

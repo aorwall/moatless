@@ -42,9 +42,6 @@ Done when every box and arrow in the drawing is one the caption's claim needs.
 | A graph whose layout an engine should solve: call graphs, dependencies, sequences, state machines | Mermaid |
 | A drawing whose position carries meaning: layers, boundaries, a before/after pair, one highlighted hop | Inline SVG |
 
-Mixing both on one page is fine. Mermaid on every figure makes the page look
-generic.
-
 ## Inline SVG
 
 Hand-write `<svg>` with `rect`, `circle`, `line`, `polyline`, `path` and

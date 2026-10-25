@@ -18,12 +18,6 @@ Three documents, each with a distinct audience.
 | The spec | `<repo>/.plans/<feature-slug>.md` | **Committed to the stack root branch** | The child agents — they read it from their own checkout |
 | Ticket files | `/opt/moatless/workspace/tickets/<feature-slug>/<NN>-<slug>.md` | Orchestrator sandbox | One per child, inlined as its spawn message body |
 
-The spec is committed and the tickets are not, and the difference is
-deliberate. A child needs the spec at any moment, so it goes where every
-checkout already has it. A child needs its own ticket exactly once, at spawn,
-so the spawn message is a sufficient copy — and keeping ticket churn out of the
-branch keeps the feature's diff about the feature.
-
 ---
 
 ## Phase 1 — Plan and break down

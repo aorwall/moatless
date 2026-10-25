@@ -12,7 +12,7 @@ import { page, section, tiles, card, columns, hbars, table, swatch, esc, num, SE
 
 `env`, `lede`, `sources` and `footer` are inserted as raw HTML so they can carry `<code>`, `<strong>` and entities. `heading` and every component's `heading` go through `esc`.
 
-**`section({ heading, body, space = 5 })`** emits a horizontal rule, one `h2`, then `body`, inside `space-y-<space>`. There is no kicker slot, deliberately — the section's name is its heading. The default spacing suits every section on this page; raise `space` only for a section whose children are multi-paragraph blocks rather than cards.
+**`section({ heading, body, space = 5 })`** emits a horizontal rule, one `h2`, then `body`, inside `space-y-<space>`. The default spacing suits every section on this page; raise `space` only for a section whose children are multi-paragraph blocks rather than cards.
 
 ## Components
 

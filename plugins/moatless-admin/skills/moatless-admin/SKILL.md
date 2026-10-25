@@ -94,7 +94,7 @@ finished page and script exist: read `references/users.md`.
 ## Gotchas
 
 - **`moat api` exits 0 on every HTTP status.** It prints `{"body": …, "status": 404}`. Read `status`; a script that checks only the exit code reports a refused change as applied.
-- **The workspace commands may be older than the backend.** Workspaces are configured only in `.moatless/workspaces.json`. If `moat workspaces --help` still lists `update` or `override`, the deployment predates that, and those commands still work until the next deploy.
+- **The workspace commands may be older than the backend.** Workspaces are configured only in `.moatless/workspaces.json`. Treat `update` and `override` as legacy; they work until the next deploy.
 - **A git-synced loop arrives inactive.** An admin runs `moat loops activate --id <id> --run-as-user-id <user>`; git cannot set either field.
 - **Privileged workspace fields need a grant.** `sandboxServiceAccount`, `networkProfile` and `nodeSelector` in `workspaces.json` are dropped with a sync warning unless the deployment's `WORKSPACE_IDENTITY_GRANTS` grants them to that repository and workspace key.
 - **Secret values are write-only.** Never put a secret on a page, in a record or in a PR. Ask the person to run `moat secret set` or `moat workspaces credentials set` themselves, or to pass a file.

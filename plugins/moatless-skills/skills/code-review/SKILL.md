@@ -29,7 +29,7 @@ Look for the originating spec, in this order:
 1. Issue references in the commit messages (`#123`, `Closes #45`, GitLab `!67`, etc.) — fetch via the workflow in `docs/agents/issue-tracker.md`.
 2. A path the user passed as an argument.
 3. A PRD/spec file under `.plans/`, `docs/`, or `.scratch/` matching the branch name or feature.
-4. If nothing is found, ask the user where the spec is — one line. Nothing found means nothing to enumerate, so this one stays prose rather than a pick. If they say there isn't one, the **Spec** sub-agent will skip and report "no spec available".
+4. If nothing is found, ask the user where the spec is — one line. If they say there isn't one, the **Spec** sub-agent will skip and report "no spec available".
 
 ### 3. Identify the standards sources
 
@@ -75,4 +75,4 @@ If the spec is missing, skip the Spec sub-agent and note this in the final repor
 
 Present the two reports under `## Standards` and `## Spec` headings, verbatim or lightly cleaned. Do **not** merge or rerank findings — a change can pass one axis and fail the other, and reporting them separately stops one axis from masking the other.
 
-End with a one-line summary: total findings per axis, and the worst issue _within each axis_ (if any). Don't pick a single winner across axes — that's the reranking the separation exists to prevent.
+End with a one-line summary: total findings per axis, and the worst issue _within each axis_ (if any). Do not pick a single winner across axes.

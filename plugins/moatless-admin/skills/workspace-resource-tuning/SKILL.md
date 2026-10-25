@@ -8,8 +8,7 @@ description: Right-size Moatless sandbox CPU and memory — decide which workspa
 Size sandbox CPU and memory from what sandboxes actually use. The measurements
 here are unusually easy to misread — the default metric overstates need by up to
 10×, and the obvious way to join metrics to workspaces silently produces wrong
-answers. Each rule below carries the reason, because knowing *why* is what lets
-you adapt when the numbers look different from the examples.
+answers.
 
 For the reactive case — a task is stuck, a sandbox was OOMKilled or evicted, a
 pod won't start — use the `sandbox-troubleshooting` skill instead.

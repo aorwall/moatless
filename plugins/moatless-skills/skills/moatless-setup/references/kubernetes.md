@@ -38,7 +38,7 @@ Use this workflow for an existing shared or production cluster. It requires `kub
      --auth local
    ```
 
-   `moat k8s init` does not yet accept `oidc`; `--auth local` creates a complete base file that the login reference updates before installation. If `values.local.yaml` already exists, inspect and preserve it. Do not pass `--force` without explicit authorization to overwrite that file.
+   `moat k8s init` accepts only `--auth local`; it creates a complete base file that the login reference updates before installation. If `values.local.yaml` already exists, inspect and preserve it. Do not pass `--force` without explicit authorization to overwrite that file.
 
 3. Review `values.local.yaml` for the intended domains, ingress class, storage backend, image tag, namespace, and `secrets.create: false`. Keep credentials out of this file.
 
