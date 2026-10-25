@@ -722,8 +722,8 @@ async fn connection_without_subscription_delivers_existing_bindings_but_creates_
 }
 
 /// A merge is a `pull_request` `closed` with `merged: true`, a durable notice
-/// kind. Asserts the task bound as a `connected_thread` isn't auto-closed and
-/// hears its work landed, zero GitHub calls.
+/// kind. Asserts the task bound as a `connected_thread` without the close
+/// opt-in isn't closed and hears its work landed, zero GitHub calls.
 #[sqlx::test]
 async fn a_merged_pull_request_notifies_the_task_that_outlives_it(pool: PgPool) {
     let task_id = "task-merged-notice";
@@ -744,18 +744,51 @@ async fn a_merged_pull_request_notifies_the_task_that_outlives_it(pool: PgPool) 
     );
     assert_eq!(
         count_records(&pool, GITHUB_CLOSE, "delivery-merged").await,
-        0,
-        "with no Subscription there is no trigger-created task to auto-close"
+        1,
+        "every close is admitted, for the Bindings that opted in to it"
     );
 
     let pool_for_check = pool.clone();
     run_worker_until(&state, Duration::from_secs(30), async || {
-        matches!(
-            status_of(&pool_for_check, GITHUB_PR_MERGED, "delivery-merged").await,
-            Some((ref status, _)) if status == "succeeded" || status == "failed"
-        )
+        let mut done = 0;
+        for kind in [GITHUB_PR_MERGED, GITHUB_CLOSE] {
+            if matches!(
+                status_of(&pool_for_check, kind, "delivery-merged").await,
+                Some((ref status, _)) if status == "succeeded" || status == "failed"
+            ) {
+                done += 1;
+            }
+        }
+        done == 2
     })
     .await;
+    assert_eq!(
+        status_of(&pool, GITHUB_CLOSE, "delivery-merged")
+            .await
+            .map(|(status, _)| status),
+        Some("succeeded".to_string()),
+    );
+    let task_status: String = sqlx::query_scalar("SELECT status FROM tasks WHERE task_id = $1")
+        .bind(task_id)
+        .fetch_one(&pool)
+        .await
+        .expect("read task status");
+    assert_ne!(
+        task_status, "closed",
+        "the Binding did not opt in to the close"
+    );
+    let pr_closed: Option<bool> = sqlx::query_scalar(
+        "SELECT (metadata->>'pr_closed')::boolean FROM task_bindings WHERE task_id = $1",
+    )
+    .bind(task_id)
+    .fetch_one(&pool)
+    .await
+    .expect("read binding metadata");
+    assert_eq!(
+        pr_closed,
+        Some(true),
+        "a closed PR is marked on every Binding, so it holds no opted-in sibling open"
+    );
 
     assert_eq!(
         status_of(&pool, GITHUB_PR_MERGED, "delivery-merged")

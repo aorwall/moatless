@@ -10,7 +10,7 @@ use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_api_schemas::bindings::CreateTaskBindingRequest;
 use moatless_ports::task::TaskReader;
 use moatless_types::access_control::ScopeContext;
-use moatless_types::adapter::TaskBinding;
+use moatless_types::adapter::{AdapterKind, TaskBinding};
 
 /// Create a binding after authorizing its Task, connection, and optional Loop.
 pub(crate) async fn create_task_binding(
@@ -31,6 +31,12 @@ pub(crate) async fn create_task_binding(
         return Err(SharedAdapterError::BadRequest(format!(
             "Connection {} is for adapter {}, not {}",
             connection.id, connection.adapter_kind, adapter_kind
+        ))
+        .into());
+    }
+    if req.close_task_on_close && adapter_kind != AdapterKind::Github {
+        return Err(SharedAdapterError::BadRequest(format!(
+            "close_task_on_close is supported for adapter github, not {adapter_kind}"
         ))
         .into());
     }

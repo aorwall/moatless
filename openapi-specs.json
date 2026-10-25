@@ -12549,7 +12549,7 @@
           },
           "closeTaskOnClose": {
             "type": "boolean",
-            "description": "Close the task when the subject closes. Only `github_pr` subjects\nclose today."
+            "description": "Close the task when the subject closes. Rejected for any adapter but\n`github`, whose pull requests are the only subjects that close."
           },
           "connectionId": {
             "type": "string"
@@ -13937,7 +13937,7 @@
           },
           "closeTaskOnClose": {
             "type": "boolean",
-            "description": "Close `task_id` when this PR merges or closes. Ignored without\n`task_id`; a task also bound to another subject stays open."
+            "description": "Close `task_id` when this PR merges or closes. Ignored without\n`task_id`; the task stays open while another of its PRs is open."
           },
           "draft": {
             "type": [

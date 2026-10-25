@@ -19,7 +19,7 @@ export interface GithubCreatePrRequest {
   body?: string | null;
   /**
      * Close `task_id` when this PR merges or closes. Ignored without
-     * `task_id`; a task also bound to another subject stays open.
+     * `task_id`; the task stays open while another of its PRs is open.
      */
   closeTaskOnClose?: boolean;
   /** @nullable */

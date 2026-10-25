@@ -77,7 +77,7 @@ pub enum BindingAction {
         destination_config: Option<String>,
         #[arg(long)]
         metadata: Option<String>,
-        /// Close the task when the subject merges or closes (GitHub PRs only).
+        /// Close the task when the subject merges or closes (`--adapter github` only).
         #[arg(long)]
         close_task_on_close: bool,
     },

@@ -84,6 +84,38 @@ pub(super) fn closes_with_pr(
     (trigger_closes && created_by_trigger) || (binding.active && closes_on_subject_close(binding))
 }
 
+/// The `metadata` key [`GithubPrInboundRouter::close_subject`] sets on every
+/// Binding of a closed pull request, and a `reopened` event clears.
+const PR_CLOSED_KEY: &str = "pr_closed";
+
+fn pr_is_closed(binding: &TaskBinding) -> bool {
+    binding
+        .metadata
+        .get(PR_CLOSED_KEY)
+        .and_then(serde_json::Value::as_bool)
+        == Some(true)
+}
+
+/// How many of the Task's Bindings, `binding` included, keep it open when
+/// `binding`'s pull request closes.
+///
+/// Every row counts for a Task that did not opt in. An opted-in Task stays open
+/// only for another active pull request not yet closed: a Slack or Linear
+/// thread it was started from must not keep it open forever.
+fn bindings_holding_open(binding: &TaskBinding, rows: &[TaskBinding]) -> usize {
+    if !closes_on_subject_close(binding) {
+        return rows.len();
+    }
+    let open_prs = rows.iter().filter(|row| {
+        row.id != binding.id
+            && row.active
+            && row.adapter_kind.as_str() == ADAPTER
+            && row.subject_kind == SUBJECT_KIND
+            && !pr_is_closed(row)
+    });
+    1 + open_prs.count()
+}
+
 /// Whether a pull request opening creates a Task under `rule`. Under a
 /// `create_on: check_run` loop only a trigger check run does.
 fn opening_creates_task(rule: &SubscriptionMatch) -> bool {
@@ -246,6 +278,14 @@ impl GithubPrInboundRouter {
                     }
                 }
             }
+        }
+
+        if msg
+            .external_event_id
+            .as_deref()
+            .is_some_and(super::external_id::is_reopened)
+        {
+            self.clear_pr_closed(&bindings).await;
         }
 
         // Capture the earliest binding (if any) so we can wire a `related_to`
@@ -421,9 +461,19 @@ impl GithubPrInboundRouter {
         let subject_key = subject.key();
 
         let bindings_repo = self.task_bindings.clone();
-        let bindings = bindings_repo
+        let all = bindings_repo
             .for_subject(ADAPTER, SUBJECT_KIND, &subject_key)
-            .await?
+            .await?;
+        // Every Binding is marked, opted in or not, and before any Task's
+        // siblings are read: an unmarked closed PR would hold an opted-in Task
+        // open forever, and of two PRs closing at once one must see the other.
+        let mark = serde_json::json!({ PR_CLOSED_KEY: true });
+        for binding in &all {
+            if let Err(e) = bindings_repo.merge_metadata(&binding.id, &mark).await {
+                warn!(binding_id = %binding.id, error = %e, "Failed to mark the pull request closed on its binding");
+            }
+        }
+        let bindings = all
             .into_iter()
             .filter(|b| closes_with_pr(rule, trigger_closes, b))
             .collect::<Vec<_>>();
@@ -451,7 +501,7 @@ impl GithubPrInboundRouter {
             }
 
             let siblings_count = match bindings_repo.for_task(task_id).await {
-                Ok(rows) => rows.len(),
+                Ok(rows) => bindings_holding_open(&binding, &rows),
                 Err(e) => {
                     warn!(task_id = %task_id, pr_number, error = %e, "Failed to look up sibling bindings — skipping auto-close");
                     continue;
@@ -465,12 +515,23 @@ impl GithubPrInboundRouter {
         Ok(())
     }
 
+    /// Clear [`PR_CLOSED_KEY`] from the Bindings of a reopened pull request, so
+    /// it holds its opted-in Task open again.
+    async fn clear_pr_closed(&self, bindings: &[TaskBinding]) {
+        let clear = serde_json::json!({ PR_CLOSED_KEY: false });
+        for binding in bindings.iter().filter(|b| pr_is_closed(b)) {
+            if let Err(e) = self.task_bindings.merge_metadata(&binding.id, &clear).await {
+                warn!(binding_id = %binding.id, error = %e, "Failed to clear the closed mark on a reopened pull request");
+            }
+        }
+    }
+
     /// Deliver the PR-close notice, then close the Task — unless a sibling
     /// Binding survives it.
     ///
-    /// The notice runs before the status flip, since `send.rs`'s closed-task
-    /// guard drops inbound messages on `Closed` tasks. `resume = false` only
-    /// persists it, without waking the torn-down sandbox's agent.
+    /// The notice runs first: `send.rs` drops messages to `Closed` tasks. It
+    /// wakes only a spared opted-in Task, whose merged notice `auto_close_owns`
+    /// withheld; a closing Task's sandbox is being torn down.
     async fn notify_and_maybe_close_for_pr(
         &self,
         rule: &SubscriptionMatch,
@@ -487,7 +548,11 @@ impl GithubPrInboundRouter {
         let close_msg = self
             .build_close_inbound_message(owner, repo, rule, info, closing)
             .await;
-        if let Err(e) = self.append_to_binding(rule, binding, &close_msg).await {
+        let resume = !closing && closes_on_subject_close(binding);
+        if let Err(e) = self
+            .append_to_binding(rule, binding, &close_msg, resume)
+            .await
+        {
             warn!(
                 task_id = %task_id,
                 pr_number,
@@ -688,13 +753,14 @@ impl GithubPrInboundRouter {
         rule: &SubscriptionMatch,
         binding: &TaskBinding,
         msg: &InboundMessage,
+        resume: bool,
     ) -> Result<(), AdapterError> {
         self.message_send
             .accept(InboundTurn {
                 task_id: binding.task_id.clone(),
                 text: msg.text.clone(),
                 file_ids: msg.file_ids.clone(),
-                resume: false,
+                resume,
                 origin: TurnOrigin {
                     event_id: msg.external_event_id.clone(),
                     adapter: Some(ADAPTER_LABEL.to_string()),
@@ -1035,6 +1101,82 @@ pub(crate) mod tests {
                     2, // a sibling Binding survives the close
                 )
                 .await;
+        }
+
+        /// An opted-in Task closes with its last open pull request, whatever
+        /// else it is bound to; one that did not opt in counts every Binding.
+        #[test]
+        fn only_an_open_pull_request_holds_an_opted_in_task_open() {
+            let pr = |id: &str, key: &str, metadata: serde_json::Value| TaskBinding {
+                id: id.into(),
+                adapter_kind: AdapterKind::Github,
+                subject_key: key.into(),
+                origin: CONNECTED_THREAD_BINDING_ORIGIN.into(),
+                metadata,
+                ..binding()
+            };
+            let opted = serde_json::json!({ "close_on_subject_close": true });
+            let closing = pr("tb_a", "soaplabs/repo#1", opted.clone());
+            let slack = TaskBinding {
+                id: "tb_slack".into(),
+                adapter_kind: AdapterKind::Slack,
+                subject_kind: "thread".into(),
+                ..binding()
+            };
+            let closed = pr(
+                "tb_b",
+                "soaplabs/repo#2",
+                serde_json::json!({ "pr_closed": true }),
+            );
+            let open = pr("tb_c", "soaplabs/repo#3", serde_json::json!({}));
+            let reopened = pr(
+                "tb_d",
+                "soaplabs/repo#4",
+                serde_json::json!({ "pr_closed": false }),
+            );
+
+            let rows = [closing.clone(), slack.clone(), closed.clone()];
+            assert_eq!(bindings_holding_open(&closing, &rows), 1);
+            let rows = [closing.clone(), slack.clone(), closed, open, reopened];
+            assert_eq!(bindings_holding_open(&closing, &rows), 3);
+
+            let not_opted = pr("tb_a", "soaplabs/repo#1", serde_json::json!({}));
+            assert_eq!(
+                bindings_holding_open(&not_opted, &[not_opted.clone(), slack]),
+                2
+            );
+        }
+
+        /// An opted-in Task spared by a sibling Binding is woken by the close
+        /// notice, since the merged notice skipped it; a trigger's Task is not.
+        #[tokio::test]
+        async fn a_spared_opted_in_task_is_woken_by_the_close_notice() {
+            for (opted_in, wakes) in [(true, true), (false, false)] {
+                let mut message_send = MockMessageAcceptor::new();
+                message_send
+                    .expect_accept()
+                    .withf(move |turn: &InboundTurn| turn.resume == wakes)
+                    .times(1)
+                    .returning(|_| Ok(()));
+                let mut task_closer = MockTaskFinisher::new();
+                task_closer.expect_close().never();
+                let mut bound = binding();
+                if opted_in {
+                    bound.origin = CONNECTED_THREAD_BINDING_ORIGIN.into();
+                    bound.metadata = serde_json::json!({ "close_on_subject_close": true });
+                }
+
+                router(message_send, task_closer)
+                    .notify_and_maybe_close_for_pr(
+                        &rule(true),
+                        &close_info(),
+                        "soaplabs",
+                        "repo",
+                        &bound,
+                        2,
+                    )
+                    .await;
+            }
         }
 
         /// The Task with no surviving sibling still gets both: the notice,

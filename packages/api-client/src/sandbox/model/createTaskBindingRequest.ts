@@ -12,8 +12,8 @@ import type { CreateTaskBindingRequestMetadata } from './createTaskBindingReques
 export interface CreateTaskBindingRequest {
   adapterKind: AdapterKind;
   /**
-     * Close the task when the subject closes. Only `github_pr` subjects
-     * close today.
+     * Close the task when the subject closes. Rejected for any adapter but
+     * `github`, whose pull requests are the only subjects that close.
      */
   closeTaskOnClose?: boolean;
   connectionId: string;
