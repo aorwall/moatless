@@ -1,0 +1,42 @@
+<form id="f">
+  <fieldset>
+    <label>Which name? <select name="choice"><option>fetchUser</option><option>loadUser</option></select></label>
+    <textarea name="comment" placeholder="Comment (saves when you leave the field)"></textarea>
+  </fieldset>
+  <p id="status" role="status"></p>
+</form>
+<script>
+  const api = window.moatless && window.moatless.artifact;
+  const form = document.getElementById("f");
+  const status = document.getElementById("status");
+  const key = api && `answer:${api.viewer}`;
+
+  async function saveAnswer() {
+    status.textContent = "Saving…";
+    try {
+      await api.save(key, Object.fromEntries(new FormData(form)));
+      status.textContent = "Saved";
+    } catch (error) {
+      status.textContent = `Not saved: ${error.message}`;
+    }
+  }
+
+  if (!api) {
+    form.querySelector("fieldset").disabled = true;
+    status.textContent = "Open this page from its Moatless link to answer.";
+  } else {
+    // Show the reader's earlier answer. Keep the form disabled until it loads: a pick made
+    // sooner saves an empty comment over the earlier one.
+    const fields = form.querySelector("fieldset");
+    fields.disabled = true;
+    api.get(key)
+      .then((r) => {
+        if (r) for (const [name, value] of Object.entries(r.data)) if (form.elements[name]) form.elements[name].value = value;
+      })
+      .catch((error) => { status.textContent = `Could not load your earlier answer: ${error.message}`; })
+      .finally(() => { fields.disabled = false; });
+    // `change` fires on a select pick and when a textarea loses focus, not on every keystroke.
+    form.addEventListener("change", saveAnswer);
+    form.addEventListener("submit", (event) => event.preventDefault());
+  }
+</script>
