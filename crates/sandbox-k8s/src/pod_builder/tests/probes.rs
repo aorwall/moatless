@@ -62,10 +62,10 @@ fn liveness_probe_present_with_conservative_settings_when_flag_enabled() {
     assert_eq!(http.path.as_deref(), Some("/livez"));
     assert_eq!(http.port, IntOrString::Int(8001));
 
-    // Conservative timings: ~60s of failures before a restart.
-    assert_eq!(probe.period_seconds, Some(10));
-    assert_eq!(probe.timeout_seconds, Some(5));
-    assert_eq!(probe.failure_threshold, Some(6));
+    // ~5 minutes of failures before a restart; see `containers.rs`.
+    assert_eq!(probe.period_seconds, Some(15));
+    assert_eq!(probe.timeout_seconds, Some(10));
+    assert_eq!(probe.failure_threshold, Some(20));
 
     // The startup probe still targets /health — liveness is additive.
     let startup = container.startup_probe.as_ref().expect("startup probe set");
@@ -73,6 +73,25 @@ fn liveness_probe_present_with_conservative_settings_when_flag_enabled() {
         startup.http_get.as_ref().and_then(|h| h.path.as_deref()),
         Some("/health")
     );
+}
+
+#[test]
+fn liveness_probe_takes_its_timing_from_config() {
+    let mut config = test_config();
+    config.sandbox.liveness_enabled = true;
+    config.sandbox.liveness_period_secs = 30;
+    config.sandbox.liveness_timeout_secs = 20;
+    config.sandbox.liveness_failure_threshold = 4;
+
+    let container = build_sandbox_container(&config, "task-1", &test_plan(), None, None).unwrap();
+    let probe = container
+        .liveness_probe
+        .as_ref()
+        .expect("liveness probe present");
+
+    assert_eq!(probe.period_seconds, Some(30));
+    assert_eq!(probe.timeout_seconds, Some(20));
+    assert_eq!(probe.failure_threshold, Some(4));
 }
 
 fn clone_stall_env(config: &Config) -> Option<String> {

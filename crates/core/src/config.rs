@@ -383,6 +383,15 @@ pub struct SandboxConfig {
     /// Default off: a false-positive restart kills an in-flight agent turn,
     /// worse than a rare hang. Env `K8S_SANDBOX_LIVENESS_ENABLED`.
     pub liveness_enabled: bool,
+    /// Seconds between liveness probes. Env `K8S_SANDBOX_LIVENESS_PERIOD_SECS`
+    /// (default 15).
+    pub liveness_period_secs: i32,
+    /// Seconds a liveness probe waits for `/livez`. Env
+    /// `K8S_SANDBOX_LIVENESS_TIMEOUT_SECS` (default 10).
+    pub liveness_timeout_secs: i32,
+    /// Consecutive failed liveness probes before a restart. Env
+    /// `K8S_SANDBOX_LIVENESS_FAILURE_THRESHOLD` (default 20).
+    pub liveness_failure_threshold: i32,
     /// Stop sandboxes idle longer than this (minutes, default: 15)
     pub idle_timeout_minutes: u64,
     /// How often to check for idle sandboxes (seconds, default: 300 = 5 min)
@@ -916,6 +925,9 @@ impl Config {
                 idle_reaper_enabled: env_bool("SANDBOX_IDLE_REAPER_ENABLED", true),
                 cron_scheduler_enabled: env_bool("CRON_SCHEDULER_ENABLED", true),
                 liveness_enabled: env_bool("K8S_SANDBOX_LIVENESS_ENABLED", false),
+                liveness_period_secs: env_or("K8S_SANDBOX_LIVENESS_PERIOD_SECS", 15),
+                liveness_timeout_secs: env_or("K8S_SANDBOX_LIVENESS_TIMEOUT_SECS", 10),
+                liveness_failure_threshold: env_or("K8S_SANDBOX_LIVENESS_FAILURE_THRESHOLD", 20),
                 idle_timeout_minutes: env_or("SANDBOX_IDLE_TIMEOUT_MINUTES", 15),
                 idle_check_interval_secs: env_or("SANDBOX_IDLE_CHECK_INTERVAL_SECS", 300),
                 close_after_settled_days: env_or("TASK_CLOSE_AFTER_SETTLED_DAYS", 7),
@@ -1396,6 +1408,9 @@ impl Config {
                 idle_reaper_enabled: false,
                 cron_scheduler_enabled: false,
                 liveness_enabled: false,
+                liveness_period_secs: 15,
+                liveness_timeout_secs: 10,
+                liveness_failure_threshold: 20,
                 idle_timeout_minutes: 15,
                 idle_check_interval_secs: 300,
                 close_after_settled_days: 0,

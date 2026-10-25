@@ -783,6 +783,14 @@ kubernetes:
   #    turn, which is worse than a rare hang. The probe hits /livez, which depends
   #    only on the agent actor being responsive (never backend/credentials/disk).
   sandboxLivenessEnabled: false
+  # -- Liveness probe timing. Empty keeps the backend default: every 15s, a 10s
+  #    timeout, and a restart after 20 failures (about five minutes). A shorter
+  #    window restarts CPU-starved sandboxes that are not hung.
+  sandboxLivenessPeriodSeconds: ""
+  sandboxLivenessTimeoutSeconds: ""
+  sandboxLivenessFailureThreshold: ""
+  # -- Health check interval in seconds
+  healthCheckInterval: 30
   # -- Minutes a sandbox may sit idle before the reaper stops it, for a task
   # with no TTL of its own (env SANDBOX_IDLE_TIMEOUT_MINUTES). Do not set 0: the
   # same value is the preview-tab TTL, which 0 makes expire at once.

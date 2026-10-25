@@ -370,17 +370,18 @@ pub(super) fn build_sandbox_container(
 
     // Opt-in (`K8S_SANDBOX_LIVENESS_ENABLED`). `/livez` is unhealthy only when
     // the agent actor loop is wedged, never for backend/credential/disk
-    // trouble. Thresholds are deliberately loose (6 failures at 10s) because a
-    // false-positive restart kills an in-flight agent turn.
+    // trouble. A sandbox starved of CPU on a busy node times `/livez` out
+    // without being wedged, so the default window is five minutes (20 failures
+    // at 15s) rather than one: a false-positive restart kills an agent turn.
     let liveness_probe = config.sandbox.liveness_enabled.then(|| Probe {
         http_get: Some(HTTPGetAction {
             path: Some("/livez".to_string()),
             port: IntOrString::Int(8001),
             ..Default::default()
         }),
-        period_seconds: Some(10),
-        timeout_seconds: Some(5),
-        failure_threshold: Some(6),
+        period_seconds: Some(config.sandbox.liveness_period_secs),
+        timeout_seconds: Some(config.sandbox.liveness_timeout_secs),
+        failure_threshold: Some(config.sandbox.liveness_failure_threshold),
         ..Default::default()
     });
 
