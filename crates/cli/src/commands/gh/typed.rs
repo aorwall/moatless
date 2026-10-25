@@ -54,6 +54,9 @@ pub(super) struct PrCreateArgs {
     /// Task to bind the PR to (defaults to `$TASK_ID`).
     #[arg(long = "task")]
     task: Option<String>,
+    /// Close the bound task when the PR merges or closes.
+    #[arg(long = "close-task-on-close")]
+    close_task_on_close: bool,
     /// Output raw JSON. (The global `--json` lands here when written after `gh`
     /// because of trailing-var-arg capture.)
     #[arg(long)]
@@ -224,6 +227,7 @@ pub(super) async fn run_pr_create(
         base: args.base,
         draft: if args.draft { Some(true) } else { None },
         task_id,
+        close_task_on_close: args.close_task_on_close,
     };
     let resp = client
         .api()

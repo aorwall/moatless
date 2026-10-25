@@ -4,6 +4,7 @@ use super::access::ensure_task_access_with;
 use super::operations::Bindings;
 use crate::loops::operations::Loops;
 use chrono::Utc;
+use moatless_adapter_model::binding::BindScope;
 use moatless_adapter_model::connections::AdapterConnections;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_api_schemas::bindings::CreateTaskBindingRequest;
@@ -68,7 +69,7 @@ pub(crate) async fn create_task_binding(
         destination_config: req
             .destination_config
             .unwrap_or_else(|| serde_json::json!({})),
-        metadata: req.metadata.unwrap_or_else(|| serde_json::json!({})),
+        metadata: binding_metadata(req.metadata, req.close_task_on_close)?,
         last_external_event_id: None,
         origin: req.origin.unwrap_or_else(|| "api".to_string()),
         created_at: now,
@@ -85,4 +86,47 @@ pub(crate) async fn create_task_binding(
     };
     let saved = task_bindings.upsert(&row).await?;
     Ok(saved)
+}
+
+/// The caller's `metadata`, with the close opt-in written under the key
+/// routing reads.
+fn binding_metadata(
+    metadata: Option<serde_json::Value>,
+    close_task_on_close: bool,
+) -> Result<serde_json::Value, AdapterError> {
+    let metadata = metadata.unwrap_or_else(|| serde_json::json!({}));
+    if !close_task_on_close {
+        return Ok(metadata);
+    }
+    let serde_json::Value::Object(mut metadata) = metadata else {
+        return Err(SharedAdapterError::BadRequest(
+            "metadata must be a JSON object to carry close_task_on_close".into(),
+        )
+        .into());
+    };
+    BindScope {
+        close_on_subject_close: true,
+        ..BindScope::default()
+    }
+    .write_into(&mut metadata);
+    Ok(metadata.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::binding_metadata;
+
+    #[test]
+    fn the_close_opt_in_joins_the_callers_metadata() {
+        let metadata = binding_metadata(Some(serde_json::json!({ "k": 1 })), true).unwrap();
+        assert_eq!(
+            metadata,
+            serde_json::json!({ "k": 1, "close_on_subject_close": true })
+        );
+        assert_eq!(
+            binding_metadata(None, false).unwrap(),
+            serde_json::json!({})
+        );
+        assert!(binding_metadata(Some(serde_json::json!([])), true).is_err());
+    }
 }

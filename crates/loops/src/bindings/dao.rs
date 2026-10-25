@@ -727,4 +727,27 @@ mod tests {
             second.metadata["reply_keys"]
         );
     }
+
+    /// `moat gh pr create --close-task-on-close` on a task already bound to the
+    /// pull request opts that row in, and a later bind without it keeps it in.
+    #[sqlx::test]
+    async fn a_rebind_opts_in_to_close_and_never_out(pool: PgPool) {
+        let dao = dao(pool).await;
+        dao.upsert(&row(serde_json::json!({ "bind_reason": "commenter" })))
+            .await
+            .unwrap();
+        let opted_in = dao
+            .upsert(&row(serde_json::json!({
+                "bind_reason": "creator",
+                "close_on_subject_close": true,
+            })))
+            .await
+            .unwrap();
+        assert_eq!(opted_in.metadata["close_on_subject_close"], true);
+        let commented = dao
+            .upsert(&row(serde_json::json!({ "bind_reason": "commenter" })))
+            .await
+            .unwrap();
+        assert_eq!(commented.metadata["close_on_subject_close"], true);
+    }
 }

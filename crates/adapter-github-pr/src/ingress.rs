@@ -182,6 +182,7 @@ pub(crate) async fn receive(
         && rule_config.event_filtered_out(super::config::POST_MERGE)
         && rule_config.event_filtered_out(super::config::PR_MERGED)
         && rule_config.event_filtered_out(super::config::CHECK_RUN_TRIGGER)
+        && !super::webhook::is_pr_close(event_type, &payload)
     {
         debug!(
             event_type,
@@ -247,6 +248,7 @@ pub(crate) async fn receive(
     };
     let event_id = delivery_event_id(delivery_id, body);
     let mut plan = Vec::with_capacity(4);
+    let mut trigger_close = None;
 
     match primary {
         PrimaryWebhook::Message(msg) => {
@@ -290,25 +292,14 @@ pub(crate) async fn receive(
         }
         PrimaryWebhook::CloseTask(info) => {
             // Auto-close only applies to trigger-created tasks; with no trigger
-            // there is nothing to close. The merged-PR notice below is not
-            // gated on a trigger, so this skips the close alone.
+            // there are none. Opted-in Bindings close below either way.
             if rule.is_none() {
                 debug!(
                     repo = repo_full_name,
                     "PR closed but no trigger for this repo — nothing to auto-close"
                 );
             } else {
-                plan.push(
-                    super::delivery::request(
-                        super::delivery::kind::CLOSE,
-                        event_id.clone(),
-                        &super::delivery::CloseDelivery {
-                            context: delivery_context.clone(),
-                            close: info,
-                        },
-                    )
-                    .map_err(ingress)?,
-                );
+                trigger_close = Some(info);
             }
         }
         PrimaryWebhook::Ignore(reason) => {
@@ -318,6 +309,27 @@ pub(crate) async fn receive(
                 "GitHub PR event ignored"
             );
         }
+    }
+
+    // One close per pull request: the trigger's auto-close when it applies,
+    // else a close that reaches only the opted-in Bindings.
+    let (close, trigger_closes) = match trigger_close {
+        Some(info) => (Some(info), true),
+        None => (normalized.closed_candidate, false),
+    };
+    if let Some(close) = close {
+        plan.push(
+            super::delivery::request(
+                super::delivery::kind::CLOSE,
+                event_id.clone(),
+                &super::delivery::CloseDelivery {
+                    context: delivery_context.clone(),
+                    close,
+                    trigger_closes,
+                },
+            )
+            .map_err(ingress)?,
+        );
     }
 
     // Merged PR: a merge reaches this endpoint as `pull_request` `closed` with

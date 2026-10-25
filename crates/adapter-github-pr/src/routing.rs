@@ -7,7 +7,9 @@ use tracing::{debug, info, warn};
 
 use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
 use moatless_adapter_model::binding::CONNECTED_THREAD_BINDING_ORIGIN;
-use moatless_adapter_model::binding::{BindReason, BindScope, hears_only_replies};
+use moatless_adapter_model::binding::{
+    BindReason, BindScope, closes_on_subject_close, hears_only_replies,
+};
 use moatless_adapter_model::capabilities::AdapterInboundPresentation;
 use moatless_adapter_model::error::AdapterError;
 use moatless_adapter_model::loops::delivery_only_subscription;
@@ -69,6 +71,19 @@ pub(super) fn for_repository(
     rule
 }
 
+/// Whether a closing pull request closes `binding`'s Task: one `rule` created,
+/// or one whose active Binding opted in. A Task `moat gh pr create` connected
+/// existed before the PR and must not close by default.
+pub(super) fn closes_with_pr(
+    rule: &SubscriptionMatch,
+    trigger_closes: bool,
+    binding: &TaskBinding,
+) -> bool {
+    let created_by_trigger = binding.origin == ADAPTER_EVENT_BINDING_ORIGIN
+        && binding.loop_id.as_deref() == Some(rule.id.as_str());
+    (trigger_closes && created_by_trigger) || (binding.active && closes_on_subject_close(binding))
+}
+
 /// Whether a pull request opening creates a Task under `rule`. Under a
 /// `create_on: check_run` loop only a trigger check run does.
 fn opening_creates_task(rule: &SubscriptionMatch) -> bool {
@@ -101,6 +116,7 @@ fn origin_scope(msg: &InboundMessage) -> BindScope {
     BindScope {
         reason: Some(BindReason::Commenter),
         reply_keys,
+        close_on_subject_close: false,
     }
 }
 
@@ -391,10 +407,12 @@ impl GithubPrInboundRouter {
         Ok(())
     }
 
+    /// Close the Tasks [`closes_with_pr`] picks for this pull request.
     pub(super) async fn close_subject(
         &self,
         rule: &SubscriptionMatch,
         info: &PrCloseInfo,
+        trigger_closes: bool,
     ) -> Result<(), AdapterError> {
         let pr_number = info.pr_number;
         let subject = GithubPrSubject::from_source_and_number(&rule.source_matcher, pr_number)?;
@@ -403,18 +421,11 @@ impl GithubPrInboundRouter {
         let subject_key = subject.key();
 
         let bindings_repo = self.task_bindings.clone();
-        // Only auto-close tasks that were *created by* this PR trigger
-        // (origin = ingress). Tasks merely connected to the PR (origin =
-        // connected_thread, e.g. an agent on a UI-created task ran `gh pr create`)
-        // pre-existed the PR and must not be closed when the PR closes.
         let bindings = bindings_repo
             .for_subject(ADAPTER, SUBJECT_KIND, &subject_key)
             .await?
             .into_iter()
-            .filter(|b| {
-                b.origin == ADAPTER_EVENT_BINDING_ORIGIN
-                    && b.loop_id.as_deref() == Some(rule.id.as_str())
-            })
+            .filter(|b| closes_with_pr(rule, trigger_closes, b))
             .collect::<Vec<_>>();
 
         for binding in bindings {
@@ -971,6 +982,27 @@ pub(crate) mod tests {
                 Arc::new(crate::check_run_trigger::MockTriggerWorkspaces::new()),
                 None,
             )
+        }
+
+        /// A trigger's close reaches the Tasks it created; a Task connected to
+        /// the pull request closes only when its Binding opted in.
+        #[test]
+        fn a_pr_close_reaches_the_triggers_tasks_and_opted_in_bindings() {
+            let rule = rule(true);
+            let created = binding();
+            assert!(closes_with_pr(&rule, true, &created));
+            assert!(!closes_with_pr(&rule, false, &created));
+
+            let mut connected = TaskBinding {
+                origin: CONNECTED_THREAD_BINDING_ORIGIN.into(),
+                loop_id: Some("ir_1".into()),
+                ..binding()
+            };
+            assert!(!closes_with_pr(&rule, true, &connected));
+            connected.metadata = serde_json::json!({ "close_on_subject_close": true });
+            assert!(closes_with_pr(&rule, false, &connected));
+            connected.active = false;
+            assert!(!closes_with_pr(&rule, true, &connected));
         }
 
         /// The bug this guards: a spared Task must still hear its PR closed

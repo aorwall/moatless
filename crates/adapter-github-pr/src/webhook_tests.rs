@@ -364,6 +364,42 @@ async fn a_merged_pull_request_is_a_candidate_whatever_the_close_does() {
     assert!(both.merged_candidate.is_some());
 }
 
+/// Opted-in Bindings close with their pull request, so every close is a
+/// candidate whatever the trigger filters or keeps open; nothing else is.
+#[tokio::test]
+async fn every_closed_pull_request_is_a_close_candidate() {
+    let payload = serde_json::json!({
+        "action": "closed",
+        "sender": {"login": "alice"},
+        "pull_request": {
+            "number": 42,
+            "state": "closed",
+            "merged": false,
+            "draft": false,
+            "title": "feat: abandoned",
+            "html_url": "https://github.com/soaplabs/repo/pull/42",
+        }
+    });
+    let mut filtering = fake_rule();
+    filtering.event_filter = serde_json::json!(["issue_comment"]);
+    for rule in [fake_rule(), filtering] {
+        let normalized = normalize_payload("pull_request", &payload, &rule).await;
+        assert!(!matches!(
+            normalized.primary,
+            Ok(PrimaryWebhook::CloseTask(_))
+        ));
+        let close = normalized.closed_candidate.expect("a close is a candidate");
+        assert_eq!(close.pr_number, 42);
+        assert!(!close.merged);
+        assert_eq!(close.sender_login, "alice");
+    }
+
+    let mut opened = payload.clone();
+    opened["action"] = serde_json::json!("opened");
+    let normalized = normalize_payload("pull_request", &opened, &fake_rule()).await;
+    assert!(normalized.closed_candidate.is_none());
+}
+
 #[tokio::test]
 async fn a_pull_request_closed_without_merging_produces_no_merge_notice() {
     let payload = serde_json::json!({

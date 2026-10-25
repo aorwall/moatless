@@ -28,6 +28,9 @@ pub(super) struct NormalizedWebhook {
     pub(super) merge_conflict_candidate: Option<super::merge_conflict::Candidate>,
     pub(super) post_merge_candidate: Option<super::post_merge::PostMergeRun>,
     pub(super) merged_candidate: Option<super::merged::MergedPr>,
+    /// Every closed pull request, whatever the trigger's filter and
+    /// `close_task_on_close` say, so an opted-in Binding's Task closes too.
+    pub(super) closed_candidate: Option<PrCloseInfo>,
 }
 
 /// The primary durable effect, if any, of a webhook.
@@ -161,6 +164,7 @@ pub(super) async fn normalize(
     let merged_candidate = (!config.event_filtered_out(super::config::PR_MERGED))
         .then(|| super::merged::candidate(event_type, payload))
         .flatten();
+    let closed_candidate = closed_candidate(event_type, payload, context);
     let mut status_observations = Vec::new();
 
     let primary = if let Some(request) =
@@ -191,7 +195,46 @@ pub(super) async fn normalize(
         merge_conflict_candidate,
         post_merge_candidate,
         merged_candidate,
+        closed_candidate,
     }
+}
+
+/// Whether the webhook reports a pull request closing, merged or not.
+pub(super) fn is_pr_close(event_type: &str, payload: &serde_json::Value) -> bool {
+    event_type == "pull_request"
+        && payload.get("action").and_then(serde_json::Value::as_str) == Some("closed")
+}
+
+/// The closed pull request, or `None` when the webhook reports no close or
+/// names no PR number.
+fn closed_candidate(
+    event_type: &str,
+    payload: &serde_json::Value,
+    context: &NormalizeContext<'_>,
+) -> Option<PrCloseInfo> {
+    if !is_pr_close(event_type, payload) {
+        return None;
+    }
+    let string_at = |pointer: &str| {
+        payload
+            .pointer(pointer)
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    };
+    Some(PrCloseInfo {
+        pr_number: payload
+            .pointer("/pull_request/number")
+            .and_then(serde_json::Value::as_u64)?,
+        merged: payload
+            .pointer("/pull_request/merged")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+        title: string_at("/pull_request/title"),
+        html_url: string_at("/pull_request/html_url"),
+        sender_login: context.sender_login.to_string(),
+        pr_author_login: context.pr_author_login.map(str::to_string),
+    })
 }
 
 fn ignored(reason: IgnoredWebhook) -> NormalizedWebhook {
@@ -201,6 +244,7 @@ fn ignored(reason: IgnoredWebhook) -> NormalizedWebhook {
         merge_conflict_candidate: None,
         post_merge_candidate: None,
         merged_candidate: None,
+        closed_candidate: None,
     }
 }
 
@@ -236,33 +280,14 @@ async fn normalize_pull_request(
 
     if action == "closed" {
         if config.close_task_on_close {
-            let pr_number = payload
-                .pointer("/pull_request/number")
-                .and_then(serde_json::Value::as_u64)
+            let close = closed_candidate("pull_request", payload, context)
                 .ok_or_else(|| SharedAdapterError::BadRequest("Missing PR number".into()))?;
-            let merged = payload
-                .pointer("/pull_request/merged")
-                .and_then(serde_json::Value::as_bool)
-                .unwrap_or(false);
-            let title = payload
-                .pointer("/pull_request/title")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("")
-                .to_string();
-            let html_url = payload
-                .pointer("/pull_request/html_url")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("")
-                .to_string();
-            info!(pr_number, merged, "PR closed, will close associated tasks");
-            return Ok(PrimaryWebhook::CloseTask(PrCloseInfo {
-                pr_number,
-                merged,
-                title,
-                html_url,
-                sender_login: context.sender_login.to_string(),
-                pr_author_login: context.pr_author_login.map(str::to_string),
-            }));
+            info!(
+                pr_number = close.pr_number,
+                merged = close.merged,
+                "PR closed, will close associated tasks"
+            );
+            return Ok(PrimaryWebhook::CloseTask(close));
         }
         debug!("PR closed but close_task_on_close is disabled");
         return Ok(PrimaryWebhook::Ignore(IgnoredWebhook::NotificationDisabled));

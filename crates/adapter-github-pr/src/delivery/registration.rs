@@ -139,12 +139,20 @@ pub(crate) struct PrMessageDelivery {
     pub(crate) message: InboundMessage,
 }
 
-/// Close the tasks a PR's trigger created.
+/// Close the tasks a PR's trigger created and those whose Binding opted in.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct CloseDelivery {
     #[serde(flatten)]
     pub(crate) context: DeliveryContext,
     pub(crate) close: PrCloseInfo,
+    /// Whether the trigger's `close_task_on_close` applies. Defaults to `true`
+    /// because a stored delivery without the field was admitted for it alone.
+    #[serde(default = "admitted_for_the_trigger")]
+    pub(crate) trigger_closes: bool,
+}
+
+fn admitted_for_the_trigger() -> bool {
+    true
 }
 
 /// Notify the tasks that outlive a merged PR.
@@ -237,19 +245,22 @@ async fn execute_close(
     delivery: moatless_adapter_model::delivery::AdapterDelivery,
     payload: CloseDelivery,
 ) -> Result<(), AdapterDeliveryFailure> {
-    let (_connection, trigger) = payload.context.resolve(&router).await?;
-    // Auto-close only ever applied to trigger-created tasks. A trigger
-    // deleted between admission and execution leaves nothing to close.
-    let Some(trigger) = trigger else {
+    let (connection, trigger) = payload.context.resolve(&router).await?;
+    // A trigger deleted between admission and execution closes none of the
+    // tasks it created; opted-in Bindings still close.
+    if payload.trigger_closes && trigger.is_none() {
         info!(
             id = %delivery.id,
             pr_number = payload.close.pr_number,
-            "GitHub PR close skipped: its trigger no longer exists"
+            "GitHub PR auto-close skipped: its trigger no longer exists"
         );
-        return Ok(());
-    };
+    }
+    let trigger_closes = payload.trigger_closes && trigger.is_some();
+    let rule = payload
+        .context
+        .rule_for_parse(&connection, trigger.as_ref());
     router
-        .close_subject(&trigger, &payload.close)
+        .close_subject(&rule, &payload.close, trigger_closes)
         .await
         .map_err(AdapterDeliveryFailure::from)
 }
@@ -420,12 +431,37 @@ mod tests {
                 "sender_login": "octocat",
                 "pr_author_login": "hubot",
             },
+            "trigger_closes": false,
         });
         let delivery: CloseDelivery = serde_json::from_value(stored.clone()).expect("deserialize");
 
         assert_eq!(delivery.context.connection_id, "conn-1");
         assert_eq!(delivery.close.pr_number, 42);
         assert!(delivery.close.merged);
+        assert!(!delivery.trigger_closes);
+        assert_eq!(serde_json::to_value(&delivery).expect("serialize"), stored);
+    }
+
+    /// A delivery stored without `trigger_closes` was admitted only for the
+    /// trigger's auto-close, so it still closes the trigger's tasks.
+    #[test]
+    fn a_close_stored_without_the_trigger_flag_is_the_triggers() {
+        let mut stored = serde_json::json!({
+            "connection_id": "conn-1",
+            "loop_id": "trigger-1",
+            "repo_full_name": "acme/widgets",
+            "close": {
+                "pr_number": 42,
+                "merged": false,
+                "title": "",
+                "html_url": "",
+                "sender_login": "octocat",
+            },
+        });
+        let delivery: CloseDelivery = serde_json::from_value(stored.clone()).expect("deserialize");
+        assert!(delivery.trigger_closes);
+        stored["trigger_closes"] = true.into();
+        stored["close"]["pr_author_login"] = serde_json::Value::Null;
         assert_eq!(serde_json::to_value(&delivery).expect("serialize"), stored);
     }
 

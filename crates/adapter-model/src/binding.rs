@@ -64,6 +64,10 @@ pub const BIND_REASON_KEY: &str = "bind_reason";
 /// A reply key is an adapter-defined string an inbound event lists in
 /// `InboundMessage::replies_to` when it answers that writing.
 pub const REPLY_KEYS_KEY: &str = "reply_keys";
+/// The `metadata` key that, when `true`, closes a Binding's task when its
+/// subject closes, as a trigger's `close_task_on_close` does for the tasks the
+/// trigger created.
+pub const CLOSE_ON_SUBJECT_CLOSE_KEY: &str = "close_on_subject_close";
 
 impl BindReason {
     /// The persisted spelling.
@@ -108,13 +112,25 @@ pub fn holds_reply_key(binding: &TaskBinding, replies_to: &[String]) -> bool {
         })
 }
 
-/// What a bind records beyond the subject: why, and what the task wrote there.
+/// Whether `binding`'s task asked to be closed when its subject closes.
+pub fn closes_on_subject_close(binding: &TaskBinding) -> bool {
+    binding
+        .metadata
+        .get(CLOSE_ON_SUBJECT_CLOSE_KEY)
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+}
+
+/// What a bind records beyond the subject: why, what the task wrote there, and
+/// whether the subject closing closes the task.
 #[derive(Debug, Clone, Default)]
 pub struct BindScope {
     /// `None` writes no reason, leaving the row hearing every event.
     pub reason: Option<BindReason>,
     /// Added to the keys the row already holds, never replacing them.
     pub reply_keys: Vec<String>,
+    /// `false` writes nothing, so a later bind never clears an earlier opt-in.
+    pub close_on_subject_close: bool,
 }
 
 impl BindScope {
@@ -123,6 +139,7 @@ impl BindScope {
         Self {
             reason: Some(reason),
             reply_keys: Vec::new(),
+            close_on_subject_close: false,
         }
     }
 
@@ -133,6 +150,9 @@ impl BindScope {
         }
         if !self.reply_keys.is_empty() {
             metadata.insert(REPLY_KEYS_KEY.into(), self.reply_keys.clone().into());
+        }
+        if self.close_on_subject_close {
+            metadata.insert(CLOSE_ON_SUBJECT_CLOSE_KEY.into(), true.into());
         }
     }
 }
@@ -213,7 +233,10 @@ impl BindingDestination {
 
 #[cfg(test)]
 mod tests {
-    use super::{BIND_REASON_KEY, BindReason, BindScope, hears_only_replies, holds_reply_key};
+    use super::{
+        BIND_REASON_KEY, BindReason, BindScope, CLOSE_ON_SUBJECT_CLOSE_KEY,
+        closes_on_subject_close, hears_only_replies, holds_reply_key,
+    };
     use chrono::Utc;
     use moatless_types::adapter::{AdapterKind, TaskBinding};
 
@@ -286,9 +309,25 @@ mod tests {
         let row = scoped(&BindScope {
             reason: Some(BindReason::Commenter),
             reply_keys: vec!["k:1".into(), "k:2".into()],
+            close_on_subject_close: false,
         });
         assert!(holds_reply_key(&row, &["k:9".into(), "k:2".into()]));
         assert!(!holds_reply_key(&row, &["k:9".into()]));
         assert!(!holds_reply_key(&row, &[]));
+    }
+
+    #[test]
+    fn only_an_opted_in_bind_closes_with_its_subject() {
+        let opted_in = scoped(&BindScope {
+            close_on_subject_close: true,
+            ..BindScope::because(BindReason::Creator)
+        });
+        assert!(closes_on_subject_close(&opted_in));
+        assert!(!closes_on_subject_close(&scoped(&BindScope::because(
+            BindReason::Creator
+        ))));
+        assert!(!closes_on_subject_close(&with_metadata(
+            serde_json::json!({ CLOSE_ON_SUBJECT_CLOSE_KEY: "yes" })
+        )));
     }
 }

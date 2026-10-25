@@ -68,6 +68,10 @@ pub struct CreateTaskBindingRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
     pub metadata: Option<serde_json::Value>,
     pub origin: Option<String>,
+    /// Close the task when the subject closes. Only `github_pr` subjects
+    /// close today.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub close_task_on_close: bool,
 }
 
 /// External adapter binding summary attached to a task response.

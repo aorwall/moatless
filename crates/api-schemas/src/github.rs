@@ -29,6 +29,10 @@ pub struct GithubCreatePrRequest {
     /// task: <url>` footer is appended to the PR body.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_id: Option<String>,
+    /// Close `task_id` when this PR merges or closes. Ignored without
+    /// `task_id`; a task also bound to another subject stays open.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub close_task_on_close: bool,
 }
 
 /// Response for PR creation.

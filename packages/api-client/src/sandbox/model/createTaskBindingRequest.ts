@@ -11,6 +11,11 @@ import type { CreateTaskBindingRequestMetadata } from './createTaskBindingReques
 
 export interface CreateTaskBindingRequest {
   adapterKind: AdapterKind;
+  /**
+     * Close the task when the subject closes. Only `github_pr` subjects
+     * close today.
+     */
+  closeTaskOnClose?: boolean;
   connectionId: string;
   /** @nullable */
   destinationConfig?: CreateTaskBindingRequestDestinationConfig;

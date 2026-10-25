@@ -26,6 +26,20 @@ fn parses_pr_create_with_typed_flags() {
 }
 
 #[test]
+fn pr_create_closes_the_task_on_close_only_when_asked() {
+    let parse = |extra: &[&str]| {
+        let mut args = argv(&["pr", "create", "--title", "t", "--body", "b"]);
+        args.extend(argv(extra));
+        match parse_typed(&args) {
+            Some(TypedInvocation::PrCreate(a)) => a.close_task_on_close,
+            other => panic!("expected typed pr create, got {other:?}"),
+        }
+    };
+    assert!(parse(&["--close-task-on-close"]));
+    assert!(!parse(&[]));
+}
+
+#[test]
 fn parses_pr_create_short_flags() {
     let parsed = parse_typed(&argv(&["pr", "create", "-t", "title", "-b", "body"]));
     assert!(matches!(parsed, Some(TypedInvocation::PrCreate(_))));

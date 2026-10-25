@@ -12547,6 +12547,10 @@
           "adapterKind": {
             "$ref": "#/components/schemas/AdapterKind"
           },
+          "closeTaskOnClose": {
+            "type": "boolean",
+            "description": "Close the task when the subject closes. Only `github_pr` subjects\nclose today."
+          },
           "connectionId": {
             "type": "string"
           },
@@ -13930,6 +13934,10 @@
               "string",
               "null"
             ]
+          },
+          "closeTaskOnClose": {
+            "type": "boolean",
+            "description": "Close `task_id` when this PR merges or closes. Ignored without\n`task_id`; a task also bound to another subject stays open."
           },
           "draft": {
             "type": [

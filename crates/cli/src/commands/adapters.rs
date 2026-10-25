@@ -77,6 +77,9 @@ pub enum BindingAction {
         destination_config: Option<String>,
         #[arg(long)]
         metadata: Option<String>,
+        /// Close the task when the subject merges or closes (GitHub PRs only).
+        #[arg(long)]
+        close_task_on_close: bool,
     },
 }
 
@@ -187,6 +190,7 @@ pub async fn run_bindings(
             loop_id,
             destination_config,
             metadata,
+            close_task_on_close,
         } => {
             let req = CreateTaskBindingRequest {
                 adapter_kind: parse_adapter_kind(&adapter)?,
@@ -197,6 +201,7 @@ pub async fn run_bindings(
                 destination_config: parse_json_opt(destination_config.as_deref())?,
                 metadata: parse_json_opt(metadata.as_deref())?,
                 origin: Some("api".to_string()),
+                close_task_on_close,
             };
             let created = client.api().create_task_binding(&task, &req).await?;
             print_or_json(&created, json);

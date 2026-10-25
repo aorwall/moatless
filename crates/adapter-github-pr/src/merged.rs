@@ -13,7 +13,6 @@ use std::fmt::Write;
 
 use tracing::{debug, info, warn};
 
-use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
 use moatless_adapter_model::error::AdapterError;
 use moatless_loops::adapters::subject_events::{SubjectEvent, route_subject_event};
 use moatless_ports::task::{CloseReason, TaskStatus};
@@ -130,15 +129,12 @@ pub(super) fn merged_text(merged: &MergedPr, owner: &str, repo: &str) -> String 
     text
 }
 
-/// True when the trigger's auto-close owns this Binding's Task.
+/// True when the PR close owns this Binding's Task.
 ///
-/// Auto-close reaches exactly the Tasks its own trigger created
-/// ([`GithubPrInboundRouter::close_subject`]) and delivers its close notice to
-/// each itself.
+/// [`GithubPrInboundRouter::close_subject`] delivers its own close notice to
+/// each Task it reaches, so a merged notice here would tell the Task twice.
 fn auto_close_owns(rule: &SubscriptionMatch, binding: &TaskBinding) -> bool {
-    rule.close_task_on_close
-        && binding.origin == ADAPTER_EVENT_BINDING_ORIGIN
-        && binding.loop_id.as_deref() == Some(rule.id.as_str())
+    super::routing::closes_with_pr(rule, rule.close_task_on_close, binding)
 }
 
 impl GithubPrInboundRouter {
@@ -279,6 +275,7 @@ impl GithubPrInboundRouter {
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
+    use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
     use moatless_types::access_control::Scope;
     use moatless_types::adapter::AdapterKind;
     use moatless_types::loops::RoutingMode;
@@ -464,6 +461,18 @@ mod tests {
             &keeping,
             &binding(ADAPTER_EVENT_BINDING_ORIGIN, Some("ir_1"))
         ));
+    }
+
+    /// `moat gh pr create --close-task-on-close` hands the Task to the close,
+    /// under any trigger or none.
+    #[test]
+    fn the_close_owns_an_opted_in_binding_while_it_is_active() {
+        let mut opted_in = binding("connected_thread", None);
+        opted_in.metadata = serde_json::json!({ "close_on_subject_close": true });
+        assert!(auto_close_owns(&rule("ir_1", false), &opted_in));
+        assert!(auto_close_owns(&rule("ir_1", true), &opted_in));
+        opted_in.active = false;
+        assert!(!auto_close_owns(&rule("ir_1", true), &opted_in));
     }
 
     mod review_guide_close {

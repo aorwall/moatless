@@ -102,7 +102,10 @@ pub(crate) async fn create_pr(
             created.number,
             task_id,
             &ctx.user_id,
-            &BindScope::because(BindReason::Creator),
+            &BindScope {
+                close_on_subject_close: req.close_task_on_close,
+                ..BindScope::because(BindReason::Creator)
+            },
         )
         .await;
         note_external_event(
@@ -237,6 +240,7 @@ pub(crate) async fn post_comment(
             &BindScope {
                 reason: Some(BindReason::Commenter),
                 reply_keys: reply_keys::opened_by_conversation_comment(comment_id, &req.body),
+                close_on_subject_close: false,
             },
         )
         .await
@@ -315,6 +319,7 @@ pub(crate) async fn reply_to_review_comment(
             &BindScope {
                 reason: Some(BindReason::Commenter),
                 reply_keys: reply_keys::opened_by_review_comment(new_id, Some(comment_id)),
+                close_on_subject_close: false,
             },
         )
         .await
