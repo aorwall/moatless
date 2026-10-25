@@ -45,6 +45,12 @@
       },
       "sandboxServiceAccount": "moatless-admin",
       "networkProfile": "moatless-admin"
+    },
+    {
+      "key": "scratch",
+      "name": "Scratch",
+      "description": "Empty sandbox, nothing cloned. Clone what you need with `moat repos clone`.",
+      "placeRepository": false
     }
   ]
 }
