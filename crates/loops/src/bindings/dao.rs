@@ -187,16 +187,16 @@ impl PgTaskBindingDao {
     }
 
     /// Whitelist of allowed `destination_config` keys for
-    /// [`Self::find_active_by_destination_field`], whose field name is
+    /// [`Self::find_by_destination_field`], whose field name is
     /// interpolated into the SQL — an untrusted value here would be a SQL
     /// injection vector.
     const ALLOWED_DESTINATION_FIELDS: &'static [&'static str] = &["issue_id"];
 
-    /// Look up active bindings whose `destination_config->>field_name` equals
-    /// `field_value`. Routes an inbound event that carries a destination-scoped
+    /// Look up bindings, active or not, whose `destination_config->>field_name`
+    /// equals `field_value`. Routes an inbound event that carries a destination-scoped
     /// identifier (e.g. Linear `issue_id`) rather than the binding's
     /// `subject_key`.
-    pub(crate) async fn find_active_by_destination_field(
+    pub(crate) async fn find_by_destination_field(
         &self,
         adapter_kind: &str,
         subject_kind: &str,
@@ -205,7 +205,7 @@ impl PgTaskBindingDao {
     ) -> Result<Vec<TaskBinding>, sqlx::Error> {
         if !Self::ALLOWED_DESTINATION_FIELDS.contains(&field_name) {
             return Err(sqlx::Error::Protocol(format!(
-                "find_active_by_destination_field: field_name '{field_name}' not allowed"
+                "find_by_destination_field: field_name '{field_name}' not allowed"
             )));
         }
         let sql = format!(

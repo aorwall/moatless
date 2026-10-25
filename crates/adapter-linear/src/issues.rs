@@ -22,7 +22,7 @@ use moatless_ports::task::TaskFinisher;
 use moatless_ports::task::TaskOpener;
 use moatless_ports::task::TaskReader;
 use moatless_ports::task::{InboundTurn, MessageAcceptor, TurnOrigin};
-use moatless_types::adapter::AdapterConnection;
+use moatless_types::adapter::{AdapterConnection, TaskBinding};
 use moatless_types::loops::{RoutingMode, SubscriptionMatch};
 use moatless_types::task::Visibility;
 
@@ -516,12 +516,19 @@ async fn create_tasks_for_status_entry(
     Ok(())
 }
 
+/// Whether `binding` is a live Task `rule` already started on this connection.
+fn is_open_for_rule(binding: &TaskBinding, connection_id: &str, rule_id: &str) -> bool {
+    binding.active
+        && binding.connection_id == connection_id
+        && binding.loop_id.as_deref() == Some(rule_id)
+}
+
 /// Create + provision a task for `issue` under `rule`, bind it to the issue via
 /// `linear_issue`, link it back, and forward the inbound "read the ticket"
 /// prompt.
 ///
-/// Idempotent per `(issue, rule)`: an existing active binding for this
-/// rule+connection returns [`Provisioned::Existing`] and creates nothing.
+/// Idempotent per `(issue, rule)`: a binding passing [`is_open_for_rule`]
+/// returns [`Provisioned::Existing`] and creates nothing.
 async fn provision_issue_task(
     ports: &IssuePorts<'_>,
     api: &LinearAgentApi,
@@ -532,12 +539,10 @@ async fn provision_issue_task(
 ) -> Result<Provisioned, AdapterError> {
     let has_active = ports
         .task_bindings
-        .active_by_destination_field(ADAPTER, super::SUBJECT_KIND_ISSUE, "issue_id", &issue.id)
+        .by_destination_field(ADAPTER, super::SUBJECT_KIND_ISSUE, "issue_id", &issue.id)
         .await?
         .into_iter()
-        .any(|b| {
-            b.connection_id == connection.id && b.loop_id.as_deref() == Some(rule.id.as_str())
-        });
+        .any(|b| is_open_for_rule(&b, &connection.id, &rule.id));
     if has_active {
         return Ok(Provisioned::Existing);
     }
@@ -718,7 +723,7 @@ async fn persist_issue_status(
     );
 
     for subject_kind in [SUBJECT_KIND, super::SUBJECT_KIND_ISSUE] {
-        let bindings = match super::subject::active_bindings_on_issue(
+        let bindings = match super::subject::bindings_on_issue(
             task_bindings,
             connection,
             subject_kind,
@@ -776,7 +781,7 @@ async fn notify_bindings_of_state_change(
     let mut notified = HashSet::new();
 
     for subject_kind in [SUBJECT_KIND, super::SUBJECT_KIND_ISSUE] {
-        let bindings = match super::subject::active_bindings_on_issue(
+        let bindings = match super::subject::bindings_on_issue(
             ports.task_bindings,
             connection,
             subject_kind,
@@ -798,9 +803,11 @@ async fn notify_bindings_of_state_change(
 
         // A Binding scoped to a comment its Task posted hears only replies to it
         // (`comments::hears_comment`), so a state change is not for it.
+        // A closed Task's Binding is inactive, and the closed Task would answer
+        // the message with a conflict.
         for binding in bindings
             .into_iter()
-            .filter(|b| !super::subject::is_comment_scoped_issue(b))
+            .filter(|b| b.active && !super::subject::is_comment_scoped_issue(b))
         {
             if !notified.insert(binding.task_id.clone()) {
                 continue;
@@ -930,4 +937,52 @@ pub(super) async fn insert_event_task(
     })?;
 
     Ok(outcome.task_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use moatless_types::adapter::AdapterKind;
+
+    use super::{TaskBinding, is_open_for_rule};
+
+    fn issue_binding(loop_id: &str) -> TaskBinding {
+        let now = Utc::now();
+        TaskBinding {
+            id: "ts_1".to_string(),
+            task_id: "task-1".to_string(),
+            adapter_kind: AdapterKind::Linear,
+            subject_kind: crate::SUBJECT_KIND_ISSUE.to_string(),
+            subject_key: "issue-1".to_string(),
+            connection_id: "pc_1".to_string(),
+            loop_id: Some(loop_id.to_string()),
+            destination_config: serde_json::json!({ "issue_id": "issue-1" }),
+            metadata: serde_json::json!({}),
+            last_external_event_id: None,
+            origin: "ingress".to_string(),
+            created_at: now,
+            last_event_at: now,
+            external_status: None,
+            external_state_kind: None,
+            external_status_raw: None,
+            external_review_decision: None,
+            external_mergeable_state: None,
+            external_status_updated_at: None,
+            active: true,
+            deactivated_at: None,
+            watching: true,
+        }
+    }
+
+    /// Closing the Task a rule started deactivates its Binding, so the issue
+    /// entering a trigger state again starts a new Task rather than none.
+    #[test]
+    fn only_a_live_binding_of_the_same_rule_blocks_a_new_task() {
+        let mut binding = issue_binding("tr_1");
+        assert!(is_open_for_rule(&binding, "pc_1", "tr_1"));
+        assert!(!is_open_for_rule(&binding, "pc_1", "tr_2"));
+        assert!(!is_open_for_rule(&binding, "pc_2", "tr_1"));
+        binding.active = false;
+        assert!(!is_open_for_rule(&binding, "pc_1", "tr_1"));
+    }
 }

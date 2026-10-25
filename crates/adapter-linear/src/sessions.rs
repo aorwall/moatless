@@ -341,7 +341,7 @@ async fn provision_session_task(
     // `linear_agent_session` and `linear_issue` bindings. The new task is
     // linked as `related_to` — a peer sharing the issue, not a child.
     let related = match task_bindings
-        .active_by_destination_field(ADAPTER, SUBJECT_KIND, "issue_id", &issue.id)
+        .by_destination_field(ADAPTER, SUBJECT_KIND, "issue_id", &issue.id)
         .await
     {
         Ok(bindings) => bindings

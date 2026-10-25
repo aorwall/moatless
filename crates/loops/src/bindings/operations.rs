@@ -72,11 +72,10 @@ impl Bindings {
             .await
     }
 
-    /// Active Bindings whose `destination_config` names `field_value` under
-    /// `field_name`. Routes an inbound event that carries a destination-scoped
-    /// identifier (e.g. Linear `issue_id`) rather than the Binding's
-    /// `subject_key`; `field_name` is whitelisted, so an unknown one errors.
-    pub async fn active_by_destination_field(
+    /// Bindings, active or not, whose `destination_config` holds `field_value`
+    /// under `field_name` (e.g. Linear `issue_id`); a caller wanting live ones
+    /// checks `active`. An unwhitelisted `field_name` errors.
+    pub async fn by_destination_field(
         &self,
         adapter_kind: &str,
         subject_kind: &str,
@@ -84,7 +83,7 @@ impl Bindings {
         field_value: &str,
     ) -> Result<Vec<TaskBinding>, sqlx::Error> {
         self.store
-            .find_active_by_destination_field(adapter_kind, subject_kind, field_name, field_value)
+            .find_by_destination_field(adapter_kind, subject_kind, field_name, field_value)
             .await
     }
 

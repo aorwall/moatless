@@ -54,7 +54,7 @@ pub(super) async fn bindings_in_scope(
             for subject_kind in [SUBJECT_KIND_SESSION, SUBJECT_KIND_ISSUE] {
                 rows.extend(
                     task_bindings
-                        .active_by_destination_field(ADAPTER, subject_kind, "issue_id", issue_id)
+                        .by_destination_field(ADAPTER, subject_kind, "issue_id", issue_id)
                         .await?,
                 );
             }
@@ -98,7 +98,7 @@ pub(super) async fn active_comment_bindings(
     for subject_kind in [SUBJECT_KIND_SESSION, SUBJECT_KIND_ISSUE] {
         rows.extend(
             task_bindings
-                .active_by_destination_field(ADAPTER, subject_kind, "issue_id", issue_id)
+                .by_destination_field(ADAPTER, subject_kind, "issue_id", issue_id)
                 .await?,
         );
     }
@@ -111,16 +111,16 @@ pub(super) async fn active_comment_bindings(
         .collect())
 }
 
-/// Active Bindings of `subject_kind` pointing at `issue_id`, scoped to
-/// `connection`.
-pub(super) async fn active_bindings_on_issue(
+/// Bindings of `subject_kind`, active or not, pointing at `issue_id`, scoped
+/// to `connection`.
+pub(super) async fn bindings_on_issue(
     task_bindings: &Bindings,
     connection: &AdapterConnection,
     subject_kind: &str,
     issue_id: &str,
 ) -> Result<Vec<TaskBinding>, AdapterError> {
     let rows = task_bindings
-        .active_by_destination_field(ADAPTER, subject_kind, "issue_id", issue_id)
+        .by_destination_field(ADAPTER, subject_kind, "issue_id", issue_id)
         .await?;
     Ok(rows
         .into_iter()

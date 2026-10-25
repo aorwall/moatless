@@ -246,8 +246,8 @@ sequenceDiagram
     opt parentId present
         Runtime->>MsgFlow: find_task_id_by_any_external_event_id("linear:comment:{parentId}")
     end
-    Runtime->>BindingRepo: find_active_by_destination_field(<br/>"linear", "linear_agent_session", "issue_id", issue_id)
-    Runtime->>BindingRepo: find_active_by_destination_field(<br/>"linear", "linear_issue", "issue_id", issue_id)
+    Runtime->>BindingRepo: find_by_destination_field(<br/>"linear", "linear_agent_session", "issue_id", issue_id)
+    Runtime->>BindingRepo: find_by_destination_field(<br/>"linear", "linear_issue", "issue_id", issue_id)
     Runtime->>Resolver: resolve_recipients(audience, bindings, provenance)
     alt no recipient
         Runtime-->>Linear: 200 (no Moatless task listening for this issue/thread)
@@ -293,7 +293,7 @@ sequenceDiagram
     end
     Runtime->>Rules: resolve_rules_for_team(team_id)
     Note over Runtime: rules[0] wins for config<br/>(LinearRuleConfig::from_rule)
-    Runtime->>BindingRepo: find_active_by_destination_field("issue_id", issue_id)
+    Runtime->>BindingRepo: find_by_destination_field("issue_id", issue_id)
     loop notify every bound task
         Runtime->>MsgFlow: send_message_flow("Linear issue {ident} moved to \"{state}\"")
     end
