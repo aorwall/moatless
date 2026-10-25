@@ -1,7 +1,7 @@
 ---
 on: slack
 name: alerts-moatless-monitor
-workspace: moatless
+workspace: moatless-admin
 sourceMatcher: C0000000003        # #alerts-moatless (channel id)
 teamId: T0000000001               # Soap Labs Slack workspace
 routingMode: ongoing              # one long-lived monitor task, not one per alert

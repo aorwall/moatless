@@ -8,7 +8,7 @@
 
 - **2026-09-19 — `moatless-fullstack` deleted, phase 1 needs a new candidate.**
   The deployment now runs one git-declared workspace on this repo,
-  `moatless-global` (the entry keyed `moatless`), plus a manual `moatless`
+  `moatless-global` (the entry keyed `moatless`, keyed `default` since 2026-10-25), plus a manual `moatless`
   workspace; `moatless-fullstack` and every other moatless workspace were
   deleted, so the entry was dropped from `.moatless/workspaces.json`. Phase 1's
   definition of done named that workspace, and is restated above in terms of

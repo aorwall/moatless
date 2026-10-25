@@ -1,6 +1,7 @@
 ---
 on: schedule
 name: Nightly E2E
+workspace: moatless-global
 tags:
   - e2e-nightly
 closeAfterSettledDays: 1

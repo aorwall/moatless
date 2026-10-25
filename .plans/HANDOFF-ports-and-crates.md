@@ -391,7 +391,7 @@ exact eviction for Rust-heavy repos. None of the evicted lanes were using it. A 
 `moat tasks create --repo moatless` lands on a synthesized per-repository workspace — its id is
 literally `ws_` + the repository id and its name is `null` — which carries no `resources` block at
 all and therefore gets the deployment default. Tasks created with `--workspace moatless-global`
-land on `ws_a7a61c35…`, which has the block. **Create carve lanes with
+land on the `moatless-global` workspace, which has the block (`ws_582a04a2…` since 2026-10-25, when it became the repository's `default` workspace). **Create carve lanes with
 `--workspace moatless-global`.** The protocol below still stands: it costs nothing on a
 correctly-sized workspace, and a lane can still find itself on a constrained one.
 

@@ -2,7 +2,7 @@
   "version": 1,
   "workspaces": [
     {
-      "key": "moatless",
+      "key": "default",
       "name": "moatless-global",
       "description": "Agent sandbox only — no dev server or preview.",
       "repos": [

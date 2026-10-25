@@ -21,10 +21,14 @@ entry >"$dir/entry.json"
 owner=$(jq -r .data.owner "$dir/entry.json")
 
 # Names are not unique, and several workspaces can share a primary repository.
+# The repository's git `default` Workspace comes first: a name match can land
+# on a manual row carrying an admin identity.
 rid=$(moat repos list --json | jq -r --arg o "$owner" '.[] | select(.name == $o) | .id')
 ws=$(moat workspaces list --json | jq -r --arg id "$rid" --arg o "$owner" '
   [.[] | select(any(.repos[]; .isPrimary and .repositoryId == $id))] as $w
-  | ([$w[] | select(.name == $o)] | if length == 1 then .[0].id else empty end)
+  | ([$w[] | select(.source == "git" and .sourceRepositoryId == $id and .sourceKey == "default")]
+      | if length == 1 then .[0].id else empty end)
+    // ([$w[] | select(.name == $o)] | if length == 1 then .[0].id else empty end)
     // (if ($w | length) == 1 then $w[0].id else empty end) // ""')
 if [[ -z "$ws" ]]; then
   echo "create-fix-task.sh: no single workspace for $owner; $slug stays proposed" >&2

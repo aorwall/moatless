@@ -1,6 +1,7 @@
 ---
 on: schedule
 name: Agent CLI Upgrade
+workspace: moatless-global
 agentProfile: claude-code
 tags:
   - agent-cli-upgrade

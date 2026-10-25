@@ -1,6 +1,7 @@
 ---
 on: github_pr
 name: Full-Repo Code Review
+workspace: moatless-global
 agentProfile: claude-code
 model: opus
 closeAfterSettledDays: 1
