@@ -23,6 +23,12 @@ export interface LoopConfig {
      */
   fallbackToOtherAgent: boolean;
   /**
+     * Memory keys, or key prefixes ending in `*`, read from this Loop's scope
+     * and listed in each spawned Task's prompt. A `LOOP.md` sets them with
+     * `memory.preload`.
+     */
+  memoryPreload?: string[];
+  /**
      * Seconds inbound Adapter events for one Binding are held so those
      * arriving together reach the Task as a single message. `None` inherits
      * the deployment default for the Loop's adapter kind (60 for `github_pr`,

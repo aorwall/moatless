@@ -59,6 +59,14 @@ pub fn preload_pattern_error(pattern: &str) -> Option<String> {
     })
 }
 
+/// `patterns` unchanged, or why the first unusable one is unusable.
+pub fn checked_preload(patterns: Vec<String>) -> Result<Vec<String>, String> {
+    match patterns.iter().find_map(|p| preload_pattern_error(p)) {
+        Some(e) => Err(e),
+        None => Ok(patterns),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

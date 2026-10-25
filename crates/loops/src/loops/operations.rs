@@ -287,7 +287,9 @@ impl Loops {
                     prompt: req.config.prompt.clone(),
                     task_name: req.config.task_name.clone(),
                     tag_ids: req.config.tag_ids.clone().unwrap_or_default(),
-                    memory_preload: Vec::new(),
+                    memory_preload: checked_memory_preload(
+                        req.config.memory_preload.clone().unwrap_or_default(),
+                    )?,
                     skills: req.config.skills.clone().unwrap_or_default(),
                     run_as_user_id,
                     agent_profile,
@@ -644,7 +646,10 @@ fn next_config(
         tag_ids: rule
             .tag_ids
             .unwrap_or_else(|| current.config.tag_ids.clone()),
-        memory_preload: current.config.memory_preload.clone(),
+        memory_preload: match rule.memory_preload {
+            Some(patterns) => checked_memory_preload(patterns)?,
+            None => current.config.memory_preload.clone(),
+        },
         skills: rule.skills.unwrap_or_else(|| current.config.skills.clone()),
         run_as_user_id: current.config.run_as_user_id.clone(),
         agent_profile,
@@ -666,6 +671,12 @@ fn next_config(
             .fallback_to_other_agent
             .unwrap_or(current.config.fallback_to_other_agent),
     })
+}
+
+/// [`moatless_types::memory::checked_preload`], refused as a 400.
+fn checked_memory_preload(patterns: Vec<String>) -> Result<Vec<String>, AdapterError> {
+    moatless_types::memory::checked_preload(patterns)
+        .map_err(|e| SharedAdapterError::BadRequest(e).into())
 }
 
 /// Result of resetting a Git declaration, including a best-effort sync failure.
@@ -770,6 +781,36 @@ mod tests {
         .expect("changing agent drops the model it belonged to");
         assert_eq!(next.model, None);
         assert_eq!(next.agent_profile, AgentProfile::Codex);
+    }
+
+    #[test]
+    fn an_edit_sets_keeps_or_clears_the_memory_preload() {
+        let set = |memory_preload| {
+            next_config(
+                &record_on("claude-code", None),
+                UpdateLoopConfig {
+                    memory_preload,
+                    ..UpdateLoopConfig::default()
+                },
+            )
+        };
+        let next = set(Some(vec!["state".into(), "triage:*".into()])).expect("valid patterns");
+        assert_eq!(next.memory_preload, ["state", "triage:*"]);
+        assert!(
+            set(Some(vec![]))
+                .expect("clearing")
+                .memory_preload
+                .is_empty()
+        );
+        assert!(matches!(
+            set(Some(vec!["*".into()])),
+            Err(AdapterError::Shared(SharedAdapterError::BadRequest(_)))
+        ));
+
+        let mut current = record_on("claude-code", None);
+        current.config.memory_preload = vec!["state".into()];
+        let kept = next_config(&current, UpdateLoopConfig::default()).expect("no change");
+        assert_eq!(kept.memory_preload, ["state"]);
     }
 
     /// Sync wrote `model` without validating it before this change, so a row

@@ -21,6 +21,15 @@ export interface MemoryEntryResponse {
      */
   claimedByTaskId?: string | null;
   createdAt: string;
+  /** @nullable */
+  createdByLoopId?: string | null;
+  /**
+     * The Task whose put created the entry; never changed by later writes.
+     * @nullable
+     */
+  createdByTaskId?: string | null;
+  /** @nullable */
+  createdByUserId?: string | null;
   data?: unknown;
   /** @nullable */
   expiresAt?: string | null;

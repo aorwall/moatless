@@ -23,6 +23,11 @@ export interface UpdateLoopConfig {
      */
   fallbackToOtherAgent?: boolean | null;
   /**
+     * See [`LoopConfig::memory_preload`]. `Some(vec![])` clears it.
+     * @nullable
+     */
+  memoryPreload?: string[] | null;
+  /**
      * See [`LoopConfig::message_buffer_seconds`]. `Some(None)` clears the
      * override.
      * @nullable

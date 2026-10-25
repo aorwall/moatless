@@ -134,6 +134,12 @@ pub enum LoopsAction {
         skills: Vec<String>,
         #[arg(long)]
         clear_skills: bool,
+        /// Memory key, or key prefix ending in `*`, read from the loop's scope
+        /// into each task's prompt. Repeat for several; replaces the list.
+        #[arg(long = "memory-preload", value_name = "PATTERN")]
+        memory_preload: Vec<String>,
+        #[arg(long)]
+        clear_memory_preload: bool,
         #[arg(long)]
         agent_profile: Option<String>,
         /// Model the loop's tasks run on, from those the agent profile offers
@@ -283,6 +289,11 @@ pub struct CreateConfigArgs {
     /// session. Repeat for several.
     #[arg(long = "skill")]
     skills: Vec<String>,
+    /// Memory key, or key prefix ending in `*`, read from the loop's scope into
+    /// each task's prompt, like `memory.preload` in a LOOP.md. Repeat for
+    /// several.
+    #[arg(long = "memory-preload", value_name = "PATTERN")]
+    memory_preload: Vec<String>,
     /// Tasks spawned by this loop auto-close this many days after they are
     /// settled (0 = never close). Omit to inherit the platform-wide default
     /// (`TASK_CLOSE_AFTER_SETTLED_DAYS`).
@@ -409,6 +420,8 @@ pub async fn run_loops(
             clear_tags,
             skills,
             clear_skills,
+            memory_preload,
+            clear_memory_preload,
             agent_profile,
             model,
             clear_model,
@@ -468,6 +481,8 @@ pub async fn run_loops(
                 clear_tags,
                 skills,
                 clear_skills,
+                memory_preload,
+                clear_memory_preload,
                 agent_profile,
                 model,
                 clear_model,
@@ -570,6 +585,7 @@ fn create_config(args: CreateConfigArgs) -> Result<CreateLoopConfig, ClientError
         task_name: args.task_name,
         prompt: args.prompt,
         tag_ids: Some(args.tag_ids),
+        memory_preload: Some(args.memory_preload),
         skills: Some(args.skills),
         run_as_user_id: args.run_as_user_id,
         agent_profile: Some(args.agent_profile),
@@ -599,6 +615,8 @@ fn update_config(
     clear_tags: bool,
     skills: Vec<String>,
     clear_skills: bool,
+    memory_preload: Vec<String>,
+    clear_memory_preload: bool,
     agent_profile: Option<String>,
     model: Option<String>,
     clear_model: bool,
@@ -615,6 +633,12 @@ fn update_config(
 ) -> Result<Option<UpdateLoopConfig>, ClientError> {
     let tag_ids = fold_list(tag_ids, clear_tags, "tag", "clear-tags")?;
     let skills = fold_list(skills, clear_skills, "skill", "clear-skills")?;
+    let memory_preload = fold_list(
+        memory_preload,
+        clear_memory_preload,
+        "memory-preload",
+        "clear-memory-preload",
+    )?;
     let config = UpdateLoopConfig {
         workspace_id,
         routing_mode,
@@ -622,6 +646,7 @@ fn update_config(
         prompt: fold_clearable(prompt, clear_prompt, "prompt")?,
         task_name: fold_clearable(task_name, clear_task_name, "task-name")?,
         tag_ids,
+        memory_preload,
         skills,
         agent_profile,
         model: fold_clearable(model, clear_model, "model")?,
@@ -655,6 +680,7 @@ fn update_config(
         && config.task_name.is_none()
         && config.tag_ids.is_none()
         && config.skills.is_none()
+        && config.memory_preload.is_none()
         && config.agent_profile.is_none()
         && config.model.is_none()
         && config.close_after_settled_days.is_none()
@@ -1125,6 +1151,8 @@ mod tests {
             None,
             false,
             None,
+            false,
+            vec![],
             false,
             vec![],
             false,

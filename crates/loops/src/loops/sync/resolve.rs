@@ -68,14 +68,7 @@ pub(super) fn declared_agent_profile(fm: &LoopFrontmatter) -> Result<AgentProfil
 /// The `memory.preload` patterns a Loop declaration lists, or why one is
 /// unusable.
 fn declared_memory_preload(fm: &LoopFrontmatter) -> Result<Vec<String>, String> {
-    let patterns = fm.memory.clone().unwrap_or_default().preload;
-    match patterns
-        .iter()
-        .find_map(|p| moatless_types::memory::preload_pattern_error(p))
-    {
-        Some(e) => Err(e),
-        None => Ok(patterns),
-    }
+    moatless_types::memory::checked_preload(fm.memory.clone().unwrap_or_default().preload)
 }
 
 impl LoopSyncService {

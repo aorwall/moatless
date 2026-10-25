@@ -19,6 +19,11 @@ export interface CreateLoopConfig {
      */
   fallbackToOtherAgent?: boolean | null;
   /**
+     * See [`LoopConfig::memory_preload`].
+     * @nullable
+     */
+  memoryPreload?: string[] | null;
+  /**
      * See [`LoopConfig::message_buffer_seconds`].
      * @nullable
      */

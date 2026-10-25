@@ -7712,7 +7712,7 @@
           {
             "name": "scope",
             "in": "query",
-            "description": "Every scope the Task reaches, narrowest first, when omitted.",
+            "description": "The Task's Loop, else the Task, when omitted.",
             "required": false,
             "schema": {
               "$ref": "#/components/schemas/MemoryScope"
@@ -7849,7 +7849,7 @@
           {
             "name": "scope",
             "in": "query",
-            "description": "Every scope the Task reaches, narrowest first, when omitted.",
+            "description": "The Task's Loop, else the Task, when omitted.",
             "required": false,
             "schema": {
               "$ref": "#/components/schemas/MemoryScope"
@@ -12225,6 +12225,16 @@
             ],
             "description": "See [`LoopConfig::fallback_to_other_agent`]. `None` is on."
           },
+          "memoryPreload": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "See [`LoopConfig::memory_preload`]."
+          },
           "messageBufferSeconds": {
             "type": [
               "integer",
@@ -14848,6 +14858,13 @@
             "type": "boolean",
             "description": "Re-run a spawned Task's failed turn once on the other agent (`codex` or\n`claude-code`), in the same Task, when the turn's error reason is\n`usage_limit`, `rate_limit` or `provider_unavailable`. The sandbox\nreports the last two only once its retries are spent."
           },
+          "memoryPreload": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Memory keys, or key prefixes ending in `*`, read from this Loop's scope\nand listed in each spawned Task's prompt. A `LOOP.md` sets them with\n`memory.preload`."
+          },
           "messageBufferSeconds": {
             "type": [
               "integer",
@@ -15228,6 +15245,25 @@
           "createdAt": {
             "type": "string"
           },
+          "createdByLoopId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdByTaskId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The Task whose put created the entry; never changed by later writes."
+          },
+          "createdByUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "data": {},
           "expiresAt": {
             "type": [
@@ -15327,7 +15363,7 @@
               },
               {
                 "$ref": "#/components/schemas/MemoryScope",
-                "description": "Searches every scope the Task reaches, narrowest first, when omitted."
+                "description": "The one scope the entry is in; the Task's Loop, else the Task, when\nomitted."
               }
             ]
           }
@@ -16303,7 +16339,7 @@
               },
               {
                 "$ref": "#/components/schemas/MemoryScope",
-                "description": "`loop` for a Task a Loop fired, `workspace` otherwise."
+                "description": "The one scope the write lands in; the Task's Loop, else the Task, when\nomitted."
               }
             ]
           },
@@ -20194,6 +20230,16 @@
               "null"
             ],
             "description": "See [`LoopConfig::fallback_to_other_agent`]. `None` keeps the current\nvalue."
+          },
+          "memoryPreload": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "See [`LoopConfig::memory_preload`]. `Some(vec![])` clears it."
           },
           "messageBufferSeconds": {
             "type": [

@@ -10,7 +10,7 @@ import type { MemoryScope } from './memoryScope';
 export type DeleteMemoryParams = {
 key: string;
 /**
- * Every scope the Task reaches, narrowest first, when omitted.
+ * The Task's Loop, else the Task, when omitted.
  */
 scope?: MemoryScope;
 };

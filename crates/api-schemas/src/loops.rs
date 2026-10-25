@@ -39,6 +39,11 @@ pub struct LoopConfig {
     pub task_name: Option<String>,
     pub prompt: Option<String>,
     pub tag_ids: Vec<String>,
+    /// Memory keys, or key prefixes ending in `*`, read from this Loop's scope
+    /// and listed in each spawned Task's prompt. A `LOOP.md` sets them with
+    /// `memory.preload`.
+    #[serde(default)]
+    pub memory_preload: Vec<String>,
     /// Skills every task this Loop spawns activates on each fresh agent
     /// session.
     pub skills: Vec<String>,
@@ -86,6 +91,9 @@ pub struct CreateLoopConfig {
     pub task_name: Option<String>,
     pub prompt: Option<String>,
     pub tag_ids: Option<Vec<String>>,
+    /// See [`LoopConfig::memory_preload`].
+    #[serde(default)]
+    pub memory_preload: Option<Vec<String>>,
     pub skills: Option<Vec<String>>,
     pub run_as_user_id: Option<String>,
     pub agent_profile: Option<String>,
@@ -135,6 +143,9 @@ pub struct UpdateLoopConfig {
     )]
     pub prompt: Option<Option<String>>,
     pub tag_ids: Option<Vec<String>>,
+    /// See [`LoopConfig::memory_preload`]. `Some(vec![])` clears it.
+    #[serde(default)]
+    pub memory_preload: Option<Vec<String>>,
     pub skills: Option<Vec<String>>,
     pub agent_profile: Option<String>,
     /// See [`LoopConfig::model`]. `Some(None)` clears the override.
