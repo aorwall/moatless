@@ -1094,7 +1094,7 @@ jobs:
         (github.event_name == 'push' && needs.detect-changes.outputs.rust == 'true') ||
         (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)
       )
-    runs-on: staging-runners-large
+    runs-on: staging-runners-build
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
@@ -1174,7 +1174,7 @@ jobs:
       (needs.detect-changes.outputs.docker-backend == 'true' ||
        (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)) &&
       needs.build-rust.result == 'success'
-    runs-on: staging-runners-large
+    runs-on: staging-runners-build
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
@@ -1337,7 +1337,7 @@ jobs:
         (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)
       ) &&
       needs.build-rust.result == 'success'
-    runs-on: staging-runners-large
+    runs-on: staging-runners-build
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
@@ -1405,7 +1405,7 @@ jobs:
       needs.build-rust.result == 'success' &&
       (needs.build-sandbox-tools.result == 'success' || needs.build-sandbox-tools.result == 'skipped') &&
       (needs.build-sandbox-base.result == 'success' || needs.build-sandbox-base.result == 'skipped')
-    runs-on: staging-runners-large
+    runs-on: staging-runners-build
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
