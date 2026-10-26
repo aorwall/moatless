@@ -38,6 +38,8 @@ use common::{
     make_repository_row, make_task_row, seed_team, test_app_state_with_adapters, test_config,
 };
 
+mod checks_rollup;
+
 const CONNECTION_ID: &str = "conn-github-redelivery";
 const OWNER: &str = "acme";
 const REPO_FULL_NAME: &str = "acme/widgets";

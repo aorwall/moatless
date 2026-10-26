@@ -5,6 +5,7 @@ use serde::Deserialize;
 
 use super::adapter::GithubPrAdapter;
 use super::auth::resolve_github_api;
+use super::status::checks_state;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 
 /// Most rows one GraphQL search page returns.
@@ -317,12 +318,8 @@ impl PullRequestNode {
             .flatten()
             .next_back()
             .and_then(|node| node.commit.status_check_rollup)
-            .and_then(|rollup| match rollup.state.as_str() {
-                "SUCCESS" => Some("passing".to_string()),
-                "FAILURE" | "ERROR" => Some("failing".to_string()),
-                "PENDING" | "EXPECTED" => Some("pending".to_string()),
-                _ => None,
-            });
+            .and_then(|rollup| checks_state(&rollup.state))
+            .map(str::to_string);
         ListedPullRequest {
             number: self.number.unwrap_or_default(),
             title: self.title,

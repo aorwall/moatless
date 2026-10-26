@@ -167,6 +167,14 @@ pub struct ListedPullRequest {
     pub title: Option<String>,
     pub base_ref: Option<String>,
     pub head_ref: Option<String>,
+    /// GitHub's own last change to the pull request, as the blob stores it.
+    /// `None` until a refresh or webhook writes one.
+    #[serde(default)]
+    pub updated_at: Option<String>,
+    /// The head commit's checks rollup, T3's spelling (`passing`, `failing`,
+    /// `pending`). `None` with no checks, or until a live read rolls them up.
+    #[serde(default)]
+    pub checks_state: Option<String>,
     /// The binding's normalized state kind, in its own column rather than the
     /// blob: `open`, `draft`, `merged` or `closed`, and `None` until the
     /// adapter has classified one.

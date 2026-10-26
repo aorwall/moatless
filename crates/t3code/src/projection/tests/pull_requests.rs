@@ -14,6 +14,8 @@ fn bound(repository: &str, number: i64) -> ConversationPullRequest {
         title: None,
         base_ref: None,
         head_ref: None,
+        updated_at: None,
+        checks_state: None,
         state_kind: None,
         status_read_at: instant_at("2026-02-03T04:05:06Z"),
         linked_at: instant_at("2026-02-03T04:00:00Z"),
@@ -137,15 +139,54 @@ fn a_thread_row_carries_the_snapshot_a_refreshed_binding_recorded() {
     assert_eq!(snapshot["syncedAt"], "2026-02-03T04:05:06.000Z");
 }
 
-/// `syncedAt` is when this deployment read GitHub. The blob records no instant
-/// at which GitHub itself changed the pull request, so `updatedAt` stays null
-/// rather than repeating the read.
+/// `syncedAt` is when this deployment read GitHub, `updatedAt` when GitHub
+/// itself last changed the pull request; a blob without the latter reports
+/// null rather than repeating the read.
 #[test]
-fn a_snapshot_reports_no_update_instant_of_its_own() {
+fn a_snapshot_reports_githubs_update_instant_and_never_the_read() {
     let mut row = conversation("task-a", "ws-a");
-    row.pull_requests = Some(Json(vec![fetched(bound("acme/web", 42), "open")]));
+    row.pull_requests = Some(Json(vec![
+        ConversationPullRequest {
+            updated_at: Some("2026-10-24T09:30:00Z".to_string()),
+            ..fetched(bound("acme/web", 42), "open")
+        },
+        fetched(bound("acme/web", 7), "open"),
+    ]));
 
-    assert_eq!(first_link(&row)["snapshot"]["updatedAt"], Value::Null);
+    let thread = one_thread(&row);
+    let snapshot = &thread["pullRequests"][0]["snapshot"];
+    assert_eq!(snapshot["updatedAt"], "2026-10-24T09:30:00.000Z");
+    assert_eq!(snapshot["syncedAt"], "2026-02-03T04:05:06.000Z");
+    assert_eq!(
+        thread["pullRequests"][1]["snapshot"]["updatedAt"],
+        Value::Null
+    );
+}
+
+/// The blob's rollup reaches the wire as stored; a missing one, or a value the
+/// contract does not name, leaves the key out, which T3 reads as "this server
+/// does not say" rather than "the checks are pending".
+#[test]
+fn a_snapshot_reports_the_checks_rollup_only_when_it_names_one() {
+    for (stored, reported) in [
+        (Some("failing"), Some("failing")),
+        (Some("passing"), Some("passing")),
+        (Some("pending"), Some("pending")),
+        (Some("NEUTRAL"), None),
+        (None, None),
+    ] {
+        let mut row = conversation("task-a", "ws-a");
+        row.pull_requests = Some(Json(vec![ConversationPullRequest {
+            checks_state: stored.map(str::to_string),
+            ..fetched(bound("acme/web", 42), "open")
+        }]));
+        let snapshot = first_link(&row)["snapshot"].clone();
+        assert_eq!(
+            snapshot.get("checksState").and_then(Value::as_str),
+            reported,
+            "{stored:?}"
+        );
+    }
 }
 
 /// GitHub's spellings reach the wire as T3's, and a state neither side names is

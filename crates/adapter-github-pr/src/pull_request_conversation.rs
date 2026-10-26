@@ -267,7 +267,7 @@ async fn read_status(
 
 /// `query`'s `repository.pullRequest`, failing when GitHub has no such pull
 /// request the token can read.
-async fn pull_request_data<T: DeserializeOwned>(
+pub(super) async fn pull_request_data<T: DeserializeOwned>(
     api: &GithubPrApi,
     query: &str,
     variables: serde_json::Value,

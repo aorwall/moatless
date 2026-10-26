@@ -66,13 +66,19 @@ async fn seed_pr_binding(
 }
 
 /// Fill in the status blob a refresh writes, in the shape
-/// `github_external_status` builds it. The listing reads the title and the two
-/// branches back out of it.
+/// `github_external_status` builds it, plus the rollup a live read adds. The
+/// listing reads every one of these back out of it.
 async fn refresh_pr_binding(pool: &PgPool, binding_id: &str, title: &str, head_ref: &str) {
     binding_fixtures::set_external_status_raw(
         pool,
         binding_id,
-        &serde_json::json!({"title": title, "baseRef": "main", "headRef": head_ref}),
+        &serde_json::json!({
+            "title": title,
+            "baseRef": "main",
+            "headRef": head_ref,
+            "updatedAt": "2026-02-01T10:00:00Z",
+            "checksState": "failing",
+        }),
         "2026-02-03T04:05:06Z".parse().unwrap(),
     )
     .await
@@ -160,6 +166,8 @@ async fn a_thread_carries_the_status_of_each_pull_request_that_was_refreshed(poo
     assert_eq!(refreshed["baseBranch"], "main");
     assert_eq!(refreshed["headBranch"], "feature/pill");
     assert_eq!(refreshed["syncedAt"], "2026-02-03T04:05:06.000Z");
+    assert_eq!(refreshed["updatedAt"], "2026-02-01T10:00:00.000Z");
+    assert_eq!(refreshed["checksState"], "failing");
 
     let unrefreshed = linked.iter().find(|pr| pr["number"] == 8).unwrap();
     assert!(unrefreshed["snapshot"].is_null(), "#8 was never fetched");

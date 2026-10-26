@@ -11,7 +11,8 @@ use std::sync::Arc;
 use moatless_loops::bindings::operations::Bindings;
 
 use super::adapter::GithubPrAdapter;
-use super::api::PrInfo;
+use super::pull_request_conversation::pull_request_data;
+use super::pull_request_search::Nodes;
 use super::signals::ReviewDecision;
 use super::subject::GithubPrSubject;
 
@@ -57,7 +58,7 @@ pub(super) fn apply_webhook_observation(
             let result = match &observation {
                 WebhookStatusObservation::PullRequest { status, .. } => {
                     repository
-                        .record_external_status(
+                        .merge_external_status(
                             &binding.id,
                             status.status.as_deref(),
                             status.state_kind.as_deref(),
@@ -86,25 +87,33 @@ pub(super) fn apply_webhook_observation(
 /// reopened PR leaves this set, but only a webhook can tell us so.
 const TERMINAL_STATE_KINDS: [&str; 2] = ["merged", "closed"];
 
+/// A GitHub PR's raw fields, as a webhook payload or a live read carries them.
+#[derive(Default)]
+pub(super) struct PullRequestFields<'a> {
+    /// `open` or `closed`; GitHub reports a merged PR as `closed`.
+    pub(super) state: &'a str,
+    pub(super) merged: bool,
+    pub(super) draft: bool,
+    pub(super) title: Option<&'a str>,
+    pub(super) url: Option<&'a str>,
+    pub(super) base_ref: Option<&'a str>,
+    pub(super) head_ref: Option<&'a str>,
+    /// GitHub's own last change to the PR, ISO 8601.
+    pub(super) updated_at: Option<&'a str>,
+}
+
 /// Derive the normalized status of a GitHub PR from its raw fields.
 ///
 /// GitHub reports both merged and abandoned PRs as `state = "closed"`, so
 /// `merged` is needed to distinguish them; `draft` is only meaningful while the
-/// PR is open.
-pub(super) fn github_external_status(
-    state: &str,
-    merged: bool,
-    draft: bool,
-    title: Option<&str>,
-    url: Option<&str>,
-    base_ref: Option<&str>,
-    head_ref: Option<&str>,
-) -> ExternalStatus {
-    let kind = if merged {
+/// PR is open. The blob carries no `checksState`: [`status_from_live_read`]
+/// adds the rollup, and `pr_status_observation` clears it on a push.
+pub(super) fn github_external_status(pr: &PullRequestFields<'_>) -> ExternalStatus {
+    let kind = if pr.merged {
         "merged"
-    } else if state.eq_ignore_ascii_case("closed") {
+    } else if pr.state.eq_ignore_ascii_case("closed") {
         "closed"
-    } else if draft {
+    } else if pr.draft {
         "draft"
     } else {
         "open"
@@ -114,28 +123,98 @@ pub(super) fn github_external_status(
         status: Some(kind.to_string()),
         state_kind: Some(kind.to_string()),
         raw: serde_json::json!({
-            "title": title,
-            "url": url,
-            "state": state,
-            "merged": merged,
-            "draft": draft,
-            "baseRef": base_ref,
-            "headRef": head_ref,
+            "title": pr.title,
+            "url": pr.url,
+            "state": pr.state,
+            "merged": pr.merged,
+            "draft": pr.draft,
+            "baseRef": pr.base_ref,
+            "headRef": pr.head_ref,
+            "updatedAt": pr.updated_at,
         }),
     }
 }
 
-/// Derive an [`ExternalStatus`] directly from a fetched [`PrInfo`].
-fn status_from_pr_info(pr: &PrInfo) -> ExternalStatus {
-    github_external_status(
-        &pr.state,
-        pr.merged.unwrap_or(false),
-        pr.draft.unwrap_or(false),
-        Some(pr.title.as_str()),
-        pr.html_url.as_deref(),
-        Some(pr.base.ref_name.as_str()),
-        Some(pr.head.ref_name.as_str()),
-    )
+/// A head commit's `statusCheckRollup.state` as T3's `PullRequestChecksState`,
+/// or `None` for a state it has no word for.
+pub(super) fn checks_state(rollup_state: &str) -> Option<&'static str> {
+    match rollup_state {
+        "SUCCESS" => Some("passing"),
+        "FAILURE" | "ERROR" => Some("failing"),
+        "PENDING" | "EXPECTED" => Some("pending"),
+        _ => None,
+    }
+}
+
+/// One read of everything the status blob holds, the checks rollup included.
+const LIVE_STATUS_QUERY: &str = r#"query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      title url state isDraft baseRefName headRefName updatedAt
+      commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+    }
+  }
+}"#;
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LivePullRequest {
+    title: String,
+    url: Option<String>,
+    /// `OPEN`, `CLOSED` or `MERGED`.
+    state: String,
+    #[serde(default)]
+    is_draft: bool,
+    base_ref_name: String,
+    head_ref_name: String,
+    updated_at: Option<String>,
+    #[serde(default)]
+    commits: Nodes<LiveCommitNode>,
+}
+
+#[derive(serde::Deserialize)]
+struct LiveCommitNode {
+    commit: LiveCommit,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LiveCommit {
+    status_check_rollup: Option<LiveRollup>,
+}
+
+#[derive(serde::Deserialize)]
+struct LiveRollup {
+    state: String,
+}
+
+/// Derive an [`ExternalStatus`] from a [`LIVE_STATUS_QUERY`] read.
+///
+/// `checksState` is `null` for a head commit with no checks, which T3 reads as
+/// no tone rather than pending.
+fn status_from_live_read(pr: &LivePullRequest) -> ExternalStatus {
+    let merged = pr.state == "MERGED";
+    let state = if pr.state == "OPEN" { "open" } else { "closed" };
+    let mut status = github_external_status(&PullRequestFields {
+        state,
+        merged,
+        draft: pr.is_draft,
+        title: Some(pr.title.as_str()),
+        url: pr.url.as_deref(),
+        base_ref: Some(pr.base_ref_name.as_str()),
+        head_ref: Some(pr.head_ref_name.as_str()),
+        updated_at: pr.updated_at.as_deref(),
+    });
+    let checks = pr
+        .commits
+        .nodes
+        .iter()
+        .flatten()
+        .next_back()
+        .and_then(|node| node.commit.status_check_rollup.as_ref())
+        .and_then(|rollup| checks_state(&rollup.state));
+    status.raw["checksState"] = serde_json::json!(checks);
+    status
 }
 
 /// The base and head branch names a persisted GitHub status blob recorded, if
@@ -232,11 +311,13 @@ impl AdapterBindingStatus for GithubPrAdapter {
             }
         };
 
-        match api
-            .get_pr(subject.owner(), subject.repo(), subject.pr_number())
-            .await
-        {
-            Ok(pr) => Some(status_from_pr_info(&pr)),
+        let variables = serde_json::json!({
+            "owner": subject.owner(),
+            "name": subject.repo(),
+            "number": subject.pr_number(),
+        });
+        match pull_request_data::<LivePullRequest>(&api, LIVE_STATUS_QUERY, variables).await {
+            Ok(pr) => Some(status_from_live_read(&pr)),
             Err(error) => {
                 warn!(
                     binding_id = %binding.id,
@@ -290,41 +371,54 @@ mod tests {
 
     #[test]
     fn github_merged_beats_closed_and_draft() {
-        let s = github_external_status("closed", true, false, Some("t"), Some("u"), None, None);
+        let s = github_external_status(&PullRequestFields {
+            state: "closed",
+            merged: true,
+            ..PullRequestFields::default()
+        });
         assert_eq!(s.status.as_deref(), Some("merged"));
         assert_eq!(s.state_kind.as_deref(), Some("merged"));
     }
 
     #[test]
     fn github_closed_not_merged() {
-        let s = github_external_status("closed", false, false, None, None, None, None);
+        let s = github_external_status(&PullRequestFields {
+            state: "closed",
+            ..PullRequestFields::default()
+        });
         assert_eq!(s.status.as_deref(), Some("closed"));
     }
 
     #[test]
     fn github_draft_when_open() {
-        let s = github_external_status("open", false, true, None, None, None, None);
+        let s = github_external_status(&PullRequestFields {
+            state: "open",
+            draft: true,
+            ..PullRequestFields::default()
+        });
         assert_eq!(s.status.as_deref(), Some("draft"));
         assert_eq!(s.state_kind.as_deref(), Some("draft"));
     }
 
     #[test]
     fn github_plain_open() {
-        let s = github_external_status("open", false, false, None, None, None, None);
+        let s = github_external_status(&PullRequestFields {
+            state: "open",
+            ..PullRequestFields::default()
+        });
         assert_eq!(s.status.as_deref(), Some("open"));
     }
 
     #[test]
     fn the_blob_round_trips_base_and_head() {
-        let s = github_external_status(
-            "open",
-            false,
-            false,
-            Some("t"),
-            Some("u"),
-            Some("main"),
-            Some("feature"),
-        );
+        let s = github_external_status(&PullRequestFields {
+            state: "open",
+            title: Some("t"),
+            url: Some("u"),
+            base_ref: Some("main"),
+            head_ref: Some("feature"),
+            ..PullRequestFields::default()
+        });
         let mut binding = binding_with_config(serde_json::json!({}));
         binding.external_status_raw = Some(s.raw);
         assert_eq!(
@@ -396,6 +490,58 @@ mod tests {
         assert!(url.is_none());
     }
 
+    fn live_read(state: &str, draft: bool, rollup: Option<&str>) -> LivePullRequest {
+        serde_json::from_value(serde_json::json!({
+            "title": "t",
+            "url": "https://github.com/o/r/pull/1",
+            "state": state,
+            "isDraft": draft,
+            "baseRefName": "main",
+            "headRefName": "feature",
+            "updatedAt": "2026-10-24T09:30:00Z",
+            "commits": {"nodes": [
+                {"commit": {"statusCheckRollup": rollup.map(|state| serde_json::json!({"state": state}))}}
+            ]}
+        }))
+        .expect("a live read decodes")
+    }
+
+    #[test]
+    fn a_rollup_state_maps_onto_t3s_checks_state() {
+        assert_eq!(checks_state("SUCCESS"), Some("passing"));
+        assert_eq!(checks_state("FAILURE"), Some("failing"));
+        assert_eq!(checks_state("ERROR"), Some("failing"));
+        assert_eq!(checks_state("PENDING"), Some("pending"));
+        assert_eq!(checks_state("EXPECTED"), Some("pending"));
+        assert_eq!(checks_state("NEUTRAL"), None);
+    }
+
+    #[test]
+    fn a_live_read_carries_updated_at_and_the_checks_rollup() {
+        let s = status_from_live_read(&live_read("OPEN", false, Some("PENDING")));
+        assert_eq!(s.state_kind.as_deref(), Some("open"));
+        assert_eq!(s.raw["updatedAt"], "2026-10-24T09:30:00Z");
+        assert_eq!(s.raw["checksState"], "pending");
+    }
+
+    #[test]
+    fn a_head_without_checks_reads_as_null_checks() {
+        let s = status_from_live_read(&live_read("OPEN", false, None));
+        assert_eq!(s.raw["checksState"], serde_json::Value::Null);
+        assert!(s.raw.get("checksState").is_some());
+    }
+
+    #[test]
+    fn a_live_read_keeps_merged_closed_and_draft_apart() {
+        let merged = status_from_live_read(&live_read("MERGED", false, None));
+        assert_eq!(merged.state_kind.as_deref(), Some("merged"));
+        assert_eq!(merged.raw["state"], "closed");
+        let closed = status_from_live_read(&live_read("CLOSED", false, None));
+        assert_eq!(closed.state_kind.as_deref(), Some("closed"));
+        let draft = status_from_live_read(&live_read("OPEN", true, None));
+        assert_eq!(draft.state_kind.as_deref(), Some("draft"));
+    }
+
     #[test]
     fn terminal_kinds_are_merged_and_closed() {
         assert!(is_terminal_state_kind("merged"));
@@ -407,22 +553,20 @@ mod tests {
     #[tokio::test]
     async fn live_status_refresh_keeps_exact_github_request_budget() {
         let stub = start_github_api_stub(|method, path, uri| match (method, path) {
-            (Method::GET, "/repos/soaplabs/repo/pulls/42") => StubResponse::json(
+            (Method::POST, "/graphql") => StubResponse::json(
                 StatusCode::OK,
-                serde_json::json!({
-                    "number": 42,
+                serde_json::json!({"data": {"repository": {"pullRequest": {
                     "title": "Characterize contracts",
-                    "body": "Body",
-                    "state": "open",
-                    "merged": false,
-                    "mergeable": true,
-                    "mergeable_state": "clean",
-                    "draft": false,
-                    "html_url": "https://github.com/soaplabs/repo/pull/42",
-                    "user": {"login": "alice"},
-                    "head": {"ref": "feature", "sha": "abc123"},
-                    "base": {"ref": "main", "sha": "def456"}
-                }),
+                    "url": "https://github.com/soaplabs/repo/pull/42",
+                    "state": "OPEN",
+                    "isDraft": false,
+                    "baseRefName": "main",
+                    "headRefName": "feature",
+                    "updatedAt": "2026-10-24T09:30:00Z",
+                    "commits": {"nodes": [
+                        {"commit": {"statusCheckRollup": {"state": "FAILURE"}}}
+                    ]}
+                }}}}),
             ),
             _ => StubResponse::not_found(uri),
         })
@@ -453,6 +597,9 @@ mod tests {
             .await
             .expect("one live PR read returns status");
         assert_eq!(status.state_kind.as_deref(), Some("open"));
+        assert_eq!(status.raw["updatedAt"], "2026-10-24T09:30:00Z");
+        assert_eq!(status.raw["checksState"], "failing");
+        assert_eq!(status.raw["headRef"], "feature");
 
         // Every request below was provoked by this test: the stub is reached
         // only by the client this Adapter built against it.
@@ -463,7 +610,7 @@ mod tests {
             .iter()
             .map(|request| (request.method.as_str(), request.uri.as_str()))
             .collect();
-        assert_eq!(observed, vec![("GET", "/repos/soaplabs/repo/pulls/42")]);
+        assert_eq!(observed, vec![("POST", "/graphql")]);
         assert!(
             status_requests
                 .iter()

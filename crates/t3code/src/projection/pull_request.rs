@@ -1,9 +1,11 @@
 //! The pull requests bound to a conversation.
 
+use chrono::{DateTime, Utc};
 use serde_json::{Map, Value, json};
 
 use super::scalar::instant;
 use super::scalar::non_empty;
+use super::scalar::nullable_instant;
 use crate::dao::{Conversation, ConversationPullRequest};
 use crate::ports::{is_draft, t3_pr_state};
 
@@ -118,10 +120,12 @@ fn pull_request_snapshot(pr: &ConversationPullRequest, repository: &str) -> Valu
         ("headBranch".to_string(), json!(head_branch)),
         ("baseBranch".to_string(), json!(base_branch)),
         ("isDraft".to_string(), json!(is_draft(state_kind))),
-        // When this deployment read the pull request, not when GitHub last
-        // changed it: the status blob carries no such stamp, and reporting the
-        // read as the change would claim the pull request moved on every refresh.
-        ("updatedAt".to_string(), Value::Null),
+        // GitHub's own stamp, never `status_read_at`: reporting the read as
+        // the change would claim the pull request moved on every refresh.
+        (
+            "updatedAt".to_string(),
+            nullable_instant(pr.updated_at.as_deref().and_then(github_instant)),
+        ),
         ("syncedAt".to_string(), json!(instant(pr.status_read_at))),
     ]);
     if let Some(decision) = pr.review_decision.as_deref().and_then(t3_review_decision) {
@@ -130,9 +134,26 @@ fn pull_request_snapshot(pr: &ConversationPullRequest, repository: &str) -> Valu
     if let Some(state) = pr.mergeable_state.as_deref() {
         snapshot.insert("mergeability".to_string(), json!(t3_mergeability(state)));
     }
-    // No `checksState`: nothing records one, and the contract reads an absent
-    // key as "this server does not say" rather than "the checks are pending".
+    if let Some(state) = pr.checks_state.as_deref().and_then(t3_checks_state) {
+        snapshot.insert("checksState".to_string(), json!(state));
+    }
     Value::Object(snapshot)
+}
+
+/// A checks rollup the blob stores, if it is one of T3's
+/// `PullRequestChecksState` values; anything else fails the contract.
+fn t3_checks_state(state: &str) -> Option<&'static str> {
+    ["passing", "failing", "pending"]
+        .into_iter()
+        .find(|known| *known == state)
+}
+
+/// A GitHub ISO 8601 timestamp, or `None` for one that does not parse, which
+/// the contract's `IsoDateTime` would refuse.
+fn github_instant(value: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|instant| instant.with_timezone(&Utc))
 }
 
 /// GitHub's review verdict as T3's `PullRequestReviewDecision`, or `None` for a

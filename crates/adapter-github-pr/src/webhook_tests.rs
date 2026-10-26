@@ -323,6 +323,39 @@ async fn close_metadata_and_pr_status_are_normalized_together() {
     }
 }
 
+/// The webhook's `updated_at` lands in the blob, and only a new head clears the
+/// checks rollup; any other action leaves the key out for the merge to keep.
+#[tokio::test]
+async fn a_pull_request_webhook_records_updated_at_and_clears_checks_only_on_a_new_head() {
+    let rule = fake_rule();
+    for (action, clears_checks) in [("synchronize", true), ("edited", false)] {
+        let payload = serde_json::json!({
+            "action": action,
+            "sender": {"login": "alice"},
+            "pull_request": {
+                "number": 42,
+                "state": "open",
+                "title": "feat: wip",
+                "updated_at": "2026-10-24T09:30:00Z",
+                "head": {"ref": "feature", "sha": "abc123"},
+                "base": {"ref": "main", "sha": "def456"}
+            }
+        });
+        let normalized = normalize_payload("pull_request", &payload, &rule).await;
+        let Some(WebhookStatusObservation::PullRequest { status, .. }) =
+            normalized.status_observations.first()
+        else {
+            panic!("{action}: expected pull-request status");
+        };
+        assert_eq!(status.raw["updatedAt"], "2026-10-24T09:30:00Z", "{action}");
+        assert_eq!(
+            status.raw.get("checksState"),
+            clears_checks.then_some(&serde_json::Value::Null),
+            "{action}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn a_merged_pull_request_is_a_candidate_whatever_the_close_does() {
     let payload = serde_json::json!({

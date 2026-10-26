@@ -204,6 +204,20 @@ impl Bindings {
             .await
     }
 
+    /// [`Self::record_external_status`], except a key `raw` omits keeps its
+    /// persisted value rather than being dropped.
+    pub async fn merge_external_status(
+        &self,
+        id: &str,
+        status: Option<&str>,
+        state_kind: Option<&str>,
+        raw: &serde_json::Value,
+    ) -> Result<(), sqlx::Error> {
+        self.store
+            .merge_external_status(id, status, state_kind, raw)
+            .await
+    }
+
     /// Record the pull request's latest review decision.
     pub async fn record_review_decision(
         &self,

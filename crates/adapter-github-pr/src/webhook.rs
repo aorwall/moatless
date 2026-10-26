@@ -14,7 +14,7 @@ use moatless_types::loops::SubscriptionMatch;
 
 use super::config::GithubPrRuleConfig;
 use super::signals::ReviewDecision;
-use super::status::{WebhookStatusObservation, github_external_status};
+use super::status::{PullRequestFields, WebhookStatusObservation, github_external_status};
 use super::subject::GithubPrSubject;
 use super::text::{
     CheckRunFailedText, PrOpenedText, ReviewCommentText, check_run_failed_text, issue_comment_text,
@@ -255,6 +255,7 @@ const STATUS_ACTIONS: &[&str] = &[
     "ready_for_review",
     "converted_to_draft",
     "edited",
+    "synchronize",
 ];
 
 async fn normalize_pull_request(
@@ -374,15 +375,21 @@ fn pr_status_observation(
         .get("draft")
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(false);
-    let status = github_external_status(
+    let mut status = github_external_status(&PullRequestFields {
         state,
         merged,
         draft,
-        pr.get("title").and_then(serde_json::Value::as_str),
-        pr.get("html_url").and_then(serde_json::Value::as_str),
-        pr.pointer("/base/ref").and_then(serde_json::Value::as_str),
-        pr.pointer("/head/ref").and_then(serde_json::Value::as_str),
-    );
+        title: pr.get("title").and_then(serde_json::Value::as_str),
+        url: pr.get("html_url").and_then(serde_json::Value::as_str),
+        base_ref: pr.pointer("/base/ref").and_then(serde_json::Value::as_str),
+        head_ref: pr.pointer("/head/ref").and_then(serde_json::Value::as_str),
+        updated_at: pr.get("updated_at").and_then(serde_json::Value::as_str),
+    });
+    // A new head has none of the old head's checks; any other action leaves
+    // `checksState` out, so the merge keeps the last live read's rollup.
+    if payload.get("action").and_then(serde_json::Value::as_str) == Some("synchronize") {
+        status.raw["checksState"] = serde_json::Value::Null;
+    }
     Some(WebhookStatusObservation::PullRequest {
         subject_key: context.subject(pr_number).key(),
         status,

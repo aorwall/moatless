@@ -381,6 +381,8 @@ pub(crate) async fn list(
                                   'title', bound.title,
                                   'base_ref', bound.base_ref,
                                   'head_ref', bound.head_ref,
+                                  'updated_at', bound.updated_at,
+                                  'checks_state', bound.checks_state,
                                   'state_kind', bound.state_kind,
                                   'status_read_at', bound.status_read_at,
                                   'linked_at', bound.linked_at,
@@ -404,6 +406,8 @@ pub(crate) async fn list(
                            NULLIF(b.external_status_raw ->> 'title', '')  AS title,
                            NULLIF(b.external_status_raw ->> 'baseRef', '') AS base_ref,
                            NULLIF(b.external_status_raw ->> 'headRef', '') AS head_ref,
+                           NULLIF(b.external_status_raw ->> 'updatedAt', '') AS updated_at,
+                           NULLIF(b.external_status_raw ->> 'checksState', '') AS checks_state,
                            b.external_state_kind AS state_kind,
                            COALESCE(b.external_status_updated_at, b.last_event_at)
                                AS status_read_at,

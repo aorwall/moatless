@@ -571,6 +571,30 @@ impl PgTaskBindingDao {
         Ok(())
     }
 
+    pub(crate) async fn merge_external_status(
+        &self,
+        id: &str,
+        status: Option<&str>,
+        state_kind: Option<&str>,
+        raw: &serde_json::Value,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE task_bindings
+               SET external_status            = $2,
+                   external_state_kind        = $3,
+                   external_status_raw        = COALESCE(external_status_raw, '{}'::jsonb) || $4,
+                   external_status_updated_at = now()
+               WHERE id = $1"#,
+        )
+        .bind(id)
+        .bind(status)
+        .bind(state_kind)
+        .bind(raw)
+        .execute(&self.0)
+        .await?;
+        Ok(())
+    }
+
     /// Persist the PR's latest review decision (approved / `changes_requested`
     /// / …) onto a binding. Leaves the `external_status*` columns untouched.
     pub(crate) async fn update_review_decision(
