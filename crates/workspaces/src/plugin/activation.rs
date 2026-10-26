@@ -224,8 +224,8 @@ pub fn reach_of(row: &crate::plugin::models::ActivationRow) -> Reach {
 ///
 /// The single place this read happens — the effective-plugins endpoint,
 /// repository skill list, and task provisioning all go through it, so display
-/// and sandbox cannot drift. Does not sync: the sandbox fetches each plugin
-/// at its head commit, but the stored skill *names* used here can be stale.
+/// and sandbox cannot drift. Does not sync, so the stored skill names can be
+/// stale; [`crate::ports::WorkspaceProjection`] syncs before a delivery.
 pub async fn resolve_for(
     plugins: &crate::plugin::Plugins,
     user_id: Option<uuid::Uuid>,

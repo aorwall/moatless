@@ -48,12 +48,27 @@ pub fn plugins(db: DbPool) -> Arc<Plugins> {
 }
 
 /// The workspace, placement and plugin stores behind the `WorkspaceResolver`
-/// port.
+/// port, delivering the plugin skills last stored without syncing them.
 pub fn workspace_resolver(db: DbPool) -> Arc<WorkspaceProjection> {
     Arc::new(WorkspaceProjection::new(
         Arc::new(PgWorkspaceDao(db.clone())),
         Arc::new(PgRepositoryDao(db.clone())),
         plugins(db),
+        None,
+    ))
+}
+
+/// [`workspace_resolver`], syncing each live plugin through `plugin_sync`
+/// before it resolves a sandbox's plugin deliveries.
+pub fn syncing_workspace_resolver(
+    db: DbPool,
+    plugin_sync: Arc<PluginSyncService>,
+) -> Arc<WorkspaceProjection> {
+    Arc::new(WorkspaceProjection::new(
+        Arc::new(PgWorkspaceDao(db.clone())),
+        Arc::new(PgRepositoryDao(db.clone())),
+        plugins(db),
+        Some(plugin_sync),
     ))
 }
 

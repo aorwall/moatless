@@ -18,8 +18,6 @@ use moatless_loops::compose::{ExternalReplyInputs, OutboundSenderInputs, Routing
 use moatless_ports::identity::GitHostTokenIssuer;
 use moatless_ports::sandbox::{PreflightPort, SandboxJoiner};
 use moatless_tasks::compose::{TaskOperations, TaskWorkflowInputs};
-use moatless_workspaces::skill::fetcher::GitHostSkillFetcher;
-use moatless_workspaces::skill::fetcher::SkillFetcher;
 use sandbox_proto::client::SandboxConnector;
 use std::sync::Arc;
 
@@ -70,6 +68,8 @@ impl AppState {
             repository_reader,
             workspaces,
             workspace_resolver,
+            skill_fetcher,
+            plugin_sync,
             workspace_credentials,
             tags,
             tag_resolver,
@@ -139,13 +139,6 @@ impl AppState {
         // Hoisted so the self-echo filter and the struct literal share one cache.
         let recently_sent = Arc::new(RecentlySent::new());
 
-        let skill_fetcher: Arc<dyn SkillFetcher> =
-            Arc::new(GitHostSkillFetcher::new(config.http.git_content));
-        let plugin_sync = moatless_workspaces::compose::plugin_sync(
-            pool.clone(),
-            skill_fetcher.clone(),
-            git_host_tokens.clone(),
-        );
         let skills = moatless_workspaces::compose::skills(
             pool.clone(),
             git_host_tokens.clone(),

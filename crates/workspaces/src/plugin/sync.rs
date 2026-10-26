@@ -33,6 +33,10 @@ const CHECK_INTERVAL: Duration = Duration::from_mins(1);
 /// before the stored snapshot is served instead.
 const CHECK_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// The most [`PluginSyncService::sync_live`] may add to a sandbox start, full
+/// fetches of plugins that moved on included.
+const SYNC_LIVE_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// Syncs plugin content into stored skills, and reads them back.
 pub struct PluginSyncService {
     plugins: Arc<dyn PluginDao>,
@@ -48,6 +52,7 @@ pub struct PluginSyncService {
     checked: Cache<String, Instant>,
     check_interval: Duration,
     check_timeout: Duration,
+    sync_live_timeout: Duration,
 }
 
 impl PluginSyncService {
@@ -83,6 +88,7 @@ impl PluginSyncService {
             checked: Cache::builder().max_capacity(1024).build(),
             check_interval,
             check_timeout,
+            sync_live_timeout: SYNC_LIVE_TIMEOUT,
         }
     }
 
@@ -105,6 +111,32 @@ impl PluginSyncService {
             );
         }
         self.plugins.list_skills(&plugin.id).await
+    }
+
+    /// [`Self::sync`] every plugin in `plugins` not disabled, concurrently,
+    /// giving up after [`SYNC_LIVE_TIMEOUT`]. A plugin that failed or did not
+    /// finish keeps its stored skills; each sync that finished is stored.
+    pub async fn sync_live(&self, actor: &Actor, plugins: &[Plugin]) {
+        let live = plugins.iter().filter(|p| p.disabled_at.is_none());
+        let syncs = futures::future::join_all(live.map(|plugin| async move {
+            if let Err(e) = self.sync(actor, plugin).await {
+                warn!(
+                    plugin_id = %plugin.id,
+                    git_url = %plugin.git_url,
+                    error = %e,
+                    "Plugin sync failed — delivering the last stored snapshot"
+                );
+            }
+        }));
+        if tokio::time::timeout(self.sync_live_timeout, syncs)
+            .await
+            .is_err()
+        {
+            warn!(
+                timeout = ?self.sync_live_timeout,
+                "Plugin sync timed out — delivering the last stored snapshot of the rest"
+            );
+        }
     }
 
     /// Bring a plugin's stored skills up to date with its source.
@@ -780,5 +812,54 @@ mod tests {
             "an unauthenticated probe of a private repository answers 404"
         );
         assert_eq!(plugins.list_skills("p1").await.unwrap(), seeded_snapshot());
+    }
+
+    #[tokio::test]
+    async fn sync_live_replaces_a_stale_snapshot_with_what_upstream_has() {
+        let plugins =
+            Arc::new(StubPlugins::with(plugin(Some("sha-old"))).seed_skills(seeded_snapshot()));
+        let fetcher = Arc::new(CountingFetcher::at_version("sha-new"));
+        let sync = service(plugins.clone(), fetcher.clone());
+
+        sync.sync_live(&actor(), &[plugin(Some("sha-old"))]).await;
+
+        let names: Vec<String> = plugins
+            .list_skills("p1")
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|s| s.name)
+            .collect();
+        assert_eq!(names, ["sample-skill"]);
+    }
+
+    #[tokio::test]
+    async fn sync_live_skips_a_disabled_plugin() {
+        let mut disabled = plugin(Some("sha-old"));
+        disabled.disabled_at = Some(chrono::Utc::now());
+        let plugins = Arc::new(StubPlugins::with(disabled.clone()));
+        let fetcher = Arc::new(CountingFetcher::at_version("sha-new"));
+        let sync = service(plugins, fetcher.clone());
+
+        sync.sync_live(&actor(), &[disabled]).await;
+
+        assert_eq!(fetcher.versions_probed.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn sync_live_stops_waiting_at_its_deadline() {
+        let plugins =
+            Arc::new(StubPlugins::with(plugin(Some("sha-old"))).seed_skills(seeded_snapshot()));
+        let fetcher = Arc::new(CountingFetcher::at_version("sha-new"));
+        let mut sync = service(plugins.clone(), fetcher.clone());
+        sync.sync_live_timeout = Duration::from_millis(10);
+
+        sync.sync_live(&actor(), &[plugin(Some("sha-old"))]).await;
+
+        assert_eq!(
+            plugins.list_skills("p1").await.unwrap(),
+            seeded_snapshot(),
+            "the 50 ms fetch outlasts the deadline, so nothing is stored"
+        );
     }
 }

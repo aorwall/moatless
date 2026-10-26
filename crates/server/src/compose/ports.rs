@@ -42,7 +42,9 @@ use moatless_tasks::task_event::operations::TaskEvents;
 use moatless_tasks::task_turn::operations::TaskTurns;
 use moatless_types::http::HttpTimeouts;
 use moatless_workspaces::plugin::Plugins;
+use moatless_workspaces::plugin::sync::PluginSyncService;
 use moatless_workspaces::repository::Repositories;
+use moatless_workspaces::skill::fetcher::{GitHostSkillFetcher, SkillFetcher};
 use moatless_workspaces::workspace::Workspaces;
 use moatless_workspaces::workspace::credentials::service::WorkspaceCredentialService;
 
@@ -98,6 +100,11 @@ pub struct Ports {
     /// The workspace, placement, and plugin stores behind the
     /// `WorkspaceResolver` port.
     pub workspace_resolver: Arc<moatless_workspaces::ports::WorkspaceProjection>,
+    /// Reads a plugin's skills from its git source.
+    pub skill_fetcher: Arc<dyn SkillFetcher>,
+    /// The one sync of plugin content into stored skills, shared so its
+    /// per-plugin locks and check interval hold across every reader.
+    pub plugin_sync: Arc<PluginSyncService>,
     /// Provider credentials pinned to a Workspace (`workspace_credentials`).
     /// The highest-precedence source of a sandbox's provider credentials.
     pub workspace_credentials: Arc<WorkspaceCredentialService>,
@@ -196,7 +203,6 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
     let repositories = moatless_workspaces::compose::repositories(pool.clone());
     let repository_reader = moatless_workspaces::compose::repository_reader(pool.clone());
     let plugins = moatless_workspaces::compose::plugins(pool.clone());
-    let workspace_resolver = moatless_workspaces::compose::workspace_resolver(pool.clone());
 
     let connections = moatless_adapter_model::compose::adapter_connections(pool.clone());
 
@@ -230,6 +236,16 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
         forgejo_instances.clone(),
         config.http.self_hosted_git,
     );
+
+    let skill_fetcher: Arc<dyn SkillFetcher> =
+        Arc::new(GitHostSkillFetcher::new(config.http.git_content));
+    let plugin_sync = moatless_workspaces::compose::plugin_sync(
+        pool.clone(),
+        skill_fetcher.clone(),
+        git_host_tokens.clone(),
+    );
+    let workspace_resolver =
+        moatless_workspaces::compose::syncing_workspace_resolver(pool.clone(), plugin_sync.clone());
 
     // The tasks band's own construction root owns its stores; this process takes
     // the capabilities over them, and `AppState` consumes the graph to assemble
@@ -292,6 +308,8 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
         repository_reader,
         workspaces,
         workspace_resolver,
+        skill_fetcher,
+        plugin_sync,
         workspace_credentials,
         tags,
         tag_resolver,

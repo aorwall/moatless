@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use moatless_types::access_control::ScopeContext;
+use moatless_types::access_control::{Actor, ScopeContext};
 use moatless_types::store::StoreError;
 use moatless_workspace_ports::{
     PluginDeliveries, PluginDelivery, RepoPlacement, RepositoryReader, ResolvedWorkspace,
@@ -20,6 +20,8 @@ use uuid::Uuid;
 
 use crate::plugin::Plugins;
 use crate::plugin::activation;
+use crate::plugin::models::Plugin;
+use crate::plugin::sync::PluginSyncService;
 use crate::repository::dao::RepositoryDao;
 use crate::workspace::credentials::WorkspaceCredentialService;
 use crate::workspace::dao::WorkspaceDao;
@@ -31,6 +33,9 @@ pub struct WorkspaceProjection {
     workspaces: Arc<dyn WorkspaceDao>,
     repositories: Arc<dyn RepositoryDao>,
     plugins: Arc<Plugins>,
+    /// Refreshes stored skill names before a delivery reads them; `None` only
+    /// where nothing delivers to a sandbox.
+    plugin_sync: Option<Arc<PluginSyncService>>,
 }
 
 impl WorkspaceProjection {
@@ -38,12 +43,36 @@ impl WorkspaceProjection {
         workspaces: Arc<dyn WorkspaceDao>,
         repositories: Arc<dyn RepositoryDao>,
         plugins: Arc<Plugins>,
+        plugin_sync: Option<Arc<PluginSyncService>>,
     ) -> Self {
         Self {
             workspaces,
             repositories,
             plugins,
+            plugin_sync,
         }
+    }
+
+    /// The registered plugins an activation record for `user_id` in
+    /// `workspace_id` names, global records included.
+    async fn activated_plugins(
+        &self,
+        user_id: Uuid,
+        workspace_id: &str,
+    ) -> Result<Vec<Plugin>, StoreError> {
+        let store = self.plugins.store();
+        let rows = store
+            .list_activations_for(Some(user_id), Some(workspace_id))
+            .await
+            .map_err(|e| StoreError::with_source("list plugin activations", e))?;
+        let registered = store
+            .list_all()
+            .await
+            .map_err(|e| StoreError::with_source("list plugins", e))?;
+        Ok(registered
+            .into_iter()
+            .filter(|p| rows.iter().any(|r| r.plugin_id == p.id))
+            .collect())
     }
 }
 
@@ -125,6 +154,17 @@ impl WorkspaceResolver for WorkspaceProjection {
         user_id: Option<Uuid>,
         workspace_id: &str,
     ) -> Result<PluginDeliveries, StoreError> {
+        // Synced first: the sandbox prunes every skill these names omit, so a
+        // stale snapshot deletes the skills upstream added since. Only plugins
+        // a record here names; with no run-as identity there is no credential
+        // to read a private plugin as.
+        if let (Some(sync), Some(user_id)) = (&self.plugin_sync, user_id) {
+            sync.sync_live(
+                &Actor::of(user_id.to_string()).on_workspace(Some(workspace_id)),
+                &self.activated_plugins(user_id, workspace_id).await?,
+            )
+            .await;
+        }
         let (picked, removed) =
             activation::resolve_with_deselected_for(&self.plugins, user_id, Some(workspace_id))
                 .await
