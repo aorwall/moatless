@@ -6,6 +6,7 @@ use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
+use crate::agent::co_author;
 use crate::agent::codex_app_server;
 use crate::agent::codex_app_server::AppServerSession;
 use crate::agent::codex_app_server::ServerEvent;
@@ -177,7 +178,10 @@ impl CodexProcess {
         let request = AgentRunRequest {
             content: Vec::new(),
             model: input.model.clone(),
-            system_prompt: input.system_prompt.clone(),
+            system_prompt: co_author::with_codex_commit_note(
+                input.system_prompt.as_deref(),
+                input.env.as_ref(),
+            ),
             resume: resume.clone(),
             agent_profile: Some(moatless_types::agent::AgentProfile::Codex.to_string()),
             agent_mode: input.mode.clone(),

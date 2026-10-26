@@ -733,6 +733,7 @@ impl GithubPrInboundRouter {
                     "adapter": ADAPTER_LABEL,
                     "source_matcher": rule.source_matcher,
                 }),
+                requested_by: None,
             },
         )
         .await?;

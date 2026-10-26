@@ -321,6 +321,7 @@ impl LinearInstallation {
                 state.task_closer.clone(),
                 self.active_turns.clone(),
                 state.routing.clone(),
+                state.user_directory.clone(),
             ),
         );
         crate::adapters::providers::linear::delivery::register(handlers, router);

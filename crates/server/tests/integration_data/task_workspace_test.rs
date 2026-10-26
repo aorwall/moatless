@@ -44,6 +44,7 @@ fn loop_task(workspace_id: &str) -> NewTask {
         name: Some("loop task".to_string()),
         description: None,
         created_by: Some(common::USER_1.to_string()),
+        run_as_user_id: None,
         visibility: Visibility::Private,
         loop_id: "loop-1".to_string(),
         append_system_prompt: None,

@@ -25,7 +25,7 @@ use moatless_adapter_model::loops::LoopReader;
 use moatless_loops::adapters::delivery::{ConnectionDeliveryPayload, register_connection_delivery};
 use moatless_loops::bindings::operations::Bindings;
 use moatless_loops::bindings::runtime::RoutingService;
-use moatless_ports::identity::AppCredentials;
+use moatless_ports::identity::{AppCredentials, ProviderIdentityLink};
 use moatless_ports::sandbox::SandboxWaker;
 use moatless_ports::task::MessageAcceptor;
 use moatless_ports::task::RelationRecorder;
@@ -83,12 +83,13 @@ pub struct LinearInboundRouter {
     task_closer: Arc<dyn TaskFinisher>,
     linear_active_turns: Arc<ActiveLinearTurns>,
     routing: Arc<RoutingService>,
+    identity: Arc<dyn ProviderIdentityLink>,
 }
 
 impl LinearInboundRouter {
     #[expect(
         clippy::too_many_arguments,
-        reason = "the fourteen ports the six linear delivery handlers read, \
+        reason = "the fifteen ports the six linear delivery handlers read, \
                   wired in from the composition root; the rejected alternatives \
                   are threading thirteen params through five delivery closures, \
                   and extending the shared RoutingService with one provider's \
@@ -109,6 +110,7 @@ impl LinearInboundRouter {
         task_closer: Arc<dyn TaskFinisher>,
         linear_active_turns: Arc<ActiveLinearTurns>,
         routing: Arc<RoutingService>,
+        identity: Arc<dyn ProviderIdentityLink>,
     ) -> Self {
         Self {
             adapter_connections,
@@ -125,6 +127,7 @@ impl LinearInboundRouter {
             task_closer,
             linear_active_turns,
             routing,
+            identity,
         }
     }
 }
@@ -560,6 +563,7 @@ impl LinearInboundRouter {
             self.task_relations.as_ref(),
             self.message_send.as_ref(),
             &self.linear_active_turns,
+            self.identity.as_ref(),
             &api,
             &connection,
             &rules,

@@ -58,6 +58,10 @@ pub struct CreateTaskParams<'a> {
     pub related_to: Option<RelatedTask>,
     /// `adapter`/source metadata attached to the `Open` task event.
     pub event_metadata: serde_json::Value,
+    /// The user the firing works for, when the adapter resolved one. The Task
+    /// becomes theirs while acting as the Loop's run-as, when the task band's
+    /// `TaskOpener` allows it; their repository access then caps its token.
+    pub requested_by: Option<String>,
 }
 
 /// Single task-creation entry point for every Subscription firing path.
@@ -77,6 +81,14 @@ pub async fn create_task_from_loop(
         params.origin_prelude,
     );
 
+    let run_as = config.effective_user_id();
+    let (created_by, run_as_user_id) = match params
+        .requested_by
+        .filter(|user| !user.is_empty() && user != run_as)
+    {
+        Some(person) => (person, Some(run_as.to_string())),
+        None => (run_as.to_string(), None),
+    };
     let outcome = task_creation
         .open(NewTask {
             workspace_id: config.workspace_id.clone(),
@@ -84,7 +96,8 @@ pub async fn create_task_from_loop(
             model: config.model.clone(),
             name: params.name,
             description: Some(params.description),
-            created_by: Some(config.effective_user_id().to_string()),
+            created_by: Some(created_by),
+            run_as_user_id,
             visibility: params.visibility,
             loop_id: config.id.clone(),
             append_system_prompt,
@@ -138,7 +151,109 @@ pub(crate) async fn create_task_for_external_message(
                 "adapter": config.adapter_kind,
                 "source_id": config.source_id,
             }),
+            requested_by: None,
         },
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use chrono::Utc;
+    use moatless_ports::task::SandboxProvision;
+    use moatless_types::access_control::Scope;
+    use moatless_types::agent::AgentProfile;
+    use moatless_types::loops::RoutingMode;
+
+    use super::*;
+
+    #[derive(Default)]
+    struct CapturingOpener(Mutex<Option<NewTask>>);
+
+    #[async_trait::async_trait]
+    impl TaskOpener for CapturingOpener {
+        async fn open(&self, req: NewTask) -> Result<TaskOpened, TaskOpenError> {
+            *self.0.lock().unwrap() = Some(req);
+            Ok(TaskOpened {
+                task_id: "task-1".to_string(),
+                provision: SandboxProvision::Started,
+            })
+        }
+    }
+
+    fn loop_running_as(run_as: &str) -> LoopContext {
+        let now = Utc::now();
+        LoopContext {
+            id: "loop-1".to_string(),
+            adapter_kind: "linear".to_string(),
+            source_id: "team-1".to_string(),
+            source_name: None,
+            workspace_id: "ws-1".to_string(),
+            routing_mode: RoutingMode::BySubject,
+            prompt_template: None,
+            active: true,
+            allow_direct_send: false,
+            adapter_config: None,
+            ongoing_task_id: None,
+            scope: Scope::User,
+            task_name: None,
+            tag_ids: vec![],
+            memory_preload: Vec::new(),
+            skills: vec![],
+            run_as_user_id: Some(run_as.to_string()),
+            agent_profile: AgentProfile::ClaudeCode,
+            model: None,
+            close_after_settled_days: None,
+            settle_after_hours: None,
+            created_by: "admin".to_string(),
+            created_at: now,
+            updated_at: now,
+            node_selector: None,
+            stop_when_done: false,
+        }
+    }
+
+    /// `(created_by, run_as_user_id)` of the Task opened for `requested_by`.
+    async fn opened_for(requested_by: Option<&str>) -> (Option<String>, Option<String>) {
+        let opener = CapturingOpener::default();
+        create_task_from_loop(
+            &opener,
+            &loop_running_as("bot"),
+            CreateTaskParams {
+                name: None,
+                description: String::new(),
+                visibility: Visibility::Public,
+                origin_prelude: None,
+                reply_instructions: None,
+                related_to: None,
+                event_metadata: serde_json::json!({}),
+                requested_by: requested_by.map(str::to_string),
+            },
+        )
+        .await
+        .expect("the opener accepts every task");
+        let task = opener.0.lock().unwrap().take().expect("a task was opened");
+        (task.created_by, task.run_as_user_id)
+    }
+
+    #[tokio::test]
+    async fn a_requester_owns_the_task_that_still_runs_as_the_loops_user() {
+        assert_eq!(
+            opened_for(Some("ada")).await,
+            (Some("ada".to_string()), Some("bot".to_string()))
+        );
+    }
+
+    #[tokio::test]
+    async fn without_a_distinct_requester_the_loops_user_owns_the_task() {
+        for requested_by in [None, Some(""), Some("bot")] {
+            assert_eq!(
+                opened_for(requested_by).await,
+                (Some("bot".to_string()), None),
+                "requested_by {requested_by:?}"
+            );
+        }
+    }
 }

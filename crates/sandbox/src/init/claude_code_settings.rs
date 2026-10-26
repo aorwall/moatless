@@ -23,17 +23,23 @@ pub(super) fn claude_md_excludes(repo_dirs: &[String]) -> Vec<String> {
 
 /// Write the default Claude Code settings file into `claude_config_dir`.
 ///
-/// Always overwrites the static defaults we own. Failure is logged but
-/// non-fatal: Claude CLI still runs without this file, just without our
-/// preferred defaults.
+/// Always overwrites the file; a failure is logged, since the CLI runs without
+/// it. `co_author` swaps the CLI's commit trailer for
+/// [`crate::agent::co_author::claude_commit_attribution`].
 pub(super) async fn write_claude_code_settings(
     claude_config_dir: &str,
     claude_md_excludes: &[String],
+    co_author: Option<&str>,
 ) {
     let path = format!("{claude_config_dir}/settings.json");
-    let payload = serde_json::json!({
+    let mut payload = serde_json::json!({
         "claudeMdExcludes": claude_md_excludes,
     });
+    if let Some(co_author) = co_author {
+        payload["attribution"] = serde_json::json!({
+            "commit": crate::agent::co_author::claude_commit_attribution(co_author),
+        });
+    }
 
     match fs::write(&path, payload.to_string()).await {
         Ok(()) => info!(path = %path, "Wrote Claude Code settings file"),
@@ -56,7 +62,7 @@ mod tests {
         let claude_config_dir = tmp.path().join(".claude");
         tokio::fs::create_dir_all(&claude_config_dir).await.unwrap();
 
-        write_claude_code_settings(&claude_config_dir.display().to_string(), &[]).await;
+        write_claude_code_settings(&claude_config_dir.display().to_string(), &[], None).await;
 
         let contents = tokio::fs::read_to_string(claude_config_dir.join("settings.json"))
             .await
@@ -75,7 +81,7 @@ mod tests {
             .await
             .unwrap();
 
-        write_claude_code_settings(&claude_config_dir.display().to_string(), &[]).await;
+        write_claude_code_settings(&claude_config_dir.display().to_string(), &[], None).await;
 
         let contents = tokio::fs::read_to_string(claude_config_dir.join("settings.json"))
             .await
@@ -95,7 +101,7 @@ mod tests {
             "/workspace/web/CLAUDE.md".to_string(),
         ];
 
-        write_claude_code_settings(&claude_config_dir.display().to_string(), &excludes).await;
+        write_claude_code_settings(&claude_config_dir.display().to_string(), &excludes, None).await;
 
         let contents = tokio::fs::read_to_string(claude_config_dir.join("settings.json"))
             .await
@@ -109,6 +115,35 @@ mod tests {
             .map(|v| v.as_str().unwrap().to_string())
             .collect();
         assert_eq!(listed, excludes);
+    }
+
+    async fn written_settings(co_author: Option<&str>) -> serde_json::Value {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path().display().to_string();
+        write_claude_code_settings(&dir, &[], co_author).await;
+        let contents = tokio::fs::read_to_string(tmp.path().join("settings.json"))
+            .await
+            .unwrap();
+        serde_json::from_str(&contents).unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_co_author_joins_claude_in_the_commit_trailer() {
+        let parsed = written_settings(Some("Ada Lovelace <ada@example.com>")).await;
+        assert_eq!(
+            parsed["attribution"]["commit"],
+            "Co-Authored-By: Claude <noreply@anthropic.com>\n\
+             Co-authored-by: Ada Lovelace <ada@example.com>"
+        );
+        assert!(
+            parsed["attribution"].get("pr").is_none(),
+            "the PR line stays the CLI's own"
+        );
+    }
+
+    #[tokio::test]
+    async fn without_a_co_author_the_cli_keeps_its_own_trailer() {
+        assert!(written_settings(None).await.get("attribution").is_none());
     }
 
     #[test]

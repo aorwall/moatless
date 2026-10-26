@@ -467,6 +467,7 @@ impl GithubPrInboundRouter {
                         "matched": request.matched,
                     },
                 }),
+                requested_by: None,
             },
         )
         .await;

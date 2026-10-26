@@ -193,6 +193,7 @@ impl AppState {
             repository_reader: repository_reader.clone(),
             workspace_resolver: workspace_resolver.clone(),
             user_display: user_directory.clone(),
+            users: user_directory.clone(),
             task_bindings: binding_directory.clone(),
             sandbox: lifecycle.clone(),
             starter: lifecycle.clone(),

@@ -401,6 +401,7 @@ pub async fn drain_linear_adapter_delivery(pool: &PgPool, worker_state: AppState
                 ),
             ),
             worker_state.routing.clone(),
+            worker_state.user_directory.clone(),
         ),
     );
     moatless_backend::adapters::providers::linear::delivery::register(&mut handlers, router);

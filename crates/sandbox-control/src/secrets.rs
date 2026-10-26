@@ -11,7 +11,7 @@ use tracing::warn;
 
 use moatless_core::secret_keys::is_reserved_key;
 use moatless_types::access_control::Actor;
-use moatless_types::credential_key::{GH_TOKEN, GIT_TOKEN};
+use moatless_types::credential_key::{GH_TOKEN, GIT_CO_AUTHOR, GIT_TOKEN};
 use moatless_workspace_types::repository::GitHostRepo;
 use moatless_workspace_types::repository::RepositoryProvider as GitHostProvider;
 
@@ -101,6 +101,9 @@ pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMa
     .await;
 
     fill_git_identity(&mut credentials, input.users, user_id).await;
+    if let Some(person) = input.actor.person() {
+        fill_co_author(&mut credentials, input.users, person).await;
+    }
 
     let scoped = resolve_scoped_secrets(input.secrets, user_id, input.task_id).await;
 
@@ -163,8 +166,9 @@ fn fill_missing_from_scoped(
         // The whole [`is_git_auth_key`] set, not just `GITHUB_TOKEN`: a scoped
         // `env` secret named `GIT_TOKEN` or `GH_TOKEN` reaches git exactly the
         // same way, and this guard exists so preflight and runtime delivery
-        // cannot disagree about which token a sandbox holds.
-        if is_git_auth_key(&key) {
+        // cannot disagree about which token a sandbox holds. `GIT_CO_AUTHOR`
+        // is skipped so only `fill_co_author`'s screened value reaches a trailer.
+        if is_git_auth_key(&key) || key == GIT_CO_AUTHOR {
             continue;
         }
         credentials.entry(key).or_insert(value);
@@ -268,9 +272,10 @@ pub async fn resolve_workspace_env_vars(
 }
 
 /// Keys a Workspace's `env_vars` must never define on any channel reaching a
-/// pod: reserved runtime keys plus every git-auth key ([`is_git_auth_key`]).
+/// pod: reserved runtime keys, every git-auth key ([`is_git_auth_key`]) and
+/// [`GIT_CO_AUTHOR`], which only the backend may set.
 pub fn is_platform_owned_key(key: &str) -> bool {
-    is_reserved_key(key) || is_git_auth_key(key)
+    is_reserved_key(key) || is_git_auth_key(key) || key == GIT_CO_AUTHOR
 }
 
 /// Every git-authentication key minted for a task's run-as identity.
@@ -573,6 +578,40 @@ async fn fill_git_identity(
     if let Some(email) = user.email {
         credentials.insert(GIT_USER_EMAIL.to_string(), email);
     }
+}
+
+/// Set [`GIT_CO_AUTHOR`] to `person`'s account name, falling back to their
+/// login, and email.
+///
+/// Left unset for a bot, for a person with no email, and for a name or email
+/// that could break out of the one trailer line the sandbox writes it into.
+async fn fill_co_author(
+    credentials: &mut HashMap<String, String>,
+    users: Option<&Arc<dyn CommitIdentity>>,
+    person: &str,
+) {
+    let Some(users) = users else { return };
+    let user = match users.git_identity(person).await {
+        Ok(Some(u)) if !u.is_bot => u,
+        Ok(_) => return,
+        Err(e) => {
+            warn!(error = %e, person, "Failed to look up the co-author's git identity");
+            return;
+        }
+    };
+    let Some(email) = user.email else { return };
+    let name = user
+        .name
+        .filter(|n| !n.trim().is_empty())
+        .unwrap_or(user.login);
+    let unsafe_char = |c: char| c.is_control() || c == '<' || c == '>';
+    if name.contains(unsafe_char) || email.contains(unsafe_char) || email.trim().is_empty() {
+        return;
+    }
+    credentials.insert(
+        GIT_CO_AUTHOR.to_string(),
+        format!("{} <{}>", name.trim(), email.trim()),
+    );
 }
 
 #[cfg(test)]
@@ -1237,6 +1276,58 @@ mod tests {
             }))
         });
         Arc::new(users)
+    }
+
+    async fn co_author_of(users: &Arc<dyn CommitIdentity>) -> Option<String> {
+        let mut credentials = HashMap::new();
+        fill_co_author(&mut credentials, Some(users), "ada").await;
+        credentials.remove(GIT_CO_AUTHOR)
+    }
+
+    #[tokio::test]
+    async fn the_person_behind_a_run_as_identity_is_the_co_author() {
+        let named = users_returning("ada", Some("Ada Lovelace"), Some("ada@example.com"), false);
+        assert_eq!(
+            co_author_of(&named).await.as_deref(),
+            Some("Ada Lovelace <ada@example.com>")
+        );
+        let unnamed = users_returning("ada", None, Some("ada@example.com"), false);
+        assert_eq!(
+            co_author_of(&unnamed).await.as_deref(),
+            Some("ada <ada@example.com>"),
+            "a person with no account name is credited by login"
+        );
+    }
+
+    #[tokio::test]
+    async fn no_co_author_without_an_address_github_can_credit() {
+        for users in [
+            users_returning("ada", Some("Ada"), None, false),
+            users_returning("bot", Some("Bot"), Some("bot@example.com"), true),
+            users_returning(
+                "ada",
+                Some("Ada\nSigned-off-by: x"),
+                Some("ada@example.com"),
+                false,
+            ),
+            users_returning("ada", Some("Ada"), Some("ada@example.com> <x@y"), false),
+        ] {
+            assert_eq!(co_author_of(&users).await, None);
+        }
+    }
+
+    #[test]
+    fn only_the_backend_names_a_co_author() {
+        assert!(is_platform_owned_key(GIT_CO_AUTHOR));
+        let mut credentials = HashMap::new();
+        fill_missing_from_scoped(
+            &mut credentials,
+            HashMap::from([(
+                GIT_CO_AUTHOR.to_string(),
+                "Eve <e@x>\nSigned-off-by: x".to_string(),
+            )]),
+        );
+        assert!(credentials.is_empty());
     }
 
     #[tokio::test]

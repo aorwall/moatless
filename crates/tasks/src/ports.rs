@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use moatless_ports::activity::{ActivitySource, SubagentUsage};
+use moatless_ports::identity::UserResolver;
 use moatless_ports::task::{
     AssistantReply, CloseReason, EventSubject, ExternalEvent, InboundTurn, MessageAcceptor,
     NewTask, PendingWorkReader, RelationRecorder, SandboxProvision, TagResolver, TaskDescriptor,
@@ -327,6 +328,13 @@ impl TaskOpener for crate::task::creation::TaskCreationService {
         let repository_id =
             crate::task::service::primary_repository_id(self.workspaces.as_ref(), &workspace_id)
                 .await?;
+        let (created_by, run_as_user_id) = owner_and_run_as(
+            self.users.as_ref(),
+            workspace.run_as_user_id.as_deref(),
+            req.created_by,
+            req.run_as_user_id,
+        )
+        .await?;
         let outcome = self
             .create(
                 crate::task::creation::NewTaskRequest {
@@ -337,10 +345,8 @@ impl TaskOpener for crate::task::creation::TaskCreationService {
                     description: req.description,
                     branch: None,
                     model: req.model,
-                    created_by: req.created_by,
-                    // An adapter-opened Task has no admin behind it to name a
-                    // run-as, so it inherits the Workspace's account.
-                    run_as_user_id: None,
+                    created_by,
+                    run_as_user_id,
                     headless: true,
                     visibility: req.visibility,
                     loop_id: Some(req.loop_id),
@@ -386,6 +392,34 @@ impl TaskOpener for crate::task::creation::TaskCreationService {
             },
         })
     }
+}
+
+/// The owner and Task-level run-as of a Loop's [`NewTask`].
+///
+/// A requester owns it only under a bot run-as, rather than a human whose
+/// provider tokens and secrets would then sit in someone else's Task. A
+/// Workspace run-as drops the Loop's: a Task-level one would outrank it.
+async fn owner_and_run_as(
+    users: &dyn UserResolver,
+    workspace_run_as: Option<&str>,
+    created_by: Option<String>,
+    run_as: Option<String>,
+) -> Result<(Option<String>, Option<String>), StoreError> {
+    let Some(run_as) = run_as else {
+        return Ok((created_by, None));
+    };
+    if workspace_run_as.is_some_and(|user| !user.is_empty()) {
+        return Ok((created_by, None));
+    }
+    let is_bot = users
+        .run_as_target(&run_as)
+        .await?
+        .is_some_and(|user| user.is_bot);
+    Ok(if is_bot {
+        (created_by, Some(run_as))
+    } else {
+        (Some(run_as), None)
+    })
 }
 
 /// The creation failures a Loop can tell apart, with the store failures folded
@@ -565,5 +599,65 @@ impl ActivitySource for Activities {
         crate::conversation::read_dao::subagent_usage(&self.pool, task_id, calls)
             .await
             .map_err(|e| StoreError::with_source(format!("read subagent usage on {task_id}"), e))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use moatless_ports::identity::{MockUserResolver, RunAsUser};
+    use uuid::Uuid;
+
+    use super::owner_and_run_as;
+
+    const LOOP_USER: &str = "6f1c1f0e-0000-4000-8000-000000000001";
+
+    fn loop_user(is_bot: bool) -> MockUserResolver {
+        let mut users = MockUserResolver::new();
+        users.expect_run_as_target().returning(move |_| {
+            Ok(Some(RunAsUser {
+                id: Uuid::parse_str(LOOP_USER).unwrap(),
+                login: "loop-user".to_string(),
+                is_bot,
+            }))
+        });
+        users
+    }
+
+    async fn split(
+        users: &MockUserResolver,
+        workspace_run_as: Option<&str>,
+    ) -> (Option<String>, Option<String>) {
+        owner_and_run_as(
+            users,
+            workspace_run_as,
+            Some("ada".to_string()),
+            Some(LOOP_USER.to_string()),
+        )
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_requester_owns_a_task_that_runs_as_the_loops_bot() {
+        assert_eq!(
+            split(&loop_user(true), None).await,
+            (Some("ada".to_string()), Some(LOOP_USER.to_string()))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_human_loop_user_keeps_the_task_it_runs_as() {
+        assert_eq!(
+            split(&loop_user(false), None).await,
+            (Some(LOOP_USER.to_string()), None)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_workspace_run_as_outranks_the_loops() {
+        assert_eq!(
+            split(&MockUserResolver::new(), Some("machine")).await,
+            (Some("ada".to_string()), None)
+        );
     }
 }

@@ -17,3 +17,7 @@ pub const GIT_TOKEN: &str = "GIT_TOKEN";
 
 /// The provider token under the name `gh` reads, derived beside [`GIT_TOKEN`].
 pub const GH_TOKEN: &str = "GH_TOKEN";
+
+/// `Name <email>` of the person a Task's work is for, sent only when the
+/// sandbox commits as another identity.
+pub const GIT_CO_AUTHOR: &str = "GIT_CO_AUTHOR";

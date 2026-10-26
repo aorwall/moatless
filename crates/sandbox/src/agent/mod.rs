@@ -1,5 +1,6 @@
 pub mod agent_state;
 pub mod background_watch_job;
+pub(crate) mod co_author;
 pub(crate) mod codex_app_server;
 pub mod coordinator;
 pub mod dispatcher;

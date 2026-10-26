@@ -21,6 +21,9 @@ pub struct NewTask {
     pub description: Option<String>,
     /// The identity the Task is attributed to.
     pub created_by: Option<String>,
+    /// The account the Task acts as when that is not `created_by`. A Workspace
+    /// that names its own run-as identity still outranks it.
+    pub run_as_user_id: Option<String>,
     pub visibility: Visibility,
     /// The Loop that fired.
     pub loop_id: String,

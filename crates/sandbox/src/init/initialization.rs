@@ -142,24 +142,15 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
     })
     .await?;
 
-    // 2. Write the default Claude Code settings file. Static defaults; safe to
-    //    overwrite on every start. Non-fatal — Claude CLI still runs without it.
-    let claude_md_excludes = claude_code_settings::claude_md_excludes(&state.config.repo_dirs());
-    claude_code_settings::write_claude_code_settings(
-        &state.config.claude_config_dir,
-        &claude_md_excludes,
-    )
-    .await;
-
-    // 2b. Write the default Codex config.toml. Disables the broken
-    //     `codex_apps` MCP server. Non-fatal — Codex still runs without it.
+    // 2. Write the default Codex config.toml. Disables the broken
+    //    `codex_apps` MCP server. Non-fatal — Codex still runs without it.
     codex_config::write_codex_config(
         &state.config.codex_home_dir,
         state.config.openai_base_url.as_deref(),
     )
     .await;
 
-    // 2c. Stage the plugin that gives Claude its `LSP` tool. Non-fatal — the
+    // 2b. Stage the plugin that gives Claude its `LSP` tool. Non-fatal — the
     //     agent still runs, only without code intelligence.
     let claude_config_dir = PathBuf::from(&state.config.claude_config_dir);
     let servers = state.config.language_servers.clone();
@@ -198,6 +189,18 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
         "CredentialsFetched",
         "Fetched credentials from backend",
         false,
+    )
+    .await;
+
+    // 2c. Write the Claude Code settings file, after the fetch because the
+    //     co-author it credits arrives with the credentials. Safe to overwrite
+    //     on every start. Non-fatal — Claude CLI still runs without it.
+    let claude_md_excludes = claude_code_settings::claude_md_excludes(&state.config.repo_dirs());
+    let credentials = state.credentials.read().await.clone();
+    claude_code_settings::write_claude_code_settings(
+        &state.config.claude_config_dir,
+        &claude_md_excludes,
+        crate::agent::co_author::co_author(&credentials),
     )
     .await;
 

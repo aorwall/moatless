@@ -407,6 +407,7 @@ async fn deliver_to_ongoing_task(
         &issue.identifier,
         &issue.title,
         text,
+        None,
     )
     .await
     {
@@ -554,6 +555,7 @@ async fn provision_issue_task(
         &issue.identifier,
         &issue.title,
         &inbound_text,
+        None,
     )
     .await
     {
@@ -900,6 +902,7 @@ pub(super) async fn insert_event_task(
     identifier: &str,
     title: &str,
     preview: &str,
+    requested_by: Option<String>,
 ) -> Result<String, AdapterError> {
     // The shared spine's task-creation entry point: preflight, insert, tags,
     // provisioning, and the `Open` event all run inside it. On preflight
@@ -926,6 +929,7 @@ pub(super) async fn insert_event_task(
                 "adapter": ADAPTER_LABEL,
                 "source_matcher": rule.source_matcher,
             }),
+            requested_by,
         },
     )
     .await

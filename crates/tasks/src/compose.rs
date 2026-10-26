@@ -12,7 +12,7 @@ use moatless_core::db::DbPool;
 use moatless_core::events::EventPublisher;
 use moatless_core::file_storage::Files;
 use moatless_identity::credentials::CredentialService;
-use moatless_ports::identity::UserDisplay;
+use moatless_ports::identity::{UserDisplay, UserResolver};
 use moatless_ports::sandbox::{
     CredentialBroadcast, PreflightPort, SandboxJoiner, SandboxLifecycle, SandboxStarter,
 };
@@ -272,6 +272,7 @@ impl TaskGraph {
             repository_reader,
             workspace_resolver,
             user_display,
+            users,
             task_bindings,
             sandbox,
             starter,
@@ -293,6 +294,7 @@ impl TaskGraph {
                 self.forks,
                 repository_reader.clone(),
                 workspace_resolver.clone(),
+                users,
                 events.clone(),
                 starter,
                 joiner,
@@ -353,6 +355,8 @@ pub struct TaskWorkflowInputs {
     pub repository_reader: Arc<dyn RepositoryReader>,
     pub workspace_resolver: Arc<dyn WorkspaceResolver>,
     pub user_display: Arc<dyn UserDisplay>,
+    /// Whether a Loop's run-as is a bot, for the `TaskOpener` path.
+    pub users: Arc<dyn UserResolver>,
     pub task_bindings: Arc<dyn TaskBindings>,
     /// Stop and archive-retention control, for the close path.
     pub sandbox: Arc<dyn SandboxLifecycle>,

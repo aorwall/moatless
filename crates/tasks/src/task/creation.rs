@@ -10,6 +10,7 @@
 use std::future::Future;
 use std::sync::Arc;
 
+use moatless_ports::identity::UserResolver;
 use moatless_ports::sandbox::{PreflightPort, SandboxError, SandboxJoiner, SandboxStarter};
 use moatless_types::access_control::{Scope, ScopeContext};
 use moatless_types::sandbox::{SandboxEventPayload, SandboxStatus};
@@ -56,8 +57,8 @@ pub struct NewTaskRequest {
     pub model: Option<String>,
     pub created_by: Option<String>,
     /// See [`moatless_types::task::Task::run_as_user_id`]. Already authorized
-    /// by the time it reaches here — `service::normalize` is where the
-    /// `ScopeContext::can_run_as` check lives.
+    /// by the time it reaches here: by `ScopeContext::can_run_as` in
+    /// `service::normalize`, or on a Loop's path by the admin who set its run-as.
     pub run_as_user_id: Option<String>,
     pub headless: bool,
     pub visibility: Visibility,
@@ -236,6 +237,9 @@ pub struct TaskCreationService {
     /// Read by the `TaskOpener` port, which resolves a Loop's Workspace before
     /// it builds a [`NewTaskRequest`].
     pub(crate) workspaces: Arc<dyn WorkspaceResolver>,
+    /// Read by the `TaskOpener` port, which hands a requester the Task only
+    /// when the Loop runs as a bot.
+    pub(crate) users: Arc<dyn UserResolver>,
     events: Option<Arc<dyn EventPublisher>>,
     starter: Arc<dyn SandboxStarter>,
     joiner: Arc<dyn SandboxJoiner>,
@@ -243,8 +247,8 @@ pub struct TaskCreationService {
 }
 
 impl TaskCreationService {
-    // reason: independent injected collaborators (five DAOs, the event
-    // publisher, the lifecycle seams, the preflight seam); bundling them behind
+    // reason: independent injected collaborators (five DAOs, the user lookup,
+    // the event publisher, the lifecycle seams, the preflight seam); bundling them behind
     // a one-use struct only shuffles the same fields.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
@@ -255,6 +259,7 @@ impl TaskCreationService {
         forks: Arc<dyn TaskForkDao>,
         repositories: Arc<dyn RepositoryReader>,
         workspaces: Arc<dyn WorkspaceResolver>,
+        users: Arc<dyn UserResolver>,
         events: Option<Arc<dyn EventPublisher>>,
         starter: Arc<dyn SandboxStarter>,
         joiner: Arc<dyn SandboxJoiner>,
@@ -268,6 +273,7 @@ impl TaskCreationService {
             forks,
             repositories,
             workspaces,
+            users,
             events,
             starter,
             joiner,

@@ -16,6 +16,7 @@ use moatless_adapter_model::binding::{ADAPTER_EVENT_BINDING_ORIGIN, BindScope};
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::loops::LoopReader;
 use moatless_loops::bindings::operations::Bindings;
+use moatless_ports::identity::ProviderIdentityLink;
 use moatless_ports::sandbox::SandboxWaker;
 use moatless_ports::task::RelationRecorder;
 use moatless_ports::task::TaskOpener;
@@ -29,8 +30,9 @@ use super::active_turns::ActiveLinearTurns;
 use super::agent_api::{ActivityKind, LinearAgentApi};
 use super::config::{LinearRuleConfig, rules_need_issue_fetch, select_spawn_rule};
 use super::issues::{insert_event_task, transition_issue_state};
+use super::reference_resolution::LINEAR_PROVIDER;
 use super::subject::{ADAPTER, SUBJECT_KIND_SESSION as SUBJECT_KIND};
-use super::webhook_payloads::AgentSession;
+use super::webhook_payloads::{AgentSession, LinearActor};
 
 const ADAPTER_LABEL: &str = moatless_types::adapter::AdapterKind::Linear.as_str();
 
@@ -69,9 +71,9 @@ pub(super) async fn decline_session(api: &LinearAgentApi, session_id: &str, mess
 /// a second attempt a no-op rather than a second task.
 #[expect(
     clippy::too_many_arguments,
-    reason = "the seven downward ports the session provisioning path reads \
+    reason = "the eight downward ports the session provisioning path reads \
               (bindings, tasks, config, task-creation, task-relations, \
-              message-send, active-turns) inverted out of the single AppState; \
+              message-send, active-turns, identity) inverted out of the single AppState; \
               there is no narrower grouping that is not itself that \
               AppState-shaped bag"
 )]
@@ -83,6 +85,7 @@ pub(super) async fn provision_selected_session_task(
     task_relations: &dyn RelationRecorder,
     message_send: &dyn MessageAcceptor,
     linear_active_turns: &ActiveLinearTurns,
+    identity: &dyn ProviderIdentityLink,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
     rules: &[SubscriptionMatch],
@@ -128,6 +131,7 @@ pub(super) async fn provision_selected_session_task(
         task_relations,
         message_send,
         linear_active_turns,
+        identity,
         api,
         connection,
         &rule,
@@ -282,11 +286,40 @@ pub(super) async fn handle_session_prompted(
     Ok(())
 }
 
+/// The Moatless user who started a session: the one linked to its Linear id,
+/// else the one holding its email.
+///
+/// `None` leaves the Task with the Loop's run-as user, so a failed lookup is
+/// logged and treated as an unlinked creator rather than failing the delivery.
+async fn requester(
+    identity: &dyn ProviderIdentityLink,
+    creator: Option<&LinearActor>,
+) -> Option<String> {
+    let creator = creator?;
+    if !creator.id.is_empty() {
+        match identity.user_at(LINEAR_PROVIDER, &creator.id).await {
+            Ok(Some(user)) => return Some(user.id.to_string()),
+            Ok(None) => {}
+            Err(e) => {
+                warn!(linear_user = %creator.id, error = %e, "Linear session creator lookup failed");
+            }
+        }
+    }
+    let email = creator.email.as_deref().filter(|email| !email.is_empty())?;
+    match identity.user_by_email(email).await {
+        Ok(user) => user.map(|user| user.id.to_string()),
+        Err(e) => {
+            warn!(linear_user = %creator.id, error = %e, "Linear session creator email lookup failed");
+            None
+        }
+    }
+}
+
 #[expect(
     clippy::too_many_arguments,
-    reason = "the seven downward ports one session task's creation reads \
+    reason = "the eight downward ports one session task's creation reads \
               (bindings, tasks, config, task-creation, task-relations, \
-              message-send, active-turns) inverted out of the single AppState; \
+              message-send, active-turns, identity) inverted out of the single AppState; \
               there is no narrower grouping that is not itself that \
               AppState-shaped bag"
 )]
@@ -298,6 +331,7 @@ async fn provision_session_task(
     task_relations: &dyn RelationRecorder,
     message_send: &dyn MessageAcceptor,
     linear_active_turns: &ActiveLinearTurns,
+    identity: &dyn ProviderIdentityLink,
     api: &LinearAgentApi,
     connection: &AdapterConnection,
     rule: &SubscriptionMatch,
@@ -367,12 +401,14 @@ async fn provision_session_task(
     // `Open` event all run inside the service), then the peer relation and the
     // binding.
     let preview = super::text::build_inbound_text(session);
+    let requested_by = requester(identity, session.creator.as_ref()).await;
     let task_id = match insert_event_task(
         task_creation,
         rule,
         &issue.identifier,
         &issue.title,
         &preview,
+        requested_by,
     )
     .await
     {
