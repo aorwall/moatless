@@ -78,15 +78,49 @@ pub(crate) async fn unsettle(
     Ok(())
 }
 
+/// See [`super::dao::TaskDao::set_auto_settle`].
+pub(crate) async fn set_auto_settle(
+    pool: &DbPool,
+    user_id: &str,
+    task_id: &str,
+    enabled: bool,
+    at: DateTime<Utc>,
+) -> Result<(), sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    // A repeated opt-out keeps the first stamp, as T3's own server does.
+    let res = sqlx::query(
+        r#"UPDATE task_follows
+              SET auto_settle_disabled_at = CASE WHEN $3 THEN NULL
+                                                 ELSE COALESCE(auto_settle_disabled_at, $4) END
+            WHERE user_id = $1 AND task_id = $2
+              AND (auto_settle_disabled_at IS NULL) <> $3"#,
+    )
+    .bind(user_id)
+    .bind(task_id)
+    .bind(enabled)
+    .bind(at)
+    .execute(&mut *tx)
+    .await?;
+    if res.rows_affected() > 0 {
+        moatless_core::change_feed::listing::record_change(&mut tx, task_id).await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
 /// See [`super::dao::TaskDao::auto_settle_task`].
 pub(crate) async fn auto_settle(
     pool: &DbPool,
     task_id: &str,
     at: DateTime<Utc>,
+    idle_since: DateTime<Utc>,
 ) -> Result<bool, sqlx::Error> {
     let mut tx = pool.begin().await?;
     // No `settled_override = 'active'` row here: that person unsettled it by
     // hand, and only new activity, which resets it to NULL, overrules them.
+    // A snooze that woke after `idle_since`, on its timer or by hand, counts as
+    // activity, as in T3's own server; skipping only a sleeping one would
+    // settle it the cycle it wakes.
     let followers = sqlx::query(
         r#"UPDATE task_follows
               SET settled_override = 'settled',
@@ -94,10 +128,14 @@ pub(crate) async fn auto_settle(
                   active_order_key = NULL
             WHERE task_id = $1
               AND settled_override IS NULL
-              AND pinned_at IS NULL"#,
+              AND pinned_at IS NULL
+              AND auto_settle_disabled_at IS NULL
+              AND (snoozed_until IS NULL OR snoozed_until <= $3)
+              AND (snooze_woke_at IS NULL OR snooze_woke_at <= $3)"#,
     )
     .bind(task_id)
     .bind(at)
+    .bind(idle_since)
     .execute(&mut *tx)
     .await?;
     let task = sqlx::query(

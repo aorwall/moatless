@@ -80,8 +80,8 @@ panel; no node-level metrics; read-only.
 - `ClusterDiagnostics` read-only seam on `UiRpcState` (`backend/src/ui_rpc/`), with a K8s
   implementation (fleet pod list + namespace-wide metrics) and a Docker no-op.
 - `sandbox.listDiagnostics` UI-RPC arm (env-scoped, read scope) in `backend/src/ui_rpc/mod.rs`.
-- The contract for it in `t3code/packages/contracts/src/{rpc.ts,server.ts}` and a
-  `sandboxDiagnostics` capability flag.
+- The contract for it in `t3code/packages/contracts/src/{rpc.ts,server.ts}`. No
+  capability flag: the client's descriptor schema has no key for one.
 - A T3 component that renders the fleet list + aggregate usage on the diagnostics page,
   plus the RPC atom in `t3code/apps/web/src/state/`.
 
@@ -174,10 +174,8 @@ side simple).
 
 ### Interfaces and contracts
 
-- **External contract (new):** `sandbox.listDiagnostics` UI-RPC method and the
-  `sandboxDiagnostics` capability flag. Consumed by the T3 diagnostics page. Absent
-  capability ⇒ unsupported, per the T3 contract's optional-capability rule; a stock T3
-  server keeps working.
+- **External contract (new):** `sandbox.listDiagnostics` UI-RPC method, with no
+  capability flag: the client's descriptor schema has no key for one.
 - **Internal interface (new, not a promise):** the `ClusterDiagnostics` trait. It exists
   because `UiRpcState` must not be handed the full K8s client or the lifecycle-mutation
   surface — it mirrors the read-only-seam boundary documented in

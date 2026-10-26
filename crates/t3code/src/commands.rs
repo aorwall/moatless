@@ -138,6 +138,15 @@ pub async fn dispatch(
         "thread.unsnooze" => {
             ctx.sink.unsnooze(viewer, thread_id(command)?).await?;
         }
+        "thread.auto-settle.set" => {
+            let enabled = command
+                .get("enabled")
+                .and_then(Value::as_bool)
+                .ok_or_else(|| missing("enabled"))?;
+            ctx.sink
+                .set_auto_settle(viewer, thread_id(command)?, enabled)
+                .await?;
+        }
         "thread.pin" => {
             let order_key = optional_order_key(command)?;
             ctx.sink.pin(viewer, thread_id(command)?, order_key).await?;

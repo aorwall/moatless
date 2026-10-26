@@ -12,6 +12,7 @@ use super::models::{
 };
 use super::pin_dao::{self, OrderSlot};
 use super::settle_dao;
+use super::snooze_dao;
 use moatless_core::db::DbPool;
 use moatless_core::db_enum::decode_optional;
 use moatless_types::access_control::{Scope, ScopeContext, ScopedEntity};
@@ -185,11 +186,15 @@ pub(crate) trait TaskDao: Send + Sync {
         &self,
         task_ids: &[String],
     ) -> Result<HashMap<String, DateTime<Utc>>, sqlx::Error>;
-    /// Settle `task_id` for every follower who has neither pinned it nor
-    /// explicitly unsettled it, and stamp the task's own `auto_settled_at`. Returns
-    /// whether any row moved.
-    async fn auto_settle_task(&self, task_id: &str, at: DateTime<Utc>)
-    -> Result<bool, sqlx::Error>;
+    /// Settle `task_id` for every follower who has not pinned it, unsettled it
+    /// by hand, opted it out, or had it asleep since `idle_since`, and stamp
+    /// the task's own `auto_settled_at`. Returns whether any row moved.
+    async fn auto_settle_task(
+        &self,
+        task_id: &str,
+        at: DateTime<Utc>,
+        idle_since: DateTime<Utc>,
+    ) -> Result<bool, sqlx::Error>;
     /// Batch-fetch `cold_after_hours` for the given tasks. The column is
     /// nullable and tasks that leave it unset are omitted, so an absent entry
     /// and a `NULL` both mean "follow the deployment default".
@@ -256,6 +261,16 @@ pub(crate) trait TaskDao: Send + Sync {
 
     async fn unsettle_task(&self, user_id: &str, task_id: &str) -> Result<(), sqlx::Error>;
 
+    /// Let the reaper auto-settle `task_id` for `user_id` again, or opt it out
+    /// from `at`. Settles or unsettles nothing itself.
+    async fn set_auto_settle(
+        &self,
+        user_id: &str,
+        task_id: &str,
+        enabled: bool,
+        at: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error>;
+
     async fn snooze_task(
         &self,
         user_id: &str,
@@ -264,7 +279,14 @@ pub(crate) trait TaskDao: Send + Sync {
         at: DateTime<Utc>,
     ) -> Result<(), sqlx::Error>;
 
-    async fn unsnooze_task(&self, user_id: &str, task_id: &str) -> Result<(), sqlx::Error>;
+    /// Clear the snooze, stamping `snooze_woke_at` with when it woke: `at`, or
+    /// its own timer when that ran out first.
+    async fn unsnooze_task(
+        &self,
+        user_id: &str,
+        task_id: &str,
+        at: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error>;
 
     /// Pin `task_id` in `user_id`'s listing. Pinning promotes: it also
     /// un-settles the Task and clears its snooze. `order_key` is taken only
@@ -1170,8 +1192,9 @@ impl TaskDao for PgTaskDao {
         &self,
         task_id: &str,
         at: DateTime<Utc>,
+        idle_since: DateTime<Utc>,
     ) -> Result<bool, sqlx::Error> {
-        settle_dao::auto_settle(&self.pool, task_id, at).await
+        settle_dao::auto_settle(&self.pool, task_id, at, idle_since).await
     }
 
     async fn list_open_task_ids(&self) -> Result<Vec<String>, sqlx::Error> {
@@ -1398,6 +1421,16 @@ impl TaskDao for PgTaskDao {
         settle_dao::unsettle(&self.pool, user_id, task_id).await
     }
 
+    async fn set_auto_settle(
+        &self,
+        user_id: &str,
+        task_id: &str,
+        enabled: bool,
+        at: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
+        settle_dao::set_auto_settle(&self.pool, user_id, task_id, enabled, at).await
+    }
+
     async fn snooze_task(
         &self,
         user_id: &str,
@@ -1405,45 +1438,16 @@ impl TaskDao for PgTaskDao {
         until: DateTime<Utc>,
         at: DateTime<Utc>,
     ) -> Result<(), sqlx::Error> {
-        let mut tx = self.pool.begin().await?;
-        let res = sqlx::query(
-            r#"UPDATE task_follows
-                  SET snoozed_until = $3,
-                      snoozed_at = $4
-                WHERE user_id = $1 AND task_id = $2
-                  AND snoozed_until IS DISTINCT FROM $3"#,
-        )
-        .bind(user_id)
-        .bind(task_id)
-        .bind(until)
-        .bind(at)
-        .execute(&mut *tx)
-        .await?;
-        if res.rows_affected() > 0 {
-            moatless_core::change_feed::listing::record_change(&mut tx, task_id).await?;
-        }
-        tx.commit().await?;
-        Ok(())
+        snooze_dao::snooze(&self.pool, user_id, task_id, until, at).await
     }
 
-    async fn unsnooze_task(&self, user_id: &str, task_id: &str) -> Result<(), sqlx::Error> {
-        let mut tx = self.pool.begin().await?;
-        let res = sqlx::query(
-            r#"UPDATE task_follows
-                  SET snoozed_until = NULL,
-                      snoozed_at = NULL
-                WHERE user_id = $1 AND task_id = $2
-                  AND (snoozed_until IS NOT NULL OR snoozed_at IS NOT NULL)"#,
-        )
-        .bind(user_id)
-        .bind(task_id)
-        .execute(&mut *tx)
-        .await?;
-        if res.rows_affected() > 0 {
-            moatless_core::change_feed::listing::record_change(&mut tx, task_id).await?;
-        }
-        tx.commit().await?;
-        Ok(())
+    async fn unsnooze_task(
+        &self,
+        user_id: &str,
+        task_id: &str,
+        at: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
+        snooze_dao::unsnooze(&self.pool, user_id, task_id, at).await
     }
 
     async fn pin_task(
@@ -1475,18 +1479,7 @@ impl TaskDao for PgTaskDao {
         user_id: &str,
         task_id: &str,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r#"UPDATE task_follows
-                  SET snoozed_until = NULL,
-                      snoozed_at = NULL
-                WHERE user_id = $1 AND task_id = $2
-                  AND (snoozed_until IS NOT NULL OR snoozed_at IS NOT NULL)"#,
-        )
-        .bind(user_id)
-        .bind(task_id)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
+        snooze_dao::clear(&self.pool, user_id, task_id).await
     }
 
     async fn get_followed(

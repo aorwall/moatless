@@ -1227,10 +1227,14 @@ async fn a_task_nobody_follows_is_settled_only_once_the_reaper_settles_it(pool: 
     assert!(repo.get_settled_since_map(&ids).await.unwrap().is_empty());
 
     let at = Utc::now() - Duration::hours(2);
-    assert!(repo.auto_settle_task("task-unfollowed", at).await.unwrap());
+    assert!(
+        repo.auto_settle_task("task-unfollowed", at, at)
+            .await
+            .unwrap()
+    );
     assert!(
         !repo
-            .auto_settle_task("task-unfollowed", Utc::now())
+            .auto_settle_task("task-unfollowed", Utc::now(), at)
             .await
             .unwrap(),
         "a second settle moves no row and keeps the first stamp"
@@ -1284,7 +1288,7 @@ async fn auto_settle_leaves_a_hand_unsettled_follower_and_the_task_open(pool: Pg
     repo.follow_task("user-3", "task-kept").await.unwrap();
     repo.unsettle_task("user-3", "task-kept").await.unwrap();
 
-    repo.auto_settle_task("task-kept", Utc::now())
+    repo.auto_settle_task("task-kept", Utc::now(), Utc::now())
         .await
         .unwrap();
 
@@ -1296,11 +1300,132 @@ async fn auto_settle_leaves_a_hand_unsettled_follower_and_the_task_open(pool: Pg
 }
 
 #[sqlx::test]
+async fn auto_settle_skips_an_opted_out_follower_until_they_opt_back_in(pool: PgPool) {
+    seed_public_task(&pool, "task-opted-out").await;
+    let repo = store_over(&pool);
+    repo.follow_task("user-2", "task-opted-out").await.unwrap();
+    let opted_out_at = Utc::now() - Duration::hours(3);
+    repo.set_auto_settle("user-2", "task-opted-out", false, opted_out_at)
+        .await
+        .unwrap();
+    repo.set_auto_settle("user-2", "task-opted-out", false, Utc::now())
+        .await
+        .unwrap();
+    assert_eq!(
+        auto_settle_disabled_at(&pool, "user-2", "task-opted-out")
+            .await
+            .map(|at| at.timestamp()),
+        Some(opted_out_at.timestamp()),
+        "a repeated opt-out keeps the first stamp"
+    );
+
+    repo.auto_settle_task("task-opted-out", Utc::now(), Utc::now())
+        .await
+        .unwrap();
+    let (state, _, _, _) = follow_state(&pool, "user-2", "task-opted-out")
+        .await
+        .unwrap();
+    assert_eq!(state, None);
+
+    repo.set_auto_settle("user-2", "task-opted-out", true, Utc::now())
+        .await
+        .unwrap();
+    assert_eq!(
+        auto_settle_disabled_at(&pool, "user-2", "task-opted-out").await,
+        None
+    );
+    repo.auto_settle_task("task-opted-out", Utc::now(), Utc::now())
+        .await
+        .unwrap();
+    let (state, _, _, _) = follow_state(&pool, "user-2", "task-opted-out")
+        .await
+        .unwrap();
+    assert_eq!(state.as_deref(), Some("settled"));
+}
+
+#[sqlx::test]
+async fn auto_settle_skips_a_snooze_that_has_not_been_awake_for_the_idle_window(pool: PgPool) {
+    seed_public_task(&pool, "task-snoozed").await;
+    let repo = store_over(&pool);
+    let now = Utc::now();
+    let idle_since = now - Duration::hours(24);
+    for (user, until) in [
+        ("user-asleep", now + Duration::hours(2)),
+        ("user-just-woke", now - Duration::hours(1)),
+        ("user-woke-long-ago", now - Duration::hours(30)),
+    ] {
+        repo.follow_task(user, "task-snoozed").await.unwrap();
+        repo.snooze_task(user, "task-snoozed", until, now - Duration::days(3))
+            .await
+            .unwrap();
+    }
+    // Woken by hand an hour ago; cleared after a recent timer wake; cleared
+    // long after its timer had woken it.
+    for (user, until, woke) in [
+        (
+            "user-woke-by-hand",
+            now + Duration::hours(5),
+            now - Duration::hours(1),
+        ),
+        (
+            "user-unsnoozed-after-timer",
+            now - Duration::hours(2),
+            now - Duration::hours(1),
+        ),
+        (
+            "user-woke-late-by-hand",
+            now - Duration::hours(30),
+            now - Duration::hours(1),
+        ),
+    ] {
+        repo.follow_task(user, "task-snoozed").await.unwrap();
+        repo.snooze_task(user, "task-snoozed", until, now - Duration::days(3))
+            .await
+            .unwrap();
+        repo.unsnooze_task(user, "task-snoozed", woke)
+            .await
+            .unwrap();
+    }
+
+    repo.auto_settle_task("task-snoozed", now, idle_since)
+        .await
+        .unwrap();
+
+    for (user, expected) in [
+        ("user-asleep", None),
+        ("user-just-woke", None),
+        ("user-woke-long-ago", Some("settled")),
+        ("user-woke-by-hand", None),
+        ("user-unsnoozed-after-timer", None),
+        ("user-woke-late-by-hand", Some("settled")),
+    ] {
+        let (state, _, _, _) = follow_state(&pool, user, "task-snoozed").await.unwrap();
+        assert_eq!(state.as_deref(), expected, "{user}");
+    }
+}
+
+async fn auto_settle_disabled_at(
+    pool: &PgPool,
+    user_id: &str,
+    task_id: &str,
+) -> Option<DateTime<Utc>> {
+    sqlx::query_scalar(
+        r#"SELECT auto_settle_disabled_at FROM task_follows
+            WHERE user_id = $1 AND task_id = $2"#,
+    )
+    .bind(user_id)
+    .bind(task_id)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+#[sqlx::test]
 async fn new_activity_clears_the_reaper_settle(pool: PgPool) {
     seed_public_task(&pool, "task-reactivated").await;
     let repo = store_over(&pool);
     let ids = vec!["task-reactivated".to_string()];
-    repo.auto_settle_task("task-reactivated", Utc::now())
+    repo.auto_settle_task("task-reactivated", Utc::now(), Utc::now())
         .await
         .unwrap();
 

@@ -186,7 +186,8 @@ pub(crate) async fn list(
     let sql = format!(
         r#"WITH listed AS MATERIALIZED (
                    SELECT t.*, tf.settled_override, tf.settled_at, tf.snoozed_until, tf.snoozed_at,
-                          tf.pinned_at, tf.pin_order_key, tf.active_order_key
+                          tf.pinned_at, tf.pin_order_key, tf.active_order_key,
+                          tf.auto_settle_disabled_at
                    {follows} t.status IN ({statuses})
                      AND {}{narrowed}{predicates}{capped}
                )
@@ -230,6 +231,7 @@ pub(crate) async fn list(
                    t.pinned_at,
                    t.pin_order_key,
                    t.active_order_key,
+                   t.auto_settle_disabled_at,
                    COALESCE(pr.pull_requests, '[]'::jsonb) AS pull_requests,
                    parent.task_id AS parent_task_id,
                    parent.relation_type AS parent_relation,

@@ -247,6 +247,30 @@ async fn pin_commands_reach_the_sink_with_their_order_keys() {
     }
 }
 
+#[tokio::test]
+async fn auto_settle_set_reaches_the_sink_and_needs_enabled() {
+    for enabled in [false, true] {
+        let (result, calls) = run(json!({
+            "type": "thread.auto-settle.set",
+            "threadId": "task-1",
+            "enabled": enabled,
+        }))
+        .await;
+        assert!(result.is_ok(), "{enabled}");
+        assert_eq!(
+            calls,
+            vec![Call::SetAutoSettle {
+                task_id: "task-1".to_string(),
+                enabled,
+            }]
+        );
+    }
+    let (result, calls) =
+        run(json!({ "type": "thread.auto-settle.set", "threadId": "task-1" })).await;
+    assert!(matches!(result, Err(CommandRefusal::Rejected { .. })));
+    assert!(calls.is_empty());
+}
+
 /// The listing decodes an order key as a non-empty string, so a blank one
 /// stored here would fail the viewer's whole sidebar.
 #[tokio::test]

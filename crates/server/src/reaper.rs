@@ -683,10 +683,16 @@ impl TaskReaper {
                 .get(task_id)
                 .copied()
                 .unwrap_or(snapshot.default_settle_after_hours);
-            // A pinned or hand-unsettled follower keeps `settled_at` at `None`, so
+            // A follower `auto_settle_task` skips keeps `settled_at` at `None`, so
             // this runs every cycle for such a task; only a moved row is news.
             if settled_at.is_none() && decide_settle(settle_after_hours, latest_at, snapshot.now) {
-                match self.tasks.auto_settle_task(task_id, snapshot.now).await {
+                let idle_since =
+                    snapshot.now - chrono::Duration::hours(i64::from(settle_after_hours));
+                match self
+                    .tasks
+                    .auto_settle_task(task_id, snapshot.now, idle_since)
+                    .await
+                {
                     Ok(true) => {
                         info!(
                             task_id = %task_id,

@@ -936,6 +936,15 @@ pub trait ThreadCommandSink: Send + Sync {
 
     async fn unpin(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;
 
+    /// Let the reaper auto-settle this thread for the viewer again, or opt it
+    /// out. Neither settles nor unsettles it.
+    async fn set_auto_settle(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+        enabled: bool,
+    ) -> Result<(), CommandRefusal>;
+
     /// Move this thread within the viewer's pinned block, to the slot the
     /// client's fractional-index `order_key` names.
     async fn set_pin_order_key(

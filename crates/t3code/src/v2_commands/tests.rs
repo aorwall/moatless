@@ -291,6 +291,17 @@ fn pin_and_reorder_commands_keep_their_names_and_order_keys() {
     }
 }
 
+#[test]
+fn auto_settle_set_keeps_its_name_and_enabled() {
+    let command = v1(json!({
+        "type": "thread.auto-settle.set",
+        "threadId": "task-1",
+        "enabled": false,
+    }));
+    assert_eq!(command["type"], json!("thread.auto-settle.set"));
+    assert_eq!(command["enabled"], json!(false));
+}
+
 /// Starting a watch on a pull request the thread has not linked links it
 /// first. Stopping one never links, whatever `link` carries.
 #[test]

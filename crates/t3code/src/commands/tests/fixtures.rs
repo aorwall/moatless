@@ -111,6 +111,10 @@ pub(super) enum Call {
     Unpin {
         task_id: String,
     },
+    SetAutoSettle {
+        task_id: String,
+        enabled: bool,
+    },
     SetPinOrderKey {
         task_id: String,
         order_key: String,
@@ -369,6 +373,18 @@ impl ThreadCommandSink for RecordingSink {
         });
         Ok(())
     }
+    async fn set_auto_settle(
+        &self,
+        _viewer: &ScopeContext,
+        task_id: &str,
+        enabled: bool,
+    ) -> Result<(), CommandRefusal> {
+        self.0.lock().unwrap().push(Call::SetAutoSettle {
+            task_id: task_id.to_string(),
+            enabled,
+        });
+        Ok(())
+    }
     async fn set_pin_order_key(
         &self,
         _viewer: &ScopeContext,
@@ -613,6 +629,7 @@ pub(super) fn conversation(agent_profile: AgentProfile) -> Conversation {
         pinned_at: None,
         pin_order_key: None,
         active_order_key: None,
+        auto_settle_disabled_at: None,
         pull_requests: None,
     }
 }

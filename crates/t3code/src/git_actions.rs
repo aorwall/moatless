@@ -494,6 +494,7 @@ mod tests {
             pinned_at: None,
             pin_order_key: None,
             active_order_key: None,
+            auto_settle_disabled_at: None,
             pull_requests: None,
         }
     }
@@ -711,6 +712,14 @@ mod tests {
             &self,
             _viewer: &ScopeContext,
             _task_id: &str,
+        ) -> Result<(), crate::ports::CommandRefusal> {
+            unreachable!()
+        }
+        async fn set_auto_settle(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+            _enabled: bool,
         ) -> Result<(), crate::ports::CommandRefusal> {
             unreachable!()
         }

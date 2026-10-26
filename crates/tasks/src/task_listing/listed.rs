@@ -112,6 +112,9 @@ pub struct ListedTask {
     /// The viewer's fractional-index slots in the pinned and active blocks.
     pub pin_order_key: Option<String>,
     pub active_order_key: Option<String>,
+    /// When the viewer opted this Task out of auto-settle; `None` while the
+    /// reaper may settle it for them.
+    pub auto_settle_disabled_at: Option<DateTime<Utc>>,
 
     /// Every GitHub pull request this Task is bound to, primary first.
     ///

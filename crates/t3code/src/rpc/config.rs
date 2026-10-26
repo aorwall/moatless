@@ -52,6 +52,9 @@ pub(crate) fn descriptor(config: &UiRpcConfig) -> Value {
             "connectionProbe": true,
             "threadSettlement": true,
             "threadSnooze": true,
+            // `thread.auto-settle.set`, and `autoSettleDisabledAt` on a row,
+            // stored per viewer on their follow as the pin is.
+            "threadAutoSettleOptOut": true,
             // `lastVisitedAt` is the viewer's read receipt, which
             // `thread.visit` and `thread.mark-unread` move.
             "threadVisitedTracking": true,
@@ -75,14 +78,6 @@ pub(crate) fn descriptor(config: &UiRpcConfig) -> Value {
             // started thread to it. Absent, a client locks the provider picker
             // once the thread has started.
             "threadProviderSwitch": true,
-            // Whether `thread.user-input.respond` is understood. A client
-            // cannot otherwise tell this server from one that refuses it, and
-            // the descriptor is read before any thread is opened.
-            "userInputResponse": true,
-            // Whether `sandbox.listDiagnostics` is understood. A client
-            // cannot otherwise tell this server from one that answers
-            // `UnsupportedMethodError`.
-            "sandboxDiagnostics": true,
             // Whether `sandbox.subscribeStatus` is understood. Absent, a client
             // has to poll `sandbox.status` to notice a sandbox that started
             // after its panel opened, so this is what lets it stop.

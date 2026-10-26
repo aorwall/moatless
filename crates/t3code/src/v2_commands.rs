@@ -68,6 +68,7 @@ pub(crate) fn translate(command: &Value) -> Result<Translated, CommandRefusal> {
         | "thread.unsettle"
         | "thread.snooze"
         | "thread.unsnooze"
+        | "thread.auto-settle.set"
         | "thread.pin"
         | "thread.unpin"
         | "thread.pin.reorder"

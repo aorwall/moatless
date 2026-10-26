@@ -227,6 +227,7 @@ pub(super) fn conversation_row(
         "pinnedAt": nullable_instant(conversation.pinned_at),
         "pinOrderKey": nullable_order_key(conversation.pin_order_key.as_deref()),
         "activeOrderKey": nullable_order_key(conversation.active_order_key.as_deref()),
+        "autoSettleDisabledAt": nullable_instant(conversation.auto_settle_disabled_at),
         "visibility": conversation.visibility.as_str()
     }) else {
         unreachable!("a json! object literal is an object")

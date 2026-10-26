@@ -651,7 +651,7 @@ impl ThreadCommandSink for AppStateCommands {
         self.ensure_followed_open(viewer, task_id).await?;
         self.0
             .tasks
-            .unsnooze_task(&viewer.user_id, task_id)
+            .unsnooze_task(&viewer.user_id, task_id, chrono::Utc::now())
             .await
             .map_err(|e| Self::state_refusal(task_id, e))
     }
@@ -775,6 +775,20 @@ impl ThreadCommandSink for AppStateCommands {
         self.0
             .tasks
             .unpin_task(&viewer.user_id, task_id)
+            .await
+            .map_err(|e| Self::state_refusal(task_id, e))
+    }
+
+    async fn set_auto_settle(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+        enabled: bool,
+    ) -> Result<(), CommandRefusal> {
+        self.ensure_followed_open(viewer, task_id).await?;
+        self.0
+            .tasks
+            .set_auto_settle(&viewer.user_id, task_id, enabled, chrono::Utc::now())
             .await
             .map_err(|e| Self::state_refusal(task_id, e))
     }

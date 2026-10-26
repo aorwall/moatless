@@ -350,7 +350,12 @@ fn the_newest_turns_error_is_the_sessions_last_error() {
 #[test]
 fn pin_and_order_keys_are_null_when_unset() {
     let thread = one_thread(&running_conversation("task-a", "ws-a"));
-    for key in ["pinnedAt", "pinOrderKey", "activeOrderKey"] {
+    for key in [
+        "pinnedAt",
+        "pinOrderKey",
+        "activeOrderKey",
+        "autoSettleDisabledAt",
+    ] {
         assert_eq!(thread[key], Value::Null, "{key}");
     }
 }
@@ -361,10 +366,15 @@ fn a_row_carries_the_viewers_pin_and_order_keys() {
         pinned_at: Some(instant_at("2026-07-02T09:00:00.000Z")),
         pin_order_key: Some("a0".to_string()),
         active_order_key: Some("Zz".to_string()),
+        auto_settle_disabled_at: Some(instant_at("2026-07-03T09:00:00.000Z")),
         ..running_conversation("task-a", "ws-a")
     };
     let thread = one_thread(&conversation);
     assert_eq!(thread["pinnedAt"], json!("2026-07-02T09:00:00.000Z"));
+    assert_eq!(
+        thread["autoSettleDisabledAt"],
+        json!("2026-07-03T09:00:00.000Z")
+    );
     assert_eq!(thread["pinOrderKey"], json!("a0"));
     assert_eq!(thread["activeOrderKey"], json!("Zz"));
 }

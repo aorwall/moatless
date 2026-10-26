@@ -1366,6 +1366,7 @@ mod tests {
             pinned_at: None,
             pin_order_key: None,
             active_order_key: None,
+            auto_settle_disabled_at: None,
             pull_requests: None,
         }
     }

@@ -708,6 +708,14 @@ impl ports::ThreadCommandSink for UnreachableCommands {
     ) -> Result<(), ports::CommandRefusal> {
         unreachable!("no test in this file changes per-viewer thread state")
     }
+    async fn set_auto_settle(
+        &self,
+        _viewer: &ScopeContext,
+        _task_id: &str,
+        _enabled: bool,
+    ) -> Result<(), ports::CommandRefusal> {
+        unreachable!("no test in this file changes per-viewer thread state")
+    }
     async fn set_pin_order_key(
         &self,
         _viewer: &ScopeContext,

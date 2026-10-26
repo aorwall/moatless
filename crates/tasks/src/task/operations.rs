@@ -220,8 +220,9 @@ impl TaskCommands {
         &self,
         task_id: &str,
         at: DateTime<Utc>,
+        idle_since: DateTime<Utc>,
     ) -> Result<bool, sqlx::Error> {
-        self.store.auto_settle_task(task_id, at).await
+        self.store.auto_settle_task(task_id, at, idle_since).await
     }
 
     /// See [`TaskDao::get_cold_after_hours_map`].
@@ -302,6 +303,19 @@ impl TaskCommands {
         self.store.unsettle_task(user_id, task_id).await
     }
 
+    /// See [`TaskDao::set_auto_settle`].
+    pub async fn set_auto_settle(
+        &self,
+        user_id: &str,
+        task_id: &str,
+        enabled: bool,
+        at: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
+        self.store
+            .set_auto_settle(user_id, task_id, enabled, at)
+            .await
+    }
+
     /// See [`TaskDao::snooze_task`].
     pub async fn snooze_task(
         &self,
@@ -314,8 +328,13 @@ impl TaskCommands {
     }
 
     /// See [`TaskDao::unsnooze_task`].
-    pub async fn unsnooze_task(&self, user_id: &str, task_id: &str) -> Result<(), sqlx::Error> {
-        self.store.unsnooze_task(user_id, task_id).await
+    pub async fn unsnooze_task(
+        &self,
+        user_id: &str,
+        task_id: &str,
+        at: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
+        self.store.unsnooze_task(user_id, task_id, at).await
     }
 
     /// See [`TaskDao::pin_task`].
