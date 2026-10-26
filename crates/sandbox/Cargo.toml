@@ -36,6 +36,9 @@ bytes = "1"
 moatless-s3 = { workspace = true, features = ["restic-backend"] }
 rustic_core = { workspace = true }
 
+# Global allocator (`src/main.rs`).
+tikv-jemallocator = { workspace = true }
+
 # Serialization
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

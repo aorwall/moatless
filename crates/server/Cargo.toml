@@ -12,7 +12,7 @@ moatless-workspace-ports = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 
 # Global allocator (`src/main.rs`).
-tikv-jemallocator = "0.6"
+tikv-jemallocator = { workspace = true }
 
 # HTTP server + client
 axum = { workspace = true, features = ["macros", "ws"] }

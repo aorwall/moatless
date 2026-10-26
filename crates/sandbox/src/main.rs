@@ -6,6 +6,12 @@
 /// sets it itself.
 const CLAUDE_CODE_DEBUG_LOGS_FILE: &str = "claude-debug.log";
 
+/// jemalloc rather than glibc malloc: under glibc every workspace snapshot left
+/// freed pack buffers in per-thread arenas, so RSS grew with each one and was
+/// never returned until the container ran out of memory.
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Set before the Tokio runtime exists: `set_var` is only sound while the
     // process is single-threaded, and every consumer is a CLI child process
