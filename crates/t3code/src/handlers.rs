@@ -2,6 +2,10 @@ use crate::authentication::viewer_scope;
 use crate::config::ORCHESTRATION_PROTOCOL_HEADER;
 use crate::config::ORCHESTRATION_PROTOCOL_QUERY_PARAM;
 use crate::config::OrchestrationProtocol;
+use crate::oauth::invalid_request;
+use crate::projection;
+use crate::projection::Compactions;
+use crate::projection::HistoryCursor;
 use crate::pull_request_conversation;
 use crate::pull_request_review;
 use crate::rpc::config::descriptor;
@@ -11,6 +15,8 @@ use crate::rpc::socket::MAX_FRAME_BYTES;
 use crate::rpc::socket::serve_websocket;
 use crate::scripts;
 use crate::scripts::ScriptsError;
+use crate::snapshots::SnapshotShape;
+use crate::snapshots::ThreadDetailV2;
 use crate::snapshots::shell_snapshot_in;
 use crate::snapshots::thread_detail_v2;
 use crate::snapshots::thread_snapshot;
@@ -18,6 +24,7 @@ use crate::state::UiRpcState;
 use axum::Json;
 use axum::extract::Extension;
 use axum::extract::Path;
+use axum::extract::Query;
 use axum::extract::RawQuery;
 use axum::extract::State;
 use axum::extract::ws::WebSocketUpgrade;
@@ -30,6 +37,7 @@ use moatless_ports::sandbox::SandboxError;
 use moatless_types::auth::AllowedOrigin;
 use moatless_types::ui_rpc::UiRpcAuthIdentity;
 use moatless_types::ui_rpc::UiRpcAuthMethod;
+use serde::Deserialize;
 use serde_json::Value;
 use serde_json::json;
 use tracing::debug;
@@ -106,11 +114,7 @@ pub(crate) async fn thread_snapshot_http(
     };
     match snapshot {
         Ok(Some(snapshot)) => Json(snapshot).into_response(),
-        Ok(None) => (
-            StatusCode::NOT_FOUND,
-            Json(json!({ "error": "Conversation not found" })),
-        )
-            .into_response(),
+        Ok(None) => conversation_not_found(),
         Err(error) => {
             error!(
                 %error,
@@ -125,6 +129,130 @@ pub(crate) async fn thread_snapshot_http(
                 .into_response()
         }
     }
+}
+
+/// The contract's `threadBoundedSnapshot` query: each opt-in is on at `"1"`.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct BoundedSnapshotQuery {
+    compact_turn_items: Option<String>,
+    dedupe_bodies: Option<String>,
+    compact_ids: Option<String>,
+}
+
+/// The contract's `threadHistoryPage` query.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct HistoryPageQuery {
+    cursor: Option<String>,
+    through_entry_id: Option<String>,
+    view: Option<String>,
+    compact_ids: Option<String>,
+}
+
+fn opted_in(flag: Option<&String>) -> bool {
+    flag.is_some_and(|flag| flag == "1")
+}
+
+/// The newest window of a thread, for a client that pages older history in
+/// with [`thread_history_http`]. Absences answer as [`thread_snapshot_http`]'s
+/// do, so a client that gets one falls back to the whole snapshot.
+pub(crate) async fn thread_bounded_snapshot_http(
+    State(state): State<UiRpcState>,
+    Extension(identity): Extension<UiRpcAuthIdentity>,
+    Path(thread_id): Path<String>,
+    Query(query): Query<BoundedSnapshotQuery>,
+    headers: HeaderMap,
+) -> Response {
+    let mut detail = match readable_detail_v2(&state, &identity, &thread_id, &headers).await {
+        Ok(detail) => detail,
+        Err(response) => return response,
+    };
+    let shape = SnapshotShape {
+        bounded: true,
+        compactions: Compactions {
+            dedupe_bodies: opted_in(query.dedupe_bodies.as_ref()),
+            compact_turn_items: opted_in(query.compact_turn_items.as_ref()),
+            compact_ids: opted_in(query.compact_ids.as_ref()),
+        },
+    };
+    Json(detail.take_shaped(json!({}), shape)).into_response()
+}
+
+/// The rows older than a cursor [`thread_bounded_snapshot_http`] or an
+/// earlier page handed out, cut from the same whole projection.
+pub(crate) async fn thread_history_http(
+    State(state): State<UiRpcState>,
+    Extension(identity): Extension<UiRpcAuthIdentity>,
+    Path(thread_id): Path<String>,
+    Query(query): Query<HistoryPageQuery>,
+    headers: HeaderMap,
+) -> Response {
+    let detail = match readable_detail_v2(&state, &identity, &thread_id, &headers).await {
+        Ok(detail) => detail,
+        Err(response) => return response,
+    };
+    let Some(cursor) = query.cursor.as_deref().and_then(HistoryCursor::decode) else {
+        return invalid_request("invalid_history_cursor");
+    };
+    let mut page = projection::history_page(
+        &detail.snapshot["projection"],
+        detail.snapshot["snapshotSequence"].as_u64().unwrap_or(0),
+        &cursor,
+        query.through_entry_id.as_deref(),
+        query.view.as_deref() == Some("conversation"),
+    );
+    if opted_in(query.compact_ids.as_ref()) {
+        projection::with_id_table(&mut page, None);
+    }
+    Json(page).into_response()
+}
+
+/// One readable thread's whole V2 projection, or the response that says it
+/// is absent: a V1 request names no route here, so it is absent too.
+async fn readable_detail_v2(
+    state: &UiRpcState,
+    identity: &UiRpcAuthIdentity,
+    thread_id: &str,
+    headers: &HeaderMap,
+) -> Result<ThreadDetailV2, Response> {
+    debug!(user_id = %identity.user_id, task_id = %thread_id, "T3 UI bounded thread read");
+    if header_protocol(state, headers) != OrchestrationProtocol::V2 {
+        return Err(conversation_not_found());
+    }
+    let detail = thread_detail_v2(
+        &state.reads,
+        &state.deployment(),
+        state.subtasks.relations.as_ref(),
+        &viewer_scope(identity),
+        thread_id,
+    )
+    .await;
+    match detail {
+        Ok(Some(detail)) => Ok(detail),
+        Ok(None) => Err(conversation_not_found()),
+        Err(error) => {
+            error!(
+                %error,
+                user_id = %identity.user_id,
+                task_id = %thread_id,
+                "Failed to assemble T3 UI thread snapshot"
+            );
+            Err((
+                shell_failure_status(&error),
+                Json(json!({ "error": "Failed to assemble the conversation" })),
+            )
+                .into_response())
+        }
+    }
+}
+
+fn conversation_not_found() -> Response {
+    (
+        StatusCode::NOT_FOUND,
+        Json(json!({ "error": "Conversation not found" })),
+    )
+        .into_response()
 }
 
 /// A Task's Scripts, for a caller outside the RPC/WS surface (`moat tasks

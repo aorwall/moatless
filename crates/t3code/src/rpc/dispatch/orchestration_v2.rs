@@ -10,6 +10,7 @@ use crate::commands;
 use crate::commands::CommandContext;
 use crate::config::OrchestrationProtocol;
 use crate::oauth::Scope;
+use crate::projection::Compactions;
 use crate::rpc::envelope::RequestId;
 use crate::rpc::envelope::failure_exit;
 use crate::rpc::envelope::success_exit;
@@ -19,6 +20,7 @@ use crate::rpc::session::ProtocolSession;
 use crate::rpc::table::MethodTable;
 use crate::rpc::table::Request;
 use crate::rpc::watch;
+use crate::snapshots::SnapshotShape;
 use crate::snapshots::archived_shell_page;
 use crate::snapshots::thread_detail_v2;
 use crate::state::UiRpcState;
@@ -387,9 +389,10 @@ pub(super) async fn orchestration_get_turn_item(
 }
 
 impl ProtocolSession {
-    /// `orchestration.subscribeThread` for a V2 client: the projection whole,
-    /// then whole again each time the conversation moves. The client replaces
-    /// what it holds on every `snapshot`, so no event vocabulary is needed.
+    /// `orchestration.subscribeThread` for a V2 client: the projection, then
+    /// the whole projection again each time the conversation moves, which the
+    /// client replaces what it holds with. Only the first may be bounded: a
+    /// bounded one resets the history the client paged in.
     pub(super) async fn orchestration_subscribe_thread_v2(
         &mut self,
         request: Request<OrchestrationV2SubscribeThreadInput>,
@@ -411,7 +414,7 @@ impl ProtocolSession {
             &viewer,
             &task_id,
         );
-        let detail = match state.reads.poll_gate().run(detail).await {
+        let mut detail = match state.reads.poll_gate().run(detail).await {
             Ok(Some(detail)) => detail,
             Ok(None) => return vec![projection_error(&id, &task_id, "Conversation not found")],
             Err(error) => {
@@ -424,8 +427,17 @@ impl ProtocolSession {
         let behind = payload
             .after_sequence
             .is_none_or(|after| after < detail.head.sequence());
+        let compactions = Compactions {
+            dedupe_bodies: payload.accept_deduped_bodies,
+            compact_turn_items: payload.accept_compact_turn_items,
+            compact_ids: payload.accept_compact_ids,
+        };
         if behind {
-            values.push(watch::thread_snapshot_item(&detail));
+            let shape = SnapshotShape {
+                bounded: payload.accept_bounded_snapshot,
+                compactions,
+            };
+            values.push(watch::thread_snapshot_item(&mut detail, shape));
         }
         if payload.request_completion_marker.unwrap_or(false) {
             values.push(json!({ "kind": "synchronized" }));
@@ -437,6 +449,7 @@ impl ProtocolSession {
             frontend_url: state.frontend_url.clone(),
             model_defaults: state.model_defaults.clone(),
             viewer,
+            compactions,
             signals: state.changes.thread(&task_id),
             task_id,
             head: detail.head,

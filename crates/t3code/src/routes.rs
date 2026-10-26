@@ -8,6 +8,8 @@ use crate::handlers::scripts_list_http;
 use crate::handlers::scripts_remove_http;
 use crate::handlers::scripts_run_http;
 use crate::handlers::shell_snapshot_http;
+use crate::handlers::thread_bounded_snapshot_http;
+use crate::handlers::thread_history_http;
 use crate::handlers::thread_snapshot_http;
 use crate::handlers::websocket_upgrade;
 use crate::oauth;
@@ -44,6 +46,14 @@ pub(crate) fn router(state: UiRpcState) -> Router {
         .route(
             "/api/orchestration/threads/{thread_id}",
             get(thread_snapshot_http).layer(compression.clone()),
+        )
+        .route(
+            "/api/orchestration/threads/{thread_id}/bounded",
+            get(thread_bounded_snapshot_http).layer(compression.clone()),
+        )
+        .route(
+            "/api/orchestration/threads/{thread_id}/history",
+            get(thread_history_http).layer(compression.clone()),
         )
         .route(
             "/api/orchestration/scripts/{thread_id}",

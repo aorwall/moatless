@@ -193,8 +193,7 @@ pub async fn thread_snapshot(
 /// position it was built at.
 ///
 /// The whole transcript window, never a bounded page: `hasMoreHistory` is
-/// always `false`, so the client never asks for an older page this server
-/// has no route for.
+/// always `false`. [`ThreadDetailV2::take_shaped`] cuts the window.
 pub(crate) async fn thread_detail_v2(
     reads: &T3Reads,
     deployment: &Deployment<'_>,
@@ -255,6 +254,38 @@ pub(crate) struct ThreadDetailV2 {
     pub(crate) snapshot: Value,
     pub(crate) head: ConversationHead,
     pub(crate) lineage: projection::Lineage,
+}
+
+/// How a client asked one V2 thread snapshot to be cut and compacted.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct SnapshotShape {
+    /// Cut to the newest window, with the history keys saying where the
+    /// older rows resume.
+    pub(crate) bounded: bool,
+    pub(crate) compactions: projection::Compactions,
+}
+
+impl ThreadDetailV2 {
+    /// `fields` with this snapshot's `snapshotSequence` and `projection`
+    /// added, shaped as `shape` asks.
+    ///
+    /// Takes the projection, so it is called once per detail: unbounded, the
+    /// history keys stay off, which a client reads as a whole projection.
+    pub(crate) fn take_shaped(&mut self, mut fields: Value, shape: SnapshotShape) -> Value {
+        let sequence = self.snapshot["snapshotSequence"].take();
+        let mut projection = self.snapshot["projection"].take();
+        if shape.bounded {
+            let window =
+                projection::bound_projection(&mut projection, sequence.as_u64().unwrap_or(0));
+            fields["historyCursor"] = json!(window.history_cursor);
+            fields["hasMoreHistory"] = json!(window.has_more_history);
+            fields["latestLocalTurnOrdinal"] = json!(window.latest_local_turn_ordinal);
+        }
+        fields["snapshotSequence"] = sequence;
+        fields["projection"] = projection;
+        projection::compact_snapshot(&mut fields, shape.compactions);
+        fields
+    }
 }
 
 /// The Tasks `task_id` delegated to (its `created_by` children) that this
@@ -466,3 +497,7 @@ pub(crate) async fn archived_shell_page(
     snapshot["nextCursor"] = json!(next_cursor);
     Ok(snapshot)
 }
+
+#[cfg(test)]
+#[path = "snapshots_tests.rs"]
+mod tests;

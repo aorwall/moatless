@@ -20,6 +20,7 @@ mod delivery;
 mod feed;
 mod files;
 mod harness;
+mod history;
 mod projects;
 mod pull_requests;
 mod reconnect;

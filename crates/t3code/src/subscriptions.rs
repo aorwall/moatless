@@ -39,6 +39,14 @@ pub(crate) struct OrchestrationV2SubscribeThreadInput {
     #[serde(default, deserialize_with = "crate::snapshots::after_sequence")]
     pub(crate) after_sequence: Option<i64>,
     pub(crate) request_completion_marker: Option<bool>,
+    #[serde(default)]
+    pub(crate) accept_bounded_snapshot: bool,
+    #[serde(default)]
+    pub(crate) accept_compact_turn_items: bool,
+    #[serde(default)]
+    pub(crate) accept_deduped_bodies: bool,
+    #[serde(default)]
+    pub(crate) accept_compact_ids: bool,
 }
 
 /// How often [`ChangePoller`](crate::change_watch::ChangePoller) reads the

@@ -4,6 +4,8 @@
 //! Nothing below this module knows the vocabulary: the input is a `Workspace`
 //! row, the output is `serde_json::Value` on the wire.
 
+mod bounded;
+mod compact;
 mod detail;
 mod events;
 mod model;
@@ -25,6 +27,12 @@ mod v2_subagents;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use bounded::HistoryCursor;
+pub(crate) use bounded::bound_projection;
+pub(crate) use bounded::history_page;
+pub(crate) use compact::Compactions;
+pub(crate) use compact::compact_snapshot;
+pub(crate) use compact::with_id_table;
 pub(crate) use detail::subtask;
 pub(crate) use detail::thread_detail;
 pub(crate) use events::change_events;

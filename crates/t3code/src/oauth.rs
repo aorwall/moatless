@@ -257,7 +257,8 @@ fn error_body(tag: &str, code: &str, reason: &str) -> Value {
     })
 }
 
-fn invalid_request(reason: &'static str) -> Response {
+/// A typed `EnvironmentRequestInvalidError` naming `reason`.
+pub(crate) fn invalid_request(reason: &'static str) -> Response {
     (
         StatusCode::BAD_REQUEST,
         Json(error_body(

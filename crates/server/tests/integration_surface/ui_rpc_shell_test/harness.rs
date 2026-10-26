@@ -181,12 +181,19 @@ impl SandboxPortPublisher for NoSandboxes {
 
 /// The compatibility router as `main` mounts it, past the environment gate.
 pub(super) async fn mounted_router(pool: &PgPool) -> axum::Router {
+    mounted_router_at(pool, 1).await
+}
+
+/// [`mounted_router`] for a deployment serving orchestration
+/// `protocol_version`.
+pub(super) async fn mounted_router_at(pool: &PgPool, protocol_version: u8) -> axum::Router {
     moatless_t3code::mount(
         &moatless_backend::t3code::t3_graph_over(pool),
         mounted_dependencies(pool),
         moatless_types::ui_rpc::T3UiRpcConfig {
             enabled: true,
             allowed_origins: moatless_types::auth::parse_allowed_origins("http://localhost:5733"),
+            orchestration_protocol_version: protocol_version,
             ..Default::default()
         },
     )

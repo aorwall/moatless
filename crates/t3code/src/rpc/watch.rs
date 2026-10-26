@@ -5,9 +5,11 @@ use crate::config::OrchestrationProtocol;
 use crate::dao::ConversationDao;
 use crate::feed;
 use crate::poll_gate::first_tick;
+use crate::projection::Compactions;
 use crate::reads::T3Reads;
 use crate::review;
 use crate::rpc::metrics::THREAD_SUBSCRIPTIONS;
+use crate::snapshots::SnapshotShape;
 use crate::snapshots::ThreadDetailV2;
 use crate::snapshots::archived_shell_page;
 use crate::snapshots::thread_detail_v2_under;
@@ -211,19 +213,15 @@ pub(crate) struct WatchedThreadV2 {
     pub(crate) task_id: String,
     /// The head the client was last sent, or already held.
     pub(crate) head: ConversationHead,
+    /// Applied to every snapshot after the first, none of which is bounded.
+    pub(crate) compactions: Compactions,
     pub(crate) signals: watch::Receiver<Option<ThreadSignal>>,
 }
 
-/// The `snapshot` stream item a V2 thread subscription sends.
-///
-/// Without the history keys: the client reads their absence as a whole
-/// projection and resets its history state, which is what this is.
-pub(crate) fn thread_snapshot_item(detail: &ThreadDetailV2) -> Value {
-    json!({
-        "kind": "snapshot",
-        "snapshotSequence": detail.snapshot["snapshotSequence"],
-        "projection": detail.snapshot["projection"],
-    })
+/// The `snapshot` stream item a V2 thread subscription sends, shaped as
+/// [`ThreadDetailV2::take_shaped`] describes.
+pub(crate) fn thread_snapshot_item(detail: &mut ThreadDetailV2, shape: SnapshotShape) -> Value {
+    detail.take_shaped(json!({ "kind": "snapshot" }), shape)
 }
 
 /// Mirrors [`watch_thread`], answering every move of the conversation's head
@@ -253,7 +251,7 @@ pub(crate) async fn watch_thread_v2(
             &watched.task_id,
             watched.lineage.clone(),
         );
-        let detail = match watched.reads.poll_gate().run(detail).await {
+        let mut detail = match watched.reads.poll_gate().run(detail).await {
             Ok(Some(detail)) => detail,
             Ok(None) => return Err(StreamFailure::message("Conversation not found")),
             Err(error) => {
@@ -265,7 +263,11 @@ pub(crate) async fn watch_thread_v2(
             }
         };
         watched.head = detail.head;
-        if !sink.send(thread_snapshot_item(&detail)).await {
+        let shape = SnapshotShape {
+            bounded: false,
+            compactions: watched.compactions,
+        };
+        if !sink.send(thread_snapshot_item(&mut detail, shape)).await {
             return Ok(());
         }
     }
