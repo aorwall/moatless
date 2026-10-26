@@ -306,6 +306,10 @@ pub(crate) async fn list(
                               JOIN task_inbox i ON i.id = u.inbox_id
                              WHERE u.task_id = t.task_id
                                AND u.turn_number = turn.turn_number
+                               -- Implied by the join, but stated so the planner
+                               -- can use `conversation_messages_turn_inbox_idx`;
+                               -- without it, every agent Message is fetched.
+                               AND u.inbox_id IS NOT NULL
                                AND i.delivery_options ->> 'model' IS NOT NULL
                              ORDER BY u.position ASC
                              LIMIT 1),
@@ -314,6 +318,7 @@ pub(crate) async fn list(
                               JOIN task_inbox i ON i.id = u.inbox_id
                              WHERE u.task_id = t.task_id
                                AND u.turn_number IS NULL
+                               AND u.inbox_id IS NOT NULL
                                AND i.delivery_options ->> 'model' IS NOT NULL
                              ORDER BY u.position DESC
                              LIMIT 1)

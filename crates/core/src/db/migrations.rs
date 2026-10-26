@@ -115,7 +115,7 @@ mod tests {
     fn shell_index_migrations_run_outside_a_transaction() {
         let migrations = sqlx::migrate!();
 
-        for version in 107..=110 {
+        for version in (107..=110).chain(209..=210) {
             let migration = migrations
                 .iter()
                 .find(|migration| migration.version == version)
