@@ -90,6 +90,7 @@ pub(crate) async fn compose_runtime(config: &Config) -> (SandboxState, Superviso
         init_phase: Arc::new(RwLock::new(InitPhase::Starting)),
         setup_gate: crate::init::SetupGate::closed(),
         workspace_origin: Default::default(),
+        stop_cause: Default::default(),
         git_credentials: Default::default(),
         credentials,
         lifecycle_cancel,

@@ -399,6 +399,35 @@ async fn a_repository_that_cannot_be_read_neither_descends_nor_overlays() {
     );
 }
 
+/// An `emptyDir` survives an in-place container restart, so its tree is newer
+/// than any snapshot, gitignored dependencies included.
+#[tokio::test]
+async fn an_in_place_restart_keeps_the_live_empty_dir_volume() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config = sync_config(tmp.path(), true, false);
+    let repo_dir = std::path::PathBuf::from(&config.repo_dir);
+    init_repo(&repo_dir);
+    std::fs::write(repo_dir.join("a.txt"), "edit").unwrap();
+    git_add(&repo_dir, &["a.txt"]);
+    git_commit(&repo_dir, "edit");
+    std::fs::create_dir_all(repo_dir.join("node_modules")).unwrap();
+
+    let backend = Arc::new(CountingBackend::granting_repository_access(
+        chrono::TimeDelta::hours(1),
+    ));
+    let state = crate::state::test_support::state_with(
+        config,
+        Arc::clone(&backend) as Arc<dyn BackendClient>,
+    );
+
+    assert_eq!(
+        restore_on_start(&state).await,
+        RestoreDecision::UseExistingVolume
+    );
+    assert_eq!(backend.repository_access_calls(), 0, "nothing was fetched");
+    assert!(repo_dir.join("node_modules").is_dir());
+}
+
 /// A restore that failed against a snapshot that exists leaves this pod holding
 /// a tree that never held the work; uploading it would replace the only copy.
 #[tokio::test]

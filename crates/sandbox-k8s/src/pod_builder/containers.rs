@@ -248,8 +248,8 @@ pub(super) fn build_sandbox_container(
     }
 
     // WORKSPACE_SYNC_ENABLED: sync the git tree to S3 on terminal agent turns
-    // and restore it on boot. WORKSPACE_RESTORE_IF_EMPTY: treat the volume as
-    // durable (S3 read-only fallback, no periodic backstop upload) — gated on
+    // and restore it on boot. WORKSPACE_RESTORE_IF_EMPTY: the volume is
+    // durable, so the periodic backstop upload is off — gated on
     // `pvc_name`, the volume this pod actually got, not the plan's request,
     // since a degraded/fallback pod runs emptyDir despite its plan.
     let storage_backend = moatless_sandbox_runtime::storage::StorageBackend::from_plan(

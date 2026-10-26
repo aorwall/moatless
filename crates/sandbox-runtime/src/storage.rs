@@ -53,9 +53,9 @@ impl StorageBackend {
     /// Whether the sandbox restores from S3 only into a volume holding nothing
     /// usable, rather than on every start.
     ///
-    /// True exactly when both switches are on: the PVC is the live copy and an
-    /// older snapshot would overwrite work. With no PVC the `emptyDir` starts
-    /// empty every time, so the restore is unconditional and this stays false.
+    /// True exactly when both switches are on, which also turns off the
+    /// periodic upload. The sandbox keeps a usable volume on either tier: an
+    /// `emptyDir` is empty for a new pod but survives an in-place restart.
     pub fn restore_if_empty(self) -> bool {
         self.pvc && self.s3
     }

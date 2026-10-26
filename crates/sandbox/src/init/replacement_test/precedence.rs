@@ -38,9 +38,12 @@ async fn no_pending_message_replays_the_interrupted_run_for_each_family() {
             1,
             "family {family}: exactly the interrupted run"
         );
-        assert_eq!(
-            inputs[0].text, "prior work",
-            "family {family}: the harness runs the restored prompt"
+        // A kept volume still owes the note: every process died with the pod.
+        assert!(
+            inputs[0].text.starts_with("<sandbox-restart-note>")
+                && inputs[0].text.ends_with("prior work"),
+            "family {family}: the harness runs the restored prompt after the note: {}",
+            inputs[0].text
         );
         assert!(
             resumes_restored_session(&inputs[0]),

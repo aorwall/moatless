@@ -16,6 +16,8 @@ pub(crate) async fn open_for_work(state: &SandboxState, workspace_origin: Worksp
     let lost_commands =
         take_lost_commands(state, &state.config.task_id, &state.config.workspace_dir).await;
     let wake_notes = wake_note::take(&wake_note::default_path(&state.config.workspace_dir)).await;
+    // Before the Ready flip: this container's own `pod_ready` ends the search.
+    let stop_cause = look_up_stop_cause(state, workspace_origin).await;
 
     // Adopt whatever the restore or clone produced as the upload baseline,
     // unless a file was consumed: the take deleted it here but S3 still
@@ -32,6 +34,7 @@ pub(crate) async fn open_for_work(state: &SandboxState, workspace_origin: Worksp
         // early would let a Member land between and recover from neither.
         let _registration = state.task_context_registration.lock().await;
         *state.workspace_origin.write().await = workspace_origin;
+        *state.stop_cause.write().await = Some(stop_cause.clone());
         for context in state.task_contexts_snapshot().await {
             recover_interrupted_run_unless_pending(state, &context, workspace_origin).await;
         }
@@ -57,7 +60,7 @@ pub(crate) async fn open_for_work(state: &SandboxState, workspace_origin: Worksp
     // setup that runs after this returns. Awaiting it deadlocks init.
     let state = state.clone();
     crate::agent::dispatcher::spawn_supervised("startup-wake-notes", async move {
-        report_wake_notes(&state, wake_notes, lost_commands).await;
+        report_wake_notes(&state, wake_notes, lost_commands, &stop_cause).await;
     });
 }
 
@@ -108,8 +111,9 @@ async fn report_wake_notes(
     state: &SandboxState,
     notes: BTreeMap<String, WakeNote>,
     lost: Vec<crate::commands::JournaledCommand>,
+    stop_cause: &str,
 ) {
-    for (task_id, text) in wake_messages(&state.config.task_id, notes, &lost) {
+    for (task_id, text) in wake_messages(&state.config.task_id, notes, &lost, stop_cause) {
         // No idempotency key: each Member is owed one wake, and its text is what
         // distinguishes it.
         crate::agent::dispatcher::queue_and_dispatch(state, &task_id, text, None).await;
@@ -118,11 +122,12 @@ async fn report_wake_notes(
 
 /// One message per Member owed a wake, wrapped in one `<sandbox-restart-note>`.
 /// Lost-command text joins `own_task_id`'s note so a self-restart that also
-/// lost commands opens one turn, not two.
+/// lost commands opens one turn, not two, and leads with `stop_cause`.
 fn wake_messages(
     own_task_id: &str,
     notes: BTreeMap<String, WakeNote>,
     lost: &[crate::commands::JournaledCommand],
+    stop_cause: &str,
 ) -> Vec<(String, String)> {
     let mut bodies: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for (task_id, note) in notes {
@@ -132,7 +137,7 @@ fn wake_messages(
         bodies
             .entry(own_task_id.to_string())
             .or_default()
-            .push(body);
+            .push(format!("{stop_cause}\n{body}"));
     }
     bodies
         .into_iter()
@@ -227,10 +232,14 @@ fn lost_commands_body(lost: &[crate::commands::JournaledCommand]) -> Option<Stri
 /// anything) a resuming agent must be warned lost across the restart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum WorkspaceOrigin {
-    /// Repo persisted in place, or this is a fresh task — nothing was lost. The
-    /// default, since most starts need no restart note.
+    /// Nothing was restored or cloned: a task with no checkout, or a volume
+    /// kept without workspace sync. The default; a fresh task resumes no run,
+    /// so the kept-volume note it shares with [`Self::KeptVolume`] never shows.
     #[default]
     Persisted,
+    /// The restore found the previous container's tree on the volume and kept
+    /// it: a PVC, or an `emptyDir` across an in-place container restart.
+    KeptVolume,
     /// Restored from the snapshot the previous pod's shutdown flush wrote with
     /// every workspace writer already stopped: each tracked or untracked file
     /// survived, and the gitignored ones were never snapshotted.
@@ -250,18 +259,136 @@ pub enum WorkspaceOrigin {
 }
 
 impl WorkspaceOrigin {
-    /// The `<sandbox-restart-note>` to prepend to a resumed turn, or `None`
-    /// when nothing was lost and the agent needs no warning.
-    fn restart_note(self, workspace_dir: &str) -> Option<String> {
-        match self {
-            Self::Persisted => None,
-            Self::RestoredFromFinalFlush => Some(workspace_intact_note(workspace_dir)),
+    /// The `<sandbox-restart-note>` to prepend to a resumed turn, led by
+    /// `stop_cause` when the start looked one up.
+    fn restart_note(self, workspace_dir: &str, stop_cause: Option<&str>) -> String {
+        let body = match self {
+            Self::Persisted | Self::KeptVolume => workspace_kept_note(workspace_dir),
+            Self::RestoredFromFinalFlush => workspace_intact_note(workspace_dir),
             Self::RestoredFromSnapshot { taken_at } => {
-                Some(workspace_restored_note(workspace_dir, taken_at))
+                workspace_restored_note(workspace_dir, taken_at)
             }
-            Self::Recloned => Some(workspace_recloned_note(workspace_dir)),
+            Self::Recloned => workspace_recloned_note(workspace_dir),
+        };
+        let cause = stop_cause
+            .map(|cause| format!("{cause}\n"))
+            .unwrap_or_default();
+        format!("<sandbox-restart-note>\n{cause}{body}\n</sandbox-restart-note>\n\n")
+    }
+}
+
+/// Attempts at [`look_up_stop_cause`] for a kept volume, and the wait between.
+/// The watcher writes an in-place kill's event on its own schedule, and a kept
+/// volume skips the restore that otherwise gives it time to land.
+const STOP_CAUSE_ATTEMPTS: u32 = 4;
+const STOP_CAUSE_RETRY: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Why the previous container stopped, read before this one reports Ready.
+/// A failed read is worded as unknown: the note still owes the rest.
+async fn look_up_stop_cause(state: &SandboxState, origin: WorkspaceOrigin) -> String {
+    let attempts = if origin == WorkspaceOrigin::KeptVolume {
+        STOP_CAUSE_ATTEMPTS
+    } else {
+        1
+    };
+    let task_id = &state.config.task_id;
+    let cause = await_stop_cause(attempts, STOP_CAUSE_RETRY, || {
+        state.backend_client.get_last_stop_cause(task_id)
+    })
+    .await;
+    describe_stop_cause(cause.as_ref())
+}
+
+/// Calls `fetch` until it names a cause, at most `attempts` times. An error
+/// ends the wait: a backend that cannot answer will not answer on a retry.
+async fn await_stop_cause<F, Fut>(
+    attempts: u32,
+    retry: std::time::Duration,
+    mut fetch: F,
+) -> Option<sandbox_proto::StopCause>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<Option<sandbox_proto::StopCause>, tonic::Status>>,
+{
+    for attempt in 1..=attempts {
+        match fetch().await {
+            Ok(Some(cause)) => return Some(cause),
+            Ok(None) if attempt < attempts => tokio::time::sleep(retry).await,
+            Ok(None) => {}
+            Err(error) => {
+                warn!(%error, "Failed to read why the previous container stopped");
+                return None;
+            }
         }
     }
+    None
+}
+
+/// The restart note's first line: what stopped the previous container, and
+/// whether load in this sandbox could have caused it.
+fn describe_stop_cause(cause: Option<&sandbox_proto::StopCause>) -> String {
+    let Some(cause) = cause else {
+        return "Moatless has no record of why the previous container stopped; it may \
+                not have been recorded yet, so do not read this as a clean restart."
+            .to_string();
+    };
+    let at = chrono::DateTime::from_timestamp_millis(cause.occurred_at_unix_ms)
+        .map(|at| format!(" at {}", at.format("%H:%M:%S UTC")))
+        .unwrap_or_default();
+    let mut facts = Vec::new();
+    if let Some(code) = cause.exit_code {
+        facts.push(format!("exit {code}"));
+    }
+    if let Some(reason) = cause.terminated_reason.as_deref() {
+        facts.push(reason.to_string());
+    }
+    let facts = if facts.is_empty() {
+        String::new()
+    } else {
+        format!(" ({})", facts.join(", "))
+    };
+    let oom = cause.kind == "container_oom_killed"
+        || cause.terminated_reason.as_deref() == Some("OOMKilled");
+    match cause.kind.as_str() {
+        _ if oom => format!(
+            "The previous container was OOMKilled{at}{facts}: the processes in this \
+             sandbox together used more than its memory limit. Run fewer memory-heavy \
+             processes at once (builds, test runners, browsers) before you retry."
+        ),
+        "node_reclaimed" | "pod_evicted" | "pod_failed" | "pod_deleted" => format!(
+            "The previous pod was removed{at} ({}){facts}. If that reason names this \
+             sandbox's own disk or memory use, lower it before you retry; otherwise \
+             nothing in this sandbox caused the restart.",
+            cause.disruption_reason.as_deref().unwrap_or(&cause.kind)
+        ),
+        "stopped" => format!(
+            "The sandbox was stopped on purpose{at}, by {}.",
+            cause.initiator.as_deref().unwrap_or("an unknown initiator")
+        ),
+        _ if cause.exit_code == Some(137) => format!(
+            "Kubernetes killed the previous container{at}{facts} without an OOMKilled \
+             reason. That is most often a failed liveness probe on a node short of \
+             memory or CPU, which any sandbox on the node can cause; retry, and lower \
+             this sandbox's load if it happens again."
+        ),
+        _ if cause.exit_code == Some(0) => format!(
+            "The previous container was told to stop and exited cleanly{at}{facts}, most \
+             often after a failed liveness probe on a node short of memory or CPU."
+        ),
+        _ => format!("The previous container stopped{at}{facts}: {}.", cause.kind),
+    }
+}
+
+/// Note prepended to a resumed turn when the volume was kept, so the files
+/// are as the previous container left them but none of its processes are.
+fn workspace_kept_note(workspace_dir: &str) -> String {
+    format!(
+        "This sandbox was restarted, and the workspace at {workspace_dir} was kept \
+         on its volume as the previous container left it, gitignored files such as \
+         node_modules and target included. Every process it ran is gone, `moat cmd` \
+         commands and servers among them, and /tmp was cleared: restart what you \
+         still need, then continue."
+    )
 }
 
 /// Note prepended to a resumed turn when the shutdown flush wrote the restored
@@ -271,16 +398,14 @@ impl WorkspaceOrigin {
 /// exempts every gitignored path rather than the build artifacts alone.
 fn workspace_intact_note(workspace_dir: &str) -> String {
     format!(
-        "<sandbox-restart-note>\n\
-         This sandbox was restarted, and the workspace at {workspace_dir} was \
+        "This sandbox was restarted, and the workspace at {workspace_dir} was \
          restored from the snapshot the previous pod took once the agent and \
          every background command had stopped. Every file git tracks or would \
          report as untracked came back: continue without auditing the tree.\n\
          Gitignored paths were never snapshotted and are gone — build artifacts \
          and dependencies (target, node_modules, dist, .venv), and anything else \
          your ignore rules cover, such as a .env you wrote. Re-run install/build \
-         steps and re-create any ignored file you rely on.\n\
-         </sandbox-restart-note>\n\n"
+         steps and re-create any ignored file you rely on."
     )
 }
 
@@ -306,8 +431,7 @@ fn workspace_restored_note(
             .to_string(),
     };
     format!(
-        "<sandbox-restart-note>\n\
-         This sandbox was restarted, and the workspace at {workspace_dir} was \
+        "This sandbox was restarted, and the workspace at {workspace_dir} was \
          restored from its last completed snapshot. {age} Run `git status` and \
          `git diff` in each repo against what you believe you wrote, and redo \
          what is missing rather than assuming it is there.\n\
@@ -317,8 +441,7 @@ fn workspace_restored_note(
          install/build steps and re-create any ignored file you rely on. \
          Everything else under {workspace_dir} is snapshotted, including repos \
          beside the primary one and loose files, so keep whatever must survive \
-         the next restart there and not in `/tmp`.\n\
-         </sandbox-restart-note>\n\n"
+         the next restart there and not in `/tmp`."
     )
 }
 
@@ -327,16 +450,14 @@ fn workspace_restored_note(
 /// is gone rather than silently working against a reset tree.
 fn workspace_recloned_note(workspace_dir: &str) -> String {
     format!(
-        "<sandbox-restart-note>\n\
-         This sandbox was restarted (the pod was replaced or evicted) and the \
+        "This sandbox was restarted (the pod was replaced or evicted) and the \
          repository at {workspace_dir} was rebuilt from a fresh `git clone`. \
          Committed, pushed git content is present, but ephemeral state from \
          before the restart is gone: gitignored dependencies and build artifacts \
          (e.g. node_modules, target, dist, .venv), and any files created outside \
          the git repository. Any local commits or uncommitted changes that were \
          never pushed may also be missing. Re-run install/build steps and verify \
-         your working state before continuing.\n\
-         </sandbox-restart-note>\n\n"
+         your working state before continuing."
     )
 }
 /// Interrupted-run precedence gate for one Member: replays the interrupted
@@ -387,10 +508,9 @@ async fn note_superseded_run(state: &SandboxState, context: &TaskContext, origin
                 turn_number = turn.turn_number,
                 "Pending messages supersede the interrupted run; noting it on their turn"
             );
+            let stop_cause = state.stop_cause.read().await.clone();
             let mut note = superseded_run_note(turn.turn_number);
-            if let Some(workspace) = origin.restart_note(&context.checkout_dir) {
-                note.push_str(&workspace);
-            }
+            note.push_str(&origin.restart_note(&context.checkout_dir, stop_cause.as_deref()));
             context.set_restart_note(note);
         }
         Ok(None) => {}
@@ -432,11 +552,9 @@ async fn recover_interrupted_run(
                 workspace_origin = ?origin,
                 "Resuming interrupted agent run"
             );
-            // Note text depends on `origin` (see `WorkspaceOrigin`).
-            let prompt_text = match origin.restart_note(&context.checkout_dir) {
-                Some(note) => format!("{note}{}", turn.prompt_text),
-                None => turn.prompt_text,
-            };
+            let stop_cause = state.stop_cause.read().await.clone();
+            let note = origin.restart_note(&context.checkout_dir, stop_cause.as_deref());
+            let prompt_text = format!("{note}{}", turn.prompt_text);
             context.agent_handle.recover(
                 prompt_text,
                 turn.agent_mode,
@@ -461,6 +579,7 @@ mod tests {
     use crate::commands::{CommandState, JournaledCommand};
 
     const WS: &str = "/opt/moatless/workspace/moatless";
+    const CAUSE: &str = "Kubernetes killed the previous container.";
 
     fn lost(id: &str, state: CommandState) -> JournaledCommand {
         JournaledCommand {
@@ -530,9 +649,83 @@ mod tests {
         assert!(body.contains("Re-run any of these you still need"));
     }
 
+    /// A kept volume lost no file, but every process: an agent told only
+    /// that the tree is intact would wait on a server that no longer runs.
     #[test]
-    fn persisted_origin_emits_no_restart_note() {
-        assert_eq!(WorkspaceOrigin::Persisted.restart_note(WS), None);
+    fn a_kept_volume_says_the_files_survived_and_the_processes_did_not() {
+        let note = WorkspaceOrigin::KeptVolume.restart_note(WS, Some(CAUSE));
+
+        assert!(
+            note.starts_with(&format!("<sandbox-restart-note>\n{CAUSE}\n")),
+            "{note}"
+        );
+        assert!(note.contains("node_modules"), "{note}");
+        assert!(note.contains("Every process it ran is gone"), "{note}");
+        assert!(!note.contains("git status"), "{note}");
+    }
+
+    /// The incident: an in-place kill with no `OOMKilled` reason read, to the
+    /// agent, like its own memory use. The note must say what it most likely was.
+    #[test]
+    fn each_recorded_cause_is_named_in_the_note() {
+        let cause = |kind: &str, exit_code: Option<i32>, reason: Option<&str>| {
+            describe_stop_cause(Some(&sandbox_proto::StopCause {
+                kind: kind.to_string(),
+                terminated_reason: reason.map(str::to_string),
+                exit_code,
+                disruption_reason: Some("DeletionByPodGC".to_string()),
+                initiator: Some("reaper".to_string()),
+                occurred_at_unix_ms: 1_757_000_000_000,
+            }))
+        };
+
+        let oom = cause("container_oom_killed", Some(137), Some("OOMKilled"));
+        assert!(oom.contains("OOMKilled at 15:33:20 UTC (exit 137"), "{oom}");
+        let liveness = cause("container_restarted", Some(137), Some("Error"));
+        assert!(liveness.contains("liveness probe"), "{liveness}");
+        assert!(!liveness.contains("OOMKilled at"), "{liveness}");
+        let node = cause("node_reclaimed", None, None);
+        assert!(node.contains("(DeletionByPodGC)"), "{node}");
+        let stopped = cause("stopped", None, None);
+        assert!(stopped.contains("by reaper"), "{stopped}");
+        assert!(describe_stop_cause(None).contains("not have been recorded yet"));
+    }
+
+    /// The reviewer's race: the kill's event lands after a kept volume's fast
+    /// init first asks, so a single read would call it unrecorded.
+    #[tokio::test(start_paused = true)]
+    async fn a_cause_recorded_after_the_first_read_is_still_found() {
+        let calls = std::sync::atomic::AtomicU32::new(0);
+        let cause = await_stop_cause(STOP_CAUSE_ATTEMPTS, STOP_CAUSE_RETRY, || {
+            let call = calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            async move {
+                Ok((call == 2).then(|| sandbox_proto::StopCause {
+                    kind: "container_restarted".to_string(),
+                    ..Default::default()
+                }))
+            }
+        })
+        .await;
+
+        assert_eq!(
+            cause.map(|c| c.kind).as_deref(),
+            Some("container_restarted")
+        );
+        assert_eq!(calls.into_inner(), 3);
+    }
+
+    /// A start with nothing to explain waits for nothing: one read, then on.
+    #[tokio::test(start_paused = true)]
+    async fn an_unrecorded_cause_is_read_at_most_the_attempts_given() {
+        let calls = std::sync::atomic::AtomicU32::new(0);
+        let cause = await_stop_cause(1, STOP_CAUSE_RETRY, || {
+            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            async { Ok(None) }
+        })
+        .await;
+
+        assert_eq!(cause, None);
+        assert_eq!(calls.into_inner(), 1);
     }
 
     /// The note is the only thing that tells a resuming agent the tree may be
@@ -544,8 +737,7 @@ mod tests {
         let note = WorkspaceOrigin::RestoredFromSnapshot {
             taken_at: Some(taken_at),
         }
-        .restart_note(WS)
-        .expect("snapshot restore must warn the agent");
+        .restart_note(WS, None);
 
         assert!(note.contains("<sandbox-restart-note>"));
         assert!(note.contains(WS));
@@ -569,9 +761,7 @@ mod tests {
     /// rescue tar carries no time and is the older copy by construction.
     #[test]
     fn an_undated_snapshot_restore_says_unknown_rather_than_current() {
-        let note = WorkspaceOrigin::RestoredFromSnapshot { taken_at: None }
-            .restart_note(WS)
-            .expect("snapshot restore must warn the agent");
+        let note = WorkspaceOrigin::RestoredFromSnapshot { taken_at: None }.restart_note(WS, None);
 
         assert!(note.contains("could not date that snapshot"), "{note}");
         assert!(note.contains("git status"), "{note}");
@@ -582,9 +772,7 @@ mod tests {
     /// resumes instead of spending a turn re-checking files nothing touched.
     #[test]
     fn a_final_flush_restore_reports_the_tree_whole_and_asks_for_no_audit() {
-        let note = WorkspaceOrigin::RestoredFromFinalFlush
-            .restart_note(WS)
-            .expect("a restart still owes the agent a note");
+        let note = WorkspaceOrigin::RestoredFromFinalFlush.restart_note(WS, None);
 
         assert!(note.contains("<sandbox-restart-note>"));
         assert!(note.contains(WS));
@@ -608,16 +796,14 @@ mod tests {
             WorkspaceOrigin::RestoredFromFinalFlush,
             WorkspaceOrigin::RestoredFromSnapshot { taken_at: None },
         ] {
-            let note = origin.restart_note(WS).expect("a restore owes a note");
+            let note = origin.restart_note(WS, None);
             assert!(note.contains(".env"), "{origin:?}: {note}");
         }
     }
 
     #[test]
     fn reclone_warns_about_full_ephemeral_loss() {
-        let note = WorkspaceOrigin::Recloned
-            .restart_note(WS)
-            .expect("a fresh reclone must warn the agent");
+        let note = WorkspaceOrigin::Recloned.restart_note(WS, None);
         assert!(note.contains("<sandbox-restart-note>"));
         assert!(note.contains("fresh `git clone`"));
         // A reclone can lose unpushed commits — the snapshot path cannot.
@@ -701,14 +887,14 @@ mod tests {
     /// A restart nobody asked for, with nothing in flight, keeps the pod quiet.
     #[test]
     fn a_restart_that_owes_nothing_sends_nothing() {
-        assert!(wake_messages("task-a", BTreeMap::new(), &[]).is_empty());
+        assert!(wake_messages("task-a", BTreeMap::new(), &[], CAUSE).is_empty());
     }
 
     #[test]
     fn a_wake_note_alone_produces_one_message() {
         let notes = BTreeMap::from([("task-a".to_string(), noted("the restart you asked for"))]);
 
-        let messages = wake_messages("task-a", notes, &[]);
+        let messages = wake_messages("task-a", notes, &[], CAUSE);
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].0, "task-a");
         assert!(
@@ -726,7 +912,7 @@ mod tests {
         let notes = BTreeMap::from([("task-a".to_string(), noted("the restart you asked for"))]);
         let lost = [journalled("aaaaaaaa", "build", CommandState::Running, None)];
 
-        let messages = wake_messages("task-a", notes, &lost);
+        let messages = wake_messages("task-a", notes, &lost, CAUSE);
         assert_eq!(messages.len(), 1);
         let text = &messages[0].1;
         assert!(text.contains("the restart you asked for"), "{text}");
@@ -741,10 +927,14 @@ mod tests {
         let notes = BTreeMap::from([("task-b".to_string(), noted("task-b restarted"))]);
         let lost = [journalled("aaaaaaaa", "build", CommandState::Running, None)];
 
-        let messages = wake_messages("task-a", notes, &lost);
+        let messages = wake_messages("task-a", notes, &lost, CAUSE);
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0].0, "task-a");
         assert!(messages[0].1.contains("aaaaaaaa"));
+        assert!(
+            messages[0].1.contains(CAUSE),
+            "the lost commands lead with why"
+        );
         assert_eq!(messages[1].0, "task-b");
         assert!(messages[1].1.contains("task-b restarted"));
         assert!(!messages[1].1.contains("aaaaaaaa"));

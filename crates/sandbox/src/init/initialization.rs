@@ -359,6 +359,8 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
         WorkspaceOrigin::RestoredFromSnapshot {
             taken_at: snapshot_taken_at,
         }
+    } else if restore_decision == workspace_sync::RestoreDecision::UseExistingVolume {
+        WorkspaceOrigin::KeptVolume
     } else if workspace_recloned {
         WorkspaceOrigin::Recloned
     } else {

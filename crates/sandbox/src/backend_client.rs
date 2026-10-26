@@ -11,12 +11,12 @@ use sandbox_proto::backend_sandbox_service_client::BackendSandboxServiceClient;
 use sandbox_proto::{
     AcknowledgeMessagesRequest, AppendTrajectoryRequest, AppendTrajectoryResponse,
     DownloadTranscriptRequest, DownloadUploadRequest, EnqueueSandboxMessageRequest,
-    FetchPluginRequest, GetCredentialsRequest, GetCredentialsResponse, GetPendingMessagesRequest,
-    GetSystemPromptRequest, GetWorkspaceRepositoryAccessRequest,
+    FetchPluginRequest, GetCredentialsRequest, GetCredentialsResponse, GetLastStopCauseRequest,
+    GetPendingMessagesRequest, GetSystemPromptRequest, GetWorkspaceRepositoryAccessRequest,
     GetWorkspaceRepositoryAccessResponse, GetWorkspaceSyncUrlsRequest,
     GetWorkspaceSyncUrlsResponse, InterruptedTurn, PendingAgentDelivery, PublishEventRequest,
     ReadTrajectoryRequest, RecordGitPushRequest, RecordUnreportedCommandsRequest,
-    RecoverInterruptedRunRequest, ReportWorkspaceSyncRequest, SessionHeader,
+    RecoverInterruptedRunRequest, ReportWorkspaceSyncRequest, SessionHeader, StopCause,
     TakeUnreportedCommandsRequest, TranscriptChunk, UnreportedCommand, UpdateCredentialRequest,
 };
 
@@ -279,6 +279,15 @@ pub trait BackendClient: Send + Sync {
         Err(tonic::Status::unimplemented(
             "unreported commands not supported",
         ))
+    }
+
+    /// Why the task's previous container stopped; see the `GetLastStopCause`
+    /// RPC for when it may be called.
+    async fn get_last_stop_cause(
+        &self,
+        _task_id: &str,
+    ) -> Result<Option<StopCause>, tonic::Status> {
+        Ok(None)
     }
 
     /// Queue a user message this sandbox wrote for its own Task, on the same
@@ -856,6 +865,16 @@ impl BackendClient for BackendGrpcClient {
         {
             debug!(task_id, error = %e, "Failed to record the unreported commands (non-fatal)");
         }
+    }
+
+    async fn get_last_stop_cause(&self, task_id: &str) -> Result<Option<StopCause>, Status> {
+        let mut client = self.client.clone();
+        let response = client
+            .get_last_stop_cause(GetLastStopCauseRequest {
+                task_id: task_id.to_string(),
+            })
+            .await?;
+        Ok(response.into_inner().cause)
     }
 
     async fn take_unreported_commands(

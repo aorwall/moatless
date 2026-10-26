@@ -191,8 +191,8 @@ pub struct Config {
     /// back via backend-minted presigned URLs.
     pub workspace_sync_enabled: bool,
     /// Whether the volume under `WORKSPACE_DIR` is durable (env:
-    /// `WORKSPACE_RESTORE_IF_EMPTY`). When true, restore only applies to an
-    /// empty volume, and the periodic upload loop is disabled.
+    /// `WORKSPACE_RESTORE_IF_EMPTY`). When true, the periodic upload loop is
+    /// disabled; a usable volume is kept on either tier.
     pub workspace_restore_if_empty: bool,
     /// Whether the task runs headless (env: `SANDBOX_HEADLESS`), i.e.
     /// unwatched. Removes tools that would park the turn on an answer nobody

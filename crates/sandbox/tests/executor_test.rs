@@ -263,6 +263,7 @@ fn test_state_with_config(backend: Arc<dyn BackendClient>, config: Config) -> Sa
         init_phase: Arc::new(RwLock::new(InitPhase::Ready)),
         setup_gate: moatless_sandbox::init::SetupGate::opened(),
         workspace_origin: Default::default(),
+        stop_cause: Default::default(),
         git_credentials: Default::default(),
         credentials,
         lifecycle_cancel: CancellationToken::new(),

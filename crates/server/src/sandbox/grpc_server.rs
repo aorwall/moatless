@@ -11,6 +11,7 @@ mod git_push;
 mod messages;
 mod plugins;
 mod state;
+mod stop_cause;
 mod trajectory;
 mod transcripts;
 mod uploads;

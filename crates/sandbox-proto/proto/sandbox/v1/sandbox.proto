@@ -135,6 +135,12 @@ service BackendSandboxService {
   // can overwrite it. Auth via gRPC metadata.
   rpc TakeUnreportedCommands(TakeUnreportedCommandsRequest) returns (TakeUnreportedCommandsResponse);
 
+  // Why the task's previous sandbox container stopped, read from the lifecycle
+  // events the pod watcher recorded, for the restart note. Call before this
+  // container reports Ready: its own `pod_ready` ends the search. Auth via
+  // gRPC metadata.
+  rpc GetLastStopCause(GetLastStopCauseRequest) returns (GetLastStopCauseResponse);
+
   // Queue a user message the sandbox itself originated, on the same path an
   // external one takes. Auth via gRPC metadata.
   rpc EnqueueSandboxMessage(EnqueueSandboxMessageRequest) returns (EnqueueSandboxMessageResponse);
@@ -174,6 +180,28 @@ message TakeUnreportedCommandsRequest {
 
 message TakeUnreportedCommandsResponse {
   repeated UnreportedCommand commands = 1;
+}
+
+message GetLastStopCauseRequest {
+  string task_id = 1;
+}
+
+message GetLastStopCauseResponse {
+  // Unset when no cause was recorded since the previous container was ready.
+  optional StopCause cause = 1;
+}
+
+// One recorded stop, copied from the event's `SandboxEventPayload`.
+message StopCause {
+  // The event's `lifecycleEvent` (`container_oom_killed`, `node_reclaimed`,
+  // ...), or `stopped` for a deliberate stop.
+  string kind = 1;
+  optional string terminated_reason = 2;
+  optional int32 exit_code = 3;
+  optional string disruption_reason = 4;
+  // Who stopped it, for `stopped`: `user`, `reaper`, `restart`, `system`.
+  optional string initiator = 5;
+  int64 occurred_at_unix_ms = 6;
 }
 
 message EnqueueSandboxMessageRequest {

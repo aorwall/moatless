@@ -10,21 +10,22 @@ use sandbox_proto::{
     AcknowledgeMessagesRequest, AcknowledgeMessagesResponse, AppendTrajectoryRequest,
     AppendTrajectoryResponse, DownloadTranscriptRequest, DownloadUploadRequest,
     EnqueueSandboxMessageRequest, EnqueueSandboxMessageResponse, FetchPluginRequest,
-    GetCredentialsRequest, GetCredentialsResponse, GetPendingMessagesRequest,
-    GetPendingMessagesResponse, GetSystemPromptRequest, GetSystemPromptResponse,
-    GetWorkspaceRepositoryAccessRequest, GetWorkspaceRepositoryAccessResponse,
-    GetWorkspaceSyncUrlsRequest, GetWorkspaceSyncUrlsResponse, PublishEventRequest,
-    PublishEventResponse, ReadTrajectoryRequest, RecordGitPushRequest, RecordGitPushResponse,
-    RecordUnreportedCommandsRequest, RecordUnreportedCommandsResponse,
-    RecoverInterruptedRunRequest, RecoverInterruptedRunResponse, ReportWorkspaceSyncRequest,
-    ReportWorkspaceSyncResponse, TakeUnreportedCommandsRequest, TakeUnreportedCommandsResponse,
-    TranscriptChunk, UpdateCredentialRequest, UpdateCredentialResponse, UploadTranscriptResponse,
+    GetCredentialsRequest, GetCredentialsResponse, GetLastStopCauseRequest,
+    GetLastStopCauseResponse, GetPendingMessagesRequest, GetPendingMessagesResponse,
+    GetSystemPromptRequest, GetSystemPromptResponse, GetWorkspaceRepositoryAccessRequest,
+    GetWorkspaceRepositoryAccessResponse, GetWorkspaceSyncUrlsRequest,
+    GetWorkspaceSyncUrlsResponse, PublishEventRequest, PublishEventResponse, ReadTrajectoryRequest,
+    RecordGitPushRequest, RecordGitPushResponse, RecordUnreportedCommandsRequest,
+    RecordUnreportedCommandsResponse, RecoverInterruptedRunRequest, RecoverInterruptedRunResponse,
+    ReportWorkspaceSyncRequest, ReportWorkspaceSyncResponse, TakeUnreportedCommandsRequest,
+    TakeUnreportedCommandsResponse, TranscriptChunk, UpdateCredentialRequest,
+    UpdateCredentialResponse, UploadTranscriptResponse,
 };
 
 use super::state::BackendSandboxServiceImpl;
 use super::{
-    commands, credentials, events, git_push, messages, plugins, trajectory, transcripts, uploads,
-    workspace_sync,
+    commands, credentials, events, git_push, messages, plugins, stop_cause, trajectory,
+    transcripts, uploads, workspace_sync,
 };
 
 #[tonic::async_trait]
@@ -158,6 +159,13 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         request: Request<TakeUnreportedCommandsRequest>,
     ) -> Result<Response<TakeUnreportedCommandsResponse>, Status> {
         commands::take_unreported_commands(self, request).await
+    }
+
+    async fn get_last_stop_cause(
+        &self,
+        request: Request<GetLastStopCauseRequest>,
+    ) -> Result<Response<GetLastStopCauseResponse>, Status> {
+        stop_cause::get_last_stop_cause(self, request).await
     }
 
     async fn enqueue_sandbox_message(

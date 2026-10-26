@@ -313,6 +313,14 @@ Gaps left by the first Memory change, each reached from `crates/tasks/src/memory
 | `moat tasks create` cannot set `memory_preload` | `crates/tasks/src/task/service.rs::normalize` stamps an empty `memory_preload`; only a Loop firing (`crates/loops/src/loops/firing/inbound.rs::create_task_from_loop`) sets it | When a person wants a one-off Task to start with a Loop's index. Then add the field to `CreateTaskRequest` and a `--memory-preload` flag |
 | A put cannot clear `data` or `staleAfterSeconds` | `crates/tasks/src/memory/dao.rs::update_existing` keeps an omitted field with `COALESCE`, and `PutMemoryRequest` has no way to say "clear" | When an agent needs to drop an entry's data or staleness window without deleting the entry. Then add `clearData`/`clearStaleAfter` flags, as `noExpiry` does for the TTL |
 
+## Sandbox restarts
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| A `moat cmd` server is not restarted after a restart | `crates/sandbox/src/agent/restart.rs::lost_commands_body` names a lost command and asks the agent to re-run it; nothing re-runs one itself, since a command does not say whether it is safe to repeat | When `moat cmd run` carries an opt-in flag marking a command as a long-lived server that is safe to start again |
+| `WORKSPACE_RESTORE_IF_EMPTY` names a restore it no longer gates | `crates/sandbox/src/config.rs::Config::workspace_restore_if_empty` only turns off the periodic upload; `workspace_sync::restore_on_start` keeps a usable volume on every tier | When the env var is renamed in `crates/sandbox-k8s/src/pod_builder/containers.rs` and the sandbox in one deploy, since an old pod spec reaching a new sandbox would turn the periodic upload back on for a PVC |
+| The restart note cannot tell a liveness kill from a kernel OOM kill of the node | `crates/sandbox/src/agent/restart.rs::describe_stop_cause` reads `exit 137` without `OOMKilled` as most likely a liveness kill; the pod watcher records no probe event | When `crates/sandbox-k8s/src/pod_watcher` records the kubelet's `Killing` event, so the note can name the probe |
+
 ## Performance
 
 | Deferred | Anchor | Entry condition |

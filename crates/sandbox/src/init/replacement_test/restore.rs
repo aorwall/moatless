@@ -139,9 +139,12 @@ async fn restore_precedes_the_harness_accepting_the_resumed_turn() {
             1,
             "family {family}: exactly the interrupted run"
         );
-        assert_eq!(
-            inputs[0].text, "prior work",
-            "family {family}: the harness runs the restored prompt"
+        // A kept volume still owes the note: every process died with the pod.
+        assert!(
+            inputs[0].text.starts_with("<sandbox-restart-note>")
+                && inputs[0].text.ends_with("prior work"),
+            "family {family}: the harness runs the restored prompt after the note: {}",
+            inputs[0].text
         );
         assert!(
             matches!(&inputs[0].resume, Some(ResumeSession::WithId(id)) if id == "restored-sess"),

@@ -74,6 +74,7 @@ fn build_state(
         init_phase: Arc::new(RwLock::new(phase)),
         setup_gate,
         workspace_origin: Default::default(),
+        stop_cause: Default::default(),
         git_credentials: Default::default(),
         credentials: Arc::new(RwLock::new(HashMap::new())),
         lifecycle_cancel: CancellationToken::new(),

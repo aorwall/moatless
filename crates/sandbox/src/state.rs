@@ -54,6 +54,9 @@ pub struct SandboxState {
     /// A joining Member prepends the same `<sandbox-restart-note>` as the boot
     /// Member — every checkout shares the pod's one volume.
     pub workspace_origin: Arc<RwLock<WorkspaceOrigin>>,
+    /// Why the previous container stopped, as the restart note words it.
+    /// Written beside `workspace_origin`; `None` before that or in tests.
+    pub stop_cause: Arc<RwLock<Option<String>>>,
     /// Credentials fetched during init, passed to the agent subprocess via
     /// `ClaudeOptions.env`, except keys in
     /// [`crate::credentials::fetch::AGENT_EXCLUDED_KEYS`].
@@ -286,6 +289,7 @@ pub(crate) mod test_support {
             init_phase: Arc::new(RwLock::new(InitPhase::Ready)),
             setup_gate: crate::init::SetupGate::opened(),
             workspace_origin: Default::default(),
+            stop_cause: Default::default(),
             git_credentials: Default::default(),
             credentials: Arc::new(RwLock::new(HashMap::new())),
             lifecycle_cancel,

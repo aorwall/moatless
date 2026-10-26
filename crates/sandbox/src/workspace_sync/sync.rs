@@ -358,9 +358,9 @@ pub enum RestoreDecision {
         /// lost: the rescue tar carries no tag either.
         final_flush: bool,
     },
-    /// The durable volume already holds a usable primary repo. Nothing was
-    /// fetched; the volume is the live copy. Skip the overlay — it is the older
-    /// copy and would revert the volume.
+    /// The volume already holds a usable primary repo. Nothing was fetched;
+    /// the volume is the live copy. Skip the overlay — it is the older copy
+    /// and would revert the volume.
     UseExistingVolume,
     /// Nothing was restored. Clone as usual, then overlay any working-tree
     /// archive.
@@ -517,9 +517,10 @@ pub async fn restore_on_start(state: &SandboxState) -> RestoreDecision {
     let repo_dir = PathBuf::from(&state.config.repo_dir);
     let primary_prefix = primary_prefix(&state.config.workspace_dir, &state.config.repo_dir);
 
-    // A durable volume is the live copy: the snapshot is behind it by at most a
-    // turn, so extracting it over a populated PVC would silently revert work.
-    if state.config.workspace_restore_if_empty && volume_is_usable(&state.config).await {
+    // A usable volume is the live copy on either tier: a PVC outlives the pod,
+    // and an `emptyDir` outlives an in-place container restart (a liveness or
+    // OOM kill). The snapshot is behind it, so extracting it reverts work.
+    if volume_is_usable(&state.config).await {
         info!(task_id = %task_id, dir = %repo_dir.display(), "Volume already holds the workspace; keeping it and skipping the S3 restore");
         return RestoreDecision::UseExistingVolume;
     }

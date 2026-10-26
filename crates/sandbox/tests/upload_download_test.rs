@@ -17,16 +17,16 @@ use sandbox_proto::backend_sandbox_service_server::{
 use sandbox_proto::{
     AcknowledgeMessagesRequest, AcknowledgeMessagesResponse, DownloadTranscriptRequest,
     DownloadUploadRequest, EnqueueSandboxMessageRequest, EnqueueSandboxMessageResponse,
-    FetchPluginRequest, GetCredentialsRequest, GetCredentialsResponse, GetPendingMessagesRequest,
-    GetPendingMessagesResponse, GetSystemPromptRequest, GetSystemPromptResponse,
-    GetWorkspaceRepositoryAccessRequest, GetWorkspaceRepositoryAccessResponse,
-    GetWorkspaceSyncUrlsRequest, GetWorkspaceSyncUrlsResponse, PluginChunk, PublishEventRequest,
-    PublishEventResponse, RecordGitPushRequest, RecordGitPushResponse,
-    RecordUnreportedCommandsRequest, RecordUnreportedCommandsResponse,
-    RecoverInterruptedRunRequest, RecoverInterruptedRunResponse, ReportWorkspaceSyncRequest,
-    ReportWorkspaceSyncResponse, TakeUnreportedCommandsRequest, TakeUnreportedCommandsResponse,
-    TranscriptChunk, UpdateCredentialRequest, UpdateCredentialResponse, UploadChunk,
-    UploadTranscriptResponse,
+    FetchPluginRequest, GetCredentialsRequest, GetCredentialsResponse, GetLastStopCauseRequest,
+    GetLastStopCauseResponse, GetPendingMessagesRequest, GetPendingMessagesResponse,
+    GetSystemPromptRequest, GetSystemPromptResponse, GetWorkspaceRepositoryAccessRequest,
+    GetWorkspaceRepositoryAccessResponse, GetWorkspaceSyncUrlsRequest,
+    GetWorkspaceSyncUrlsResponse, PluginChunk, PublishEventRequest, PublishEventResponse,
+    RecordGitPushRequest, RecordGitPushResponse, RecordUnreportedCommandsRequest,
+    RecordUnreportedCommandsResponse, RecoverInterruptedRunRequest, RecoverInterruptedRunResponse,
+    ReportWorkspaceSyncRequest, ReportWorkspaceSyncResponse, TakeUnreportedCommandsRequest,
+    TakeUnreportedCommandsResponse, TranscriptChunk, UpdateCredentialRequest,
+    UpdateCredentialResponse, UploadChunk, UploadTranscriptResponse,
 };
 use tonic::{Request, Response, Status, Streaming};
 
@@ -214,6 +214,13 @@ impl BackendSandboxService for UploadOnlyBackend {
         &self,
         _request: Request<TakeUnreportedCommandsRequest>,
     ) -> Result<Response<TakeUnreportedCommandsResponse>, Status> {
+        Err(Status::unimplemented("not used"))
+    }
+
+    async fn get_last_stop_cause(
+        &self,
+        _request: Request<GetLastStopCauseRequest>,
+    ) -> Result<Response<GetLastStopCauseResponse>, Status> {
         Err(Status::unimplemented("not used"))
     }
 

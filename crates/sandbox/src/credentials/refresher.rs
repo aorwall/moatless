@@ -197,6 +197,7 @@ mod tests {
             init_phase: Arc::new(RwLock::new(InitPhase::Ready)),
             setup_gate: crate::init::SetupGate::opened(),
             workspace_origin: Default::default(),
+            stop_cause: Default::default(),
             git_credentials: Default::default(),
             credentials,
             lifecycle_cancel: CancellationToken::new(),
