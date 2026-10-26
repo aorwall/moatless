@@ -153,7 +153,7 @@ ENV BASH_ENV=/etc/sandbox-env.sh
 # kubectl — pinned. Built with Go 1.24+, which clears the critical go/stdlib
 # CVEs flagged by AWS Inspector for older kubectl builds.
 # renovate: datasource=github-releases depName=kubernetes/kubernetes
-ARG KUBECTL_VERSION=v1.37.0
+ARG KUBECTL_VERSION=v1.37.1
 RUN ARCH=$(dpkg --print-architecture) && \
     curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl" -o /usr/local/bin/kubectl && \
     chmod +x /usr/local/bin/kubectl
@@ -162,7 +162,7 @@ RUN ARCH=$(dpkg --print-architecture) && \
 # that read Helm values and other manifests. Ubuntu's `yq` package is a
 # different, incompatible Python tool, so this is a pinned binary.
 # renovate: datasource=github-releases depName=mikefarah/yq
-ARG YQ_VERSION=v4.53.3
+ARG YQ_VERSION=v4.54.1
 RUN ARCH=$(dpkg --print-architecture) && \
     curl -fsSL "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${ARCH}" -o /usr/local/bin/yq && \
     chmod +x /usr/local/bin/yq && \
@@ -172,7 +172,7 @@ RUN ARCH=$(dpkg --print-architecture) && \
 # `helm lint`/`helm template` here reproduces the required check rather than
 # approximating it.
 # renovate: datasource=github-releases depName=helm/helm
-ARG HELM_VERSION=v3.22.0
+ARG HELM_VERSION=v3.22.1
 RUN ARCH=$(dpkg --print-architecture) && \
     curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-${ARCH}.tar.gz" -o /tmp/helm.tgz && \
     tar -xzf /tmp/helm.tgz -C /tmp && \
@@ -277,7 +277,7 @@ COPY --chown=$USER_UID:$USER_GID --chmod=600 docker/sandbox-kubeconfig /home/$US
 # pinned one at runtime on every fresh pod, which is exactly the multi-hundred-
 # MB install the baked toolchain exists to avoid.
 # renovate: datasource=github-releases depName=rust-lang/rust
-ARG RUST_VERSION=1.97.0
+ARG RUST_VERSION=1.99.1
 ENV RUSTUP_HOME="/opt/rust"
 ENV CARGO_HOME="/opt/cargo"
 ENV PATH="/opt/cargo/bin:$PATH"
@@ -300,7 +300,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no
 # releases cannot read EKS Pod Identity credentials. The two never share
 # objects anyway, since sccache keys on CI's different checkout and CARGO_HOME.
 # renovate: datasource=github-releases depName=rui314/mold
-ARG MOLD_VERSION=2.40.4
+ARG MOLD_VERSION=2.42.1
 # renovate: datasource=github-releases depName=mozilla/sccache
 ARG SCCACHE_VERSION=v0.18.0
 COPY .github/scripts/install-mold.sh /tmp/install-mold.sh
@@ -352,7 +352,7 @@ RUN npm install -g pnpm@11.9.0 yarn typescript@7 tsx
 # VP_NODE_MANAGER=no skips the installer's interactive prompt and leaves the
 # nodesource Node above in charge; the opt-in path shims node/npm/npx ahead of it.
 # renovate: datasource=npm depName=vite-plus
-ARG VITE_PLUS_VERSION=0.2.7
+ARG VITE_PLUS_VERSION=1.1.0
 ENV VP_HOME=/opt/vite-plus
 ENV PATH="$VP_HOME/bin:$PATH"
 RUN curl -fsSL https://vite.plus | VP_VERSION="${VITE_PLUS_VERSION}" VP_NODE_MANAGER=no bash \
@@ -369,7 +369,7 @@ RUN curl -fsSL https://vite.plus | VP_VERSION="${VITE_PLUS_VERSION}" VP_NODE_MAN
 # is unreadable to moatless, so a repo's own first install wiped the bake.
 # The floor — the newest build the image offers, full chromium and shell.
 # renovate: datasource=npm depName=playwright
-ARG PLAYWRIGHT_VERSION=1.63.0
+ARG PLAYWRIGHT_VERSION=1.64.1
 # Older builds named consumers still resolve, headless shell only. Which repo
 # holds which is `docker/playwright-consumers.json`; CI's `playwright-pins` job
 # fails on a consumer resolving a build absent from this list, and warns on an
@@ -377,7 +377,7 @@ ARG PLAYWRIGHT_VERSION=1.63.0
 ARG PLAYWRIGHT_COMPAT_VERSIONS="1.62.1 1.58.1"
 # Drives `playwright-cli`; `1.62.0` added the `cli` subcommand it calls.
 # renovate: datasource=npm depName=playwright
-ARG PLAYWRIGHT_CLI_VERSION=1.63.0
+ARG PLAYWRIGHT_CLI_VERSION=1.64.1
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 RUN apt-get update \
     && apt-get install -y --no-install-recommends xvfb dbus \
@@ -482,7 +482,7 @@ RUN mkdir -p /opt/bun/install/cache \
 # invoke as `ast-grep`. The archive's second binary is named `sg` and is left
 # unpacked: on PATH it would shadow util-linux's `sg`.
 # renovate: datasource=github-releases depName=ast-grep/ast-grep
-ARG AST_GREP_VERSION=0.45.3
+ARG AST_GREP_VERSION=0.51.0
 RUN ARCH=$(dpkg --print-architecture) && \
     AG_ARCH=$([ "$ARCH" = "amd64" ] && echo "x86_64" || echo "aarch64") && \
     curl -fsSL "https://github.com/ast-grep/ast-grep/releases/download/${AST_GREP_VERSION}/app-${AG_ARCH}-unknown-linux-gnu.zip" -o /tmp/ast-grep.zip && \

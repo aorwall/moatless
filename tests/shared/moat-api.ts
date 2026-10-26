@@ -190,7 +190,7 @@ export class MoatApi {
         }
         throw new Error(
           `Fixture repository '${fixture.repositoryId}' is missing from ${this.profile.baseUrl}. ` +
-            `Set E2E_REPOSITORY_ID to an existing template repository. (${describe(error)})`,
+            `Set E2E_REPOSITORY_ID to an existing template repository. (${describeError(error)})`,
         )
       }
     }
@@ -1455,6 +1455,6 @@ function toTaskTriggerFixture(loop: LoopResponse): TaskLoopFixtureResponse {
   }
 }
 
-function describe(error: unknown): string {
+function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }

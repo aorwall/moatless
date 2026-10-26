@@ -36,14 +36,14 @@ lint is off.
 | `tooling/arch-rules/arch-baseline.json` | 116 entries. Item 2 dropped the 277 `comment-block-size` ones |
 | `.github/workflows/ci.yml:165` | The `architecture` job, `timeout-minutes: 10` |
 | `.github/workflows/ci.yml:193` | The `architecture` job's comment-block steps — item 2's report at `:193`, and the `github-script` step that posts it at `:213` |
-| `rust-toolchain.toml` | `channel = "1.97.0"`, coupled to the sandbox image by `toolchain-drift` |
+| `rust-toolchain.toml` | `channel = "1.99.1"`, coupled to the sandbox image by `toolchain-drift` |
 
 <!-- plan-assert: contains clippy.toml disallowed-methods = [ -->
 <!-- plan-assert: contains tooling/arch-rules/src/comment_block_size.rs pub const RULE: &str = "comment-block-size"; -->
 <!-- plan-assert: contains tooling/arch-rules/tests/architecture.rs fn the_baseline_holds_no_fixed_violations -->
 <!-- plan-assert: contains tooling/arch-rules/tests/architecture.rs fn every_registered_rule_is_enforced -->
 <!-- plan-assert: contains tooling/arch-rules/src/public_api.rs fn inherent_signature -->
-<!-- plan-assert: contains rust-toolchain.toml channel = "1.97.0" -->
+<!-- plan-assert: contains rust-toolchain.toml channel = "1.99.1" -->
 
 Two numbers below gated a decision: 277 carried item 2's whole case, and 20 was
 why `SystemTime::now` was item 4's first candidate. Both have landed, so each
@@ -70,7 +70,7 @@ again on every push.
 | 3 | Record why a rule is not registered | No trace today of a rule considered and refused | small |
 | 4 | Widen the clippy fence, one candidate per change | Bun's primary boundary mechanism; ours holds one entry | medium, ongoing |
 | 5 | Spike `hawk` for dead `pub` items | Cross-crate reachability nothing here computes | spike |
-| — | **Not** adopting dylint | Requires nightly; we pin stable `1.97.0` | — |
+| — | **Not** adopting dylint | Requires nightly; we pin stable `1.99.1` | — |
 
 Items 1, 2, 3 and 5 are independent. Item 4 is not blocked by item 1 — see
 the note at the end of item 1 for why the obvious dependency does not hold.
@@ -279,7 +279,7 @@ at all."
 
 **It carries the constraint this plan refuses dylint for.** hawk links
 `rustc_private` and its README says it "must run with the exact Rust toolchain
-it was built against", invoked as `cargo +1.98.1 hawk check`. We pin `1.97.0`.
+it was built against", invoked as `cargo +1.98.1 hawk check`. We pin `1.99.1`.
 Its README also calls the project experimental and "not intended for public
 consumption."
 
@@ -309,7 +309,7 @@ which links against `rustc` internals and therefore requires the nightly
 toolchain its lints were built against. Bun pins `nightly-2026-07-20` and can
 absorb that.
 
-This repo pins `channel = "1.97.0"`, CI runs the `rust:1.97-bookworm` image,
+This repo pins `channel = "1.99.1"`, CI runs the `rust:1.97-bookworm` image,
 and the `toolchain-drift` job couples that channel to the sandbox base image.
 Adopting dylint means moving the whole workspace to nightly, which is a far
 larger decision than the lints justify.

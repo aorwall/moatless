@@ -185,7 +185,7 @@ cliproxy:
     # -- Image tag. Pinned, not floating: the auth-file format and the
     # management API move between releases and the management panel declares a
     # minimum backend version.
-    tag: "v7.3.15"
+    tag: "v7.3.20"
     # -- Image pull policy
     pullPolicy: IfNotPresent
   # -- Key in the chart's Secret holding the management key. It arrives as

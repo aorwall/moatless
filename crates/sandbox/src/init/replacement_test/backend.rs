@@ -195,7 +195,7 @@ impl BackendClient for ReplayBackend {
         // must retry — never resubmit.
         if self
             .ack_failures
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
             .is_ok()
         {
             return Err(tonic::Status::unavailable("simulated ack failure"));

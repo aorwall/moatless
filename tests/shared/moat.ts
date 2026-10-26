@@ -116,7 +116,7 @@ export class Moat {
       return JSON.parse(stdout) as T
     } catch (error) {
       throw new MoatError(
-        `moat ${args.join(' ')} produced output that is not JSON: ${describe(error)}`,
+        `moat ${args.join(' ')} produced output that is not JSON: ${describeError(error)}`,
         { command: describeCommand(args), exitCode: 0, stdout, stderr: '' },
       )
     }
@@ -280,7 +280,7 @@ export class Moat {
       child.on('error', (error) => {
         clearTimeout(timer)
         reject(
-          new MoatError(`moat could not be started: ${describe(error)}`, {
+          new MoatError(`moat could not be started: ${describeError(error)}`, {
             command: describeCommand(argv),
             exitCode: null,
             stdout,
@@ -382,6 +382,6 @@ function firstLine(text: string): string {
   return text.trim().split('\n')[0] || '(no output)'
 }
 
-function describe(error: unknown): string {
+function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }

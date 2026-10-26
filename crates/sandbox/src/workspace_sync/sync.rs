@@ -214,7 +214,7 @@ impl WorkspaceSyncTracker {
     /// [`PRUNE_EVERY_SNAPSHOTS`].
     fn claim_prune(&self) -> bool {
         self.snapshots_until_prune
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
                 Some(if left == 0 {
                     PRUNE_EVERY_SNAPSHOTS
                 } else {

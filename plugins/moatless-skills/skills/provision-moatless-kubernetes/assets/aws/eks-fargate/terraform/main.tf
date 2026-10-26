@@ -12,7 +12,7 @@ data "aws_s3_bucket" "workspace" {
 
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
-  version = "6.6.1"
+  version = "6.7.3"
 
   name = var.deployment
   cidr = var.vpc_cidr
@@ -38,7 +38,7 @@ module "vpc" {
 
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "21.24.2"
+  version = "21.29.0"
 
   name               = var.deployment
   kubernetes_version = var.cluster_version
@@ -173,7 +173,7 @@ resource "aws_acm_certificate_validation" "this" {
 
 module "backend_irsa" {
   source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts"
-  version = "6.8.0"
+  version = "6.8.2"
 
   name            = "${var.deployment}-backend"
   use_name_prefix = false
@@ -197,7 +197,7 @@ module "backend_irsa" {
 
 module "load_balancer_controller_irsa" {
   source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts"
-  version = "6.8.0"
+  version = "6.8.2"
 
   name                                   = "${var.deployment}-aws-load-balancer-controller"
   use_name_prefix                        = false

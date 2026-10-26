@@ -5,9 +5,7 @@
 //! functions — an inline verify stalls a runtime worker and turns login into a
 //! trivial DoS.
 
-use argon2::password_hash::rand_core::OsRng;
-use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
-use argon2::{Algorithm, Argon2, Params, Version};
+use argon2::{Algorithm, Argon2, Params, PasswordHash, PasswordHasher, PasswordVerifier, Version};
 use rand::RngExt;
 
 /// argon2id parameters: m=19456 KiB, t=2, p=1 (OWASP baseline).
@@ -40,11 +38,8 @@ fn argon2() -> Result<Argon2<'static>, PasswordHashError> {
 
 /// Hash a password into a PHC string. Blocking — call via [`hash_password`].
 fn hash_password_blocking(password: &str) -> Result<String, PasswordHashError> {
-    // `SaltString::generate` wants argon2's own `rand_core 0.6` OsRng — the
-    // backend's `rand 0.10` traits are unrelated types here.
-    let salt = SaltString::generate(&mut OsRng);
     argon2()?
-        .hash_password(password.as_bytes(), &salt)
+        .hash_password(password.as_bytes())
         .map(|h| h.to_string())
         .map_err(|e| PasswordHashError::Hash(e.to_string()))
 }

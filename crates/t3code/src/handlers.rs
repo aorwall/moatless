@@ -166,7 +166,7 @@ pub(crate) async fn thread_bounded_snapshot_http(
 ) -> Response {
     let mut detail = match readable_detail_v2(&state, &identity, &thread_id, &headers).await {
         Ok(detail) => detail,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let shape = SnapshotShape {
         bounded: true,
@@ -190,7 +190,7 @@ pub(crate) async fn thread_history_http(
 ) -> Response {
     let detail = match readable_detail_v2(&state, &identity, &thread_id, &headers).await {
         Ok(detail) => detail,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let Some(cursor) = query.cursor.as_deref().and_then(HistoryCursor::decode) else {
         return invalid_request("invalid_history_cursor");
@@ -215,10 +215,10 @@ async fn readable_detail_v2(
     identity: &UiRpcAuthIdentity,
     thread_id: &str,
     headers: &HeaderMap,
-) -> Result<ThreadDetailV2, Response> {
+) -> Result<ThreadDetailV2, Box<Response>> {
     debug!(user_id = %identity.user_id, task_id = %thread_id, "T3 UI bounded thread read");
     if header_protocol(state, headers) != OrchestrationProtocol::V2 {
-        return Err(conversation_not_found());
+        return Err(Box::new(conversation_not_found()));
     }
     let detail = thread_detail_v2(
         &state.reads,
@@ -230,7 +230,7 @@ async fn readable_detail_v2(
     .await;
     match detail {
         Ok(Some(detail)) => Ok(detail),
-        Ok(None) => Err(conversation_not_found()),
+        Ok(None) => Err(Box::new(conversation_not_found())),
         Err(error) => {
             error!(
                 %error,
@@ -238,11 +238,13 @@ async fn readable_detail_v2(
                 task_id = %thread_id,
                 "Failed to assemble T3 UI thread snapshot"
             );
-            Err((
-                shell_failure_status(&error),
-                Json(json!({ "error": "Failed to assemble the conversation" })),
-            )
-                .into_response())
+            Err(Box::new(
+                (
+                    shell_failure_status(&error),
+                    Json(json!({ "error": "Failed to assemble the conversation" })),
+                )
+                    .into_response(),
+            ))
         }
     }
 }

@@ -227,7 +227,7 @@ async fn remove_deselected_plugins(base_dir: &Path, picked: &[PluginDelivery], r
         let file_name = entry.file_name();
         let name = file_name.to_string_lossy();
         let doomed = match name.strip_prefix('.') {
-            Some(hidden) => hidden.strip_suffix(".json").is_none_or(&is_removed),
+            Some(hidden) => hidden.strip_suffix(".json").is_none_or(is_removed),
             None => is_removed(&name),
         };
         if !doomed {

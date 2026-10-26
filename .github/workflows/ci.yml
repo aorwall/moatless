@@ -99,7 +99,7 @@ jobs:
       # Narrows rust-test's package set; no deep fetch needed.
       changed-files: ${{ steps.filter.outputs.everything_files }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       # A push diffs against the last green push to main rather than
       # `github.event.before`: concurrency cancels a pending run when a newer
@@ -129,7 +129,7 @@ jobs:
             echo "::notice::Could not fetch base ${BASE_SHA:-<none>}; the sandbox binaries rebuild"
           fi
 
-      - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4
         id: filter
         with:
           # Empty on a PR or a failed fetch: a PR diffs against its base ref
@@ -240,14 +240,14 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           # The comment-block step below diffs against the PR base, which needs
           # that commit present. Depth 1 fetches neither it nor a merge base.
           fetch-depth: 0
 
       - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: ". -> target"
           shared-key: rust-arch
@@ -364,7 +364,7 @@ jobs:
     name: Plan claims still hold
     runs-on: staging-runners
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Every plan-assert in .plans/ still describes the source
         run: ./scripts/check-plan-assertions.sh
 
@@ -372,7 +372,7 @@ jobs:
     name: Sandbox toolchain drift
     runs-on: staging-runners
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Compare rust-toolchain.toml with Dockerfile.sandbox-base
         run: |
           PINNED=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)
@@ -391,7 +391,7 @@ jobs:
     name: Playwright pin drift
     runs-on: staging-runners
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Compare the Playwright pins with the lockfiles that decide them
         env:
           GH_TOKEN: ${{ secrets.E2E_GITHUB_PAT }}
@@ -439,7 +439,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       # Before the cache restore and the build: rustfmt reads source, so this
       # reports in seconds rather than after clippy's link. `rustfmt.toml` pins
@@ -457,7 +457,7 @@ jobs:
       - name: Authenticate to AWS for sccache
         if: vars.SCCACHE_S3_BUCKET != ''
         continue-on-error: true
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ vars.SCCACHE_AWS_ROLE }}
           aws-region: ${{ vars.SCCACHE_S3_REGION || 'eu-north-1' }}
@@ -467,7 +467,7 @@ jobs:
 
       - name: Cache Rust dependencies
         id: rust-cache
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: ". -> target"
           shared-key: rust-clippy
@@ -589,14 +589,14 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       # sccache is an optimisation; a broken OIDC trust must not turn a build
       # red. On failure no credentials are exported and the setup script skips.
       - name: Authenticate to AWS for sccache
         if: vars.SCCACHE_S3_BUCKET != ''
         continue-on-error: true
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ vars.SCCACHE_AWS_ROLE }}
           aws-region: ${{ vars.SCCACHE_S3_REGION || 'eu-north-1' }}
@@ -611,7 +611,7 @@ jobs:
 
       - name: Cache Rust dependencies
         id: rust-cache
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: ". -> target"
           shared-key: rust-nextest
@@ -634,7 +634,7 @@ jobs:
           apt-get install -y --no-install-recommends jq postgresql-client
 
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2.84.0
+        uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2.87.30
         with:
           tool: cargo-nextest
 
@@ -880,14 +880,14 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       # sccache is an optimisation; a broken OIDC trust must not turn a build
       # red. On failure no credentials are exported and the setup script skips.
       - name: Authenticate to AWS for sccache
         if: vars.SCCACHE_S3_BUCKET != ''
         continue-on-error: true
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ vars.SCCACHE_AWS_ROLE }}
           aws-region: ${{ vars.SCCACHE_S3_REGION || 'eu-north-1' }}
@@ -913,7 +913,7 @@ jobs:
           echo "SCCACHE_ON_ACTIONS_CACHE=1" >> "$GITHUB_ENV"
 
       - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: ". -> target"
           shared-key: rust-ci
@@ -924,7 +924,7 @@ jobs:
 
       - name: Cache sccache objects
         if: env.SCCACHE_ON_ACTIONS_CACHE == '1'
-        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/sccache
           key: ${{ runner.os }}-sccache-rust-ci-${{ hashFiles('Cargo.lock') }}
@@ -976,21 +976,21 @@ jobs:
 
       - name: Cache backend binary for downstream jobs
         if: env.BUILD_BACKEND == 'true'
-        uses: actions/cache/save@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: target/ci/moatless-backend
           key: backend-binary-${{ github.sha }}
 
       - name: Cache OpenAPI spec for downstream jobs
         if: env.BUILD_BACKEND == 'true'
-        uses: actions/cache/save@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: openapi-specs.json
           key: openapi-spec-${{ github.sha }}
 
       - name: Cache sandbox binaries for downstream jobs
         if: env.BUILD_SANDBOX == 'true'
-        uses: actions/cache/save@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             target/ci/sandbox
@@ -1009,7 +1009,7 @@ jobs:
        needs.detect-changes.outputs.docker-backend == 'true')
     runs-on: staging-runners
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -1022,7 +1022,7 @@ jobs:
       # After checkout — it runs `git clean -ffdx`, which would wipe the
       # restored file if the order were reversed.
       - name: Restore OpenAPI spec
-        uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: openapi-specs.json
           key: openapi-spec-${{ github.sha }}
@@ -1032,7 +1032,7 @@ jobs:
         run: cd packages/api-client && bun run generate:client
 
       - name: Cache generated client for type-check
-        uses: actions/cache/save@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             openapi-specs.json
@@ -1052,7 +1052,7 @@ jobs:
       )
     runs-on: staging-runners
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -1066,7 +1066,7 @@ jobs:
       # test:scripts runs vitest under Bun and its tinypool worker dies on
       # `TypeError: port.addListener is not a function`.
       - name: Setup Node (vitest runtime for test:scripts)
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24
 
@@ -1096,7 +1096,7 @@ jobs:
       )
     runs-on: staging-runners-large
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -1108,7 +1108,7 @@ jobs:
 
       - name: Restore generated client
         if: needs.generate-ts-client.result == 'success'
-        uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             openapi-specs.json
@@ -1146,13 +1146,13 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
       - name: Build e2e image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
           file: docker/Dockerfile.e2e
@@ -1176,10 +1176,10 @@ jobs:
       needs.build-rust.result == 'success'
     runs-on: staging-runners-large
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Restore backend binary
-        uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: target/ci/moatless-backend
           key: backend-binary-${{ github.sha }}
@@ -1198,16 +1198,16 @@ jobs:
         run: echo "short=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
       - name: Login to Docker Hub
-        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push backend image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
           file: docker/Dockerfile.backend-cross
@@ -1235,7 +1235,7 @@ jobs:
       needs.detect-changes.outputs.sandbox-base == 'true'
     runs-on: staging-runners-large
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Test codeartifact-env.sh
         run: bash docker/codeartifact/test.sh
@@ -1247,12 +1247,12 @@ jobs:
         run: grep -E '^[A-Z_]+=' docker/cli-versions.env >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
       # Only to read the buildcache. A miss costs a cold build, not a failure.
       - name: Login to Docker Hub
         continue-on-error: true
-        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -1260,7 +1260,7 @@ jobs:
       # No `cache-to`: the mode=max export belongs to the publish job alone
       # (docker/AGENTS.md), and a PR writing it would evict what main reads.
       - name: Build sandbox-base
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
           file: docker/Dockerfile.sandbox-base
@@ -1285,7 +1285,7 @@ jobs:
       )
     runs-on: staging-runners-large
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Load CLI versions
         run: grep -E '^[A-Z_]+=' docker/cli-versions.env >> "$GITHUB_ENV"
@@ -1295,16 +1295,16 @@ jobs:
         run: echo "short=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
       - name: Login to Docker Hub
-        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push sandbox-base
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
           file: docker/Dockerfile.sandbox-base
@@ -1339,10 +1339,10 @@ jobs:
       needs.build-rust.result == 'success'
     runs-on: staging-runners-large
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Restore sandbox binaries
-        uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             target/ci/sandbox
@@ -1361,16 +1361,16 @@ jobs:
         run: echo "short=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
       - name: Login to Docker Hub
-        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push sandbox-tools image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
           file: docker/Dockerfile.sandbox-tools
@@ -1407,10 +1407,10 @@ jobs:
       (needs.build-sandbox-base.result == 'success' || needs.build-sandbox-base.result == 'skipped')
     runs-on: staging-runners-large
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Restore sandbox binaries
-        uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             target/ci/sandbox
@@ -1429,16 +1429,16 @@ jobs:
         run: echo "short=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
       - name: Login to Docker Hub
-        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push sandbox (with sandbox-js alias)
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
           file: docker/Dockerfile.sandbox
@@ -1472,7 +1472,7 @@ jobs:
       )
     runs-on: staging-runners
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Set up Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5

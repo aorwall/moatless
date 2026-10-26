@@ -88,7 +88,7 @@ pub async fn info_refs(
     };
     let upstream = match resolve(&proxy, &repository_id, &headers).await {
         Ok(upstream) => upstream,
-        Err(response) => return response,
+        Err(error) => return error.into_response(),
     };
     let url = format!("{}/info/refs?service={}", upstream.base_url, service.name());
     forward(
@@ -134,7 +134,7 @@ async fn service_rpc(
 ) -> Response {
     let upstream = match resolve(&proxy, &repository_id, &headers).await {
         Ok(upstream) => upstream,
-        Err(response) => return response,
+        Err(error) => return error.into_response(),
     };
     let url = format!("{}/{}", upstream.base_url, service.name());
     forward(
@@ -153,14 +153,10 @@ async fn resolve(
     proxy: &GitProxy,
     repository_id: &str,
     headers: &HeaderMap,
-) -> Result<Upstream, Response> {
-    let token = basic_password(headers).ok_or_else(|| {
-        GitProxyError::Unauthorized("No task token was presented".to_string()).into_response()
-    })?;
-    let upstream = proxy
-        .resolve(repository_id, &token)
-        .await
-        .map_err(IntoResponse::into_response)?;
+) -> Result<Upstream, GitProxyError> {
+    let token = basic_password(headers)
+        .ok_or_else(|| GitProxyError::Unauthorized("No task token was presented".to_string()))?;
+    let upstream = proxy.resolve(repository_id, &token).await?;
     info!(
         repository_id,
         host = %upstream.host,

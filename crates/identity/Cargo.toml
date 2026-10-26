@@ -8,7 +8,7 @@ authors.workspace = true
 [dependencies]
 async-trait = { workspace = true }
 axum = { workspace = true, features = ["macros", "ws"] }
-argon2 = { version = "0.5", features = ["std"] }
+argon2 = { version = "0.6" }
 aes-gcm = "0.11"
 base64 = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }

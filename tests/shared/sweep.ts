@@ -84,7 +84,7 @@ export async function sweep(api: MoatApi, options: SweepOptions = {}): Promise<S
       await remove()
       report.removed.push(resource)
     } catch (error) {
-      report.failed.push({ ...resource, reason: describe(error) })
+      report.failed.push({ ...resource, reason: describeError(error) })
     }
   }
 
@@ -321,6 +321,6 @@ async function allTasks(api: MoatApi): Promise<TaskResponse[]> {
   }
 }
 
-function describe(error: unknown): string {
+function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }

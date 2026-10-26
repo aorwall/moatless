@@ -46,7 +46,7 @@ async-trait = { version = "0.1" }
 aws-sdk-s3 = { version = "1" }
 aws-sdk-sts = { version = "1" }
 axum = { version = "0.8" }
-base64 = { version = "0.22" }
+base64 = { version = "0.23" }
 chrono = { version = "0.4" }
 clap = { version = "4" }
 claude-agent-sdk = { path = "crates/claude-agent-sdk" }
@@ -105,7 +105,7 @@ sha2 = { version = "0.11" }
 sqlx = { version = "0.9" }
 tempfile = { version = "3" }
 thiserror = { version = "2" }
-tikv-jemallocator = { version = "0.6" }
+tikv-jemallocator = { version = "0.7" }
 tokio = { version = "1" }
 tokio-test = { version = "0.4" }
 tokio-util = { version = "0.7" }
@@ -161,6 +161,10 @@ missing_docs_in_private_items = "allow"
 struct_excessive_bools = "allow"
 # Idiomatic axum/async-trait patterns
 unused_async = "allow"
+unused_async_trait_impl = "allow"
+# `assert!(x.is_empty())` is the idiom here; the lint's fix, `assert_eq!(x, []
+# as [String; 0])`, needs a typed empty array at each of ~200 test sites.
+assert_is_empty = "allow"
 return_self_not_must_use = "allow"
 # Web handler signatures take owned State/Json/Query extractors
 needless_pass_by_value = "allow"

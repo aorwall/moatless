@@ -36,10 +36,10 @@ metrics = { workspace = true }
 # OTel tracing, exported to Tempo (crates/server/src/startup.rs::init_tracing). Off
 # unless an OTLP endpoint is configured — see OtelConfig. Metrics/logs features
 # are left out: Prometheus stays the metrics pipeline (see `metrics` above).
-opentelemetry = { version = "0.32", default-features = false, features = ["trace"] }
-opentelemetry_sdk = { version = "0.32", default-features = false, features = ["trace"] }
-opentelemetry-otlp = { version = "0.32", default-features = false, features = ["grpc-tonic", "trace"] }
-tracing-opentelemetry = { version = "0.33", default-features = false }
+opentelemetry = { version = "0.33", default-features = false, features = ["trace"] }
+opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace"] }
+opentelemetry-otlp = { version = "0.33", default-features = false, features = ["grpc-tonic", "trace"] }
+tracing-opentelemetry = { version = "0.34", default-features = false }
 
 # Database
 sqlx = { workspace = true, features = ["runtime-tokio", "tls-rustls", "postgres", "json", "chrono", "uuid", "migrate"] }
@@ -164,7 +164,7 @@ metrics-util = { version = "0.20", features = ["debugging"], default-features = 
 
 # In-memory span exporter, so ui_rpc::tests can assert a request's spans share
 # the client's trace id without a real OTLP collector.
-opentelemetry_sdk = { version = "0.32", features = ["testing"] }
+opentelemetry_sdk = { version = "0.33", features = ["testing"] }
 
 [[example]]
 name = "codex_refresh_smoke"

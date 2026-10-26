@@ -96,14 +96,14 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       # sccache is an optimisation; a broken OIDC trust must not turn a build
       # red. On failure no credentials are exported and the setup script skips.
       - name: Authenticate to AWS for sccache
         if: vars.SCCACHE_S3_BUCKET != ''
         continue-on-error: true
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ vars.SCCACHE_AWS_ROLE }}
           aws-region: ${{ vars.SCCACHE_S3_REGION || 'eu-north-1' }}
@@ -125,7 +125,7 @@ jobs:
           echo "SCCACHE_ON_ACTIONS_CACHE=1" >> "$GITHUB_ENV"
 
       - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: ". -> target"
           shared-key: rust-ci
@@ -133,7 +133,7 @@ jobs:
 
       - name: Cache sccache objects
         if: env.SCCACHE_ON_ACTIONS_CACHE == '1'
-        uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/sccache
           key: ${{ runner.os }}-sccache-rust-ci-${{ hashFiles('Cargo.lock') }}
@@ -173,7 +173,7 @@ jobs:
 
       - name: Upload binaries
         if: inputs.run_playwright
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: e2e-binaries
           path: |
@@ -185,7 +185,7 @@ jobs:
 
       - name: Upload the trajectory test binary
         if: inputs.run_trajectory_cli
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: trajectory-e2e-binary
           path: target/ci/trajectory_e2e
@@ -213,10 +213,10 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Download binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: e2e-binaries
           path: /tmp/e2e-binaries
@@ -259,7 +259,7 @@ jobs:
 
       - name: Upload Playwright report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-report
           path: |
@@ -280,7 +280,7 @@ jobs:
       image: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-sandbox-base:latest
     steps:
       - name: Download the test binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: trajectory-e2e-binary
           path: /tmp/trajectory-e2e
@@ -304,7 +304,7 @@ jobs:
     if: inputs.run_claude_sdk
     runs-on: ${{ vars.E2E_RUST_RUNNER || 'ubuntu-latest' }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Run claude-agent-sdk smoke test in Docker
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -316,7 +316,7 @@ jobs:
     if: inputs.run_claude_sandbox_transport
     runs-on: ${{ vars.E2E_RUST_RUNNER || 'ubuntu-latest' }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Run Claude sandbox transport E2E in Docker
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -336,7 +336,7 @@ jobs:
     if: inputs.run_codex_sdk
     runs-on: ${{ vars.E2E_RUST_RUNNER || 'ubuntu-latest' }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Run Codex CLI E2E in Docker
         env:
           # The sandbox base image is pulled by the harness (SANDBOX_BASE arg).
@@ -349,7 +349,7 @@ jobs:
     if: inputs.run_agent_cli_eval
     runs-on: ${{ vars.E2E_RUST_RUNNER || 'ubuntu-latest' }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Run moat CLI agent evaluation in Docker
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -359,7 +359,7 @@ jobs:
         run: ./crates/claude-agent-sdk/scripts/test-docker.sh agent-cli-eval
       - name: Upload moat CLI agent evaluation report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: moat-cli-agent-eval
           path: test-results/moat-cli-eval/results.json

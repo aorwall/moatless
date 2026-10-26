@@ -83,12 +83,12 @@
 		"@babel/parser": "^8.0.0",
 		"estree-walker": "^3.0.3",
 		"magic-string": "^0.30.17",
-		"react-grab": "^0.1.32"
+		"react-grab": "^0.2.0"
 	},
 	"devDependencies": {
 		"@types/node": "^24.7.2",
 		"esbuild": "^0.28.0",
-		"playwright-core": "1.63.0",
+		"playwright-core": "1.64.1",
 		"tailwindcss": "^4.0.0",
 		"typescript": "^5.9.3",
 		"vite": "^7.1.9",
