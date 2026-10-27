@@ -785,6 +785,31 @@ pub trait AttachmentStore: Send + Sync {
     ) -> Result<(), AttachmentStoreError>;
 }
 
+/// Why an Artifact's visibility could not be set.
+#[derive(Debug)]
+pub enum ArtifactVisibilityError {
+    /// No published Artifact by that id on a Task this viewer can read. One
+    /// answer for both, so a caller cannot probe for another tenant's pages.
+    NotFound,
+    /// The viewer can read the Task but not change it.
+    Forbidden,
+    /// The deployment failed to carry it out. The cause is logged, not sent.
+    Failed(String),
+}
+
+/// Who may read an Artifact a Task published. A port because Artifacts and
+/// the write check on them are the Task band's.
+#[cfg_attr(test, mockall::automock)]
+#[async_trait]
+pub trait ArtifactVisibilitySetter: Send + Sync {
+    async fn set_visibility(
+        &self,
+        viewer: &ScopeContext,
+        artifact_id: &str,
+        visibility: Visibility,
+    ) -> Result<(), ArtifactVisibilityError>;
+}
+
 /// Everything a T3 command can ask Moatless to do.
 #[async_trait]
 pub trait ThreadCommandSink: Send + Sync {

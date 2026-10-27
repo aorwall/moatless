@@ -6,6 +6,7 @@
 # `UnsupportedMethodError`) or `declared` (no handler in either protocol; the
 # row exists for its scope). `v2_handler` is `own` when V2 answers with a
 # different function than V1, `same` when both share one, `-` otherwise.
+artifacts.setVisibility	orchestration:operate	session	session	same
 assets.createUrl	orchestration:read	session	session	same
 attachments.createUploadUrl	orchestration:operate	session	session	same
 attachments.delete	orchestration:operate	session	session	same

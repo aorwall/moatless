@@ -101,6 +101,7 @@ pub(crate) fn open_task(task_id: &str) -> TaskDescriptor {
 pub(crate) mod fixtures;
 pub(crate) mod logs;
 
+mod artifacts;
 mod assets;
 mod attachment_uploads;
 mod attachments;

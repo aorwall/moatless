@@ -6,6 +6,7 @@ use std::sync::LazyLock;
 static METHODS: LazyLock<MethodTable> = LazyLock::new(|| {
     MethodTable::new()
         .merge(super::server::server_methods())
+        .merge(super::artifacts::artifact_methods())
         .merge(super::orchestration::orchestration_methods())
         .merge(super::orchestration_v2::orchestration_v2_methods())
         .merge(super::streams::stream_methods())

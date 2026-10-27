@@ -393,3 +393,62 @@ async fn rules_need_data_and_replace_notify() {
         );
     }
 }
+
+#[tokio::test]
+async fn the_owner_sets_an_artifacts_visibility() {
+    let mut store = store_with(Some(row("task-1", 2)));
+    store
+        .expect_set_visibility()
+        .withf(|id, visibility| id == "art-1" && *visibility == Visibility::Public)
+        .times(1)
+        .returning(|_, visibility| {
+            let mut row = row("task-1", 2);
+            row.visibility = visibility;
+            Ok(Some(row))
+        });
+    let response = set_visibility(
+        &tasks(),
+        &artifacts(store),
+        &scope(),
+        "art-1",
+        Visibility::Public,
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.visibility, Visibility::Public);
+    assert_eq!(response.version, 2);
+}
+
+#[tokio::test]
+async fn a_reader_who_cannot_change_the_task_cannot_set_visibility() {
+    let mut store = store_with(Some(row("task-shared", 1)));
+    store.expect_set_visibility().never();
+    let err = set_visibility(
+        &tasks(),
+        &artifacts(store),
+        &scope(),
+        "art-1",
+        Visibility::Public,
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(err, ArtifactError::Forbidden(_)), "{err:?}");
+}
+
+#[tokio::test]
+async fn a_public_artifact_on_an_unreadable_task_is_not_found_to_set() {
+    let mut public = row("task-other", 1);
+    public.visibility = Visibility::Public;
+    let mut store = store_with(Some(public));
+    store.expect_set_visibility().never();
+    let err = set_visibility(
+        &tasks(),
+        &artifacts(store),
+        &scope(),
+        "art-1",
+        Visibility::Private,
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(err, ArtifactError::NotFound(_)), "{err:?}");
+}

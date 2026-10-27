@@ -857,6 +857,7 @@ pub(super) fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore
         source_control_auth: Arc::new(NoGithubIdentity),
         commands: Arc::new(UnreachableCommands),
         attachments,
+        artifacts: Arc::new(ports::MockArtifactVisibilitySetter::new()),
         usage: Arc::new(UnreachableUsage),
         model_defaults: Arc::new(AgentModelDefaults::default()),
         terminal: terminal::TerminalHub::default(),

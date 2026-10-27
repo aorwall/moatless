@@ -91,6 +91,8 @@ pub(crate) struct UiRpcState {
     /// Where a chat attachment's bytes go, for the upload route and for
     /// `attachments.delete`.
     pub(crate) attachments: Arc<dyn ports::AttachmentStore>,
+    /// Who may read a Task's Artifacts, for `artifacts.setVisibility`.
+    pub(crate) artifacts: Arc<dyn ports::ArtifactVisibilitySetter>,
     /// Token and cost totals behind `server.getUsageSummary`.
     pub(crate) usage: Arc<dyn ports::UsageReporter>,
     /// In-process fan-out for terminal metadata and events observed through

@@ -318,7 +318,7 @@ async fn read_publish(mut multipart: Multipart) -> Result<PublishRequest, Artifa
             "visibility" => {
                 let value = field.text().await.map_err(multipart_error)?;
                 req.visibility =
-                    Visibility::try_from(value.as_str()).map_err(ArtifactError::BadRequest)?;
+                    Some(Visibility::try_from(value.as_str()).map_err(ArtifactError::BadRequest)?);
             }
             "inline" => {
                 let value = field.text().await.map_err(multipart_error)?;

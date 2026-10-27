@@ -118,6 +118,10 @@ pub(crate) async fn ui_rpc(
             }),
             commands: Arc::new(t3code::backend::AppStateCommands(app_state.clone())),
             attachments: Arc::new(t3code::backend::AppStateAttachments(app_state.clone())),
+            artifacts: Arc::new(moatless_t3code::owners::TaskArtifacts {
+                tasks: app_state.tasks.clone(),
+                artifacts: app_state.artifacts.clone(),
+            }),
             model_defaults: moatless_t3code::AgentModelDefaults {
                 claude_code: config.sandbox.default_model.clone(),
                 codex: Some(config.sandbox.default_codex_model.clone()),

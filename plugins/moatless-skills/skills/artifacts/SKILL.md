@@ -42,9 +42,10 @@ page looks; this skill owns how it is published and how it saves data.
    Add `--private` when the page shows anything only the task's audience
    should read, such as customer data or a private repository's code, or
    when its `--data` records should be. On a public page any signed-in user
-   can list and save records, and with `--notify` message you. Each
-   publish sets the visibility of every version, so pass it again on the next
-   publish.
+   can list and save records, and with `--notify` message you. The
+   visibility covers every version, and a publish without `--private` keeps
+   it; a person who can change the task can switch it in the thread's
+   Artifacts panel.
 
 Publish finished work meant for other people, such as a report for a team or
 the case for a decision, and pages the person asks to view or share. Advice

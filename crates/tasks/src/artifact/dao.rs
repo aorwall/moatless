@@ -31,16 +31,25 @@ pub trait ArtifactDao: Send + Sync {
     ) -> Result<Reservation, sqlx::Error>;
     /// Add `version` to `published_versions` and return the row, or `None`
     /// when no row carries `artifact_id`. Only a newer version sets the other
-    /// arguments. `shown` also adds it to `inline_versions` and stores its
-    /// `artifact_shown` event in one transaction.
+    /// arguments, and a `None` visibility keeps the row's. `shown` also adds it
+    /// to `inline_versions` and stores its `artifact_shown` event in one
+    /// transaction.
     async fn commit_version(
         &self,
         artifact_id: &str,
         version: i32,
         title: &str,
         data: &DataAccess,
-        visibility: Visibility,
+        visibility: Option<Visibility>,
         shown: Option<ArtifactShown>,
+    ) -> Result<Option<Artifact>, sqlx::Error>;
+    /// Set a published Artifact's visibility and return the row, or `None` when
+    /// no published row carries `artifact_id`. Leaves `updated_at` alone: it
+    /// orders the list by when a page last changed.
+    async fn set_visibility(
+        &self,
+        artifact_id: &str,
+        visibility: Visibility,
     ) -> Result<Option<Artifact>, sqlx::Error>;
     /// Find an Artifact by id, published or not.
     async fn find_by_id(&self, artifact_id: &str) -> Result<Option<Artifact>, sqlx::Error>;
@@ -195,7 +204,7 @@ impl ArtifactDao for PgArtifactDao {
         version: i32,
         title: &str,
         data: &DataAccess,
-        visibility: Visibility,
+        visibility: Option<Visibility>,
         shown: Option<ArtifactShown>,
     ) -> Result<Option<Artifact>, sqlx::Error> {
         let mut tx = self.0.begin().await?;
@@ -209,7 +218,8 @@ impl ArtifactDao for PgArtifactDao {
                    accepts_data = CASE WHEN $2 > latest_version THEN $5 ELSE accepts_data END,
                    notify_on_data = CASE WHEN $2 > latest_version THEN $6
                                          ELSE notify_on_data END,
-                   visibility = CASE WHEN $2 > latest_version THEN $7 ELSE visibility END,
+                   visibility = CASE WHEN $2 > latest_version THEN COALESCE($7, visibility)
+                                     ELSE visibility END,
                    record_rules = CASE WHEN $2 > latest_version THEN $8
                                        ELSE record_rules END,
                    updated_at = now()
@@ -222,7 +232,7 @@ impl ArtifactDao for PgArtifactDao {
         .bind(shown.is_some())
         .bind(data.accepts_data)
         .bind(data.notify_on_data)
-        .bind(visibility.as_str())
+        .bind(visibility.map(Visibility::as_str))
         .bind(data.rules.as_ref().map(sqlx::types::Json))
         .fetch_optional(&mut *tx)
         .await?;
@@ -233,6 +243,22 @@ impl ArtifactDao for PgArtifactDao {
         }
         tx.commit().await?;
         Ok(row)
+    }
+
+    async fn set_visibility(
+        &self,
+        artifact_id: &str,
+        visibility: Visibility,
+    ) -> Result<Option<Artifact>, sqlx::Error> {
+        sqlx::query_as::<_, Artifact>(
+            r#"UPDATE task_artifacts SET visibility = $2
+               WHERE artifact_id = $1 AND latest_version > 0
+               RETURNING *"#,
+        )
+        .bind(artifact_id)
+        .bind(visibility.as_str())
+        .fetch_optional(&self.0)
+        .await
     }
 
     async fn find_by_id(&self, artifact_id: &str) -> Result<Option<Artifact>, sqlx::Error> {

@@ -49,7 +49,8 @@ pub enum ArtifactAction {
         #[arg(long, requires = "data", conflicts_with = "notify")]
         rules: Option<PathBuf>,
         /// Let only users who can see the task open the page and its records.
-        /// Without it any signed-in user can, even when the task is private
+        /// Without it a new page is open to any signed-in user, even when the
+        /// task is private, and a republished page keeps its visibility
         #[arg(long)]
         private: bool,
         /// Task to publish on; defaults to `$TASK_ID`

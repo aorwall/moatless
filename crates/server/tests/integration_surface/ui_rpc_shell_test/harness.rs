@@ -250,6 +250,10 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
             git_host_tokens: app.git_host_tokens.clone(),
         }),
         commands: Arc::new(t3code_backend::AppStateCommands(app.clone())),
+        artifacts: Arc::new(moatless_t3code::owners::TaskArtifacts {
+            tasks: app.tasks.clone(),
+            artifacts: app.artifacts.clone(),
+        }),
         attachments: Arc::new(t3code_backend::AppStateAttachments(app)),
         model_defaults: defaults(),
         frontend_url: "http://localhost:3000".into(),

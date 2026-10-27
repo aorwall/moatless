@@ -9,9 +9,13 @@ use moatless_api_schemas::agent::AgentDescriptor;
 use moatless_identity::credentials::CredentialService;
 use moatless_ports::identity::{GitHostTokenIssuer, HarnessCredentials, SecretCatalog};
 use moatless_ports::task::TaskReader;
+use moatless_tasks::artifact::error::ArtifactError;
+use moatless_tasks::artifact::operations::Artifacts;
+use moatless_tasks::task::operations::TaskCommands;
 use moatless_tasks::task::relations::TaskRelations;
 use moatless_types::access_control::{Actor, ScopeContext};
 use moatless_types::store::StoreError;
+use moatless_types::task::Visibility;
 use moatless_workspace_types::schemas::repository::BranchListResponse;
 use moatless_workspace_types::workspace::ScriptConfig;
 use moatless_workspaces::repository::branches::RepositoryBranchService;
@@ -21,9 +25,9 @@ use moatless_workspaces::workspace::Workspaces;
 use uuid::Uuid;
 
 use crate::ports::{
-    AgentCatalogSource, BranchListError, ChildTask, GithubIdentity, ParentTask,
-    RepositoryBranchSource, SkillCatalog, SourceControlAuthSource, TaskRelationSource,
-    WorkspaceScriptSource, WorkspaceSkill,
+    AgentCatalogSource, ArtifactVisibilityError, ArtifactVisibilitySetter, BranchListError,
+    ChildTask, GithubIdentity, ParentTask, RepositoryBranchSource, SkillCatalog,
+    SourceControlAuthSource, TaskRelationSource, WorkspaceScriptSource, WorkspaceSkill,
 };
 
 /// The agent catalog over the credentials a viewer has stored.
@@ -225,5 +229,38 @@ impl TaskRelationSource for TaskRelations {
             task_id: relation.to_task_id,
             relation: relation.relation_type,
         }))
+    }
+}
+
+/// Artifact visibility, set through the Task band's own write check.
+pub struct TaskArtifacts {
+    pub tasks: Arc<TaskCommands>,
+    pub artifacts: Arc<Artifacts>,
+}
+
+#[async_trait]
+impl ArtifactVisibilitySetter for TaskArtifacts {
+    async fn set_visibility(
+        &self,
+        viewer: &ScopeContext,
+        artifact_id: &str,
+        visibility: Visibility,
+    ) -> Result<(), ArtifactVisibilityError> {
+        moatless_tasks::artifact::service::set_visibility(
+            &self.tasks,
+            &self.artifacts,
+            viewer,
+            artifact_id,
+            visibility,
+        )
+        .await
+        .map(|_| ())
+        .map_err(|error| match error {
+            ArtifactError::NotFound(_) | ArtifactError::TaskNotFound(_) => {
+                ArtifactVisibilityError::NotFound
+            }
+            ArtifactError::Forbidden(_) => ArtifactVisibilityError::Forbidden,
+            other => ArtifactVisibilityError::Failed(moatless_core::error::causal_chain(&other)),
+        })
     }
 }

@@ -159,6 +159,42 @@ pub async fn list(
         .collect())
 }
 
+/// Set who may read a published Artifact's pages and records, as a user who
+/// can change its Task.
+pub async fn set_visibility(
+    tasks: &TaskCommands,
+    artifacts: &Artifacts,
+    scope: &ScopeContext,
+    artifact_id: &str,
+    visibility: Visibility,
+) -> Result<ArtifactResponse, ArtifactError> {
+    let not_found = || ArtifactError::NotFound(artifact_id.to_string());
+    let row = artifacts
+        .find_by_id(artifact_id)
+        .await?
+        .filter(|row| row.latest_version > 0)
+        .ok_or_else(not_found)?;
+    // A public page's reader still may not learn of its Task: not found, the
+    // same answer as for an Artifact that does not exist.
+    let task = tasks
+        .find_by_id(&row.task_id, scope)
+        .await?
+        .ok_or_else(not_found)?;
+    if !scope.can_write(&task.scoped_resource()) {
+        return Err(ArtifactError::Forbidden(row.task_id));
+    }
+    let row = artifacts
+        .set_visibility(artifact_id, visibility)
+        .await?
+        .ok_or_else(not_found)?;
+    Ok(to_response(
+        &row,
+        artifacts.public_url(),
+        row.latest_version,
+        &row.title,
+    ))
+}
+
 /// Path of the latest version's page, relative to the server root.
 pub async fn latest_location(
     tasks: &TaskCommands,

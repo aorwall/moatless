@@ -81,8 +81,9 @@ pub struct PublishArtifactBody {
     /// replaces `notify`.
     pub rules: Option<String>,
     /// `private` limits the page and its records to readers of the Task;
-    /// `public`, the default, lets any signed-in user read them. Every version
-    /// follows the latest publish.
+    /// `public` lets any signed-in user read them. Omitted keeps the
+    /// Artifact's current visibility, `public` for a new one. Every version
+    /// follows the latest choice.
     pub visibility: Option<Visibility>,
     /// One self-contained page, with a `.html` or `.htm` filename.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "binary"))]

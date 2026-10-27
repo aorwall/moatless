@@ -19,7 +19,7 @@ pub enum ArtifactError {
     NotFound(String),
 
     /// The caller can read the Task but not change it.
-    #[error("Not allowed to publish on task {0}")]
+    #[error("Not allowed to change artifacts on task {0}")]
     Forbidden(String),
 
     /// The Artifact's record rules refuse a page this write. `prefix` is the

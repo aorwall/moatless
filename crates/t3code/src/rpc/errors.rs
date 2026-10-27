@@ -380,6 +380,34 @@ pub(crate) fn subtasks_failure_exit(
     failure_exit(request_id, "Failed to read the conversation's subtasks")
 }
 
+/// How a failed `artifacts.setVisibility` reaches the client: a refusal as the
+/// `EnvironmentAuthorizationError` the contract declares, so the panel can say
+/// why; anything else as a defect.
+pub(crate) fn artifact_visibility_failure_exit(
+    request_id: &RequestId,
+    scope: Scope,
+    error: &ports::ArtifactVisibilityError,
+    identity: &UiRpcAuthIdentity,
+) -> Value {
+    match error {
+        ports::ArtifactVisibilityError::NotFound => typed_failure_exit(
+            request_id,
+            authorization_error(scope, "This artifact is not available."),
+        ),
+        ports::ArtifactVisibilityError::Forbidden => typed_failure_exit(
+            request_id,
+            authorization_error(
+                scope,
+                "Only someone who can change this thread can change who sees its artifacts.",
+            ),
+        ),
+        ports::ArtifactVisibilityError::Failed(cause) => {
+            error!(%cause, user_id = %identity.user_id, "Failed to set an artifact's visibility");
+            failure_exit(request_id, "Failed to change the artifact's visibility")
+        }
+    }
+}
+
 /// How a failed `scripts.run` reaches the client.
 ///
 /// A terminal failure meaning the Sandbox is stopped becomes

@@ -28,7 +28,8 @@ pub struct Artifact {
     #[sqlx(json(nullable))]
     pub record_rules: Option<RecordRules>,
     /// `Public` lets any signed-in user read the pages and records, whatever
-    /// the Task's visibility; the latest publish's choice.
+    /// the Task's visibility; the latest publish or `set_visibility` that
+    /// named one decides.
     #[sqlx(try_from = "String")]
     pub visibility: Visibility,
     pub created_by: Option<String>,
@@ -37,7 +38,7 @@ pub struct Artifact {
 }
 
 /// A publish as the multipart route received it, before validation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PublishRequest {
     pub title: String,
     pub slug: Option<String>,
@@ -47,22 +48,9 @@ pub struct PublishRequest {
     /// Set by `inline=true`: show the page in the Task's thread.
     pub inline: Option<InlineRequest>,
     pub data: DataAccess,
-    /// See [`Artifact::visibility`]; `Public` unless the form says otherwise.
-    pub visibility: Visibility,
-}
-
-impl Default for PublishRequest {
-    fn default() -> Self {
-        Self {
-            title: String::new(),
-            slug: None,
-            file_name: None,
-            html: Vec::new(),
-            inline: None,
-            data: DataAccess::default(),
-            visibility: Visibility::Public,
-        }
-    }
+    /// See [`Artifact::visibility`]; `None` keeps the Artifact's current one,
+    /// which a new Artifact starts `Public`.
+    pub visibility: Option<Visibility>,
 }
 
 /// What a publish lets its page do with Artifact records.

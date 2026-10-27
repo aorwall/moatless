@@ -85,6 +85,7 @@ pub async fn mount(
         source_control_auth,
         commands,
         attachments,
+        artifacts,
         otlp_traces_enabled,
         frontend_url,
         client_traces_http,
@@ -182,6 +183,7 @@ pub async fn mount(
         source_control_auth,
         commands,
         attachments,
+        artifacts,
         usage: graph.usage.clone(),
         reads,
         changes,
@@ -331,6 +333,8 @@ pub struct UiRpcDependencies {
     /// Where a chat attachment's bytes go. Uploads are stored as ordinary
     /// Moatless uploads, under the id `attachments.createUploadUrl` minted.
     pub attachments: Arc<dyn ports::AttachmentStore>,
+    /// Sets who may read a Task's Artifacts, behind the Task's write check.
+    pub artifacts: Arc<dyn ports::ArtifactVisibilitySetter>,
     /// Whether this deployment exports spans over OTLP (an OTLP endpoint is
     /// configured — see `config::OtelConfig`), reported to the client as
     /// `observability.otlpTracesEnabled`.

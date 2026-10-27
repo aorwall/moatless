@@ -173,12 +173,21 @@ impl Artifacts {
         version: i32,
         title: &str,
         data: &DataAccess,
-        visibility: Visibility,
+        visibility: Option<Visibility>,
         shown: Option<ArtifactShown>,
     ) -> Result<Option<Artifact>, sqlx::Error> {
         self.store
             .commit_version(artifact_id, version, title, data, visibility, shown)
             .await
+    }
+
+    /// See [`ArtifactDao::set_visibility`].
+    pub(crate) async fn set_visibility(
+        &self,
+        artifact_id: &str,
+        visibility: Visibility,
+    ) -> Result<Option<Artifact>, sqlx::Error> {
+        self.store.set_visibility(artifact_id, visibility).await
     }
 
     /// See [`ArtifactDao::find_by_id`].

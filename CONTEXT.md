@@ -161,9 +161,10 @@ A single self-contained HTML page that an agent publishes from a Task with
 and the Task's pod. A public Artifact, the default, is readable by any signed-in
 user whatever the Task's visibility; one published with `--private` only by
 whoever can read the Task. Each publish under the same slug adds an immutable
-version and sets the visibility of all of them; its link opens the latest. A
-version published with `--inline` is also shown in the Task's thread as the page
-itself.
+version; the visibility covers all of them, and a publish without `--private`
+keeps it. Whoever can change the Task can switch it from T3's Artifacts panel.
+Its link opens the latest version. A version published with `--inline` is also
+shown in the Task's thread as the page itself.
 _Avoid_: asset (an uploaded attachment, not something the agent publishes)
 
 **Artifact record**:

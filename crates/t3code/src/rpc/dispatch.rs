@@ -2,6 +2,7 @@
 //! group registers its methods in a
 //! [`MethodTable`](crate::rpc::table::MethodTable); [`methods()`] merges them.
 
+mod artifacts;
 mod methods;
 mod orchestration;
 mod orchestration_v2;
