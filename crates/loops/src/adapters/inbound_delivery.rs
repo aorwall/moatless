@@ -125,6 +125,7 @@ mod tests {
                 user_id: "user-1".into(),
                 author: Some("@ada".into()),
                 sender_external_id: None,
+                requester: None,
                 text: "hello".into(),
                 file_ids: vec!["f1".into()],
                 thread_properties: serde_json::json!({ "channel": "C1" }),

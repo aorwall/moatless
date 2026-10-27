@@ -522,6 +522,7 @@ mod db_tests {
         assert_eq!(message.message_thread_id, "111");
         assert_eq!(message.text, "do the thing");
         assert_eq!(message.user_id, OWNER, "an unmapped sender falls back");
+        assert_eq!(message.requester, None);
         assert_eq!(
             message.author.as_deref(),
             Some("@ada"),
@@ -711,6 +712,7 @@ mod db_tests {
         .message();
 
         assert_eq!(message.user_id, "user-ada");
+        assert_eq!(message.requester.as_deref(), Some("user-ada"));
         assert_eq!(message.text, "fix the bug");
     }
 

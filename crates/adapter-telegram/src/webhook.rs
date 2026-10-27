@@ -186,7 +186,8 @@ pub(super) async fn normalize(
     }
 
     let from_id_str = from_id.to_string();
-    let user_id = if let Some(uid) = super::auth::resolve_sender(&from_id_str, ctx.users).await? {
+    let requester = super::auth::resolve_sender(&from_id_str, ctx.users).await?;
+    let user_id = if let Some(uid) = requester.clone() {
         uid
     } else {
         info!(
@@ -264,6 +265,7 @@ pub(super) async fn normalize(
             user_id,
             author,
             sender_external_id: None,
+            requester,
             text: clean_text,
             file_ids: vec![],
             thread_properties,

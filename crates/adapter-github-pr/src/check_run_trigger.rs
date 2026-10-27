@@ -609,6 +609,7 @@ impl GithubPrInboundRouter {
             user_id,
             author: moatless_types::adapter::author_handle(author),
             sender_external_id: None,
+            requester: None,
             text,
             file_ids: vec![],
             thread_properties: serde_json::json!({

@@ -331,6 +331,7 @@ mod tests {
             user_id: "user-1".to_string(),
             author: Some("octocat".to_string()),
             sender_external_id: None,
+            requester: None,
             text: text.to_string(),
             file_ids: vec![],
             thread_properties: serde_json::Value::Null,

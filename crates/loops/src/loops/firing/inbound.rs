@@ -123,12 +123,10 @@ pub async fn create_task_from_loop(
     Ok(outcome)
 }
 
-/// Create a task from a chat message (Slack/Telegram/Webhook) or schedule
-/// firing.
-///
-/// Thin wrapper over [`create_task_from_loop`]: private visibility, the
-/// Loop's task name, a truncated message preview, `{adapter, source_id}`
-/// event metadata, and `related_to`'s optional peer relation.
+/// Create a task from a chat message or schedule firing: private, named by
+/// the Loop, with a truncated message preview and `{adapter, source_id}`
+/// event metadata. It is opened for [`InboundMessage::requester`], never for
+/// `msg.user_id`.
 pub(crate) async fn create_task_for_external_message(
     task_creation: &dyn TaskOpener,
     config: &LoopContext,
@@ -151,7 +149,7 @@ pub(crate) async fn create_task_for_external_message(
                 "adapter": config.adapter_kind,
                 "source_id": config.source_id,
             }),
-            requested_by: None,
+            requested_by: msg.requester.clone(),
         },
     )
     .await
@@ -243,6 +241,53 @@ mod tests {
         assert_eq!(
             opened_for(Some("ada")).await,
             (Some("ada".to_string()), Some("bot".to_string()))
+        );
+    }
+
+    /// `(created_by, run_as_user_id)` of the Task a chat message opens.
+    async fn opened_for_message(
+        user_id: &str,
+        requester: Option<&str>,
+    ) -> (Option<String>, Option<String>) {
+        let opener = CapturingOpener::default();
+        let msg = InboundMessage {
+            adapter_kind: moatless_types::adapter::AdapterKind::Slack,
+            source_id: "C1".to_string(),
+            thread_id: None,
+            message_thread_id: "1700000000.000100".to_string(),
+            user_id: user_id.to_string(),
+            author: None,
+            sender_external_id: None,
+            requester: requester.map(str::to_string),
+            text: "fix it".to_string(),
+            file_ids: vec![],
+            thread_properties: serde_json::json!({}),
+            adapter_context: serde_json::json!({}),
+            external_event_id: None,
+            source_task_id: None,
+            audience: moatless_types::adapter::Audience::Everyone,
+            replies_to: vec![],
+        };
+        create_task_for_external_message(&opener, &loop_running_as("bot"), &msg, None, None, None)
+            .await
+            .expect("the opener accepts every task");
+        let task = opener.0.lock().unwrap().take().expect("a task was opened");
+        (task.created_by, task.run_as_user_id)
+    }
+
+    #[tokio::test]
+    async fn a_chat_messages_verified_requester_owns_the_task() {
+        assert_eq!(
+            opened_for_message("ada", Some("ada")).await,
+            (Some("ada".to_string()), Some("bot".to_string()))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_chat_messages_user_id_alone_never_owns_the_task() {
+        assert_eq!(
+            opened_for_message("ada", None).await,
+            (Some("bot".to_string()), None)
         );
     }
 

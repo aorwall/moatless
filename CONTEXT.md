@@ -357,6 +357,17 @@ A Loop's event-based firing condition: the Loop subscribes to an Adapter's event
 (a PR opened, a Slack mention, a Linear issue).
 _Avoid_: trigger source, adapter-event trigger, TaskTrigger, TaskRoute
 
+**Requester**:
+The Moatless user an Adapter verified wrote the event that opens a Task
+(`InboundMessage::requester`): a mapped Slack sender, a connected Telegram
+account, a Linear session's creator. When the Loop runs as a bot, or its
+Workspace sets a run-as user, the Task is theirs: its commits credit them as
+co-author, and its git-host token is capped by their own connection and
+repository role, so a Requester who has not connected GitHub, or has no role on
+the repository, is refused. Otherwise the Loop's own user keeps the Task.
+_Avoid_: sender (the external writer, verified or not), `user_id` on an inbound
+message (falls back to the Loop's user)
+
 **Check-run trigger**:
 A completed GitHub check run, from a trusted App and matching a `github_pr`
 Subscription's `check_run` names and conclusions, that fires the Subscription

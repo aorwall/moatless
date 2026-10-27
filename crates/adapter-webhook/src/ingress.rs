@@ -93,6 +93,7 @@ pub(crate) fn parse_inbound(
             // A webhook payload names no external author.
             author: None,
             sender_external_id: None,
+            requester: None,
             text: payload.text,
             file_ids: vec![],
             thread_properties,
@@ -254,6 +255,10 @@ mod tests {
         let msg = parse_inbound(&config, body, None).unwrap().message;
 
         assert_eq!(msg.user_id, "override-user");
+        assert_eq!(
+            msg.requester, None,
+            "a caller-named user is attributed but never owns a Task"
+        );
     }
 
     #[test]

@@ -184,6 +184,7 @@ impl GithubPrInboundRouter {
             .await,
             author: moatless_types::adapter::author_handle(&merged.merged_by),
             sender_external_id: None,
+            requester: None,
             text: merged_text(merged, &execution.owner, &execution.repo),
             file_ids: vec![],
             thread_properties: serde_json::json!({

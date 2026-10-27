@@ -137,6 +137,7 @@ impl GithubPrInboundRouter {
             user_id: authenticated.user_id,
             author: None,
             sender_external_id: None,
+            requester: None,
             text: merge_conflict_text(
                 &execution.owner,
                 &execution.repo,

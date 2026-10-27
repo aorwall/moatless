@@ -183,6 +183,7 @@ impl ScheduleRunner {
             // A schedule fires on its own; no external person authored it.
             author: None,
             sender_external_id: None,
+            requester: None,
             text: schedule.message_template.clone(),
             file_ids: vec![],
             thread_properties: serde_json::json!({"schedule_id": schedule.id}),
@@ -417,6 +418,7 @@ mod tests {
             user_id: "user-1".to_string(),
             author: None,
             sender_external_id: None,
+            requester: None,
             text: text.to_string(),
             file_ids: vec![],
             thread_properties: serde_json::Value::Null,

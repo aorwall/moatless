@@ -642,6 +642,7 @@ impl GithubPrInboundRouter {
             user_id,
             author: moatless_types::adapter::author_handle(&info.sender_login),
             sender_external_id: None,
+            requester: None,
             text,
             file_ids: vec![],
             thread_properties: serde_json::json!({
@@ -814,6 +815,7 @@ pub(crate) mod tests {
             user_id: "u_1".into(),
             author: None,
             sender_external_id: None,
+            requester: None,
             text: String::new(),
             file_ids: vec![],
             thread_properties: serde_json::json!({}),

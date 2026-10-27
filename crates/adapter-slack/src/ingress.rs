@@ -1036,6 +1036,7 @@ mod tests {
             user_id: "user-1".into(),
             author: None,
             sender_external_id: None,
+            requester: None,
             text: "hello".into(),
             file_ids: vec![],
             thread_properties: serde_json::json!({}),
@@ -1235,6 +1236,10 @@ mod characterization_db {
         );
 
         assert_eq!(message.user_id, OWNER);
+        assert_eq!(
+            message.requester, None,
+            "the fallback owner requested nothing"
+        );
         assert_eq!(message.adapter_kind, AdapterKind::Slack);
         assert_eq!(message.source_id, "C1");
         assert_eq!(message.thread_id.as_deref(), Some("1700000000.000100"));
@@ -1305,6 +1310,7 @@ mod characterization_db {
         );
 
         assert_eq!(message.user_id, OWNER, "no email resolution for a bot");
+        assert_eq!(message.requester, None);
         assert_eq!(message.text, "build 42 is green");
         assert_eq!(
             stub.paths(),
@@ -1443,6 +1449,7 @@ mod characterization_db {
         );
 
         assert_eq!(message.user_id, user_id.to_string());
+        assert_eq!(message.requester, Some(user_id.to_string()));
         assert_eq!(
             stub.paths(),
             vec!["/users.info".to_string()],
@@ -1470,6 +1477,7 @@ mod characterization_db {
         );
 
         assert_eq!(message.user_id, user_id.to_string());
+        assert_eq!(message.requester, Some(user_id.to_string()));
         let cached: Option<(uuid::Uuid,)> = sqlx::query_as(
             "SELECT user_id FROM user_provider_ids
              WHERE provider = 'slack' AND provider_user_id = 'U1HUMAN'",

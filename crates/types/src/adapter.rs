@@ -102,6 +102,13 @@ pub struct InboundMessage {
     /// sender label resolves through.
     #[serde(default)]
     pub sender_external_id: Option<String>,
+    /// The Moatless user the adapter verified wrote this event: the CONTEXT.md
+    /// **Requester**, whose access caps a Task it opens. `None` when the writer
+    /// is unmapped, when `user_id` is a fallback, and when the sender only
+    /// asserted an id: a caller-named requester would let any sender open
+    /// Tasks in another user's name.
+    #[serde(default)]
+    pub requester: Option<String>,
     /// Message text content.
     pub text: String,
     /// File attachment IDs (already uploaded to S3).

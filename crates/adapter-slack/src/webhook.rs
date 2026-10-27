@@ -514,6 +514,7 @@ pub(super) async fn normalize(
             // Always the writer's own Slack id, unlike `user_id` above, which
             // falls back to the trigger owner when the writer is unmapped.
             sender_external_id: event.sender_external_id(),
+            requester: mapped_user.map(|user_id| user_id.to_string()),
             text: clean_text,
             file_ids: vec![], // TODO: handle file attachments
             thread_properties: serde_json::json!({

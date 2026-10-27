@@ -809,6 +809,7 @@ async fn inbound_message(
         user_id,
         author: moatless_types::adapter::author_handle(context.sender_login),
         sender_external_id: None,
+        requester: None,
         text,
         file_ids: vec![],
         thread_properties: serde_json::json!({
