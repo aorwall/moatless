@@ -2,4 +2,5 @@
   "clusters/":  {"read": "anyone"},
   "meta/":      {"read": "anyone"},
   "decisions/": {"read": "anyone", "create": "anyone", "update": "owner", "delete": "owner"},
-  "notify/":    {"read": "anyone", "create": "anyone", "notify": ["create"]}}}
+  "notify/":    {"read": "anyone", "create": "anyone", "notify": ["create"]},
+  "confirm/":   {"read": "anyone", "create": "anyone", "notify": ["create"]}}}

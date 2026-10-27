@@ -55,6 +55,8 @@
   .fix .cluster { background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--radius, 10px); padding: 16px 18px 16px 8px; }
   .close .cluster, .later .cluster { border-top: 1px solid var(--rule); grid-template-columns: minmax(0, 1fr); }
   .close .cluster .body, .later .cluster .body { grid-column: 1; }
+  .cluster.group { grid-template-columns: minmax(0, 1fr); border-top: 1px solid var(--rule); }
+  .cluster.group .body { grid-column: 1; }
 
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .chip { font: 500 0.78rem/1.6 var(--font-data); padding: 0 8px; border-radius: 999px; border: 1px solid var(--rule); color: var(--ink-2); }
@@ -136,13 +138,20 @@
       Each cluster groups recent feedback that shares one root cause, and names the repository
       that owns its fix. If the owner is wrong, say so in your note. Only a decision from a
       Moatless admin counts. A decision saves when you click it, and the agent acts on
-      it when someone presses Notify the agent, or at the next scheduled run. Approving a
-      cluster to fix creates one fix task in the owning repository, and its items close
-      when that PR merges. Approving one under "Close these" closes its items; rejecting
+      it when someone presses Notify the agent, or at the next scheduled run. An approved
+      cluster to fix waits for the agent to group it with related approvals; an admin's
+      Confirm then creates one fix task per group, and the items close when its PR merges. Approving one under "Close these" closes its items; rejecting
       closes them as not relevant.
     </p>
   </header>
   <div class="tally" id="tally"></div>
+  <section class="section" id="groups-section" hidden>
+    <header><span class="eyebrow">Approved, not started</span><h3>Fix-task groups to confirm</h3>
+      <p class="muted">Each group becomes one task and one PR. Confirm to create them, or write in the note how to regroup, and the agent proposes again. Only a Moatless admin's confirmation counts.</p></header>
+    <div class="list" id="groups"></div>
+    <form id="confirm-form"><input type="text" name="note" aria-label="Note" placeholder="Leave empty to create these tasks, or say how to regroup"><button type="submit" id="confirm">Confirm groups</button><span class="status" id="confirm-status" role="status"></span></form>
+    <ul class="decisions" id="confirms"></ul>
+  </section>
   <div id="clusters" style="display: grid; gap: 36px;"></div>
   <section class="section" id="sent-section" hidden>
     <header><span class="eyebrow">Notifications</span><h3>Sent to the agent</h3></header>
@@ -158,7 +167,7 @@
   const api = window.moatless && window.moatless.artifact;
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-  const state = { clusters: new Map(), decisions: new Map(), notices: new Map(), meta: null, people: {}, admins: null };
+  const state = { clusters: new Map(), decisions: new Map(), notices: new Map(), confirms: new Map(), groups: null, meta: null, people: {}, admins: null };
   // Cluster text marks commands and paths with backticks.
   const prose = (s) => esc(s).replace(/`([^`]+)`/g, "<code>$1</code>");
   const day = (iso) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
@@ -198,7 +207,9 @@
       rejected: () => `<span class="chip state done">Rejected</span> Rejected${by}; items closed as not relevant.`,
       deferred: () => `<span class="chip state">Deferred</span> Deferred${by} until ${esc(c.deferUntil)}.`,
     };
-    const line = lines[c.status] ? lines[c.status]() : "";
+    // A held approval waits for its group's `confirm/`, so it needs no new decision.
+    const held = c.status === "proposed" && d && d.held ? () => `<span class="chip state on">Awaiting group</span> Approved${by}; waits for its fix-task group to be confirmed above.` : null;
+    const line = held ? held() : lines[c.status] ? lines[c.status]() : "";
     const extra = [c.followUp ? `Needs a new decision: ${esc(c.followUp)}.` : "", c.recurred ? "Reported again after it was closed." : ""].filter(Boolean).join(" ");
     return line || extra ? `<p class="outcome">${line}${line && extra ? " " : ""}${extra}</p>` : "";
   }
@@ -240,6 +251,24 @@
     const waiting = pending();
     $("sendbar").hidden = !(api && api.viewerId) || !waiting.length;
     $("pending-text").textContent = `${waiting.length} saved decision${waiting.length === 1 ? "" : "s"} not sent to the agent yet.`;
+  }
+
+  // `meta/groups` is the proposal; a `confirm/` counts only for its `proposedAt`.
+  function renderGroups() {
+    const g = state.groups;
+    const groups = (g && g.groups) || [];
+    $("groups-section").hidden = !groups.length;
+    if (!groups.length) return;
+    $("groups").innerHTML = groups.map((x) => `<article class="cluster group"><div class="body">
+      <div class="chips"><span class="chip owner">${esc(x.owner)}</span><span class="chip tnum">${esc((x.slugs || []).length)} cluster${(x.slugs || []).length === 1 ? "" : "s"}</span></div>
+      <ul class="decisions">${(x.slugs || []).map((s) => `<li>${prose(titleOf(s))}</li>`).join("")}</ul>
+      ${x.change ? `<p>${prose(x.change)}</p>` : ""}${x.why ? `<p class="muted">${prose(x.why)}</p>` : ""}
+    </div></article>`).join("");
+    $("confirms").innerHTML = [...state.confirms.values()]
+      .filter((r) => r.data.proposedAt === g.proposedAt)
+      .map((r) => `<li>${r.data.note ? `regroup asked by ${esc(who(r.submittedBy))}: ${esc(r.data.note)}` : `confirmed by ${esc(who(r.submittedBy))}`}${counts(r) ? "" : ` <span class="muted">· not counted: not a Moatless admin</span>`}</li>`)
+      .join("");
+    $("confirm").disabled = !(api && api.viewerId);
   }
 
   function mark(r) {
@@ -332,6 +361,7 @@
       wire(el);
     }
     renderSent();
+    renderGroups();
   }
 
   function wire(el) {
@@ -390,12 +420,30 @@
     }
   });
 
+  $("confirm-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!state.groups) return;
+    $("confirm").disabled = true;
+    try {
+      const record = await api.append("confirm", { proposedAt: state.groups.proposedAt, note: event.target.elements.note.value.trim() });
+      if (record && record.key) state.confirms.set(record.key, record);
+      $("confirm-status").textContent = "Sent to the agent.";
+      renderGroups();
+    } catch (error) {
+      $("confirm-status").textContent = error.code === "permission-denied" ? "Not sent: this page refused the write." : `Not sent: ${error.message}`;
+    } finally {
+      $("confirm").disabled = !(api && api.viewerId);
+    }
+  });
+
   if (api) {
     api.subscribe({ prefix: "", onError: (e) => { $("lede").textContent = `Stopped updating: ${e}. Reload the page.`; } }, (records) => {
       for (const r of records) {
         if (r.key.startsWith("clusters/")) state.clusters.set(r.key.slice("clusters/".length), r.data);
         else if (r.key.startsWith("decisions/")) state.decisions.set(r.key, r);
         else if (r.key.startsWith("notify/")) state.notices.set(r.key, r);
+        else if (r.key.startsWith("confirm/")) state.confirms.set(r.key, r);
+        else if (r.key === "meta/groups") state.groups = r.data && r.data.proposedAt ? r.data : null;
         else if (r.key === "meta/run") state.meta = r.data;
         else if (r.key === "meta/people") state.people = r.data || {};
         else if (r.key === "meta/admins") state.admins = Array.isArray(r.data) ? r.data : null;

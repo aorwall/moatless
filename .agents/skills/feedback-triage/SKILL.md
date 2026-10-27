@@ -1,6 +1,6 @@
 ---
 name: feedback-triage
-description: "Cluster open Moatless feedback by root cause, name the repository that owns each fix, publish the run's approval Artifact and post it to Slack, then act on a Moatless admin's decisions: create the fix task, and close the items when its PR merges. Use for a feedback-triage Loop run, for a message from a triage page (`<source>artifact</source>`), or when asked to group, triage or cluster the feedback inbox (`moat feedback list`)."
+description: "Cluster open Moatless feedback by root cause, name the repository that owns each fix, publish the run's approval Artifact and post it to Slack, then act on a Moatless admin's decisions: propose fix-task groups, create one task per confirmed group, and close the items when its PR merges. Use for a feedback-triage Loop run, for a message from a triage page (`<source>artifact</source>`), or when asked to group, triage or cluster the feedback inbox (`moat feedback list`)."
 ---
 
 # Feedback triage
@@ -10,8 +10,10 @@ clusters that share one root cause, proposes one fix per cluster in the
 repository that owns it, and publishes the clusters on a new approval page. A
 person reads the page, saves approve, reject or defer on a cluster, and
 presses Notify the agent to have the decisions acted on before the next run.
-A Moatless admin's approval creates one fix task in the owning repository's
-workspace, and the items close when that task's PR merges.
+A Moatless admin's approvals are grouped into proposed fix tasks, one
+repository and one area each; once an admin confirms the groups, each becomes
+one task in the owning repository's workspace, and the items close when that
+task's PR merges.
 
 Older open feedback is left alone. Items stay open after their week passes,
 and no run reads them again: what matters is what agents hit now, and a cause
@@ -36,6 +38,10 @@ Notify the agent: a `notify/` record lists the decisions they sent. Run steps
 1 to 3 only, then stop: the next scheduled run publishes the next page. Step 2
 reads every decision anyway, so a decision saved but not sent is acted on too.
 
+When a page message names a `confirm/` record, someone pressed Confirm on the
+proposed fix-task groups: follow `references/acting.md`, *Create the fix
+task*, which checks that an admin saved it.
+
 ## 1. Read the state
 
 All state is loop-scoped memory. Pass `--scope loop` on every read and write,
@@ -45,10 +51,12 @@ or a read also returns same-named entries from the Workspace.
 |---|---|
 | `triage:runs` | `{runs: [{date, taskId, pageSlug, processed}]}`, newest last |
 | `triage:cluster:<slug>` | One cluster, shaped as below |
+| `triage:groups` | Fix-task groups awaiting confirmation; `references/acting.md` |
 
 ```bash
 moat memory get triage:runs --scope loop --json > runs-get.json \
   && jq '.items[0].data' runs-get.json > runs-read.json || echo '{}' > runs-read.json
+moat memory get triage:groups --scope loop --json > groups-get.json || echo '{}' > groups-get.json
 moat memory list --prefix triage:cluster: --scope loop --limit 500 --json | jq -r '.items[].key' > known-keys.txt
 mkdir -p known && while read -r k; do
   moat memory get "$k" --scope loop --json | jq '.items[0].data' > "known/${k#triage:cluster:}.json"
@@ -102,7 +110,9 @@ miss most of the feedback.
 
 Follow `references/acting.md`, step 2. `scripts/decisions.sh` reads every
 earlier page's decisions and keeps the newest from a Moatless admin per
-cluster; a decision from anyone else changes nothing.
+cluster; a decision from anyone else changes nothing. Approvals that need a
+fix are held and proposed as fix-task groups; no task is created until an
+admin confirms them.
 
 ## 3. Follow up on fix tasks
 
@@ -235,8 +245,9 @@ the fix touches for `ease`. The page shows them under the meter. Write
 `brief` for a `fix` cluster as the change itself, naming the file or command:
 the page shows it on the card as the suggested change.
 
-Rank only `proposed` clusters. An `in-progress` cluster keeps its bucket and
-shows its task on the page instead of a rank.
+Rank only `proposed` clusters that are not held. An `in-progress` cluster
+keeps its bucket and shows its task on the page instead of a rank; a held one
+keeps its bucket and shows that it waits for its group.
 
 The ranking is a proposal. A person can approve any cluster, ranked or not.
 
@@ -245,7 +256,8 @@ The ranking is a proposal. A person can approve any cluster, ranked or not.
 One page per run, under the slug `feedback-triage-<YYYY-MM-DD>` in UTC. It
 lists the clusters with a member in this run's window, except `deferred` ones
 whose `deferUntil` is still ahead, plus every `proposed` cluster with a
-`followUp`.
+`followUp` or a held approval. Save `meta/groups` from `triage:groups` too,
+so the page shows the groups waiting for confirmation.
 
 ```bash
 cp <skill>/scripts/page.html page.html
@@ -259,6 +271,7 @@ Then write the records, `meta/run`, `meta/people` and `meta/admins` first:
 moat artifact data save "$slug" meta/run "$(jq -c . meta.json)"
 moat artifact data save "$slug" meta/people "$(jq -c .people decisions.json)"
 moat artifact data save "$slug" meta/admins "$(jq -c .admins decisions.json)"
+moat artifact data save "$slug" meta/groups "$(jq -c '.items[0].data // {}' groups-get.json)"
 for f in clusters/*.json; do moat artifact data save "$slug" "clusters/$(basename "$f" .json)" "$(jq -c . "$f")"; done
 ```
 
@@ -343,6 +356,7 @@ the text to five lines a person reads in Slack without opening the page:
 Feedback triage, last 7 days: 120 items in 78 clusters, 10 to fix first.
 Top 3: <title> (<owner>), <title> (<owner>), <title> (<owner>).
 Since the last run: 2 fix tasks created, 1 PR merged, 5 items closed.
+Awaiting confirmation: 3 fix-task groups for 5 approved clusters.
 Approve or reject on the page, then press Notify the agent: <url>
 ```
 
@@ -352,7 +366,8 @@ pressed Notify the agent is on the page already. A failed send changes no
 state; report it in the reply and go on.
 
 End with one reply: what steps 2 and 3 did (tasks created, items closed,
-decisions ignored and why), the page link, how many items and clusters, the
+decisions ignored and why, fix-task groups awaiting confirmation), the page
+link, how many items and clusters, the
 ranked clusters with their owners and `why`, and how many clusters to close.
 
 ## Done when
@@ -365,6 +380,8 @@ ranked clusters with their owners and `why`, and how many clusters to close.
   those has a `rank`, a `score` and a `why`.
 - Every cluster on the page, then the run, is in loop memory.
 - A full run posted its summary and page link to the triage channel.
-- Each admin decision since the last run was acted on once: at most one fix
-  task per cluster, and every member of a closed cluster carries a status
-  note that names the cluster and its evidence.
+- Each admin decision since the last run was acted on once: an approval
+  needing a fix is held in a proposed group, a task is created only for a
+  group an admin confirmed, at most one per cluster, and every member of a
+  closed cluster carries a status note that names the cluster and its
+  evidence.
