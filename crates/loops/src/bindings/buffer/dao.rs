@@ -13,6 +13,7 @@ use moatless_core::db::DbPool;
 use moatless_types::adapter::InboundMessage;
 
 use super::combine::MAX_PARTS_PER_MESSAGE;
+use super::policy::QUIET_PERIOD;
 
 /// Attempts a buffered event gets before it is abandoned. Spent per flush of the
 /// whole binding, so a poison event cannot hold a subject's later events back
@@ -26,8 +27,8 @@ const RETRY_BACKOFF: Duration = Duration::from_secs(30);
 const CLAIM_LEASE: Duration = Duration::from_mins(5);
 
 /// The timestamp arithmetic here is in `chrono`, the durations are in `std`.
-/// Every value converted is an hour at most — `policy::MAX_WINDOW` clamps the
-/// one that comes from configuration — so the out-of-range case cannot arise.
+/// Only this file's minute-scale constants are converted, so the out-of-range
+/// case cannot arise.
 fn delta(duration: Duration) -> chrono::TimeDelta {
     chrono::TimeDelta::from_std(duration).unwrap_or_else(|_| chrono::TimeDelta::zero())
 }
@@ -74,9 +75,9 @@ impl MessageBufferStore {
 
     /// Hold `message` for `binding_id`, joining the window already open there.
     ///
-    /// The window is fixed by whichever event opened it (`flush_at` is only set
-    /// on insert), so a steady stream of events cannot starve the flush the way
-    /// a sliding debounce would.
+    /// Moves every unclaimed row to one deadline: [`QUIET_PERIOD`] from now,
+    /// capped at `window` after the window opened so a steady stream cannot
+    /// starve the flush. Never moves earlier, so a [`RETRY_BACKOFF`] holds.
     pub(crate) async fn push(
         &self,
         binding_id: &str,
@@ -85,23 +86,40 @@ impl MessageBufferStore {
         message: &InboundMessage,
         window: Duration,
     ) -> Result<(), sqlx::Error> {
-        let flush_at = Utc::now() + delta(window);
+        let quiet = QUIET_PERIOD.min(window);
         sqlx::query(
-            r#"INSERT INTO inbound_message_buffer
+            r#"WITH open_window AS (
+                   SELECT MIN(flush_at) AS flush_at, MIN(created_at) AS opened_at
+                   FROM inbound_message_buffer
+                   WHERE binding_id = $2 AND claimed_at IS NULL
+               ),
+               deadline AS (
+                   SELECT CASE WHEN opened_at IS NULL
+                              THEN NOW() + make_interval(secs => $6)
+                              ELSE GREATEST(
+                                  flush_at,
+                                  LEAST(opened_at + make_interval(secs => $7),
+                                        NOW() + make_interval(secs => $6))
+                              )
+                          END AS flush_at
+                   FROM open_window
+               ),
+               extended AS (
+                   UPDATE inbound_message_buffer b SET flush_at = deadline.flush_at
+                   FROM deadline
+                   WHERE b.binding_id = $2 AND b.claimed_at IS NULL
+               )
+               INSERT INTO inbound_message_buffer
                    (id, binding_id, loop_id, adapter_label, message, flush_at)
-               SELECT $1, $2, $3, $4, $5,
-                      COALESCE(
-                          (SELECT MIN(b.flush_at) FROM inbound_message_buffer b
-                           WHERE b.binding_id = $2 AND b.claimed_at IS NULL),
-                          $6
-                      )"#,
+               SELECT $1, $2, $3, $4, $5, deadline.flush_at FROM deadline"#,
         )
         .bind(format!("imb_{}", uuid::Uuid::new_v4()))
         .bind(binding_id)
         .bind(loop_id)
         .bind(adapter_label)
         .bind(sqlx::types::Json(message))
-        .bind(flush_at)
+        .bind(quiet.as_secs_f64())
+        .bind(window.as_secs_f64())
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -361,11 +379,76 @@ mod tests {
         assert_eq!(ours.loop_id, LOOP_ID);
     }
 
-    /// The window is the first event's, so a stream of events cannot push the
-    /// flush out indefinitely: the later event inherits the open deadline
-    /// instead of setting its own.
+    /// Seconds from the window's opening event, and from its newest event, to
+    /// each unclaimed row's deadline, oldest row first.
+    async fn deadlines(pool: &PgPool) -> Vec<(f64, f64)> {
+        sqlx::query_as(
+            r#"SELECT EXTRACT(EPOCH FROM flush_at - MIN(created_at) OVER ())::float8,
+                      EXTRACT(EPOCH FROM flush_at - MAX(created_at) OVER ())::float8
+               FROM inbound_message_buffer
+               WHERE binding_id = $1 AND claimed_at IS NULL
+               ORDER BY seq"#,
+        )
+        .bind(BINDING)
+        .fetch_all(pool)
+        .await
+        .expect("deadlines read")
+    }
+
+    /// Move the binding's rows `seconds` into the past, as if they had waited.
+    async fn age(pool: &PgPool, seconds: f64) {
+        sqlx::query(
+            r#"UPDATE inbound_message_buffer
+               SET created_at = created_at - make_interval(secs => $2),
+                   flush_at = flush_at - make_interval(secs => $2)
+               WHERE binding_id = $1"#,
+        )
+        .bind(BINDING)
+        .bind(seconds)
+        .execute(pool)
+        .await
+        .expect("rows age");
+    }
+
+    /// The point of the quiet period: a lone event is not held for the window.
     #[sqlx::test]
-    async fn a_later_event_joins_the_open_window(pool: PgPool) {
+    async fn a_lone_event_waits_only_the_quiet_period(pool: PgPool) {
+        let store = store(pool.clone()).await;
+        push(&store, BINDING, "alone", Duration::from_mins(1)).await;
+
+        let quiet = QUIET_PERIOD.as_secs_f64();
+        assert_eq!(deadlines(&pool).await, [(quiet, quiet)]);
+    }
+
+    /// Each event of a burst restarts the quiet period for the whole window.
+    #[sqlx::test]
+    async fn a_later_event_extends_the_open_window(pool: PgPool) {
+        let store = store(pool.clone()).await;
+        push(&store, BINDING, "opens the window", Duration::from_mins(1)).await;
+        age(&pool, 8.0).await;
+        push(&store, BINDING, "extends it", Duration::from_mins(1)).await;
+
+        let since_newest: Vec<f64> = deadlines(&pool).await.iter().map(|d| d.1).collect();
+        assert_eq!(since_newest, [QUIET_PERIOD.as_secs_f64(); 2]);
+    }
+
+    /// The window caps the extension, so a stream of events cannot push the
+    /// flush out indefinitely.
+    #[sqlx::test]
+    async fn the_window_caps_the_extension(pool: PgPool) {
+        let store = store(pool.clone()).await;
+        push(&store, BINDING, "opens the window", Duration::from_secs(30)).await;
+        age(&pool, 25.0).await;
+        push(&store, BINDING, "near the cap", Duration::from_secs(30)).await;
+
+        let since_opened: Vec<f64> = deadlines(&pool).await.iter().map(|d| d.0).collect();
+        assert_eq!(since_opened, [30.0, 30.0]);
+    }
+
+    /// A later event never brings the open deadline forward, so it cannot cut
+    /// short a failed flush's backoff.
+    #[sqlx::test]
+    async fn a_later_event_never_shortens_the_open_window(pool: PgPool) {
         let store = store(pool).await;
         push(&store, BINDING, "opens the window", Duration::from_mins(10)).await;
         push(&store, BINDING, "would be due now", Duration::ZERO).await;

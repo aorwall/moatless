@@ -14,8 +14,8 @@ use tracing::{error, info, warn};
 use super::dao::{BufferedBatch, MessageBufferStore};
 use crate::bindings::runtime::RoutingService;
 
-/// How often the flusher looks for a closed window. The window itself is
-/// measured in tens of seconds, so this only bounds the overshoot.
+/// How often the flusher looks for a closed window. Bounds the overshoot past
+/// `policy::QUIET_PERIOD`, so keep it well below that.
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
 
 /// How often expired claims are recovered.

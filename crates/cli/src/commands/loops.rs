@@ -175,9 +175,9 @@ pub enum LoopsAction {
         /// when its provider will not serve it (usage limit, rate limit, outage).
         #[arg(long)]
         fallback_to_other_agent: Option<bool>,
-        /// Seconds to hold inbound adapter events for one binding so those
-        /// arriving together reach the task as one message. 0 turns buffering
-        /// off.
+        /// Most seconds to hold inbound adapter events for one binding so those
+        /// arriving together reach the task as one message; a lone event leaves
+        /// after a short quiet period. 0 turns buffering off.
         #[arg(long)]
         message_buffer_seconds: Option<i32>,
         /// Drop the buffering override, so the adapter kind's deployment
@@ -317,9 +317,10 @@ pub struct CreateConfigArgs {
     /// Omitted is on.
     #[arg(long)]
     fallback_to_other_agent: Option<bool>,
-    /// Seconds to hold inbound adapter events for one binding so those arriving
-    /// together reach the task as one message. 0 turns buffering off; omitted
-    /// inherits the adapter kind's deployment default.
+    /// Most seconds to hold inbound adapter events for one binding so those
+    /// arriving together reach the task as one message; a lone event leaves
+    /// after a short quiet period. 0 turns buffering off; omitted inherits the
+    /// adapter kind's deployment default.
     #[arg(long)]
     message_buffer_seconds: Option<i32>,
 }

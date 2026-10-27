@@ -68,8 +68,9 @@ pub struct LoopConfig {
     /// Stop this Loop's sandbox as soon as its agent run finishes, rather than
     /// holding the pod for the idle TTL.
     pub stop_when_done: Option<bool>,
-    /// Seconds inbound Adapter events for one Binding are held so those
-    /// arriving together reach the Task as a single message. `None` inherits
+    /// Longest, in seconds, inbound Adapter events for one Binding are held so
+    /// those arriving together reach the Task as a single message; a lone
+    /// event leaves after a short quiet period. `None` inherits
     /// the deployment default for the Loop's adapter kind (60 for `github_pr`,
     /// off elsewhere); `0` delivers every event on its own.
     pub message_buffer_seconds: Option<i32>,

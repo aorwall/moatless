@@ -1,10 +1,11 @@
 //! How long an Adapter's inbound events are held before they are combined.
 //!
-//! Three authorities, narrowest first: the Loop's own
-//! `loop_configs.message_buffer_seconds`, the deployment's
-//! [`MessageBufferConfig`](moatless_types::adapter::MessageBufferConfig), then the built-in default per [`AdapterKind`]. All
-//! three belong to a Loop, so a subject routed without one is not buffered at
-//! all. [`buffer_window`] owns which Adapter the latter two are keyed on.
+//! The window is the longest a burst is held. Three authorities, narrowest
+//! first: the Loop's own `loop_configs.message_buffer_seconds`, the
+//! deployment's [`MessageBufferConfig`](moatless_types::adapter::MessageBufferConfig),
+//! then the built-in default per [`AdapterKind`]. All three belong to a Loop,
+//! so a subject routed without one is not buffered at all. [`buffer_window`]
+//! owns which Adapter the latter two are keyed on.
 
 use std::time::Duration;
 
@@ -15,6 +16,10 @@ use moatless_types::loops::SubscriptionMatch;
 /// Upper bound on any configured window. A Loop that asks for more is clamped
 /// rather than refused, so a typo cannot park a review out of reach for a day.
 const MAX_WINDOW: Duration = Duration::from_hours(1);
+
+/// How long a window waits for the next event of a burst before it closes.
+/// Each event in the burst restarts it, up to the configured window.
+pub(crate) const QUIET_PERIOD: Duration = Duration::from_secs(10);
 
 /// Built-in window for `adapter`, before the deployment and the Loop.
 ///
