@@ -54,9 +54,10 @@ out="$(DOMAIN= run 'printf %s "${CODEARTIFACT_AUTH_TOKEN-unset}"')"
 reset
 out="$(run 'printf %s "$CODEARTIFACT_AUTH_TOKEN"')"
 [ "$out" = tok-1 ] || fail "first bash exported '$out'"
-expected="@soaplabs:registry=https://$host/npm/npm/
-//$host/npm/npm/:_authToken=tok-1
-//$host/npm/npm/:always-auth=true"
+expected="//$host/npm/npm/:_authToken=tok-1
+//$host/npm/npm/:always-auth=true
+//$host/npm/npm-prerelease/:_authToken=tok-1
+//$host/npm/npm-prerelease/:always-auth=true"
 [ "$(cat "$work/home/.npmrc")" = "$expected" ] || fail "~/.npmrc: $(cat "$work/home/.npmrc")"
 grep -qx "index-url = https://aws:tok-1@$host/pypi/pypi/simple/" "$work/home/.config/pip/pip.conf" \
   || fail "pip.conf: $(cat "$work/home/.config/pip/pip.conf")"

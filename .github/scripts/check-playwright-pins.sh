@@ -65,9 +65,19 @@ while read -r repo lockfile is_local; do
 	# (`"likec4/playwright/playwright-core"`) is deliberately not read: nothing
 	# in the repo imports it. The gap that leaves is a workspace member whose
 	# own pin lost the hoist to a different one.
-	wanted=$(printf '%s' "$content" |
-		{ grep -oE '"(playwright|playwright-core|@playwright/test)": \["[^"]*@[0-9]+\.[0-9]+\.[0-9]+"' || true; } |
-		sed -E 's/.*@([0-9]+\.[0-9]+\.[0-9]+)"$/\1/' | sort -u)
+	# A pnpm lockfile has no hoisted entry, so every resolved copy counts there.
+	case "$lockfile" in
+	*pnpm-lock.yaml)
+		wanted=$(printf '%s' "$content" |
+			{ grep -oE "^  '?(playwright|playwright-core|@playwright/test)@[0-9]+\.[0-9]+\.[0-9]+'?:" || true; } |
+			sed -E "s/.*@([0-9]+\.[0-9]+\.[0-9]+)'?:$/\1/" | sort -u)
+		;;
+	*)
+		wanted=$(printf '%s' "$content" |
+			{ grep -oE '"(playwright|playwright-core|@playwright/test)": \["[^"]*@[0-9]+\.[0-9]+\.[0-9]+"' || true; } |
+			sed -E 's/.*@([0-9]+\.[0-9]+\.[0-9]+)"$/\1/' | sort -u)
+		;;
+	esac
 	if [ -z "$wanted" ]; then
 		echo "::warning::$repo resolves no playwright-core in $lockfile — drop it from $CONSUMERS if it no longer runs browser tests"
 		continue

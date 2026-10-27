@@ -4,7 +4,7 @@
 # The image wires it there because Kubernetes never runs the ENTRYPOINT.
 #
 # Exports CODEARTIFACT_AUTH_TOKEN for repos whose .npmrc reads it, and keeps
-# ~/.npmrc (@soaplabs scope) and pip.conf on the current token. The token cache
+# ~/.npmrc (registry auth only) and pip.conf on the current token. The token cache
 # is shared with /etc/mavenrc. Sourced: never exit, never write to stdout.
 
 _codeartifact_env() {
@@ -40,16 +40,19 @@ _codeartifact_put() {
   mkdir -p "${1%/*}" && (umask 077 && printf '%s' "$2" >"$1.tmp.$$") && mv -f "$1.tmp.$$" "$1"
 }
 
-# No default `registry=` line and no uv config, deliberately: bun.lock and
-# uv.lock record the registry URL, and a CodeArtifact URL there fails outside
-# the sandbox.
+# No `registry=` line and no uv config, deliberately: bun.lock and uv.lock
+# record the registry URL, and a CodeArtifact URL there fails outside the
+# sandbox. No `@soaplabs:registry=` either: a scoped registry beats
+# `bun add --registry=…/npm-prerelease/`, which then fails "No version matching".
 _codeartifact_write() {
-  local token="$2" host npm
+  local token="$2" host npm pre
   host="$(_codeartifact_host)"
   npm="//$host/npm/${CODEARTIFACT_NPM_REPO:-npm}/"
-  _codeartifact_put "$HOME/.npmrc" "@soaplabs:registry=https:$npm
-$npm:_authToken=$token
+  pre="//$host/npm/npm-prerelease/"
+  _codeartifact_put "$HOME/.npmrc" "$npm:_authToken=$token
 $npm:always-auth=true
+$pre:_authToken=$token
+$pre:always-auth=true
 " &&
     _codeartifact_put "${XDG_CONFIG_HOME:-$HOME/.config}/pip/pip.conf" "[global]
 index-url = https://aws:$token@$host/pypi/${CODEARTIFACT_PYPI_REPO:-pypi}/simple/
