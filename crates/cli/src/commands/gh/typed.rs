@@ -11,8 +11,8 @@ use moatless_api_schemas::github::{
     GithubCommentRequest, GithubCreatePrRequest, GithubReplyRequest,
 };
 
+use super::pr_followups;
 use super::pr_view::{self, PrViewArgs};
-use super::process::gh_command_output;
 use super::reply_target::{self, ReplyTarget};
 use super::repo::{RepoTarget, current_git_branch, resolve_repo};
 use super::run_logs::{self, RunLogArgs};
@@ -47,6 +47,11 @@ pub(super) struct PrCreateArgs {
     /// since the create endpoint takes none.
     #[arg(long = "label", short = 'l')]
     labels: Vec<String>,
+    /// Login or `org/team` to request review from (repeatable or
+    /// comma-separated, as real `gh` takes it). Requested after the PR is
+    /// opened, since the create endpoint takes none.
+    #[arg(long = "reviewer", short = 'r', value_delimiter = ',')]
+    reviewers: Vec<String>,
     /// `owner/repo` (or a GitHub URL). Inferred from `git remote get-url
     /// origin` when omitted.
     #[arg(long = "repo", short = 'R')]
@@ -235,12 +240,22 @@ pub(super) async fn run_pr_create(
         .await
         .map_err(|e| target.failed("", e))?;
     if !args.labels.is_empty() {
-        apply_labels(
+        pr_followups::apply_labels(
             cfg.github_token_set,
             &target.owner,
             &target.repo,
             resp.number,
             &args.labels,
+            &resp.html_url,
+        )?;
+    }
+    if !args.reviewers.is_empty() {
+        pr_followups::apply_reviewers(
+            cfg.github_token_set,
+            &target.owner,
+            &target.repo,
+            resp.number,
+            &args.reviewers,
             &resp.html_url,
         )?;
     }
@@ -256,79 +271,6 @@ pub(super) async fn run_pr_create(
         }
     });
     Ok(())
-}
-
-/// Put `labels` on the pull request just opened, or fail naming the ones that
-/// did not land.
-///
-/// The create endpoint carries no labels, so they go on in a second call; the
-/// response lists what the issue now has, and a label the repository does not
-/// define is a 404 there rather than a silent drop.
-fn apply_labels(
-    env_token_set: bool,
-    owner: &str,
-    repo: &str,
-    number: u64,
-    labels: &[String],
-    html_url: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut args = vec![
-        "api".to_string(),
-        format!("repos/{owner}/{repo}/issues/{number}/labels"),
-        "--method".to_string(),
-        "POST".to_string(),
-    ];
-    for label in labels {
-        args.push("-f".to_string());
-        args.push(format!("labels[]={label}"));
-    }
-    let token = github_token_for_gh(env_token_set);
-    match gh_command_output(&args, token.as_deref(), None) {
-        Ok(body) => match labels_missing_from(&body, labels) {
-            missing if missing.is_empty() => Ok(()),
-            missing => Err(label_failure(
-                html_url,
-                number,
-                &missing,
-                "the labels GitHub answered with do not include it",
-            )
-            .into()),
-        },
-        Err(e) => Err(label_failure(html_url, number, labels, &e.to_string()).into()),
-    }
-}
-
-/// The requested labels the issue does not carry, by name and case-insensitively
-/// as GitHub matches them. A body that does not parse yields every label asked
-/// for: an unreadable answer confirms nothing.
-fn labels_missing_from(body: &[u8], requested: &[String]) -> Vec<String> {
-    let applied: Vec<String> = match serde_json::from_slice::<serde_json::Value>(body) {
-        Ok(serde_json::Value::Array(items)) => items
-            .iter()
-            .filter_map(|item| item.get("name").and_then(serde_json::Value::as_str))
-            .map(str::to_ascii_lowercase)
-            .collect(),
-        _ => Vec::new(),
-    };
-    requested
-        .iter()
-        .filter(|label| !applied.contains(&label.to_ascii_lowercase()))
-        .cloned()
-        .collect()
-}
-
-fn label_failure(html_url: &str, number: u64, labels: &[String], cause: &str) -> String {
-    let named = labels
-        .iter()
-        .map(|label| format!("`{label}`"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    format!(
-        "PR opened and bound at {html_url}, but {named} did not land: {cause}. \
-         Put it on with `moat gh pr edit {number} --add-label <name>`; a label the \
-         repository does not define has to be created first with \
-         `moat gh label create <name>`."
-    )
 }
 
 pub(super) async fn run_comment(

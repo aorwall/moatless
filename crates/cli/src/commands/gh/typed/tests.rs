@@ -275,63 +275,29 @@ fn other_subcommands_fall_through() {
     assert_eq!(parse_typed(&argv(&["pr"])), None);
 }
 
-// =======================================================================
-// `pr create --label`
-// =======================================================================
-
-/// `--label` used to be unknown to the parser, which demoted the call to
-/// plain `gh` — losing the task binding, and failing outright when the
-/// label did not exist.
+/// An unknown flag demotes the call to plain `gh`, losing the task binding,
+/// so the flags `gh pr create` users reach for stay on the typed path.
 #[test]
-fn pr_create_takes_labels_on_the_typed_path() {
+fn pr_create_takes_labels_and_reviewers_on_the_typed_path() {
     let parsed = parse_typed(&argv(&[
-        "pr", "create", "--title", "t", "--body", "b", "--label", "one", "-l", "two",
+        "pr",
+        "create",
+        "--title",
+        "t",
+        "--body",
+        "b",
+        "--label",
+        "one",
+        "-l",
+        "two",
+        "--reviewer",
+        "alice,org/team",
+        "-r",
+        "bob",
     ]));
     let Some(TypedInvocation::PrCreate(a)) = parsed else {
         panic!("expected typed pr create, got {parsed:?}");
     };
-    assert_eq!(a.labels, vec!["one".to_string(), "two".to_string()]);
-}
-
-#[test]
-fn a_label_github_lists_back_has_landed() {
-    let body = br#"[{"id":1,"name":"Bug"},{"id":2,"name":"agent-rule-enforcement"}]"#;
-    assert!(
-        labels_missing_from(body, &argv(&["bug", "agent-rule-enforcement"])).is_empty(),
-        "GitHub matches a label name case-insensitively"
-    );
-}
-
-#[test]
-fn a_label_absent_from_the_answer_is_reported_missing() {
-    let body = br#"[{"id":1,"name":"bug"}]"#;
-    assert_eq!(
-        labels_missing_from(body, &argv(&["bug", "needs-triage"])),
-        vec!["needs-triage".to_string()]
-    );
-    // An unreadable answer confirms nothing, so nothing counts as applied.
-    assert_eq!(
-        labels_missing_from(b"not json", &argv(&["bug"])),
-        vec!["bug".to_string()]
-    );
-}
-
-#[test]
-fn a_label_that_did_not_land_leaves_the_pr_url_in_the_error() {
-    let message = label_failure(
-        "https://github.com/o/r/pull/7",
-        7,
-        &argv(&["agent-rule-enforcement"]),
-        "gh said Not Found (HTTP 404)",
-    );
-    assert!(
-        message.contains("https://github.com/o/r/pull/7"),
-        "{message}"
-    );
-    assert!(message.contains("`agent-rule-enforcement`"), "{message}");
-    assert!(
-        message.contains("moat gh pr edit 7 --add-label"),
-        "{message}"
-    );
-    assert!(message.contains("moat gh label create"), "{message}");
+    assert_eq!(a.labels, argv(&["one", "two"]));
+    assert_eq!(a.reviewers, argv(&["alice", "org/team", "bob"]));
 }
