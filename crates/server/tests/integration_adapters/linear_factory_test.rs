@@ -13,9 +13,10 @@ use sqlx::PgPool;
 use moatless_types::loops::RoutingMode;
 
 use crate::linear_workflow_test::{
-    ISSUE, ORG, RULE, TASK, TEAM, deliver, drain, forwarded_ids, issue_updated, linear_stub,
-    linear_stub_with_labels, replica, seed_binding, seed_connection, seed_local_repository,
-    seed_rule, seed_rule_routed, seed_rule_with_id, seed_workspace_token, session_created,
+    ISSUE, ORG, RULE, TASK, TEAM, comment_created, deliver, drain, forwarded_ids, issue_updated,
+    linear_stub, linear_stub_with_labels, replica, seed_binding, seed_connection,
+    seed_local_repository, seed_rule, seed_rule_routed, seed_rule_with_id, seed_workspace_token,
+    session_created,
 };
 
 /// An update that adds `added` to an issue already carrying `kept`.
@@ -333,4 +334,84 @@ async fn re_entering_a_trigger_state_tells_the_active_task(pool: PgPool) {
         "{}",
         texts[1]
     );
+}
+
+/// A Loop with `bind_issue: false` starts a Task per firing and binds none, so
+/// the Task hears no later comment or state change, and a re-entry starts a
+/// fresh Task.
+#[sqlx::test]
+async fn an_unbound_loop_starts_a_task_per_firing_that_hears_nothing_after(pool: PgPool) {
+    let stub = linear_stub().await;
+    let state = replica(&pool, &stub);
+    seed_connection(&pool, &stub).await;
+    seed_workspace_token(&pool).await;
+    seed_local_repository(&pool).await;
+    seed_rule(
+        &state,
+        Some(serde_json::json!({
+            "create_on_status_entry": true,
+            "trigger_states": ["Inbox"],
+            "bind_issue": false,
+        })),
+    )
+    .await;
+
+    deliver(&state, &issue_updated("s0", "s1", "Inbox", "unstarted")).await;
+    drain(&pool, &stub).await;
+    let first: String = sqlx::query_scalar("SELECT task_id FROM tasks")
+        .fetch_one(&pool)
+        .await
+        .expect("read task");
+    deliver(&state, &issue_updated("s1", "s2", "Refining", "unstarted")).await;
+    drain(&pool, &stub).await;
+    deliver(
+        &state,
+        &comment_created("comment-1", None, "narrow the scope"),
+    )
+    .await;
+    drain(&pool, &stub).await;
+
+    assert_eq!(inbox_texts(&pool, &first).await.len(), 1);
+    let bindings: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM task_bindings")
+        .fetch_one(&pool)
+        .await
+        .expect("count bindings");
+    assert_eq!(bindings, 0);
+
+    let mut back = issue_updated("s2", "s1", "Inbox", "unstarted");
+    back["webhookTimestamp"] = serde_json::json!(1_700_000_000_004i64);
+    back["data"]["updatedAt"] = serde_json::json!("2026-08-10T03:30:59.000Z");
+    deliver(&state, &back).await;
+    drain(&pool, &stub).await;
+
+    assert_eq!(task_count(&pool).await, 2, "a re-entry starts a fresh task");
+    assert_eq!(inbox_texts(&pool, &first).await.len(), 1);
+}
+
+/// One update that both enters a trigger state and adds a trigger label fires
+/// an unbound Loop once.
+#[sqlx::test]
+async fn an_unbound_loop_fires_once_for_a_state_and_label_in_one_update(pool: PgPool) {
+    let stub = linear_stub().await;
+    let state = replica(&pool, &stub);
+    seed_connection(&pool, &stub).await;
+    seed_workspace_token(&pool).await;
+    seed_local_repository(&pool).await;
+    seed_rule(
+        &state,
+        Some(serde_json::json!({
+            "create_on_status_entry": true,
+            "trigger_states": ["Todo"],
+            "trigger_labels": ["factory"],
+            "bind_issue": false,
+        })),
+    )
+    .await;
+
+    let mut both = issue_labeled(&[], &[("l-factory", "factory")]);
+    both["updatedFrom"]["stateId"] = serde_json::json!("s-backlog");
+    deliver(&state, &both).await;
+    drain(&pool, &stub).await;
+
+    assert_eq!(task_count(&pool).await, 1);
 }

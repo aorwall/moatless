@@ -726,6 +726,29 @@ impl RoutingService {
         })
     }
 
+    /// Claim a subject keyed by one event, so any existing claim means the event
+    /// already ran: no takeover, unlike [`Self::claim_task_creation`], since
+    /// taking over a closed Task's claim would start that event a second Task.
+    pub async fn claim_task_creation_once(
+        &self,
+        subscription: &SubscriptionMatch,
+        subject_kind: &str,
+        subject_key: &str,
+        adapter_label: &str,
+        external_event_id: Option<&str>,
+    ) -> Result<bool, AdapterError> {
+        Ok(self
+            .event_receipts
+            .claim_task_creation(
+                &subscription.id,
+                subject_kind,
+                subject_key,
+                adapter_label,
+                external_event_id,
+            )
+            .await?)
+    }
+
     /// Record `task_id` as the Loop's ongoing Task, for an Adapter that opens one
     /// outside [`Self::route_inbound_message`]. Hold the creation claim while
     /// calling this.

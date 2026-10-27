@@ -40,6 +40,10 @@ const ADAPTER_LABEL: &str = moatless_types::adapter::AdapterKind::Linear.as_str(
 /// Loop id. No Binding carries it.
 const ONGOING_SUBJECT_KIND: &str = "linear_loop";
 
+/// Subject kind of the creation claim on one firing of a Loop that binds no
+/// Task to the issue, keyed by [`firing_key`]. No Binding carries it.
+const UNBOUND_SUBJECT_KIND: &str = "linear_issue_firing";
+
 /// The downward ports the issue workflows read, borrowed from
 /// [`LinearInboundRouter`](super::delivery::LinearInboundRouter).
 pub(super) struct IssuePorts<'a> {
@@ -58,7 +62,8 @@ pub(super) struct IssuePorts<'a> {
 #[derive(Debug, PartialEq, Eq)]
 enum Provisioned {
     Created(String),
-    /// The `(issue, Loop)` pair already has an active Task.
+    /// The `(issue, Loop)` pair already has an active Task, or, for a Loop
+    /// binding no Task, this firing already started one.
     Existing,
 }
 
@@ -306,7 +311,7 @@ async fn fire_rule(
         let text = ongoing_text(issue, reason);
         return deliver_to_ongoing_task(ports, connection, rule, issue, &text, event_id).await;
     }
-    match provision_issue_task(ports, api, connection, rule, cfg, issue).await? {
+    match provision_issue_task(ports, api, connection, rule, cfg, issue, event_id).await? {
         Provisioned::Created(task_id) => info!(
             task_id = %task_id,
             issue = %issue.identifier,
@@ -319,7 +324,7 @@ async fn fire_rule(
         Provisioned::Existing => info!(
             issue = %issue.identifier,
             subscription_id = %rule.id,
-            "Linear issue already has an active task for this trigger — skipping creation"
+            "Linear issue already has a task for this trigger or firing — skipping creation"
         ),
     }
     Ok(())
@@ -524,12 +529,11 @@ fn is_open_for_rule(binding: &TaskBinding, connection_id: &str, rule_id: &str) -
         && binding.loop_id.as_deref() == Some(rule_id)
 }
 
-/// Create + provision a task for `issue` under `rule`, bind it to the issue via
-/// `linear_issue`, link it back, and forward the inbound "read the ticket"
-/// prompt.
+/// Create a task for `issue` under `rule`, bind it unless `cfg.bind_issue` is
+/// off, link it back, and forward the "read the ticket" prompt.
 ///
-/// Idempotent per `(issue, rule)`: a binding passing [`is_open_for_rule`]
-/// returns [`Provisioned::Existing`] and creates nothing.
+/// Idempotent per `(issue, rule)` through [`is_open_for_rule`] when binding,
+/// else per [`firing_key`], so an unbound re-entry starts a fresh Task.
 async fn provision_issue_task(
     ports: &IssuePorts<'_>,
     api: &LinearAgentApi,
@@ -537,19 +541,37 @@ async fn provision_issue_task(
     rule: &SubscriptionMatch,
     cfg: &LinearRuleConfig,
     issue: &IssuePayload,
+    event_id: &str,
 ) -> Result<Provisioned, AdapterError> {
-    let has_active = ports
-        .task_bindings
-        .by_destination_field(ADAPTER, super::SUBJECT_KIND_ISSUE, "issue_id", &issue.id)
-        .await?
-        .into_iter()
-        .any(|b| is_open_for_rule(&b, &connection.id, &rule.id));
-    if has_active {
-        return Ok(Provisioned::Existing);
+    let firing = (!cfg.bind_issue).then(|| firing_key(issue, event_id));
+    if let Some(firing) = firing.as_deref() {
+        let claimed = ports
+            .routing
+            .claim_task_creation_once(
+                rule,
+                UNBOUND_SUBJECT_KIND,
+                firing,
+                ADAPTER_LABEL,
+                Some(event_id),
+            )
+            .await?;
+        if !claimed {
+            return Ok(Provisioned::Existing);
+        }
+    } else {
+        let has_active = ports
+            .task_bindings
+            .by_destination_field(ADAPTER, super::SUBJECT_KIND_ISSUE, "issue_id", &issue.id)
+            .await?
+            .into_iter()
+            .any(|b| is_open_for_rule(&b, &connection.id, &rule.id));
+        if has_active {
+            return Ok(Provisioned::Existing);
+        }
     }
 
     let inbound_text = super::text::build_issue_inbound_text(issue);
-    let task_id = match insert_event_task(
+    let created = insert_event_task(
         ports.task_creation,
         rule,
         &issue.identifier,
@@ -557,8 +579,17 @@ async fn provision_issue_task(
         &inbound_text,
         None,
     )
-    .await
-    {
+    .await;
+    if let (Err(_), Some(firing)) = (&created, firing.as_deref()) {
+        if let Err(e) = ports
+            .routing
+            .release_task_creation(&rule.id, UNBOUND_SUBJECT_KIND, firing)
+            .await
+        {
+            warn!(issue = %issue.identifier, error = %e, "Failed to release the firing claim");
+        }
+    }
+    let task_id = match created {
         Ok(id) => id,
         // Preflight failed: surface the reason as an issue comment (this path
         // has no agent session), then bail out — the errored task gets no
@@ -579,22 +610,35 @@ async fn provision_issue_task(
     ports.linear_active_turns.open(&task_id);
 
     let team_id = issue.resolved_team_id().unwrap_or_default().to_string();
-    let destination_config = super::subject::issue_destination_config(issue, &team_id);
-    let binding = ports
-        .task_bindings
-        .bind(
-            connection,
-            Some(rule),
-            &task_id,
-            ADAPTER,
-            super::SUBJECT_KIND_ISSUE,
-            &issue.id,
-            destination_config,
-            ADAPTER_EVENT_BINDING_ORIGIN,
-            None,
-            &BindScope::default(),
-        )
-        .await?;
+    let subject_key = if let Some(firing) = firing.as_deref() {
+        // Logged rather than returned: a retry would lose the claim and skip.
+        if let Err(e) = ports
+            .routing
+            .record_created_task(&rule.id, UNBOUND_SUBJECT_KIND, firing, &task_id)
+            .await
+        {
+            warn!(task_id = %task_id, error = %e, "Failed to record the firing's task");
+        }
+        issue.id.clone()
+    } else {
+        let destination_config = super::subject::issue_destination_config(issue, &team_id);
+        ports
+            .task_bindings
+            .bind(
+                connection,
+                Some(rule),
+                &task_id,
+                ADAPTER,
+                super::SUBJECT_KIND_ISSUE,
+                &issue.id,
+                destination_config,
+                ADAPTER_EVENT_BINDING_ORIGIN,
+                None,
+                &BindScope::default(),
+            )
+            .await?
+            .subject_key
+    };
 
     let task_url = super::text::task_url(ports.config, &task_id);
     let attachment_title = super::task_links::task_attachment_title(
@@ -625,7 +669,7 @@ async fn provision_issue_task(
             origin: TurnOrigin {
                 event_id: Some(external_event_id),
                 adapter: Some(ADAPTER_LABEL.to_string()),
-                subject_key: Some(binding.subject_key.clone()),
+                subject_key: Some(subject_key),
                 source_name: Some(rule.source_matcher.clone()),
                 author: None,
                 sender_id: None,
@@ -655,6 +699,16 @@ async fn provision_issue_task(
     }
 
     Ok(Provisioned::Created(task_id))
+}
+
+/// The issue plus the `updatedAt` of the mutation that fired, so a state entry
+/// and a label added in one update start one Task, not two.
+fn firing_key(issue: &IssuePayload, event_id: &str) -> String {
+    format!(
+        "{}:{}",
+        issue.id,
+        issue.updated_at.as_deref().unwrap_or(event_id)
+    )
 }
 
 /// Move the issue to `state_name`; best-effort, so failures are only logged.

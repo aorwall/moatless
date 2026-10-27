@@ -417,7 +417,11 @@ fn session_prompted(activity_id: &str, body: &str) -> serde_json::Value {
     })
 }
 
-fn comment_created(comment_id: &str, parent_id: Option<&str>, body: &str) -> serde_json::Value {
+pub(super) fn comment_created(
+    comment_id: &str,
+    parent_id: Option<&str>,
+    body: &str,
+) -> serde_json::Value {
     let mut data = serde_json::json!({
         "id": comment_id,
         "body": body,

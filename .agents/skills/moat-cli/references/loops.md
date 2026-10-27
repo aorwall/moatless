@@ -179,6 +179,10 @@ Notes:
   case-insensitively. A task still open when its issue re-enters a trigger
   state is told so, with who moved it, instead of a second task starting; every
   task bound to the whole issue hears each state change.
+  `adapterConfig.bind_issue: false` binds nothing to the issue: the task hears
+  no later comment or state change (only replies to a comment it posts), each
+  firing starts a fresh task, and a terminal state closes none. Use it for a
+  loop that triages a ticket and hands it to another loop's task.
   `adapterConfig.trigger_labels` (label names, case-insensitive) also fires the
   loop when an issue is created carrying one or an update adds one; when the
   loop lists `triggerStates`, the issue must also sit in one of them. A loop with

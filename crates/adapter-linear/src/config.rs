@@ -56,6 +56,11 @@ pub struct LinearRuleConfig {
     /// Label names (case-insensitive) that stop every trigger of this listener
     /// for an issue carrying one: mention, delegation, status entry, label.
     pub exclude_labels: Vec<String>,
+    /// Whether a Task this listener starts is bound to its issue, and so hears
+    /// every comment and state change on it. `false` starts a fresh Task on
+    /// each trigger: one that only reads the ticket and moves it on would
+    /// otherwise answer every later comment meant for the next Loop's Task.
+    pub bind_issue: bool,
 }
 
 impl LinearRuleConfig {
@@ -116,6 +121,10 @@ impl LinearRuleConfig {
             start_state,
             trigger_labels: string_list(filter, "trigger_labels").unwrap_or_default(),
             exclude_labels: string_list(filter, "exclude_labels").unwrap_or_default(),
+            bind_issue: filter
+                .get("bind_issue")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(true),
         }
     }
 
@@ -444,6 +453,17 @@ pub(crate) mod tests {
         let any = LinearRuleConfig::from_rule(&rule_with(serde_json::json!({}), true));
         assert!(any.project_allowed(Some("proj-a")));
         assert!(any.project_allowed(None));
+    }
+
+    #[test]
+    fn binds_the_issue_unless_told_not_to() {
+        let defaulted = LinearRuleConfig::from_rule(&rule_with(serde_json::json!({}), true));
+        assert!(defaulted.bind_issue);
+        let unbound = LinearRuleConfig::from_rule(&rule_with(
+            serde_json::json!({ "bind_issue": false }),
+            true,
+        ));
+        assert!(!unbound.bind_issue);
     }
 
     #[test]
