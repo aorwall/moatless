@@ -449,7 +449,7 @@ mod tests {
             cookie_name: "moatless_session".to_string(),
             login: crate::config::LoginEnv::default(),
             sandbox_grpc_port: "50052".to_string(),
-            gh_repo_set: false,
+            gh_repo: None,
             github_token_set: false,
             http: HttpConfig::default(),
         }

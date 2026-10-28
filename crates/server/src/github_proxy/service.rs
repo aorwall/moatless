@@ -10,7 +10,8 @@ use moatless_sandbox_control::secrets::{
 };
 use moatless_types::http::HttpStreamTimeouts;
 use moatless_workspace_ports::{WorkspaceCredentialReader, WorkspaceResolver};
-use tracing::warn;
+use moatless_workspace_types::repository::GitHostRepo;
+use tracing::{debug, warn};
 
 use crate::sandbox::lifecycle::SandboxIngress;
 
@@ -185,13 +186,17 @@ impl GitHubProxy {
         })
     }
 
-    /// The token the sandbox's `GITHUB_TOKEN` resolves to right now, by the
-    /// precedence `GetCredentials` applies: the Workspace's pinned token, else
-    /// the run-as identity's for the primary repository.
+    /// The Workspace's pinned token, else the run-as identity's for
+    /// `requested`, else its token for the primary repository. Resolved per
+    /// request, so an expired token is replaced rather than presented.
     ///
-    /// Resolved per request through the issuer's own refresh, so a token that
-    /// expired since the previous request is replaced rather than presented.
-    pub async fn token(&self, scope: &SandboxScope) -> Result<String, GitHubProxyError> {
+    /// `requested` is any repository the request names, not only one Moatless
+    /// knows: the issuer's cap by the Task owner's role is the boundary.
+    pub async fn token(
+        &self,
+        scope: &SandboxScope,
+        requested: Option<&GitHostRepo>,
+    ) -> Result<String, GitHubProxyError> {
         let pinned = resolve_workspace_credentials(
             Some(&self.workspace_credentials),
             Some(&scope.workspace),
@@ -205,6 +210,29 @@ impl GitHubProxy {
             return Ok(token.clone());
         }
 
+        let actor = resolve_task_actor(
+            Some(&self.workspaces),
+            Some(&scope.workspace),
+            scope.run_as.as_deref(),
+            &scope.user,
+        )
+        .await;
+        // A capped identity's primary-repository token cannot see a sibling
+        // repository. Falling back keeps a public repository the identity has
+        // no role on, or an owner without the App, readable as before.
+        if let Some(requested) = requested {
+            match self
+                .git_host_tokens
+                .token(&actor, &requested.credential_account())
+                .await
+            {
+                Ok(token) => return Ok(token),
+                Err(error) => {
+                    debug!(%error, repository = %requested, "No token for the requested repository, presenting the primary one");
+                }
+            }
+        }
+
         let repository = self
             .workspaces
             .placements(&scope.workspace)
@@ -216,13 +244,6 @@ impl GitHubProxy {
             .into_iter()
             .next()
             .and_then(|placement| placement.repository);
-        let actor = resolve_task_actor(
-            Some(&self.workspaces),
-            Some(&scope.workspace),
-            scope.run_as.as_deref(),
-            &scope.user,
-        )
-        .await;
 
         match resolve_task_github_token(Some(&self.git_host_tokens), &actor, repository.as_ref())
             .await

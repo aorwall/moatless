@@ -10,6 +10,7 @@
 
 mod api;
 mod dispatch;
+mod pr_edit;
 mod pr_followups;
 mod pr_view;
 mod process;

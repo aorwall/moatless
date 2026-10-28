@@ -10,6 +10,7 @@ use futures::TryStreamExt;
 use tracing::{info, warn};
 
 use crate::github_proxy::service::{GitHubProxy, GitHubProxyError, GitHubUpstream, SandboxScope};
+use crate::github_proxy::target;
 
 /// `ANY /github/{upstream}/{path}` — one `gh` request, forwarded to
 /// `upstream` with the sandbox's GitHub token in place of the task token.
@@ -65,17 +66,29 @@ pub(super) async fn forward(
     headers: &HeaderMap,
     body: Body,
 ) -> Response {
-    let token = match proxy.token(scope).await {
+    let (requested, body) = if is_graphql(upstream, &method, path_and_query) {
+        let Ok(bytes) = axum::body::to_bytes(body, GRAPHQL_BODY_LIMIT).await else {
+            return (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                axum::Json(
+                    serde_json::json!({ "message": "The GraphQL request body is too large" }),
+                ),
+            )
+                .into_response();
+        };
+        (target::from_graphql(&bytes), reqwest::Body::from(bytes))
+    } else {
+        (
+            target::from_path(path_and_query),
+            reqwest::Body::wrap_stream(body.into_data_stream().map_err(std::io::Error::other)),
+        )
+    };
+    let token = match proxy.token(scope, requested.as_ref()).await {
         Ok(token) => token,
         Err(e) => return e.into_response(),
     };
     let url = proxy.upstream_url(upstream, path_and_query);
-    let mut request = proxy
-        .http
-        .request(method.clone(), &url)
-        .body(reqwest::Body::wrap_stream(
-            body.into_data_stream().map_err(std::io::Error::other),
-        ));
+    let mut request = proxy.http.request(method.clone(), &url).body(body);
     for (name, value) in headers {
         if forwards(name) && name != header::AUTHORIZATION {
             request = request.header(name, value);
@@ -116,6 +129,16 @@ pub(super) async fn forward(
             warn!(%error, "Failed to build a proxied GitHub response");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         })
+}
+
+/// Bounds the GraphQL body buffered to read the repository its variables
+/// name. A mutation carrying a pull request body is the largest `gh` sends.
+const GRAPHQL_BODY_LIMIT: usize = 4 * 1024 * 1024;
+
+fn is_graphql(upstream: GitHubUpstream, method: &Method, path_and_query: &str) -> bool {
+    upstream == GitHubUpstream::Api
+        && method == Method::POST
+        && path_and_query.split('?').next() == Some("/graphql")
 }
 
 /// Whether a header crosses the proxy. Hop-by-hop headers describe one

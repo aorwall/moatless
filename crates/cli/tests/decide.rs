@@ -128,7 +128,7 @@ async fn each_fails_the_command_after_every_row_when_an_item_failed() {
         cookie_name: "session".to_string(),
         login: moatless_cli::config::LoginEnv::default(),
         sandbox_grpc_port: "50052".to_string(),
-        gh_repo_set: false,
+        gh_repo: None,
         github_token_set: false,
         http: HttpConfig::default(),
     };

@@ -11,6 +11,7 @@ use moatless_api_schemas::github::{
     GithubCommentRequest, GithubCreatePrRequest, GithubReplyRequest,
 };
 
+use super::pr_edit::{self, PrEditArgs};
 use super::pr_followups;
 use super::pr_view::{self, PrViewArgs};
 use super::reply_target::{self, ReplyTarget};
@@ -127,6 +128,7 @@ pub(super) enum TypedInvocation {
     Comment(CommentArgs),
     PrReply(ReplyArgs),
     PrView(PrViewArgs),
+    PrEdit(PrEditArgs),
     RunLog(RunLogArgs),
     Stack(StackInvocation),
 }
@@ -152,6 +154,7 @@ pub(super) fn parse_typed(args: &[String]) -> Option<TypedInvocation> {
         // No demotion warning: a `pr view` this path declines is a read that
         // real `gh` answers correctly, and nothing is bound or footered here.
         ("pr", "view") => pr_view::parse(rest).map(TypedInvocation::PrView),
+        ("pr", "edit") => pr_edit::parse(rest).map(TypedInvocation::PrEdit),
         ("run", "view") => run_logs::parse(rest).map(TypedInvocation::RunLog),
         ("stack", _) => match strip_moat_task_flag(args) {
             Ok((args, task)) => Some(TypedInvocation::Stack(StackInvocation { args, task })),
@@ -415,7 +418,7 @@ pub(super) async fn run_pr_reply(
 /// Resolve `--body` / `--body-file` into the optional body the API takes.
 ///
 /// clap has already rejected the case where both are given.
-fn read_body(
+pub(super) fn read_body(
     body: Option<String>,
     body_file: Option<&std::path::Path>,
 ) -> Result<Option<String>, Box<dyn std::error::Error>> {

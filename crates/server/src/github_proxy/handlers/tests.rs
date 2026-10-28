@@ -9,6 +9,7 @@ use moatless_core::sandbox_jwt::generate_user_auth_token;
 use moatless_core::secret_keys::GITHUB_TOKEN;
 use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer, MockGitHostTokenIssuer};
 use moatless_types::access_control::Scope;
+use moatless_types::git_host::GitHostAccount;
 use moatless_workspace_ports::{
     MockWorkspaceCredentialReader, MockWorkspaceResolver, RepoPlacement, WorkspaceCredentialReader,
     WorkspaceResolver,
@@ -352,6 +353,98 @@ async fn the_route_refuses_a_request_without_a_valid_task_token() {
         .unwrap();
 
     assert_eq!(response.status(), reqwest::StatusCode::UNAUTHORIZED);
+}
+
+/// An issuer minting `ghs_{repository}` for every repository but
+/// `refused`, which the identity has no role on.
+fn per_repository_issuer(refused: &'static str) -> Arc<dyn GitHostTokenIssuer> {
+    let mut tokens = MockGitHostTokenIssuer::new();
+    tokens.expect_token().returning(move |actor, account| {
+        let GitHostAccount::Github {
+            repository: Some(repository),
+            ..
+        } = account
+        else {
+            panic!("a GitHub token is always minted for one repository: {account:?}");
+        };
+        if repository == refused {
+            return Err(GitHostTokenError::Forbidden {
+                actor: actor.clone(),
+                account: Box::new(account.clone()),
+                source: "no role".into(),
+            });
+        }
+        Ok(format!("ghs_{repository}"))
+    });
+    Arc::new(tokens)
+}
+
+/// A GitHub answering every request with the token it was presented.
+async fn echoing_github() -> String {
+    serve(Router::new().fallback(any(|headers: HeaderMap| async move {
+        let presented = headers
+            .get(header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_string();
+        axum::Json(serde_json::json!({ "message": presented }))
+    })))
+    .await
+}
+
+async fn presented(proxy: &GitHubProxy, method: Method, path: &str, body: &str) -> String {
+    message(
+        forward(
+            proxy,
+            &scope(),
+            GitHubUpstream::Api,
+            method,
+            path,
+            &HeaderMap::new(),
+            Body::from(body.to_string()),
+        )
+        .await,
+    )
+    .await
+}
+
+/// The 404s on sibling repositories from 2026-10-26: a capped identity's
+/// token for the primary repository cannot see any other.
+#[tokio::test]
+async fn a_request_naming_a_repository_presents_that_repositorys_token() {
+    let base = echoing_github().await;
+    let proxy = proxy(
+        workspaces(github_repository(), HashMap::new()),
+        per_repository_issuer("private"),
+        &base,
+    );
+
+    assert_eq!(
+        presented(
+            &proxy,
+            Method::GET,
+            "/repos/owner/sibling/actions/runs?x=1",
+            ""
+        )
+        .await,
+        "Bearer ghs_sibling"
+    );
+    let query = r#"{"query":"q","variables":{"owner":"owner","repo":"sibling","pr_number":1}}"#;
+    assert_eq!(
+        presented(&proxy, Method::POST, "/graphql", query).await,
+        "Bearer ghs_sibling"
+    );
+    let mutation = r#"{"query":"m","variables":{"input":{"pullRequestId":"PR_kw"}}}"#;
+    assert_eq!(
+        presented(&proxy, Method::POST, "/graphql", mutation).await,
+        "Bearer ghs_repo",
+        "a request naming no repository presents the primary one's token"
+    );
+    assert_eq!(
+        presented(&proxy, Method::GET, "/repos/owner/private", "").await,
+        "Bearer ghs_repo",
+        "a repository the identity has no role on falls back to the primary one's token"
+    );
 }
 
 #[test]

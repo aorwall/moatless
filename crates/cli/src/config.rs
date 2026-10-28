@@ -36,8 +36,8 @@ pub struct Config {
     /// The loopback port of this sandbox's own gRPC server: `GRPC_PORT`, else
     /// 50052.
     pub sandbox_grpc_port: String,
-    /// Whether the caller already names a repository for `gh` through `GH_REPO`.
-    pub gh_repo_set: bool,
+    /// The repository the caller already names for `gh` through `GH_REPO`.
+    pub gh_repo: Option<String>,
     /// Whether `GH_TOKEN` or `GITHUB_TOKEN` holds a non-blank token.
     pub github_token_set: bool,
     /// Every HTTP client's timeouts.
@@ -120,7 +120,9 @@ impl Config {
                     .filter(|value| !value.is_empty()),
             },
             sandbox_grpc_port: std::env::var("GRPC_PORT").unwrap_or_else(|_| "50052".to_string()),
-            gh_repo_set: std::env::var_os("GH_REPO").is_some(),
+            gh_repo: std::env::var("GH_REPO")
+                .ok()
+                .filter(|repo| !repo.is_empty()),
             github_token_set: std::env::var("GH_TOKEN").is_ok_and(|v| !v.trim().is_empty())
                 || std::env::var("GITHUB_TOKEN").is_ok_and(|v| !v.trim().is_empty()),
             http: HttpConfig::from_vars(|key| std::env::var(key).ok()),

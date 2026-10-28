@@ -220,7 +220,7 @@ async fn proxied_repo(
 /// The `owner/repo` to hand a spawned `gh` as `GH_REPO`, so a passthrough reads
 /// the repository [`origin_repo`] writes to.
 pub(super) async fn origin_gh_repo(client: &MoatClient, cfg: &Config) -> Option<String> {
-    if cfg.gh_repo_set {
+    if cfg.gh_repo.is_some() {
         return None;
     }
     match origin_repo(client).await {

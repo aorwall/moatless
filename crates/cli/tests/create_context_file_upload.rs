@@ -114,7 +114,7 @@ async fn a_context_file_is_uploaded_and_its_id_is_what_create_attaches() {
         cookie_name: "session".to_string(),
         login: moatless_cli::config::LoginEnv::default(),
         sandbox_grpc_port: "50052".to_string(),
-        gh_repo_set: false,
+        gh_repo: None,
         github_token_set: false,
         http: HttpConfig::default(),
     };
