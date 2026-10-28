@@ -114,6 +114,7 @@ pub(crate) struct OrchestrationV2ThreadLaunchWorkspaceStrategy {
 pub(crate) struct OrchestrationV2ThreadLaunchInitialMessage {
     message_id: Option<String>,
     text: Option<Value>,
+    context: Option<Value>,
     attachments: Option<Value>,
 }
 
@@ -285,6 +286,7 @@ pub(crate) fn launch_command(
         "message": {
             "messageId": message_id,
             "text": initial.text.clone().unwrap_or_else(|| json!("")),
+            "context": initial.context,
             "attachments": initial.attachments.clone().unwrap_or_else(|| json!([])),
         },
     });

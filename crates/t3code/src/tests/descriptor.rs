@@ -229,6 +229,8 @@ fn a_v2_deployment_declares_the_protocol_and_server_resolved_context() {
 
     let v1 = descriptor(&config_at(1));
     assert!(v1.get("orchestrationProtocolVersion").is_none());
+    // Folded in by `commands`, which both protocols reach.
+    assert_eq!(v1["capabilities"]["inlineMessageContext"], json!(true));
     assert!(
         v1["capabilities"]
             .get("serverResolvedCommandContext")

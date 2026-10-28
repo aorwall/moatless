@@ -37,6 +37,18 @@ async fn each_queue_command_reaches_the_sink_as_its_change() {
         ),
         (
             queue_command(
+                "thread.queuedTurn.edit",
+                json!({
+                    "text": "see [Bug](t3-context://v1/thread/th_1)",
+                    "context": { "version": 1, "records": [
+                        { "version": 1, "kind": "thread", "contextId": "th_1", "label": "Fix the bug" }
+                    ] }
+                }),
+            ),
+            "edit msg-1 see Fix the bug files=None",
+        ),
+        (
+            queue_command(
                 "thread.queuedTurn.reorder",
                 json!({ "beforeMessageId": "msg-0" }),
             ),

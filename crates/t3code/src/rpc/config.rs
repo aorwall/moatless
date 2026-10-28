@@ -127,6 +127,9 @@ pub(crate) fn descriptor(config: &UiRpcConfig) -> Value {
             // `regenerateTitle` on `thread.meta.update`, which asks the agent
             // to rename the Task. Absent, a client hides the action.
             "threadTitleRegeneration": true,
+            // A turn's `context` records are understood: folded into its text
+            // by `message_context`. Absent, a client folds them itself.
+            "inlineMessageContext": true,
             // `thread.pull-request.watch` still mutes server-side; false
             // because no link carries `watch` for the toggle to read (see
             // docs/deferred-changes.md).

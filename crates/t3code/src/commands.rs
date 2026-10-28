@@ -23,6 +23,7 @@ use super::ports::{
     TurnAttachment,
 };
 use super::providers;
+use crate::message_context::inline_message_text;
 use crate::skills;
 use moatless_types::activity as mapping;
 use moatless_types::agent::{AgentMode, Harness};
@@ -266,11 +267,13 @@ async fn turn_start(
 ) -> Result<(), CommandRefusal> {
     let task_id = thread_id(command)?.to_string();
     let message = command.get("message").ok_or_else(|| missing("message"))?;
-    let text = message
-        .get("text")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
+    let text = inline_message_text(
+        message
+            .get("text")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+        message.get("context"),
+    );
     let message_uuid = message
         .get("messageId")
         .and_then(Value::as_str)
@@ -848,11 +851,13 @@ async fn change_queue(
         },
         "thread.queuedTurn.edit" => QueueChange::Edit {
             message_uuid: message_uuid()?,
-            text: command
-                .get("text")
-                .and_then(Value::as_str)
-                .ok_or_else(|| missing("text"))?
-                .to_string(),
+            text: inline_message_text(
+                command
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| missing("text"))?,
+                command.get("context"),
+            ),
             attachments: match command.get("attachments") {
                 Some(Value::Array(_)) => Some(attachments(command)?),
                 _ => None,

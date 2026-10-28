@@ -11,7 +11,11 @@ fn a_launch_with_a_message_bootstraps_the_thread_and_starts_its_turn() {
             "projectId": "ws-a",
             "modelSelection": { "model": "opus" },
             "workspaceStrategy": { "type": "worktree", "branch": "feat/x" },
-            "initialMessage": { "messageId": "m1", "text": "hello" }
+            "initialMessage": {
+                "messageId": "m1",
+                "text": "hello",
+                "context": { "version": 1, "records": [] }
+            }
         })),
         "task-1",
     )
@@ -20,6 +24,10 @@ fn a_launch_with_a_message_bootstraps_the_thread_and_starts_its_turn() {
     assert_eq!(command["threadId"], json!("task-1"));
     assert_eq!(command["message"]["messageId"], json!("m1"));
     assert_eq!(command["message"]["attachments"], json!([]));
+    assert_eq!(
+        command["message"]["context"],
+        json!({ "version": 1, "records": [] })
+    );
     assert_eq!(
         command["bootstrap"]["createThread"]["projectId"],
         json!("ws-a")

@@ -154,7 +154,7 @@ fn queued_run(command: &Value) -> Result<Translated, CommandRefusal> {
     let v1_tag = match tag {
         "queued-run.cancel" => "thread.queuedTurn.cancel",
         "queued-run.edit" => {
-            copy(command, &mut v1, &["text", "attachments"]);
+            copy(command, &mut v1, &["text", "context", "attachments"]);
             "thread.queuedTurn.edit"
         }
         _ => {
@@ -227,6 +227,7 @@ fn message_dispatch(command: &Value) -> Result<Translated, CommandRefusal> {
         json!({
             "messageId": command.get("messageId").ok_or_else(|| missing("messageId"))?,
             "text": command.get("text").cloned().unwrap_or_else(|| json!("")),
+            "context": command.get("context"),
             "attachments": command.get("attachments").cloned().unwrap_or_else(|| json!([])),
         }),
     );

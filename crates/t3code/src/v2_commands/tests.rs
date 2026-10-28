@@ -49,6 +49,20 @@ fn message_dispatch_becomes_a_turn_start_and_queues_after_active() {
     assert_eq!(queued["dispatchMode"], json!("queue"));
 }
 
+/// `commands` folds `context` into the text; dropping it here loses every chip.
+#[test]
+fn message_dispatch_carries_its_context_onto_the_message() {
+    let context = json!({ "version": 1, "records": [] });
+    let started = v1(json!({
+        "type": "message.dispatch",
+        "threadId": "task-1",
+        "messageId": "m1",
+        "text": "hello",
+        "context": context
+    }));
+    assert_eq!(started["message"]["context"], context);
+}
+
 #[test]
 fn message_dispatch_refuses_a_deferred_start() {
     let refused = refusal(json!({
@@ -227,9 +241,11 @@ fn queued_run_commands_name_the_message_their_run_waits_to_deliver() {
         "threadId": "task-1",
         "runId": "task-1:queued:msg-2",
         "text": "again",
+        "context": { "version": 1, "records": [] },
         "attachments": []
     }));
     assert_eq!(edit["type"], json!("thread.queuedTurn.edit"));
+    assert_eq!(edit["context"], json!({ "version": 1, "records": [] }));
     assert_eq!(edit["text"], json!("again"));
     assert_eq!(edit["attachments"], json!([]));
 
