@@ -119,6 +119,10 @@ pub struct InboundMessage {
     pub text: String,
     /// File attachment IDs (already uploaded to S3).
     pub file_ids: Vec<String>,
+    /// Files the external system holds for this event and the delivery worker
+    /// has yet to fetch; each one stored becomes a `file_ids` entry.
+    #[serde(default)]
+    pub attachments: Vec<InboundAttachment>,
     /// Adapter-specific properties to store on thread.
     pub thread_properties: serde_json::Value,
     /// Adapter-specific context.
@@ -141,6 +145,19 @@ pub struct InboundMessage {
     /// task hears nothing but replies reads them.
     #[serde(default)]
     pub replies_to: Vec<String>,
+}
+
+/// A file an inbound event names but does not carry: the Adapter fetches its
+/// bytes from `download_url` with the connection's own credentials.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct InboundAttachment {
+    /// The external system's id for the file, unique within its event.
+    pub external_id: String,
+    pub filename: String,
+    pub mime_type: String,
+    /// Size in bytes as the external system reported it, before any fetch.
+    pub size: Option<u64>,
+    pub download_url: String,
 }
 
 /// The external system's handle for whoever wrote an inbound event, or `None`

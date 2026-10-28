@@ -13,7 +13,7 @@ use moatless_adapter_model::access::AccessDecision;
 use moatless_adapter_model::access::MessageTrigger;
 use moatless_adapter_model::error::AdapterError;
 use moatless_types::adapter::AdapterKind;
-use moatless_types::adapter::{Audience, InboundMessage};
+use moatless_types::adapter::{Audience, InboundAttachment, InboundMessage};
 use moatless_types::loops::LoopContext;
 
 use moatless_ports::identity::ProviderIdentityLink;
@@ -131,6 +131,40 @@ impl<'a> SlackEvent<'a> {
     /// this resolves to no id at all.
     fn sender_external_id(&self) -> Option<String> {
         (!self.user.is_empty()).then(|| self.user.to_string())
+    }
+
+    /// The files the event shares, for the delivery worker to fetch.
+    ///
+    /// An entry with no `url_private_download` is skipped: Slack sends a
+    /// deleted (`tombstone`), plan-hidden (`hidden_by_limit`) or `external`
+    /// file without one, and there is nothing to fetch.
+    fn shared_files(&self) -> Vec<InboundAttachment> {
+        let Some(files) = self.body.get("files").and_then(serde_json::Value::as_array) else {
+            return Vec::new();
+        };
+        files
+            .iter()
+            .filter_map(|file| {
+                let field = |name| {
+                    file.get(name)
+                        .and_then(serde_json::Value::as_str)
+                        .filter(|v| !v.is_empty())
+                };
+                let external_id = field("id")?;
+                Some(InboundAttachment {
+                    external_id: external_id.to_string(),
+                    filename: field("name")
+                        .or_else(|| field("title"))
+                        .unwrap_or(external_id)
+                        .to_string(),
+                    mime_type: field("mimetype")
+                        .unwrap_or("application/octet-stream")
+                        .to_string(),
+                    size: file.get("size").and_then(serde_json::Value::as_u64),
+                    download_url: field("url_private_download")?.to_string(),
+                })
+            })
+            .collect()
     }
 
     /// Resolve the message text: Block Kit `blocks`, then legacy `attachments`,
@@ -394,7 +428,8 @@ pub(super) async fn normalize(
             .is_some_and(|bid| event.raw_text.contains(&format!("<@{bid}>")));
 
     let clean_text = event.clean_text();
-    if clean_text.trim().is_empty() {
+    let attachments = event.shared_files();
+    if clean_text.trim().is_empty() && attachments.is_empty() {
         debug!(
             reason = "empty_text_after_format",
             event_type = %event.event_type,
@@ -516,7 +551,8 @@ pub(super) async fn normalize(
             sender_external_id: event.sender_external_id(),
             requester: mapped_user.map(|user_id| user_id.to_string()),
             text: clean_text,
-            file_ids: vec![], // TODO: handle file attachments
+            file_ids: vec![],
+            attachments,
             thread_properties: serde_json::json!({
                 "channel": event.channel,
                 "ts": event.ts,
@@ -542,6 +578,7 @@ pub(super) async fn normalize(
 #[cfg(test)]
 mod tests {
     use super::{SlackEvent, is_ignored_message_subtype};
+    use moatless_types::adapter::InboundAttachment;
 
     #[test]
     fn a_writer_with_a_slack_id_is_identified_by_it() {
@@ -568,6 +605,50 @@ mod tests {
         let event = SlackEvent::from_payload(&payload).expect("an event");
         assert_eq!(event.user, "", "Slack omitted `user` entirely");
         assert_eq!(event.sender_external_id(), None);
+    }
+
+    /// Every file Slack can hand over becomes an attachment; one it sends
+    /// without a download URL (a deleted or `external` file) is left out.
+    #[test]
+    fn shared_files_keep_only_the_ones_with_a_download_url() {
+        let payload = serde_json::json!({
+            "event": {
+                "type": "message",
+                "subtype": "file_share",
+                "files": [
+                    {
+                        "id": "F1", "name": "trace.log", "mimetype": "text/plain", "size": 42,
+                        "url_private_download": "https://files.slack.com/files-pri/T1-F1/download/trace.log",
+                    },
+                    { "id": "F2", "mode": "tombstone" },
+                    { "id": "F3", "title": "Untitled", "url_private_download": "https://files.slack.com/F3" },
+                ],
+            }
+        });
+        let event = SlackEvent::from_payload(&payload).expect("an event");
+
+        let files = event.shared_files();
+
+        assert_eq!(
+            files,
+            vec![
+                InboundAttachment {
+                    external_id: "F1".into(),
+                    filename: "trace.log".into(),
+                    mime_type: "text/plain".into(),
+                    size: Some(42),
+                    download_url: "https://files.slack.com/files-pri/T1-F1/download/trace.log"
+                        .into(),
+                },
+                InboundAttachment {
+                    external_id: "F3".into(),
+                    filename: "Untitled".into(),
+                    mime_type: "application/octet-stream".into(),
+                    size: None,
+                    download_url: "https://files.slack.com/F3".into(),
+                },
+            ]
+        );
     }
 
     #[test]

@@ -9,6 +9,7 @@
 use std::sync::Arc;
 
 use crate::adapters::inbound_delivery::InboundMessageHandler;
+use crate::adapters::inbound_files::InboundFiles;
 use crate::adapters::providers::github_pr::adapter::GithubPrAdapter;
 use crate::adapters::providers::github_pr::check_run_trigger::{
     TriggerWorkspace, TriggerWorkspaceRequest, TriggerWorkspaces,
@@ -73,7 +74,7 @@ impl AdapterInstallations {
     /// retaining the aggregate that contains it.
     pub fn delivery_handlers(&self, state: &AppState) -> AdapterDeliveryHandlers {
         let mut handlers = AdapterDeliveryHandlers::new();
-        SlackInstallation::register_delivery(&mut handlers, state);
+        self.slack.register_delivery(&mut handlers, state);
         WebhookInstallation::register_delivery(&mut handlers, state);
         TelegramInstallation::register_delivery(&mut handlers, state);
         self.github_pr.register_delivery(&mut handlers, state);
@@ -145,13 +146,16 @@ impl SlackInstallation {
         Self { adapter }
     }
 
-    fn register_delivery(handlers: &mut AdapterDeliveryHandlers, state: &AppState) {
+    /// Slack's messages share files, so its handler stores them before routing.
+    fn register_delivery(&self, handlers: &mut AdapterDeliveryHandlers, state: &AppState) {
         use crate::adapters::providers::slack::delivery;
-        register_inbound_message_delivery(
-            handlers,
-            state,
+        let files = InboundFiles::new(self.adapter.clone(), state.files.clone());
+        handlers.register(
             delivery::INBOUND_MESSAGE,
-            delivery::ADAPTER,
+            Arc::new(
+                InboundMessageHandler::new(delivery::ADAPTER, state.routing.clone())
+                    .with_files(Arc::new(files)),
+            ),
         );
     }
 }

@@ -645,6 +645,7 @@ impl GithubPrInboundRouter {
             requester: None,
             text,
             file_ids: vec![],
+            attachments: Vec::new(),
             thread_properties: serde_json::json!({
                 "owner": owner,
                 "repo": repo,
@@ -818,6 +819,7 @@ pub(crate) mod tests {
             requester: None,
             text: String::new(),
             file_ids: vec![],
+            attachments: Vec::new(),
             thread_properties: serde_json::json!({}),
             adapter_context,
             external_event_id: Some(external_event_id.into()),

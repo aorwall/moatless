@@ -22,20 +22,34 @@ use super::api::{PostMessage, SlackApi};
 use super::config::SlackAdapterConfig;
 use super::{subject, text};
 
-/// Upload each attachment into `thread_ts`, best-effort: a failed upload is
-/// logged and the reply still counts as sent.
-async fn upload_files(api: &SlackApi, channel: &str, thread_ts: &str, message: &OutboundReply) {
+/// Send each attachment's bytes to Slack before the reply is posted, so a file
+/// Slack refuses fails the reply instead of going missing after the text.
+///
+/// Returns the `(slack file id, title)` pairs [`share_files`] takes.
+async fn stage_files(
+    api: &SlackApi,
+    message: &OutboundReply,
+) -> Result<Vec<(String, String)>, AdapterError> {
+    let mut staged = Vec::with_capacity(message.files.len());
     for file in &message.files {
-        if let Err(e) = api
-            .upload_file(channel, Some(thread_ts), &file.filename, file.data.clone())
-            .await
-        {
-            warn!(
-                filename = %file.filename,
-                error = %e,
-                "Failed to upload file attachment to Slack"
-            );
-        }
+        let id = api.stage_file(&file.filename, file.data.clone()).await?;
+        staged.push((id, file.filename.clone()));
+    }
+    Ok(staged)
+}
+
+/// Share what [`stage_files`] staged into `thread_ts`, best-effort: the text
+/// has already landed, so failing here would make the caller resend it.
+async fn share_files(api: &SlackApi, channel: &str, thread_ts: &str, staged: &[(String, String)]) {
+    if staged.is_empty() {
+        return;
+    }
+    if let Err(e) = api.share_files(channel, Some(thread_ts), staged).await {
+        warn!(
+            files = staged.len(),
+            error = %e,
+            "Failed to share file attachments into the Slack thread"
+        );
     }
 }
 
@@ -131,6 +145,7 @@ impl AdapterBindingReply for SlackAdapter {
         let text = outbound_text(self, message, provenance).await;
         let blocks = reply_blocks(self, message, provenance).await;
 
+        let staged = stage_files(&app.api, message).await?;
         let ts = app
             .api
             .post_message_with(PostMessage {
@@ -141,7 +156,7 @@ impl AdapterBindingReply for SlackAdapter {
             })
             .await?;
 
-        upload_files(&app.api, channel, thread_ts, message).await;
+        share_files(&app.api, channel, thread_ts, &staged).await;
 
         Ok(ts.map(|t| super::external_id::message_ts(&t)))
     }
@@ -203,6 +218,7 @@ impl AdapterBindingReply for SlackAdapter {
         let provenance = wanted_provenance(message, &config);
         let text = outbound_text(self, message, provenance).await;
         let blocks = reply_blocks(self, message, provenance).await;
+        let staged = stage_files(&app.api, message).await?;
         let ts = app
             .api
             .post_message_with(PostMessage {
@@ -212,7 +228,7 @@ impl AdapterBindingReply for SlackAdapter {
                 blocks: blocks.as_deref(),
             })
             .await?;
-        upload_files(&app.api, channel, thread_ts, message).await;
+        share_files(&app.api, channel, thread_ts, &staged).await;
 
         Ok(ts.map(|t| super::external_id::message_ts(&t)))
     }
@@ -251,6 +267,7 @@ impl AdapterDirectDestination for SlackAdapter {
         let provenance = message.provenance.as_ref();
         let text = outbound_text(self, message, provenance).await;
         let blocks = reply_blocks(self, message, provenance).await;
+        let staged = stage_files(&app.api, message).await?;
         let ts = app
             .api
             .post_message_with(PostMessage {
@@ -264,9 +281,9 @@ impl AdapterDirectDestination for SlackAdapter {
                 SharedAdapterError::Internal("Slack did not return message ts".into())
             })?;
 
-        // Files upload into the same thread (or top-level when there's no thread).
+        // Files share into the same thread (or under the new post when there's no thread).
         let upload_thread_ts = thread_ts.clone().unwrap_or_else(|| ts.clone());
-        upload_files(&app.api, &channel, &upload_thread_ts, message).await;
+        share_files(&app.api, &channel, &upload_thread_ts, &staged).await;
 
         // For top-level posts the binding's `thread_ts` IS the new `ts`.
         // For thread replies the binding's `thread_ts` is the ORIGINAL thread anchor
@@ -299,6 +316,8 @@ impl AdapterDirectMessage for SlackAdapter {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, OnceLock};
+
     use moatless_adapter_model::binding::BindingContext;
     use moatless_adapter_model::capabilities::{
         AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage,
@@ -473,35 +492,100 @@ mod tests {
         assert!(stub.paths().is_empty());
     }
 
-    /// One attachment is one extra upload, and it lands in the same thread as
-    /// the reply. The upload itself talks to the URL Slack hands back, which is
-    /// not this stub — only the two Slack-side calls are budgeted here.
-    #[tokio::test]
-    async fn each_attachment_adds_one_upload_in_the_same_thread() {
-        let stub = slack_stub().await;
-        let binding = binding_context(serde_json::json!({
+    fn with_files(text: &str, names: &[&str]) -> OutboundReply {
+        let mut message = reply(text, None);
+        message.files = names
+            .iter()
+            .map(|name| OutboundFile {
+                filename: (*name).into(),
+                mime_type: "text/plain".into(),
+                data: b"contents".to_vec(),
+            })
+            .collect();
+        message
+    }
+
+    fn thread_binding() -> BindingContext {
+        binding_context(serde_json::json!({
             "channel": "C1",
             "thread_ts": "1700000000.000100",
-        }));
-        let mut message = reply("with a file", None);
-        message.files = vec![OutboundFile {
-            filename: "log.txt".into(),
-            mime_type: "text/plain".into(),
-            data: b"contents".to_vec(),
-        }];
+        }))
+    }
+
+    /// Each file is staged before the text is posted, and every staged file is
+    /// shared into the reply's thread in one call after it.
+    #[tokio::test]
+    async fn attachments_are_staged_before_the_post_and_shared_after_it_in_one_call() {
+        let base = Arc::new(OnceLock::<String>::new());
+        let upload_base = base.clone();
+        let stub = ProviderStub::start(move |path| match path {
+            "/chat.postMessage" => serde_json::json!({"ok": true, "ts": "1700000000.000900"}),
+            "/files.getUploadURLExternal" => serde_json::json!({
+                "ok": true,
+                "upload_url": format!("{}/upload", upload_base.get().expect("base is set")),
+                "file_id": "F1",
+            }),
+            _ => serde_json::json!({"ok": true}),
+        })
+        .await;
+        base.set(stub.base_url().to_string()).expect("set once");
 
         adapter(&stub)
-            .send_reply(&binding, &loop_context("C1"), &message)
+            .send_reply(
+                &thread_binding(),
+                &loop_context("C1"),
+                &with_files("with files", &["a.txt", "b.txt"]),
+            )
             .await
-            .expect("an upload failure never fails the reply");
+            .expect("the stub accepts every call");
 
         assert_eq!(
             stub.paths(),
-            vec![
-                "/chat.postMessage".to_string(),
-                "/files.getUploadURLExternal".to_string(),
-            ],
-            "the reply is sent first, then the attachment is offered"
+            [
+                "/files.getUploadURLExternal",
+                "/upload",
+                "/files.getUploadURLExternal",
+                "/upload",
+                "/chat.postMessage",
+                "/files.completeUploadExternal",
+            ]
+            .map(String::from)
+            .to_vec(),
+        );
+        let shared = body(stub.requests().last().expect("a share call"));
+        assert_eq!(shared["channel_id"], "C1");
+        assert_eq!(shared["thread_ts"], "1700000000.000100");
+        assert_eq!(
+            shared["files"],
+            serde_json::json!([
+                {"id": "F1", "title": "a.txt"},
+                {"id": "F1", "title": "b.txt"},
+            ])
+        );
+    }
+
+    /// A file Slack will not take fails the reply before its text is posted,
+    /// so the caller sees the error and a resend does not post the text twice.
+    #[tokio::test]
+    async fn a_file_that_cannot_be_staged_fails_the_reply_before_the_post() {
+        let stub = slack_stub().await;
+
+        let error = adapter(&stub)
+            .send_reply(
+                &thread_binding(),
+                &loop_context("C1"),
+                &with_files("with a file", &["log.txt"]),
+            )
+            .await
+            .expect_err("the presigned URL is unreachable");
+
+        assert!(
+            error.to_string().contains("File upload to presigned URL"),
+            "{error}"
+        );
+        assert_eq!(
+            stub.paths(),
+            vec!["/files.getUploadURLExternal".to_string()]
         );
     }
 

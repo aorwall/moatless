@@ -317,6 +317,7 @@ mod tests {
             requester: None,
             text: "hello".into(),
             file_ids: vec![],
+            attachments: Vec::new(),
             thread_properties: serde_json::json!({}),
             adapter_context,
             external_event_id: None,

@@ -268,6 +268,7 @@ pub(super) async fn normalize(
             requester,
             text: clean_text,
             file_ids: vec![],
+            attachments: Vec::new(),
             thread_properties,
             adapter_context: serde_json::json!({}),
             external_event_id: Some(super::external_id::message(message_id)),

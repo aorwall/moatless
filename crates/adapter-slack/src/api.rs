@@ -21,6 +21,9 @@ pub struct SlackApi {
 /// Slack Web API root.
 const SLACK_API_BASE: &str = "https://slack.com/api";
 
+/// Where Slack serves the files a message shares.
+const SLACK_FILES_ORIGIN: &str = "https://files.slack.com/";
+
 /// Response from `chat.postMessage` — includes the posted message's `ts`.
 #[derive(Deserialize)]
 struct PostMessageResponse {
@@ -343,16 +346,14 @@ impl SlackApi {
         Ok(resp.messages.unwrap_or_default())
     }
 
-    /// Upload a file to a Slack channel/thread via the V2 upload flow: get a
-    /// presigned URL (`files.getUploadURLExternal`), upload the bytes, then
-    /// finalize with `files.completeUploadExternal`.
-    pub async fn upload_file(
+    /// Send a file's bytes to Slack without sharing it anywhere yet: the first
+    /// two steps of the V2 upload flow (`files.getUploadURLExternal`, then the
+    /// presigned URL). Returns the Slack file id [`Self::share_files`] takes.
+    pub async fn stage_file(
         &self,
-        channel: &str,
-        thread_ts: Option<&str>,
         filename: &str,
         content: Vec<u8>,
-    ) -> Result<(), AdapterError> {
+    ) -> Result<String, AdapterError> {
         let length_str = content.len().to_string();
 
         let resp: GetUploadUrlResponse = self
@@ -402,8 +403,25 @@ impl SlackApi {
             .into());
         }
 
+        Ok(slack_file_id)
+    }
+
+    /// Share files [`Self::stage_file`] staged into `channel`, under
+    /// `thread_ts` when given, in one `files.completeUploadExternal` call.
+    ///
+    /// `files` pairs each Slack file id with the title Slack shows for it.
+    pub async fn share_files(
+        &self,
+        channel: &str,
+        thread_ts: Option<&str>,
+        files: &[(String, String)],
+    ) -> Result<(), AdapterError> {
+        let files: Vec<_> = files
+            .iter()
+            .map(|(id, title)| serde_json::json!({ "id": id, "title": title }))
+            .collect();
         let mut complete_body = serde_json::json!({
-            "files": [{ "id": slack_file_id, "title": filename }],
+            "files": files,
             "channel_id": channel,
         });
         if let Some(ts) = thread_ts {
@@ -435,6 +453,76 @@ impl SlackApi {
         }
 
         Ok(())
+    }
+
+    /// Download a file a message shared, from its `url_private_download`.
+    ///
+    /// The bot token is sent only to `files.slack.com` or this client's own
+    /// base URL, so a URL in a payload cannot pull it to another host. A token
+    /// without `files:read` gets a `200` HTML sign-in page instead of the file,
+    /// so an HTML body for a file that is not HTML is refused as that.
+    pub async fn download_file(
+        &self,
+        url: &str,
+        expected_mime_type: &str,
+        max_bytes: u64,
+    ) -> Result<Vec<u8>, AdapterError> {
+        if !url.starts_with(SLACK_FILES_ORIGIN) && !url.starts_with(&format!("{}/", self.base_url))
+        {
+            return Err(SharedAdapterError::BadRequest(format!(
+                "Refusing to send the Slack token to `{url}`"
+            ))
+            .into());
+        }
+
+        let mut resp = self
+            .client
+            .get(url)
+            .bearer_auth(&self.token)
+            .send()
+            .await
+            .map_err(|e| SharedAdapterError::provider_unreachable("Slack file download", e))?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            return Err(SharedAdapterError::AdapterApi(format!(
+                "Slack file download returned HTTP {status}"
+            ))
+            .into());
+        }
+        let is_html = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.starts_with("text/html"));
+        if is_html && !expected_mime_type.starts_with("text/html") {
+            return Err(SharedAdapterError::AdapterApi(
+                "Slack answered with a sign-in page; the app may lack the `files:read` scope"
+                    .into(),
+            )
+            .into());
+        }
+
+        let too_large = || {
+            AdapterError::from(SharedAdapterError::AdapterApi(format!(
+                "Slack file is more than {max_bytes} bytes"
+            )))
+        };
+        if resp.content_length().is_some_and(|len| len > max_bytes) {
+            return Err(too_large());
+        }
+        let mut body = Vec::new();
+        while let Some(chunk) = resp
+            .chunk()
+            .await
+            .map_err(|e| SharedAdapterError::provider_unreachable("Slack file download", e))?
+        {
+            if (body.len() + chunk.len()) as u64 > max_bytes {
+                return Err(too_large());
+            }
+            body.extend_from_slice(&chunk);
+        }
+        Ok(body)
     }
 
     /// Open a DM channel with a Slack user and return the channel ID.

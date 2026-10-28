@@ -812,6 +812,7 @@ async fn inbound_message(
         requester: None,
         text,
         file_ids: vec![],
+        attachments: Vec::new(),
         thread_properties: serde_json::json!({
             "owner": context.owner,
             "repo": context.repo,

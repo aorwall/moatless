@@ -1010,6 +1010,51 @@ mod characterization {
         assert_eq!(stub.paths(), vec!["/users.info".to_string()]);
     }
 
+    /// A file posted with no text is still a message: the file is what the
+    /// writer sent, carried as an attachment for the delivery worker.
+    #[tokio::test]
+    async fn a_file_shared_without_text_is_a_message_carrying_the_file() {
+        let stub = slack_stub(serde_json::json!({
+            "ok": true,
+            "user": { "id": "U1CI", "name": "ci", "is_bot": true, "is_app_user": false },
+        }))
+        .await;
+        let adapter = adapter(&stub, Some(BOT_USER_ID));
+        let body = envelope(serde_json::json!({
+            "type": "message",
+            "subtype": "file_share",
+            "user": "U1CI",
+            "channel": "C1",
+            "bot_id": "B1",
+            "text": "",
+            "ts": "1700000000.000100",
+            "files": [{
+                "id": "F1", "name": "report.pdf", "mimetype": "application/pdf",
+                "url_private_download": "https://files.slack.com/files-pri/T1-F1/download/report.pdf",
+            }],
+        }));
+
+        let result = parse(
+            &adapter,
+            &body,
+            &trigger(Some(serde_json::json!({
+                "trigger": "all_messages",
+                "allow_bot_messages": true,
+            }))),
+            &crate::auth::UnreachableUsers,
+            false,
+        )
+        .await;
+
+        let Ok(Parsed::Message(message)) = result else {
+            panic!("expected a message");
+        };
+        assert_eq!(message.text, "");
+        assert_eq!(message.attachments.len(), 1);
+        assert_eq!(message.attachments[0].filename, "report.pdf");
+        assert!(message.file_ids.is_empty(), "nothing is fetched at ingress");
+    }
+
     #[test]
     fn the_slack_event_carries_everyone_as_its_audience() {
         // Slack makes no audience distinction; the constant is asserted where
@@ -1039,6 +1084,7 @@ mod tests {
             requester: None,
             text: "hello".into(),
             file_ids: vec![],
+            attachments: Vec::new(),
             thread_properties: serde_json::json!({}),
             adapter_context: serde_json::json!({}),
             external_event_id: external_event_id.map(str::to_string),

@@ -214,6 +214,7 @@ impl GithubPrInboundRouter {
             requester: None,
             text: post_merge_ci_text(&execution.run, &execution.owner, &execution.repo, pr_number),
             file_ids: vec![],
+            attachments: Vec::new(),
             thread_properties: serde_json::json!({
                 "owner": execution.owner,
                 "repo": execution.repo,

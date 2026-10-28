@@ -261,6 +261,7 @@ mod tests {
             requester: requester.map(str::to_string),
             text: "fix it".to_string(),
             file_ids: vec![],
+            attachments: Vec::new(),
             thread_properties: serde_json::json!({}),
             adapter_context: serde_json::json!({}),
             external_event_id: None,

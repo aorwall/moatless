@@ -11,6 +11,7 @@
 
 use std::sync::Arc;
 
+use crate::adapters::inbound_files::InboundFiles;
 use crate::bindings::runtime::RoutingService;
 use moatless_adapter_model::delivery::{
     AdapterDelivery, AdapterDeliveryFailure, AdapterDeliveryHandler,
@@ -29,11 +30,25 @@ pub struct InboundMessageHandler {
     /// Sender label used for routing, bindings, and metrics.
     adapter: &'static str,
     routing: Arc<RoutingService>,
+    /// Where a message's `attachments` are stored; `None` for an Adapter whose
+    /// messages name none.
+    files: Option<Arc<InboundFiles>>,
 }
 
 impl InboundMessageHandler {
     pub fn new(adapter: &'static str, routing: Arc<RoutingService>) -> Self {
-        Self { adapter, routing }
+        Self {
+            adapter,
+            routing,
+            files: None,
+        }
+    }
+
+    /// Store each message's attachments through `files` before routing it.
+    #[must_use]
+    pub fn with_files(mut self, files: Arc<InboundFiles>) -> Self {
+        self.files = Some(files);
+        self
     }
 }
 
@@ -49,13 +64,17 @@ impl AdapterDeliveryHandler for InboundMessageHandler {
             subject_key,
             destination_config,
             event_type,
-            message,
+            mut message,
         } = payload;
 
         let (connection, subscription) = self
             .routing
             .resolve_connection_and_subscription(&connection_id, &loop_id)
             .await?;
+
+        if let Some(files) = &self.files {
+            files.store(&connection, &mut message).await;
+        }
 
         let outcome = self
             .routing
@@ -128,6 +147,7 @@ mod tests {
                 requester: None,
                 text: "hello".into(),
                 file_ids: vec!["f1".into()],
+                attachments: Vec::new(),
                 thread_properties: serde_json::json!({ "channel": "C1" }),
                 adapter_context: serde_json::json!({ "is_bot_mentioned": true }),
                 external_event_id: Some("slack:ts:1700000000.000100".into()),

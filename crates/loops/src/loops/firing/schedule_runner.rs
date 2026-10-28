@@ -186,6 +186,7 @@ impl ScheduleRunner {
             requester: None,
             text: schedule.message_template.clone(),
             file_ids: vec![],
+            attachments: Vec::new(),
             thread_properties: serde_json::json!({"schedule_id": schedule.id}),
             adapter_context: serde_json::json!({"schedule_id": schedule.id}),
             external_event_id: Some(format!(
@@ -421,6 +422,7 @@ mod tests {
             requester: None,
             text: text.to_string(),
             file_ids: vec![],
+            attachments: Vec::new(),
             thread_properties: serde_json::Value::Null,
             adapter_context: serde_json::Value::Null,
             external_event_id: Some("scheduled:sch-1:1780000000".to_string()),

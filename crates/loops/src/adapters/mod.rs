@@ -11,6 +11,7 @@ pub mod access;
 pub mod delivery;
 pub mod events;
 pub mod inbound_delivery;
+pub mod inbound_files;
 pub mod ingress;
 pub mod projection;
 pub mod self_echo;

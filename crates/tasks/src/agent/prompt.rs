@@ -127,6 +127,9 @@ The backend routes the reply to the right surface based on `<source>`:
 You can also `moat messages react --message msg_abc123 --emoji thumbsup` to
 acknowledge with a reaction instead of a reply.
 
+On `slack`, attach a file to the reply with `--file <path>` (repeatable). Files
+the sender shared arrive on disk; their paths are listed with the message.
+
 ## Internal (UI / CLI / scheduler — no external channel)
 
 A message with no header came from the task UI, the CLI or the scheduler, and is

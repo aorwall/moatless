@@ -15,7 +15,7 @@ use crate::error::{AdapterError, SharedAdapterError};
 use crate::loops::subscription_context;
 use crate::outbound::{DestinationPostResult, OutboundReply};
 use moatless_types::adapter::{
-    AdapterConnection, AdapterKind, ExternalStatus, InboundMessage, TaskBinding,
+    AdapterConnection, AdapterKind, ExternalStatus, InboundAttachment, InboundMessage, TaskBinding,
 };
 use moatless_types::loops::{LoopContext, SubscriptionMatch};
 
@@ -230,6 +230,22 @@ pub trait AdapterInboundPresentation: Send + Sync {
     ) -> Result<Option<String>, AdapterError> {
         Ok(None)
     }
+}
+
+/// Fetch the files an inbound event names, for the delivery worker to store.
+#[async_trait::async_trait]
+pub trait AdapterInboundFiles: Send + Sync {
+    /// The bytes of `attachment`, read with `connection`'s credentials.
+    ///
+    /// Returns an error, never a partial body, when the provider refuses the
+    /// read, answers with something other than the file, or sends more than
+    /// `max_bytes`, which the read stops at rather than buffering past.
+    async fn fetch_attachment(
+        &self,
+        connection: &AdapterConnection,
+        attachment: &InboundAttachment,
+        max_bytes: u64,
+    ) -> Result<Vec<u8>, AdapterError>;
 }
 
 /// External status metadata and live status fetching for a binding subject.

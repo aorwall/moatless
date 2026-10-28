@@ -96,6 +96,7 @@ pub(crate) fn parse_inbound(
             requester: None,
             text: payload.text,
             file_ids: vec![],
+            attachments: Vec::new(),
             thread_properties,
             adapter_context: serde_json::json!({}),
             external_event_id: Some(external_event_id),

@@ -145,6 +145,7 @@ impl GithubPrInboundRouter {
                 pr.html_url.as_deref().unwrap_or(""),
             ),
             file_ids: vec![],
+            attachments: Vec::new(),
             thread_properties: serde_json::json!({
                 "owner": execution.owner,
                 "repo": execution.repo,

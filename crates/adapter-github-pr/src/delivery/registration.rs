@@ -374,6 +374,7 @@ mod tests {
             requester: None,
             text: "hello".to_string(),
             file_ids: vec![],
+            attachments: Vec::new(),
             thread_properties: serde_json::json!({
                 "owner": "acme", "repo": "widgets", "pr_number": 42
             }),
