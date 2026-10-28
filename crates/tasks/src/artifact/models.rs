@@ -1,7 +1,7 @@
 //! Artifact domain types.
 
 use chrono::{DateTime, Utc};
-use moatless_api_schemas::artifact::RecordWriter;
+use moatless_types::memory::MemoryScope;
 use moatless_types::task::Visibility;
 
 use super::rules::RecordRules;
@@ -27,6 +27,9 @@ pub struct Artifact {
     /// See [`DataAccess::rules`]; the latest publish's choice.
     #[sqlx(json(nullable))]
     pub record_rules: Option<RecordRules>,
+    /// See [`DataAccess::collections`]; the latest publish's choice.
+    #[sqlx(json)]
+    pub collections: Vec<AttachedCollection>,
     /// `Public` lets any signed-in user read the pages and records, whatever
     /// the Task's visibility; the latest publish or `set_visibility` that
     /// named one decides.
@@ -51,6 +54,9 @@ pub struct PublishRequest {
     /// See [`Artifact::visibility`]; `None` keeps the Artifact's current one,
     /// which a new Artifact starts `Public`.
     pub visibility: Option<Visibility>,
+    /// The `<scope>:<name>` of each scoped collection the page may read,
+    /// before they are resolved into [`DataAccess::collections`].
+    pub collections: Vec<String>,
 }
 
 /// What a publish lets its page do with Artifact records.
@@ -64,6 +70,21 @@ pub struct DataAccess {
     pub notify_on_data: bool,
     /// The operations a page may perform, per key prefix; `None` allows all.
     pub rules: Option<RecordRules>,
+    /// The scoped record collections the page may read, each only by a
+    /// reader who reaches its scope.
+    pub collections: Vec<AttachedCollection>,
+}
+
+/// A scoped record collection a publish lets its page read, resolved
+/// against the publishing Task's scopes.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachedCollection {
+    pub scope: MemoryScope,
+    /// The scope's id, which a reader's access to the scope is checked on.
+    pub scope_id: String,
+    pub name: String,
+    pub collection_id: String,
 }
 
 /// How a publish asked to be shown inline, before validation.
@@ -84,15 +105,4 @@ pub struct Reservation {
     pub reserved_version: i32,
 }
 
-/// An `artifact_records` row.
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub struct ArtifactRecord {
-    pub artifact_id: String,
-    pub key: String,
-    pub data: serde_json::Value,
-    pub submitted_by: String,
-    #[sqlx(try_from = "String")]
-    pub writer: RecordWriter,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
+pub use crate::collection::models::Record;

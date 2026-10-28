@@ -9,6 +9,7 @@ pub mod artifact;
 pub mod auth;
 pub mod bindings;
 pub mod codex;
+pub mod collection;
 pub mod decisions;
 pub mod enums;
 pub mod error;

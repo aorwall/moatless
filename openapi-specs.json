@@ -6,6 +6,95 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/artifact-data/{token}/collections/{name}/records": {
+      "get": {
+        "tags": [
+          "artifacts"
+        ],
+        "summary": "List the records of a scoped collection attached to the Artifact a page\ntoken names, oldest change first. A page reads it and never writes it.",
+        "operationId": "list_page_collection_records",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "description": "Page token the served page carries",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Collection name the Artifact was published with",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "description": "RFC 3339 time; only records changed after it are listed.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "prefix",
+            "in": "query",
+            "description": "Only records whose keys start with it, such as `comments/` for a list.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Record list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListCollectionRecordsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid or expired page token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The reader cannot read the collection's scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No collection by that name on the Artifact",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/artifact-data/{token}/records": {
       "get": {
         "tags": [
@@ -7200,6 +7289,233 @@
         }
       }
     },
+    "/api/v1/tasks/{task_id}/collections": {
+      "get": {
+        "tags": [
+          "collections"
+        ],
+        "summary": "List the collections in the scope a Task reaches, by name.",
+        "operationId": "list_collections",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "description": "The Task's Loop, else the Task, when omitted.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/MemoryScope"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Collections",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListCollectionsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/collections/{name}/records": {
+      "get": {
+        "tags": [
+          "collections"
+        ],
+        "summary": "List a collection's records, oldest change first.",
+        "operationId": "list_collection_records",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Collection name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "description": "The Task's Loop, else the Task, when omitted.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/MemoryScope"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "description": "RFC 3339 time; only records changed after it are listed.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "prefix",
+            "in": "query",
+            "description": "Only records whose keys start with it, such as `runs/` for a list.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Record list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListCollectionRecordsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "collections"
+        ],
+        "summary": "Save, append or delete a record, creating the collection on its first\nwrite.",
+        "operationId": "write_collection_record",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "description": "Task identifier",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Collection name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "description": "The Task's Loop, else the Task, when omitted.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/MemoryScope"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WriteArtifactRecordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The record written, or as it was before a delete",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionRecordResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Caller cannot write this scope's records",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task, or the record to delete, not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Record too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tasks/{task_id}/events/history": {
       "get": {
         "tags": [
@@ -11276,6 +11592,13 @@
           "artifactId": {
             "type": "string"
           },
+          "collections": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The scoped collections the latest publish lets the page read, as\n`<scope>:<name>`."
+          },
           "createdAt": {
             "type": "string"
           },
@@ -11739,6 +12062,80 @@
           },
           "verificationUrl": {
             "type": "string"
+          }
+        }
+      },
+      "CollectionRecordResponse": {
+        "type": "object",
+        "description": "One record in a scoped collection.",
+        "required": [
+          "collection",
+          "scope",
+          "key",
+          "data",
+          "submittedBy",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "collection": {
+            "type": "string",
+            "description": "The collection's name in its scope."
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object"
+          },
+          "key": {
+            "type": "string",
+            "description": "Names the record in its collection; the next save under it replaces it."
+          },
+          "scope": {
+            "$ref": "#/components/schemas/MemoryScope"
+          },
+          "submittedBy": {
+            "type": "string",
+            "description": "The user id of whoever saved the record last."
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "writer": {
+            "$ref": "#/components/schemas/RecordWriter"
+          }
+        }
+      },
+      "CollectionResponse": {
+        "type": "object",
+        "description": "One collection in a scope.",
+        "required": [
+          "name",
+          "scope",
+          "recordCount",
+          "createdAt"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "lastUpdatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When its newest record changed; `None` while it holds none."
+          },
+          "name": {
+            "type": "string"
+          },
+          "recordCount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/MemoryScope"
           }
         }
       },
@@ -14618,6 +15015,36 @@
           }
         }
       },
+      "ListCollectionRecordsResponse": {
+        "type": "object",
+        "description": "Response for listing a collection's records, oldest change first.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CollectionRecordResponse"
+            }
+          }
+        }
+      },
+      "ListCollectionsResponse": {
+        "type": "object",
+        "description": "Response for listing a scope's collections, by name.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CollectionResponse"
+            }
+          }
+        }
+      },
       "ListFeedbackResponse": {
         "type": "object",
         "description": "Response wrapper for `GET /api/v1/tasks/{task_id}/feedback`.",
@@ -14879,7 +15306,7 @@
               "null"
             ],
             "format": "int32",
-            "description": "Seconds inbound Adapter events for one Binding are held so those\narriving together reach the Task as a single message. `None` inherits\nthe deployment default for the Loop's adapter kind (60 for `github_pr`,\noff elsewhere); `0` delivers every event on its own."
+            "description": "Longest, in seconds, inbound Adapter events for one Binding are held so\nthose arriving together reach the Task as a single message; a lone\nevent leaves after a short quiet period. `None` inherits\nthe deployment default for the Loop's adapter kind (60 for `github_pr`,\noff elsewhere); `0` delivers every event on its own."
           },
           "model": {
             "type": [
@@ -16237,6 +16664,16 @@
           "file"
         ],
         "properties": {
+          "collection": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "A scoped record collection the page may read, as `<scope>:<name>`,\nsuch as `loop:review-runs`; repeat the field for more. Resolved\nagainst the publishing Task's scopes, and read only by a reader who\nreaches that scope."
+          },
           "data": {
             "type": [
               "boolean",
@@ -16295,7 +16732,7 @@
               },
               {
                 "$ref": "#/components/schemas/Visibility",
-                "description": "`private` limits the page and its records to readers of the Task;\n`public`, the default, lets any signed-in user read them. Every version\nfollows the latest publish."
+                "description": "`private` limits the page and its records to readers of the Task;\n`public` lets any signed-in user read them. Omitted keeps the\nArtifact's current visibility, `public` for a new one. Every version\nfollows the latest choice."
               }
             ]
           }
@@ -21573,6 +22010,10 @@
     {
       "name": "memory",
       "description": "What agents learn, shared across Tasks by scope"
+    },
+    {
+      "name": "collections",
+      "description": "Records shared across Tasks by scope"
     },
     {
       "name": "review-guides",

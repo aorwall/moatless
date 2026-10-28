@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::models::ArtifactRecord;
+use super::models::Record;
 use moatless_api_schemas::artifact::RecordWriter;
 
 /// The only `rulesVersion` this server reads.
@@ -104,7 +104,7 @@ impl RecordRules {
         &self,
         op: WriteOp,
         key: &str,
-        stored: Option<&ArtifactRecord>,
+        stored: Option<&Record>,
         viewer: &str,
     ) -> Result<(), Denied> {
         let Some((prefix, rule)) = self.rule_for(key) else {
@@ -126,7 +126,7 @@ impl RecordRules {
 
     /// Whether a page of `viewer` lists `record`. Under an `owner` read rule
     /// that is the viewer's own records and every record the agent wrote.
-    pub fn can_read(&self, record: &ArtifactRecord, viewer: &str) -> bool {
+    pub fn can_read(&self, record: &Record, viewer: &str) -> bool {
         match self.rule_for(&record.key).and_then(|(_, rule)| rule.read) {
             Some(Permit::Anyone) => true,
             Some(Permit::Owner) => {

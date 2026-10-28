@@ -93,6 +93,8 @@ author, branches, description, and often the diff) arrives as the task message.
 8. **Resolve** review threads whose issue has left the diff (see Lifecycle Actions).
 9. **Submit `APPROVE`** when no outstanding issues remain (see Approving).
 10. **Send the summary review** via `moat gh pr comment` — **mandatory, exactly once**.
+11. **Record the run** as one record in the Loop's `review-runs` collection (see
+    Recording the Run). A reply to a comment is not a run: record nothing.
 
 > Always write `moat gh …`, never bare `gh …`. `moat gh` proxies the summary comment
 > through the backend (binding the task and deduping the webhook echo), and records what
@@ -294,6 +296,65 @@ possible cause and one "may", then the evidence and the next check; don't phrase
 it as a question. Text you suggest for a code comment follows the comment rules
 in root `AGENTS.md`, and avoids filler such as "load-bearing".
 
+## Recording the Run
+
+After the summary is posted, save what this review found as one record, so the
+reviews of every PR can be compared over time. Save it under the PR and head
+commit, so a re-review of the same commit replaces its record and a new commit
+adds one:
+
+```bash
+moat records save review-runs "runs/<number>/<head sha>" "$(cat /tmp/review-run.json)" --scope loop
+```
+
+Write `/tmp/review-run.json` with this shape:
+
+```json
+{
+  "pr": 1234,
+  "headSha": "<full head sha>",
+  "taskId": "<$TASK_ID>",
+  "reviewedAt": "<RFC 3339 now>",
+  "author": "<PR author login>",
+  "title": "<PR title>",
+  "domains": ["rust", "tests"],
+  "outcome": "approved",
+  "ci": "passing",
+  "checks": [
+    {"id": "rust-file-roles", "status": "fail", "file": "crates/x/src/y.rs", "line": 42,
+     "comment": "<one line>"}
+  ],
+  "resolved": ["<one line per finding from an earlier review now fixed>"]
+}
+```
+
+- `domains`: of `typescript`, `rust`, `cli`, `proto`, `tests`, `helm`, `docker`,
+  `deps`, `migrations`, `plans`, `general`.
+- `outcome`: `approved` when you submitted `APPROVE`, else `commented`.
+- `ci`: `passing`, `failing` or `pending`.
+- `checks`: one entry per checklist item of a touched domain, by the ids below,
+  with `status` `pass`, `fail` or `n/a`, and `file`/`line`/`comment` on a `fail`.
+  Add an entry with id `general` for each Additional Feedback finding that got an
+  inline comment.
+
+| Checklist item | id |
+|---|---|
+| No `any`; narrow with `unknown` | `ts-no-any` |
+| No `panic!` on runtime paths; typed errors | `rust-errors` |
+| Spawned work owned and cancellable | `rust-spawned-work` |
+| Each file holds its assigned responsibility | `rust-file-roles` |
+| utoipa OpenAPI annotations; parameterized SQLx | `rust-openapi-sqlx` |
+| Behavior not implementation; unit not mocked | `tests-behavior` |
+| Correct framework/tier | `tests-tier` |
+| Implementation aligns with the plan | `plans-aligned` |
+| Completed plans moved to `.plans/completed/` | `plans-archived` |
+| values↔template; security contexts; isolation | `helm-consistency` |
+| No hardcoded secrets | `helm-no-secrets` |
+
+A failed save does not undo the review: mention it in the task's last reply and
+move on. Earlier runs are `moat records list review-runs --scope loop --prefix
+runs/<number>/`.
+
 ## Execution
 
 1. **Gather** — parse the PR, checkout the branch, read `AGENTS.md`, load the guideline
@@ -303,3 +364,4 @@ in root `AGENTS.md`, and avoids filler such as "load-bearing".
 3. **Act** — post inline comments via `moat gh api`; resolve addressed threads.
 4. **Report** — submit `APPROVE` if clean, then send the summary via
    `moat gh pr comment <number> --body "$(cat /tmp/review.md)"`.
+5. **Record** — save the run to `review-runs` (see Recording the Run).

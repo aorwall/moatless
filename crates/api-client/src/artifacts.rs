@@ -28,6 +28,8 @@ pub struct ArtifactData {
     pub notify: bool,
     /// Record rules JSON, which the server checks; replaces `notify`.
     pub rules: Option<String>,
+    /// `<scope>:<name>` of each scoped record collection the page may read.
+    pub collections: Vec<String>,
 }
 
 impl ApiClient {
@@ -66,6 +68,9 @@ impl ApiClient {
         if let Some(rules) = &options.data.rules {
             form = form.text("rules", rules.clone());
         }
+        for collection in &options.data.collections {
+            form = form.text("collection", collection.clone());
+        }
         if options.private {
             form = form.text("visibility", "private");
         }
@@ -94,15 +99,7 @@ impl ApiClient {
         prefix: Option<&str>,
         since: Option<&str>,
     ) -> Result<moatless_api_schemas::artifact::ListArtifactRecordsResponse, ApiError> {
-        let params: Vec<String> = [("prefix", prefix), ("since", since)]
-            .into_iter()
-            .filter_map(|(name, value)| value.map(|v| format!("{name}={}", urlenc(v))))
-            .collect();
-        let query = if params.is_empty() {
-            String::new()
-        } else {
-            format!("?{}", params.join("&"))
-        };
+        let query = query(&[("prefix", prefix), ("since", since)]);
         self.get(&format!(
             "/api/v1/artifacts/{}/records{query}",
             urlenc(artifact_id)
@@ -121,5 +118,18 @@ impl ApiClient {
             req,
         )
         .await
+    }
+}
+
+/// `?name=value&…` of the parameters given, or nothing when none is.
+pub(crate) fn query(params: &[(&str, Option<&str>)]) -> String {
+    let params: Vec<String> = params
+        .iter()
+        .filter_map(|(name, value)| value.map(|v| format!("{name}={}", urlenc(v))))
+        .collect();
+    if params.is_empty() {
+        String::new()
+    } else {
+        format!("?{}", params.join("&"))
     }
 }

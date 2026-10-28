@@ -28,6 +28,7 @@ use moatless_loops::compose::LoopGraph;
 use moatless_loops::loops::operations::Loops;
 use moatless_sandbox_control::compose::SandboxGraph;
 use moatless_tasks::artifact::operations::Artifacts;
+use moatless_tasks::collection::operations::Records;
 use moatless_tasks::compose::TaskGraph;
 use moatless_tasks::feedback::operations::FeedbackNotes;
 use moatless_tasks::memory::operations::Memories;
@@ -84,6 +85,8 @@ pub struct Ports {
     pub artifacts: Arc<Artifacts>,
     /// Memory: what agents keep for later Tasks.
     pub memories: Arc<Memories>,
+    /// Record collections: every Artifact's records and the scoped ones.
+    pub records: Arc<Records>,
     pub repositories: Arc<Repositories>,
     /// The narrowed read the task and loop bands take, over the same store.
     pub repository_reader: Arc<dyn moatless_workspace_ports::RepositoryReader>,
@@ -270,11 +273,13 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
     let turn_counter = task_graph.turn_ledger();
     let feedback = task_graph.feedback();
     let review_guides = task_graph.review_guides();
+    let records = task_graph.records(repository_reader.clone(), workspace_resolver.clone());
     let artifacts = task_graph.artifacts(
         s3.clone(),
         Arc::new(config.s3.clone()),
         &config.auth.frontend_url,
         moatless_identity::auth::jwt::get_jwt_secret(config).map(String::from),
+        records.clone(),
     );
     let memories = task_graph.memories(repository_reader.clone(), workspace_resolver.clone());
     let tags = task_graph.tags();
@@ -304,6 +309,7 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
         review_guides,
         artifacts,
         memories,
+        records,
         repositories,
         repository_reader,
         workspaces,

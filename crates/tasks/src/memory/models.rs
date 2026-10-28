@@ -44,12 +44,7 @@ pub struct MemoryEventRow {
     pub created_at: DateTime<Utc>,
 }
 
-/// One scope a Task reaches, with the id the Task supplies for it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ScopeRef {
-    pub scope: MemoryScope,
-    pub id: String,
-}
+pub use crate::scope_reach::ScopeRef;
 
 /// Who made a write, recorded on the entry and its event.
 #[derive(Debug, Clone, Default)]

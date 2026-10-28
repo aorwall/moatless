@@ -1,14 +1,16 @@
-//! The socket a served page subscribes to its Artifact's records on, at
-//! [`PAGE_SOCKET_ROUTE`], authenticated by the page token like the record
-//! routes.
+//! The socket a served page subscribes to its Artifact's records, and the
+//! collections attached to it, on at [`PAGE_SOCKET_ROUTE`], authenticated by
+//! the page token like the record routes.
 //!
 //! Frames take UI-RPC's shapes (`Request`, `Chunk`, `Exit`, `Interrupt`,
 //! `Ping`/`Pong`), so a page reads them the way T3 reads its own. A wake from
-//! [`super::record_watch::RecordWatch`] reads the change log after the
-//! socket's cursor, so a write on any replica reaches every subscriber.
+//! the collection watch reads the change log after the socket's cursor, so a
+//! write on any replica reaches every subscriber.
 
 use std::collections::{HashMap, HashSet};
+use std::future::Future;
 use std::sync::Arc;
+use std::task::Poll;
 use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
@@ -16,13 +18,16 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use tokio::sync::watch;
 use tokio::time::{Instant, interval_at};
 use tracing::{debug, warn};
 
 use super::error::ArtifactError;
-use super::models::{Artifact, ArtifactRecord};
+use super::models::{Artifact, AttachedCollection, Record};
 use super::operations::Artifacts;
-use super::records::{page_reader, readable_by, to_response};
+use super::page_token::PageClaims;
+use super::records::{attached_for_page, page_viewer, readable_by, to_response};
+use crate::collection::service::to_response as collection_response;
 use crate::task::operations::TaskCommands;
 
 /// The page's record socket; `{token}` is the page token.
@@ -35,7 +40,7 @@ pub const PAGE_SOCKET_ROUTE: &str = "/api/artifact-data/{token}/ws";
 /// The one method the socket answers: stream the records under a prefix.
 const SUBSCRIBE: &str = "artifact.records.subscribe";
 /// How often the socket checks that its reader can still read the Artifact
-/// and that the latest publish still accepts data. Also when it rereads the
+/// and each subscription's source. Also when it rereads the
 /// change log should this replica's watch have stalled.
 const RECHECK_INTERVAL: Duration = Duration::from_secs(15);
 const MAX_SUBSCRIPTIONS: usize = 16;
@@ -53,7 +58,7 @@ pub async fn page_socket(
     Path(token): Path<String>,
     upgrade: WebSocketUpgrade,
 ) -> Response {
-    let (claims, row) = match page_reader(&tasks, &artifacts, &token).await {
+    let (claims, row) = match page_viewer(&tasks, &artifacts, &token).await {
         Ok(reader) => reader,
         Err(error) => return error.into_response(),
     };
@@ -61,8 +66,7 @@ pub async fn page_socket(
         tasks,
         artifacts,
         token,
-        viewer: claims.sub,
-        expires_at: claims.exp,
+        claims,
         row,
         subscriptions: Vec::new(),
     };
@@ -95,12 +99,19 @@ enum ClientFrame {
 #[serde(rename_all = "camelCase")]
 struct SubscribePayload {
     prefix: Option<String>,
+    /// An attached collection's name; without it, the Artifact's own records.
+    collection: Option<String>,
 }
 
 /// One `artifact.records.subscribe` request, and what its page holds.
 #[derive(Debug)]
 struct Subscription {
     id: Value,
+    /// The Artifact's own collection, or the attached one's.
+    collection_id: String,
+    /// The attached collection, read-only and outside the record rules;
+    /// `None` for the Artifact's own records.
+    attached: Option<AttachedCollection>,
     prefix: Option<String>,
     /// The `record_seq` the page has every change up to.
     cursor: i64,
@@ -118,7 +129,7 @@ enum Advance {
     /// The log no longer reaches back to its cursor: read every record again.
     Resync,
     Changes {
-        records: Vec<ArtifactRecord>,
+        records: Vec<Record>,
         removed: Vec<String>,
     },
 }
@@ -137,8 +148,8 @@ impl Subscription {
         &mut self,
         head: i64,
         changes: &[(i64, String)],
-        current: &HashMap<&str, &ArtifactRecord>,
-        readable: impl Fn(&ArtifactRecord) -> bool,
+        current: &HashMap<&str, &Record>,
+        readable: impl Fn(&Record) -> bool,
     ) -> Advance {
         if self.stale {
             return Advance::Resync;
@@ -181,9 +192,7 @@ struct Connection {
     tasks: Arc<TaskCommands>,
     artifacts: Arc<Artifacts>,
     token: String,
-    viewer: String,
-    /// The page token's `exp`, in Unix seconds.
-    expires_at: u64,
+    claims: PageClaims,
     /// The Artifact as of the last access check; its rules decide reads.
     row: Artifact,
     subscriptions: Vec<Subscription>,
@@ -191,14 +200,12 @@ struct Connection {
 
 impl Connection {
     async fn serve(mut self, mut socket: WebSocket) {
-        let mut heads = self
-            .artifacts
-            .record_watch()
-            .subscribe(&self.row.artifact_id);
+        let mut heads: HashMap<String, watch::Receiver<i64>> = HashMap::new();
         let mut recheck = interval_at(Instant::now() + RECHECK_INTERVAL, RECHECK_INTERVAL);
-        let expiry = tokio::time::sleep(until_unix(self.expires_at));
+        let expiry = tokio::time::sleep(until_unix(self.claims.exp));
         tokio::pin!(expiry);
         loop {
+            self.watch_heads(&mut heads);
             let frames = tokio::select! {
                 message = socket.recv() => match message {
                     Some(Ok(Message::Text(text))) => self.on_message(text.as_bytes()).await,
@@ -207,8 +214,8 @@ impl Connection {
                     Some(Ok(Message::Pong(_))) => continue,
                     Some(Ok(Message::Close(_)) | Err(_)) | None => break,
                 },
-                changed = heads.changed() => {
-                    if changed.is_err() {
+                changed = any_changed(&mut heads) => {
+                    if !changed {
                         break;
                     }
                     Inbound::Frames(self.pull().await)
@@ -228,6 +235,21 @@ impl Connection {
             }
         }
         debug!(artifact_id = %self.row.artifact_id, "Artifact record socket closed");
+    }
+
+    /// Hold a head receiver for each collection a subscription reads, and
+    /// none for one no subscription reads any longer.
+    fn watch_heads(&self, heads: &mut HashMap<String, watch::Receiver<i64>>) {
+        heads.retain(|id, _| self.subscriptions.iter().any(|s| &s.collection_id == id));
+        for subscription in &self.subscriptions {
+            if !heads.contains_key(&subscription.collection_id) {
+                let receiver = self
+                    .artifacts
+                    .record_watch()
+                    .subscribe(&subscription.collection_id);
+                heads.insert(subscription.collection_id.clone(), receiver);
+            }
+        }
     }
 
     async fn on_message(&mut self, bytes: &[u8]) -> Inbound {
@@ -272,13 +294,21 @@ impl Connection {
             Value::Null => Ok(SubscribePayload::default()),
             payload => serde_json::from_value(payload),
         };
-        let prefix = match payload {
-            Ok(payload) => payload.prefix,
+        let payload = match payload {
+            Ok(payload) => payload,
             Err(error) => return vec![die(&id, format!("{SUBSCRIBE}: {error}"))],
+        };
+        let attached = match self.source(payload.collection.as_deref()).await {
+            Ok(attached) => attached,
+            Err(error) => return vec![failed(&id, &error)],
         };
         let mut subscription = Subscription {
             id,
-            prefix,
+            collection_id: attached
+                .as_ref()
+                .map_or_else(|| self.row.artifact_id.clone(), |c| c.collection_id.clone()),
+            attached,
+            prefix: payload.prefix,
             cursor: 0,
             shown: HashSet::new(),
             stale: false,
@@ -291,10 +321,34 @@ impl Connection {
         frames
     }
 
+    /// The attached collection `name` names once the reader may read it, or
+    /// for no name the Artifact's own records once the latest publish accepts
+    /// data.
+    async fn source(
+        &self,
+        name: Option<&str>,
+    ) -> Result<Option<AttachedCollection>, ArtifactError> {
+        let Some(name) = name else {
+            if !self.row.accepts_data {
+                return Err(ArtifactError::Forbidden(self.row.task_id.clone()));
+            }
+            return Ok(None);
+        };
+        let attached = attached_for_page(&self.artifacts, &self.claims, &self.row, name).await?;
+        Ok(Some(attached.clone()))
+    }
+
+    /// Whether the subscription's page may read `record`: the record rules
+    /// decide for the Artifact's own records, and an attached collection is
+    /// read whole.
+    fn readable(&self, subscription: &Subscription, record: &Record) -> bool {
+        subscription.attached.is_some() || readable_by(&self.row, record, &self.claims.sub)
+    }
+
     /// Every record the subscription's page may read, as `Snapshot` chunks the
     /// last of which is `done`.
     async fn snapshot(&self, subscription: &mut Subscription) -> Result<Vec<Value>, ArtifactError> {
-        let id = &self.row.artifact_id;
+        let id = &subscription.collection_id;
         // Read before the records, so a write between the two is sent again
         // as a change rather than missed.
         let head = self.artifacts.record_head(id).await?;
@@ -304,45 +358,65 @@ impl Connection {
             .await?;
         let records: Vec<_> = records
             .iter()
-            .filter(|record| readable_by(&self.row, record, &self.viewer))
+            .filter(|record| self.readable(subscription, record))
             .collect();
         subscription.cursor = head;
         subscription.shown = records.iter().map(|r| r.key.clone()).collect();
         let batches: Vec<_> = records.chunks(RECORDS_PER_CHUNK).collect();
         let last = batches.len().saturating_sub(1);
         if batches.is_empty() {
-            return Ok(vec![snapshot_chunk(&subscription.id, &[], true)]);
+            return Ok(vec![snapshot_chunk(subscription, &[], true)]);
         }
         Ok(batches
             .iter()
             .enumerate()
-            .map(|(i, batch)| snapshot_chunk(&subscription.id, batch, i == last))
+            .map(|(i, batch)| snapshot_chunk(subscription, batch, i == last))
             .collect())
     }
 
-    /// The changes logged since the furthest-behind subscription's cursor.
-    /// A failed read is logged and leaves every cursor where it was, so the
-    /// next wake reads the same changes again.
+    /// For each collection, the changes logged since its furthest-behind
+    /// subscription's cursor. A failed read is logged and leaves that
+    /// collection's cursors where they were, so the next wake reads the same
+    /// changes again.
     async fn pull(&mut self) -> Vec<Value> {
-        let Some(after) = self.subscriptions.iter().map(|s| s.cursor).min() else {
-            return Vec::new();
-        };
-        match self.read_changes(after).await {
-            Ok(frames) => frames,
-            Err(error) => {
-                warn!(error = %moatless_core::error::causal_chain(&error), artifact_id = %self.row.artifact_id, "Failed to read artifact record changes");
-                Vec::new()
+        let mut ids: Vec<String> = self
+            .subscriptions
+            .iter()
+            .map(|s| s.collection_id.clone())
+            .collect();
+        ids.sort();
+        ids.dedup();
+        let mut frames = Vec::new();
+        for id in ids {
+            let Some(after) = self
+                .subscriptions
+                .iter()
+                .filter(|s| s.collection_id == id)
+                .map(|s| s.cursor)
+                .min()
+            else {
+                continue;
+            };
+            match self.read_changes(&id, after).await {
+                Ok(read) => frames.extend(read),
+                Err(error) => {
+                    warn!(error = %moatless_core::error::causal_chain(&error), artifact_id = %self.row.artifact_id, collection_id = %id, "Failed to read artifact record changes");
+                }
             }
         }
+        frames
     }
 
-    async fn read_changes(&mut self, after: i64) -> Result<Vec<Value>, ArtifactError> {
-        let id = &self.row.artifact_id;
+    async fn read_changes(&mut self, id: &str, after: i64) -> Result<Vec<Value>, ArtifactError> {
         let (head, changes) = self.artifacts.record_changes(id, after).await?;
         let mut keys: Vec<String> = changes
             .iter()
             .map(|(_, key)| key)
-            .filter(|key| self.subscriptions.iter().any(|s| s.covers(key)))
+            .filter(|key| {
+                self.subscriptions
+                    .iter()
+                    .any(|s| s.collection_id == id && s.covers(key))
+            })
             .cloned()
             .collect();
         keys.sort();
@@ -352,19 +426,23 @@ impl Connection {
         } else {
             self.artifacts.find_records(id, &keys).await?
         };
-        let current: HashMap<&str, &ArtifactRecord> =
-            stored.iter().map(|r| (r.key.as_str(), r)).collect();
+        let current: HashMap<&str, &Record> = stored.iter().map(|r| (r.key.as_str(), r)).collect();
         let mut frames = Vec::new();
         let mut kept = Vec::new();
         for mut subscription in std::mem::take(&mut self.subscriptions) {
+            if subscription.collection_id != id {
+                kept.push(subscription);
+                continue;
+            }
+            let attached = subscription.attached.is_some();
             let advance = subscription.advance(head, &changes, &current, |record| {
-                readable_by(&self.row, record, &self.viewer)
+                attached || readable_by(&self.row, record, &self.claims.sub)
             });
             match advance {
                 Advance::Nothing => kept.push(subscription),
                 Advance::Resync => kept.push(self.resync(subscription, &mut frames).await),
                 Advance::Changes { records, removed } => {
-                    frames.extend(changes_chunks(&subscription.id, &records, &removed));
+                    frames.extend(changes_chunks(&subscription, &records, &removed));
                     kept.push(subscription);
                 }
             }
@@ -373,22 +451,44 @@ impl Connection {
         Ok(frames)
     }
 
-    /// Check the reader still reads the Artifact, then send what changed. New
-    /// record rules send every page a fresh snapshot, since they can change
-    /// which records it may read.
+    /// Check the reader still reads the Artifact, end each subscription whose
+    /// source it may no longer read, then send what changed. New record rules
+    /// send the own-record subscriptions a fresh snapshot, since they can
+    /// change which records the page may read, and a collection the latest
+    /// publish attached elsewhere sends its subscriptions one too.
     async fn recheck(&mut self) -> Result<Vec<Value>, ArtifactError> {
-        let (_, row) = page_reader(&self.tasks, &self.artifacts, &self.token).await?;
+        let (_, row) = page_viewer(&self.tasks, &self.artifacts, &self.token).await?;
         let rules_changed = row.record_rules != self.row.record_rules;
         self.row = row;
-        if !rules_changed {
-            return Ok(self.pull().await);
-        }
         let mut frames = Vec::new();
         let mut kept = Vec::new();
-        for subscription in std::mem::take(&mut self.subscriptions) {
-            kept.push(self.resync(subscription, &mut frames).await);
+        for mut subscription in std::mem::take(&mut self.subscriptions) {
+            let name = subscription.attached.as_ref().map(|c| c.name.clone());
+            let attached = match self.source(name.as_deref()).await {
+                Ok(attached) => attached,
+                Err(error) if ends_access(&error) => {
+                    frames.push(failed(&subscription.id, &error));
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
+            let moved = attached
+                .as_ref()
+                .is_some_and(|c| c.collection_id != subscription.collection_id);
+            let resync = moved || (attached.is_none() && rules_changed);
+            if let Some(attached) = attached {
+                subscription
+                    .collection_id
+                    .clone_from(&attached.collection_id);
+                subscription.attached = Some(attached);
+            }
+            if resync {
+                subscription = self.resync(subscription, &mut frames).await;
+            }
+            kept.push(subscription);
         }
         self.subscriptions = kept;
+        frames.extend(self.pull().await);
         Ok(frames)
     }
 
@@ -428,6 +528,24 @@ enum Inbound {
     Frames(Vec<Value>),
     End(Vec<Value>),
     Pong(axum::body::Bytes),
+}
+
+/// Wait for any head in `heads` to move, answering `false` once one's watch
+/// has stopped; never answers while `heads` is empty.
+async fn any_changed(heads: &mut HashMap<String, watch::Receiver<i64>>) -> bool {
+    let mut changes: Vec<_> = heads
+        .values_mut()
+        .map(|rx| Box::pin(rx.changed()))
+        .collect();
+    std::future::poll_fn(|cx| {
+        for change in &mut changes {
+            if let Poll::Ready(result) = change.as_mut().poll(cx) {
+                return Poll::Ready(result.is_ok());
+            }
+        }
+        Poll::Pending
+    })
+    .await
 }
 
 /// Write what `inbound` sends, answering whether the socket stays open.
@@ -474,18 +592,35 @@ fn chunk(id: &Value, value: Value) -> Value {
     json!({ "_tag": "Chunk", "requestId": id, "values": [value] })
 }
 
-fn snapshot_chunk(id: &Value, records: &[&ArtifactRecord], done: bool) -> Value {
-    let items: Vec<_> = records.iter().map(|record| to_response(record)).collect();
+/// `record` as the subscription's page reads it: an Artifact record, or a
+/// collection record naming its collection.
+fn item(subscription: &Subscription, record: &Record) -> Value {
+    let item = match &subscription.attached {
+        None => serde_json::to_value(to_response(record)),
+        Some(c) => serde_json::to_value(collection_response(record, &c.name, c.scope)),
+    };
+    item.unwrap_or_default()
+}
+
+fn snapshot_chunk(subscription: &Subscription, records: &[&Record], done: bool) -> Value {
+    let items: Vec<_> = records
+        .iter()
+        .map(|record| item(subscription, record))
+        .collect();
     chunk(
-        id,
+        &subscription.id,
         json!({ "_tag": "Snapshot", "items": items, "done": done }),
     )
 }
 
 /// `Changes` chunks for `records` and `removed`; the removals ride on the
 /// first.
-fn changes_chunks(id: &Value, records: &[ArtifactRecord], removed: &[String]) -> Vec<Value> {
-    let mut batches: Vec<&[ArtifactRecord]> = records.chunks(RECORDS_PER_CHUNK).collect();
+fn changes_chunks(
+    subscription: &Subscription,
+    records: &[Record],
+    removed: &[String],
+) -> Vec<Value> {
+    let mut batches: Vec<&[Record]> = records.chunks(RECORDS_PER_CHUNK).collect();
     if batches.is_empty() {
         batches.push(&[]);
     }
@@ -493,10 +628,13 @@ fn changes_chunks(id: &Value, records: &[ArtifactRecord], removed: &[String]) ->
         .iter()
         .enumerate()
         .map(|(i, batch)| {
-            let items: Vec<_> = batch.iter().map(to_response).collect();
+            let items: Vec<_> = batch
+                .iter()
+                .map(|record| item(subscription, record))
+                .collect();
             let removed: &[String] = if i == 0 { removed } else { &[] };
             chunk(
-                id,
+                &subscription.id,
                 json!({ "_tag": "Changes", "items": items, "removed": removed }),
             )
         })

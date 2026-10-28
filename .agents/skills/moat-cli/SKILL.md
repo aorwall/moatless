@@ -169,6 +169,24 @@ renews it once its citations still hold, and `--no-expiry` keeps it.
 and only from its own `loop` scope.
 See [loops](references/loops.md).
 
+## Keeping records over time
+
+`moat records` keeps uniform JSON rows, one per key, in a named collection of
+the same scopes as Memory, with the same `--scope` default and write rules. Use
+it for data later Tasks or a page compare, such as one row per review run; use
+Memory for prose an agent reads.
+
+```bash
+moat records save review-runs runs/42/abc1234 '{"outcome":"approved"}' --scope loop
+moat records list review-runs --scope loop --prefix runs/42/ --since 2026-10-01T00:00:00Z
+moat records collections --scope loop
+moat artifact publish trend.html --title "Review trend" --collection loop:review-runs
+```
+
+A page published with `--collection` reads it with
+`moatless.artifact.collection("review-runs")`, read-only, and only for readers
+who reach the scope; `moat artifact publish --help` lists the page API.
+
 Read [command workflows](references/command-reference.md) for response shapes,
 workspace ownership, task reuse, and bounded diagnostics. Read
 [Loops](references/loops.md) when installing or operating automation.

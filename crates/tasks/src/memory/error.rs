@@ -5,6 +5,8 @@ use axum::response::{IntoResponse, Response};
 
 use moatless_core::error::{error_response, internal_error};
 
+use crate::scope_reach::ScopeError;
+
 #[derive(Debug, thiserror::Error)]
 pub enum MemoryError {
     #[error("Task not found: {0}")]
@@ -30,6 +32,16 @@ pub enum MemoryError {
     /// Reading the Workspace or repository a scope belongs to failed.
     #[error("Store error")]
     Store(#[from] moatless_types::store::StoreError),
+}
+
+impl From<ScopeError> for MemoryError {
+    fn from(error: ScopeError) -> Self {
+        match error {
+            ScopeError::Forbidden(message) => Self::Forbidden(message),
+            ScopeError::Missing(message) => Self::BadRequest(message),
+            ScopeError::Store(error) => Self::Store(error),
+        }
+    }
 }
 
 impl IntoResponse for MemoryError {

@@ -4,8 +4,8 @@ use chrono::Utc;
 use moatless_core::config::S3Config;
 
 use super::*;
-use crate::artifact::dao::MockArtifactDao;
 use crate::artifact::models::DataAccess;
+use crate::artifact::test_support::{TestStore, artifacts_over};
 use crate::task::dao::MockTaskDao;
 use crate::task::test_support::make_task_row;
 use moatless_types::task::Visibility;
@@ -25,13 +25,12 @@ fn s3_config(bucket: Option<&str>) -> Arc<S3Config> {
     })
 }
 
-fn artifacts(store: MockArtifactDao) -> Artifacts {
-    Artifacts::new(
-        Arc::new(store),
-        None,
+fn artifacts(store: TestStore) -> Artifacts {
+    artifacts_over(
+        store,
         s3_config(None),
         "https://moatless.example/",
-        Some("page-key".to_string()),
+        Some("page-key"),
     )
 }
 
@@ -62,6 +61,7 @@ fn row(task_id: &str, latest_version: i32) -> Artifact {
         accepts_data: false,
         notify_on_data: false,
         record_rules: None,
+        collections: Vec::new(),
         visibility: Visibility::Private,
         created_by: Some("user-1".to_string()),
         created_at: Utc::now(),
@@ -69,8 +69,8 @@ fn row(task_id: &str, latest_version: i32) -> Artifact {
     }
 }
 
-fn store_with(row: Option<Artifact>) -> MockArtifactDao {
-    let mut store = MockArtifactDao::new();
+fn store_with(row: Option<Artifact>) -> TestStore {
+    let mut store = TestStore::default();
     store
         .expect_find_by_id()
         .returning(move |_| Ok(row.clone()));
@@ -134,7 +134,7 @@ async fn publish_without_object_storage_is_refused_before_reserving() {
     // No `expect_reserve_version`: reserving would panic the mock.
     let err = publish(
         &tasks(),
-        &artifacts(MockArtifactDao::new()),
+        &artifacts(TestStore::default()),
         &scope(),
         "task-1",
         page(),
@@ -148,7 +148,7 @@ async fn publish_without_object_storage_is_refused_before_reserving() {
 async fn publish_on_a_task_the_caller_can_only_read_is_forbidden() {
     let err = publish(
         &tasks(),
-        &artifacts(MockArtifactDao::new()),
+        &artifacts(TestStore::default()),
         &scope(),
         "task-shared",
         page(),
@@ -277,7 +277,7 @@ async fn a_commit_error_with_the_version_unpublished_is_an_error() {
 
 #[tokio::test]
 async fn a_commit_error_with_an_unreadable_row_keeps_the_commit_error() {
-    let mut store = MockArtifactDao::new();
+    let mut store = TestStore::default();
     store
         .expect_find_by_id()
         .returning(|_| Err(sqlx::Error::RowNotFound));
@@ -312,7 +312,7 @@ async fn a_commit_error_with_the_row_gone_is_task_not_found() {
 
 #[tokio::test]
 async fn list_answers_absolute_urls_for_the_latest_version() {
-    let mut store = MockArtifactDao::new();
+    let mut store = TestStore::default();
     store
         .expect_list_for_task()
         .returning(|_| Ok(vec![row("task-1", 2)]));
@@ -335,7 +335,7 @@ async fn list_answers_absolute_urls_for_the_latest_version() {
 async fn list_on_an_unreadable_task_is_task_not_found() {
     let err = list(
         &tasks(),
-        &artifacts(MockArtifactDao::new()),
+        &artifacts(TestStore::default()),
         &scope(),
         "task-other",
     )
@@ -350,7 +350,7 @@ async fn notify_without_data_is_refused() {
     req.data.notify_on_data = true;
     let err = publish(
         &tasks(),
-        &artifacts(MockArtifactDao::new()),
+        &artifacts(TestStore::default()),
         &scope(),
         "task-1",
         req,
@@ -373,6 +373,7 @@ async fn rules_need_data_and_replace_notify() {
         accepts_data: true,
         notify_on_data: true,
         rules: Some(rules),
+        collections: Vec::new(),
     };
     for (req, wanted) in [
         (without_data, "rules need data"),
@@ -380,7 +381,7 @@ async fn rules_need_data_and_replace_notify() {
     ] {
         let err = publish(
             &tasks(),
-            &artifacts(MockArtifactDao::new()),
+            &artifacts(TestStore::default()),
             &scope(),
             "task-1",
             req,
@@ -451,4 +452,63 @@ async fn a_public_artifact_on_an_unreadable_task_is_not_found_to_set() {
     .await
     .unwrap_err();
     assert!(matches!(err, ArtifactError::NotFound(_)), "{err:?}");
+}
+
+fn global_collection(id: &str) -> crate::collection::models::CollectionRow {
+    crate::collection::models::CollectionRow {
+        collection_id: id.to_string(),
+        scope_kind: "global".to_string(),
+        scope_id: String::new(),
+        name: "runs".to_string(),
+        created_at: Utc::now(),
+        record_count: 0,
+        last_updated_at: None,
+    }
+}
+
+#[tokio::test]
+async fn a_publisher_who_cannot_write_a_scope_attaches_only_an_existing_collection() {
+    let task = make_task_row("task-1", "user-1");
+    let specs = ["global:runs".to_string()];
+
+    // No `expect_ensure_collection`: calling it fails the test.
+    let mut store = TestStore::default();
+    store
+        .records
+        .expect_find_collection()
+        .returning(|_, _, _| Ok(Some(global_collection("col-1"))));
+    let attached = attach(&artifacts(store), &scope(), &task, &specs)
+        .await
+        .unwrap();
+    assert_eq!(attached[0].collection_id, "col-1");
+
+    let mut store = TestStore::default();
+    store
+        .records
+        .expect_find_collection()
+        .returning(|_, _, _| Ok(None));
+    let err = attach(&artifacts(store), &scope(), &task, &specs)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, ArtifactError::BadRequest(_)), "{err:?}");
+}
+
+#[tokio::test]
+async fn a_publisher_who_may_write_a_scope_creates_the_collection() {
+    let mut store = TestStore::default();
+    store
+        .records
+        .expect_ensure_collection()
+        .times(1)
+        .returning(|_, _, _, _, _, _| Ok(global_collection("col-new")));
+    let admin = ScopeContext::new("user-1".to_string(), true);
+    let attached = attach(
+        &artifacts(store),
+        &admin,
+        &make_task_row("task-1", "user-1"),
+        &["global:runs".to_string()],
+    )
+    .await
+    .unwrap();
+    assert_eq!(attached[0].collection_id, "col-new");
 }

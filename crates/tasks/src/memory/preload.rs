@@ -10,7 +10,7 @@ use chrono::{DateTime, Utc};
 
 use super::models::{ChangedSince, MemoryEntryRow, decode_scope};
 use super::operations::Memories;
-use super::service::loop_scope;
+use crate::scope_reach::loop_scope;
 use crate::task::models::Task;
 
 /// Most entries the index lists, so a broad prefix cannot flood the prompt.

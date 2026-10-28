@@ -1,17 +1,18 @@
 use chrono::Utc;
-use moatless_core::config::S3Config;
 use moatless_types::task::Visibility;
 
 use super::*;
-use crate::artifact::dao::MockArtifactDao;
+use crate::artifact::models::AttachedCollection;
+use crate::artifact::page_token;
 use crate::artifact::rules::RecordRules;
+use crate::artifact::test_support::{TestStore, artifacts_over, no_bucket};
 use crate::task::dao::MockTaskDao;
 use crate::task::test_support::make_task_row;
 use moatless_api_schemas::artifact::RecordWriter;
 
-fn record(key: &str, submitted_by: &str) -> ArtifactRecord {
-    ArtifactRecord {
-        artifact_id: "art-1".to_string(),
+fn record(key: &str, submitted_by: &str) -> Record {
+    Record {
+        collection_id: "art-1".to_string(),
         key: key.to_string(),
         data: json!({}),
         submitted_by: submitted_by.to_string(),
@@ -24,6 +25,8 @@ fn record(key: &str, submitted_by: &str) -> ArtifactRecord {
 fn subscription(prefix: Option<&str>, cursor: i64, shown: &[&str]) -> Subscription {
     Subscription {
         id: json!("1"),
+        collection_id: "art-1".to_string(),
+        attached: None,
         prefix: prefix.map(str::to_string),
         cursor,
         shown: shown.iter().map(|k| (*k).to_string()).collect(),
@@ -38,7 +41,7 @@ fn changes(entries: &[(i64, &str)]) -> Vec<(i64, String)> {
         .collect()
 }
 
-fn keys(records: &[ArtifactRecord]) -> Vec<&str> {
+fn keys(records: &[Record]) -> Vec<&str> {
     records.iter().map(|r| r.key.as_str()).collect()
 }
 
@@ -99,30 +102,25 @@ fn a_record_the_page_may_no_longer_read_is_removed_from_it() {
     assert_eq!(removed, vec!["draft".to_string()]);
 }
 
-fn connection(store: MockArtifactDao, rules: Option<&str>) -> Connection {
+fn connection(store: TestStore, rules: Option<&str>) -> Connection {
     let mut tasks = MockTaskDao::new();
     tasks
         .expect_find_by_id()
         .returning(|task_id, _| Ok(Some(make_task_row(task_id, "user-1"))));
     Connection {
         tasks: Arc::new(TaskCommands::new(Arc::new(tasks))),
-        artifacts: Arc::new(Artifacts::new(
-            Arc::new(store),
-            None,
-            Arc::new(S3Config {
-                bucket_name: None,
-                key_prefix: "uploads".to_string(),
-                transcript_prefix: "transcripts".to_string(),
-                workspace_prefix: "workspaces".to_string(),
-                artifact_prefix: "artifacts".to_string(),
-                region: "us-east-1".to_string(),
-            }),
+        artifacts: Arc::new(artifacts_over(
+            store,
+            no_bucket(),
             "https://moatless.example",
-            Some("page-key".to_string()),
+            Some("page-key"),
         )),
         token: String::new(),
-        viewer: "user-1".to_string(),
-        expires_at: 0,
+        claims: page_token::verify(
+            &page_token::mint("page-key", "user-1", false, "alice", "art-1").unwrap(),
+            "page-key",
+        )
+        .unwrap(),
         row: Artifact {
             artifact_id: "art-1".to_string(),
             task_id: "task-1".to_string(),
@@ -135,6 +133,7 @@ fn connection(store: MockArtifactDao, rules: Option<&str>) -> Connection {
             accepts_data: true,
             notify_on_data: false,
             record_rules: rules.map(|r| RecordRules::parse(r).unwrap()),
+            collections: Vec::new(),
             visibility: Visibility::Private,
             created_by: Some("user-1".to_string()),
             created_at: Utc::now(),
@@ -153,21 +152,23 @@ fn frames(inbound: Inbound) -> Vec<Value> {
 
 #[tokio::test]
 async fn a_subscription_starts_with_what_the_rules_show_then_streams_changes() {
-    let mut store = MockArtifactDao::new();
+    let mut store = TestStore::default();
     store
+        .records
         .expect_record_heads()
         .returning(|_| Ok(vec![("art-1".to_string(), 3)]));
-    store.expect_list_records().returning(|_, _, _| {
+    store.records.expect_list_records().returning(|_, _, _| {
         Ok(vec![
             record("drafts/mine", "user-1"),
             record("drafts/theirs", "user-2"),
         ])
     });
     store
+        .records
         .expect_record_changes()
         .withf(|_, after| *after == 3)
         .returning(|_, _| Ok((5, changes(&[(4, "drafts/new"), (5, "drafts/mine")]))));
-    store.expect_find_records().returning(|_, _| {
+    store.records.expect_find_records().returning(|_, _| {
         Ok(vec![
             record("drafts/new", "user-1"),
             record("drafts/mine", "user-1"),
@@ -218,7 +219,7 @@ async fn a_subscription_starts_with_what_the_rules_show_then_streams_changes() {
 
 #[tokio::test]
 async fn the_socket_answers_pings_and_refuses_what_it_does_not_serve() {
-    let mut connection = connection(MockArtifactDao::new(), None);
+    let mut connection = connection(TestStore::default(), None);
     let batch = json!([
         {"_tag": "Ping"},
         {"_tag": "Request", "id": "1", "tag": "artifact.records.write", "payload": {}},
@@ -250,12 +251,17 @@ fn a_subscription_ends_with_the_code_the_page_script_rejects_with() {
 
 #[tokio::test]
 async fn a_resync_that_fails_keeps_the_subscription_where_it_was_and_sends_nothing() {
-    let mut store = MockArtifactDao::new();
+    let mut store = TestStore::default();
     store
+        .records
         .expect_record_changes()
         .returning(|_, _| Ok((9, changes(&[(8, "a"), (9, "a")]))));
-    store.expect_find_records().returning(|_, _| Ok(Vec::new()));
     store
+        .records
+        .expect_find_records()
+        .returning(|_, _| Ok(Vec::new()));
+    store
+        .records
         .expect_record_heads()
         .returning(|_| Err(sqlx::Error::PoolTimedOut));
     let mut connection = connection(store, None);
@@ -280,10 +286,67 @@ fn only_a_lost_reader_ends_the_socket() {
 
 #[tokio::test]
 async fn a_request_id_already_subscribed_is_refused() {
-    let mut connection = connection(MockArtifactDao::new(), None);
+    let mut connection = connection(TestStore::default(), None);
     connection.subscriptions.push(subscription(None, 0, &[]));
     let again = json!({"_tag": "Request", "id": "1", "tag": SUBSCRIBE});
     let sent = frames(connection.on_message(again.to_string().as_bytes()).await);
     assert_eq!(sent[0]["exit"]["cause"][0]["_tag"], "Die");
     assert_eq!(connection.subscriptions.len(), 1);
+}
+
+/// A page that accepts no data and reads the `loop` collection `review-runs`.
+fn reading_page(store: TestStore) -> Connection {
+    let mut connection = connection(
+        store,
+        Some(r#"{"rulesVersion": 1, "prefixes": {"": {"read": "owner"}}}"#),
+    );
+    connection.row.accepts_data = false;
+    connection.row.collections = vec![AttachedCollection {
+        scope: moatless_types::memory::MemoryScope::Loop,
+        scope_id: "loop-1".to_string(),
+        name: "review-runs".to_string(),
+        collection_id: "col-1".to_string(),
+    }];
+    connection
+}
+
+#[tokio::test]
+async fn a_page_reads_an_attached_collection_whole_and_not_its_own_records_without_data() {
+    let mut store = TestStore::default();
+    store
+        .records
+        .expect_record_heads()
+        .withf(|ids| ids == ["col-1".to_string()])
+        .returning(|_| Ok(vec![("col-1".to_string(), 2)]));
+    store
+        .records
+        .expect_list_records()
+        .withf(|id, _, _| id == "col-1")
+        .returning(|_, _, _| Ok(vec![record("runs/1", "user-2")]));
+    let mut connection = reading_page(store);
+
+    let subscribe = json!({"_tag": "Request", "id": "1", "tag": SUBSCRIBE,
+        "payload": {"collection": "review-runs"}});
+    let sent = frames(
+        connection
+            .on_message(subscribe.to_string().as_bytes())
+            .await,
+    );
+    let snapshot = &sent[0]["values"][0];
+    assert_eq!(snapshot["items"][0]["key"], "runs/1");
+    assert_eq!(snapshot["items"][0]["collection"], "review-runs");
+    assert_eq!(snapshot["items"][0]["scope"], "loop");
+
+    let own = json!({"_tag": "Request", "id": "2", "tag": SUBSCRIBE});
+    let sent = frames(connection.on_message(own.to_string().as_bytes()).await);
+    assert_eq!(
+        sent[0]["exit"]["cause"][0]["error"]["code"],
+        "permission-denied"
+    );
+    let unknown = json!({"_tag": "Request", "id": "3", "tag": SUBSCRIBE,
+        "payload": {"collection": "other"}});
+    let sent = frames(connection.on_message(unknown.to_string().as_bytes()).await);
+    assert_eq!(sent[0]["exit"]["cause"][0]["error"]["code"], "not-found");
+    assert_eq!(connection.subscriptions.len(), 1);
+    assert_eq!(connection.subscriptions[0].collection_id, "col-1");
 }

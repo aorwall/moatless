@@ -2,6 +2,7 @@
 
 mod artifacts;
 mod client;
+mod collections;
 mod error;
 mod memory;
 

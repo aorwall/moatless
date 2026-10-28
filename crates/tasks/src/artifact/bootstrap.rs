@@ -43,6 +43,24 @@ pub(crate) struct DataScriptConfig<'a> {
     /// The reader's user id, which their records' `submittedBy` holds.
     pub(crate) viewer_id: &'a str,
     pub(crate) rules: Option<&'a super::rules::RecordRules>,
+    /// The scoped collections `moatless.artifact.collection(name)` reads.
+    pub(crate) collections: Vec<PageCollection<'a>>,
+}
+
+/// A scoped collection as the page script names it.
+#[derive(serde::Serialize)]
+pub(crate) struct PageCollection<'a> {
+    pub(crate) scope: moatless_types::memory::MemoryScope,
+    pub(crate) name: &'a str,
+}
+
+impl<'a> From<&'a super::models::AttachedCollection> for PageCollection<'a> {
+    fn from(attached: &'a super::models::AttachedCollection) -> Self {
+        Self {
+            scope: attached.scope,
+            name: &attached.name,
+        }
+    }
 }
 
 /// Returns `html` with the `moatless.artifact` script, configured for one
@@ -450,6 +468,7 @@ mod tests {
                 viewer: "</script>",
                 viewer_id: "user-1",
                 rules: None,
+                collections: Vec::new(),
             },
         );
         let out = String::from_utf8(out).unwrap();

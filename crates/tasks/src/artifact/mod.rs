@@ -11,9 +11,10 @@ pub mod operations;
 pub mod page_token;
 pub mod record_handlers;
 pub mod record_socket;
-mod record_watch;
 pub mod records;
 pub mod routes;
 pub mod rules;
 pub mod schemas;
 pub mod service;
+#[cfg(test)]
+pub(crate) mod test_support;

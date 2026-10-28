@@ -5,21 +5,21 @@ use moatless_types::access_control::ScopeContext;
 use moatless_types::task::ExternalOrigin;
 
 use super::error::ArtifactError;
-use super::models::{Artifact, ArtifactRecord};
+use super::models::{Artifact, AttachedCollection, Record};
 use super::operations::Artifacts;
 use super::page_token::{self, PageClaims};
 use super::rules::{RecordRules, WriteOp};
 use super::schemas::{ArtifactRecordResponse, MAX_RECORD_BYTES, WriteArtifactRecordRequest};
 use super::service::find_readable;
+use crate::collection::keys::{MAX_RECORDS, checked, item_key};
+use crate::collection::service::to_response as collection_response;
 use crate::inbox::{DeliveryOptions, InboxItem, RecordNotice};
 use crate::message::send::MessageSendService;
+use crate::scope_reach::{ScopeRef, can_read_scope};
 use crate::task::operations::TaskCommands;
 use moatless_api_schemas::artifact::RecordWriter;
+use moatless_api_schemas::collection::CollectionRecordResponse;
 
-/// Most records one Artifact holds, list items included; a write that would
-/// add one more is refused, so a page stuck in a loop cannot fill the table.
-pub const MAX_RECORDS: i64 = 10_000;
-const MAX_KEY_LEN: usize = 200;
 /// How much of a record's JSON the agent's message quotes.
 const NOTICE_DATA_CHARS: usize = 2000;
 /// How many keys one notice lists; it counts the writes past them.
@@ -36,14 +36,68 @@ pub async fn page_reader(
     artifacts: &Artifacts,
     token: &str,
 ) -> Result<(PageClaims, Artifact), ArtifactError> {
-    let key = artifacts.signing_key().ok_or(ArtifactError::Unauthorized)?;
-    let claims = page_token::verify(token, key).map_err(|_| ArtifactError::Unauthorized)?;
-    let scope = ScopeContext::new(claims.sub.clone(), claims.adm);
-    let row = find_readable(tasks, artifacts, &scope, &claims.aid).await?;
+    let (claims, row) = page_viewer(tasks, artifacts, token).await?;
     if !row.accepts_data {
         return Err(ArtifactError::Forbidden(row.task_id));
     }
     Ok((claims, row))
+}
+
+/// The reader and Artifact a page token names, after checking that the reader
+/// can still read the Artifact, whether or not it accepts data.
+pub async fn page_viewer(
+    tasks: &TaskCommands,
+    artifacts: &Artifacts,
+    token: &str,
+) -> Result<(PageClaims, Artifact), ArtifactError> {
+    let key = artifacts.signing_key().ok_or(ArtifactError::Unauthorized)?;
+    let claims = page_token::verify(token, key).map_err(|_| ArtifactError::Unauthorized)?;
+    let scope = ScopeContext::new(claims.sub.clone(), claims.adm);
+    let row = find_readable(tasks, artifacts, &scope, &claims.aid).await?;
+    Ok((claims, row))
+}
+
+/// The collection `name` attached to `row` at its latest publish, once the
+/// page's reader may read the scope it belongs to. A reader who can read the
+/// Artifact can read the Task, which is what a `task` or `loop` scope asks.
+pub(super) async fn attached_for_page<'a>(
+    artifacts: &Artifacts,
+    claims: &PageClaims,
+    row: &'a Artifact,
+    name: &str,
+) -> Result<&'a AttachedCollection, ArtifactError> {
+    let attached = row
+        .collections
+        .iter()
+        .find(|c| c.name == name)
+        .ok_or_else(|| ArtifactError::NotFound(format!("collection {name:?} on {}", row.slug)))?;
+    let ctx = ScopeContext::new(claims.sub.clone(), claims.adm);
+    let scope = ScopeRef {
+        scope: attached.scope,
+        id: attached.scope_id.clone(),
+    };
+    if !can_read_scope(artifacts.records().owners(), &ctx, &scope, true).await? {
+        return Err(ArtifactError::Forbidden(row.task_id.clone()));
+    }
+    Ok(attached)
+}
+
+/// The records of the collection `name` attached to the Artifact a page token
+/// names, read-only.
+pub async fn list_collection_for_page(
+    tasks: &TaskCommands,
+    artifacts: &Artifacts,
+    token: &str,
+    name: &str,
+    filter: RecordFilter<'_>,
+) -> Result<Vec<CollectionRecordResponse>, ArtifactError> {
+    let (claims, row) = page_viewer(tasks, artifacts, token).await?;
+    let attached = attached_for_page(artifacts, &claims, &row, name).await?;
+    let rows = list_rows(artifacts, &attached.collection_id, filter).await?;
+    Ok(rows
+        .iter()
+        .map(|record| collection_response(record, &attached.name, attached.scope))
+        .collect())
 }
 
 /// Apply a reader's write from their page, under the Artifact's record rules
@@ -141,7 +195,7 @@ pub async fn list_for_page(
 }
 
 /// Whether `row`'s record rules let a page of `viewer` read `record`.
-pub(super) fn readable_by(row: &Artifact, record: &ArtifactRecord, viewer: &str) -> bool {
+pub(super) fn readable_by(row: &Artifact, record: &Record, viewer: &str) -> bool {
     row.record_rules
         .as_ref()
         .is_none_or(|rules| rules.can_read(record, viewer))
@@ -151,7 +205,7 @@ async fn list_rows(
     artifacts: &Artifacts,
     artifact_id: &str,
     filter: RecordFilter<'_>,
-) -> Result<Vec<ArtifactRecord>, ArtifactError> {
+) -> Result<Vec<Record>, ArtifactError> {
     let since = filter.since;
     let since = since
         .map(|s| {
@@ -170,17 +224,17 @@ async fn list_rows(
 /// What a write did, for its response and the agent's message.
 #[derive(Debug)]
 enum Written {
-    Saved(ArtifactRecord),
+    Saved(Record),
     Appended {
         list: String,
-        record: ArtifactRecord,
+        record: Record,
     },
     /// The record as it was before the delete.
-    Deleted(ArtifactRecord),
+    Deleted(Record),
 }
 
 impl Written {
-    fn record(&self) -> &ArtifactRecord {
+    fn record(&self) -> &Record {
         match self {
             Self::Saved(r) | Self::Appended { record: r, .. } | Self::Deleted(r) => r,
         }
@@ -236,7 +290,7 @@ async fn write_under_rules(
     viewer: &str,
 ) -> Result<(Written, WriteOp), ArtifactError> {
     let id = row.artifact_id.as_str();
-    let allow = |op: WriteOp, key: &str, stored: Option<&ArtifactRecord>| {
+    let allow = |op: WriteOp, key: &str, stored: Option<&Record>| {
         rules
             .check_write(op, key, stored, viewer)
             .map_err(|denied| ArtifactError::PermissionDenied {
@@ -303,12 +357,6 @@ fn contended(key: &str, row: &Artifact) -> ArtifactError {
     ))
 }
 
-/// The key an append to `list` saves under: a v7 UUID sorts by creation time,
-/// so the list's keys sort in the order its items were appended.
-fn item_key(list: &str) -> String {
-    format!("{list}/{}", uuid::Uuid::now_v7())
-}
-
 async fn under_cap(artifacts: &Artifacts, row: &Artifact, key: &str) -> Result<(), ArtifactError> {
     let (count, key_exists) = artifacts.count_records(&row.artifact_id, key).await?;
     if count >= MAX_RECORDS && !key_exists {
@@ -333,54 +381,7 @@ fn parse_write(body: &[u8]) -> Result<WriteArtifactRecordRequest, ArtifactError>
             "expected {{\"op\": \"save\" | \"append\" | \"delete\", ...}} JSON: {e}"
         ))
     })?;
-    checked(req)
-}
-
-fn checked(req: WriteArtifactRecordRequest) -> Result<WriteArtifactRecordRequest, ArtifactError> {
-    let (key, data) = match &req {
-        WriteArtifactRecordRequest::Save { key, data } => (key.as_str(), Some(data)),
-        // Room for the `/` and the 36-character id `item_key` appends.
-        WriteArtifactRecordRequest::Append { list, data } => {
-            valid_key(list, MAX_KEY_LEN - 37)?;
-            return valid_data(data).map(|()| req);
-        }
-        WriteArtifactRecordRequest::Delete { key } => (key.as_str(), None),
-    };
-    valid_key(key, MAX_KEY_LEN)?;
-    if let Some(data) = data {
-        valid_data(data)?;
-    }
-    Ok(req)
-}
-
-/// `/`-separated segments of letters, digits, `-`, `_`, `.` or `:`, none empty.
-fn valid_key(key: &str, max_len: usize) -> Result<(), ArtifactError> {
-    let valid = key.len() <= max_len
-        && key.split('/').all(|segment| {
-            !segment.is_empty()
-                && segment
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':'))
-        });
-    if valid {
-        return Ok(());
-    }
-    Err(ArtifactError::BadRequest(format!(
-        "key {key:?} must be at most {max_len} characters of '/'-separated segments, each \
-         letters, digits, '-', '_', '.' or ':'"
-    )))
-}
-
-fn valid_data(data: &serde_json::Value) -> Result<(), ArtifactError> {
-    if data.is_null() {
-        return Err(ArtifactError::BadRequest("data is required".to_string()));
-    }
-    if serde_json::to_vec(data).map_or(0, |v| v.len()) > MAX_RECORD_BYTES {
-        return Err(ArtifactError::PayloadTooLarge(format!(
-            "a record is at most {MAX_RECORD_BYTES} bytes"
-        )));
-    }
-    Ok(())
+    Ok(checked(req)?)
 }
 
 /// Tell the Artifact's Task about `written`: join the notice this reader's
@@ -419,7 +420,7 @@ async fn notify(
         Written::Deleted(_) => format!("deleted:{}", chrono::Utc::now().timestamp_micros()),
         _ => record.updated_at.timestamp_micros().to_string(),
     };
-    let event_id = format!("{}:{}:{at}", record.artifact_id, record.key);
+    let event_id = format!("{}:{}:{at}", record.collection_id, record.key);
     let text = notice_text(row, written);
     let sent = messages
         .send_message_flow(
@@ -539,9 +540,9 @@ fn notice_text(row: &Artifact, written: &Written) -> String {
     )
 }
 
-pub(super) fn to_response(record: &ArtifactRecord) -> ArtifactRecordResponse {
+pub(super) fn to_response(record: &Record) -> ArtifactRecordResponse {
     ArtifactRecordResponse {
-        artifact_id: record.artifact_id.clone(),
+        artifact_id: record.collection_id.clone(),
         key: record.key.clone(),
         data: record.data.clone(),
         submitted_by: record.submitted_by.clone(),

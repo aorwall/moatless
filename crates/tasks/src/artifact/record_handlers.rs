@@ -11,6 +11,7 @@ use axum::response::{IntoResponse, Response};
 
 use crate::message::send::MessageSendService;
 use crate::task::operations::TaskCommands;
+use moatless_api_schemas::collection::ListCollectionRecordsResponse;
 use moatless_core::http_auth::AuthUser;
 
 use super::error::ArtifactError;
@@ -97,6 +98,41 @@ pub async fn list_page_records(
         super::records::list_for_page(tasks.as_ref(), artifacts.as_ref(), &token, query.filter())
             .await;
     page_response(items.map(|items| Json(ListArtifactRecordsResponse { items })))
+}
+
+/// List the records of a scoped collection attached to the Artifact a page
+/// token names, oldest change first. A page reads it and never writes it.
+#[utoipa::path(
+    get,
+    path = "/api/artifact-data/{token}/collections/{name}/records",
+    tag = "artifacts",
+    params(
+        ("token" = String, Path, description = "Page token the served page carries"),
+        ("name" = String, Path, description = "Collection name the Artifact was published with"),
+        ListRecordsQuery
+    ),
+    responses(
+        (status = 200, description = "Record list", body = ListCollectionRecordsResponse),
+        (status = 401, description = "Invalid or expired page token", body = moatless_api_schemas::error::ErrorBody),
+        (status = 403, description = "The reader cannot read the collection's scope", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "No collection by that name on the Artifact", body = moatless_api_schemas::error::ErrorBody)
+    )
+)]
+pub async fn list_page_collection_records(
+    State(tasks): State<Arc<TaskCommands>>,
+    State(artifacts): State<Arc<Artifacts>>,
+    Path((token, name)): Path<(String, String)>,
+    Query(query): Query<ListRecordsQuery>,
+) -> Response {
+    let items = super::records::list_collection_for_page(
+        tasks.as_ref(),
+        artifacts.as_ref(),
+        &token,
+        &name,
+        query.filter(),
+    )
+    .await;
+    page_response(items.map(|items| Json(ListCollectionRecordsResponse { items })))
 }
 
 /// Answer a preflight for a page that calls the routes with its own

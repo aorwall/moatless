@@ -42,6 +42,10 @@ pub struct ArtifactResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "openapi", schema(value_type = Option<Object>))]
     pub record_rules: Option<serde_json::Value>,
+    /// The scoped collections the latest publish lets the page read, as
+    /// `<scope>:<name>`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub collections: Vec<String>,
 }
 
 fn task_scoped() -> Visibility {
@@ -85,6 +89,11 @@ pub struct PublishArtifactBody {
     /// Artifact's current visibility, `public` for a new one. Every version
     /// follows the latest choice.
     pub visibility: Option<Visibility>,
+    /// A scoped record collection the page may read, as `<scope>:<name>`,
+    /// such as `loop:review-runs`; repeat the field for more. Resolved
+    /// against the publishing Task's scopes, and read only by a reader who
+    /// reaches that scope.
+    pub collection: Option<Vec<String>>,
     /// One self-contained page, with a `.html` or `.htm` filename.
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "binary"))]
     pub file: Vec<u8>,

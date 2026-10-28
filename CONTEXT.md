@@ -168,8 +168,8 @@ shown in the Task's thread as the page itself.
 _Avoid_: asset (an uploaded attachment, not something the agent publishes)
 
 **Artifact record**:
-JSON saved under a key on an Artifact, kept across its versions; a save under
-an existing key replaces it. Keys are `/`-separated, and a list is the records
+JSON saved under a key in a Record collection; on an Artifact, its own
+collection, kept across its versions. A save under an existing key replaces it. Keys are `/`-separated, and a list is the records
 under one prefix: an append saves under a new `{list}/{id}`. A page whose latest
 publish set `--data` saves records as the reader viewing it, through a page
 token the serve route writes into the page. With `--notify`, each write a
@@ -182,6 +182,15 @@ publish, say which of read, create, update and delete a page may do, as
 anyone or as the record's owner (its `submitted_by`, which an update keeps),
 and which writes notify the Task; agent writes skip them.
 _Avoid_: submission, artifact data (the records as a whole, not one of them)
+
+**Record collection**:
+A named set of Artifact records. Each Artifact owns one. A Task keeps the
+others with `moat records` in a Memory scope it reaches, so the Tasks of one
+Loop or Workspace add rows that outlive each of them. A publish with
+`--collection <scope>:<name>` lets its page read one, read-only, by a reader
+who reaches that scope. Records, not Memory entries, are for many uniform rows
+a page or a later Task queries; Memory is for prose an agent reads.
+_Avoid_: table, dataset
 
 **Memory**:
 What agents keep for later Tasks through `moat memory`: decisions, conventions,
@@ -198,8 +207,8 @@ records an event. It expires 28 days after its last put or verify unless written
 with no expiry.
 
 **Memory scope**:
-Who shares a Memory entry: `task`, `loop`, `workspace`, `repository`, `user` or
-`global`. The calling Task supplies every scope id, so a request names only the
+Who shares a Memory entry or a Record collection: `task`, `loop`, `workspace`,
+`repository`, `user` or `global`. The calling Task supplies every scope id, so a request names only the
 kind. A request reaches the one scope it names, or the Task's Loop, else the
 Task, when it names none.
 

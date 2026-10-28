@@ -15,6 +15,10 @@ use serde::{Deserialize, Serialize};
 /// request span's redaction in `moatless_backend::http_trace` holds its prefix.
 pub const PAGE_RECORDS_ROUTE: &str = "/api/artifact-data/{token}/records";
 
+/// The page's read-only route for an attached collection; copies as for
+/// [`PAGE_RECORDS_ROUTE`].
+pub const PAGE_COLLECTION_ROUTE: &str = "/api/artifact-data/{token}/collections/{name}/records";
+
 /// Long enough for a page left open through a working day.
 const TTL_SECS: i64 = 12 * 60 * 60;
 

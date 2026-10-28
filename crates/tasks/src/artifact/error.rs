@@ -5,6 +5,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
 use super::rules::WriteOp;
+use crate::collection::keys::InvalidRecord;
 
 use moatless_core::error::{error_response, internal_error};
 
@@ -53,6 +54,19 @@ pub enum ArtifactError {
 
     #[error("Database error")]
     Db(#[from] sqlx::Error),
+
+    /// Reading the Workspace or repository an attached collection belongs to.
+    #[error("Store error")]
+    Store(#[from] moatless_types::store::StoreError),
+}
+
+impl From<InvalidRecord> for ArtifactError {
+    fn from(error: InvalidRecord) -> Self {
+        match error {
+            InvalidRecord::Invalid(message) => Self::BadRequest(message),
+            InvalidRecord::TooLarge(message) => Self::PayloadTooLarge(message),
+        }
+    }
 }
 
 fn denial(op: WriteOp, key: &str, prefix: Option<&str>) -> String {
@@ -85,7 +99,7 @@ impl IntoResponse for ArtifactError {
             Self::Conflict(_) => (StatusCode::CONFLICT, self.to_string()),
             Self::PayloadTooLarge(_) => (StatusCode::PAYLOAD_TOO_LARGE, self.to_string()),
             Self::StorageNotConfigured => (StatusCode::SERVICE_UNAVAILABLE, self.to_string()),
-            Self::Storage(_) | Self::Db(_) => {
+            Self::Storage(_) | Self::Db(_) | Self::Store(_) => {
                 tracing::error!(
                     error = %moatless_core::error::causal_chain(&self),
                     "Storage error in artifact handler"

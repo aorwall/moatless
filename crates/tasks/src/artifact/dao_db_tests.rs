@@ -2,11 +2,10 @@
 
 use sqlx::PgPool;
 
-use super::{ArtifactDao, KEPT_CHANGES, PgArtifactDao};
+use super::{ArtifactDao, PgArtifactDao};
 use crate::artifact::models::DataAccess;
 use crate::message::dao::{MessageDao, PgMessageDao};
 use crate::task::test_support::seed_bare_task;
-use moatless_api_schemas::artifact::RecordWriter;
 use moatless_types::activity::ArtifactShown;
 use moatless_types::task::Visibility;
 
@@ -208,6 +207,7 @@ async fn the_latest_publish_decides_whether_the_page_accepts_data(pool: PgPool) 
         accepts_data: true,
         notify_on_data: true,
         rules: None,
+        collections: Vec::new(),
     };
     let row = dao
         .commit_version("art-a", 2, "Report", &data, Some(Visibility::Public), None)
@@ -327,86 +327,6 @@ async fn setting_visibility_leaves_updated_at_and_skips_an_unpublished_artifact(
 }
 
 #[sqlx::test]
-async fn a_save_under_a_key_replaces_the_record_there(pool: PgPool) {
-    seed_bare_task(&pool, "task-1", "open").await;
-    let dao = PgArtifactDao(pool);
-    reserve(&dao, "art-a", "report", "Report").await;
-    let first = dao
-        .save_record(
-            "art-a",
-            "state",
-            &serde_json::json!({"n": 1}),
-            "user-1",
-            RecordWriter::Page,
-        )
-        .await
-        .unwrap();
-    let replaced = dao
-        .save_record(
-            "art-a",
-            "state",
-            &serde_json::json!({"n": 2}),
-            "user-2",
-            RecordWriter::Page,
-        )
-        .await
-        .unwrap();
-    assert_eq!(replaced.created_at, first.created_at);
-    assert_eq!(replaced.data, serde_json::json!({"n": 2}));
-    assert_eq!(replaced.submitted_by, "user-2");
-    for key in ["vote:a", "vote:b"] {
-        dao.save_record(
-            "art-a",
-            key,
-            &serde_json::json!({}),
-            "user-1",
-            RecordWriter::Page,
-        )
-        .await
-        .unwrap();
-    }
-
-    assert_eq!(
-        dao.count_records("art-a", "state").await.unwrap(),
-        (3, true)
-    );
-    assert_eq!(
-        dao.count_records("art-a", "other").await.unwrap(),
-        (3, false)
-    );
-    assert_eq!(
-        dao.list_records("art-a", None, None).await.unwrap().len(),
-        3
-    );
-    let since = replaced.updated_at;
-    assert_eq!(
-        dao.list_records("art-a", Some(since), None)
-            .await
-            .unwrap()
-            .len(),
-        2
-    );
-    let votes = dao
-        .list_records("art-a", None, Some("vote:".to_string()))
-        .await
-        .unwrap();
-    assert_eq!(votes.len(), 2);
-
-    let deleted = dao.delete_record("art-a", "vote:a").await.unwrap();
-    assert_eq!(deleted.map(|r| r.key).as_deref(), Some("vote:a"));
-    assert!(
-        dao.delete_record("art-a", "vote:a")
-            .await
-            .unwrap()
-            .is_none()
-    );
-    assert_eq!(
-        dao.list_records("art-a", None, None).await.unwrap().len(),
-        2
-    );
-}
-
-#[sqlx::test]
 async fn the_latest_publish_decides_the_record_rules(pool: PgPool) {
     seed_bare_task(&pool, "task-1", "open").await;
     let dao = PgArtifactDao(pool);
@@ -420,6 +340,7 @@ async fn the_latest_publish_decides_the_record_rules(pool: PgPool) {
         accepts_data: true,
         notify_on_data: false,
         rules: Some(rules.clone()),
+        collections: Vec::new(),
     };
     let row = dao
         .commit_version("art-a", 2, "Report", &data, Some(Visibility::Public), None)
@@ -446,197 +367,4 @@ async fn the_latest_publish_decides_the_record_rules(pool: PgPool) {
         row.record_rules.is_some(),
         "an older version left them alone"
     );
-}
-
-#[sqlx::test]
-async fn an_insert_leaves_a_saved_record_alone_and_keeps_its_writer(pool: PgPool) {
-    seed_bare_task(&pool, "task-1", "open").await;
-    let dao = PgArtifactDao(pool);
-    reserve(&dao, "art-a", "report", "Report").await;
-    let first = dao
-        .insert_record(
-            "art-a",
-            "req/1",
-            &serde_json::json!({"n": 1}),
-            "user-1",
-            RecordWriter::Page,
-        )
-        .await
-        .unwrap()
-        .expect("inserted");
-    assert_eq!(first.writer, RecordWriter::Page);
-    let second = dao
-        .insert_record(
-            "art-a",
-            "req/1",
-            &serde_json::json!({"n": 2}),
-            "user-2",
-            RecordWriter::Page,
-        )
-        .await
-        .unwrap();
-    assert!(second.is_none());
-    let stored = dao
-        .find_record("art-a", "req/1")
-        .await
-        .unwrap()
-        .expect("stored");
-    assert_eq!(
-        (stored.data, stored.submitted_by.as_str()),
-        (serde_json::json!({"n": 1}), "user-1")
-    );
-
-    let agent = dao
-        .save_record(
-            "art-a",
-            "req/1",
-            &serde_json::json!({}),
-            "user-3",
-            RecordWriter::Agent,
-        )
-        .await
-        .unwrap();
-    assert_eq!(agent.writer, RecordWriter::Agent);
-    assert!(dao.find_record("art-a", "req/2").await.unwrap().is_none());
-}
-
-#[sqlx::test]
-async fn a_conditional_write_keeps_the_owner_and_misses_a_record_that_changed(pool: PgPool) {
-    seed_bare_task(&pool, "task-1", "open").await;
-    let dao = PgArtifactDao(pool);
-    reserve(&dao, "art-a", "report", "Report").await;
-    let stored = dao
-        .save_record(
-            "art-a",
-            "plan/1",
-            &serde_json::json!({"n": 1}),
-            "user-1",
-            RecordWriter::Agent,
-        )
-        .await
-        .unwrap();
-
-    let updated = dao
-        .update_record(
-            "art-a",
-            "plan/1",
-            &serde_json::json!({"n": 2}),
-            stored.updated_at,
-        )
-        .await
-        .unwrap()
-        .expect("updated");
-    assert_eq!(
-        (
-            updated.data.clone(),
-            updated.submitted_by.as_str(),
-            updated.writer
-        ),
-        (serde_json::json!({"n": 2}), "user-1", RecordWriter::Agent)
-    );
-    assert!(updated.updated_at > stored.updated_at);
-
-    let stale = dao
-        .update_record(
-            "art-a",
-            "plan/1",
-            &serde_json::json!({"n": 3}),
-            stored.updated_at,
-        )
-        .await
-        .unwrap();
-    assert!(stale.is_none());
-    let stale = dao
-        .delete_record_at("art-a", "plan/1", stored.updated_at)
-        .await
-        .unwrap();
-    assert!(stale.is_none());
-
-    let deleted = dao
-        .delete_record_at("art-a", "plan/1", updated.updated_at)
-        .await
-        .unwrap()
-        .expect("deleted");
-    assert_eq!(deleted.data, serde_json::json!({"n": 2}));
-}
-
-#[sqlx::test]
-async fn every_record_write_is_logged_in_order_and_the_log_keeps_the_latest(pool: PgPool) {
-    seed_bare_task(&pool, "task-1", "open").await;
-    let dao = PgArtifactDao(pool.clone());
-    reserve(&dao, "art-a", "report", "Report").await;
-    let saved = dao
-        .save_record(
-            "art-a",
-            "a",
-            &serde_json::json!({}),
-            "user-1",
-            RecordWriter::Page,
-        )
-        .await
-        .unwrap();
-    dao.insert_record(
-        "art-a",
-        "b",
-        &serde_json::json!({}),
-        "user-1",
-        RecordWriter::Page,
-    )
-    .await
-    .unwrap();
-    dao.update_record("art-a", "a", &serde_json::json!({"n": 1}), saved.updated_at)
-        .await
-        .unwrap();
-    dao.delete_record("art-a", "b").await.unwrap();
-    let unchanged = dao
-        .insert_record(
-            "art-a",
-            "a",
-            &serde_json::json!({}),
-            "user-2",
-            RecordWriter::Page,
-        )
-        .await
-        .unwrap();
-    assert!(unchanged.is_none());
-    dao.delete_record("art-a", "never-saved").await.unwrap();
-
-    let (head, changes) = dao.record_changes("art-a", 1).await.unwrap();
-    assert_eq!(head, 4);
-    assert_eq!(
-        changes,
-        vec![
-            (2, "b".to_string()),
-            (3, "a".to_string()),
-            (4, "b".to_string())
-        ]
-    );
-    assert_eq!(
-        dao.record_heads(&["art-a".to_string(), "missing".to_string()])
-            .await
-            .unwrap(),
-        vec![("art-a".to_string(), 4)]
-    );
-    let current = dao
-        .find_records("art-a", &["a".to_string(), "b".to_string()])
-        .await
-        .unwrap();
-    assert_eq!(current.len(), 1);
-    assert_eq!(current[0].data, serde_json::json!({"n": 1}));
-
-    for _ in 0..KEPT_CHANGES {
-        dao.save_record(
-            "art-a",
-            "a",
-            &serde_json::json!({}),
-            "user-1",
-            RecordWriter::Page,
-        )
-        .await
-        .unwrap();
-    }
-    let (head, changes) = dao.record_changes("art-a", 0).await.unwrap();
-    assert_eq!(head, 4 + KEPT_CHANGES);
-    assert_eq!(changes.len(), usize::try_from(KEPT_CHANGES).unwrap());
-    assert_eq!(changes[0].0, 5);
 }

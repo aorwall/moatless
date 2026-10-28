@@ -394,7 +394,7 @@ fn print_entry(entry: &MemoryEntryResponse) {
     }
 }
 
-fn parse_scope(raw: &str) -> Result<MemoryScope, String> {
+pub(crate) fn parse_scope(raw: &str) -> Result<MemoryScope, String> {
     MemoryScope::try_from(raw).map_err(|_| {
         format!("`{raw}` is not a scope: task, loop, workspace, repository, user or global")
     })

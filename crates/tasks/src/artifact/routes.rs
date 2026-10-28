@@ -27,6 +27,7 @@ use moatless_core::http_auth::UserTokenVerifier;
         record_handlers::list_records,
         record_handlers::write_page_record,
         record_handlers::list_page_records,
+        record_handlers::list_page_collection_records,
     )
 )]
 pub struct ArtifactApiDoc;
@@ -54,6 +55,7 @@ where
             record_handlers::write_page_record,
             record_handlers::list_page_records
         ))
+        .routes(routes!(record_handlers::list_page_collection_records))
         .with_state(state.clone())
         .split_for_parts();
     // No OpenAPI path for the socket: utoipa has no WebSocket operation, and
@@ -67,6 +69,10 @@ where
     let router = router
         .route(
             super::page_token::PAGE_RECORDS_ROUTE,
+            axum::routing::options(record_handlers::page_records_preflight),
+        )
+        .route(
+            super::page_token::PAGE_COLLECTION_ROUTE,
             axum::routing::options(record_handlers::page_records_preflight),
         )
         .merge(socket);

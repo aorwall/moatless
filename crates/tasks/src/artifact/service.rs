@@ -2,13 +2,18 @@
 //! reserve → upload → commit sequence that keeps a version immutable.
 
 use super::error::ArtifactError;
-use super::models::{Artifact, DEFAULT_INLINE_HEIGHT, PublishRequest};
+use super::models::{Artifact, AttachedCollection, DEFAULT_INLINE_HEIGHT, PublishRequest};
 use super::operations::Artifacts;
 use super::rules::RecordRules;
 use super::schemas::ArtifactResponse;
+use crate::collection::keys::valid_name;
+use crate::collection::service::find;
+use crate::scope_reach::{ScopeError, check_scope_write, scope_ref};
+use crate::task::models::Task;
 use crate::task::operations::TaskCommands;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::activity::ArtifactShown;
+use moatless_types::memory::MemoryScope;
 use moatless_types::task::Visibility;
 
 pub use moatless_api_schemas::artifact::MAX_PAGE_BYTES;
@@ -17,6 +22,8 @@ const MAX_SLUG_LEN: usize = 63;
 /// The frame heights T3 clamps an HTML render to.
 const MIN_INLINE_HEIGHT: i32 = 80;
 const MAX_INLINE_HEIGHT: i32 = 2000;
+/// Most scoped collections one publish lets its page read.
+const MAX_ATTACHED_COLLECTIONS: usize = 8;
 
 /// Publish `req` as the next version of its slug on `task_id`.
 pub async fn publish(
@@ -24,7 +31,7 @@ pub async fn publish(
     artifacts: &Artifacts,
     scope: &ScopeContext,
     task_id: &str,
-    req: PublishRequest,
+    mut req: PublishRequest,
 ) -> Result<ArtifactResponse, ArtifactError> {
     let title = req.title.trim().to_string();
     if title.is_empty() || title.chars().count() > MAX_TITLE_LEN {
@@ -63,6 +70,7 @@ pub async fn publish(
     if !artifacts.is_configured() {
         return Err(ArtifactError::StorageNotConfigured);
     }
+    req.data.collections = attach(artifacts, scope, &task, &req.collections).await?;
 
     let reservation = artifacts
         .reserve_version(
@@ -107,6 +115,73 @@ pub async fn publish(
         Err(e) => recover_commit(artifacts, task_id, &artifact_id, version, e).await?,
     };
     Ok(to_response(&row, artifacts.public_url(), version, &title))
+}
+
+/// Resolve each `<scope>:<name>` in `specs` against `task`'s scopes, creating
+/// a collection nothing has written yet so the page can wait for its first
+/// record.
+async fn attach(
+    artifacts: &Artifacts,
+    ctx: &ScopeContext,
+    task: &Task,
+    specs: &[String],
+) -> Result<Vec<AttachedCollection>, ArtifactError> {
+    if specs.len() > MAX_ATTACHED_COLLECTIONS {
+        return Err(ArtifactError::BadRequest(format!(
+            "a page may read at most {MAX_ATTACHED_COLLECTIONS} collections"
+        )));
+    }
+    let mut attached: Vec<AttachedCollection> = Vec::with_capacity(specs.len());
+    for spec in specs {
+        let (scope, name) = spec
+            .split_once(':')
+            .and_then(|(scope, name)| Some((MemoryScope::try_from(scope).ok()?, name)))
+            .ok_or_else(|| {
+                ArtifactError::BadRequest(format!(
+                    "collection {spec:?} must be <scope>:<name>, with scope one of task, loop, \
+                     workspace, repository, user or global"
+                ))
+            })?;
+        valid_name(name)?;
+        if attached.iter().any(|a| a.name == name) {
+            return Err(ArtifactError::BadRequest(format!(
+                "collection name {name:?} is attached twice; a page reads collections by name"
+            )));
+        }
+        let reached = scope_ref(ctx, task, Some(scope), "records")
+            .map_err(|e| ArtifactError::BadRequest(e.to_string()))?;
+        let records = artifacts.records();
+        // Only a caller who may write the scope creates a collection in it; a
+        // reader-only publisher attaches one that already exists.
+        let row = match check_scope_write(records.owners(), ctx, task, &reached, "records").await {
+            Ok(()) => {
+                records
+                    .store
+                    .ensure_collection(
+                        &uuid::Uuid::new_v4().to_string(),
+                        scope.as_str(),
+                        &reached.id,
+                        name,
+                        &task.task_id,
+                        &ctx.user_id,
+                    )
+                    .await?
+            }
+            Err(ScopeError::Store(e)) => return Err(e.into()),
+            Err(denied) => find(records, &reached, name).await?.ok_or_else(|| {
+                ArtifactError::BadRequest(format!(
+                    "{denied}, and no collection {spec} exists to read"
+                ))
+            })?,
+        };
+        attached.push(AttachedCollection {
+            scope,
+            scope_id: reached.id,
+            name: name.to_string(),
+            collection_id: row.collection_id,
+        });
+    }
+    Ok(attached)
 }
 
 /// After `commit_version` failed: the row when the commit landed anyway, since
@@ -220,6 +295,8 @@ pub struct Page {
     pub inline: bool,
     /// The latest publish's record rules, which the page script exposes.
     pub record_rules: Option<RecordRules>,
+    /// The scoped collections the latest publish lets the page read.
+    pub collections: Vec<AttachedCollection>,
 }
 
 /// The HTML page of a published version. `version` is the URL segment, as in
@@ -247,6 +324,7 @@ pub async fn read_page(
         accepts_data: row.accepts_data,
         inline: row.inline_versions.contains(&version),
         record_rules: row.record_rules,
+        collections: row.collections,
     })
 }
 
@@ -296,6 +374,11 @@ fn to_response(row: &Artifact, public_url: &str, version: i32, title: &str) -> A
                 })
                 .ok()
         }),
+        collections: row
+            .collections
+            .iter()
+            .map(|c| format!("{}:{}", c.scope, c.name))
+            .collect(),
     }
 }
 

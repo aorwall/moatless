@@ -179,6 +179,12 @@ pub(super) enum SharedCommands {
         #[command(subcommand)]
         action: commands::memory::MemoryAction,
     },
+    /// Keep structured records in a scope the task reaches, such as one row
+    /// per run of a Loop, for later tasks and artifact pages to read
+    Records {
+        #[command(subcommand)]
+        action: commands::records::RecordsAction,
+    },
     /// Hand back the guided review of a pull request this task was started to
     /// write
     ReviewGuide {

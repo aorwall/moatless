@@ -48,6 +48,11 @@ pub enum ArtifactAction {
         /// --notify
         #[arg(long, requires = "data", conflicts_with = "notify")]
         rules: Option<PathBuf>,
+        /// Let the page read a record collection, as `<scope>:<name>` such as
+        /// `loop:review-runs`, through `moatless.artifact.collection(name)`;
+        /// repeatable. Only readers who reach the scope read it
+        #[arg(long = "collection", value_name = "SCOPE:NAME")]
+        collections: Vec<String>,
         /// Let only users who can see the task open the page and its records.
         /// Without it a new page is open to any signed-in user, even when the
         /// task is private, and a republished page keeps its visibility
@@ -210,7 +215,22 @@ matching prefix decides, \"\" matches every key, and a key no prefix matches
 is refused. Under an \"owner\" read rule a page lists its reader's own records
 and every record you wrote. A refused write rejects with code
 \"permission-denied\". Your own writes skip the rules. Each publish sets the
-rules again, so pass --rules every time.";
+rules again, so pass --rules every time.
+
+Record collections (--collection <scope>:<name>)
+
+A collection is records kept in a scope rather than on one artifact, written
+with `moat records save <name> <key> '<json>' --scope <scope>`, so the tasks
+of one Loop or Workspace add to it over time. --collection loop:review-runs
+lets the page read it, read-only and without --data:
+  const runs = moatless.artifact.collection(\"review-runs\")
+  await runs.list({prefix, since})   records, oldest change first
+  await runs.get(key)                the record under a key, or null
+  runs.subscribe({prefix}, onChange) calls onChange(records) on every change
+  moatless.artifact.collections      [{scope, name}] the page may read
+A reader who cannot reach the scope (another user's `user` scope, a Workspace
+they cannot see) gets code \"permission-denied\". Each publish sets the
+collections again, so pass --collection every time.";
 
 /// The variables T3's bootstrap defines; `scripts/vendor-html-render-bootstrap.sh`
 /// writes it from the same t3code source as the bootstrap.
@@ -236,6 +256,7 @@ pub async fn run(
             data,
             notify,
             rules,
+            collections,
             private,
             task,
         } => {
@@ -253,6 +274,7 @@ pub async fn run(
                     accepts: data,
                     notify,
                     rules,
+                    collections,
                 },
                 private,
             };

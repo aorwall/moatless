@@ -16,9 +16,9 @@ fn rules() -> RecordRules {
     RecordRules::parse(ADMIN_PAGE).unwrap()
 }
 
-fn record(key: &str, submitted_by: &str, writer: RecordWriter) -> ArtifactRecord {
-    ArtifactRecord {
-        artifact_id: "art-1".to_string(),
+fn record(key: &str, submitted_by: &str, writer: RecordWriter) -> Record {
+    Record {
+        collection_id: "art-1".to_string(),
         key: key.to_string(),
         data: serde_json::json!({}),
         submitted_by: submitted_by.to_string(),

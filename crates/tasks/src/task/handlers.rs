@@ -1388,6 +1388,9 @@ mod tests {
             }),
             "https://moatless.example",
             None,
+            Arc::new(crate::collection::test_support::records(
+                crate::collection::dao::MockRecordDao::new(),
+            )),
         )
     }
 

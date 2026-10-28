@@ -1,31 +1,17 @@
 use std::sync::Arc;
 
 use chrono::Utc;
-use moatless_core::config::S3Config;
 
 use super::*;
-use crate::artifact::dao::MockArtifactDao;
+use crate::artifact::test_support::{TestStore, artifacts_over, no_bucket};
 use crate::task::dao::MockTaskDao;
 use crate::task::test_support::make_task_row;
 use moatless_types::task::Visibility;
 
 const KEY: &str = "page-key";
 
-fn artifacts(store: MockArtifactDao) -> Artifacts {
-    Artifacts::new(
-        Arc::new(store),
-        None,
-        Arc::new(S3Config {
-            bucket_name: None,
-            key_prefix: "uploads".to_string(),
-            transcript_prefix: "transcripts".to_string(),
-            workspace_prefix: "workspaces".to_string(),
-            artifact_prefix: "artifacts".to_string(),
-            region: "us-east-1".to_string(),
-        }),
-        "https://moatless.example",
-        Some(KEY.to_string()),
-    )
+fn artifacts(store: TestStore) -> Artifacts {
+    artifacts_over(store, no_bucket(), "https://moatless.example", Some(KEY))
 }
 
 /// `user-1` owns `task-1`; `task-shared` belongs to `user-2`, readable by all.
@@ -54,6 +40,7 @@ fn row(task_id: &str, accepts_data: bool) -> Artifact {
         accepts_data,
         notify_on_data: accepts_data,
         record_rules: None,
+        collections: Vec::new(),
         visibility: Visibility::Private,
         created_by: Some("user-1".to_string()),
         created_at: Utc::now(),
@@ -61,8 +48,8 @@ fn row(task_id: &str, accepts_data: bool) -> Artifact {
     }
 }
 
-fn store_with(row: Artifact) -> MockArtifactDao {
-    let mut store = MockArtifactDao::new();
+fn store_with(row: Artifact) -> TestStore {
+    let mut store = TestStore::default();
     store
         .expect_find_by_id()
         .returning(move |_| Ok(Some(row.clone())));
@@ -146,9 +133,9 @@ fn save(key: &str) -> WriteArtifactRecordRequest {
     }
 }
 
-fn record(key: &str, data: serde_json::Value) -> ArtifactRecord {
-    ArtifactRecord {
-        artifact_id: "art-1".to_string(),
+fn record(key: &str, data: serde_json::Value) -> Record {
+    Record {
+        collection_id: "art-1".to_string(),
         key: key.to_string(),
         data,
         submitted_by: "user-1".to_string(),
@@ -159,12 +146,14 @@ fn record(key: &str, data: serde_json::Value) -> ArtifactRecord {
 }
 
 /// A store holding `art-1` on `task-1` with `count` records, one under `state`.
-fn writable_store(count: i64) -> MockArtifactDao {
+fn writable_store(count: i64) -> TestStore {
     let mut store = store_with(row("task-1", true));
     store
+        .records
         .expect_count_records()
         .returning(move |_, key| Ok((count, key == "state")));
     store
+        .records
         .expect_save_record()
         .returning(|_, key, data, _, _| Ok(record(key, data.clone())));
     store
@@ -227,7 +216,10 @@ async fn an_append_saves_under_a_new_key_in_its_list_in_order() {
 #[tokio::test]
 async fn deleting_a_missing_key_is_not_found() {
     let mut store = store_with(row("task-1", true));
-    store.expect_delete_record().returning(|_, _| Ok(None));
+    store
+        .records
+        .expect_delete_record()
+        .returning(|_, _| Ok(None));
     let artifacts = artifacts(store);
     let delete = WriteArtifactRecordRequest::Delete {
         key: "gone".to_string(),
@@ -423,19 +415,21 @@ fn rules() -> RecordRules {
 }
 
 /// A store whose `find_record` answers `stored` and which counts no records.
-fn ruled_store(stored: Option<ArtifactRecord>) -> MockArtifactDao {
+fn ruled_store(stored: Option<Record>) -> TestStore {
     let mut store = store_with(ruled_row());
     store
+        .records
         .expect_find_record()
         .returning(move |_, _| Ok(stored.clone()));
     store
+        .records
         .expect_count_records()
         .returning(|_, _| Ok((0, false)));
     store
 }
 
-fn owned_by(key: &str, user: &str) -> ArtifactRecord {
-    ArtifactRecord {
+fn owned_by(key: &str, user: &str) -> Record {
+    Record {
         submitted_by: user.to_string(),
         ..record(key, serde_json::json!({}))
     }
@@ -445,6 +439,7 @@ fn owned_by(key: &str, user: &str) -> ArtifactRecord {
 async fn a_create_under_a_rule_is_an_insert_the_rule_notifies() {
     let mut store = ruled_store(None);
     store
+        .records
         .expect_insert_record()
         .withf(|_, _, _, by, writer| by == "user-1" && *writer == RecordWriter::Page)
         .returning(|_, key, data, _, _| Ok(Some(record(key, data.clone()))));
@@ -487,14 +482,16 @@ async fn a_rule_without_update_makes_a_record_write_once() {
 async fn a_create_that_loses_a_race_is_judged_as_an_update() {
     let mut store = store_with(ruled_row());
     let reads = std::sync::atomic::AtomicUsize::new(0);
-    store.expect_find_record().returning(move |_, key| {
+    store.records.expect_find_record().returning(move |_, key| {
         let first = reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0;
         Ok((!first).then(|| owned_by(key, "user-2")))
     });
     store
+        .records
         .expect_count_records()
         .returning(|_, _| Ok((0, false)));
     store
+        .records
         .expect_insert_record()
         .returning(|_, _, _, _, _| Ok(None));
     let err = write_under_rules(
@@ -530,6 +527,7 @@ async fn an_update_keeps_the_owner_and_lands_only_on_the_record_it_was_judged_on
     // No `expect_save_record`: an upsert would make the updater the owner.
     let mut store = ruled_store(Some(stored));
     store
+        .records
         .expect_update_record()
         .withf(move |_, key, _, at| key == "board/1" && *at == stored_at)
         .returning(|_, key, _, _| Ok(Some(owned_by(key, "user-2"))));
@@ -550,17 +548,20 @@ async fn an_update_keeps_the_owner_and_lands_only_on_the_record_it_was_judged_on
 async fn an_update_whose_record_was_deleted_meanwhile_is_judged_as_a_create() {
     let mut store = store_with(ruled_row());
     let reads = std::sync::atomic::AtomicUsize::new(0);
-    store.expect_find_record().returning(move |_, key| {
+    store.records.expect_find_record().returning(move |_, key| {
         let first = reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0;
         Ok(first.then(|| owned_by(key, "user-1")))
     });
     store
+        .records
         .expect_count_records()
         .returning(|_, _| Ok((0, false)));
     store
+        .records
         .expect_update_record()
         .returning(|_, _, _, _| Ok(None));
     store
+        .records
         .expect_insert_record()
         .returning(|_, key, data, _, _| Ok(Some(record(key, data.clone()))));
     let (_, op) = write_under_rules(
@@ -579,11 +580,12 @@ async fn an_update_whose_record_was_deleted_meanwhile_is_judged_as_a_create() {
 async fn a_delete_whose_record_changed_meanwhile_is_judged_again() {
     let mut store = store_with(ruled_row());
     let reads = std::sync::atomic::AtomicUsize::new(0);
-    store.expect_find_record().returning(move |_, key| {
+    store.records.expect_find_record().returning(move |_, key| {
         let first = reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0;
         Ok(Some(owned_by(key, if first { "user-1" } else { "user-2" })))
     });
     store
+        .records
         .expect_delete_record_at()
         .returning(|_, _, _| Ok(None));
     let delete = WriteArtifactRecordRequest::Delete {
@@ -613,6 +615,7 @@ async fn only_the_owner_deletes_under_an_owner_rule() {
     let artifacts_for = || {
         let mut store = ruled_store(Some(owned_by("drafts/1", "user-2")));
         store
+            .records
             .expect_delete_record_at()
             .returning(|_, key, _| Ok(Some(owned_by(key, "user-2"))));
         artifacts(store)
@@ -637,13 +640,15 @@ async fn only_the_owner_deletes_under_an_owner_rule() {
 async fn a_user_who_can_change_the_task_writes_past_the_rules_as_the_agent() {
     let mut store = store_with(ruled_row());
     store
+        .records
         .expect_count_records()
         .returning(|_, _| Ok((0, false)));
     store
+        .records
         .expect_save_record()
         .withf(|_, _, _, _, writer| *writer == RecordWriter::Agent)
         .returning(|_, key, data, _, writer| {
-            Ok(ArtifactRecord {
+            Ok(Record {
                 writer,
                 ..record(key, data.clone())
             })
@@ -663,12 +668,12 @@ async fn a_user_who_can_change_the_task_writes_past_the_rules_as_the_agent() {
 #[tokio::test]
 async fn a_page_lists_only_what_the_read_rules_show_its_reader() {
     let mut store = store_with(ruled_row());
-    store.expect_list_records().returning(|_, _, _| {
+    store.records.expect_list_records().returning(|_, _, _| {
         Ok(vec![
             owned_by("requests/1", "user-2"),
             owned_by("drafts/mine", "user-1"),
             owned_by("drafts/theirs", "user-2"),
-            ArtifactRecord {
+            Record {
                 writer: RecordWriter::Agent,
                 ..owned_by("drafts/agent", "user-2")
             },

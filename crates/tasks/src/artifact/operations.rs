@@ -8,13 +8,13 @@ use moatless_s3::S3Storage;
 use moatless_types::activity::ArtifactShown;
 use moatless_types::task::Visibility;
 
-use tokio::task::JoinHandle;
-use tokio_util::sync::CancellationToken;
-
 use super::dao::ArtifactDao;
 use super::error::ArtifactError;
-use super::models::{Artifact, ArtifactRecord, DataAccess, Reservation};
-use super::record_watch::RecordWatch;
+use super::models::{Artifact, DataAccess, Record, Reservation};
+#[cfg(doc)]
+use crate::collection::dao::RecordDao;
+use crate::collection::operations::Records;
+use crate::collection::watch::RecordWatch;
 use moatless_api_schemas::artifact::RecordWriter;
 
 /// Content type a page is stored and served with, whatever the upload claimed.
@@ -35,7 +35,8 @@ pub struct Artifacts {
     /// Signs page tokens; `None` serves every page without one, so no page can
     /// save records.
     signing_key: Option<String>,
-    record_watch: RecordWatch,
+    /// Every Artifact's own records, and the scoped collections a page reads.
+    records: Arc<Records>,
 }
 
 impl Artifacts {
@@ -45,6 +46,7 @@ impl Artifacts {
         s3_config: Arc<S3Config>,
         public_url: &str,
         signing_key: Option<String>,
+        records: Arc<Records>,
     ) -> Self {
         Self {
             store,
@@ -52,7 +54,7 @@ impl Artifacts {
             s3_config,
             public_url: public_url.trim_end_matches('/').to_string(),
             signing_key,
-            record_watch: RecordWatch::default(),
+            records,
         }
     }
 
@@ -203,136 +205,136 @@ impl Artifacts {
         self.store.list_for_task(task_id).await
     }
 
-    /// See [`ArtifactDao::save_record`].
+    /// See [`RecordDao::save_record`].
     pub(crate) async fn save_record(
         &self,
-        artifact_id: &str,
+        collection_id: &str,
         key: &str,
         data: &serde_json::Value,
         submitted_by: &str,
         writer: RecordWriter,
-    ) -> Result<ArtifactRecord, sqlx::Error> {
-        self.store
-            .save_record(artifact_id, key, data, submitted_by, writer)
+    ) -> Result<Record, sqlx::Error> {
+        self.records
+            .store
+            .save_record(collection_id, key, data, submitted_by, writer)
             .await
     }
 
-    /// See [`ArtifactDao::insert_record`].
+    /// See [`RecordDao::insert_record`].
     pub(crate) async fn insert_record(
         &self,
-        artifact_id: &str,
+        collection_id: &str,
         key: &str,
         data: &serde_json::Value,
         submitted_by: &str,
         writer: RecordWriter,
-    ) -> Result<Option<ArtifactRecord>, sqlx::Error> {
-        self.store
-            .insert_record(artifact_id, key, data, submitted_by, writer)
+    ) -> Result<Option<Record>, sqlx::Error> {
+        self.records
+            .store
+            .insert_record(collection_id, key, data, submitted_by, writer)
             .await
     }
 
-    /// See [`ArtifactDao::update_record`].
+    /// See [`RecordDao::update_record`].
     pub(crate) async fn update_record(
         &self,
-        artifact_id: &str,
+        collection_id: &str,
         key: &str,
         data: &serde_json::Value,
         stored_at: chrono::DateTime<chrono::Utc>,
-    ) -> Result<Option<ArtifactRecord>, sqlx::Error> {
-        self.store
-            .update_record(artifact_id, key, data, stored_at)
+    ) -> Result<Option<Record>, sqlx::Error> {
+        self.records
+            .store
+            .update_record(collection_id, key, data, stored_at)
             .await
     }
 
-    /// See [`ArtifactDao::delete_record_at`].
+    /// See [`RecordDao::delete_record_at`].
     pub(crate) async fn delete_record_at(
         &self,
-        artifact_id: &str,
+        collection_id: &str,
         key: &str,
         stored_at: chrono::DateTime<chrono::Utc>,
-    ) -> Result<Option<ArtifactRecord>, sqlx::Error> {
-        self.store
-            .delete_record_at(artifact_id, key, stored_at)
+    ) -> Result<Option<Record>, sqlx::Error> {
+        self.records
+            .store
+            .delete_record_at(collection_id, key, stored_at)
             .await
     }
 
-    /// See [`ArtifactDao::find_record`].
+    /// See [`RecordDao::find_record`].
     pub(crate) async fn find_record(
         &self,
-        artifact_id: &str,
+        collection_id: &str,
         key: &str,
-    ) -> Result<Option<ArtifactRecord>, sqlx::Error> {
-        self.store.find_record(artifact_id, key).await
+    ) -> Result<Option<Record>, sqlx::Error> {
+        self.records.store.find_record(collection_id, key).await
     }
 
-    /// See [`ArtifactDao::count_records`].
+    /// See [`RecordDao::count_records`].
     pub(crate) async fn count_records(
         &self,
-        artifact_id: &str,
+        collection_id: &str,
         key: &str,
     ) -> Result<(i64, bool), sqlx::Error> {
-        self.store.count_records(artifact_id, key).await
+        self.records.store.count_records(collection_id, key).await
     }
 
-    /// See [`ArtifactDao::delete_record`].
+    /// See [`RecordDao::delete_record`].
     pub(crate) async fn delete_record(
         &self,
-        artifact_id: &str,
+        collection_id: &str,
         key: &str,
-    ) -> Result<Option<ArtifactRecord>, sqlx::Error> {
-        self.store.delete_record(artifact_id, key).await
+    ) -> Result<Option<Record>, sqlx::Error> {
+        self.records.store.delete_record(collection_id, key).await
     }
 
-    /// See [`ArtifactDao::list_records`].
+    /// See [`RecordDao::list_records`].
     pub(crate) async fn list_records(
         &self,
-        artifact_id: &str,
+        collection_id: &str,
         since: Option<chrono::DateTime<chrono::Utc>>,
         prefix: Option<&str>,
-    ) -> Result<Vec<ArtifactRecord>, sqlx::Error> {
-        self.store
-            .list_records(artifact_id, since, prefix.map(str::to_string))
+    ) -> Result<Vec<Record>, sqlx::Error> {
+        self.records
+            .store
+            .list_records(collection_id, since, prefix.map(str::to_string))
             .await
     }
 
-    /// See [`ArtifactDao::find_records`].
+    /// See [`RecordDao::find_records`].
     pub(crate) async fn find_records(
         &self,
-        artifact_id: &str,
+        collection_id: &str,
         keys: &[String],
-    ) -> Result<Vec<ArtifactRecord>, sqlx::Error> {
-        self.store.find_records(artifact_id, keys).await
+    ) -> Result<Vec<Record>, sqlx::Error> {
+        self.records.store.find_records(collection_id, keys).await
     }
 
-    /// The Artifact's `record_seq`; see [`ArtifactDao::record_heads`].
-    pub(crate) async fn record_head(&self, artifact_id: &str) -> Result<i64, sqlx::Error> {
-        let heads = self.store.record_heads(&[artifact_id.to_string()]).await?;
-        Ok(heads.first().map_or(0, |(_, seq)| *seq))
+    /// See [`Records::head`].
+    pub(crate) async fn record_head(&self, collection_id: &str) -> Result<i64, sqlx::Error> {
+        self.records.head(collection_id).await
     }
 
-    /// See [`ArtifactDao::record_changes`].
+    /// See [`RecordDao::record_changes`].
     pub(crate) async fn record_changes(
         &self,
-        artifact_id: &str,
+        collection_id: &str,
         after: i64,
     ) -> Result<(i64, Vec<(i64, String)>), sqlx::Error> {
-        self.store.record_changes(artifact_id, after).await
+        self.records
+            .store
+            .record_changes(collection_id, after)
+            .await
     }
 
-    /// This replica's watch on the `record_seq` of the Artifacts pages here
-    /// are subscribed to.
+    /// See [`Records::watch`].
     pub(crate) fn record_watch(&self) -> &RecordWatch {
-        &self.record_watch
+        self.records.watch()
     }
 
-    /// Keep [`Self::record_watch`] current until `cancel`.
-    pub fn spawn_record_watch(self: &Arc<Self>, cancel: CancellationToken) -> JoinHandle<()> {
-        let artifacts = Arc::clone(self);
-        tokio::spawn(async move {
-            artifacts
-                .record_watch
-                .run(artifacts.store.as_ref(), cancel)
-                .await;
-        })
+    /// The record collections behind every page's records.
+    pub(crate) fn records(&self) -> &Records {
+        &self.records
     }
 }

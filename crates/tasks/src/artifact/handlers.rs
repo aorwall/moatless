@@ -217,6 +217,11 @@ pub async fn serve_artifact_page(
                     viewer: &auth.login,
                     viewer_id: &auth.scope_context().user_id,
                     rules: page.record_rules.as_ref(),
+                    collections: page
+                        .collections
+                        .iter()
+                        .map(super::bootstrap::PageCollection::from)
+                        .collect(),
                 },
             ),
         ),
@@ -226,15 +231,17 @@ pub async fn serve_artifact_page(
     Ok((headers, body).into_response())
 }
 
-/// A page token for `auth` on `page`, or `None` when the page accepts no data
-/// or this deployment has no signing key. A signing failure serves the page
+/// A page token for `auth` on `page`, or `None` when the page neither accepts
+/// data nor reads a collection, or this deployment has no signing key. A signing failure serves the page
 /// without one, so its saves fail rather than the page.
 fn page_token(
     artifacts: &Artifacts,
     auth: &AuthUser,
     page: &super::service::Page,
 ) -> Option<String> {
-    let key = artifacts.signing_key().filter(|_| page.accepts_data)?;
+    let key = artifacts
+        .signing_key()
+        .filter(|_| page.accepts_data || !page.collections.is_empty())?;
     let scope = auth.scope_context();
     super::page_token::mint(
         key,
@@ -314,6 +321,10 @@ async fn read_publish(mut multipart: Multipart) -> Result<PublishRequest, Artifa
                 let text = field.text().await.map_err(multipart_error)?;
                 req.data.rules =
                     Some(RecordRules::parse(&text).map_err(ArtifactError::BadRequest)?);
+            }
+            "collection" => {
+                req.collections
+                    .push(field.text().await.map_err(multipart_error)?);
             }
             "visibility" => {
                 let value = field.text().await.map_err(multipart_error)?;

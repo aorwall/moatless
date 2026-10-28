@@ -20,6 +20,8 @@ use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
 
 use crate::artifact::dao::{ArtifactDao, PgArtifactDao};
 use crate::artifact::operations::Artifacts;
+use crate::collection::dao::{PgRecordDao, RecordDao};
+use crate::collection::operations::Records;
 use crate::credential_sync::CredentialSync;
 use crate::event_ingress::EventAdmission;
 use crate::feedback::dao::{FeedbackDao, PgFeedbackDao};
@@ -74,6 +76,7 @@ pub struct TaskGraph {
     review_guides: Arc<dyn ReviewGuideDao>,
     artifacts: Arc<dyn ArtifactDao>,
     memories: Arc<dyn MemoryDao>,
+    records: Arc<dyn RecordDao>,
 }
 
 /// Build the tasks band's stores over `db`.
@@ -91,6 +94,7 @@ pub fn task_graph(db: DbPool) -> TaskGraph {
         review_guides: Arc::new(PgReviewGuideDao(db.clone())),
         artifacts: Arc::new(PgArtifactDao(db.clone())),
         memories: Arc::new(PgMemoryDao(db.clone())),
+        records: Arc::new(PgRecordDao(db.clone())),
         db,
     }
 }
@@ -207,6 +211,16 @@ impl TaskGraph {
         ))
     }
 
+    /// The record collection tables, as a host reads and writes them, with
+    /// the repository and Workspace reads their access checks need.
+    pub fn records(
+        &self,
+        repositories: Arc<dyn RepositoryReader>,
+        workspaces: Arc<dyn WorkspaceResolver>,
+    ) -> Arc<Records> {
+        Arc::new(Records::new(self.records.clone(), repositories, workspaces))
+    }
+
     /// The `task_artifacts` table and its objects in `s3`, with response URLs
     /// under `public_url` and page tokens signed with `signing_key`.
     pub fn artifacts(
@@ -215,6 +229,7 @@ impl TaskGraph {
         s3_config: Arc<moatless_core::config::S3Config>,
         public_url: &str,
         signing_key: Option<String>,
+        records: Arc<Records>,
     ) -> Arc<Artifacts> {
         Arc::new(Artifacts::new(
             self.artifacts.clone(),
@@ -222,6 +237,7 @@ impl TaskGraph {
             s3_config,
             public_url,
             signing_key,
+            records,
         ))
     }
 
