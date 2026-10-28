@@ -504,6 +504,12 @@ RUN ARCH=$(dpkg --print-architecture) && \
     rm -f /opt/cargo/bin/rust-analyzer && \
     rust-analyzer --version
 
+# Do not let a git command start auto gc or maintenance: on a large checkout
+# such as moatless the detached `git gc --auto` exceeds the sandbox memory cap
+# and the pod is OOMKilled. System scope, so every user and repo inherits it.
+RUN git config --system gc.auto 0 \
+    && git config --system maintenance.auto false
+
 # Claude/Codex CLIs. Version source of truth is docker/cli-versions.env, passed
 # in as --build-arg by every build path (ci.yml, build-sandbox.sh); the defaults
 # below are inert fallbacks for a bare `docker build`.
