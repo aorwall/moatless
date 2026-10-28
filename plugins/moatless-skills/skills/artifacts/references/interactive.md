@@ -75,10 +75,10 @@ lists the `{ scope, name }` pairs the page may read. A reader who cannot reach
 the scope, such as another user's `user` scope or a Workspace they cannot see,
 gets `"permission-denied"`. Each publish sets the collections again.
 
-A `task` or `loop` collection is readable by anyone who can open the page. A
-Loop's collection holds the records of every run, private repositories'
-included, so publish a page attaching one with `--private` unless every run's
-records may be read by any signed-in user.
+A `task` or `loop` collection is readable by anyone who can open the page, so
+a public page shows every run's records to any signed-in user. That is the
+default; add `--private` when the records hold a secret, a credential,
+personal data, or content from tasks a reader could not otherwise see.
 
 ## Limiting what readers may do (`--rules`)
 

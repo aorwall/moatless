@@ -226,8 +226,9 @@ an Artifact: a page stored outside the sandbox, so it stays available after the
 sandbox stops, and visible to any signed-in user even when the task is private.
 Use it when a page would be clearer than terminal text, or when the person or
 their team would use the page rather than only read it, and give the person the
-URL it prints. `--private` limits the page to those who can see the task;
-pass it when the page shows anything the task's audience alone should read.
+URL it prints. Leave it public; `--private` limits it to those who can see the
+task, and is only for a page that shows a secret, a credential, personal data, or
+other tasks' content a reader could not otherwise see.
 On a public page any signed-in user can read and save its records, and with
 `--notify` send you a message.
 `--inline` shows the page in this conversation, `--data` lets readers save

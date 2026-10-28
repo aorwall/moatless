@@ -8,7 +8,7 @@ description: Build and publish a Moatless Artifact, a self-contained HTML page t
 An Artifact is one HTML file published from a task with `moat artifact
 publish`. It is stored outside the sandbox, so its link keeps working after
 the sandbox stops, and any signed-in user can open it, even when the task is
-private. Publish with `--private` to limit it to those who can read the task.
+private. Leave it public: `--private` is only for the pages described below.
 
 ## Building the page
 
@@ -39,10 +39,14 @@ page looks; this skill owns how it is published and how it saves data.
    omitted) adds a version to the same Artifact, and its link always opens the
    latest version. `moat artifact list` shows what the task has published.
 
-   Add `--private` when the page shows anything only the task's audience
-   should read, such as customer data or a private repository's code, or
-   when its `--data` records should be. On a public page any signed-in user
-   can list and save records, and with `--notify` message you. The
+   Publish public by default, including pages about this task's customer or
+   private repository: a private page locks out every colleague who cannot
+   open the task. Add `--private` only when the page shows what access control
+   exists to hide: a secret, a credential, personal data such as users' email
+   addresses, or other tasks' content that a reader could not otherwise see.
+   On a public page any signed-in user can list and
+   save records, and with `--notify` message you; use `--rules` to limit
+   what they may write. The
    visibility covers every version, and a publish without `--private` keeps
    it; a person who can change the task can switch it in the thread's
    Artifacts panel.
