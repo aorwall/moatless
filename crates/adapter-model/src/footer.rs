@@ -9,12 +9,8 @@
 //! This is the pure render/parse layer; the DAO-backed wrapper lives in
 //! `bindings::footer::task_comment_footer`.
 
-/// Marker used to detect the footer was already appended, so a retry doesn't
-/// re-append it.
-///
-/// Stable across runs; shared with the GitHub PR-body footer baked in by
-/// `github_pr::api_routes::compose_footer`, which embeds the same marker.
-pub const FOOTER_MARKER: &str = "Moatless task:";
+/// Detects the footer was already appended, so a retry doesn't re-append it.
+pub use moatless_types::adapter::FOOTER_MARKER;
 
 /// Format the footer suffix from already-resolved inputs.
 ///

@@ -11,7 +11,9 @@ use clap::Parser;
 use serde::Deserialize;
 
 use super::process::gh_command;
+use super::process::gh_command_output;
 use super::repo::{RepoTarget, parse_pull_request_url, resolve_repo};
+use super::task_footer;
 use super::typed::read_body;
 use crate::client::MoatClient;
 
@@ -49,6 +51,8 @@ pub(super) fn parse(argv: Vec<String>) -> Option<PrEditArgs> {
 #[derive(Deserialize)]
 struct PullRequest {
     html_url: String,
+    #[serde(default)]
+    body: Option<String>,
 }
 
 pub(super) async fn run(
@@ -62,11 +66,17 @@ pub(super) async fn run(
     if let Some(title) = args.title {
         fields.insert("title".into(), title.into());
     }
+    let path = format!("repos/{}/pulls/{number}", target.slug());
     if let Some(body) = read_body(args.body, args.body_file.as_deref())? {
+        let body = task_footer::kept(body, || {
+            let current = gh_command_output(&["api".to_string(), path.clone()], token, None)?;
+            Ok(serde_json::from_slice::<PullRequest>(&current)?
+                .body
+                .unwrap_or_default())
+        });
         fields.insert("body".into(), body.into());
     }
 
-    let path = format!("repos/{}/pulls/{number}", target.slug());
     let gh_args = ["api", "-X", "PATCH", &path, "--input", "-"].map(String::from);
     let mut child = gh_command(&gh_args, token, None)
         .stdin(std::process::Stdio::piped())

@@ -3,7 +3,7 @@
 use super::repo::origin_gh_repo;
 use super::token::github_token_for_gh;
 use super::typed::{self, TypedInvocation};
-use super::{api, pr_edit, pr_view, process, run_logs, stack};
+use super::{api, pr_edit, pr_view, process, run_logs, stack, task_footer};
 use crate::client::MoatClient;
 use crate::config::Config;
 
@@ -50,7 +50,9 @@ pub async fn run(
         }
         None => {
             let gh_repo = origin_gh_repo(client, cfg).await;
-            process::passthrough(cfg, &args, gh_repo.as_deref())
+            let call =
+                task_footer::keep_task_footer(args, cfg.github_token_set, gh_repo.as_deref())?;
+            process::passthrough(cfg, &call.args, gh_repo.as_deref())
         }
     }
 }

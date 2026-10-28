@@ -55,6 +55,12 @@ impl AdapterKind {
 /// with no inbound reply target to fail on.
 pub const SCHEDULED_ORIGIN: &str = "scheduled";
 
+/// Prefix of the line linking an outbound comment or PR body to its task.
+///
+/// Stable across runs: the echo filter and `moat gh pr edit` find the footer by
+/// it.
+pub const FOOTER_MARKER: &str = "Moatless task:";
+
 // =============================================================================
 // Adapter contexts
 // =============================================================================
