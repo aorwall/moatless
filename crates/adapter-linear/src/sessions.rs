@@ -32,7 +32,7 @@ use super::config::{LinearRuleConfig, rules_need_issue_fetch, select_spawn_rule}
 use super::issues::{insert_event_task, transition_issue_state};
 use super::reference_resolution::LINEAR_PROVIDER;
 use super::subject::{ADAPTER, SUBJECT_KIND_SESSION as SUBJECT_KIND};
-use super::webhook_payloads::{AgentSession, LinearActor};
+use super::webhook_payloads::{AgentSession, AgentSessionIssue, LinearActor, LinearWorkflowState};
 
 const ADAPTER_LABEL: &str = moatless_types::adapter::AdapterKind::Linear.as_str();
 
@@ -531,15 +531,103 @@ async fn provision_session_task(
 
     // Move the issue into the rule's "started" state on mention/assignment
     // pickup, so the board reflects it — same team-scoped transition as the
-    // status-entry path. Best-effort and idempotent: skipped if already in
-    // the target state. No self-retrigger: this loop's status-entry path is
-    // off, so the resulting Issue.update doesn't feed back here.
+    // status-entry path. Best-effort. No self-retrigger: this loop's
+    // status-entry path is off, so the resulting Issue.update doesn't feed
+    // back here.
     if let Some(start_state) = LinearRuleConfig::from_rule(rule).start_state.as_deref() {
-        let current_state = issue.state.as_ref().map_or("", |s| s.name.as_str());
-        if !current_state.eq_ignore_ascii_case(start_state) {
+        let current = current_issue_state(api, issue).await;
+        if moves_to_start_state(current.as_ref(), start_state) {
             transition_issue_state(api, &team_id, &issue.id, &issue.identifier, start_state).await;
         }
     }
 
     Ok(())
+}
+
+/// The issue's workflow state, read from Linear when the session payload
+/// carries none with a type. `None` when the read fails.
+async fn current_issue_state(
+    api: &LinearAgentApi,
+    issue: &AgentSessionIssue,
+) -> Option<LinearWorkflowState> {
+    if let Some(state) = issue.state.as_ref().filter(|s| !s.kind.is_empty()) {
+        return Some(state.clone());
+    }
+    match api.get_issue(&issue.id).await {
+        Ok(detail) => detail
+            .get("state")
+            .and_then(|s| serde_json::from_value(s.clone()).ok()),
+        Err(e) => {
+            warn!(issue = %issue.identifier, error = %e, "Failed to read Linear issue state");
+            None
+        }
+    }
+}
+
+/// Whether a session pickup moves an issue in `current` to `start_state`.
+///
+/// Only a ticket known not to be started moves: a mention on one already in
+/// review or later would otherwise drag it back to `start_state` on every
+/// session, and each move reaches every bound Task as a state-change message.
+/// An unknown state or type is left alone for the same reason.
+fn moves_to_start_state(current: Option<&LinearWorkflowState>, start_state: &str) -> bool {
+    current.is_some_and(|current| {
+        !current.name.eq_ignore_ascii_case(start_state)
+            && matches!(current.kind.as_str(), "backlog" | "unstarted" | "triage")
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn state(name: &str, kind: &str) -> LinearWorkflowState {
+        LinearWorkflowState {
+            id: "s".to_string(),
+            name: name.to_string(),
+            kind: kind.to_string(),
+        }
+    }
+
+    #[test]
+    fn a_ticket_not_yet_started_moves_to_the_start_state() {
+        for kind in ["backlog", "unstarted", "triage"] {
+            assert!(
+                moves_to_start_state(Some(&state("Todo", kind)), "In Progress"),
+                "{kind}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_ticket_in_an_unknown_state_keeps_it() {
+        assert!(!moves_to_start_state(None, "In Progress"));
+        assert!(!moves_to_start_state(
+            Some(&state("User Test in Staging", "")),
+            "In Progress"
+        ));
+    }
+
+    #[test]
+    fn a_started_or_closed_ticket_keeps_its_state() {
+        for (name, kind) in [
+            ("In Progress", "started"),
+            ("User Test in Staging", "started"),
+            ("Done", "completed"),
+            ("Canceled", "canceled"),
+        ] {
+            assert!(
+                !moves_to_start_state(Some(&state(name, kind)), "In Progress"),
+                "{name} must not move back"
+            );
+        }
+    }
+
+    #[test]
+    fn a_ticket_already_in_the_start_state_does_not_move() {
+        assert!(!moves_to_start_state(
+            Some(&state("in progress", "")),
+            "In Progress"
+        ));
+    }
 }

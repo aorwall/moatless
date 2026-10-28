@@ -34,18 +34,18 @@ pub fn render_footer(frontend_url: &str, task_id: &str, name: Option<&str>) -> O
     Some(format!("\n\n---\n{FOOTER_MARKER} [{label}]({url})"))
 }
 
-/// Extract the moatless task id from a comment body containing the footer link
-/// `<frontend_url>/tasks/<id>`.
+/// Extract the moatless task id from the last `<frontend_url>/tasks/<id>` link
+/// in a comment body, bare or `[name](url)`; `None` when `frontend_url` is empty.
 ///
-/// Handles both the bare-URL and `[name](url)` markdown forms; `None` when
-/// `frontend_url` is empty or absent.
+/// The last link rather than the first, deliberately: the footer ends the body,
+/// and a reply citing another task would otherwise echo back to its author.
 pub fn parse_task_id_from_body(frontend_url: &str, body: &str) -> Option<String> {
     let base = frontend_url.trim_end_matches('/');
     if base.is_empty() {
         return None;
     }
     let needle = format!("{base}/tasks/");
-    let start = body.find(&needle)? + needle.len();
+    let start = body.rfind(&needle)? + needle.len();
     let id: String = body[start..]
         .chars()
         .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
@@ -150,6 +150,18 @@ mod tests {
         assert_eq!(
             parse_task_id_from_body("https://app.example.com", "https://app.example.com/tasks/"),
             None
+        );
+    }
+
+    #[test]
+    fn a_reply_citing_another_task_is_attributed_to_its_footer() {
+        // Linear echoes the body with its links rewritten to `[url](<url>)`.
+        let body = "The other task ([https://moatless.xyz/tasks/fc602fec]\
+            (<https://moatless.xyz/tasks/fc602fec>)) holds the claim.\n\n---\n\
+            Moatless task: [SP-4145](<https://moatless.xyz/tasks/6852f3a4>)";
+        assert_eq!(
+            parse_task_id_from_body("https://moatless.xyz", body),
+            Some("6852f3a4".to_string())
         );
     }
 
