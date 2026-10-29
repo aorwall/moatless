@@ -134,6 +134,17 @@ pub(super) async fn get_credentials(
     );
 
     let handlers = service.handlers.as_ref();
+    // Recorded first, so the model gateway's refresh stops yielding to this
+    // pod's Codex no later than this fetch says it stopped refreshing.
+    if let (Some(via_gateway), Some(handlers)) = (req.codex_via_gateway, handlers) {
+        if let Err(e) = handlers
+            .sandboxes
+            .record_codex_via_gateway(&grant.sandbox_id, via_gateway)
+            .await
+        {
+            warn!(error = %e, sandbox_id = %grant.sandbox_id, "Failed to record the Codex routing");
+        }
+    }
     let targets =
         resolve_task_credential_targets(handlers.map(|h| &h.sandboxes), &req.task_id).await;
     // A workspace credential that cannot be read must not degrade into the

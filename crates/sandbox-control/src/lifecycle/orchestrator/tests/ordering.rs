@@ -104,6 +104,9 @@ async fn load_failure_is_intent_load_not_write() {
         async fn mark_storage_reclaimed(&self, _t: &str) -> Result<(), StoreError> {
             Ok(())
         }
+        async fn record_codex_via_gateway(&self, _s: &str, _via: bool) -> Result<(), StoreError> {
+            Ok(())
+        }
         async fn record_running_commands(&self, _t: &str, _running: i32) -> Result<(), StoreError> {
             Ok(())
         }

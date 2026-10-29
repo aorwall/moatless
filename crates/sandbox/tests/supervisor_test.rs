@@ -600,6 +600,7 @@ fn test_state(backend: Arc<dyn BackendClient>, dir: &tempfile::TempDir) -> Sandb
         Arc::clone(&commands),
         credential_failures.clone(),
         Arc::clone(&credential_dispatcher),
+        Default::default(),
         Arc::clone(&system_prompt_cache),
         heartbeat.clone(),
         moatless_sandbox::workspace_sync::WorkspaceSyncTracker::new(),
@@ -642,6 +643,7 @@ fn test_state(backend: Arc<dyn BackendClient>, dir: &tempfile::TempDir) -> Sandb
         lifecycle_cancel,
         credential_dispatcher,
         codex_watcher_handle: Arc::new(RwLock::new(None)),
+        codex_via_gateway: Default::default(),
         supervisor_health: Default::default(),
         terminals,
     }

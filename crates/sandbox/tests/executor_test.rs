@@ -226,6 +226,7 @@ fn test_state_with_config(backend: Arc<dyn BackendClient>, config: Config) -> Sa
         Arc::clone(&commands),
         credential_failures.clone(),
         Arc::clone(&credential_dispatcher),
+        Default::default(),
         Arc::clone(&system_prompt_cache),
         heartbeat.clone(),
         moatless_sandbox::workspace_sync::WorkspaceSyncTracker::new(),
@@ -269,6 +270,7 @@ fn test_state_with_config(backend: Arc<dyn BackendClient>, config: Config) -> Sa
         lifecycle_cancel: CancellationToken::new(),
         credential_dispatcher,
         codex_watcher_handle: Arc::new(RwLock::new(None)),
+        codex_via_gateway: Default::default(),
         supervisor_health: Default::default(),
         terminals,
     }

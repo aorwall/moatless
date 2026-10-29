@@ -142,14 +142,6 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
     })
     .await?;
 
-    // 2. Write the default Codex config.toml. Disables the broken
-    //    `codex_apps` MCP server. Non-fatal — Codex still runs without it.
-    codex_config::write_codex_config(
-        &state.config.codex_home_dir,
-        state.config.openai_base_url.as_deref(),
-    )
-    .await;
-
     // 2b. Stage the plugin that gives Claude its `LSP` tool. Non-fatal — the
     //     agent still runs, only without code intelligence.
     let claude_config_dir = PathBuf::from(&state.config.claude_config_dir);
@@ -191,6 +183,26 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
         false,
     )
     .await;
+
+    // 2. Write the Codex config.toml, after the fetch because whether Codex is
+    //    routed through the model gateway arrives with the credentials.
+    //    Non-fatal — Codex still runs without it.
+    let gateway_url = state
+        .config
+        .backend_api_url
+        .as_deref()
+        .filter(|_| state.codex_via_gateway.get() == Some(&true))
+        .map(codex_config::gateway_base_url);
+    let token_file = state.config.persisted_user_token_path();
+    let route = match (&gateway_url, &state.config.openai_base_url) {
+        (Some(base_url), _) => Some(codex_config::ModelRoute::Gateway {
+            base_url,
+            token_file: &token_file,
+        }),
+        (None, Some(base_url)) => Some(codex_config::ModelRoute::Hub { base_url }),
+        (None, None) => None,
+    };
+    codex_config::write_codex_config(&state.config.codex_home_dir, route.as_ref()).await;
 
     // 2c. Write the Claude Code settings file, after the fetch because the
     //     co-author it credits arrives with the credentials. Safe to overwrite

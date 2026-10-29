@@ -80,6 +80,7 @@ fn build_state(
         lifecycle_cancel: CancellationToken::new(),
         credential_dispatcher: Arc::new(Dispatcher::new()),
         codex_watcher_handle: Arc::new(RwLock::new(None)),
+        codex_via_gateway: Default::default(),
         supervisor_health: Default::default(),
         terminals,
     }
@@ -129,6 +130,7 @@ fn spawn_recording_agent(
         Arc::new(crate::commands::CommandRegistry::for_test()),
         CredentialFailureDetector::default(),
         Arc::new(Dispatcher::new()),
+        Default::default(),
         crate::workspace_sync::WorkspaceSyncTracker::new(),
     );
     tokio::spawn(service.run_after(setup_gate, command_rx, Heartbeat::new()));

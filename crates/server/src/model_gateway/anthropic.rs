@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use axum::body::Body;
 use axum::extract::State;
-use axum::http::{HeaderMap, HeaderValue, StatusCode, Uri};
+use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use moatless_core::secret_keys::{
     ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, ANTHROPIC_BASE_URL, CLAUDE_CODE_OAUTH_TOKEN,
@@ -139,7 +139,7 @@ async fn forward(
     };
     let upstream = match resolve_upstream(
         &credentials,
-        &gateway.anthropic_base,
+        &gateway.bases.anthropic,
         gateway.config.hub_url.as_deref(),
         gateway.config.hub_key.as_deref(),
     ) {
@@ -182,11 +182,12 @@ fn authorized_request(
 ) -> (reqwest::RequestBuilder, &'static str) {
     match credential {
         Credential::ApiKey(key) => (
-            stream::upstream_request(http, url, headers, body).header("x-api-key", key),
+            stream::upstream_request(http, Method::POST, url, headers, body)
+                .header("x-api-key", key),
             "api_key",
         ),
         Credential::Bearer(token) => (
-            stream::upstream_request(http, url, headers, body).bearer_auth(token),
+            stream::upstream_request(http, Method::POST, url, headers, body).bearer_auth(token),
             "bearer",
         ),
         Credential::OAuth(token) => {
@@ -197,7 +198,8 @@ fn authorized_request(
                 headers.insert("anthropic-beta", betas);
             }
             (
-                stream::upstream_request(http, url, &headers, body).bearer_auth(token),
+                stream::upstream_request(http, Method::POST, url, &headers, body)
+                    .bearer_auth(token),
                 "oauth",
             )
         }

@@ -221,7 +221,16 @@ pub async fn fetch_and_apply_credentials_with_mode(
                 *state.credentials.write().await =
                     agent_credentials(&resp, state.config.backend_api_url.as_deref());
 
-                persist_agent_credentials(&state.config, &resp.credentials, mode).await;
+                let codex_via_gateway = *state
+                    .codex_via_gateway
+                    .get_or_init(|| resp.model_gateway && state.config.backend_api_url.is_some());
+                persist_agent_credentials(
+                    &state.config,
+                    &resp.credentials,
+                    mode,
+                    codex_via_gateway,
+                )
+                .await;
 
                 return Ok(());
             }
@@ -323,20 +332,23 @@ fn terminal_rejection_reason(_mode: PersistMode, code: tonic::Code) -> Option<&'
 /// Persist credential files used by local agent runtimes.
 ///
 /// On `PersistMode::Refresh`, Codex's `auth.json` is left alone — see
-/// [`PersistMode`] for why.
+/// [`PersistMode`] for why. With `codex_via_gateway`, Codex gets none at all:
+/// it reaches its model through the gateway (`init::codex_config::ModelRoute`).
 pub async fn persist_agent_credentials(
     config: &Config,
     credentials: &std::collections::HashMap<String, String>,
     mode: PersistMode,
+    codex_via_gateway: bool,
 ) {
     if let Some(oauth_token) = credentials.get("CLAUDE_CODE_OAUTH_TOKEN") {
         write_claude_credentials(&config.claude_config_dir, oauth_token).await;
     }
 
-    let write_codex = mode == PersistMode::Initial
-        || !tokio::fs::try_exists(format!("{}/auth.json", config.codex_home_dir))
-            .await
-            .unwrap_or(true);
+    let write_codex = !codex_via_gateway
+        && (mode == PersistMode::Initial
+            || !tokio::fs::try_exists(format!("{}/auth.json", config.codex_home_dir))
+                .await
+                .unwrap_or(true));
     let wrote_codex_auth = if write_codex {
         if let Some(auth_json) = credentials.get("CODEX_AUTH_JSON") {
             write_codex_auth_json(&config.codex_home_dir, auth_json).await
@@ -734,6 +746,62 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_gateway_routed_codex_gets_no_auth_json() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        let credentials = HashMap::from([
+            (
+                "CODEX_AUTH_JSON".to_string(),
+                r#"{"tokens":{"access_token":"abc"}}"#.to_string(),
+            ),
+            ("OPENAI_API_KEY".to_string(), "sk-key".to_string()),
+        ]);
+
+        persist_agent_credentials(&config, &credentials, PersistMode::Initial, true).await;
+
+        assert!(!tmp.path().join("home/.codex/auth.json").exists());
+    }
+
+    /// Answers `GetCredentials` with each queued `model_gateway` in turn.
+    struct GatewayFlags(std::sync::Mutex<Vec<bool>>);
+
+    #[async_trait::async_trait]
+    impl crate::backend_client::BackendClient for GatewayFlags {
+        async fn get_credentials(
+            &self,
+            _task_id: &str,
+        ) -> Result<sandbox_proto::GetCredentialsResponse, tonic::Status> {
+            Ok(sandbox_proto::GetCredentialsResponse {
+                model_gateway: self.0.lock().unwrap().remove(0),
+                ..Default::default()
+            })
+        }
+    }
+
+    /// The route `config.toml` was written for holds for the process's life,
+    /// whatever later fetches say: a pod started on `auth.json` keeps taking
+    /// pushed rotations, and a gateway-routed one keeps refusing them.
+    #[tokio::test]
+    async fn the_first_fetch_latches_how_codex_is_routed() {
+        for (flags, latched) in [(vec![true, false], true), (vec![false, true], false)] {
+            let tmp = TempDir::new().unwrap();
+            let mut config = test_config(&tmp);
+            config.backend_api_url = Some("http://backend:8080".to_string());
+            let state = crate::state::test_support::state_with(
+                config,
+                std::sync::Arc::new(GatewayFlags(std::sync::Mutex::new(flags))),
+            );
+
+            super::fetch_and_apply_credentials(&state).await.unwrap();
+            super::fetch_and_apply_credentials_with_mode(&state, PersistMode::Refresh)
+                .await
+                .unwrap();
+
+            assert_eq!(state.codex_via_gateway.get(), Some(&latched));
+        }
+    }
+
+    #[tokio::test]
     async fn codex_auth_json_takes_precedence_over_openai_api_key() {
         let tmp = TempDir::new().unwrap();
         let config = test_config(&tmp);
@@ -744,7 +812,7 @@ mod tests {
         );
         credentials.insert("OPENAI_API_KEY".to_string(), "fallback-key".to_string());
 
-        persist_agent_credentials(&config, &credentials, PersistMode::Initial).await;
+        persist_agent_credentials(&config, &credentials, PersistMode::Initial, false).await;
 
         let auth_path = tmp.path().join("home/.codex/auth.json");
         let auth_json = tokio::fs::read_to_string(auth_path).await.unwrap();
@@ -883,7 +951,7 @@ mod tests {
             r#"{"tokens":{"refresh_token":"stale-from-backend"}}"#.to_string(),
         );
 
-        persist_agent_credentials(&config, &credentials, PersistMode::Refresh).await;
+        persist_agent_credentials(&config, &credentials, PersistMode::Refresh, false).await;
 
         let on_disk = tokio::fs::read_to_string(&auth_path).await.unwrap();
         assert_eq!(
@@ -901,7 +969,7 @@ mod tests {
         let auth = r#"{"tokens":{"refresh_token":"from-backend"}}"#;
         credentials.insert("CODEX_AUTH_JSON".to_string(), auth.to_string());
 
-        persist_agent_credentials(&config, &credentials, PersistMode::Refresh).await;
+        persist_agent_credentials(&config, &credentials, PersistMode::Refresh, false).await;
 
         let on_disk = tokio::fs::read_to_string(tmp.path().join("home/.codex/auth.json"))
             .await
@@ -920,7 +988,7 @@ mod tests {
         credentials.insert("CODEX_AUTH_JSON".to_string(), "{invalid".to_string());
         credentials.insert("OPENAI_API_KEY".to_string(), "fallback-key".to_string());
 
-        persist_agent_credentials(&config, &credentials, PersistMode::Initial).await;
+        persist_agent_credentials(&config, &credentials, PersistMode::Initial, false).await;
 
         let auth_path = tmp.path().join("home/.codex/auth.json");
         let auth_json = tokio::fs::read_to_string(auth_path).await.unwrap();

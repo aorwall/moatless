@@ -23,6 +23,7 @@ pub(crate) async fn compose_runtime(config: &Config) -> (SandboxState, Superviso
     .expect("Failed to create backend gRPC client");
     info!(url = %config.backend_grpc_url, "Backend gRPC client created (lazy connection)");
 
+    let codex_via_gateway = backend_client.codex_via_gateway();
     let backend_client: Arc<dyn crate::backend_client::BackendClient> = Arc::new(backend_client);
 
     // Lifecycle token, created up front so the event outbox drainer shares it
@@ -65,6 +66,7 @@ pub(crate) async fn compose_runtime(config: &Config) -> (SandboxState, Superviso
         Arc::new(CodexAuthJsonSink {
             codex_home_dir: config.codex_home_dir.clone(),
             watcher_handle: Arc::clone(&codex_watcher_handle),
+            codex_via_gateway: Arc::clone(&codex_via_gateway),
         }),
     );
     dispatcher.register("CLAUDE_CODE_OAUTH_TOKEN", Arc::new(ClaudeOauthSink));
@@ -105,6 +107,7 @@ pub(crate) async fn compose_runtime(config: &Config) -> (SandboxState, Superviso
         lifecycle_cancel,
         credential_dispatcher,
         codex_watcher_handle,
+        codex_via_gateway,
         supervisor_health: supervisor.health(),
         terminals: crate::terminal::TerminalManager::with_repo_dir(
             config.workspace_dir.clone(),

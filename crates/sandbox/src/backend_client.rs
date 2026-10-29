@@ -415,6 +415,9 @@ pub struct BackendGrpcClient {
     /// Shared handle to the interceptor's token so it can be swapped at
     /// runtime.
     auth_token: Arc<RwLock<Option<String>>>,
+    /// Reported on every `GetCredentials`; see
+    /// [`crate::state::SandboxState::codex_via_gateway`].
+    codex_via_gateway: Arc<std::sync::OnceLock<bool>>,
 }
 
 impl BackendGrpcClient {
@@ -468,7 +471,13 @@ impl BackendGrpcClient {
             workspace,
             plugins,
             auth_token,
+            codex_via_gateway: Arc::default(),
         })
+    }
+
+    /// The Codex routing latch this client reports.
+    pub fn codex_via_gateway(&self) -> Arc<std::sync::OnceLock<bool>> {
+        Arc::clone(&self.codex_via_gateway)
     }
 }
 
@@ -554,6 +563,7 @@ impl BackendClient for BackendGrpcClient {
         let resp = client
             .get_credentials(GetCredentialsRequest {
                 task_id: task_id.to_string(),
+                codex_via_gateway: self.codex_via_gateway.get().copied(),
             })
             .await?;
 

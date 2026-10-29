@@ -230,7 +230,12 @@ fn spawn_test_agent(
     // the CLI ignores `OPENAI_BASE_URL` and sends every turn to api.openai.com.
     std::fs::write(
         tmp.path().join("home/.codex/config.toml"),
-        moatless_sandbox::init::codex_config::render_config_toml(codex_base_url().as_deref()),
+        moatless_sandbox::init::codex_config::render_config_toml(
+            codex_base_url()
+                .as_deref()
+                .map(|base_url| moatless_sandbox::init::codex_config::ModelRoute::Hub { base_url })
+                .as_ref(),
+        ),
     )
     .expect("write Codex config.toml");
     if let Ok(auth_json) = std::env::var("CODEX_AUTH_JSON") {
@@ -297,6 +302,7 @@ fn spawn_test_agent_in(
         commands,
         credential_failures,
         Arc::clone(&credential_dispatcher),
+        Default::default(),
         Arc::clone(&system_prompt_cache),
         moatless_sandbox::agent::heartbeat::Heartbeat::new(),
         moatless_sandbox::workspace_sync::WorkspaceSyncTracker::new(),

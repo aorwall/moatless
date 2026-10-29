@@ -5,7 +5,7 @@
 //! transitions. The seam mapping itself is [`super::seam`].
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use moatless_types::agent::AgentSubType;
@@ -99,6 +99,8 @@ pub(crate) struct CoordinatorService {
     credential_failures: CredentialFailureDetector,
     /// Applies recovered credential values to their sinks (files, env).
     credential_dispatcher: Arc<Dispatcher>,
+    /// [`crate::state::SandboxState::codex_via_gateway`].
+    codex_via_gateway: Arc<OnceLock<bool>>,
     /// Credential-recovery re-drives spent on the in-flight prompt. Reset on
     /// each new `Send`/`Recover`; caps at [`MAX_CREDENTIAL_RECOVERY_RETRIES`]
     /// so a permanently invalid credential can't loop forever.
@@ -171,6 +173,7 @@ impl CoordinatorService {
         commands: Arc<CommandRegistry>,
         credential_failures: CredentialFailureDetector,
         credential_dispatcher: Arc<Dispatcher>,
+        codex_via_gateway: Arc<OnceLock<bool>>,
         workspace_sync: WorkspaceSyncTracker,
     ) -> Self {
         // The root lives here, but each turn's token is minted where the turn
@@ -202,6 +205,7 @@ impl CoordinatorService {
             consecutive_errors: 0,
             credential_failures,
             credential_dispatcher,
+            codex_via_gateway,
             credential_recovery_attempts: 0,
             scheduled_jobs,
             commands,
@@ -991,6 +995,7 @@ impl CoordinatorService {
                     &self.config,
                     &resp.credentials,
                     crate::credentials::fetch::PersistMode::Refresh,
+                    self.codex_via_gateway.get() == Some(&true),
                 )
                 .await;
                 crate::credentials::fetch::apply_git_identity(&resp.credentials).await;

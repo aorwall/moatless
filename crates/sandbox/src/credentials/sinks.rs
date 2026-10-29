@@ -23,11 +23,17 @@ use crate::init::git::GitCredentials;
 pub struct CodexAuthJsonSink {
     pub codex_home_dir: String,
     pub watcher_handle: Arc<RwLock<Option<WatcherHandle>>>,
+    /// [`crate::state::SandboxState::codex_via_gateway`]: refuses every push
+    /// once latched true, since a gateway-routed Codex holds no credential.
+    pub codex_via_gateway: Arc<std::sync::OnceLock<bool>>,
 }
 
 #[async_trait]
 impl CredentialSink for CodexAuthJsonSink {
     async fn apply(&self, value: &str) -> Result<(), String> {
+        if self.codex_via_gateway.get() == Some(&true) {
+            return Err("Codex reaches its model through the backend's gateway".to_string());
+        }
         // Validate JSON before writing. A malformed blob would break codex on
         // its next launch — better to reject than to corrupt the file.
         let parsed: serde_json::Value = serde_json::from_str(value)
@@ -133,6 +139,7 @@ mod tests {
         let sink = CodexAuthJsonSink {
             codex_home_dir: codex_dir.display().to_string(),
             watcher_handle,
+            codex_via_gateway: Default::default(),
         };
 
         let payload = r#"{"tokens":{"access_token":"new"}}"#;
@@ -159,6 +166,7 @@ mod tests {
         let sink = CodexAuthJsonSink {
             codex_home_dir: codex_dir.display().to_string(),
             watcher_handle: Arc::new(tokio::sync::RwLock::new(None)),
+            codex_via_gateway: Default::default(),
         };
 
         let err = sink.apply("{not json").await.expect_err("should reject");
@@ -174,9 +182,24 @@ mod tests {
         let sink = CodexAuthJsonSink {
             codex_home_dir: codex_dir.display().to_string(),
             watcher_handle: Arc::new(tokio::sync::RwLock::new(None)),
+            codex_via_gateway: Default::default(),
         };
 
         let err = sink.apply("\"a string\"").await.expect_err("should reject");
         assert!(err.contains("must be a JSON object"));
+    }
+
+    #[tokio::test]
+    async fn codex_sink_refuses_while_codex_is_gateway_routed() {
+        let tmp = TempDir::new().unwrap();
+        let codex_dir = tmp.path().join(".codex");
+        let sink = CodexAuthJsonSink {
+            codex_home_dir: codex_dir.display().to_string(),
+            watcher_handle: Arc::new(tokio::sync::RwLock::new(None)),
+            codex_via_gateway: Arc::new(true.into()),
+        };
+
+        assert!(sink.apply(r#"{"tokens":{}}"#).await.is_err());
+        assert!(!codex_dir.join("auth.json").exists());
     }
 }

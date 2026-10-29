@@ -11,6 +11,8 @@ use moatless_ports::identity::{MockHarnessCredentials, MockSecretResolver};
 use moatless_workspace_ports::{MockWorkspaceCredentialReader, MockWorkspaceResolver};
 
 use super::*;
+use crate::model_gateway::ProviderBases;
+use crate::model_gateway::fakes::FixedCodex;
 
 const ANTHROPIC: &str = "https://api.anthropic.com";
 const HUB: &str = "http://hub.moatless.svc.cluster.local:8317";
@@ -158,6 +160,7 @@ async fn the_callers_session_and_network_path_stay_at_the_backend() {
 
     let request = stream::upstream_request(
         &gateway().http,
+        Method::POST,
         "https://api.anthropic.com/v1/messages",
         &headers,
         Body::empty(),
@@ -182,9 +185,10 @@ fn gateway() -> ModelGateway {
         Arc::new(MockWorkspaceCredentialReader::new()),
         Arc::new(MockSecretResolver::new()),
         Arc::new(MockHarnessCredentials::new()),
+        Arc::new(FixedCodex(None)),
         Some(SECRET.to_string()),
         ModelGatewayConfig::default(),
-        ANTHROPIC,
+        ProviderBases::default(),
         moatless_core::config::HttpConfig::default().model_gateway,
     )
 }
@@ -265,6 +269,7 @@ async fn the_upstream_status_headers_and_stream_pass_through() {
     headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
     let request = stream::upstream_request(
         &gateway.http,
+        Method::POST,
         &format!("{base}/v1/messages"),
         &headers,
         Body::from("{\"model\":\"claude\"}"),

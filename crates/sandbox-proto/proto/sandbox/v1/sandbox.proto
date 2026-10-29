@@ -550,6 +550,10 @@ message AcknowledgeMessagesResponse {}
 message GetCredentialsRequest {
   string task_id = 1;
   // auth via gRPC metadata (authorization: Bearer <token>), not message fields
+  // Whether the pod's Codex reaches its model through the model gateway rather
+  // than an `auth.json` it refreshes itself. Unset until the pod has decided,
+  // and from pods that predate the gateway.
+  optional bool codex_via_gateway = 2;
 }
 
 message GetCredentialsResponse {

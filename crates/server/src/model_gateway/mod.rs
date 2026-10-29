@@ -6,9 +6,12 @@
 //! included, so the pod's classifier still recognises a usage limit.
 
 mod anthropic;
+#[cfg(test)]
+mod fakes;
+mod openai;
 mod routes;
 mod service;
 mod stream;
 
 pub use routes::model_gateway_router;
-pub use service::{ANTHROPIC_API_BASE, ModelGateway};
+pub use service::{ModelGateway, ProviderBases};

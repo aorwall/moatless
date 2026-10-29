@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use moatless_core::secret_keys::{
     ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, ANTHROPIC_BASE_URL, CLAUDE_CODE_OAUTH_TOKEN,
-    CODEX_AUTH_JSON, GITHUB_TOKEN, GITLAB_TOKEN, OPENAI_API_KEY, is_forgejo_credential_key,
+    CODEX_AUTH_JSON, GITHUB_TOKEN, GITLAB_TOKEN, OPENAI_API_KEY, OPENAI_BASE_URL,
+    is_forgejo_credential_key,
 };
 use tracing::warn;
 
@@ -134,6 +135,48 @@ pub async fn resolve_task_anthropic_credentials(
         matches!(
             key.as_str(),
             ANTHROPIC_API_KEY | ANTHROPIC_AUTH_TOKEN | ANTHROPIC_BASE_URL | CLAUDE_CODE_OAUTH_TOKEN
+        )
+    });
+    credentials
+}
+
+/// The OpenAI keys [`resolve_task_credentials`] would deliver for `actor`,
+/// with its precedence, for the model gateway's Codex upstream.
+///
+/// The Codex login is refreshed through `codex` unless a pod that refreshes its
+/// own `auth.json` is open in its scope.
+pub async fn resolve_task_openai_credentials(
+    actor: &Actor,
+    secrets: Option<&Arc<dyn SecretResolver>>,
+    codex: Option<&Arc<dyn CodexCredentials>>,
+    workspace_credentials: HashMap<String, String>,
+    workspace_env_vars: HashMap<String, String>,
+) -> HashMap<String, String> {
+    let mut credentials = workspace_credentials;
+    for (key, value) in workspace_env_vars {
+        if !is_platform_owned_key(&key) {
+            credentials.entry(key).or_insert(value);
+        }
+    }
+    let user_id = actor.user_id();
+    match codex {
+        Some(codex) if !credentials.contains_key(CODEX_AUTH_JSON) => {
+            match codex.ensure_fresh_codex_for(user_id, None).await {
+                Ok(Some(blob)) => {
+                    credentials.insert(CODEX_AUTH_JSON.to_string(), blob);
+                }
+                Ok(None) => {}
+                Err(e) => warn!(error = %e, user_id, "ensure_fresh_codex_for failed"),
+            }
+        }
+        _ => {}
+    }
+    let scoped = resolve_scoped_secrets(secrets, user_id, "").await;
+    fill_missing_from_scoped(&mut credentials, scoped);
+    credentials.retain(|key, _| {
+        matches!(
+            key.as_str(),
+            OPENAI_API_KEY | OPENAI_BASE_URL | CODEX_AUTH_JSON
         )
     });
     credentials

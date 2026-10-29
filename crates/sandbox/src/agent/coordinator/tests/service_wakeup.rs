@@ -51,6 +51,7 @@ async fn coordinator_service_arms_and_fires_scheduled_wakeup() {
         Arc::new(crate::commands::CommandRegistry::for_test()),
         CredentialFailureDetector::default(),
         Arc::new(Dispatcher::new()),
+        Default::default(),
         crate::workspace_sync::WorkspaceSyncTracker::new(),
     );
     let (tx, rx) = mpsc::channel::<AgentCommand>(64);

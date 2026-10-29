@@ -45,6 +45,7 @@ pub(crate) async fn compose_task_context(
         Arc::clone(&commands),
         credential_failures.clone(),
         Arc::clone(&shared.credential_dispatcher),
+        Arc::clone(&shared.codex_via_gateway),
         Arc::clone(&system_prompt_cache),
         shared.heartbeat.clone(),
         shared.workspace_sync.clone(),

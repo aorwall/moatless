@@ -245,9 +245,10 @@ impl AppState {
             workspace_credentials.clone(),
             secrets.clone(),
             harness_credentials.clone(),
+            credential_sync.clone(),
             config.sandbox.task_token_secret.clone(),
             config.model_gateway.clone(),
-            crate::model_gateway::ANTHROPIC_API_BASE,
+            crate::model_gateway::ProviderBases::default(),
             config.http.model_gateway,
         ));
         let agent_harness_access = Arc::new(AgentHarnessAccess::new(

@@ -1,22 +1,29 @@
 //! Forwarding one model request upstream and streaming the answer back.
 
 use axum::body::Body;
-use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use futures::TryStreamExt;
 use tracing::warn;
 
 /// An upstream request, before the credential is attached: the caller's
-/// headers minus hop-by-hop ones and its task token, and its body streamed.
+/// headers minus hop-by-hop ones and its credentials, and its body streamed.
+///
+/// A `GET` carries no body: a streamed one would add a chunked encoding the
+/// upstream may refuse on a bodiless method.
 pub fn upstream_request(
     http: &reqwest::Client,
+    method: Method,
     url: &str,
     headers: &HeaderMap,
     body: Body,
 ) -> reqwest::RequestBuilder {
-    let mut request = http.post(url).body(reqwest::Body::wrap_stream(
-        body.into_data_stream().map_err(std::io::Error::other),
-    ));
+    let mut request = http.request(method.clone(), url);
+    if method != Method::GET {
+        request = request.body(reqwest::Body::wrap_stream(
+            body.into_data_stream().map_err(std::io::Error::other),
+        ));
+    }
     for (name, value) in headers {
         if forwards(name) && !carries_credential(name) && !describes_the_caller(name) {
             request = request.header(name, value);
@@ -67,9 +74,10 @@ fn forwards(name: &HeaderName) -> bool {
     )
 }
 
-/// The headers a caller presents its task token in, which never go upstream.
+/// The headers a caller presents its task token in, or that name an account
+/// the gateway alone chooses, which never go upstream.
 fn carries_credential(name: &HeaderName) -> bool {
-    name == header::AUTHORIZATION || name.as_str() == "x-api-key"
+    name == header::AUTHORIZATION || matches!(name.as_str(), "x-api-key" | "chatgpt-account-id")
 }
 
 /// Headers about the caller's session or network path, which are the

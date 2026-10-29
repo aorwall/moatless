@@ -324,9 +324,10 @@ pub(crate) trait TaskDao: Send + Sync {
         task_ids: &[String],
     ) -> Result<std::collections::HashSet<String>, sqlx::Error>;
 
-    /// List task IDs of open codex tasks in scope, optionally excluding
-    /// `except_task_id` (`""` disables it). `scope_kind` is `"user"` or
-    /// `"global"`; owned `String` params keep `mockall::automock` happy.
+    /// Open codex tasks in scope whose pod refreshes its own Codex login,
+    /// except `except_task_id` (`""` for none). `scope_kind` is `"user"` or
+    /// `"global"`. A `codex_via_gateway` Sandbox never refreshes, so yielding
+    /// to it would serve an expired login.
     async fn list_open_codex_tasks_for_scope(
         &self,
         scope_kind: String,
@@ -1527,7 +1528,11 @@ impl TaskDao for PgTaskDao {
                        WHERE status = 'open'
                          AND agent_profile = 'codex'
                          AND created_by = $1
-                         AND ($2::text IS NULL OR task_id <> $2)"#,
+                         AND ($2::text IS NULL OR task_id <> $2)
+                         AND NOT EXISTS (
+                             SELECT 1 FROM sandboxes s
+                             WHERE s.sandbox_id = tasks.sandbox_id AND s.codex_via_gateway
+                         )"#,
                 )
                 .bind(&scope_id)
                 .bind(except)
@@ -1539,7 +1544,11 @@ impl TaskDao for PgTaskDao {
                     r#"SELECT task_id FROM tasks
                        WHERE status = 'open'
                          AND agent_profile = 'codex'
-                         AND ($1::text IS NULL OR task_id <> $1)"#,
+                         AND ($1::text IS NULL OR task_id <> $1)
+                         AND NOT EXISTS (
+                             SELECT 1 FROM sandboxes s
+                             WHERE s.sandbox_id = tasks.sandbox_id AND s.codex_via_gateway
+                         )"#,
                 )
                 .bind(except)
                 .fetch_all(&self.pool)

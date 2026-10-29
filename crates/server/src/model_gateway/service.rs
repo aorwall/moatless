@@ -9,10 +9,12 @@ use moatless_core::sandbox_jwt::{
     GenerationError, TokenGenerations, check_generation, verify_user_auth_token,
 };
 use moatless_ports::identity::{HarnessCredentials, SecretResolver};
+use moatless_ports::sandbox::CodexCredentials;
 use moatless_sandbox_control::secrets::{
-    resolve_task_actor, resolve_task_anthropic_credentials, resolve_workspace_credentials,
-    resolve_workspace_env_vars,
+    resolve_task_actor, resolve_task_anthropic_credentials, resolve_task_openai_credentials,
+    resolve_workspace_credentials, resolve_workspace_env_vars,
 };
+use moatless_types::access_control::Actor;
 use moatless_types::http::HttpStreamTimeouts;
 use moatless_workspace_ports::{WorkspaceCredentialReader, WorkspaceResolver};
 use tracing::warn;
@@ -21,6 +23,31 @@ use crate::sandbox::lifecycle::SandboxIngress;
 
 /// Anthropic's API root, which a task's own Anthropic credential is sent to.
 pub const ANTHROPIC_API_BASE: &str = "https://api.anthropic.com";
+
+/// The OpenAI API root, which a task's own OpenAI API key is sent to.
+pub const OPENAI_API_BASE: &str = "https://api.openai.com/v1";
+
+/// The root Codex itself sends a ChatGPT login's requests to.
+pub const CHATGPT_CODEX_BASE: &str = "https://chatgpt.com/backend-api/codex";
+
+/// The model roots a [`ModelGateway`] presents a task's own credential to,
+/// each without a trailing `/`; a test points them at a fake.
+#[derive(Debug, Clone)]
+pub struct ProviderBases {
+    pub anthropic: String,
+    pub openai: String,
+    pub chatgpt: String,
+}
+
+impl Default for ProviderBases {
+    fn default() -> Self {
+        Self {
+            anthropic: ANTHROPIC_API_BASE.to_string(),
+            openai: OPENAI_API_BASE.to_string(),
+            chatgpt: CHATGPT_CODEX_BASE.to_string(),
+        }
+    }
+}
 
 /// The sandbox a verified task token was minted for.
 #[derive(Debug, Clone)]
@@ -56,12 +83,12 @@ pub struct ModelGateway {
     workspace_credentials: Arc<dyn WorkspaceCredentialReader>,
     secrets: Arc<dyn SecretResolver>,
     harness_credentials: Arc<dyn HarnessCredentials>,
+    codex: Arc<dyn CodexCredentials>,
     /// `None` in a deployment that mints no task tokens, which refuses every
     /// request rather than admitting an unverifiable one.
     task_token_secret: Option<String>,
     pub(super) config: ModelGatewayConfig,
-    /// Anthropic's root, without a trailing `/`; a test points it at a fake.
-    pub(super) anthropic_base: String,
+    pub(super) bases: ProviderBases,
     pub(super) http: reqwest::Client,
 }
 
@@ -96,9 +123,10 @@ impl ModelGateway {
         workspace_credentials: Arc<dyn WorkspaceCredentialReader>,
         secrets: Arc<dyn SecretResolver>,
         harness_credentials: Arc<dyn HarnessCredentials>,
+        codex: Arc<dyn CodexCredentials>,
         task_token_secret: Option<String>,
         config: ModelGatewayConfig,
-        anthropic_base: &str,
+        bases: ProviderBases,
         timeouts: HttpStreamTimeouts,
     ) -> Self {
         Self {
@@ -108,9 +136,10 @@ impl ModelGateway {
             workspace_credentials,
             secrets,
             harness_credentials,
+            codex,
             task_token_secret,
             config,
-            anthropic_base: anthropic_base.trim_end_matches('/').to_string(),
+            bases,
             http: http_client(timeouts),
         }
     }
@@ -184,6 +213,36 @@ impl ModelGateway {
         &self,
         scope: &SandboxScope,
     ) -> Result<HashMap<String, String>, GatewayError> {
+        let inputs = self.task_inputs(scope).await?;
+        Ok(resolve_task_anthropic_credentials(
+            &inputs.actor,
+            Some(&self.secrets),
+            Some(&self.harness_credentials),
+            inputs.pinned,
+            inputs.env_vars,
+        )
+        .await)
+    }
+
+    /// The OpenAI credentials `GetCredentials` would deliver to `scope`'s pod,
+    /// its Codex login refreshed first: the gateway is that login's only
+    /// presenter.
+    pub async fn openai_credentials(
+        &self,
+        scope: &SandboxScope,
+    ) -> Result<HashMap<String, String>, GatewayError> {
+        let inputs = self.task_inputs(scope).await?;
+        Ok(resolve_task_openai_credentials(
+            &inputs.actor,
+            Some(&self.secrets),
+            Some(&self.codex),
+            inputs.pinned,
+            inputs.env_vars,
+        )
+        .await)
+    }
+
+    async fn task_inputs(&self, scope: &SandboxScope) -> Result<TaskInputs, GatewayError> {
         // An unreadable pin fails the request rather than falling back to the
         // actor's own credential, as `GetCredentials` refuses to.
         let pinned = resolve_workspace_credentials(
@@ -204,13 +263,17 @@ impl ModelGateway {
             &scope.user,
         )
         .await;
-        Ok(resolve_task_anthropic_credentials(
-            &actor,
-            Some(&self.secrets),
-            Some(&self.harness_credentials),
+        Ok(TaskInputs {
+            actor,
             pinned,
             env_vars,
-        )
-        .await)
+        })
     }
+}
+
+/// What a task's credentials resolve from, read once per request.
+struct TaskInputs {
+    actor: Actor,
+    pinned: HashMap<String, String>,
+    env_vars: HashMap<String, String>,
 }

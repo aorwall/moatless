@@ -597,3 +597,33 @@ async fn delete_errored_empty_task_keeps_another_users_task(pool: PgPool) {
     );
     assert!(task_exists(&pool, "t1").await);
 }
+
+/// The Codex refresh guard yields only to a pod that refreshes its own login:
+/// one whose Sandbox reports `codex_via_gateway` never refreshes, so counting
+/// it would leave the gateway serving an expired login.
+#[sqlx::test]
+async fn the_codex_refresh_guard_counts_only_pods_that_refresh_their_own_login(pool: PgPool) {
+    for task_id in ["t-legacy", "t-gateway"] {
+        seed_bare_task(&pool, task_id, "open").await;
+    }
+    sqlx::query("UPDATE tasks SET agent_profile = 'codex'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let route = |sandbox_id: &'static str| {
+        sqlx::query("UPDATE sandboxes SET codex_via_gateway = true WHERE sandbox_id = $1")
+            .bind(sandbox_id)
+    };
+    route("t-gateway").execute(&pool).await.unwrap();
+    let dao = store_over(&pool);
+    let open = |kind: &str, id: &str| {
+        dao.list_open_codex_tasks_for_scope(kind.to_string(), id.to_string(), String::new())
+    };
+
+    assert_eq!(open("user", "user-1").await.unwrap(), ["t-legacy"]);
+    assert_eq!(open("global", "").await.unwrap(), ["t-legacy"]);
+
+    route("t-legacy").execute(&pool).await.unwrap();
+    assert!(open("user", "user-1").await.unwrap().is_empty());
+    assert!(open("global", "").await.unwrap().is_empty());
+}

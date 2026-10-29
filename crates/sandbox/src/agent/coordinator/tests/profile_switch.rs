@@ -51,6 +51,7 @@ fn service(
         Arc::new(crate::commands::CommandRegistry::for_test()),
         CredentialFailureDetector::default(),
         Arc::new(Dispatcher::new()),
+        Default::default(),
         crate::workspace_sync::WorkspaceSyncTracker::new(),
     )
     .with_harness_factory(factory);

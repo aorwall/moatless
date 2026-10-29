@@ -119,7 +119,16 @@ impl RealEnv {
             .filter(|u| !u.trim().is_empty());
         std::fs::write(
             codex_home.join("config.toml"),
-            moatless_sandbox::init::codex_config::render_config_toml(base_url.as_deref()),
+            moatless_sandbox::init::codex_config::render_config_toml(
+                base_url
+                    .as_deref()
+                    .map(
+                        |base_url| moatless_sandbox::init::codex_config::ModelRoute::Hub {
+                            base_url,
+                        },
+                    )
+                    .as_ref(),
+            ),
         )
         .unwrap();
         if let Ok(auth) = std::env::var("CODEX_AUTH_JSON") {

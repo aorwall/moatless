@@ -78,6 +78,9 @@ pub use moatless_types::credential_key::{
 /// OpenAI API key — a Codex agent's model credential.
 pub const OPENAI_API_KEY: &str = "OPENAI_API_KEY";
 
+/// Where a Codex agent sends its OpenAI requests.
+pub const OPENAI_BASE_URL: &str = "OPENAI_BASE_URL";
+
 /// Key names controlled by the platform/runtime.
 pub const RESERVED_SECRET_KEYS: &[&str] = &[
     "TASK_ID",
