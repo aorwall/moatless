@@ -179,6 +179,7 @@ jobs:
               - 'docker/docker-entrypoint-sandbox.sh'
               - 'docker/sync-plugins.sh'
               - 'docker/moatless-git-cred.sh'
+              - 'docker/git-remote-github.sh'
               - '.github/workflows/ci.yml'
             sandbox-base:
               - 'docker/Dockerfile.sandbox-base'

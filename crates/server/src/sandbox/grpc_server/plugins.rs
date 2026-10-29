@@ -66,12 +66,7 @@ pub(super) async fn fetch_plugin(
         return Err(Status::failed_precondition("Plugins need a database"));
     };
 
-    let targets = resolve_task_credential_targets(
-        Some(&handlers.sandboxes),
-        Some(&handlers.workspace_resolver),
-        &task_id,
-    )
-    .await;
+    let targets = resolve_task_credential_targets(Some(&handlers.sandboxes), &task_id).await;
     let Some(workspace_id) = targets.workspace_id.as_deref() else {
         return Err(Status::not_found("Task has no workspace"));
     };

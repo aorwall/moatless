@@ -38,7 +38,9 @@ pub struct Config {
     pub sandbox_grpc_port: String,
     /// The repository the caller already names for `gh` through `GH_REPO`.
     pub gh_repo: Option<String>,
-    /// Whether `GH_TOKEN` or `GITHUB_TOKEN` holds a non-blank token.
+    /// Whether `GH_TOKEN` or `GITHUB_TOKEN` holds a non-blank token. Read only
+    /// off a sandbox: inside one, `gh` reaches GitHub through the backend
+    /// proxy and no GitHub token is delivered to the pod.
     pub github_token_set: bool,
     /// Every HTTP client's timeouts.
     pub http: HttpConfig,

@@ -86,15 +86,14 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     registrar.supervise("grpc-server", Criticality::Fatal, grpc_server);
 
     // Spawn the credential broker on a unix socket. Git is configured to use
-    // a helper script that hits this socket on every push/fetch, so tokens
-    // are pulled fresh from the backend on every request.
+    // a helper script that hits this socket on every push/fetch, so it is
+    // handed the task token current at that moment.
     //
     // Spawned BEFORE the init task so the socket exists by the time
     // `init/git.rs` wires the helper into git config.
     let broker_socket =
         std::path::Path::new(&state.config.runtime_dir).join(CREDENTIAL_BROKER_SOCKET_FILE);
     let broker_state = BrokerState {
-        task_id: state.config.task_id.clone(),
         backend_client: Arc::clone(&state.backend_client),
         backend_host: state.config.backend_api_host(),
     };

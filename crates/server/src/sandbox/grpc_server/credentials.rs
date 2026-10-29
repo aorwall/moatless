@@ -31,7 +31,6 @@ impl CredentialKey {
     /// Re-minted every fetch, so the sandbox's 15-minute refresh loop
     /// propagates a rotation.
     pub const USER_AUTH_TOKEN: &str = credential_key::USER_AUTH_TOKEN;
-    pub const GITHUB_TOKEN: &str = secret_keys::GITHUB_TOKEN;
     pub const GITLAB_TOKEN: &str = secret_keys::GITLAB_TOKEN;
     pub const CODEX_AUTH_JSON: &str = secret_keys::CODEX_AUTH_JSON;
     pub const OPENAI_API_KEY: &str = secret_keys::OPENAI_API_KEY;
@@ -111,12 +110,8 @@ pub(super) async fn get_credentials(
     );
 
     let handlers = service.handlers.as_ref();
-    let targets = resolve_task_credential_targets(
-        handlers.map(|h| &h.sandboxes),
-        handlers.map(|h| &h.workspace_resolver),
-        &req.task_id,
-    )
-    .await;
+    let targets =
+        resolve_task_credential_targets(handlers.map(|h| &h.sandboxes), &req.task_id).await;
     // A workspace credential that cannot be read must not degrade into the
     // run-as user's own token: the sandbox would come up authenticated as the
     // wrong account. Failing the fetch leaves the pod retrying instead.
@@ -161,7 +156,6 @@ pub(super) async fn get_credentials(
         secrets: handlers.map(|h| &h.secrets),
         provider_tokens: handlers.map(|h| &h.harness_credentials),
         git_host_tokens: handlers.map(|h| &h.git_host_tokens),
-        repository: targets.repository.as_ref(),
         users: handlers.map(|h| &h.commit_identity),
         credential_sync: codex_credentials.as_ref(),
         workspace_credentials,
@@ -176,7 +170,6 @@ pub(super) async fn get_credentials(
     info!(
         task_id = %req.task_id,
         user_id = %grant.ctx.user_id,
-        has_github = credentials.contains_key(CredentialKey::GITHUB_TOKEN),
         has_gitlab = credentials.contains_key(CredentialKey::GITLAB_TOKEN),
         has_codex_auth = credentials.contains_key(CredentialKey::CODEX_AUTH_JSON),
         has_openai = credentials.contains_key(CredentialKey::OPENAI_API_KEY),

@@ -44,8 +44,8 @@ impl std::fmt::Display for CredentialFetchError {
 /// Keys that must NOT be set in the sandbox process environment via `set_var`.
 ///
 /// A value set there freezes for the pod's lifetime and outlives the token
-/// behind it. `gh` reaches GitHub through `github_proxy` instead, and git takes
-/// its tokens from `SandboxState::git_credentials` and the broker.
+/// behind it. `gh` and git reach GitHub through the backend's proxies, and git
+/// takes a GitLab token from `SandboxState::git_credentials`.
 const ENV_SET_BLOCKLIST: &[&str] = &["GITHUB_TOKEN", GH_TOKEN, "GITLAB_TOKEN", GIT_TOKEN];
 
 /// Keys that must NOT be inherited by the agent subprocess, which would
@@ -147,15 +147,12 @@ pub async fn fetch_and_apply_credentials_with_mode(
                     }
                 }
 
-                // Map provider-specific token to GIT_TOKEN based on GIT_PROVIDER
-                // so git.rs has one name for the pod provider's token.
-                let git_provider = state.config.git_provider.as_str();
-                let provider_token_key = match git_provider {
-                    "gitlab" => "GITLAB_TOKEN",
-                    _ => "GITHUB_TOKEN", // default to GitHub
-                };
-                if let Some(token) = resp.credentials.get(provider_token_key).cloned() {
-                    resp.credentials.insert(GIT_TOKEN.to_string(), token);
+                // A GitLab pod's token is also its `GIT_TOKEN`, so git.rs has one
+                // name for it. GitHub has none: it is reached through the proxy.
+                if state.config.git_provider == "gitlab" {
+                    if let Some(token) = resp.credentials.get("GITLAB_TOKEN").cloned() {
+                        resp.credentials.insert(GIT_TOKEN.to_string(), token);
+                    }
                 }
                 *state.git_credentials.write().await =
                     GitCredentials::from_credentials(&resp.credentials)

@@ -45,6 +45,10 @@ fn parse_github_remote_forms() {
         parse_github_remote("ssh://git@github.com/o/r.git"),
         Some(("o".into(), "r".into()))
     );
+    assert_eq!(
+        parse_github_remote("git+https://github.com/o/r.git"),
+        Some(("o".into(), "r".into()))
+    );
     assert_eq!(parse_github_remote("https://gitlab.com/o/r.git"), None);
 }
 

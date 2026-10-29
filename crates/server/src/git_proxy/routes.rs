@@ -20,5 +20,17 @@ pub fn git_proxy_router(state: AppState) -> Router {
             "/git/{repository_id}/git-receive-pack",
             post(handlers::receive_pack),
         )
+        .route(
+            "/git/github/{owner}/{name}/info/refs",
+            get(handlers::github_info_refs),
+        )
+        .route(
+            "/git/github/{owner}/{name}/git-upload-pack",
+            post(handlers::github_upload_pack),
+        )
+        .route(
+            "/git/github/{owner}/{name}/git-receive-pack",
+            post(handlers::github_receive_pack),
+        )
         .with_state(state)
 }

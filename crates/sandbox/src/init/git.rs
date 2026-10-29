@@ -17,40 +17,21 @@ use tracing::{info, warn};
 use crate::config::Config;
 use crate::credentials::broker::BROKER_HELPER_PATH;
 
-/// Configure git authentication: the broker-backed credential helper (plus
-/// `gh api user` for identity on GitHub), a token-based helper on other
-/// providers.
+/// Configure git authentication: the broker-backed credential helper for the
+/// backend's git proxy, every github.com URL routed through that proxy, and
+/// the git identity (from `gh api user` on GitHub).
 pub async fn configure_git(config: &Config, credentials: &GitCredentials) -> Result<(), String> {
     let is_github = config.git_provider == "github";
     let proxy_origin = config.backend_api_origin();
 
-    // Ahead of the no-token exits below, which a pod holding only proxied repos
+    // Ahead of the no-token exit below, which a pod holding only proxied repos
     // would otherwise take before reaching this.
-    for origin in broker_origins(config) {
-        wire_broker_git_helper(&origin).await;
+    if let Some(origin) = &proxy_origin {
+        wire_broker_git_helper(origin).await;
     }
+    route_github_through_proxy(config).await;
 
-    if is_github {
-        // Do not run `gh auth setup-git`: `gh` holds only a placeholder token
-        // (`credentials::gh_config`), and its helper would answer github.com
-        // with that instead of the broker's token.
-        if credentials.get(GIT_TOKEN).is_none() {
-            info!("No git token set — skipping the git identity");
-            return Ok(());
-        }
-
-        // SSH to HTTPS conversion (GitHub only)
-        let _ = run_command(
-            "git",
-            &[
-                "config",
-                "--global",
-                "url.https://github.com/.insteadOf",
-                "git@github.com:",
-            ],
-        )
-        .await;
-    } else if credentials.get(GIT_TOKEN).is_none() && proxy_origin.is_none() {
+    if !is_github && credentials.get(GIT_TOKEN).is_none() && proxy_origin.is_none() {
         info!(provider = %config.git_provider, "No git token set — skipping the provider helper and the git identity");
         return Ok(());
     }
@@ -104,6 +85,100 @@ pub async fn configure_git(config: &Config, credentials: &GitCredentials) -> Res
     Ok(())
 }
 
+/// The remote helper `docker/git-remote-github.sh` is installed as, which git
+/// runs for every `git+https://` URL.
+pub const GITHUB_REMOTE_HELPER_PATH: &str = "/usr/local/bin/git-remote-git+https";
+
+/// The scheme every github.com URL is rewritten to, which only
+/// [`GITHUB_REMOTE_HELPER_PATH`] serves.
+const GITHUB_HELPER_BASE: &str = "git+https://github.com/";
+
+/// Route every github.com fetch and push through the backend git proxy, so the
+/// pod needs no GitHub token, `git@github.com:` URLs included.
+///
+/// Rewrites to [`GITHUB_HELPER_BASE`] rather than the proxy URL: `gh` reads
+/// the rewritten URL from `git remote -v`, and refuses a proxy URL as no
+/// GitHub repository.
+async fn route_github_through_proxy(config: &Config) {
+    if !Path::new(GITHUB_REMOTE_HELPER_PATH).exists() {
+        info!(
+            path = GITHUB_REMOTE_HELPER_PATH,
+            "GitHub remote helper not present — github.com URLs reach GitHub directly"
+        );
+        return;
+    }
+    let Some(settings) = github_proxy_settings(config) else {
+        info!("No backend URL — github.com URLs reach GitHub directly");
+        return;
+    };
+    for (key, value) in &settings {
+        if let Err(e) = run_command("git", &["config", "--global", key, value]).await {
+            warn!(error = %e, key, "Failed to map a GitHub repository to the git proxy");
+            return;
+        }
+    }
+    let rewrite = format!("url.{GITHUB_HELPER_BASE}.insteadOf");
+    // An earlier image rewrote SSH to plain HTTPS; git applies one rewrite, so
+    // that one would win over this for `git@github.com:` and skip the proxy.
+    let _ = run_command(
+        "git",
+        &[
+            "config",
+            "--global",
+            "--unset-all",
+            "url.https://github.com/.insteadOf",
+        ],
+    )
+    .await;
+    let _ = run_command("git", &["config", "--global", "--unset-all", &rewrite]).await;
+    for base in ["https://github.com/", "git@github.com:"] {
+        if let Err(e) = run_command("git", &["config", "--global", "--add", &rewrite, base]).await {
+            warn!(error = %e, base, "Failed to route GitHub URLs through the git proxy");
+        }
+    }
+    // A submodule fetch runs with `GIT_PROTOCOL_FROM_USER=0`, which refuses an
+    // unknown scheme unless it is allowed outright.
+    let _ = run_command(
+        "git",
+        &["config", "--global", "protocol.git+https.allow", "always"],
+    )
+    .await;
+    info!("Routed github.com through the backend git proxy");
+}
+
+/// The `git config` keys [`GITHUB_REMOTE_HELPER_PATH`] resolves a GitHub URL
+/// with: `moatless-github.proxy`, the proxy's route for any repository, and one
+/// `moatless-github.<owner/name>.url` per registered checkout, lowercased as
+/// GitHub matches them. `None` with no `BACKEND_API_URL`.
+pub(crate) fn github_proxy_settings(config: &Config) -> Option<Vec<(String, String)>> {
+    let base = config
+        .backend_api_url
+        .as_deref()
+        .filter(|url| !url.is_empty())?
+        .trim_end_matches('/');
+    let mut settings = vec![(
+        "moatless-github.proxy".to_string(),
+        format!("{base}/git/github"),
+    )];
+    for repo in &config.repos {
+        let Some(upstream) = config.github_upstreams.get(&repo.mount_name) else {
+            continue;
+        };
+        let Some((owner, name)) = crate::git_push_watcher::github_repo_from_url(upstream) else {
+            continue;
+        };
+        settings.push((
+            format!(
+                "moatless-github.{}/{}.url",
+                owner.to_ascii_lowercase(),
+                name.to_ascii_lowercase()
+            ),
+            repo.clone_url.clone(),
+        ));
+    }
+    Some(settings)
+}
+
 /// The outcome of cloning the workspace's repositories.
 pub struct CloneSummary {
     /// Mount names freshly cloned in this pass; empty when every repo was
@@ -115,10 +190,10 @@ pub struct CloneSummary {
     pub primary_recloned: bool,
 }
 
-/// The origins git asks the credential broker about
-/// (`credentials::broker::get_git_credential`): github.com whatever the pod's
-/// own provider, and the backend wherever it is known, so `moat repos clone`
-/// reaches a repository the Workspace places no checkout for.
+/// The origins whose URLs carry no credential of their own: the backend,
+/// which the broker answers (`credentials::broker::get_git_credential`), and
+/// github.com, which [`route_github_through_proxy`] sends to it. A credential
+/// left in such a URL would outrank both.
 pub(crate) fn broker_origins(config: &Config) -> Vec<String> {
     let mut origins = vec![GITHUB_ORIGIN.to_string()];
     origins.extend(config.backend_api_origin());
@@ -561,14 +636,13 @@ fn git_clone_args<'a>(url: &'a str, dest: &'a str, branch: Option<&'a str>) -> V
 /// remote's `owner/repo`.
 pub(crate) const GITHUB_REMOTE: &str = "github";
 
-/// `git clone --config` values adding [`GITHUB_REMOTE`]: fetched from
-/// `upstream`, pushed through `proxy_url`, so a `gh pr checkout` branch pushes
-/// through the proxy. `gh` refuses a branch without the tracking refspec;
-/// `skipFetchAll` keeps `git fetch --all` on the proxy.
-fn github_remote_config(upstream: &str, proxy_url: &str) -> [String; 4] {
+/// `git clone --config` values adding [`GITHUB_REMOTE`] at `upstream`, which
+/// [`route_github_through_proxy`] sends to the same proxy URL as `origin`.
+/// `gh` refuses a branch without the tracking refspec; `skipFetchAll` keeps
+/// `git fetch --all` from fetching the same repository twice.
+fn github_remote_config(upstream: &str) -> [String; 3] {
     [
         format!("remote.{GITHUB_REMOTE}.url={upstream}"),
-        format!("remote.{GITHUB_REMOTE}.pushurl={proxy_url}"),
         format!("remote.{GITHUB_REMOTE}.fetch=+refs/heads/*:refs/remotes/{GITHUB_REMOTE}/*"),
         format!("remote.{GITHUB_REMOTE}.skipFetchAll=true"),
     ]
@@ -606,9 +680,7 @@ async fn clone_checkout(
     if broker_answers {
         // Never fall back to a token in the URL: it outranks the broker's
         // helper and keeps being sent after it expires.
-        let github_remote = source
-            .github_upstream
-            .map(|upstream| github_remote_config(upstream, clone_url));
+        let github_remote = source.github_upstream.map(github_remote_config);
         let mut git_args = git_clone_args(clone_url, dest, branch);
         for setting in github_remote.iter().flatten() {
             git_args.insert(1, setting);
@@ -671,13 +743,7 @@ pub struct GitCredentials {
 }
 
 impl GitCredentials {
-    const KEYS: [&str; 5] = [
-        "GITHUB_TOKEN",
-        "GITLAB_TOKEN",
-        GIT_TOKEN,
-        "GIT_USER_NAME",
-        "GIT_USER_EMAIL",
-    ];
+    const KEYS: [&str; 4] = ["GITLAB_TOKEN", GIT_TOKEN, "GIT_USER_NAME", "GIT_USER_EMAIL"];
 
     /// Keep the git keys of a fetched credential map, dropping empty values.
     pub fn from_credentials(credentials: &HashMap<String, String>) -> Self {
@@ -704,18 +770,17 @@ impl GitCredentials {
         self.values.get(key).cloned()
     }
 
-    /// One provider's clone token. `GIT_TOKEN` backs a checkout only when it
-    /// matches the *pod's own* provider, never lending it to a foreign host.
+    /// One provider's clone token: GitLab's alone, since GitHub and Forgejo
+    /// clone through the backend proxy. `GIT_TOKEN` backs a checkout only when
+    /// it matches the *pod's own* provider, never lending it to a foreign host.
     ///
     /// Callers ask only for a checkout that does not clone through the backend
     /// proxy ([`Config::clones_through_proxy`]).
     fn provider_token(&self, provider: &str, pod_provider: &str) -> Option<String> {
-        let key = match provider {
-            "gitlab" => "GITLAB_TOKEN",
-            "github" => "GITHUB_TOKEN",
-            _ => return None,
-        };
-        self.get(key).or_else(|| {
+        if provider != "gitlab" {
+            return None;
+        }
+        self.get("GITLAB_TOKEN").or_else(|| {
             if provider == pod_provider {
                 self.get(GIT_TOKEN)
             } else {

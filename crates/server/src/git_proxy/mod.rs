@@ -3,7 +3,8 @@
 //! A Forgejo credential is never delivered to a pod. The pod clones from
 //! `{BACKEND_API_URL}/git/{repository_id}` presenting its own task token, and
 //! this module resolves that to the repository's real remote and the token the
-//! task's run-as identity holds for it.
+//! task's run-as identity holds for it. `/git/github/{owner}/{name}` does the
+//! same for any github.com repository, so a pod reaches GitHub holding no token.
 
 mod body;
 #[cfg(test)]

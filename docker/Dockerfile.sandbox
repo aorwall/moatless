@@ -26,7 +26,13 @@ FROM ${SANDBOX_BASE}
 # invalidate the binary COPY layer below (and vice versa).
 COPY --from=sandbox_tools /tools/docker-entrypoint-sandbox.sh /usr/local/bin/docker-entrypoint-sandbox.sh
 COPY --from=sandbox_tools /tools/moatless-git-cred /usr/local/bin/moatless-git-cred
-RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/moatless-git-cred
+COPY --from=sandbox_tools /tools/git-remote-git+https /usr/local/bin/git-remote-git+https
+RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/moatless-git-cred /usr/local/bin/git-remote-git+https
+# libgit2, which cargo fetches with by default, applies the global
+# `url.git+https://github.com/.insteadOf` but has no `git+https` transport, so a
+# github.com git dependency fails ("invalid argument: 'port'"). The git CLI runs
+# `git-remote-git+https`.
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 
 # Volatile layers last — our Rust binaries change on every code edit.
 ARG TARGETARCH

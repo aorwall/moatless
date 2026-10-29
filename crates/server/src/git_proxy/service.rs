@@ -8,7 +8,7 @@ use moatless_core::sandbox_jwt::{
 };
 use moatless_ports::identity::{CommitIdentity, GitHostTokenError, GitHostTokenIssuer};
 use moatless_sandbox_control::secrets::{resolve_task_actor, resolve_task_git_token};
-use moatless_types::access_control::{ScopeContext, ScopedResource};
+use moatless_types::access_control::{Actor, ScopeContext, ScopedResource};
 use moatless_types::http::HttpStreamTimeouts;
 use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
 use moatless_workspace_types::repository::{GitHostRepo, Repository};
@@ -24,8 +24,9 @@ pub struct Upstream {
     /// connection its own credential travels over.
     pub base_url: String,
     /// Presented as the HTTP Basic password, which is how git hosts take a
-    /// token over smart-HTTP.
-    pub token: String,
+    /// token over smart-HTTP. `None` fetches anonymously; see
+    /// [`github_credential`].
+    pub token: Option<String>,
     /// For the request log. The token is never logged.
     pub host: String,
     /// `{owner}/{name}` on `host`.
@@ -35,6 +36,29 @@ pub struct Upstream {
     pub run_as_user_id: String,
     /// The Workspace of the Sandbox the task token names.
     pub workspace_id: String,
+}
+
+impl Upstream {
+    fn new(repo: &GitHostRepo, token: Option<String>, actor: &Actor, workspace_id: String) -> Self {
+        let host = repo.host().to_string();
+        Self {
+            base_url: format!("https://{host}/{}/{}.git", repo.owner(), repo.name()),
+            host,
+            token,
+            path: format!("{}/{}", repo.owner(), repo.name()),
+            run_as_user_id: actor.user_id().to_string(),
+            workspace_id,
+        }
+    }
+}
+
+/// Who a verified task token speaks for.
+#[expect(clippy::struct_field_names, reason = "each field is a row id")]
+struct Caller {
+    /// The token's own `userId`, the Sandbox's owner.
+    user_id: String,
+    sandbox_id: String,
+    workspace_id: String,
 }
 
 /// What git shows, as `remote:` lines, when `upstream`'s host answers 404.
@@ -47,6 +71,17 @@ fn refusal_message(upstream: &Upstream, login: Option<&str>) -> String {
         Some(login) => format!("{login} ({})", upstream.run_as_user_id),
         None => upstream.run_as_user_id.clone(),
     };
+    if upstream.token.is_none() {
+        return format!(
+            "{host} answered not found for {path}.\n\
+             Moatless user {user}, this task's run-as identity, has no {host} connection, \
+             so the proxy fetched anonymously.\n\
+             Either {path} does not exist on {host}, or it is private: connect {host} \
+             for that user.\n",
+            host = upstream.host,
+            path = upstream.path,
+        );
+    }
     format!(
         "{host} answered not found for {path}.\n\
          The proxy presented the {host} credential of Moatless user {user}, this task's \
@@ -148,48 +183,13 @@ impl GitProxy {
         repository_id: &str,
         task_token: &str,
     ) -> Result<Upstream, GitProxyError> {
-        let secret = self.task_token_secret.as_deref().ok_or_else(|| {
-            GitProxyError::Unauthorized(
-                "This deployment verifies no task tokens, so it proxies no git traffic".to_string(),
-            )
-        })?;
-        let claims = verify_user_auth_token(task_token, secret)
-            .map_err(|e| GitProxyError::Unauthorized(format!("Invalid task token: {e}")))?;
-        // `generate_user_auth_token` binds the token to a Sandbox, not to a
-        // Task: a shared Sandbox runs several Member tasks off one pod and one
-        // checkout, so the Sandbox is what a clone belongs to.
-        let sandbox_id = claims.sandbox_id.as_deref().ok_or_else(|| {
-            GitProxyError::Unauthorized("The task token names no sandbox".to_string())
-        })?;
-        check_generation(
-            self.token_generations.as_ref(),
-            sandbox_id,
-            claims.generation,
-        )
-        .await
-        .map_err(|e| match e {
-            GenerationError::Stale { .. } | GenerationError::NoSandbox => {
-                GitProxyError::Unauthorized(e.to_string())
-            }
-            GenerationError::Lookup(_) => GitProxyError::Upstream(e.to_string()),
-        })?;
-
-        let workspace_id = self
-            .sandboxes
-            .workspace_id(sandbox_id)
-            .await
-            .map_err(|e| {
-                warn!(error = %e, sandbox_id, "Failed to read the sandbox for a proxied git request");
-                GitProxyError::Upstream("Failed to read the sandbox".to_string())
-            })?
-            .ok_or(GitProxyError::NotFound)?;
-
+        let caller = self.authenticate(task_token).await?;
         let placed = self
             .workspaces
-            .placements(&workspace_id)
+            .placements(&caller.workspace_id)
             .await
             .map_err(|e| {
-                warn!(error = %e, workspace_id, "Failed to read the workspace placements");
+                warn!(error = %e, workspace_id = %caller.workspace_id, "Failed to read the workspace placements");
                 GitProxyError::Upstream("Failed to read the workspace".to_string())
             })?
             .into_iter()
@@ -201,29 +201,17 @@ impl GitProxy {
             None => usable_repository(
                 &self.repositories,
                 &self.users,
-                &claims.user_id,
+                &caller.user_id,
                 repository_id,
             )
             .await
             .ok_or(GitProxyError::NotFound)?,
         };
 
-        let repo = git_host_repo(&repository).ok_or(GitProxyError::NotFound)?;
-        let run_as_user_id = self
-            .sandboxes
-            .run_as_user_id(sandbox_id)
-            .await
-            .unwrap_or_else(|e| {
-                warn!(error = %e, sandbox_id, "Failed to read the sandbox run-as identity");
-                None
-            });
-        let actor = resolve_task_actor(
-            Some(&self.workspaces),
-            Some(&workspace_id),
-            run_as_user_id.as_deref(),
-            &claims.user_id,
-        )
-        .await;
+        let repo = git_host_repo(&repository)
+            .ok_or(GitProxyError::NotFound)?
+            .clone();
+        let actor = self.actor(&caller).await;
 
         // Through the resolver the pre-provision preflight uses, so a clone this
         // proxy refuses is one `preflight_validate_git_credential` would have
@@ -238,15 +226,98 @@ impl GitProxy {
                 // repository, and this is the condition it maps to `NotFound`.
                 None => return Err(GitProxyError::NotFound),
             };
-        let host = repo.host().to_string();
-        Ok(Upstream {
-            base_url: format!("https://{host}/{}/{}.git", repo.owner(), repo.name()),
-            host,
-            token,
-            path: format!("{}/{}", repo.owner(), repo.name()),
-            run_as_user_id: actor.user_id().to_string(),
+        Ok(Upstream::new(
+            &repo,
+            Some(token),
+            &actor,
+            caller.workspace_id,
+        ))
+    }
+
+    /// Resolve `{owner}/{name}` on github.com, registered or not, for the
+    /// sandbox `task_token` was minted for; `push` is a `receive-pack`.
+    ///
+    /// No placement or repository row is consulted: the run-as identity's own
+    /// GitHub credential is the whole authorization ([`github_credential`]).
+    pub async fn resolve_github(
+        &self,
+        owner: &str,
+        name: &str,
+        task_token: &str,
+        push: bool,
+    ) -> Result<Upstream, GitProxyError> {
+        let repo = github_repo(owner, name).ok_or(GitProxyError::NotFound)?;
+        let caller = self.authenticate(task_token).await?;
+        let actor = self.actor(&caller).await;
+        let resolved = self
+            .git_host_tokens
+            .token(&actor, &repo.credential_account())
+            .await;
+        let token = github_credential(resolved, push, repo.host())?;
+        Ok(Upstream::new(&repo, token, &actor, caller.workspace_id))
+    }
+
+    /// The Sandbox and Workspace a task token names.
+    async fn authenticate(&self, task_token: &str) -> Result<Caller, GitProxyError> {
+        let secret = self.task_token_secret.as_deref().ok_or_else(|| {
+            GitProxyError::Unauthorized(
+                "This deployment verifies no task tokens, so it proxies no git traffic".to_string(),
+            )
+        })?;
+        let claims = verify_user_auth_token(task_token, secret)
+            .map_err(|e| GitProxyError::Unauthorized(format!("Invalid task token: {e}")))?;
+        // `generate_user_auth_token` binds the token to a Sandbox, not to a
+        // Task: a shared Sandbox runs several Member tasks off one pod and one
+        // checkout, so the Sandbox is what a clone belongs to.
+        let sandbox_id = claims.sandbox_id.ok_or_else(|| {
+            GitProxyError::Unauthorized("The task token names no sandbox".to_string())
+        })?;
+        check_generation(
+            self.token_generations.as_ref(),
+            &sandbox_id,
+            claims.generation,
+        )
+        .await
+        .map_err(|e| match e {
+            GenerationError::Stale { .. } | GenerationError::NoSandbox => {
+                GitProxyError::Unauthorized(e.to_string())
+            }
+            GenerationError::Lookup(_) => GitProxyError::Upstream(e.to_string()),
+        })?;
+
+        let workspace_id = self
+            .sandboxes
+            .workspace_id(&sandbox_id)
+            .await
+            .map_err(|e| {
+                warn!(error = %e, sandbox_id, "Failed to read the sandbox for a proxied git request");
+                GitProxyError::Upstream("Failed to read the sandbox".to_string())
+            })?
+            .ok_or(GitProxyError::NotFound)?;
+        Ok(Caller {
+            user_id: claims.user_id,
+            sandbox_id,
             workspace_id,
         })
+    }
+
+    /// The identity whose credential a request from `caller` presents.
+    async fn actor(&self, caller: &Caller) -> Actor {
+        let run_as_user_id = self
+            .sandboxes
+            .run_as_user_id(&caller.sandbox_id)
+            .await
+            .unwrap_or_else(|e| {
+                warn!(error = %e, sandbox_id = %caller.sandbox_id, "Failed to read the sandbox run-as identity");
+                None
+            });
+        resolve_task_actor(
+            Some(&self.workspaces),
+            Some(&caller.workspace_id),
+            run_as_user_id.as_deref(),
+            &caller.user_id,
+        )
+        .await
     }
 
     /// The body answering a 404 from `upstream`'s host; see [`refusal_message`].
@@ -304,6 +375,42 @@ async fn usable_repository(
 /// no host to forward to.
 fn git_host_repo(repository: &Repository) -> Option<&GitHostRepo> {
     repository.remote.as_ref()?.host_repo.as_ref()
+}
+
+/// `owner/name` on github.com as a git URL path names it, or `None` for one
+/// GitHub could not hold.
+///
+/// Checked here rather than left to GitHub: both halves are interpolated into
+/// the upstream URL, so a `..` or a `/` would address some other path on it.
+fn github_repo(owner: &str, name: &str) -> Option<GitHostRepo> {
+    let name = name.strip_suffix(".git").unwrap_or(name);
+    let owner_ok = !owner.is_empty()
+        && owner
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'));
+    let name_ok = !matches!(name, "" | "." | "..")
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+    (owner_ok && name_ok).then(|| GitHostRepo::github(owner, name))
+}
+
+/// The identity's own token, or none for a fetch by one that never connected
+/// GitHub.
+///
+/// Deliberately anonymous rather than refused: every github.com URL in a pod
+/// comes here, public tooling installs and submodules included. A push is
+/// refused, as an anonymous one can only fail upstream.
+fn github_credential(
+    resolved: Result<String, GitHostTokenError>,
+    push: bool,
+    host: &str,
+) -> Result<Option<String>, GitProxyError> {
+    match resolved {
+        Ok(token) => Ok(Some(token)),
+        Err(GitHostTokenError::NoCredential { .. }) if !push => Ok(None),
+        Err(e) => Err(credential_error(&e, host)),
+    }
 }
 
 fn credential_error(error: &GitHostTokenError, host: &str) -> GitProxyError {
@@ -418,7 +525,7 @@ mod tests {
     fn upstream() -> Upstream {
         Upstream {
             base_url: "https://github.com/soaplabs/moatless.git".to_string(),
-            token: "secret-token".to_string(),
+            token: Some("secret-token".to_string()),
             host: "github.com".to_string(),
             path: "soaplabs/moatless".to_string(),
             run_as_user_id: POD_USER.to_string(),
@@ -435,6 +542,48 @@ mod tests {
         assert!(refusal.contains("workspace ws_1"));
         assert!(refusal.contains("does not exist on github.com"));
         assert!(!refusal.contains("secret-token"));
+    }
+
+    #[test]
+    fn an_identity_with_no_github_connection_fetches_anonymously_but_never_pushes() {
+        let missing = || {
+            Err(GitHostTokenError::NoCredential {
+                actor: Actor::of(POD_USER),
+                provider: RepositoryProvider::Github,
+                host: None,
+            })
+        };
+        assert_eq!(
+            github_credential(missing(), false, "github.com").unwrap(),
+            None
+        );
+        assert!(matches!(
+            github_credential(missing(), true, "github.com"),
+            Err(GitProxyError::Unauthorized(_))
+        ));
+        assert_eq!(
+            github_credential(Ok("ghs".to_string()), true, "github.com").unwrap(),
+            Some("ghs".to_string())
+        );
+        let broken = Err(GitHostTokenError::Store(StoreError::new("down")));
+        assert!(matches!(
+            github_credential(broken, false, "github.com"),
+            Err(GitProxyError::Upstream(_))
+        ));
+    }
+
+    #[test]
+    fn an_anonymous_refusal_says_no_credential_was_presented() {
+        let anonymous = Upstream {
+            token: None,
+            ..upstream()
+        };
+        let refusal = refusal_message(&anonymous, None);
+        assert!(
+            refusal.contains("has no github.com connection"),
+            "{refusal}"
+        );
+        assert!(refusal.contains("fetched anonymously"), "{refusal}");
     }
 
     #[test]
@@ -458,6 +607,36 @@ mod tests {
         let repo = git_host_repo(&github).expect("a GitHub row resolves");
         assert_eq!(repo.host(), "github.com");
         assert_eq!(repo.owner(), "owner");
+    }
+
+    #[test]
+    fn a_github_path_resolves_to_the_repository_it_names() {
+        let repo = github_repo("soaplabs", "moatless.git").expect("a plain path resolves");
+        assert_eq!((repo.owner(), repo.name()), ("soaplabs", "moatless"));
+        assert_eq!(
+            github_repo("soaplabs", ".github").unwrap().name(),
+            ".github"
+        );
+        // An Enterprise Managed User login.
+        assert_eq!(
+            github_repo("alice_acme", "repo").unwrap().owner(),
+            "alice_acme"
+        );
+    }
+
+    #[test]
+    fn a_github_path_that_would_leave_the_repository_resolves_to_nothing() {
+        for (owner, name) in [
+            ("..", "repo"),
+            ("owner", ".."),
+            ("owner", ".git"),
+            ("owner", "a%2Fb"),
+            ("", "repo"),
+            ("own er", "repo"),
+            ("owner", "repo?x"),
+        ] {
+            assert!(github_repo(owner, name).is_none(), "{owner}/{name}");
+        }
     }
 
     #[test]
@@ -501,6 +680,15 @@ mod tests {
         let superseded =
             generate_user_auth_token("user-1", "user", "sandbox-1", 1, SECRET, 600).unwrap();
         let refused = proxy.resolve("repo-1", &superseded).await.err().unwrap();
+        assert!(
+            matches!(refused, GitProxyError::Unauthorized(_)),
+            "{refused}"
+        );
+        let refused = proxy
+            .resolve_github("acme", "widgets", &superseded, false)
+            .await
+            .err()
+            .unwrap();
         assert!(
             matches!(refused, GitProxyError::Unauthorized(_)),
             "{refused}"

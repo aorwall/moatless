@@ -252,6 +252,9 @@ pub(super) fn parse_repo_arg(value: &str) -> Option<(String, String)> {
 /// Decompose a GitHub remote URL into `(owner, repo)`. Supports HTTPS, SSH
 /// shorthand (`git@github.com:owner/repo`), and the explicit `ssh://` form.
 fn parse_github_remote(url: &str) -> Option<(String, String)> {
+    // `git+https` is what a sandbox's `git remote get-url` shows for every
+    // github.com remote, rewritten there so git fetches through the proxy.
+    let url = url.strip_prefix("git+").unwrap_or(url);
     let path = url
         .strip_prefix("https://github.com/")
         .or_else(|| url.strip_prefix("http://github.com/"))

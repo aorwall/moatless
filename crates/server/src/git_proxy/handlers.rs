@@ -75,6 +75,25 @@ pub struct RefsQuery {
     service: String,
 }
 
+/// The repository one proxied request names in its path.
+enum Target {
+    /// `/git/{repository_id}`: a registered repository.
+    Registered(String),
+    /// `/git/github/{owner}/{name}`: any github.com repository, registered or
+    /// not, which is how the pod's `git-remote-git+https` helper addresses one.
+    GitHub { owner: String, name: String },
+}
+
+impl Target {
+    /// How the request log and a stalled body's warning name the repository.
+    fn label(&self) -> String {
+        match self {
+            Self::Registered(repository_id) => repository_id.clone(),
+            Self::GitHub { owner, name } => format!("github.com/{owner}/{name}"),
+        }
+    }
+}
+
 /// `GET /git/{repository_id}/info/refs?service=…` — the reference advertisement
 /// that opens every clone, fetch and push.
 pub async fn info_refs(
@@ -83,24 +102,7 @@ pub async fn info_refs(
     Query(query): Query<RefsQuery>,
     headers: HeaderMap,
 ) -> Response {
-    let Some(service) = service_named(&query.service) else {
-        return GitProxyError::NotFound.into_response();
-    };
-    let upstream = match resolve(&proxy, &repository_id, &headers).await {
-        Ok(upstream) => upstream,
-        Err(error) => return error.into_response(),
-    };
-    let url = format!("{}/info/refs?service={}", upstream.base_url, service.name());
-    forward(
-        &proxy,
-        upstream,
-        (repository_id, service),
-        reqwest::Method::GET,
-        url,
-        &headers,
-        Body::empty(),
-    )
-    .await
+    refs(&proxy, Target::Registered(repository_id), &query, &headers).await
 }
 
 /// `POST /git/{repository_id}/git-upload-pack` — the fetch negotiation and the
@@ -111,7 +113,8 @@ pub async fn upload_pack(
     headers: HeaderMap,
     body: Body,
 ) -> Response {
-    service_rpc(proxy, repository_id, GitService::UploadPack, headers, body).await
+    let target = Target::Registered(repository_id);
+    service_rpc(&proxy, target, GitService::UploadPack, &headers, body).await
 }
 
 /// `POST /git/{repository_id}/git-receive-pack` — the push. The resolved
@@ -122,28 +125,87 @@ pub async fn receive_pack(
     headers: HeaderMap,
     body: Body,
 ) -> Response {
-    service_rpc(proxy, repository_id, GitService::ReceivePack, headers, body).await
+    let target = Target::Registered(repository_id);
+    service_rpc(&proxy, target, GitService::ReceivePack, &headers, body).await
 }
 
-async fn service_rpc(
-    proxy: Arc<GitProxy>,
-    repository_id: String,
-    service: GitService,
+/// `GET /git/github/{owner}/{name}/info/refs?service=…`; see [`info_refs`].
+pub async fn github_info_refs(
+    State(proxy): State<Arc<GitProxy>>,
+    Path((owner, name)): Path<(String, String)>,
+    Query(query): Query<RefsQuery>,
+    headers: HeaderMap,
+) -> Response {
+    refs(&proxy, Target::GitHub { owner, name }, &query, &headers).await
+}
+
+/// `POST /git/github/{owner}/{name}/git-upload-pack`; see [`upload_pack`].
+pub async fn github_upload_pack(
+    State(proxy): State<Arc<GitProxy>>,
+    Path((owner, name)): Path<(String, String)>,
     headers: HeaderMap,
     body: Body,
 ) -> Response {
-    let upstream = match resolve(&proxy, &repository_id, &headers).await {
+    let target = Target::GitHub { owner, name };
+    service_rpc(&proxy, target, GitService::UploadPack, &headers, body).await
+}
+
+/// `POST /git/github/{owner}/{name}/git-receive-pack`; see [`receive_pack`].
+pub async fn github_receive_pack(
+    State(proxy): State<Arc<GitProxy>>,
+    Path((owner, name)): Path<(String, String)>,
+    headers: HeaderMap,
+    body: Body,
+) -> Response {
+    let target = Target::GitHub { owner, name };
+    service_rpc(&proxy, target, GitService::ReceivePack, &headers, body).await
+}
+
+async fn refs(
+    proxy: &GitProxy,
+    target: Target,
+    query: &RefsQuery,
+    headers: &HeaderMap,
+) -> Response {
+    let Some(service) = service_named(&query.service) else {
+        return GitProxyError::NotFound.into_response();
+    };
+    let upstream = match resolve(proxy, &target, service, headers).await {
+        Ok(upstream) => upstream,
+        Err(error) => return error.into_response(),
+    };
+    let url = format!("{}/info/refs?service={}", upstream.base_url, service.name());
+    forward(
+        proxy,
+        upstream,
+        (target.label(), service),
+        reqwest::Method::GET,
+        url,
+        headers,
+        Body::empty(),
+    )
+    .await
+}
+
+async fn service_rpc(
+    proxy: &GitProxy,
+    target: Target,
+    service: GitService,
+    headers: &HeaderMap,
+    body: Body,
+) -> Response {
+    let upstream = match resolve(proxy, &target, service, headers).await {
         Ok(upstream) => upstream,
         Err(error) => return error.into_response(),
     };
     let url = format!("{}/{}", upstream.base_url, service.name());
     forward(
-        &proxy,
+        proxy,
         upstream,
-        (repository_id, service),
+        (target.label(), service),
         reqwest::Method::POST,
         url,
-        &headers,
+        headers,
         body,
     )
     .await
@@ -151,15 +213,23 @@ async fn service_rpc(
 
 async fn resolve(
     proxy: &GitProxy,
-    repository_id: &str,
+    target: &Target,
+    service: GitService,
     headers: &HeaderMap,
 ) -> Result<Upstream, GitProxyError> {
     let token = basic_password(headers)
         .ok_or_else(|| GitProxyError::Unauthorized("No task token was presented".to_string()))?;
-    let upstream = proxy.resolve(repository_id, &token).await?;
+    let upstream = match target {
+        Target::Registered(repository_id) => proxy.resolve(repository_id, &token).await?,
+        Target::GitHub { owner, name } => {
+            let push = service == GitService::ReceivePack;
+            proxy.resolve_github(owner, name, &token, push).await?
+        }
+    };
     info!(
-        repository_id,
+        repository = %target.label(),
         host = %upstream.host,
+        anonymous = upstream.token.is_none(),
         "Proxying a git request"
     );
     Ok(upstream)
@@ -168,21 +238,21 @@ async fn resolve(
 async fn forward(
     proxy: &GitProxy,
     upstream: Upstream,
-    (repository_id, service): (String, GitService),
+    (label, service): (String, GitService),
     method: reqwest::Method,
     url: String,
     headers: &HeaderMap,
     body: Body,
 ) -> Response {
+    let mut request = proxy.http.request(method, &url);
     // `x-access-token` is the username every git host ignores when the password
     // is a token; the token itself is what authenticates.
-    let mut request = proxy
-        .http
-        .request(method, &url)
-        .basic_auth("x-access-token", Some(&upstream.token))
-        .body(reqwest::Body::wrap_stream(
-            body.into_data_stream().map_err(std::io::Error::other),
-        ));
+    if let Some(token) = &upstream.token {
+        request = request.basic_auth("x-access-token", Some(token));
+    }
+    let mut request = request.body(reqwest::Body::wrap_stream(
+        body.into_data_stream().map_err(std::io::Error::other),
+    ));
     for name in FORWARDED_REQUEST_HEADERS {
         if let Some(value) = headers.get(&name) {
             request = request.header(name, value);
@@ -219,7 +289,7 @@ async fn forward(
     let body = WatchedBody::new(
         Box::pin(response.bytes_stream()),
         service.quiet_limit(),
-        repository_id,
+        label,
         service.name(),
     );
     out.body(Body::from_stream(body)).unwrap_or_else(|error| {

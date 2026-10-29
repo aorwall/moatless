@@ -376,7 +376,7 @@ async fn remote_url(dir: &str, remote: &str) -> Option<String> {
 
 /// `owner` and `repo` of a github.com remote, in any URL form git accepts.
 /// `None` for every other host, which this claim says nothing about.
-fn github_repo_from_url(url: &str) -> Option<(String, String)> {
+pub(crate) fn github_repo_from_url(url: &str) -> Option<(String, String)> {
     let rest = if let Some(rest) = url.strip_prefix("git@github.com:") {
         rest
     } else {

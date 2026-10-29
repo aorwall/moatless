@@ -1,13 +1,13 @@
 #!/bin/sh
 # Git credential helper backed by the in-pod credential broker.
 #
-# Pulls a fresh token from the broker on every call. Answers nothing when the
-# broker is unreachable: `gh` holds only a placeholder token, so it has no
-# credential to fall back to.
+# Asks the broker on every call. It answers only the backend's own host, which
+# every GitHub and Forgejo remote reaches through the git proxy, with the pod's
+# task token; no GitHub token is ever held in the pod.
 #
 # Also the `GH_PATH` the sandbox binary exports. `gh` runs git with
 # `-c credential.<host>.helper=!"$GH_PATH" auth git-credential`, which drops
-# every other helper and would answer with that placeholder; through this
+# every other helper and would answer with `gh`'s placeholder token; through this
 # script the call reaches the broker, and any other `gh` call passes through.
 
 set -eu
@@ -21,8 +21,6 @@ fi
 case "${1:-}" in
   get)
     INPUT=$(cat)
-    # The broker answers per host: the backend's own host is a proxied checkout,
-    # which is given the pod's task token instead of a git provider token.
     HOST=$(printf '%s\n' "$INPUT" | sed -n 's/^host=//p' | head -n 1)
     START=$(date +%s)
     if RESULT=$(curl --silent --max-time 5 --fail --unix-socket "$SOCKET" --get --data-urlencode "host=$HOST" http://./git-credential 2>/dev/null); then

@@ -19,7 +19,7 @@ Dockerfile.sandbox-base ──> aorwall/moatless-sandbox-base ──┬─> Dock
                                                             ├─> recipes (docker/recipes/*.json, build-sandboxes.yml)
                                                             └─> Dockerfile.sandbox-e2e (local)
                                     aorwall/moatless-sandbox ──> Dockerfile.sandbox-dev  (build-dev-image.yml, manual)
-Dockerfile.sandbox-tools ─> entrypoint + moatless-git-cred, consumed by COPY --from
+Dockerfile.sandbox-tools ─> entrypoint + git helpers, consumed by COPY --from
 Dockerfile.sandbox-crash ─> ubuntu:24.04 direct, in no subtree
 Dockerfile.backend-cross ─> moatless-backend
 ```

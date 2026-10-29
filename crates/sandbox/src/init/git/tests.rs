@@ -338,25 +338,28 @@ async fn a_cloned_repo_carries_every_branch_and_a_merge_base() {
 /// a third party.
 #[test]
 fn each_checkout_uses_its_own_providers_token() {
-    let credentials = credentials(&[("GITLAB_TOKEN", "glpat"), (GIT_TOKEN, "pod-github-token")]);
+    let pod_token = credentials(&[(GIT_TOKEN, "pod-gitlab-token")]);
+    assert_eq!(
+        pod_token.provider_token("gitlab", "gitlab"),
+        Some("pod-gitlab-token".to_string())
+    );
+    // A foreign provider with no token of its own gets nothing.
+    assert_eq!(pod_token.provider_token("gitlab", "github"), None);
+    let credentials = credentials(&[("GITLAB_TOKEN", "glpat"), (GIT_TOKEN, "pod-token")]);
     assert_eq!(
         credentials.provider_token("gitlab", "github"),
         Some("glpat".to_string())
     );
-    // No `GITHUB_TOKEN` was delivered, so GitHub uses the pod's.
-    assert_eq!(
-        credentials.provider_token("github", "github"),
-        Some("pod-github-token".to_string())
-    );
-    // A foreign provider with no token of its own gets nothing.
-    assert_eq!(credentials.provider_token("forgejo", "github"), None);
+    // GitHub and Forgejo clone through the proxy, and are lent nothing.
+    assert_eq!(credentials.provider_token("github", "github"), None);
+    assert_eq!(credentials.provider_token("forgejo", "forgejo"), None);
 }
 
 /// A proxied checkout's URL points at the backend, so it is offered the task
 /// token and never a provider token — not even the pod's own.
 #[test]
 fn a_proxied_checkout_is_given_the_task_token_only() {
-    let credentials = credentials(&[("GITHUB_TOKEN", "pod-token"), (GIT_TOKEN, "pod-token")]);
+    let credentials = credentials(&[("GITHUB_TOKEN", "ghs_token"), (GIT_TOKEN, "pod-token")]);
     let mut config = crate::config::test_support::minimal_config();
     config.backend_api_url = Some("http://backend:8001".to_string());
     let proxied = RepoCheckout {
@@ -375,10 +378,9 @@ fn a_proxied_checkout_is_given_the_task_token_only() {
         clone_url: "https://github.com/acme/api.git".to_string(),
         ..checkout("api", "github", true)
     };
-    assert_eq!(
-        clone_token(&config, &credentials, &direct).as_deref(),
-        Some("pod-token")
-    );
+    // Not the task token either: a github.com URL reaches the proxy only
+    // through the rewrite, whose credential the broker answers.
+    assert_eq!(clone_token(&config, &with_task_token, &direct), None);
 }
 
 fn credentials(pairs: &[(&str, &str)]) -> GitCredentials {
@@ -939,7 +941,8 @@ async fn a_proxied_github_clone_records_its_github_remote() {
     };
     assert_eq!(get("remote.origin.url"), url);
     assert_eq!(get("remote.github.url"), "https://github.com/acme/api.git");
-    assert_eq!(get("remote.github.pushurl"), url);
+    // Pushed wherever its URL goes, which `route_github_through_proxy` rewrites.
+    assert_eq!(get("remote.github.pushurl"), "");
     assert_eq!(
         get("remote.github.fetch"),
         "+refs/heads/*:refs/remotes/github/*"
@@ -1026,4 +1029,139 @@ async fn a_clone_against_a_silent_host_fails_once_it_stalls() {
         .expect_err("a clone against a silent host must fail");
 
     assert!(started.elapsed() >= Duration::from_secs(1));
+}
+
+/// The whole pod side, with no GitHub token anywhere: git sends a registered
+/// checkout's `github` remote to its `/git/{id}` proxy URL and any other
+/// github.com repository to `/git/github/{owner}/{name}`, through the
+/// `git-remote-git+https` helper the image ships, presenting the task token.
+#[tokio::test(flavor = "multi_thread")]
+async fn github_urls_fetch_and_push_through_the_proxy_with_the_task_token() {
+    let tmp = tempfile::tempdir().unwrap();
+    let source = tmp.path().join("source");
+    init_local_source_repo(&source);
+    let root = tmp.path().join("served");
+    for path in ["git/repo_1", "git/github/acme/other"] {
+        std::fs::create_dir_all(root.join(path).parent().unwrap()).unwrap();
+        run_git_sync(
+            tmp.path(),
+            &[
+                "clone",
+                "--quiet",
+                "--bare",
+                &source.display().to_string(),
+                &root.join(path).display().to_string(),
+            ],
+        );
+    }
+    let port = serve_git(root.clone(), Arc::new(Mutex::new("task-jwt".to_string()))).await;
+    let backend = format!("http://127.0.0.1:{port}");
+
+    let mut config = minimal_config();
+    config.backend_api_url = Some(backend.clone());
+    config.repos = vec![RepoCheckout {
+        clone_url: format!("{backend}/git/repo_1"),
+        ..checkout("api", "github", true)
+    }];
+    config.github_upstreams = HashMap::from([(
+        "api".to_string(),
+        "https://github.com/Acme/API.git".to_string(),
+    )]);
+
+    // What `configure_git` writes, into a global config of the test's own.
+    let global = tmp.path().join("gitconfig");
+    let set = |args: &[&str]| {
+        let mut command = std::process::Command::new("git");
+        command.args(["config", "--file", &global.display().to_string()]);
+        assert!(command.args(args).status().unwrap().success());
+    };
+    for (key, value) in github_proxy_settings(&config).unwrap() {
+        set(&[&key, &value]);
+    }
+    let rewrite = format!("url.{GITHUB_HELPER_BASE}.insteadOf");
+    set(&["--add", &rewrite, "https://github.com/"]);
+    // Stands in for the broker answering the backend's host.
+    set(&[
+        &format!("credential.{backend}.helper"),
+        "!f() { echo username=x-access-token; echo password=task-jwt; }; f",
+    ]);
+    set(&["user.name", "Agent"]);
+    set(&["user.email", "agent@example.com"]);
+
+    let bin = tmp.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::os::unix::fs::symlink(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docker/git-remote-github.sh"),
+        bin.join("git-remote-git+https"),
+    )
+    .unwrap();
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap());
+    let git = |dir: &Path, args: &[&str]| {
+        let output = std::process::Command::new("git")
+            .current_dir(dir)
+            .env("GIT_CONFIG_GLOBAL", &global)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .env("PATH", &path)
+            .env_remove("GITHUB_TOKEN")
+            .env_remove("GH_TOKEN")
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    };
+
+    // The registered checkout: `gh pr checkout` fetches its `github` remote by
+    // name, and the branch it creates pushes to the same remote.
+    let api = tmp.path().join("api");
+    git(
+        tmp.path(),
+        &["clone", "--quiet", "https://github.com/Acme/API.git", "api"],
+    );
+    assert_eq!(
+        git(&api, &["remote", "get-url", "origin"]),
+        "git+https://github.com/Acme/API.git",
+        "`gh` reads this as github.com/Acme/API"
+    );
+    git(&api, &["fetch", "--quiet", "origin"]);
+    git(&api, &["checkout", "--quiet", "-b", "feature"]);
+    git(
+        &api,
+        &["commit", "--quiet", "--allow-empty", "-m", "pushed"],
+    );
+    git(&api, &["push", "--quiet", "origin", "feature"]);
+    assert_eq!(
+        git(
+            &root.join("git/repo_1"),
+            &["log", "-1", "--format=%s", "feature"]
+        ),
+        "pushed"
+    );
+
+    // Any other repository goes to the proxy's GitHub route.
+    git(
+        tmp.path(),
+        &["clone", "--quiet", "https://github.com/acme/other", "other"],
+    );
+    let other = tmp.path().join("other");
+    git(
+        &other,
+        &["commit", "--quiet", "--allow-empty", "-m", "other"],
+    );
+    git(
+        &other,
+        &["push", "--quiet", "origin", "HEAD:refs/heads/other"],
+    );
+    assert_eq!(
+        git(
+            &root.join("git/github/acme/other"),
+            &["log", "-1", "--format=%s", "other"]
+        ),
+        "other"
+    );
 }
