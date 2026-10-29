@@ -11,8 +11,8 @@ use tracing::warn;
 use crate::api::options::{ClaudeOptions, SystemPrompt};
 
 /// `settings_json`, from [`crate::tmux::hooks::HookHarness`], adds `--settings
-/// <json>` registering `SessionStart`/Stop hooks for the supervisor's FIFO; it
-/// is harness-owned, with no [`ClaudeOptions`] field.
+/// <json>` registering `SessionStart`/Stop hooks for the supervisor's FIFO,
+/// merged with the settings `options` carry.
 pub(crate) fn build_tmux_cli_args(
     options: &ClaudeOptions,
     settings_json: Option<&str>,
@@ -20,7 +20,7 @@ pub(crate) fn build_tmux_cli_args(
     warn_ignored_options(options);
 
     let mut args = TmuxArgs::new();
-    args.push_base(settings_json);
+    args.push_base(options.settings_json(settings_json).as_deref());
     args.push_session(options);
     args.push_tooling(options);
     args.push_prompts(options);
@@ -309,6 +309,22 @@ mod tests {
             .position(|a| a == "--dangerously-skip-permissions")
             .unwrap();
         assert!(skip_idx < idx);
+    }
+
+    #[test]
+    fn an_api_key_helper_joins_the_hook_settings() {
+        let options = ClaudeOptions {
+            api_key_helper: Some("cat /run/token".to_string()),
+            ..Default::default()
+        };
+        let args = build_tmux_cli_args(&options, Some(r#"{"hooks":{}}"#));
+        let idx = args.iter().position(|a| a == "--settings").unwrap();
+        let settings: serde_json::Value = serde_json::from_str(&args[idx + 1]).unwrap();
+        assert_eq!(
+            settings,
+            serde_json::json!({ "hooks": {}, "apiKeyHelper": "cat /run/token" })
+        );
+        assert_eq!(args.iter().filter(|a| *a == "--settings").count(), 1);
     }
 
     #[test]

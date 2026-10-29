@@ -558,6 +558,9 @@ message GetCredentialsResponse {
   map<string, string> credentials = 1;
   reserved 2, 3;
   reserved "server_env", "ssh_keys";
+  // The backend serves its model gateway at {BACKEND_API_URL}/llm/{provider},
+  // which the agent calls with the task token as its key.
+  bool model_gateway = 4;
 }
 
 message UpdateCredentialRequest {

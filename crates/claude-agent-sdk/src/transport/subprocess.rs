@@ -340,6 +340,11 @@ pub(crate) fn build_cli_args(options: &ClaudeOptions) -> Vec<String> {
         }
     }
 
+    if let Some(settings) = options.settings_json(None) {
+        args.push("--settings".to_string());
+        args.push(settings);
+    }
+
     if let Some(sources) = &options.setting_sources {
         if !sources.is_empty() {
             args.push("--setting-sources".to_string());
@@ -937,6 +942,19 @@ mod tests {
 
         let idx = args.iter().position(|a| a == "--effort").unwrap();
         assert_eq!(args[idx + 1], "xhigh");
+    }
+
+    #[test]
+    fn build_args_with_api_key_helper() {
+        let options = ClaudeOptions {
+            api_key_helper: Some("cat /run/token".to_string()),
+            ..Default::default()
+        };
+        let args = build_cli_args(&options);
+
+        let idx = args.iter().position(|a| a == "--settings").unwrap();
+        assert_eq!(args[idx + 1], r#"{"apiKeyHelper":"cat /run/token"}"#);
+        assert!(!build_cli_args(&ClaudeOptions::default()).contains(&"--settings".to_string()));
     }
 
     #[test]

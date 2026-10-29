@@ -28,6 +28,7 @@ pub mod http_auth;
 pub mod http_config;
 pub mod leader;
 pub mod metrics;
+mod model_gateway_config;
 mod s3_config;
 pub mod secret_keys;
 

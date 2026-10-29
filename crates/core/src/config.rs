@@ -20,6 +20,7 @@ use crate::feature_flags::FeatureFlags;
 use crate::sandbox_identities::SandboxIdentities;
 
 pub use crate::http_config::HttpConfig;
+pub use crate::model_gateway_config::ModelGatewayConfig;
 pub use crate::s3_config::S3Config;
 
 pub use crate::decision_config::{
@@ -787,6 +788,19 @@ fn parse_enabled(key: &str, value: &str) -> Result<bool, ConfigError> {
     }
 }
 
+/// The `MODEL_GATEWAY_*` settings; a non-boolean `MODEL_GATEWAY_ENABLED` fails
+/// startup.
+fn model_gateway_from_env() -> Result<ModelGatewayConfig, ConfigError> {
+    Ok(ModelGatewayConfig {
+        enabled: parse_enabled(
+            "MODEL_GATEWAY_ENABLED",
+            &env_str("MODEL_GATEWAY_ENABLED", ""),
+        )?,
+        hub_url: env_opt("MODEL_GATEWAY_HUB_URL").map(|url| url.trim_end_matches('/').to_string()),
+        hub_key: env_opt("MODEL_GATEWAY_HUB_KEY"),
+    })
+}
+
 /// Top-level configuration grouping all sub-configs.
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -829,6 +843,7 @@ pub struct Config {
     pub message_buffer: MessageBufferConfig,
     pub http: HttpConfig,
     pub workspace_sync: WorkspaceSyncConfig,
+    pub model_gateway: ModelGatewayConfig,
 }
 
 /// Configuration validation errors.
@@ -1123,6 +1138,7 @@ impl Config {
                 env_opt("WORKSPACE_IDENTITY_GRANTS"),
             )
             .map_err(ConfigError::Invalid)?,
+            model_gateway: model_gateway_from_env()?,
         };
 
         config.validate()?;
@@ -1555,6 +1571,7 @@ impl Config {
             message_buffer: MessageBufferConfig::default(),
             http: HttpConfig::default(),
             workspace_sync: WorkspaceSyncConfig::default(),
+            model_gateway: ModelGatewayConfig::default(),
         }
     }
 }

@@ -238,6 +238,18 @@ impl AppState {
             crate::github_proxy::GITHUB_UPLOADS_BASE,
             config.http.github_proxy,
         ));
+        let model_gateway = Arc::new(crate::model_gateway::ModelGateway::new(
+            ports.sandbox_graph.sandbox_ingress(),
+            ports.sandbox_graph.token_generations(),
+            workspace_resolver.clone(),
+            workspace_credentials.clone(),
+            secrets.clone(),
+            harness_credentials.clone(),
+            config.sandbox.task_token_secret.clone(),
+            config.model_gateway.clone(),
+            crate::model_gateway::ANTHROPIC_API_BASE,
+            config.http.model_gateway,
+        ));
         let agent_harness_access = Arc::new(AgentHarnessAccess::new(
             credentials.clone(),
             credential_sync.clone(),
@@ -404,6 +416,7 @@ impl AppState {
             forgejo_instances,
             git_proxy,
             github_proxy,
+            model_gateway,
             agent_harness_access,
             app_administration,
             recently_sent,

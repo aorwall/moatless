@@ -33,7 +33,7 @@ use crate::backend_client::BackendClient;
 use crate::commands::CommandRegistry;
 use crate::config::Config;
 use crate::credentials::Dispatcher;
-use crate::credentials::fetch::filter_agent_credentials;
+use crate::credentials::fetch::agent_credentials;
 use crate::credentials::recovery::CredentialFailureDetector;
 use crate::credentials::retry::{MAX_CREDENTIAL_RECOVERY_RETRIES, try_recover_credentials};
 use crate::workspace_sync::{self, WorkspaceSyncTracker};
@@ -1005,7 +1005,8 @@ impl CoordinatorService {
                         warn!(%error, "Failed to apply the fetched task token");
                     }
                 }
-                *self.credentials.write().await = filter_agent_credentials(&resp.credentials);
+                *self.credentials.write().await =
+                    agent_credentials(&resp, self.config.backend_api_url.as_deref());
             }
             Err(error) => {
                 warn!(error = %error, "Failed to refresh credentials, using cached");

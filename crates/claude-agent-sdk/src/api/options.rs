@@ -87,6 +87,9 @@ pub struct ClaudeOptions {
     // -- Process --
     pub cli_path: Option<String>,
     pub env: Option<HashMap<String, String>>,
+    /// A shell command whose output the CLI sends as its API key, re-run on a
+    /// `401`: the `apiKeyHelper` setting.
+    pub api_key_helper: Option<String>,
     pub extra_args: Option<HashMap<String, Option<String>>>,
 
     // -- Hooks --
@@ -103,6 +106,22 @@ pub struct ClaudeOptions {
     /// no modifications) instead of invoking a handler.
     pub hook_handler: Option<Arc<dyn HookHandler>>,
     pub cancellation_token: Option<CancellationToken>,
+}
+
+impl ClaudeOptions {
+    /// The inline `--settings` JSON: `base`, a harness-owned settings object,
+    /// plus the settings these options carry. `None` when both are empty.
+    pub(crate) fn settings_json(&self, base: Option<&str>) -> Option<String> {
+        let Some(helper) = &self.api_key_helper else {
+            return base.map(str::to_string);
+        };
+        let mut settings = base
+            .and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok())
+            .filter(serde_json::Value::is_object)
+            .unwrap_or_else(|| serde_json::json!({}));
+        settings["apiKeyHelper"] = serde_json::Value::String(helper.clone());
+        Some(settings.to_string())
+    }
 }
 
 /// System prompt configuration.

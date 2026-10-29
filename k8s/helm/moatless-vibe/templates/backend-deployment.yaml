@@ -189,6 +189,27 @@ spec:
                   key: {{ .Values.cliproxy.managementKeySecretKey }}
             {{- end }}
             {{- end }}
+            {{- if .Values.modelGateway.enabled }}
+            # Tells each pod's Claude to reach Anthropic through the backend's
+            # /llm routes with its task token as the key.
+            - name: MODEL_GATEWAY_ENABLED
+              value: "true"
+            {{- end }}
+            {{- if .Values.cliproxy.enabled }}
+            # The hub the gateway falls back to for a task with no Claude
+            # credential of its own. Its key is an inference api-key minted in
+            # the hub's UI, not the management key.
+            - name: MODEL_GATEWAY_HUB_URL
+              value: {{ printf "http://%s-cliproxy.%s.svc.cluster.local:%v" (include "moatless-vibe.fullname" .) .Release.Namespace .Values.cliproxy.service.port | quote }}
+            {{- with .Values.modelGateway.hubKeySecretKey }}
+            - name: MODEL_GATEWAY_HUB_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moatless-vibe.secretsName" $ }}
+                  key: {{ . }}
+                  optional: true
+            {{- end }}
+            {{- end }}
             # Origins trusted for cookie-authenticated REST writes. The derived
             # T3 origin only — deliberately not t3.extraAllowedOrigins, whose
             # wildcard preview entries admit a socket but must never carry a

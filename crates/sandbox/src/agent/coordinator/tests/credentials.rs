@@ -38,6 +38,7 @@ impl BackendClient for CredBackend {
         };
         Ok(GetCredentialsResponse {
             credentials: HashMap::from([("CODEX_AUTH_JSON".to_string(), value)]),
+            ..Default::default()
         })
     }
     async fn get_system_prompt(&self, _task_id: &str) -> Result<String, Status> {

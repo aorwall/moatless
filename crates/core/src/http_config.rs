@@ -31,6 +31,9 @@ pub struct HttpConfig {
     /// The GitHub API proxy's upstream, which streams a log or release asset
     /// for as long as it moves. Prefix `GITHUB_PROXY`.
     pub github_proxy: HttpStreamTimeouts,
+    /// The model gateway's upstream, an SSE stream that can sit quiet while
+    /// the model thinks. Prefix `MODEL_GATEWAY`.
+    pub model_gateway: HttpStreamTimeouts,
     /// Linear's GraphQL and OAuth APIs. Prefix `LINEAR`.
     pub linear: HttpTimeouts,
     /// Slack's Web API. Prefix `SLACK`.
@@ -65,6 +68,7 @@ impl Default for HttpConfig {
             plugin_archive: timeouts(10, 120),
             git_proxy: stream_timeouts(10, 300),
             github_proxy: stream_timeouts(10, 300),
+            model_gateway: stream_timeouts(10, 600),
             linear: api,
             slack: api,
             telegram: api,
@@ -90,6 +94,7 @@ impl HttpConfig {
             plugin_archive: read(var, "PLUGIN_ARCHIVE", d.plugin_archive),
             git_proxy: read_stream(var, "GIT_PROXY", d.git_proxy),
             github_proxy: read_stream(var, "GITHUB_PROXY", d.github_proxy),
+            model_gateway: read_stream(var, "MODEL_GATEWAY", d.model_gateway),
             linear: read(var, "LINEAR", d.linear),
             slack: read(var, "SLACK", d.slack),
             telegram: read(var, "TELEGRAM", d.telegram),

@@ -17,6 +17,7 @@ use tracing::{info, warn};
 use crate::agent::handle::resolve_agent_harness;
 use crate::agent::types::AgentRunRequest;
 use crate::config::Config;
+use crate::credentials::fetch::gateway_api_key_helper;
 use crate::init::language_servers;
 
 use super::agent_state::AgentState;
@@ -141,6 +142,8 @@ pub fn build_options(
         env
     });
 
+    let api_key_helper = gateway_api_key_helper(config, env.as_ref());
+
     info!(
         task_id = %config.task_id,
         model = ?model,
@@ -181,6 +184,7 @@ pub fn build_options(
         max_turns: config.agent_config.timeout.map(|t| t as u32),
         init_timeout: Some(init_timeout),
         env,
+        api_key_helper,
         // See `disallowed_tools` for what's removed and why.
         disallowed_tools: Some(disallowed_tools(config, is_plan_mode)),
         ..ClaudeOptions::default()

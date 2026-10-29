@@ -361,6 +361,18 @@ deployment also grants it. Add a matching entry to
 `networkPolicy.sandbox.extraInClusterEgress`, or the agent hangs instead of
 failing.
 
+#### The backend's model gateway
+
+With `modelGateway.enabled`, each sandbox's Claude calls
+`{BACKEND_API_URL}/llm/anthropic` with its task token as `ANTHROPIC_API_KEY`,
+and the backend calls Anthropic with the task's own credential: its
+`ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY`, else its connected Claude
+account. A task with none of those goes to the hub with the api-key stored
+under `modelGateway.hubKeySecretKey` in the chart's Secret. A task's
+`ANTHROPIC_BASE_URL` is honoured only when it is Anthropic's API or the hub's
+in-cluster address, so the Workspace `env_vars` above keep working once the
+gateway is on. The backend, not the sandbox, then needs egress to Anthropic.
+
 #### Exposing it
 
 The chart renders no Ingress and no IngressRoute for this component. A public

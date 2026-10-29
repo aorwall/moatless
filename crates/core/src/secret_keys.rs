@@ -67,14 +67,13 @@ pub fn is_forgejo_credential_key(key: &str) -> bool {
         || key.starts_with("FORGEJO_OAUTH_ACCESS_TOKEN_")
 }
 
-/// Anthropic API key — a Claude agent's model credential.
-pub const ANTHROPIC_API_KEY: &str = "ANTHROPIC_API_KEY";
-
 /// Claude Code OAuth token — a Claude agent's model credential.
 pub const CLAUDE_CODE_OAUTH_TOKEN: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 
-pub use moatless_types::credential_key::CODEX_AUTH_JSON;
 use moatless_types::credential_key::USER_AUTH_TOKEN;
+pub use moatless_types::credential_key::{
+    ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, ANTHROPIC_BASE_URL, CODEX_AUTH_JSON,
+};
 
 /// OpenAI API key — a Codex agent's model credential.
 pub const OPENAI_API_KEY: &str = "OPENAI_API_KEY";

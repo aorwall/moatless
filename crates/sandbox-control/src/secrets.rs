@@ -4,8 +4,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use moatless_core::secret_keys::{
-    ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, CODEX_AUTH_JSON, GITHUB_TOKEN, GITLAB_TOKEN,
-    OPENAI_API_KEY, is_forgejo_credential_key,
+    ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, ANTHROPIC_BASE_URL, CLAUDE_CODE_OAUTH_TOKEN,
+    CODEX_AUTH_JSON, GITHUB_TOKEN, GITLAB_TOKEN, OPENAI_API_KEY, is_forgejo_credential_key,
 };
 use tracing::warn;
 
@@ -103,6 +103,39 @@ pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMa
     // secret and an OAuth stash all reach this map by different routes, and
     // none of them may leave the backend.
     credentials.retain(|key, _| !is_proxied_credential_key(key));
+    credentials
+}
+
+/// The Anthropic keys [`resolve_task_credentials`] would deliver for `actor`,
+/// with its precedence and without its git-host, Codex and identity lookups.
+///
+/// Takes the same Workspace inputs, so the model gateway calls upstream with
+/// exactly what the pod would have.
+pub async fn resolve_task_anthropic_credentials(
+    actor: &Actor,
+    secrets: Option<&Arc<dyn SecretResolver>>,
+    provider_tokens: Option<&Arc<dyn HarnessCredentials>>,
+    workspace_credentials: HashMap<String, String>,
+    workspace_env_vars: HashMap<String, String>,
+) -> HashMap<String, String> {
+    let mut credentials = workspace_credentials;
+    for (key, value) in workspace_env_vars {
+        if !is_platform_owned_key(&key) {
+            credentials.entry(key).or_insert(value);
+        }
+    }
+    let user_id = actor.user_id();
+    if let Some(provider_tokens) = provider_tokens {
+        fill_claude_token(&mut credentials, provider_tokens, user_id).await;
+    }
+    let scoped = resolve_scoped_secrets(secrets, user_id, "").await;
+    fill_missing_from_scoped(&mut credentials, scoped);
+    credentials.retain(|key, _| {
+        matches!(
+            key.as_str(),
+            ANTHROPIC_API_KEY | ANTHROPIC_AUTH_TOKEN | ANTHROPIC_BASE_URL | CLAUDE_CODE_OAUTH_TOKEN
+        )
+    });
     credentials
 }
 
@@ -477,6 +510,16 @@ async fn fill_model_provider_tokens(
     // Codex is resolved through `fill_codex` which walks user > global in one
     // pass; intentionally not handled here.
 
+    fill_claude_token(credentials, provider_tokens, user_id).await;
+}
+
+/// Fill `CLAUDE_CODE_OAUTH_TOKEN` from the user's connected Claude account,
+/// unless a Claude credential already resolved.
+async fn fill_claude_token(
+    credentials: &mut HashMap<String, String>,
+    provider_tokens: &Arc<dyn HarnessCredentials>,
+    user_id: &str,
+) {
     if credentials.contains_key(CLAUDE_CODE_OAUTH_TOKEN)
         || credentials.contains_key(ANTHROPIC_API_KEY)
     {

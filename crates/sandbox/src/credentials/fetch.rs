@@ -13,7 +13,10 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use moatless_types::credential_key::{GH_TOKEN, USER_AUTH_TOKEN};
+use moatless_types::credential_key::{
+    ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, ANTHROPIC_BASE_URL, GH_TOKEN, USER_AUTH_TOKEN,
+};
+use sandbox_proto::GetCredentialsResponse;
 use tokio::fs;
 use tracing::{info, warn};
 
@@ -72,6 +75,60 @@ pub fn filter_agent_credentials(credentials: &HashMap<String, String>) -> HashMa
         .filter(|(k, _)| !AGENT_EXCLUDED_KEYS.contains(&k.as_str()))
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect()
+}
+
+/// The agent subprocess's credential map for one `GetCredentials` answer:
+/// [`filter_agent_credentials`], then [`route_claude_through_gateway`] when the
+/// backend serves its model gateway.
+pub fn agent_credentials(
+    response: &GetCredentialsResponse,
+    backend_url: Option<&str>,
+) -> HashMap<String, String> {
+    let mut credentials = filter_agent_credentials(&response.credentials);
+    if let Some(backend_url) = backend_url.filter(|_| response.model_gateway) {
+        route_claude_through_gateway(&mut credentials, backend_url);
+    }
+    credentials
+}
+
+/// The Anthropic base URL of the backend at `backend_url`.
+pub fn model_gateway_url(backend_url: &str) -> String {
+    format!("{}/llm/anthropic", backend_url.trim_end_matches('/'))
+}
+
+/// Point Claude at [`model_gateway_url`], authenticated by the task token its
+/// `apiKeyHelper` reads (see [`gateway_api_key_helper`]).
+///
+/// Both keys are blanked rather than removed: the CLI prefers either over the
+/// helper, the pod's own environment may still hold one, and the CLI reads an
+/// empty value as unset. A `CLAUDE_CODE_OAUTH_TOKEN` loses to the helper.
+fn route_claude_through_gateway(credentials: &mut HashMap<String, String>, backend_url: &str) {
+    credentials.insert(
+        ANTHROPIC_BASE_URL.to_string(),
+        model_gateway_url(backend_url),
+    );
+    credentials.insert(ANTHROPIC_API_KEY.to_string(), String::new());
+    credentials.insert(ANTHROPIC_AUTH_TOKEN.to_string(), String::new());
+}
+
+/// The `apiKeyHelper` that hands Claude the current task token, when `env`
+/// routes it through the backend's model gateway.
+///
+/// Read per call rather than set as `ANTHROPIC_API_KEY`: a persistent TUI keeps
+/// its spawn-time env, so a token rotated by a driver switch would `401` every
+/// later turn. The CLI re-runs the helper on a `401`.
+pub fn gateway_api_key_helper(
+    config: &Config,
+    env: Option<&HashMap<String, String>>,
+) -> Option<String> {
+    let gateway = model_gateway_url(config.backend_api_url.as_deref()?);
+    let base_url = env?.get(ANTHROPIC_BASE_URL)?;
+    if *base_url != gateway {
+        return None;
+    }
+    let path = config.persisted_user_token_path();
+    let quoted = path.to_string_lossy().replace('\'', r"'\''");
+    Some(format!("cat '{quoted}'"))
 }
 
 /// Whether `fetch_and_apply_credentials` runs at sandbox init or from the
@@ -161,7 +218,8 @@ pub async fn fetch_and_apply_credentials_with_mode(
                 // Store credentials in state for passing to agent subprocess.
                 // Filter out git-provider tokens so the long-running Claude CLI
                 // subprocess doesn't snapshot a stale value at spawn time.
-                *state.credentials.write().await = filter_agent_credentials(&resp.credentials);
+                *state.credentials.write().await =
+                    agent_credentials(&resp, state.config.backend_api_url.as_deref());
 
                 persist_agent_credentials(&state.config, &resp.credentials, mode).await;
 
@@ -340,15 +398,20 @@ pub(crate) async fn persist_user_auth_token(config: &Config, token: &str) {
             return;
         }
     }
-    match fs::write(&path, token).await {
-        Ok(()) => {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).await;
-            }
-        }
-        Err(e) => warn!(error = %e, "Failed to persist user auth token"),
+    // Renamed into place: the agent's `apiKeyHelper` reads this file at any
+    // moment, and a write in place can hand it a truncated token.
+    let staged = path.with_extension("tmp");
+    if let Err(e) = fs::write(&staged, token).await {
+        warn!(error = %e, "Failed to persist user auth token");
+        return;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o600)).await;
+    }
+    if let Err(e) = fs::rename(&staged, &path).await {
+        warn!(error = %e, "Failed to persist user auth token");
     }
 }
 
@@ -488,8 +551,9 @@ mod tests {
     use tempfile::TempDir;
 
     use super::{
-        MAX_RETRY_DELAY, PersistMode, RETRY_BUDGET, exposed_user_token_paths, fallback_tokens,
-        filter_agent_credentials, is_auth_rejection, persist_agent_credentials,
+        ANTHROPIC_BASE_URL, MAX_RETRY_DELAY, PersistMode, RETRY_BUDGET, agent_credentials,
+        exposed_user_token_paths, fallback_tokens, filter_agent_credentials,
+        gateway_api_key_helper, is_auth_rejection, persist_agent_credentials,
         persist_user_auth_token, purge_exposed_user_tokens, terminal_rejection_reason,
     };
     use crate::config::{Config, test_support::minimal_config};
@@ -722,6 +786,69 @@ mod tests {
             filtered.get("CLAUDE_CODE_OAUTH_TOKEN"),
             Some(&"claude".to_string())
         );
+    }
+
+    #[test]
+    fn a_gateway_routed_claude_calls_the_backend_with_no_key_of_its_own() {
+        let response = sandbox_proto::GetCredentialsResponse {
+            credentials: HashMap::from([
+                ("ANTHROPIC_API_KEY".to_string(), "sk-user".to_string()),
+                ("ANTHROPIC_AUTH_TOKEN".to_string(), "hub".to_string()),
+                ("CLAUDE_CODE_OAUTH_TOKEN".to_string(), "oauth".to_string()),
+            ]),
+            model_gateway: true,
+        };
+
+        let routed = agent_credentials(&response, Some("http://backend:8080/"));
+
+        assert_eq!(
+            routed.get("ANTHROPIC_BASE_URL").map(String::as_str),
+            Some("http://backend:8080/llm/anthropic")
+        );
+        assert_eq!(
+            routed.get("ANTHROPIC_API_KEY").map(String::as_str),
+            Some("")
+        );
+        assert_eq!(
+            routed.get("ANTHROPIC_AUTH_TOKEN").map(String::as_str),
+            Some("")
+        );
+
+        let direct = agent_credentials(
+            &sandbox_proto::GetCredentialsResponse {
+                model_gateway: false,
+                ..response
+            },
+            Some("http://backend:8080"),
+        );
+        assert_eq!(
+            direct.get("ANTHROPIC_API_KEY").map(String::as_str),
+            Some("sk-user")
+        );
+        assert!(!direct.contains_key("ANTHROPIC_BASE_URL"));
+    }
+
+    #[test]
+    fn a_gateway_routed_claude_reads_the_task_token_through_its_key_helper() {
+        let tmp = TempDir::new().unwrap();
+        let config = Config {
+            backend_api_url: Some("http://backend:8080".to_string()),
+            runtime_dir: "/run/moat's".to_string(),
+            ..test_config(&tmp)
+        };
+        let env = |base_url: &str| {
+            HashMap::from([(ANTHROPIC_BASE_URL.to_string(), base_url.to_string())])
+        };
+
+        assert_eq!(
+            gateway_api_key_helper(&config, Some(&env("http://backend:8080/llm/anthropic"))),
+            Some(r"cat '/run/moat'\''s/.user_auth_token'".to_string())
+        );
+        assert_eq!(
+            gateway_api_key_helper(&config, Some(&env("https://api.anthropic.com"))),
+            None
+        );
+        assert_eq!(gateway_api_key_helper(&config, Some(&HashMap::new())), None);
     }
 
     #[test]

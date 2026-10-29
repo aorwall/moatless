@@ -152,6 +152,7 @@ mod tests {
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             Ok(GetCredentialsResponse {
                 credentials: HashMap::from([("GITHUB_TOKEN".to_string(), "ghs_token".to_string())]),
+                ..Default::default()
             })
         }
 

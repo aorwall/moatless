@@ -197,7 +197,11 @@ pub(super) async fn get_credentials(
         "Credentials resolved"
     );
 
-    Ok(Response::new(GetCredentialsResponse { credentials }))
+    Ok(Response::new(GetCredentialsResponse {
+        credentials,
+        model_gateway: service.backend_config.model_gateway.enabled
+            && service.task_token_secret.is_some(),
+    }))
 }
 
 /// Persist a credential rotated locally inside the sandbox back into
