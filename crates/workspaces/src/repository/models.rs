@@ -113,7 +113,7 @@ mod tests {
             id: "repo".to_string(),
             name: "repo".to_string(),
             kind: RepositoryKind::Git,
-            remote_url: Some("git@github.com:acme/repo.git".to_string()),
+            remote_url: Some("https://github.com/acme/repo.git".to_string()),
             default_branch: None,
             description: None,
             provider: Some("unrecognized".to_string()),
@@ -127,8 +127,7 @@ mod tests {
         let repository = Repository::from(row);
         assert_eq!(repository.provider, None);
         let remote = repository.remote.unwrap();
-        assert_eq!(remote.url, "git@github.com:acme/repo.git");
-        assert!(remote.uses_ssh);
+        assert_eq!(remote.url, "https://github.com/acme/repo.git");
         assert!(remote.host_repo.is_none());
     }
 }

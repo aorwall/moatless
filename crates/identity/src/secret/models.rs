@@ -43,8 +43,7 @@ pub struct ResolvedSecret {
     pub key: String,
     pub value: String,
     pub provider: Option<String>,
-    /// Raw `kind` string from the record (e.g. `"env"`, `"ssh_key"`). Lets
-    /// callers route `ssh_key` secrets to `~/.ssh` instead of the env-var map.
+    /// Raw `kind` string from the record (e.g. `"env"`, `"internal"`).
     pub kind: String,
 }
 

@@ -338,7 +338,6 @@ mod tests {
             kind: RepositoryKind::Git,
             remote: Some(moatless_workspace_types::repository::RepositoryRemote {
                 url: "https://git.example.com/owner/config-default.git".to_string(),
-                uses_ssh: false,
                 host_repo: Some(moatless_workspace_types::repository::GitHostRepo::new(
                     RepositoryProvider::Forgejo,
                     "git.example.com",
@@ -454,7 +453,6 @@ mod tests {
         github.provider = Some(RepositoryProvider::Github);
         github.remote = Some(moatless_workspace_types::repository::RepositoryRemote {
             url: "https://github.com/owner/repo.git".to_string(),
-            uses_ssh: false,
             host_repo: Some(GitHostRepo::github("owner", "repo")),
         });
         let repo = git_host_repo(&github).expect("a GitHub row resolves");
@@ -469,13 +467,12 @@ mod tests {
         untagged.remote.as_mut().unwrap().host_repo = None;
         assert!(git_host_repo(&untagged).is_none());
 
-        let mut ssh = repository(Scope::User, None);
-        ssh.remote = Some(moatless_workspace_types::repository::RepositoryRemote {
-            url: "ssh://git@git.example.com:2222/owner/repo.git".to_string(),
-            uses_ssh: true,
+        let mut unparsable = repository(Scope::User, None);
+        unparsable.remote = Some(moatless_workspace_types::repository::RepositoryRemote {
+            url: "https://git.example.com/repo.git".to_string(),
             host_repo: None,
         });
-        assert!(git_host_repo(&ssh).is_none());
+        assert!(git_host_repo(&unparsable).is_none());
     }
 
     /// A proxy whose sandbox row is unreadable, so a token that passes every

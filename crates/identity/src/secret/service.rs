@@ -599,41 +599,13 @@ impl SecretService {
 
     /// Resolve accessible secrets into an env-var map with `user > global`
     /// precedence.
-    ///
-    /// Excludes `ssh_key`-kind secrets (delivered separately into `~/.ssh`);
-    /// use [`resolve_accessible_ssh_keys`](Self::resolve_accessible_ssh_keys).
     pub async fn resolve_accessible_plaintext(
         &self,
         actor_id: &str,
     ) -> Result<HashMap<String, String>, SecretError> {
-        self.resolve_accessible_by_kind(actor_id, false).await
-    }
-
-    /// Resolve accessible `ssh_key`-kind secrets into a name → private-key map
-    /// with `user > global` precedence. Delivered to the sandbox separately
-    /// from env credentials and written to `~/.ssh`.
-    pub async fn resolve_accessible_ssh_keys(
-        &self,
-        actor_id: &str,
-    ) -> Result<HashMap<String, String>, SecretError> {
-        self.resolve_accessible_by_kind(actor_id, true).await
-    }
-
-    /// Shared implementation for the two accessible-secret resolvers. When
-    /// `ssh_keys_only` is true, only `ssh_key`-kind secrets are kept; otherwise
-    /// `ssh_key`-kind secrets are skipped.
-    async fn resolve_accessible_by_kind(
-        &self,
-        actor_id: &str,
-        ssh_keys_only: bool,
-    ) -> Result<HashMap<String, String>, SecretError> {
-        let ssh_kind = SecretKind::SshKey.as_str();
         let internal_kind = SecretKind::Internal.as_str();
-        let keep = |scope: &ResolvedSecret| {
-            // Backend-only stashes never reach a sandbox on any channel.
-            scope.kind.as_str() != internal_kind
-                && (scope.kind.as_str() == ssh_kind) == ssh_keys_only
-        };
+        // Backend-only stashes never reach a sandbox on any channel.
+        let keep = |scope: &ResolvedSecret| scope.kind.as_str() != internal_kind;
 
         // Most-specific scope wins: user > global. Resolve user first so
         // `or_insert` keeps it when global repeats the same key.
@@ -820,7 +792,7 @@ mod tests {
         assert!(resolve_scope_for_create(&ctx, Some(Scope::Global)).is_err());
     }
 
-    // --- scope precedence (user > global), shared by env + ssh_key ---
+    // --- scope precedence (user > global) ---
 
     use super::super::test_support::{secret, service_with};
 
@@ -847,19 +819,6 @@ mod tests {
         assert_eq!(resolved["CLAUDE_CODE_OAUTH_TOKEN"], "user-token");
         // Keys set only globally still fall through as a fallback.
         assert_eq!(resolved["GLOBAL_ONLY"], "g");
-    }
-
-    #[tokio::test]
-    async fn ssh_key_user_overrides_global() {
-        let svc = service_with(vec![
-            secret("global", None, "ssh_key", "DEPLOY_KEY", "global-key"),
-            secret("user", Some("u1"), "ssh_key", "DEPLOY_KEY", "user-key"),
-            // env secrets must not leak into the ssh-key map.
-            secret("user", Some("u1"), "env", "CLAUDE_CODE_OAUTH_TOKEN", "tok"),
-        ]);
-        let keys = svc.resolve_accessible_ssh_keys("u1").await.unwrap();
-        assert_eq!(keys["DEPLOY_KEY"], "user-key");
-        assert!(!keys.contains_key("CLAUDE_CODE_OAUTH_TOKEN"));
     }
 
     // --- disable/enable toggle ---
@@ -967,7 +926,6 @@ mod tests {
                 "gho_x",
             ),
             secret("user", Some("u1"), "env", "NORMAL", "v"),
-            secret("user", Some("u1"), "ssh_key", "DEPLOY_KEY", "k"),
         ]);
 
         let env = svc.resolve_accessible_plaintext("u1").await.unwrap();
@@ -976,13 +934,6 @@ mod tests {
             "internal secrets must not be delivered as env vars"
         );
         assert_eq!(env["NORMAL"], "v");
-
-        let keys = svc.resolve_accessible_ssh_keys("u1").await.unwrap();
-        assert!(
-            !keys.contains_key("GITHUB_OAUTH_ACCESS_TOKEN"),
-            "internal secrets must not be delivered as ssh keys"
-        );
-        assert_eq!(keys["DEPLOY_KEY"], "k");
 
         // But a direct internal read still works — that's how the PAT-override
         // restore path finds the stashed OAuth token.

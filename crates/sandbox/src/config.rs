@@ -309,7 +309,6 @@ fn route_through_proxy(
             if repo.provider == GITHUB_PROVIDER {
                 github_upstreams.insert(repo.mount_name.clone(), upstream);
             }
-            repo.uses_ssh = false;
         }
     }
     github_upstreams
@@ -324,11 +323,10 @@ fn scheme_and_authority(url: &str) -> Option<(&str, &str)> {
 
 /// The backend-proxied remote to clone this checkout from: every Forgejo and
 /// every HTTPS GitHub checkout, so git asks the broker for the task token
-/// rather than a provider token. SSH GitHub keeps its own host and keys.
+/// rather than a provider token.
 /// `None` with no `BACKEND_API_URL` or repository id.
 fn proxied_clone_url(repo: &RepoCheckout, backend_api_url: Option<&str>) -> Option<String> {
-    let proxied =
-        repo.provider == PROXIED_PROVIDER || (repo.provider == GITHUB_PROVIDER && !repo.uses_ssh);
+    let proxied = repo.provider == PROXIED_PROVIDER || repo.provider == GITHUB_PROVIDER;
     if !proxied || repo.repository_id.is_empty() {
         return None;
     }
@@ -1071,7 +1069,6 @@ mod tests {
 
     fn checkout(mount_name: &str, is_primary: bool) -> super::RepoCheckout {
         super::RepoCheckout {
-            uses_ssh: false,
             clone_url: "https://example.com/repo.git".into(),
             repository_id: String::new(),
             branch: None,
@@ -1255,8 +1252,8 @@ mod tests {
     #[test]
     fn workspace_repos_env_supplies_every_checkout() {
         let raw = r#"[
-            {"usesSsh":false,"cloneUrl":"https://github.com/acme/api.git","branch":"main","provider":"github","mountName":"api","isPrimary":true},
-            {"usesSsh":false,"cloneUrl":"https://gitlab.com/acme/shared.git","provider":"gitlab","mountName":"lib"}
+            {"cloneUrl":"https://github.com/acme/api.git","branch":"main","provider":"github","mountName":"api","isPrimary":true},
+            {"cloneUrl":"https://gitlab.com/acme/shared.git","provider":"gitlab","mountName":"lib"}
         ]"#;
         let repos =
             parse_repo_checkouts(Some(raw), Some("https://github.com/acme/api.git")).unwrap();
@@ -1277,9 +1274,9 @@ mod tests {
     #[test]
     fn checkouts_with_unusable_mount_names_are_dropped() {
         let raw = r#"[
-            {"usesSsh":false,"cloneUrl":"https://github.com/acme/api.git","provider":"github","mountName":"api","isPrimary":true},
-            {"usesSsh":false,"cloneUrl":"https://github.com/acme/evil.git","provider":"github","mountName":"../escape"},
-            {"usesSsh":false,"cloneUrl":"","provider":"github","mountName":"empty"}
+            {"cloneUrl":"https://github.com/acme/api.git","provider":"github","mountName":"api","isPrimary":true},
+            {"cloneUrl":"https://github.com/acme/evil.git","provider":"github","mountName":"../escape"},
+            {"cloneUrl":"","provider":"github","mountName":"empty"}
         ]"#;
         let repos = parse_repo_checkouts(Some(raw), None).unwrap();
         assert_eq!(repos.len(), 1);
@@ -1287,9 +1284,15 @@ mod tests {
     }
 
     #[test]
-    fn malformed_or_unclassified_checkouts_are_rejected() {
+    fn malformed_checkouts_are_rejected() {
         assert!(parse_repo_checkouts(Some("not json"), None).is_err());
-        assert!(parse_repo_checkouts(Some(r#"[{"cloneUrl":"git@github.com:acme/repo.git","provider":"github","mountName":"repo"}]"#), None).is_err());
+    }
+
+    /// A backend from before SSH support was removed still sends `usesSsh`.
+    #[test]
+    fn a_checkout_carrying_the_retired_uses_ssh_field_still_parses() {
+        let raw = r#"[{"usesSsh":false,"cloneUrl":"https://github.com/acme/api.git","provider":"github","mountName":"api"}]"#;
+        assert_eq!(parse_repo_checkouts(Some(raw), None).unwrap().len(), 1);
     }
 
     fn routed(
@@ -1302,16 +1305,15 @@ mod tests {
     }
 
     /// A Forgejo token never reaches the pod, so its checkout clones from the
-    /// backend even when it was declared over SSH.
+    /// backend.
     #[test]
     fn a_forgejo_checkout_clones_through_the_backend_proxy() {
         let raw = r#"[
-            {"usesSsh":true,"cloneUrl":"git@forge.example:acme/api.git","repositoryId":"repo_1","provider":"forgejo","mountName":"api","isPrimary":true},
-            {"usesSsh":false,"cloneUrl":"https://gitlab.com/acme/lib.git","repositoryId":"repo_3","provider":"gitlab","mountName":"lib"}
+            {"cloneUrl":"https://forge.example/acme/api.git","repositoryId":"repo_1","provider":"forgejo","mountName":"api","isPrimary":true},
+            {"cloneUrl":"https://gitlab.com/acme/lib.git","repositoryId":"repo_3","provider":"gitlab","mountName":"lib"}
         ]"#;
         let (repos, upstreams) = routed(raw, Some("http://backend:8001/"));
         assert_eq!(repos[0].clone_url, "http://backend:8001/git/repo_1");
-        assert!(!repos[0].uses_ssh);
         assert_eq!(repos[1].clone_url, "https://gitlab.com/acme/lib.git");
         assert!(upstreams.is_empty(), "{upstreams:?}");
     }
@@ -1321,7 +1323,7 @@ mod tests {
     #[test]
     fn a_github_checkout_with_a_repository_id_clones_through_the_backend_proxy() {
         let raw = r#"[
-            {"usesSsh":false,"cloneUrl":"https://github.com/acme/web.git","repositoryId":"repo_2","provider":"github","mountName":"web","isPrimary":true}
+            {"cloneUrl":"https://github.com/acme/web.git","repositoryId":"repo_2","provider":"github","mountName":"web","isPrimary":true}
         ]"#;
         let (repos, upstreams) = routed(raw, Some("http://backend:8001"));
         assert_eq!(repos[0].clone_url, "http://backend:8001/git/repo_2");
@@ -1331,17 +1333,14 @@ mod tests {
         );
     }
 
-    /// No registry row, or SSH keys the user chose, leaves github.com in place.
+    /// No registry row leaves github.com in place.
     #[test]
-    fn a_github_checkout_without_an_id_or_over_ssh_keeps_its_remote() {
+    fn a_github_checkout_without_an_id_keeps_its_remote() {
         let raw = r#"[
-            {"usesSsh":false,"cloneUrl":"https://github.com/acme/web.git","provider":"github","mountName":"web","isPrimary":true},
-            {"usesSsh":true,"cloneUrl":"git@github.com:acme/api.git","repositoryId":"repo_1","provider":"github","mountName":"api"}
+            {"cloneUrl":"https://github.com/acme/web.git","provider":"github","mountName":"web","isPrimary":true}
         ]"#;
         let (repos, upstreams) = routed(raw, Some("http://backend:8001"));
         assert_eq!(repos[0].clone_url, "https://github.com/acme/web.git");
-        assert_eq!(repos[1].clone_url, "git@github.com:acme/api.git");
-        assert!(repos[1].uses_ssh);
         assert!(upstreams.is_empty(), "{upstreams:?}");
     }
 
@@ -1350,8 +1349,8 @@ mod tests {
         let mut config = minimal_config();
         config.backend_api_url = Some("http://backend:8001".to_string());
         let raw = r#"[
-            {"usesSsh":false,"cloneUrl":"https://github.com/acme/web.git","repositoryId":"repo_2","provider":"github","mountName":"web","isPrimary":true},
-            {"usesSsh":false,"cloneUrl":"https://gitlab.com/acme/lib.git","repositoryId":"repo_3","provider":"gitlab","mountName":"lib"}
+            {"cloneUrl":"https://github.com/acme/web.git","repositoryId":"repo_2","provider":"github","mountName":"web","isPrimary":true},
+            {"cloneUrl":"https://gitlab.com/acme/lib.git","repositoryId":"repo_3","provider":"gitlab","mountName":"lib"}
         ]"#;
         let (repos, _) = routed(raw, config.backend_api_url.as_deref());
         assert!(config.clones_through_proxy(&repos[0]));
@@ -1363,13 +1362,13 @@ mod tests {
     /// report.
     #[test]
     fn a_forgejo_checkout_the_proxy_cannot_be_addressed_for_keeps_its_remote() {
-        let raw = r#"[{"usesSsh":false,"cloneUrl":"https://forge.example/acme/api.git","repositoryId":"repo_1","provider":"forgejo","mountName":"api","isPrimary":true}]"#;
+        let raw = r#"[{"cloneUrl":"https://forge.example/acme/api.git","repositoryId":"repo_1","provider":"forgejo","mountName":"api","isPrimary":true}]"#;
         assert_eq!(
             routed(raw, None).0[0].clone_url,
             "https://forge.example/acme/api.git"
         );
 
-        let no_id = r#"[{"usesSsh":false,"cloneUrl":"https://forge.example/acme/api.git","provider":"forgejo","mountName":"api","isPrimary":true}]"#;
+        let no_id = r#"[{"cloneUrl":"https://forge.example/acme/api.git","provider":"forgejo","mountName":"api","isPrimary":true}]"#;
         assert_eq!(
             routed(no_id, Some("http://backend:8001")).0[0].clone_url,
             "https://forge.example/acme/api.git"
@@ -1409,7 +1408,7 @@ mod tests {
     /// onto the workspace root.
     #[test]
     fn primary_checkout_falls_back_to_the_first_entry() {
-        let raw = r#"[{"usesSsh":false,"cloneUrl":"https://github.com/acme/api.git","provider":"github","mountName":"api"}]"#;
+        let raw = r#"[{"cloneUrl":"https://github.com/acme/api.git","provider":"github","mountName":"api"}]"#;
         let repos = parse_repo_checkouts(Some(raw), None).unwrap();
         assert_eq!(primary_checkout(&repos).unwrap().mount_name, "api");
         assert!(primary_checkout(&[]).is_none());

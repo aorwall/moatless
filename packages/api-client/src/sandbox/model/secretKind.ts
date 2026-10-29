@@ -17,6 +17,5 @@ export const SecretKind = {
   provider_token: 'provider_token',
   runtime_file: 'runtime_file',
   deployment: 'deployment',
-  ssh_key: 'ssh_key',
   internal: 'internal',
 } as const;

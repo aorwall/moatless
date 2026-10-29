@@ -21,7 +21,6 @@ use crate::credentials::broker::BROKER_HELPER_PATH;
 /// `gh api user` for identity on GitHub), a token-based helper on other
 /// providers.
 pub async fn configure_git(config: &Config, credentials: &GitCredentials) -> Result<(), String> {
-    let is_ssh = crate::config::primary_checkout(&config.repos).is_some_and(|repo| repo.uses_ssh);
     let is_github = config.git_provider == "github";
     let proxy_origin = config.backend_api_origin();
 
@@ -31,13 +30,7 @@ pub async fn configure_git(config: &Config, credentials: &GitCredentials) -> Res
         wire_broker_git_helper(&origin).await;
     }
 
-    if is_ssh {
-        // SSH remotes authenticate with the private key(s) materialized into
-        // ~/.ssh by credentials.rs — nothing to wire here. Skip the
-        // token/gh/insteadOf setup (the GitHub `insteadOf` rewrite would even
-        // rewrite our SSH URL back to HTTPS) and fall through to git identity.
-        info!("SSH remote detected — using SSH key auth from ~/.ssh");
-    } else if is_github {
+    if is_github {
         // Do not run `gh auth setup-git`: `gh` holds only a placeholder token
         // (`credentials::gh_config`), and its helper would answer github.com
         // with that instead of the broker's token.
@@ -65,9 +58,8 @@ pub async fn configure_git(config: &Config, credentials: &GitCredentials) -> Res
     let user_name = credentials.get("GIT_USER_NAME");
     let user_email = credentials.get("GIT_USER_EMAIL");
 
-    // Try to resolve user info from GitHub API (GitHub HTTPS only — an SSH
-    // remote has no `gh` token to query the API with).
-    if is_github && !is_ssh && (user_name.is_none() || user_email.is_none()) {
+    // Try to resolve user info from GitHub API
+    if is_github && (user_name.is_none() || user_email.is_none()) {
         match resolve_github_user().await {
             Ok((name, email)) => {
                 if user_name.is_none() {
@@ -94,9 +86,8 @@ pub async fn configure_git(config: &Config, credentials: &GitCredentials) -> Res
         run_command("git", &["config", "--global", "user.email", email]).await?;
     }
 
-    // For non-GitHub providers (and SSH remotes, which have no `gh` identity
-    // to resolve), set a fallback user if nothing was configured.
-    if (!is_github || is_ssh) && user_name.is_none() && user_email.is_none() {
+    // For non-GitHub providers, set a fallback user if nothing was configured.
+    if !is_github && user_name.is_none() && user_email.is_none() {
         let _ = run_command(
             "git",
             &["config", "--global", "user.name", "Moatless Agent"],
@@ -161,8 +152,8 @@ pub async fn clone_repositories(
     for repo in &config.repos {
         let dest = repo.dir(&config.workspace_dir);
         // Skip if already cloned. For the primary, the workspace-root check also
-        // covers sandboxes created before SSH clones moved to `repo_dir` — their
-        // checkout lives directly in `workspace_dir` on a persistent volume.
+        // covers sandboxes whose checkout lives directly in `workspace_dir` on
+        // a persistent volume.
         if clone_fetch_incomplete(Path::new(&dest)) {
             // From a snapshot stored before uploads left such a mount out, or a
             // volume a killed clone left it on; git refuses to clone into it.
@@ -422,7 +413,7 @@ async fn failure_is_retryable(
             return true;
         }
     }
-    !host_reachable(&repo.clone_url, repo.uses_ssh, probe).await
+    !host_reachable(&repo.clone_url, probe).await
 }
 
 /// What `GET <repo>/info/refs?service=git-upload-pack` answered.
@@ -456,15 +447,12 @@ impl RepoAdvertisement {
 }
 
 /// The repo's [`RepoAdvertisement`], or `None` when there is nothing to ask:
-/// an SSH remote, or a request that never completed.
+/// a request that never completed.
 async fn repo_advertisement(
     repo: &RepoCheckout,
     token: Option<&str>,
     probe: HttpTimeouts,
 ) -> Option<RepoAdvertisement> {
-    if repo.uses_ssh {
-        return None;
-    }
     let base = repo
         .clone_url
         .trim_end_matches('/')
@@ -496,8 +484,8 @@ async fn repo_advertisement(
 /// Probes the resolver and TCP directly since git exits 128 for every fatal
 /// error; a URL with no host to probe answers `true`, leaving the clone failure
 /// to stand on its own.
-async fn host_reachable(clone_url: &str, uses_ssh: bool, probe: HttpTimeouts) -> bool {
-    let Some((host, port)) = clone_host_port(clone_url, uses_ssh) else {
+async fn host_reachable(clone_url: &str, probe: HttpTimeouts) -> bool {
+    let Some((host, port)) = clone_host_port(clone_url) else {
         return true;
     };
     let walk = async {
@@ -517,25 +505,16 @@ async fn host_reachable(clone_url: &str, uses_ssh: bool, probe: HttpTimeouts) ->
 
 /// Host and port to probe for a clone URL: the scheme's default port unless the
 /// URL names its own.
-fn clone_host_port(clone_url: &str, uses_ssh: bool) -> Option<(String, u16)> {
+fn clone_host_port(clone_url: &str) -> Option<(String, u16)> {
     let (rest, default_port) = if let Some(rest) = clone_url.strip_prefix("https://") {
         (rest, 443)
-    } else if let Some(rest) = clone_url.strip_prefix("http://") {
-        (rest, 80)
-    } else if let Some(rest) = clone_url.strip_prefix("ssh://") {
-        (rest, 22)
-    } else if let Some(rest) = clone_url.strip_prefix("git+ssh://") {
-        (rest, 22)
-    } else if uses_ssh {
-        // scp-like `user@host:path`, which carries no scheme.
-        (clone_url, 22)
     } else {
-        // A local path or anything else with no host of its own.
-        return None;
+        // `None` for a local path or anything else with no host of its own.
+        (clone_url.strip_prefix("http://")?, 80)
     };
 
-    // Cut the path first so a scp-like URL's `:` path separator cannot be read
-    // as a port, then drop any userinfo an injected token left in front.
+    // Cut the path first, then drop any userinfo an injected token left in
+    // front.
     let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
     let authority = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
     if authority.is_empty() {
@@ -606,7 +585,6 @@ async fn clone_checkout(
     source: &CloneSource<'_>,
 ) -> Result<(), String> {
     let clone_url = &repo.clone_url;
-    let is_ssh = repo.uses_ssh;
 
     let branch = repo.branch.as_deref().filter(|b| !b.is_empty());
 
@@ -614,26 +592,9 @@ async fn clone_checkout(
         url = %clone_url,
         provider = %repo.provider,
         mount = %repo.mount_name,
-        ssh = is_ssh,
         branch = ?branch,
         "Cloning repository"
     );
-
-    // SSH remote: clone the URL directly. Auth and host-key checking come
-    // from the identities/config credentials.rs wrote to ~/.ssh, no token
-    // involved (checked first, so an SSH URL to a configured-provider host
-    // still takes the SSH path). Clones into `repo_dir`: `workspace_dir`
-    // is no longer empty by clone time, and git refuses a non-empty dir.
-    if is_ssh {
-        let git_args = git_clone_args(clone_url, dest, branch);
-        return match run_clone(&git_args, None, source.stall_secs).await {
-            Ok(()) => {
-                info!("Repository cloned successfully over SSH");
-                Ok(())
-            }
-            Err(e) => Err(format!("SSH clone failed: {e}")),
-        };
-    }
 
     let token = source.token;
     let broker_answers = super::git_remotes::url_origin(clone_url).is_some_and(|origin| {
@@ -883,9 +844,6 @@ const CLONE_TOKEN_HELPER: &str = "credential.helper=!f() { test \"$1\" = get || 
 
 /// Run `git <git_args>`, offering `token` to git only for this process, and
 /// failing once an HTTP transfer moves under 1 KiB/s for `stall_secs`.
-///
-/// SSH stalls are bounded in the ssh config. No `GIT_SSH_COMMAND` here: it
-/// overrides `core.sshCommand`, and SSH clones lose their identities.
 async fn run_clone(git_args: &[&str], token: Option<&str>, stall_secs: u64) -> Result<(), String> {
     let mut command = Command::new("git");
     command

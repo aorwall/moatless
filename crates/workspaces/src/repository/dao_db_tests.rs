@@ -213,7 +213,7 @@ async fn soft_delete_releases_canonical_url(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn reading_after_a_remote_update_rebuilds_host_and_transport(pool: PgPool) {
+async fn reading_after_a_remote_update_rebuilds_the_host(pool: PgPool) {
     use crate::repository::models::RepositoryProvider;
     seed_team(&pool, "personal-user-1").await;
     let dao = PgRepositoryDao(pool);
@@ -223,7 +223,7 @@ async fn reading_after_a_remote_update_rebuilds_host_and_transport(pool: PgPool)
         "repo-remote",
         &RepositoryPatch {
             provider: Some(Some(RepositoryProvider::Forgejo)),
-            remote_url: Some(Some("git@git.internal:team/service.git".to_string())),
+            remote_url: Some(Some("https://git.internal/team/service.git".to_string())),
             ..Default::default()
         },
         &scope_ctx("user-1"),
@@ -236,8 +236,7 @@ async fn reading_after_a_remote_update_rebuilds_host_and_transport(pool: PgPool)
         .unwrap()
         .unwrap();
     let remote = updated.remote.unwrap();
-    assert_eq!(remote.url, "git@git.internal:team/service.git");
-    assert!(remote.uses_ssh);
+    assert_eq!(remote.url, "https://git.internal/team/service.git");
     let host = remote.host_repo.unwrap();
     assert_eq!(host.provider(), RepositoryProvider::Forgejo);
     assert_eq!(host.host(), "git.internal");

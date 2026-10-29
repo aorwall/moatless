@@ -1526,7 +1526,6 @@ fn local_checkout(
     is_primary: bool,
 ) -> moatless_workspace_types::workspace::RepoCheckout {
     moatless_workspace_types::workspace::RepoCheckout {
-        uses_ssh: false,
         clone_url: url.display().to_string(),
         repository_id: String::new(),
         branch: None,

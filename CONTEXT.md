@@ -715,9 +715,8 @@ tokens an agent harness runs with. **ProviderIdentityLink** — the user behind 
 external provider account, by the provider's id, its handle, or the address it
 reports, plus the link back. **AppCredentials** — the deployment-wide OAuth
 credential an Adapter authenticates its own app with, read and rotated.
-**SecretResolver** — the secret values an identity can reach, in two channels
-because they are delivered differently: env-style values, and ssh keys written
-to `~/.ssh`. **SecretCatalog** — which secrets exist for a caller, by name
+**SecretResolver** — the secret values an identity can reach, delivered as
+environment variables. **SecretCatalog** — which secrets exist for a caller, by name
 alone, with nothing decrypted. **CodexScopeReader** — the Codex scopes a
 background refresh should sweep. **GitHostTokenIssuer** — the one way to a
 git-host token: an `Actor` — the identity the call is made as — plus a

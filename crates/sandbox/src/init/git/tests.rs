@@ -13,7 +13,6 @@ const DEAD_PORT: u16 = 1;
 
 fn checkout(mount: &str, provider: &str, is_primary: bool) -> RepoCheckout {
     RepoCheckout {
-        uses_ssh: false,
         clone_url: format!("https://{provider}.example/acme/{mount}.git"),
         repository_id: String::new(),
         branch: None,
@@ -107,7 +106,6 @@ async fn finishes_a_clone_without_a_checkout(left_index_lock: bool) {
     config.repo_dir = workspace.join("api").display().to_string();
     config.git_provider = "local".to_string();
     config.repos = vec![RepoCheckout {
-        uses_ssh: false,
         clone_url: source.display().to_string(),
         repository_id: String::new(),
         branch: None,
@@ -137,7 +135,6 @@ fn unfetched_clone(dir: &Path, url: &str) {
 
 fn local_checkout(mount: &str, source: &Path) -> RepoCheckout {
     RepoCheckout {
-        uses_ssh: false,
         clone_url: source.display().to_string(),
         repository_id: String::new(),
         branch: None,
@@ -238,7 +235,6 @@ async fn restored_primary_does_not_prevent_new_sibling_clone() {
     config.git_provider = "local".to_string();
     config.repos = vec![
         RepoCheckout {
-            uses_ssh: false,
             clone_url: "https://example.test/acme/primary.git".to_string(),
             repository_id: String::new(),
             branch: None,
@@ -247,7 +243,6 @@ async fn restored_primary_does_not_prevent_new_sibling_clone() {
             is_primary: true,
         },
         RepoCheckout {
-            uses_ssh: false,
             clone_url: source.display().to_string(),
             repository_id: String::new(),
             branch: None,
@@ -302,7 +297,6 @@ async fn a_cloned_repo_carries_every_branch_and_a_merge_base() {
     config.repo_dir = workspace.join("api").display().to_string();
     config.git_provider = "local".to_string();
     config.repos = vec![RepoCheckout {
-        uses_ssh: false,
         clone_url: source.display().to_string(),
         repository_id: String::new(),
         branch: Some("main".to_string()),
@@ -405,20 +399,12 @@ fn credentials(pairs: &[(&str, &str)]) -> GitCredentials {
 async fn probe_reports_reachable_and_unreachable_hosts() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let live = listener.local_addr().unwrap().port();
-    assert!(
-        host_reachable(
-            &format!("https://127.0.0.1:{live}/acme/api.git"),
-            false,
-            probe()
-        )
-        .await
-    );
+    assert!(host_reachable(&format!("https://127.0.0.1:{live}/acme/api.git"), probe()).await);
 
     // Nothing is bound to `DEAD_PORT`, so the connect is refused outright.
     assert!(
         !host_reachable(
             &format!("https://127.0.0.1:{DEAD_PORT}/acme/api.git"),
-            false,
             probe()
         )
         .await
@@ -433,14 +419,7 @@ async fn probe_reports_reachable_and_unreachable_hosts() {
 async fn probe_walks_every_resolved_address() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
-    assert!(
-        host_reachable(
-            &format!("https://localhost:{port}/acme/api.git"),
-            false,
-            probe()
-        )
-        .await
-    );
+    assert!(host_reachable(&format!("https://localhost:{port}/acme/api.git"), probe()).await);
 }
 
 /// The retry loop must not sleep the budget away and then start an attempt
@@ -450,7 +429,6 @@ async fn probe_walks_every_resolved_address() {
 async fn retry_stops_before_an_attempt_it_cannot_afford() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = RepoCheckout {
-        uses_ssh: false,
         clone_url: format!("https://127.0.0.1:{DEAD_PORT}/acme/api.git"),
         repository_id: String::new(),
         branch: None,
@@ -510,7 +488,6 @@ async fn serve_response(status: &'static str, body: &'static str) -> u16 {
 
 fn repo_at(port: u16) -> RepoCheckout {
     RepoCheckout {
-        uses_ssh: false,
         clone_url: format!("http://127.0.0.1:{port}/acme/api.git"),
         repository_id: String::new(),
         branch: None,
@@ -660,14 +637,14 @@ async fn exhausted_budget_after_a_transfer_failure_stays_retryable() {
 /// the clone failure has to stand on its own and stay permanent.
 #[tokio::test]
 async fn hostless_url_counts_as_reachable() {
-    assert!(host_reachable("/srv/git/local-repo.git", false, probe()).await);
+    assert!(host_reachable("/srv/git/local-repo.git", probe()).await);
 }
 
 /// The probe targets the port the clone would actually use, and an injected
 /// token in the URL's userinfo must not be mistaken for the host.
 #[test]
 fn clone_urls_resolve_to_the_host_and_port_the_clone_uses() {
-    let port = |url: &str| clone_host_port(url, false);
+    let port = clone_host_port;
     assert_eq!(
         port("https://github.com/owner/repo.git"),
         Some(("github.com".into(), 443))
@@ -680,15 +657,7 @@ fn clone_urls_resolve_to_the_host_and_port_the_clone_uses() {
         port("https://forgejo.example.com:8443/org/repo.git"),
         Some(("forgejo.example.com".into(), 8443))
     );
-    // scp-like: the ':' separates a path, not a port.
-    assert_eq!(
-        clone_host_port("git@github.com:owner/repo.git", true),
-        Some(("github.com".into(), 22))
-    );
-    assert_eq!(
-        port("ssh://git@example.com:2222/owner/repo.git"),
-        Some(("example.com".into(), 2222))
-    );
+    assert_eq!(port("git@github.com:owner/repo.git"), None);
     // An injected token must not be read as the host.
     assert_eq!(
         port("https://x-access-token:ghs_tok@github.com/owner/repo.git"),
@@ -704,7 +673,6 @@ fn clone_urls_resolve_to_the_host_and_port_the_clone_uses() {
 async fn exhausted_budget_against_an_unreachable_host_stays_retryable() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = RepoCheckout {
-        uses_ssh: false,
         clone_url: format!("https://127.0.0.1:{DEAD_PORT}/acme/api.git"),
         repository_id: String::new(),
         branch: None,
@@ -734,7 +702,6 @@ async fn exhausted_budget_against_an_unreachable_host_stays_retryable() {
 async fn reachable_host_reports_the_failure_as_its_own() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = RepoCheckout {
-        uses_ssh: false,
         // No host to probe, so the probe cannot excuse the failure.
         clone_url: tmp.path().join("does-not-exist").display().to_string(),
         repository_id: String::new(),
@@ -1059,30 +1026,4 @@ async fn a_clone_against_a_silent_host_fails_once_it_stalls() {
         .expect_err("a clone against a silent host must fail");
 
     assert!(started.elapsed() >= Duration::from_secs(1));
-}
-
-/// An SSH clone has to run the `core.sshCommand` `credentials::ssh` sets,
-/// which is how ssh finds the sandbox's identities and host-key policy.
-#[tokio::test]
-async fn an_ssh_clone_keeps_the_configured_ssh_command() {
-    let tmp = tempfile::tempdir().unwrap();
-    let marker = tmp.path().join("ssh-ran");
-    let dest = tmp.path().join("api").display().to_string();
-    let ssh_command = format!("core.sshCommand=touch {}; false", marker.display());
-
-    run_clone(
-        &[
-            "-c",
-            &ssh_command,
-            "clone",
-            "ssh://git@127.0.0.1/acme/api.git",
-            &dest,
-        ],
-        None,
-        DEFAULT_CLONE_STALL_SECS,
-    )
-    .await
-    .expect_err("the stand-in ssh always fails");
-
-    assert!(marker.exists(), "git ran some other ssh command");
 }

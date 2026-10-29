@@ -130,7 +130,6 @@ impl BackendClient for NoopBackend {
     ) -> Result<GetCredentialsResponse, tonic::Status> {
         Ok(GetCredentialsResponse {
             credentials: self.credentials.clone(),
-            ssh_keys: HashMap::new(),
         })
     }
 }

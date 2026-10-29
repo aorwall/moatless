@@ -52,18 +52,16 @@ pub enum RepoAction {
     Create {
         #[arg(long)]
         name: String,
-        /// Clone URL. HTTPS or SSH (`ssh_key` secret materialized into the
-        /// sandbox ~/.ssh, no provider token). Optional — a repository need not
-        /// have a remote (a template starter has none); the backend imposes no
-        /// per-kind requirement.
+        /// Clone URL over HTTPS; SSH remotes are refused. Optional — a
+        /// repository need not have a remote (a template starter has none);
+        /// the backend imposes no per-kind requirement.
         #[arg(long)]
         git_url: Option<String>,
         #[arg(long, default_value = "main")]
         branch: String,
         /// Hosting provider (github, gitlab, forgejo). Name the one serving
         /// the host in `--git-url`: `github` is refused for any other host,
-        /// while `gitlab` and `forgejo` parse any host. Ignored for SSH
-        /// clone URLs, which authenticate via an `ssh_key` secret.
+        /// while `gitlab` and `forgejo` parse any host.
         #[arg(long, default_value = "github")]
         provider: String,
         /// Repository kind: remote, template, or git
@@ -401,8 +399,7 @@ async fn resolve_repo(
 ///
 /// A repository with a provider clones through the backend git proxy, using
 /// the Workspace's run-as identity — no provider token reaches the pod; the
-/// task token travels as the HTTP Basic password. An SSH remote clones from
-/// its own host, authenticating with the pod's `ssh_key` secret.
+/// task token travels as the HTTP Basic password.
 fn clone_url(base_url: &str, repo: &RepositoryResponse) -> Result<String, ClientError> {
     let remote = repo.remote.as_ref().ok_or_else(|| {
         ClientError::Other(format!(
@@ -410,7 +407,7 @@ fn clone_url(base_url: &str, repo: &RepositoryResponse) -> Result<String, Client
             repo.name, repo.id
         ))
     })?;
-    if remote.host_repo.is_some() && !remote.uses_ssh {
+    if remote.host_repo.is_some() {
         return Ok(proxy_clone_url(base_url, &repo.id));
     }
     Ok(remote.url.clone())
@@ -858,7 +855,6 @@ mod tests {
         RepositoryResponse {
             remote: remote_url.map(|url| RepositoryRemoteResponse {
                 url: url.to_string(),
-                uses_ssh: false,
                 host_repo: provider.map(|provider| {
                     moatless_workspace_types::schemas::repository::GitHostRepoResponse {
                         provider,
@@ -902,14 +898,6 @@ mod tests {
             Some("https://github.com/owner/repo.git"),
         );
         assert_eq!(clone_url(BASE_URL, &repo).unwrap(), proxied());
-    }
-
-    #[test]
-    fn an_ssh_remote_clones_from_its_own_host() {
-        let remote = "ssh://git@git.example.com:2222/owner/repo.git";
-        let mut repo = repository(Some(RepositoryProvider::Forgejo), Some(remote));
-        repo.remote.as_mut().unwrap().uses_ssh = true;
-        assert_eq!(clone_url(BASE_URL, &repo).unwrap(), remote);
     }
 
     #[test]

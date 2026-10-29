@@ -166,8 +166,6 @@ pub const WORKSPACE_LIMIT_ENV: &str = "SANDBOX_WORKSPACE_LIMIT";
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct RepoCheckout {
-    /// Whether the resolved clone uses SSH authentication.
-    pub uses_ssh: bool,
     /// Remote URL to clone. Credential-free on K8s — the sandbox authenticates
     /// via the credential channel using [`Self::provider`].
     pub clone_url: String,
@@ -202,8 +200,8 @@ impl RepoCheckout {
 /// instead of from their own host.
 ///
 /// A Forgejo token is never delivered into a pod: the pod addresses the
-/// backend, which attaches the credential. The sandbox proxies an HTTPS GitHub
-/// checkout too; GitLab and SSH GitHub checkouts reach their host directly.
+/// backend, which attaches the credential. The sandbox proxies a GitHub
+/// checkout too; a GitLab checkout reaches its host directly.
 pub const PROXIED_PROVIDER: &str = moatless_types::git_host::RepositoryProvider::Forgejo.as_str();
 
 /// The proxied remote for `repository_id`:
@@ -864,7 +862,6 @@ mod tests {
     #[test]
     fn checkout_dir_joins_workspace_dir() {
         let checkout = RepoCheckout {
-            uses_ssh: false,
             clone_url: "https://github.com/owner/service.git".into(),
             branch: None,
             repository_id: "repo_1".into(),

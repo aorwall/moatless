@@ -60,7 +60,6 @@ pub enum CliKind {
     ProviderToken,
     RuntimeFile,
     Deployment,
-    SshKey,
 }
 
 impl From<CliKind> for moatless_types::secret::SecretKind {
@@ -70,7 +69,6 @@ impl From<CliKind> for moatless_types::secret::SecretKind {
             CliKind::ProviderToken => Self::ProviderToken,
             CliKind::RuntimeFile => Self::RuntimeFile,
             CliKind::Deployment => Self::Deployment,
-            CliKind::SshKey => Self::SshKey,
         }
     }
 }

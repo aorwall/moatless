@@ -35,7 +35,6 @@ fn repository(provider: RepositoryProvider, host_repo: GitHostRepo) -> Repositor
         kind: RepositoryKind::Git,
         remote: Some(RepositoryRemote {
             url: format!("https://{}/owner/repo.git", host_repo.host()),
-            uses_ssh: false,
             host_repo: Some(host_repo),
         }),
         default_branch: None,

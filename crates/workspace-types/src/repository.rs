@@ -43,7 +43,6 @@ pub struct Repository {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RepositoryRemote {
     pub url: String,
-    pub uses_ssh: bool,
     pub host_repo: Option<GitHostRepo>,
 }
 

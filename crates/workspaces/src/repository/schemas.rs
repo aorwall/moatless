@@ -16,7 +16,6 @@ pub fn repository_response(r: Repository) -> RepositoryResponse {
             kind: r.kind,
             remote: r.remote.map(|remote| RepositoryRemoteResponse {
                 url: remote.url,
-                uses_ssh: remote.uses_ssh,
                 host_repo: remote.host_repo.map(|repo| GitHostRepoResponse {
                     provider: repo.provider(),
                     host: repo.host().to_string(),
@@ -48,7 +47,7 @@ mod tests {
             response["remote"]["url"],
             "https://github.com/test/repo.git"
         );
-        assert_eq!(response["remote"]["usesSsh"], false);
+        assert!(response["remote"].get("usesSsh").is_none());
         assert_eq!(response["remote"]["hostRepo"]["provider"], "github");
         assert_eq!(response["remote"]["hostRepo"]["owner"], "test");
         assert_eq!(response["remote"]["hostRepo"]["name"], "repo");
@@ -60,7 +59,7 @@ mod tests {
     fn remote_contract_accepts_explicit_absence_but_rejects_incomplete_responses() {
         let repository = crate::test_support::make_repository_row("repo", "user");
         let mut response = serde_json::to_value(repository_response(repository)).unwrap();
-        response["remote"] = serde_json::json!({"url": "https://github.com/test/repo"});
+        response["remote"] = serde_json::json!({"hostRepo": null});
         assert!(serde_json::from_value::<RepositoryResponse>(response.clone()).is_err());
         response["remote"] = serde_json::Value::Null;
         assert!(

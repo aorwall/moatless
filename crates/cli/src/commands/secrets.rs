@@ -31,8 +31,7 @@ pub enum SecretAction {
         #[arg(long, short = 'v')]
         value: Option<String>,
 
-        /// Read the secret value from a file (handy for multi-line `ssh_key`
-        /// PEM files)
+        /// Read the secret value from a file (handy for multi-line values)
         #[arg(long, conflicts_with = "value")]
         value_file: Option<String>,
 
@@ -48,8 +47,7 @@ pub enum SecretAction {
         #[arg(long, short = 't', default_value = "agent")]
         target: String,
 
-        /// Secret kind: env, `provider_token`, `runtime_file`, deployment,
-        /// `ssh_key`
+        /// Secret kind: env, `provider_token`, `runtime_file`, deployment
         #[arg(long, short = 'k', default_value = "env")]
         kind: String,
 
@@ -508,8 +506,6 @@ fn read_value(value: Option<String>) -> Result<Option<String>, ClientError> {
 fn read_value_file(path: &str) -> Result<String, ClientError> {
     let contents = std::fs::read_to_string(path)
         .map_err(|e| ClientError::Other(format!("Failed to read value file '{path}': {e}")))?;
-    // Preserve the file's internal content but drop a single trailing newline;
-    // the sandbox re-adds one when materializing ssh_key secrets to ~/.ssh.
     Ok(contents.trim_end_matches('\n').to_string())
 }
 

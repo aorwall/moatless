@@ -13,5 +13,4 @@ import type { GitHostRepoResponse } from './gitHostRepoResponse';
 export interface RepositoryRemoteResponse {
   hostRepo?: null | GitHostRepoResponse;
   url: string;
-  usesSsh: boolean;
 }

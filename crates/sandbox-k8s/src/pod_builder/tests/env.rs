@@ -105,7 +105,6 @@ fn pod_spec_carries_every_workspace_repo() {
     let config = test_config();
     let mut plan = test_plan();
     plan.repos.push(RepoCheckout {
-        uses_ssh: false,
         repository_id: "repo-2".into(),
         clone_url: "https://gitlab.com/acme/shared.git".into(),
         branch: Some("release".into()),
@@ -153,7 +152,6 @@ fn workspace_repos_env_redacts_every_clone_url() {
     let mut plan = test_plan();
     plan.repos[0].clone_url = "https://user:secret@github.com/test/repo.git".into();
     plan.repos.push(RepoCheckout {
-        uses_ssh: false,
         repository_id: "repo-2".into(),
         clone_url: "https://user:other-secret@gitlab.com/acme/shared.git".into(),
         branch: None,

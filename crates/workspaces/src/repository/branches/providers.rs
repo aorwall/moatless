@@ -133,7 +133,7 @@ pub(super) async fn fetch_gitlab_branches(
 ) -> Result<BranchFetchResult, RepositoryError> {
     let remote_url = remote.url.as_str();
     let parsed = require_host_repo(remote)?;
-    if parsed.host() != "gitlab.com" || remote.uses_ssh {
+    if parsed.host() != "gitlab.com" {
         return Err(RepositoryError::BadRequest(format!(
             "Cannot fetch GitLab branches from {remote_url}"
         )));

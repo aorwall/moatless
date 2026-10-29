@@ -67,7 +67,6 @@ pub(super) fn test_plan() -> ProvisionPlan {
         git_provider: "github".into(),
         env_vars: None,
         repos: vec![RepoCheckout {
-            uses_ssh: false,
             repository_id: "repo-1".into(),
             clone_url: "https://github.com/test/repo.git".into(),
             branch: None,

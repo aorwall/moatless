@@ -175,26 +175,6 @@ fn fill_missing_from_scoped(
     }
 }
 
-/// Resolve the SSH private keys a task's sandbox materializes into `~/.ssh`.
-///
-/// Delivered on a dedicated channel, never as environment variables, with the
-/// same `user > global` precedence as other secrets.
-pub async fn resolve_task_ssh_keys(
-    secrets: Option<&Arc<dyn SecretResolver>>,
-    user_id: &str,
-) -> HashMap<String, String> {
-    let Some(secrets) = secrets else {
-        return HashMap::new();
-    };
-    match secrets.ssh_keys(user_id).await {
-        Ok(keys) => keys,
-        Err(e) => {
-            warn!(user_id, error = %e, "Failed to resolve ssh key secrets");
-            HashMap::new()
-        }
-    }
-}
-
 /// The two rows a task's credentials are resolved against: the repository whose
 /// owner/name a GitHub credential is minted for, and the workspace whose pinned
 /// credentials outrank everything else.
@@ -702,7 +682,6 @@ mod tests {
             kind: moatless_workspace_types::repository::RepositoryKind::Remote,
             remote: Some(moatless_workspace_types::repository::RepositoryRemote {
                 url: "https://github.com/acme/repo.git".to_string(),
-                uses_ssh: false,
                 host_repo: Some(moatless_workspace_types::repository::GitHostRepo::new(
                     moatless_workspace_types::repository::RepositoryProvider::Github,
                     "github.com",
@@ -761,7 +740,6 @@ mod tests {
         secrets
             .expect_plaintext()
             .returning(move |_| Ok(resolved.clone()));
-        secrets.expect_ssh_keys().returning(|_| Ok(HashMap::new()));
         Arc::new(secrets)
     }
 

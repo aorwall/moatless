@@ -12,8 +12,7 @@ use sandbox_proto::{
 
 use crate::sandbox::secrets::{
     TaskCredentialInputs, resolve_task_actor, resolve_task_credential_targets,
-    resolve_task_credentials, resolve_task_ssh_keys, resolve_workspace_credentials,
-    resolve_workspace_env_vars,
+    resolve_task_credentials, resolve_workspace_credentials, resolve_workspace_env_vars,
 };
 use moatless_core::sandbox_jwt as jwt;
 use moatless_core::secret_keys;
@@ -173,7 +172,6 @@ pub(super) async fn get_credentials(
     if let Some(user_token) = service.mint_user_auth_token(&grant) {
         credentials.insert(CredentialKey::USER_AUTH_TOKEN.to_string(), user_token);
     }
-    let ssh_keys = resolve_task_ssh_keys(handlers.map(|h| &h.secrets), &grant.ctx.user_id).await;
 
     info!(
         task_id = %req.task_id,
@@ -184,15 +182,11 @@ pub(super) async fn get_credentials(
         has_openai = credentials.contains_key(CredentialKey::OPENAI_API_KEY),
         has_anthropic = credentials.contains_key(CredentialKey::ANTHROPIC_API_KEY),
         has_claude_oauth = credentials.contains_key(CredentialKey::CLAUDE_CODE_OAUTH_TOKEN),
-        ssh_key_count = ssh_keys.len(),
         workspace_credential_count,
         "Credentials resolved"
     );
 
-    Ok(Response::new(GetCredentialsResponse {
-        credentials,
-        ssh_keys,
-    }))
+    Ok(Response::new(GetCredentialsResponse { credentials }))
 }
 
 /// Persist a credential rotated locally inside the sandbox back into

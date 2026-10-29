@@ -13,4 +13,3 @@ pub(crate) mod gh_config;
 pub(crate) mod github_proxy;
 pub(crate) mod refresher;
 pub(crate) mod retry;
-pub(crate) mod ssh;

@@ -10,7 +10,6 @@ pub(crate) fn resolve_remote(
     url: String,
 ) -> RepositoryRemote {
     RepositoryRemote {
-        uses_ssh: is_ssh_url(&url),
         host_repo: provider.and_then(|provider| parse_host_repo(provider, &url)),
         url,
     }
@@ -108,61 +107,29 @@ fn parse_hosted(provider: RepositoryProvider, remote_url: &str) -> Option<GitHos
     }
     Some(GitHostRepo::new(provider, host, owner, name))
 }
-/// Whether a clone URL uses SSH transport.
+/// Reject a `remote_url` that is not `https://` or `http://`.
 ///
-/// Matches both `ssh://…` URLs and scp-like `[user@]host:path` syntax
-/// (e.g. `git@github.com:owner/repo.git`), while excluding HTTP(S) URLs.
-fn is_ssh_url(url: &str) -> bool {
-    if url.starts_with("ssh://") || url.starts_with("git+ssh://") {
-        return true;
-    }
-    if url.starts_with("http://") || url.starts_with("https://") {
-        return false;
-    }
-    // scp-like syntax: user@host:path — an '@' before a ':', and the ':' is not
-    // part of a URL scheme.
-    match (url.find('@'), url.find(':')) {
-        (Some(at), Some(colon)) => colon > at,
-        _ => false,
-    }
-}
-
-/// Reject a `remote_url` whose scheme `git` runs rather than clones:
-/// `ext::<command>` is a remote helper invocation, not a transport.
-///
-/// Write-path only; a row stored before this landed is not swept. Accepts
-/// `https://`, `http://`, and `user@host:path`/`ssh://...` SSH — not the
-/// user-less scp form, indistinguishable here from `ext::`'s syntax.
+/// SSH is refused because no sandbox holds an SSH key: a clone authenticates
+/// over HTTPS only. `ext::` is a remote helper git runs rather than clones.
+/// Write-path only; migration 0213 converted the SSH rows stored before this.
 pub(crate) fn ensure_remote_url_scheme_allowed(
     remote_url: &str,
 ) -> Result<(), super::error::RepositoryError> {
-    let trimmed = remote_url.trim();
-    // Git reads a `/` before the first `:` as a local path, not SSH — so
-    // `/srv/repos/a@b:c` clones a directory. `ssh://` still matches: its
-    // first `:` precedes any `/`.
-    let slash_before_colon = match (trimmed.find('/'), trimmed.find(':')) {
-        (Some(slash), Some(colon)) => slash < colon,
-        _ => false,
-    };
-    if is_ssh_url(trimmed) && !slash_before_colon {
-        return Ok(());
-    }
-    if let Ok(parsed) = url::Url::parse(trimmed) {
+    if let Ok(parsed) = url::Url::parse(remote_url.trim()) {
         if matches!(parsed.scheme(), "http" | "https") {
             return Ok(());
         }
     }
     Err(super::error::RepositoryError::BadRequest(format!(
-        "Remote URL '{remote_url}' is not allowed: only https, http and scp-style SSH \
-         remotes are accepted"
+        "Remote URL '{remote_url}' is not allowed: only https and http remotes are \
+         accepted; use the repository's HTTPS clone URL instead of SSH"
     )))
 }
 
 /// Reject a remote another provider addresses and the declared one does not.
 ///
-/// Two remotes resolve to no host however they are declared, and are accepted:
-/// an SSH URL (see [`resolve_remote`]), and a URL no provider reads as
-/// `owner/repo`, which `sandbox::init::git` clones anonymously.
+/// A URL no provider reads as `owner/repo` resolves to no host however it is
+/// declared, and is accepted: `sandbox::init::git` clones it anonymously.
 pub(crate) fn ensure_no_provider_mismatch(
     provider: Option<RepositoryProvider>,
     url: &str,
@@ -170,7 +137,7 @@ pub(crate) fn ensure_no_provider_mismatch(
     let Some(provider) = provider else {
         return Ok(());
     };
-    if is_ssh_url(url) || parse_host_repo(provider, url).is_some() {
+    if parse_host_repo(provider, url).is_some() {
         return Ok(());
     }
 
@@ -210,22 +177,11 @@ mod tests {
         let url = "  https://github.com/Acme/Repo.git/  ".to_string();
         let resolved = resolve_remote(Some(RepositoryProvider::Github), url.clone());
         assert_eq!(resolved.url, url);
-        assert!(!resolved.uses_ssh);
         assert_eq!(
             resolved.host_repo,
             Some(GitHostRepo::github("Acme", "Repo"))
         );
         assert!(resolve_remote(None, url).host_repo.is_none());
-    }
-
-    #[test]
-    fn ssh_transport_does_not_require_a_supported_host_identity() {
-        let remote = resolve_remote(
-            None,
-            "ssh://deploy@git.internal:2222/team/repo.git".to_string(),
-        );
-        assert!(remote.uses_ssh);
-        assert!(remote.host_repo.is_none());
     }
 
     #[test]
@@ -256,18 +212,14 @@ mod tests {
 
     #[test]
     fn a_remote_no_provider_would_address_differently_is_accepted() {
-        // A host the provider serves, an SSH remote, no declared provider, and
-        // the two shapes every parser rejects — a single path segment and a
-        // non-HTTP scheme. The last three clone anonymously, so rejecting them
-        // would strand a remote the CLI has no provider value to re-declare.
+        // A host the provider serves, no declared provider, and the two shapes
+        // every parser rejects — a single path segment and a non-HTTP scheme.
+        // The last three clone anonymously, so rejecting them would strand a
+        // remote the CLI has no provider value to re-declare.
         for (provider, url) in [
             (
                 Some(RepositoryProvider::Forgejo),
                 "https://git.example.com/config-dev/config-default",
-            ),
-            (
-                Some(RepositoryProvider::Github),
-                "ssh://deploy@git.internal:2222/team/repo.git",
             ),
             (None, "https://git.example.com/acme/repo"),
             (
@@ -374,32 +326,30 @@ mod tests {
     }
 
     #[test]
-    fn detects_ssh_urls() {
-        assert!(is_ssh_url("git@github.com:owner/repo.git"));
-        assert!(is_ssh_url("git@gitlab.example.com:group/sub/repo.git"));
-        assert!(is_ssh_url("ssh://git@example.com/owner/repo.git"));
-        assert!(is_ssh_url("deploy@10.0.0.1:/srv/git/repo.git"));
-    }
-
-    #[test]
-    fn rejects_non_ssh_urls() {
-        assert!(!is_ssh_url("https://github.com/owner/repo.git"));
-        assert!(!is_ssh_url("http://gitlab.example.com/owner/repo.git"));
-        assert!(!is_ssh_url("https://user:tok@github.com/owner/repo.git"));
-    }
-
-    #[test]
-    fn remote_url_scheme_accepts_https_http_and_scp_ssh() {
+    fn remote_url_scheme_accepts_https_and_http() {
         for url in [
             "https://github.com/acme/repo.git",
             "http://git.example.com/acme/repo",
-            "git@github.com:acme/repo.git",
-            "ssh://deploy@git.internal:2222/team/repo.git",
-            "deploy@10.0.0.1:/srv/git/repo.git",
         ] {
             assert!(
                 ensure_remote_url_scheme_allowed(url).is_ok(),
                 "expected {url} to be accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn remote_url_scheme_rejects_ssh_remotes() {
+        for url in [
+            "git@github.com:acme/repo.git",
+            "ssh://deploy@git.internal:2222/team/repo.git",
+            "git+ssh://git@github.com/acme/repo.git",
+            "deploy@10.0.0.1:/srv/git/repo.git",
+        ] {
+            let err = ensure_remote_url_scheme_allowed(url).unwrap_err();
+            assert!(
+                matches!(err, super::super::error::RepositoryError::BadRequest(_)),
+                "{url}"
             );
         }
     }
@@ -429,10 +379,7 @@ mod tests {
     }
 
     #[test]
-    fn remote_url_scheme_rejects_a_local_path_an_at_sign_resembles_scp_syntax_on() {
-        // Git reads a `/` before the first `:` as a local path, not SSH, so
-        // these clone a directory, not a host — exactly what `file://` is
-        // already rejected for.
+    fn remote_url_scheme_rejects_a_local_path() {
         for url in ["/srv/repos/a@b:c", "./x@y:z"] {
             let err = ensure_remote_url_scheme_allowed(url).unwrap_err();
             assert!(

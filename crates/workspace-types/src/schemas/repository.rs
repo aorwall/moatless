@@ -112,7 +112,6 @@ pub struct BranchEntry {
 #[serde(rename_all = "camelCase")]
 pub struct RepositoryRemoteResponse {
     pub url: String,
-    pub uses_ssh: bool,
     pub host_repo: Option<GitHostRepoResponse>,
 }
 

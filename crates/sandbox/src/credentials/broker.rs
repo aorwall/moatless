@@ -209,7 +209,6 @@ mod tests {
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             Ok(GetCredentialsResponse {
                 credentials: self.creds.clone(),
-                ssh_keys: HashMap::new(),
             })
         }
 

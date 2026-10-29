@@ -98,7 +98,7 @@ service BackendSandboxService {
   // A dedicated RPC and not a `GetCredentials` entry: that map is env-var-shaped
   // and `credentials/fetch.rs` sets every entry as a process env var, which is
   // what `purge_exposed_user_tokens` exists to undo. These values are consumed
-  // in process, the way `GetCredentialsResponse.ssh_keys` already is.
+  // in process.
   //
   // Presigned URLs cannot serve this: `rustic_core` lists the repository by
   // prefix on every open, and no per-key signature covers a LIST. The backend
@@ -552,12 +552,8 @@ message GetCredentialsResponse {
   // Key = env var name (e.g. "GITHUB_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN")
   // Extensible: add new credentials without proto changes
   map<string, string> credentials = 1;
-  reserved 2;
-  reserved "server_env";
-  // SSH private keys, keyed by secret name. Materialized by the sandbox into
-  // ~/.ssh (mode 0600) and used transparently for git/ssh over SSH remotes.
-  // Delivered separately from `credentials` so they are never set as env vars.
-  map<string, string> ssh_keys = 3;
+  reserved 2, 3;
+  reserved "server_env", "ssh_keys";
 }
 
 message UpdateCredentialRequest {

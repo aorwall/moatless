@@ -291,7 +291,6 @@ mod tests {
             .fetch_loop_files(
                 &RepositoryRemote {
                     url: "https://github.com/x/y.git".to_string(),
-                    uses_ssh: false,
                     host_repo: Some(moatless_workspace_types::repository::GitHostRepo::github(
                         "x", "y",
                     )),
@@ -315,7 +314,6 @@ mod tests {
             .fetch_loop_files(
                 &RepositoryRemote {
                     url: "https://gitlab.com/foo/bar.git".to_string(),
-                    uses_ssh: false,
                     host_repo: Some(moatless_workspace_types::repository::GitHostRepo::new(
                         RepositoryProvider::Gitlab,
                         "gitlab.com",

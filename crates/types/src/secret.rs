@@ -56,10 +56,6 @@ crate::string_enum!(
         ProviderToken => "provider_token",
         RuntimeFile => "runtime_file",
         Deployment => "deployment",
-        /// SSH private key. Materialized into the sandbox's `~/.ssh` directory
-        /// (never set as an env var) and used transparently for git/ssh over
-        /// SSH remotes.
-        SshKey => "ssh_key",
         /// Backend-only value (e.g. an OAuth token stashed behind a PAT
         /// override). Never delivered to a sandbox through any channel.
         Internal => "internal",

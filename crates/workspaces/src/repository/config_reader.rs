@@ -318,7 +318,7 @@ async fn fetch_gitlab_file(
 ) -> Result<Option<String>, RepositoryError> {
     let remote_url = remote.url.as_str();
     let parsed = require_host_repo(remote)?;
-    if parsed.host() != "gitlab.com" || remote.uses_ssh {
+    if parsed.host() != "gitlab.com" {
         return Err(RepositoryError::BadRequest(format!(
             "Cannot fetch GitLab config from {remote_url}"
         )));

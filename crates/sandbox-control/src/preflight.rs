@@ -648,7 +648,6 @@ mod tests {
             kind,
             remote: Some(moatless_workspace_types::repository::RepositoryRemote {
                 url: format!("https://{host}/o/r"),
-                uses_ssh: false,
                 host_repo: provider.map(|provider| GitHostRepo::new(provider, host, "o", "r")),
             }),
             default_branch: None,

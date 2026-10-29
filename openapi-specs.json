@@ -17067,8 +17067,7 @@
         "type": "object",
         "description": "Resolved facts about the repository's remote.",
         "required": [
-          "url",
-          "usesSsh"
+          "url"
         ],
         "properties": {
           "hostRepo": {
@@ -17083,9 +17082,6 @@
           },
           "url": {
             "type": "string"
-          },
-          "usesSsh": {
-            "type": "boolean"
           }
         }
       },
@@ -18199,7 +18195,6 @@
           "provider_token",
           "runtime_file",
           "deployment",
-          "ssh_key",
           "internal"
         ]
       },

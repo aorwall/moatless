@@ -410,12 +410,6 @@ impl SecretResolver for SecretService {
             .await
             .map_err(|e| StoreError::with_source(format!("resolve secrets for {user_id}"), e))
     }
-
-    async fn ssh_keys(&self, user_id: &str) -> Result<HashMap<String, String>, StoreError> {
-        self.resolve_accessible_ssh_keys(user_id)
-            .await
-            .map_err(|e| StoreError::with_source(format!("resolve ssh keys for {user_id}"), e))
-    }
 }
 
 #[async_trait]
