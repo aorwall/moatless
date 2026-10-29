@@ -132,12 +132,33 @@ async fn resolve(
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .unwrap_or("default");
+    // One destination per delivery, built from the event's own coordinates: the
+    // same Binding the tracked-thread lookup asks about is the one an admitted
+    // message binds to, so there is nothing to keep in step.
+    let thread_ts = payload.pointer("/event/thread_ts").and_then(|v| v.as_str());
+    let ts = payload
+        .pointer("/event/ts")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let destination = subject::thread_destination(
+        source_id,
+        thread_ts.unwrap_or(ts),
+        &serde_json::json!({
+            "channel": source_id,
+            "ts": ts,
+            "thread_ts": thread_ts.unwrap_or(ts),
+            "team_id": team_id,
+        }),
+        None,
+    );
+
     if let Some(routed) = super::room::route(
         adapter_connections,
         task_bindings,
         adapter,
         team_id,
         source_id,
+        thread_ts.map(|_| &destination),
     )
     .await?
     {
@@ -160,26 +181,6 @@ async fn resolve(
         );
         return Ok(Routing::Dropped("no_trigger"));
     };
-
-    // One destination per delivery, built from the event's own coordinates: the
-    // same Binding the tracked-thread lookup asks about is the one an admitted
-    // message binds to, so there is nothing to keep in step.
-    let thread_ts = payload.pointer("/event/thread_ts").and_then(|v| v.as_str());
-    let ts = payload
-        .pointer("/event/ts")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let destination = subject::thread_destination(
-        source_id,
-        thread_ts.unwrap_or(ts),
-        &serde_json::json!({
-            "channel": source_id,
-            "ts": ts,
-            "thread_ts": thread_ts.unwrap_or(ts),
-            "team_id": team_id,
-        }),
-        None,
-    );
 
     // A reply in a thread a Binding already tracks bypasses the trigger filter.
     let is_tracked_thread = match thread_ts {

@@ -42,6 +42,21 @@ impl Bindings {
             .await
     }
 
+    /// The active Binding a Task other than `task_id` holds on a subject.
+    pub async fn held_by_another(
+        &self,
+        adapter_kind: &str,
+        subject_kind: &str,
+        subject_key: &str,
+        task_id: &str,
+    ) -> Result<Option<TaskBinding>, sqlx::Error> {
+        Ok(self
+            .for_subject(adapter_kind, subject_kind, subject_key)
+            .await?
+            .into_iter()
+            .find(|b| b.active && b.task_id != task_id))
+    }
+
     /// Every Binding a Task carries, oldest first.
     pub async fn for_task(&self, task_id: &str) -> Result<Vec<TaskBinding>, sqlx::Error> {
         self.store.find_by_task_id(task_id).await

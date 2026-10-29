@@ -9,6 +9,7 @@ use super::access::{ensure_task_access_only, ensure_task_access_with};
 use super::projection::adapter_connection_response;
 use moatless_adapter_model::access::resolve_scope_for_adapter_create;
 use moatless_adapter_model::binding::BindScope;
+use moatless_adapter_model::capabilities::AdapterDirectDestination;
 use moatless_adapter_model::delivery::{Admission, AdmitError};
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::outbound::OutboundReply;
@@ -124,6 +125,10 @@ impl AdapterCommands {
             presentation,
         };
 
+        if let Some(task_id) = req.task_id.as_deref() {
+            self.refuse_a_held_subject(provider, &req.destination, task_id)
+                .await?;
+        }
         let result = provider
             .post_to_destination(&req.destination, &reply)
             .await?;
@@ -160,6 +165,39 @@ impl AdapterCommands {
             binding_id,
         })
     }
+
+    /// Refuse a send that would bind `task_id` to a subject another Task
+    /// actively holds: a thread has one Task, so its messages reach one agent.
+    async fn refuse_a_held_subject(
+        &self,
+        provider: &dyn AdapterDirectDestination,
+        destination: &str,
+        task_id: &str,
+    ) -> Result<(), AdapterError> {
+        let Some((subject_kind, subject_key)) = provider.destination_subject(destination).await?
+        else {
+            return Ok(());
+        };
+        let holder = self
+            .task_bindings
+            .held_by_another(
+                provider.connection_provider_key(),
+                subject_kind,
+                &subject_key,
+                task_id,
+            )
+            .await
+            .map_err(|e| SharedAdapterError::Internal(e.to_string()))?;
+        match holder {
+            Some(b) => Err(SharedAdapterError::Conflict(format!(
+                "{destination} belongs to task {}; post top-level to start a thread of your own",
+                b.task_id
+            ))
+            .into()),
+            None => Ok(()),
+        }
+    }
+
     pub async fn send_user_dm(
         &self,
         ctx: &ScopeContext,

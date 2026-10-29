@@ -303,6 +303,19 @@ impl AdapterMessageReply for SlackAdapter {
 
 #[async_trait::async_trait]
 impl AdapterDirectDestination for SlackAdapter {
+    async fn destination_subject(
+        &self,
+        destination: &str,
+    ) -> Result<Option<(&'static str, String)>, AdapterError> {
+        let (channel, Some(thread_ts)) = subject::parse_destination(destination)? else {
+            return Ok(None);
+        };
+        let workspace_id = self.ensure_workspace_id().await?;
+        let (subject_key, _) =
+            subject::direct_destination(&workspace_id, &channel, &thread_ts, &thread_ts);
+        Ok(Some((subject::subject_kind(), subject_key)))
+    }
+
     async fn post_to_destination(
         &self,
         destination: &str,
@@ -642,6 +655,31 @@ mod tests {
         assert_eq!(
             stub.paths(),
             vec!["/files.getUploadURLExternal".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_thread_destination_names_the_subject_its_post_binds() {
+        let stub = slack_stub().await;
+        let adapter = adapter(&stub);
+
+        let named = adapter
+            .destination_subject("thread:C1/1700000000.000100")
+            .await
+            .expect("auth.test answers");
+        let posted = adapter
+            .post_to_destination("thread:C1/1700000000.000100", &reply("hi", None))
+            .await
+            .expect("the stub accepts the post");
+
+        assert_eq!(named, Some(("slack_thread", posted.subject_key)));
+        assert_eq!(
+            adapter
+                .destination_subject("channel:C1")
+                .await
+                .expect("parses"),
+            None,
+            "a top-level post starts a thread nobody holds yet"
         );
     }
 

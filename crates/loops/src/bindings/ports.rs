@@ -33,6 +33,20 @@ impl BindingDirectory {
     pub(crate) fn new(bindings: Arc<Bindings>, loops: Arc<LoopDao>) -> Self {
         Self { bindings, loops }
     }
+
+    async fn on_subject(
+        &self,
+        adapter_kind: &str,
+        subject_kind: &str,
+        subject_key: &str,
+    ) -> Result<Vec<TaskBinding>, StoreError> {
+        self.bindings
+            .for_subject(adapter_kind, subject_kind, subject_key)
+            .await
+            .map_err(|e| {
+                StoreError::with_source(format!("read bindings on {adapter_kind}:{subject_key}"), e)
+            })
+    }
 }
 
 #[async_trait]
@@ -43,14 +57,23 @@ impl BindingProbe for BindingDirectory {
         subject_kind: &str,
         subject_key: &str,
     ) -> Result<bool, StoreError> {
-        let rows = self
-            .bindings
-            .for_subject(adapter_kind, subject_kind, subject_key)
-            .await
-            .map_err(|e| {
-                StoreError::with_source(format!("read bindings on {adapter_kind}:{subject_key}"), e)
-            })?;
-        Ok(!rows.is_empty())
+        Ok(!self
+            .on_subject(adapter_kind, subject_kind, subject_key)
+            .await?
+            .is_empty())
+    }
+
+    async fn is_actively_bound(
+        &self,
+        adapter_kind: &str,
+        subject_kind: &str,
+        subject_key: &str,
+    ) -> Result<bool, StoreError> {
+        Ok(self
+            .on_subject(adapter_kind, subject_kind, subject_key)
+            .await?
+            .iter()
+            .any(|b| b.active))
     }
 }
 

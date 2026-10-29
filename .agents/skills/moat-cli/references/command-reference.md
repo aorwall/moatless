@@ -41,6 +41,12 @@ key does. It opens in the background; a task has one room, so a second request
 does nothing. Without `--in` it opens from the Slack thread that started the
 task, and is refused when there is none.
 
+Another task joins a room by starting a thread in it:
+`moat send --via slack --to channel:<room> --text "…"`. Replies in that thread
+go to the task that started it, not to the room's task. A thread has one task,
+so a send binding a task into a thread another task holds is refused with
+`409`.
+
 ## Configuration ownership
 
 Repository commands configure git connection fields: name, URL, branch, provider,

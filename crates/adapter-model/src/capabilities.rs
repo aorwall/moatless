@@ -149,6 +149,16 @@ pub trait AdapterDirectDestination: AdapterOutboundContent {
         destination: &str,
         message: &OutboundReply,
     ) -> Result<DestinationPostResult, AdapterError>;
+
+    /// The `(subject_kind, subject_key)` a post to `destination` would bind,
+    /// when it names an existing subject. `None` when the post itself creates
+    /// the subject, as a top-level post does.
+    async fn destination_subject(
+        &self,
+        _destination: &str,
+    ) -> Result<Option<(&'static str, String)>, AdapterError> {
+        Ok(None)
+    }
 }
 
 /// Resolve direct-message destinations for provider-side users.

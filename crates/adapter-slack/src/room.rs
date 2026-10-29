@@ -1,7 +1,7 @@
 //! Slack's Task Room: a code channel, opened from the message that started
 //! the Task and bound as one [`subject::room_subject_kind`] subject.
 
-use moatless_adapter_model::binding::BindingProbe;
+use moatless_adapter_model::binding::{BindingDestination, BindingProbe};
 use moatless_adapter_model::capabilities::Adapter;
 use moatless_adapter_model::capabilities::{AdapterTaskRoom, RoomOpened, RoomRequest};
 use moatless_adapter_model::connections::ConnectionLookup;
@@ -81,29 +81,39 @@ impl AdapterTaskRoom for SlackAdapter {
 /// The route for a message in a Task Room's channel, or `None` when `channel`
 /// holds no room.
 ///
-/// Probed before the Loop lookup: a room's channel was opened by Moatless and
-/// matches no Loop, and every message in it belongs to the room's Task, so
-/// the trigger filter is bypassed and no Task is ever created from it.
+/// Probed before the Loop lookup, so no Task is ever created from a room. A
+/// message in a `thread` another Task holds goes to that Task, not the room's.
 pub(super) async fn route(
     adapter_connections: &dyn ConnectionLookup,
     task_bindings: &dyn BindingProbe,
     adapter: &SlackAdapter,
     team_id: &str,
     channel: &str,
+    thread: Option<&BindingDestination>,
 ) -> Result<Option<Routed>, AdapterError> {
-    let destination = subject::room_destination(team_id, channel);
+    let room = subject::room_destination(team_id, channel);
     let is_room = task_bindings
-        .is_bound(
-            adapter.provider_key(),
-            destination.subject_kind,
-            &destination.subject_key,
-        )
+        .is_bound(adapter.provider_key(), room.subject_kind, &room.subject_key)
         .await?;
     if !is_room {
         return Ok(None);
     }
     let Some(connection) = adapter_connections.by_scope_value("slack", team_id).await? else {
         return Ok(None);
+    };
+    let destination = match thread {
+        Some(thread)
+            if task_bindings
+                .is_actively_bound(
+                    adapter.provider_key(),
+                    thread.subject_kind,
+                    &thread.subject_key,
+                )
+                .await? =>
+        {
+            thread.clone()
+        }
+        _ => room,
     };
     let subscription = delivery_only_subscription(&connection, AdapterKind::Slack, channel);
     Ok(Some(Routed {
@@ -315,5 +325,96 @@ mod tests {
 
         let failure = moatless_adapter_model::delivery::AdapterDeliveryFailure::from(err);
         assert!(failure.is_permanent());
+    }
+
+    /// Answers `is_bound` for `room` and `is_actively_bound` for `held`.
+    struct Bound {
+        room: &'static str,
+        held: Option<&'static str>,
+    }
+
+    #[async_trait::async_trait]
+    impl moatless_adapter_model::binding::BindingProbe for Bound {
+        async fn is_bound(
+            &self,
+            _adapter_kind: &str,
+            _subject_kind: &str,
+            subject_key: &str,
+        ) -> Result<bool, moatless_types::store::StoreError> {
+            Ok(subject_key == self.room)
+        }
+
+        async fn is_actively_bound(
+            &self,
+            _adapter_kind: &str,
+            _subject_kind: &str,
+            subject_key: &str,
+        ) -> Result<bool, moatless_types::store::StoreError> {
+            Ok(self.held == Some(subject_key))
+        }
+    }
+
+    async fn route_in_room(
+        held: Option<&'static str>,
+        thread_ts: Option<&str>,
+    ) -> crate::ingress::Routed {
+        let stub = slack().await;
+        let connections =
+            moatless_adapter_model::test_support::InMemoryConnections::new(vec![connection()]);
+        let thread = thread_ts.map(|ts| {
+            crate::subject::thread_destination(
+                "C0ROOM",
+                ts,
+                &serde_json::json!({ "channel": "C0ROOM", "thread_ts": ts, "team_id": "T1" }),
+                None,
+            )
+        });
+        super::route(
+            &connections,
+            &Bound {
+                room: "T1:C0ROOM",
+                held,
+            },
+            &adapter(&stub),
+            "T1",
+            "C0ROOM",
+            thread.as_ref(),
+        )
+        .await
+        .expect("probes answer")
+        .expect("C0ROOM is a room")
+    }
+
+    #[tokio::test]
+    async fn a_message_in_a_thread_another_task_holds_goes_to_that_thread() {
+        let routed = route_in_room(
+            Some("T1:C0ROOM:1700000000.000100"),
+            Some("1700000000.000100"),
+        )
+        .await;
+
+        assert_eq!(routed.destination.subject_kind, "slack_thread");
+        assert_eq!(
+            routed.destination.subject_key,
+            "T1:C0ROOM:1700000000.000100"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_message_in_an_unheld_thread_goes_to_the_room() {
+        let routed = route_in_room(
+            Some("T1:C0ROOM:1700000000.000999"),
+            Some("1700000000.000100"),
+        )
+        .await;
+
+        assert_eq!(routed.destination.subject_key, "T1:C0ROOM");
+    }
+
+    #[tokio::test]
+    async fn a_top_level_message_goes_to_the_room() {
+        let routed = route_in_room(Some("T1:C0ROOM:1700000000.000100"), None).await;
+
+        assert_eq!(routed.destination.subject_key, "T1:C0ROOM");
     }
 }

@@ -215,7 +215,10 @@ GitHub PR events reach existing Bindings. In Slack this needs four changes:
   `flush_route` already does.
 - **No mention needed.** A top-level message in a bound channel bypasses the
   trigger filter, like a tracked thread. A thread inside the room resolves to
-  the channel subject too, so a thread never spawns its own Task.
+  the channel subject too, so a thread never spawns its own Task, unless
+  another Task holds that thread: then it routes to that Task's `slack_thread`
+  Binding. A direct send that would bind a second Task to a held thread is
+  refused, so each thread has one Task.
 - **Replies.** `send_reply_for_binding` treats `thread_ts` as optional and
   posts top-level on a `slack_channel` Binding.
 

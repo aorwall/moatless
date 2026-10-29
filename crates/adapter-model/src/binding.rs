@@ -26,6 +26,15 @@ pub trait BindingProbe: Send + Sync {
         subject_kind: &str,
         subject_key: &str,
     ) -> Result<bool, StoreError>;
+
+    /// Whether an active Binding tracks this subject. A deactivated one, which
+    /// [`Self::is_bound`] counts, does not.
+    async fn is_actively_bound(
+        &self,
+        adapter_kind: &str,
+        subject_kind: &str,
+        subject_key: &str,
+    ) -> Result<bool, StoreError>;
 }
 
 /// The `task_bindings.origin` role taxonomy: the direction the task and

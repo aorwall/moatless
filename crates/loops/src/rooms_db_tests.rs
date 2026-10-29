@@ -188,3 +188,34 @@ async fn a_room_with_nothing_to_open_from_yet_is_retried(pool: PgPool) {
     assert!(!failure.is_permanent());
     assert!(h.host.0.lock().unwrap().is_empty());
 }
+
+#[sqlx::test]
+async fn a_thread_is_held_by_the_one_task_actively_bound_to_it(pool: PgPool) {
+    let h = harness(pool).await;
+    bind_thread(&h.bindings).await;
+    let held_by_another = |task_id: &'static str| {
+        let bindings = h.bindings.clone();
+        async move {
+            bindings
+                .held_by_another(
+                    "slack",
+                    "slack_thread",
+                    "T1:C0ASK:1700000000.000100",
+                    task_id,
+                )
+                .await
+                .unwrap()
+                .map(|b| b.task_id)
+        }
+    };
+
+    assert_eq!(held_by_another("task-2").await.as_deref(), Some("task-1"));
+    assert_eq!(held_by_another("task-1").await, None, "its own thread");
+
+    h.bindings.deactivate_for_task("task-1").await.unwrap();
+    assert_eq!(
+        held_by_another("task-2").await,
+        None,
+        "a released thread is free"
+    );
+}
