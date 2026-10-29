@@ -1,21 +1,20 @@
-//! Handing a Sandbox to the person whose message or Script now drives it.
+//! Handing a Sandbox to the person whose message starts its turn.
 
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use tracing::{info, warn};
 
 use moatless_core::sandbox_jwt as jwt;
 use moatless_ports::identity::CommitIdentity;
-use moatless_ports::sandbox::{CodexCredentials, CredentialBroadcast, DriveError, SandboxDriver};
+use moatless_ports::sandbox::{CodexCredentials, CredentialBroadcast};
 use moatless_sandbox_control::lifecycle::{DriverChange, SandboxIngress, TokenGenerationStore};
 use moatless_tasks::task_event::models::InsertTaskEvent;
 use moatless_tasks::task_event::operations::TaskEvents;
 use moatless_types::access_control::{ScopeContext, ScopedResource};
 use moatless_types::credential_key::USER_AUTH_TOKEN;
 
-/// The [`SandboxDriver`] that switches the row, then pushes the new driver's
-/// task token to the running pod.
+/// Switches a Sandbox's driver, then pushes the new driver's task token to the
+/// running pod.
 pub struct SandboxDrivers {
     pub sandboxes: Arc<SandboxIngress>,
     pub generations: Arc<TokenGenerationStore>,
@@ -51,11 +50,26 @@ impl SandboxDrivers {
     }
 }
 
-#[async_trait]
-impl SandboxDriver for SandboxDrivers {
-    async fn drive(&self, task_id: &str, user_id: &str) -> Result<(), DriveError> {
+/// Why [`SandboxDrivers::drive`] did not hand the Sandbox over.
+#[derive(Debug, thiserror::Error)]
+pub enum DriveError {
+    /// `user_id` cannot write the task, so may not hold its credentials.
+    #[error("{0}")]
+    Forbidden(String),
+    /// The Sandbox's row could not be read or switched.
+    #[error("{0}")]
+    Unavailable(String),
+}
+
+impl SandboxDrivers {
+    /// Make `user_id` the driver of `task_id`'s Sandbox, revoking every token
+    /// minted for the previous one, and return their new token when this call
+    /// switched it, pushed or not. `None` when they already drive it, when the
+    /// task has no Sandbox row yet (provisioning reads the driver), and where
+    /// the deployment mints no tokens.
+    pub async fn drive(&self, task_id: &str, user_id: &str) -> Result<Option<String>, DriveError> {
         let Some(intent) = self.sandboxes.intent(task_id).await.map_err(unavailable)? else {
-            return Ok(());
+            return Ok(None);
         };
         let admin = matches!(self.users.is_platform_admin(user_id).await, Ok(true));
         let ctx = ScopeContext::new(user_id.to_string(), admin);
@@ -71,7 +85,7 @@ impl SandboxDriver for SandboxDrivers {
             .await
             .map_err(unavailable)?
         else {
-            return Ok(());
+            return Ok(None);
         };
         info!(
             task_id,
@@ -82,60 +96,82 @@ impl SandboxDriver for SandboxDrivers {
             "Sandbox driver changed"
         );
         self.record(task_id, user_id, &change).await;
-        self.push(task_id, &intent.sandbox_id, user_id, change.generation)
-            .await
+        Ok(self
+            .hand_over(task_id, &intent.sandbox_id, user_id, change.generation)
+            .await)
     }
-}
 
-impl SandboxDrivers {
-    /// Push the driver's token, then their Codex blob. A failed token push is
-    /// returned: the pod's own token is already refused, so only a
-    /// re-provision, which mints for the driver, brings it back.
-    async fn push(
+    /// Mint the driver's token and push it, then their Codex blob. Nothing
+    /// here fails the switch, which has already committed: the token is
+    /// returned for the caller to hand over should the push miss.
+    async fn hand_over(
         &self,
         task_id: &str,
         sandbox_id: &str,
         user_id: &str,
         generation: i64,
-    ) -> Result<(), DriveError> {
-        if let Some(secret) = self.task_token_secret.as_deref() {
-            let login = match self.users.git_identity(user_id).await {
-                Ok(Some(identity)) => identity.login,
-                Ok(None) => String::new(),
-                Err(e) => return Err(unavailable(e)),
-            };
-            let token = jwt::generate_user_auth_token(
-                user_id,
-                &login,
-                sandbox_id,
-                generation,
-                secret,
-                self.user_token_ttl_secs,
-            )
-            .map_err(unavailable)?;
-            self.broadcast
-                .refresh_credential(task_id, USER_AUTH_TOKEN, &token)
-                .await
-                .map_err(unavailable)?;
+    ) -> Option<String> {
+        let token = self.mint(sandbox_id, user_id, generation).await;
+        if let Some(token) = &token {
+            self.push(task_id, USER_AUTH_TOKEN, token, &[0, 200, 800])
+                .await;
         }
         // Best-effort: a driver with no Codex credential keeps the previous
         // blob until their own exists.
         match self.codex.ensure_fresh_codex_for(user_id, None).await {
             Ok(Some(blob)) => {
-                if let Err(e) = self
-                    .broadcast
-                    .refresh_credential(task_id, moatless_core::secret_keys::CODEX_AUTH_JSON, &blob)
-                    .await
-                {
-                    warn!(task_id, error = %e, "Failed to push the new driver's Codex credential");
-                }
+                self.push(
+                    task_id,
+                    moatless_core::secret_keys::CODEX_AUTH_JSON,
+                    &blob,
+                    &[0],
+                )
+                .await;
             }
             Ok(None) => {}
             Err(e) => {
                 warn!(task_id, error = %e, "Failed to read the new driver's Codex credential");
             }
         }
-        Ok(())
+        token
+    }
+
+    /// `None` where the deployment mints no tokens, or the mint failed.
+    async fn mint(&self, sandbox_id: &str, user_id: &str, generation: i64) -> Option<String> {
+        let secret = self.task_token_secret.as_deref()?;
+        // The login only labels the token, so an unreadable one is no reason
+        // to leave the pod with a refused token.
+        let login = match self.users.git_identity(user_id).await {
+            Ok(identity) => identity.map(|identity| identity.login).unwrap_or_default(),
+            Err(e) => {
+                warn!(user_id, error = %e, "Failed to read the new driver's login");
+                String::new()
+            }
+        };
+        jwt::generate_user_auth_token(
+            user_id,
+            &login,
+            sandbox_id,
+            generation,
+            secret,
+            self.user_token_ttl_secs,
+        )
+        .inspect_err(|e| warn!(sandbox_id, error = %e, "Failed to mint the new driver's token"))
+        .ok()
+    }
+
+    /// Push `key` to the pod, sleeping each of `backoffs_ms` before an
+    /// attempt: a pod mid-restart answers once it is back.
+    async fn push(&self, task_id: &str, key: &str, value: &str, backoffs_ms: &[u64]) {
+        for (attempt, &backoff_ms) in backoffs_ms.iter().enumerate() {
+            tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
+            match self.broadcast.refresh_credential(task_id, key, value).await {
+                Ok(()) => return,
+                Err(e) => {
+                    warn!(task_id, key, attempt, error = %e, "Failed to push a credential to the new driver's pod");
+                }
+            }
+        }
     }
 
     async fn record(&self, task_id: &str, user_id: &str, change: &DriverChange) {
@@ -168,6 +204,7 @@ fn unavailable(error: impl std::fmt::Display) -> DriveError {
 mod db_tests {
     use std::sync::Mutex;
 
+    use async_trait::async_trait;
     use moatless_ports::identity::MockCommitIdentity;
     use moatless_types::sandbox::SandboxError;
     use sqlx::PgPool;
@@ -176,9 +213,10 @@ mod db_tests {
 
     const SECRET: &str = "driver-test-secret";
 
-    /// Every push the drivers made, as `(task_id, key, value)`.
+    /// Every push the drivers made, as `(task_id, key, value)`; each one
+    /// refused when the flag is set, as by a pod that cannot be reached.
     #[derive(Default)]
-    struct RecordedPushes(Mutex<Vec<(String, String, String)>>);
+    struct RecordedPushes(Mutex<Vec<(String, String, String)>>, bool);
 
     #[async_trait]
     impl CredentialBroadcast for RecordedPushes {
@@ -192,6 +230,9 @@ mod db_tests {
                 .lock()
                 .unwrap()
                 .push((task_id.to_string(), key.to_string(), value.to_string()));
+            if self.1 {
+                return Err(SandboxError::NotReady("unreachable".to_string()));
+            }
             Ok(())
         }
     }
@@ -266,7 +307,7 @@ mod db_tests {
         let pushes = Arc::new(RecordedPushes::default());
         let drivers = drivers(&pool, pushes.clone());
 
-        drivers.drive("t1", "visitor").await.unwrap();
+        let handed = drivers.drive("t1", "visitor").await.unwrap();
 
         let pushed = pushes.0.lock().unwrap().clone();
         let [(task_id, key, token)] = pushed.as_slice() else {
@@ -277,6 +318,7 @@ mod db_tests {
         assert_eq!(claims.user_id, "visitor");
         assert_eq!(claims.login, "visitor-login");
         assert_eq!(claims.generation, 1);
+        assert_eq!(handed.as_ref(), Some(token));
 
         let generations = drivers.generations.as_ref();
         assert!(jwt::check_generation(generations, "t1", 1).await.is_ok());
@@ -311,8 +353,7 @@ mod db_tests {
         let pushes = Arc::new(RecordedPushes::default());
         let drivers = drivers(&pool, pushes.clone());
 
-        drivers.drive("t1", "owner").await.unwrap();
-
+        assert_eq!(drivers.drive("t1", "owner").await.unwrap(), None);
         assert!(pushes.0.lock().unwrap().is_empty());
     }
 
@@ -326,5 +367,23 @@ mod db_tests {
 
         assert!(matches!(refused, Err(DriveError::Forbidden(_))));
         assert!(pushes.0.lock().unwrap().is_empty());
+    }
+
+    /// The switch stands when the pod cannot be reached; the token comes back
+    /// for the caller to hand over rather than being lost.
+    #[sqlx::test]
+    async fn an_undelivered_token_is_returned_for_the_caller(pool: PgPool) {
+        seed(&pool, "public").await;
+        let pushes = Arc::new(RecordedPushes(Mutex::default(), true));
+        let drivers = drivers(&pool, pushes.clone());
+
+        let token = drivers
+            .drive("t1", "visitor")
+            .await
+            .unwrap()
+            .expect("the token is minted regardless");
+        let claims = jwt::verify_user_auth_token(&token, SECRET).unwrap();
+        assert_eq!((claims.user_id.as_str(), claims.generation), ("visitor", 1));
+        assert_eq!(pushes.0.lock().unwrap().len(), 3, "the push is retried");
     }
 }

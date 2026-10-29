@@ -439,6 +439,10 @@ message GetPendingMessagesRequest {
 
 message GetPendingMessagesResponse {
   repeated PendingAgentDelivery deliveries = 1;
+  // The task token of the person these deliveries made the Sandbox's driver,
+  // set only when this fetch switched it: the token the call came with is
+  // already refused. Empty otherwise.
+  string user_auth_token = 2;
 }
 
 message PendingAgentDelivery {

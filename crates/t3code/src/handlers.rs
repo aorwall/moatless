@@ -35,7 +35,7 @@ use axum::http::StatusCode;
 use axum::http::header;
 use axum::response::IntoResponse;
 use axum::response::Response;
-use moatless_ports::sandbox::{DriveError, SandboxError};
+use moatless_ports::sandbox::SandboxError;
 use moatless_types::auth::AllowedOrigin;
 use moatless_types::http::RefusedAtCapacity;
 use moatless_types::ui_rpc::UiRpcAuthIdentity;
@@ -396,7 +396,7 @@ pub(crate) async fn scripts_run_http(
         thread_id,
         script_id,
     };
-    match scripts::press(
+    match scripts::run(
         &state.scripts,
         state.reads.conversations(),
         state.sandboxes.as_ref(),
@@ -641,19 +641,6 @@ pub(crate) fn scripts_error_response(error: &ScriptsError) -> Response {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": "The script's terminal could not be started." })),
-            )
-                .into_response()
-        }
-        ScriptsError::Drive(DriveError::Forbidden(_)) => (
-            StatusCode::FORBIDDEN,
-            Json(json!({ "error": "You cannot run scripts on this task." })),
-        )
-            .into_response(),
-        ScriptsError::Drive(cause) => {
-            warn!(%cause, "scripts.run could not hand the sandbox over");
-            (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(json!({ "error": "The sandbox could not be handed to you." })),
             )
                 .into_response()
         }

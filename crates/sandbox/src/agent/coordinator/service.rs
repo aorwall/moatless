@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use moatless_types::agent::AgentSubType;
+use moatless_types::credential_key::USER_AUTH_TOKEN;
 use moatless_types::sandbox::SandboxStatus;
 use moatless_types::task::TaskTurnSubType;
 use serde_json::json;
@@ -993,6 +994,17 @@ impl CoordinatorService {
                 )
                 .await;
                 crate::credentials::fetch::apply_git_identity(&resp.credentials).await;
+                // Through the sink, so the `moat` CLI and proxied git follow a
+                // driver change with the turn rather than the next refresh.
+                if let Some(token) = resp.credentials.get(USER_AUTH_TOKEN) {
+                    if let Err(error) = self
+                        .credential_dispatcher
+                        .dispatch(USER_AUTH_TOKEN, token)
+                        .await
+                    {
+                        warn!(%error, "Failed to apply the fetched task token");
+                    }
+                }
                 *self.credentials.write().await = filter_agent_credentials(&resp.credentials);
             }
             Err(error) => {

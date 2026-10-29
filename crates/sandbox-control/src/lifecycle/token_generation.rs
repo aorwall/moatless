@@ -101,6 +101,10 @@ impl TokenGenerationStore {
         if let Some(state) = self.cache.get(sandbox_id).await {
             return Ok(state);
         }
+        self.read(sandbox_id).await
+    }
+
+    async fn read(&self, sandbox_id: &str) -> Result<Option<TokenState>, StoreError> {
         let read = self
             .store
             .sandbox_shape(sandbox_id)
@@ -147,6 +151,10 @@ impl TokenGenerations for TokenGenerationStore {
             .await?
             .and_then(|state| state.user_id))
     }
+
+    async fn reread(&self, sandbox_id: &str) -> Result<Option<i64>, StoreError> {
+        Ok(self.read(sandbox_id).await?.map(|state| state.generation))
+    }
 }
 
 #[cfg(all(test, feature = "db-tests"))]
@@ -154,6 +162,7 @@ mod db_tests {
     use super::*;
     use crate::lifecycle::dao::PgLifecycleDao;
     use crate::lifecycle::test_support::seed_task;
+    use moatless_core::sandbox_jwt::check_generation;
 
     #[sqlx::test]
     async fn bump_advances_the_generation_a_read_returns(pool: sqlx::PgPool) {
@@ -165,6 +174,24 @@ mod db_tests {
         assert_eq!(generations.current("t1").await.unwrap(), Some(1));
         assert_eq!(generations.current("no-such-sandbox").await.unwrap(), None);
         assert!(generations.bump("no-such-sandbox").await.is_err());
+    }
+
+    #[sqlx::test]
+    async fn a_token_minted_on_another_replica_is_accepted_at_once(pool: sqlx::PgPool) {
+        seed_task(&pool, "t1").await;
+        let dao = Arc::new(PgLifecycleDao::new(pool));
+        let switching = TokenGenerationStore::new(dao.clone());
+        let checking = TokenGenerationStore::new(dao);
+        assert_eq!(checking.current("t1").await.unwrap(), Some(0));
+
+        switching.switch_driver("t1", "user-2").await.unwrap();
+
+        check_generation(&checking, "t1", 1).await.unwrap();
+        assert_eq!(
+            checking.token_user("t1").await.unwrap().as_deref(),
+            Some("user-2")
+        );
+        assert!(check_generation(&checking, "t1", 0).await.is_err());
     }
 
     #[sqlx::test]

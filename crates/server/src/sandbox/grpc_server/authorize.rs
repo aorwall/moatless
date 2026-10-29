@@ -188,8 +188,9 @@ impl SandboxAuthorizer {
     }
 
     /// Require the grant's user to be the one the Sandbox's tokens are minted
-    /// for: its driver, else its owner. A Sandbox with neither (a global one)
-    /// leaves the write check alone to decide, as it did before drivers.
+    /// for: its driver, else its owner. A global Sandbox with neither passes
+    /// deliberately, leaving the write check alone to decide: refusing would
+    /// lock out every token of a Sandbox no person owns.
     async fn require_driver(&self, grant: &TaskGrant) -> Result<(), Status> {
         let generations = self
             .generations

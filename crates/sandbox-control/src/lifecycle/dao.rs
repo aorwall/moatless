@@ -40,6 +40,8 @@ pub struct SandboxShape {
     /// Holds the owner when nothing pinned another identity: the row is
     /// written `Task > Workspace > owner`. See [`Self::pinned_run_as`].
     pub run_as_user_id: Option<String>,
+    /// Whether the Task pins a run-as, even one equal to the owner.
+    pub run_as_pinned: bool,
     /// The person whose message started the current turn.
     pub driver_user_id: Option<String>,
     /// Whether the Sandbox's founding Task is public, which grants its driver
@@ -73,7 +75,7 @@ impl SandboxShape {
     pub fn pinned_run_as(&self) -> Option<&str> {
         self.run_as_user_id
             .as_deref()
-            .filter(|run_as| Some(*run_as) != self.owner_user_id.as_deref())
+            .filter(|run_as| self.run_as_pinned || Some(*run_as) != self.owner_user_id.as_deref())
     }
 }
 
@@ -424,6 +426,7 @@ impl LifecycleDao for PgLifecycleDao {
     async fn sandbox_shape(&self, sandbox_id: &str) -> Result<Option<SandboxShape>, StoreError> {
         sqlx::query_as(
             r#"SELECT s.workspace_id, s.scope, s.owner_user_id, s.run_as_user_id,
+                      (t.run_as_user_id IS NOT NULL) AS run_as_pinned,
                       s.driver_user_id,
                       COALESCE(t.visibility = 'public', false) AS public,
                       s.branch, s.headless, s.agent_profile, s.use_tmux,
@@ -849,6 +852,29 @@ mod tests {
         assert!(marker_from_columns(Some("stop".to_string()), Some(7), None).is_none());
         // An unknown kind slug is not a valid marker.
         assert!(marker_from_columns(Some("bogus".to_string()), Some(7), Some(ts())).is_none());
+    }
+
+    #[test]
+    fn a_pin_counts_even_when_it_names_the_owner() {
+        let shape = |run_as: &str, pinned| SandboxShape {
+            workspace_id: "ws".to_string(),
+            scope: Scope::Global,
+            owner_user_id: Some("owner".to_string()),
+            run_as_user_id: Some(run_as.to_string()),
+            run_as_pinned: pinned,
+            driver_user_id: Some("visitor".to_string()),
+            public: true,
+            branch: None,
+            headless: false,
+            agent_profile: None,
+            use_tmux: false,
+            node_selector: None,
+            stop_when_done: false,
+            token_generation: 1,
+        };
+        assert_eq!(shape("owner", false).pinned_run_as(), None);
+        assert_eq!(shape("owner", true).pinned_run_as(), Some("owner"));
+        assert_eq!(shape("bot", false).pinned_run_as(), Some("bot"));
     }
 }
 

@@ -12,7 +12,7 @@ use sandbox_proto::{
 
 use moatless_types::access_control::ScopeContext;
 
-use moatless_ports::sandbox::{DriveError, SandboxDriver};
+use crate::sandbox_driver::{DriveError, SandboxDrivers};
 use moatless_tasks::agent::prompt;
 use moatless_tasks::inbox::view::turn_driver;
 use moatless_tasks::task_turn::models::TurnStatus;
@@ -20,22 +20,20 @@ use moatless_types::agent::AgentProfile;
 
 use super::state::BackendSandboxServiceImpl;
 
-/// Hand the Sandbox to `driver` before their turn reads its credentials.
-///
-/// A failed switch fails the fetch rather than running the turn for the
-/// previous driver on this person's message. A writer who has since lost
-/// write (the task went private) leaves the driver as it is: refusing would
-/// wedge their message at the head of the queue for good.
+/// Hand the Sandbox to `driver` before their turn reads its credentials,
+/// returning their token when this switched it, pushed or not. A failed
+/// switch fails the fetch; a writer who lost write keeps the driver as it is,
+/// rather than wedging their message for good.
 async fn drive_turn(
-    drivers: &dyn SandboxDriver,
+    drivers: &SandboxDrivers,
     task_id: &str,
     driver: &str,
-) -> Result<(), Status> {
+) -> Result<Option<String>, Status> {
     match drivers.drive(task_id, driver).await {
-        Ok(()) => Ok(()),
+        Ok(token) => Ok(token),
         Err(DriveError::Forbidden(reason)) => {
             warn!(task_id, driver, %reason, "The turn's writer cannot drive the sandbox; driver kept");
-            Ok(())
+            Ok(None)
         }
         Err(DriveError::Unavailable(reason)) => {
             warn!(task_id, driver, %reason, "Failed to hand the sandbox to the turn's writer");
@@ -69,6 +67,7 @@ pub(super) async fn get_pending_messages(
     let Some(messages) = service.handlers.as_ref().map(|h| &h.messages) else {
         return Ok(Response::new(GetPendingMessagesResponse {
             deliveries: vec![],
+            user_auth_token: String::new(),
         }));
     };
 
@@ -93,6 +92,7 @@ pub(super) async fn get_pending_messages(
         debug!(task_id = %req.task_id, "get_pending_messages: task is Closed, returning no messages");
         return Ok(Response::new(GetPendingMessagesResponse {
             deliveries: vec![],
+            user_auth_token: String::new(),
         }));
     }
 
@@ -293,12 +293,16 @@ pub(super) async fn get_pending_messages(
         .await;
     // An idle agent's fetch is the turn start: stamped here, a running turn
     // never changes identity under the agent.
+    let mut user_auth_token = String::new();
     if !req.hold_queued {
         let driver = deliveries
             .first()
             .and_then(|delivery| turn_driver(&pending, &delivery.message_uuids));
         if let (Some(driver), Some(handlers)) = (driver, service.handlers.as_ref()) {
-            drive_turn(handlers.drivers.as_ref(), &req.task_id, driver).await?;
+            if let Some(token) = drive_turn(handlers.drivers.as_ref(), &req.task_id, driver).await?
+            {
+                user_auth_token = token;
+            }
         }
     }
     if let (Some((memories, _)), Some(delivery)) = (preload_memories, deliveries.first()) {
@@ -344,7 +348,10 @@ pub(super) async fn get_pending_messages(
         })
         .collect();
 
-    Ok(Response::new(GetPendingMessagesResponse { deliveries }))
+    Ok(Response::new(GetPendingMessagesResponse {
+        deliveries,
+        user_auth_token,
+    }))
 }
 
 /// How a Task's next turn continues against its Trajectory's head.

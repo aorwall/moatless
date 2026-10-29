@@ -643,12 +643,13 @@ resource access (removed in the access-scope redesign).
 _Avoid_: conflating with `OAuth scope` (a permission grant) — always qualify that.
 
 **Driver**:
-The person whose message started a Sandbox's current turn, or who last ran one of
-its Scripts (`sandboxes.driver_user_id`; the owner while unset). The Sandbox acts
+The person whose message started a Sandbox's current turn
+(`sandboxes.driver_user_id`; the owner while unset). The Sandbox acts
 for them: its credentials resolve for the driver unless a Workspace or Task run-as
 is pinned, in which case the driver is the person it acts on behalf of, and its
 task tokens are minted for them alone, so a new driver revokes the previous one's.
-A Task's, the scheduler's or a Loop's prompt changes no driver.
+A Task's, the scheduler's or a Loop's prompt changes no driver, and nor does running
+a Script: it runs with the current driver's credentials.
 _Avoid_: actor (the identity credentials resolve for, which a run-as can make
 someone else), sender
 

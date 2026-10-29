@@ -516,9 +516,13 @@ impl BackendClient for BackendGrpcClient {
                 auth_token: String::new(), // kept for proto compat, auth via interceptor
                 hold_queued,
             })
-            .await?;
-
-        Ok(resp.into_inner().deliveries)
+            .await?
+            .into_inner();
+        // The turn's new driver: the token this client holds is refused from now.
+        if !resp.user_auth_token.is_empty() {
+            self.update_auth_token(resp.user_auth_token);
+        }
+        Ok(resp.deliveries)
     }
 
     async fn acknowledge_messages(

@@ -269,6 +269,11 @@ pub trait TokenGenerations: Send + Sync {
     /// The user `sandbox_id`'s current-generation tokens are minted for: its
     /// driver, else its owner. Absent when the Sandbox has no row or neither.
     async fn token_user(&self, sandbox_id: &str) -> Result<Option<String>, StoreError>;
+
+    /// [`Self::current`] read past any cache, which it then refreshes.
+    async fn reread(&self, sandbox_id: &str) -> Result<Option<i64>, StoreError> {
+        self.current(sandbox_id).await
+    }
 }
 
 /// Why [`check_generation`] refused a token.
@@ -294,6 +299,19 @@ pub async fn check_generation(
         .current(sandbox_id)
         .await?
         .ok_or(GenerationError::NoSandbox)?;
+    if presented == current {
+        return Ok(());
+    }
+    // A token newer than the cache was minted on another replica since it
+    // was filled: refusing it would run the turn on the previous driver's.
+    let current = if presented > current {
+        generations
+            .reread(sandbox_id)
+            .await?
+            .ok_or(GenerationError::NoSandbox)?
+    } else {
+        current
+    };
     if presented == current {
         Ok(())
     } else {
@@ -537,6 +555,40 @@ mod tests {
         .unwrap();
         let decoded = verify_user_auth_token(&token, "test-secret").unwrap();
         assert_eq!(decoded.generation, 0);
+    }
+
+    #[tokio::test]
+    async fn check_generation_rereads_only_for_a_newer_token() {
+        /// Cached at 1 while the row is at 2.
+        struct Stale;
+        #[async_trait]
+        impl TokenGenerations for Stale {
+            async fn current(&self, _sandbox_id: &str) -> Result<Option<i64>, StoreError> {
+                Ok(Some(1))
+            }
+            async fn token_user(&self, _sandbox_id: &str) -> Result<Option<String>, StoreError> {
+                Ok(None)
+            }
+            async fn reread(&self, _sandbox_id: &str) -> Result<Option<i64>, StoreError> {
+                Ok(Some(2))
+            }
+        }
+        assert!(check_generation(&Stale, "task-1", 2).await.is_ok());
+        assert!(check_generation(&Stale, "task-1", 1).await.is_ok());
+        assert!(matches!(
+            check_generation(&Stale, "task-1", 0).await,
+            Err(GenerationError::Stale {
+                presented: 0,
+                current: 1
+            })
+        ));
+        assert!(matches!(
+            check_generation(&Stale, "task-1", 3).await,
+            Err(GenerationError::Stale {
+                presented: 3,
+                current: 2
+            })
+        ));
     }
 
     #[tokio::test]

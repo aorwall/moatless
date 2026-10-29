@@ -840,7 +840,6 @@ fn state_over(
         snapshots: None,
         scripts: ScriptsState {
             workspace_scripts: Arc::new(ports::MockWorkspaceScriptSource::new()),
-            drivers: Arc::new(DrivesNothing),
             ports: Arc::new(UnreachableSandboxes),
             preview: PreviewState {
                 tabs: Arc::new(preview_tabs::PreviewTabs::new(preview_tabs::PreviewTabTtl(
@@ -1013,19 +1012,4 @@ pub(super) fn request(id: &str, tag: &str, payload: Value) -> Vec<u8> {
 
 pub(super) fn request_id(id: &str) -> RequestId {
     serde_json::from_value(json!(id)).expect("a string is a request id")
-}
-
-/// A `SandboxDriver` that hands nothing over: driving is the server's to
-/// test, so these cases only need the call to succeed.
-pub(crate) struct DrivesNothing;
-
-#[async_trait::async_trait]
-impl moatless_ports::sandbox::SandboxDriver for DrivesNothing {
-    async fn drive(
-        &self,
-        _task_id: &str,
-        _user_id: &str,
-    ) -> Result<(), moatless_ports::sandbox::DriveError> {
-        Ok(())
-    }
 }
