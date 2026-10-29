@@ -58,6 +58,22 @@ async fn share_files(
     }
 }
 
+/// The root of the thread `ts` sits in, since Slack asks callers not to thread
+/// under a reply. Falls back to `ts`.
+async fn thread_root(api: &SlackApi, channel: &str, ts: &str) -> String {
+    match api.get_thread_replies(channel, ts, 1, None).await {
+        Ok(messages) => messages
+            .into_iter()
+            .next()
+            .and_then(|m| m.ts)
+            .unwrap_or_else(|| ts.to_string()),
+        Err(e) => {
+            warn!(error = %e, "Slack thread root lookup failed; replying under the message");
+            ts.to_string()
+        }
+    }
+}
+
 /// The text to post: the reply, its provenance footer, and every `<@…>`
 /// resolved to something Slack can address.
 ///
@@ -173,9 +189,25 @@ impl AdapterBindingReply for SlackAdapter {
     async fn send_reply_for_binding(
         &self,
         binding: &TaskBinding,
+        connection: &AdapterConnection,
+        rule: Option<&SubscriptionMatch>,
+        message: &OutboundReply,
+    ) -> Result<Option<String>, AdapterError> {
+        self.reply_on_binding(binding, connection, rule, message, None)
+            .await
+    }
+}
+
+impl SlackAdapter {
+    /// Post `message` on `binding`. In a Task Room, `under` is the `ts` the
+    /// post threads beneath; without one it posts top-level.
+    async fn reply_on_binding(
+        &self,
+        binding: &TaskBinding,
         _connection: &AdapterConnection,
         rule: Option<&SubscriptionMatch>,
         message: &OutboundReply,
+        under: Option<&str>,
     ) -> Result<Option<String>, AdapterError> {
         let app_key = moatless_adapter_model::apps::app_key_from_transport_config(
             &_connection.transport_config,
@@ -221,9 +253,14 @@ impl AdapterBindingReply for SlackAdapter {
         let channel = coordinates.channel.ok_or_else(|| {
             SharedAdapterError::Internal("No channel in thread properties".into())
         })?;
-        // A room is the whole channel, so its replies post top-level.
+        let room_thread = match under {
+            Some(ts) if binding.subject_kind == subject::room_subject_kind() => {
+                Some(thread_root(&app.api, channel, ts).await)
+            }
+            _ => None,
+        };
         let thread_ts = match coordinates.thread_ts {
-            None if binding.subject_kind == subject::room_subject_kind() => None,
+            None if binding.subject_kind == subject::room_subject_kind() => room_thread.as_deref(),
             ts => Some(ts.ok_or_else(|| {
                 SharedAdapterError::Internal("No thread_ts in thread properties".into())
             })?),
@@ -255,10 +292,11 @@ impl AdapterMessageReply for SlackAdapter {
         binding: &TaskBinding,
         connection: &AdapterConnection,
         rule: Option<&SubscriptionMatch>,
-        _target_external_id: &str,
+        target_external_id: &str,
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
-        self.send_reply_for_binding(binding, connection, rule, message)
+        let under = super::external_id::ts_from_message_id(target_external_id);
+        self.reply_on_binding(binding, connection, rule, message, under)
             .await
     }
 }
@@ -334,7 +372,7 @@ mod tests {
 
     use moatless_adapter_model::binding::BindingContext;
     use moatless_adapter_model::capabilities::{
-        AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage,
+        AdapterBindingReply, AdapterDirectDestination, AdapterDirectMessage, AdapterMessageReply,
     };
     use moatless_adapter_model::outbound::{
         OutboundFile, OutboundReply, TaskOrigin, TaskProvenance,
@@ -364,6 +402,9 @@ mod tests {
                 "ok": true, "upload_url": "http://127.0.0.1:1/upload", "file_id": "F1",
             }),
             "/files.completeUploadExternal" => serde_json::json!({"ok": true}),
+            "/conversations.replies" => serde_json::json!({
+                "ok": true, "messages": [{"ts": "1700000000.000100"}],
+            }),
             other => serde_json::json!({"ok": false, "error": format!("unexpected {other}")}),
         })
         .await
@@ -607,6 +648,112 @@ mod tests {
     /// The budget: one `auth.test` (memoized) and one `chat.postMessage`. A
     /// top-level direct send binds under its own `ts` and renders the task
     /// link, because a channel post is often the only message a reader sees.
+    fn room_binding() -> moatless_types::adapter::TaskBinding {
+        let now = chrono::Utc::now();
+        moatless_types::adapter::TaskBinding {
+            id: "tb_room".into(),
+            task_id: "task-1".into(),
+            adapter_kind: moatless_types::adapter::AdapterKind::Slack,
+            subject_kind: "slack_channel".into(),
+            subject_key: "T1:C1".into(),
+            connection_id: "pc_slack".into(),
+            loop_id: None,
+            destination_config: serde_json::json!({"channel": "C1", "team_id": "T1"}),
+            metadata: serde_json::json!({}),
+            last_external_event_id: None,
+            origin: "room".into(),
+            created_at: now,
+            last_event_at: now,
+            external_status: None,
+            external_state_kind: None,
+            external_status_raw: None,
+            external_review_decision: None,
+            external_mergeable_state: None,
+            external_status_updated_at: None,
+            active: true,
+            deactivated_at: None,
+            watching: true,
+        }
+    }
+
+    fn connection() -> moatless_types::adapter::AdapterConnection {
+        let now = chrono::Utc::now();
+        moatless_types::adapter::AdapterConnection {
+            id: "pc_slack".into(),
+            adapter_kind: moatless_types::adapter::AdapterKind::Slack,
+            connection_kind: "workspace".into(),
+            scope_value: "T1".into(),
+            credential_ref: None,
+            webhook_secret: None,
+            transport_config: serde_json::json!({}),
+            created_by: "alice".into(),
+            scope: Scope::Global,
+            owner_user_id: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_room_reply_threads_under_the_root_of_the_message_it_answers() {
+        let stub = slack_stub().await;
+
+        adapter(&stub)
+            .reply_to_message(
+                &room_binding(),
+                &connection(),
+                None,
+                "slack:ts:1700000000.000500",
+                &reply("on it", None),
+            )
+            .await
+            .expect("the stub accepts the post");
+
+        let requests = stub.requests();
+        assert_eq!(requests[0].path, "/conversations.replies");
+        assert!(requests[0].query.contains("ts=1700000000.000500"));
+        assert_eq!(
+            body(&requests[1])["thread_ts"],
+            "1700000000.000100",
+            "the reply joins the thread, not a thread under a reply"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_room_reply_whose_thread_cannot_be_read_threads_under_the_message() {
+        let stub = ProviderStub::start(|path| match path {
+            "/chat.postMessage" => serde_json::json!({"ok": true, "ts": "1700000000.000900"}),
+            _ => serde_json::json!({"ok": false, "error": "channel_not_found"}),
+        })
+        .await;
+
+        adapter(&stub)
+            .reply_to_message(
+                &room_binding(),
+                &connection(),
+                None,
+                "slack:ts:1700000000.000500",
+                &reply("on it", None),
+            )
+            .await
+            .expect("the stub accepts the post");
+
+        assert_eq!(body(&stub.requests()[1])["thread_ts"], "1700000000.000500");
+    }
+
+    #[tokio::test]
+    async fn a_room_post_with_no_message_to_answer_is_top_level() {
+        let stub = slack_stub().await;
+
+        adapter(&stub)
+            .send_reply_for_binding(&room_binding(), &connection(), None, &reply("done", None))
+            .await
+            .expect("the stub accepts the post");
+
+        assert_eq!(stub.paths(), vec!["/chat.postMessage".to_string()]);
+        assert!(body(&stub.requests()[0]).get("thread_ts").is_none());
+    }
+
     #[tokio::test]
     async fn a_direct_send_costs_one_auth_test_and_one_post() {
         let stub = slack_stub().await;

@@ -64,7 +64,8 @@ Facts that shape the design:
 ## Before phase 1
 
 Phase 1 changed the three Slack rows below: `slack_channel` exists, a room's
-channel is probed before `no_trigger`, and a room's replies post top-level.
+channel is probed before `no_trigger`, and a room's posts go top-level. A
+reply to a message in a room threads under that message's thread root.
 
 | Anchor | What is there |
 |---|---|
