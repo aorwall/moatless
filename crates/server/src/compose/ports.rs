@@ -254,6 +254,7 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
     // the capabilities over them, and `AppState` consumes the graph to assemble
     // the workflow services.
     let task_graph = moatless_tasks::compose::task_graph(pool.clone());
+    let sandbox_graph = moatless_sandbox_control::compose::sandbox_graph(pool.clone());
 
     // The loops band's own construction root owns its stores; this process takes
     // the capabilities over them, and `AppState` builds the routing, sync and
@@ -343,6 +344,7 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
         codex_http,
         token_verifier: Arc::new(moatless_core::sandbox_jwt::JwtUserTokenVerifier::new(
             config.sandbox.task_token_secret.clone(),
+            sandbox_graph.token_generations(),
         )),
         secret_audits,
 
@@ -358,7 +360,7 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
 
         // The sandbox band's own construction root owns its store; this process
         // takes the capabilities over it.
-        sandbox_graph: moatless_sandbox_control::compose::sandbox_graph(pool.clone()),
+        sandbox_graph,
 
         pool,
     }

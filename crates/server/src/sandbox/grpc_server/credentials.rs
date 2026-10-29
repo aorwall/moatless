@@ -21,6 +21,7 @@ use moatless_identity::credentials::WriteSource;
 use moatless_ports::sandbox::CodexCredentials;
 use moatless_types::credential_key;
 
+use super::authorize::TaskGrant;
 use super::state::BackendSandboxServiceImpl;
 
 /// Known credential env var names, used as the map keys in
@@ -54,13 +55,21 @@ fn sandbox_rotatable_provider(key: &str) -> Option<&'static str> {
 impl BackendSandboxServiceImpl {
     /// Mint the long-lived user auth token delivered over `GetCredentials`.
     ///
-    /// Bound to the grant's `task_id`, matching the verification layer's
-    /// per-task binding; returns `None` when the secret is unset, so the
-    /// sandbox keeps its existing token.
-    fn mint_user_auth_token(&self, user_id: &str, login: &str, task_id: &str) -> Option<String> {
+    /// Bound to the grant's Sandbox at the generation the presented token
+    /// carries, which the grant has just checked is current; returns `None`
+    /// when the secret is unset, so the sandbox keeps its existing token.
+    fn mint_user_auth_token(&self, grant: &TaskGrant) -> Option<String> {
         let secret = self.task_token_secret.as_ref()?;
         let ttl = self.backend_config.sandbox.user_token_ttl_secs;
-        match jwt::generate_user_auth_token(user_id, login, task_id, secret, ttl) {
+        let user_id = grant.ctx.user_id.as_str();
+        match jwt::generate_user_auth_token(
+            user_id,
+            &grant.login,
+            &grant.sandbox_id,
+            grant.token_generation,
+            secret,
+            ttl,
+        ) {
             Ok(token) => Some(token),
             Err(e) => {
                 warn!(error = %e, user_id, "Failed to mint user auth token for credentials");
@@ -161,9 +170,7 @@ pub(super) async fn get_credentials(
     })
     .await;
 
-    if let Some(user_token) =
-        service.mint_user_auth_token(&grant.ctx.user_id, &grant.login, &grant.sandbox_id)
-    {
+    if let Some(user_token) = service.mint_user_auth_token(&grant) {
         credentials.insert(CredentialKey::USER_AUTH_TOKEN.to_string(), user_token);
     }
     let ssh_keys = resolve_task_ssh_keys(handlers.map(|h| &h.secrets), &grant.ctx.user_id).await;

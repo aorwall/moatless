@@ -47,6 +47,9 @@ pub struct SandboxShape {
     /// Stop as soon as the agent run finishes, instead of holding the pod for
     /// the idle TTL. Set from the Loop that opened the Sandbox.
     pub stop_when_done: bool,
+    /// The generation a task token for this Sandbox is minted at. See
+    /// [`moatless_core::sandbox_jwt::check_generation`].
+    pub token_generation: i64,
 }
 
 /// One Sandbox the reconciler should look at, named by the Task that represents
@@ -172,6 +175,10 @@ pub trait LifecycleDao: Send + Sync {
         &self,
         task_id: &str,
     ) -> Result<Vec<OutstandingCommand>, StoreError>;
+
+    /// Advance the Sandbox's task-token generation and return the new value,
+    /// absent when the Sandbox has no row.
+    async fn bump_token_generation(&self, sandbox_id: &str) -> Result<Option<i64>, StoreError>;
 }
 
 /// Postgres-backed lifecycle store over the main pool.
@@ -380,7 +387,7 @@ impl LifecycleDao for PgLifecycleDao {
         sqlx::query_as(
             r#"SELECT workspace_id, scope, owner_user_id, run_as_user_id,
                       branch, headless, agent_profile, use_tmux,
-                      node_selector, stop_when_done
+                      node_selector, stop_when_done, token_generation
                FROM sandboxes
                WHERE sandbox_id = $1"#,
         )
@@ -725,6 +732,20 @@ impl LifecycleDao for PgLifecycleDao {
         };
         serde_json::from_value(stored)
             .map_err(|e| StoreError::with_source("decode the unreported commands", e))
+    }
+
+    async fn bump_token_generation(&self, sandbox_id: &str) -> Result<Option<i64>, StoreError> {
+        sqlx::query_scalar(
+            r#"UPDATE sandboxes
+                  SET token_generation = token_generation + 1,
+                      updated_at = NOW()
+                WHERE sandbox_id = $1
+            RETURNING token_generation"#,
+        )
+        .bind(sandbox_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| StoreError::with_source("bump token generation", e))
     }
 }
 

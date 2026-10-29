@@ -23,6 +23,8 @@ pub(crate) struct TaskGrant {
     pub ctx: ScopeContext,
     /// The caller's login. Empty for the dev bypass.
     pub login: String,
+    /// The token generation the caller's token carries, which is current.
+    pub token_generation: i64,
 }
 
 /// Token-level verdict from verifying a bearer token's signature, before the
@@ -63,6 +65,9 @@ pub struct SandboxAuthorizer {
     tasks: Option<Arc<TaskCommands>>,
     /// The platform-admin lookup behind the control gate.
     users: Option<Arc<dyn CommitIdentity>>,
+    /// The generation a token must carry. `None` refuses every token: only a
+    /// databaseless backend has none, and it can grant no task anyway.
+    generations: Option<Arc<dyn jwt::TokenGenerations>>,
 }
 
 impl SandboxAuthorizer {
@@ -72,12 +77,14 @@ impl SandboxAuthorizer {
         accept_claimless: bool,
         tasks: Option<Arc<TaskCommands>>,
         users: Option<Arc<dyn CommitIdentity>>,
+        generations: Option<Arc<dyn jwt::TokenGenerations>>,
     ) -> Self {
         Self {
             secret: Some(secret),
             accept_claimless,
             tasks,
             users,
+            generations,
         }
     }
 
@@ -95,6 +102,7 @@ impl SandboxAuthorizer {
             accept_claimless: true,
             tasks,
             users,
+            generations: None,
         }
     }
 
@@ -105,9 +113,10 @@ impl SandboxAuthorizer {
         accept_claimless: bool,
         tasks: Option<Arc<TaskCommands>>,
         users: Option<Arc<dyn CommitIdentity>>,
+        generations: Option<Arc<dyn jwt::TokenGenerations>>,
     ) -> Self {
         match secret {
-            Some(secret) => Self::enforcing(secret, accept_claimless, tasks, users),
+            Some(secret) => Self::enforcing(secret, accept_claimless, tasks, users, generations),
             None => Self::dev_unauthenticated(tasks, users),
         }
     }
@@ -156,8 +165,56 @@ impl SandboxAuthorizer {
         }
     }
 
-    /// Resolve a verified token to a [`TaskGrant`] for `request_task_id`.
+    /// Resolve a verified token to a [`TaskGrant`] for `request_task_id`,
+    /// refusing a token from an older generation of the granted Sandbox.
     pub(super) async fn resolve_grant(
+        &self,
+        verified: VerifiedToken,
+        request_task_id: &str,
+    ) -> Result<TaskGrant, Status> {
+        let generation = match &verified {
+            VerifiedToken::DevBypass => None,
+            VerifiedToken::TaskBound { claims, .. }
+            | VerifiedToken::SandboxBound { claims, .. }
+            | VerifiedToken::Claimless { claims } => Some(claims.generation),
+        };
+        let grant = self.resolve_membership(verified, request_task_id).await?;
+        if let Some(generation) = generation {
+            self.require_current_generation(&grant, generation).await?;
+        }
+        Ok(grant)
+    }
+
+    async fn require_current_generation(
+        &self,
+        grant: &TaskGrant,
+        generation: i64,
+    ) -> Result<(), Status> {
+        let generations = self
+            .generations
+            .as_deref()
+            .ok_or_else(|| Status::internal("Token generations not configured"))?;
+        jwt::check_generation(generations, &grant.sandbox_id, generation)
+            .await
+            .map_err(|e| {
+                warn!(
+                    error = %e,
+                    sandbox_id = %grant.sandbox_id,
+                    presented = generation,
+                    "Rejected sandbox gRPC call: token generation not current"
+                );
+                match e {
+                    jwt::GenerationError::Lookup(_) => {
+                        Status::unavailable("Failed to read the token generation")
+                    }
+                    jwt::GenerationError::Stale { .. } | jwt::GenerationError::NoSandbox => {
+                        Status::unauthenticated("Token has been superseded")
+                    }
+                }
+            })
+    }
+
+    async fn resolve_membership(
         &self,
         verified: VerifiedToken,
         request_task_id: &str,
@@ -172,6 +229,7 @@ impl SandboxAuthorizer {
                     sandbox_id: request_task_id.to_string(),
                     ctx,
                     login: String::new(),
+                    token_generation: 0,
                 })
             }
             VerifiedToken::TaskBound { claims, task_id } => {
@@ -251,6 +309,7 @@ impl SandboxAuthorizer {
                 sandbox_id: task.sandbox_id.unwrap_or_else(|| task_id.to_string()),
                 login: claims.login.clone(),
                 ctx,
+                token_generation: claims.generation,
             })
         } else {
             warn!(
@@ -305,6 +364,7 @@ impl SandboxAuthorizer {
             sandbox_id: sandbox_id.to_string(),
             login: claims.login.clone(),
             ctx,
+            token_generation: claims.generation,
         })
     }
 
@@ -487,15 +547,55 @@ mod tests {
     async fn task_bound_token_match_allows_owner() {
         // Matching binding + owner control → granted, with the sandbox binding
         // echoed back on the grant.
-        let svc = service_with(
-            tasks_returning(Some(task_fixture(Scope::User, Some("owner")))),
-            users_regular(),
-        );
-        let grant = svc
-            .authorizer
+        let grant = owner_task_at_generation(0)
             .resolve_grant(task_bound("owner", "task-1"), "task-1")
             .await
             .expect("matching binding + owner must be granted");
         assert_eq!(grant.sandbox_id, "task-1");
+    }
+
+    /// An enforcing authorizer over `owner`'s `task-1`, its own Sandbox at
+    /// `generation`.
+    fn owner_task_at_generation(generation: i64) -> SandboxAuthorizer {
+        let users: Arc<dyn CommitIdentity> = Arc::new(users_regular());
+        SandboxAuthorizer::enforcing(
+            "secret".to_string(),
+            false,
+            Some(tasks_returning(Some(task_fixture(
+                Scope::User,
+                Some("owner"),
+            )))),
+            Some(users),
+            Some(Arc::new(jwt::StaticTokenGenerations(
+                [("task-1".to_string(), generation)].into(),
+            ))),
+        )
+    }
+
+    fn sandbox_bound(user_id: &str, generation: i64) -> VerifiedToken {
+        let mut claims = claims_for(user_id);
+        claims.sandbox_id = Some("task-1".to_string());
+        claims.generation = generation;
+        VerifiedToken::SandboxBound {
+            claims,
+            sandbox_id: "task-1".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_token_from_an_older_generation_is_refused() {
+        let authorizer = owner_task_at_generation(2);
+
+        let err = authorizer
+            .resolve_grant(sandbox_bound("owner", 1), "task-1")
+            .await
+            .expect_err("a superseded token must be refused");
+        assert_eq!(err.code(), tonic::Code::Unauthenticated);
+
+        let grant = authorizer
+            .resolve_grant(sandbox_bound("owner", 2), "task-1")
+            .await
+            .expect("a current token is granted");
+        assert_eq!(grant.token_generation, 2);
     }
 }

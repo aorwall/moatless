@@ -121,6 +121,9 @@ async fn load_failure_is_intent_load_not_write() {
         ) -> Result<Vec<OutstandingCommand>, StoreError> {
             Ok(Vec::new())
         }
+        async fn bump_token_generation(&self, _s: &str) -> Result<Option<i64>, StoreError> {
+            Ok(None)
+        }
     }
     let log: Log = Arc::new(Mutex::new(vec![]));
     let lifecycle = Lifecycle::new(

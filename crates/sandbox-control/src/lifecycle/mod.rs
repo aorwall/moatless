@@ -25,6 +25,7 @@ pub(crate) mod events;
 pub mod ingress;
 pub(crate) mod orchestrator;
 pub(crate) mod plan;
+pub mod token_generation;
 
 // Infrastructure adapters implementing the ports, `pub(crate)` and constructed
 // by `crate::compose` when it builds the `Lifecycle` handle.
@@ -52,6 +53,7 @@ pub(crate) mod test_support;
 pub use error::LifecycleError;
 pub use ingress::SandboxIngress;
 pub use orchestrator::{Lifecycle, OutstandingCommand, TaskIntent};
+pub use token_generation::TokenGenerationStore;
 
 // The desired-state reconciler and its gRPC notifier. `crate::compose` builds
 // the `Reconciler` and `main` spawns it; the notifier and member registry are

@@ -3,7 +3,9 @@
 
 use std::sync::Arc;
 
-use moatless_core::sandbox_jwt::verify_user_auth_token;
+use moatless_core::sandbox_jwt::{
+    GenerationError, TokenGenerations, check_generation, verify_user_auth_token,
+};
 use moatless_ports::identity::{CommitIdentity, GitHostTokenError, GitHostTokenIssuer};
 use moatless_sandbox_control::secrets::{resolve_task_actor, resolve_task_git_token};
 use moatless_types::access_control::{ScopeContext, ScopedResource};
@@ -76,6 +78,7 @@ pub enum GitProxyError {
 /// Resolves a proxied git request to an upstream and a credential.
 pub struct GitProxy {
     sandboxes: Arc<SandboxIngress>,
+    token_generations: Arc<dyn TokenGenerations>,
     workspaces: Arc<dyn WorkspaceResolver>,
     repositories: Arc<dyn RepositoryReader>,
     users: Arc<dyn CommitIdentity>,
@@ -105,8 +108,13 @@ fn http_client(timeouts: HttpStreamTimeouts) -> reqwest::Client {
 }
 
 impl GitProxy {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one port per lookup the credential resolution makes"
+    )]
     pub(crate) fn new(
         sandboxes: Arc<SandboxIngress>,
+        token_generations: Arc<dyn TokenGenerations>,
         workspaces: Arc<dyn WorkspaceResolver>,
         repositories: Arc<dyn RepositoryReader>,
         users: Arc<dyn CommitIdentity>,
@@ -116,6 +124,7 @@ impl GitProxy {
     ) -> Self {
         Self {
             sandboxes,
+            token_generations,
             workspaces,
             repositories,
             users,
@@ -151,6 +160,18 @@ impl GitProxy {
         // checkout, so the Sandbox is what a clone belongs to.
         let sandbox_id = claims.sandbox_id.as_deref().ok_or_else(|| {
             GitProxyError::Unauthorized("The task token names no sandbox".to_string())
+        })?;
+        check_generation(
+            self.token_generations.as_ref(),
+            sandbox_id,
+            claims.generation,
+        )
+        .await
+        .map_err(|e| match e {
+            GenerationError::Stale { .. } | GenerationError::NoSandbox => {
+                GitProxyError::Unauthorized(e.to_string())
+            }
+            GenerationError::Lookup(_) => GitProxyError::Upstream(e.to_string()),
         })?;
 
         let workspace_id = self
@@ -300,13 +321,15 @@ fn credential_error(error: &GitHostTokenError, host: &str) -> GitProxyError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use moatless_ports::identity::MockCommitIdentity;
+    use moatless_core::sandbox_jwt::{StaticTokenGenerations, generate_user_auth_token};
+    use moatless_ports::identity::{MockCommitIdentity, MockGitHostTokenIssuer};
     use moatless_types::access_control::Scope;
     use moatless_types::store::StoreError;
-    use moatless_workspace_ports::MockRepositoryReader;
+    use moatless_workspace_ports::{MockRepositoryReader, MockWorkspaceResolver};
     use moatless_workspace_types::repository::{RepositoryKind, RepositoryProvider};
 
     const POD_USER: &str = "user-1";
+    const SECRET: &str = "git-proxy-test-secret";
 
     fn repository(scope: Scope, owner_user_id: Option<&str>) -> Repository {
         Repository {
@@ -453,5 +476,45 @@ mod tests {
             host_repo: None,
         });
         assert!(git_host_repo(&ssh).is_none());
+    }
+
+    /// A proxy whose sandbox row is unreadable, so a token that passes every
+    /// check fails on the read with `Upstream`.
+    fn proxy(generation: i64) -> GitProxy {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://unused@127.0.0.1:1/unused")
+            .unwrap();
+        GitProxy::new(
+            moatless_sandbox_control::compose::sandbox_graph(pool).sandbox_ingress(),
+            Arc::new(StaticTokenGenerations(
+                [("sandbox-1".to_string(), generation)].into(),
+            )),
+            Arc::new(MockWorkspaceResolver::new()),
+            Arc::new(MockRepositoryReader::new()),
+            Arc::new(MockCommitIdentity::new()),
+            Arc::new(MockGitHostTokenIssuer::new()),
+            Some(SECRET.to_string()),
+            moatless_core::config::HttpConfig::default().git_proxy,
+        )
+    }
+
+    #[tokio::test]
+    async fn a_token_from_an_older_generation_is_refused() {
+        let proxy = proxy(2);
+        let superseded =
+            generate_user_auth_token("user-1", "user", "sandbox-1", 1, SECRET, 600).unwrap();
+        let refused = proxy.resolve("repo-1", &superseded).await.err().unwrap();
+        assert!(
+            matches!(refused, GitProxyError::Unauthorized(_)),
+            "{refused}"
+        );
+
+        let current =
+            generate_user_auth_token("user-1", "user", "sandbox-1", 2, SECRET, 600).unwrap();
+        let past_the_check = proxy.resolve("repo-1", &current).await.err().unwrap();
+        assert!(
+            matches!(past_the_check, GitProxyError::Upstream(_)),
+            "{past_the_check}"
+        );
     }
 }

@@ -2,7 +2,9 @@
 
 use std::sync::Arc;
 
-use moatless_core::sandbox_jwt::verify_user_auth_token;
+use moatless_core::sandbox_jwt::{
+    GenerationError, TokenGenerations, check_generation, verify_user_auth_token,
+};
 use moatless_core::secret_keys::GITHUB_TOKEN;
 use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer};
 use moatless_sandbox_control::secrets::{
@@ -68,6 +70,7 @@ pub enum GitHubProxyError {
 /// Resolves a proxied GitHub API request to an upstream URL and a token.
 pub struct GitHubProxy {
     sandboxes: Arc<SandboxIngress>,
+    token_generations: Arc<dyn TokenGenerations>,
     workspaces: Arc<dyn WorkspaceResolver>,
     workspace_credentials: Arc<dyn WorkspaceCredentialReader>,
     git_host_tokens: Arc<dyn GitHostTokenIssuer>,
@@ -108,6 +111,7 @@ impl GitHubProxy {
     )]
     pub(crate) fn new(
         sandboxes: Arc<SandboxIngress>,
+        token_generations: Arc<dyn TokenGenerations>,
         workspaces: Arc<dyn WorkspaceResolver>,
         workspace_credentials: Arc<dyn WorkspaceCredentialReader>,
         git_host_tokens: Arc<dyn GitHostTokenIssuer>,
@@ -118,6 +122,7 @@ impl GitHubProxy {
     ) -> Self {
         Self {
             sandboxes,
+            token_generations,
             workspaces,
             workspace_credentials,
             git_host_tokens,
@@ -153,8 +158,20 @@ impl GitHubProxy {
         })?;
         let claims = verify_user_auth_token(task_token, secret)
             .map_err(|e| GitHubProxyError::Unauthorized(format!("Invalid task token: {e}")))?;
-        let sandbox_id = claims.sandbox_id.ok_or_else(|| {
+        let sandbox_id = claims.sandbox_id.clone().ok_or_else(|| {
             GitHubProxyError::Unauthorized("The task token names no sandbox".to_string())
+        })?;
+        check_generation(
+            self.token_generations.as_ref(),
+            &sandbox_id,
+            claims.generation,
+        )
+        .await
+        .map_err(|e| match e {
+            GenerationError::Stale { .. } | GenerationError::NoSandbox => {
+                GitHubProxyError::Unauthorized(e.to_string())
+            }
+            GenerationError::Lookup(_) => GitHubProxyError::Upstream(e.to_string()),
         })?;
 
         let workspace_id = self

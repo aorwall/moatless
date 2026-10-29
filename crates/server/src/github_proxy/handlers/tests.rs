@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use axum::Router;
 use axum::routing::any;
-use moatless_core::sandbox_jwt::generate_user_auth_token;
+use moatless_core::sandbox_jwt::{StaticTokenGenerations, generate_user_auth_token};
 use moatless_core::secret_keys::GITHUB_TOKEN;
 use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer, MockGitHostTokenIssuer};
 use moatless_types::access_control::Scope;
@@ -21,6 +21,9 @@ use moatless_workspace_types::repository::{
 use super::*;
 
 const SECRET: &str = "github-proxy-test-secret";
+
+/// The generation `sandbox-1`'s tokens are at in these tests.
+const GENERATION: i64 = 2;
 
 /// The token the fake GitHub accepts, and the issuer hands out, at the moment.
 type LiveToken = Arc<Mutex<String>>;
@@ -107,6 +110,9 @@ fn proxy(
         .unwrap();
     GitHubProxy::new(
         moatless_sandbox_control::compose::sandbox_graph(pool).sandbox_ingress(),
+        Arc::new(StaticTokenGenerations(
+            [("sandbox-1".to_string(), GENERATION)].into(),
+        )),
         workspaces,
         credentials,
         tokens,
@@ -311,13 +317,38 @@ async fn a_token_this_deployment_did_not_sign_is_refused() {
         issuer(&live),
         "http://127.0.0.1:1",
     );
-    let forged =
-        generate_user_auth_token("user-1", "user", "sandbox-1", "another-secret", 600).unwrap();
+    let forged = generate_user_auth_token(
+        "user-1",
+        "user",
+        "sandbox-1",
+        GENERATION,
+        "another-secret",
+        600,
+    )
+    .unwrap();
 
     let refused = proxy.authenticate(Some(&forged)).await.unwrap_err();
     assert!(
         matches!(refused, GitHubProxyError::Unauthorized(_)),
         "{refused}"
+    );
+
+    let superseded =
+        generate_user_auth_token("user-1", "user", "sandbox-1", GENERATION - 1, SECRET, 600)
+            .unwrap();
+    let refused = proxy.authenticate(Some(&superseded)).await.unwrap_err();
+    assert!(
+        matches!(refused, GitHubProxyError::Unauthorized(_)),
+        "{refused}"
+    );
+    // A current one passes the check and reaches the sandbox row, which this
+    // proxy's pool cannot read.
+    let current =
+        generate_user_auth_token("user-1", "user", "sandbox-1", GENERATION, SECRET, 600).unwrap();
+    let past_the_check = proxy.authenticate(Some(&current)).await.unwrap_err();
+    assert!(
+        matches!(past_the_check, GitHubProxyError::Upstream(_)),
+        "{past_the_check}"
     );
 
     let missing = proxy.authenticate(None).await.unwrap_err();

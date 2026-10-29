@@ -27,6 +27,7 @@ use crate::lifecycle::plan::ProvisionDeps;
 use crate::lifecycle::reconciler::{
     MemberRegistryPort, NotifyPort, Reconciler, ReconcilerConfig, ReconcilerDeps,
 };
+use crate::lifecycle::token_generation::TokenGenerationStore;
 use crate::lifecycle::workspace_archive::S3WorkspaceArchive;
 use crate::lifecycle::workspace_sync::GrpcWorkspaceSync;
 
@@ -42,12 +43,15 @@ const LIFECYCLE_LOCK_ATTEMPTS: u32 = 3;
 #[derive(Clone)]
 pub struct SandboxGraph {
     store: Arc<dyn LifecycleDao>,
+    token_generations: Arc<TokenGenerationStore>,
 }
 
 /// Build the sandbox band's store over `db`.
 pub fn sandbox_graph(db: DbPool) -> SandboxGraph {
+    let store: Arc<dyn LifecycleDao> = Arc::new(PgLifecycleDao::new(db));
     SandboxGraph {
-        store: Arc::new(PgLifecycleDao::new(db)),
+        token_generations: Arc::new(TokenGenerationStore::new(store.clone())),
+        store,
     }
 }
 
@@ -66,6 +70,13 @@ impl SandboxGraph {
     /// it.
     pub fn sandbox_ingress(&self) -> Arc<SandboxIngress> {
         Arc::new(SandboxIngress::new(self.store.clone()))
+    }
+
+    /// The task-token generations every route checks a token against. One
+    /// instance per graph, so a bump here is seen at once by this process;
+    /// another replica sees it within the cache TTL.
+    pub fn token_generations(&self) -> Arc<TokenGenerationStore> {
+        self.token_generations.clone()
     }
 
     /// The shared durable lifecycle handle, over its Postgres and runtime

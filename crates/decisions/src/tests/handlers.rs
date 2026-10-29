@@ -5,7 +5,7 @@ use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
 use moatless_core::config::{DecisionConfig, DecisionProviderConfig};
 use moatless_core::http_auth::UserTokenVerifier;
-use moatless_core::sandbox_jwt::JwtUserTokenVerifier;
+use moatless_core::sandbox_jwt::{JwtUserTokenVerifier, StaticTokenGenerations};
 use moatless_types::auth::AuthIdentity;
 use moatless_types::user::UserRole;
 use serde_json::{Value, json};
@@ -15,7 +15,10 @@ use uuid::Uuid;
 use super::stub::{JevStub, Reply};
 
 fn router(config: &DecisionConfig) -> axum::Router {
-    let verifier: Arc<dyn UserTokenVerifier> = Arc::new(JwtUserTokenVerifier::new(None));
+    let verifier: Arc<dyn UserTokenVerifier> = Arc::new(JwtUserTokenVerifier::new(
+        None,
+        Arc::new(StaticTokenGenerations::default()),
+    ));
     crate::compose::decisions_router(
         config,
         moatless_core::config::HttpConfig::default().decision,

@@ -299,7 +299,7 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
         .get("x-user-token")
         .and_then(|v| v.to_str().ok())
     {
-        if let Ok(verified) = state.token_verifier.verify_user_token(token) {
+        if let Ok(verified) = state.token_verifier.verify_user_token(token).await {
             match verified.user_id.parse::<Uuid>() {
                 Ok(user_id) => match state.users.get_user(&user_id).await {
                     Ok(Some(user)) if user.status == UserStatus::Active => {

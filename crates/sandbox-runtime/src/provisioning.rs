@@ -13,6 +13,10 @@ use moatless_workspace_types::workspace::RepoCheckout;
 pub struct ProvisionRequest {
     pub plan: ProvisionPlan,
     pub user_id: String,
+    /// The Sandbox's task-token generation, which the tokens minted for the
+    /// pod carry; a token at any other generation is refused.
+    #[serde(default)]
+    pub token_generation: i64,
 }
 
 /// Provision plan with all configuration needed to create a workspace

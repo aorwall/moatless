@@ -34,6 +34,7 @@ pub fn mint_sandbox_tokens(
     config: &Config,
     task_id: &str,
     user_id: &str,
+    generation: i64,
 ) -> Result<MintedSandboxTokens, SandboxError> {
     let secret = config
         .sandbox
@@ -44,6 +45,7 @@ pub fn mint_sandbox_tokens(
         user_id,
         user_id,
         task_id,
+        generation,
         secret,
         config.sandbox.bootstrap_token_ttl_secs,
         config.sandbox.user_token_ttl_secs,

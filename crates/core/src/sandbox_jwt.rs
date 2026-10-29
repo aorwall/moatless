@@ -6,8 +6,15 @@
 //!
 //! The bootstrap token ([`AUDIENCE_BOOTSTRAP`]) is short-lived and scoped to
 //! bootstrapping; see [`generate_bootstrap_token`] for its lifecycle.
+//!
+//! Both carry their Sandbox's token generation; [`check_generation`] is how
+//! every backend route refuses a token from an older one.
 
+use std::sync::Arc;
+
+use async_trait::async_trait;
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
+use moatless_types::store::StoreError;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
@@ -46,6 +53,11 @@ pub struct UserTokenClaims {
     /// [`AUDIENCE_BOOTSTRAP`] for the short-lived bootstrap token.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub aud: Option<String>,
+    /// The Sandbox's token generation this token was minted at. A token minted
+    /// before the claim existed decodes as 0, the column's default, so pods
+    /// running across the upgrade keep working until the first bump.
+    #[serde(rename = "gen", default)]
+    pub generation: i64,
 }
 
 fn now_secs() -> u64 {
@@ -73,6 +85,7 @@ pub fn generate_user_auth_token(
     user_id: &str,
     login: &str,
     task_id: &str,
+    generation: i64,
     secret: &str,
     ttl_secs: u64,
 ) -> Result<String, jsonwebtoken::errors::Error> {
@@ -86,6 +99,7 @@ pub fn generate_user_auth_token(
         exp: now + ttl_secs,
         iss: "moatless-vibe-backend".to_string(),
         aud: None,
+        generation,
     };
 
     let token = encode_claims(&claims, secret)?;
@@ -102,6 +116,7 @@ pub fn generate_bootstrap_token(
     user_id: &str,
     login: &str,
     task_id: &str,
+    generation: i64,
     secret: &str,
     ttl_secs: u64,
 ) -> Result<String, jsonwebtoken::errors::Error> {
@@ -115,6 +130,7 @@ pub fn generate_bootstrap_token(
         exp: now + ttl_secs,
         iss: "moatless-vibe-backend".to_string(),
         aud: Some(AUDIENCE_BOOTSTRAP.to_string()),
+        generation,
     };
 
     let token = encode_claims(&claims, secret)?;
@@ -140,21 +156,34 @@ pub struct MintedSandboxTokens {
 /// Always mints a bootstrap token (`bootstrap_ttl_secs`). When `emit_legacy` is
 /// set, also mints a long-lived user token (`user_ttl_secs`) for the
 /// `USER_AUTH_TOKEN` env.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the two tokens' shared claims plus each one's TTL"
+)]
 pub fn mint_sandbox_tokens(
     user_id: &str,
     login: &str,
     task_id: &str,
+    generation: i64,
     secret: &str,
     bootstrap_ttl_secs: u64,
     user_ttl_secs: u64,
     emit_legacy: bool,
 ) -> Result<MintedSandboxTokens, jsonwebtoken::errors::Error> {
-    let bootstrap = generate_bootstrap_token(user_id, login, task_id, secret, bootstrap_ttl_secs)?;
+    let bootstrap = generate_bootstrap_token(
+        user_id,
+        login,
+        task_id,
+        generation,
+        secret,
+        bootstrap_ttl_secs,
+    )?;
     let legacy_user_token = if emit_legacy {
         Some(generate_user_auth_token(
             user_id,
             login,
             task_id,
+            generation,
             secret,
             user_ttl_secs,
         )?)
@@ -230,32 +259,101 @@ pub fn is_token_near_expiry(token: &str, secret: &str, threshold_secs: u64) -> b
     }
 }
 
-/// Verifies `X-User-Token` JWTs against the process token secret.
+/// The current generation of each Sandbox's task tokens, which a bump
+/// advances to revoke every token minted before it.
+#[async_trait]
+pub trait TokenGenerations: Send + Sync {
+    /// `sandbox_id`'s current generation, absent when the Sandbox has no row.
+    async fn current(&self, sandbox_id: &str) -> Result<Option<i64>, StoreError>;
+}
+
+/// Why [`check_generation`] refused a token.
+#[derive(Debug, thiserror::Error)]
+pub enum GenerationError {
+    #[error("task token generation {presented} is not current ({current})")]
+    Stale { presented: i64, current: i64 },
+    /// The row goes only with its Task, so its tokens go with it too.
+    #[error("the task token names a sandbox that no longer exists")]
+    NoSandbox,
+    #[error("failed to read the sandbox's token generation")]
+    Lookup(#[from] StoreError),
+}
+
+/// Refuse a token minted at `presented` unless that is `sandbox_id`'s current
+/// generation. Fails closed when the generation cannot be read.
+pub async fn check_generation(
+    generations: &dyn TokenGenerations,
+    sandbox_id: &str,
+    presented: i64,
+) -> Result<(), GenerationError> {
+    let current = generations
+        .current(sandbox_id)
+        .await?
+        .ok_or(GenerationError::NoSandbox)?;
+    if presented == current {
+        Ok(())
+    } else {
+        Err(GenerationError::Stale { presented, current })
+    }
+}
+
+/// Fixed generations per Sandbox, with no row for any other, for tests that
+/// mint tokens without a database.
+#[cfg(any(test, feature = "test-support"))]
+#[derive(Default)]
+pub struct StaticTokenGenerations(pub std::collections::HashMap<String, i64>);
+
+#[cfg(any(test, feature = "test-support"))]
+#[async_trait]
+impl TokenGenerations for StaticTokenGenerations {
+    async fn current(&self, sandbox_id: &str) -> Result<Option<i64>, StoreError> {
+        Ok(self.0.get(sandbox_id).copied())
+    }
+}
+
+/// Verifies `X-User-Token` JWTs against the process token secret and their
+/// Sandbox's current generation.
 ///
 /// Satisfies the consumer-declared [`crate::http_auth::UserTokenVerifier`]
 /// port, keeping the `sandbox::jwt` dependency behind it so the auth extractors
 /// do not name this module.
 pub struct JwtUserTokenVerifier {
     secret: Option<String>,
+    generations: Arc<dyn TokenGenerations>,
 }
 
 impl JwtUserTokenVerifier {
-    pub fn new(secret: Option<String>) -> Self {
-        Self { secret }
+    pub fn new(secret: Option<String>, generations: Arc<dyn TokenGenerations>) -> Self {
+        Self {
+            secret,
+            generations,
+        }
     }
 }
 
+#[async_trait]
 impl crate::http_auth::UserTokenVerifier for JwtUserTokenVerifier {
-    fn verify_user_token(
+    async fn verify_user_token(
         &self,
         token: &str,
     ) -> Result<crate::http_auth::VerifiedUserToken, crate::http_auth::TokenVerifyError> {
+        use crate::http_auth::TokenVerifyError;
+
         let secret = self
             .secret
             .as_deref()
-            .ok_or(crate::http_auth::TokenVerifyError::NotConfigured)?;
+            .ok_or(TokenVerifyError::NotConfigured)?;
         let claims = verify_user_auth_token(token, secret)
-            .map_err(|e| crate::http_auth::TokenVerifyError::Invalid(e.to_string()))?;
+            .map_err(|e| TokenVerifyError::Invalid(e.to_string()))?;
+        // A token naming no Sandbox has no generation to check, so it could
+        // never be revoked; every minted token names one.
+        let sandbox_id = claims
+            .sandbox_id
+            .as_deref()
+            .ok_or_else(|| TokenVerifyError::Invalid("token names no sandbox".to_string()))?;
+        check_generation(self.generations.as_ref(), sandbox_id, claims.generation)
+            .await
+            .map_err(|e| TokenVerifyError::Invalid(e.to_string()))?;
         Ok(crate::http_auth::VerifiedUserToken {
             user_id: claims.user_id,
             login: claims.login,
@@ -272,7 +370,7 @@ mod tests {
     #[test]
     fn test_generate_user_auth_token() {
         let token =
-            generate_user_auth_token("user-456", "john", "task-1", "test-secret", TTL).unwrap();
+            generate_user_auth_token("user-456", "john", "task-1", 0, "test-secret", TTL).unwrap();
         assert!(!token.is_empty());
         assert_eq!(token.split('.').count(), 3);
     }
@@ -280,7 +378,7 @@ mod tests {
     #[test]
     fn test_verify_user_auth_token() {
         let token =
-            generate_user_auth_token("user-456", "john", "task-1", "test-secret", TTL).unwrap();
+            generate_user_auth_token("user-456", "john", "task-1", 0, "test-secret", TTL).unwrap();
         let claims = verify_user_auth_token(&token, "test-secret").unwrap();
         assert_eq!(claims.user_id, "user-456");
         assert_eq!(claims.login, "john");
@@ -293,7 +391,7 @@ mod tests {
     #[test]
     fn test_verify_user_auth_token_wrong_secret() {
         let token =
-            generate_user_auth_token("user-456", "john", "task-1", "test-secret", TTL).unwrap();
+            generate_user_auth_token("user-456", "john", "task-1", 0, "test-secret", TTL).unwrap();
         let result = verify_user_auth_token(&token, "wrong-secret");
         assert!(result.is_err());
     }
@@ -301,7 +399,7 @@ mod tests {
     #[test]
     fn test_is_token_near_expiry_fresh_token() {
         let token =
-            generate_user_auth_token("user-456", "john", "task-1", "test-secret", TTL).unwrap();
+            generate_user_auth_token("user-456", "john", "task-1", 0, "test-secret", TTL).unwrap();
         // Fresh 7-day token should NOT be near expiry with a 1-day threshold.
         assert!(!is_token_near_expiry(&token, "test-secret", 24 * 3600));
     }
@@ -314,7 +412,7 @@ mod tests {
     #[test]
     fn bootstrap_token_carries_audience() {
         let token =
-            generate_bootstrap_token("user-456", "john", "task-1", "test-secret", 600).unwrap();
+            generate_bootstrap_token("user-456", "john", "task-1", 0, "test-secret", 600).unwrap();
         let claims = verify_bootstrap_or_user_token(&token, "test-secret").unwrap();
         assert_eq!(claims.aud.as_deref(), Some(AUDIENCE_BOOTSTRAP));
         assert_eq!(claims.user_id, "user-456");
@@ -326,7 +424,7 @@ mod tests {
     fn bootstrap_token_rejected_by_user_verifier() {
         // A bootstrap token must not authenticate the long-lived RPCs.
         let token =
-            generate_bootstrap_token("user-456", "john", "task-1", "test-secret", 600).unwrap();
+            generate_bootstrap_token("user-456", "john", "task-1", 0, "test-secret", 600).unwrap();
         assert!(verify_user_auth_token(&token, "test-secret").is_err());
     }
 
@@ -334,34 +432,107 @@ mod tests {
     fn user_token_accepted_by_bootstrap_verifier() {
         // GetCredentials accepts the long-lived user token.
         let token =
-            generate_user_auth_token("user-456", "john", "task-1", "test-secret", TTL).unwrap();
+            generate_user_auth_token("user-456", "john", "task-1", 0, "test-secret", TTL).unwrap();
         let claims = verify_bootstrap_or_user_token(&token, "test-secret").unwrap();
         assert_eq!(claims.user_id, "user-456");
         assert_eq!(claims.aud, None);
     }
 
-    #[test]
-    fn port_maps_outcomes_to_the_extractor_error() {
+    fn generations(sandbox_id: &str, generation: i64) -> Arc<dyn TokenGenerations> {
+        Arc::new(StaticTokenGenerations(
+            [(sandbox_id.to_string(), generation)].into(),
+        ))
+    }
+
+    #[tokio::test]
+    async fn port_maps_outcomes_to_the_extractor_error() {
         use crate::http_auth::{TokenVerifyError, UserTokenVerifier};
 
-        let unconfigured = JwtUserTokenVerifier::new(None);
+        let unconfigured = JwtUserTokenVerifier::new(None, generations("task-1", 0));
         assert!(matches!(
-            unconfigured.verify_user_token("anything"),
+            unconfigured.verify_user_token("anything").await,
             Err(TokenVerifyError::NotConfigured)
         ));
 
-        let verifier = JwtUserTokenVerifier::new(Some("test-secret".to_string()));
+        let verifier =
+            JwtUserTokenVerifier::new(Some("test-secret".to_string()), generations("task-1", 0));
 
         let token =
-            generate_user_auth_token("user-456", "john", "task-1", "test-secret", TTL).unwrap();
-        let verified = verifier.verify_user_token(&token).expect("valid token");
+            generate_user_auth_token("user-456", "john", "task-1", 0, "test-secret", TTL).unwrap();
+        let verified = verifier
+            .verify_user_token(&token)
+            .await
+            .expect("valid token");
         assert_eq!(verified.user_id, "user-456");
         assert_eq!(verified.login, "john");
 
         // Garbage -> Invalid, not a panic.
         assert!(matches!(
-            verifier.verify_user_token("not-a-jwt"),
+            verifier.verify_user_token("not-a-jwt").await,
             Err(TokenVerifyError::Invalid(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn verifier_refuses_a_token_from_an_older_generation() {
+        use crate::http_auth::{TokenVerifyError, UserTokenVerifier};
+
+        let verifier =
+            JwtUserTokenVerifier::new(Some("test-secret".to_string()), generations("task-1", 2));
+        let old =
+            generate_user_auth_token("user-456", "john", "task-1", 1, "test-secret", TTL).unwrap();
+        assert!(matches!(
+            verifier.verify_user_token(&old).await,
+            Err(TokenVerifyError::Invalid(_))
+        ));
+
+        let current =
+            generate_user_auth_token("user-456", "john", "task-1", 2, "test-secret", TTL).unwrap();
+        assert!(verifier.verify_user_token(&current).await.is_ok());
+    }
+
+    #[test]
+    fn token_without_a_generation_claim_decodes_as_generation_zero() {
+        let claims = UserTokenClaims {
+            user_id: "user-456".to_string(),
+            login: "john".to_string(),
+            task_id: None,
+            sandbox_id: Some("task-1".to_string()),
+            iat: now_secs(),
+            exp: now_secs() + TTL,
+            iss: "moatless-vibe-backend".to_string(),
+            aud: None,
+            generation: 7,
+        };
+        let mut json = serde_json::to_value(&claims).unwrap();
+        json.as_object_mut().unwrap().remove("gen");
+        let token = encode(
+            &Header::default(),
+            &json,
+            &EncodingKey::from_secret(b"test-secret"),
+        )
+        .unwrap();
+        let decoded = verify_user_auth_token(&token, "test-secret").unwrap();
+        assert_eq!(decoded.generation, 0);
+    }
+
+    #[tokio::test]
+    async fn check_generation_fails_closed_on_a_lookup_error() {
+        struct Broken;
+        #[async_trait]
+        impl TokenGenerations for Broken {
+            async fn current(&self, _sandbox_id: &str) -> Result<Option<i64>, StoreError> {
+                Err(StoreError::new("db down"))
+            }
+        }
+        assert!(matches!(
+            check_generation(&Broken, "task-1", 0).await,
+            Err(GenerationError::Lookup(_))
+        ));
+        // A Sandbox with no row refuses even a generation-0 token.
+        assert!(matches!(
+            check_generation(&StaticTokenGenerations::default(), "task-1", 0).await,
+            Err(GenerationError::NoSandbox)
         ));
     }
 }

@@ -28,9 +28,11 @@ use moatless_types::user::UserRole;
 /// the whole `AppState`; the implementation (with its `sandbox::jwt` and
 /// token-secret dependency) lives behind this port, costing no `sandbox`
 /// import here.
+#[async_trait]
 pub trait UserTokenVerifier: Send + Sync {
     /// Verify a long-lived user auth token, returning the identity it carries.
-    fn verify_user_token(&self, token: &str) -> Result<VerifiedUserToken, TokenVerifyError>;
+    /// A token from an older generation of its Sandbox is `Invalid`.
+    async fn verify_user_token(&self, token: &str) -> Result<VerifiedUserToken, TokenVerifyError>;
 }
 
 /// The identity a verified user token carries. Only the two fields the auth
@@ -141,12 +143,17 @@ where
             .and_then(|v| v.to_str().ok())
         {
             let verifier = Arc::<dyn UserTokenVerifier>::from_ref(state);
-            let verified = verifier.verify_user_token(token).map_err(|e| match e {
-                TokenVerifyError::NotConfigured => {
-                    AuthError("Token verification not configured".to_string())
-                }
-                TokenVerifyError::Invalid(msg) => AuthError(format!("Invalid user token: {msg}")),
-            })?;
+            let verified = verifier
+                .verify_user_token(token)
+                .await
+                .map_err(|e| match e {
+                    TokenVerifyError::NotConfigured => {
+                        AuthError("Token verification not configured".to_string())
+                    }
+                    TokenVerifyError::Invalid(msg) => {
+                        AuthError(format!("Invalid user token: {msg}"))
+                    }
+                })?;
 
             let user_id = verified
                 .user_id
@@ -228,8 +235,12 @@ mod tests {
 
     struct StubVerifier(StubOutcome);
 
+    #[async_trait]
     impl UserTokenVerifier for StubVerifier {
-        fn verify_user_token(&self, _token: &str) -> Result<VerifiedUserToken, TokenVerifyError> {
+        async fn verify_user_token(
+            &self,
+            _token: &str,
+        ) -> Result<VerifiedUserToken, TokenVerifyError> {
             match &self.0 {
                 StubOutcome::Ok { user_id, login } => Ok(VerifiedUserToken {
                     user_id: user_id.clone(),

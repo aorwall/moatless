@@ -109,6 +109,9 @@ impl LifecycleDao for MemberStore {
     ) -> Result<Vec<OutstandingCommand>, StoreError> {
         panic!("member registration test must not take the unreported commands")
     }
+    async fn bump_token_generation(&self, _sandbox_id: &str) -> Result<Option<i64>, StoreError> {
+        panic!("member registration test must not bump the token generation")
+    }
 }
 
 #[derive(Default)]

@@ -80,6 +80,7 @@ impl LocalSandboxAdapter {
             &request.user_id,
             &request.user_id,
             task_id,
+            request.token_generation,
             &task_token_secret,
             self.config.sandbox.user_token_ttl_secs,
         )

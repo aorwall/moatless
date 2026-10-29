@@ -209,6 +209,9 @@ impl LifecycleDao for InMemoryLifecycleDao {
     ) -> Result<Vec<OutstandingCommand>, StoreError> {
         Ok(Vec::new())
     }
+    async fn bump_token_generation(&self, _sandbox_id: &str) -> Result<Option<i64>, StoreError> {
+        Ok(None)
+    }
     async fn clear_marker(
         &self,
         _task_id: &str,

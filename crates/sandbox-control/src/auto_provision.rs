@@ -280,7 +280,11 @@ pub(crate) async fn build_provision_request(
         repos: repo_checkouts,
     };
 
-    Ok(ProvisionRequest { plan, user_id })
+    Ok(ProvisionRequest {
+        plan,
+        user_id,
+        token_generation: shape.token_generation,
+    })
 }
 
 /// A workspace repository placement with the git-pointer fields of its

@@ -70,7 +70,7 @@ async fn proxy(env: &Env, repository_id: &str) -> GitProxy {
     let pool = moatless_core::db::create_pool(&env.database_url, 2)
         .await
         .expect("connect to the database holding the sandboxes row");
-    let ingress = moatless_sandbox_control::compose::sandbox_graph(pool).sandbox_ingress();
+    let graph = moatless_sandbox_control::compose::sandbox_graph(pool);
 
     let mut workspaces = MockWorkspaceResolver::new();
     let placement = RepoPlacement {
@@ -101,7 +101,8 @@ async fn proxy(env: &Env, repository_id: &str) -> GitProxy {
     users.expect_git_identity().returning(|_| Ok(None));
 
     GitProxy::new(
-        ingress,
+        graph.sandbox_ingress(),
+        graph.token_generations(),
         Arc::new(workspaces),
         Arc::new(repositories),
         Arc::new(users),
@@ -168,7 +169,8 @@ async fn a_pod_clones_a_forgejo_repository_through_the_proxy() {
     };
     let repository_id = "e2e-forgejo-repository";
     let base = serve(proxy(&env, repository_id).await).await;
-    let token = generate_user_auth_token("e2e-user", "e2e", &env.sandbox_id, SECRET, 600).unwrap();
+    let token =
+        generate_user_auth_token("e2e-user", "e2e", &env.sandbox_id, 0, SECRET, 600).unwrap();
     let into = tempfile::tempdir().unwrap();
     let target = into.path().join("checkout");
 
@@ -204,7 +206,8 @@ async fn a_repository_outside_the_workspace_is_not_found() {
         return;
     };
     let base = serve(proxy(&env, "e2e-forgejo-repository").await).await;
-    let token = generate_user_auth_token("e2e-user", "e2e", &env.sandbox_id, SECRET, 600).unwrap();
+    let token =
+        generate_user_auth_token("e2e-user", "e2e", &env.sandbox_id, 0, SECRET, 600).unwrap();
 
     let response = client()
         .get(format!(
@@ -227,7 +230,7 @@ async fn a_token_this_deployment_did_not_sign_is_refused() {
     let repository_id = "e2e-forgejo-repository";
     let base = serve(proxy(&env, repository_id).await).await;
     let forged =
-        generate_user_auth_token("e2e-user", "e2e", &env.sandbox_id, "another-secret", 600)
+        generate_user_auth_token("e2e-user", "e2e", &env.sandbox_id, 0, "another-secret", 600)
             .unwrap();
 
     let response = client()

@@ -326,6 +326,10 @@ pub fn grpc_service(
         config.sandbox.accept_claimless_tokens,
         tasks.clone(),
         users.clone(),
+        ports.map(|p| {
+            p.sandbox_graph.token_generations()
+                as Arc<dyn moatless_core::sandbox_jwt::TokenGenerations>
+        }),
     );
 
     BackendSandboxServiceImpl {

@@ -105,6 +105,7 @@ pub(in crate::auth) async fn exchange_token_handler(
     let verified = state
         .token_verifier
         .verify_user_token(token)
+        .await
         .map_err(|e| match e {
             moatless_core::http_auth::TokenVerifyError::NotConfigured => {
                 AuthError::Config("TASK_TOKEN_SECRET not configured".to_string())

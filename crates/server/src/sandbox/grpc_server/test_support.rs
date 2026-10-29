@@ -74,6 +74,7 @@ pub(super) fn claims_for(user_id: &str) -> jwt::UserTokenClaims {
         exp: u64::MAX,
         iss: "moatless-vibe-backend".to_string(),
         aud: None,
+        generation: 0,
     }
 }
 
