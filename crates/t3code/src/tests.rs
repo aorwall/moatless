@@ -5,6 +5,7 @@ use crate::config::T3_CLIENT_CONTRACT_VERSION;
 use crate::config::UiRpcConfig;
 use crate::config::environment_id;
 use crate::dao::ConversationDao;
+use crate::dao::ListingError;
 use crate::dao::MockConversationDao;
 use crate::handlers::origin_allowed;
 use crate::handlers::origin_checked;

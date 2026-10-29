@@ -17,7 +17,7 @@ mod names_db_tests;
 
 pub use listed::{ListedAgent, ListedPullRequest, ListedTask, ListingCursor, RunningChild};
 pub use operations::{
-    ARCHIVED_LIMIT, BROWSE_LIMIT, FOLLOWED_LIMIT, LISTED_STATUSES, ListingFilter, TaskListing,
-    status_list,
+    ARCHIVED_LIMIT, BROWSE_LIMIT, FOLLOWED_LIMIT, LISTED_STATUSES, ListingError, ListingFilter,
+    TaskListing, status_list,
 };
 pub use pruner::spawn_change_pruner;

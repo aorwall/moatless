@@ -15,6 +15,7 @@ use tracing::{debug, warn};
 use super::{AgentModelDefaults, projection};
 use crate::config::OrchestrationProtocol;
 use crate::dao::ConversationDao;
+use crate::dao::ListingError;
 use crate::reads::T3Reads;
 use moatless_core::change_feed::listing::{EnvironmentIdentity, ListingHead};
 use moatless_types::access_control::ScopeContext;
@@ -101,7 +102,7 @@ impl ShellFeed {
         reads: &T3Reads,
         defaults: &AgentModelDefaults,
         viewer: &ScopeContext,
-    ) -> Result<Vec<Value>, sqlx::Error> {
+    ) -> Result<Vec<Value>, ListingError> {
         let head = reads.conversations().listing_head().await?;
         self.poll_at(&head, reads, defaults, viewer).await
     }
@@ -114,7 +115,7 @@ impl ShellFeed {
         reads: &T3Reads,
         defaults: &AgentModelDefaults,
         viewer: &ScopeContext,
-    ) -> Result<Vec<Value>, sqlx::Error> {
+    ) -> Result<Vec<Value>, ListingError> {
         let conversations = reads.conversations();
         let workspaces = reads.workspaces();
         if head.identity != self.identity {
@@ -251,7 +252,7 @@ impl ShellFeed {
         reads: &T3Reads,
         defaults: &AgentModelDefaults,
         viewer: &ScopeContext,
-    ) -> Result<Vec<Value>, sqlx::Error> {
+    ) -> Result<Vec<Value>, ListingError> {
         let snapshot =
             crate::snapshots::shell_snapshot_in(reads, defaults, viewer, self.protocol).await?;
         warn!(
@@ -273,7 +274,7 @@ impl ShellFeed {
         reads: &T3Reads,
         defaults: &AgentModelDefaults,
         viewer: &ScopeContext,
-    ) -> Result<Vec<Value>, sqlx::Error> {
+    ) -> Result<Vec<Value>, ListingError> {
         let snapshot =
             crate::snapshots::shell_snapshot_in(reads, defaults, viewer, self.protocol).await?;
         debug!(

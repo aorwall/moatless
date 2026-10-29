@@ -13,7 +13,7 @@ use moatless_types::pull_request_key::PULL_REQUEST_KEY_PATTERN;
 use moatless_types::task::{TaskRelationType, TaskStatus};
 
 use super::listed::{ListedTask, ListingCursor};
-use super::operations::{ListingFilter, status_list};
+use super::operations::{ListingError, ListingFilter, status_list};
 
 pub(crate) const FULL_LISTING_CONCURRENCY: usize = 1;
 const FULL_LISTING_STATEMENT_TIMEOUT: &str = "5s";
@@ -44,27 +44,21 @@ pub(crate) enum Reach {
 pub(crate) const LISTING_DURATION: &str = "moatless_ui_shell_listing_duration_seconds";
 pub(crate) const LISTING_REJECTIONS: &str = "moatless_ui_shell_listing_rejections_total";
 
-/// The one listing query at a set of statuses, optionally narrowed to a set
-/// of Tasks or a browse filter, and read a `page` at a time.
-///
-/// Every narrowing is a `WHERE` clause on this query, so the read and follow
-/// rules cannot drift between a snapshot and a live re-read of it.
-#[allow(clippy::too_many_arguments)]
+/// The unnarrowed [`read`], behind the replica's permit: refused with
+/// [`ListingError::AtCapacity`] once another held it for
+/// [`FULL_LISTING_QUEUE_WAIT`].
 pub(crate) async fn list(
     pool: &DbPool,
     permits: &Semaphore,
     viewer: &ScopeContext,
     reach: Reach,
     statuses: &[TaskStatus],
-    task_ids: Option<&[String]>,
     browse: Option<&ListingFilter>,
-    page: Option<Page<'_>>,
-) -> Result<Vec<ListedTask>, sqlx::Error> {
-    let full_listing = task_ids.is_none();
+    page: Page<'_>,
+) -> Result<Vec<ListedTask>, ListingError> {
     // A browse shares this permit deliberately: it too is an unbounded
     // scan with no follow join to narrow it, and a permit of its own would
-    // let two such reads hit the pool at once. `kind` distinguishes them
-    // below, since `task_ids.is_none()` no longer means "the listing".
+    // let two such reads hit the pool at once.
     let kind = if browse.is_some() {
         "browse"
     } else {
@@ -72,25 +66,64 @@ pub(crate) async fn list(
     };
     // Queued, not refused at once: a reconnecting client asks for its shell
     // and its archive in the same instant. The wait holds no connection.
-    let _permit = if full_listing {
-        let Ok(Ok(permit)) = tokio::time::timeout(FULL_LISTING_QUEUE_WAIT, permits.acquire()).await
-        else {
-            metrics::counter!(LISTING_REJECTIONS, "reason" => "at_capacity", "kind" => kind)
-                .increment(1);
-            warn!(
-                user_id = %viewer.user_id,
-                kind,
-                wait_secs = FULL_LISTING_QUEUE_WAIT.as_secs(),
-                "T3 UI full listing rejected; another one held the permit for the whole wait"
-            );
-            return Err(sqlx::Error::PoolTimedOut);
-        };
-        Some(permit)
-    } else {
-        None
+    let Ok(Ok(_permit)) = tokio::time::timeout(FULL_LISTING_QUEUE_WAIT, permits.acquire()).await
+    else {
+        metrics::counter!(LISTING_REJECTIONS, "reason" => "at_capacity", "kind" => kind)
+            .increment(1);
+        warn!(
+            user_id = %viewer.user_id,
+            kind,
+            wait_secs = FULL_LISTING_QUEUE_WAIT.as_secs(),
+            "T3 UI full listing rejected; another one held the permit for the whole wait"
+        );
+        return Err(ListingError::AtCapacity);
     };
-    let started = full_listing.then(Instant::now);
+    let started = Instant::now();
+    let result = read(pool, viewer, reach, statuses, None, browse, Some(page)).await;
+    let outcome = match &result {
+        Ok(_) => "ok",
+        Err(sqlx::Error::Database(error)) if error.code().as_deref() == Some("57014") => {
+            metrics::counter!(
+                LISTING_REJECTIONS,
+                "reason" => "statement_timeout",
+                "kind" => kind
+            )
+            .increment(1);
+            "statement_timeout"
+        }
+        Err(_) => "error",
+    };
+    metrics::histogram!(LISTING_DURATION, "outcome" => outcome, "kind" => kind)
+        .record(started.elapsed().as_secs_f64());
+    Ok(result?)
+}
 
+/// The listing narrowed to `task_ids`: a key lookup, so it takes no permit.
+pub(crate) async fn list_by_ids(
+    pool: &DbPool,
+    viewer: &ScopeContext,
+    reach: Reach,
+    statuses: &[TaskStatus],
+    task_ids: &[String],
+) -> Result<Vec<ListedTask>, sqlx::Error> {
+    read(pool, viewer, reach, statuses, Some(task_ids), None, None).await
+}
+
+/// The one listing query at a set of statuses, optionally narrowed to a set
+/// of Tasks or a browse filter, and read a `page` at a time.
+///
+/// Every narrowing is a `WHERE` clause on this query, so the read and follow
+/// rules cannot drift between a snapshot and a live re-read of it. Unnarrowed
+/// by `task_ids`, it runs only through [`list`].
+async fn read(
+    pool: &DbPool,
+    viewer: &ScopeContext,
+    reach: Reach,
+    statuses: &[TaskStatus],
+    task_ids: Option<&[String]>,
+    browse: Option<&ListingFilter>,
+    page: Option<Page<'_>>,
+) -> Result<Vec<ListedTask>, sqlx::Error> {
     // `$1`/`$2` are the access filter's admin flag and user id; `$3` is
     // the follower. The read rule is a shared fragment, not a copy, so a
     // change to "may read" reaches this listing too. The status filter
@@ -477,36 +510,15 @@ pub(crate) async fn list(
         Some(_) => ("plan_cache_mode", "force_generic_plan"),
         None => ("statement_timeout", FULL_LISTING_STATEMENT_TIMEOUT),
     };
-    let result = async {
-        let mut tx = pool.begin().await?;
-        sqlx::query("SELECT set_config($1, $2, true)")
-            .bind(setting)
-            .bind(value)
-            .execute(&mut *tx)
-            .await?;
-        let rows = query.fetch_all(&mut *tx).await?;
-        tx.commit().await?;
-        Ok(rows)
-    }
-    .await;
-    if let Some(started) = started {
-        let outcome = match &result {
-            Ok(_) => "ok",
-            Err(sqlx::Error::Database(error)) if error.code().as_deref() == Some("57014") => {
-                metrics::counter!(
-                    LISTING_REJECTIONS,
-                    "reason" => "statement_timeout",
-                    "kind" => kind
-                )
-                .increment(1);
-                "statement_timeout"
-            }
-            Err(_) => "error",
-        };
-        metrics::histogram!(LISTING_DURATION, "outcome" => outcome, "kind" => kind)
-            .record(started.elapsed().as_secs_f64());
-    }
-    result
+    let mut tx = pool.begin().await?;
+    sqlx::query("SELECT set_config($1, $2, true)")
+        .bind(setting)
+        .bind(value)
+        .execute(&mut *tx)
+        .await?;
+    let rows = query.fetch_all(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(rows)
 }
 
 /// The listing's `LEFT JOIN LATERAL … parent`: each row's first parent edge,

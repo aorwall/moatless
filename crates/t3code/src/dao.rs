@@ -25,7 +25,7 @@ pub use moatless_tasks::search::TaskMatch as ConversationMatch;
 use moatless_tasks::search::TaskSearch;
 pub use moatless_tasks::task_listing::{
     ARCHIVED_LIMIT, BROWSE_LIMIT, ListedPullRequest as ConversationPullRequest,
-    ListedTask as Conversation, ListingCursor as ArchiveCursor,
+    ListedTask as Conversation, ListingCursor as ArchiveCursor, ListingError,
     ListingFilter as ConversationBrowse,
 };
 use moatless_tasks::task_listing::{LISTED_STATUSES, TaskListing};
@@ -56,7 +56,8 @@ pub trait ConversationDao: Send + Sync {
     /// `error` counts as not-open too, matching the Moatless sidebar's own
     /// filter; a Task returns to `open` the instant its agent produces
     /// anything, so nothing running is hidden.
-    async fn list_followed(&self, viewer: &ScopeContext) -> Result<Vec<Conversation>, sqlx::Error>;
+    async fn list_followed(&self, viewer: &ScopeContext)
+    -> Result<Vec<Conversation>, ListingError>;
 
     /// The other half: the newest **closed** Tasks the viewer follows and may
     /// still read, older than `before` when given — at most [`ARCHIVED_LIMIT`]
@@ -68,7 +69,7 @@ pub trait ConversationDao: Send + Sync {
         &self,
         viewer: &ScopeContext,
         before: Option<ArchiveCursor>,
-    ) -> Result<Vec<Conversation>, sqlx::Error>;
+    ) -> Result<Vec<Conversation>, ListingError>;
 
     /// Every Task the viewer may **read** that `filter` names, newest first,
     /// whether or not they follow it.
@@ -80,7 +81,7 @@ pub trait ConversationDao: Send + Sync {
         &self,
         viewer: &ScopeContext,
         filter: &ConversationBrowse,
-    ) -> Result<Vec<Conversation>, sqlx::Error>;
+    ) -> Result<Vec<Conversation>, ListingError>;
 
     /// Both halves at once, narrowed to Tasks a change has named.
     ///
@@ -278,7 +279,10 @@ impl PgConversationDao {
 
 #[async_trait]
 impl ConversationDao for PgConversationDao {
-    async fn list_followed(&self, viewer: &ScopeContext) -> Result<Vec<Conversation>, sqlx::Error> {
+    async fn list_followed(
+        &self,
+        viewer: &ScopeContext,
+    ) -> Result<Vec<Conversation>, ListingError> {
         self.listing.followed(viewer).await
     }
 
@@ -286,7 +290,7 @@ impl ConversationDao for PgConversationDao {
         &self,
         viewer: &ScopeContext,
         before: Option<ArchiveCursor>,
-    ) -> Result<Vec<Conversation>, sqlx::Error> {
+    ) -> Result<Vec<Conversation>, ListingError> {
         self.listing.followed_closed(viewer, before).await
     }
 
@@ -294,7 +298,7 @@ impl ConversationDao for PgConversationDao {
         &self,
         viewer: &ScopeContext,
         filter: &ConversationBrowse,
-    ) -> Result<Vec<Conversation>, sqlx::Error> {
+    ) -> Result<Vec<Conversation>, ListingError> {
         self.listing.browsable(viewer, filter).await
     }
 

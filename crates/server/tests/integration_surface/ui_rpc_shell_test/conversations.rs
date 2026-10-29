@@ -11,6 +11,7 @@ use crate::common::run_config;
 use moatless_tasks::task::models::TaskPatch;
 use moatless_tasks::task::models::TaskStatus;
 use moatless_tasks::task::models::Visibility;
+use moatless_tasks::task_listing::ListingError;
 use moatless_workspaces::compose;
 use serde_json::json;
 use sqlx::PgPool;
@@ -81,7 +82,7 @@ async fn a_blocked_full_listing_cannot_monopolize_the_pool(pool: PgPool) {
         .expect_err(
             "a second full listing must not enter PostgreSQL while the first holds the permit",
         );
-    assert!(matches!(rejected, sqlx::Error::PoolTimedOut));
+    assert!(matches!(rejected, ListingError::AtCapacity), "{rejected:?}");
     let waited = rejected_at.elapsed();
     assert!(
         waited >= Duration::from_millis(1900) && waited < Duration::from_secs(4),
@@ -94,7 +95,7 @@ async fn a_blocked_full_listing_cannot_monopolize_the_pool(pool: PgPool) {
         .expect("listing task panicked")
         .expect_err("the blocked listing unexpectedly completed");
     match timed_out {
-        sqlx::Error::Database(error) => {
+        ListingError::Database(sqlx::Error::Database(error)) => {
             assert_eq!(error.code().as_deref(), Some("57014"), "{error}");
         }
         other => panic!("expected PostgreSQL query cancellation, got {other:?}"),

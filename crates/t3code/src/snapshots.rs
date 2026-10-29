@@ -4,6 +4,7 @@ use crate::dao::ArchiveCursor;
 use crate::dao::Conversation;
 use crate::dao::ConversationBrowse;
 use crate::dao::ConversationDao;
+use crate::dao::ListingError;
 use crate::lineage;
 use crate::ports::TaskRelationSource;
 use crate::projection;
@@ -28,7 +29,7 @@ pub async fn shell_snapshot(
     reads: &T3Reads,
     model_defaults: &AgentModelDefaults,
     viewer: &ScopeContext,
-) -> Result<ShellSnapshot, sqlx::Error> {
+) -> Result<ShellSnapshot, ListingError> {
     shell_snapshot_in(reads, model_defaults, viewer, OrchestrationProtocol::V1).await
 }
 
@@ -39,7 +40,7 @@ pub(crate) async fn shell_snapshot_in(
     model_defaults: &AgentModelDefaults,
     viewer: &ScopeContext,
     protocol: OrchestrationProtocol,
-) -> Result<ShellSnapshot, sqlx::Error> {
+) -> Result<ShellSnapshot, ListingError> {
     let conversations = reads.conversations();
     let workspaces = reads.workspaces();
     // Read position before rows: reading after risks the client discarding a
@@ -429,7 +430,7 @@ pub async fn browse_snapshot(
     viewer: &ScopeContext,
     filter: &ConversationBrowse,
     protocol: OrchestrationProtocol,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, ListingError> {
     let mut conversations = reads.conversations().list_browsable(viewer, filter).await?;
     let truncated = conversations.len() as i64 > crate::dao::BROWSE_LIMIT;
     conversations.truncate(crate::dao::BROWSE_LIMIT as usize);
@@ -457,7 +458,7 @@ pub async fn archived_shell_snapshot(
     reads: &T3Reads,
     defaults: &AgentModelDefaults,
     viewer: &ScopeContext,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, ListingError> {
     archived_shell_page(reads, defaults, viewer, None, OrchestrationProtocol::V1).await
 }
 
@@ -472,7 +473,7 @@ pub(crate) async fn archived_shell_page(
     viewer: &ScopeContext,
     before: Option<ArchiveCursor>,
     protocol: OrchestrationProtocol,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, ListingError> {
     let conversations = reads.conversations();
     let workspaces = reads.workspaces();
     let sequence = conversations.listing_head().await?.position;

@@ -1,5 +1,6 @@
 use crate::config::AgentModelDefaults;
 use crate::config::OrchestrationProtocol;
+use crate::dao::ListingError;
 use crate::feed;
 use crate::reads::T3Reads;
 use crate::snapshots::shell_snapshot_in;
@@ -204,7 +205,7 @@ pub async fn shell_subscription(
     environment: &EnvironmentIdentity,
     after: Option<i64>,
     protocol: OrchestrationProtocol,
-) -> Result<ShellSubscription, sqlx::Error> {
+) -> Result<ShellSubscription, ListingError> {
     let conversations = reads.conversations();
     let workspaces = reads.workspaces();
     let head = conversations.listing_head().await?;

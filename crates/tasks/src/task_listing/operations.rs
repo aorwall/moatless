@@ -15,12 +15,25 @@ use super::listed_dao::{
 };
 use super::names_dao;
 
+/// Why a full listing read returned no rows.
+#[derive(Debug, thiserror::Error)]
+pub enum ListingError {
+    /// Another full listing held this replica's permit for the whole queue
+    /// wait. Backpressure, not a database failure: nothing reached the pool,
+    /// and asking again shortly is expected to succeed.
+    #[error("another full listing held this replica's permit for the whole wait")]
+    AtCapacity,
+    /// The pool or the database failed the read.
+    #[error(transparent)]
+    Database(#[from] sqlx::Error),
+}
+
 /// Reads the Task listing for one viewer.
 ///
 /// A read that is not narrowed by task id scans the deployment, so one runs
 /// per replica at a time; another queues without a connection and is refused
-/// as `sqlx::Error::PoolTimedOut` after `FULL_LISTING_QUEUE_WAIT`, leaving pool
-/// capacity for task control, ingress and reconciliation.
+/// as [`ListingError::AtCapacity`] after `FULL_LISTING_QUEUE_WAIT`, leaving
+/// pool capacity for task control, ingress and reconciliation.
 #[derive(Clone)]
 pub struct TaskListing {
     pool: DbPool,
@@ -45,7 +58,7 @@ impl TaskListing {
 
     /// The open Tasks the viewer follows and may read, newest first: at most
     /// [`FOLLOWED_LIMIT`].
-    pub async fn followed(&self, viewer: &ScopeContext) -> Result<Vec<ListedTask>, sqlx::Error> {
+    pub async fn followed(&self, viewer: &ScopeContext) -> Result<Vec<ListedTask>, ListingError> {
         listed_dao::list(
             &self.pool,
             &self.full_listing,
@@ -53,11 +66,10 @@ impl TaskListing {
             Reach::Followed,
             &[TaskStatus::Open],
             None,
-            None,
-            Some(Page {
+            Page {
                 cap: FOLLOWED_LIMIT,
                 before: None,
-            }),
+            },
         )
         .await
     }
@@ -68,7 +80,7 @@ impl TaskListing {
         &self,
         viewer: &ScopeContext,
         before: Option<ListingCursor>,
-    ) -> Result<Vec<ListedTask>, sqlx::Error> {
+    ) -> Result<Vec<ListedTask>, ListingError> {
         listed_dao::list(
             &self.pool,
             &self.full_listing,
@@ -76,11 +88,10 @@ impl TaskListing {
             Reach::Followed,
             &[TaskStatus::Closed],
             None,
-            None,
-            Some(Page {
+            Page {
                 cap: ARCHIVED_LIMIT + 1,
                 before: before.as_ref(),
-            }),
+            },
         )
         .await
     }
@@ -91,19 +102,18 @@ impl TaskListing {
         &self,
         viewer: &ScopeContext,
         filter: &ListingFilter,
-    ) -> Result<Vec<ListedTask>, sqlx::Error> {
+    ) -> Result<Vec<ListedTask>, ListingError> {
         listed_dao::list(
             &self.pool,
             &self.full_listing,
             viewer,
             Reach::Readable,
             filter.statuses(),
-            None,
             Some(filter),
-            Some(Page {
+            Page {
                 cap: BROWSE_LIMIT + 1,
                 before: None,
-            }),
+            },
         )
         .await
     }
@@ -118,15 +128,12 @@ impl TaskListing {
         if task_ids.is_empty() {
             return Ok(Vec::new());
         }
-        listed_dao::list(
+        listed_dao::list_by_ids(
             &self.pool,
-            &self.full_listing,
             viewer,
             Reach::Followed,
             LISTED_STATUSES,
-            Some(task_ids),
-            None,
-            None,
+            task_ids,
         )
         .await
     }
@@ -137,15 +144,12 @@ impl TaskListing {
         viewer: &ScopeContext,
         task_id: &str,
     ) -> Result<Option<ListedTask>, sqlx::Error> {
-        Ok(listed_dao::list(
+        Ok(listed_dao::list_by_ids(
             &self.pool,
-            &self.full_listing,
             viewer,
             Reach::Readable,
             LISTED_STATUSES,
-            Some(&[task_id.to_string()]),
-            None,
-            None,
+            &[task_id.to_string()],
         )
         .await?
         .into_iter()
@@ -162,15 +166,12 @@ impl TaskListing {
         if task_ids.is_empty() {
             return Ok(Vec::new());
         }
-        listed_dao::list(
+        listed_dao::list_by_ids(
             &self.pool,
-            &self.full_listing,
             viewer,
             Reach::Readable,
             LISTED_STATUSES,
-            Some(task_ids),
-            None,
-            None,
+            task_ids,
         )
         .await
     }
@@ -278,4 +279,50 @@ pub fn status_list(statuses: &[TaskStatus]) -> String {
         .map(|status| format!("'{}'", status.as_str()))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use sqlx::postgres::PgPoolOptions;
+
+    use super::*;
+
+    /// Never dials out until a read asks for a connection, which then fails.
+    fn unreachable_listing() -> TaskListing {
+        let pool = PgPoolOptions::new()
+            .acquire_timeout(Duration::from_millis(100))
+            .connect_lazy("postgres://listing:listing@127.0.0.1:1/listing")
+            .expect("connect_lazy only parses the URL");
+        TaskListing::new(pool)
+    }
+
+    fn viewer() -> ScopeContext {
+        ScopeContext::user("user-1".to_string())
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_full_listing_queued_past_the_wait_is_refused_at_capacity() {
+        let listing = unreachable_listing();
+        let _held = listing.full_listing.acquire().await.expect("open");
+
+        let open = listing.followed(&viewer()).await;
+        let archive = listing.followed_closed(&viewer(), None).await;
+
+        assert!(matches!(open, Err(ListingError::AtCapacity)), "{open:?}");
+        assert!(
+            matches!(archive, Err(ListingError::AtCapacity)),
+            "{archive:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_full_listing_the_pool_cannot_serve_is_a_database_failure() {
+        let listing = unreachable_listing();
+
+        let open = listing.followed(&viewer()).await;
+
+        assert!(matches!(open, Err(ListingError::Database(_))), "{open:?}");
+    }
 }

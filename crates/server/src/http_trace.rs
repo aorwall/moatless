@@ -2,7 +2,7 @@
 
 use std::borrow::Cow;
 
-use moatless_types::http::RelayedUpstreamFailure;
+use moatless_types::http::{RefusedAtCapacity, RelayedUpstreamFailure};
 
 /// Path prefixes whose next segment is a page or attachment upload token.
 /// Copies of `PAGE_RECORDS_ROUTE`'s and `UPLOAD_ROUTE_PREFIX`'s prefixes: a
@@ -69,11 +69,14 @@ fn redact_path(path: &str) -> Cow<'_, str> {
 
 /// Successful requests are high-volume access-log noise, so they log at DEBUG.
 /// A 5xx logs at ERROR unless the handler marked it a
-/// [`RelayedUpstreamFailure`], which logs at WARN like a 4xx.
+/// [`RelayedUpstreamFailure`] or [`RefusedAtCapacity`], which log at WARN like
+/// a 4xx.
 fn completion_level(res: &axum::response::Response) -> tracing::Level {
     let status = res.status();
-    let relayed = res.extensions().get::<RelayedUpstreamFailure>().is_some();
-    if status.is_server_error() && !relayed {
+    let extensions = res.extensions();
+    let marked = extensions.get::<RelayedUpstreamFailure>().is_some()
+        || extensions.get::<RefusedAtCapacity>().is_some();
+    if status.is_server_error() && !marked {
         tracing::Level::ERROR
     } else if status.is_server_error() || status.is_client_error() {
         tracing::Level::WARN
@@ -132,6 +135,13 @@ mod tests {
     fn a_relayed_upstream_5xx_logs_at_warn() {
         let mut res = StatusCode::BAD_GATEWAY.into_response();
         res.extensions_mut().insert(RelayedUpstreamFailure);
+        assert_eq!(completion_level(&res), tracing::Level::WARN);
+    }
+
+    #[test]
+    fn a_503_refused_at_capacity_logs_at_warn() {
+        let mut res = StatusCode::SERVICE_UNAVAILABLE.into_response();
+        res.extensions_mut().insert(RefusedAtCapacity);
         assert_eq!(completion_level(&res), tracing::Level::WARN);
     }
 

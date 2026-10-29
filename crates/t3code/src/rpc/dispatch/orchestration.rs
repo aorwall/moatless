@@ -250,7 +250,7 @@ pub(super) async fn threads_get_shell(request: Request<ThreadShellGetInput>) -> 
             &id,
             json!({ "thread": thread.unwrap_or(Value::Null) }),
         )],
-        Err(error) => vec![shell_failure_exit(&id, &error, &identity)],
+        Err(error) => vec![shell_failure_exit(&id, &error.into(), &identity)],
     }
 }
 

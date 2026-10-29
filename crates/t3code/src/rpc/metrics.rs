@@ -89,8 +89,9 @@ pub(crate) enum Outcome {
     /// Any other `Fail`.
     Fail,
     /// A `Die` its site marked with [`capped`]: the connection already holds
-    /// [`crate::MAX_ACTIVE_STREAMS`] streams. The client's fan-out reached the
-    /// cap; the server is not broken.
+    /// [`crate::MAX_ACTIVE_STREAMS`] streams, or another full listing held the
+    /// replica's permit for the whole queue wait. A limit was reached; the
+    /// server is not broken.
     Capped,
     /// `Die`.
     Die,
@@ -133,7 +134,7 @@ impl Outcome {
     /// the log line. An [`Self::Interrupted`] request is not a failure: the
     /// client asked for it to stop. Nor is a [`Self::Refused`] one: the client
     /// got the answer the state it asked in has. Nor a [`Self::Capped`] one:
-    /// the client's own fan-out reached a per-connection limit.
+    /// a deliberate limit refused it.
     pub(crate) fn is_failure(self) -> bool {
         matches!(
             self,

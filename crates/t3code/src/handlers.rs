@@ -2,6 +2,7 @@ use crate::authentication::viewer_scope;
 use crate::config::ORCHESTRATION_PROTOCOL_HEADER;
 use crate::config::ORCHESTRATION_PROTOCOL_QUERY_PARAM;
 use crate::config::OrchestrationProtocol;
+use crate::dao::ListingError;
 use crate::oauth::invalid_request;
 use crate::projection;
 use crate::projection::Compactions;
@@ -10,6 +11,7 @@ use crate::pull_request_conversation;
 use crate::pull_request_review;
 use crate::rpc::config::descriptor;
 use crate::rpc::config::session_state;
+use crate::rpc::errors::LISTING_BUSY;
 use crate::rpc::errors::pull_request_review_error;
 use crate::rpc::socket::MAX_FRAME_BYTES;
 use crate::rpc::socket::serve_websocket;
@@ -35,6 +37,7 @@ use axum::response::IntoResponse;
 use axum::response::Response;
 use moatless_ports::sandbox::SandboxError;
 use moatless_types::auth::AllowedOrigin;
+use moatless_types::http::RefusedAtCapacity;
 use moatless_types::ui_rpc::UiRpcAuthIdentity;
 use moatless_types::ui_rpc::UiRpcAuthMethod;
 use serde::Deserialize;
@@ -72,10 +75,34 @@ pub(crate) async fn shell_snapshot_http(
     .await
     {
         Ok(snapshot) => Json(snapshot.value).into_response(),
-        Err(error) => {
+        Err(error) => shell_failure_response(&error, &identity),
+    }
+}
+
+/// A failed shell bootstrap: a 503 for a refusal at capacity, which the listing
+/// gate already logged, and the database failure logged here otherwise.
+///
+/// The client takes any failure as its cue to read the same listing over the
+/// socket, so `Retry-After` is for other callers.
+pub(crate) fn shell_failure_response(
+    error: &ListingError,
+    identity: &UiRpcAuthIdentity,
+) -> Response {
+    match error {
+        ListingError::AtCapacity => {
+            let mut response = (
+                StatusCode::SERVICE_UNAVAILABLE,
+                [(header::RETRY_AFTER, "1")],
+                Json(json!({ "error": LISTING_BUSY })),
+            )
+                .into_response();
+            response.extensions_mut().insert(RefusedAtCapacity);
+            response
+        }
+        ListingError::Database(error) => {
             error!(%error, user_id = %identity.user_id, "Failed to assemble T3 UI shell snapshot");
             (
-                shell_failure_status(&error),
+                shell_failure_status(error),
                 Json(json!({ "error": "Failed to assemble the shell listing" })),
             )
                 .into_response()

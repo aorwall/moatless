@@ -9,6 +9,7 @@ use crate::authentication::viewer_scope;
 use crate::commands;
 use crate::commands::CommandContext;
 use crate::config::OrchestrationProtocol;
+use crate::dao::ListingError;
 use crate::oauth::Scope;
 use crate::projection::Compactions;
 use crate::rpc::envelope::RequestId;
@@ -493,7 +494,7 @@ impl ProtocolSession {
 async fn archived_snapshot(
     state: &UiRpcState,
     viewer: &ScopeContext,
-) -> Result<Value, sqlx::Error> {
+) -> Result<Value, ListingError> {
     archived_shell_page(
         &state.reads,
         &state.model_defaults,

@@ -80,6 +80,7 @@ mod refusal {
     use super::*;
     use crate::dao::{
         ArchiveCursor, Conversation, ConversationBrowse, ConversationMatch, InteractiveCall,
+        ListingError,
     };
     use crate::transcript::Transcript;
     use async_trait::async_trait;
@@ -115,7 +116,7 @@ mod refusal {
         pub async fn followed_task_ids(
             &self,
             viewer: &ScopeContext,
-        ) -> Result<Vec<String>, sqlx::Error> {
+        ) -> Result<Vec<String>, ListingError> {
             Ok(self
                 .conversations
                 .list_followed(viewer)
@@ -144,7 +145,7 @@ mod refusal {
         async fn list_followed(
             &self,
             viewer: &ScopeContext,
-        ) -> Result<Vec<Conversation>, sqlx::Error> {
+        ) -> Result<Vec<Conversation>, ListingError> {
             self.0.list_followed(viewer).await
         }
 
@@ -152,7 +153,7 @@ mod refusal {
             &self,
             viewer: &ScopeContext,
             before: Option<ArchiveCursor>,
-        ) -> Result<Vec<Conversation>, sqlx::Error> {
+        ) -> Result<Vec<Conversation>, ListingError> {
             self.0.list_followed_closed(viewer, before).await
         }
 
@@ -160,7 +161,7 @@ mod refusal {
             &self,
             viewer: &ScopeContext,
             filter: &ConversationBrowse,
-        ) -> Result<Vec<Conversation>, sqlx::Error> {
+        ) -> Result<Vec<Conversation>, ListingError> {
             self.0.list_browsable(viewer, filter).await
         }
 

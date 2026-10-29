@@ -90,3 +90,106 @@ async fn a_thread_search_too_short_to_mean_anything_never_reaches_the_database()
     assert_eq!(output.frames[0]["exit"]["_tag"], "Success");
     assert_eq!(output.frames[0]["exit"]["value"]["matches"], json!([]));
 }
+
+async fn shell_over_http(state: UiRpcState) -> Response {
+    use axum::body::Body;
+    use tower::ServiceExt;
+
+    let mut request = axum::http::Request::builder()
+        .uri("/api/orchestration/shell")
+        .body(Body::empty())
+        .unwrap();
+    request.extensions_mut().insert(viewer());
+    router(state).oneshot(request).await.unwrap()
+}
+
+/// A shell bootstrap the listing gate turned away is backpressure: a 503 the
+/// request trace logs at WARN, with a hint for when to ask again.
+#[tokio::test]
+async fn a_shell_bootstrap_refused_at_capacity_is_a_marked_503() {
+    let response = shell_over_http(state_with_listing_failing(|| ListingError::AtCapacity)).await;
+
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(response.headers()[header::RETRY_AFTER], "1");
+    assert!(
+        response
+            .extensions()
+            .get::<moatless_types::http::RefusedAtCapacity>()
+            .is_some()
+    );
+}
+
+/// A pool that could not hand out a connection is still this backend failing,
+/// so its 503 stays unmarked and logs at ERROR.
+#[tokio::test]
+async fn a_shell_bootstrap_the_pool_could_not_serve_is_an_unmarked_503() {
+    let response = shell_over_http(state_with_listing_failing(|| {
+        ListingError::Database(sqlx::Error::PoolTimedOut)
+    }))
+    .await;
+
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert!(
+        response
+            .extensions()
+            .get::<moatless_types::http::RefusedAtCapacity>()
+            .is_none()
+    );
+}
+
+/// The `outcome` the one request `state` answers records on its span.
+async fn archived_shell_outcome(state: UiRpcState) -> (Value, Option<String>) {
+    use opentelemetry::trace::TracerProvider;
+    use opentelemetry_sdk::trace::{InMemorySpanExporter, SdkTracerProvider};
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let exporter = InMemorySpanExporter::default();
+    let provider = SdkTracerProvider::builder()
+        .with_simple_exporter(exporter.clone())
+        .build();
+    let otel_layer = tracing_opentelemetry::layer().with_tracer(provider.tracer("test"));
+    let _guard = tracing::subscriber::set_default(tracing_subscriber::registry().with(otel_layer));
+
+    let output = connection()
+        .exchange(
+            &request("1", "orchestration.getArchivedShellSnapshot", json!({})),
+            &state,
+            &viewer(),
+        )
+        .await;
+
+    provider.force_flush().expect("flush the simple exporter");
+    let spans = exporter.get_finished_spans().expect("exporter is readable");
+    let outcome = spans
+        .iter()
+        .find(|span| span.name == "ui_rpc.request")
+        .and_then(|span| {
+            span.attributes
+                .iter()
+                .find(|kv| kv.key.as_str() == "outcome")
+        })
+        .map(|kv| kv.value.as_str().to_string());
+    (output.frames[0].clone(), outcome)
+}
+
+/// The archive declares no error, so a refusal at capacity is still a `Die` on
+/// the wire, but it counts as `capped` rather than toward the defects alert.
+#[tokio::test]
+async fn an_archive_read_refused_at_capacity_is_counted_as_capped() {
+    let (frame, outcome) =
+        archived_shell_outcome(state_with_listing_failing(|| ListingError::AtCapacity)).await;
+
+    assert_eq!(frame["exit"]["cause"][0]["_tag"], "Die");
+    assert_eq!(outcome.as_deref(), Some("capped"));
+}
+
+#[tokio::test]
+async fn an_archive_read_the_pool_could_not_serve_is_still_a_defect() {
+    let (frame, outcome) = archived_shell_outcome(state_with_listing_failing(|| {
+        ListingError::Database(sqlx::Error::PoolTimedOut)
+    }))
+    .await;
+
+    assert_eq!(frame["exit"]["cause"][0]["_tag"], "Die");
+    assert_eq!(outcome.as_deref(), Some("die"));
+}

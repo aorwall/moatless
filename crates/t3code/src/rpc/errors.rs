@@ -1,6 +1,7 @@
 //! How each domain failure reaches the client: the T3 contract error it
 //! becomes, and the one log line its cause gets.
 
+use crate::dao::ListingError;
 use crate::git_actions;
 use crate::oauth::Scope;
 use crate::ports;
@@ -25,6 +26,9 @@ use serde_json::json;
 use tracing::debug;
 use tracing::error;
 use tracing::warn;
+
+/// What a viewer is told about a listing refused at capacity.
+pub(crate) const LISTING_BUSY: &str = "The shell listing is busy; try again shortly";
 
 /// What a viewer is told about a Task the read gate did not return.
 ///
@@ -299,13 +303,25 @@ pub(crate) fn branch_list_exit(
 
 /// The client is told the listing could not be built; the cause is logged once
 /// here rather than shipped to the browser.
+///
+/// A `Die` either way, since the listing methods declare no error. A refusal
+/// at capacity counts as [`rpc_metrics::capped`] and logs nothing more: the
+/// listing gate already warned.
 pub(crate) fn shell_failure_exit(
     request_id: &RequestId,
-    error: &sqlx::Error,
+    error: &ListingError,
     identity: &UiRpcAuthIdentity,
 ) -> Value {
-    error!(%error, user_id = %identity.user_id, "Failed to assemble T3 UI shell snapshot");
-    failure_exit(request_id, "Failed to assemble the shell listing")
+    match error {
+        ListingError::AtCapacity => {
+            rpc_metrics::capped();
+            failure_exit(request_id, LISTING_BUSY)
+        }
+        ListingError::Database(error) => {
+            error!(%error, user_id = %identity.user_id, "Failed to assemble T3 UI shell snapshot");
+            failure_exit(request_id, "Failed to assemble the shell listing")
+        }
+    }
 }
 
 /// Answer a `preview.*` call, in the client's own terms where the contract

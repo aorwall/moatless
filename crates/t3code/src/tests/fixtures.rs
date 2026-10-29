@@ -750,14 +750,28 @@ pub(crate) fn state() -> UiRpcState {
 }
 
 pub(super) fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore>) -> UiRpcState {
-    let mut workspaces = MockWorkspaceListing::new();
-    workspaces
-        .expect_list_readable_including()
-        .returning(|_, _| Ok(Vec::new()));
-    let mut conversations = MockConversationDao::new();
+    let mut conversations = stub_conversations();
     conversations
         .expect_list_followed()
         .returning(|_| Ok(Vec::new()));
+    state_over(attachments, conversations)
+}
+
+/// [`state`] with every full listing failing as `error` builds it.
+pub(super) fn state_with_listing_failing(error: fn() -> ListingError) -> UiRpcState {
+    let mut conversations = stub_conversations();
+    conversations
+        .expect_list_followed()
+        .returning(move |_| Err(error()));
+    conversations
+        .expect_list_followed_closed()
+        .returning(move |_, _| Err(error()));
+    state_over(Arc::new(RecordingAttachments::default()), conversations)
+}
+
+/// The stub [`state`] reads from, short of the full listings.
+fn stub_conversations() -> MockConversationDao {
+    let mut conversations = MockConversationDao::new();
     conversations
         .expect_list_followed_by_ids()
         .returning(|_, _| Ok(Vec::new()));
@@ -787,6 +801,17 @@ pub(super) fn state_with_attachments(attachments: Arc<dyn ports::AttachmentStore
         .returning(|_, _, _| Ok(Vec::new()));
     conversations
         .expect_readable_by_ids()
+        .returning(|_, _| Ok(Vec::new()));
+    conversations
+}
+
+fn state_over(
+    attachments: Arc<dyn ports::AttachmentStore>,
+    conversations: MockConversationDao,
+) -> UiRpcState {
+    let mut workspaces = MockWorkspaceListing::new();
+    workspaces
+        .expect_list_readable_including()
         .returning(|_, _| Ok(Vec::new()));
     let conversations: Arc<dyn ConversationDao> = Arc::new(conversations);
     UiRpcState {

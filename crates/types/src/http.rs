@@ -1,5 +1,5 @@
 //! The standard JSON error body, the timeouts an HTTP client is built with,
-//! and the marker for a relayed upstream failure.
+//! and the markers for a 5xx that is not this backend failing.
 
 use serde::Serialize;
 
@@ -32,3 +32,8 @@ pub struct HttpStreamTimeouts {
 /// this backend's own, so request tracing logs it at WARN instead of ERROR.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RelayedUpstreamFailure;
+
+/// Marks a 503 this backend answered on purpose at a capacity limit, so
+/// request tracing logs it at WARN instead of ERROR.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RefusedAtCapacity;
