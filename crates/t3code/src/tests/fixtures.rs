@@ -962,6 +962,22 @@ pub(super) fn tasks_readable(readable: &'static str) -> Arc<dyn moatless_ports::
     Arc::new(tasks)
 }
 
+/// `owned` is owned and readable, `visited` only readable: a public Task's
+/// visitor.
+pub(super) fn tasks_owned_and_visited(
+    owned: &'static str,
+    visited: &'static str,
+) -> Arc<dyn moatless_ports::task::TaskReader> {
+    let mut tasks = MockTaskReader::new();
+    tasks
+        .expect_may_access()
+        .returning(move |task_id, _| Ok(task_id == owned || task_id == visited));
+    tasks
+        .expect_owned()
+        .returning(move |task_id, _| Ok((task_id == owned).then(|| super::open_task(task_id))));
+    Arc::new(tasks)
+}
+
 /// One terminal's entry as the hub stores and broadcasts it.
 pub(super) fn terminal_summary_for(thread_id: &str, terminal_id: &str) -> Value {
     json!({

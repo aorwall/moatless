@@ -106,8 +106,9 @@ pub fn owner(task: &Task) -> Option<&str> {
 /// Refuse a write to a scope other users' Tasks read unless `ctx` may write
 /// what it belongs to.
 ///
-/// That is the Workspace or repository itself, and for `global` an admin. Writing the Task is not enough: on a shared repository it
-/// would let any user put text in another user's scope.
+/// That is the Workspace or repository itself, and for `global` an admin.
+/// Writing the Task is not enough: on a shared repository it would let any
+/// user put text in another user's scope.
 pub async fn check_scope_write(
     owners: ScopeOwners<'_>,
     ctx: &ScopeContext,

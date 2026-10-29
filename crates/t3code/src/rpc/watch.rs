@@ -357,6 +357,7 @@ impl Drop for OpenThreadSubscription {
 struct ReadableTasks {
     tasks: Arc<dyn moatless_ports::task::TaskReader>,
     viewer: ScopeContext,
+    owned_only: bool,
     answered: HashMap<String, bool>,
 }
 
@@ -365,7 +366,17 @@ impl ReadableTasks {
         Self {
             tasks,
             viewer,
+            owned_only: false,
             answered: HashMap::new(),
+        }
+    }
+
+    /// Narrowed to the Tasks the viewer owns, for a stream whose events only
+    /// an owner can act on.
+    fn owned(tasks: Arc<dyn moatless_ports::task::TaskReader>, viewer: ScopeContext) -> Self {
+        Self {
+            owned_only: true,
+            ..Self::new(tasks, viewer)
         }
     }
 
@@ -375,7 +386,15 @@ impl ReadableTasks {
         if let Some(answered) = self.answered.get(task_id) {
             return Some(*answered);
         }
-        match self.tasks.may_access(task_id, &self.viewer).await {
+        let answer = if self.owned_only {
+            self.tasks
+                .owned(task_id, &self.viewer)
+                .await
+                .map(|task| task.is_some())
+        } else {
+            self.tasks.may_access(task_id, &self.viewer).await
+        };
+        match answer {
             Ok(allowed) => {
                 self.answered.insert(task_id.to_string(), allowed);
                 Some(allowed)
@@ -452,12 +471,9 @@ pub(crate) async fn watch_terminal_events(
     }
 }
 
-/// Every terminal summary the viewer is allowed to see: the hub's current set
-/// first, then each change until the socket closes.
-///
-/// The relay puts every announced session in every replica's hub, and a summary
-/// names a Task's `cwd`, `worktreePath` and `label`, so the seed needs the same
-/// check as the events after it.
+/// Every summary of a Task the viewer owns, seed then changes. Owned, not read:
+/// an `announced` upsert makes the client attach, which is owner-only, and the
+/// seed is checked too because every hub holds every Task's summaries.
 pub(crate) async fn watch_terminal_metadata(
     sink: subscription::StreamSink,
     hub: crate::terminal::TerminalHub,
@@ -465,7 +481,7 @@ pub(crate) async fn watch_terminal_metadata(
     viewer: ScopeContext,
 ) -> StreamResult {
     let mut metadata = hub.subscribe_metadata();
-    let mut readable = ReadableTasks::new(tasks, viewer.clone());
+    let mut readable = ReadableTasks::owned(tasks, viewer.clone());
     // Subscribed before the snapshot is taken, so a session starting between
     // the two arrives as an event rather than falling in the gap.
     let seed = hub.metadata_snapshot().await;

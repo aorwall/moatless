@@ -254,6 +254,10 @@ pub(crate) async fn run(
 ) -> Result<Value, ScriptsError> {
     let task_id = nonblank(&input.thread_id, "threadId")?;
     let script_id = nonblank(&input.script_id, "scriptId")?;
+    // Before the port: a caller the terminal would refuse must not publish one.
+    terminal::written_thread(conversations, viewer, task_id)
+        .await
+        .map_err(ScriptsError::Terminal)?;
 
     let resolved = resolve(state, sandboxes, viewer, task_id).await?;
     let script = match resolved
@@ -314,7 +318,7 @@ pub(crate) async fn run(
             data: Some(exec_line(&script.command)),
             ..Default::default()
         };
-        terminal::write(conversations, sandboxes, viewer, &write)
+        terminal::write_from_environment(conversations, sandboxes, viewer, &write)
             .await
             .map_err(ScriptsError::Terminal)?;
     }

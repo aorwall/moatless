@@ -201,23 +201,24 @@ async fn a_terminal_metadata_subscription_starts_with_a_snapshot() {
     assert_eq!(snapshot["values"][0]["terminals"], json!([]));
 }
 
-/// A summary this viewer cannot read is dropped from both halves of the stream.
-///
-/// The relay puts every announced session in every replica's hub, and a summary
-/// names a Task's `cwd`, `worktreePath` and `label`, so this filter is the only
-/// thing keeping another viewer's Task off the socket.
+/// A summary of a Task this viewer does not own is dropped from both halves of
+/// the stream, a Task it only visits included; see `watch_terminal_metadata`.
 #[tokio::test]
-async fn terminal_metadata_carries_only_the_threads_the_viewer_can_read() {
+async fn terminal_metadata_carries_only_the_threads_the_viewer_owns() {
     let mut state = state();
-    state.reads = state.reads.with_tasks(tasks_readable("mine"));
-    state
-        .terminal
-        .apply_relayed_start("mine", "term-1", terminal_summary_for("mine", "term-1"))
-        .await;
-    state
-        .terminal
-        .apply_relayed_start("theirs", "term-2", terminal_summary_for("theirs", "term-2"))
-        .await;
+    state.reads = state
+        .reads
+        .with_tasks(tasks_owned_and_visited("mine", "visited"));
+    for (task, terminal) in [
+        ("mine", "term-1"),
+        ("visited", "term-2"),
+        ("theirs", "term-3"),
+    ] {
+        state
+            .terminal
+            .apply_relayed_start(task, terminal, terminal_summary_for(task, terminal))
+            .await;
+    }
 
     let mut connection = connection();
     connection
@@ -233,23 +234,25 @@ async fn terminal_metadata_carries_only_the_threads_the_viewer_can_read() {
     assert_eq!(
         seed["values"][0]["terminals"],
         json!([terminal_summary_for("mine", "term-1")]),
-        "the seed carried a thread this viewer cannot read"
+        "the seed carried a thread this viewer does not own"
     );
 
-    // Announced in this order, so the readable one arriving first proves the
-    // unreadable one was dropped rather than merely delayed.
-    state
-        .terminal
-        .apply_relayed_start("theirs", "term-3", terminal_summary_for("theirs", "term-3"))
-        .await;
-    state
-        .terminal
-        .apply_relayed_start("mine", "term-4", terminal_summary_for("mine", "term-4"))
-        .await;
+    // Announced in this order, so the owned one arriving first proves the
+    // others were dropped rather than merely delayed.
+    for (task, terminal) in [
+        ("theirs", "term-4"),
+        ("visited", "term-5"),
+        ("mine", "term-6"),
+    ] {
+        state
+            .terminal
+            .apply_relayed_start(task, terminal, terminal_summary_for(task, terminal))
+            .await;
+    }
 
     let event = connection.next_streamed().await;
     assert_eq!(event["values"][0]["type"], "upsert");
-    assert_eq!(event["values"][0]["terminal"]["terminalId"], "term-4");
+    assert_eq!(event["values"][0]["terminal"]["terminalId"], "term-6");
 }
 
 /// A terminal event for a Task this viewer cannot read never reaches the

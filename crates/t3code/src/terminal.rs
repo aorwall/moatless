@@ -309,17 +309,18 @@ pub async fn open(
     viewer: &ScopeContext,
     input: &TerminalInput,
 ) -> Result<Value, TerminalError> {
-    open_session(conversations, sandboxes, hub, viewer, input)
+    let cwd = required_string(&input.cwd, "cwd")?;
+    let task_id = workspace::owned_conversation(conversations, viewer, cwd).await?;
+    open_session(sandboxes, hub, &task_id, input)
         .await
         .map(|(snapshot, _)| terminal_snapshot(&snapshot))
 }
 
 /// Open a session for the environment, the only path that announces.
 ///
-/// Also reports whether this call started the session's current process, which
-/// `scripts.run` needs because writing into a reused session types into
-/// whatever is already running. The sandbox answers, so every replica agrees;
-/// an old sandbox falls back to a replica-local pid heuristic.
+/// Gated on write: a Script's session runs only its own command. Also reports
+/// whether this call started the process, since `scripts.run` must not type
+/// into a reused session; the sandbox answers, else a pid heuristic.
 pub async fn open_from_environment(
     conversations: &dyn ConversationDao,
     sandboxes: &dyn SandboxConnector,
@@ -327,8 +328,9 @@ pub async fn open_from_environment(
     viewer: &ScopeContext,
     input: &TerminalInput,
 ) -> Result<(Value, bool), TerminalError> {
-    let (snapshot, is_new_process) =
-        open_session(conversations, sandboxes, hub, viewer, input).await?;
+    let cwd = required_string(&input.cwd, "cwd")?;
+    let task_id = workspace::written_conversation(conversations, viewer, cwd).await?;
+    let (snapshot, is_new_process) = open_session(sandboxes, hub, &task_id, input).await?;
     if is_new_process {
         // `task_id` and the snapshot's `thread_id` are the same Task under two
         // names; the relayed record is keyed by the one the hub stores under.
@@ -342,13 +344,12 @@ pub async fn open_from_environment(
     Ok((terminal_snapshot(&snapshot), is_new_process))
 }
 
-/// The open both entry points share, up to the announcement neither of them
-/// does here.
+/// The open both entry points share once each has gated `task_id`, up to the
+/// announcement neither of them does here.
 async fn open_session(
-    conversations: &dyn ConversationDao,
     sandboxes: &dyn SandboxConnector,
     hub: &TerminalHub,
-    viewer: &ScopeContext,
+    task_id: &str,
     input: &TerminalInput,
 ) -> Result<(TerminalSessionSnapshot, bool), TerminalError> {
     let mut request = TerminalOpenRequest {
@@ -360,10 +361,9 @@ async fn open_session(
         rows: optional_u32(input.rows, "rows")?.unwrap_or(0),
         env: input.env.clone().unwrap_or_default(),
     };
-    let task_id = workspace::owned_conversation(conversations, viewer, &request.cwd).await?;
-    stamp_task_id(&mut request.env, &task_id);
+    stamp_task_id(&mut request.env, task_id);
     let client = sandboxes
-        .sandbox_client(&task_id)
+        .sandbox_client(task_id)
         .await
         .map_err(as_not_running)?;
     let snapshot = client
@@ -429,15 +429,37 @@ pub async fn write(
     viewer: &ScopeContext,
     input: &TerminalInput,
 ) -> Result<(), TerminalError> {
-    let thread_id = required_string(&input.thread_id, "threadId")?.to_string();
-    let task_id = owned_thread(conversations, viewer, &thread_id).await?;
+    let thread_id = required_string(&input.thread_id, "threadId")?;
+    let task_id = owned_thread(conversations, viewer, thread_id).await?;
+    write_session(sandboxes, &task_id, thread_id, input).await
+}
+
+/// [`write`] for the environment: types a Script's own command into the
+/// session [`open_from_environment`] started, under the same write gate.
+pub async fn write_from_environment(
+    conversations: &dyn ConversationDao,
+    sandboxes: &dyn SandboxConnector,
+    viewer: &ScopeContext,
+    input: &TerminalInput,
+) -> Result<(), TerminalError> {
+    let thread_id = required_string(&input.thread_id, "threadId")?;
+    let task_id = written_thread(conversations, viewer, thread_id).await?;
+    write_session(sandboxes, &task_id, thread_id, input).await
+}
+
+async fn write_session(
+    sandboxes: &dyn SandboxConnector,
+    task_id: &str,
+    thread_id: &str,
+    input: &TerminalInput,
+) -> Result<(), TerminalError> {
     let client = sandboxes
-        .sandbox_client(&task_id)
+        .sandbox_client(task_id)
         .await
         .map_err(as_not_running)?;
     client
         .terminal_write(TerminalWriteRequest {
-            thread_id,
+            thread_id: thread_id.to_string(),
             terminal_id: required_string(&input.terminal_id, "terminalId")?.to_string(),
             data: required_raw_string(&input.data, "data")?.to_string(),
         })
@@ -692,9 +714,24 @@ fn cwd_error(cwd: &str, detail: &str) -> Value {
 }
 
 /// The same gate [`workspace::owned_conversation`] applies, for calls that
-/// name a thread directly rather than through a `cwd`: readable, writable,
+/// name a thread directly rather than through a `cwd`: [`written_thread`],
 /// then owned — a public Task's visitors do not get its shell.
 async fn owned_thread(
+    conversations: &dyn ConversationDao,
+    viewer: &ScopeContext,
+    thread_id: &str,
+) -> Result<String, TerminalError> {
+    let task_id = written_thread(conversations, viewer, thread_id).await?;
+    if !conversations.owns_conversation(viewer, &task_id).await? {
+        return Err(WorkspaceAccessError::NotOwner.into());
+    }
+    Ok(task_id)
+}
+
+/// The same gate [`workspace::written_conversation`] applies, for calls that
+/// name a thread directly rather than through a `cwd`: readable, then
+/// writable, then holding a worktree.
+pub(crate) async fn written_thread(
     conversations: &dyn ConversationDao,
     viewer: &ScopeContext,
     thread_id: &str,
@@ -708,12 +745,6 @@ async fn owned_thread(
         .await?
     {
         return Err(WorkspaceAccessError::NoWrite.into());
-    }
-    if !conversations
-        .owns_conversation(viewer, &conversation.task_id)
-        .await?
-    {
-        return Err(WorkspaceAccessError::NotOwner.into());
     }
     match conversation.sandbox_desired_state() {
         Some(SandboxDesiredState::Running | SandboxDesiredState::Stopped) => {
@@ -1082,6 +1113,103 @@ mod tests {
         assert!(matches!(
             error,
             TerminalError::Workspace(WorkspaceAccessError::NotOwner)
+        ));
+    }
+
+    /// A connector with no Sandbox: a call that reaches it has passed its gate.
+    struct NoSandbox;
+
+    #[async_trait::async_trait]
+    impl SandboxConnector for NoSandbox {
+        async fn sandbox_client(
+            &self,
+            task_id: &str,
+        ) -> Result<sandbox_proto::client::SandboxClient, SandboxError> {
+            Err(SandboxError::NotReady(task_id.to_string()))
+        }
+    }
+
+    /// Conversations where the viewer reads `task-1` and writes to it when
+    /// `writes`, never owning it: a public Task's visitor, or a stranger on a
+    /// private Task.
+    fn visited(writes: bool) -> crate::dao::MockConversationDao {
+        let mut conversations = crate::dao::MockConversationDao::new();
+        conversations
+            .expect_readable_by_id()
+            .returning(|_, id| Ok(Some(crate::dao::running_conversation(id))));
+        conversations
+            .expect_writes_conversation()
+            .returning(move |_, _| Ok(writes));
+        conversations
+            .expect_owns_conversation()
+            .returning(|_, _| Ok(false));
+        conversations
+    }
+
+    fn script_session(data: Option<&str>) -> TerminalInput {
+        TerminalInput {
+            thread_id: Some("task-1".to_string()),
+            terminal_id: Some("script-dev".to_string()),
+            cwd: Some(crate::nominal_path::nominal_worktree("task-1")),
+            data: data.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    /// A Script's session needs write alone, so a public Task's visitor gets
+    /// as far as the Sandbox; a stranger on a private Task is refused first.
+    #[tokio::test]
+    async fn a_script_session_needs_write_not_ownership() {
+        let viewer = ScopeContext::user("visitor");
+        let hub = TerminalHub::default();
+        let open = script_session(None);
+        let write = script_session(Some("npm run dev\n"));
+
+        let visitor = visited(true);
+        let opened = open_from_environment(&visitor, &NoSandbox, &hub, &viewer, &open).await;
+        assert!(matches!(
+            opened,
+            Err(TerminalError::Workspace(WorkspaceAccessError::NotRunning(
+                _
+            )))
+        ));
+        let typed = write_from_environment(&visitor, &NoSandbox, &viewer, &write).await;
+        assert!(matches!(
+            typed,
+            Err(TerminalError::Workspace(WorkspaceAccessError::NotRunning(
+                _
+            )))
+        ));
+
+        let stranger = visited(false);
+        let opened = open_from_environment(&stranger, &NoSandbox, &hub, &viewer, &open).await;
+        assert!(matches!(
+            opened,
+            Err(TerminalError::Workspace(WorkspaceAccessError::NoWrite))
+        ));
+        let typed = write_from_environment(&stranger, &NoSandbox, &viewer, &write).await;
+        assert!(matches!(
+            typed,
+            Err(TerminalError::Workspace(WorkspaceAccessError::NoWrite))
+        ));
+    }
+
+    /// The interactive paths over the same session stay with the owner.
+    #[tokio::test]
+    async fn the_interactive_terminal_still_refuses_a_visitor() {
+        let viewer = ScopeContext::user("visitor");
+        let visitor = visited(true);
+        let hub = TerminalHub::default();
+
+        let opened = open(&visitor, &NoSandbox, &hub, &viewer, &script_session(None)).await;
+        assert!(matches!(
+            opened,
+            Err(TerminalError::Workspace(WorkspaceAccessError::NotOwner))
+        ));
+        let typed = write(&visitor, &NoSandbox, &viewer, &script_session(Some("ls\n"))).await;
+        assert!(matches!(
+            typed,
+            Err(TerminalError::Workspace(WorkspaceAccessError::NotOwner))
         ));
     }
 }

@@ -633,7 +633,7 @@ and Credentials: `Global` or `User` (two values only). `Global` is readable by e
 authenticated user and written by admins; `User` is readable and written by its
 owner (admins bypass both). Ownership is `COALESCE(owner_user_id, created_by)`. There
 are two grants: **read** and **write** (messages, turns, start, stop, restart,
-redeploy, file writes, task edits). A Task with `visibility = 'public'` grants both to
+redeploy, file writes, Scripts, task edits). A Task with `visibility = 'public'` grants both to
 every signed-in user. A few actions are **owner-only** (the owner or an admin, never
 widened by visibility): deleting a Task, cleaning up its Sandbox, changing its
 visibility, its run-as and ownership fields, and the interactive terminal. Secrets use
