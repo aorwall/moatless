@@ -166,7 +166,8 @@ impl SandboxAuthorizer {
     }
 
     /// Resolve a verified token to a [`TaskGrant`] for `request_task_id`,
-    /// refusing a token from an older generation of the granted Sandbox.
+    /// refusing a token from an older generation of the granted Sandbox, or
+    /// one minted for anyone but its driver.
     pub(super) async fn resolve_grant(
         &self,
         verified: VerifiedToken,
@@ -181,8 +182,38 @@ impl SandboxAuthorizer {
         let grant = self.resolve_membership(verified, request_task_id).await?;
         if let Some(generation) = generation {
             self.require_current_generation(&grant, generation).await?;
+            self.require_driver(&grant).await?;
         }
         Ok(grant)
+    }
+
+    /// Require the grant's user to be the one the Sandbox's tokens are minted
+    /// for: its driver, else its owner. A Sandbox with neither (a global one)
+    /// leaves the write check alone to decide, as it did before drivers.
+    async fn require_driver(&self, grant: &TaskGrant) -> Result<(), Status> {
+        let generations = self
+            .generations
+            .as_deref()
+            .ok_or_else(|| Status::internal("Token generations not configured"))?;
+        let token_user = generations
+            .token_user(&grant.sandbox_id)
+            .await
+            .map_err(|e| {
+                warn!(error = %e, sandbox_id = %grant.sandbox_id, "Failed to read the sandbox driver");
+                Status::unavailable("Failed to read the sandbox driver")
+            })?;
+        match token_user {
+            Some(driver) if driver != grant.ctx.user_id => {
+                warn!(
+                    sandbox_id = %grant.sandbox_id,
+                    user_id = %grant.ctx.user_id,
+                    driver = %driver,
+                    "Rejected sandbox gRPC call: caller is not the sandbox's driver"
+                );
+                Err(Status::unauthenticated("Token has been superseded"))
+            }
+            _ => Ok(()),
+        }
     }
 
     async fn require_current_generation(
@@ -279,11 +310,9 @@ impl SandboxAuthorizer {
     }
 
     /// The DB-backed write gate: load the task through the caller's scoped read
-    /// (an invisible task is a plain `NotFound`, like HTTP 404), then require
-    /// `ctx.is_owner` (owner or admin).
-    ///
-    /// Deliberately ownership rather than `can_write`: public visibility grants
-    /// write, and this gate hands the pod owner's credentials to the caller.
+    /// (an invisible task is a plain `NotFound`), then require `ctx.can_write`.
+    /// [`require_driver`](Self::require_driver) narrows a public task's
+    /// writers to the one whose credentials the pod holds.
     async fn resolve_write(
         &self,
         claims: &jwt::UserTokenClaims,
@@ -304,7 +333,7 @@ impl SandboxAuthorizer {
             })?
             .ok_or_else(|| Status::not_found("Task not found"))?;
 
-        if ctx.is_owner(&task.scoped_resource()) {
+        if ctx.can_write(&task.scoped_resource(), Some(task.visibility)) {
             Ok(TaskGrant {
                 sandbox_id: task.sandbox_id.unwrap_or_else(|| task_id.to_string()),
                 login: claims.login.clone(),
@@ -356,7 +385,7 @@ impl SandboxAuthorizer {
                 "Token is not valid for this task's sandbox",
             ));
         }
-        if !ctx.is_owner(&task.scoped_resource()) {
+        if !ctx.can_write(&task.scoped_resource(), Some(task.visibility)) {
             return Err(Status::permission_denied("Not authorized for this task"));
         }
 
@@ -403,6 +432,7 @@ mod tests {
     use super::super::test_support::service_with;
     use super::super::test_support::task_fixture;
     use super::super::test_support::tasks_returning;
+    use super::super::test_support::uid;
     use super::super::test_support::users_admin;
     use super::super::test_support::users_regular;
     use super::*;
@@ -444,21 +474,19 @@ mod tests {
         assert_eq!(err.code(), tonic::Code::PermissionDenied);
     }
 
+    /// Public visibility grants write; which writer holds the pod is
+    /// [`SandboxAuthorizer::require_driver`]'s question, tested below.
     #[tokio::test]
-    async fn assert_task_access_public_visibility_never_grants_control() {
-        // A public task is *viewable* by anyone (the scoped read's visibility
-        // bypass, modelled here by the mock returning the row), but sandbox
-        // control — credentials, messages, workspace writes — stays with the
-        // owner. This is the regression test for reusing the plain read gate.
+    async fn assert_task_access_public_visibility_grants_write() {
         let mut task = task_fixture(Scope::User, Some("owner"));
         task.visibility = Visibility::Public;
         let svc = service_with(tasks_returning(Some(task)), users_regular());
-        let err = svc
-            .authorizer
-            .resolve_write(&claims_for("stranger"), "task-1")
-            .await
-            .expect_err("public visibility must not grant sandbox control");
-        assert_eq!(err.code(), tonic::Code::PermissionDenied);
+        assert!(
+            svc.authorizer
+                .resolve_write(&claims_for("stranger"), "task-1")
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]
@@ -557,17 +585,24 @@ mod tests {
     /// An enforcing authorizer over `owner`'s `task-1`, its own Sandbox at
     /// `generation`.
     fn owner_task_at_generation(generation: i64) -> SandboxAuthorizer {
+        task_driven_by(Visibility::Private, generation, "owner")
+    }
+
+    /// An enforcing authorizer over `owner`'s `task-1` at `generation`, its
+    /// tokens minted for `driver`.
+    fn task_driven_by(visibility: Visibility, generation: i64, driver: &str) -> SandboxAuthorizer {
         let users: Arc<dyn CommitIdentity> = Arc::new(users_regular());
+        let mut task = task_fixture(Scope::User, Some("owner"));
+        task.visibility = visibility;
         SandboxAuthorizer::enforcing(
             "secret".to_string(),
             false,
-            Some(tasks_returning(Some(task_fixture(
-                Scope::User,
-                Some("owner"),
-            )))),
+            Some(tasks_returning(Some(task))),
             Some(users),
-            Some(Arc::new(jwt::StaticTokenGenerations(
-                [("task-1".to_string(), generation)].into(),
+            Some(Arc::new(jwt::StaticTokenGenerations::one(
+                "task-1",
+                generation,
+                &uid(driver).to_string(),
             ))),
         )
     }
@@ -597,5 +632,26 @@ mod tests {
             .await
             .expect("a current token is granted");
         assert_eq!(grant.token_generation, 2);
+    }
+
+    /// The done-when of drivers: once `visitor` drives `owner`'s public task,
+    /// the owner's token at the same generation no longer reaches the pod.
+    #[tokio::test]
+    async fn only_the_driver_of_a_public_task_is_granted() {
+        let authorizer = task_driven_by(Visibility::Public, 3, "visitor");
+
+        let grant = authorizer
+            .resolve_grant(sandbox_bound("visitor", 3), "task-1")
+            .await
+            .expect("the driver is granted");
+        assert_eq!(grant.ctx.user_id, uid("visitor").to_string());
+
+        for other in ["owner", "stranger"] {
+            let err = authorizer
+                .resolve_grant(sandbox_bound(other, 3), "task-1")
+                .await
+                .expect_err("anyone but the driver is refused");
+            assert_eq!(err.code(), tonic::Code::Unauthenticated);
+        }
     }
 }

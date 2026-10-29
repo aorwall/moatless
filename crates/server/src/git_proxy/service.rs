@@ -55,7 +55,7 @@ impl Upstream {
 /// Who a verified task token speaks for.
 #[expect(clippy::struct_field_names, reason = "each field is a row id")]
 struct Caller {
-    /// The token's own `userId`, the Sandbox's owner.
+    /// The token's own `userId`, the Sandbox's driver.
     user_id: String,
     sandbox_id: String,
     workspace_id: String,
@@ -211,7 +211,7 @@ impl GitProxy {
         let repo = git_host_repo(&repository)
             .ok_or(GitProxyError::NotFound)?
             .clone();
-        let actor = self.actor(&caller).await;
+        let actor = self.actor(&caller).await?;
 
         // Through the resolver the pre-provision preflight uses, so a clone this
         // proxy refuses is one `preflight_validate_git_credential` would have
@@ -248,7 +248,7 @@ impl GitProxy {
     ) -> Result<Upstream, GitProxyError> {
         let repo = github_repo(owner, name).ok_or(GitProxyError::NotFound)?;
         let caller = self.authenticate(task_token).await?;
-        let actor = self.actor(&caller).await;
+        let actor = self.actor(&caller).await?;
         let resolved = self
             .git_host_tokens
             .token(&actor, &repo.credential_account())
@@ -301,23 +301,31 @@ impl GitProxy {
         })
     }
 
-    /// The identity whose credential a request from `caller` presents.
-    async fn actor(&self, caller: &Caller) -> Actor {
-        let run_as_user_id = self
+    /// The identity whose credential a request from `caller` presents, on
+    /// behalf of the Sandbox's driver.
+    ///
+    /// Fails closed rather than degrading to the token's user: that is the
+    /// driver only while the read agrees.
+    async fn actor(&self, caller: &Caller) -> Result<Actor, GitProxyError> {
+        let identity = self
             .sandboxes
-            .run_as_user_id(&caller.sandbox_id)
+            .identity(&caller.sandbox_id)
             .await
-            .unwrap_or_else(|e| {
-                warn!(error = %e, sandbox_id = %caller.sandbox_id, "Failed to read the sandbox run-as identity");
-                None
-            });
-        resolve_task_actor(
+            .map_err(|e| {
+                warn!(error = %e, sandbox_id = %caller.sandbox_id, "Failed to read the sandbox identity");
+                GitProxyError::Upstream("Failed to read the sandbox".to_string())
+            })?
+            .unwrap_or_default();
+        Ok(resolve_task_actor(
             Some(&self.workspaces),
             Some(&caller.workspace_id),
-            run_as_user_id.as_deref(),
-            &caller.user_id,
+            identity.pinned_run_as.as_deref(),
+            identity
+                .acting_user_id
+                .as_deref()
+                .unwrap_or(&caller.user_id),
         )
-        .await
+        .await)
     }
 
     /// The body answering a 404 from `upstream`'s host; see [`refusal_message`].
@@ -662,8 +670,10 @@ mod tests {
             .unwrap();
         GitProxy::new(
             moatless_sandbox_control::compose::sandbox_graph(pool).sandbox_ingress(),
-            Arc::new(StaticTokenGenerations(
-                [("sandbox-1".to_string(), generation)].into(),
+            Arc::new(StaticTokenGenerations::one(
+                "sandbox-1",
+                generation,
+                POD_USER,
             )),
             Arc::new(MockWorkspaceResolver::new()),
             Arc::new(MockRepositoryReader::new()),

@@ -291,7 +291,14 @@ pub fn grpc_service(
                 Arc::clone(&connector),
             )),
         );
+        let drivers = crate::sandbox_driver::SandboxDrivers::compose(
+            config,
+            p,
+            Arc::clone(&connector),
+            credential_sync.clone(),
+        );
         crate::sandbox::grpc_server::HandlerDbPorts {
+            drivers,
             messages: p.messages.clone(),
             transcript: p.transcript.clone(),
             workspace_resolver: p.workspace_resolver.clone(),

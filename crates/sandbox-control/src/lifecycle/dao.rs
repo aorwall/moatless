@@ -20,6 +20,7 @@ use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason, sandbox_in
 use super::events::LifecycleEvent;
 use super::orchestrator::{OutstandingCommand, StoreError, TaskIntent};
 use super::reconciler::SandboxMember;
+use super::token_generation::DriverChange;
 use moatless_sandbox_runtime::operation::{
     CorrelationMarker, IntentEffect, OperationGeneration, OperationKind,
 };
@@ -27,7 +28,7 @@ use moatless_types::sandbox::ArchiveRetention;
 
 /// What a Sandbox's pod is built from, all of it off the `sandboxes` row.
 ///
-/// `owner_user_id` is the identity the gRPC control gate checks;
+/// [`Self::acting_user_id`] is the identity the pod's tokens are minted for;
 /// `run_as_user_id` is the identity the pod acts as outward for git-host
 /// credentials and delivered plugins.
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
@@ -36,7 +37,14 @@ pub struct SandboxShape {
     #[sqlx(try_from = "String")]
     pub scope: Scope,
     pub owner_user_id: Option<String>,
+    /// Holds the owner when nothing pinned another identity: the row is
+    /// written `Task > Workspace > owner`. See [`Self::pinned_run_as`].
     pub run_as_user_id: Option<String>,
+    /// The person whose message started the current turn.
+    pub driver_user_id: Option<String>,
+    /// Whether the Sandbox's founding Task is public, which grants its driver
+    /// write.
+    pub public: bool,
     pub branch: Option<String>,
     pub headless: bool,
     pub agent_profile: Option<String>,
@@ -50,6 +58,23 @@ pub struct SandboxShape {
     /// The generation a task token for this Sandbox is minted at. See
     /// [`moatless_core::sandbox_jwt::check_generation`].
     pub token_generation: i64,
+}
+
+impl SandboxShape {
+    /// The person the Sandbox acts for: its driver, else its owner.
+    pub fn acting_user_id(&self) -> Option<&str> {
+        self.driver_user_id
+            .as_deref()
+            .or(self.owner_user_id.as_deref())
+    }
+
+    /// The run-as identity pinned over the Sandbox's people, `None` when the
+    /// row only holds its owner: the driver replaces the owner, not a pin.
+    pub fn pinned_run_as(&self) -> Option<&str> {
+        self.run_as_user_id
+            .as_deref()
+            .filter(|run_as| Some(*run_as) != self.owner_user_id.as_deref())
+    }
 }
 
 /// One Sandbox the reconciler should look at, named by the Task that represents
@@ -176,9 +201,22 @@ pub trait LifecycleDao: Send + Sync {
         task_id: &str,
     ) -> Result<Vec<OutstandingCommand>, StoreError>;
 
-    /// Advance the Sandbox's task-token generation and return the new value,
-    /// absent when the Sandbox has no row.
-    async fn bump_token_generation(&self, sandbox_id: &str) -> Result<Option<i64>, StoreError>;
+    /// Advance the Sandbox's task-token generation and return the new value
+    /// with the user its tokens are minted for, absent when the Sandbox has
+    /// no row.
+    async fn bump_token_generation(
+        &self,
+        sandbox_id: &str,
+    ) -> Result<Option<(i64, Option<String>)>, StoreError>;
+
+    /// Make `user_id` the Sandbox's driver and advance its generation in one
+    /// statement. `None` when the Sandbox already acts for `user_id` or has
+    /// no row.
+    async fn switch_driver(
+        &self,
+        sandbox_id: &str,
+        user_id: &str,
+    ) -> Result<Option<DriverChange>, StoreError>;
 }
 
 /// Postgres-backed lifecycle store over the main pool.
@@ -385,11 +423,14 @@ impl LifecycleDao for PgLifecycleDao {
 
     async fn sandbox_shape(&self, sandbox_id: &str) -> Result<Option<SandboxShape>, StoreError> {
         sqlx::query_as(
-            r#"SELECT workspace_id, scope, owner_user_id, run_as_user_id,
-                      branch, headless, agent_profile, use_tmux,
-                      node_selector, stop_when_done, token_generation
-               FROM sandboxes
-               WHERE sandbox_id = $1"#,
+            r#"SELECT s.workspace_id, s.scope, s.owner_user_id, s.run_as_user_id,
+                      s.driver_user_id,
+                      COALESCE(t.visibility = 'public', false) AS public,
+                      s.branch, s.headless, s.agent_profile, s.use_tmux,
+                      s.node_selector, s.stop_when_done, s.token_generation
+               FROM sandboxes s
+               LEFT JOIN tasks t ON t.task_id = s.sandbox_id
+               WHERE s.sandbox_id = $1"#,
         )
         .bind(sandbox_id)
         .fetch_optional(&self.pool)
@@ -734,18 +775,53 @@ impl LifecycleDao for PgLifecycleDao {
             .map_err(|e| StoreError::with_source("decode the unreported commands", e))
     }
 
-    async fn bump_token_generation(&self, sandbox_id: &str) -> Result<Option<i64>, StoreError> {
-        sqlx::query_scalar(
+    async fn bump_token_generation(
+        &self,
+        sandbox_id: &str,
+    ) -> Result<Option<(i64, Option<String>)>, StoreError> {
+        sqlx::query_as(
             r#"UPDATE sandboxes
                   SET token_generation = token_generation + 1,
                       updated_at = NOW()
                 WHERE sandbox_id = $1
-            RETURNING token_generation"#,
+            RETURNING token_generation, COALESCE(driver_user_id, owner_user_id)"#,
         )
         .bind(sandbox_id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| StoreError::with_source("bump token generation", e))
+    }
+
+    async fn switch_driver(
+        &self,
+        sandbox_id: &str,
+        user_id: &str,
+    ) -> Result<Option<DriverChange>, StoreError> {
+        // `FOR UPDATE` serializes two switches: the later one re-reads the
+        // row the earlier committed, so a repeat of the same driver is no
+        // change and bumps nothing.
+        sqlx::query_as(
+            r#"WITH previous AS (
+                   SELECT sandbox_id,
+                          COALESCE(driver_user_id, owner_user_id) AS previous_user_id
+                     FROM sandboxes
+                    WHERE sandbox_id = $1
+                      FOR UPDATE
+               )
+               UPDATE sandboxes s
+                  SET driver_user_id = $2,
+                      token_generation = s.token_generation + 1,
+                      updated_at = NOW()
+                 FROM previous p
+                WHERE s.sandbox_id = p.sandbox_id
+                  AND p.previous_user_id IS DISTINCT FROM $2
+            RETURNING s.token_generation AS generation, p.previous_user_id"#,
+        )
+        .bind(sandbox_id)
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| StoreError::with_source("switch the sandbox driver", e))
     }
 }
 

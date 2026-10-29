@@ -100,7 +100,7 @@ pub(super) async fn scripts_run(request: Request<ScriptsRunInput>) -> Vec<Value>
         ..
     } = request;
     let viewer = viewer_scope(&identity);
-    match scripts::run(
+    match scripts::press(
         &state.scripts,
         state.reads.conversations(),
         state.sandboxes.as_ref(),

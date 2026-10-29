@@ -13,13 +13,14 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::lifecycle::dao::SandboxShape;
+use crate::lifecycle::ingress::SandboxIngress;
 use crate::secrets::{resolve_task_actor, resolve_task_git_token, resolve_workspace_credentials};
 use moatless_ports::identity::CommitIdentity;
 use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer};
 use moatless_ports::sandbox::{CodexCredentials, PreflightPort, PreflightRejection};
 use moatless_types::access_control::{Scope, ScopeContext, ScopedResource};
 use moatless_types::http::HttpTimeouts;
-use moatless_types::task::Task;
+use moatless_types::task::{Task, Visibility};
 use moatless_workspace_ports::{WorkspaceCredentialReader, WorkspaceResolver};
 use moatless_workspace_types::repository::RepositoryProvider as GitHostProvider;
 use moatless_workspace_types::repository::{GitHostRepo, Repository};
@@ -48,7 +49,7 @@ pub struct PreflightCredentials {
 /// Failure modes for the pre-flight check.
 #[derive(Debug, thiserror::Error)]
 pub enum PreflightError {
-    #[error("user {user_id} cannot control task {task_id} (scope {scope}, owner {owner:?})")]
+    #[error("user {user_id} cannot write task {task_id} (scope {scope}, owner {owner:?})")]
     NoTaskControl {
         task_id: String,
         user_id: String,
@@ -95,7 +96,7 @@ impl PreflightError {
     pub fn user_message(&self) -> String {
         match self {
             Self::NoTaskControl { user_id, scope, .. } => format!(
-                "The sandbox runs as {user_id}, who cannot control this {scope}-scoped task. \
+                "The sandbox runs as {user_id}, who cannot write this {scope}-scoped task. \
                 Recreate the task so it is owned by the user it runs as."
             ),
             Self::NoGitCredential {
@@ -193,20 +194,46 @@ impl GitHostValidator for RealGitHostValidator {
 pub struct RealPreflight {
     creds: PreflightCredentials,
     validator: Arc<dyn GitHostValidator>,
+    /// Read for the Sandbox's driver, whom the pod acts for once set.
+    sandboxes: Arc<SandboxIngress>,
 }
 
 impl RealPreflight {
-    pub fn new(creds: PreflightCredentials, validator: Arc<dyn GitHostValidator>) -> Self {
-        Self { creds, validator }
+    pub fn new(
+        creds: PreflightCredentials,
+        validator: Arc<dyn GitHostValidator>,
+        sandboxes: Arc<SandboxIngress>,
+    ) -> Self {
+        Self {
+            creds,
+            validator,
+            sandboxes,
+        }
     }
 
     /// Both checks, cheapest first, in the rich error type.
     async fn check(&self, task: &Task, repo: Option<&Repository>) -> Result<(), PreflightError> {
-        preflight_validate_task_control(self.creds.users.as_ref(), task).await?;
+        let driver = self.driver(task).await;
+        let driver = driver.as_deref();
+        preflight_validate_task_control(self.creds.users.as_ref(), task, driver).await?;
         let Some(repo) = repo else {
             return Ok(());
         };
-        preflight_validate_git_credential(&self.creds, task, repo, self.validator.as_ref()).await
+        preflight_validate_git_credential(&self.creds, task, driver, repo, self.validator.as_ref())
+            .await
+    }
+
+    /// The Sandbox's driver, `None` before its first, before its row exists,
+    /// and when the row cannot be read: provisioning re-checks the row itself.
+    async fn driver(&self, task: &Task) -> Option<String> {
+        let sandbox_id = task.sandbox_id.as_deref().unwrap_or(&task.task_id);
+        match self.sandboxes.identity(sandbox_id).await {
+            Ok(identity) => identity.and_then(|identity| identity.acting_user_id),
+            Err(e) => {
+                tracing::warn!(sandbox_id, error = %e, "Preflight could not read the sandbox driver");
+                None
+            }
+        }
     }
 }
 
@@ -226,22 +253,31 @@ impl PreflightPort for RealPreflight {
     }
 }
 
-/// Verify the sandbox's own identity can control the task before provisioning.
+/// Verify the sandbox's own identity can write the task before provisioning.
 ///
-/// The pod authenticates back as the task's owner; every sandbox gRPC call is
-/// gated on [`ScopeContext::is_owner`], so failing here is what stands between
-/// that and a pod that crash-loops forever refused its credentials.
+/// The pod authenticates back as `driver`, else the task's creator; every
+/// sandbox gRPC call is gated on that user having write, so failing here is
+/// what stands between that and a pod that crash-loops forever refused its
+/// credentials.
 pub async fn preflight_validate_task_control(
     users: &dyn CommitIdentity,
     task: &Task,
+    driver: Option<&str>,
 ) -> Result<(), PreflightError> {
-    let user_id = task.created_by.as_deref().unwrap_or("system");
-    validate_control(users, &task.task_id, user_id, &task.scoped_resource()).await
+    let user_id = driver.or(task.created_by.as_deref()).unwrap_or("system");
+    validate_control(
+        users,
+        &task.task_id,
+        user_id,
+        &task.scoped_resource(),
+        task.visibility,
+    )
+    .await
 }
 
 /// The same check against the Sandbox, which is where provisioning reads it.
 ///
-/// The pod authenticates back as `sandboxes.owner_user_id`
+/// The pod authenticates back as [`SandboxShape::acting_user_id`]
 /// (`auto_provision::build_provision_request`), so that is the identity checked
 /// here — not `run_as_user_id`, which is what the pod acts as outward.
 pub(crate) async fn preflight_validate_sandbox_control(
@@ -249,9 +285,14 @@ pub(crate) async fn preflight_validate_sandbox_control(
     sandbox_id: &str,
     shape: &SandboxShape,
 ) -> Result<(), PreflightError> {
-    let user_id = shape.owner_user_id.as_deref().unwrap_or("system");
+    let user_id = shape.acting_user_id().unwrap_or("system");
     let resource = ScopedResource::borrowed(shape.scope, shape.owner_user_id.as_deref());
-    validate_control(users, sandbox_id, user_id, &resource).await
+    let visibility = if shape.public {
+        Visibility::Public
+    } else {
+        Visibility::Private
+    };
+    validate_control(users, sandbox_id, user_id, &resource, visibility).await
 }
 
 async fn validate_control(
@@ -259,9 +300,10 @@ async fn validate_control(
     task_id: &str,
     user_id: &str,
     resource: &ScopedResource,
+    visibility: Visibility,
 ) -> Result<(), PreflightError> {
     let ctx = ScopeContext::new(user_id.to_string(), is_platform_admin(users, user_id).await);
-    if ctx.is_owner(resource) {
+    if ctx.can_write(resource, Some(visibility)) {
         return Ok(());
     }
     Err(PreflightError::NoTaskControl {
@@ -290,6 +332,7 @@ async fn is_platform_admin(users: &dyn CommitIdentity, user_id: &str) -> bool {
 pub async fn preflight_validate_git_credential(
     creds: &PreflightCredentials,
     task: &Task,
+    driver: Option<&str>,
     repo: &Repository,
     validator: &dyn GitHostValidator,
 ) -> Result<(), PreflightError> {
@@ -305,7 +348,7 @@ pub async fn preflight_validate_git_credential(
         Some(&creds.workspaces),
         task.workspace_id.as_deref(),
         task.run_as_user_id.as_deref(),
-        task.created_by.as_deref().unwrap_or("system"),
+        driver.or(task.created_by.as_deref()).unwrap_or("system"),
     )
     .await;
     let user_id = actor.user_id().to_string();
@@ -516,12 +559,12 @@ mod tests {
         let users = users_with_role(UserRole::User);
         let task = task(Scope::Global, Some("bot"), None);
 
-        let err = preflight_validate_task_control(&users, &task)
+        let err = preflight_validate_task_control(&users, &task, None)
             .await
             .expect_err("a global task is uncontrollable");
 
         assert!(matches!(err, PreflightError::NoTaskControl { .. }));
-        assert!(err.user_message().contains("cannot control"));
+        assert!(err.user_message().contains("cannot write"));
     }
 
     #[tokio::test]
@@ -529,7 +572,11 @@ mod tests {
         let users = users_with_role(UserRole::User);
         let task = task(Scope::User, Some("alice"), Some("alice"));
 
-        assert!(preflight_validate_task_control(&users, &task).await.is_ok());
+        assert!(
+            preflight_validate_task_control(&users, &task, None)
+                .await
+                .is_ok()
+        );
     }
 
     /// Ownership falls back to `created_by` for rows predating the
@@ -539,7 +586,11 @@ mod tests {
         let users = users_with_role(UserRole::User);
         let task = task(Scope::User, Some("alice"), None);
 
-        assert!(preflight_validate_task_control(&users, &task).await.is_ok());
+        assert!(
+            preflight_validate_task_control(&users, &task, None)
+                .await
+                .is_ok()
+        );
     }
 
     /// A user-scoped row owned by somebody else is exactly as unreachable as a
@@ -550,7 +601,7 @@ mod tests {
         let task = task(Scope::User, Some("alice"), Some("bob"));
 
         assert!(
-            preflight_validate_task_control(&users, &task)
+            preflight_validate_task_control(&users, &task, None)
                 .await
                 .is_err()
         );
@@ -563,7 +614,41 @@ mod tests {
         let users = users_with_role(UserRole::Admin);
         let task = task(Scope::Global, Some("root"), None);
 
-        assert!(preflight_validate_task_control(&users, &task).await.is_ok());
+        assert!(
+            preflight_validate_task_control(&users, &task, None)
+                .await
+                .is_ok()
+        );
+    }
+
+    /// A public task grants write to every signed-in user, so its driver
+    /// controls the pod however it is scoped.
+    #[tokio::test]
+    async fn the_driver_of_a_public_task_passes() {
+        let users = users_with_role(UserRole::User);
+        let mut task = task(Scope::User, Some("alice"), Some("alice"));
+        task.visibility = moatless_types::task::Visibility::Public;
+        let bob = uid("bob").to_string();
+
+        assert!(
+            preflight_validate_task_control(&users, &task, Some(&bob))
+                .await
+                .is_ok()
+        );
+    }
+
+    /// The pod authenticates as the driver, not the owner, once one is set.
+    #[tokio::test]
+    async fn a_driver_without_write_on_a_private_task_is_rejected() {
+        let users = users_with_role(UserRole::User);
+        let task = task(Scope::User, Some("alice"), Some("alice"));
+        let bob = uid("bob").to_string();
+
+        assert!(
+            preflight_validate_task_control(&users, &task, Some(&bob))
+                .await
+                .is_err()
+        );
     }
 
     /// A task with no creator provisions as the `system` sentinel, which is not
@@ -574,7 +659,7 @@ mod tests {
         let task = task(Scope::User, None, None);
 
         assert!(
-            preflight_validate_task_control(&users, &task)
+            preflight_validate_task_control(&users, &task, None)
                 .await
                 .is_err()
         );
@@ -604,7 +689,7 @@ mod tests {
             repo: "r".to_string(),
             reason: "404".to_string(),
         };
-        assert!(no_control.user_message().contains("cannot control"));
+        assert!(no_control.user_message().contains("cannot write"));
         assert!(no_token.user_message().contains("not configured"));
         assert!(no_token.user_message().contains("git.example.com"));
         assert!(invalid.user_message().contains("invalid or expired"));
@@ -763,6 +848,7 @@ mod tests {
         let err = preflight_validate_git_credential(
             &creds(tokens),
             &alice(),
+            None,
             &repo(RepositoryKind::Remote, Some(RepositoryProvider::Forgejo)),
             &validator,
         )
@@ -791,6 +877,7 @@ mod tests {
         let err = preflight_validate_git_credential(
             &creds(tokens),
             &alice(),
+            None,
             &repo(RepositoryKind::Remote, Some(RepositoryProvider::Forgejo)),
             &validator,
         )
@@ -820,6 +907,7 @@ mod tests {
             preflight_validate_git_credential(
                 &creds(tokens),
                 &alice(),
+                None,
                 &repository,
                 &MockValidator::default(),
             )
@@ -850,6 +938,7 @@ mod tests {
             let err = preflight_validate_git_credential(
                 &creds(tokens),
                 &alice(),
+                None,
                 &repo(RepositoryKind::Remote, Some(provider)),
                 &validator,
             )
@@ -873,6 +962,7 @@ mod tests {
         preflight_validate_git_credential(
             &creds(tokens),
             &alice(),
+            None,
             &repo(RepositoryKind::Remote, Some(RepositoryProvider::Forgejo)),
             &validator,
         )

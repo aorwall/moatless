@@ -211,6 +211,8 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
         session_cookie_name: "moatless_session".into(),
         session_jwt_secret: Some("test-secret".into()),
         pairing: moatless_identity::compose::device_pairing(pool.clone()),
+        // No case here runs a Script, so nothing drives a Sandbox.
+        drivers: Arc::new(moatless_ports::sandbox::MockSandboxDriver::new()),
         workspace_scripts: Arc::new(moatless_t3code::owners::TaskWorkspaceScripts {
             tasks: app.task_reader.clone(),
             workspaces: compose::workspaces(pool.clone()),

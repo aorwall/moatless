@@ -992,6 +992,7 @@ impl CoordinatorService {
                     crate::credentials::fetch::PersistMode::Refresh,
                 )
                 .await;
+                crate::credentials::fetch::apply_git_identity(&resp.credentials).await;
                 *self.credentials.write().await = filter_agent_credentials(&resp.credentials);
             }
             Err(error) => {

@@ -1,4 +1,5 @@
-//! The generation every backend route checks a Sandbox's task token against.
+//! The generation every backend route checks a Sandbox's task token against,
+//! and the user its tokens are minted for.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,6 +13,15 @@ use moatless_types::store::StoreError;
 
 use super::dao::LifecycleDao;
 
+/// A Sandbox's driver after a switch, and the generation its tokens are now
+/// minted at.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct DriverChange {
+    pub generation: i64,
+    /// The person the Sandbox acted for before: its driver, else its owner.
+    pub previous_user_id: Option<String>,
+}
+
 /// How long a read generation is reused. This bounds revocation latency: a
 /// bump on another replica is seen here, and a token from before it refused,
 /// at most this long after the bump.
@@ -20,12 +30,21 @@ const GENERATION_CACHE_TTL: Duration = Duration::from_secs(5);
 /// Max Sandboxes whose generation is cached at once.
 const MAX_CACHED_SANDBOXES: u64 = 10_000;
 
-/// Cached reads of `sandboxes.token_generation`, and the bump that revokes
-/// every task token minted before it.
+/// A Sandbox's generation and the user its tokens at that generation are
+/// minted for. Cached as a pair: every driver switch bumps the generation, so
+/// the newer generation always carries the newer user.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TokenState {
+    generation: i64,
+    user_id: Option<String>,
+}
+
+/// Cached reads of `sandboxes.token_generation` and the driver, and the bump
+/// that revokes every task token minted before it.
 pub struct TokenGenerationStore {
     store: Arc<dyn LifecycleDao>,
     /// `None` caches a Sandbox with no row.
-    cache: Cache<String, Option<i64>>,
+    cache: Cache<String, Option<TokenState>>,
 }
 
 impl TokenGenerationStore {
@@ -42,22 +61,74 @@ impl TokenGenerationStore {
     /// Advance `sandbox_id`'s generation and return the new value. Mint the
     /// replacement token at that value: every token minted before is refused.
     pub async fn bump(&self, sandbox_id: &str) -> Result<i64, StoreError> {
-        let generation = self
+        let (generation, user_id) = self
             .store
             .bump_token_generation(sandbox_id)
             .await?
             .ok_or_else(|| StoreError::new(format!("sandbox {sandbox_id} has no row to bump")))?;
-        self.remember(sandbox_id, Some(generation)).await;
+        self.remember(
+            sandbox_id,
+            Some(TokenState {
+                generation,
+                user_id,
+            }),
+        )
+        .await;
         Ok(generation)
+    }
+
+    /// Make `user_id` the Sandbox's driver, revoking every token minted for
+    /// the previous one. `None` when it already acts for `user_id`.
+    ///
+    /// Mint the driver's token at the returned generation.
+    pub async fn switch_driver(
+        &self,
+        sandbox_id: &str,
+        user_id: &str,
+    ) -> Result<Option<DriverChange>, StoreError> {
+        let change = self.store.switch_driver(sandbox_id, user_id).await?;
+        if let Some(change) = &change {
+            let state = TokenState {
+                generation: change.generation,
+                user_id: Some(user_id.to_string()),
+            };
+            self.remember(sandbox_id, Some(state)).await;
+        }
+        Ok(change)
+    }
+
+    async fn state(&self, sandbox_id: &str) -> Result<Option<TokenState>, StoreError> {
+        if let Some(state) = self.cache.get(sandbox_id).await {
+            return Ok(state);
+        }
+        let read = self
+            .store
+            .sandbox_shape(sandbox_id)
+            .await?
+            .map(|shape| TokenState {
+                generation: shape.token_generation,
+                user_id: shape.acting_user_id().map(str::to_string),
+            });
+        self.remember(sandbox_id, read.clone()).await;
+        Ok(read)
     }
 
     /// Cache `read` unless a newer value is cached: a read that started before
     /// a bump can land after it, and must not put the old generation back.
-    async fn remember(&self, sandbox_id: &str, read: Option<i64>) {
+    async fn remember(&self, sandbox_id: &str, read: Option<TokenState>) {
         self.cache
             .entry(sandbox_id.to_string())
             .and_compute_with(|cached| {
-                let newest = cached.map_or(read, |entry| (*entry.value()).max(read));
+                let newest = match cached.map(moka::Entry::into_value) {
+                    Some(Some(cached))
+                        if read
+                            .as_ref()
+                            .is_none_or(|read| read.generation < cached.generation) =>
+                    {
+                        Some(cached)
+                    }
+                    _ => read,
+                };
                 std::future::ready(Op::Put(newest))
             })
             .await;
@@ -67,16 +138,14 @@ impl TokenGenerationStore {
 #[async_trait]
 impl TokenGenerations for TokenGenerationStore {
     async fn current(&self, sandbox_id: &str) -> Result<Option<i64>, StoreError> {
-        if let Some(generation) = self.cache.get(sandbox_id).await {
-            return Ok(generation);
-        }
-        let read = self
-            .store
-            .sandbox_shape(sandbox_id)
+        Ok(self.state(sandbox_id).await?.map(|state| state.generation))
+    }
+
+    async fn token_user(&self, sandbox_id: &str) -> Result<Option<String>, StoreError> {
+        Ok(self
+            .state(sandbox_id)
             .await?
-            .map(|shape| shape.token_generation);
-        self.remember(sandbox_id, read).await;
-        Ok(read)
+            .and_then(|state| state.user_id))
     }
 }
 
@@ -96,5 +165,61 @@ mod db_tests {
         assert_eq!(generations.current("t1").await.unwrap(), Some(1));
         assert_eq!(generations.current("no-such-sandbox").await.unwrap(), None);
         assert!(generations.bump("no-such-sandbox").await.is_err());
+    }
+
+    #[sqlx::test]
+    async fn a_new_driver_revokes_the_previous_ones_tokens(pool: sqlx::PgPool) {
+        seed_task(&pool, "t1").await;
+        let dao = Arc::new(PgLifecycleDao::new(pool));
+        let generations = TokenGenerationStore::new(dao.clone());
+
+        assert_eq!(
+            generations.token_user("t1").await.unwrap().as_deref(),
+            Some("user-1")
+        );
+        assert_eq!(
+            generations.switch_driver("t1", "user-1").await.unwrap(),
+            None
+        );
+
+        let change = generations.switch_driver("t1", "user-2").await.unwrap();
+        assert_eq!(
+            change,
+            Some(DriverChange {
+                generation: 1,
+                previous_user_id: Some("user-1".to_string()),
+            })
+        );
+        assert_eq!(generations.current("t1").await.unwrap(), Some(1));
+        assert_eq!(
+            generations.token_user("t1").await.unwrap().as_deref(),
+            Some("user-2")
+        );
+        assert_eq!(
+            generations.switch_driver("t1", "user-2").await.unwrap(),
+            None
+        );
+
+        // Uncached, so the row itself carries the pair.
+        let fresh = TokenGenerationStore::new(dao);
+        assert_eq!(
+            fresh.token_user("t1").await.unwrap().as_deref(),
+            Some("user-2")
+        );
+        assert_eq!(
+            fresh
+                .switch_driver("t1", "user-1")
+                .await
+                .unwrap()
+                .map(|c| c.generation),
+            Some(2)
+        );
+        assert_eq!(
+            fresh
+                .switch_driver("no-such-sandbox", "user-1")
+                .await
+                .unwrap(),
+            None
+        );
     }
 }

@@ -121,7 +121,17 @@ async fn load_failure_is_intent_load_not_write() {
         ) -> Result<Vec<OutstandingCommand>, StoreError> {
             Ok(Vec::new())
         }
-        async fn bump_token_generation(&self, _s: &str) -> Result<Option<i64>, StoreError> {
+        async fn bump_token_generation(
+            &self,
+            _s: &str,
+        ) -> Result<Option<(i64, Option<String>)>, StoreError> {
+            Ok(None)
+        }
+        async fn switch_driver(
+            &self,
+            _s: &str,
+            _u: &str,
+        ) -> Result<Option<crate::lifecycle::DriverChange>, StoreError> {
             Ok(None)
         }
     }

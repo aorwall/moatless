@@ -209,7 +209,17 @@ impl LifecycleDao for InMemoryLifecycleDao {
     ) -> Result<Vec<OutstandingCommand>, StoreError> {
         Ok(Vec::new())
     }
-    async fn bump_token_generation(&self, _sandbox_id: &str) -> Result<Option<i64>, StoreError> {
+    async fn bump_token_generation(
+        &self,
+        _sandbox_id: &str,
+    ) -> Result<Option<(i64, Option<String>)>, StoreError> {
+        Ok(None)
+    }
+    async fn switch_driver(
+        &self,
+        _sandbox_id: &str,
+        _user_id: &str,
+    ) -> Result<Option<crate::lifecycle::DriverChange>, StoreError> {
         Ok(None)
     }
     async fn clear_marker(

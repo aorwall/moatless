@@ -109,8 +109,19 @@ impl LifecycleDao for MemberStore {
     ) -> Result<Vec<OutstandingCommand>, StoreError> {
         panic!("member registration test must not take the unreported commands")
     }
-    async fn bump_token_generation(&self, _sandbox_id: &str) -> Result<Option<i64>, StoreError> {
+    async fn bump_token_generation(
+        &self,
+        _sandbox_id: &str,
+    ) -> Result<Option<(i64, Option<String>)>, StoreError> {
         panic!("member registration test must not bump the token generation")
+    }
+
+    async fn switch_driver(
+        &self,
+        _sandbox_id: &str,
+        _user_id: &str,
+    ) -> Result<Option<crate::lifecycle::DriverChange>, StoreError> {
+        panic!("member registration test must not switch the driver")
     }
 }
 

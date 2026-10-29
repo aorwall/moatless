@@ -642,6 +642,16 @@ _Note_: `Team` is **not** a scope — teams are an org/entity concept and grant 
 resource access (removed in the access-scope redesign).
 _Avoid_: conflating with `OAuth scope` (a permission grant) — always qualify that.
 
+**Driver**:
+The person whose message started a Sandbox's current turn, or who last ran one of
+its Scripts (`sandboxes.driver_user_id`; the owner while unset). The Sandbox acts
+for them: its credentials resolve for the driver unless a Workspace or Task run-as
+is pinned, in which case the driver is the person it acts on behalf of, and its
+task tokens are minted for them alone, so a new driver revokes the previous one's.
+A Task's, the scheduler's or a Loop's prompt changes no driver.
+_Avoid_: actor (the identity credentials resolve for, which a run-as can make
+someone else), sender
+
 **Follow**:
 A user's durable interest in a Task (`task_follows`), acquired by creating it,
 writing to it, or asking explicitly, and dropped by asking. It is what a personal

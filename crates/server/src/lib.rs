@@ -28,6 +28,7 @@ pub mod reaper;
 mod reaper_decisions;
 pub mod repository_sync;
 pub mod sandbox;
+pub mod sandbox_driver;
 pub mod secret_cli;
 pub mod sse;
 pub mod startup;

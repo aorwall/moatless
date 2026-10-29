@@ -29,6 +29,8 @@ use super::authorize::SandboxAuthorizer;
 /// Present together because the single `ports` gate (a DB connection) builds
 /// them all at once; `None` as a whole when the backend runs databaseless.
 pub struct HandlerDbPorts {
+    /// Hands the Sandbox to the person whose message starts a turn.
+    pub drivers: Arc<dyn moatless_ports::sandbox::SandboxDriver>,
     pub messages: Arc<Messages>,
     /// The append seam the git-push claim writes its Message through.
     pub transcript: Arc<moatless_tasks::ports::Transcript>,

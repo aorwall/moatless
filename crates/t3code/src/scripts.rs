@@ -21,7 +21,7 @@ use crate::ports::WorkspaceScriptSource;
 use crate::preview::{self, PreviewState};
 use crate::projection;
 use crate::terminal::{self, TerminalError, TerminalHub};
-use moatless_ports::sandbox::{SandboxError, SandboxPortPublisher};
+use moatless_ports::sandbox::{DriveError, SandboxDriver, SandboxError, SandboxPortPublisher};
 use moatless_types::access_control::ScopeContext;
 use moatless_types::store::StoreError;
 use moatless_workspace_types::schemas::repository::ScriptConfig;
@@ -36,6 +36,8 @@ use sandbox_proto::client::{SandboxConnector, classify_grpc_error};
 pub(crate) struct ScriptsState {
     /// Reads a Task's Workspace scripts, scoped to the viewer.
     pub(crate) workspace_scripts: Arc<dyn WorkspaceScriptSource>,
+    /// Hands the Sandbox to the person pressing a Script; see [`press`].
+    pub(crate) drivers: Arc<dyn SandboxDriver>,
     /// Publishes a Script's port on the running sandbox. A no-op that returns
     /// `None` where the runtime cannot publish ports (Docker), and refuses a
     /// reserved infrastructure port.
@@ -77,6 +79,9 @@ pub enum ScriptsError {
     Terminal(TerminalError),
     #[error("the task could not be read")]
     Database(#[source] StoreError),
+    /// The Sandbox could not be handed to the person running the Script.
+    #[error("the sandbox could not be handed to you")]
+    Drive(#[source] DriveError),
 }
 
 impl From<StoreError> for ScriptsError {
@@ -236,6 +241,30 @@ pub(crate) fn ui_script_list(scripts: &[ResolvedScript]) -> Vec<Value> {
         .iter()
         .filter_map(|script| projection::ui_script(&script.config, Some(scope(script))))
         .collect()
+}
+
+/// [`run`] for a person pressing the Script, who drives the Sandbox from here:
+/// running a Script is a write, like a message, so the Script acts with their
+/// credentials. Switched at once, deliberately even mid-turn, rather than the
+/// Script running as the previous driver.
+pub(crate) async fn press(
+    state: &ScriptsState,
+    conversations: &dyn ConversationDao,
+    sandboxes: &dyn SandboxConnector,
+    hub: &TerminalHub,
+    viewer: &ScopeContext,
+    input: &ScriptsRunInput,
+) -> Result<Value, ScriptsError> {
+    let task_id = nonblank(&input.thread_id, "threadId")?;
+    // The scoped read first: an unreadable Task is `NotFound`, not a refusal
+    // naming it.
+    resolve(state, sandboxes, viewer, task_id).await?;
+    state
+        .drivers
+        .drive(task_id, &viewer.user_id)
+        .await
+        .map_err(ScriptsError::Drive)?;
+    run(state, conversations, sandboxes, hub, viewer, input).await
 }
 
 /// Start a Script and return the terminal it runs in, plus — when it serves a

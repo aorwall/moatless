@@ -86,6 +86,12 @@ pub(crate) async fn ui_rpc(
                 tasks: app_state.task_reader.clone(),
                 workspaces: app_state.workspaces.clone(),
             }),
+            drivers: crate::sandbox_driver::SandboxDrivers::compose(
+                config,
+                ports,
+                inputs.connector.clone(),
+                app_state.credential_sync.clone(),
+            ),
             sandboxes: inputs.connector,
             snapshots: inputs.snapshots,
             observer: moatless_sandbox_control::observation::contract_observer(

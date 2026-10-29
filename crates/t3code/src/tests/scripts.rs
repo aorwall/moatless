@@ -16,6 +16,7 @@ use moatless_workspaces::workspace::scripts::ScriptOrigin;
 fn scripts_state(tasks: ports::MockWorkspaceScriptSource) -> ScriptsState {
     ScriptsState {
         workspace_scripts: Arc::new(tasks),
+        drivers: Arc::new(super::fixtures::DrivesNothing),
         ports: unreachable_ports(),
         preview: PreviewState {
             tabs: Arc::new(preview_tabs::PreviewTabs::new(preview_tabs::PreviewTabTtl(

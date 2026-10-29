@@ -1,7 +1,7 @@
 use crate::backend_client::BackendGrpcClient;
 use crate::config::Config;
 use crate::credentials::Dispatcher;
-use crate::credentials::sinks::{ClaudeOauthSink, CodexAuthJsonSink};
+use crate::credentials::sinks::{ClaudeOauthSink, CodexAuthJsonSink, UserAuthTokenSink};
 use crate::events::GrpcEventPublisher;
 use crate::init::InitPhase;
 use crate::state::SandboxState;
@@ -68,6 +68,15 @@ pub(crate) async fn compose_runtime(config: &Config) -> (SandboxState, Superviso
         }),
     );
     dispatcher.register("CLAUDE_CODE_OAUTH_TOKEN", Arc::new(ClaudeOauthSink));
+    let git_credentials = Arc::new(RwLock::new(Default::default()));
+    dispatcher.register(
+        moatless_types::credential_key::USER_AUTH_TOKEN,
+        Arc::new(UserAuthTokenSink {
+            config: Arc::clone(&config_arc),
+            backend_client: Arc::clone(&backend_client),
+            git_credentials: Arc::clone(&git_credentials),
+        }),
+    );
     let credential_dispatcher = Arc::new(dispatcher);
 
     // Liveness heartbeat: the coordinator service bumps it, the `/livez` probe reads it.
@@ -91,7 +100,7 @@ pub(crate) async fn compose_runtime(config: &Config) -> (SandboxState, Superviso
         setup_gate: crate::init::SetupGate::closed(),
         workspace_origin: Default::default(),
         stop_cause: Default::default(),
-        git_credentials: Default::default(),
+        git_credentials,
         credentials,
         lifecycle_cancel,
         credential_dispatcher,

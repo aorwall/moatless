@@ -46,10 +46,11 @@ impl GitHubUpstream {
 #[derive(Debug, Clone)]
 pub struct SandboxScope {
     pub sandbox: String,
-    /// The token's own identity, which the run-as identity overrides.
+    /// The Sandbox's driver, else its owner, which a run-as identity
+    /// overrides.
     pub user: String,
     pub workspace: String,
-    /// The Sandbox row's run-as identity, ahead of the Workspace's.
+    /// The run-as identity the Sandbox row pins, ahead of the Workspace's.
     pub run_as: Option<String>,
 }
 
@@ -187,19 +188,22 @@ impl GitHubProxy {
                     "The task token names a sandbox that no longer exists".to_string(),
                 )
             })?;
-        let run_as_user_id = self
+        // Fails closed rather than degrading to the token's user: that is the
+        // driver only while the read agrees.
+        let identity = self
             .sandboxes
-            .run_as_user_id(&sandbox_id)
+            .identity(&sandbox_id)
             .await
-            .unwrap_or_else(|e| {
-                warn!(error = %e, sandbox_id, "Failed to read the sandbox run-as identity");
-                None
-            });
+            .map_err(|e| {
+                warn!(error = %e, sandbox_id, "Failed to read the sandbox identity");
+                GitHubProxyError::Upstream("Failed to read the sandbox".to_string())
+            })?
+            .unwrap_or_default();
         Ok(SandboxScope {
             sandbox: sandbox_id,
-            user: claims.user_id,
+            user: identity.acting_user_id.unwrap_or(claims.user_id),
             workspace: workspace_id,
-            run_as: run_as_user_id,
+            run_as: identity.pinned_run_as,
         })
     }
 

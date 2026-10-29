@@ -265,6 +265,10 @@ pub fn is_token_near_expiry(token: &str, secret: &str, threshold_secs: u64) -> b
 pub trait TokenGenerations: Send + Sync {
     /// `sandbox_id`'s current generation, absent when the Sandbox has no row.
     async fn current(&self, sandbox_id: &str) -> Result<Option<i64>, StoreError>;
+
+    /// The user `sandbox_id`'s current-generation tokens are minted for: its
+    /// driver, else its owner. Absent when the Sandbox has no row or neither.
+    async fn token_user(&self, sandbox_id: &str) -> Result<Option<String>, StoreError>;
 }
 
 /// Why [`check_generation`] refused a token.
@@ -301,13 +305,32 @@ pub async fn check_generation(
 /// mint tokens without a database.
 #[cfg(any(test, feature = "test-support"))]
 #[derive(Default)]
-pub struct StaticTokenGenerations(pub std::collections::HashMap<String, i64>);
+pub struct StaticTokenGenerations {
+    pub generations: std::collections::HashMap<String, i64>,
+    /// Each Sandbox's [`TokenGenerations::token_user`].
+    pub users: std::collections::HashMap<String, String>,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl StaticTokenGenerations {
+    /// One Sandbox at `generation`, its tokens minted for `user_id`.
+    pub fn one(sandbox_id: &str, generation: i64, user_id: &str) -> Self {
+        Self {
+            generations: [(sandbox_id.to_string(), generation)].into(),
+            users: [(sandbox_id.to_string(), user_id.to_string())].into(),
+        }
+    }
+}
 
 #[cfg(any(test, feature = "test-support"))]
 #[async_trait]
 impl TokenGenerations for StaticTokenGenerations {
     async fn current(&self, sandbox_id: &str) -> Result<Option<i64>, StoreError> {
-        Ok(self.0.get(sandbox_id).copied())
+        Ok(self.generations.get(sandbox_id).copied())
+    }
+
+    async fn token_user(&self, sandbox_id: &str) -> Result<Option<String>, StoreError> {
+        Ok(self.users.get(sandbox_id).cloned())
     }
 }
 
@@ -439,8 +462,8 @@ mod tests {
     }
 
     fn generations(sandbox_id: &str, generation: i64) -> Arc<dyn TokenGenerations> {
-        Arc::new(StaticTokenGenerations(
-            [(sandbox_id.to_string(), generation)].into(),
+        Arc::new(StaticTokenGenerations::one(
+            sandbox_id, generation, "user-456",
         ))
     }
 
@@ -522,6 +545,9 @@ mod tests {
         #[async_trait]
         impl TokenGenerations for Broken {
             async fn current(&self, _sandbox_id: &str) -> Result<Option<i64>, StoreError> {
+                Err(StoreError::new("db down"))
+            }
+            async fn token_user(&self, _sandbox_id: &str) -> Result<Option<String>, StoreError> {
                 Err(StoreError::new("db down"))
             }
         }

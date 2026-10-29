@@ -7,6 +7,19 @@ use moatless_types::store::StoreError;
 use super::dao::LifecycleDao;
 use super::orchestrator::{OutstandingCommand, TaskIntent};
 
+/// The identities a Sandbox row names, which `secrets::resolve_task_actor`
+/// takes.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SandboxIdentity {
+    /// The run-as column as stored, owner fallback included: what
+    /// auto-provision picked the pod's plugins for.
+    pub run_as_user_id: Option<String>,
+    /// See [`super::dao::SandboxShape::pinned_run_as`].
+    pub pinned_run_as: Option<String>,
+    /// The driver, else the owner: the person the Sandbox acts for.
+    pub acting_user_id: Option<String>,
+}
+
 /// What the Sandbox's gRPC service reads off its own row, beside the intent
 /// [`super::Lifecycle`] owns.
 ///
@@ -37,14 +50,17 @@ impl SandboxIngress {
             .map(|shape| shape.workspace_id))
     }
 
-    /// The identity the Sandbox's pod acts as outward, absent when the Sandbox
-    /// has no row or pins no run-as identity.
-    pub async fn run_as_user_id(&self, sandbox_id: &str) -> Result<Option<String>, StoreError> {
+    /// Who the Sandbox's credentials resolve for, absent when it has no row.
+    pub async fn identity(&self, sandbox_id: &str) -> Result<Option<SandboxIdentity>, StoreError> {
         Ok(self
             .store
             .sandbox_shape(sandbox_id)
             .await?
-            .and_then(|shape| shape.run_as_user_id))
+            .map(|shape| SandboxIdentity {
+                run_as_user_id: shape.run_as_user_id.clone(),
+                pinned_run_as: shape.pinned_run_as().map(str::to_string),
+                acting_user_id: shape.acting_user_id().map(str::to_string),
+            }))
     }
 
     /// Record how many `moat cmd` commands the Sandbox is running, as the pod

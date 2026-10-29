@@ -72,6 +72,7 @@ pub(super) async fn fetch_plugin(
     };
     // Parsed as `auto_provision` parses it: a non-UUID run-as is nobody.
     let run_as = targets
+        .identity
         .run_as_user_id
         .as_deref()
         .and_then(|id| uuid::Uuid::parse_str(id).ok());
@@ -97,8 +98,12 @@ pub(super) async fn fetch_plugin(
     let actor = resolve_task_actor(
         Some(&handlers.workspace_resolver),
         Some(workspace_id),
-        targets.run_as_user_id.as_deref(),
-        &grant.ctx.user_id,
+        targets.identity.pinned_run_as.as_deref(),
+        targets
+            .identity
+            .acting_user_id
+            .as_deref()
+            .unwrap_or(&grant.ctx.user_id),
     )
     .await
     // A Workspace admin picked this Plugin, so the owner's own access does not

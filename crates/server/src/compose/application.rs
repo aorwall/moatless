@@ -164,6 +164,7 @@ impl AppState {
                 github: config.http.github,
                 self_hosted_git: config.http.self_hosted_git,
             }),
+            ports.sandbox_graph.sandbox_ingress(),
         ));
 
         let sandbox_joiner: Arc<dyn SandboxJoiner> =

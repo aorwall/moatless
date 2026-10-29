@@ -12,11 +12,39 @@ use sandbox_proto::{
 
 use moatless_types::access_control::ScopeContext;
 
+use moatless_ports::sandbox::{DriveError, SandboxDriver};
 use moatless_tasks::agent::prompt;
+use moatless_tasks::inbox::view::turn_driver;
 use moatless_tasks::task_turn::models::TurnStatus;
 use moatless_types::agent::AgentProfile;
 
 use super::state::BackendSandboxServiceImpl;
+
+/// Hand the Sandbox to `driver` before their turn reads its credentials.
+///
+/// A failed switch fails the fetch rather than running the turn for the
+/// previous driver on this person's message. A writer who has since lost
+/// write (the task went private) leaves the driver as it is: refusing would
+/// wedge their message at the head of the queue for good.
+async fn drive_turn(
+    drivers: &dyn SandboxDriver,
+    task_id: &str,
+    driver: &str,
+) -> Result<(), Status> {
+    match drivers.drive(task_id, driver).await {
+        Ok(()) => Ok(()),
+        Err(DriveError::Forbidden(reason)) => {
+            warn!(task_id, driver, %reason, "The turn's writer cannot drive the sandbox; driver kept");
+            Ok(())
+        }
+        Err(DriveError::Unavailable(reason)) => {
+            warn!(task_id, driver, %reason, "Failed to hand the sandbox to the turn's writer");
+            Err(Status::unavailable(
+                "Failed to hand the sandbox to the turn's writer",
+            ))
+        }
+    }
+}
 
 /// Return pending messages for a task, which the sandbox polls for.
 #[tracing::instrument(
@@ -263,6 +291,16 @@ pub(super) async fn get_pending_messages(
     let deliveries = builder
         .build_pending_deliveries(&pending, &contexts_by_message)
         .await;
+    // An idle agent's fetch is the turn start: stamped here, a running turn
+    // never changes identity under the agent.
+    if !req.hold_queued {
+        let driver = deliveries
+            .first()
+            .and_then(|delivery| turn_driver(&pending, &delivery.message_uuids));
+        if let (Some(driver), Some(handlers)) = (driver, service.handlers.as_ref()) {
+            drive_turn(handlers.drivers.as_ref(), &req.task_id, driver).await?;
+        }
+    }
     if let (Some((memories, _)), Some(delivery)) = (preload_memories, deliveries.first()) {
         let staged = memory_read.read_at.filter(|_| delivery.memory_current);
         moatless_tasks::memory::preload::stage_seen(memories, &req.task_id, staged).await;

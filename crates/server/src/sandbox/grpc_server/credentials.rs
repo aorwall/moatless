@@ -11,13 +11,15 @@ use sandbox_proto::{
 };
 
 use crate::sandbox::secrets::{
-    TaskCredentialInputs, resolve_task_actor, resolve_task_credential_targets,
-    resolve_task_credentials, resolve_workspace_credentials, resolve_workspace_env_vars,
+    TaskCredentialInputs, TaskCredentialTargets, resolve_task_actor,
+    resolve_task_credential_targets, resolve_task_credentials, resolve_workspace_credentials,
+    resolve_workspace_env_vars,
 };
 use moatless_core::sandbox_jwt as jwt;
 use moatless_core::secret_keys;
 use moatless_identity::credentials::WriteSource;
 use moatless_ports::sandbox::CodexCredentials;
+use moatless_types::access_control::Actor;
 use moatless_types::credential_key;
 
 use super::authorize::TaskGrant;
@@ -75,6 +77,28 @@ impl BackendSandboxServiceImpl {
             }
         }
     }
+}
+
+/// The identity a task's credentials resolve for, on behalf of the Sandbox's
+/// driver, else its owner. The token's user, which the grant checked is that
+/// person, stands in only where no Sandbox row was read.
+async fn task_actor(
+    service: &BackendSandboxServiceImpl,
+    targets: &TaskCredentialTargets,
+    grant: &TaskGrant,
+) -> Actor {
+    let person = targets
+        .identity
+        .acting_user_id
+        .as_deref()
+        .unwrap_or(&grant.ctx.user_id);
+    resolve_task_actor(
+        service.handlers.as_ref().map(|h| &h.workspace_resolver),
+        targets.workspace_id.as_deref(),
+        targets.identity.pinned_run_as.as_deref(),
+        person,
+    )
+    .await
 }
 
 /// Return credentials for sandbox initialization.
@@ -135,13 +159,7 @@ pub(super) async fn get_credentials(
     // concrete service; `store` below still needs the whole thing.
     let codex_credentials: Option<Arc<dyn CodexCredentials>> =
         handlers.map(|h| h.credential_sync.clone() as Arc<dyn CodexCredentials>);
-    let actor = resolve_task_actor(
-        handlers.map(|h| &h.workspace_resolver),
-        targets.workspace_id.as_deref(),
-        targets.run_as_user_id.as_deref(),
-        &grant.ctx.user_id,
-    )
-    .await;
+    let actor = task_actor(service, &targets, &grant).await;
     // Workspace-scoped configuration travels on this channel and not only the
     // pod spec: the per-turn map overlays the pod env, so a workspace var
     // delivered solely through the plan loses to a user- or global-scoped secret.
@@ -204,7 +222,6 @@ pub(super) async fn update_credential(
     let grant = service.authorizer.authorize(&request, &task_id).await?;
     let req = request.into_inner();
     tracing::Span::current().record("task_id", req.task_id.as_str());
-    tracing::Span::current().record("user_id", grant.ctx.user_id.as_str());
 
     let Some(provider) = sandbox_rotatable_provider(&req.key) else {
         warn!(
@@ -224,12 +241,24 @@ pub(super) async fn update_credential(
         ));
     };
 
+    // Written back to the identity `get_credentials` read the blob from, the
+    // driver unless a run-as identity is pinned: the owner's row would take
+    // another person's rotated login.
+    let targets = resolve_task_credential_targets(
+        service.handlers.as_ref().map(|h| &h.sandboxes),
+        &req.task_id,
+    )
+    .await;
+    let actor = task_actor(service, &targets, &grant).await;
+    let user_id = actor.user_id();
+    tracing::Span::current().record("user_id", user_id);
+
     // The fan-out reaches every running sandbox the user owns minus the
     // originating one, and a `GITHUB_TOKEN` lands in the encrypted store
     // rather than plaintext in `provider_tokens.access_token`.
     let result = credential_sync
         .store(
-            &grant.ctx.user_id,
+            user_id,
             &req.key,
             &req.value,
             WriteSource::SandboxRotation {
@@ -242,7 +271,7 @@ pub(super) async fn update_credential(
         warn!(
             error = %e,
             task_id = %req.task_id,
-            user_id = %grant.ctx.user_id,
+            user_id,
             provider,
             "Failed to persist rotated credential"
         );
@@ -251,7 +280,7 @@ pub(super) async fn update_credential(
 
     info!(
         task_id = %req.task_id,
-        user_id = %grant.ctx.user_id,
+        user_id,
         provider,
         scope = "user",
         "Persisted rotated credential"

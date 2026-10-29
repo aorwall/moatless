@@ -31,6 +31,25 @@ impl PendingView {
     }
 }
 
+/// Who a turn delivering `message_uuids` drives the Sandbox for: the last
+/// person among them who wrote in Moatless itself, `None` for prompts nobody
+/// wrote.
+///
+/// Adapter writers are skipped deliberately: their `sent_by` can be the
+/// binding's subscriber, so driving for it would act for a bystander.
+pub fn turn_driver<'a>(pending: &'a [TaskMessage], message_uuids: &[String]) -> Option<&'a str> {
+    pending
+        .iter()
+        .filter(|message| message_uuids.contains(&message.uuid))
+        .filter(|message| {
+            message.source_task_id.is_none()
+                && message.external_event_id.is_none()
+                && !message.sandbox_wake
+        })
+        .filter_map(|message| message.sent_by.as_deref())
+        .next_back()
+}
+
 impl InboxItem {
     /// The user Message this item is shown as, `uuid` = the item's id.
     pub fn as_message(&self) -> TaskMessage {
@@ -104,5 +123,49 @@ impl From<&TaskMessageContext> for InboxContext {
             reference_id: row.reference_id.clone(),
             data: row.data.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn message(uuid: &str, sent_by: Option<&str>) -> TaskMessage {
+        TaskMessage {
+            sent_by: sent_by.map(str::to_string),
+            ..TaskMessage::new_user_message(
+                "task".to_string(),
+                uuid.to_string(),
+                "hi".to_string(),
+                String::new(),
+            )
+        }
+    }
+
+    #[test]
+    fn the_last_person_in_the_turn_drives_it() {
+        let pending = [
+            message("1", Some("alice")),
+            message("2", Some("bob")),
+            message("3", Some("carol")),
+        ];
+        let turn = ["1".to_string(), "2".to_string()];
+
+        assert_eq!(turn_driver(&pending, &turn), Some("bob"));
+    }
+
+    #[test]
+    fn a_task_an_adapter_or_the_sandbox_drives_nothing() {
+        let mut from_task = message("1", Some("alice"));
+        from_task.source_task_id = Some("parent".to_string());
+        let mut from_adapter = message("2", Some("subscriber"));
+        from_adapter.external_event_id = Some("slack-1".to_string());
+        let mut wake = message("3", None);
+        wake.sandbox_wake = true;
+        let system = message("4", None);
+        let pending = [from_task, from_adapter, wake, system];
+        let turn: Vec<String> = ["1", "2", "3", "4"].map(str::to_string).into();
+
+        assert_eq!(turn_driver(&pending, &turn), None);
     }
 }

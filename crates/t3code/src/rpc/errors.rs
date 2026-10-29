@@ -19,7 +19,7 @@ use crate::scripts::ScriptsError;
 use crate::subtasks::SubtasksError;
 use crate::terminal;
 use crate::workspace::WorkspaceAccessError;
-use moatless_ports::sandbox::SandboxError;
+use moatless_ports::sandbox::{DriveError, SandboxError};
 use moatless_types::ui_rpc::UiRpcAuthIdentity;
 use serde_json::Value;
 use serde_json::json;
@@ -484,6 +484,13 @@ pub(crate) fn scripts_failure_exit(
         }
         ScriptsError::Malformed(field) => {
             failure_exit(request_id, format!("scripts.run requires {field}"))
+        }
+        ScriptsError::Drive(DriveError::Forbidden(_)) => {
+            failure_exit(request_id, "You cannot run scripts on this task.")
+        }
+        ScriptsError::Drive(cause) => {
+            warn!(%cause, user_id = %identity.user_id, "scripts.run could not hand the sandbox over");
+            failure_exit(request_id, "The sandbox could not be handed to you.")
         }
         ScriptsError::Database(cause) => {
             error!(%cause, user_id = %identity.user_id, "scripts.run failed to read the conversation");

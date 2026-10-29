@@ -347,6 +347,18 @@ Gaps left by the first scoped-collection change, each reached from `crates/tasks
 | Collections have no T3 view | `crates/tasks/src/collection/routes.rs` serves only the `/api/v1/tasks/{task_id}/collections` routes a Task's CLI calls; a person reads a collection through a published page | When someone asks to browse a Loop's records outside an Artifact. Then add a port in `moatless-ports` and a T3 view over it |
 | Renaming the record tables breaks a replica still on the old code | `crates/core/migrations/0212_record_collections.sql` renames `artifact_records` and `artifact_record_changes`, so an old replica's record reads and writes fail until it is replaced | Only if a rolling deploy must keep record writes working throughout. Then ship a view under the old names for one release |
 
+## Sandbox drivers
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| An Adapter Requester's message changes no driver | `crates/tasks/src/inbox/view.rs::turn_driver` skips a message with `external_event_id`: the inbox's `sent_by` for an Adapter is the binding's subscriber, and the bindings buffer drops the verified `InboundMessage::requester` | When the inbox records the Requester it verified, so `turn_driver` can read it rather than `sent_by` |
+| A pod that misses the new driver's token push is refused until replaced | `crates/server/src/sandbox_driver.rs::SandboxDrivers::push` fails the turn's `GetPendingMessages`, but the switch has already revoked the pod's token, so its retry is refused too. A pod built before `UserAuthTokenSink` has no sink for it | When a refused pod is re-provisioned by the reconciler, or the new token rides back on the `GetPendingMessages` response itself |
+| A driver with no email commits under the previous driver's | `crates/sandbox/src/credentials/fetch.rs::apply_git_identity` leaves `user.email` alone when `GIT_USER_EMAIL` is absent | When `fill_git_identity` falls back to a noreply address for a human without one |
+| `moat cmd` processes and open terminals keep the identity they started with | `crates/sandbox/src/commands` children inherit the pod env at spawn; only the persisted token file and global git config follow a driver change | When a long-lived command is found pushing as a previous driver |
+| A shared Sandbox has one driver for all its Members | `crates/sandbox-control/src/lifecycle/dao.rs::PgLifecycleDao::switch_driver` keys on `sandbox_id`, so a message on one Member switches every Member's credentials | When shared Sandboxes serve Members written by different people |
+| A driver with no Codex credential runs on the previous driver's `auth.json` | `crates/server/src/sandbox_driver.rs::SandboxDrivers::push` pushes `CODEX_AUTH_JSON` only when the new driver has one | When Codex auth stops living in the pod's `auth.json` |
+| Plugin picks follow the run-as, not the driver | `crates/server/src/sandbox/grpc_server/plugins.rs` and `crates/sandbox-control/src/auto_provision.rs` resolve plugins for `run_as_user_id` | When a driver needs their own plugins on someone else's Task |
+
 ## Sandbox restarts
 
 | Deferred | Anchor | Entry condition |

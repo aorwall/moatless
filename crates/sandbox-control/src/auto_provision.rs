@@ -154,12 +154,10 @@ pub(crate) async fn build_provision_request(
         .unwrap_or_default();
     let git_branch = repo.and_then(|repo| shape.branch.clone().or(repo.default_branch.clone()));
     // The identity the pod authenticates back to the backend as — the one the
-    // gRPC control gate checks, which is why it is the Sandbox's owner and not
-    // the account it acts as outward.
-    let user_id = shape
-        .owner_user_id
-        .clone()
-        .unwrap_or_else(|| "system".to_string());
+    // gRPC control gate checks, which is why it is the Sandbox's driver and not
+    // the account it acts as outward. Read in the same row as
+    // `token_generation`, so the token minted is never already revoked.
+    let user_id = shape.acting_user_id().unwrap_or("system").to_string();
 
     // Run-config source: the sandbox's workspace. The primary placement above
     // supplies the checkout's URL/branch/provider, which also feed the

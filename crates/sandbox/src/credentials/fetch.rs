@@ -301,12 +301,35 @@ pub async fn persist_agent_credentials(
     write_onboarding_flag(&config.claude_config_dir).await;
 }
 
+/// Point the pod's global git identity at the one `credentials` name, so a
+/// turn commits as the driver whose message started it rather than as
+/// whoever drove the pod when init ran. Absent keys leave git as it is.
+pub(crate) async fn apply_git_identity(credentials: &HashMap<String, String>) {
+    for (key, setting) in [
+        ("GIT_USER_NAME", "user.name"),
+        ("GIT_USER_EMAIL", "user.email"),
+    ] {
+        let Some(value) = credentials.get(key).filter(|value| !value.is_empty()) else {
+            continue;
+        };
+        let status = tokio::process::Command::new("git")
+            .args(["config", "--global", setting, value])
+            .status()
+            .await;
+        match status {
+            Ok(status) if status.success() => {}
+            Ok(status) => warn!(setting, %status, "git config exited unsuccessfully"),
+            Err(e) => warn!(setting, error = %e, "Failed to run git config"),
+        }
+    }
+}
+
 /// Persist the long-lived user auth token to disk so a container restart can
 /// reuse it (see [`Config::persisted_user_token_path`]).
 ///
 /// Best-effort: a write failure just falls back to the initial token on the
 /// next restart, so failures are logged, not fatal.
-async fn persist_user_auth_token(config: &Config, token: &str) {
+pub(crate) async fn persist_user_auth_token(config: &Config, token: &str) {
     purge_exposed_user_tokens(config).await;
 
     let path = config.persisted_user_token_path();

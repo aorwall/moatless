@@ -15,7 +15,7 @@ use moatless_types::credential_key::{GH_TOKEN, GIT_CO_AUTHOR, GIT_TOKEN};
 use moatless_workspace_types::repository::GitHostRepo;
 use moatless_workspace_types::repository::RepositoryProvider as GitHostProvider;
 
-use crate::lifecycle::ingress::SandboxIngress;
+use crate::lifecycle::ingress::{SandboxIdentity, SandboxIngress};
 use moatless_ports::identity::{
     CommitIdentity, GitHostTokenError, GitHostTokenIssuer, HarnessCredentials, SecretResolver,
 };
@@ -178,9 +178,8 @@ fn fill_missing_from_scoped(
 #[derive(Default)]
 pub struct TaskCredentialTargets {
     pub workspace_id: Option<String>,
-    /// The Sandbox row's own run-as identity, which [`resolve_task_actor`]
-    /// takes ahead of the Workspace's.
-    pub run_as_user_id: Option<String>,
+    /// The identities [`resolve_task_actor`] takes off the Sandbox row.
+    pub identity: SandboxIdentity,
 }
 
 /// Resolve the Workspace and run-as identity a task's sandbox draws
@@ -195,16 +194,16 @@ pub async fn resolve_task_credential_targets(
     let Ok(Some(intent)) = sandboxes.intent(task_id).await else {
         return TaskCredentialTargets::default();
     };
-    let run_as_user_id = match sandboxes.run_as_user_id(&intent.sandbox_id).await {
-        Ok(run_as_user_id) => run_as_user_id,
+    let identity = match sandboxes.identity(&intent.sandbox_id).await {
+        Ok(identity) => identity.unwrap_or_default(),
         Err(e) => {
             warn!(task_id, error = %e, "Failed to read the sandbox run-as identity");
-            None
+            SandboxIdentity::default()
         }
     };
     TaskCredentialTargets {
         workspace_id: Some(intent.workspace_id),
-        run_as_user_id,
+        identity,
     }
 }
 
@@ -250,28 +249,29 @@ pub fn is_git_auth_key(key: &str) -> bool {
 }
 
 /// The identity a Task's sandbox acts as on a git host: `task_run_as` when set,
-/// else the Workspace's `run_as_user_id`, else the Task's owner.
+/// else the Workspace's `run_as_user_id`, else `person`.
 ///
-/// Any other identity carries the owner as its [`Actor::person`]. An
-/// unreadable Workspace degrades to the Task's owner, narrowing access.
+/// `person` is [`SandboxIdentity::acting_user_id`], carried as any other
+/// identity's [`Actor::person`]. An unreadable Workspace degrades to `person`;
+/// a driver with no git-host connection resolves no token, never the owner's.
 pub async fn resolve_task_actor(
     workspaces: Option<&Arc<dyn WorkspaceResolver>>,
     workspace_id: Option<&str>,
     task_run_as: Option<&str>,
-    owner_user_id: &str,
+    person: &str,
 ) -> Actor {
-    run_as_identity(workspaces, workspace_id, task_run_as, owner_user_id)
+    run_as_identity(workspaces, workspace_id, task_run_as, person)
         .await
-        .on_behalf_of(Some(owner_user_id))
+        .on_behalf_of(Some(person))
 }
 
 async fn run_as_identity(
     workspaces: Option<&Arc<dyn WorkspaceResolver>>,
     workspace_id: Option<&str>,
     task_run_as: Option<&str>,
-    owner_user_id: &str,
+    person: &str,
 ) -> Actor {
-    let owner = Actor::of(owner_user_id).on_workspace(workspace_id);
+    let owner = Actor::of(person).on_workspace(workspace_id);
     // A Task naming its own run-as answers the question outright; the Workspace
     // is consulted only when it does not. `Actor::run_as` folds the owner
     // fallback in, so it is never `None` here and cannot be the branch's guard.
@@ -521,12 +521,15 @@ async fn fill_git_identity(
         }
         return;
     }
-    // Human user: prefer their Moatless account name/email for commit
-    // attribution when set; each falls back independently to the sandbox's
-    // GitHub-API resolution when unset.
-    if let Some(name) = user.name {
-        credentials.insert(GIT_USER_NAME.to_string(), name);
-    }
+    // Human user: their Moatless account email when set, else the sandbox's
+    // GitHub-API resolution at init. The name falls back to the login rather
+    // than to that resolution: it is fixed at init, so after a driver switch
+    // it would name the previous driver.
+    let name = user
+        .name
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or(user.login);
+    credentials.insert(GIT_USER_NAME.to_string(), name);
     if let Some(email) = user.email {
         credentials.insert(GIT_USER_EMAIL.to_string(), email);
     }
@@ -1264,9 +1267,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn human_user_email_only_defers_name() {
-        // Email set but no name → only the email is overridden; the name is
-        // left for the sandbox's GitHub-API resolution.
+    async fn human_user_without_a_name_commits_under_their_login() {
         let users = users_returning(
             "alice",
             None,
@@ -1281,23 +1282,24 @@ mod tests {
             credentials.get(GIT_USER_EMAIL).map(String::as_str),
             Some("alice@example.com")
         );
-        assert!(
-            !credentials.contains_key(GIT_USER_NAME),
-            "human user name should defer to GitHub-API resolution when unset"
+        assert_eq!(
+            credentials.get(GIT_USER_NAME).map(String::as_str),
+            Some("alice")
         );
     }
 
     #[tokio::test]
-    async fn human_user_without_name_or_email_sets_nothing() {
-        // No account name/email → no override; the sandbox falls back to the
-        // GitHub API / noreply default entirely.
+    async fn human_user_without_an_email_leaves_it_to_the_sandbox() {
         let users = users_returning("alice", None, None, /* is_bot */ false);
 
         let mut credentials = HashMap::new();
         fill_git_identity(&mut credentials, Some(&users), "u1").await;
 
         assert!(!credentials.contains_key(GIT_USER_EMAIL));
-        assert!(!credentials.contains_key(GIT_USER_NAME));
+        assert_eq!(
+            credentials.get(GIT_USER_NAME).map(String::as_str),
+            Some("alice")
+        );
     }
 
     #[tokio::test]

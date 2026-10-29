@@ -109,8 +109,10 @@ fn proxy(
         .unwrap();
     GitHubProxy::new(
         moatless_sandbox_control::compose::sandbox_graph(pool).sandbox_ingress(),
-        Arc::new(StaticTokenGenerations(
-            [("sandbox-1".to_string(), GENERATION)].into(),
+        Arc::new(StaticTokenGenerations::one(
+            "sandbox-1",
+            GENERATION,
+            "user-1",
         )),
         workspaces,
         credentials,

@@ -65,6 +65,7 @@ pub async fn mount(
         session_jwt_secret,
         pairing,
         workspace_scripts,
+        drivers,
         sandboxes,
         snapshots,
         observer,
@@ -133,6 +134,7 @@ pub async fn mount(
     // the RPC surface serves terminal reads from.
     let scripts = ScriptsState {
         workspace_scripts,
+        drivers,
         ports,
         preview: preview.clone(),
     };
@@ -284,6 +286,8 @@ pub struct UiRpcDependencies {
     /// Reads the Scripts of the Workspace a Task runs against, under the Task's
     /// scope; the gate every Script read and write passes.
     pub workspace_scripts: Arc<dyn ports::WorkspaceScriptSource>,
+    /// Hands a Task's Sandbox to whoever runs a Script on it.
+    pub drivers: Arc<dyn moatless_ports::sandbox::SandboxDriver>,
     /// Reaches a conversation's Sandbox, which is where its checkout lives.
     pub sandboxes: Arc<dyn SandboxConnector>,
     /// Reads a conversation's files from the S3 mirror when its Sandbox is not
