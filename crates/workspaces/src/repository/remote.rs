@@ -111,7 +111,7 @@ fn parse_hosted(provider: RepositoryProvider, remote_url: &str) -> Option<GitHos
 ///
 /// SSH is refused because no sandbox holds an SSH key: a clone authenticates
 /// over HTTPS only. `ext::` is a remote helper git runs rather than clones.
-/// Write-path only; migration 0213 converted the SSH rows stored before this.
+/// Write-path only; migration 0216 converted the SSH rows stored before this.
 pub(crate) fn ensure_remote_url_scheme_allowed(
     remote_url: &str,
 ) -> Result<(), super::error::RepositoryError> {

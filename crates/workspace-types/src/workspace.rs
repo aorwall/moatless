@@ -164,7 +164,7 @@ pub const WORKSPACE_LIMIT_ENV: &str = "SANDBOX_WORKSPACE_LIMIT";
 /// for git, files, and setup commands.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", into = "RepoCheckoutWire")]
 pub struct RepoCheckout {
     /// Remote URL to clone. Credential-free on K8s — the sandbox authenticates
     /// via the credential channel using [`Self::provider`].
@@ -183,6 +183,38 @@ pub struct RepoCheckout {
     /// The "main" repo: diff, PR, `AGENTS.md`, setup commands.
     #[serde(default)]
     pub is_primary: bool,
+}
+
+/// [`RepoCheckout`] as `WORKSPACE_REPOS` serializes it, plus a retired
+/// `usesSsh: false`.
+///
+/// A Workspace pinning `docker_image` can run a sandbox older than migration
+/// 0216, whose `RepoCheckout` requires `usesSsh`; it would refuse the whole
+/// list rather than ignore the missing field.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RepoCheckoutWire {
+    uses_ssh: bool,
+    clone_url: String,
+    branch: Option<String>,
+    repository_id: String,
+    provider: String,
+    mount_name: String,
+    is_primary: bool,
+}
+
+impl From<RepoCheckout> for RepoCheckoutWire {
+    fn from(checkout: RepoCheckout) -> Self {
+        Self {
+            uses_ssh: false,
+            clone_url: checkout.clone_url,
+            branch: checkout.branch,
+            repository_id: checkout.repository_id,
+            provider: checkout.provider,
+            mount_name: checkout.mount_name,
+            is_primary: checkout.is_primary,
+        }
+    }
 }
 
 impl RepoCheckout {
@@ -857,6 +889,25 @@ mod tests {
     fn sanitize_mount_name_keeps_ordinary_names() {
         assert_eq!(sanitize_mount_name("my-service"), Some("my-service".into()));
         assert_eq!(sanitize_mount_name("Api_2.0"), Some("Api_2.0".into()));
+    }
+
+    #[test]
+    fn a_checkout_still_tells_an_older_sandbox_it_uses_no_ssh() {
+        let checkout = RepoCheckout {
+            clone_url: "https://github.com/owner/service.git".into(),
+            branch: None,
+            repository_id: "repo_1".into(),
+            provider: "github".into(),
+            mount_name: "service".into(),
+            is_primary: true,
+        };
+        let json = serde_json::to_value(&checkout).unwrap();
+        assert_eq!(json["usesSsh"], false);
+        assert_eq!(json["cloneUrl"], "https://github.com/owner/service.git");
+        assert_eq!(
+            serde_json::from_value::<RepoCheckout>(json).unwrap(),
+            checkout
+        );
     }
 
     #[test]

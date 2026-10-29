@@ -102,6 +102,7 @@ async fn a_user_message_needs_write_not_read(pool: PgPool) {
     let mut readable = make_task_row("t-readable", "user-1");
     readable.workspace_id = Some("ws-a".to_string());
     readable.scope = moatless_types::access_control::Scope::Global;
+    readable.owner_user_id = None;
     moatless_tasks::task::test_support::seed_task(&pool, &readable)
         .await
         .unwrap();
