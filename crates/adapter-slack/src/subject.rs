@@ -11,6 +11,9 @@ use super::adapter::SlackAdapter;
 
 const SUBJECT_KIND: &str = "slack_thread";
 
+/// A Task Room's subject: the whole channel, rather than one thread in it.
+const ROOM_SUBJECT_KIND: &str = "slack_channel";
+
 /// The Slack coordinates a thread-properties bag names.
 ///
 /// `AdapterDestinationBuilder` keeps this bag as an untyped
@@ -206,6 +209,26 @@ pub(super) fn direct_destination(
 /// The subject kind every Slack Binding carries.
 pub(super) const fn subject_kind() -> &'static str {
     SUBJECT_KIND
+}
+
+/// The subject kind a Task Room's Binding carries.
+pub(super) const fn room_subject_kind() -> &'static str {
+    ROOM_SUBJECT_KIND
+}
+
+/// The subject key a message in `channel` probes for a Task Room.
+pub(super) fn room_subject_key(team: &str, channel: &str) -> String {
+    let team = if team.is_empty() { "default" } else { team };
+    format!("{team}:{channel}")
+}
+
+/// The Binding a Task Room in `channel` is held by.
+pub(super) fn room_destination(team: &str, channel: &str) -> BindingDestination {
+    BindingDestination::new(
+        ROOM_SUBJECT_KIND,
+        room_subject_key(team, channel),
+        serde_json::json!({ "channel": channel, "team_id": team }),
+    )
 }
 
 /// The Binding a thread-properties bag names.

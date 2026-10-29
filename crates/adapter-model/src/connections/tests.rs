@@ -45,6 +45,7 @@ fn subscription(id: &str, connection_id: &str, source_matcher: &str) -> Subscrip
         settle_after_hours: None,
         node_selector: None,
         stop_when_done: None,
+        room: None,
         message_buffer_seconds: None,
         allow_direct_send: true,
         adapter_config: None,

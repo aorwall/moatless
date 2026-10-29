@@ -37,6 +37,7 @@ fn review_loop(adapter_config: serde_json::Value) -> SubscriptionMatch {
         settle_after_hours: None,
         node_selector: None,
         stop_when_done: None,
+        room: None,
         message_buffer_seconds: None,
         allow_direct_send: false,
         adapter_config: Some(adapter_config),

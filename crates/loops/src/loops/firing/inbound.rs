@@ -117,6 +117,7 @@ pub async fn create_task_from_loop(
             memory_preload: config.memory_preload.clone(),
             related_to: params.related_to,
             event_metadata: params.event_metadata,
+            room: config.room.clone(),
         })
         .await?;
 
@@ -210,6 +211,7 @@ mod tests {
             updated_at: now,
             node_selector: None,
             stop_when_done: false,
+            room: None,
         }
     }
 

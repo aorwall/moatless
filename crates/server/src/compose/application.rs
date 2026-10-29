@@ -264,11 +264,16 @@ impl AppState {
         // routing logic in `bindings/runtime.rs` names none of them through
         // `AppState`. The loops band supplies the Binding, Loop and receipt
         // stores; this process supplies the foreign ports.
+        let loop_task_opener: Arc<dyn moatless_ports::task::TaskOpener> =
+            Arc::new(moatless_loops::rooms::RoomOpeningTaskOpener::new(
+                task_creation.clone(),
+                adapter_delivery.clone(),
+            ));
         let routing = loop_graph.routing(RoutingInputs {
             adapter_connections: connection_routing.clone(),
             messages: transcript.clone(),
             tasks: task_reader.clone(),
-            task_creation: task_creation.clone(),
+            task_creation: loop_task_opener.clone(),
             message_send: message_send.clone(),
             sandbox_waker: sandbox_waker.clone(),
             adapters: adapters.clone(),
@@ -321,6 +326,7 @@ impl AppState {
             tasks,
             task_reader,
             task_creation,
+            loop_task_opener,
             task_fork,
             task_rewind,
             task_switch,

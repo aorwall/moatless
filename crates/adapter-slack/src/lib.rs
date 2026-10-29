@@ -22,6 +22,7 @@ mod ingress;
 mod outbound;
 mod presentation;
 mod reactions;
+mod room;
 mod signature;
 mod subject;
 mod text;

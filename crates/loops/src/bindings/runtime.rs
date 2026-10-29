@@ -153,6 +153,13 @@ impl RoutingService {
                 })
             })?;
 
+        // A Task Room's channel matches no Loop; its events were admitted
+        // under the connection alone.
+        if SubscriptionMatch::is_delivery_only_id(loop_id) {
+            let subscription = delivery_only_subscription(&connection, connection.adapter_kind, "");
+            return Ok((connection, subscription));
+        }
+
         let subscription = self
             .loops
             .find_runnable_subscription_by_id(loop_id)
@@ -661,6 +668,10 @@ impl RoutingService {
         subscription: &SubscriptionMatch,
         bindings: &[TaskBinding],
     ) -> Result<bool, AdapterError> {
+        // No Loop stands behind it, so nothing authorizes a new Task.
+        if subscription.is_delivery_only() {
+            return Ok(false);
+        }
         if subscription.routing_mode != RoutingMode::Ongoing {
             return Ok(bindings.is_empty());
         }

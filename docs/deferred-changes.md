@@ -295,6 +295,22 @@ shared warm Sandbox is observed holding members that disagree, with the
 pod-level column kept as the default a member inherits when it asks for
 nothing.
 
+## Task Rooms
+
+Phase 1 of `.plans/slack-code-channels.md` opens and binds a room; these are the
+gaps it left.
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| A room never reflects its Task's state or closes with it | `crates/loops/src/rooms.rs` opens and binds only. No `TaskEventSubscriber` sets the Slack session status or archives the channel, and the stop button is not wired | Phases 2 and 3 of `.plans/slack-code-channels.md` |
+| Only `LOOP.md` can give a Loop a room | `crates/loops/src/loops/models.rs::NewLoopConfig::room` is written on insert from `sync/resolve.rs` only; `operations.rs` passes `None` and the HTTP API and `moat loops` carry no `room` field | When a Loop created through the API or CLI needs a room |
+| A Loop's `room.connection` is read without a scope check | `crates/loops/src/rooms.rs::TaskRooms::connection` reads `RoomSpec::connection_id` with `by_id_trusted`, so a Loop author can open rooms on any connection of the same Adapter kind | When Loop authors are not all trusted administrators of every connection. A fix checks the connection's scope against the Loop's run-as identity |
+| A retried room can announce itself twice | `crates/adapter-slack/src/room.rs::announce` posts the kickoff before `agents.conversations.create`; a create that fails after the post repeats the post on the retry, while the channel itself is idempotent on `session_id` | When a duplicate kickoff is seen in a room's anchor channel. A fix records the kickoff `ts` in the delivery payload before creating |
+| A room request that fails admission is lost | `crates/loops/src/rooms.rs::RoomOpeningTaskOpener::open` logs `Task Room not requested` and keeps the Task | When that warning shows in the logs. A fix admits inside the task-creation transaction |
+| Every Slack event probes for a room | `crates/adapter-slack/src/room.rs::route` runs one `BindingProbe::is_bound` per event before the Loop lookup | When that query shows in a Slack webhook trace |
+| Re-attaching an event's author can revive a deactivated Binding | `crates/loops/src/bindings/runtime.rs::route_inbound_message` re-binds `origin_task_id` as `connected_thread`; with a delivery-only Subscription that bind fails only because the `virtual:` id breaks the `task_bindings.loop_id` foreign key, which `github_webhook_redelivery_test::durable_workflows_preserve_audience_fallback_and_github_call_budgets` relies on | When a delivery-only `loop_id` is kept out of `task_bindings`, or when a Task Room event with a `source_task_id` from a Task holding no active room Binding is retried on that foreign key. A fix skips the re-bind when the author's Binding on the subject is inactive |
+| A room message routes by workspace, not by the room's own connection | `crates/adapter-slack/src/room.rs::route` picks the connection with `by_scope_value("slack", team_id)`, not the room Binding's `connection_id` | When one Slack workspace installs more than one Moatless app |
+
 ## Git-only Workspaces
 
 | Deferred | Anchor | Entry condition |

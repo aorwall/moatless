@@ -28,6 +28,9 @@ features:
   bot_user:
     display_name: Moatless
     always_online: true
+  # Task Rooms: a Loop's `room: {via: slack}` opens one code channel per Task.
+  code_channels:
+    enabled: true
   slash_commands:
     - command: /moat
       url: https://YOUR_DOMAIN/api/v1/adapters/slack/slash
@@ -41,12 +44,15 @@ oauth_config:
       - app_mentions:read
       - channels:history
       - channels:read
+      - channels:manage
       - chat:write
+      - code_channels:manage
       - commands
       - files:read
       - files:write
       - groups:history
       - groups:read
+      - groups:write
       - im:history
       - im:read
       - im:write

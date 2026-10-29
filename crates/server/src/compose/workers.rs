@@ -73,7 +73,7 @@ pub(crate) fn schedule_runner(
         tasks: app_state.task_reader.clone(),
         message_send: app_state.message_send.clone(),
         adapters: app_state.adapters.clone(),
-        task_creation: app_state.task_creation.clone(),
+        task_creation: app_state.loop_task_opener.clone(),
         sandbox_waker: app_state.sandbox_waker.clone(),
         worker_id: app_state.config.server.worker_identity.clone(),
     })

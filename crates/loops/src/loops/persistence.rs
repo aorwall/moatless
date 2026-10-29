@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 use moatless_types::access_control::Scope;
 use moatless_types::adapter::AdapterKind;
 use moatless_types::agent::AgentProfile;
-use moatless_types::loops::{RoutingMode, SubscriptionMatch};
+use moatless_types::loops::{RoomSpec, RoutingMode, SubscriptionMatch};
 use std::collections::BTreeMap;
 
 /// Row from the `loop_configs` table.
@@ -30,6 +30,7 @@ pub struct LoopSpawnConfigRow {
     pub node_selector: Option<sqlx::types::Json<BTreeMap<String, String>>>,
     pub stop_when_done: Option<bool>,
     pub message_buffer_seconds: Option<i32>,
+    pub room: Option<serde_json::Value>,
     #[sqlx(try_from = "String")]
     pub scope: Scope,
     pub owner_user_id: Option<String>,
@@ -40,6 +41,7 @@ pub struct LoopSpawnConfigRow {
 
 impl From<LoopSpawnConfigRow> for LoopSpawnConfig {
     fn from(row: LoopSpawnConfigRow) -> Self {
+        let room = decode_room(&row.id, row.room);
         Self {
             agent_profile: row.agent_profile,
             model: row.model,
@@ -58,6 +60,7 @@ impl From<LoopSpawnConfigRow> for LoopSpawnConfig {
             node_selector: row.node_selector.map(|json| json.0),
             stop_when_done: row.stop_when_done,
             message_buffer_seconds: row.message_buffer_seconds,
+            room,
             scope: row.scope,
             owner_user_id: row.owner_user_id,
             created_by: row.created_by,
@@ -94,6 +97,7 @@ pub struct SubscriptionMatchRow {
     pub node_selector: Option<sqlx::types::Json<BTreeMap<String, String>>>,
     pub stop_when_done: Option<bool>,
     pub message_buffer_seconds: Option<i32>,
+    pub room: Option<serde_json::Value>,
     pub allow_direct_send: bool,
     pub adapter_config: Option<serde_json::Value>,
     pub ongoing_task_id: Option<String>,
@@ -110,6 +114,7 @@ pub struct SubscriptionMatchRow {
 
 impl From<SubscriptionMatchRow> for SubscriptionMatch {
     fn from(row: SubscriptionMatchRow) -> Self {
+        let room = decode_room(&row.id, row.room);
         Self {
             adapter_kind: AdapterKind::parse_or_webhook(&row.adapter_kind),
             agent_profile: row.agent_profile,
@@ -133,6 +138,7 @@ impl From<SubscriptionMatchRow> for SubscriptionMatch {
             node_selector: row.node_selector.map(|json| json.0),
             stop_when_done: row.stop_when_done,
             message_buffer_seconds: row.message_buffer_seconds,
+            room,
             allow_direct_send: row.allow_direct_send,
             adapter_config: row.adapter_config,
             ongoing_task_id: row.ongoing_task_id,
@@ -146,6 +152,15 @@ impl From<SubscriptionMatchRow> for SubscriptionMatch {
             updated_at: row.updated_at,
         }
     }
+}
+
+/// Decode `loop_configs.room`, leniently: a value this build cannot read (an
+/// Adapter it does not know) opens no room rather than failing every read of
+/// the Loop.
+pub(crate) fn decode_room(loop_id: &str, room: Option<serde_json::Value>) -> Option<RoomSpec> {
+    serde_json::from_value(room?)
+        .map_err(|e| tracing::warn!(loop_id, error = %e, "Unreadable Loop room, opening none"))
+        .ok()
 }
 
 /// Row from the `schedules` table.

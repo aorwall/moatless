@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use moatless_adapter_model::binding::ADAPTER_EVENT_BINDING_ORIGIN;
+use moatless_adapter_model::binding::{ADAPTER_EVENT_BINDING_ORIGIN, ROOM_BINDING_ORIGIN};
 use moatless_adapter_model::outbound::{OutboundReply, TaskProvenance};
 use moatless_api_schemas::bindings::SendTaskReplyResponse;
 use moatless_api_schemas::message::ReplyToMessageResponse;
@@ -441,6 +441,23 @@ fn select_binding_for_reply<'a>(
     candidates: &[String],
     subject_key: Option<&str>,
 ) -> Option<&'a TaskBinding> {
+    // The room outranks the thread that opened it, so a Task answering that
+    // mention answers in the room; any other named subject is honoured.
+    let on_candidate = |b: &&TaskBinding| candidates.iter().any(|c| c == b.adapter_kind.as_str());
+    let names_ingress = |sk: &str| {
+        rows.iter()
+            .filter(on_candidate)
+            .any(|b| b.origin == ADAPTER_EVENT_BINDING_ORIGIN && b.subject_key == sk)
+    };
+    if subject_key.is_none_or(names_ingress) {
+        if let Some(room) = rows
+            .iter()
+            .filter(on_candidate)
+            .find(|b| b.active && b.origin == ROOM_BINDING_ORIGIN)
+        {
+            return Some(room);
+        }
+    }
     if let Some(sk) = subject_key {
         if let Some(binding) = rows.iter().find(|b| {
             candidates.iter().any(|c| c == b.adapter_kind.as_str()) && b.subject_key == sk
@@ -580,5 +597,52 @@ mod tests {
         let selected = select_binding_for_reply(&rows, &candidates, None)
             .expect("first slack binding should be selected");
         assert_eq!(selected.id, "bind_a");
+    }
+
+    /// The Task answering the mention that opened its room answers in the
+    /// room; another named thread, or a reply on another Adapter, does not.
+    #[test]
+    fn an_active_room_outranks_the_replied_to_thread_on_its_own_adapter() {
+        let rows = vec![
+            binding_origin(
+                "bind_thread",
+                "slack",
+                "T06:C0A:thread_a",
+                ADAPTER_EVENT_BINDING_ORIGIN,
+            ),
+            binding_origin("bind_room", "slack", "T06:C0ROOM", ROOM_BINDING_ORIGIN),
+            binding_origin(
+                "bind_linear",
+                "linear",
+                "SP-1",
+                ADAPTER_EVENT_BINDING_ORIGIN,
+            ),
+        ];
+
+        let slack = vec!["slack".to_string()];
+        let selected = select_binding_for_reply(&rows, &slack, Some("T06:C0A:thread_a")).unwrap();
+        assert_eq!(selected.id, "bind_room");
+
+        let linear = vec!["linear".to_string()];
+        let selected = select_binding_for_reply(&rows, &linear, Some("SP-1")).unwrap();
+        assert_eq!(selected.id, "bind_linear");
+
+        let mut connected = rows.clone();
+        connected.push(binding_origin(
+            "bind_other",
+            "slack",
+            "T06:C0B:thread_b",
+            moatless_adapter_model::binding::CONNECTED_THREAD_BINDING_ORIGIN,
+        ));
+        let selected =
+            select_binding_for_reply(&connected, &slack, Some("T06:C0B:thread_b")).unwrap();
+        assert_eq!(selected.id, "bind_other");
+        let selected = select_binding_for_reply(&connected, &slack, None).unwrap();
+        assert_eq!(selected.id, "bind_room");
+
+        let mut closed = rows.clone();
+        closed[1].active = false;
+        let selected = select_binding_for_reply(&closed, &slack, Some("T06:C0A:thread_a")).unwrap();
+        assert_eq!(selected.id, "bind_thread");
     }
 }

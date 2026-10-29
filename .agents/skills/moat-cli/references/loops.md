@@ -71,6 +71,18 @@ requireLabels: [agent]              # optional — issue must carry all of these
 Pick up this Linear ticket, implement it, and open a PR linked back to the issue.
 ```
 
+A `room` gives every task the Loop spawns its own **Task Room**: a Slack code
+channel bound to the task, where every message reaches it and its replies land.
+
+```yaml
+room:
+  via: slack                 # the Adapter that hosts the room
+  in: "channel:C0FACTORY"    # where it is announced; required unless `on` is `via`, refused when it is
+  invite: [requester]        # requester, runAs, or Moatless logins
+  private: true              # omit to follow the announcing channel
+  # connection: <id>         # optional; defaults to the event's, else the only one
+```
+
 ```bash
 moat repos sync-config <repo-id>   # sync now instead of waiting (admin only)
 moat loops list                    # synced loops show up here

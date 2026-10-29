@@ -79,6 +79,18 @@ impl AdapterInstallations {
         TelegramInstallation::register_delivery(&mut handlers, state);
         self.github_pr.register_delivery(&mut handlers, state);
         self.linear.register_delivery(&mut handlers, state);
+        if let Some(adapters) = &state.adapters {
+            handlers.register(
+                moatless_loops::rooms::ROOM_OPEN_KIND,
+                Arc::new(moatless_loops::rooms::TaskRooms::new(
+                    adapters.clone(),
+                    state.connection_routing.clone(),
+                    state.task_bindings.clone(),
+                    state.user_directory.clone(),
+                    &state.auth_config.frontend_url,
+                )),
+            );
+        }
         handlers
     }
 
@@ -253,7 +265,7 @@ impl GithubPrInstallation {
                 state.transcript.clone(),
                 state.relation_recorder.clone(),
                 state.task_reader.clone(),
-                state.task_creation.clone(),
+                state.loop_task_opener.clone(),
                 state.message_send.clone(),
                 state.task_closer.clone(),
                 Arc::new(GuideTasks(state.review_guides.clone())),
@@ -318,7 +330,7 @@ impl LinearInstallation {
                 state.loop_reader.clone(),
                 state.task_bindings.clone(),
                 state.task_reader.clone(),
-                state.task_creation.clone(),
+                state.loop_task_opener.clone(),
                 state.relation_recorder.clone(),
                 state.message_send.clone(),
                 state.sandbox_waker.clone(),

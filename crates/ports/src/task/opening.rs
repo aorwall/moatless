@@ -45,6 +45,10 @@ pub struct NewTask {
     /// Merged into the Task's own creation event. The task band forwards it
     /// untouched.
     pub event_metadata: serde_json::Value,
+    /// The Task Room the Loop declares. The task band ignores it: the opener
+    /// that decorates it for every Loop path requests the room once the Task
+    /// exists.
+    pub room: Option<moatless_types::loops::RoomSpec>,
 }
 
 /// What became of the sandbox a freshly-opened Task asked for.

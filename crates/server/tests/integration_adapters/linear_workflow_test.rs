@@ -274,6 +274,7 @@ pub(super) async fn seed_rule_routed(
             settle_after_hours: None,
             node_selector: None,
             stop_when_done: None,
+            room: None,
             message_buffer_seconds: None,
             allow_direct_send: false,
             // `close_task_on_close` is a scalar column on the Subscription, not

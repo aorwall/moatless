@@ -52,6 +52,7 @@ pub(super) fn test_rule(
         settle_after_hours: None,
         node_selector: None,
         stop_when_done: None,
+        room: None,
         message_buffer_seconds: None,
         allow_direct_send: true,
         adapter_config: None,
@@ -131,6 +132,7 @@ pub(super) fn test_loop_context(source_id: &str) -> LoopContext {
         updated_at: now,
         node_selector: None,
         stop_when_done: false,
+        room: None,
     }
 }
 

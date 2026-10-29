@@ -120,6 +120,7 @@ async fn seed_bound_thread(state: &AppState, pool: &PgPool, window: i32) {
             settle_after_hours: None,
             node_selector: None,
             stop_when_done: None,
+            room: None,
             // The whole subject of this file. Slack buffers for nothing by
             // default, so every window here is the Loop's own.
             message_buffer_seconds: Some(window),

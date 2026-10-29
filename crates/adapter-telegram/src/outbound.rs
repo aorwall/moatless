@@ -101,6 +101,7 @@ impl AdapterBindingReply for TelegramAdapter {
                 updated_at: binding.last_event_at,
                 node_selector: None,
                 stop_when_done: false,
+                room: None,
             },
             moatless_adapter_model::loops::subscription_context,
         );

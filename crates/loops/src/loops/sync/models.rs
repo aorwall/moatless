@@ -114,6 +114,10 @@ pub struct LoopFrontmatter {
     /// buffering off.
     #[serde(default)]
     pub message_buffer_seconds: Option<i32>,
+    /// The Task Room every task this Loop spawns gets
+    /// ([`moatless_types::loops::RoomSpec`]).
+    #[serde(default)]
+    pub room: Option<moatless_types::loops::RoomSpec>,
     /// See [`crate::loops::models::NewLoopConfig::fallback_to_other_agent`].
     /// `None` is on.
     #[serde(default)]

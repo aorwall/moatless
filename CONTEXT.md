@@ -287,6 +287,13 @@ contributor or commenter — and each Adapter maps its own actions onto those
 roles. A commenter hears only what its Adapter marks as answering its writing.
 _Avoid_: task connection, connection, thread
 
+**Task Room**:
+A conversation space an Adapter opens for one Task and binds it to for the
+Task's life — on Slack, a code channel. A Loop declares it with `room` in
+`LOOP.md`; every message in the room reaches the Task, and the Task's replies go
+there first.
+_Avoid_: code channel (Slack's name for its implementation), session
+
 **Sender**:
 The external system on the other end of an Adapter, in its role of delivering an
 inbound event to us — Slack, Linear, GitHub, or an arbitrary client calling the

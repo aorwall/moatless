@@ -63,15 +63,15 @@ enum Verifiable {
 
 /// Where one event is going: the routing pair it matched, the destination it
 /// binds to, and whether that thread is already tracked.
-struct Routed {
+pub(super) struct Routed {
     /// The event's own channel, which every log line below is keyed by.
-    source_id: String,
-    connection_id: String,
-    app_key: String,
-    subscription_id: String,
-    config: LoopContext,
-    destination: BindingDestination,
-    is_tracked_thread: bool,
+    pub(super) source_id: String,
+    pub(super) connection_id: String,
+    pub(super) app_key: String,
+    pub(super) subscription_id: String,
+    pub(super) config: LoopContext,
+    pub(super) destination: BindingDestination,
+    pub(super) is_tracked_thread: bool,
 }
 
 /// Read the request body, which every step below works from.
@@ -132,6 +132,18 @@ async fn resolve(
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .unwrap_or("default");
+    if let Some(routed) = super::room::route(
+        adapter_connections,
+        task_bindings,
+        adapter,
+        team_id,
+        source_id,
+    )
+    .await?
+    {
+        return Ok(Routing::Verifiable(Verifiable::Routed(Box::new(routed))));
+    }
+
     let Some((connection, subscription)) =
         moatless_adapter_model::connections::resolve_chat_provider_event(
             adapter_connections,
@@ -556,6 +568,7 @@ mod characterization {
             updated_at: now,
             node_selector: None,
             stop_when_done: false,
+            room: None,
         }
     }
 

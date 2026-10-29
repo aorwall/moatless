@@ -156,6 +156,9 @@ pub struct AppState {
     /// Single owner of the create-then-provision sequence (short-id, preflight,
     /// insert, tags, relations, provision, first message, event).
     pub task_creation: Arc<TaskCreationService>,
+    /// `task_creation` as every Loop path opens Tasks: it also requests the
+    /// Task Room a Loop declares ([`moatless_loops::rooms`]).
+    pub loop_task_opener: Arc<dyn moatless_ports::task::TaskOpener>,
     /// Resolves where a fork cuts and copies the parent's conversation onto it.
     /// The create itself still goes through `task_creation`.
     pub task_fork: Arc<TaskForkService>,

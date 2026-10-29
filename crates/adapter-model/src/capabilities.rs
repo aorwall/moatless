@@ -279,3 +279,47 @@ pub trait AdapterBindingStatus: Send + Sync {
         None
     }
 }
+
+/// One Task Room to open, everything resolved but the Adapter's own calls.
+#[derive(Debug, Clone)]
+pub struct RoomRequest {
+    /// The idempotency key: opening again for the same Task returns its room.
+    pub task_id: String,
+    pub title: String,
+    /// The triggering event's own Binding, when it came through the hosting
+    /// Adapter. The room is opened from it.
+    pub origin: Option<TaskBinding>,
+    /// Where to announce a room with no `origin`, in the hosting Adapter's
+    /// destination syntax ([`moatless_types::loops::RoomSpec::anchor`]).
+    pub anchor: Option<String>,
+    /// Provider account ids to add, already resolved from Moatless users.
+    pub invitees: Vec<String>,
+    /// See [`moatless_types::loops::RoomSpec::private`].
+    pub private: Option<bool>,
+    /// `{frontend_url}/tasks/{task_id}`, for the announcement. `None` when no
+    /// frontend URL is configured.
+    pub task_url: Option<String>,
+}
+
+/// A room an Adapter opened: the Binding the Task is tied to it by.
+#[derive(Debug, Clone)]
+pub struct RoomOpened {
+    pub destination: BindingDestination,
+}
+
+/// Hosts Task Rooms: a dedicated conversation space per Task, which the Task
+/// is bound to for its life.
+#[async_trait::async_trait]
+pub trait AdapterTaskRoom: Adapter {
+    /// Open the room for `request.task_id`, or return the one already open.
+    ///
+    /// Must be idempotent per `task_id`: the caller is a durable delivery that
+    /// can run again after the room was opened. Returns
+    /// [`SharedAdapterError::BadRequest`] when `request` has neither an
+    /// `origin` nor an `anchor` it can open from.
+    async fn open_room(
+        &self,
+        connection: &AdapterConnection,
+        request: &RoomRequest,
+    ) -> Result<RoomOpened, AdapterError>;
+}

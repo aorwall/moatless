@@ -558,6 +558,76 @@ impl SlackApi {
         Ok(channel.id)
     }
 
+    /// Create a code channel for `request.session_id`, or return the one
+    /// already open for it (`agents.conversations.create`).
+    pub async fn create_code_channel(
+        &self,
+        request: &CodeChannelRequest<'_>,
+    ) -> Result<String, AdapterError> {
+        let mut body = serde_json::json!({
+            "name": request.name,
+            "session_id": request.session_id,
+        });
+        if let Some((channel, ts)) = request.origin {
+            body["origin_channel_id"] = channel.into();
+            body["origin_message_ts"] = ts.into();
+        }
+        if let Some(private) = request.private {
+            body["is_private"] = private.into();
+        }
+        let method = "agents.conversations.create";
+        let resp: CodeChannelResponse = self
+            .client
+            .post(format!("{}/{method}", self.base_url))
+            .bearer_auth(&self.token)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| SharedAdapterError::provider_unreachable(method, e))?
+            .json()
+            .await
+            .map_err(|e| SharedAdapterError::provider_response_invalid(method, e))?;
+        if !resp.ok {
+            let err = resp.error.unwrap_or_default();
+            let why = format!("{method}: {err}");
+            return Err(if CODE_CHANNEL_REFUSALS.contains(&err.as_str()) {
+                SharedAdapterError::BadRequest(why)
+            } else {
+                SharedAdapterError::AdapterApi(why)
+            }
+            .into());
+        }
+        resp.channel_id.ok_or_else(|| {
+            SharedAdapterError::AdapterApi(format!("{method}: missing channel_id")).into()
+        })
+    }
+
+    /// Add `users` to `channel` (`conversations.invite`). Someone already a
+    /// member is not an error.
+    pub async fn invite(&self, channel: &str, users: &[String]) -> Result<(), AdapterError> {
+        let body = serde_json::json!({ "channel": channel, "users": users.join(",") });
+        let method = "conversations.invite";
+        let resp: SimpleOkResponse = self
+            .client
+            .post(format!("{}/{method}", self.base_url))
+            .bearer_auth(&self.token)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| SharedAdapterError::provider_unreachable(method, e))?
+            .json()
+            .await
+            .map_err(|e| SharedAdapterError::provider_response_invalid(method, e))?;
+        match (resp.ok, resp.error.as_deref()) {
+            (true, _) | (false, Some("already_in_channel")) => Ok(()),
+            (false, err) => Err(SharedAdapterError::AdapterApi(format!(
+                "{method}: {}",
+                err.unwrap_or_default()
+            ))
+            .into()),
+        }
+    }
+
     /// Add an emoji reaction to a Slack message.
     ///
     /// `name` is a bare reaction name (e.g. `thumbsup`, not `:thumbsup:`).
@@ -631,6 +701,44 @@ impl SlackApi {
 
         Ok(())
     }
+}
+
+/// One `agents.conversations.create` call.
+pub struct CodeChannelRequest<'a> {
+    pub name: &'a str,
+    /// Idempotency key: a second call with it returns the same channel.
+    pub session_id: &'a str,
+    /// `(channel, ts)` of the message the channel is opened from. Slack
+    /// invites its author and unfurls a card under it.
+    pub origin: Option<(&'a str, &'a str)>,
+    /// `None` follows the origin channel's privacy.
+    pub private: Option<bool>,
+}
+
+/// `agents.conversations.create` errors no retry can change: the workspace,
+/// app or origin message rules the room out. Any other error stays retryable.
+const CODE_CHANNEL_REFUSALS: &[&str] = &[
+    "app_not_installed_on_team",
+    "channel_not_viewable",
+    "feature_disabled",
+    "invalid_agent",
+    "invalid_origin_link",
+    "missing_scope",
+    "name_or_origin_required",
+    "no_shared_workspace",
+    "not_allowed_token_type",
+    "origin_channel_externally_shared",
+    "origin_channel_is_file_channel",
+    "restricted_action",
+    "team_not_found",
+    "user_not_enabled",
+];
+
+#[derive(Deserialize)]
+struct CodeChannelResponse {
+    ok: bool,
+    error: Option<String>,
+    channel_id: Option<String>,
 }
 
 #[derive(Deserialize)]

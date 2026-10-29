@@ -53,6 +53,7 @@ fn loop_task(workspace_id: &str) -> NewTask {
         settle_after_hours: None,
         node_selector: None,
         stop_when_done: false,
+        room: None,
         tag_ids: Vec::new(),
         memory_preload: Vec::new(),
         skills: Vec::new(),

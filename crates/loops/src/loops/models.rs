@@ -5,7 +5,7 @@ use moatless_types::{
     access_control::Scope,
     adapter::AdapterKind,
     agent::AgentProfile,
-    loops::{LoopConfigSource, LoopKind, RoutingMode},
+    loops::{LoopConfigSource, LoopKind, RoomSpec, RoutingMode},
 };
 
 /// The `loop_configs` row a Loop spawns Tasks from.
@@ -34,6 +34,8 @@ pub struct LoopSpawnConfig {
     pub stop_when_done: Option<bool>,
     /// See [`moatless_types::loops::SubscriptionMatch::message_buffer_seconds`].
     pub message_buffer_seconds: Option<i32>,
+    /// See [`moatless_types::loops::LoopContext::room`].
+    pub room: Option<RoomSpec>,
     pub scope: Scope,
     pub owner_user_id: Option<String>,
     pub created_by: String,
@@ -205,6 +207,9 @@ pub struct NewLoopConfig {
     pub stop_when_done: Option<bool>,
     /// See [`moatless_types::loops::SubscriptionMatch::message_buffer_seconds`].
     pub message_buffer_seconds: Option<i32>,
+    /// See [`moatless_types::loops::LoopContext::room`]. Written on insert
+    /// only: `LOOP.md` is its one author, and an HTTP update leaves it alone.
+    pub room: Option<RoomSpec>,
     /// Re-run a spawned Task's turn on the other harness once when the
     /// provider will not serve it: a usage limit, or a rate limit or an
     /// unavailable provider that outlasted retries. Read when the turn errors,
@@ -291,6 +296,8 @@ pub struct ManagedLoopUpsert {
     pub stop_when_done: Option<bool>,
     /// See [`moatless_types::loops::SubscriptionMatch::message_buffer_seconds`].
     pub message_buffer_seconds: Option<i32>,
+    /// See [`moatless_types::loops::LoopContext::room`].
+    pub room: Option<RoomSpec>,
     /// See [`NewLoopConfig::fallback_to_other_agent`].
     pub fallback_to_other_agent: bool,
     pub adapter: Option<NewAdapterEventSource>,

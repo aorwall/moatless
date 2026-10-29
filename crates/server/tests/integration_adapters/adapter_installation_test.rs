@@ -63,6 +63,7 @@ async fn installation_registers_capabilities_deliveries_and_handler_access(pool:
             "linear.notification",
             "linear.session_prompt",
             "linear.session_provision",
+            "room.open",
             "slack.inbound_message",
             "telegram.inbound_message",
             "webhook.inbound_message",

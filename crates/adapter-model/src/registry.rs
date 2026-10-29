@@ -6,7 +6,7 @@ use std::sync::Arc;
 use crate::capabilities::{
     Adapter, AdapterBindingReply, AdapterBindingStatus, AdapterDirectDestination,
     AdapterDirectMessage, AdapterInboundPresentation, AdapterMessageReply,
-    AdapterPostBindingFollowup, AdapterReactions,
+    AdapterPostBindingFollowup, AdapterReactions, AdapterTaskRoom,
 };
 use crate::error::{AdapterError, SharedAdapterError};
 
@@ -29,6 +29,7 @@ pub struct Adapters {
     reactions: HashMap<AdapterKind, Arc<dyn AdapterReactions>>,
     inbound_presentations: HashMap<AdapterKind, Arc<dyn AdapterInboundPresentation>>,
     binding_statuses: HashMap<AdapterKind, Arc<dyn AdapterBindingStatus>>,
+    task_rooms: HashMap<AdapterKind, Arc<dyn AdapterTaskRoom>>,
 }
 
 impl Default for Adapters {
@@ -49,6 +50,7 @@ impl Adapters {
             reactions: HashMap::new(),
             inbound_presentations: HashMap::new(),
             binding_statuses: HashMap::new(),
+            task_rooms: HashMap::new(),
         }
     }
 
@@ -108,6 +110,27 @@ impl Adapters {
         provider: Arc<dyn AdapterBindingStatus>,
     ) {
         self.binding_statuses.insert(kind, provider);
+    }
+
+    pub fn register_task_room(&mut self, provider: Arc<dyn AdapterTaskRoom>) {
+        self.task_rooms.insert(provider.adapter_kind(), provider);
+    }
+
+    /// The Adapter that hosts Task Rooms on `adapter_kind`.
+    pub fn task_room(
+        &self,
+        adapter_kind: AdapterKind,
+    ) -> Result<&dyn AdapterTaskRoom, AdapterError> {
+        self.task_rooms
+            .get(&adapter_kind)
+            .map(Arc::as_ref)
+            .ok_or_else(|| {
+                SharedAdapterError::BadRequest(format!(
+                    "{} adapter does not host Task Rooms",
+                    adapter_kind.as_str()
+                ))
+                .into()
+            })
     }
 
     pub fn get(&self, adapter_kind: AdapterKind) -> Option<&Arc<dyn Adapter>> {

@@ -316,6 +316,7 @@ mod tests {
             settle_after_hours: None,
             node_selector: None,
             stop_when_done: None,
+            room: None,
             message_buffer_seconds: None,
             allow_direct_send: false,
             created_by: "creator".into(),

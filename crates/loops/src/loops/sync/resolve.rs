@@ -33,6 +33,7 @@ pub(super) struct ResolvedLoop {
     settle_after_hours: Option<i32>,
     stop_when_done: Option<bool>,
     message_buffer_seconds: Option<i32>,
+    room: Option<moatless_types::loops::RoomSpec>,
     fallback_to_other_agent: bool,
     adapter: Option<ResolvedAdapterSource>,
     schedule: Option<ResolvedScheduleSource>,
@@ -71,6 +72,26 @@ fn declared_memory_preload(fm: &LoopFrontmatter) -> Result<Vec<String>, String> 
     moatless_types::memory::checked_preload(fm.memory.clone().unwrap_or_default().preload)
 }
 
+/// `in` is required exactly when `via` is not the Loop's `on`: the triggering
+/// event is the room's origin otherwise, and an `in` beside it would let the
+/// room open from an announcement before that event's thread is bound.
+fn checked_room(fm: &LoopFrontmatter) -> Result<(), String> {
+    let Some(room) = &fm.room else {
+        return Ok(());
+    };
+    let on = fm.on.trim();
+    match (room.anchor.is_some(), on == room.via.as_str()) {
+        (false, false) => Err(format!(
+            "room: `in` is required when `via` ({}) is not the Loop's `on` ({on})",
+            room.via
+        )),
+        (true, true) => Err(format!(
+            "room: `in` must be omitted when `via` is the Loop's `on` ({on}); the room opens from the triggering thread"
+        )),
+        _ => Ok(()),
+    }
+}
+
 impl LoopSyncService {
     /// Resolve a parsed loop into concrete persistence values, or a skip
     /// reason.
@@ -91,6 +112,10 @@ impl LoopSyncService {
                 Err(e) => return Ok(ResolveOutcome::Skipped(format!("invalid routingMode: {e}"))),
             },
         };
+
+        if let Err(e) = checked_room(fm) {
+            return Ok(ResolveOutcome::Skipped(e));
+        }
 
         // A named Workspace must be one this repository is placed in: firing into
         // any other would run the Loop against a checkout it never declared. An
@@ -385,6 +410,7 @@ impl LoopSyncService {
             settle_after_hours: fm.settle_after_hours,
             stop_when_done: fm.stop_when_done,
             message_buffer_seconds: fm.message_buffer_seconds,
+            room: fm.room.clone(),
             fallback_to_other_agent: fm.fallback_to_other_agent.unwrap_or(true),
             adapter,
             schedule,
@@ -443,6 +469,7 @@ pub(super) fn managed_loop_input(
         settle_after_hours: resolved.settle_after_hours,
         stop_when_done: resolved.stop_when_done,
         message_buffer_seconds: resolved.message_buffer_seconds,
+        room: resolved.room.clone(),
         fallback_to_other_agent: resolved.fallback_to_other_agent,
         adapter,
         schedule,
@@ -567,9 +594,35 @@ mod tests {
             settle_after_hours: None,
             stop_when_done: None,
             message_buffer_seconds: None,
+            room: None,
             fallback_to_other_agent: None,
             schedule: None,
         }
+    }
+
+    #[test]
+    fn a_room_names_its_anchor_only_when_hosted_elsewhere() {
+        let room = |anchor: Option<&str>| moatless_types::loops::RoomSpec {
+            via: moatless_types::adapter::AdapterKind::Slack,
+            connection_id: None,
+            anchor: anchor.map(ToString::to_string),
+            invite: vec![],
+            private: Some(true),
+        };
+        let mut fm = linear_fm(None, None, None);
+
+        fm.room = Some(room(None));
+        assert!(checked_room(&fm).unwrap_err().contains("`in` is required"));
+
+        fm.room = Some(room(Some("channel:C0FACTORY")));
+        assert_eq!(checked_room(&fm), Ok(()));
+
+        fm.on = "slack".into();
+        fm.room = Some(room(None));
+        assert_eq!(checked_room(&fm), Ok(()));
+
+        fm.room = Some(room(Some("channel:C0FACTORY")));
+        assert!(checked_room(&fm).unwrap_err().contains("must be omitted"));
     }
 
     #[test]

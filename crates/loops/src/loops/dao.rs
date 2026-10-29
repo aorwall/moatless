@@ -1208,6 +1208,7 @@ impl LoopDao {
                       r.node_selector,
                       r.stop_when_done,
                       r.message_buffer_seconds,
+                      r.room,
                       t.scope,
                       t.owner_user_id,
                       t.created_by,
@@ -1268,6 +1269,7 @@ const SUBSCRIPTION_MATCH_SELECT: &str = r#"
            r.node_selector,
            r.stop_when_done,
            r.message_buffer_seconds,
+           r.room,
            aes.allow_direct_send,
            aes.adapter_config AS adapter_config,
            r.ongoing_task_id,
@@ -1368,6 +1370,7 @@ async fn replace_managed_loop_rows(
             node_selector: node_selector.map(|json| json.0),
             stop_when_done: input.stop_when_done,
             message_buffer_seconds: input.message_buffer_seconds,
+            room: input.room.clone(),
             fallback_to_other_agent: input.fallback_to_other_agent,
         },
     )
@@ -1393,9 +1396,9 @@ async fn insert_config(
             task_name, tag_ids, skills, run_as_user_id, agent_profile,
             close_after_settled_days, model, workspace_id, node_selector, stop_when_done,
             message_buffer_seconds, fallback_to_other_agent, memory_preload,
-            settle_after_hours)
+            settle_after_hours, room)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-                   $18)"#,
+                   $18, $19)"#,
     )
     .bind(loop_id)
     .bind(config.routing_mode.as_str())
@@ -1415,6 +1418,7 @@ async fn insert_config(
     .bind(config.fallback_to_other_agent)
     .bind(&config.memory_preload)
     .bind(config.settle_after_hours)
+    .bind(config.room.as_ref().map(sqlx::types::Json))
     .execute(&mut **tx)
     .await?;
     Ok(())

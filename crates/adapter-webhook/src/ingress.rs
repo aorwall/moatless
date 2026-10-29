@@ -222,6 +222,7 @@ mod tests {
             updated_at: chrono::Utc::now(),
             node_selector: None,
             stop_when_done: false,
+            room: None,
         }
     }
 

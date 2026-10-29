@@ -44,6 +44,15 @@ pub trait ProviderIdentityLink: Send + Sync {
         Ok(None)
     }
 
+    /// The id `user_id` is known by at `provider`.
+    async fn provider_id_for_user(
+        &self,
+        _provider: &str,
+        _user_id: &Uuid,
+    ) -> Result<Option<String>, StoreError> {
+        Ok(None)
+    }
+
     /// The user who connected `provider_user_id` at `provider` by authorizing
     /// an Adapter's app.
     ///

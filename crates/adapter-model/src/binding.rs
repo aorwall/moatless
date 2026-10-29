@@ -39,6 +39,9 @@ pub const ADAPTER_EVENT_BINDING_ORIGIN: &str = "ingress";
 pub const CONNECTED_THREAD_BINDING_ORIGIN: &str = "connected_thread";
 /// Producer: a CLI-driven endpoint filed the subject on the task's behalf.
 pub const TASK_OWNED_BINDING_ORIGIN: &str = "task_owned";
+/// Producer: the Task's own Task Room, opened for it. A reply on the room's
+/// Adapter goes here unless it names a subject other than an `ingress` one.
+pub const ROOM_BINDING_ORIGIN: &str = "room";
 
 /// The role a Binding's task holds on its subject, in `metadata.bind_reason`.
 ///

@@ -345,6 +345,7 @@ fn route_to_config(route: &LoopSpawnConfig, schedule: &Schedule) -> LoopContext 
         settle_after_hours: route.settle_after_hours,
         node_selector: route.node_selector.clone(),
         stop_when_done: route.stop_when_done.unwrap_or(false),
+        room: route.room.clone(),
         created_by: route.created_by.clone(),
         created_at: route.created_at,
         updated_at: route.updated_at,
@@ -407,6 +408,7 @@ mod tests {
             updated_at: now,
             node_selector: None,
             stop_when_done: false,
+            room: None,
         }
     }
 

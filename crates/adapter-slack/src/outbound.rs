@@ -40,11 +40,16 @@ async fn stage_files(
 
 /// Share what [`stage_files`] staged into `thread_ts`, best-effort: the text
 /// has already landed, so failing here would make the caller resend it.
-async fn share_files(api: &SlackApi, channel: &str, thread_ts: &str, staged: &[(String, String)]) {
+async fn share_files(
+    api: &SlackApi,
+    channel: &str,
+    thread_ts: Option<&str>,
+    staged: &[(String, String)],
+) {
     if staged.is_empty() {
         return;
     }
-    if let Err(e) = api.share_files(channel, Some(thread_ts), staged).await {
+    if let Err(e) = api.share_files(channel, thread_ts, staged).await {
         warn!(
             files = staged.len(),
             error = %e,
@@ -137,9 +142,13 @@ impl AdapterBindingReply for SlackAdapter {
         let channel = coordinates.channel.ok_or_else(|| {
             SharedAdapterError::Internal("No channel in thread properties".into())
         })?;
-        let thread_ts = coordinates.thread_ts.ok_or_else(|| {
-            SharedAdapterError::Internal("No thread_ts in thread properties".into())
-        })?;
+        // A room is the whole channel, so its replies post top-level.
+        let thread_ts = match coordinates.thread_ts {
+            None if thread.subject_kind == subject::room_subject_kind() => None,
+            ts => Some(ts.ok_or_else(|| {
+                SharedAdapterError::Internal("No thread_ts in thread properties".into())
+            })?),
+        };
 
         let provenance = wanted_provenance(message, config);
         let text = outbound_text(self, message, provenance).await;
@@ -151,7 +160,7 @@ impl AdapterBindingReply for SlackAdapter {
             .post_message_with(PostMessage {
                 channel,
                 text: &text,
-                thread_ts: Some(thread_ts),
+                thread_ts,
                 blocks: blocks.as_deref(),
             })
             .await?;
@@ -204,6 +213,7 @@ impl AdapterBindingReply for SlackAdapter {
                 updated_at: binding.last_event_at,
                 node_selector: None,
                 stop_when_done: false,
+                room: None,
             },
             moatless_adapter_model::loops::subscription_context,
         );
@@ -211,9 +221,13 @@ impl AdapterBindingReply for SlackAdapter {
         let channel = coordinates.channel.ok_or_else(|| {
             SharedAdapterError::Internal("No channel in thread properties".into())
         })?;
-        let thread_ts = coordinates.thread_ts.ok_or_else(|| {
-            SharedAdapterError::Internal("No thread_ts in thread properties".into())
-        })?;
+        // A room is the whole channel, so its replies post top-level.
+        let thread_ts = match coordinates.thread_ts {
+            None if binding.subject_kind == subject::room_subject_kind() => None,
+            ts => Some(ts.ok_or_else(|| {
+                SharedAdapterError::Internal("No thread_ts in thread properties".into())
+            })?),
+        };
 
         let provenance = wanted_provenance(message, &config);
         let text = outbound_text(self, message, provenance).await;
@@ -224,7 +238,7 @@ impl AdapterBindingReply for SlackAdapter {
             .post_message_with(PostMessage {
                 channel,
                 text: &text,
-                thread_ts: Some(thread_ts),
+                thread_ts,
                 blocks: blocks.as_deref(),
             })
             .await?;
@@ -283,7 +297,7 @@ impl AdapterDirectDestination for SlackAdapter {
 
         // Files share into the same thread (or under the new post when there's no thread).
         let upload_thread_ts = thread_ts.clone().unwrap_or_else(|| ts.clone());
-        share_files(&app.api, &channel, &upload_thread_ts, &staged).await;
+        share_files(&app.api, &channel, Some(&upload_thread_ts), &staged).await;
 
         // For top-level posts the binding's `thread_ts` IS the new `ts`.
         // For thread replies the binding's `thread_ts` is the ORIGINAL thread anchor
@@ -425,6 +439,7 @@ mod tests {
             updated_at: now,
             node_selector: None,
             stop_when_done: false,
+            room: None,
         }
     }
 

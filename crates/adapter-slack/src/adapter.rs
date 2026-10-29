@@ -77,6 +77,7 @@ impl SlackAdapter {
         adapters.register_direct_destination(self.clone());
         adapters.register_direct_message(self.clone());
         adapters.register_reactions(self.clone());
+        adapters.register_task_room(self.clone());
         adapters.register_inbound_presentation(kind, self);
     }
 

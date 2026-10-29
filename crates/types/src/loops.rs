@@ -74,6 +74,8 @@ pub struct LoopContext {
     /// holding the pod for the idle TTL. Keeps a long autonomous run on
     /// dedicated capacity from outliving the work it was started for.
     pub stop_when_done: bool,
+    /// The Task Room every task this Loop spawns gets. `None` opens none.
+    pub room: Option<RoomSpec>,
     pub created_by: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -91,6 +93,35 @@ impl LoopContext {
             .as_deref()
             .expect("runnable Loop must have an explicit run-as user")
     }
+}
+
+/// Where a Loop's Tasks get their Task Room: a conversation space an Adapter
+/// opens for one Task, bound to it for its life. `LOOP.md`'s `room` key.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoomSpec {
+    /// The Adapter that hosts the room.
+    pub via: AdapterKind,
+    /// The `via` connection to open it on. `None` takes the triggering event's
+    /// connection, else the only one `via` has.
+    #[serde(
+        default,
+        rename = "connection",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub connection_id: Option<String>,
+    /// Where the room is announced, in `via`'s own destination syntax (what
+    /// `moat send --to` takes). `None` anchors on the triggering event, which
+    /// must then have come through `via`.
+    #[serde(default, rename = "in", skip_serializing_if = "Option::is_none")]
+    pub anchor: Option<String>,
+    /// Who to add when the room opens: `requester` (who the Task was opened
+    /// for), `run_as` (the Loop's identity), or a Moatless login.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub invite: Vec<String>,
+    /// Force the room's privacy. `None` lets `via` follow its anchor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub private: Option<bool>,
 }
 
 crate::string_enum!(
@@ -151,6 +182,8 @@ pub struct SubscriptionMatch {
     /// declaring nothing, which falls back to the per-adapter environment
     /// default; `0` delivers every event on its own.
     pub message_buffer_seconds: Option<i32>,
+    /// See [`LoopContext::room`].
+    pub room: Option<RoomSpec>,
     pub allow_direct_send: bool,
     pub adapter_config: Option<serde_json::Value>,
     pub ongoing_task_id: Option<String>,
@@ -178,7 +211,12 @@ impl SubscriptionMatch {
     /// Whether this Subscription was derived from a connection with no Loop.
     /// Never store this id where a Loop's own id is expected.
     pub fn is_delivery_only(&self) -> bool {
-        self.id.starts_with(DELIVERY_ONLY_PREFIX)
+        Self::is_delivery_only_id(&self.id)
+    }
+
+    /// Whether `id` is one [`Self::delivery_only_id`] built.
+    pub fn is_delivery_only_id(id: &str) -> bool {
+        id.starts_with(DELIVERY_ONLY_PREFIX)
     }
 
     /// The administrator-approved execution identity.
@@ -188,5 +226,34 @@ impl SubscriptionMatch {
         self.run_as_user_id
             .as_deref()
             .expect("runnable Loop must have an explicit run-as user")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_room_reads_its_loop_md_keys() {
+        let spec: RoomSpec = serde_json::from_value(serde_json::json!({
+            "via": "slack",
+            "in": "channel:C0FACTORY",
+            "invite": ["requester", "run_as", "ana"],
+            "private": true,
+        }))
+        .unwrap();
+
+        assert_eq!(
+            spec,
+            RoomSpec {
+                via: AdapterKind::Slack,
+                connection_id: None,
+                anchor: Some("channel:C0FACTORY".into()),
+                invite: vec!["requester".into(), "run_as".into(), "ana".into()],
+                private: Some(true),
+            }
+        );
+        let stored = serde_json::to_value(&spec).unwrap();
+        assert_eq!(serde_json::from_value::<RoomSpec>(stored).unwrap(), spec);
     }
 }
