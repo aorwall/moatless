@@ -25,4 +25,5 @@ mod linear_webhook_metrics_test;
 mod linear_workflow_test;
 mod loops_sync_test;
 mod slack_ingress_order_test;
+mod task_room_open_test;
 mod telegram_ingress_test;

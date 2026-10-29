@@ -26,6 +26,7 @@ use moatless_loops::bindings;
         handlers::delete_adapter_connection,
         handlers::adapter_send,
         handlers::send_user_dm,
+        handlers::open_task_room,
         bindings::handlers::list_task_bindings,
         bindings::handlers::create_task_binding,
         bindings::handlers::send_task_reply,
@@ -66,6 +67,7 @@ pub fn adapter_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenAp
         .routes(routes!(handlers::delete_adapter_connection))
         .routes(routes!(handlers::adapter_send))
         .routes(routes!(handlers::send_user_dm))
+        .routes(routes!(handlers::open_task_room))
         .routes(routes!(
             bindings::handlers::list_task_bindings,
             bindings::handlers::create_task_binding

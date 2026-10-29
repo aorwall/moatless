@@ -5,7 +5,7 @@ use axum::extract::{Path, Query, State};
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_api_schemas::adapters::{
     AdapterConnectionResponse, AdapterSendRequest, AdapterSendResponse,
-    CreateAdapterConnectionRequest,
+    CreateAdapterConnectionRequest, OpenTaskRoomRequest, OpenTaskRoomResponse,
 };
 use moatless_api_schemas::user::{SendDmRequest, SendDmResponse};
 use moatless_core::http_auth::AuthUser;
@@ -121,6 +121,30 @@ pub async fn adapter_send(
 ) -> Result<Json<AdapterSendResponse>, AdapterError> {
     commands
         .adapter_send(&auth.scope_context(), req)
+        .await
+        .map(Json)
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/tasks/{task_id}/room",
+    tag = "adapters",
+    params(("task_id" = String, Path, description = "Task ID")),
+    request_body = OpenTaskRoomRequest,
+    responses(
+        (status = 200, description = "Room requested", body = OpenTaskRoomResponse),
+        (status = 400, description = "Invalid request", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Task or connection not found", body = moatless_api_schemas::error::ErrorBody),
+    )
+)]
+pub async fn open_task_room(
+    State(commands): State<std::sync::Arc<super::operations::AdapterCommands>>,
+    auth: AuthUser,
+    Path(task_id): Path<String>,
+    Json(req): Json<OpenTaskRoomRequest>,
+) -> Result<Json<OpenTaskRoomResponse>, AdapterError> {
+    commands
+        .open_task_room(&auth.scope_context(), &task_id, req)
         .await
         .map(Json)
 }

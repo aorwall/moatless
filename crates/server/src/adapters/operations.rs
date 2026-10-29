@@ -1,14 +1,15 @@
 use chrono::Utc;
 use moatless_api_schemas::adapters::{
     AdapterConnectionResponse, AdapterSendRequest, AdapterSendResponse,
-    CreateAdapterConnectionRequest,
+    CreateAdapterConnectionRequest, OpenTaskRoomRequest, OpenTaskRoomResponse,
 };
 use moatless_api_schemas::user::{SendDmRequest, SendDmResponse};
 
-use super::access::ensure_task_access_only;
+use super::access::{ensure_task_access_only, ensure_task_access_with};
 use super::projection::adapter_connection_response;
 use moatless_adapter_model::access::resolve_scope_for_adapter_create;
 use moatless_adapter_model::binding::BindScope;
+use moatless_adapter_model::delivery::{Admission, AdmitError};
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::outbound::OutboundReply;
 use moatless_identity::ports::ProviderAccount;
@@ -16,6 +17,7 @@ use moatless_loops::bindings::outbound::checked_presentation;
 use moatless_loops::bindings::outbound::outbound_files;
 use moatless_loops::bindings::outbound::truncate_text;
 use moatless_loops::bindings::runtime::ORIGIN_CONNECTED_THREAD;
+use moatless_loops::rooms::RoomRequestError;
 use moatless_types::adapter::AdapterConnection;
 use moatless_types::adapter::AdapterKind;
 
@@ -32,6 +34,8 @@ pub struct AdapterCommands {
         std::sync::Arc<moatless_loops::bindings::reply::ExternalReplyService>,
     pub(crate) task_bindings: std::sync::Arc<moatless_loops::bindings::operations::Bindings>,
     pub(crate) users: std::sync::Arc<moatless_identity::ports::UserDirectory>,
+    pub(crate) room_admission:
+        std::sync::Arc<dyn moatless_adapter_model::delivery::DeliveryAdmission>,
 }
 
 impl AdapterCommands {
@@ -260,6 +264,84 @@ impl AdapterCommands {
             binding_id,
             conversation_id,
             message_ts: result.message_external_id,
+        })
+    }
+
+    /// Request `task_id`'s Task Room, opened by the same durable delivery a
+    /// Loop's `room` admits.
+    ///
+    /// The connection is resolved against the caller's scope here, so the
+    /// delivery's trusted read only ever sees one the caller may use.
+    pub async fn open_task_room(
+        &self,
+        ctx: &ScopeContext,
+        task_id: &str,
+        req: OpenTaskRoomRequest,
+    ) -> Result<OpenTaskRoomResponse, AdapterError> {
+        let task = ensure_task_access_with(self.task_reader.as_ref(), ctx, task_id).await?;
+        let providers = self.adapters.as_ref().ok_or_else(|| {
+            SharedAdapterError::AdapterNotConfigured("adapters not configured".into())
+        })?;
+        providers.task_room(req.via)?;
+        // Matches the origin `TaskRooms` opens from, so an anchor-less room
+        // stays on that thread's connection rather than the caller's default.
+        let bindings = self
+            .task_bindings
+            .for_task(task_id)
+            .await
+            .map_err(|e| SharedAdapterError::Internal(e.to_string()))?;
+        let origin = bindings
+            .iter()
+            .find(|b| b.active && b.adapter_kind == req.via);
+        let named = match (&req.anchor, origin) {
+            (Some(_), _) => req.connection_id.as_deref(),
+            (None, Some(origin)) => Some(
+                req.connection_id
+                    .as_deref()
+                    .unwrap_or(origin.connection_id.as_str()),
+            ),
+            // With neither, its delivery would retry until it gave up.
+            (None, None) => {
+                return Err(SharedAdapterError::BadRequest(format!(
+                    "task {task_id} has no {} thread to open a room from; pass `in`",
+                    req.via.as_str()
+                ))
+                .into());
+            }
+        };
+        let connection = self
+            .adapter_connections
+            .resolve(ctx, req.via, named)
+            .await?;
+
+        let room = moatless_types::loops::RoomSpec {
+            via: req.via,
+            connection_id: Some(connection.id),
+            anchor: req.anchor,
+            invite: req.invite,
+            private: req.private,
+        };
+        let title = req
+            .title
+            .or(task.name)
+            .unwrap_or_else(|| task_id.to_string());
+        let admission = moatless_loops::rooms::request_room(
+            self.room_admission.as_ref(),
+            task_id,
+            title,
+            room,
+            Some(ctx.user_id.clone()),
+            task.owner_user_id,
+        )
+        .await
+        .map_err(|e| match e {
+            RoomRequestError::Admit(AdmitError::AtCapacity { .. }) => {
+                SharedAdapterError::Overloaded
+            }
+            e => SharedAdapterError::Internal(e.to_string()),
+        })?;
+        Ok(OpenTaskRoomResponse {
+            requested: admission == Admission::Admitted,
         })
     }
 }

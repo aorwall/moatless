@@ -14,7 +14,7 @@ use moatless_adapter_model::capabilities::RoomRequest;
 use moatless_adapter_model::connections::ConnectionLookup;
 use moatless_adapter_model::delivery::{
     AdapterDelivery, AdapterDeliveryFailure, AdapterDeliveryHandler, AdapterDeliveryRequest,
-    DeliveryAdmission,
+    Admission, AdmitError, DeliveryAdmission,
 };
 use moatless_adapter_model::registry::Adapters;
 use moatless_ports::identity::ProviderIdentityLink;
@@ -70,31 +70,55 @@ impl TaskOpener for RoomOpeningTaskOpener {
         let run_as = req.run_as_user_id.clone().or_else(|| requester.clone());
 
         let opened = self.inner.open(req).await?;
-        let payload = RoomOpenPayload {
-            task_id: opened.task_id.clone(),
+        if let Err(e) = request_room(
+            self.admission.as_ref(),
+            &opened.task_id,
             title,
+            room,
             requester,
             run_as,
-            room,
-        };
-        let payload_json = match serde_json::to_value(&payload) {
-            Ok(json) => json,
-            Err(e) => {
-                tracing::warn!(task_id = %opened.task_id, error = %e, "Task Room not requested");
-                return Ok(opened);
-            }
-        };
-        let request = AdapterDeliveryRequest {
-            adapter: payload.room.via.as_str(),
-            kind: ROOM_OPEN_KIND,
-            event_id: opened.task_id.clone(),
-            payload: payload_json,
-        };
-        if let Err(e) = self.admission.admit(request).await {
+        )
+        .await
+        {
             tracing::warn!(task_id = %opened.task_id, error = %e, "Task Room not requested");
         }
         Ok(opened)
     }
+}
+
+/// Admit `task_id`'s one [`ROOM_OPEN_KIND`] delivery. A second request for the
+/// same Task is a [`Admission::Duplicate`], whatever `room` it names.
+pub async fn request_room(
+    admission: &dyn DeliveryAdmission,
+    task_id: &str,
+    title: String,
+    room: RoomSpec,
+    requester: Option<String>,
+    run_as: Option<String>,
+) -> Result<Admission, RoomRequestError> {
+    let payload = RoomOpenPayload {
+        task_id: task_id.to_string(),
+        title,
+        room,
+        requester,
+        run_as,
+    };
+    let request = AdapterDeliveryRequest {
+        adapter: payload.room.via.as_str(),
+        kind: ROOM_OPEN_KIND,
+        event_id: task_id.to_string(),
+        payload: serde_json::to_value(&payload)?,
+    };
+    Ok(admission.admit(request).await?)
+}
+
+/// Why [`request_room`] admitted nothing.
+#[derive(Debug, thiserror::Error)]
+pub enum RoomRequestError {
+    #[error("Task Room payload: {0}")]
+    Payload(#[from] serde_json::Error),
+    #[error(transparent)]
+    Admit(#[from] AdmitError),
 }
 
 /// Executes [`ROOM_OPEN_KIND`]: opens the room and binds the Task to it.
@@ -259,7 +283,6 @@ struct RoomError(String);
 mod tests {
     use std::sync::Mutex;
 
-    use moatless_adapter_model::delivery::{Admission, AdmitError};
     use moatless_ports::task::{MockTaskOpener, SandboxProvision};
     use moatless_types::adapter::AdapterKind;
     use moatless_types::agent::AgentProfile;

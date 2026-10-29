@@ -88,3 +88,39 @@ pub struct AdapterSendResponse {
     /// `task_id` was provided on the request.
     pub binding_id: Option<String>,
 }
+
+/// Request for `POST /api/v1/tasks/{task_id}/room`.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct OpenTaskRoomRequest {
+    /// The Adapter that hosts the room.
+    pub via: AdapterKind,
+    /// The `via` connection to open it on. Auto-resolves when the caller sees
+    /// exactly one.
+    #[serde(default)]
+    pub connection_id: Option<String>,
+    /// Where the room is announced, in `via`'s destination syntax (e.g. Slack
+    /// `channel:C123`). Omit to open it from the Task's own `via` thread.
+    #[serde(default)]
+    pub anchor: Option<String>,
+    /// `requester`, `run_as`, or Moatless logins to add when the room opens.
+    #[serde(default)]
+    pub invite: Vec<String>,
+    /// Force the room's privacy. Omit to follow the anchor.
+    #[serde(default)]
+    pub private: Option<bool>,
+    /// The room's name. Defaults to the Task's name.
+    #[serde(default)]
+    pub title: Option<String>,
+}
+
+/// Response from `POST /api/v1/tasks/{task_id}/room`.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct OpenTaskRoomResponse {
+    /// `false` when the Task's room was already requested; one Task has one
+    /// room.
+    pub requested: bool,
+}

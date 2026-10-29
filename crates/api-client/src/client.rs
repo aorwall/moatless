@@ -667,6 +667,16 @@ impl ApiClient {
         self.post("/api/v1/adapters/send", req).await
     }
 
+    /// `POST /api/v1/tasks/{task_id}/room`
+    pub async fn open_task_room(
+        &self,
+        task_id: &str,
+        req: &moatless_api_schemas::adapters::OpenTaskRoomRequest,
+    ) -> Result<moatless_api_schemas::adapters::OpenTaskRoomResponse, ApiError> {
+        self.post(&format!("/api/v1/tasks/{task_id}/room"), req)
+            .await
+    }
+
     /// POST /api/v1/users/{login}/dm
     pub async fn send_user_dm(
         &self,

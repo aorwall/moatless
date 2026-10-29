@@ -35,6 +35,12 @@ Read its help before combining these. Stop/start controls the sandbox; close
 controls task lifecycle. Never stop the sandbox that is running the verification
 session. A shared sandbox can affect other task members.
 
+`moat rooms open --in channel:<id> [--invite requester] [--private]` gives the
+current task its Task Room, a Slack code channel bound to it, as a Loop's `room`
+key does. It opens in the background; a task has one room, so a second request
+does nothing. Without `--in` it opens from the Slack thread that started the
+task, and is refused when there is none.
+
 ## Configuration ownership
 
 Repository commands configure git connection fields: name, URL, branch, provider,

@@ -321,6 +321,7 @@ impl AppState {
             external_reply: external_reply.clone(),
             task_bindings: task_bindings.clone(),
             users: user_directory.clone(),
+            room_admission: adapter_delivery.clone(),
         });
 
         Self {

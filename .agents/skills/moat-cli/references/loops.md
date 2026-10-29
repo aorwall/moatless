@@ -73,6 +73,7 @@ Pick up this Linear ticket, implement it, and open a PR linked back to the issue
 
 A `room` gives every task the Loop spawns its own **Task Room**: a Slack code
 channel bound to the task, where every message reaches it and its replies land.
+A task without one can open it with `moat rooms open`.
 
 ```yaml
 room:

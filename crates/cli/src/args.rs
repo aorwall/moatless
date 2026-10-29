@@ -185,6 +185,11 @@ pub(super) enum SharedCommands {
         #[command(subcommand)]
         action: commands::records::RecordsAction,
     },
+    /// Give a task its Task Room, such as a Slack code channel bound to it
+    Rooms {
+        #[command(subcommand)]
+        action: commands::rooms::RoomsAction,
+    },
     /// Hand back the guided review of a pull request this task was started to
     /// write
     ReviewGuide {

@@ -192,6 +192,9 @@ async fn run_shared(
         SharedCommands::Records { action } => {
             commands::records::run(moat, action, cfg, json).await?;
         }
+        SharedCommands::Rooms { action } => {
+            commands::rooms::run(moat, action, cfg, json).await?;
+        }
         SharedCommands::ReviewGuide { action } => {
             commands::review_guide::run(moat, action, cfg, json).await?;
         }
