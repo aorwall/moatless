@@ -64,7 +64,7 @@ pub async fn publish(
         .find_by_id(task_id, scope)
         .await?
         .ok_or_else(|| ArtifactError::TaskNotFound(task_id.to_string()))?;
-    if !scope.can_write(&task.scoped_resource()) {
+    if !scope.can_write(&task.scoped_resource(), Some(task.visibility)) {
         return Err(ArtifactError::Forbidden(task_id.to_string()));
     }
     if !artifacts.is_configured() {
@@ -255,7 +255,7 @@ pub async fn set_visibility(
         .find_by_id(&row.task_id, scope)
         .await?
         .ok_or_else(not_found)?;
-    if !scope.can_write(&task.scoped_resource()) {
+    if !scope.can_write(&task.scoped_resource(), Some(task.visibility)) {
         return Err(ArtifactError::Forbidden(row.task_id));
     }
     let row = artifacts

@@ -1141,11 +1141,10 @@ async fn delete_task_removes_its_tags_follows_and_receipts(pool: PgPool) {
     }
 }
 
-/// A public Task reads and is operated by a stranger, never written by one;
-/// a private Task is none of the three to a stranger, and all three to its
-/// owner.
+/// A public Task reads and is written by a stranger, never owned by one; a
+/// private Task is none of the three to a stranger, and all three to its owner.
 #[sqlx::test]
-async fn control_and_write_narrow_the_read_rule(pool: PgPool) {
+async fn write_and_ownership_narrow_the_read_rule(pool: PgPool) {
     let owner = "user-1";
     let stranger = "user-2";
     seed_repo(&pool, "repo-1", owner).await;
@@ -1163,20 +1162,110 @@ async fn control_and_write_narrow_the_read_rule(pool: PgPool) {
             let ctx = scope_ctx(user);
             (
                 dao.find_by_id(task_id, &ctx).await.unwrap().is_some(),
-                dao.find_controlled_by_id(task_id, &ctx)
-                    .await
-                    .unwrap()
-                    .is_some(),
                 dao.find_written_by_id(task_id, &ctx)
                     .await
                     .unwrap()
                     .is_some(),
+                dao.find_owned_by_id(task_id, &ctx).await.unwrap().is_some(),
             )
         }
     };
     assert_eq!(reach("task-private", owner).await, (true, true, true));
     assert_eq!(reach("task-private", stranger).await, (false, false, false));
     assert_eq!(reach("task-public", stranger).await, (true, true, false));
+    assert_eq!(reach("task-public", owner).await, (true, true, true));
+}
+
+/// Each Task action under its grant, for the four callers that differ: read
+/// and write follow visibility, the owner-only actions never do.
+#[sqlx::test]
+async fn each_action_answers_to_its_grant(pool: PgPool) {
+    let owner = "user-1";
+    seed_repo(&pool, "repo-1", owner).await;
+    let dao = store_over(&pool);
+
+    let callers = [
+        ("owner", Visibility::Private, scope_ctx(owner)),
+        ("stranger-public", Visibility::Public, scope_ctx("user-2")),
+        ("stranger-private", Visibility::Private, scope_ctx("user-2")),
+        ("admin", Visibility::Private, ScopeContext::admin("root")),
+    ];
+    let actions = ["read", "rename", "close", "visibility", "delete"];
+    let mut lines = Vec::new();
+    for (name, visibility, ctx) in &callers {
+        let mut verdicts = Vec::new();
+        for action in actions {
+            let task_id = format!("{name}-{action}");
+            let mut row = make_task_row(&task_id, owner);
+            row.visibility = *visibility;
+            seed_task(&pool, &row).await.unwrap();
+            let allowed = match action {
+                "read" => dao.find_by_id(&task_id, ctx).await.unwrap().is_some(),
+                "rename" => {
+                    let patch = TaskPatch {
+                        name: Some("renamed".to_string()),
+                        ..Default::default()
+                    };
+                    dao.update_task(&task_id, &patch, ctx).await.unwrap()
+                }
+                "close" => dao
+                    .update_status_if_not_closed(&task_id, TaskStatus::Closed, ctx)
+                    .await
+                    .unwrap(),
+                "visibility" => {
+                    let patch = TaskPatch {
+                        visibility: Some(Visibility::Private),
+                        ..Default::default()
+                    };
+                    dao.update_task(&task_id, &patch, ctx).await.unwrap()
+                }
+                _ => dao.delete_task(&task_id, ctx).await.unwrap(),
+            };
+            verdicts.push(format!(
+                "{action}={}",
+                if allowed { "allow" } else { "deny" }
+            ));
+        }
+        lines.push(format!("{name:<16} {}", verdicts.join(" ")));
+    }
+
+    let expected = "\
+owner            read=allow rename=allow close=allow visibility=allow delete=allow
+stranger-public  read=allow rename=allow close=allow visibility=deny delete=deny
+stranger-private read=deny rename=deny close=deny visibility=deny delete=deny
+admin            read=allow rename=allow close=allow visibility=allow delete=allow";
+    assert_eq!(lines.join("\n"), expected);
+}
+
+/// A patch carrying an owner-only field lands none of its fields for a
+/// visitor, so a rename cannot ride along with a refused visibility change.
+#[sqlx::test]
+async fn a_mixed_patch_from_a_visitor_lands_nothing(pool: PgPool) {
+    let owner = "user-1";
+    seed_repo(&pool, "repo-1", owner).await;
+    let mut public = make_task_row("task-public", owner);
+    public.visibility = Visibility::Public;
+    public.name = Some("before".to_string());
+    seed_task(&pool, &public).await.unwrap();
+
+    let patch = TaskPatch {
+        name: Some("after".to_string()),
+        visibility: Some(Visibility::Private),
+        ..Default::default()
+    };
+    let dao = store_over(&pool);
+    assert!(
+        !dao.update_task("task-public", &patch, &scope_ctx("user-2"))
+            .await
+            .unwrap()
+    );
+
+    let row = find_task(&pool, "task-public", &scope_ctx(owner))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.name.as_deref(), Some("before"));
+    assert_eq!(row.visibility, Visibility::Public);
 }
 
 /// The status-only read answers for exactly the Tasks the full read returns.

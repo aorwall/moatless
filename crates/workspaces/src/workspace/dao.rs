@@ -418,7 +418,8 @@ impl WorkspaceDao for PgWorkspaceDao {
         sets.push(format!("updated_at = ${idx}"));
         idx += 1;
 
-        let control = moatless_core::db::access_control::write_filter("", idx);
+        let control =
+            moatless_core::db::access_control::write_filter(ScopedEntity::Resource, "", idx);
         let sql = format!(
             "UPDATE workspaces SET {} \
              WHERE id = $1 AND (deleted IS NULL OR deleted = false) AND {}",
@@ -489,7 +490,8 @@ impl WorkspaceDao for PgWorkspaceDao {
     }
 
     async fn soft_delete(&self, id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
-        let control = moatless_core::db::access_control::write_filter("", 3);
+        let control =
+            moatless_core::db::access_control::write_filter(ScopedEntity::Resource, "", 3);
         let sql = format!(
             "UPDATE workspaces SET deleted = true, updated_at = $2 \
              WHERE id = $1 AND (deleted IS NULL OR deleted = false) AND {}",
@@ -507,7 +509,8 @@ impl WorkspaceDao for PgWorkspaceDao {
 
     async fn add_repo(&self, row: &WorkspaceRepo, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
         // Gate on caller controlling the workspace via EXISTS subquery.
-        let control = moatless_core::db::access_control::write_filter("w.", 8);
+        let control =
+            moatless_core::db::access_control::write_filter(ScopedEntity::Resource, "w.", 8);
         let sql = format!(
             r#"INSERT INTO workspace_repos (
                    id, workspace_id, repository_id, branch, mount_name, is_primary, position

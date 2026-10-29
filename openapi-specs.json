@@ -775,7 +775,7 @@
           "sandbox"
         ],
         "summary": "Provision a new sandbox for a task.",
-        "description": "Builds the provision request internally from DB state (task, repository,\ncredentials); no request body required. Requires control access.",
+        "description": "Builds the provision request internally from DB state (task, repository,\ncredentials); no request body required. Requires write access.",
         "operationId": "provision_handler",
         "parameters": [
           {
@@ -810,7 +810,7 @@
             }
           },
           "403": {
-            "description": "No control access to the task",
+            "description": "No write access to the task",
             "content": {
               "application/json": {
                 "schema": {
@@ -8985,7 +8985,7 @@
             }
           },
           "404": {
-            "description": "Task not found, or the caller has no control access to it",
+            "description": "Task not found, or the caller has no write access to it",
             "content": {
               "application/json": {
                 "schema": {
@@ -18136,7 +18136,7 @@
       },
       "Scope": {
         "type": "string",
-        "description": "Access scope for repositories, tasks, integrations, and credentials.\n\n`global` is world-readable and admin-writable; `user` is owner-managed. A\npublic Task additionally grants read/interact and control, never write.",
+        "description": "Access scope for repositories, tasks, integrations, and credentials.\n\n`global` is world-readable and admin-writable; `user` is owner-managed. A\npublic Task additionally grants read and write, never ownership.",
         "enum": [
           "global",
           "user"

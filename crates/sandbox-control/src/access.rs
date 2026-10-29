@@ -22,10 +22,10 @@ pub(super) async fn authorize_task_read(
 }
 
 /// Like [`authorize_task_read`], but additionally requires *write* access:
-/// owner or platform admin, never a public reader.
+/// ownership, or the public visibility the Task grants.
 ///
-/// Guards actions that outlive the pod — removing the Sandbox and changing
-/// server config.
+/// Guards every action that operates the Sandbox: provision, stop, restart,
+/// redeploy, write a file.
 pub(super) async fn authorize_task_write(
     state: &SandboxApiState,
     scope: &Option<ScopeContext>,
@@ -36,18 +36,17 @@ pub(super) async fn authorize_task_write(
     Ok(intent)
 }
 
-/// Like [`authorize_task_read`], but additionally requires *control* access:
-/// write, or the public visibility the Task grants.
+/// Like [`authorize_task_read`], but additionally requires the caller to own
+/// the Task: owner or platform admin, never a public visitor.
 ///
-/// Guards every action that operates the Sandbox: provision, stop, restart,
-/// redeploy, restart a server, write a file.
-pub(super) async fn authorize_task_control(
+/// Guards actions that outlive the pod, such as removing the Sandbox.
+pub(super) async fn authorize_task_owner(
     state: &SandboxApiState,
     scope: &Option<ScopeContext>,
     task_id: &str,
 ) -> Result<TaskIntent, SandboxError> {
     let intent = authorize_task_read(state, scope, task_id).await?;
-    ensure_can_control(scope, &intent, task_id)?;
+    ensure_is_owner(scope, &intent, task_id)?;
     Ok(intent)
 }
 
@@ -70,28 +69,8 @@ fn ensure_can_read(
     Err(SandboxError::NotFound(format!("task {task_id}")))
 }
 
-/// Control access to a Sandbox: write, or the public visibility its Task
+/// Write access to a Sandbox: ownership, or the public visibility its Task
 /// grants.
-///
-/// Includes an interactive shell: gating actions separately while granting
-/// `terminal.open` is a rule one shell command undoes.
-fn ensure_can_control(
-    scope: &Option<ScopeContext>,
-    intent: &TaskIntent,
-    task_id: &str,
-) -> Result<(), SandboxError> {
-    let ctx = scope
-        .as_ref()
-        .ok_or_else(|| SandboxError::Forbidden("authentication required".into()))?;
-    if ctx.can_control(&intent.scoped_resource(), intent.visibility) {
-        return Ok(());
-    }
-    Err(SandboxError::Forbidden(format!(
-        "no control access to task {task_id}"
-    )))
-}
-
-/// Write access to a Sandbox. Visibility never grants it.
 fn ensure_can_write(
     scope: &Option<ScopeContext>,
     intent: &TaskIntent,
@@ -100,11 +79,28 @@ fn ensure_can_write(
     let ctx = scope
         .as_ref()
         .ok_or_else(|| SandboxError::Forbidden("authentication required".into()))?;
-    if ctx.can_write(&intent.scoped_resource()) {
+    if ctx.can_write(&intent.scoped_resource(), Some(intent.visibility)) {
         return Ok(());
     }
     Err(SandboxError::Forbidden(format!(
         "no write access to task {task_id}"
+    )))
+}
+
+/// Ownership of a Sandbox's Task. Visibility never grants it.
+fn ensure_is_owner(
+    scope: &Option<ScopeContext>,
+    intent: &TaskIntent,
+    task_id: &str,
+) -> Result<(), SandboxError> {
+    let ctx = scope
+        .as_ref()
+        .ok_or_else(|| SandboxError::Forbidden("authentication required".into()))?;
+    if ctx.is_owner(&intent.scoped_resource()) {
+        return Ok(());
+    }
+    Err(SandboxError::Forbidden(format!(
+        "only the owner of task {task_id} may do this"
     )))
 }
 
@@ -125,7 +121,7 @@ pub(super) fn require_lifecycle(state: &SandboxApiState) -> Result<&Lifecycle, S
 mod authz_tests {
     //! Unit tests for the per-sandbox authorization gate. The policy itself
     //! lives in `ScopeContext`; these exercise how the handlers compose read +
-    //! control over one `TaskIntent`, and which refusal each case earns.
+    //! write + ownership over one `TaskIntent`, and which refusal each case earns.
     use super::*;
 
     use moatless_types::access_control::Scope;
@@ -192,30 +188,21 @@ mod authz_tests {
 
     #[test]
     fn read_of_a_public_task_is_allowed() {
-        // A public Task is collaborative, and its Sandbox view is part of what
-        // it shares — read and control, never write.
         let public = intent(Scope::User, Some("owner"), Visibility::Public);
         assert!(ensure_can_read(&Some(ctx("stranger", false)), &public, "task-1").is_ok());
-        assert!(matches!(
-            ensure_can_write(&Some(ctx("stranger", false)), &public, "task-1"),
-            Err(SandboxError::Forbidden(_))
-        ));
     }
 
     #[test]
-    fn control_of_a_public_task_is_allowed_for_any_signed_in_caller() {
-        // Operating a public Task's Sandbox is what makes it collaborative:
-        // reading its files needs a running Sandbox, and a shell is how a
-        // reader takes part at all.
+    fn write_of_a_public_task_is_allowed_for_any_signed_in_caller() {
         let public = intent(Scope::User, Some("owner"), Visibility::Public);
-        assert!(ensure_can_control(&Some(ctx("stranger", false)), &public, "task-1").is_ok());
+        assert!(ensure_can_write(&Some(ctx("stranger", false)), &public, "task-1").is_ok());
     }
 
     #[test]
-    fn control_of_a_private_task_by_a_stranger_is_forbidden() {
-        // Control widens by visibility only. A private Task is unchanged.
+    fn write_of_a_private_task_by_a_stranger_is_forbidden() {
+        // Write widens by visibility only. A private Task is unchanged.
         assert!(matches!(
-            ensure_can_control(
+            ensure_can_write(
                 &Some(ctx("stranger", false)),
                 &private(Some("owner")),
                 "task-1"
@@ -225,9 +212,9 @@ mod authz_tests {
     }
 
     #[test]
-    fn control_by_the_owner_and_admin_is_allowed() {
+    fn write_by_the_owner_and_admin_is_allowed() {
         assert!(
-            ensure_can_control(
+            ensure_can_write(
                 &Some(ctx("owner", false)),
                 &private(Some("owner")),
                 "task-1"
@@ -235,7 +222,7 @@ mod authz_tests {
             .is_ok()
         );
         assert!(
-            ensure_can_control(
+            ensure_can_write(
                 &Some(ctx("root", true)),
                 &private(Some("other-user")),
                 "task-1"
@@ -245,25 +232,24 @@ mod authz_tests {
     }
 
     #[test]
-    fn control_without_identity_is_forbidden() {
+    fn write_without_identity_is_forbidden() {
         // "Every signed-in user" is the grant — an unauthenticated caller is
         // still refused, even on a public Task.
         let public = intent(Scope::User, Some("owner"), Visibility::Public);
         assert!(matches!(
-            ensure_can_control(&None, &public, "task-1"),
+            ensure_can_write(&None, &public, "task-1"),
             Err(SandboxError::Forbidden(_))
         ));
     }
 
     #[test]
-    fn control_never_widens_the_two_write_actions() {
-        // Removing the Sandbox deletes its archives, and a server override
-        // survives the pod it was set on. Both outlive the operation a
-        // controller is making, so both stay with the owner.
+    fn write_never_widens_to_ownership() {
+        // Removing the Sandbox deletes its archives, which outlives anything a
+        // visitor is doing, so it stays with the owner.
         let public = intent(Scope::User, Some("owner"), Visibility::Public);
-        assert!(ensure_can_control(&Some(ctx("stranger", false)), &public, "task-1").is_ok());
+        assert!(ensure_can_write(&Some(ctx("stranger", false)), &public, "task-1").is_ok());
         assert!(matches!(
-            ensure_can_write(&Some(ctx("stranger", false)), &public, "task-1"),
+            ensure_is_owner(&Some(ctx("stranger", false)), &public, "task-1"),
             Err(SandboxError::Forbidden(_))
         ));
     }
@@ -297,9 +283,9 @@ mod authz_tests {
     }
 
     #[test]
-    fn write_by_the_owner_is_allowed() {
+    fn ownership_by_the_owner_is_allowed() {
         assert!(
-            ensure_can_write(
+            ensure_is_owner(
                 &Some(ctx("owner", false)),
                 &private(Some("owner")),
                 "task-1"
@@ -309,19 +295,19 @@ mod authz_tests {
     }
 
     #[test]
-    fn write_by_a_read_only_viewer_is_forbidden() {
-        // Read access never implies write: a global sandbox is admin-owned.
+    fn ownership_by_a_read_only_viewer_is_forbidden() {
+        // Read access never implies ownership: a global sandbox is admin-owned.
         let global = intent(Scope::Global, None, Visibility::Private);
         assert!(ensure_can_read(&Some(ctx("viewer", false)), &global, "task-1").is_ok());
         assert!(matches!(
-            ensure_can_write(&Some(ctx("viewer", false)), &global, "task-1"),
+            ensure_is_owner(&Some(ctx("viewer", false)), &global, "task-1"),
             Err(SandboxError::Forbidden(_))
         ));
     }
 
     #[test]
-    fn write_by_a_stranger_is_forbidden() {
-        let err = ensure_can_write(
+    fn ownership_by_a_stranger_is_forbidden() {
+        let err = ensure_is_owner(
             &Some(ctx("stranger", false)),
             &private(Some("owner")),
             "task-1",
@@ -331,9 +317,9 @@ mod authz_tests {
     }
 
     #[test]
-    fn write_by_an_admin_bypasses_scope() {
+    fn ownership_by_an_admin_bypasses_scope() {
         assert!(
-            ensure_can_write(
+            ensure_is_owner(
                 &Some(ctx("root", true)),
                 &private(Some("other-user")),
                 "task-1"
@@ -343,9 +329,9 @@ mod authz_tests {
     }
 
     #[test]
-    fn write_without_identity_is_forbidden() {
+    fn ownership_without_identity_is_forbidden() {
         assert!(matches!(
-            ensure_can_write(&None, &private(Some("someone")), "task-1"),
+            ensure_is_owner(&None, &private(Some("someone")), "task-1"),
             Err(SandboxError::Forbidden(_))
         ));
     }

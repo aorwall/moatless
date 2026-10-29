@@ -115,7 +115,7 @@ pub async fn stop_task(
     scope_ctx: &ScopeContext,
     task_id: &str,
 ) -> Result<(), TaskError> {
-    require_control(tasks, scope_ctx, task_id).await?;
+    require_write(tasks, scope_ctx, task_id).await?;
 
     sandbox
         .stop(task_id, crate::task::models::SandboxStopReason::User)
@@ -137,7 +137,7 @@ pub async fn stop_agent(
     scope_ctx: &ScopeContext,
     task_id: &str,
 ) -> Result<(), TaskError> {
-    require_control(tasks, scope_ctx, task_id).await?;
+    require_write(tasks, scope_ctx, task_id).await?;
 
     sandbox
         .stop_agent(task_id, crate::task::models::SandboxStopReason::User)
@@ -149,9 +149,9 @@ pub async fn stop_agent(
     Ok(())
 }
 
-/// Existence hiding: a task the caller may not control is reported the same way
+/// Existence hiding: a task the caller may not write is reported the same way
 /// as one that is not there.
-async fn require_control(
+async fn require_write(
     tasks: &TaskCommands,
     scope_ctx: &ScopeContext,
     task_id: &str,
@@ -160,12 +160,12 @@ async fn require_control(
         .find_by_id(task_id, scope_ctx)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.to_string()))?;
-    if !scope_ctx.can_control(
+    if !scope_ctx.can_write(
         &ScopedResource::borrowed(
             task.scope,
             task.owner_user_id.as_deref().or(task.created_by.as_deref()),
         ),
-        task.visibility,
+        Some(task.visibility),
     ) {
         return Err(TaskError::NotFound(task_id.to_string()));
     }
@@ -476,7 +476,7 @@ pub async fn reopen_task_for(
         .find_by_id(task_id, scope_ctx)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.to_string()))?;
-    if !scope_ctx.can_write(&row.scoped_resource()) {
+    if !scope_ctx.can_write(&row.scoped_resource(), Some(row.visibility)) {
         return Err(TaskError::NotFound(task_id.to_string())); // existence hiding
     }
 

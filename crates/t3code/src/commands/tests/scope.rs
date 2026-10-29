@@ -18,8 +18,7 @@ async fn a_thread_the_viewer_reads_but_does_not_control_is_refused() {
     let mut dao = MockConversationDao::new();
     dao.expect_readable_by_id()
         .returning(move |_, _| Ok(Some(found.clone())));
-    dao.expect_controls_conversation()
-        .returning(|_, _| Ok(false));
+    dao.expect_writes_conversation().returning(|_, _| Ok(false));
     dao.expect_interactive_call()
         .returning(|_, _| Ok(Some(asked(mapping::QUESTION_TOOL))));
     let (result, calls) = dispatch_against(dao, turn(None)).await;

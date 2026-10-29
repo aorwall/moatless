@@ -93,7 +93,7 @@ async fn ensure_workspace_control(
             .as_deref()
             .or(workspace.created_by.as_deref()),
     );
-    if !ctx.can_write(&resource) {
+    if !ctx.can_write(&resource, None) {
         return Err(PluginError::Forbidden(format!(
             "No control access to workspace '{workspace_id}'"
         )));

@@ -87,7 +87,7 @@ pub async fn dispatch(
                 .get("messageId")
                 .and_then(Value::as_str)
                 .ok_or_else(|| missing("messageId"))?;
-            require_controllable(ctx, viewer, task_id).await?;
+            require_writable(ctx, viewer, task_id).await?;
             ctx.sink.steer_queued(viewer, task_id, message_uuid).await?;
         }
         "thread.queuedTurn.cancel"
@@ -330,7 +330,7 @@ async fn turn_start(
             .await;
     }
 
-    let conversation = require_controllable(ctx, viewer, &task_id).await?;
+    let conversation = require_writable(ctx, viewer, &task_id).await?;
     let agents = ctx.agents.list(viewer).await;
     let Selection { harness, model } = selection_for_existing(&agents, &conversation, command)?;
     let skills = match conversation.workspace_id.as_deref() {
@@ -654,7 +654,7 @@ async fn meta_update(
     command: &Value,
 ) -> Result<(), CommandRefusal> {
     let task_id = thread_id(command)?.to_string();
-    let conversation = require_controllable(ctx, viewer, &task_id).await?;
+    let conversation = require_writable(ctx, viewer, &task_id).await?;
     let agents = ctx.agents.list(viewer).await;
 
     let Selection { harness, model } = selection_for_existing(&agents, &conversation, command)?;
@@ -872,14 +872,14 @@ async fn change_queue(
         },
         _ => QueueChange::Resume,
     };
-    require_controllable(ctx, viewer, task_id).await?;
+    require_writable(ctx, viewer, task_id).await?;
     ctx.sink.change_queue(viewer, task_id, change).await
 }
 
 /// The `ThreadPullRequestKey` a link or unlink command carries, on a Thread
 /// this viewer may write to.
 ///
-/// Gated on control rather than read: a link changes what every surface reports
+/// Gated on write rather than read: a link changes what every surface reports
 /// for the Thread, and a reader may open one they cannot write.
 async fn pull_request_ref(
     ctx: &CommandContext<'_>,
@@ -887,7 +887,7 @@ async fn pull_request_ref(
     command: &Value,
 ) -> Result<ThreadPullRequestRef, CommandRefusal> {
     let task_id = thread_id(command)?.to_string();
-    require_controllable(ctx, viewer, &task_id).await?;
+    require_writable(ctx, viewer, &task_id).await?;
 
     let field = |name: &'static str| -> Result<String, CommandRefusal> {
         command
@@ -973,11 +973,11 @@ fn plan_verdict(answers: &Value) -> Value {
 
 /// The Task, if this viewer may run a turn on it.
 ///
-/// Gated on control, not just read — a turn runs in the Sandbox a controller
-/// can already act in — and reports failure the same way as a Task that doesn't
+/// Gated on write, not just read — a turn runs in the Sandbox a writer can
+/// already act in — and reports failure the same way as a Task that doesn't
 /// exist. Archived Tasks fail here even for a reader who may still open them;
 /// unarchiving is the way back and does not go through this function.
-async fn require_controllable(
+async fn require_writable(
     ctx: &CommandContext<'_>,
     viewer: &ScopeContext,
     task_id: &str,
@@ -1001,7 +1001,7 @@ async fn require_controllable(
         .ok_or_else(refused)?;
     if !ctx
         .conversations
-        .controls_conversation(viewer, task_id)
+        .writes_conversation(viewer, task_id)
         .await
         .map_err(unreachable)?
     {

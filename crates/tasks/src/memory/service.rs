@@ -71,7 +71,7 @@ async fn writable_task(
     task_id: &str,
 ) -> Result<(Task, Writer), MemoryError> {
     let task = readable_task(tasks, ctx, task_id).await?;
-    if !ctx.can_write(&task.scoped_resource()) {
+    if !ctx.can_write(&task.scoped_resource(), Some(task.visibility)) {
         return Err(MemoryError::Forbidden(format!(
             "cannot write memory for task {task_id}"
         )));

@@ -2,10 +2,9 @@
 //!
 //! [`ScopeContext`]'s policy is a pure function of `(user_id, is_admin)` ×
 //! `(scope, owner, visibility)` with no database input; owner is
-//! `COALESCE(owner_user_id, created_by)`, and control includes a shell, so
-//! anything a shell reaches is control by construction. See
-//! [`ScopeContext::can_read`], [`ScopeContext::can_write`], and
-//! [`ScopeContext::can_control`] for the exact rules.
+//! `COALESCE(owner_user_id, created_by)`. See [`ScopeContext::can_read`],
+//! [`ScopeContext::can_write`] and [`ScopeContext::is_owner`] for the exact
+//! rules.
 
 #![cfg_attr(
     test,
@@ -22,7 +21,7 @@ crate::string_enum!(
     /// Access scope for repositories, tasks, integrations, and credentials.
     ///
     /// `global` is world-readable and admin-writable; `user` is owner-managed. A
-    /// public Task additionally grants read/interact and control, never write.
+    /// public Task additionally grants read and write, never ownership.
     Scope {
         Global => "global",
         User => "user",
@@ -145,11 +144,22 @@ impl ScopeContext {
         }
     }
 
-    /// Check if this context can write (change) a resource.
+    /// Check if this context can write (change or operate) a resource.
     ///
-    /// Global rows are admin-managed; user rows are owner-managed. Visibility
-    /// never grants write.
-    pub fn can_write(&self, resource: &ScopedResource) -> bool {
+    /// Ownership, plus the public-task arm. `visibility` is `None` for every
+    /// entity but a Task, which has no other way to grant write.
+    pub fn can_write(&self, resource: &ScopedResource, visibility: Option<Visibility>) -> bool {
+        visibility == Some(Visibility::Public) || self.is_owner(resource)
+    }
+
+    /// Check if this context owns a resource: its owner on a `user` row, or an
+    /// admin.
+    ///
+    /// Gates what write must not reach on a public Task: deleting it, removing
+    /// its Sandbox, changing its visibility, and the interactive terminal. The
+    /// terminal rule is no isolation: a writer reaches the same Sandbox
+    /// through file writes and turns.
+    pub fn is_owner(&self, resource: &ScopedResource) -> bool {
         if self.is_admin {
             return true;
         }
@@ -158,15 +168,6 @@ impl ScopeContext {
                 .owner_user_id
                 .as_deref()
                 .is_some_and(|oid| oid == self.user_id)
-    }
-
-    /// Check if this context can control (operate) a Task's Sandbox.
-    ///
-    /// Write, plus the public-task arm. Takes [`Visibility`] not
-    /// [`ScopedEntity`] since only a Task has a Sandbox; everything else calls
-    /// [`Self::can_write`].
-    pub fn can_control(&self, resource: &ScopedResource, visibility: Visibility) -> bool {
-        visibility == Visibility::Public || self.can_write(resource)
     }
 
     /// Check if this context can create a resource with the requested scope.
@@ -356,7 +357,7 @@ mod tests {
         // is_admin short-circuits every read/write policy, so the system
         // principal can reach any scoped row regardless of owner.
         assert!(ctx.can_read(&ScopedResource::borrowed(Scope::User, Some("someone"))));
-        assert!(ctx.can_write(&ScopedResource::borrowed(Scope::Global, None)));
+        assert!(ctx.can_write(&ScopedResource::borrowed(Scope::Global, None), None));
     }
 
     #[test]
@@ -409,23 +410,25 @@ mod tests {
         let ownerless = ScopedResource::borrowed(Scope::User, None);
 
         assert!(!ctx.can_read(&ownerless));
-        assert!(!ctx.can_write(&ownerless));
+        assert!(!ctx.can_write(&ownerless, None));
+        assert!(!ctx.is_owner(&ownerless));
     }
 
     #[test]
-    fn control_follows_visibility_where_write_does_not() {
+    fn write_follows_visibility_where_ownership_does_not() {
         let stranger = ScopeContext::user("stranger");
         let owned = ScopedResource::borrowed(Scope::User, Some("owner"));
 
-        assert!(stranger.can_control(&owned, Visibility::Public));
-        assert!(!stranger.can_control(&owned, Visibility::Private));
-        assert!(!stranger.can_write(&owned));
+        assert!(stranger.can_write(&owned, Some(Visibility::Public)));
+        assert!(!stranger.can_write(&owned, Some(Visibility::Private)));
+        assert!(!stranger.can_write(&owned, None));
+        assert!(!stranger.is_owner(&owned));
 
-        // An unowned row names nobody to match, so control still follows
-        // visibility and write has no path at all.
+        // An unowned row names nobody to match, so write still follows
+        // visibility and ownership has no path at all.
         let unowned = ScopedResource::borrowed(Scope::User, None);
-        assert!(stranger.can_control(&unowned, Visibility::Public));
-        assert!(!stranger.can_write(&unowned));
+        assert!(stranger.can_write(&unowned, Some(Visibility::Public)));
+        assert!(!stranger.is_owner(&unowned));
     }
 
     // -- policy matrix --
@@ -457,21 +460,18 @@ mod tests {
                 for (actor_name, ctx) in &actors {
                     // read: pure policy plus the SQL filter's public-task arm.
                     let read = ctx.can_read(task) || public;
-                    // interact (send message / follow / mark read) is read:
-                    // a public task is collaborative by product rule.
-                    let interact = read;
-                    // control: operating the Sandbox. Visibility grants it.
-                    let control = ctx.can_control(task, visibility);
-                    // write: changing the Task or its durable config. It never
-                    // follows from visibility.
-                    let write = ctx.can_write(task);
+                    // write: messages, turns, the Sandbox, the Task's own
+                    // fields. Visibility grants it.
+                    let write = ctx.can_write(task, Some(visibility));
+                    // owner: delete, cleanup, visibility, the terminal. It
+                    // never follows from visibility.
+                    let owns = ctx.is_owner(task);
                     lines.push(format!(
                         "{scope_name:<6} {vis:<7} {actor_name:<5} \
-                         read={} interact={} control={} write={}",
+                         read={} write={} owner={}",
                         verdict(read),
-                        verdict(interact),
-                        verdict(control),
                         verdict(write),
+                        verdict(owns),
                         vis = if public { "public" } else { "private" },
                     ));
                 }
@@ -479,18 +479,18 @@ mod tests {
         }
 
         let expected = "\
-global private owner read=allow interact=allow control=deny write=deny
-global private other read=allow interact=allow control=deny write=deny
-global private admin read=allow interact=allow control=allow write=allow
-global public  owner read=allow interact=allow control=allow write=deny
-global public  other read=allow interact=allow control=allow write=deny
-global public  admin read=allow interact=allow control=allow write=allow
-user   private owner read=allow interact=allow control=allow write=allow
-user   private other read=deny interact=deny control=deny write=deny
-user   private admin read=allow interact=allow control=allow write=allow
-user   public  owner read=allow interact=allow control=allow write=allow
-user   public  other read=allow interact=allow control=allow write=deny
-user   public  admin read=allow interact=allow control=allow write=allow";
+global private owner read=allow write=deny owner=deny
+global private other read=allow write=deny owner=deny
+global private admin read=allow write=allow owner=allow
+global public  owner read=allow write=allow owner=deny
+global public  other read=allow write=allow owner=deny
+global public  admin read=allow write=allow owner=allow
+user   private owner read=allow write=allow owner=allow
+user   private other read=deny write=deny owner=deny
+user   private admin read=allow write=allow owner=allow
+user   public  owner read=allow write=allow owner=allow
+user   public  other read=allow write=allow owner=deny
+user   public  admin read=allow write=allow owner=allow";
         assert_eq!(lines.join("\n"), expected);
     }
 

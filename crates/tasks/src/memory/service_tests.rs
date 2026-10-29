@@ -32,6 +32,12 @@ fn tasks() -> TaskCommands {
                 task.visibility = moatless_types::task::Visibility::Public;
                 Ok(Some(task))
             }
+            // Reads to everyone and writes for admins only.
+            "task-shared" => {
+                let mut task = make_task_row(task_id, "user-2");
+                task.scope = Scope::Global;
+                Ok(Some(task))
+            }
             _ => Ok(None),
         });
     TaskCommands::new(Arc::new(store))
@@ -223,13 +229,34 @@ async fn repository_memory_on_a_shared_repository_is_refused_to_a_user() {
 }
 
 #[tokio::test]
+async fn a_visitor_writes_a_public_tasks_memory() {
+    let mut store = MockMemoryDao::new();
+    store.expect_put().returning(|entry| {
+        Ok(PutOutcome::Written(Box::new(row(
+            &entry.key,
+            MemoryScope::Task,
+            "task-public",
+        ))))
+    });
+    let result = put(
+        &tasks(),
+        &memories(store),
+        &ctx("user-1"),
+        "task-public",
+        put_req("a"),
+    )
+    .await;
+    assert!(result.is_ok(), "{result:?}");
+}
+
+#[tokio::test]
 async fn a_reader_of_someone_elses_task_cannot_write_its_memory() {
     let store = MockMemoryDao::new();
     let result = put(
         &tasks(),
         &memories(store),
         &ctx("user-1"),
-        "task-public",
+        "task-shared",
         put_req("a"),
     )
     .await;

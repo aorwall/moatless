@@ -813,7 +813,7 @@ pub use super::service::reopen_task_for;
     responses(
         (status = 204, description = "Task started"),
         (status = 400, description = "Invalid task state", body = moatless_api_schemas::error::ErrorBody),
-        (status = 404, description = "Task not found, or the caller has no control access to it", body = moatless_api_schemas::error::ErrorBody)
+        (status = 404, description = "Task not found, or the caller has no write access to it", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 #[expect(
@@ -933,7 +933,7 @@ pub async fn set_task_tags(
         .find_by_id(&task_id, &scope_ctx)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
-    if !scope_ctx.can_write(&existing.scoped_resource()) {
+    if !scope_ctx.can_write(&existing.scoped_resource(), Some(existing.visibility)) {
         return Err(TaskError::NotFound(task_id.clone())); // existence hiding
     }
 
@@ -1010,7 +1010,7 @@ pub async fn add_task_repository(
         .find_by_id(&task_id, &scope_ctx)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
-    if !scope_ctx.can_write(&existing.scoped_resource()) {
+    if !scope_ctx.can_write(&existing.scoped_resource(), Some(existing.visibility)) {
         return Err(TaskError::NotFound(task_id.clone())); // existence hiding
     }
     // The rule the git proxy clones under, so a recorded repository is one the
@@ -1137,7 +1137,7 @@ mod tests {
     use super::*;
 
     use crate::task::dao::MockTaskDao;
-    use crate::task::models::{SandboxDesiredState, SandboxStopReason};
+    use crate::task::models::{SandboxDesiredState, SandboxStopReason, Visibility};
     use moatless_types::store::StoreError;
     use uuid::Uuid;
 
@@ -1280,6 +1280,7 @@ mod tests {
     async fn delete_closes_task_before_lifecycle_remove() {
         let log: Arc<Mutex<Vec<&'static str>>> = Arc::new(Mutex::new(Vec::new()));
         let mut tasks = MockTaskDao::new();
+        expect_owned_row(&mut tasks, "00000000-0000-0000-0000-000000000001");
         let update_log = Arc::clone(&log);
         tasks
             .expect_update_task()
@@ -1332,6 +1333,7 @@ mod tests {
     async fn failed_removal_retains_the_closed_task_row() {
         let log = Arc::new(Mutex::new(Vec::new()));
         let mut tasks = MockTaskDao::new();
+        expect_owned_row(&mut tasks, "owner");
         let updated = log.clone();
         tasks
             .expect_update_task()
@@ -1433,8 +1435,18 @@ mod tests {
         (url, server)
     }
 
+    /// `find_by_id` answering with a private row `owner` owns.
+    fn expect_owned_row(tasks: &mut MockTaskDao, owner: &'static str) {
+        tasks.expect_find_by_id().returning(move |task_id, _| {
+            Ok(Some(super::super::test_support::make_task_row(
+                task_id, owner,
+            )))
+        });
+    }
+
     fn deletable_tasks() -> TaskCommands {
         let mut tasks = MockTaskDao::new();
+        expect_owned_row(&mut tasks, "owner");
         tasks
             .expect_update_task()
             .once()
@@ -1511,5 +1523,37 @@ mod tests {
         .expect("delete succeeds despite the storage failure");
 
         assert_eq!(server.await.expect("endpoint").len(), 1);
+    }
+
+    /// A public Task's visitor may write to it but not delete it, and is
+    /// refused before the close and the Sandbox removal, not after.
+    #[tokio::test]
+    async fn a_visitor_cannot_delete_a_public_task() {
+        let mut tasks = MockTaskDao::new();
+        tasks.expect_find_by_id().returning(|task_id, _| {
+            let mut row = super::super::test_support::make_task_row(task_id, "owner");
+            row.visibility = Visibility::Public;
+            Ok(Some(row))
+        });
+        tasks.expect_update_task().never();
+        tasks.expect_delete_task().never();
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let sandbox = RecordingSandbox {
+            log: log.clone(),
+            fail_removal: false,
+        };
+
+        let result = super::super::removal::delete_task(
+            &sandbox,
+            &FakeBindings::returning(Ok(0)),
+            &TaskCommands::new(Arc::new(tasks)),
+            &artifacts(None),
+            &moatless_types::access_control::ScopeContext::user("visitor"),
+            "task-1".to_string(),
+        )
+        .await;
+
+        assert!(matches!(result, Err(TaskError::Forbidden(_))));
+        assert!(log.lock().unwrap().is_empty());
     }
 }

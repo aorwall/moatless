@@ -422,7 +422,7 @@ impl ThreadCommandSink for AppStateCommands {
                 }
             })?;
         // `update_task` carries the access rule in its `WHERE`, so a viewer who
-        // may not control the Task gets a clean `false` rather than an error.
+        // may not write the Task gets a clean `false` rather than an error.
         // Reporting that as success would leave T3 showing a title nothing
         // stored.
         if !updated {
@@ -590,7 +590,7 @@ impl ThreadCommandSink for AppStateCommands {
         // Settling means nobody is waiting on this thread, so its sandbox
         // is released rather than left for the idle reaper. Best-effort:
         // the settlement is already durable, and a viewer who doesn't
-        // control the sandbox has none to stop — neither fails the settle.
+        // write the sandbox has none to stop — neither fails the settle.
         // New activity clears it (`clear_settled_for_all_followers`).
         if let Err(error) = task_service::stop_task(
             self.0.tasks.as_ref(),

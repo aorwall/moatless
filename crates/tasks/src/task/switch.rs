@@ -115,12 +115,12 @@ impl TaskSwitchService {
             .find_by_id(task_id, scope_ctx)
             .await?
             .ok_or_else(|| TaskError::NotFound(task_id.to_string()))?;
-        if !scope_ctx.can_control(
+        if !scope_ctx.can_write(
             &ScopedResource::borrowed(
                 task.scope,
                 task.owner_user_id.as_deref().or(task.created_by.as_deref()),
             ),
-            task.visibility,
+            Some(task.visibility),
         ) {
             return Err(TaskError::NotFound(task_id.to_string()));
         }
@@ -130,7 +130,7 @@ impl TaskSwitchService {
 
     /// Switch a Loop's Task to `profile` and `model` (else its default model),
     /// after its provider refused a turn, and record `note` in its conversation. The
-    /// platform acts here, so no caller's control is checked; the credentials
+    /// platform acts here, so no caller's write is checked; the credentials
     /// checked are `run_as`'s, the account the Task runs as.
     pub async fn switch_for_fallback(
         &self,

@@ -147,7 +147,7 @@ pub async fn write_as_user(
         .find_by_id(&row.task_id, scope)
         .await?
         .ok_or_else(|| ArtifactError::NotFound(artifact_id.to_string()))?;
-    if !scope.can_write(&task.scoped_resource()) {
+    if !scope.can_write(&task.scoped_resource(), Some(task.visibility)) {
         return Err(ArtifactError::Forbidden(row.task_id));
     }
     let req = checked(req)?;

@@ -78,23 +78,8 @@ async fn readable_task(
         .ok_or(SandboxRpcError::NotFound)
 }
 
-/// The Task, if this viewer may operate it. The gate on start and stop, which
+/// The Task, if this viewer may write it. The gate on start and stop, which
 /// move a Sandbox rather than report on one.
-async fn controlled_task(
-    state: &SandboxState,
-    viewer: &ScopeContext,
-    task_id: &str,
-) -> Result<TaskDescriptor, SandboxRpcError> {
-    state
-        .tasks
-        .controlled(task_id, viewer)
-        .await
-        .map_err(|error| SandboxRpcError::Database(crate::dao::store_read(error)))?
-        .ok_or(SandboxRpcError::NotFound)
-}
-
-/// The Task, if this viewer may write it. The gate on cleanup, which deletes a
-/// Sandbox and its archives rather than moving one between states.
 async fn written_task(
     state: &SandboxState,
     viewer: &ScopeContext,
@@ -103,6 +88,21 @@ async fn written_task(
     state
         .tasks
         .written(task_id, viewer)
+        .await
+        .map_err(|error| SandboxRpcError::Database(crate::dao::store_read(error)))?
+        .ok_or(SandboxRpcError::NotFound)
+}
+
+/// The Task, if this viewer owns it. The gate on cleanup, which deletes a
+/// Sandbox and its archives rather than moving one between states.
+async fn owned_task(
+    state: &SandboxState,
+    viewer: &ScopeContext,
+    task_id: &str,
+) -> Result<TaskDescriptor, SandboxRpcError> {
+    state
+        .tasks
+        .owned(task_id, viewer)
         .await
         .map_err(|error| SandboxRpcError::Database(crate::dao::store_read(error)))?
         .ok_or(SandboxRpcError::NotFound)
@@ -383,7 +383,7 @@ pub async fn start(
     viewer: &ScopeContext,
     task_id: &str,
 ) -> Result<Value, SandboxRpcError> {
-    let _task = controlled_task(state, viewer, task_id).await?;
+    let _task = written_task(state, viewer, task_id).await?;
     state
         .starter
         .start(task_id)
@@ -412,7 +412,7 @@ pub async fn stop(
     viewer: &ScopeContext,
     task_id: &str,
 ) -> Result<Value, SandboxRpcError> {
-    let _task = controlled_task(state, viewer, task_id).await?;
+    let _task = written_task(state, viewer, task_id).await?;
     state
         .stopper
         .stop(task_id, SandboxStopReason::User)
@@ -428,7 +428,7 @@ pub async fn restart(
     viewer: &ScopeContext,
     task_id: &str,
 ) -> Result<Value, SandboxRpcError> {
-    let _task = controlled_task(state, viewer, task_id).await?;
+    let _task = written_task(state, viewer, task_id).await?;
     state
         .operator
         .restart(task_id)
@@ -444,7 +444,7 @@ pub async fn redeploy(
     viewer: &ScopeContext,
     task_id: &str,
 ) -> Result<Value, SandboxRpcError> {
-    let _task = controlled_task(state, viewer, task_id).await?;
+    let _task = written_task(state, viewer, task_id).await?;
     state
         .operator
         .redeploy(task_id)
@@ -463,7 +463,7 @@ pub async fn cleanup(
     viewer: &ScopeContext,
     task_id: &str,
 ) -> Result<Value, SandboxRpcError> {
-    let _task = written_task(state, viewer, task_id).await?;
+    let _task = owned_task(state, viewer, task_id).await?;
     state
         .operator
         .cleanup(task_id)

@@ -87,14 +87,14 @@ pub(crate) trait TaskDao: Send + Sync {
         task_id: &str,
         ctx: &ScopeContext,
     ) -> Result<Option<TaskStatus>, sqlx::Error>;
-    /// Find by `task_id`, scoped to the `control_filter` rule.
-    async fn find_controlled_by_id(
+    /// Find by `task_id`, scoped to the `write_filter` rule.
+    async fn find_written_by_id(
         &self,
         task_id: &str,
         ctx: &ScopeContext,
     ) -> Result<Option<Task>, sqlx::Error>;
-    /// Find by `task_id`, scoped to the `write_filter` rule.
-    async fn find_written_by_id(
+    /// Find by `task_id`, scoped to the `owner_filter` rule.
+    async fn find_owned_by_id(
         &self,
         task_id: &str,
         ctx: &ScopeContext,
@@ -119,8 +119,9 @@ pub(crate) trait TaskDao: Send + Sync {
         ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error>;
     async fn list_tasks(&self, filter: &TaskFilter) -> Result<(Vec<Task>, i64), sqlx::Error>;
-    /// Update task fields for the caller's scope via a `write_filter`-embedded
-    /// statement per field. An empty `patch` returns `Ok(true)` with no writes
+    /// Update task fields for the caller's scope, one statement per field, each
+    /// embedding `write_filter`, or `owner_filter` for a
+    /// [`TaskPatch::owner_only`] patch. An empty `patch` returns `Ok(true)` with no writes
     /// — the caller already read-checked.
     async fn update_task(
         &self,
@@ -142,8 +143,7 @@ pub(crate) trait TaskDao: Send + Sync {
         ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error>;
     /// Delete a task. Returns `true` when a row was deleted, `false` when the
-    /// task was not found or the caller does not have control (existence
-    /// hiding).
+    /// task was not found or the caller does not own it (existence hiding).
     async fn delete_task(&self, task_id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error>;
     async fn exists_by_short_id(&self, short_id: &str) -> Result<bool, sqlx::Error>;
     async fn get_created_times(
@@ -365,22 +365,22 @@ impl TaskDao for PgTaskDao {
         self.status_under(task_id, ctx).await
     }
 
-    async fn find_controlled_by_id(
-        &self,
-        task_id: &str,
-        ctx: &ScopeContext,
-    ) -> Result<Option<Task>, sqlx::Error> {
-        let control = moatless_core::db::access_control::control_filter(ScopedEntity::Task, "", 2);
-        self.find_under(task_id, ctx, &control).await
-    }
-
     async fn find_written_by_id(
         &self,
         task_id: &str,
         ctx: &ScopeContext,
     ) -> Result<Option<Task>, sqlx::Error> {
-        let write = moatless_core::db::access_control::write_filter("", 2);
+        let write = moatless_core::db::access_control::write_filter(ScopedEntity::Task, "", 2);
         self.find_under(task_id, ctx, &write).await
+    }
+
+    async fn find_owned_by_id(
+        &self,
+        task_id: &str,
+        ctx: &ScopeContext,
+    ) -> Result<Option<Task>, sqlx::Error> {
+        let owner = moatless_core::db::access_control::owner_filter("", 2);
+        self.find_under(task_id, ctx, &owner).await
     }
 
     async fn insert_task(
@@ -558,10 +558,10 @@ impl TaskDao for PgTaskDao {
         task_id: &str,
         ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error> {
-        // `status`, the empty conversation and the control rule are all in this
+        // `status`, the empty conversation and the owner rule are all in this
         // one `WHERE`, so a Task that became usable between the caller's read
         // and this call is not deleted by a decision that has gone stale.
-        let ctrl = moatless_core::db::access_control::write_filter("", 2);
+        let ctrl = moatless_core::db::access_control::owner_filter("", 2);
         let sql = format!(
             "DELETE FROM tasks \
              WHERE task_id = $1 AND status = $4 AND {} \
@@ -846,13 +846,18 @@ impl TaskDao for PgTaskDao {
         patch: &TaskPatch,
         ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error> {
-        // Per-field UPDATE statements (type safety), each scoped by
-        // `write_filter` so only the owner/admin can modify the row.
+        // Per-field UPDATE statements (type safety), each scoped by one filter:
+        // `owner_filter` when the patch carries an owner-only field, so a
+        // mixed patch cannot land its other fields without it.
         // `first_affected` takes the first non-empty field's `rows_affected`
         // — valid since every statement shares one `WHERE`. One transaction:
         // the listing change and mutation must commit together or not at all.
         let mut tx = self.pool.begin().await?;
-        let ctrl = moatless_core::db::access_control::write_filter("", 3);
+        let ctrl = if patch.owner_only() {
+            moatless_core::db::access_control::owner_filter("", 3)
+        } else {
+            moatless_core::db::access_control::write_filter(ScopedEntity::Task, "", 3)
+        };
         let ctrl_sql = ctrl.sql();
         let mut first_affected: Option<u64> = None;
 
@@ -959,7 +964,7 @@ impl TaskDao for PgTaskDao {
         new_status: TaskStatus,
         ctx: &ScopeContext,
     ) -> Result<bool, sqlx::Error> {
-        let ctrl = moatless_core::db::access_control::write_filter("", 3);
+        let ctrl = moatless_core::db::access_control::write_filter(ScopedEntity::Task, "", 3);
         // `closed_at` is a fact of `status` — the same rule `update_task`
         // applies. Without it this path leaves the two disagreeing: a task
         // closed here would be archived with no time to show for it, and a
@@ -990,7 +995,7 @@ impl TaskDao for PgTaskDao {
     }
 
     async fn delete_task(&self, task_id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
-        let ctrl = moatless_core::db::access_control::write_filter("", 2);
+        let ctrl = moatless_core::db::access_control::owner_filter("", 2);
         let sql = format!(
             "DELETE FROM tasks WHERE task_id = $1 AND {} RETURNING task_id, sandbox_id",
             ctrl.sql()

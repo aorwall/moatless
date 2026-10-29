@@ -229,7 +229,7 @@ impl PreflightPort for RealPreflight {
 /// Verify the sandbox's own identity can control the task before provisioning.
 ///
 /// The pod authenticates back as the task's owner; every sandbox gRPC call is
-/// gated on [`ScopeContext::can_write`], so failing here is what stands between
+/// gated on [`ScopeContext::is_owner`], so failing here is what stands between
 /// that and a pod that crash-loops forever refused its credentials.
 pub async fn preflight_validate_task_control(
     users: &dyn CommitIdentity,
@@ -261,7 +261,7 @@ async fn validate_control(
     resource: &ScopedResource,
 ) -> Result<(), PreflightError> {
     let ctx = ScopeContext::new(user_id.to_string(), is_platform_admin(users, user_id).await);
-    if ctx.can_write(resource) {
+    if ctx.is_owner(resource) {
         return Ok(());
     }
     Err(PreflightError::NoTaskControl {
@@ -556,7 +556,7 @@ mod tests {
         );
     }
 
-    /// Platform admin short-circuits `can_write`, so the gate would admit the
+    /// Platform admin short-circuits `is_owner`, so the gate would admit the
     /// pod. Preflight must agree, or it rejects tasks that in fact work.
     #[tokio::test]
     async fn an_admin_creator_controls_even_a_global_task() {

@@ -9,7 +9,7 @@ use axum::http::StatusCode;
 use serde::Deserialize;
 use utoipa::IntoParams;
 
-use super::access::{authorize_task_control, authorize_task_read};
+use super::access::{authorize_task_read, authorize_task_write};
 use super::routes::SandboxApiState;
 use base64::Engine;
 use moatless_core::http_auth::OptionalScope;
@@ -157,7 +157,7 @@ pub async fn write_file_handler(
     Path(task_id): Path<String>,
     Json(req): Json<WriteFileRequestBody>,
 ) -> Result<StatusCode, SandboxError> {
-    authorize_task_control(&state, &scope, &task_id).await?;
+    authorize_task_write(&state, &scope, &task_id).await?;
     let client = state.connector.sandbox_client(&task_id).await?;
     client
         .write_file_for_task(Some(&task_id), &req.path, &req.content)

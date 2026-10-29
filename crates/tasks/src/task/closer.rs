@@ -209,7 +209,7 @@ impl TaskCloser {
             .find_by_id(task_id, scope_ctx)
             .await?
             .ok_or_else(|| TaskError::NotFound(task_id.to_string()))?;
-        if !scope_ctx.can_write(&row.scoped_resource()) {
+        if !scope_ctx.can_write(&row.scoped_resource(), Some(row.visibility)) {
             return Err(TaskError::NotFound(task_id.to_string())); // existence hiding
         }
 
@@ -274,7 +274,7 @@ impl TaskCloser {
             .find_by_id(task_id, scope_ctx)
             .await?
             .ok_or_else(|| TaskError::NotFound(task_id.to_string()))?;
-        if !scope_ctx.can_write(&row.scoped_resource()) {
+        if !scope_ctx.can_write(&row.scoped_resource(), Some(row.visibility)) {
             return Err(TaskError::NotFound(task_id.to_string())); // existence hiding
         }
 
@@ -322,15 +322,12 @@ impl TaskCloser {
         task_id: String,
         req: super::schemas::CloseTaskRequest,
     ) -> Result<(), TaskError> {
-        // Read-check + control-check: find_by_id uses access_filter (visibility);
-        // the inline can_write check enforces owner/admin policy without the
-        // deleted ensure_can_write_task helper.
         let row = self
             .tasks
             .find_by_id(&task_id, scope_ctx)
             .await?
             .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
-        if !scope_ctx.can_write(&row.scoped_resource()) {
+        if !scope_ctx.can_write(&row.scoped_resource(), Some(row.visibility)) {
             return Err(TaskError::NotFound(task_id.clone())); // existence hiding
         }
 

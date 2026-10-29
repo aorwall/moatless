@@ -32,7 +32,7 @@ pub struct AskedAgent {
 /// Why a stacked action could not be handed to the agent.
 ///
 /// `Rejected` is a malformed request; `Access` is unreachable or not
-/// controllable; `Send` is a write that failed after being accepted.
+/// writable; `Send` is a write that failed after being accepted.
 #[derive(Debug)]
 pub enum ActionError {
     Access(WorkspaceAccessError),
@@ -116,7 +116,7 @@ pub async fn run_stacked_action(
     // The action commits, pushes and opens PRs, so reading is not enough: the
     // viewer must control the Task. Control and not write, because a controller
     // reaches the same three things from a shell with `git` and `gh`.
-    let task_id = workspace::controlled_conversation(conversations, viewer, &cwd)
+    let task_id = workspace::written_conversation(conversations, viewer, &cwd)
         .await
         .map_err(ActionError::Access)?;
 
@@ -444,61 +444,6 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
 
-    /// A conversation with a running Sandbox; only its id and Sandbox intent
-    /// are read on the way to the control gate.
-    fn running(task_id: &str) -> crate::dao::Conversation {
-        crate::dao::Conversation {
-            task_id: task_id.to_string(),
-            workspace_id: Some("ws".into()),
-            name: None,
-            branch: None,
-            agent_profile: moatless_types::agent::AgentProfile::ClaudeCode.into(),
-            created_at: "2026-01-01T00:00:00Z".into(),
-            created_at_db: None,
-            updated_at: None,
-            closed_at: None,
-            visibility: moatless_types::task::Visibility::Private,
-            owner_name: None,
-            turn_number: None,
-            turn_status: None,
-            turn_started_at: None,
-            turn_ended_at: None,
-            turn_error: None,
-            turn_error_reason: None,
-            turn_error_resets_at: None,
-            child_count: 0,
-            running_children: Vec::new(),
-            sandbox_desired_state_raw: Some(
-                moatless_types::sandbox::SandboxDesiredState::Running
-                    .as_str()
-                    .to_string(),
-            ),
-            sandbox_stop_reason_raw: None,
-            sandbox_started_at: None,
-            sandbox_updated_at: None,
-            running_commands: 0,
-            latest_user_message_at: None,
-            latest_queued_message_at: None,
-            assistant_model: None,
-            requested_model: None,
-            pending_question: false,
-            pending_plan: false,
-            parent_task_id: None,
-            parent_relation: None,
-            fork_at_turn: None,
-            settled_override: None,
-            settled_at: None,
-            snoozed_until: None,
-            snoozed_at: None,
-            last_read_at: None,
-            pinned_at: None,
-            pin_order_key: None,
-            active_order_key: None,
-            auto_settle_disabled_at: None,
-            pull_requests: None,
-        }
-    }
-
     /// A sink that records the turns sent to it, so a test can assert both that
     /// a turn was sent and what the agent was asked. Every other command is a
     /// test-only `unreachable!` — none of them are on the git action's path.
@@ -763,15 +708,15 @@ mod tests {
     }
 
     /// Someone who may read a Task cannot commit, push or open a PR against it:
-    /// the action gates on control. The sink is never reached.
+    /// the action gates on write. The sink is never reached.
     #[tokio::test]
-    async fn a_reader_who_does_not_control_the_task_cannot_run_an_action() {
+    async fn a_reader_who_cannot_write_the_task_cannot_run_an_action() {
         let mut conversations = crate::dao::MockConversationDao::new();
         conversations
             .expect_readable_by_id()
-            .returning(|_, id| Ok(Some(running(id))));
+            .returning(|_, id| Ok(Some(crate::dao::running_conversation(id))));
         conversations
-            .expect_controls_conversation()
+            .expect_writes_conversation()
             .returning(|_, _| Ok(false));
         let sink = RecordingSink::default();
 
@@ -783,25 +728,25 @@ mod tests {
         )
         .await
         .err()
-        .expect("control is refused");
+        .expect("write is refused");
 
         assert!(matches!(
             error,
-            ActionError::Access(WorkspaceAccessError::NoControl)
+            ActionError::Access(WorkspaceAccessError::NoWrite)
         ));
         assert!(sink.turns.lock().unwrap().is_empty());
     }
 
-    /// A controller pressing a git action reaches the agent as one user turn on
+    /// A writer pressing a git action reaches the agent as one user turn on
     /// the addressed Task, and the client is answered that it was sent.
     #[tokio::test]
-    async fn a_controller_sends_the_agent_a_turn_and_is_answered() {
+    async fn a_writer_sends_the_agent_a_turn_and_is_answered() {
         let mut conversations = crate::dao::MockConversationDao::new();
         conversations
             .expect_readable_by_id()
-            .returning(|_, id| Ok(Some(running(id))));
+            .returning(|_, id| Ok(Some(crate::dao::running_conversation(id))));
         conversations
-            .expect_controls_conversation()
+            .expect_writes_conversation()
             .returning(|_, _| Ok(true));
         let sink = RecordingSink::default();
 
@@ -842,9 +787,9 @@ mod tests {
         let mut conversations = crate::dao::MockConversationDao::new();
         conversations
             .expect_readable_by_id()
-            .returning(|_, id| Ok(Some(running(id))));
+            .returning(|_, id| Ok(Some(crate::dao::running_conversation(id))));
         conversations
-            .expect_controls_conversation()
+            .expect_writes_conversation()
             .returning(|_, _| Ok(true));
 
         let error = run_stacked_action(

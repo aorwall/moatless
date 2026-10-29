@@ -61,8 +61,7 @@ async fn a_link_into_a_thread_the_viewer_does_not_control_is_refused() {
     let mut dao = MockConversationDao::new();
     dao.expect_readable_by_id()
         .returning(move |_, _| Ok(Some(found.clone())));
-    dao.expect_controls_conversation()
-        .returning(|_, _| Ok(false));
+    dao.expect_writes_conversation().returning(|_, _| Ok(false));
     let (result, calls) = dispatch_against(dao, pull_request_command("link")).await;
     assert!(matches!(result, Err(CommandRefusal::NotWritable { .. })));
     assert!(calls.is_empty());

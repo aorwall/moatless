@@ -333,7 +333,7 @@ impl LoopDao {
     ) -> Result<bool, sqlx::Error> {
         let mut tx = self.db.begin().await?;
         lock_git_origin(&mut tx, id).await?;
-        let ctrl = moatless_core::db::access_control::write_filter("t.", 5);
+        let ctrl = moatless_core::db::access_control::write_filter(ScopedEntity::Resource, "t.", 5);
         let sql = format!(
             r#"UPDATE loops t
                SET name = $2,
@@ -459,7 +459,7 @@ impl LoopDao {
     pub async fn delete(&self, id: &str, ctx: &ScopeContext) -> Result<u64, sqlx::Error> {
         let mut tx = self.db.begin().await?;
         lock_git_origin(&mut tx, id).await?;
-        let ctrl = moatless_core::db::access_control::write_filter("t.", 2);
+        let ctrl = moatless_core::db::access_control::write_filter(ScopedEntity::Resource, "t.", 2);
         let sql = format!(
             "SELECT t.source_repository_id FROM loops t WHERE t.id = $1 AND {} FOR UPDATE",
             ctrl.sql()
@@ -505,7 +505,7 @@ impl LoopDao {
     ) -> Result<bool, sqlx::Error> {
         let mut tx = self.db.begin().await?;
         lock_git_origin(&mut tx, id).await?;
-        let ctrl = moatless_core::db::access_control::write_filter("t.", 2);
+        let ctrl = moatless_core::db::access_control::write_filter(ScopedEntity::Resource, "t.", 2);
         let sql = format!(
             "SELECT t.id
              FROM loops t
@@ -541,7 +541,7 @@ impl LoopDao {
     pub async fn pause(&self, id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
         let mut tx = self.db.begin().await?;
         lock_git_origin(&mut tx, id).await?;
-        let ctrl = moatless_core::db::access_control::write_filter("t.", 2);
+        let ctrl = moatless_core::db::access_control::write_filter(ScopedEntity::Resource, "t.", 2);
         let sql = format!(
             "SELECT t.id FROM loops t
              WHERE t.id = $1 AND t.deleted = false AND {}
@@ -568,7 +568,7 @@ impl LoopDao {
     pub async fn resume(&self, id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
         let mut tx = self.db.begin().await?;
         lock_git_origin(&mut tx, id).await?;
-        let ctrl = moatless_core::db::access_control::write_filter("t.", 2);
+        let ctrl = moatless_core::db::access_control::write_filter(ScopedEntity::Resource, "t.", 2);
         let sql = format!(
             "SELECT t.id
              FROM loops t
@@ -600,7 +600,7 @@ impl LoopDao {
     pub async fn override_git(&self, id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
         let mut tx = self.db.begin().await?;
         lock_git_origin(&mut tx, id).await?;
-        let ctrl = moatless_core::db::access_control::write_filter("t.", 2);
+        let ctrl = moatless_core::db::access_control::write_filter(ScopedEntity::Resource, "t.", 2);
         let sql = format!(
             "SELECT t.id FROM loops t
              WHERE t.id = $1

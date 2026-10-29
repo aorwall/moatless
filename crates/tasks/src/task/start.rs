@@ -39,7 +39,7 @@ pub async fn start_task(
         .find_by_id(&task_id, scope_ctx)
         .await?
         .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
-    if !scope_ctx.can_control(&row.scoped_resource(), row.visibility) {
+    if !scope_ctx.can_write(&row.scoped_resource(), Some(row.visibility)) {
         return Err(TaskError::NotFound(task_id.clone())); // existence hiding
     }
 

@@ -645,13 +645,12 @@ pub(super) fn named(name: &str) -> Conversation {
 /// `None` — "the viewer cannot be shown it", from here.
 ///
 /// Control is granted; the test that withholds it overrides
-/// `controls_conversation` itself.
+/// `writes_conversation` itself.
 pub(super) fn conversations(found: Option<Conversation>) -> MockConversationDao {
     let mut dao = MockConversationDao::new();
     dao.expect_readable_by_id()
         .returning(move |_, _| Ok(found.clone()));
-    dao.expect_controls_conversation()
-        .returning(|_, _| Ok(true));
+    dao.expect_writes_conversation().returning(|_, _| Ok(true));
     dao.expect_listing_head().returning(|| {
         Ok(ListingHead {
             identity: EnvironmentIdentity::new("test"),

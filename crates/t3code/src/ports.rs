@@ -869,10 +869,10 @@ pub trait ThreadCommandSink: Send + Sync {
     ) -> Result<(), CommandRefusal>;
 
     /// Set who may reach this thread. `Public` grants every signed-in viewer
-    /// read *and* control (see
-    /// [`moatless_types::access_control::ScopeContext::can_control`]);
+    /// read *and* write (see
+    /// [`moatless_types::access_control::ScopeContext::can_write`]);
     /// `Private` returns it to its scope and owner's own grants. Refuses
-    /// `NotWritable` for anyone but the owner.
+    /// `NotWritable` for anyone but the owner or an admin.
     async fn set_visibility(
         &self,
         viewer: &ScopeContext,

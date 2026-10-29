@@ -19,6 +19,19 @@ pub async fn delete_task(
     scope_ctx: &ScopeContext,
     task_id: String,
 ) -> Result<(), TaskError> {
+    let row = tasks
+        .find_by_id(&task_id, scope_ctx)
+        .await?
+        .ok_or_else(|| TaskError::NotFound(task_id.clone()))?;
+    // Before the close below, which only needs write: a public Task's visitor
+    // would otherwise close it and remove its Sandbox before `delete_task`'s
+    // owner filter refused the row.
+    if !scope_ctx.is_owner(&row.scoped_resource()) {
+        return Err(TaskError::Forbidden(format!(
+            "only the owner of task {task_id} can delete it"
+        )));
+    }
+
     // Leave the active member set before lifecycle decides whether this is a
     // member detach or the final sandbox-scoped remove. Concurrent deletes of
     // all members then serialize with at least one caller seeing no open/error

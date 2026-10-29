@@ -76,10 +76,17 @@ pub async fn send_user_message(
     task_id: &str,
     message: UserMessage,
 ) -> Result<Option<String>, MessageError> {
-    tasks
+    let task = tasks
         .find_by_id(task_id, sender.scope)
         .await?
         .ok_or_else(|| MessageError::NotFound(task_id.to_string()))?;
+    // Existence hiding, as on every other write.
+    if !sender
+        .scope
+        .can_write(&task.scoped_resource(), Some(task.visibility))
+    {
+        return Err(MessageError::NotFound(task_id.to_string()));
+    }
 
     // Auto-follow: writing to a task adds it to the sender's personal task
     // list. Best-effort — a follow failure must never block sending.

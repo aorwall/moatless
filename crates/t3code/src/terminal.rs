@@ -360,7 +360,7 @@ async fn open_session(
         rows: optional_u32(input.rows, "rows")?.unwrap_or(0),
         env: input.env.clone().unwrap_or_default(),
     };
-    let task_id = workspace::controlled_conversation(conversations, viewer, &request.cwd).await?;
+    let task_id = workspace::owned_conversation(conversations, viewer, &request.cwd).await?;
     stamp_task_id(&mut request.env, &task_id);
     let client = sandboxes
         .sandbox_client(&task_id)
@@ -399,8 +399,8 @@ pub async fn attach(
 ) -> Result<Streaming<TerminalAttachStreamEvent>, TerminalError> {
     let thread_id = required_string(&input.thread_id, "threadId")?.to_string();
     let task_id = match optional_string(&input.cwd, "cwd")? {
-        Some(cwd) => workspace::controlled_conversation(conversations, viewer, &cwd).await?,
-        None => controlled_thread(conversations, viewer, &thread_id).await?,
+        Some(cwd) => workspace::owned_conversation(conversations, viewer, &cwd).await?,
+        None => owned_thread(conversations, viewer, &thread_id).await?,
     };
     let client = sandboxes
         .sandbox_client(&task_id)
@@ -430,7 +430,7 @@ pub async fn write(
     input: &TerminalInput,
 ) -> Result<(), TerminalError> {
     let thread_id = required_string(&input.thread_id, "threadId")?.to_string();
-    let task_id = controlled_thread(conversations, viewer, &thread_id).await?;
+    let task_id = owned_thread(conversations, viewer, &thread_id).await?;
     let client = sandboxes
         .sandbox_client(&task_id)
         .await
@@ -452,7 +452,7 @@ pub async fn resize(
     input: &TerminalInput,
 ) -> Result<(), TerminalError> {
     let thread_id = required_string(&input.thread_id, "threadId")?.to_string();
-    let task_id = controlled_thread(conversations, viewer, &thread_id).await?;
+    let task_id = owned_thread(conversations, viewer, &thread_id).await?;
     let client = sandboxes
         .sandbox_client(&task_id)
         .await
@@ -477,7 +477,7 @@ pub async fn clear(
 ) -> Result<(), TerminalError> {
     let thread_id = required_string(&input.thread_id, "threadId")?.to_string();
     let terminal_id = required_string(&input.terminal_id, "terminalId")?.to_string();
-    let task_id = controlled_thread(conversations, viewer, &thread_id).await?;
+    let task_id = owned_thread(conversations, viewer, &thread_id).await?;
     let client = sandboxes
         .sandbox_client(&task_id)
         .await
@@ -509,7 +509,7 @@ pub async fn restart(
         rows: required_u32(input.rows, "rows")?,
         env: input.env.clone().unwrap_or_default(),
     };
-    let task_id = workspace::controlled_conversation(conversations, viewer, &request.cwd).await?;
+    let task_id = workspace::owned_conversation(conversations, viewer, &request.cwd).await?;
     stamp_task_id(&mut request.env, &task_id);
     let client = sandboxes
         .sandbox_client(&task_id)
@@ -540,7 +540,7 @@ pub async fn close(
 ) -> Result<(), TerminalError> {
     let thread_id = required_string(&input.thread_id, "threadId")?.to_string();
     let terminal_id = optional_string(&input.terminal_id, "terminalId")?;
-    let task_id = controlled_thread(conversations, viewer, &thread_id).await?;
+    let task_id = owned_thread(conversations, viewer, &thread_id).await?;
     let client = sandboxes
         .sandbox_client(&task_id)
         .await
@@ -691,10 +691,10 @@ fn cwd_error(cwd: &str, detail: &str) -> Value {
     })
 }
 
-/// The same gate [`workspace::controlled_conversation`] applies, for calls that
-/// name a thread directly rather than through a `cwd`: readable first, then
-/// control — typing into someone's shell requires control.
-async fn controlled_thread(
+/// The same gate [`workspace::owned_conversation`] applies, for calls that
+/// name a thread directly rather than through a `cwd`: readable, writable,
+/// then owned — a public Task's visitors do not get its shell.
+async fn owned_thread(
     conversations: &dyn ConversationDao,
     viewer: &ScopeContext,
     thread_id: &str,
@@ -704,10 +704,16 @@ async fn controlled_thread(
         .await?
         .ok_or(WorkspaceAccessError::Unaddressable)?;
     if !conversations
-        .controls_conversation(viewer, &conversation.task_id)
+        .writes_conversation(viewer, &conversation.task_id)
         .await?
     {
-        return Err(WorkspaceAccessError::NoControl.into());
+        return Err(WorkspaceAccessError::NoWrite.into());
+    }
+    if !conversations
+        .owns_conversation(viewer, &conversation.task_id)
+        .await?
+    {
+        return Err(WorkspaceAccessError::NotOwner.into());
     }
     match conversation.sandbox_desired_state() {
         Some(SandboxDesiredState::Running | SandboxDesiredState::Stopped) => {
@@ -1052,6 +1058,30 @@ mod tests {
         assert!(matches!(
             required_raw_string(&data, "data"),
             Err(TerminalError::Malformed("data"))
+        ));
+    }
+
+    /// A public Task's visitor may write to it but not reach its shell.
+    #[tokio::test]
+    async fn the_terminal_needs_ownership_beyond_write() {
+        let mut conversations = crate::dao::MockConversationDao::new();
+        conversations
+            .expect_readable_by_id()
+            .returning(|_, id| Ok(Some(crate::dao::running_conversation(id))));
+        conversations
+            .expect_writes_conversation()
+            .returning(|_, _| Ok(true));
+        conversations
+            .expect_owns_conversation()
+            .returning(|_, _| Ok(false));
+
+        let error = owned_thread(&conversations, &ScopeContext::user("visitor"), "task-1")
+            .await
+            .expect_err("a visitor is refused");
+
+        assert!(matches!(
+            error,
+            TerminalError::Workspace(WorkspaceAccessError::NotOwner)
         ));
     }
 }

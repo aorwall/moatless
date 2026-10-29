@@ -168,7 +168,11 @@ impl PgAdapterConnectionDao {
     ) -> Result<AdapterConnection, StoreError> {
         // In the DO UPDATE arm both the target row and EXCLUDED are in scope,
         // so the filter's columns must be table-qualified.
-        let ctrl = moatless_core::db::access_control::write_filter("adapter_connections.", 13);
+        let ctrl = moatless_core::db::access_control::write_filter(
+            ScopedEntity::Resource,
+            "adapter_connections.",
+            13,
+        );
         let sql = format!(
             r#"INSERT INTO adapter_connections
            (id, adapter_kind, connection_kind, external_account_id, credential_ref, webhook_secret,
@@ -224,7 +228,7 @@ impl PgAdapterConnectionDao {
     }
 
     pub(crate) async fn delete(&self, id: &str, ctx: &ScopeContext) -> Result<u64, StoreError> {
-        let ctrl = moatless_core::db::access_control::write_filter("", 2);
+        let ctrl = moatless_core::db::access_control::write_filter(ScopedEntity::Resource, "", 2);
         let sql = format!(
             "DELETE FROM adapter_connections WHERE id = $1 AND {}",
             ctrl.sql()

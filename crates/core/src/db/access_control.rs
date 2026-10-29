@@ -50,28 +50,10 @@ pub fn access_filter(entity: ScopedEntity, prefix: &str, start: usize) -> Access
 /// Build a write (mutation) SQL filter, using 2 positional parameters from
 /// `start`: `is_admin` then `user_id`, bound from `ScopeContext`.
 ///
-/// Write is the strictest grant (identical for every entity, so this takes no
-/// [`ScopedEntity`]); embedding it in a mutation's `WHERE` makes check and
+/// [`owner_filter`] plus the public-task arm, which the entity gates exactly as
+/// [`access_filter`] does. Embedding it in a mutation's `WHERE` makes check and
 /// write atomic, with `rows_affected == 0` mapping to `NotFound`.
-pub fn write_filter(prefix: &str, start: usize) -> AccessFilter {
-    let (p1, p2) = (start, start + 1);
-    let sql = format!(
-        "(${p1} OR ({prefix}scope = 'user' \
-         AND COALESCE({prefix}owner_user_id, {prefix}created_by) = ${p2}))"
-    );
-    AccessFilter {
-        sql,
-        next_param: start + 2,
-    }
-}
-
-/// Build a control (operate) SQL filter, using 2 positional parameters from
-/// `start`: `is_admin` then `user_id`, bound from `ScopeContext`.
-///
-/// Control is write plus the public-task arm, which the entity gates exactly as
-/// [`access_filter`] does; for every entity but [`ScopedEntity::Task`] this
-/// equals [`write_filter`].
-pub fn control_filter(entity: ScopedEntity, prefix: &str, start: usize) -> AccessFilter {
+pub fn write_filter(entity: ScopedEntity, prefix: &str, start: usize) -> AccessFilter {
     let (p1, p2) = (start, start + 1);
     let vis = if has_visibility(entity) {
         format!(" OR {prefix}visibility = 'public'")
@@ -80,6 +62,23 @@ pub fn control_filter(entity: ScopedEntity, prefix: &str, start: usize) -> Acces
     };
     let sql = format!(
         "(${p1}{vis} OR ({prefix}scope = 'user' \
+         AND COALESCE({prefix}owner_user_id, {prefix}created_by) = ${p2}))"
+    );
+    AccessFilter {
+        sql,
+        next_param: start + 2,
+    }
+}
+
+/// Build an ownership SQL filter, using 2 positional parameters from `start`:
+/// `is_admin` then `user_id`, bound from `ScopeContext`.
+///
+/// The SQL form of `ScopeContext::is_owner`; identical for every entity, so it
+/// takes no [`ScopedEntity`].
+pub fn owner_filter(prefix: &str, start: usize) -> AccessFilter {
+    let (p1, p2) = (start, start + 1);
+    let sql = format!(
+        "(${p1} OR ({prefix}scope = 'user' \
          AND COALESCE({prefix}owner_user_id, {prefix}created_by) = ${p2}))"
     );
     AccessFilter {
@@ -137,8 +136,8 @@ mod tests {
     }
 
     #[test]
-    fn write_filter_admin_or_owner_only() {
-        let f = write_filter("", 1);
+    fn owner_filter_admin_or_owner_only() {
+        let f = owner_filter("", 1);
         assert_eq!(
             f.sql(),
             "($1 OR (scope = 'user' AND COALESCE(owner_user_id, created_by) = $2))"
@@ -147,8 +146,8 @@ mod tests {
     }
 
     #[test]
-    fn write_filter_with_table_prefix() {
-        let f = write_filter("t.", 3);
+    fn owner_filter_with_table_prefix() {
+        let f = owner_filter("t.", 3);
         assert_eq!(
             f.sql(),
             "($3 OR (t.scope = 'user' AND COALESCE(t.owner_user_id, t.created_by) = $4))"
@@ -157,8 +156,8 @@ mod tests {
     }
 
     #[test]
-    fn control_filter_task_adds_the_public_arm_to_the_write_fragment() {
-        let f = control_filter(ScopedEntity::Task, "", 1);
+    fn write_filter_task_adds_the_public_arm_to_the_owner_fragment() {
+        let f = write_filter(ScopedEntity::Task, "", 1);
         assert_eq!(
             f.sql(),
             "($1 OR visibility = 'public' \
@@ -168,14 +167,13 @@ mod tests {
     }
 
     #[test]
-    fn control_filter_without_visibility_is_the_write_fragment() {
-        // Only a Task has a Sandbox to operate. On every other entity the two
-        // grants coincide, and the fragment must not name a column the table
-        // does not have.
+    fn write_filter_without_visibility_is_the_owner_fragment() {
+        // Only a Task is public. On every other entity the two coincide, and
+        // the fragment must not name a column the table does not have.
         for entity in [ScopedEntity::Repository, ScopedEntity::Resource] {
             assert_eq!(
-                control_filter(entity, "t.", 3).sql(),
-                write_filter("t.", 3).sql()
+                write_filter(entity, "t.", 3).sql(),
+                owner_filter("t.", 3).sql()
             );
         }
     }

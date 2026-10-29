@@ -126,12 +126,20 @@ pub trait ConversationDao: Send + Sync {
         task_id: &str,
     ) -> Result<bool, sqlx::Error>;
 
-    /// Whether this viewer may *operate* the named Task — the `control_filter`
-    /// rule: the write rule, widened by `visibility = 'public'`.
+    /// Whether this viewer may *write* to the named Task — the `write_filter`
+    /// rule: ownership, widened by `visibility = 'public'`.
     ///
     /// Asked directly rather than after a Follow, since anyone can acquire a
     /// Follow on a public Task by posting one message.
-    async fn controls_conversation(
+    async fn writes_conversation(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+    ) -> Result<bool, sqlx::Error>;
+
+    /// Whether this viewer owns the named Task — the `owner_filter` rule, which
+    /// visibility never widens.
+    async fn owns_conversation(
         &self,
         viewer: &ScopeContext,
         task_id: &str,
@@ -247,7 +255,7 @@ pub struct PgConversationDao {
     transcripts: Arc<TranscriptReads>,
     listing: TaskListing,
     search: TaskSearch,
-    /// The read, control and write rules over `tasks`, which moatless-tasks
+    /// The read, write and owner rules over `tasks`, which moatless-tasks
     /// owns.
     tasks: Arc<dyn TaskReader>,
 }
@@ -339,14 +347,27 @@ impl ConversationDao for PgConversationDao {
         Ok(status.is_some_and(|status| LISTED_STATUSES.contains(&status)))
     }
 
-    async fn controls_conversation(
+    async fn writes_conversation(
         &self,
         viewer: &ScopeContext,
         task_id: &str,
     ) -> Result<bool, sqlx::Error> {
         let task = self
             .tasks
-            .controlled(task_id, viewer)
+            .written(task_id, viewer)
+            .await
+            .map_err(store_read)?;
+        Ok(task.is_some())
+    }
+
+    async fn owns_conversation(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let task = self
+            .tasks
+            .owned(task_id, viewer)
             .await
             .map_err(store_read)?;
         Ok(task.is_some())
@@ -525,3 +546,59 @@ pub(crate) async fn transcript_origins(
 #[cfg(all(test, feature = "db-tests"))]
 #[path = "dao_db_tests.rs"]
 mod dao_db_tests;
+
+/// A conversation with a running Sandbox and nothing else filled in, for a
+/// test that reads only its id and the Sandbox's intent.
+#[cfg(test)]
+pub(crate) fn running_conversation(task_id: &str) -> crate::dao::Conversation {
+    crate::dao::Conversation {
+        task_id: task_id.to_string(),
+        workspace_id: Some("ws".into()),
+        name: None,
+        branch: None,
+        agent_profile: moatless_types::agent::AgentProfile::ClaudeCode.into(),
+        created_at: "2026-01-01T00:00:00Z".into(),
+        created_at_db: None,
+        updated_at: None,
+        closed_at: None,
+        visibility: moatless_types::task::Visibility::Private,
+        owner_name: None,
+        turn_number: None,
+        turn_status: None,
+        turn_started_at: None,
+        turn_ended_at: None,
+        turn_error: None,
+        turn_error_reason: None,
+        turn_error_resets_at: None,
+        child_count: 0,
+        running_children: Vec::new(),
+        sandbox_desired_state_raw: Some(
+            moatless_types::sandbox::SandboxDesiredState::Running
+                .as_str()
+                .to_string(),
+        ),
+        sandbox_stop_reason_raw: None,
+        sandbox_started_at: None,
+        sandbox_updated_at: None,
+        running_commands: 0,
+        latest_user_message_at: None,
+        latest_queued_message_at: None,
+        assistant_model: None,
+        requested_model: None,
+        pending_question: false,
+        pending_plan: false,
+        parent_task_id: None,
+        parent_relation: None,
+        fork_at_turn: None,
+        settled_override: None,
+        settled_at: None,
+        snoozed_until: None,
+        snoozed_at: None,
+        last_read_at: None,
+        pinned_at: None,
+        pin_order_key: None,
+        active_order_key: None,
+        auto_settle_disabled_at: None,
+        pull_requests: None,
+    }
+}

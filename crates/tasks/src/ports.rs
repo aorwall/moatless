@@ -85,19 +85,6 @@ impl TaskReader for TaskProjection {
             .map_err(read_failed(task_id))
     }
 
-    async fn controlled(
-        &self,
-        task_id: &str,
-        ctx: &ScopeContext,
-    ) -> Result<Option<TaskDescriptor>, StoreError> {
-        let task = self
-            .tasks
-            .find_controlled_by_id(task_id, ctx)
-            .await
-            .map_err(read_failed(task_id))?;
-        Ok(task.map(descriptor))
-    }
-
     async fn written(
         &self,
         task_id: &str,
@@ -106,6 +93,19 @@ impl TaskReader for TaskProjection {
         let task = self
             .tasks
             .find_written_by_id(task_id, ctx)
+            .await
+            .map_err(read_failed(task_id))?;
+        Ok(task.map(descriptor))
+    }
+
+    async fn owned(
+        &self,
+        task_id: &str,
+        ctx: &ScopeContext,
+    ) -> Result<Option<TaskDescriptor>, StoreError> {
+        let task = self
+            .tasks
+            .find_owned_by_id(task_id, ctx)
             .await
             .map_err(read_failed(task_id))?;
         Ok(task.map(descriptor))

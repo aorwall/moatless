@@ -154,7 +154,8 @@ pub(crate) fn git_action_failure_exit(
                 }
                 WorkspaceAccessError::NoWorktree
                 | WorkspaceAccessError::Unaddressable
-                | WorkspaceAccessError::NoControl => {
+                | WorkspaceAccessError::NoWrite
+                | WorkspaceAccessError::NotOwner => {
                     debug!(?access, user_id = %identity.user_id, "T3 git action refused");
                 }
             }
@@ -377,7 +378,8 @@ fn log_terminal_failure(error: &terminal::TerminalError, identity: &UiRpcAuthIde
         terminal::TerminalError::Workspace(
             WorkspaceAccessError::NoWorktree
             | WorkspaceAccessError::Unaddressable
-            | WorkspaceAccessError::NoControl,
+            | WorkspaceAccessError::NoWrite
+            | WorkspaceAccessError::NotOwner,
         )
         | terminal::TerminalError::Malformed(_) => {
             debug!(?error, user_id = %identity.user_id, "T3 UI terminal request refused");

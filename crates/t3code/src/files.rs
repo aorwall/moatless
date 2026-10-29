@@ -212,7 +212,7 @@ pub async fn search_entries(
 
 /// A file written into the conversation's worktree (`projects.writeFile`).
 ///
-/// Gated by [`workspace::controlled_conversation`], not `addressed_`; never
+/// Gated by [`workspace::written_conversation`], not `addressed_`; never
 /// resolved like [`read_file`], or mention resolution would overwrite instead
 /// of creating.
 pub async fn write_file(
@@ -224,7 +224,7 @@ pub async fn write_file(
     contents: &str,
 ) -> Result<Value, WorkspaceAccessError> {
     let conversations = reads.conversations();
-    let task_id = workspace::controlled_conversation(conversations, viewer, cwd).await?;
+    let task_id = workspace::written_conversation(conversations, viewer, cwd).await?;
     sandboxes
         .sandbox_client(&task_id)
         .await

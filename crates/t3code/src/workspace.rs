@@ -31,12 +31,15 @@ pub enum WorkspaceAccessError {
     /// viewer cannot be shown. Deliberately one variant: telling the two apart
     /// on the wire would answer whether a Task id exists.
     Unaddressable,
-    /// The viewer may be shown the conversation but may not operate it.
+    /// The viewer may be shown the conversation but may not write to it.
     ///
     /// Its own variant rather than [`Self::Unaddressable`]: here the person is
     /// looking at the thing they are refused, so hiding its existence reads as
     /// a defect.
-    NoControl,
+    NoWrite,
+    /// The viewer may write to the conversation but does not own it, and the
+    /// call is one only its owner may make, such as opening a terminal.
+    NotOwner,
     /// The conversation's Sandbox was not ready to be called at all — stopped,
     /// still starting, or gone. This is the readiness gate refusing, before any
     /// request is made.
@@ -69,10 +72,13 @@ impl WorkspaceAccessError {
                 "This conversation has no sandbox, so it has no workspace yet.".into()
             }
             Self::Unaddressable => "This conversation's workspace is not available.".into(),
-            Self::NoControl => {
+            Self::NoWrite => {
                 "You can read this conversation, but only its owner can run things in its \
                  sandbox."
                     .into()
+            }
+            Self::NotOwner => {
+                "Only this conversation's owner can open a terminal in its sandbox.".into()
             }
             Self::NotRunning(_) => "The sandbox for this conversation is not running.".into(),
             Self::Sandbox(SandboxError::NotReady(_)) => {
@@ -99,7 +105,11 @@ impl WorkspaceAccessError {
     /// See [`crate::rpc::metrics::refused`].
     pub(crate) fn is_refusal(&self) -> bool {
         match self {
-            Self::NoWorktree | Self::Unaddressable | Self::NoControl | Self::NotRunning(_) => true,
+            Self::NoWorktree
+            | Self::Unaddressable
+            | Self::NoWrite
+            | Self::NotOwner
+            | Self::NotRunning(_) => true,
             Self::Sandbox(
                 SandboxError::NotFound(_)
                 | SandboxError::BadRequest(_)
@@ -121,8 +131,8 @@ pub fn sandbox_access(error: SandboxError) -> WorkspaceAccessError {
 /// exists.
 ///
 /// Re-applies the access filter: being issued a `cwd` says nothing about who
-/// holds it now. Following isn't re-checked — the shell paths gate on
-/// control instead (see [`controlled_conversation`]).
+/// holds it now. Following isn't re-checked — writes gate on
+/// [`written_conversation`], the shell on [`owned_conversation`].
 pub(crate) async fn addressed_conversation(
     conversations: &dyn ConversationDao,
     viewer: &ScopeContext,
@@ -141,23 +151,34 @@ pub(crate) async fn addressed_conversation(
     }
 }
 
-/// The conversation a `cwd` names, for a caller about to *operate* it: open a
-/// terminal, run a script, write a file, commit.
+/// The conversation a `cwd` names, for a caller about to *write* to it: write a
+/// file, commit.
 ///
 /// [`addressed_conversation`] first, so an unreadable Task is unaddressable
-/// rather than forbidden, then the control check — a public Task grants it to
+/// rather than forbidden, then the write check — a public Task grants it to
 /// any signed-in caller, a private one only to its owner.
-pub(crate) async fn controlled_conversation(
+pub(crate) async fn written_conversation(
     conversations: &dyn ConversationDao,
     viewer: &ScopeContext,
     cwd: &str,
 ) -> Result<String, WorkspaceAccessError> {
     let task_id = addressed_conversation(conversations, viewer, cwd).await?;
-    if !conversations
-        .controls_conversation(viewer, &task_id)
-        .await?
-    {
-        return Err(WorkspaceAccessError::NoControl);
+    if !conversations.writes_conversation(viewer, &task_id).await? {
+        return Err(WorkspaceAccessError::NoWrite);
+    }
+    Ok(task_id)
+}
+
+/// [`written_conversation`], narrowed to the owner: the gate on an interactive
+/// terminal, which a public Task's visitors do not get.
+pub(crate) async fn owned_conversation(
+    conversations: &dyn ConversationDao,
+    viewer: &ScopeContext,
+    cwd: &str,
+) -> Result<String, WorkspaceAccessError> {
+    let task_id = written_conversation(conversations, viewer, cwd).await?;
+    if !conversations.owns_conversation(viewer, &task_id).await? {
+        return Err(WorkspaceAccessError::NotOwner);
     }
     Ok(task_id)
 }

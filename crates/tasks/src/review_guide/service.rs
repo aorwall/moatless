@@ -110,7 +110,7 @@ async fn writable_task(
         .find_by_id(task_id, scope)
         .await?
         .ok_or_else(|| ReviewGuideError::TaskNotFound(task_id.to_string()))?;
-    if !scope.can_write(&task.scoped_resource()) {
+    if !scope.can_write(&task.scoped_resource(), Some(task.visibility)) {
         return Err(ReviewGuideError::Forbidden(task_id.to_string()));
     }
     Ok(task)

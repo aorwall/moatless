@@ -213,7 +213,7 @@ plans and `deletedAt`:
 | `latestUserMessageAt` | `MAX(conversation_messages.created_at)` over user Messages a person sent — see the hazard below. |
 | `hasPendingApprovals` | `false`. Moatless has no approval queue and the contract supplies no empty value. |
 | `hasPendingUserInput` / `hasActionableProposedPlan` | An unanswered `AskUserQuestion` / `ExitPlanMode` `tool_use` block in the newest assistant message. |
-| `visibility` | `tasks.visibility`. `NOT NULL DEFAULT 'private'`, so it is always emitted. `public` is the whole of the control grant, not a read grant — see `ScopeContext::can_control` — so a public Task is drivable by every signed-in viewer. |
+| `visibility` | `tasks.visibility`. `NOT NULL DEFAULT 'private'`, so it is always emitted. `public` grants read and write to every signed-in viewer — see `ScopeContext::can_write` — while ownership (`ScopeContext::is_owner`) stays with the owner. |
 | `interactionMode`, `archivedAt`, `settledOverride`, `settledAt`, `snoozedUntil`, `snoozedAt` | **Deliberately absent, not null.** All six are `Schema.optional` or carry a `withDecodingDefault`, and Moatless has nothing honest to put in them. Leaving them out lets the contract fill them. |
 | `deletedAt` | **Not a field of this type** — it belongs to `OrchestrationThread` (`:370`). Same trap as `OrchestrationProjectShell`. |
 

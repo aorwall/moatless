@@ -21,7 +21,7 @@ use moatless_types::sandbox::ArchiveRetention;
 use crate::workspace_repository::GrantError;
 
 use super::access::{
-    authorize_task_control, authorize_task_read, authorize_task_write, require_lifecycle,
+    authorize_task_owner, authorize_task_read, authorize_task_write, require_lifecycle,
 };
 use super::state::SandboxApiState;
 use moatless_core::http_auth::OptionalScope;
@@ -31,7 +31,7 @@ use moatless_types::sandbox::SandboxStopReason;
 /// Provision a new sandbox for a task.
 ///
 /// Builds the provision request internally from DB state (task, repository,
-/// credentials); no request body required. Requires control access.
+/// credentials); no request body required. Requires write access.
 #[utoipa::path(
     post,
     path = "/api/sandbox/v1/tasks/{task_id}/provision",
@@ -42,7 +42,7 @@ use moatless_types::sandbox::SandboxStopReason;
     responses(
         (status = 200, description = "Sandbox provisioned successfully", body = ProvisionResponse),
         (status = 400, description = "Task is Closed — start not allowed", body = moatless_api_schemas::error::ErrorBody),
-        (status = 403, description = "No control access to the task", body = moatless_api_schemas::error::ErrorBody),
+        (status = 403, description = "No write access to the task", body = moatless_api_schemas::error::ErrorBody),
         (status = 409, description = "Another lifecycle operation is in progress", body = moatless_api_schemas::error::ErrorBody),
         (status = 500, description = "Provisioning failed", body = moatless_api_schemas::error::ErrorBody)
     )
@@ -54,7 +54,7 @@ pub async fn provision_handler(
     Path(task_id): Path<String>,
 ) -> Result<Json<ProvisionResponse>, SandboxError> {
     info!(task_id = %task_id, "POST /provision");
-    authorize_task_control(&state, &scope, &task_id).await?;
+    authorize_task_write(&state, &scope, &task_id).await?;
 
     // Lifecycle owns plan construction, the Running intent, and the start
     // timestamp; the runtime receives a fresh request from DB state.
@@ -209,7 +209,7 @@ pub async fn stop_handler(
     Path(task_id): Path<String>,
 ) -> Result<StatusCode, SandboxError> {
     info!(task_id = %task_id, "POST /stop");
-    authorize_task_control(&state, &scope, &task_id).await?;
+    authorize_task_write(&state, &scope, &task_id).await?;
     require_lifecycle(&state)?
         .stop(&task_id, SandboxStopReason::User)
         .await?;
@@ -239,7 +239,7 @@ pub async fn restart_handler(
     Path(task_id): Path<String>,
 ) -> Result<StatusCode, SandboxError> {
     info!(task_id = %task_id, "POST /restart");
-    authorize_task_control(&state, &scope, &task_id).await?;
+    authorize_task_write(&state, &scope, &task_id).await?;
     // lifecycle.restart detaches internally, so it runs to completion even if the
     // HTTP client disconnects.
     require_lifecycle(&state)?.restart(&task_id).await?;
@@ -272,7 +272,7 @@ pub async fn redeploy_handler(
     Path(task_id): Path<String>,
 ) -> Result<Json<ProvisionResponse>, SandboxError> {
     info!(task_id = %task_id, "POST /redeploy");
-    authorize_task_control(&state, &scope, &task_id).await?;
+    authorize_task_write(&state, &scope, &task_id).await?;
 
     // Lifecycle owns plan construction and detaches internally; the runtime
     // receives a fresh request from DB state.
@@ -285,7 +285,7 @@ pub async fn redeploy_handler(
 
 /// Mint direct access to a task's workspace `restic` repository.
 ///
-/// Platform admins only, on top of write access — write alone is not enough:
+/// Platform admins only, on top of ownership — ownership alone is not enough:
 /// this hands out the S3 session and repository password, everything the
 /// `restic` CLI (and an attacker) would need.
 #[utoipa::path(
@@ -307,7 +307,7 @@ pub async fn workspace_repository_access_handler(
     OptionalScope(scope): OptionalScope,
     Path(task_id): Path<String>,
 ) -> Result<Json<WorkspaceRepositoryAccessResponse>, SandboxError> {
-    authorize_task_write(&state, &scope, &task_id).await?;
+    authorize_task_owner(&state, &scope, &task_id).await?;
     if !scope.as_ref().is_some_and(|ctx| ctx.is_admin) {
         return Err(SandboxError::Forbidden(
             "workspace repository access is limited to platform admins".into(),
@@ -369,7 +369,7 @@ pub async fn remove_handler(
     Path(task_id): Path<String>,
 ) -> Result<StatusCode, SandboxError> {
     info!(task_id = %task_id, "POST /cleanup");
-    authorize_task_write(&state, &scope, &task_id).await?;
+    authorize_task_owner(&state, &scope, &task_id).await?;
     // A cleanup deletes archives (no retention) — lifecycle owns the Removed
     // intent and strict teardown.
     require_lifecycle(&state)?

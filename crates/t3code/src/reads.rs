@@ -206,12 +206,20 @@ mod refusal {
             self.0.can_read_conversation(viewer, task_id).await
         }
 
-        async fn controls_conversation(
+        async fn writes_conversation(
             &self,
             viewer: &ScopeContext,
             task_id: &str,
         ) -> Result<bool, sqlx::Error> {
-            self.0.controls_conversation(viewer, task_id).await
+            self.0.writes_conversation(viewer, task_id).await
+        }
+
+        async fn owns_conversation(
+            &self,
+            viewer: &ScopeContext,
+            task_id: &str,
+        ) -> Result<bool, sqlx::Error> {
+            self.0.owns_conversation(viewer, task_id).await
         }
 
         async fn transcript(&self, task_id: &str) -> Result<Transcript, sqlx::Error> {

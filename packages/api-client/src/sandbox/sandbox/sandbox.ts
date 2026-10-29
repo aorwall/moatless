@@ -1085,7 +1085,7 @@ export const getProvisionHandlerUrl = (taskId: string,) => {
 
 /**
  * Builds the provision request internally from DB state (task, repository,
- * credentials); no request body required. Requires control access.
+ * credentials); no request body required. Requires write access.
  * @summary Provision a new sandbox for a task.
  */
 export const provisionHandler = async (taskId: string, options?: Parameters<typeof customInstance>[1]): Promise<provisionHandlerResponse> => {

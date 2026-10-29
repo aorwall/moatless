@@ -78,7 +78,7 @@ impl TaskCommands {
         let Some(existing) = self.store.find_by_id(task_id, viewer).await? else {
             return Ok(MintedIdClaim::Free);
         };
-        if !viewer.can_write(&ScopedResource::borrowed(
+        if !viewer.is_owner(&ScopedResource::borrowed(
             existing.scope,
             existing
                 .owner_user_id

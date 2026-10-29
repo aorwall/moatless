@@ -239,7 +239,7 @@ impl WorkspaceCredentialService {
                 .as_deref()
                 .or(workspace.created_by.as_deref()),
         );
-        if !ctx.can_write(&resource) {
+        if !ctx.can_write(&resource, None) {
             self.audits
                 .record_workspace_credential(
                     &ctx.user_id,

@@ -90,6 +90,61 @@ async fn a_user_message_clears_settle_for_all_followers_and_snooze_only_for_send
     assert!(colleague.2.is_some(), "colleague snooze was cleared");
 }
 
+/// REST send is a write: a reader who cannot write is refused before anything
+/// lands, and a public Task's visitor is let through.
+#[sqlx::test]
+async fn a_user_message_needs_write_not_read(pool: PgPool) {
+    compose::workspaces(pool.clone())
+        .insert_workspace(&make_workspace_row("ws-a", "user-1"))
+        .await
+        .unwrap();
+    // A `global` private row reads to everyone but writes for admins only.
+    let mut readable = make_task_row("t-readable", "user-1");
+    readable.workspace_id = Some("ws-a".to_string());
+    readable.scope = moatless_types::access_control::Scope::Global;
+    moatless_tasks::task::test_support::seed_task(&pool, &readable)
+        .await
+        .unwrap();
+    seed_public_task(&pool, "t-public", "user-1", Some("ws-a")).await;
+
+    let state = test_app_state(pool.clone());
+    let visitor = viewer("user-2");
+    let send = |task_id: &'static str| {
+        let state = &state;
+        let visitor = &visitor;
+        async move {
+            message_service::send_user_message(
+                state.tasks.as_ref(),
+                state.message_send.as_ref(),
+                state.sandbox_waker.as_ref(),
+                &message_service::Sender {
+                    user_id: "user-2",
+                    scope: visitor,
+                    is_agent_context: false,
+                },
+                task_id,
+                message_service::UserMessage {
+                    text: "hello".to_string(),
+                    ..Default::default()
+                },
+            )
+            .await
+        }
+    };
+
+    assert!(send("t-readable").await.is_err());
+    let follows: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM task_follows WHERE user_id = 'user-2' AND task_id = 't-readable'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(follows, 0, "a refused send must not follow the task");
+    send("t-public")
+        .await
+        .expect("a visitor may write to a public task");
+}
+
 #[sqlx::test]
 async fn turn_start_clears_settle_for_every_follower_and_leaves_snooze(pool: PgPool) {
     compose::workspaces(pool.clone())

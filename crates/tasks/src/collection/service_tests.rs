@@ -26,6 +26,12 @@ fn tasks() -> TaskCommands {
                 task.visibility = moatless_types::task::Visibility::Public;
                 Ok(Some(task))
             }
+            // Reads to everyone and writes for admins only.
+            "task-shared" => {
+                let mut task = make_task_row(task_id, "user-2");
+                task.scope = moatless_types::access_control::Scope::Global;
+                Ok(Some(task))
+            }
             _ => Ok(None),
         });
     TaskCommands::new(Arc::new(store))
@@ -139,12 +145,28 @@ async fn a_task_without_a_loop_writes_its_own_collection() {
 }
 
 #[tokio::test]
+async fn a_visitor_writes_a_public_tasks_records() {
+    let written = write(
+        &tasks(),
+        &records(writable(0)),
+        &ctx("user-3"),
+        "task-public",
+        "notes",
+        Some(MemoryScope::Task),
+        save("a"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(written.scope, MemoryScope::Task);
+}
+
+#[tokio::test]
 async fn a_reader_who_cannot_change_the_task_cannot_write_its_records() {
     let err = write(
         &tasks(),
         &records(MockRecordDao::new()),
         &ctx("user-3"),
-        "task-public",
+        "task-shared",
         "notes",
         Some(MemoryScope::Task),
         save("a"),

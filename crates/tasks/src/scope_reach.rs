@@ -1,7 +1,7 @@
 //! Which scopes a Task reaches, and who may write or read what a scope holds.
 //! Memory entries and record collections share these rules.
 
-use moatless_types::access_control::{Scope, ScopeContext, ScopedResource};
+use moatless_types::access_control::{ScopeContext, ScopedResource};
 use moatless_types::memory::MemoryScope;
 use moatless_types::store::StoreError;
 use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
@@ -106,8 +106,7 @@ pub fn owner(task: &Task) -> Option<&str> {
 /// Refuse a write to a scope other users' Tasks read unless `ctx` may write
 /// what it belongs to.
 ///
-/// That is the Workspace or repository itself, and for `global` an admin or
-/// a global Task. Writing the Task is not enough: on a shared repository it
+/// That is the Workspace or repository itself, and for `global` an admin. Writing the Task is not enough: on a shared repository it
 /// would let any user put text in another user's scope.
 pub async fn check_scope_write(
     owners: ScopeOwners<'_>,
@@ -118,17 +117,17 @@ pub async fn check_scope_write(
 ) -> Result<(), ScopeError> {
     let allowed = match scope.scope {
         MemoryScope::Task | MemoryScope::Loop | MemoryScope::User => true,
-        MemoryScope::Global => ctx.is_admin || task.scope == Scope::Global,
+        MemoryScope::Global => ctx.is_admin,
         MemoryScope::Workspace => owners
             .workspaces
             .describe(ctx, &scope.id)
             .await?
-            .is_some_and(|w| ctx.can_write(&ScopedResource::new(w.scope, w.owner_user_id))),
+            .is_some_and(|w| ctx.can_write(&ScopedResource::new(w.scope, w.owner_user_id), None)),
         MemoryScope::Repository => owners
             .repositories
             .describe(ctx, &scope.id)
             .await?
-            .is_some_and(|r| ctx.can_write(&ScopedResource::new(r.scope, r.owner_user_id))),
+            .is_some_and(|r| ctx.can_write(&ScopedResource::new(r.scope, r.owner_user_id), None)),
     };
     if allowed {
         Ok(())

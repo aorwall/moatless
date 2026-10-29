@@ -45,18 +45,18 @@ pub trait TaskReader: Send + Sync {
         ctx: &ScopeContext,
     ) -> Result<Option<TaskStatus>, StoreError>;
 
-    /// [`Self::describe`], narrowed to a Task `ctx` may operate: the write
-    /// rule widened by public visibility. `None` also for a Task `ctx` can
-    /// read but not operate, so the answer never says who owns it.
-    async fn controlled(
+    /// [`Self::describe`], narrowed to a Task `ctx` may write: ownership
+    /// widened by public visibility. `None` also for a Task `ctx` can read but
+    /// not write, so the answer never says who owns it.
+    async fn written(
         &self,
         task_id: &str,
         ctx: &ScopeContext,
     ) -> Result<Option<TaskDescriptor>, StoreError>;
 
-    /// [`Self::describe`], narrowed to a Task `ctx` may write: owner or
-    /// admin, never widened by visibility. `None` as for [`Self::controlled`].
-    async fn written(
+    /// [`Self::describe`], narrowed to a Task `ctx` owns: owner or admin,
+    /// never widened by visibility. `None` as for [`Self::written`].
+    async fn owned(
         &self,
         task_id: &str,
         ctx: &ScopeContext,

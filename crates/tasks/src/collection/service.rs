@@ -38,7 +38,7 @@ pub async fn write(
     valid_name(name)?;
     let req = checked(req)?;
     let task = readable_task(tasks, ctx, task_id).await?;
-    if !ctx.can_write(&task.scoped_resource()) {
+    if !ctx.can_write(&task.scoped_resource(), Some(task.visibility)) {
         return Err(CollectionError::Forbidden(format!(
             "cannot write records for task {task_id}"
         )));

@@ -222,10 +222,10 @@ impl SandboxAuthorizer {
 
     /// The DB-backed write gate: load the task through the caller's scoped read
     /// (an invisible task is a plain `NotFound`, like HTTP 404), then require
-    /// `ctx.can_write` (owner or admin).
+    /// `ctx.is_owner` (owner or admin).
     ///
-    /// Public *visibility* grants control but never write, so credentials,
-    /// messages, and workspace writes stay owner-only.
+    /// Deliberately ownership rather than `can_write`: public visibility grants
+    /// write, and this gate hands the pod owner's credentials to the caller.
     async fn resolve_write(
         &self,
         claims: &jwt::UserTokenClaims,
@@ -246,7 +246,7 @@ impl SandboxAuthorizer {
             })?
             .ok_or_else(|| Status::not_found("Task not found"))?;
 
-        if ctx.can_write(&task.scoped_resource()) {
+        if ctx.is_owner(&task.scoped_resource()) {
             Ok(TaskGrant {
                 sandbox_id: task.sandbox_id.unwrap_or_else(|| task_id.to_string()),
                 login: claims.login.clone(),
@@ -297,7 +297,7 @@ impl SandboxAuthorizer {
                 "Token is not valid for this task's sandbox",
             ));
         }
-        if !ctx.can_write(&task.scoped_resource()) {
+        if !ctx.is_owner(&task.scoped_resource()) {
             return Err(Status::permission_denied("Not authorized for this task"));
         }
 

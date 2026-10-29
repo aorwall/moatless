@@ -257,6 +257,14 @@ impl TaskPatch {
             || self.ttl_minutes.is_some()
             || self.close_after_settled_days.is_some()
     }
+
+    /// Whether this patch needs [`ScopeContext::is_owner`] rather than write:
+    /// a visitor who made a public Task private would lock everyone else out.
+    ///
+    /// [`ScopeContext::is_owner`]: moatless_types::access_control::ScopeContext::is_owner
+    pub(crate) fn owner_only(&self) -> bool {
+        self.visibility.is_some()
+    }
 }
 
 /// What a Loop imposes on the Sandbox row written beside a new Task.

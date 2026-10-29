@@ -159,7 +159,8 @@ impl RepositoryDao for PgRepositoryDao {
         sets.push(format!("updated_at = ${idx}"));
         idx += 1;
 
-        let control = moatless_core::db::access_control::write_filter("", idx);
+        let control =
+            moatless_core::db::access_control::write_filter(ScopedEntity::Repository, "", idx);
         let sql = format!(
             "UPDATE repositories SET {} \
              WHERE id = $1 AND (deleted IS NULL OR deleted = false) AND {}",
@@ -202,7 +203,8 @@ impl RepositoryDao for PgRepositoryDao {
     }
 
     async fn soft_delete(&self, id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
-        let control = moatless_core::db::access_control::write_filter("", 3);
+        let control =
+            moatless_core::db::access_control::write_filter(ScopedEntity::Repository, "", 3);
         let sql = format!(
             "UPDATE repositories SET deleted = true, updated_at = $2 \
              WHERE id = $1 AND (deleted IS NULL OR deleted = false) AND {}",

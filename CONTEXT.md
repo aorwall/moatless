@@ -519,8 +519,8 @@ subject back to the next reach down, which is not the same as setting it off.
 Nothing is delivered without a record.
 
 Writing one takes the reach's own authority: an admin for everyone's, your own or
-an admin acting for you for a person's, and control of that one Workspace — its
-owner, or an admin — for a Workspace's. Control and not read, because a global
+an admin acting for you for a person's, and write to that one Workspace — its
+owner, or an admin — for a Workspace's. Write and not read, because a global
 Workspace reads to everybody signed in while its records decide what loads for
 everybody working in it. A git-declared Workspace's own records come from the
 `skills` key of its `.moatless/workspaces.json` entry when it has one, which then
@@ -632,11 +632,12 @@ The access boundary applied to Repositories, Workspaces, Tasks, Adapters, Secret
 and Credentials: `Global` or `User` (two values only). `Global` is readable by every
 authenticated user and written by admins; `User` is readable and written by its
 owner (admins bypass both). Ownership is `COALESCE(owner_user_id, created_by)`. There
-are three grants: **read**, **control** (operate: start, stop, restart, redeploy, run
-a shell or a turn in the Sandbox), and **write** (persistent change: cleanup, server
-config, task edits). A Task with `visibility = 'public'` grants read and control to
-every signed-in user; write stays with the owner and admins. Secrets use this same
-Scope.
+are two grants: **read** and **write** (messages, turns, start, stop, restart,
+redeploy, file writes, task edits). A Task with `visibility = 'public'` grants both to
+every signed-in user. A few actions are **owner-only** (the owner or an admin, never
+widened by visibility): deleting a Task, cleaning up its Sandbox, changing its
+visibility, its run-as and ownership fields, and the interactive terminal. Secrets use
+this same Scope.
 _Note_: `Team` is **not** a scope — teams are an org/entity concept and grant no
 resource access (removed in the access-scope redesign).
 _Avoid_: conflating with `OAuth scope` (a permission grant) — always qualify that.
@@ -771,7 +772,7 @@ _Note_: `MessageAcceptor` is distinct from `TranscriptAppend`, which writes one
 row and runs no flow. A turn accepted here is deduplicated, persisted, and
 handed to the agent.
 _Note_: `TaskFinisher::close` answers alike for a Task that does not exist and a
-Task the caller may not control, so a close never discloses that a Task is there.
+Task the caller may not write, so a close never discloses that a Task is there.
 _Note_: a peer writes a transcript row as a `TranscriptEntry`, never as a
 `TaskMessage`. The two kinds are an **AssistantReply** authored in the backend
 and an **OutboundStub** recording what an Adapter sent.
