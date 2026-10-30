@@ -310,9 +310,51 @@ fn execution_with(message: Option<&str>, matched: Vec<MatchedRule>) -> Execution
         skills: vec!["pr-review-infra".to_string()],
         matched,
         message: message.map(str::to_string),
+        model: None,
         default_branch: None,
         description: None,
     }
+}
+
+#[tokio::test]
+async fn a_markers_model_reaches_the_execution() {
+    let rule = review_loop(gate_config());
+    let text = format!(
+        "{MARKER_PREFIX}{} -->",
+        serde_json::json!({"head": HEAD, "model": "sonnet"})
+    );
+    let execution = trigger(&rule, &request_payload(GATE_APP, HEAD, &text)).await;
+    assert_eq!(execution.model.as_deref(), Some("sonnet"));
+}
+
+#[test]
+fn a_model_the_loops_agent_offers_replaces_the_loops_model() {
+    let mut rule = review_loop(gate_config());
+    rule.model = Some("opus".to_string());
+    let mut request = execution_with(None, vec![]);
+    request.model = Some("sonnet".to_string());
+    assert_eq!(trigger_model(&rule, &request).as_deref(), Some("sonnet"));
+}
+
+#[test]
+fn a_model_the_loops_agent_does_not_offer_keeps_the_loops_model() {
+    let mut rule = review_loop(gate_config());
+    rule.model = Some("opus".to_string());
+    let mut request = execution_with(None, vec![]);
+    for other in ["gpt-6.1-sol", "no-such-model"] {
+        request.model = Some(other.to_string());
+        assert_eq!(trigger_model(&rule, &request).as_deref(), Some("opus"));
+    }
+    request.model = None;
+    assert_eq!(trigger_model(&rule, &request).as_deref(), Some("opus"));
+}
+
+#[test]
+fn an_execution_stored_without_a_model_still_loads() {
+    let mut stored = serde_json::to_value(execution_with(None, vec![])).unwrap();
+    stored.as_object_mut().unwrap().remove("model");
+    let loaded: Execution = serde_json::from_value(stored).unwrap();
+    assert_eq!(loaded.model, None);
 }
 
 #[tokio::test]

@@ -2,7 +2,7 @@
 //!
 //! A completed check run matching the loop's `check_run` names, App ids and
 //! conclusions triggers it. Its `output.text` may carry a [`MARKER_PREFIX`]
-//! marker naming the PR, head, skills and a message. The durable delivery
+//! marker naming the PR, head, skills, model and a message. The durable delivery
 //! fetches the PR, finds its Workspace, and opens the Task, or adds new skills
 //! to the Task an earlier trigger opened. A review gate is the motivating App.
 
@@ -11,6 +11,7 @@ use tracing::{debug, info, warn};
 use moatless_adapter_model::binding::BindScope;
 use moatless_adapter_model::capabilities::AdapterInboundPresentation;
 use moatless_adapter_model::error::AdapterError;
+use moatless_core::agent_catalog::offers_model;
 use moatless_ports::task::TaskOpenError;
 use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::{AdapterConnection, AdapterKind, Audience, InboundMessage};
@@ -57,6 +58,9 @@ struct Marker {
     matched: Vec<MatchedRule>,
     #[serde(default)]
     message: Option<String>,
+    /// The Task's model, used when the loop's agent offers it ([`trigger_model`]).
+    #[serde(default)]
+    model: Option<String>,
 }
 
 /// Facts persisted for one durable check-run trigger.
@@ -73,6 +77,9 @@ pub(super) struct Execution {
     pub(super) skills: Vec<String>,
     pub(super) matched: Vec<MatchedRule>,
     pub(super) message: Option<String>,
+    /// Defaulted: an execution stored before the marker carried a model loads.
+    #[serde(default)]
+    pub(super) model: Option<String>,
     /// From the webhook's `repository`, for registering an unknown repository.
     pub(super) default_branch: Option<String>,
     pub(super) description: Option<String>,
@@ -216,6 +223,7 @@ fn validate(
         skills: marker.skills,
         matched: marker.matched,
         message: marker.message.filter(|m| !m.trim().is_empty()),
+        model: marker.model.filter(|m| !m.trim().is_empty()),
         default_branch: repository_field("default_branch"),
         description: repository_field("description"),
     })
@@ -229,6 +237,25 @@ fn is_skill_name(skill: &str) -> bool {
         && skill
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':'))
+}
+
+/// The model a triggered Task opens with: the marker's, when the loop's agent
+/// offers it, else the loop's. An unoffered model is logged and passed over
+/// rather than refused, so a mistyped policy still gets its review.
+pub(super) fn trigger_model(rule: &SubscriptionMatch, request: &Execution) -> Option<String> {
+    match request.model.as_deref() {
+        Some(model) if offers_model(rule.agent_profile, model) => Some(model.to_string()),
+        Some(model) => {
+            warn!(
+                loop_id = %rule.id,
+                model,
+                agent_profile = %rule.agent_profile,
+                "Check-run trigger's model is not one its loop's agent offers; using the loop's model"
+            );
+            rule.model.clone()
+        }
+        None => rule.model.clone(),
+    }
 }
 
 /// `requested` minus everything in `held`, in request order, without repeats.
@@ -429,6 +456,7 @@ impl GithubPrInboundRouter {
 
         let mut context = moatless_adapter_model::loops::subscription_context(rule);
         context.workspace_id = workspace_id;
+        context.model = trigger_model(rule, request);
         context.skills = [
             context.skills.clone(),
             new_skills(&request.skills, &context.skills),

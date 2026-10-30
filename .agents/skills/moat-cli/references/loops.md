@@ -139,13 +139,16 @@ Notes:
   failed run that matches is a trigger instead, so a bound task never gets its
   failed-check notice. Set `conclusions` to keep failures on that path. Its `output.text` may carry an
   optional marker, every field optional:
-  `<!-- moatless-request:v1 {"pr":7,"head":"<sha>","skills":[...],"matched":[{"id":..,"skills":[..]}],"message":"..."} -->`.
+  `<!-- moatless-request:v1 {"pr":7,"head":"<sha>","skills":[...],"matched":[{"id":..,"skills":[..]}],"message":"...","model":"sonnet"} -->`.
   `pr` names the PR, else the check run's first `pull_requests` entry does
   (GitHub leaves that empty for a fork's head). `head`, when given, must equal
   the check run's head. An unreadable marker is ignored and logged. A trigger
   is dropped unless the PR is open, not a draft, and still at that head. The
   first turn is the PR-opened text plus the check's conclusion and output and
-  the marker's `message`. The marker's skills join the loop's `skills`; a
+  the marker's `message`. The marker's `model` replaces the loop's `model`
+  for the task it opens when the loop's agent offers it; any other value is
+  logged and the loop's model runs. A later trigger never changes an open
+  task's model. The marker's skills join the loop's `skills`; a
   later trigger with new skills sends the open task one turn naming them.
   Once the task has closed, the next trigger opens a new one. Two keys are
   allowed only with `create_on: check_run`: `sourceMatcher: <owner>/*` serves
