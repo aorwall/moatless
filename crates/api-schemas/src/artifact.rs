@@ -21,7 +21,7 @@ pub struct ArtifactResponse {
     pub version: i32,
     /// Absolute URL of this version's page; never changes.
     pub url: String,
-    /// Absolute URL that redirects to whichever version is latest.
+    /// Absolute URL that serves whichever version is latest.
     pub latest_url: String,
     pub created_by: Option<String>,
     pub created_at: String,

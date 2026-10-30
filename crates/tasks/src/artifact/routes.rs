@@ -21,7 +21,7 @@ use moatless_core::http_auth::UserTokenVerifier;
     paths(
         handlers::publish_artifact,
         handlers::list_task_artifacts,
-        handlers::open_latest_artifact,
+        handlers::serve_latest_artifact_page,
         handlers::serve_artifact_page,
         record_handlers::write_record,
         record_handlers::list_records,
@@ -45,7 +45,7 @@ where
     let (router, api) = OpenApiRouter::with_openapi(ArtifactApiDoc::openapi())
         .routes(routes!(handlers::publish_artifact).layer(handlers::PUBLISH_BODY_LIMIT))
         .routes(routes!(handlers::list_task_artifacts))
-        .routes(routes!(handlers::open_latest_artifact))
+        .routes(routes!(handlers::serve_latest_artifact_page))
         .routes(routes!(handlers::serve_artifact_page))
         .routes(routes!(
             record_handlers::write_record,

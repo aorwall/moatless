@@ -94,45 +94,7 @@ pub async fn list_task_artifacts(
     Ok(Json(ListArtifactsResponse { items }))
 }
 
-/// Redirect to the page of the Artifact's latest version.
-#[utoipa::path(
-    get,
-    path = "/api/v1/artifacts/{artifact_id}",
-    tag = "artifacts",
-    params(
-        ("artifact_id" = String, Path, description = "Artifact identifier")
-    ),
-    responses(
-        (status = 302, description = "Redirect to the latest version"),
-        (status = 404, description = "Artifact not found", body = moatless_api_schemas::error::ErrorBody)
-    )
-)]
-pub async fn open_latest_artifact(
-    State(tasks): State<Arc<TaskCommands>>,
-    State(artifacts): State<Arc<Artifacts>>,
-    auth: AuthUser,
-    Path(artifact_id): Path<String>,
-) -> Result<Response, ArtifactError> {
-    let location = super::service::latest_location(
-        tasks.as_ref(),
-        artifacts.as_ref(),
-        &auth.scope_context(),
-        &artifact_id,
-    )
-    .await?;
-    let location = HeaderValue::try_from(location)
-        .map_err(|_| ArtifactError::NotFound(artifact_id.clone()))?;
-    Ok((
-        StatusCode::FOUND,
-        [
-            (header::LOCATION, location),
-            (header::CACHE_CONTROL, HeaderValue::from_static("no-store")),
-        ],
-    )
-        .into_response())
-}
-
-/// Query parameters of [`serve_artifact_page`].
+/// Query parameters of [`serve_artifact_page`] and [`serve_latest_artifact_page`].
 #[derive(Debug, Default, serde::Deserialize, utoipa::IntoParams)]
 #[into_params(parameter_in = Query)]
 pub struct ServePageQuery {
@@ -167,9 +129,52 @@ pub async fn serve_artifact_page(
         artifacts.as_ref(),
         &auth.scope_context(),
         &artifact_id,
-        &version,
+        Some(&version),
     )
     .await?;
+    Ok(page_response(&artifacts, &auth, page, &query, false))
+}
+
+/// Serve the page of the Artifact's latest version at its unversioned URL.
+#[utoipa::path(
+    get,
+    path = "/api/v1/artifacts/{artifact_id}",
+    tag = "artifacts",
+    params(
+        ("artifact_id" = String, Path, description = "Artifact identifier"),
+        ServePageQuery
+    ),
+    responses(
+        (status = 200, description = "The latest version's HTML page", body = String, content_type = "text/html"),
+        (status = 404, description = "Artifact not found", body = moatless_api_schemas::error::ErrorBody)
+    )
+)]
+pub async fn serve_latest_artifact_page(
+    State(tasks): State<Arc<TaskCommands>>,
+    State(artifacts): State<Arc<Artifacts>>,
+    auth: AuthUser,
+    Path(artifact_id): Path<String>,
+    Query(query): Query<ServePageQuery>,
+) -> Result<Response, ArtifactError> {
+    let page = super::service::read_page(
+        tasks.as_ref(),
+        artifacts.as_ref(),
+        &auth.scope_context(),
+        &artifact_id,
+        None,
+    )
+    .await?;
+    Ok(page_response(&artifacts, &auth, page, &query, true))
+}
+
+/// The response serving `page`. `latest` marks the unversioned URL.
+fn page_response(
+    artifacts: &Artifacts,
+    auth: &AuthUser,
+    page: super::service::Page,
+    query: &ServePageQuery,
+    latest: bool,
+) -> Response {
     let mut headers = HeaderMap::new();
     headers.insert(
         header::CONTENT_TYPE,
@@ -185,50 +190,64 @@ pub async fn serve_artifact_page(
         HeaderValue::from_static("nosniff"),
     );
     let token = if query.download.is_none() {
-        page_token(&artifacts, &auth, &page)
+        page_token(artifacts, auth, &page)
     } else {
         None
     };
-    let (cache, body) = if query.download.is_some() {
+    let download = query.download.is_some();
+    let cache = if download {
+        "no-store"
+    } else {
+        page_cache(page.inline, latest, token.is_some())
+    };
+    let body = if download {
         let disposition = format!("attachment; filename=\"{}\"", download_name(&page.title));
         if let Ok(value) = HeaderValue::try_from(disposition) {
             headers.insert(header::CONTENT_DISPOSITION, value);
         }
-        ("no-store", page.html)
+        page.html
     } else if page.inline {
-        // Not immutable: the injected bootstrap changes with a t3code upgrade.
-        (
-            "private, max-age=3600",
-            super::bootstrap::inject(&page.html),
-        )
+        super::bootstrap::inject(&page.html)
     } else {
-        ("private, max-age=31536000, immutable", page.html)
+        page.html
     };
-    // The token names this reader, so neither a shared nor a later load may
-    // reuse the page that carries it.
-    let (cache, body) = match token {
-        Some(token) => (
-            "private, no-store",
-            super::bootstrap::inject_data_script(
-                &body,
-                &super::bootstrap::DataScriptConfig {
-                    token: &token,
-                    artifact_id: &page.artifact_id,
-                    viewer: &auth.login,
-                    viewer_id: &auth.scope_context().user_id,
-                    rules: page.record_rules.as_ref(),
-                    collections: page
-                        .collections
-                        .iter()
-                        .map(super::bootstrap::PageCollection::from)
-                        .collect(),
-                },
-            ),
+    let body = match token {
+        Some(token) => super::bootstrap::inject_data_script(
+            &body,
+            &super::bootstrap::DataScriptConfig {
+                token: &token,
+                artifact_id: &page.artifact_id,
+                viewer: &auth.login,
+                viewer_id: &auth.scope_context().user_id,
+                rules: page.record_rules.as_ref(),
+                collections: page
+                    .collections
+                    .iter()
+                    .map(super::bootstrap::PageCollection::from)
+                    .collect(),
+            },
         ),
-        None => (cache, body),
+        None => body,
     };
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
-    Ok((headers, body).into_response())
+    (headers, body).into_response()
+}
+
+/// The `Cache-Control` value for a page served for viewing, not download.
+fn page_cache(inline: bool, latest: bool, has_token: bool) -> &'static str {
+    if has_token {
+        // The token names this reader, so neither a shared nor a later load
+        // may reuse the page that carries it.
+        "private, no-store"
+    } else if latest {
+        // The unversioned URL's page changes with each publish.
+        "private, no-cache"
+    } else if inline {
+        // Not immutable: the injected bootstrap changes with a t3code upgrade.
+        "private, max-age=3600"
+    } else {
+        "private, max-age=31536000, immutable"
+    }
 }
 
 /// A page token for `auth` on `page`, or `None` when the page neither accepts
@@ -392,6 +411,18 @@ mod tests {
             .map(str::trim)
             .find(|d| d.split_whitespace().next() == Some(name))
             .unwrap_or_else(|| panic!("no {name} in {csp}"))
+    }
+
+    #[test]
+    fn page_cache_revalidates_the_latest_url_and_caches_a_version() {
+        assert_eq!(page_cache(false, true, false), "private, no-cache");
+        assert_eq!(page_cache(true, true, false), "private, no-cache");
+        assert_eq!(
+            page_cache(false, false, false),
+            "private, max-age=31536000, immutable"
+        );
+        assert_eq!(page_cache(true, false, false), "private, max-age=3600");
+        assert_eq!(page_cache(false, true, true), "private, no-store");
     }
 
     #[test]

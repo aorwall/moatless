@@ -270,17 +270,6 @@ pub async fn set_visibility(
     ))
 }
 
-/// Path of the latest version's page, relative to the server root.
-pub async fn latest_location(
-    tasks: &TaskCommands,
-    artifacts: &Artifacts,
-    scope: &ScopeContext,
-    artifact_id: &str,
-) -> Result<String, ArtifactError> {
-    let row = find_readable(tasks, artifacts, scope, artifact_id).await?;
-    Ok(version_path(&row.artifact_id, row.latest_version))
-}
-
 /// A published version's HTML page as it was uploaded.
 #[derive(Debug)]
 pub struct Page {
@@ -300,23 +289,19 @@ pub struct Page {
 }
 
 /// The HTML page of a published version. `version` is the URL segment, as in
-/// `v3`.
+/// `v3`; `None` reads the latest version.
 pub async fn read_page(
     tasks: &TaskCommands,
     artifacts: &Artifacts,
     scope: &ScopeContext,
     artifact_id: &str,
-    version: &str,
+    version: Option<&str>,
 ) -> Result<Page, ArtifactError> {
-    let not_found = || ArtifactError::NotFound(format!("{artifact_id}/{version}"));
-    let row = find_readable(tasks, artifacts, scope, artifact_id).await?;
-    let version = parse_version(version)
-        .filter(|v| row.published_versions.contains(v))
-        .ok_or_else(not_found)?;
+    let (row, version) = find_version(tasks, artifacts, scope, artifact_id, version).await?;
     let html = artifacts
         .read_page(&row.task_id, &row.artifact_id, version)
         .await?
-        .ok_or_else(not_found)?;
+        .ok_or_else(|| ArtifactError::NotFound(format!("{artifact_id}/v{version}")))?;
     Ok(Page {
         html,
         artifact_id: row.artifact_id,
@@ -326,6 +311,26 @@ pub async fn read_page(
         record_rules: row.record_rules,
         collections: row.collections,
     })
+}
+
+/// The readable Artifact and the published version `version` names, the
+/// latest when `None`.
+async fn find_version(
+    tasks: &TaskCommands,
+    artifacts: &Artifacts,
+    scope: &ScopeContext,
+    artifact_id: &str,
+    version: Option<&str>,
+) -> Result<(Artifact, i32), ArtifactError> {
+    let row = find_readable(tasks, artifacts, scope, artifact_id).await?;
+    let Some(segment) = version else {
+        let latest = row.latest_version;
+        return Ok((row, latest));
+    };
+    let version = parse_version(segment)
+        .filter(|v| row.published_versions.contains(v))
+        .ok_or_else(|| ArtifactError::NotFound(format!("{artifact_id}/{segment}")))?;
+    Ok((row, version))
 }
 
 /// The Artifact, when it is published and either public or on a Task `scope`

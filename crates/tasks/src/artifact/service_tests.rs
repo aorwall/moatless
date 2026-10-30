@@ -159,25 +159,27 @@ async fn publish_on_a_task_the_caller_can_only_read_is_forbidden() {
 }
 
 #[tokio::test]
-async fn latest_location_names_the_latest_version() {
-    let location = latest_location(
+async fn no_version_names_the_latest_version() {
+    let (_, version) = find_version(
         &tasks(),
         &artifacts(store_with(Some(row("task-1", 3)))),
         &scope(),
         "art-1",
+        None,
     )
     .await
     .unwrap();
-    assert_eq!(location, "/api/v1/artifacts/art-1/v3");
+    assert_eq!(version, 3);
 }
 
 #[tokio::test]
 async fn an_artifact_on_an_unreadable_task_is_not_found() {
-    let err = latest_location(
+    let err = find_version(
         &tasks(),
         &artifacts(store_with(Some(row("task-other", 1)))),
         &scope(),
         "art-1",
+        None,
     )
     .await
     .unwrap_err();
@@ -188,24 +190,26 @@ async fn an_artifact_on_an_unreadable_task_is_not_found() {
 async fn a_public_artifact_on_an_unreadable_task_is_readable() {
     let mut public = row("task-other", 2);
     public.visibility = Visibility::Public;
-    let location = latest_location(
+    let (_, version) = find_version(
         &tasks(),
         &artifacts(store_with(Some(public))),
         &scope(),
         "art-1",
+        None,
     )
     .await
     .unwrap();
-    assert_eq!(location, "/api/v1/artifacts/art-1/v2");
+    assert_eq!(version, 2);
 }
 
 #[tokio::test]
 async fn an_artifact_with_no_published_version_is_not_found() {
-    let err = latest_location(
+    let err = find_version(
         &tasks(),
         &artifacts(store_with(Some(row("task-1", 0)))),
         &scope(),
         "art-1",
+        None,
     )
     .await
     .unwrap_err();
@@ -220,7 +224,7 @@ async fn a_version_past_the_latest_or_malformed_is_not_found() {
             &artifacts(store_with(Some(row("task-1", 2)))),
             &scope(),
             "art-1",
-            version,
+            Some(version),
         )
         .await
         .unwrap_err();
@@ -240,7 +244,7 @@ async fn a_version_below_the_latest_that_never_committed_is_not_found() {
         &artifacts(store_with(Some(never_committed))),
         &scope(),
         "art-1",
-        "v1",
+        Some("v1"),
     )
     .await
     .unwrap_err();

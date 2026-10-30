@@ -19,7 +19,7 @@ export interface ArtifactResponse {
   createdAt: string;
   /** @nullable */
   createdBy?: string | null;
-  /** Absolute URL that redirects to whichever version is latest. */
+  /** Absolute URL that serves whichever version is latest. */
   latestUrl: string;
   /** Whether a record a reader saves queues a message to the Task's agent. */
   notifyOnData?: boolean;

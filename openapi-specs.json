@@ -2129,8 +2129,8 @@
         "tags": [
           "artifacts"
         ],
-        "summary": "Redirect to the page of the Artifact's latest version.",
-        "operationId": "open_latest_artifact",
+        "summary": "Serve the page of the Artifact's latest version at its unversioned URL.",
+        "operationId": "serve_latest_artifact_page",
         "parameters": [
           {
             "name": "artifact_id",
@@ -2140,11 +2140,27 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "download",
+            "in": "query",
+            "description": "Any value serves the page as published, as a download.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
-          "302": {
-            "description": "Redirect to the latest version"
+          "200": {
+            "description": "The latest version's HTML page",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "description": "Artifact not found",
