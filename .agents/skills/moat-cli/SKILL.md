@@ -160,7 +160,8 @@ moat memory claim triage:SP-12 --ttl 2h && moat memory release triage:SP-12
 write answers 409 rather than being overwritten.
 
 **A claim is advisory:** it refuses only another claim, so other Tasks can
-still append to the entry. Claim before you start work on the item.
+still append to the entry. Claim before you start work on the item; a claim
+on a key with no entry creates one, with the key as its summary.
 
 **An entry expires 28 days after its last put or verify.** `moat memory verify`
 renews it once its citations still hold, and `--no-expiry` keeps it.

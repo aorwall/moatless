@@ -413,6 +413,33 @@ async fn a_claim_held_by_another_task_is_a_conflict() {
     assert!(matches!(result, Err(MemoryError::Conflict(m)) if m.contains("task-9")));
 }
 
+#[tokio::test]
+async fn a_claim_on_a_missing_key_creates_the_entry_first() {
+    let puts = Arc::new(Mutex::new(Vec::new()));
+    let mut store = store_missing_until_put(
+        Arc::clone(&puts),
+        PutOutcome::Written(Box::new(row("ticket:SP-1", MemoryScope::Loop, "loop-1"))),
+    );
+    store.expect_claim().times(1).returning(|entry_id, _, _| {
+        assert_eq!(entry_id, "loop-ticket:SP-1");
+        Ok(Some(ClaimOutcome::Claimed(Box::new(row(
+            "ticket:SP-1",
+            MemoryScope::Loop,
+            "loop-1",
+        )))))
+    });
+    let req = ClaimMemoryRequest {
+        key: "ticket:SP-1".to_string(),
+        scope: None,
+        ttl_seconds: 3600,
+    };
+    let result = claim(&tasks(), &memories(store), &ctx("user-1"), "task-1", req).await;
+    assert!(result.is_ok(), "{:?}", result.err());
+    let puts = puts.lock().unwrap();
+    assert_eq!(puts[0].summary.as_deref(), Some("ticket:SP-1"));
+    assert_eq!(puts[0].if_version, Some(0));
+}
+
 #[test]
 fn an_invalid_key_is_a_bad_request() {
     assert!(validate_key("triage:SP-123").is_ok());
@@ -430,7 +457,7 @@ fn a_summary_is_one_short_line() {
 }
 
 /// A store with no `key` until its first `put`, recording each put.
-fn store_creating_on_put(puts: Arc<Mutex<Vec<PutEntry>>>, put: PutOutcome) -> MockMemoryDao {
+fn store_missing_until_put(puts: Arc<Mutex<Vec<PutEntry>>>, put: PutOutcome) -> MockMemoryDao {
     let created = Arc::new(Mutex::new(false));
     let mut store = MockMemoryDao::new();
     let seen = Arc::clone(&created);
@@ -448,6 +475,12 @@ fn store_creating_on_put(puts: Arc<Mutex<Vec<PutEntry>>>, put: PutOutcome) -> Mo
         *created.lock().unwrap() = true;
         Ok(put.lock().unwrap().take().unwrap())
     });
+    store
+}
+
+/// [`store_missing_until_put`], expecting one append.
+fn store_creating_on_put(puts: Arc<Mutex<Vec<PutEntry>>>, put: PutOutcome) -> MockMemoryDao {
+    let mut store = store_missing_until_put(puts, put);
     store
         .expect_append()
         .times(1)

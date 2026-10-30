@@ -198,8 +198,9 @@ pub async fn fetch_and_apply_credentials_with_mode(
                     // re-provisioning mints new ones, so fail permanently and
                     // let the pod watcher stop the crash loop.
                     return Err(CredentialFetchError::Permanent(format!(
-                        "backend rejected every auth token this sandbox holds; restart \
-                         the task to re-provision (credential fetch failed: {e})"
+                        "backend rejected every auth token this sandbox holds; redeploy \
+                         the task (`moat tasks redeploy`) to re-provision it with fresh \
+                         tokens (credential fetch failed: {e})"
                     )));
                 }
                 let elapsed = started.elapsed();

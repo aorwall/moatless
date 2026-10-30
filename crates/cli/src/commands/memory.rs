@@ -75,8 +75,8 @@ pub enum MemoryAction {
         #[command(flatten)]
         target: Target,
     },
-    /// Claim an entry so no other open task works the same item; fails while
-    /// another holds it
+    /// Claim an entry so no other open task works the same item, creating it
+    /// when absent; fails while another holds it
     Claim {
         key: String,
         /// How long the claim lasts unless released, e.g. `2h`

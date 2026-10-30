@@ -183,6 +183,18 @@ impl K8sSandboxAdapter {
                     // races that attach into a Multi-Attach stall. Wait for
                     // it to terminate first; a timeout reads as an env error.
                     deployment::wait_for_pods_deleted(&self.k8s, task_id).await?;
+                    let minted = pod_builder::mint_sandbox_tokens(
+                        &self.config,
+                        task_id,
+                        &request.user_id,
+                        request.token_generation,
+                    )?;
+                    deployment::refresh_auth_tokens(
+                        &self.k8s,
+                        task_id,
+                        &pod_builder::SandboxAuthTokens::from_minted(&minted),
+                    )
+                    .await?;
                     if uses_node_archives {
                         deployment::set_node_placement(&self.k8s, task_id, retained_node.as_deref())
                             .await
@@ -406,10 +418,21 @@ impl SandboxRuntime for K8sSandboxAdapter {
     ) -> Result<RuntimeOutcome, moatless_sandbox_runtime::runtime::RuntimeError> {
         info!(task_id = %task_id, "Restarting sandbox (scaling to 0, then back to 1 after termination)");
 
+        // Mint before anything is torn down, so a sandbox whose tokens cannot
+        // be minted keeps running.
+        let request = self.require_plan()?.build_request(task_id).await?;
+        let minted = pod_builder::mint_sandbox_tokens(
+            &self.config,
+            task_id,
+            &request.user_id,
+            request.token_generation,
+        )
+        .map_err(map_sandbox_error)?;
+
         // Time the restart so the `ebs` path (which pays a pod-drain wait to
         // release the RWO PVC before the new pod can attach) can be compared to
         // the node-local backends that don't. The backend is read from the
-        // running Deployment's env rather than a plan (restart has no plan).
+        // running Deployment's env rather than the plan.
         let backend = self.deployment_storage_backend(task_id).await;
         let started = std::time::Instant::now();
         let existing_deployment = deployment::find_deployment(&self.k8s, task_id)
@@ -430,7 +453,8 @@ impl SandboxRuntime for K8sSandboxAdapter {
         // Scale to 0, wait for the pod to terminate (releasing the RWO PVC),
         // then scale back to 1. This also covers the "was stopped" case since
         // restart_deployment always ends at 1 replica.
-        let outcome = deployment::restart_deployment(&self.k8s, task_id, ctx).await;
+        let tokens = pod_builder::SandboxAuthTokens::from_minted(&minted);
+        let outcome = deployment::restart_deployment(&self.k8s, task_id, ctx, &tokens).await;
 
         moatless_sandbox_runtime::metrics::record_restart(backend, started.elapsed());
         outcome.map_err(map_sandbox_error)?;

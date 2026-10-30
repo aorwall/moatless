@@ -274,9 +274,41 @@ async fn writable_entry(
     Ok((row, writer))
 }
 
-/// Add a dated line to an entry's history, first creating the entry with
-/// `req.summary`, or the key cut to a summary's length, when the scope the
-/// append resolves to has none.
+/// The entry `key` names for a write, first creating it with `summary`, or
+/// the key cut to a summary's length, when the scope it resolves to has none.
+async fn writable_entry_or_create(
+    tasks: &TaskCommands,
+    memories: &Memories,
+    ctx: &ScopeContext,
+    task_id: &str,
+    key: &str,
+    scope: Option<MemoryScope>,
+    summary: Option<String>,
+) -> Result<(MemoryEntryRow, Writer), MemoryError> {
+    match writable_entry(tasks, memories, ctx, task_id, key, scope).await {
+        Err(MemoryError::NotFound(_)) => {}
+        found => return found,
+    }
+    let create = PutMemoryRequest {
+        key: key.to_string(),
+        scope,
+        summary: Some(summary.unwrap_or_else(|| {
+            // A key may be longer than a summary may be.
+            key.chars().take(MAX_SUMMARY_CHARS).collect()
+        })),
+        if_version: Some(0),
+        ..PutMemoryRequest::default()
+    };
+    match put(tasks, memories, ctx, task_id, create).await {
+        // A concurrent writer created it first.
+        Ok(_) | Err(MemoryError::Conflict(_)) => {}
+        Err(e) => return Err(e),
+    }
+    writable_entry(tasks, memories, ctx, task_id, key, scope).await
+}
+
+/// Add a dated line to an entry's history, creating the entry as
+/// [`writable_entry_or_create`] does.
 pub async fn append(
     tasks: &TaskCommands,
     memories: &Memories,
@@ -290,28 +322,16 @@ pub async fn append(
             "text must be 1-{MAX_APPEND_BYTES} bytes"
         )));
     }
-    let found = writable_entry(tasks, memories, ctx, task_id, &req.key, req.scope).await;
-    let (row, writer) = match found {
-        Err(MemoryError::NotFound(_)) => {
-            let create = PutMemoryRequest {
-                key: req.key.clone(),
-                scope: req.scope,
-                summary: Some(req.summary.clone().unwrap_or_else(|| {
-                    // A key may be longer than a summary may be.
-                    req.key.chars().take(MAX_SUMMARY_CHARS).collect()
-                })),
-                if_version: Some(0),
-                ..PutMemoryRequest::default()
-            };
-            match put(tasks, memories, ctx, task_id, create).await {
-                // A concurrent append created it first.
-                Ok(_) | Err(MemoryError::Conflict(_)) => {}
-                Err(e) => return Err(e),
-            }
-            writable_entry(tasks, memories, ctx, task_id, &req.key, req.scope).await?
-        }
-        found => found?,
-    };
+    let (row, writer) = writable_entry_or_create(
+        tasks,
+        memories,
+        ctx,
+        task_id,
+        &req.key,
+        req.scope,
+        req.summary.clone(),
+    )
+    .await?;
     let row = memories
         .store
         .append(&row.entry_id, text, &writer)
@@ -338,7 +358,9 @@ pub async fn verify(
     Ok(entry_response(&row))
 }
 
-/// Claim the entry for the Task; 409 while another open Task holds it.
+/// Claim the entry for the Task, creating it as [`writable_entry_or_create`]
+/// does so an item can be claimed before anything is written about it; 409
+/// while another open Task holds it.
 pub async fn claim(
     tasks: &TaskCommands,
     memories: &Memories,
@@ -347,7 +369,8 @@ pub async fn claim(
     req: ClaimMemoryRequest,
 ) -> Result<MemoryEntryResponse, MemoryError> {
     let ttl = validate_seconds("ttlSeconds", req.ttl_seconds)?;
-    let (row, writer) = writable_entry(tasks, memories, ctx, task_id, &req.key, req.scope).await?;
+    let (row, writer) =
+        writable_entry_or_create(tasks, memories, ctx, task_id, &req.key, req.scope, None).await?;
     match memories.store.claim(&row.entry_id, ttl, &writer).await? {
         Some(ClaimOutcome::Claimed(row)) => Ok(entry_response(&row)),
         Some(ClaimOutcome::HeldBy(holder)) => Err(MemoryError::Conflict(format!(

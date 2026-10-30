@@ -5,7 +5,7 @@
 //! `ProvisionPlan`.
 
 use k8s_openapi::api::apps::v1::Deployment;
-use k8s_openapi::api::core::v1::Pod;
+use k8s_openapi::api::core::v1::{EnvVar, Pod};
 use kube::api::{Api, ListParams, Patch, PatchParams, PostParams};
 use std::collections::BTreeMap;
 use tracing::{debug, info, warn};
@@ -298,11 +298,13 @@ pub async fn restart_deployment(
     k8s: &K8sClient,
     task_id: &str,
     ctx: RuntimeOperationContext,
+    tokens: &pod_builder::SandboxAuthTokens<'_>,
 ) -> Result<(), SandboxError> {
     scale_deployment(k8s, task_id, 0)
         .await
         .map_err(|e| SandboxError::KubeError(Box::new(e)))?;
     wait_for_pods_deleted(k8s, task_id).await?;
+    refresh_auth_tokens(k8s, task_id, tokens).await?;
     stamp_operation_generation(k8s, task_id, ctx)
         .await
         .map_err(|e| SandboxError::KubeError(Box::new(e)))?;
@@ -312,6 +314,73 @@ pub async fn restart_deployment(
     info!(
         task_id,
         "Deployment restarted (scaled 0 -> 1 after termination)"
+    );
+    Ok(())
+}
+
+/// Replace the minted-token env vars in every template container carrying a
+/// bootstrap token. `false` when none does, as in a deployment that mints no
+/// tokens.
+fn replace_auth_tokens(
+    deployment: &mut Deployment,
+    tokens: &pod_builder::SandboxAuthTokens<'_>,
+) -> bool {
+    let Some(pod) = deployment
+        .spec
+        .as_mut()
+        .and_then(|spec| spec.template.spec.as_mut())
+    else {
+        return false;
+    };
+    let mut replaced = false;
+    for env in pod.containers.iter_mut().filter_map(|c| c.env.as_mut()) {
+        if !env.iter().any(|v| v.name == "SANDBOX_BOOTSTRAP_TOKEN") {
+            continue;
+        }
+        env.retain(|v| v.name != "SANDBOX_BOOTSTRAP_TOKEN" && v.name != "USER_AUTH_TOKEN");
+        let fresh = [
+            ("SANDBOX_BOOTSTRAP_TOKEN", Some(tokens.bootstrap)),
+            ("USER_AUTH_TOKEN", tokens.legacy_user_token),
+        ];
+        env.extend(fresh.into_iter().filter_map(|(name, value)| {
+            Some(EnvVar {
+                name: name.to_string(),
+                value: Some(value?.to_string()),
+                ..Default::default()
+            })
+        }));
+        replaced = true;
+    }
+    replaced
+}
+
+/// Swap fresh tokens into a scaled-down Deployment's template: scaled up
+/// unchanged it brings back the expired or superseded ones it was created
+/// with, and init fails. Call it only with no pod running: a template change
+/// rolls a live pod.
+pub async fn refresh_auth_tokens(
+    k8s: &K8sClient,
+    task_id: &str,
+    tokens: &pod_builder::SandboxAuthTokens<'_>,
+) -> Result<(), SandboxError> {
+    let deployments: Api<Deployment> = Api::namespaced(k8s.client.clone(), k8s.namespace());
+    let deployment_name = generate_deployment_name(task_id);
+    let mut deployment = deployments
+        .get(&deployment_name)
+        .await
+        .map_err(|e| SandboxError::KubeError(Box::new(e)))?;
+    if !replace_auth_tokens(&mut deployment, tokens) {
+        return Ok(());
+    }
+    // The fetched resourceVersion makes this fail rather than overwrite a
+    // concurrent change.
+    deployments
+        .replace(&deployment_name, &PostParams::default(), &deployment)
+        .await
+        .map_err(|e| SandboxError::KubeError(Box::new(e)))?;
+    debug!(
+        task_id,
+        "Refreshed the sandbox auth tokens in the Deployment template"
     );
     Ok(())
 }
@@ -680,6 +749,74 @@ mod tests {
         let dep = deployment_with_containers(vec![container("sandbox", Some("sandbox:v2"))]);
 
         assert!(!template_matches_spec(&dep, "abc123"));
+    }
+
+    fn env_of(dep: &Deployment) -> Vec<(String, String)> {
+        let mut env: Vec<_> = dep
+            .spec
+            .as_ref()
+            .unwrap()
+            .template
+            .spec
+            .as_ref()
+            .unwrap()
+            .containers[0]
+            .env
+            .iter()
+            .flatten()
+            .map(|v| (v.name.clone(), v.value.clone().unwrap_or_default()))
+            .collect();
+        env.sort();
+        env
+    }
+
+    fn with_env(vars: &[(&str, &str)]) -> Container {
+        Container {
+            env: Some(
+                vars.iter()
+                    .map(|(name, value)| EnvVar {
+                        name: name.to_string(),
+                        value: Some(value.to_string()),
+                        ..Default::default()
+                    })
+                    .collect(),
+            ),
+            ..container("sandbox", Some("sandbox:v2"))
+        }
+    }
+
+    #[test]
+    fn replace_auth_tokens_swaps_the_frozen_tokens_for_fresh_ones() {
+        let mut dep = deployment_with_containers(vec![with_env(&[
+            ("A", "1"),
+            ("SANDBOX_BOOTSTRAP_TOKEN", "expired"),
+            ("USER_AUTH_TOKEN", "superseded"),
+        ])]);
+        let tokens = pod_builder::SandboxAuthTokens {
+            bootstrap: "fresh",
+            legacy_user_token: None,
+        };
+
+        assert!(replace_auth_tokens(&mut dep, &tokens));
+        assert_eq!(
+            env_of(&dep),
+            [
+                ("A".to_string(), "1".to_string()),
+                ("SANDBOX_BOOTSTRAP_TOKEN".to_string(), "fresh".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn replace_auth_tokens_leaves_a_template_without_tokens_alone() {
+        let mut dep = deployment_with_containers(vec![with_env(&[("A", "1")])]);
+        let tokens = pod_builder::SandboxAuthTokens {
+            bootstrap: "fresh",
+            legacy_user_token: Some("user"),
+        };
+
+        assert!(!replace_auth_tokens(&mut dep, &tokens));
+        assert_eq!(env_of(&dep), [("A".to_string(), "1".to_string())]);
     }
 
     #[test]

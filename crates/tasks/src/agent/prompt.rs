@@ -260,8 +260,9 @@ commits, PRs, issues and docs already remember their own contents.
 - `moat memory append <key> --text \"<line>\"` adds a dated line to its log, creating the entry when it does not exist.
 - `moat memory verify <key>` records that its citations still hold.
 - `moat memory claim <key> --ttl 2h` and `moat memory release <key>` stop two
-  Tasks working the same item. A claim refuses only another claim, so claim
-  before you start and treat a refused claim as someone else's work.
+  Tasks working the same item. A claim creates the entry when it does not exist
+  and refuses only another claim, so claim before you start and treat a refused
+  claim as someone else's work.
 
 Every command reaches one scope: this task's Loop, else this task, unless
 `--scope workspace|repository|user|global|task|loop` names another. Pass the
