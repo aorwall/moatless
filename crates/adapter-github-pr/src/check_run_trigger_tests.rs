@@ -310,6 +310,7 @@ fn execution_with(message: Option<&str>, matched: Vec<MatchedRule>) -> Execution
         skills: vec!["pr-review-infra".to_string()],
         matched,
         message: message.map(str::to_string),
+        agent: None,
         model: None,
         default_branch: None,
         description: None,
@@ -317,44 +318,88 @@ fn execution_with(message: Option<&str>, matched: Vec<MatchedRule>) -> Execution
 }
 
 #[tokio::test]
-async fn a_markers_model_reaches_the_execution() {
+async fn a_markers_agent_and_model_reach_the_execution() {
     let rule = review_loop(gate_config());
     let text = format!(
         "{MARKER_PREFIX}{} -->",
-        serde_json::json!({"head": HEAD, "model": "sonnet"})
+        serde_json::json!({"head": HEAD, "agent": "codex", "model": "gpt-6.1-sol"})
     );
     let execution = trigger(&rule, &request_payload(GATE_APP, HEAD, &text)).await;
-    assert_eq!(execution.model.as_deref(), Some("sonnet"));
+    assert_eq!(execution.agent.as_deref(), Some("codex"));
+    assert_eq!(execution.model.as_deref(), Some("gpt-6.1-sol"));
+}
+
+fn opus_loop() -> SubscriptionMatch {
+    let mut rule = review_loop(gate_config());
+    rule.model = Some("opus".to_string());
+    rule
+}
+
+fn request_for(agent: Option<&str>, model: Option<&str>) -> Execution {
+    let mut request = execution_with(None, vec![]);
+    request.agent = agent.map(str::to_string);
+    request.model = model.map(str::to_string);
+    request
 }
 
 #[test]
 fn a_model_the_loops_agent_offers_replaces_the_loops_model() {
-    let mut rule = review_loop(gate_config());
-    rule.model = Some("opus".to_string());
-    let mut request = execution_with(None, vec![]);
-    request.model = Some("sonnet".to_string());
-    assert_eq!(trigger_model(&rule, &request).as_deref(), Some("sonnet"));
+    assert_eq!(
+        trigger_agent(&opus_loop(), &request_for(None, Some("sonnet"))),
+        (AgentProfile::ClaudeCode, Some("sonnet".to_string()))
+    );
 }
 
 #[test]
 fn a_model_the_loops_agent_does_not_offer_keeps_the_loops_model() {
-    let mut rule = review_loop(gate_config());
-    rule.model = Some("opus".to_string());
-    let mut request = execution_with(None, vec![]);
-    for other in ["gpt-6.1-sol", "no-such-model"] {
-        request.model = Some(other.to_string());
-        assert_eq!(trigger_model(&rule, &request).as_deref(), Some("opus"));
+    for model in [Some("gpt-6.1-sol"), Some("no-such-model"), None] {
+        assert_eq!(
+            trigger_agent(&opus_loop(), &request_for(None, model)),
+            (AgentProfile::ClaudeCode, Some("opus".to_string()))
+        );
     }
-    request.model = None;
-    assert_eq!(trigger_model(&rule, &request).as_deref(), Some("opus"));
 }
 
 #[test]
-fn an_execution_stored_without_a_model_still_loads() {
+fn a_markers_agent_replaces_the_loops_agent_with_its_model() {
+    assert_eq!(
+        trigger_agent(
+            &opus_loop(),
+            &request_for(Some("codex"), Some("gpt-6.1-sol"))
+        ),
+        (AgentProfile::Codex, Some("gpt-6.1-sol".to_string()))
+    );
+}
+
+#[test]
+fn another_agent_never_inherits_the_loops_model() {
+    for model in [Some("opus"), None] {
+        assert_eq!(
+            trigger_agent(&opus_loop(), &request_for(Some("codex"), model)),
+            (AgentProfile::Codex, None)
+        );
+    }
+}
+
+#[test]
+fn an_unknown_agent_keeps_the_loops_agent() {
+    assert_eq!(
+        trigger_agent(
+            &opus_loop(),
+            &request_for(Some("no-such-agent"), Some("sonnet"))
+        ),
+        (AgentProfile::ClaudeCode, Some("sonnet".to_string()))
+    );
+}
+
+#[test]
+fn an_execution_stored_without_an_agent_or_model_still_loads() {
     let mut stored = serde_json::to_value(execution_with(None, vec![])).unwrap();
-    stored.as_object_mut().unwrap().remove("model");
+    let fields = stored.as_object_mut().unwrap();
+    fields.remove("agent");
+    fields.remove("model");
     let loaded: Execution = serde_json::from_value(stored).unwrap();
-    assert_eq!(loaded.model, None);
+    assert_eq!((loaded.agent, loaded.model), (None, None));
 }
 
 #[tokio::test]

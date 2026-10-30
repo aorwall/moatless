@@ -2,7 +2,7 @@
 //!
 //! A completed check run matching the loop's `check_run` names, App ids and
 //! conclusions triggers it. Its `output.text` may carry a [`MARKER_PREFIX`]
-//! marker naming the PR, head, skills, model and a message. The durable delivery
+//! marker naming the PR, head, skills, agent, model and a message. The durable delivery
 //! fetches the PR, finds its Workspace, and opens the Task, or adds new skills
 //! to the Task an earlier trigger opened. A review gate is the motivating App.
 
@@ -15,6 +15,7 @@ use moatless_core::agent_catalog::offers_model;
 use moatless_ports::task::TaskOpenError;
 use moatless_types::adapter::TaskBinding;
 use moatless_types::adapter::{AdapterConnection, AdapterKind, Audience, InboundMessage};
+use moatless_types::agent::AgentProfile;
 use moatless_types::loops::SubscriptionMatch;
 use moatless_types::store::StoreError;
 use moatless_types::task::Visibility;
@@ -58,7 +59,10 @@ struct Marker {
     matched: Vec<MatchedRule>,
     #[serde(default)]
     message: Option<String>,
-    /// The Task's model, used when the loop's agent offers it ([`trigger_model`]).
+    /// The Task's agent profile, such as `codex` ([`trigger_agent`]).
+    #[serde(default)]
+    agent: Option<String>,
+    /// The Task's model, used when its agent offers it ([`trigger_agent`]).
     #[serde(default)]
     model: Option<String>,
 }
@@ -77,6 +81,9 @@ pub(super) struct Execution {
     pub(super) skills: Vec<String>,
     pub(super) matched: Vec<MatchedRule>,
     pub(super) message: Option<String>,
+    /// Defaulted: an execution stored before the marker carried an agent loads.
+    #[serde(default)]
+    pub(super) agent: Option<String>,
     /// Defaulted: an execution stored before the marker carried a model loads.
     #[serde(default)]
     pub(super) model: Option<String>,
@@ -223,6 +230,7 @@ fn validate(
         skills: marker.skills,
         matched: marker.matched,
         message: marker.message.filter(|m| !m.trim().is_empty()),
+        agent: marker.agent.filter(|a| !a.trim().is_empty()),
         model: marker.model.filter(|m| !m.trim().is_empty()),
         default_branch: repository_field("default_branch"),
         description: repository_field("description"),
@@ -239,23 +247,40 @@ fn is_skill_name(skill: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':'))
 }
 
-/// The model a triggered Task opens with: the marker's, when the loop's agent
-/// offers it, else the loop's. An unoffered model is logged and passed over
-/// rather than refused, so a mistyped policy still gets its review.
-pub(super) fn trigger_model(rule: &SubscriptionMatch, request: &Execution) -> Option<String> {
-    match request.model.as_deref() {
-        Some(model) if offers_model(rule.agent_profile, model) => Some(model.to_string()),
+/// The agent profile and model a triggered Task opens with: the marker's agent
+/// when known, and its model when that agent offers it, else the loop's model
+/// under the loop's agent or the agent's default. A bad value is logged and passed
+/// over rather than refused, so a mistyped policy still gets its review.
+pub(super) fn trigger_agent(
+    rule: &SubscriptionMatch,
+    request: &Execution,
+) -> (AgentProfile, Option<String>) {
+    let agent_profile = match request.agent.as_deref() {
+        Some(agent) => AgentProfile::parse(agent).unwrap_or_else(|| {
+            warn!(loop_id = %rule.id, agent, "Check-run trigger's agent is unknown; using the loop's agent");
+            rule.agent_profile
+        }),
+        None => rule.agent_profile,
+    };
+    let fallback = if agent_profile == rule.agent_profile {
+        rule.model.clone()
+    } else {
+        None
+    };
+    let model = match request.model.as_deref() {
+        Some(model) if offers_model(agent_profile, model) => Some(model.to_string()),
         Some(model) => {
             warn!(
                 loop_id = %rule.id,
                 model,
-                agent_profile = %rule.agent_profile,
-                "Check-run trigger's model is not one its loop's agent offers; using the loop's model"
+                agent_profile = %agent_profile,
+                "Check-run trigger's model is not one its agent offers; using the default"
             );
-            rule.model.clone()
+            fallback
         }
-        None => rule.model.clone(),
-    }
+        None => fallback,
+    };
+    (agent_profile, model)
 }
 
 /// `requested` minus everything in `held`, in request order, without repeats.
@@ -456,7 +481,7 @@ impl GithubPrInboundRouter {
 
         let mut context = moatless_adapter_model::loops::subscription_context(rule);
         context.workspace_id = workspace_id;
-        context.model = trigger_model(rule, request);
+        (context.agent_profile, context.model) = trigger_agent(rule, request);
         context.skills = [
             context.skills.clone(),
             new_skills(&request.skills, &context.skills),

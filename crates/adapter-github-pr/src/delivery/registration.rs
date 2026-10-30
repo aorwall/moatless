@@ -591,7 +591,8 @@ mod tests {
                 message: Some("Focus on the migration.".to_string()),
                 default_branch: Some("main".to_string()),
                 description: None,
-                model: Some("sonnet".to_string()),
+                agent: Some("codex".to_string()),
+                model: Some("gpt-6.1-sol".to_string()),
             },
         };
         let stored = serde_json::to_value(&delivery).expect("serialize");
