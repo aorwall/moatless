@@ -3663,7 +3663,7 @@
             }
           },
           "404": {
-            "description": "Task not found",
+            "description": "Task not found, or no review comment this token can reply to",
             "content": {
               "application/json": {
                 "schema": {

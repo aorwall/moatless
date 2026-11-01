@@ -119,7 +119,7 @@ pub async fn post_comment(
     responses(
         (status = 200, description = "Threaded reply posted", body = GithubCommentResponse),
         (status = 400, description = "Bad request / adapter not configured", body = moatless_api_schemas::error::ErrorBody),
-        (status = 404, description = "Task not found", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Task not found, or no review comment this token can reply to", body = moatless_api_schemas::error::ErrorBody),
         (status = 502, description = "GitHub API error / no usable GitHub token", body = moatless_api_schemas::error::ErrorBody),
     )
 )]

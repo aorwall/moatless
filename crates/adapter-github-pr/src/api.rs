@@ -541,6 +541,19 @@ impl GithubPrApi {
                 SharedAdapterError::provider_unreachable("GitHub reply_to_review_comment", e)
             })?;
 
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            // GitHub answers 404 alike for a deleted comment, a conversation
+            // comment id and a repository the token cannot see, so the message
+            // names all three rather than claiming one.
+            warn!(%comment_id, "GitHub reply_to_review_comment target not found");
+            return Err(SharedAdapterError::NotFound(format!(
+                "GitHub has no review comment {comment_id} on {owner}/{repo}#{pull_number} \
+                 this token can reply to: it may have been deleted, be a conversation \
+                 comment, or be on a pull request the token cannot read. Reply to a current \
+                 review comment id, or post a new comment on #{pull_number}"
+            ))
+            .into());
+        }
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
@@ -1234,6 +1247,93 @@ mod serde_tests {
             serde_json::from_value(serde_json::json!({ "number": 7, "state": "open" }))
                 .expect("CommitPr parses without merged_at");
         assert!(!open.is_merged());
+    }
+}
+
+#[cfg(test)]
+mod review_reply_tests {
+    use axum::http::{Method, StatusCode};
+    use axum::response::IntoResponse;
+
+    use super::*;
+    use crate::test_support::{StubResponse, start_github_api_stub};
+
+    async fn reply_answered_with(response: fn() -> StubResponse) -> Result<u64, AdapterError> {
+        let stub = start_github_api_stub(move |method, path, uri| {
+            if method == Method::POST && path == "/repos/acme/widgets/pulls/7/comments/55/replies" {
+                response()
+            } else {
+                StubResponse::not_found(uri)
+            }
+        })
+        .await;
+        let api = GithubPrApi::new(test_client(), "ghp_test", stub.base_url().to_string());
+        api.reply_to_review_comment("acme", "widgets", 7, 55, "hi")
+            .await
+    }
+
+    #[tokio::test]
+    async fn a_reply_returns_the_new_comment_id() {
+        let id = reply_answered_with(|| {
+            StubResponse::json(StatusCode::CREATED, serde_json::json!({"id": 102}))
+        })
+        .await
+        .expect("201 with an id is a posted reply");
+        assert_eq!(id, 102);
+    }
+
+    #[tokio::test]
+    async fn a_missing_review_comment_is_a_not_found_rejection_not_a_bad_gateway() {
+        let err = reply_answered_with(|| {
+            StubResponse::json(
+                StatusCode::NOT_FOUND,
+                serde_json::json!({"message": "private provider detail"}),
+            )
+        })
+        .await
+        .expect_err("404 must fail the reply");
+
+        assert!(
+            matches!(err, AdapterError::Shared(SharedAdapterError::NotFound(_))),
+            "got {err:?}"
+        );
+        let message = err.to_string();
+        assert!(
+            message.contains("review comment 55 on acme/widgets#7"),
+            "{message}"
+        );
+        assert!(!message.contains("private provider detail"), "{message}");
+        assert_eq!(err.into_response().status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn provider_and_credential_failures_still_render_as_a_bad_gateway() {
+        for status in [StatusCode::INTERNAL_SERVER_ERROR, StatusCode::UNAUTHORIZED] {
+            let stub = start_github_api_stub(move |_method, _path, _uri| {
+                StubResponse::json(status, serde_json::json!({"message": "rejected"}))
+            })
+            .await;
+            let api = GithubPrApi::new(test_client(), "ghp_test", stub.base_url().to_string());
+            let err = api
+                .reply_to_review_comment("acme", "widgets", 7, 55, "hi")
+                .await
+                .expect_err("a rejection must fail the reply");
+
+            assert!(
+                matches!(err, AdapterError::Shared(SharedAdapterError::AdapterApi(_))),
+                "{status}: got {err:?}"
+            );
+            assert_eq!(err.into_response().status(), StatusCode::BAD_GATEWAY);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_reply_without_an_id_still_renders_as_a_bad_gateway() {
+        let err =
+            reply_answered_with(|| StubResponse::json(StatusCode::CREATED, serde_json::json!({})))
+                .await
+                .expect_err("a reply with no id is unusable");
+        assert_eq!(err.into_response().status(), StatusCode::BAD_GATEWAY);
     }
 }
 
