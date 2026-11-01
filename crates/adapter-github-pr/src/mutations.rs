@@ -17,10 +17,11 @@ use moatless_adapter_model::footer::FOOTER_MARKER;
 use moatless_loops::adapters::access::{ensure_task_access_only, ensure_task_access_with};
 use moatless_loops::bindings::recently_sent::RecentlySent;
 use moatless_ports::task::{ExternalEvent, TaskReader, TranscriptAppend};
+use moatless_types::access_control::Actor;
 
 use super::adapter::GithubPrAdapter;
 use super::api::MAX_COMMENT_LENGTH;
-use super::auth::resolve_github_api;
+use super::auth::{resolve_task_github_api, task_write_actor};
 use super::external_id;
 use super::reply_keys;
 use super::subject::GithubPrSubject;
@@ -47,20 +48,13 @@ pub(crate) async fn create_pr(
     recently_sent: Arc<RecentlySent>,
     messages: Arc<dyn TranscriptAppend>,
     ctx: moatless_types::access_control::ScopeContext,
+    login: &str,
     (owner, repo): (String, String),
     req: GithubCreatePrRequest,
 ) -> Result<GithubCreatePrResponse, AdapterError> {
     let adapter = require_provider(github_pr_provider)?;
-    let workspace_id = task_workspace(tasks.as_ref(), &ctx, req.task_id.as_deref()).await?;
-
-    let api = resolve_github_api(
-        &adapter,
-        &ctx.user_id,
-        workspace_id.as_deref(),
-        &owner,
-        &repo,
-    )
-    .await?;
+    let actor = task_actor(tasks.as_ref(), &ctx, req.task_id.as_deref()).await?;
+    let api = resolve_task_github_api(&adapter, &actor, &owner, &repo).await?;
 
     let base = match req.base.as_deref() {
         Some(b) => b.to_string(),
@@ -68,7 +62,10 @@ pub(crate) async fn create_pr(
     };
 
     let body = build_pr_body(
-        req.body.as_deref().unwrap_or(""),
+        &with_requester(
+            req.body.as_deref().unwrap_or(""),
+            actor.person().map(|_| login),
+        ),
         task_footer_url(adapter.frontend_url(), req.task_id.as_deref()).as_deref(),
     );
 
@@ -198,16 +195,8 @@ pub(crate) async fn post_comment(
     req: GithubCommentRequest,
 ) -> Result<GithubCommentResponse, AdapterError> {
     let adapter = require_provider(github_pr_provider)?;
-    let workspace_id = task_workspace(tasks.as_ref(), &ctx, req.task_id.as_deref()).await?;
-
-    let api = resolve_github_api(
-        &adapter,
-        &ctx.user_id,
-        workspace_id.as_deref(),
-        &owner,
-        &repo,
-    )
-    .await?;
+    let actor = task_actor(tasks.as_ref(), &ctx, req.task_id.as_deref()).await?;
+    let api = resolve_task_github_api(&adapter, &actor, &owner, &repo).await?;
 
     let body = body_with_task_footer(
         tasks.as_ref(),
@@ -275,16 +264,8 @@ pub(crate) async fn reply_to_review_comment(
     req: GithubReplyRequest,
 ) -> Result<GithubCommentResponse, AdapterError> {
     let adapter = require_provider(github_pr_provider)?;
-    let workspace_id = task_workspace(tasks.as_ref(), &ctx, req.task_id.as_deref()).await?;
-
-    let api = resolve_github_api(
-        &adapter,
-        &ctx.user_id,
-        workspace_id.as_deref(),
-        &owner,
-        &repo,
-    )
-    .await?;
+    let actor = task_actor(tasks.as_ref(), &ctx, req.task_id.as_deref()).await?;
+    let api = resolve_task_github_api(&adapter, &actor, &owner, &repo).await?;
 
     let body = body_with_task_footer(
         tasks.as_ref(),
@@ -345,16 +326,8 @@ pub(crate) async fn bind_pr(
     req: GithubBindPrRequest,
 ) -> Result<GithubBindPrResponse, AdapterError> {
     let adapter = require_provider(github_pr_provider)?;
-    let workspace_id = task_workspace(tasks.as_ref(), &ctx, Some(&req.task_id)).await?;
-
-    let api = resolve_github_api(
-        &adapter,
-        &ctx.user_id,
-        workspace_id.as_deref(),
-        &owner,
-        &repo,
-    )
-    .await?;
+    let actor = task_actor(tasks.as_ref(), &ctx, Some(&req.task_id)).await?;
+    let api = resolve_task_github_api(&adapter, &actor, &owner, &repo).await?;
     let pr = api.get_pr(&owner, &repo, number).await?;
     let html_url = pr
         .html_url
@@ -486,21 +459,44 @@ async fn record_durable_event(
     }
 }
 
-/// Authorize the caller against the Task and answer the Workspace it runs in.
+/// Authorize the caller against the Task and answer the identity a write for it
+/// acts as, per [`task_write_actor`].
 ///
 /// Same `NotFound`-on-denied rule the routes always had; a route naming no Task
-/// authorizes nothing and has no Workspace to report.
-async fn task_workspace(
+/// authorizes nothing and acts as the caller.
+async fn task_actor(
     tasks: &dyn TaskReader,
     ctx: &moatless_types::access_control::ScopeContext,
     task_id: Option<&str>,
-) -> Result<Option<String>, AdapterError> {
-    let Some(task_id) = task_id else {
-        return Ok(None);
+) -> Result<Actor, AdapterError> {
+    let task = match task_id {
+        Some(task_id) => Some(ensure_task_access_with(tasks, ctx, task_id).await?),
+        None => None,
     };
-    Ok(ensure_task_access_with(tasks, ctx, task_id)
-        .await?
-        .workspace_id)
+    Ok(task_write_actor(
+        &ctx.user_id,
+        task.as_ref()
+            .and_then(|task| task.run_as_user_id.as_deref()),
+        task.as_ref().and_then(|task| task.workspace_id.as_deref()),
+    ))
+}
+
+/// Credit `requester` in a pull request body opened under someone else's
+/// account; `None` when the caller opens it as themselves.
+fn with_requester(body: &str, requester: Option<&str>) -> String {
+    match requester {
+        Some(login) => {
+            let credit = format!("Requested by {login}");
+            if body.contains(&credit) {
+                body.to_string()
+            } else if body.trim().is_empty() {
+                credit
+            } else {
+                format!("{body}\n\n{credit}")
+            }
+        }
+        None => body.to_string(),
+    }
 }
 
 /// Build the task URL for the PR-body footer. Returns `None` when no task is
@@ -614,6 +610,22 @@ mod tests {
         let body = "body\n\n---\nMoatless task: https://x/tasks/t_1\n";
         let out = build_pr_body(body, Some("https://x/tasks/t_1"));
         assert_eq!(out, body);
+    }
+
+    #[test]
+    fn a_pr_opened_for_someone_else_credits_them_once() {
+        assert_eq!(
+            with_requester("Fix.", Some("ada")),
+            "Fix.\n\nRequested by ada"
+        );
+        assert_eq!(with_requester("", Some("ada")), "Requested by ada");
+        let credited = "Fix.\n\nRequested by ada";
+        assert_eq!(with_requester(credited, Some("ada")), credited);
+    }
+
+    #[test]
+    fn a_pr_the_caller_opens_as_themselves_credits_nobody() {
+        assert_eq!(with_requester("Fix.", None), "Fix.");
     }
 
     #[test]

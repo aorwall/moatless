@@ -52,6 +52,7 @@ pub async fn create_pr(
         recently_sent,
         messages,
         auth.scope_context(),
+        &auth.login,
         (owner, repo),
         req,
     )

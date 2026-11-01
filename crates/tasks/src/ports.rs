@@ -47,6 +47,7 @@ fn descriptor(task: moatless_types::task::Task) -> TaskDescriptor {
         owner_user_id: task.owner_user_id,
         workspace_id: task.workspace_id,
         created_by: task.created_by,
+        run_as_user_id: task.run_as_user_id,
         ttl_minutes: task.ttl_minutes,
     }
 }

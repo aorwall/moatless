@@ -227,8 +227,8 @@ fn binding_filter_user_id<'a>(
 /// Resolve a GitHub API client for `user_id` acting on `workspace_id`, minted
 /// against `owner/repo_name`.
 ///
-/// `user_id` is the task's run-as identity, cut from the same
-/// `grant.ctx.user_id` as the sandbox's `X-User-Token`/`GITHUB_TOKEN`; the
+/// `user_id` is the caller, the sandbox's driver for an `X-User-Token`; a write
+/// a Task makes goes through [`resolve_task_github_api`] instead. The
 /// credential rule itself lives on `GithubPrAuth::client_for`.
 pub(super) async fn resolve_github_api(
     adapter: &GithubPrAdapter,
@@ -237,13 +237,44 @@ pub(super) async fn resolve_github_api(
     owner: &str,
     repo_name: &str,
 ) -> Result<GithubPrApi, AdapterError> {
+    resolve_task_github_api(
+        adapter,
+        &Actor::of(user_id).on_workspace(workspace_id),
+        owner,
+        repo_name,
+    )
+    .await
+}
+
+/// Resolve a GitHub API client for `actor`, minted against `owner/repo_name`.
+pub(super) async fn resolve_task_github_api(
+    adapter: &GithubPrAdapter,
+    actor: &Actor,
+    owner: &str,
+    repo_name: &str,
+) -> Result<GithubPrApi, AdapterError> {
     adapter
         .auth()
-        .client_for(
-            &Actor::of(user_id).on_workspace(workspace_id),
-            &GitHostRepo::github(owner, repo_name),
-        )
+        .client_for(actor, &GitHostRepo::github(owner, repo_name))
         .await
+}
+
+/// The identity a Task's GitHub write acts as: the Task's own run-as on behalf
+/// of `caller`, else `caller`, matching the sandbox's `GITHUB_TOKEN`.
+///
+/// The pod authenticates as its driver, so `caller` alone would open a bot
+/// run-as Task's pull request under the driver's own account.
+pub(super) fn task_write_actor(
+    caller: &str,
+    task_run_as: Option<&str>,
+    workspace_id: Option<&str>,
+) -> Actor {
+    match task_run_as.filter(|id| !id.is_empty()) {
+        Some(run_as) => Actor::of(run_as)
+            .on_workspace(workspace_id)
+            .on_behalf_of(Some(caller)),
+        None => Actor::of(caller).on_workspace(workspace_id),
+    }
 }
 
 #[cfg(test)]
@@ -251,6 +282,23 @@ mod tests {
     use super::*;
     use moatless_identity::auth::test_support::{StubProviderTokens, github_row};
     use moatless_types::adapter::AdapterKind;
+
+    #[test]
+    fn a_task_run_as_writes_on_behalf_of_the_caller() {
+        let actor = task_write_actor("ada", Some("bot"), Some("ws-1"));
+        assert_eq!(actor.user_id(), "bot");
+        assert_eq!(actor.person(), Some("ada"));
+        assert_eq!(actor.workspace_id(), Some("ws-1"));
+    }
+
+    #[test]
+    fn without_a_task_run_as_the_caller_writes_as_themselves() {
+        for run_as in [None, Some(""), Some("ada")] {
+            let actor = task_write_actor("ada", run_as, None);
+            assert_eq!(actor.user_id(), "ada", "run_as {run_as:?}");
+            assert_eq!(actor.person(), None, "run_as {run_as:?}");
+        }
+    }
 
     fn auth_with_tokens(provider_tokens: Arc<StubProviderTokens>) -> GithubPrAuth {
         GithubPrAuth::new(

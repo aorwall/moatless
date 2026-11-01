@@ -95,6 +95,7 @@ pub(crate) fn open_task(task_id: &str) -> TaskDescriptor {
         owner_user_id: None,
         workspace_id: None,
         created_by: None,
+        run_as_user_id: None,
         ttl_minutes: 15,
     }
 }
