@@ -15,7 +15,7 @@ macro_rules! known_kinds {
         "kind IN ('tool_call', 'thinking', 'sandbox_status', 'sandbox_warning', \
           'sandbox_error', 'user_input_requested', 'user_input_resolved', \
           'plan_updated', 'context_window_updated', 'agent_switched', \
-          'compaction', 'artifact_shown')"
+          'compaction', 'artifact_shown', 'secret_requested', 'secret_request_answered')"
     };
 }
 

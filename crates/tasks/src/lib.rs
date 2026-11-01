@@ -30,6 +30,7 @@ pub mod ports;
 pub mod review_guide;
 pub mod scope_reach;
 pub mod search;
+pub mod secret_request;
 pub mod tag;
 pub mod task;
 pub mod task_event;

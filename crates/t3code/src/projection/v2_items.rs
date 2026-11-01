@@ -24,6 +24,7 @@ use moatless_types::activity::PLAN_TOOL;
 use moatless_types::activity::QUESTION_TOOL;
 use moatless_types::activity::TODO_TOOL;
 use moatless_types::activity::result_text;
+use moatless_types::activity::{SecretRequestAnswered, SecretRequestOutcome, SecretRequested};
 use moatless_types::codex::CODEX_TOOL_TODO_LIST;
 
 /// One tool call as its turn item, layered over `base`, or `None` for a call
@@ -280,6 +281,44 @@ pub(super) fn html_render_item(activity: &Activity, base: Value) -> Option<Value
             }
         }),
     ))
+}
+
+/// A `SecretRequested` row as T3's `secret_request` card, its `secretStatus`
+/// read off the `SecretRequestAnswered` row with its `requestId`, if any.
+/// `None` when its payload is not a [`SecretRequested`].
+pub(super) fn secret_request_item(
+    activity: &Activity,
+    transcript: &Transcript,
+    base: Value,
+) -> Option<Value> {
+    let asked: SecretRequested = serde_json::from_value(activity.payload.clone()).ok()?;
+    let answered = transcript
+        .activities
+        .iter()
+        .filter(|row| row.kind == ActivityKind::SecretRequestAnswered)
+        .filter_map(|row| serde_json::from_value::<SecretRequestAnswered>(row.payload.clone()).ok())
+        .find(|answered| answered.request_id == asked.request_id);
+    let (status, secret_status) = match answered.map(|answered| answered.outcome) {
+        None => ("waiting", "pending"),
+        Some(SecretRequestOutcome::Saved) => ("completed", "saved"),
+        Some(SecretRequestOutcome::Declined) => ("completed", "declined"),
+    };
+    let mut item = layered(
+        base,
+        json!({
+            "type": "secret_request",
+            "label": asked.label,
+            "reason": asked.reason,
+            "secretStatus": secret_status,
+            "storage": {
+                "key": asked.key,
+                "scope": asked.scope,
+                "kind": asked.kind,
+            },
+        }),
+    );
+    item["status"] = json!(status);
+    Some(item)
 }
 
 /// The attachment id T3 asks `assets.createUrl` for to load a shown page;

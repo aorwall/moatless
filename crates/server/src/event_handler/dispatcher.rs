@@ -279,7 +279,9 @@ impl EventDispatcher {
                 | TaskSubType::Error
                 | TaskSubType::BindingReplySent
                 | TaskSubType::AgentSwitched
-                | TaskSubType::ArtifactShown,
+                | TaskSubType::ArtifactShown
+                | TaskSubType::SecretRequested
+                | TaskSubType::SecretRequestAnswered,
             )
             | EventKey::TaskTurn(TaskTurnSubType::Active | TaskTurnSubType::Interrupted) => {
                 // `turn_interrupted` is an observability marker only — the turn

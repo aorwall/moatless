@@ -350,6 +350,15 @@ pub const CONCERNS: &[Concern] = &[
         tables: &["task_events"],
         slice: 11,
     },
+    // Writes `task_events` and reads `conversation_activities`, both owned
+    // above; it holds no table of its own.
+    Concern {
+        name: "secret requests",
+        owner: "moatless-tasks",
+        roots: &["crates/tasks/src/secret_request/dao"],
+        tables: &[],
+        slice: 11,
+    },
     Concern {
         name: "inbox",
         owner: "moatless-tasks",

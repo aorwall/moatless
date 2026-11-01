@@ -93,6 +93,7 @@ pub(crate) struct UiRpcState {
     pub(crate) attachments: Arc<dyn ports::AttachmentStore>,
     /// Who may read a Task's Artifacts, for `artifacts.setVisibility`.
     pub(crate) artifacts: Arc<dyn ports::ArtifactVisibilitySetter>,
+    pub(crate) secret_requests: Arc<dyn ports::SecretRequestAnswerer>,
     /// Token and cost totals behind `server.getUsageSummary`.
     pub(crate) usage: Arc<dyn ports::UsageReporter>,
     /// In-process fan-out for terminal metadata and events observed through

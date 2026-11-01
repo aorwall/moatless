@@ -37,6 +37,11 @@ pub enum ActivityKind {
     /// An Artifact version published with `--inline`, shown in the thread as
     /// the page itself; the payload is an [`ArtifactShown`].
     ArtifactShown,
+    /// The agent asked a person for a secret; the payload is a
+    /// [`SecretRequested`].
+    SecretRequested,
+    /// That request answered; the payload is a [`SecretRequestAnswered`].
+    SecretRequestAnswered,
 }
 
 // `ALL` is used by the SQL narrowing in `dao::known_kinds`, which a test
@@ -55,6 +60,8 @@ crate::string_enum_mapping!(
         AgentSwitched => "agent_switched",
         Compaction => "compaction",
         ArtifactShown => "artifact_shown",
+        SecretRequested => "secret_requested",
+        SecretRequestAnswered => "secret_request_answered",
     }
 );
 
@@ -145,6 +152,40 @@ pub struct ArtifactShown {
     pub title: String,
     /// The frame height in CSS pixels, which caps the height the page reports.
     pub height: i32,
+}
+
+/// The payload of a `SecretRequested` activity and of the `secret_requested`
+/// task event it is projected from. Never holds the value.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecretRequested {
+    pub request_id: String,
+    pub key: String,
+    pub scope: crate::access_control::Scope,
+    pub kind: crate::secret::SecretKind,
+    pub label: String,
+    pub reason: String,
+    /// The user whose token asked: the only one who may answer a `user`
+    /// request, since the Sandbox resolves user secrets for them.
+    pub requested_by: String,
+}
+
+crate::string_enum!(
+    /// How a person answered a [`SecretRequested`].
+    SecretRequestOutcome {
+        Saved => "saved",
+        Declined => "declined",
+    }
+);
+
+/// The payload of a `SecretRequestAnswered` activity and of its task event.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecretRequestAnswered {
+    pub request_id: String,
+    pub outcome: SecretRequestOutcome,
+    pub answered_by: String,
+    pub answered_by_login: String,
 }
 
 /// The tool calls that hand the conversation back to a person. Keep in sync

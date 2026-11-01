@@ -883,6 +883,7 @@ fn state_over(
         commands: Arc::new(UnreachableCommands),
         attachments,
         artifacts: Arc::new(ports::MockArtifactVisibilitySetter::new()),
+        secret_requests: Arc::new(ports::MockSecretRequestAnswerer::new()),
         usage: Arc::new(UnreachableUsage),
         model_defaults: Arc::new(AgentModelDefaults::default()),
         terminal: terminal::TerminalHub::default(),

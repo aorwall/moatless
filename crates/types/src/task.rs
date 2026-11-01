@@ -77,6 +77,12 @@ crate::string_enum!(
         /// An Artifact version published to be shown inline in the thread;
         /// projected as an `ArtifactShown` activity.
         ArtifactShown => "artifact_shown",
+        /// An agent asked for a secret; projected as a `SecretRequested`
+        /// activity.
+        SecretRequested => "secret_requested",
+        /// A person answered it; projected as a `SecretRequestAnswered`
+        /// activity.
+        SecretRequestAnswered => "secret_request_answered",
     }
 );
 

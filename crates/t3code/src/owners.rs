@@ -11,6 +11,8 @@ use moatless_ports::identity::{GitHostTokenIssuer, HarnessCredentials, SecretCat
 use moatless_ports::task::TaskReader;
 use moatless_tasks::artifact::error::ArtifactError;
 use moatless_tasks::artifact::operations::Artifacts;
+use moatless_tasks::secret_request::error::SecretRequestError;
+use moatless_tasks::secret_request::service::{Answer, SecretRequests};
 use moatless_tasks::task::operations::TaskCommands;
 use moatless_tasks::task::relations::TaskRelations;
 use moatless_types::access_control::{Actor, ScopeContext};
@@ -26,8 +28,9 @@ use uuid::Uuid;
 
 use crate::ports::{
     AgentCatalogSource, ArtifactVisibilityError, ArtifactVisibilitySetter, BranchListError,
-    ChildTask, GithubIdentity, ParentTask, RepositoryBranchSource, SkillCatalog,
-    SourceControlAuthSource, TaskRelationSource, WorkspaceScriptSource, WorkspaceSkill,
+    ChildTask, GithubIdentity, ParentTask, RepositoryBranchSource, SecretRequestAnswerError,
+    SecretRequestAnswerer, SkillCatalog, SourceControlAuthSource, TaskRelationSource,
+    WorkspaceScriptSource, WorkspaceSkill,
 };
 
 /// The agent catalog over the credentials a viewer has stored.
@@ -262,5 +265,37 @@ impl ArtifactVisibilitySetter for TaskArtifacts {
             ArtifactError::Forbidden(_) => ArtifactVisibilityError::Forbidden,
             other => ArtifactVisibilityError::Failed(moatless_core::error::causal_chain(&other)),
         })
+    }
+}
+
+/// Secret request answers, through the Task band's own access checks.
+pub struct TaskSecretRequests(pub Arc<SecretRequests>);
+
+#[async_trait]
+impl SecretRequestAnswerer for TaskSecretRequests {
+    async fn answer(
+        &self,
+        viewer: &ScopeContext,
+        login: &str,
+        task_id: &str,
+        activity_id: Uuid,
+        answer: Answer,
+    ) -> Result<(), SecretRequestAnswerError> {
+        self.0
+            .answer(viewer, login, task_id, activity_id, answer)
+            .await
+            .map_err(|error| match error {
+                SecretRequestError::TaskNotFound(_) | SecretRequestError::NotFound(_) => {
+                    SecretRequestAnswerError::NotFound
+                }
+                SecretRequestError::AlreadyAnswered => SecretRequestAnswerError::AlreadyAnswered,
+                SecretRequestError::Forbidden(message)
+                | SecretRequestError::BadRequest(message) => {
+                    SecretRequestAnswerError::Refused(message)
+                }
+                other @ (SecretRequestError::Store(_) | SecretRequestError::Db(_)) => {
+                    SecretRequestAnswerError::Failed(moatless_core::error::causal_chain(&other))
+                }
+            })
     }
 }

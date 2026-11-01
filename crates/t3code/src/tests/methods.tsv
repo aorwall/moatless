@@ -56,6 +56,7 @@ pullRequests.reviewGuide	orchestration:read	detached	detached	same
 pullRequests.summary	orchestration:read	detached	detached	same
 pullRequests.threadComments	orchestration:read	detached	detached	same
 review.getDiffPreview	review:write	detached	detached	same
+secrets.answerRequest	orchestration:operate	session	session	same
 sandbox.cleanup	orchestration:operate	session	session	same
 sandbox.listDiagnostics	orchestration:read	detached	detached	same
 sandbox.redeploy	orchestration:operate	session	session	same

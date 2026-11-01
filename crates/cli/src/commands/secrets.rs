@@ -60,6 +60,35 @@ pub enum SecretAction {
         external_ref: Option<String>,
     },
 
+    /// Ask a person for a secret in this task's thread. They type it into a
+    /// card the agent cannot read; the task is messaged once it is saved or
+    /// declined. Use instead of asking for a secret in chat or on a page
+    Request {
+        /// Secret key (must match ^[A-Z_][A-Z0-9_]*$)
+        key: String,
+
+        /// Why the agent needs it, shown on the card
+        #[arg(long, short = 'r')]
+        reason: String,
+
+        /// user saves to the requester's own secrets; global needs an admin to
+        /// answer
+        #[arg(long, short = 's', default_value = "user")]
+        scope: String,
+
+        /// Secret kind: env or `runtime_file`
+        #[arg(long, short = 'k', default_value = "env")]
+        kind: String,
+
+        /// The card's heading; defaults to the key
+        #[arg(long)]
+        label: Option<String>,
+
+        /// Task to ask on; defaults to `$TASK_ID`
+        #[arg(long)]
+        task: Option<String>,
+    },
+
     /// Get metadata for a secret by key
     Get {
         /// Secret key
@@ -133,10 +162,38 @@ pub enum SecretAction {
     },
 }
 
-pub async fn run(client: &MoatClient, action: SecretAction, json: bool) -> Result<(), ClientError> {
+/// `task_id` is the sandbox's own Task, the default for `request --task`.
+pub async fn run(
+    client: &MoatClient,
+    action: SecretAction,
+    json: bool,
+    task_id: Option<&str>,
+) -> Result<(), ClientError> {
     match action {
         SecretAction::List { scope, scope_id } => {
             list_secrets(client, &scope, scope_id.as_deref(), json).await
+        }
+        SecretAction::Request {
+            key,
+            reason,
+            scope,
+            kind,
+            label,
+            task,
+        } => {
+            request_secret(
+                client,
+                SecretRequestArgs {
+                    key: &key,
+                    reason: &reason,
+                    scope: &scope,
+                    kind: &kind,
+                    label: label.as_deref(),
+                    task: task.or_else(|| task_id.map(str::to_string)),
+                },
+                json,
+            )
+            .await
         }
         SecretAction::Set {
             key,
@@ -352,6 +409,51 @@ async fn set_secret(
         println!("Secret {key} saved (scope: {scope}, target: {target})");
     });
 
+    Ok(())
+}
+
+struct SecretRequestArgs<'a> {
+    key: &'a str,
+    reason: &'a str,
+    scope: &'a str,
+    kind: &'a str,
+    label: Option<&'a str>,
+    task: Option<String>,
+}
+
+async fn request_secret(
+    client: &MoatClient,
+    args: SecretRequestArgs<'_>,
+    json: bool,
+) -> Result<(), ClientError> {
+    if !matches!(args.scope, "user" | "global") {
+        return Err(ClientError::Other(format!(
+            "Invalid scope '{}'. Must be user or global",
+            args.scope
+        )));
+    }
+    let task_id = args
+        .task
+        .ok_or_else(|| ClientError::Other("--task is required outside a sandbox".into()))?;
+    let mut body = serde_json::json!({
+        "key": args.key,
+        "scope": args.scope,
+        "kind": args.kind,
+        "reason": args.reason,
+    });
+    if let Some(label) = args.label {
+        body["label"] = serde_json::Value::String(label.to_string());
+    }
+    let resp = client
+        .raw_post(&format!("/api/v1/tasks/{task_id}/secret-requests"), &body)
+        .await?;
+    output::emit(json, &resp, || {
+        println!(
+            "Asked for {} in the thread. You get a message when it is saved or declined; \
+             end your turn rather than waiting.",
+            args.key
+        );
+    });
     Ok(())
 }
 

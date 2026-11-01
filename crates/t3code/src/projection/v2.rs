@@ -33,6 +33,7 @@ use super::v2_items::html_render_item;
 use super::v2_items::layered;
 use super::v2_items::plan_nodes;
 use super::v2_items::plans;
+use super::v2_items::secret_request_item;
 use super::v2_items::todo_list_item;
 use super::v2_items::tool_item;
 use super::v2_lifecycle::compaction_fields;
@@ -1048,6 +1049,12 @@ pub(crate) fn turn_items_and_messages(
                 if let Some(turn) = turn {
                     item["runId"] = json!(turn_id(&conversation.task_id, turn));
                 }
+                item
+            }
+            ActivityKind::SecretRequested => {
+                let Some(item) = secret_request_item(activity, transcript, base) else {
+                    continue;
+                };
                 item
             }
             ActivityKind::UserInputRequested => {

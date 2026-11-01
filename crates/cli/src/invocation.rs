@@ -147,7 +147,7 @@ async fn run_shared(
             commands::settings::run(moat, action, json).await?;
         }
         SharedCommands::Secrets { action } => {
-            commands::secrets::run(moat, action, json).await?;
+            commands::secrets::run(moat, action, json, cfg.task_id()).await?;
         }
         SharedCommands::Plugins { action } => {
             commands::plugins::run(moat, action, json).await?;

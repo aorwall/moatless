@@ -19,7 +19,7 @@ use crate::inbox::{InboxItem, InboxOrigin, RunStamp};
 use crate::message::models::MessageType;
 use crate::task_event::models::InsertTaskEvent;
 use crate::trajectory::models::{LineProjection, NewEvent, TrajectorySession};
-use moatless_types::activity::ArtifactShown;
+use moatless_types::activity::{ArtifactShown, SecretRequestAnswered, SecretRequested};
 use moatless_types::event::EventType;
 use moatless_types::sandbox::SandboxStatus;
 use moatless_types::task::TaskSubType;
@@ -427,6 +427,24 @@ impl Projector {
                     let row = artifact_shown(&name, task_id, &shown);
                     dao::standalone_activity(tx, &row, Source::TaskEvent(event.event_id)).await?;
                 }
+                Ok(TaskSubType::SecretRequested) => {
+                    let Ok(asked) =
+                        serde_json::from_value::<SecretRequested>(event.payload.clone())
+                    else {
+                        return Ok(());
+                    };
+                    let row = secret_requested(&name, task_id, &asked);
+                    dao::standalone_activity(tx, &row, Source::TaskEvent(event.event_id)).await?;
+                }
+                Ok(TaskSubType::SecretRequestAnswered) => {
+                    let Ok(answered) =
+                        serde_json::from_value::<SecretRequestAnswered>(event.payload.clone())
+                    else {
+                        return Ok(());
+                    };
+                    let row = secret_request_answered(&name, task_id, &answered);
+                    dao::standalone_activity(tx, &row, Source::TaskEvent(event.event_id)).await?;
+                }
                 Ok(TaskSubType::BindingReplySent) => {
                     let Some(reply) = super::payload::BindingReply::of(event.payload) else {
                         return Ok(());
@@ -598,6 +616,43 @@ fn artifact_shown(event_id: &str, task_id: &str, shown: &ArtifactShown) -> Activ
     }
 }
 
+/// A secret an agent asked a person for, which happened on no Message.
+fn secret_requested(event_id: &str, task_id: &str, asked: &SecretRequested) -> ActivityRow {
+    ActivityRow {
+        activity_id: event_id.to_string(),
+        task_id: task_id.to_string(),
+        ordinal: 0,
+        message_uuid: None,
+        parent_uuid: None,
+        kind: ActivityKind::SecretRequested,
+        status: ActivityStatus::Completed,
+        tool_use_id: None,
+        summary: asked.label.clone(),
+        payload: serde_json::to_value(asked).unwrap_or(Value::Null),
+        is_error: false,
+    }
+}
+
+fn secret_request_answered(
+    event_id: &str,
+    task_id: &str,
+    answered: &SecretRequestAnswered,
+) -> ActivityRow {
+    ActivityRow {
+        activity_id: event_id.to_string(),
+        task_id: task_id.to_string(),
+        ordinal: 0,
+        message_uuid: None,
+        parent_uuid: None,
+        kind: ActivityKind::SecretRequestAnswered,
+        status: ActivityStatus::Completed,
+        tool_use_id: None,
+        summary: format!("Secret request {}", answered.outcome),
+        payload: serde_json::to_value(answered).unwrap_or(Value::Null),
+        is_error: false,
+    }
+}
+
 /// The skills an assistant line's `Skill` calls load, for the Task's
 /// `skill-<name>` tags.
 fn skills_in(blocks: &Value) -> Vec<String> {
@@ -690,7 +745,12 @@ fn projects(event_type: &str, sub_type: &str) -> bool {
         (event_type, sub_type),
         (
             "task",
-            "error" | "binding_reply_sent" | "agent_switched" | "artifact_shown"
+            "error"
+                | "binding_reply_sent"
+                | "agent_switched"
+                | "artifact_shown"
+                | "secret_requested"
+                | "secret_request_answered"
         ) | (
             "agent",
             "completed" | "context_window" | "recording_stopped"

@@ -86,6 +86,7 @@ pub async fn mount(
         commands,
         attachments,
         artifacts,
+        secret_requests,
         otlp_traces_enabled,
         frontend_url,
         client_traces_http,
@@ -184,6 +185,7 @@ pub async fn mount(
         commands,
         attachments,
         artifacts,
+        secret_requests,
         usage: graph.usage.clone(),
         reads,
         changes,
@@ -335,6 +337,8 @@ pub struct UiRpcDependencies {
     pub attachments: Arc<dyn ports::AttachmentStore>,
     /// Sets who may read a Task's Artifacts, behind the Task's write check.
     pub artifacts: Arc<dyn ports::ArtifactVisibilitySetter>,
+    /// Answers the secret requests a Task's agent shows in its thread.
+    pub secret_requests: Arc<dyn ports::SecretRequestAnswerer>,
     /// Whether this deployment exports spans over OTLP (an OTLP endpoint is
     /// configured — see `config::OtelConfig`), reported to the client as
     /// `observability.otlpTracesEnabled`.

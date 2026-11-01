@@ -810,6 +810,34 @@ pub trait ArtifactVisibilitySetter: Send + Sync {
     ) -> Result<(), ArtifactVisibilityError>;
 }
 
+/// Why a secret request could not be answered.
+#[derive(Debug)]
+pub enum SecretRequestAnswerError {
+    /// No such request on a Task this viewer can read.
+    NotFound,
+    AlreadyAnswered,
+    /// The viewer may not answer it, or sent an answer it cannot take; the
+    /// message says which, for the card to show.
+    Refused(String),
+    /// The deployment failed to store it. The cause is logged, not sent.
+    Failed(String),
+}
+
+/// Answers a secret request the Task's agent made. A port because the
+/// request, the secret store and the wake are the Task band's.
+#[cfg_attr(test, mockall::automock)]
+#[async_trait]
+pub trait SecretRequestAnswerer: Send + Sync {
+    async fn answer(
+        &self,
+        viewer: &ScopeContext,
+        login: &str,
+        task_id: &str,
+        activity_id: uuid::Uuid,
+        answer: moatless_tasks::secret_request::service::Answer,
+    ) -> Result<(), SecretRequestAnswerError>;
+}
+
 /// Everything a T3 command can ask Moatless to do.
 #[async_trait]
 pub trait ThreadCommandSink: Send + Sync {

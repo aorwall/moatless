@@ -1481,3 +1481,64 @@ fn a_shell_reports_what_its_activity_run_is_doing() {
 }
 
 mod lifecycle;
+
+fn secret_requested(activity_id: &str, request_id: &str) -> Activity {
+    let mut row = activity(
+        activity_id,
+        None,
+        ActivityKind::SecretRequested,
+        ActivityStatus::Completed,
+    );
+    row.payload = json!({
+        "requestId": request_id,
+        "key": "STAGING_API_KEY",
+        "scope": "user",
+        "kind": "env",
+        "label": "Staging API key",
+        "reason": "To call the staging API",
+        "requestedBy": "user-1",
+    });
+    row
+}
+
+/// A request stays pending whatever the turn does, unlike a question: the
+/// agent ends its turn and is woken by the answer.
+#[test]
+fn a_secret_request_is_pending_until_its_answer_names_it() {
+    let conversation = open_turn(conversation("task-1"), 1, "completed");
+    let card = |activities: Vec<Activity>| {
+        let transcript = Transcript {
+            activities,
+            ..Transcript::default()
+        };
+        let (items, _) =
+            turn_items_and_messages(&conversation, &transcript, &origins(&HashMap::new()));
+        let cards: Vec<Value> = items
+            .into_iter()
+            .filter(|item| item["type"] == json!("secret_request"))
+            .collect();
+        assert_eq!(cards.len(), 1, "the answer renders no item of its own");
+        cards[0].clone()
+    };
+
+    let pending = card(vec![secret_requested("act-1", "req-1")]);
+    assert_eq!(pending["secretStatus"], json!("pending"));
+    assert_eq!(pending["label"], json!("Staging API key"));
+    assert_eq!(pending["storage"]["key"], json!("STAGING_API_KEY"));
+
+    let mut answered = activity(
+        "act-2",
+        None,
+        ActivityKind::SecretRequestAnswered,
+        ActivityStatus::Completed,
+    );
+    answered.payload = json!({
+        "requestId": "req-1",
+        "outcome": "declined",
+        "answeredBy": "user-1",
+        "answeredByLogin": "alice",
+    });
+    let declined = card(vec![secret_requested("act-1", "req-1"), answered]);
+    assert_eq!(declined["secretStatus"], json!("declined"));
+    assert_eq!(declined["id"], pending["id"]);
+}

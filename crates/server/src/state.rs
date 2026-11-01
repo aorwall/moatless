@@ -43,6 +43,7 @@ use moatless_tasks::memory::operations::Memories;
 use moatless_tasks::message::operations::Messages;
 use moatless_tasks::message::send::MessageSendService;
 use moatless_tasks::review_guide::operations::ReviewGuides;
+use moatless_tasks::secret_request::service::SecretRequests;
 use moatless_tasks::tag::operations::Tags;
 use moatless_tasks::task::bindings::TaskBindings;
 use moatless_tasks::task::closer::TaskCloser;
@@ -277,6 +278,7 @@ pub struct AppState {
     /// The message-send flows over the ports they read; holds the self-echo
     /// dedup filter, so the message domain does not name the adapter registry.
     pub message_send: Arc<MessageSendService>,
+    pub secret_requests: Arc<SecretRequests>,
     /// Presents a task row as a `TaskResponse`; holds the eight ports the
     /// response is assembled from so presenting handlers name one service
     /// instead of eight DAOs.
@@ -713,6 +715,12 @@ impl axum::extract::FromRef<AppState>
 {
     fn from_ref(state: &AppState) -> Self {
         state.external_reply.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<SecretRequests> {
+    fn from_ref(state: &AppState) -> Self {
+        state.secret_requests.clone()
     }
 }
 

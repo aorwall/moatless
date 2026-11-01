@@ -9,6 +9,7 @@ mod orchestration_v2;
 mod preview;
 mod projects;
 mod sandbox;
+mod secrets;
 mod server;
 mod streams;
 mod terminal;

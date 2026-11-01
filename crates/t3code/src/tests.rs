@@ -120,6 +120,7 @@ mod refusals;
 mod request_ids;
 mod sandbox_status;
 mod scripts;
+mod secret_requests;
 mod subscriptions;
 mod trace_context;
 mod vcs;

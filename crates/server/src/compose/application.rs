@@ -18,6 +18,7 @@ use moatless_loops::compose::{ExternalReplyInputs, OutboundSenderInputs, Routing
 use moatless_ports::identity::GitHostTokenIssuer;
 use moatless_ports::sandbox::{PreflightPort, SandboxJoiner};
 use moatless_tasks::compose::{TaskOperations, TaskWorkflowInputs};
+use moatless_tasks::secret_request::service::SecretRequests;
 use sandbox_proto::client::SandboxConnector;
 use std::sync::Arc;
 
@@ -330,8 +331,16 @@ impl AppState {
             room_admission: adapter_delivery.clone(),
         });
 
+        let secret_requests = Arc::new(SecretRequests::new(
+            pool.clone(),
+            tasks.clone(),
+            secrets.clone(),
+            message_send.clone(),
+        ));
+
         Self {
             adapter_commands,
+            secret_requests,
             tasks,
             task_reader,
             task_creation,

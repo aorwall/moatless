@@ -48,6 +48,8 @@ impl T3ActivityViewExt for ActivityView<'_> {
             | ActivityKind::ContextWindowUpdated
             | ActivityKind::AgentSwitched
             | ActivityKind::ArtifactShown
+            | ActivityKind::SecretRequested
+            | ActivityKind::SecretRequestAnswered
             | ActivityKind::Compaction => "info",
         }
     }
@@ -78,7 +80,9 @@ impl T3ActivityViewExt for ActivityView<'_> {
             ActivityKind::Thinking
             | ActivityKind::SandboxStatus
             | ActivityKind::Compaction
-            | ActivityKind::ArtifactShown => "task.progress",
+            | ActivityKind::ArtifactShown
+            | ActivityKind::SecretRequested
+            | ActivityKind::SecretRequestAnswered => "task.progress",
             // The four the client derives a panel from rather than a work-log
             // row. Each spelling is the one that client's own deriver matches
             // on, which is why they are dotted where the column is not.
@@ -531,6 +535,8 @@ mod tests {
             (ActivityKind::Compaction, "task.progress"),
             (ActivityKind::AgentSwitched, "runtime.warning"),
             (ActivityKind::ArtifactShown, "task.progress"),
+            (ActivityKind::SecretRequested, "task.progress"),
+            (ActivityKind::SecretRequestAnswered, "task.progress"),
         ] {
             let row = stored(kind, json!({}));
             assert_eq!(ActivityView::new(&row).t3_kind(), expected);
