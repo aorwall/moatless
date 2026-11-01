@@ -16,7 +16,7 @@
 # Environment:
 #   CLAUDE_CODE_OAUTH_TOKEN  - OAuth token for Claude API (preferred)
 #   ANTHROPIC_API_KEY        - API key for Claude API (alternative)
-#   CLAUDE_CLI_VERSION       - Override the pinned Claude CLI version (default: 2.1.310)
+#   CLAUDE_CLI_VERSION       - Override the pinned Claude CLI version (default: 2.1.316)
 #   SKIP_BUILD=1             - Skip Docker image build step
 #   SKIP_COMPILE=1           - Skip Rust cross-compilation step
 
@@ -203,7 +203,7 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
         docker build \
             --platform "$DOCKER_PLATFORM" \
             -f "$CRATE_DIR/Dockerfile.test" \
-            --build-arg "CLAUDE_CLI_VERSION=${CLAUDE_CLI_VERSION:-2.1.310}" \
+            --build-arg "CLAUDE_CLI_VERSION=${CLAUDE_CLI_VERSION:-2.1.316}" \
             --build-context "binaries=$BINARIES_DIR" \
             -t "$IMAGE_NAME" \
             "$ROOT_DIR"

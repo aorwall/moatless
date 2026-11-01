@@ -74,6 +74,7 @@ pub enum CodexModel {
     Gpt6Sol,
     Gpt6Luna,
     Gpt56Sol,
+    Gpt61Terra,
     Gpt56Terra,
     Gpt56Luna,
     Gpt55,
@@ -86,12 +87,13 @@ const CODEX_ULTRA_EFFORT_LEVELS: &[&str] = &["low", "medium", "high", "xhigh", "
 
 impl CodexModel {
     /// Every Codex model, in catalog order.
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Gpt61Sol,
         Self::Gpt6Astra,
         Self::Gpt6Sol,
         Self::Gpt6Luna,
         Self::Gpt56Sol,
+        Self::Gpt61Terra,
         Self::Gpt56Terra,
         Self::Gpt56Luna,
         Self::Gpt55,
@@ -105,6 +107,7 @@ impl CodexModel {
             Self::Gpt6Sol => "gpt-6-sol",
             Self::Gpt6Luna => "gpt-6-luna",
             Self::Gpt56Sol => "gpt-5.6-sol",
+            Self::Gpt61Terra => "gpt-6.1-terra",
             Self::Gpt56Terra => "gpt-5.6-terra",
             Self::Gpt56Luna => "gpt-5.6-luna",
             Self::Gpt55 => "gpt-5.5",
@@ -118,6 +121,7 @@ impl CodexModel {
             Self::Gpt6Sol => "GPT-6 Sol",
             Self::Gpt6Luna => "GPT-6 Luna",
             Self::Gpt56Sol => "GPT-5.6 Sol",
+            Self::Gpt61Terra => "GPT-6.1 Terra",
             Self::Gpt56Terra => "GPT-5.6 Terra",
             Self::Gpt56Luna => "GPT-5.6 Luna",
             Self::Gpt55 => "GPT-5.5",
@@ -132,6 +136,7 @@ impl CodexModel {
             | Self::Gpt6Astra
             | Self::Gpt6Sol
             | Self::Gpt56Sol
+            | Self::Gpt61Terra
             | Self::Gpt56Terra => CODEX_ULTRA_EFFORT_LEVELS,
             Self::Gpt6Luna | Self::Gpt56Luna => CODEX_MAX_EFFORT_LEVELS,
             Self::Gpt55 => CODEX_BASE_EFFORT_LEVELS,
@@ -144,6 +149,7 @@ impl CodexModel {
         match self {
             // Cached reads at a twentieth of input rather than `tiered`'s tenth.
             Self::Gpt61Sol => ModelPrice::new(2.0, 2.5, 0.1, 10.0),
+            Self::Gpt61Terra => ModelPrice::new(1.0, 1.25, 0.05, 5.0),
             Self::Gpt6Astra => ModelPrice::tiered(10.0, 50.0),
             Self::Gpt6Sol => ModelPrice::tiered(2.0, 10.0),
             Self::Gpt6Luna => ModelPrice::tiered(0.1, 0.5),

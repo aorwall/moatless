@@ -400,6 +400,7 @@ mod tests {
                 "GPT-6 Sol",
                 "GPT-6 Luna",
                 "GPT-5.6 Sol",
+                "GPT-6.1 Terra",
                 "GPT-5.6 Terra",
                 "GPT-5.6 Luna",
                 "GPT-5.5"
@@ -432,6 +433,7 @@ mod tests {
                 "gpt-6-sol",
                 "gpt-6-luna",
                 "gpt-5.6-sol",
+                "gpt-6.1-terra",
                 "gpt-5.6-terra",
                 "gpt-5.6-luna",
                 "gpt-5.5"
