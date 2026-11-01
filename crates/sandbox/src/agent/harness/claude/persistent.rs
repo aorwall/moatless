@@ -2,12 +2,13 @@
 //!
 //! One long-lived TUI session hosts many Turns behind the private
 //! [`AgentProcess`] port. Compatible Inputs paste into the live session;
-//! incompatible ones (model/mode/Session/fresh-start) kill and respawn it.
+//! incompatible ones (model/mode/Session/fresh-start, or a new set of
+//! credential keys between Turns) kill and respawn it.
 //!
 //! All native-payload mapping is delegated to the shared [`Normalizer`]; this
 //! file owns only the persistent process lifecycle and Turn-boundary state.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 use std::sync::Arc;
 
 use claude_agent_sdk::api::content::{ApiMessage, ContentBlock};
@@ -34,7 +35,7 @@ use super::normalize::{Normalizer, assistant_blocks, user_blocks};
 /// A new Input compatible with this pastes into the live TUI; an incompatible
 /// one forces a replacement (kill + respawn with `--resume`). Agent profile and
 /// system prompt are fixed for the Sandbox lifetime, so only model, mode,
-/// effort, and the resumed Session id can diverge.
+/// effort, the resumed Session id and the credential keys can diverge.
 struct Fingerprint {
     model: Option<String>,
     mode: Option<String>,
@@ -43,6 +44,9 @@ struct Fingerprint {
     effort: Option<String>,
     /// The live Session id (empty until the first `System` init reports it).
     session_id: String,
+    /// Names, not values, of the env the TUI was spawned with. A value that
+    /// rotates under the same key would otherwise respawn every Turn.
+    env_keys: BTreeSet<String>,
 }
 
 /// A persistent Claude TUI session behind the harness seam.
@@ -191,6 +195,7 @@ impl ClaudePersistentProcess {
             mode: input.mode.clone(),
             effort: input.effort.clone(),
             session_id: paste_session.to_string(),
+            env_keys: env_keys(input),
         });
         self.handle = Some(handle);
         self.handle_ready.notify_one();
@@ -320,7 +325,10 @@ impl AgentProcess for ClaudePersistentProcess {
         }
 
         // Incompatible config: replace the process, resuming the live Session.
-        if needs_restart(self.fingerprint.as_ref(), &input) {
+        // A key change waits for an idle Input rather than ending the Turn in flight.
+        if needs_restart(self.fingerprint.as_ref(), &input)
+            || (!self.turn_in_flight && credentials_changed(self.fingerprint.as_ref(), &input))
+        {
             let resume_target = self.fingerprint.as_ref().map(|f| f.session_id.clone());
             if self.turn_in_flight {
                 // End the abandoned Turn before the replacement starts.
@@ -438,6 +446,23 @@ fn needs_restart(fingerprint: Option<&Fingerprint>, input: &Input) -> bool {
     false
 }
 
+/// Whether `input` carries a credential the live TUI's env lacks, or lacks one
+/// it has: a secret saved since the spawn reaches the agent only on a respawn.
+fn credentials_changed(fingerprint: Option<&Fingerprint>, input: &Input) -> bool {
+    match (fingerprint, &input.env) {
+        (Some(fp), Some(_)) => fp.env_keys != env_keys(input),
+        _ => false,
+    }
+}
+
+fn env_keys(input: &Input) -> BTreeSet<String> {
+    input
+        .env
+        .iter()
+        .flat_map(|env| env.keys().cloned())
+        .collect()
+}
+
 /// Build the `UserMessage` pasted into the TUI. The CLI expects the message's
 /// `session_id` to match the live session so `--resume` can replay it.
 fn make_user_message(text: &str, session_id: &str) -> UserMessage {
@@ -482,6 +507,19 @@ mod tests {
             mode: None,
             effort: effort.map(str::to_string),
             session_id: "sess-1".to_string(),
+            env_keys: BTreeSet::from(["TASK_ID".to_string(), "STRIPE_KEY".to_string()]),
+        }
+    }
+
+    fn input_with_env(pairs: &[(&str, &str)]) -> Input {
+        Input {
+            env: Some(
+                pairs
+                    .iter()
+                    .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+                    .collect(),
+            ),
+            ..input(None)
         }
     }
 
@@ -503,6 +541,31 @@ mod tests {
         ));
         assert!(needs_restart(Some(&live(None)), &input(Some("high"))));
         assert!(needs_restart(Some(&live(Some("high"))), &input(None)));
+    }
+
+    /// A secret saved since the spawn, such as an answered `moat secret
+    /// request`, is a new key the live TUI's env cannot gain by a paste.
+    #[test]
+    fn a_new_credential_key_forces_a_replacement() {
+        let fp = live(None);
+        assert!(credentials_changed(
+            Some(&fp),
+            &input_with_env(&[("TASK_ID", "t"), ("STRIPE_KEY", "a"), ("NEW_KEY", "b")])
+        ));
+        assert!(credentials_changed(
+            Some(&fp),
+            &input_with_env(&[("TASK_ID", "t")])
+        ));
+    }
+
+    #[test]
+    fn a_rotated_value_under_the_same_keys_pastes_into_the_live_session() {
+        let fp = live(None);
+        assert!(!credentials_changed(
+            Some(&fp),
+            &input_with_env(&[("TASK_ID", "t"), ("STRIPE_KEY", "rotated")])
+        ));
+        assert!(!credentials_changed(Some(&fp), &input(None)));
     }
 
     #[test]

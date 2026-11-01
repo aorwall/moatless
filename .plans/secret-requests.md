@@ -19,7 +19,8 @@ secret card (`t3code/apps/web/src/components/chat/SecretRequestCard.tsx`), drawn
 by T3 itself rather than by agent code. The answer goes over the session socket to
 `secrets.answerRequest`, which Moatless serves by calling `SecretService::put_secret`
 as the person answering. The Task gets a message saying the key was saved, never
-the value, and the turn that message starts fetches the credential like any other.
+the value, and the agent's next turn reads it from its environment like any other
+credential; a persistent TUI respawns for a new key between Turns.
 
 An Artifact that needs a secret links to the thread instead of rendering an
 input: the page may point at a request, never draw one.

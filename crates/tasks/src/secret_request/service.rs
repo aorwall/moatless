@@ -307,7 +307,8 @@ fn notice_text(asked: &SecretRequested, answered: &SecretRequestAnswered) -> Str
     match answered.outcome {
         SecretRequestOutcome::Saved => format!(
             "{login} saved the secret `{key}` to the {scope} secrets ({kind}). \
-             The Sandbox fetches it with this turn's credentials; the value was never shown in the conversation.",
+             It is in the agent's environment from the next turn, not this one; \
+             the value was never shown in the conversation.",
             scope = asked.scope,
             kind = asked.kind,
         ),
