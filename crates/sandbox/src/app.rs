@@ -121,6 +121,11 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         Err(e) => tracing::warn!(error = %e, "Could not share language servers with the agent"),
     }
 
+    // Optional: without it an OOM kill still happens, it just names no process.
+    if let Some(watch) = crate::memory_watch::spawn(state.lifecycle_cancel.clone()) {
+        registrar.supervise("memory-watch", Criticality::Optional, watch);
+    }
+
     // Spawns init: credential fetch, git clone, workspace setup, then
     // `process_pending_messages()` for anything that arrived meanwhile.
     //

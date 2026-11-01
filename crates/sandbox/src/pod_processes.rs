@@ -39,6 +39,53 @@ pub fn foreign_live_processes() -> Option<Vec<ForeignProcess>> {
     Some(found)
 }
 
+/// One process's resident memory, as an OOM report names it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProcessMemory {
+    pub pid: u32,
+    pub comm: String,
+    pub rss_bytes: u64,
+}
+
+/// The `limit` live processes holding the most resident memory, largest first.
+///
+/// This process is included, unlike [`foreign_live_processes`]: the question
+/// is whether the sandbox or the agent's workload holds the memory.
+pub fn largest_by_rss(limit: usize) -> Vec<ProcessMemory> {
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    let mut found: Vec<ProcessMemory> = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| entry.file_name().to_str()?.parse::<u32>().ok())
+        .filter_map(|pid| {
+            Some(ProcessMemory {
+                pid,
+                comm: live_comm_of(pid)?,
+                rss_bytes: rss_of(pid)?,
+            })
+        })
+        .collect();
+    found.sort_by_key(|p| std::cmp::Reverse(p.rss_bytes));
+    found.truncate(limit);
+    found
+}
+
+/// `VmRSS` from `/proc/<pid>/status`, which the kernel prints in KiB; absent
+/// for a kernel thread.
+fn rss_of(pid: u32) -> Option<u64> {
+    let status = std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+    let kib = status
+        .lines()
+        .find_map(|line| line.strip_prefix("VmRSS:"))?
+        .trim()
+        .strip_suffix("kB")?
+        .trim()
+        .parse::<u64>()
+        .ok()?;
+    Some(kib * 1024)
+}
+
 /// This process and the chain it was started from, which are never writers.
 ///
 /// The chain matters where the sandbox is not PID 1 — a container entrypoint,
@@ -138,6 +185,26 @@ mod tests {
                 .any(|p| p.pid == pid),
             "a killed writer is not a live process"
         );
+    }
+
+    /// An allocation this process touched shows up as its own RSS, ranked
+    /// among the pod's largest: the fact an OOM report rests on.
+    #[test]
+    fn a_process_holding_memory_is_named_with_its_rss() {
+        const HELD: usize = 256 * 1024 * 1024;
+        let held = vec![1u8; HELD];
+        let found = largest_by_rss(usize::MAX);
+        let me = found
+            .iter()
+            .find(|p| p.pid == std::process::id())
+            .expect("this process is listed");
+        assert!(me.rss_bytes >= HELD as u64, "{me:?}");
+        assert!(
+            found.windows(2).all(|w| w[0].rss_bytes >= w[1].rss_bytes),
+            "not largest first: {found:?}"
+        );
+        assert_eq!(largest_by_rss(1).len(), 1);
+        drop(std::hint::black_box(held));
     }
 
     async fn read_detached_pid(path: &std::path::Path) -> u32 {

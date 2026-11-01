@@ -42,6 +42,7 @@ const REGISTRANTS: &[&str] = &[
     "http-server",
     "init",
     "language-server-sockets",
+    "memory-watch",
     "preview-proxy",
     "shutdown-driver",
     "transcript-sync",

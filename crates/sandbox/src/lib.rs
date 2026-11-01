@@ -29,6 +29,7 @@ pub mod grpc_server;
 pub mod http_config;
 pub mod init;
 pub mod limits;
+mod memory_watch;
 pub mod outbox;
 pub mod pod_processes;
 pub mod preview_proxy;
