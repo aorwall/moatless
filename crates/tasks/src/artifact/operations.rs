@@ -10,7 +10,7 @@ use moatless_types::task::Visibility;
 
 use super::dao::ArtifactDao;
 use super::error::ArtifactError;
-use super::models::{Artifact, DataAccess, Record, Reservation};
+use super::models::{Artifact, ArtifactVersion, DataAccess, NewFork, Record, Reservation};
 #[cfg(doc)]
 use crate::collection::dao::RecordDao;
 use crate::collection::operations::Records;
@@ -203,6 +203,19 @@ impl Artifacts {
     /// See [`ArtifactDao::list_for_task`].
     pub(crate) async fn list_for_task(&self, task_id: &str) -> Result<Vec<Artifact>, sqlx::Error> {
         self.store.list_for_task(task_id).await
+    }
+
+    /// See [`ArtifactDao::list_versions`].
+    pub(crate) async fn list_versions(
+        &self,
+        artifact_id: &str,
+    ) -> Result<Vec<ArtifactVersion>, sqlx::Error> {
+        self.store.list_versions(artifact_id).await
+    }
+
+    /// See [`ArtifactDao::insert_fork`].
+    pub(crate) async fn insert_fork(&self, fork: &NewFork) -> Result<Artifact, sqlx::Error> {
+        self.store.insert_fork(fork).await
     }
 
     /// See [`RecordDao::save_record`].

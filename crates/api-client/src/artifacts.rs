@@ -91,6 +91,33 @@ impl ApiClient {
             .await
     }
 
+    /// GET `/api/v1/artifacts/{artifact_id}/v{version}?download=1` — one
+    /// version's page as it was published; the latest when `version` is `None`.
+    pub async fn download_artifact_page(
+        &self,
+        artifact_id: &str,
+        version: Option<u32>,
+    ) -> Result<Vec<u8>, ApiError> {
+        let version = version.map_or_else(String::new, |v| format!("/v{v}"));
+        let url = format!(
+            "{}/api/v1/artifacts/{}{version}?download=1",
+            self.base_url(),
+            urlenc(artifact_id)
+        );
+        let resp = self.http().get(&url).send().await?;
+        let status = resp.status();
+        if status == reqwest::StatusCode::UNAUTHORIZED {
+            return Err(ApiError::Unauthorized);
+        }
+        if !status.is_success() {
+            return Err(ApiError::Api {
+                status: status.as_u16(),
+                body: resp.text().await?,
+            });
+        }
+        Ok(resp.bytes().await?.to_vec())
+    }
+
     /// GET `/api/v1/artifacts/{artifact_id}/records`, filtered by key `prefix`
     /// and change time `since` when given.
     pub async fn list_artifact_records(

@@ -2,7 +2,9 @@
 //! reserve → upload → commit sequence that keeps a version immutable.
 
 use super::error::ArtifactError;
-use super::models::{Artifact, AttachedCollection, DEFAULT_INLINE_HEIGHT, PublishRequest};
+use super::models::{
+    Artifact, ArtifactVersion, AttachedCollection, DEFAULT_INLINE_HEIGHT, PublishRequest,
+};
 use super::operations::Artifacts;
 use super::rules::RecordRules;
 use super::schemas::ArtifactResponse;
@@ -313,9 +315,58 @@ pub async fn read_page(
     })
 }
 
+/// What the viewer bar shows one reader about a published version.
+#[derive(Debug)]
+pub struct PageView {
+    pub row: Artifact,
+    pub version: i32,
+    /// The recorded versions, oldest first; a version published before they
+    /// were recorded is in `row.published_versions` only.
+    pub versions: Vec<ArtifactVersion>,
+    /// The reader can read the Artifact's Task, so may open and fork it.
+    pub task_readable: bool,
+    /// The reader can change the Task, so may set the Artifact's visibility.
+    pub can_manage: bool,
+    /// The reader can read the Artifact this one was forked from.
+    pub source_readable: bool,
+}
+
+/// The viewer bar's view of a published version, for `scope`'s reader;
+/// `version` is as in [`read_page`].
+pub async fn page_view(
+    tasks: &TaskCommands,
+    artifacts: &Artifacts,
+    scope: &ScopeContext,
+    artifact_id: &str,
+    version: Option<&str>,
+) -> Result<PageView, ArtifactError> {
+    let (row, version) = find_version(tasks, artifacts, scope, artifact_id, version).await?;
+    let task = tasks.find_by_id(&row.task_id, scope).await?;
+    let can_manage = task
+        .as_ref()
+        .is_some_and(|task| scope.can_write(&task.scoped_resource(), Some(task.visibility)));
+    let source_readable = match &row.forked_from_artifact_id {
+        Some(source) => match find_readable(tasks, artifacts, scope, source).await {
+            Ok(_) => true,
+            Err(ArtifactError::NotFound(_)) => false,
+            Err(error) => return Err(error),
+        },
+        None => false,
+    };
+    let versions = artifacts.list_versions(&row.artifact_id).await?;
+    Ok(PageView {
+        row,
+        version,
+        versions,
+        task_readable: task.is_some(),
+        can_manage,
+        source_readable,
+    })
+}
+
 /// The readable Artifact and the published version `version` names, the
 /// latest when `None`.
-async fn find_version(
+pub(super) async fn find_version(
     tasks: &TaskCommands,
     artifacts: &Artifacts,
     scope: &ScopeContext,
@@ -357,7 +408,12 @@ pub(crate) async fn find_readable(
     Ok(row)
 }
 
-fn to_response(row: &Artifact, public_url: &str, version: i32, title: &str) -> ArtifactResponse {
+pub(super) fn to_response(
+    row: &Artifact,
+    public_url: &str,
+    version: i32,
+    title: &str,
+) -> ArtifactResponse {
     ArtifactResponse {
         artifact_id: row.artifact_id.clone(),
         task_id: row.task_id.clone(),

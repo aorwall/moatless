@@ -135,6 +135,8 @@ fn connection(store: TestStore, rules: Option<&str>) -> Connection {
             record_rules: rules.map(|r| RecordRules::parse(r).unwrap()),
             collections: Vec::new(),
             visibility: Visibility::Private,
+            forked_from_artifact_id: None,
+            forked_from_version: None,
             created_by: Some("user-1".to_string()),
             created_at: Utc::now(),
             updated_at: Utc::now(),

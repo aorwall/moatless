@@ -35,9 +35,36 @@ pub struct Artifact {
     /// named one decides.
     #[sqlx(try_from = "String")]
     pub visibility: Visibility,
+    /// The Artifact this one was forked from, with [`Self::forked_from_version`];
+    /// may name an Artifact deleted since.
+    pub forked_from_artifact_id: Option<String>,
+    pub forked_from_version: Option<i32>,
     pub created_by: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+/// A `task_artifact_versions` row: when one version was published.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct ArtifactVersion {
+    pub version: i32,
+    pub published_at: DateTime<Utc>,
+    /// The Task's newest turn when the version was published; `None` when the
+    /// Task had no turn yet.
+    pub turn_number: Option<i32>,
+}
+
+/// A version copied into another Task as the first version of a new Artifact.
+#[derive(Debug, Clone)]
+pub struct NewFork {
+    pub artifact_id: String,
+    pub task_id: String,
+    pub slug: String,
+    pub title: String,
+    pub created_by: String,
+    pub data: DataAccess,
+    pub source_artifact_id: String,
+    pub source_version: i32,
 }
 
 /// A publish as the multipart route received it, before validation.

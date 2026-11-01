@@ -63,6 +63,8 @@ fn row(task_id: &str, latest_version: i32) -> Artifact {
         record_rules: None,
         collections: Vec::new(),
         visibility: Visibility::Private,
+        forked_from_artifact_id: None,
+        forked_from_version: None,
         created_by: Some("user-1".to_string()),
         created_at: Utc::now(),
         updated_at: Utc::now(),
@@ -515,4 +517,94 @@ async fn a_publisher_who_may_write_a_scope_creates_the_collection() {
     .await
     .unwrap();
     assert_eq!(attached[0].collection_id, "col-new");
+}
+
+fn store_listing_versions(row: Artifact, versions: Vec<ArtifactVersion>) -> TestStore {
+    let mut store = store_with(Some(row));
+    store
+        .expect_list_versions()
+        .returning(move |_| Ok(versions.clone()));
+    store
+}
+
+#[tokio::test]
+async fn the_owner_views_a_version_with_its_task_and_can_manage_it() {
+    let published = ArtifactVersion {
+        version: 2,
+        published_at: Utc::now(),
+        turn_number: Some(4),
+    };
+    let view = page_view(
+        &tasks(),
+        &artifacts(store_listing_versions(
+            row("task-1", 3),
+            vec![published.clone()],
+        )),
+        &scope(),
+        "art-1",
+        Some("v2"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(view.version, 2);
+    assert_eq!(view.versions, vec![published]);
+    assert!(view.task_readable);
+    assert!(view.can_manage);
+    assert!(!view.source_readable);
+}
+
+#[tokio::test]
+async fn a_reader_who_cannot_change_the_task_views_it_without_managing() {
+    let view = page_view(
+        &tasks(),
+        &artifacts(store_listing_versions(row("task-shared", 1), Vec::new())),
+        &scope(),
+        "art-1",
+        None,
+    )
+    .await
+    .unwrap();
+    assert!(view.task_readable);
+    assert!(!view.can_manage);
+}
+
+#[tokio::test]
+async fn a_public_page_on_an_unreadable_task_is_viewed_without_the_task() {
+    let mut public = row("task-other", 1);
+    public.visibility = Visibility::Public;
+    let view = page_view(
+        &tasks(),
+        &artifacts(store_listing_versions(public, Vec::new())),
+        &scope(),
+        "art-1",
+        None,
+    )
+    .await
+    .unwrap();
+    assert!(!view.task_readable);
+    assert!(!view.can_manage);
+}
+
+#[tokio::test]
+async fn a_fork_names_its_source_as_readable_only_when_it_is() {
+    for (source_task, readable) in [("task-1", true), ("task-other", false)] {
+        let mut fork = row("task-1", 1);
+        fork.artifact_id = "art-fork".to_string();
+        fork.forked_from_artifact_id = Some("art-1".to_string());
+        fork.forked_from_version = Some(2);
+        let source = row(source_task, 2);
+        let mut store = TestStore::default();
+        store.expect_find_by_id().returning(move |id| {
+            Ok(Some(if id == "art-fork" {
+                fork.clone()
+            } else {
+                source.clone()
+            }))
+        });
+        store.expect_list_versions().returning(|_| Ok(Vec::new()));
+        let view = page_view(&tasks(), &artifacts(store), &scope(), "art-fork", None)
+            .await
+            .unwrap();
+        assert_eq!(view.source_readable, readable, "{source_task}");
+    }
 }

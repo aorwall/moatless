@@ -1,5 +1,6 @@
 //! `moat artifact` — publish HTML pages from a task so they outlive its
-//! sandbox, list what has been published, and read the records its pages save.
+//! sandbox, list and download what has been published, and read the records
+//! its pages save.
 
 use std::path::{Path, PathBuf};
 
@@ -67,6 +68,17 @@ pub enum ArtifactAction {
         /// Task to list; defaults to `$TASK_ID`
         #[arg(long)]
         task: Option<String>,
+    },
+    /// Download a published version's page as it was published
+    Get {
+        /// Artifact id, as `moat artifact list` and its URLs show it
+        artifact: String,
+        /// Version to download; defaults to the latest
+        #[arg(long)]
+        version: Option<u32>,
+        /// File to write; defaults to standard output
+        #[arg(long, short)]
+        output: Option<PathBuf>,
     },
     /// Read and write the records an artifact's page saves
     Data {
@@ -320,6 +332,24 @@ pub async fn run(
                     &["SLUG", "VERSION", "TITLE", "VISIBILITY", "UPDATED", "URL"],
                     &rows,
                 );
+            }
+        }
+        ArtifactAction::Get {
+            artifact,
+            version,
+            output,
+        } => {
+            let html = moat
+                .api()
+                .download_artifact_page(&artifact, version)
+                .await?;
+            if let Some(path) = output {
+                std::fs::write(&path, &html)
+                    .map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+                eprintln!("Wrote {} bytes to {}", html.len(), path.display());
+            } else {
+                use std::io::Write as _;
+                std::io::stdout().write_all(&html)?;
             }
         }
         ArtifactAction::Data { action } => run_data(moat, action, cfg).await?,

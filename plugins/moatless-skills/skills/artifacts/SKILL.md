@@ -37,7 +37,9 @@ page looks; this skill owns how it is published and how it saves data.
 
    Publishing again with `--slug <slug>` (derived from the title when
    omitted) adds a version to the same Artifact, and its link always opens the
-   latest version. `moat artifact list` shows what the task has published.
+   latest version. `moat artifact list` shows what the task has published,
+   and `moat artifact get <id> -o page.html` downloads a version, such as an
+   Artifact a reader forked into this task.
 
    Publish public by default, including pages about this task's customer or
    private repository: a private page locks out every colleague who cannot
@@ -49,7 +51,7 @@ page looks; this skill owns how it is published and how it saves data.
    what they may write. The
    visibility covers every version, and a publish without `--private` keeps
    it; a person who can change the task can switch it in the thread's
-   Artifacts panel.
+   Artifacts panel or the bar above the page.
 
 Publish finished work meant for other people, such as a report for a team or
 the case for a decision, and pages the person asks to view or share. Advice

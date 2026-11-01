@@ -163,9 +163,17 @@ user whatever the Task's visibility; one published with `--private` only by
 whoever can read the Task. Each publish under the same slug adds an immutable
 version; the visibility covers all of them, and a publish without `--private`
 keeps it. Whoever can change the Task can switch it from T3's Artifacts panel.
-Its link opens the latest version. A version published with `--inline` is also
+Its link opens the latest version, which a browser shows below a bar for its
+versions, visibility and Task. A version published with `--inline` is also
 shown in the Task's thread as the page itself.
 _Avoid_: asset (an uploaded attachment, not something the agent publishes)
+
+**Artifact fork**:
+A copy of one Artifact version, published as version 1 of a private Artifact
+on a new Task: a Fork of the Artifact's Task for a reader who can read it, or
+an empty Task in a Workspace the reader picks. It names the version it was
+copied from and keeps none of its records.
+_Avoid_: remix
 
 **Artifact record**:
 JSON saved under a key in a Record collection; on an Artifact, its own

@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use sqlx::PgConnection;
 use uuid::Uuid;
 
-use super::models::{Artifact, DataAccess, Reservation};
+use super::models::{Artifact, ArtifactVersion, DataAccess, NewFork, Reservation};
 use crate::conversation::projector::Projector;
 use crate::task_event::models::InsertTaskEvent;
 use moatless_core::db::DbPool;
@@ -28,11 +28,10 @@ pub trait ArtifactDao: Send + Sync {
         title: &str,
         created_by: &str,
     ) -> Result<Reservation, sqlx::Error>;
-    /// Add `version` to `published_versions` and return the row, or `None`
-    /// when no row carries `artifact_id`. Only a newer version sets the other
-    /// arguments, and a `None` visibility keeps the row's. `shown` also adds it
-    /// to `inline_versions` and stores its `artifact_shown` event in one
-    /// transaction.
+    /// Publish `version` with its [`ArtifactVersion`] and return the row, or
+    /// `None` when no row carries `artifact_id`. Only a newer version sets the
+    /// other arguments; a `None` visibility keeps the row's. `shown` adds it to
+    /// `inline_versions` and stores its `artifact_shown` event in one go.
     async fn commit_version(
         &self,
         artifact_id: &str,
@@ -54,6 +53,12 @@ pub trait ArtifactDao: Send + Sync {
     async fn find_by_id(&self, artifact_id: &str) -> Result<Option<Artifact>, sqlx::Error>;
     /// The Task's published Artifacts, most recently updated first.
     async fn list_for_task(&self, task_id: &str) -> Result<Vec<Artifact>, sqlx::Error>;
+    /// The recorded versions of an Artifact, oldest first.
+    async fn list_versions(&self, artifact_id: &str) -> Result<Vec<ArtifactVersion>, sqlx::Error>;
+    /// Insert `fork` as a private Artifact whose version 1 is published, with
+    /// its own record collection, and return the row. Fails on a slug the
+    /// Task already holds rather than appending to that Artifact.
+    async fn insert_fork(&self, fork: &NewFork) -> Result<Artifact, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`ArtifactDao`].
@@ -139,6 +144,18 @@ impl ArtifactDao for PgArtifactDao {
         .bind(sqlx::types::Json(&data.collections))
         .fetch_optional(&mut *tx)
         .await?;
+        if let Some(row) = &row {
+            sqlx::query(
+                r#"INSERT INTO task_artifact_versions (artifact_id, version, turn_number)
+                   VALUES ($1, $2, (SELECT MAX(turn_number) FROM task_turns WHERE task_id = $3))
+                   ON CONFLICT DO NOTHING"#,
+            )
+            .bind(artifact_id)
+            .bind(version)
+            .bind(&row.task_id)
+            .execute(&mut *tx)
+            .await?;
+        }
         if let (Some(row), Some(shown)) = (&row, &shown) {
             let event = shown_event(&mut tx, &row.task_id, shown).await?;
             crate::task_event::dao::insert_in(&mut tx, &event).await?;
@@ -180,6 +197,60 @@ impl ArtifactDao for PgArtifactDao {
         .bind(task_id)
         .fetch_all(&self.0)
         .await
+    }
+
+    async fn list_versions(&self, artifact_id: &str) -> Result<Vec<ArtifactVersion>, sqlx::Error> {
+        sqlx::query_as::<_, ArtifactVersion>(
+            r#"SELECT version, published_at, turn_number FROM task_artifact_versions
+               WHERE artifact_id = $1 ORDER BY version"#,
+        )
+        .bind(artifact_id)
+        .fetch_all(&self.0)
+        .await
+    }
+
+    async fn insert_fork(&self, fork: &NewFork) -> Result<Artifact, sqlx::Error> {
+        let mut tx = self.0.begin().await?;
+        let row = sqlx::query_as::<_, Artifact>(
+            r#"INSERT INTO task_artifacts
+                   (artifact_id, task_id, slug, title, created_by, reserved_version,
+                    latest_version, published_versions, accepts_data, record_rules,
+                    visibility, forked_from_artifact_id, forked_from_version)
+               VALUES ($1, $2, $3, $4, $5, 1, 1, '{1}', $6, $7, 'private', $8, $9)
+               RETURNING *"#,
+        )
+        .bind(&fork.artifact_id)
+        .bind(&fork.task_id)
+        .bind(&fork.slug)
+        .bind(&fork.title)
+        .bind(&fork.created_by)
+        .bind(fork.data.accepts_data)
+        .bind(fork.data.rules.as_ref().map(sqlx::types::Json))
+        .bind(&fork.source_artifact_id)
+        .bind(fork.source_version)
+        .fetch_one(&mut *tx)
+        .await?;
+        sqlx::query(
+            r#"INSERT INTO record_collections
+                   (collection_id, scope_kind, scope_id, name, artifact_id, created_by_task_id,
+                    created_by_user_id)
+               VALUES ($1, 'artifact', $1, '', $1, $2, $3)"#,
+        )
+        .bind(&fork.artifact_id)
+        .bind(&fork.task_id)
+        .bind(&fork.created_by)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            r#"INSERT INTO task_artifact_versions (artifact_id, version, turn_number)
+               VALUES ($1, 1, (SELECT MAX(turn_number) FROM task_turns WHERE task_id = $2))"#,
+        )
+        .bind(&fork.artifact_id)
+        .bind(&fork.task_id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(row)
     }
 }
 

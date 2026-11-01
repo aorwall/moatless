@@ -58,6 +58,10 @@ pub enum ArtifactError {
     /// Reading the Workspace or repository an attached collection belongs to.
     #[error("Store error")]
     Store(#[from] moatless_types::store::StoreError),
+
+    /// Creating the Task a fork lands in; answers with the Task's own status.
+    #[error(transparent)]
+    Task(#[from] crate::task::error::TaskError),
 }
 
 impl From<InvalidRecord> for ArtifactError {
@@ -81,8 +85,10 @@ fn denial(op: WriteOp, key: &str, prefix: Option<&str>) -> String {
 
 impl IntoResponse for ArtifactError {
     fn into_response(self) -> Response {
-        let (status, message) = match &self {
-            Self::PermissionDenied { prefix, .. } => {
+        let (status, message) = match self {
+            // The Task's own refusal, such as a Workspace the caller cannot use.
+            Self::Task(error) => return error.into_response(),
+            Self::PermissionDenied { ref prefix, .. } => {
                 // `code` and `prefix` are what the page script puts on the
                 // error it rejects with; a page tells this refusal apart by them.
                 let body = serde_json::json!({

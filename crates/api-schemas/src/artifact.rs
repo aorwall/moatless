@@ -187,3 +187,49 @@ impl TryFrom<String> for RecordWriter {
         }
     }
 }
+
+/// Request for `PUT /api/v1/artifacts/{artifact_id}/visibility`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct SetArtifactVisibilityRequest {
+    pub visibility: Visibility,
+}
+
+/// Which Task a fork of an Artifact version lands in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "lowercase")]
+pub enum ArtifactForkMode {
+    /// A fork of the Artifact's Task, cut after the turn that published the
+    /// version; only for a reader of that Task.
+    Task,
+    /// A new, empty Task in a Workspace the caller names.
+    New,
+}
+
+/// Request for `POST /api/v1/artifacts/{artifact_id}/{version}/fork`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ForkArtifactRequest {
+    pub mode: ArtifactForkMode,
+    /// The new Task's Workspace; required by, and only read for, `new`.
+    #[serde(default)]
+    pub workspace_id: Option<String>,
+    /// What to change, appended to the new Task's first message.
+    #[serde(default)]
+    pub message: Option<String>,
+}
+
+/// Response for `POST /api/v1/artifacts/{artifact_id}/{version}/fork`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ForkArtifactResponse {
+    pub task_id: String,
+    /// The new Task in the web UI.
+    pub task_url: String,
+    /// The copy, version 1 of a private Artifact on the new Task.
+    pub artifact: ArtifactResponse,
+}

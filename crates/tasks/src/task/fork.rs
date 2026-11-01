@@ -91,7 +91,11 @@ fn fork_name(source_name: Option<&str>) -> Option<String> {
 
 /// The fork's first message, opened by a line naming the Task and turn it was
 /// forked from.
-fn fork_first_message(source_task_id: &str, at_turn: Option<i32>, message: &str) -> String {
+pub(crate) fn fork_first_message(
+    source_task_id: &str,
+    at_turn: Option<i32>,
+    message: &str,
+) -> String {
     let cut = at_turn.map_or_else(String::new, |turn| format!(" at turn {turn}"));
     format!("Forked from task `{source_task_id}`{cut}.\n\n{message}")
 }

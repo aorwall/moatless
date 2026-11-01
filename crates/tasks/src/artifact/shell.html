@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>__TITLE__ · Moatless</title>
+<style nonce="__NONCE__">
+/* Tokens and component looks mirror T3 Code's `index.css` and `components/ui`. */
+:root {
+  color-scheme: light dark;
+  --background: oklch(99.2% 0 0); --foreground: #18181b; --popover: #fff;
+  --muted: #fafafa; --muted-foreground: #71717a; --accent: #f4f4f5;
+  --border: #e4e4e7; --input: #d4d4d8; --primary: oklch(0.488 0.217 264);
+  --primary-foreground: #fff; --ring: var(--primary); --warning: #f59e0b;
+  --warning-foreground: #b45309; --warning-surface: color-mix(in srgb, var(--warning) 8%, transparent);
+  --destructive-foreground: #b91c1c; --radius: 8px; --glass: 80%;
+  --menu-shadow: 0 16px 40px -18px rgb(0 0 0 / 55%);
+  --dialog-shadow: 0 24px 64px -24px rgb(0 0 0 / 65%);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #000; --foreground: #f5f5f5; --popover: #111;
+    --muted: rgb(255 255 255 / 3%); --muted-foreground: #a3a3a3; --accent: rgb(255 255 255 / 6%);
+    --border: rgb(255 255 255 / 8%); --input: rgb(255 255 255 / 11%);
+    --primary: oklch(0.571 0.21 264); --warning-foreground: #fbbf24;
+    --warning-surface: color-mix(in srgb, var(--warning) 16%, transparent);
+    --destructive-foreground: #f87171;
+    --menu-shadow: 0 18px 44px -18px rgb(0 0 0 / 80%);
+    --dialog-shadow: inset 0 1px rgb(255 255 255 / 4%), 0 24px 64px -24px rgb(0 0 0 / 80%);
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; }
+body {
+  display: flex; flex-direction: column; background: var(--background); color: var(--foreground);
+  font: 14px/1.43 -apple-system, BlinkMacSystemFont, "Inter Variable", "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; text-decoration: none; }
+button, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.bar {
+  flex: none; height: 52px; display: flex; align-items: center; gap: 12px;
+  padding: 0 20px; border-bottom: 1px solid var(--border); background: var(--background);
+}
+.left, .right { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.left { flex: 1 1 auto; gap: 6px; }
+.right { flex: none; }
+.mark {
+  flex: none; width: 20px; height: 20px; border-radius: 5px; display: grid; place-items: center;
+  background: var(--foreground); color: var(--background); font-size: 11px; font-weight: 700;
+}
+.sep { color: var(--muted-foreground); opacity: .6; }
+.title {
+  font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+.icon { width: 16px; height: 16px; flex: none; }
+.icon.sm { width: 14px; height: 14px; }
+.btn {
+  position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 28px; padding: 0 9px; border: 1px solid transparent; border-radius: var(--radius);
+  background: none; font-weight: 500; white-space: nowrap; cursor: pointer;
+  transition: scale .1s, background-color .1s;
+}
+.btn:active:not([aria-haspopup]):not(:disabled) { scale: .97; }
+.btn .icon { color: var(--muted-foreground); margin: 0 -2px; }
+.btn.ghost:hover, .btn.ghost[aria-expanded="true"] { background: var(--accent); }
+.btn.muted-text { color: var(--muted-foreground); }
+.btn.muted-text:hover, .btn.muted-text[aria-expanded="true"] { color: var(--foreground); }
+.btn.outline {
+  border-color: var(--input); background: var(--popover); box-shadow: 0 1px 2px rgb(0 0 0 / 5%);
+}
+.btn.outline:hover, .btn.outline[aria-expanded="true"] { background: color-mix(in srgb, var(--accent) 50%, var(--popover)); }
+.btn.primary {
+  border-color: var(--primary); background: var(--primary); color: var(--primary-foreground);
+  box-shadow: inset 0 1px rgb(255 255 255 / 16%), 0 1px 2px color-mix(in srgb, var(--primary) 24%, transparent);
+}
+.btn.primary .icon { color: inherit; }
+.btn.primary:hover { background: color-mix(in srgb, var(--primary) 90%, transparent); }
+.btn.icon-only { width: 28px; padding: 0; }
+.btn:disabled { opacity: .64; cursor: default; }
+.badge {
+  display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px;
+  border: 1px solid var(--input); border-radius: 4px; background: var(--background);
+  color: var(--muted-foreground); font-size: 12px; font-weight: 500; white-space: nowrap;
+}
+a.badge:hover { background: var(--accent); color: var(--foreground); }
+.muted { color: var(--muted-foreground); }
+.menu-wrap { position: relative; }
+.menu {
+  position: absolute; top: calc(100% + 6px); z-index: 10; min-width: 240px; max-height: 60vh;
+  overflow: auto; padding: 4px; border-radius: var(--radius); width: max-content;
+  border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent);
+  background: color-mix(in srgb, var(--popover) var(--glass), transparent);
+  -webkit-backdrop-filter: blur(12px) saturate(1.14); backdrop-filter: blur(12px) saturate(1.14);
+  box-shadow: var(--menu-shadow);
+}
+.menu.left-aligned { left: 0; }
+.menu.right-aligned { right: 0; }
+.menu-label { padding: 6px 8px 4px; color: var(--muted-foreground); font-size: 12px; font-weight: 500; }
+.item {
+  display: flex; align-items: flex-start; gap: 8px; width: 100%; min-height: 28px; padding: 4px 8px;
+  border: 0; border-radius: 4px; background: none; text-align: left; cursor: pointer;
+}
+.item:hover, .item:focus-visible { background: var(--accent); outline: none; }
+.item .grow { flex: 1; min-width: 0; }
+.item small { display: block; color: var(--muted-foreground); font-size: 12px; }
+.check { width: 16px; height: 20px; flex: none; display: grid; place-items: center; }
+.strip {
+  flex: none; display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 6px 20px; border-bottom: 1px solid color-mix(in srgb, var(--warning) 24%, transparent);
+  background: var(--warning-surface); color: var(--warning-foreground); font-size: 13px;
+}
+.strip a { text-decoration: underline; text-underline-offset: 3px; font-weight: 500; }
+iframe { flex: 1 1 auto; width: 100%; border: 0; background: #fff; }
+dialog {
+  width: min(512px, calc(100vw - 32px)); padding: 0; border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent);
+  background: color-mix(in srgb, var(--background) var(--glass), transparent);
+  -webkit-backdrop-filter: blur(12px) saturate(1.14); backdrop-filter: blur(12px) saturate(1.14);
+  color: var(--foreground); box-shadow: var(--dialog-shadow);
+}
+dialog::backdrop {
+  background: color-mix(in srgb, var(--background) 60%, transparent);
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+}
+.dialog-header { display: flex; flex-direction: column; gap: 8px; padding: 24px 24px 4px; }
+.dialog-header h2 { margin: 0; font-size: 20px; font-weight: 600; line-height: 1; }
+.dialog-header p { margin: 0; color: var(--muted-foreground); }
+.dialog-panel { display: flex; flex-direction: column; gap: 16px; padding: 16px 24px 24px; }
+.dialog-footer {
+  display: flex; justify-content: flex-end; gap: 8px; padding: 16px 24px;
+  border-top: 1px solid var(--border); background: color-mix(in srgb, var(--muted) 72%, transparent);
+  border-radius: 0 0 15px 15px;
+}
+.field { display: flex; flex-direction: column; gap: 8px; font-weight: 500; }
+#fork-modes { display: flex; flex-direction: column; gap: 8px; }
+.choice {
+  display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--input);
+  border-radius: var(--radius); background: var(--popover); cursor: pointer;
+}
+.choice:has(input:checked) { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+.choice input { margin: 3px 0 0; accent-color: var(--primary); }
+.choice b { font-weight: 500; }
+.choice small { display: block; color: var(--muted-foreground); font-size: 13px; }
+select, textarea {
+  width: 100%; padding: 6px 10px; border: 1px solid var(--input); border-radius: var(--radius);
+  background: var(--popover); font-weight: 400; box-shadow: 0 1px 2px rgb(0 0 0 / 5%);
+}
+select { height: 32px; }
+select:focus, textarea:focus { outline: none; border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 24%, transparent); }
+textarea { min-height: 84px; resize: vertical; }
+.error { color: var(--destructive-foreground); }
+.error:empty { display: none; }
+.toast {
+  position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); padding: 8px 14px;
+  border-radius: var(--radius); border: 1px solid var(--border); background: var(--popover);
+  box-shadow: var(--menu-shadow); font-weight: 500;
+}
+@media (max-width: 720px) {
+  .bar { padding: 0 12px; gap: 8px; }
+  .wide { display: none; }
+}
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="left">
+    <a class="mark" id="home" title="Moatless" aria-label="Moatless home">M</a>
+    <span class="sep" aria-hidden="true">/</span>
+    <span class="title" id="title"></span>
+    <div class="menu-wrap">
+      <button class="btn ghost muted-text" id="version-btn" aria-haspopup="menu" aria-expanded="false"></button>
+      <div class="menu left-aligned" id="version-menu" role="menu" hidden></div>
+    </div>
+    <span id="forked-from"></span>
+  </div>
+  <div class="right">
+    <span id="visibility"></span>
+    <a class="btn ghost" id="open-task" target="_blank" rel="noopener" hidden>
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+      <span class="wide">Open task</span>
+    </a>
+    <div class="menu-wrap">
+      <button class="btn ghost" id="share-btn" aria-haspopup="menu" aria-expanded="false">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        <span class="wide">Copy link</span>
+      </button>
+      <div class="menu right-aligned" id="share-menu" role="menu" hidden>
+        <button class="item" role="menuitem" data-copy="latest"><span class="grow">Link to latest<small>Always opens the newest version</small></span></button>
+        <button class="item" role="menuitem" data-copy="version"><span class="grow" id="copy-version-label"></span></button>
+      </div>
+    </div>
+    <a class="btn ghost icon-only" id="download" title="Download HTML" aria-label="Download HTML">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>
+    </a>
+    <div class="menu-wrap">
+      <button class="btn ghost icon-only" id="more-btn" aria-label="More" aria-haspopup="menu" aria-expanded="false">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+      </button>
+      <div class="menu right-aligned" id="more-menu" role="menu" hidden>
+        <a class="item" role="menuitem" id="raw" target="_blank" rel="noopener"><span class="grow">Open without bar</span></a>
+      </div>
+    </div>
+    <button class="btn primary" id="fork-btn">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9"/><path d="M12 12v3"/></svg>
+      Fork
+    </button>
+  </div>
+</header>
+<div class="strip" id="old-version" hidden></div>
+<iframe id="page" title="Artifact page" sandbox="allow-scripts allow-forms allow-popups"></iframe>
+
+<dialog id="fork-dialog" aria-labelledby="fork-title">
+  <form method="dialog" id="fork-form">
+    <div class="dialog-header">
+      <h2 id="fork-title">Fork this artifact</h2>
+      <p>The copy becomes a private artifact of its own; this one is not changed.</p>
+    </div>
+    <div class="dialog-panel">
+      <div id="fork-modes"></div>
+      <label class="field" id="workspace-field">
+        Workspace
+        <select id="workspace" name="workspace"><option value="">Loading…</option></select>
+      </label>
+      <label class="field">
+        What should change?
+        <textarea id="fork-message" name="message" placeholder="Optional. Make the chart a bar chart instead…"></textarea>
+      </label>
+      <div class="error" id="fork-error" role="alert"></div>
+    </div>
+    <div class="dialog-footer">
+      <button class="btn outline" type="button" id="fork-cancel">Cancel</button>
+      <button class="btn primary" type="submit" id="fork-submit">Fork</button>
+    </div>
+  </form>
+</dialog>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script type="application/json" id="shell-data">__DATA__</script>
+<script nonce="__NONCE__">
+(function () {
+  "use strict";
+  var data = JSON.parse(document.getElementById("shell-data").textContent);
+  var $ = function (id) { return document.getElementById(id); };
+  var base = "/api/v1/artifacts/" + encodeURIComponent(data.artifactId);
+  var versionUrl = function (v) { return base + "/v" + v; };
+  var thisUrl = data.latest ? base : versionUrl(data.version);
+
+  function el(tag, attrs, children) {
+    var node = document.createElement(tag);
+    Object.keys(attrs || {}).forEach(function (k) {
+      if (k === "text") node.textContent = attrs[k];
+      else node.setAttribute(k, attrs[k]);
+    });
+    (children || []).forEach(function (c) { node.appendChild(c); });
+    return node;
+  }
+  function ago(iso) {
+    if (!iso) return "";
+    var s = (Date.now() - new Date(iso).getTime()) / 1000;
+    if (s < 60) return "just now";
+    var units = [[60, "minute"], [3600, "hour"], [86400, "day"], [2592000, "month"], [31536000, "year"]];
+    for (var i = units.length - 1; i >= 0; i--) {
+      if (s >= units[i][0]) {
+        var n = Math.floor(s / units[i][0]);
+        return n + " " + units[i][1] + (n === 1 ? "" : "s") + " ago";
+      }
+    }
+    return "";
+  }
+  function check(on) {
+    var node = el("span", { "class": "check" });
+    if (on) node.innerHTML = '<svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+    return node;
+  }
+  function exact(iso) { return iso ? new Date(iso).toLocaleString() : ""; }
+  function toast(text) {
+    var t = $("toast");
+    t.textContent = text;
+    t.hidden = false;
+    clearTimeout(toast.timer);
+    toast.timer = setTimeout(function () { t.hidden = true; }, 2200);
+  }
+  function csrf() {
+    var m = document.cookie.match(/(?:^|;\s*)moatless_csrf=([^;]+)/);
+    return m ? decodeURIComponent(m[1]) : "";
+  }
+  function send(method, url, body) {
+    return fetch(url, {
+      method: method,
+      credentials: "same-origin",
+      headers: { "content-type": "application/json", "x-csrf-token": csrf() },
+      body: JSON.stringify(body)
+    }).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (json) {
+        if (!res.ok) throw new Error(json.error || json.message || ("Request failed (" + res.status + ")"));
+        return json;
+      });
+    });
+  }
+
+  // Menus: one open at a time, closed by Escape or a click elsewhere.
+  var menus = [["version-btn", "version-menu"], ["share-btn", "share-menu"], ["more-btn", "more-menu"], ["vis-btn", "vis-menu"]];
+  function closeMenus(except) {
+    menus.forEach(function (pair) {
+      var b = $(pair[0]), m = $(pair[1]);
+      if (m && pair[1] !== except) { m.hidden = true; if (b) b.setAttribute("aria-expanded", "false"); }
+    });
+  }
+  function wireMenu(btnId, menuId) {
+    $(btnId).addEventListener("click", function (e) {
+      e.stopPropagation();
+      var m = $(menuId);
+      closeMenus(menuId);
+      m.hidden = !m.hidden;
+      $(btnId).setAttribute("aria-expanded", String(!m.hidden));
+    });
+  }
+  document.addEventListener("click", function () { closeMenus(); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeMenus(); });
+
+  // Title, home and frame.
+  $("title").textContent = data.title;
+  $("title").title = data.title;
+  $("home").href = data.homeUrl;
+  $("page").src = thisUrl + "?raw=1";
+  $("download").href = versionUrl(data.version) + "?download=1";
+  $("raw").href = thisUrl + "?raw=1";
+
+  // Versions.
+  var current = data.versions.find(function (v) { return v.version === data.version; }) || {};
+  $("version-btn").appendChild(document.createTextNode("v" + data.version));
+  $("version-btn").appendChild(el("span", { "class": "muted wide", text:
+    data.version === data.latestVersion ? (current.publishedAt ? "· " + ago(current.publishedAt) : "· latest") : "· of " + data.latestVersion }));
+  $("version-btn").insertAdjacentHTML("beforeend", '<svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>');
+  if (current.publishedAt) $("version-btn").title = "Published " + exact(current.publishedAt);
+  data.versions.slice().reverse().forEach(function (v) {
+    var label = "Version " + v.version + (v.version === data.latestVersion ? " · latest" : "");
+    var item = el("a", { "class": "item" + (v.version === data.version ? " current" : ""), role: "menuitem",
+      href: v.version === data.latestVersion ? base : versionUrl(v.version) }, [
+      check(v.version === data.version),
+      el("span", { "class": "grow" }, [document.createTextNode(label),
+        el("small", { text: v.publishedAt ? ago(v.publishedAt) + " · " + exact(v.publishedAt) : "Published before dates were recorded" })])
+    ]);
+    $("version-menu").appendChild(item);
+  });
+  wireMenu("version-btn", "version-menu");
+  if (data.version !== data.latestVersion) {
+    var strip = $("old-version");
+    strip.appendChild(document.createTextNode("You are viewing version " + data.version + " of " + data.latestVersion + "."));
+    strip.appendChild(el("a", { href: base, text: "Go to latest" }));
+    strip.hidden = false;
+  }
+
+  // Forked from.
+  if (data.forkedFrom) {
+    var label = "Forked from v" + data.forkedFrom.version;
+    var chip = data.forkedFrom.url
+      ? el("a", { "class": "badge wide", href: data.forkedFrom.url, title: "Open the original", text: label })
+      : el("span", { "class": "badge wide", text: label });
+    $("forked-from").appendChild(chip);
+  }
+
+  // Visibility.
+  var visDescriptions = {
+    "public": "Anyone signed in to Moatless",
+    "private": "Only people who can see the task"
+  };
+  function visIcon(v) {
+    return v === "public"
+      ? '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>'
+      : '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
+  }
+  function visLabel(v) { return v === "public" ? "Public" : "Private"; }
+  function renderVisibility() {
+    var holder = $("visibility");
+    holder.textContent = "";
+    if (!data.canManage) {
+      var badge = el("span", { "class": "badge", title: visDescriptions[data.visibility] });
+      badge.innerHTML = visIcon(data.visibility);
+      badge.appendChild(el("span", { "class": "wide", text: visLabel(data.visibility) }));
+      holder.appendChild(badge);
+      return;
+    }
+    var wrap = el("div", { "class": "menu-wrap" });
+    var btn = el("button", { "class": "btn ghost", id: "vis-btn", "aria-haspopup": "menu", "aria-expanded": "false", title: visDescriptions[data.visibility] });
+    btn.innerHTML = visIcon(data.visibility);
+    btn.appendChild(el("span", { "class": "wide", text: visLabel(data.visibility) }));
+    btn.insertAdjacentHTML("beforeend", '<svg class="icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>');
+    var menu = el("div", { "class": "menu right-aligned", id: "vis-menu", role: "menu", hidden: "" });
+    menu.appendChild(el("div", { "class": "menu-label", text: "Who can open it" }));
+    ["public", "private"].forEach(function (v) {
+      var item = el("button", { "class": "item" + (v === data.visibility ? " current" : ""), role: "menuitem" }, [
+        check(v === data.visibility),
+        el("span", { "class": "grow" }, [document.createTextNode(visLabel(v)), el("small", { text: visDescriptions[v] })])
+      ]);
+      item.addEventListener("click", function () {
+        if (v === data.visibility) return;
+        send("PUT", base + "/visibility", { visibility: v }).then(function (res) {
+          data.visibility = res.visibility;
+          renderVisibility();
+          toast("Now " + visLabel(res.visibility).toLowerCase());
+        }).catch(function (err) { toast(err.message); });
+      });
+      menu.appendChild(item);
+    });
+    wrap.appendChild(btn);
+    wrap.appendChild(menu);
+    holder.appendChild(wrap);
+    wireMenu("vis-btn", "vis-menu");
+  }
+  renderVisibility();
+
+  // Task.
+  if (data.task) {
+    $("open-task").href = data.task.url;
+    $("open-task").title = "Open the task that published this page";
+    $("open-task").hidden = false;
+  }
+
+  // Copy link.
+  $("copy-version-label").appendChild(document.createTextNode("Link to version " + data.version));
+  $("copy-version-label").appendChild(el("small", { text: "Always opens this exact version" }));
+  wireMenu("share-btn", "share-menu");
+  document.querySelectorAll("[data-copy]").forEach(function (item) {
+    item.addEventListener("click", function () {
+      var path = item.getAttribute("data-copy") === "latest" ? base : versionUrl(data.version);
+      var url = location.origin + path;
+      (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject())
+        .then(function () { toast("Link copied"); })
+        .catch(function () { window.prompt("Copy this link", url); });
+    });
+  });
+  wireMenu("more-btn", "more-menu");
+
+  // Fork.
+  var dialog = $("fork-dialog");
+  var workspacesLoaded = false;
+  function mode() {
+    var checked = document.querySelector("input[name=mode]:checked");
+    return checked ? checked.value : "new";
+  }
+  function syncMode() { $("workspace-field").hidden = mode() !== "new"; }
+  function choice(value, title, detail, checked) {
+    var input = el("input", { type: "radio", name: "mode", value: value });
+    input.checked = checked;
+    input.addEventListener("change", syncMode);
+    return el("label", { "class": "choice" }, [input, el("span", {}, [el("b", { text: title }), el("small", { text: detail })])]);
+  }
+  var modes = $("fork-modes");
+  if (data.task) {
+    modes.appendChild(choice("task", "Fork the task",
+      (data.turnKnown
+        ? "A copy of the task's conversation up to the turn that published v" + data.version
+        : "A copy of the task's conversation up to its latest finished turn") + ", with this page as its own artifact.", true));
+  }
+  modes.appendChild(choice("new", "Start a new task",
+    "A fresh task in one of your workspaces, given this page as its own artifact to change.", !data.task));
+  if (!data.task) modes.hidden = true;
+  syncMode();
+
+  function loadWorkspaces() {
+    if (workspacesLoaded) return;
+    workspacesLoaded = true;
+    fetch("/api/v1/workspaces", { credentials: "same-origin" })
+      .then(function (res) { if (!res.ok) throw new Error(); return res.json(); })
+      .then(function (list) {
+        var select = $("workspace");
+        select.textContent = "";
+        if (!list.length) select.appendChild(el("option", { value: "", text: "No workspaces" }));
+        list.forEach(function (w) { select.appendChild(el("option", { value: w.id, text: w.name })); });
+      })
+      .catch(function () {
+        workspacesLoaded = false;
+        $("workspace").textContent = "";
+        $("workspace").appendChild(el("option", { value: "", text: "Could not load workspaces" }));
+      });
+  }
+  $("fork-btn").addEventListener("click", function () {
+    $("fork-error").textContent = "";
+    loadWorkspaces();
+    dialog.showModal();
+  });
+  $("fork-cancel").addEventListener("click", function () { dialog.close(); });
+  $("fork-form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var body = { mode: mode(), message: $("fork-message").value };
+    if (body.mode === "new") {
+      body.workspaceId = $("workspace").value;
+      if (!body.workspaceId) { $("fork-error").textContent = "Pick a workspace."; return; }
+    }
+    $("fork-submit").disabled = true;
+    $("fork-submit").textContent = "Forking…";
+    $("fork-error").textContent = "";
+    send("POST", versionUrl(data.version) + "/fork", body).then(function (res) {
+      location.href = res.taskUrl;
+    }).catch(function (err) {
+      $("fork-error").textContent = err.message;
+      $("fork-submit").disabled = false;
+      $("fork-submit").textContent = "Fork";
+    });
+  });
+})();
+</script>
+</body>
+</html>

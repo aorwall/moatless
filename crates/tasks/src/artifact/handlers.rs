@@ -9,15 +9,28 @@ use axum::response::{IntoResponse, Response};
 use axum_extra::extract::Multipart;
 use axum_extra::extract::multipart::MultipartError;
 
+use crate::credential_sync::CredentialSync;
+use crate::message::send::MessageSendService;
+use crate::task::creation::TaskCreationService;
+use crate::task::fork::{ForkCreationPorts, TaskForkService};
 use crate::task::operations::TaskCommands;
+use crate::task::presenter::TaskPresenter;
+use crate::task::service::CreateTaskPorts;
+use crate::task::switch::TaskSwitchService;
+use moatless_core::config::Config;
 use moatless_core::http_auth::AuthUser;
+use moatless_ports::identity::UserResolver;
 use moatless_types::task::Visibility;
+use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
 
 use super::error::ArtifactError;
 use super::models::{InlineRequest, PublishRequest};
 use super::operations::{Artifacts, PAGE_CONTENT_TYPE};
 use super::rules::RecordRules;
-use super::schemas::{ArtifactResponse, ListArtifactsResponse, PublishArtifactBody};
+use super::schemas::{
+    ArtifactResponse, ForkArtifactRequest, ForkArtifactResponse, ListArtifactsResponse,
+    PublishArtifactBody, SetArtifactVisibilityRequest,
+};
 use super::service::MAX_PAGE_BYTES;
 
 /// Replaces axum's 2 MB default on the publish route: a full page plus room
@@ -100,6 +113,9 @@ pub async fn list_task_artifacts(
 pub struct ServePageQuery {
     /// Any value serves the page as published, as a download.
     pub download: Option<String>,
+    /// Any value serves the page itself to a browser opening the URL, rather
+    /// than the viewer with Moatless's bar above it.
+    pub raw: Option<String>,
 }
 
 /// Serve the page of a published Artifact version.
@@ -120,10 +136,23 @@ pub struct ServePageQuery {
 pub async fn serve_artifact_page(
     State(tasks): State<Arc<TaskCommands>>,
     State(artifacts): State<Arc<Artifacts>>,
+    State(config): State<Arc<Config>>,
     auth: AuthUser,
+    headers: HeaderMap,
     Path((artifact_id, version)): Path<(String, String)>,
     Query(query): Query<ServePageQuery>,
 ) -> Result<Response, ArtifactError> {
+    if super::shell::wanted(&headers, query.raw.is_some(), query.download.is_some()) {
+        let view = super::service::page_view(
+            tasks.as_ref(),
+            artifacts.as_ref(),
+            &auth.scope_context(),
+            &artifact_id,
+            Some(&version),
+        )
+        .await?;
+        return Ok(shell_response(&view, false, &config));
+    }
     let page = super::service::read_page(
         tasks.as_ref(),
         artifacts.as_ref(),
@@ -152,10 +181,23 @@ pub async fn serve_artifact_page(
 pub async fn serve_latest_artifact_page(
     State(tasks): State<Arc<TaskCommands>>,
     State(artifacts): State<Arc<Artifacts>>,
+    State(config): State<Arc<Config>>,
     auth: AuthUser,
+    headers: HeaderMap,
     Path(artifact_id): Path<String>,
     Query(query): Query<ServePageQuery>,
 ) -> Result<Response, ArtifactError> {
+    if super::shell::wanted(&headers, query.raw.is_some(), query.download.is_some()) {
+        let view = super::service::page_view(
+            tasks.as_ref(),
+            artifacts.as_ref(),
+            &auth.scope_context(),
+            &artifact_id,
+            None,
+        )
+        .await?;
+        return Ok(shell_response(&view, true, &config));
+    }
     let page = super::service::read_page(
         tasks.as_ref(),
         artifacts.as_ref(),
@@ -230,7 +272,152 @@ fn page_response(
         None => body,
     };
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
+    // A URL answers the viewer or the page by this header, so a frame's cached
+    // page must not answer a later navigation to the same URL.
+    headers.insert(header::VARY, HeaderValue::from_static("Sec-Fetch-Dest"));
     (headers, body).into_response()
+}
+
+/// The viewer for `view`; `latest` marks the unversioned URL.
+fn shell_response(view: &super::service::PageView, latest: bool, config: &Config) -> Response {
+    let nonce = uuid::Uuid::new_v4().simple().to_string();
+    let frontend_url = config.auth.frontend_url.trim_end_matches('/');
+    let body = super::shell::render(view, latest, frontend_url, &nonce);
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static(PAGE_CONTENT_TYPE),
+    );
+    if let Ok(csp) = HeaderValue::try_from(super::shell::csp(&nonce)) {
+        headers.insert(header::CONTENT_SECURITY_POLICY, csp);
+    }
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    // What the viewer offers depends on the reader, and its nonce on the load.
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-store"),
+    );
+    headers.insert(header::VARY, HeaderValue::from_static("Sec-Fetch-Dest"));
+    (headers, body).into_response()
+}
+
+/// Set whether any signed-in user may read an Artifact, as a user who can
+/// change its Task.
+#[utoipa::path(
+    put,
+    path = "/api/v1/artifacts/{artifact_id}/visibility",
+    tag = "artifacts",
+    params(
+        ("artifact_id" = String, Path, description = "Artifact identifier")
+    ),
+    request_body = SetArtifactVisibilityRequest,
+    responses(
+        (status = 200, description = "Visibility set", body = ArtifactResponse),
+        (status = 403, description = "Caller cannot change the Task", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Artifact not found", body = moatless_api_schemas::error::ErrorBody)
+    )
+)]
+pub async fn set_artifact_visibility(
+    State(tasks): State<Arc<TaskCommands>>,
+    State(artifacts): State<Arc<Artifacts>>,
+    auth: AuthUser,
+    Path(artifact_id): Path<String>,
+    Json(req): Json<SetArtifactVisibilityRequest>,
+) -> Result<Json<ArtifactResponse>, ArtifactError> {
+    let response = super::service::set_visibility(
+        tasks.as_ref(),
+        artifacts.as_ref(),
+        &auth.scope_context(),
+        &artifact_id,
+        req.visibility,
+    )
+    .await?;
+    Ok(Json(response))
+}
+
+/// Fork a published Artifact version into a new Task, as a private Artifact
+/// of its own there.
+#[utoipa::path(
+    post,
+    path = "/api/v1/artifacts/{artifact_id}/{version}/fork",
+    tag = "artifacts",
+    params(
+        ("artifact_id" = String, Path, description = "Artifact identifier"),
+        ("version" = String, Path, description = "Version, as in `v3`")
+    ),
+    request_body = ForkArtifactRequest,
+    responses(
+        (status = 200, description = "Fork created", body = ForkArtifactResponse),
+        (status = 400, description = "Invalid request", body = moatless_api_schemas::error::ErrorBody),
+        (status = 404, description = "Artifact, version or Workspace not found", body = moatless_api_schemas::error::ErrorBody),
+        (status = 409, description = "The version's turn is still in flight", body = moatless_api_schemas::error::ErrorBody),
+        (status = 503, description = "Object storage not configured", body = moatless_api_schemas::error::ErrorBody)
+    )
+)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the ports of `task::handlers::fork_task`, which a fork of the Task goes through, plus the Artifact store the copy is written to; no caller above a handler exists to hoist them to"
+)]
+pub async fn fork_artifact(
+    State(workspaces): State<Arc<dyn WorkspaceResolver>>,
+    State(repositories): State<Arc<dyn RepositoryReader>>,
+    State(tasks): State<Arc<TaskCommands>>,
+    State(users): State<Arc<dyn UserResolver>>,
+    State(credential_sync): State<Arc<CredentialSync>>,
+    State(config): State<Arc<Config>>,
+    State(task_creation): State<Arc<TaskCreationService>>,
+    State(task_fork): State<Arc<TaskForkService>>,
+    State(task_switch): State<Arc<TaskSwitchService>>,
+    State(message_send): State<Arc<MessageSendService>>,
+    State(task_presenter): State<Arc<TaskPresenter>>,
+    State(artifacts): State<Arc<Artifacts>>,
+    auth: AuthUser,
+    Path((artifact_id, version)): Path<(String, String)>,
+    Json(req): Json<ForkArtifactRequest>,
+) -> Result<Json<ForkArtifactResponse>, ArtifactError> {
+    let user_id = auth.user_id.to_string();
+    let outcome = super::fork::fork(
+        super::fork::ArtifactForkPorts {
+            create: ForkCreationPorts {
+                normalize: CreateTaskPorts {
+                    workspaces: workspaces.as_ref(),
+                    repositories: repositories.as_ref(),
+                    tasks: tasks.as_ref(),
+                    users: users.as_ref(),
+                    credential_sync: &credential_sync,
+                    config: &config,
+                },
+                task_creation: &task_creation,
+                message_send,
+                switch: &task_switch,
+            },
+            task_fork: &task_fork,
+        },
+        artifacts.as_ref(),
+        &auth.scope_context(),
+        &artifact_id,
+        &version,
+        req,
+        move |task| async move {
+            match task_presenter.enrich_task(&task, &user_id).await {
+                Ok(resp) => serde_json::json!({ "task": resp }),
+                Err(e) => {
+                    tracing::warn!(task_id = %task.task_id, error = %e, "Failed to enrich an artifact fork's task for its event");
+                    serde_json::json!({ "task": { "taskId": task.task_id } })
+                }
+            }
+        },
+    )
+    .await?;
+    let frontend_url = config.auth.frontend_url.trim_end_matches('/');
+    Ok(Json(ForkArtifactResponse {
+        task_url: format!("{frontend_url}/tasks/{}", outcome.task.task_id),
+        task_id: outcome.task.task_id,
+        artifact: outcome.artifact,
+    }))
 }
 
 /// The `Cache-Control` value for a page served for viewing, not download.

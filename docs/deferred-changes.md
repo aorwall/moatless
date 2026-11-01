@@ -353,6 +353,14 @@ Gaps left by the first scoped-collection change, each reached from `crates/tasks
 | Collections have no T3 view | `crates/tasks/src/collection/routes.rs` serves only the `/api/v1/tasks/{task_id}/collections` routes a Task's CLI calls; a person reads a collection through a published page | When someone asks to browse a Loop's records outside an Artifact. Then add a port in `moatless-ports` and a T3 view over it |
 | Renaming the record tables breaks a replica still on the old code | `crates/core/migrations/0212_record_collections.sql` renames `artifact_records` and `artifact_record_changes`, so an old replica's record reads and writes fail until it is replaced | Only if a rolling deploy must keep record writes working throughout. Then ship a view under the old names for one release |
 
+## Artifact viewer and forks
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| A version published before `0220` has no date or turn | `crates/tasks/src/artifact/dao.rs::commit_version` writes the `task_artifact_versions` row from `0220_artifact_versions_and_forks.sql` on. The viewer lists an older version undated, and `crates/tasks/src/artifact/fork.rs::fork` in `task` mode cuts it at the source's newest settled turn, not the turn that published it | When a reader forks an old version and the fork carries later work they did not want. Then backfill the turn from the `artifact_shown` event or the publish's tool call in `conversation_messages` |
+| A fork whose copy or brief fails leaves an idle Task behind | `crates/tasks/src/artifact/fork.rs::fork` creates the Task first, because `task_artifacts.task_id` references `tasks`, and sends its first message only after the copy commits. A storage or send failure in between answers an error and keeps the Task, unbriefed | When such a Task is reported. Then delete it on failure through `TaskCloser`, or give `task::service::create_task` a step between the insert and the first message |
+| A browser that sends no `Sec-Fetch-Dest` gets the bare page | `crates/tasks/src/artifact/shell.rs::wanted` serves the viewer only to a `document` request, so Safari before 16.4 opens the page with no bar | When a reader on such a browser asks for the bar. Then also serve it on an `Accept: text/html` request with no fetch metadata, which a frame load sends too |
+
 ## Sandbox drivers
 
 | Deferred | Anchor | Entry condition |

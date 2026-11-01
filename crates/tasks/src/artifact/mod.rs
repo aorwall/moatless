@@ -4,6 +4,7 @@
 mod bootstrap;
 pub(crate) mod dao;
 pub mod error;
+pub mod fork;
 pub mod handlers;
 pub mod models;
 pub mod notice_reply;
@@ -16,5 +17,6 @@ pub mod routes;
 pub mod rules;
 pub mod schemas;
 pub mod service;
+mod shell;
 #[cfg(test)]
 pub(crate) mod test_support;

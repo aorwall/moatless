@@ -2,7 +2,7 @@
 
 use sqlx::PgPool;
 
-use super::{ArtifactDao, PgArtifactDao};
+use super::{ArtifactDao, NewFork, PgArtifactDao};
 use crate::artifact::models::DataAccess;
 use crate::message::dao::{MessageDao, PgMessageDao};
 use crate::task::test_support::seed_bare_task;
@@ -366,5 +366,78 @@ async fn the_latest_publish_decides_the_record_rules(pool: PgPool) {
     assert!(
         row.record_rules.is_some(),
         "an older version left them alone"
+    );
+}
+
+#[sqlx::test]
+async fn a_commit_records_when_its_version_was_published(pool: PgPool) {
+    seed_bare_task(&pool, "task-1", "open").await;
+    let dao = PgArtifactDao(pool);
+    reserve(&dao, "art-a", "report", "Report").await;
+    reserve(&dao, "art-a", "report", "Report").await;
+    for version in [2, 1] {
+        dao.commit_version(
+            "art-a",
+            version,
+            "Report",
+            &DataAccess::default(),
+            None,
+            None,
+        )
+        .await
+        .unwrap()
+        .expect("row");
+    }
+
+    let versions = dao.list_versions("art-a").await.unwrap();
+    let numbers: Vec<i32> = versions.iter().map(|v| v.version).collect();
+    assert_eq!(numbers, [1, 2]);
+    assert!(versions.iter().all(|v| v.turn_number.is_none()));
+}
+
+#[sqlx::test]
+async fn a_fork_is_a_private_first_version_with_its_own_collection(pool: PgPool) {
+    seed_bare_task(&pool, "task-1", "open").await;
+    seed_bare_task(&pool, "task-2", "open").await;
+    let dao = PgArtifactDao(pool.clone());
+    reserve(&dao, "art-a", "report", "Report").await;
+    let fork = NewFork {
+        artifact_id: "art-b".to_string(),
+        task_id: "task-2".to_string(),
+        slug: "report".to_string(),
+        title: "Report".to_string(),
+        created_by: "user-2".to_string(),
+        data: DataAccess {
+            accepts_data: true,
+            ..DataAccess::default()
+        },
+        source_artifact_id: "art-a".to_string(),
+        source_version: 1,
+    };
+
+    let row = dao.insert_fork(&fork).await.unwrap();
+    assert_eq!(row.task_id, "task-2");
+    assert_eq!(row.latest_version, 1);
+    assert_eq!(row.published_versions, [1]);
+    assert_eq!(row.visibility, Visibility::Private);
+    assert!(row.accepts_data);
+    assert_eq!(row.forked_from_artifact_id.as_deref(), Some("art-a"));
+    assert_eq!(row.forked_from_version, Some(1));
+    assert_eq!(dao.list_versions("art-b").await.unwrap().len(), 1);
+    let collection: Option<String> =
+        sqlx::query_scalar("SELECT collection_id FROM record_collections WHERE artifact_id = $1")
+            .bind("art-b")
+            .fetch_optional(&pool)
+            .await
+            .unwrap();
+    assert_eq!(collection.as_deref(), Some("art-b"));
+
+    let again = NewFork {
+        artifact_id: "art-c".to_string(),
+        ..fork
+    };
+    assert!(
+        dao.insert_fork(&again).await.is_err(),
+        "a slug the Task holds is refused"
     );
 }

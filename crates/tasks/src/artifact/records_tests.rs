@@ -42,6 +42,8 @@ fn row(task_id: &str, accepts_data: bool) -> Artifact {
         record_rules: None,
         collections: Vec::new(),
         visibility: Visibility::Private,
+        forked_from_artifact_id: None,
+        forked_from_version: None,
         created_by: Some("user-1".to_string()),
         created_at: Utc::now(),
         updated_at: Utc::now(),

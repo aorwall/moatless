@@ -9,9 +9,17 @@ use utoipa_axum::routes;
 
 use super::operations::Artifacts;
 use super::{handlers, record_handlers};
+use crate::credential_sync::CredentialSync;
 use crate::message::send::MessageSendService;
+use crate::task::creation::TaskCreationService;
+use crate::task::fork::TaskForkService;
 use crate::task::operations::TaskCommands;
+use crate::task::presenter::TaskPresenter;
+use crate::task::switch::TaskSwitchService;
+use moatless_core::config::Config;
 use moatless_core::http_auth::UserTokenVerifier;
+use moatless_ports::identity::UserResolver;
+use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -23,6 +31,8 @@ use moatless_core::http_auth::UserTokenVerifier;
         handlers::list_task_artifacts,
         handlers::serve_latest_artifact_page,
         handlers::serve_artifact_page,
+        handlers::set_artifact_visibility,
+        handlers::fork_artifact,
         record_handlers::write_record,
         record_handlers::list_records,
         record_handlers::write_page_record,
@@ -41,12 +51,23 @@ where
     Arc<TaskCommands>: FromRef<S>,
     Arc<MessageSendService>: FromRef<S>,
     Arc<dyn UserTokenVerifier>: FromRef<S>,
+    Arc<Config>: FromRef<S>,
+    Arc<dyn WorkspaceResolver>: FromRef<S>,
+    Arc<dyn RepositoryReader>: FromRef<S>,
+    Arc<dyn UserResolver>: FromRef<S>,
+    Arc<CredentialSync>: FromRef<S>,
+    Arc<TaskCreationService>: FromRef<S>,
+    Arc<TaskForkService>: FromRef<S>,
+    Arc<TaskSwitchService>: FromRef<S>,
+    Arc<TaskPresenter>: FromRef<S>,
 {
     let (router, api) = OpenApiRouter::with_openapi(ArtifactApiDoc::openapi())
         .routes(routes!(handlers::publish_artifact).layer(handlers::PUBLISH_BODY_LIMIT))
         .routes(routes!(handlers::list_task_artifacts))
         .routes(routes!(handlers::serve_latest_artifact_page))
         .routes(routes!(handlers::serve_artifact_page))
+        .routes(routes!(handlers::set_artifact_visibility))
+        .routes(routes!(handlers::fork_artifact))
         .routes(routes!(
             record_handlers::write_record,
             record_handlers::list_records
