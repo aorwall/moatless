@@ -288,7 +288,7 @@ pub async fn normalize(
     // blob.
     if agent_profile == AgentProfile::Codex {
         if let Err(moatless_identity::credentials::CredentialError::NotFound(reason)) =
-            credential_sync.ensure_fresh_codex_for(user_id, None).await
+            credential_sync.ensure_fresh_codex_for(user_id).await
         {
             tracing::info!(
                 user_id = %user_id,

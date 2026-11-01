@@ -6,8 +6,7 @@
 //!
 //! The actual refresh decision and HTTP call live in
 //! [`crate::credential_sync::CredentialSync::ensure_fresh_codex`]; this module
-//! just drives the periodic sweep of `provider_tokens` and sits in the tasks
-//! band because it calls the guarded refresh, not the pure one.
+//! just drives the periodic sweep of `provider_tokens`.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -80,7 +79,7 @@ async fn run_sweep(
     for scope in scopes {
         attempted += 1;
         let scope_label = scope.display();
-        if let Err(e) = credential_sync.ensure_fresh_codex(scope, None).await {
+        if let Err(e) = credential_sync.ensure_fresh_codex(scope).await {
             warn!(error = %e, scope = %scope_label, "Codex refresher: ensure_fresh_codex failed");
             errored += 1;
         }

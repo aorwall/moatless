@@ -11,7 +11,6 @@ use moatless_identity::auth::github::service::GitHubAppService;
 use moatless_ports::identity::{
     CommitIdentity, GitHostTokenIssuer, ProviderIdentityLink, UserResolver,
 };
-use moatless_tasks::credential_sync::CredentialSync;
 use moatless_tasks::event_ingress::EventAdmission;
 use moatless_tasks::message::operations::Messages;
 use moatless_tasks::task::fork::TaskForks;
@@ -42,9 +41,6 @@ pub struct HandlerDbPorts {
     pub task_forks: Arc<TaskForks>,
     /// Scoped secret resolver for global/team/user secrets.
     pub secrets: Arc<dyn moatless_ports::identity::SecretResolver>,
-    /// Codex credential orchestrator, which a sandbox-pushed rotation is
-    /// written through.
-    pub credential_sync: Arc<CredentialSync>,
     /// Workspace projection: the primary repository, the run-as identity, and
     /// the `system_prompt` an append prompt is built from.
     pub workspace_resolver: Arc<dyn moatless_workspace_ports::WorkspaceResolver>,
@@ -65,8 +61,6 @@ pub struct HandlerDbPorts {
     pub user_logins: Arc<dyn UserResolver>,
     /// The git author identity the pod's commits attribute to.
     pub commit_identity: Arc<dyn CommitIdentity>,
-    /// The stored access tokens the agent harness runs with.
-    pub harness_credentials: Arc<dyn moatless_ports::identity::HarnessCredentials>,
     /// The trajectory store `AppendTrajectory` and `ReadTrajectory` answer
     /// from.
     pub trajectory: Arc<Trajectories>,

@@ -286,15 +286,6 @@ pub(crate) mod test_backend {
             Err(Status::unimplemented("not used"))
         }
 
-        async fn update_credential(
-            &self,
-            _task_id: &str,
-            _key: &str,
-            _value: &str,
-        ) -> Result<(), Status> {
-            Err(Status::unimplemented("not used"))
-        }
-
         async fn get_system_prompt(&self, _task_id: &str) -> Result<String, Status> {
             Err(Status::unimplemented("not used"))
         }

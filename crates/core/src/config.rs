@@ -522,16 +522,9 @@ impl SandboxConfig {
     }
 }
 
-/// The credentials and `PATH` a local sandbox process takes from the backend.
-const LOCAL_PASSTHROUGH_ENV: &[&str] = &[
-    "ANTHROPIC_API_KEY",
-    "ANTHROPIC_BASE_URL",
-    "CLAUDE_CODE_OAUTH_TOKEN",
-    "OPENAI_API_KEY",
-    "OPENAI_BASE_URL",
-    "CODEX_AUTH_JSON",
-    "PATH",
-];
+/// The backend environment a local sandbox process takes: no model credential,
+/// since its agent reaches every model through the backend's gateway.
+const LOCAL_PASSTHROUGH_ENV: &[&str] = &["PATH"];
 
 /// Proxy / Traefik `IngressRoute` settings.
 #[derive(Debug, Clone)]
@@ -788,17 +781,12 @@ fn parse_enabled(key: &str, value: &str) -> Result<bool, ConfigError> {
     }
 }
 
-/// The `MODEL_GATEWAY_*` settings; a non-boolean `MODEL_GATEWAY_ENABLED` fails
-/// startup.
-fn model_gateway_from_env() -> Result<ModelGatewayConfig, ConfigError> {
-    Ok(ModelGatewayConfig {
-        enabled: parse_enabled(
-            "MODEL_GATEWAY_ENABLED",
-            &env_str("MODEL_GATEWAY_ENABLED", ""),
-        )?,
+/// The `MODEL_GATEWAY_*` settings.
+fn model_gateway_from_env() -> ModelGatewayConfig {
+    ModelGatewayConfig {
         hub_url: env_opt("MODEL_GATEWAY_HUB_URL").map(|url| url.trim_end_matches('/').to_string()),
         hub_key: env_opt("MODEL_GATEWAY_HUB_KEY"),
-    })
+    }
 }
 
 /// Top-level configuration grouping all sub-configs.
@@ -1138,7 +1126,7 @@ impl Config {
                 env_opt("WORKSPACE_IDENTITY_GRANTS"),
             )
             .map_err(ConfigError::Invalid)?,
-            model_gateway: model_gateway_from_env()?,
+            model_gateway: model_gateway_from_env(),
         };
 
         config.validate()?;

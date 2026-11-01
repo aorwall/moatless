@@ -159,9 +159,9 @@ t3:
 
 # CLIProxyAPI — an optional in-cluster LLM hub that pools Claude / Codex /
 # Gemini CLI *subscription* accounts and re-exposes them behind OpenAI-,
-# Gemini- and Claude-compatible endpoints. Agents point ANTHROPIC_BASE_URL /
-# OPENAI_BASE_URL at its Service instead of holding a provider credential each,
-# and the pool round-robins accounts and cools down the rate-limited ones.
+# Gemini- and Claude-compatible endpoints. The backend's model gateway sends a
+# task with no credential of its own there, and the pool round-robins accounts
+# and cools down the rate-limited ones.
 #
 # It serves its own management UI at /management.html on the same port, so there
 # is no second image and no second Deployment. That page is downloaded from
@@ -243,9 +243,6 @@ cliproxy:
       strategy: round-robin
 
 modelGateway:
-  # -- Route each sandbox's Claude through the backend's /llm/anthropic routes,
-  # authenticated by the task token, instead of calling Anthropic directly.
-  enabled: false
   # -- Key in the chart's Secret holding the hub api-key the gateway presents
   # when a task has no Claude credential of its own. Read only with
   # cliproxy.enabled; an absent key leaves the hub unused.

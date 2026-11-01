@@ -111,14 +111,7 @@ impl AppState {
             git_host_tokens.clone(),
             codex_http,
         );
-        // Tasks-band orchestrator: the in-flight guard + sandbox fan-out over
-        // the pure credential service.
-        let credential_sync = task_graph.credential_sync(
-            credentials.clone(),
-            Arc::new(crate::sandbox::notify::CredentialBroadcastService::new(
-                connector.clone(),
-            )),
-        );
+        let credential_sync = task_graph.credential_sync(credentials.clone());
 
         let git_sync = moatless_workspaces::compose::git_sync(
             pool.clone(),
@@ -253,7 +246,6 @@ impl AppState {
         ));
         let agent_harness_access = Arc::new(AgentHarnessAccess::new(
             credentials.clone(),
-            credential_sync.clone(),
             codex_oauth_config.clone(),
             Arc::new(ProviderCodexDeviceLogin::new(config.http.codex)),
             user_directory.clone(),

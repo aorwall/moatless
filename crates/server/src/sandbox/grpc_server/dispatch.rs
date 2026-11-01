@@ -18,8 +18,7 @@ use sandbox_proto::{
     RecordGitPushRequest, RecordGitPushResponse, RecordUnreportedCommandsRequest,
     RecordUnreportedCommandsResponse, RecoverInterruptedRunRequest, RecoverInterruptedRunResponse,
     ReportWorkspaceSyncRequest, ReportWorkspaceSyncResponse, TakeUnreportedCommandsRequest,
-    TakeUnreportedCommandsResponse, TranscriptChunk, UpdateCredentialRequest,
-    UpdateCredentialResponse, UploadTranscriptResponse,
+    TakeUnreportedCommandsResponse, TranscriptChunk, UploadTranscriptResponse,
 };
 
 use super::state::BackendSandboxServiceImpl;
@@ -61,13 +60,6 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         request: Request<GetCredentialsRequest>,
     ) -> Result<Response<GetCredentialsResponse>, Status> {
         credentials::get_credentials(self, request).await
-    }
-
-    async fn update_credential(
-        &self,
-        request: Request<UpdateCredentialRequest>,
-    ) -> Result<Response<UpdateCredentialResponse>, Status> {
-        credentials::update_credential(self, request).await
     }
 
     async fn get_system_prompt(

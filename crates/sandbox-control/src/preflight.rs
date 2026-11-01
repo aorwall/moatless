@@ -781,11 +781,7 @@ mod tests {
 
     #[async_trait]
     impl CodexCredentials for NoCodexCredentials {
-        async fn ensure_fresh_codex_for(
-            &self,
-            _user_id: &str,
-            _except_task_id: Option<&str>,
-        ) -> Result<Option<String>, String> {
+        async fn ensure_fresh_codex_for(&self, _user_id: &str) -> Result<Option<String>, String> {
             Ok(None)
         }
     }

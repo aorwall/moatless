@@ -1,9 +1,8 @@
 //! The staleness rule and the OpenAI refresh call, behind `CodexBlobRefresher`.
 //!
-//! The in-flight guard, the scope-precedence walk and the sandbox broadcast
-//! belong to the tasks-band `CredentialSync`, so this module names neither
-//! `TaskDao` nor `SandboxConnector`. `ProviderTokenDao::refresh_codex_blob`
-//! owns the row, the lock and the compare-and-swap.
+//! The scope-precedence walk belongs to the tasks-band `CredentialSync`.
+//! `ProviderTokenDao::refresh_codex_blob` owns the row, the lock and the
+//! compare-and-swap.
 
 use async_trait::async_trait;
 use chrono::Utc;
@@ -17,10 +16,6 @@ use crate::credentials::{CredentialError, CredentialService};
 
 impl CredentialService {
     /// The pure Codex `auth.json` refresh, serialized on the per-scope mutex.
-    ///
-    /// No in-flight guard and no broadcast: the tasks-band `CredentialSync`
-    /// calls this and fans out the new blob itself on
-    /// [`CodexRefreshOutcome::Rotated`].
     pub async fn refresh_codex_locked(
         &self,
         scope: &CodexScope,
@@ -107,10 +102,9 @@ impl CredentialService {
     /// Read the codex blob for `scope` straight from `provider_tokens` with no
     /// refresh.
     ///
-    /// Used by `CredentialSync`'s in-flight-guard path, and as the fallback
-    /// when refresh's HTTP plumbing is absent (tests) or another replica is the
-    /// active refresher.
-    pub async fn read_raw_codex(&self, scope: &CodexScope) -> Result<String, CredentialError> {
+    /// The fallback when refresh's HTTP plumbing is absent (tests) or another
+    /// replica is the active refresher.
+    async fn read_raw_codex(&self, scope: &CodexScope) -> Result<String, CredentialError> {
         let row = self
             .provider_tokens
             .find_codex_blob(scope)
@@ -122,7 +116,7 @@ impl CredentialService {
     }
 }
 
-/// Outcome of the pure refresh. `CredentialSync` broadcasts only on `Rotated`.
+/// Outcome of the pure refresh.
 pub enum CodexRefreshOutcome {
     /// The stored blob was already fresh — no HTTP call was made.
     Unchanged { blob: String },

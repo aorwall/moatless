@@ -189,7 +189,7 @@ impl TaskSwitchService {
         {
             if let Err(moatless_identity::credentials::CredentialError::NotFound(_)) = credentials
                 .credential_sync
-                .ensure_fresh_codex_for(&scope_ctx.user_id, None)
+                .ensure_fresh_codex_for(&scope_ctx.user_id)
                 .await
             {
                 return Err(TaskError::BadRequest(CODEX_MISSING.to_string()));

@@ -148,13 +148,17 @@ fn gateway(codex: Option<&'static str>, chatgpt_base: &str) -> ModelGateway {
         .returning(|_| Ok(HashMap::new()));
     let mut secrets = MockSecretResolver::new();
     secrets.expect_plaintext().returning(|_| Ok(HashMap::new()));
+    let mut provider_tokens = MockHarnessCredentials::new();
+    provider_tokens
+        .expect_provider_token()
+        .returning(|_, _| Ok(None));
     ModelGateway::new(
         moatless_sandbox_control::compose::sandbox_graph(pool).sandbox_ingress(),
         Arc::new(StaticTokenGenerations::one("sandbox-1", 2, "user-1")),
         Arc::new(workspaces),
         Arc::new(workspace_credentials),
         Arc::new(secrets),
-        Arc::new(MockHarnessCredentials::new()),
+        Arc::new(provider_tokens),
         Arc::new(FixedCodex(codex)),
         Some(SECRET.to_string()),
         ModelGatewayConfig::default(),

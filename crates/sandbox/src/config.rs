@@ -169,12 +169,6 @@ pub struct Config {
     /// Global default Claude model (env: `DEFAULT_CLAUDE_CODE_MODEL`), used
     /// when neither request nor repo config set one
     pub default_model: Option<String>,
-    /// Base URL of an OpenAI-compatible proxy to route Codex through (env:
-    /// `OPENAI_BASE_URL`), including the `/v1` suffix.
-    ///
-    /// Also suppresses the `auth.json` write, which would overwrite the user's
-    /// Codex OAuth credential.
-    pub openai_base_url: Option<String>,
     /// Use the tmux-based Claude Code SDK transport instead of
     /// subprocess/NDJSON (env: `SANDBOX_USE_TMUX`).
     pub use_tmux: bool,
@@ -643,9 +637,6 @@ impl Config {
 
             frontend_url: env::var("FRONTEND_URL").ok(),
             default_model: env::var("DEFAULT_CLAUDE_CODE_MODEL").ok(),
-            openai_base_url: env::var("OPENAI_BASE_URL")
-                .ok()
-                .filter(|u| !u.trim().is_empty()),
             use_tmux: env_flag_enabled("SANDBOX_USE_TMUX"),
             command_default_timeout_secs: env::var("SANDBOX_COMMAND_DEFAULT_TIMEOUT_SECS")
                 .ok()
@@ -771,7 +762,6 @@ pub(crate) mod test_support {
             codex_cli_path: "/usr/local/bin/codex".to_string(),
             frontend_url: None,
             default_model: None,
-            openai_base_url: None,
             use_tmux: false,
             command_default_timeout_secs: crate::config::DEFAULT_COMMAND_TIMEOUT_SECS,
             permission_mode: PermissionMode::BypassPermissions,

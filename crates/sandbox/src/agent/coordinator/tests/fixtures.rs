@@ -19,15 +19,6 @@ impl BackendClient for RecordingBackend {
         Err(Status::unimplemented("unused"))
     }
 
-    async fn update_credential(
-        &self,
-        _task_id: &str,
-        _key: &str,
-        _value: &str,
-    ) -> Result<(), Status> {
-        Err(Status::unimplemented("unused"))
-    }
-
     async fn get_system_prompt(&self, _task_id: &str) -> Result<String, Status> {
         Err(Status::unimplemented("unused"))
     }

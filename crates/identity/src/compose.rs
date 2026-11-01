@@ -46,18 +46,16 @@ pub fn user_directory(db: DbPool) -> Arc<UserDirectory> {
 /// The one way to read, persist and refresh a provider-token credential.
 ///
 /// One instance per process: the per-`(user, key)` lock that serializes a
-/// concurrent store lives inside it, so a second instance over the same pool
-/// serializes nothing.
+/// concurrent Codex refresh lives inside it, so a second instance over the
+/// same pool serializes nothing.
 pub fn credentials(
     db: DbPool,
-    secrets: Arc<SecretService>,
     codex_http: Arc<reqwest::Client>,
     codex_refresh_url: String,
 ) -> Arc<CredentialService> {
     Arc::new(
         CredentialService::new(Arc::new(PgProviderTokenDao(db)))
-            .with_codex_refresh(codex_http, codex_refresh_url)
-            .with_secrets(secrets),
+            .with_codex_refresh(codex_http, codex_refresh_url),
     )
 }
 

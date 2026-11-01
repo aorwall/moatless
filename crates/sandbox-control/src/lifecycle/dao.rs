@@ -183,14 +183,6 @@ pub trait LifecycleDao: Send + Sync {
     /// renders "is anything running", and a 2→3 move wakes no client.
     async fn record_running_commands(&self, task_id: &str, running: i32) -> Result<(), StoreError>;
 
-    /// Record whether the Sandbox's Codex reaches its model through the model
-    /// gateway, as its pod last reported. A no-op when the Sandbox has no row.
-    async fn record_codex_via_gateway(
-        &self,
-        sandbox_id: &str,
-        via_gateway: bool,
-    ) -> Result<(), StoreError>;
-
     /// Mirror the commands a pod says still owe its agent an outcome, on a
     /// row no failed workspace-snapshot restore touches, so a replacement
     /// can name them.
@@ -661,23 +653,6 @@ impl LifecycleDao for PgLifecycleDao {
         .await
         .map(|_| ())
         .map_err(|e| StoreError::with_source("mark storage reclaimed", e))
-    }
-
-    async fn record_codex_via_gateway(
-        &self,
-        sandbox_id: &str,
-        via_gateway: bool,
-    ) -> Result<(), StoreError> {
-        sqlx::query(
-            "UPDATE sandboxes SET codex_via_gateway = $2
-             WHERE sandbox_id = $1 AND codex_via_gateway <> $2",
-        )
-        .bind(sandbox_id)
-        .bind(via_gateway)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| StoreError::with_source("record codex routing", e))?;
-        Ok(())
     }
 
     async fn record_running_commands(

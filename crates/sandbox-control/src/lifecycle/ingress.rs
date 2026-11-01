@@ -73,17 +73,6 @@ impl SandboxIngress {
         self.store.record_running_commands(task_id, running).await
     }
 
-    /// See [`LifecycleDao::record_codex_via_gateway`].
-    pub async fn record_codex_via_gateway(
-        &self,
-        sandbox_id: &str,
-        via_gateway: bool,
-    ) -> Result<(), StoreError> {
-        self.store
-            .record_codex_via_gateway(sandbox_id, via_gateway)
-            .await
-    }
-
     /// Mirror the commands the pod says still owe its agent an outcome. See
     /// [`LifecycleDao::record_unreported_commands`].
     pub async fn record_unreported_commands(

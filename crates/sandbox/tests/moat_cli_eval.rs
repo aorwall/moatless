@@ -944,7 +944,6 @@ fn build_config(tmp: &TempDir, agent: EvalAgent) -> Config {
             .unwrap_or_else(|_| "/usr/local/bin/codex".to_string()),
         frontend_url: None,
         default_model: None,
-        openai_base_url: None,
         use_tmux: false,
         command_default_timeout_secs: DEFAULT_COMMAND_TIMEOUT_SECS,
         workspace_restore_if_empty: false,

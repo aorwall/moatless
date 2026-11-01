@@ -411,11 +411,11 @@ export class MoatApi {
   }
 
   /**
-   * Stores the host's Claude and OpenAI keys as user Secrets. A switch refuses
-   * a profile with no stored credential, and the local stack otherwise passes
-   * them to its sandbox through the environment only.
+   * Stores the host's Claude and OpenAI keys as Secrets at `scope`. A switch
+   * refuses a profile with no stored credential, and the backend's model
+   * gateway, the only route an agent reaches a model by, reads its key there.
    */
-  async storeHarnessCredentials(): Promise<void> {
+  async storeHarnessCredentials(scope: 'user' | 'global' = 'user'): Promise<void> {
     const claude = process.env.CLAUDE_CODE_OAUTH_TOKEN
       ? 'CLAUDE_CODE_OAUTH_TOKEN'
       : 'ANTHROPIC_API_KEY'
@@ -423,7 +423,7 @@ export class MoatApi {
       const value = process.env[key]
       if (value) {
         this.expect(
-          await this.moat.raw('PUT', '/api/v1/secrets', { scope: 'user', key, kind: 'env', value }),
+          await this.moat.raw('PUT', '/api/v1/secrets', { scope, key, kind: 'env', value }),
         )
       }
     }

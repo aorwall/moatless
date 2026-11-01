@@ -1,10 +1,10 @@
 //! Credential key names the backend and the sandbox process both name.
 //!
-//! The sandbox depends on no backend crate, so a key crossing
-//! `GetCredentials` or `UpdateCredential` has its one definition here.
+//! The sandbox depends on no backend crate, so a key both sides name has its
+//! one definition here.
 
-/// Codex `auth.json` blob — a Codex agent's model credential, and the one
-/// credential a sandbox writes back after a token refresh.
+/// Codex `auth.json` blob — a Codex agent's model credential, which only the
+/// backend's model gateway holds.
 pub const CODEX_AUTH_JSON: &str = "CODEX_AUTH_JSON";
 
 /// Anthropic API key — a Claude agent's model credential.

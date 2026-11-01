@@ -36,7 +36,7 @@ pub use snapshot::{
 };
 
 mod credentials;
-pub use credentials::{CodexCredentials, CredentialBroadcast};
+pub use credentials::CodexCredentials;
 
 mod port_publishing;
 pub use port_publishing::SandboxPortPublisher;

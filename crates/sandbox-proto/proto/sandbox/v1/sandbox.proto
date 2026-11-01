@@ -22,12 +22,6 @@ service BackendSandboxService {
   // on subsequent gRPC failures.
   rpc GetSystemPrompt(GetSystemPromptRequest) returns (GetSystemPromptResponse);
 
-  // Push a credential rotated locally inside the sandbox back to the backend.
-  // Used for OAuth flows (e.g. Codex) that rotate refresh tokens on every use:
-  // without write-back, the backend's stored value goes stale on the next
-  // refresh, permanently invalidating the credential.
-  rpc UpdateCredential(UpdateCredentialRequest) returns (UpdateCredentialResponse);
-
   // Download a file uploaded via /api/v1/uploads, streamed chunk by chunk. The
   // sandbox calls this for every file_id on a pending message before invoking
   // the agent, so the on-disk path the prompt advertises ("Saved to: …") is
@@ -550,33 +544,23 @@ message AcknowledgeMessagesResponse {}
 message GetCredentialsRequest {
   string task_id = 1;
   // auth via gRPC metadata (authorization: Bearer <token>), not message fields
-  // Whether the pod's Codex reaches its model through the model gateway rather
-  // than an `auth.json` it refreshes itself. Unset until the pod has decided,
-  // and from pods that predate the gateway.
-  optional bool codex_via_gateway = 2;
+  // A pod built before every agent went through the model gateway still sends
+  // `codex_via_gateway`; the backend ignores it.
+  reserved 2;
+  reserved "codex_via_gateway";
 }
 
 message GetCredentialsResponse {
-  // Key = env var name (e.g. "GITHUB_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN")
-  // Extensible: add new credentials without proto changes
+  // Key = env var name (e.g. "USER_AUTH_TOKEN", "GIT_USER_NAME"). Never a
+  // model provider credential: the agent reaches every model through the
+  // backend's gateway at {BACKEND_API_URL}/llm/{provider}.
   map<string, string> credentials = 1;
   reserved 2, 3;
   reserved "server_env", "ssh_keys";
-  // The backend serves its model gateway at {BACKEND_API_URL}/llm/{provider},
-  // which the agent calls with the task token as its key.
+  // Always true. Read only by pods built before the gateway became the only
+  // route, which call Anthropic directly when it is false.
   bool model_gateway = 4;
 }
-
-message UpdateCredentialRequest {
-  string task_id = 1;
-  // Credential key — same namespace as GetCredentialsResponse.credentials map
-  // (e.g. "CODEX_AUTH_JSON").
-  string key = 2;
-  // New credential value — for CODEX_AUTH_JSON this is the full auth.json blob.
-  string value = 3;
-}
-
-message UpdateCredentialResponse {}
 
 message GetSystemPromptRequest {
   string task_id = 1;

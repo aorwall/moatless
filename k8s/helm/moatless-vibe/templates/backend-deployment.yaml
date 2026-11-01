@@ -189,12 +189,6 @@ spec:
                   key: {{ .Values.cliproxy.managementKeySecretKey }}
             {{- end }}
             {{- end }}
-            {{- if .Values.modelGateway.enabled }}
-            # Tells each pod's Claude to reach Anthropic through the backend's
-            # /llm routes with its task token as the key.
-            - name: MODEL_GATEWAY_ENABLED
-              value: "true"
-            {{- end }}
             {{- if .Values.cliproxy.enabled }}
             # The hub the gateway falls back to for a task with no Claude
             # credential of its own. Its key is an inference api-key minted in

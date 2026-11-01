@@ -258,12 +258,8 @@ pub fn make_task_row(task_id: &str, user_id: &str) -> Task {
 
 use std::sync::{Arc, Mutex};
 
-use moatless_identity::credentials::CredentialService;
-use moatless_ports::sandbox::CredentialBroadcast;
-
 use super::dao::MockTaskDao;
 use super::operations::TaskCommands;
-use crate::credential_sync::CredentialSync;
 
 /// What a path asked the store, in call order.
 #[derive(Default)]
@@ -298,7 +294,6 @@ pub struct ScriptedTasks {
     holding: Option<Task>,
     listing: (Vec<Task>, i64),
     frees_errored_ids: bool,
-    open_codex_tasks: Vec<String>,
 }
 
 impl ScriptedTasks {
@@ -325,12 +320,6 @@ impl ScriptedTasks {
         self
     }
 
-    /// The open codex Tasks a scope scan answers with.
-    pub fn open_codex_tasks(mut self, task_ids: Vec<String>) -> Self {
-        self.open_codex_tasks = task_ids;
-        self
-    }
-
     /// The scripted store behind the task command handle.
     pub fn commands(self) -> (Arc<TaskCommands>, Arc<TaskStoreCalls>) {
         let calls = Arc::new(TaskStoreCalls::default());
@@ -338,16 +327,6 @@ impl ScriptedTasks {
             Arc::new(TaskCommands::new(Arc::new(self.store(&calls)))),
             calls,
         )
-    }
-
-    /// The scripted store behind the credential fan-out's in-flight guard.
-    pub fn credential_sync(
-        self,
-        credentials: Arc<CredentialService>,
-        broadcast: Arc<dyn CredentialBroadcast>,
-    ) -> Arc<CredentialSync> {
-        let store = self.store(&Arc::new(TaskStoreCalls::default()));
-        Arc::new(CredentialSync::new(credentials, Arc::new(store), broadcast))
     }
 
     fn store(self, calls: &Arc<TaskStoreCalls>) -> MockTaskDao {
@@ -383,11 +362,6 @@ impl ScriptedTasks {
                     .push((task_id.to_string(), ctx.clone()));
                 Ok(freed)
             });
-
-        let open_codex_tasks = self.open_codex_tasks;
-        store
-            .expect_list_open_codex_tasks_for_scope()
-            .returning(move |_, _, _| Ok(open_codex_tasks.clone()));
 
         store
     }

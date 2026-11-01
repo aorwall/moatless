@@ -6,9 +6,9 @@
 
 //! Credential fetching and application.
 //!
-//! Fetches credentials from the backend via gRPC `GetCredentials` RPC, sets
-//! them as environment variables, and writes credential files needed by the
-//! Claude CLI.
+//! Fetches credentials from the backend via gRPC `GetCredentials` RPC and sets
+//! them as environment variables. The backend sends no model credential: the
+//! agent reaches every provider through its model gateway.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -16,7 +16,6 @@ use std::time::Duration;
 use moatless_types::credential_key::{
     ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, ANTHROPIC_BASE_URL, GH_TOKEN, USER_AUTH_TOKEN,
 };
-use sandbox_proto::GetCredentialsResponse;
 use tokio::fs;
 use tracing::{info, warn};
 
@@ -79,13 +78,13 @@ pub fn filter_agent_credentials(credentials: &HashMap<String, String>) -> HashMa
 
 /// The agent subprocess's credential map for one `GetCredentials` answer:
 /// [`filter_agent_credentials`], then [`route_claude_through_gateway`] when the
-/// backend serves its model gateway.
+/// pod knows its backend.
 pub fn agent_credentials(
-    response: &GetCredentialsResponse,
+    credentials: &HashMap<String, String>,
     backend_url: Option<&str>,
 ) -> HashMap<String, String> {
-    let mut credentials = filter_agent_credentials(&response.credentials);
-    if let Some(backend_url) = backend_url.filter(|_| response.model_gateway) {
+    let mut credentials = filter_agent_credentials(credentials);
+    if let Some(backend_url) = backend_url {
         route_claude_through_gateway(&mut credentials, backend_url);
     }
     credentials
@@ -135,11 +134,10 @@ pub fn gateway_api_key_helper(
 /// periodic refresher.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum PersistMode {
+    /// Tries the fallback tokens on a refusal, and removes leftover model
+    /// logins (see [`persist_agent_credentials`]).
     Initial,
-    /// An existing Codex `auth.json` is left alone — `codex_watcher` owns that
-    /// file post-startup, and overwriting it from `provider_tokens` would
-    /// clobber a local rotation. A missing one is written, for a Task that
-    /// switched to Codex after startup.
+    /// Keeps the token it authenticated with and removes nothing.
     Refresh,
 }
 
@@ -152,8 +150,7 @@ pub async fn fetch_and_apply_credentials(state: &SandboxState) -> Result<(), Cre
 }
 
 /// Like [`fetch_and_apply_credentials`] but lets the caller declare whether
-/// this is initial init or a periodic refresh, so write-once-only files (like
-/// Codex `auth.json`) can be skipped when appropriate.
+/// this is initial init or a periodic refresh (see [`PersistMode`]).
 pub async fn fetch_and_apply_credentials_with_mode(
     state: &SandboxState,
     mode: PersistMode,
@@ -219,18 +216,9 @@ pub async fn fetch_and_apply_credentials_with_mode(
                 // Filter out git-provider tokens so the long-running Claude CLI
                 // subprocess doesn't snapshot a stale value at spawn time.
                 *state.credentials.write().await =
-                    agent_credentials(&resp, state.config.backend_api_url.as_deref());
+                    agent_credentials(&resp.credentials, state.config.backend_api_url.as_deref());
 
-                let codex_via_gateway = *state
-                    .codex_via_gateway
-                    .get_or_init(|| resp.model_gateway && state.config.backend_api_url.is_some());
-                persist_agent_credentials(
-                    &state.config,
-                    &resp.credentials,
-                    mode,
-                    codex_via_gateway,
-                )
-                .await;
+                persist_agent_credentials(&state.config, mode).await;
 
                 return Ok(());
             }
@@ -329,46 +317,24 @@ fn terminal_rejection_reason(_mode: PersistMode, code: tonic::Code) -> Option<&'
     }
 }
 
-/// Persist credential files used by local agent runtimes.
+/// Prepare the agent runtimes' config directories.
 ///
-/// On `PersistMode::Refresh`, Codex's `auth.json` is left alone — see
-/// [`PersistMode`] for why. With `codex_via_gateway`, Codex gets none at all:
-/// it reaches its model through the gateway (`init::codex_config::ModelRoute`).
-pub async fn persist_agent_credentials(
-    config: &Config,
-    credentials: &std::collections::HashMap<String, String>,
-    mode: PersistMode,
-    codex_via_gateway: bool,
-) {
-    if let Some(oauth_token) = credentials.get("CLAUDE_CODE_OAUTH_TOKEN") {
-        write_claude_credentials(&config.claude_config_dir, oauth_token).await;
-    }
-
-    let write_codex = !codex_via_gateway
-        && (mode == PersistMode::Initial
-            || !tokio::fs::try_exists(format!("{}/auth.json", config.codex_home_dir))
-                .await
-                .unwrap_or(true));
-    let wrote_codex_auth = if write_codex {
-        if let Some(auth_json) = credentials.get("CODEX_AUTH_JSON") {
-            write_codex_auth_json(&config.codex_home_dir, auth_json).await
-        } else {
-            false
-        }
-    } else {
-        false
-    };
-
-    // A routed Codex reads its key from `OPENAI_API_KEY` directly
-    // (`requires_openai_auth = false`), so it needs no auth.json. Writing one
-    // would hand the proxy key to the watcher, which mirrors the file back as
-    // the user's stored Codex credential.
-    if write_codex && !wrote_codex_auth && config.openai_base_url.is_none() {
-        if let Some(api_key) = credentials.get("OPENAI_API_KEY") {
-            write_codex_auth_from_api_key(&config.codex_home_dir, api_key).await;
+/// On [`PersistMode::Initial`] it removes any model login a pod built before
+/// the gateway left on a reused volume, so no agent can read a credential the
+/// backend no longer hands out.
+pub async fn persist_agent_credentials(config: &Config, mode: PersistMode) {
+    if mode == PersistMode::Initial {
+        for path in [
+            format!("{}/.credentials", config.claude_config_dir),
+            format!("{}/auth.json", config.codex_home_dir),
+        ] {
+            match fs::remove_file(&path).await {
+                Ok(()) => info!(%path, "Removed a leftover model login"),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => warn!(error = %e, %path, "Failed to remove a leftover model login"),
+            }
         }
     }
-
     write_onboarding_flag(&config.claude_config_dir).await;
 }
 
@@ -447,84 +413,6 @@ async fn purge_exposed_user_tokens(config: &Config) {
             Err(e) => {
                 warn!(error = %e, path = %path.display(), "Failed to remove exposed user auth token");
             }
-        }
-    }
-}
-
-/// Write Claude OAuth credentials file.
-///
-/// The Claude CLI reads `$CLAUDE_CONFIG_DIR/.credentials` for auth tokens.
-async fn write_claude_credentials(claude_config_dir: &str, oauth_token: &str) {
-    let creds_path = format!("{claude_config_dir}/.credentials");
-    let creds_json = format!(
-        r#"{{"claudeAiOauth":{{"accessToken":"{oauth_token}","refreshToken":"","expiresAt":"2099-01-01T00:00:00.000Z","scopes":["user:inference","user:profile"]}}}}"#,
-    );
-
-    match fs::write(&creds_path, &creds_json).await {
-        Ok(()) => {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ =
-                    fs::set_permissions(&creds_path, std::fs::Permissions::from_mode(0o600)).await;
-            }
-            info!("Wrote Claude OAuth credentials file");
-        }
-        Err(e) => {
-            warn!(error = %e, "Failed to write Claude credentials file");
-        }
-    }
-}
-
-async fn write_codex_auth_json(codex_home_dir: &str, raw_auth_json: &str) -> bool {
-    let parsed: serde_json::Value = match serde_json::from_str::<serde_json::Value>(raw_auth_json) {
-        Ok(value) if value.is_object() => value,
-        Ok(_) => {
-            warn!("Codex auth JSON must be a JSON object");
-            return false;
-        }
-        Err(e) => {
-            warn!(error = %e, "Failed to parse Codex auth JSON");
-            return false;
-        }
-    };
-
-    write_codex_auth_file(codex_home_dir, &parsed.to_string()).await
-}
-
-/// Write Codex auth.json with an API key for non-interactive startup.
-async fn write_codex_auth_from_api_key(codex_home_dir: &str, api_key: &str) {
-    let auth_json = serde_json::json!({
-        "OPENAI_API_KEY": api_key,
-        "tokens": serde_json::Value::Null,
-        "last_refresh": serde_json::Value::Null,
-    });
-
-    let _ = write_codex_auth_file(codex_home_dir, &auth_json.to_string()).await;
-}
-
-async fn write_codex_auth_file(codex_home_dir: &str, auth_json: &str) -> bool {
-    let auth_path = format!("{codex_home_dir}/auth.json");
-
-    if let Err(e) = fs::create_dir_all(codex_home_dir).await {
-        warn!(error = %e, "Failed to create Codex home directory");
-        return false;
-    }
-
-    match fs::write(&auth_path, auth_json).await {
-        Ok(()) => {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ =
-                    fs::set_permissions(&auth_path, std::fs::Permissions::from_mode(0o600)).await;
-            }
-            info!("Wrote Codex auth file");
-            true
-        }
-        Err(e) => {
-            warn!(error = %e, "Failed to write Codex auth file");
-            false
         }
     }
 }
@@ -745,92 +633,26 @@ mod tests {
         }
     }
 
+    /// A login a pre-gateway pod wrote must not outlive it on a reused volume.
     #[tokio::test]
-    async fn a_gateway_routed_codex_gets_no_auth_json() {
+    async fn only_an_initial_persist_removes_leftover_model_logins() {
         let tmp = TempDir::new().unwrap();
         let config = test_config(&tmp);
-        let credentials = HashMap::from([
-            (
-                "CODEX_AUTH_JSON".to_string(),
-                r#"{"tokens":{"access_token":"abc"}}"#.to_string(),
-            ),
-            ("OPENAI_API_KEY".to_string(), "sk-key".to_string()),
-        ]);
-
-        persist_agent_credentials(&config, &credentials, PersistMode::Initial, true).await;
-
-        assert!(!tmp.path().join("home/.codex/auth.json").exists());
-    }
-
-    /// Answers `GetCredentials` with each queued `model_gateway` in turn.
-    struct GatewayFlags(std::sync::Mutex<Vec<bool>>);
-
-    #[async_trait::async_trait]
-    impl crate::backend_client::BackendClient for GatewayFlags {
-        async fn get_credentials(
-            &self,
-            _task_id: &str,
-        ) -> Result<sandbox_proto::GetCredentialsResponse, tonic::Status> {
-            Ok(sandbox_proto::GetCredentialsResponse {
-                model_gateway: self.0.lock().unwrap().remove(0),
-                ..Default::default()
-            })
+        let logins = [
+            tmp.path().join("home/.claude/.credentials"),
+            tmp.path().join("home/.codex/auth.json"),
+        ];
+        for login in &logins {
+            std::fs::create_dir_all(login.parent().unwrap()).unwrap();
+            std::fs::write(login, "{}").unwrap();
         }
-    }
 
-    /// The route `config.toml` was written for holds for the process's life,
-    /// whatever later fetches say: a pod started on `auth.json` keeps taking
-    /// pushed rotations, and a gateway-routed one keeps refusing them.
-    #[tokio::test]
-    async fn the_first_fetch_latches_how_codex_is_routed() {
-        for (flags, latched) in [(vec![true, false], true), (vec![false, true], false)] {
-            let tmp = TempDir::new().unwrap();
-            let mut config = test_config(&tmp);
-            config.backend_api_url = Some("http://backend:8080".to_string());
-            let state = crate::state::test_support::state_with(
-                config,
-                std::sync::Arc::new(GatewayFlags(std::sync::Mutex::new(flags))),
-            );
+        persist_agent_credentials(&config, PersistMode::Refresh).await;
+        assert!(logins.iter().all(|login| login.exists()));
 
-            super::fetch_and_apply_credentials(&state).await.unwrap();
-            super::fetch_and_apply_credentials_with_mode(&state, PersistMode::Refresh)
-                .await
-                .unwrap();
-
-            assert_eq!(state.codex_via_gateway.get(), Some(&latched));
-        }
-    }
-
-    #[tokio::test]
-    async fn codex_auth_json_takes_precedence_over_openai_api_key() {
-        let tmp = TempDir::new().unwrap();
-        let config = test_config(&tmp);
-        let mut credentials = HashMap::new();
-        credentials.insert(
-            "CODEX_AUTH_JSON".to_string(),
-            r#"{"tokens":{"access_token":"abc"},"OPENAI_API_KEY":"from-json"}"#.to_string(),
-        );
-        credentials.insert("OPENAI_API_KEY".to_string(), "fallback-key".to_string());
-
-        persist_agent_credentials(&config, &credentials, PersistMode::Initial, false).await;
-
-        let auth_path = tmp.path().join("home/.codex/auth.json");
-        let auth_json = tokio::fs::read_to_string(auth_path).await.unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(&auth_json).unwrap();
-
-        assert_eq!(
-            parsed
-                .get("tokens")
-                .and_then(|value| value.get("access_token"))
-                .and_then(serde_json::Value::as_str),
-            Some("abc")
-        );
-        assert_eq!(
-            parsed
-                .get("OPENAI_API_KEY")
-                .and_then(serde_json::Value::as_str),
-            Some("from-json")
-        );
+        persist_agent_credentials(&config, PersistMode::Initial).await;
+        assert!(logins.iter().all(|login| !login.exists()));
+        assert!(tmp.path().join("home/.claude/.claude.json").exists());
     }
 
     #[test]
@@ -858,16 +680,12 @@ mod tests {
 
     #[test]
     fn a_gateway_routed_claude_calls_the_backend_with_no_key_of_its_own() {
-        let response = sandbox_proto::GetCredentialsResponse {
-            credentials: HashMap::from([
-                ("ANTHROPIC_API_KEY".to_string(), "sk-user".to_string()),
-                ("ANTHROPIC_AUTH_TOKEN".to_string(), "hub".to_string()),
-                ("CLAUDE_CODE_OAUTH_TOKEN".to_string(), "oauth".to_string()),
-            ]),
-            model_gateway: true,
-        };
+        let credentials = HashMap::from([
+            ("ANTHROPIC_API_KEY".to_string(), "sk-user".to_string()),
+            ("ANTHROPIC_AUTH_TOKEN".to_string(), "hub".to_string()),
+        ]);
 
-        let routed = agent_credentials(&response, Some("http://backend:8080/"));
+        let routed = agent_credentials(&credentials, Some("http://backend:8080/"));
 
         assert_eq!(
             routed.get("ANTHROPIC_BASE_URL").map(String::as_str),
@@ -881,19 +699,6 @@ mod tests {
             routed.get("ANTHROPIC_AUTH_TOKEN").map(String::as_str),
             Some("")
         );
-
-        let direct = agent_credentials(
-            &sandbox_proto::GetCredentialsResponse {
-                model_gateway: false,
-                ..response
-            },
-            Some("http://backend:8080"),
-        );
-        assert_eq!(
-            direct.get("ANTHROPIC_API_KEY").map(String::as_str),
-            Some("sk-user")
-        );
-        assert!(!direct.contains_key("ANTHROPIC_BASE_URL"));
     }
 
     #[test]
@@ -928,78 +733,5 @@ mod tests {
 
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered.get("OPENAI_API_KEY"), Some(&"oai".to_string()));
-    }
-
-    #[tokio::test]
-    async fn refresh_mode_does_not_overwrite_existing_codex_auth() {
-        let tmp = TempDir::new().unwrap();
-        let config = test_config(&tmp);
-
-        // Simulate a locally-rotated auth.json (what the codex CLI would write
-        // after a refresh).
-        let codex_dir = tmp.path().join("home/.codex");
-        tokio::fs::create_dir_all(&codex_dir).await.unwrap();
-        let auth_path = codex_dir.join("auth.json");
-        let local_rotated = r#"{"tokens":{"refresh_token":"rotated-locally"}}"#;
-        tokio::fs::write(&auth_path, local_rotated).await.unwrap();
-
-        // Backend still has the old (pre-rotation) blob, so a refresher cycle
-        // would overwrite the local file unless we explicitly skip it.
-        let mut credentials = HashMap::new();
-        credentials.insert(
-            "CODEX_AUTH_JSON".to_string(),
-            r#"{"tokens":{"refresh_token":"stale-from-backend"}}"#.to_string(),
-        );
-
-        persist_agent_credentials(&config, &credentials, PersistMode::Refresh, false).await;
-
-        let on_disk = tokio::fs::read_to_string(&auth_path).await.unwrap();
-        assert_eq!(
-            on_disk, local_rotated,
-            "Refresh mode must not clobber a locally-rotated auth.json"
-        );
-    }
-
-    /// A Task switched to Codex after startup has no `auth.json` to protect.
-    #[tokio::test]
-    async fn refresh_mode_writes_a_missing_codex_auth() {
-        let tmp = TempDir::new().unwrap();
-        let config = test_config(&tmp);
-        let mut credentials = HashMap::new();
-        let auth = r#"{"tokens":{"refresh_token":"from-backend"}}"#;
-        credentials.insert("CODEX_AUTH_JSON".to_string(), auth.to_string());
-
-        persist_agent_credentials(&config, &credentials, PersistMode::Refresh, false).await;
-
-        let on_disk = tokio::fs::read_to_string(tmp.path().join("home/.codex/auth.json"))
-            .await
-            .unwrap();
-        assert_eq!(
-            serde_json::from_str::<serde_json::Value>(&on_disk).unwrap(),
-            serde_json::from_str::<serde_json::Value>(auth).unwrap()
-        );
-    }
-
-    #[tokio::test]
-    async fn invalid_codex_auth_json_falls_back_to_openai_api_key() {
-        let tmp = TempDir::new().unwrap();
-        let config = test_config(&tmp);
-        let mut credentials = HashMap::new();
-        credentials.insert("CODEX_AUTH_JSON".to_string(), "{invalid".to_string());
-        credentials.insert("OPENAI_API_KEY".to_string(), "fallback-key".to_string());
-
-        persist_agent_credentials(&config, &credentials, PersistMode::Initial, false).await;
-
-        let auth_path = tmp.path().join("home/.codex/auth.json");
-        let auth_json = tokio::fs::read_to_string(auth_path).await.unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(&auth_json).unwrap();
-
-        assert_eq!(
-            parsed
-                .get("OPENAI_API_KEY")
-                .and_then(serde_json::Value::as_str),
-            Some("fallback-key")
-        );
-        assert!(parsed.get("tokens").is_some());
     }
 }

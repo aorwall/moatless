@@ -17,7 +17,7 @@ use sandbox_proto::{
     GetWorkspaceSyncUrlsResponse, InterruptedTurn, PendingAgentDelivery, PublishEventRequest,
     ReadTrajectoryRequest, RecordGitPushRequest, RecordUnreportedCommandsRequest,
     RecoverInterruptedRunRequest, ReportWorkspaceSyncRequest, SessionHeader, StopCause,
-    TakeUnreportedCommandsRequest, TranscriptChunk, UnreportedCommand, UpdateCredentialRequest,
+    TakeUnreportedCommandsRequest, TranscriptChunk, UnreportedCommand,
 };
 
 use crate::commands::{CommandState, JournaledCommand};
@@ -111,19 +111,6 @@ pub trait BackendClient: Send + Sync {
         _task_id: &str,
     ) -> Result<GetCredentialsResponse, tonic::Status> {
         Ok(GetCredentialsResponse::default())
-    }
-
-    /// Push a credential rotated locally inside the sandbox back to the backend
-    /// so subsequent `get_credentials` calls return the rotated value.
-    async fn update_credential(
-        &self,
-        _task_id: &str,
-        _key: &str,
-        _value: &str,
-    ) -> Result<(), tonic::Status> {
-        Err(tonic::Status::unimplemented(
-            "update_credential not supported",
-        ))
     }
 
     /// Fetch the assembled append-system-prompt for a task. Called once per
@@ -415,9 +402,6 @@ pub struct BackendGrpcClient {
     /// Shared handle to the interceptor's token so it can be swapped at
     /// runtime.
     auth_token: Arc<RwLock<Option<String>>>,
-    /// Reported on every `GetCredentials`; see
-    /// [`crate::state::SandboxState::codex_via_gateway`].
-    codex_via_gateway: Arc<std::sync::OnceLock<bool>>,
 }
 
 impl BackendGrpcClient {
@@ -471,13 +455,7 @@ impl BackendGrpcClient {
             workspace,
             plugins,
             auth_token,
-            codex_via_gateway: Arc::default(),
         })
-    }
-
-    /// The Codex routing latch this client reports.
-    pub fn codex_via_gateway(&self) -> Arc<std::sync::OnceLock<bool>> {
-        Arc::clone(&self.codex_via_gateway)
     }
 }
 
@@ -563,28 +541,10 @@ impl BackendClient for BackendGrpcClient {
         let resp = client
             .get_credentials(GetCredentialsRequest {
                 task_id: task_id.to_string(),
-                codex_via_gateway: self.codex_via_gateway.get().copied(),
             })
             .await?;
 
         Ok(resp.into_inner())
-    }
-
-    async fn update_credential(
-        &self,
-        task_id: &str,
-        key: &str,
-        value: &str,
-    ) -> Result<(), tonic::Status> {
-        let mut client = self.client.clone();
-        client
-            .update_credential(UpdateCredentialRequest {
-                task_id: task_id.to_string(),
-                key: key.to_string(),
-                value: value.to_string(),
-            })
-            .await?;
-        Ok(())
     }
 
     async fn get_system_prompt(&self, task_id: &str) -> Result<String, tonic::Status> {

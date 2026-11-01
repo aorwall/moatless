@@ -71,7 +71,6 @@ pub(super) fn service_with_commands(
         commands,
         CredentialFailureDetector::default(),
         Arc::new(Dispatcher::new()),
-        Default::default(),
         crate::workspace_sync::WorkspaceSyncTracker::new(),
     );
     let (tx, rx) = mpsc::channel::<AgentCommand>(64);

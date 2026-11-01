@@ -330,16 +330,6 @@ async fn start_background_tasks(state: &SandboxState, registrar: &crate::supervi
         }
     }
 
-    // Watch ~/.codex/auth.json for rotations: Codex rewrites it on every
-    // OAuth refresh, and the watcher pushes the rotated blob to the backend
-    // so later tasks and pod restarts see the new refresh_token.
-    //
-    // A routed Codex authenticates by `env_key` and rotates nothing; running
-    // the watcher would overwrite the user's real stored credential.
-    if state.config.openai_base_url.is_none() {
-        spawn_codex_auth_watcher(state, registrar).await;
-    }
-
     // Watch each checkout's remote reflogs so a sha this task pushes is claimed
     // before GitHub's `pull_request.synchronize` webhook for it arrives.
     spawn_git_push_watcher(state, registrar);
@@ -360,35 +350,4 @@ fn spawn_git_push_watcher(state: &SandboxState, registrar: &crate::supervisor::R
     // worth a restart — but it should be named rather than logged as an
     // anonymous panic.
     registrar.supervise("git-push-watcher", Criticality::Optional, watcher_task);
-}
-
-async fn spawn_codex_auth_watcher(state: &SandboxState, registrar: &crate::supervisor::Registrar) {
-    let auth_path = std::path::PathBuf::from(format!("{}/auth.json", state.config.codex_home_dir));
-
-    // Capture the current on-disk value as the baseline so the first rotation
-    // (which produces a different blob) triggers the sync. If the file is
-    // absent — Codex isn't configured for this task — the watcher still runs
-    // and will pick up the file once it appears.
-    let initial_value = tokio::fs::read_to_string(&auth_path)
-        .await
-        .unwrap_or_default();
-
-    let (handle, watcher_task) = crate::credentials::codex_watcher::spawn(
-        state.config.task_id.clone(),
-        auth_path,
-        initial_value,
-        std::sync::Arc::clone(&state.backend_client),
-        state.lifecycle_cancel.clone(),
-    );
-
-    // Optional: losing the watcher means a Codex token rotation isn't pushed
-    // back, costing the *next* task (or pod start) a stale refresh_token —
-    // nothing to the running turn, so not worth a restart, but named rather
-    // than logged as an anonymous panic.
-    registrar.supervise("codex-auth-watcher", Criticality::Optional, watcher_task);
-
-    // Stash the handle so the credential dispatcher can seed the watcher's
-    // cache when a backend-driven push lands — keeps backend writes from
-    // echoing back as fresh `UpdateCredential` calls.
-    *state.codex_watcher_handle.write().await = Some(handle);
 }

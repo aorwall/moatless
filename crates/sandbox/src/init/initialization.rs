@@ -184,24 +184,25 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
     )
     .await;
 
-    // 2. Write the Codex config.toml, after the fetch because whether Codex is
-    //    routed through the model gateway arrives with the credentials.
-    //    Non-fatal — Codex still runs without it.
+    // 2. Write the Codex config.toml. Non-fatal — Codex still runs without it.
+    if state.config.backend_api_url.is_none() {
+        warn!(
+            "BACKEND_API_URL is unset, so no agent can reach the model gateway; every model call \
+             will fail authentication"
+        );
+    }
     let gateway_url = state
         .config
         .backend_api_url
         .as_deref()
-        .filter(|_| state.codex_via_gateway.get() == Some(&true))
         .map(codex_config::gateway_base_url);
     let token_file = state.config.persisted_user_token_path();
-    let route = match (&gateway_url, &state.config.openai_base_url) {
-        (Some(base_url), _) => Some(codex_config::ModelRoute::Gateway {
+    let route = gateway_url
+        .as_ref()
+        .map(|base_url| codex_config::ModelRoute {
             base_url,
             token_file: &token_file,
-        }),
-        (None, Some(base_url)) => Some(codex_config::ModelRoute::Hub { base_url }),
-        (None, None) => None,
-    };
+        });
     codex_config::write_codex_config(&state.config.codex_home_dir, route.as_ref()).await;
 
     // 2c. Write the Claude Code settings file, after the fetch because the

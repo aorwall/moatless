@@ -462,8 +462,9 @@ Relocate only the fan-out and consumer 2 still holds `ctx.tasks`, the import sta
 
 **The fact that decided the shape, and it was a latent correctness bug rather than a smell.** `refresh.rs:82` read `let Some(ref ctx) = self.broadcast_ctx else { return false; }`, and `false` means *no other open codex Task*, which means **proceed with the refresh**. So `Option<BroadcastContext>` did not merely make broadcasting optional — **an unwired context silently disabled the race guard.** The doc's "when omitted, `store` does not broadcast" understated it by the whole of consumer 2. Both composition roots (`startup.rs:462`, `state.rs:290`) wired it, so this was latent rather than live — but it was latent behind exactly the duplicated assembly 9c existed to delete. **#371 retired it by construction rather than by fixing it:** `CredentialSync` in `crates/tasks/src/credential_sync/service.rs` holds `tasks: Arc<dyn TaskDao>` unconditionally, so there is no unwired state left to read as "no task in flight". The assertions below pin the construction, not the deletion — an `absent` on a name nobody would reintroduce asserts nothing, whereas re-`Option`ing the field breaks the literal.
 
-<!-- plan-assert: contains crates/tasks/src/credential_sync/service.rs any_other_open_codex_task -->
-<!-- plan-assert: contains crates/tasks/src/credential_sync/service.rs tasks: Arc<dyn TaskDao> -->
+**Superseded: the guard is gone.** Once every agent reached its model through the backend's gateway, no pod refreshed its own Codex login, so `CredentialSync` lost `tasks`, the guard and the fan-out, and `sandboxes.codex_via_gateway` was dropped (`crates/core/migrations/0220_drop_sandbox_codex_via_gateway.sql`). The ruling above stands as the record of why the guard sat in `moatless-tasks`.
+
+<!-- plan-assert: absent crates/tasks/src/credential_sync/service.rs any_other_open_codex_task -->
 
 **Ruled: the orchestration moves up; credentials keeps the pure refresh.** Two measurements decide it against keeping the guard in credentials behind a new port. First, only **one** of `ensure_fresh_codex`'s five callers supplies a real `except_task_id` — `sandbox/secrets.rs:334` passes `current_task_id`, while `refresher.rs:116`, `credentials/mod.rs:185` and `task/service.rs:255` all pass `None`. A policy four of five callers cannot inform is orchestration, not credentials-band policy. Second, the sweep is **already** server-band: `main.rs:671` spawns it via `spawn_codex_refresher` (`main.rs:1015`), so only the body sits in credentials. Moving it up is repatriation.
 
@@ -483,7 +484,7 @@ The two "or a band" arms contradict, so the intersection is the term they share:
 **What stays:** `refresh_inner`, persistence, `read_raw_codex`, the lock — credentials answers *make this token fresh*, `CredentialSync` answers *should we, and who needs telling*. When it is done credentials names neither `TaskDao` nor the sandbox fan-out port.
 
 <!-- plan-assert: contains crates/sandbox-proto/src/client.rs pub trait SandboxConnector -->
-<!-- plan-assert: contains crates/identity/src/credentials/models.rs CLAUDE_CODE_OAUTH_TOKEN -->
+`should_broadcast` and `credentials/models.rs` went with the pod-side credential writers, so `CredentialSync` is now codex-only in fact; the name is kept rather than renamed in the same change.
 
 **The guard is checked outside the per-scope mutex afterwards, deliberately.** Today `ensure_fresh_codex` takes the in-process per-scope lock (`refresh.rs:44-47`) and *then* checks the guard at `:51`; after the split the orchestrator checks the guard before calling down. This removes no protection: that mutex only dedups backend-against-backend work and never synchronised with a sandbox at all, while the guard exists to protect against a sandbox CLI — and the real single-use-token safety is the Postgres advisory lock plus the CAS inside `refresh_inner`, both untouched. **The alternative that keeps the exact ordering is rejected:** the orchestrator could take the lock handle from credentials and hold it across the guard, which is legal and downward, but it makes lock acquisition part of credentials' public contract, and a caller who forgets it gets silent corruption instead of a compile error. A leakier boundary is a worse trade than a marginally wider benign window.
 
@@ -872,7 +873,6 @@ workspaces  deps: identity   WAITING — no illegal outgoing, but its deps are n
 
 **The quiet form, and why grepping this document is not sufficient on its own.** `should_broadcast` widened from `pub(crate)` to `pub` at 10c, and no sentence anywhere in this plan mentions its visibility. The widenings that can be found by searching the plan for the string `pub(crate)` are the minority; most are invisible in prose and appear only in the diff. So the carve-time sweep has two halves and only one of them is textual: **grep the plan for every moved symbol and read each hit**, which is bounded and cheap, *and* **read the diff for visibility changes**, which the plan cannot tell you about.
 
-<!-- plan-assert: contains crates/identity/src/credentials/models.rs pub fn should_broadcast -->
 
 **The sweep has two yields and they need opposite handling.** Carve-caused staleness — a claim the move itself falsifies — must be fixed **in** the carve PR, because that PR is what makes it false and splitting them leaves `main` transiently wrong. Pre-existing staleness that the sweep merely surfaced must **not** be, because a claim that was already false, folded into a 74-file diff, is a claim nobody reviews. 10c produced one of each: `log_workspace_sync`'s visibility was carve-caused and landed in #390; `credentials/mod.rs:58` was a line number that had been wrong for the whole program and was left out of it.
 

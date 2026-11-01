@@ -284,19 +284,8 @@ pub fn grpc_service(
         task_events: p.task_events.clone(),
     });
     let handlers = ports.map(|p| {
-        // Tasks-band orchestrator — guard + fan-out over the pure service.
-        let credential_sync = p.task_graph.credential_sync(
-            p.credentials.clone(),
-            Arc::new(crate::sandbox::notify::CredentialBroadcastService::new(
-                Arc::clone(&connector),
-            )),
-        );
-        let drivers = crate::sandbox_driver::SandboxDrivers::compose(
-            config,
-            p,
-            Arc::clone(&connector),
-            credential_sync.clone(),
-        );
+        let drivers =
+            crate::sandbox_driver::SandboxDrivers::compose(config, p, Arc::clone(&connector));
         crate::sandbox::grpc_server::HandlerDbPorts {
             drivers,
             messages: p.messages.clone(),
@@ -307,7 +296,6 @@ pub fn grpc_service(
             memories: p.memories.clone(),
             task_forks: p.task_forks.clone(),
             secrets: p.secrets.clone(),
-            credential_sync,
             sandboxes: p.sandbox_graph.sandbox_ingress(),
             workspace_credentials: p.workspace_credentials.clone(),
             git_host_tokens: p.git_host_tokens.clone(),
@@ -315,7 +303,6 @@ pub fn grpc_service(
             provider_link: p.user_directory.clone(),
             user_logins: p.user_directory.clone(),
             commit_identity: p.user_directory.clone(),
-            harness_credentials: p.harness_credentials.clone(),
             trajectory: p.task_graph.trajectory(),
             tags: p.tags.clone(),
             plugin_archives: moatless_workspaces::compose::plugin_archives(

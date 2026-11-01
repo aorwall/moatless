@@ -13,9 +13,7 @@ use moatless_core::events::EventPublisher;
 use moatless_core::file_storage::Files;
 use moatless_identity::credentials::CredentialService;
 use moatless_ports::identity::{UserDisplay, UserResolver};
-use moatless_ports::sandbox::{
-    CredentialBroadcast, PreflightPort, SandboxJoiner, SandboxLifecycle, SandboxStarter,
-};
+use moatless_ports::sandbox::{PreflightPort, SandboxJoiner, SandboxLifecycle, SandboxStarter};
 use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
 
 use crate::artifact::dao::{ArtifactDao, PgArtifactDao};
@@ -263,21 +261,12 @@ impl TaskGraph {
         Arc::new(crate::task_turn::usage::TurnUsage::new(self.db.clone()))
     }
 
-    /// The Codex in-flight guard and sandbox fan-out over a pure credential
-    /// service.
+    /// The Codex refresh over a pure credential service.
     ///
     /// Built before [`TaskGraph::assemble`] rather than by it: the preflight
     /// port `assemble` takes reads this, so the host needs it in hand first.
-    pub fn credential_sync(
-        &self,
-        credentials: Arc<CredentialService>,
-        broadcast: Arc<dyn CredentialBroadcast>,
-    ) -> Arc<CredentialSync> {
-        Arc::new(CredentialSync::new(
-            credentials,
-            self.tasks.clone(),
-            broadcast,
-        ))
+    pub fn credential_sync(&self, credentials: Arc<CredentialService>) -> Arc<CredentialSync> {
+        Arc::new(CredentialSync::new(credentials))
     }
 
     /// Assemble the workflow services over the graph's stores and the foreign

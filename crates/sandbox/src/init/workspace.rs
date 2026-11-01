@@ -472,14 +472,6 @@ mod tests {
         ) -> Result<sandbox_proto::GetCredentialsResponse, tonic::Status> {
             unimplemented!()
         }
-        async fn update_credential(
-            &self,
-            _task_id: &str,
-            _key: &str,
-            _value: &str,
-        ) -> Result<(), tonic::Status> {
-            unimplemented!()
-        }
         async fn get_system_prompt(&self, _task_id: &str) -> Result<String, tonic::Status> {
             unimplemented!()
         }

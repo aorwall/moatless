@@ -5,6 +5,8 @@
  * 1. Announces the environment under test and what it cannot do
  * 2. Checks the fixture the profile names is actually there
  * 3. Resets the database, where the profile says that is allowed
+ * 4. Stores the host's model keys for a local stack, whose sandboxes inherit
+ *    no model key from the host
  *
  * Nothing here fails a run for a missing optional credential. A test that needs
  * one skips with the reason named, so a partial environment produces a partial
@@ -45,6 +47,12 @@ export default async function globalSetup(): Promise<void> {
     console.log(
       `[global-setup] Profile '${active.name}' shares its database with real work — not resetting it.`,
     )
+  }
+
+  // Every agent reaches its model through the backend's gateway, which reads a
+  // task's key from its Secrets rather than from the host's environment.
+  if (active.name === 'local') {
+    await new MoatApi(await createDriver(active)).storeHarnessCredentials('global')
   }
 
   console.log('[global-setup] Setup complete.\n')

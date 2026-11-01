@@ -1,7 +1,7 @@
 use crate::backend_client::BackendGrpcClient;
 use crate::config::Config;
 use crate::credentials::Dispatcher;
-use crate::credentials::sinks::{ClaudeOauthSink, CodexAuthJsonSink, UserAuthTokenSink};
+use crate::credentials::sinks::UserAuthTokenSink;
 use crate::events::GrpcEventPublisher;
 use crate::init::InitPhase;
 use crate::state::SandboxState;
@@ -23,7 +23,6 @@ pub(crate) async fn compose_runtime(config: &Config) -> (SandboxState, Superviso
     .expect("Failed to create backend gRPC client");
     info!(url = %config.backend_grpc_url, "Backend gRPC client created (lazy connection)");
 
-    let codex_via_gateway = backend_client.codex_via_gateway();
     let backend_client: Arc<dyn crate::backend_client::BackendClient> = Arc::new(backend_client);
 
     // Lifecycle token, created up front so the event outbox drainer shares it
@@ -56,20 +55,8 @@ pub(crate) async fn compose_runtime(config: &Config) -> (SandboxState, Superviso
     let config_arc = Arc::new(config.clone());
     let credentials = Arc::new(RwLock::new(std::collections::HashMap::new()));
 
-    // Build the credential dispatcher and register sinks for every credential
-    // type the sandbox knows how to refresh. The watcher handle is set later
-    // by the init flow once the codex_watcher is spawned.
-    let codex_watcher_handle = Arc::new(RwLock::new(None));
+    // The one credential the backend pushes: a pod holds no model credential.
     let mut dispatcher = Dispatcher::new();
-    dispatcher.register(
-        "CODEX_AUTH_JSON",
-        Arc::new(CodexAuthJsonSink {
-            codex_home_dir: config.codex_home_dir.clone(),
-            watcher_handle: Arc::clone(&codex_watcher_handle),
-            codex_via_gateway: Arc::clone(&codex_via_gateway),
-        }),
-    );
-    dispatcher.register("CLAUDE_CODE_OAUTH_TOKEN", Arc::new(ClaudeOauthSink));
     let git_credentials = Arc::new(RwLock::new(Default::default()));
     dispatcher.register(
         moatless_types::credential_key::USER_AUTH_TOKEN,
@@ -106,8 +93,6 @@ pub(crate) async fn compose_runtime(config: &Config) -> (SandboxState, Superviso
         credentials,
         lifecycle_cancel,
         credential_dispatcher,
-        codex_watcher_handle,
-        codex_via_gateway,
         supervisor_health: supervisor.health(),
         terminals: crate::terminal::TerminalManager::with_repo_dir(
             config.workspace_dir.clone(),

@@ -207,8 +207,7 @@ impl ModelGateway {
         })
     }
 
-    /// The Anthropic credentials `GetCredentials` would deliver to `scope`'s
-    /// pod.
+    /// The Anthropic credentials `scope`'s actor calls upstream with.
     pub async fn anthropic_credentials(
         &self,
         scope: &SandboxScope,
@@ -224,9 +223,8 @@ impl ModelGateway {
         .await)
     }
 
-    /// The OpenAI credentials `GetCredentials` would deliver to `scope`'s pod,
-    /// its Codex login refreshed first: the gateway is that login's only
-    /// presenter.
+    /// The OpenAI credentials `scope`'s actor calls upstream with, its Codex
+    /// login refreshed first: the gateway is that login's only presenter.
     pub async fn openai_credentials(
         &self,
         scope: &SandboxScope,
@@ -235,6 +233,7 @@ impl ModelGateway {
         Ok(resolve_task_openai_credentials(
             &inputs.actor,
             Some(&self.secrets),
+            Some(&self.harness_credentials),
             Some(&self.codex),
             inputs.pinned,
             inputs.env_vars,

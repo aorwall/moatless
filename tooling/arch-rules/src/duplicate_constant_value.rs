@@ -34,8 +34,6 @@ const COINCIDENTAL: &[&str] = &[
     "\"moatless\"",
     // A secret audit scope and a restic snapshot label.
     "\"workspace\"",
-    // A Codex model-provider id and a T3 usage-limit source id.
-    "\"cliproxy\"",
 ];
 
 /// One constant: its crate, its location, its name and its normalised value.

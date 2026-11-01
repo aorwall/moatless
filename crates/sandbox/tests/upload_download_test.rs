@@ -25,8 +25,7 @@ use sandbox_proto::{
     RecordGitPushRequest, RecordGitPushResponse, RecordUnreportedCommandsRequest,
     RecordUnreportedCommandsResponse, RecoverInterruptedRunRequest, RecoverInterruptedRunResponse,
     ReportWorkspaceSyncRequest, ReportWorkspaceSyncResponse, TakeUnreportedCommandsRequest,
-    TakeUnreportedCommandsResponse, TranscriptChunk, UpdateCredentialRequest,
-    UpdateCredentialResponse, UploadChunk, UploadTranscriptResponse,
+    TakeUnreportedCommandsResponse, TranscriptChunk, UploadChunk, UploadTranscriptResponse,
 };
 use tonic::{Request, Response, Status, Streaming};
 
@@ -151,13 +150,6 @@ impl BackendSandboxService for UploadOnlyBackend {
         &self,
         _request: Request<GetSystemPromptRequest>,
     ) -> Result<Response<GetSystemPromptResponse>, Status> {
-        Err(Status::unimplemented("not used"))
-    }
-
-    async fn update_credential(
-        &self,
-        _request: Request<UpdateCredentialRequest>,
-    ) -> Result<Response<UpdateCredentialResponse>, Status> {
         Err(Status::unimplemented("not used"))
     }
 

@@ -36,6 +36,9 @@ use sandbox_proto::{GetCredentialsResponse, PublishEventRequest};
 use tempfile::TempDir;
 use tokio::sync::RwLock;
 
+#[path = "support/codex_hub.rs"]
+mod codex_hub;
+
 /// Cheapest model — keeps E2E cost low. `CLAUDE_TEST_MODEL` overrides it to
 /// check an upgraded CLI against the model a deployment actually runs.
 const DEFAULT_CLAUDE_TEST_MODEL: &str = "claude-haiku-4-5-20251001";
@@ -165,7 +168,6 @@ fn test_config(tmp: &TempDir, use_tmux: bool, agent_profile: &str) -> Config {
             .unwrap_or_else(|_| "/usr/local/bin/codex".to_string()),
         frontend_url: None,
         default_model: None,
-        openai_base_url: codex_base_url(),
         use_tmux,
         command_default_timeout_secs: moatless_sandbox::config::DEFAULT_COMMAND_TIMEOUT_SECS,
         home_dir: home.display().to_string(),
@@ -230,12 +232,7 @@ fn spawn_test_agent(
     // the CLI ignores `OPENAI_BASE_URL` and sends every turn to api.openai.com.
     std::fs::write(
         tmp.path().join("home/.codex/config.toml"),
-        moatless_sandbox::init::codex_config::render_config_toml(
-            codex_base_url()
-                .as_deref()
-                .map(|base_url| moatless_sandbox::init::codex_config::ModelRoute::Hub { base_url })
-                .as_ref(),
-        ),
+        codex_hub::config_toml(codex_base_url().as_deref()),
     )
     .expect("write Codex config.toml");
     if let Ok(auth_json) = std::env::var("CODEX_AUTH_JSON") {
@@ -302,7 +299,6 @@ fn spawn_test_agent_in(
         commands,
         credential_failures,
         Arc::clone(&credential_dispatcher),
-        Default::default(),
         Arc::clone(&system_prompt_cache),
         moatless_sandbox::agent::heartbeat::Heartbeat::new(),
         moatless_sandbox::workspace_sync::WorkspaceSyncTracker::new(),

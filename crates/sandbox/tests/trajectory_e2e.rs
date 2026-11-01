@@ -33,6 +33,8 @@ use moatless_sandbox::trajectory_tail::{RecordTarget, SessionRecorder, Trajector
 use serde_json::Value;
 use tempfile::TempDir;
 
+#[path = "support/codex_hub.rs"]
+mod codex_hub;
 #[path = "support/memory_trajectory.rs"]
 #[allow(dead_code, reason = "shared with the unit tests, which use the rest")]
 mod memory;
@@ -119,16 +121,7 @@ impl RealEnv {
             .filter(|u| !u.trim().is_empty());
         std::fs::write(
             codex_home.join("config.toml"),
-            moatless_sandbox::init::codex_config::render_config_toml(
-                base_url
-                    .as_deref()
-                    .map(
-                        |base_url| moatless_sandbox::init::codex_config::ModelRoute::Hub {
-                            base_url,
-                        },
-                    )
-                    .as_ref(),
-            ),
+            codex_hub::config_toml(base_url.as_deref()),
         )
         .unwrap();
         if let Ok(auth) = std::env::var("CODEX_AUTH_JSON") {
@@ -164,7 +157,6 @@ impl RealEnv {
                 .unwrap_or_else(|_| "/usr/local/bin/codex".to_string()),
             frontend_url: None,
             default_model: None,
-            openai_base_url: base_url,
             use_tmux: false,
             command_default_timeout_secs: moatless_sandbox::config::DEFAULT_COMMAND_TIMEOUT_SECS,
             home_dir: home.display().to_string(),

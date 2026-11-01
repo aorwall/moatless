@@ -1,4 +1,4 @@
-//! Task-aware credential refresh and broadcast.
+//! The backend's Codex credential refresh.
 
 mod ports;
 pub mod refresher;

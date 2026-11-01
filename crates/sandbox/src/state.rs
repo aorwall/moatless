@@ -11,7 +11,6 @@ use crate::agent::heartbeat::Heartbeat;
 use crate::backend_client::BackendClient;
 use crate::config::Config;
 use crate::credentials::Dispatcher;
-use crate::credentials::codex_watcher::WatcherHandle;
 use crate::events::GrpcEventPublisher;
 use crate::init::{InitPhase, WorkspaceOrigin};
 use crate::supervisor::SupervisorHealth;
@@ -74,16 +73,6 @@ pub struct SandboxState {
     /// The gRPC server hands the rotated value to this dispatcher, which routes
     /// to the appropriate sink (file write, env var update, etc.).
     pub credential_dispatcher: Arc<Dispatcher>,
-    /// Handle to the Codex auth watcher, used by [`crate::credentials::sinks`]
-    /// to seed the watcher cache after a backend-driven write so the resulting
-    /// filesystem event is recognised as a no-op.
-    pub codex_watcher_handle: Arc<RwLock<Option<WatcherHandle>>>,
-    /// Whether Codex reaches its model through the backend's model gateway
-    /// rather than an `auth.json` it refreshes. Latched by the process's first
-    /// credential fetch, before init writes `config.toml` from it, so a later
-    /// flag change cannot split the config from the credential handling.
-    /// Reported back on every later fetch.
-    pub codex_via_gateway: Arc<std::sync::OnceLock<bool>>,
     /// Liveness view of the root supervisor's tasks, read by `/livez`.
     ///
     /// Non-empty means a task declared `Criticality::Fatal` or
@@ -300,8 +289,6 @@ pub(crate) mod test_support {
             credentials: Arc::new(RwLock::new(HashMap::new())),
             lifecycle_cancel,
             credential_dispatcher: Arc::new(Dispatcher::new()),
-            codex_watcher_handle: Arc::new(RwLock::new(None)),
-            codex_via_gateway: Default::default(),
             supervisor_health: Default::default(),
             terminals: TerminalManager::new("/tmp/workspace".to_string()),
             workspace_sync: Default::default(),

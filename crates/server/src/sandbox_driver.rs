@@ -6,8 +6,8 @@ use tracing::{info, warn};
 
 use moatless_core::sandbox_jwt as jwt;
 use moatless_ports::identity::CommitIdentity;
-use moatless_ports::sandbox::{CodexCredentials, CredentialBroadcast};
 use moatless_sandbox_control::lifecycle::{DriverChange, SandboxIngress, TokenGenerationStore};
+use moatless_sandbox_control::notify::CredentialBroadcast;
 use moatless_tasks::task_event::models::InsertTaskEvent;
 use moatless_tasks::task_event::operations::TaskEvents;
 use moatless_types::access_control::{ScopeContext, ScopedResource};
@@ -20,7 +20,6 @@ pub struct SandboxDrivers {
     pub generations: Arc<TokenGenerationStore>,
     pub users: Arc<dyn CommitIdentity>,
     pub broadcast: Arc<dyn CredentialBroadcast>,
-    pub codex: Arc<dyn CodexCredentials>,
     pub task_events: Arc<TaskEvents>,
     /// `None` in the dev bypass, which mints no tokens.
     pub task_token_secret: Option<String>,
@@ -33,7 +32,6 @@ impl SandboxDrivers {
         config: &moatless_core::config::Config,
         ports: &crate::compose::Ports,
         connector: Arc<dyn sandbox_proto::client::SandboxConnector>,
-        codex: Arc<dyn CodexCredentials>,
     ) -> Arc<Self> {
         Arc::new(Self {
             sandboxes: ports.sandbox_graph.sandbox_ingress(),
@@ -42,7 +40,6 @@ impl SandboxDrivers {
             broadcast: Arc::new(crate::sandbox::notify::CredentialBroadcastService::new(
                 connector,
             )),
-            codex,
             task_events: ports.task_events.clone(),
             task_token_secret: config.sandbox.task_token_secret.clone(),
             user_token_ttl_secs: config.sandbox.user_token_ttl_secs,
@@ -101,8 +98,7 @@ impl SandboxDrivers {
             .await)
     }
 
-    /// Mint the driver's token and push it, then their Codex blob. Nothing
-    /// here fails the switch, which has already committed: the token is
+    /// Mint the driver's token and push it. Nothing here fails the switch, which has already committed: the token is
     /// returned for the caller to hand over should the push miss.
     async fn hand_over(
         &self,
@@ -115,23 +111,6 @@ impl SandboxDrivers {
         if let Some(token) = &token {
             self.push(task_id, USER_AUTH_TOKEN, token, &[0, 200, 800])
                 .await;
-        }
-        // Best-effort: a driver with no Codex credential keeps the previous
-        // blob until their own exists.
-        match self.codex.ensure_fresh_codex_for(user_id, None).await {
-            Ok(Some(blob)) => {
-                self.push(
-                    task_id,
-                    moatless_core::secret_keys::CODEX_AUTH_JSON,
-                    &blob,
-                    &[0],
-                )
-                .await;
-            }
-            Ok(None) => {}
-            Err(e) => {
-                warn!(task_id, error = %e, "Failed to read the new driver's Codex credential");
-            }
         }
         token
     }
@@ -237,19 +216,6 @@ mod db_tests {
         }
     }
 
-    struct NoCodex;
-
-    #[async_trait]
-    impl CodexCredentials for NoCodex {
-        async fn ensure_fresh_codex_for(
-            &self,
-            _user_id: &str,
-            _except_task_id: Option<&str>,
-        ) -> Result<Option<String>, String> {
-            Ok(None)
-        }
-    }
-
     /// `owner`'s task `t1`, its own Sandbox, at `visibility`.
     async fn seed(pool: &PgPool, visibility: &str) {
         for statement in [
@@ -292,7 +258,6 @@ mod db_tests {
             generations: graph.token_generations(),
             users: Arc::new(users),
             broadcast: pushes,
-            codex: Arc::new(NoCodex),
             task_events: moatless_tasks::compose::task_graph(pool.clone()).task_events(),
             task_token_secret: Some(SECRET.to_string()),
             user_token_ttl_secs: 600,

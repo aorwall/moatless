@@ -35,7 +35,6 @@ pub struct TaskCredentialInputs<'a> {
     /// matches what every other caller resolves for this task.
     pub actor: &'a Actor,
     pub secrets: Option<&'a Arc<dyn SecretResolver>>,
-    pub provider_tokens: Option<&'a Arc<dyn HarnessCredentials>>,
     /// The one way to a git-host token. Supplied once at the composition root,
     /// so this struct threads no credential ports of its own.
     pub git_host_tokens: Option<&'a Arc<dyn GitHostTokenIssuer>>,
@@ -43,10 +42,6 @@ pub struct TaskCredentialInputs<'a> {
     /// `GIT_USER_EMAIL`. Bots get both; human users get their account email
     /// when set (name still resolves via the GitHub API).
     pub users: Option<&'a Arc<dyn CommitIdentity>>,
-    /// Codex credential orchestrator used to refresh codex tokens just-in-time
-    /// before handing the blob to the sandbox. When `None`, the codex branch
-    /// falls back to a raw `provider_tokens` read.
-    pub credential_sync: Option<&'a Arc<dyn CodexCredentials>>,
     /// Provider credentials pinned to the task's Workspace, decrypted and
     /// keyed by env var — resolve with [`resolve_workspace_credentials`].
     ///
@@ -63,9 +58,9 @@ pub struct TaskCredentialInputs<'a> {
 
 /// Resolve the credentials a task's sandbox needs.
 ///
-/// No GitHub or Forgejo credential is ever returned, whatever its source: the
-/// pod reaches both through the backend's git and GitHub proxies, which hold
-/// the credential instead of handing it to the pod.
+/// No GitHub, Forgejo or model credential is ever returned, whatever its
+/// source: the pod reaches each through a backend proxy or the model gateway,
+/// which holds the credential instead of handing it to the pod.
 pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMap<String, String> {
     let mut credentials: HashMap<String, String> = input.workspace_credentials;
     for (key, value) in input.workspace_env_vars {
@@ -83,15 +78,6 @@ pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMa
     let user_id = input.actor.user_id();
     fill_git_host_tokens(&mut credentials, input.git_host_tokens, input.actor).await;
 
-    fill_provider_tokens(
-        &mut credentials,
-        input.provider_tokens,
-        user_id,
-        input.credential_sync,
-        Some(input.task_id),
-    )
-    .await;
-
     fill_git_identity(&mut credentials, input.users, user_id).await;
     if let Some(person) = input.actor.person() {
         fill_co_author(&mut credentials, input.users, person).await;
@@ -101,17 +87,16 @@ pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMa
 
     fill_missing_from_scoped(&mut credentials, scoped);
     // Screened last rather than per source: a Workspace pin, a per-host PAT
-    // secret and an OAuth stash all reach this map by different routes, and
-    // none of them may leave the backend.
+    // secret, an OAuth stash and a model key all reach this map by different
+    // routes, and none of them may leave the backend.
     credentials.retain(|key, _| !is_proxied_credential_key(key));
     credentials
 }
 
-/// The Anthropic keys [`resolve_task_credentials`] would deliver for `actor`,
-/// with its precedence and without its git-host, Codex and identity lookups.
+/// The Anthropic keys the model gateway calls upstream with for `actor`.
 ///
-/// Takes the same Workspace inputs, so the model gateway calls upstream with
-/// exactly what the pod would have.
+/// Precedence: a Workspace pin, then Workspace `env_vars`, then the connected
+/// Claude account, then scoped secrets.
 pub async fn resolve_task_anthropic_credentials(
     actor: &Actor,
     secrets: Option<&Arc<dyn SecretResolver>>,
@@ -140,14 +125,15 @@ pub async fn resolve_task_anthropic_credentials(
     credentials
 }
 
-/// The OpenAI keys [`resolve_task_credentials`] would deliver for `actor`,
-/// with its precedence, for the model gateway's Codex upstream.
+/// The OpenAI keys the model gateway's Codex upstream is called with for
+/// `actor`, with the precedence of [`resolve_task_anthropic_credentials`].
 ///
-/// The Codex login is refreshed through `codex` unless a pod that refreshes its
-/// own `auth.json` is open in its scope.
+/// The Codex login is refreshed through `codex` first: the gateway is its only
+/// presenter.
 pub async fn resolve_task_openai_credentials(
     actor: &Actor,
     secrets: Option<&Arc<dyn SecretResolver>>,
+    provider_tokens: Option<&Arc<dyn HarnessCredentials>>,
     codex: Option<&Arc<dyn CodexCredentials>>,
     workspace_credentials: HashMap<String, String>,
     workspace_env_vars: HashMap<String, String>,
@@ -161,7 +147,7 @@ pub async fn resolve_task_openai_credentials(
     let user_id = actor.user_id();
     match codex {
         Some(codex) if !credentials.contains_key(CODEX_AUTH_JSON) => {
-            match codex.ensure_fresh_codex_for(user_id, None).await {
+            match codex.ensure_fresh_codex_for(user_id).await {
                 Ok(Some(blob)) => {
                     credentials.insert(CODEX_AUTH_JSON.to_string(), blob);
                 }
@@ -170,6 +156,9 @@ pub async fn resolve_task_openai_credentials(
             }
         }
         _ => {}
+    }
+    if let Some(provider_tokens) = provider_tokens {
+        fill_openai_key(&mut credentials, provider_tokens, user_id).await;
     }
     let scoped = resolve_scoped_secrets(secrets, user_id, "").await;
     fill_missing_from_scoped(&mut credentials, scoped);
@@ -182,10 +171,31 @@ pub async fn resolve_task_openai_credentials(
     credentials
 }
 
-/// Whether `key` names a credential only the backend's proxies present. A
-/// Workspace pins `GITHUB_TOKEN` like any other provider key.
+/// Whether `key` names a credential only the backend's proxies and model
+/// gateway present. A Workspace pins `GITHUB_TOKEN` like any other provider
+/// key.
 fn is_proxied_credential_key(key: &str) -> bool {
-    matches!(key, GITHUB_TOKEN | GH_TOKEN) || is_forgejo_credential_key(key)
+    matches!(key, GITHUB_TOKEN | GH_TOKEN)
+        || is_forgejo_credential_key(key)
+        || is_model_credential_key(key)
+}
+
+/// Whether `key` is one the model gateway calls upstream with, which no
+/// channel reaching a pod may carry.
+///
+/// A base URL counts: the gateway reads it as the upstream, and in a pod it
+/// would point the agent past the gateway.
+pub fn is_model_credential_key(key: &str) -> bool {
+    matches!(
+        key,
+        ANTHROPIC_API_KEY
+            | ANTHROPIC_AUTH_TOKEN
+            | ANTHROPIC_BASE_URL
+            | CLAUDE_CODE_OAUTH_TOKEN
+            | OPENAI_API_KEY
+            | OPENAI_BASE_URL
+            | CODEX_AUTH_JSON
+    )
 }
 
 /// Resolve the GitHub token a task's run-as identity presents through the
@@ -402,28 +412,6 @@ async fn resolve_scoped_secrets(
     }
 }
 
-async fn fill_provider_tokens(
-    credentials: &mut HashMap<String, String>,
-    provider_tokens: Option<&Arc<dyn HarnessCredentials>>,
-    user_id: &str,
-    credential_sync: Option<&Arc<dyn CodexCredentials>>,
-    current_task_id: Option<&str>,
-) {
-    let Some(provider_tokens) = provider_tokens else {
-        return;
-    };
-
-    fill_model_provider_tokens(credentials, provider_tokens, user_id).await;
-    fill_codex(
-        credentials,
-        provider_tokens,
-        credential_sync,
-        user_id,
-        current_task_id,
-    )
-    .await;
-}
-
 /// The repository a task's git-host token is minted against.
 fn task_git_host_repo(repository: Option<&Repository>) -> Option<&GitHostRepo> {
     let repository = repository?;
@@ -477,83 +465,25 @@ fn insert_token(
     }
 }
 
-/// Resolve `CODEX_AUTH_JSON` for this task.
-///
-/// Delegates to [`CodexCredentials::ensure_fresh_codex_for`]; without that
-/// orchestrator wired (tests / no-DB), walks the same `user > global` chain via
-/// raw DAO reads with no refresh.
-async fn fill_codex(
-    credentials: &mut HashMap<String, String>,
-    provider_tokens: &Arc<dyn HarnessCredentials>,
-    credential_sync: Option<&Arc<dyn CodexCredentials>>,
-    user_id: &str,
-    current_task_id: Option<&str>,
-) {
-    if credentials.contains_key(CODEX_AUTH_JSON) {
-        return;
-    }
-
-    if let Some(svc) = credential_sync {
-        match svc.ensure_fresh_codex_for(user_id, current_task_id).await {
-            Ok(Some(blob)) => {
-                credentials.insert(CODEX_AUTH_JSON.to_string(), blob);
-            }
-            // No codex row at any scope — leave the slot empty and let the
-            // scoped-secret fallback try the env-var blob.
-            Ok(None) => {}
-            Err(e) => {
-                warn!(error = %e, user_id, "ensure_fresh_codex_for failed");
-            }
-        }
-        return;
-    }
-
-    // No CredentialService: walk user > global with raw DAO reads.
-    use moatless_types::agent::CodexScope;
-    let scopes = [CodexScope::user(user_id), CodexScope::Global];
-
-    for scope in scopes {
-        match provider_tokens.codex_blob(&scope).await {
-            Ok(Some(blob)) => {
-                credentials.insert(CODEX_AUTH_JSON.to_string(), blob);
-                return;
-            }
-            Ok(None) => continue,
-            Err(e) => {
-                warn!(error = %e, scope = %scope, "Failed to query codex provider_token");
-            }
-        }
-    }
-}
-
-/// Resolve the model credentials this task's sandbox needs.
-///
-/// Git hosts are not here: they go through `GitHostTokenIssuer`, which is the
-/// one way to a git-host token.
-async fn fill_model_provider_tokens(
+/// Fill `OPENAI_API_KEY` from the user's stored OpenAI key, unless one already
+/// resolved.
+async fn fill_openai_key(
     credentials: &mut HashMap<String, String>,
     provider_tokens: &Arc<dyn HarnessCredentials>,
     user_id: &str,
 ) {
-    for (provider, cred_key) in [("openai", OPENAI_API_KEY)] {
-        if credentials.contains_key(cred_key) {
-            continue;
+    if credentials.contains_key(OPENAI_API_KEY) {
+        return;
+    }
+    match provider_tokens.provider_token(user_id, "openai").await {
+        Ok(Some(token)) => {
+            credentials.insert(OPENAI_API_KEY.to_string(), token);
         }
-        match provider_tokens.provider_token(user_id, provider).await {
-            Ok(Some(token)) => {
-                credentials.insert(cred_key.to_string(), token);
-            }
-            Ok(None) => {}
-            Err(e) => {
-                warn!(error = %e, user_id, provider, "Failed to query provider_token");
-            }
+        Ok(None) => {}
+        Err(e) => {
+            warn!(error = %e, user_id, "Failed to query openai provider_token");
         }
     }
-
-    // Codex is resolved through `fill_codex` which walks user > global in one
-    // pass; intentionally not handled here.
-
-    fill_claude_token(credentials, provider_tokens, user_id).await;
 }
 
 /// Fill `CLAUDE_CODE_OAUTH_TOKEN` from the user's connected Claude account,
@@ -781,15 +711,6 @@ mod tests {
         Arc::new(issuer)
     }
 
-    /// A harness-credential port holding nothing, so a model credential can
-    /// only come from a pinned Workspace value or the secret store.
-    fn no_provider_tokens() -> Arc<dyn HarnessCredentials> {
-        let mut tokens = MockHarnessCredentials::new();
-        tokens.expect_provider_token().returning(|_, _| Ok(None));
-        tokens.expect_codex_blob().returning(|_| Ok(None));
-        Arc::new(tokens)
-    }
-
     fn secrets_holding(entries: &[(&str, &str)]) -> Arc<dyn SecretResolver> {
         let resolved: HashMap<String, String> = entries
             .iter()
@@ -806,7 +727,6 @@ mod tests {
     /// workspace.
     fn workspace_github_inputs<'a>(
         actor: &'a Actor,
-        provider_tokens: &'a Arc<dyn HarnessCredentials>,
         git_host_tokens: &'a Arc<dyn GitHostTokenIssuer>,
         secrets: Option<&'a Arc<dyn SecretResolver>>,
         workspace_credentials: HashMap<String, String>,
@@ -815,10 +735,8 @@ mod tests {
             task_id: "t1",
             actor,
             secrets,
-            provider_tokens: Some(provider_tokens),
             git_host_tokens: Some(git_host_tokens),
             users: None,
-            credential_sync: None,
             workspace_credentials,
             workspace_env_vars: HashMap::new(),
         }
@@ -944,16 +862,9 @@ mod tests {
     #[tokio::test]
     async fn a_workspace_env_git_host_token_never_suppresses_the_resolver() {
         let actor = Actor::of("u1");
-        let provider_tokens = no_provider_tokens();
         let git_host_tokens = issuer(Some("glpat_validated"));
 
-        let mut inputs = workspace_github_inputs(
-            &actor,
-            &provider_tokens,
-            &git_host_tokens,
-            None,
-            HashMap::new(),
-        );
+        let mut inputs = workspace_github_inputs(&actor, &git_host_tokens, None, HashMap::new());
         inputs.workspace_env_vars = HashMap::from([
             (GITLAB_TOKEN.to_string(), "glpat_bypass".to_string()),
             (GH_TOKEN.to_string(), "ghp_bypass".to_string()),
@@ -978,13 +889,13 @@ mod tests {
             HashMap::from([
                 (GH_TOKEN.to_string(), "ghp_unvalidated".to_string()),
                 (GIT_TOKEN.to_string(), "ghp_unvalidated".to_string()),
-                (OPENAI_API_KEY.to_string(), "sk-fine".to_string()),
+                ("GRAFANA_TOKEN".to_string(), "glsa-fine".to_string()),
             ]),
         );
 
         assert_eq!(
             credentials,
-            HashMap::from([(OPENAI_API_KEY.to_string(), "sk-fine".to_string())])
+            HashMap::from([("GRAFANA_TOKEN".to_string(), "glsa-fine".to_string())])
         );
     }
 
@@ -1103,7 +1014,7 @@ mod tests {
         reader.expect_resolve_env().returning(|_| {
             Ok(HashMap::from([
                 (GITHUB_TOKEN.to_string(), "ghp_workspace".to_string()),
-                (OPENAI_API_KEY.to_string(), "sk-workspace".to_string()),
+                ("GRAFANA_TOKEN".to_string(), "glsa-workspace".to_string()),
             ]))
         });
         let reader: Arc<dyn WorkspaceCredentialReader> = Arc::new(reader);
@@ -1115,7 +1026,6 @@ mod tests {
 
         let credentials = resolve_task_credentials(workspace_github_inputs(
             &actor,
-            &no_provider_tokens(),
             &issuer(Some("gho_from_user")),
             Some(&secrets),
             pinned,
@@ -1124,7 +1034,7 @@ mod tests {
 
         assert!(!credentials.contains_key(GITHUB_TOKEN));
         assert!(!credentials.contains_key(GH_TOKEN));
-        assert_eq!(credentials[OPENAI_API_KEY], "sk-workspace");
+        assert_eq!(credentials["GRAFANA_TOKEN"], "glsa-workspace");
         assert_eq!(
             credentials[GITLAB_TOKEN], "gho_from_user",
             "GitLab is still delivered"
@@ -1136,20 +1046,19 @@ mod tests {
         // End to end through `resolve_task_credentials`: the workspace value
         // must beat the user's provider_token *and* the scoped secret that
         // would otherwise fill the same slot.
-        let pinned = HashMap::from([(OPENAI_API_KEY.to_string(), "sk-workspace".to_string())]);
-        let secrets = secrets_holding(&[(OPENAI_API_KEY, "sk-from-secret")]);
+        let pinned = HashMap::from([("GRAFANA_TOKEN".to_string(), "glsa-workspace".to_string())]);
+        let secrets = secrets_holding(&[("GRAFANA_TOKEN", "glsa-from-secret")]);
 
         let actor = Actor::of("u1");
         let credentials = resolve_task_credentials(workspace_github_inputs(
             &actor,
-            &no_provider_tokens(),
             &issuer(None),
             Some(&secrets),
             pinned,
         ))
         .await;
 
-        assert_eq!(credentials[OPENAI_API_KEY], "sk-workspace");
+        assert_eq!(credentials["GRAFANA_TOKEN"], "glsa-workspace");
     }
 
     #[tokio::test]
@@ -1171,7 +1080,6 @@ mod tests {
 
         let credentials = resolve_task_credentials(workspace_github_inputs(
             &actor,
-            &no_provider_tokens(),
             &git_host_tokens,
             None,
             HashMap::new(),
@@ -1214,7 +1122,6 @@ mod tests {
 
         let credentials = resolve_task_credentials(workspace_github_inputs(
             &actor,
-            &no_provider_tokens(),
             &issuer(None),
             Some(&secrets),
             HashMap::new(),
@@ -1231,15 +1138,15 @@ mod tests {
         use moatless_core::secret_keys::{FORGEJO_TOKEN, forgejo_oauth_stash_key};
 
         let stash = forgejo_oauth_stash_key("git.acme.dev");
-        let secrets =
-            secrets_holding(&[(stash.as_str(), "oauth-stash"), (OPENAI_API_KEY, "sk-fine")]);
+        let secrets = secrets_holding(&[
+            (stash.as_str(), "oauth-stash"),
+            ("GRAFANA_TOKEN", "glsa-fine"),
+        ]);
         let actor = Actor::of("u1");
-        let provider_tokens = no_provider_tokens();
         let issuer = issuer(None);
 
         let mut inputs = workspace_github_inputs(
             &actor,
-            &provider_tokens,
             &issuer,
             Some(&secrets),
             HashMap::from([(FORGEJO_TOKEN.to_string(), "pinned".to_string())]),
@@ -1253,7 +1160,66 @@ mod tests {
 
         assert_eq!(
             credentials,
-            HashMap::from([(OPENAI_API_KEY.to_string(), "sk-fine".to_string())])
+            HashMap::from([("GRAFANA_TOKEN".to_string(), "glsa-fine".to_string())])
+        );
+    }
+
+    /// Every model is reached through the backend's gateway, so no model key
+    /// or base URL reaches a pod on any of the three channels one arrives by.
+    #[tokio::test]
+    async fn no_model_credential_reaches_a_pod_whatever_its_source() {
+        let model_keys = [
+            ANTHROPIC_API_KEY,
+            ANTHROPIC_AUTH_TOKEN,
+            ANTHROPIC_BASE_URL,
+            CLAUDE_CODE_OAUTH_TOKEN,
+            OPENAI_API_KEY,
+            OPENAI_BASE_URL,
+            CODEX_AUTH_JSON,
+        ];
+        let entries: Vec<(&str, &str)> = model_keys.iter().map(|key| (*key, "leaked")).collect();
+        let secrets = secrets_holding(&entries);
+        let actor = Actor::of("u1");
+        let issuer = issuer(None);
+        let as_map = |keys: &[&str]| -> HashMap<String, String> {
+            keys.iter()
+                .map(|key| ((*key).to_string(), "leaked".to_string()))
+                .collect()
+        };
+
+        let mut inputs =
+            workspace_github_inputs(&actor, &issuer, Some(&secrets), as_map(&model_keys));
+        inputs.workspace_env_vars = as_map(&model_keys);
+
+        let credentials = resolve_task_credentials(inputs).await;
+
+        assert!(credentials.is_empty(), "delivered {credentials:?}");
+    }
+
+    /// The user's stored OpenAI key, which no pod receives, is what the
+    /// gateway presents for them.
+    #[tokio::test]
+    async fn the_gateway_presents_the_users_stored_openai_key() {
+        let mut stored = MockHarnessCredentials::new();
+        stored
+            .expect_provider_token()
+            .withf(|user_id, provider| user_id == "u1" && provider == "openai")
+            .returning(|_, _| Ok(Some("sk-stored".to_string())));
+        let stored: Arc<dyn HarnessCredentials> = Arc::new(stored);
+
+        let credentials = resolve_task_openai_credentials(
+            &Actor::of("u1"),
+            None,
+            Some(&stored),
+            None,
+            HashMap::new(),
+            HashMap::new(),
+        )
+        .await;
+
+        assert_eq!(
+            credentials.get(OPENAI_API_KEY).map(String::as_str),
+            Some("sk-stored")
         );
     }
 

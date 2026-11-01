@@ -218,7 +218,6 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
     let codex_http = Arc::new(codex_http(config.http.codex));
     let credentials = moatless_identity::compose::credentials(
         pool.clone(),
-        secrets.clone(),
         codex_http.clone(),
         config.codex_oauth.refresh_url.clone(),
     );

@@ -14,7 +14,6 @@ use moatless_identity::credentials::codex::oauth::DeviceCodeStart;
 use moatless_identity::credentials::codex::oauth::PollStatus;
 use moatless_identity::credentials::{CredentialError, CredentialService};
 use moatless_ports::identity::UserDisplay;
-use moatless_tasks::credential_sync::CredentialSync;
 use moatless_types::agent::CodexOAuthConfig;
 use moatless_types::agent::CodexScope;
 use moatless_types::http::HttpTimeouts;
@@ -138,7 +137,6 @@ fn authorize_scope(
 
 pub struct AgentHarnessAccess {
     credentials: Arc<CredentialService>,
-    credential_sync: Arc<CredentialSync>,
     oauth_config: Arc<CodexOAuthConfig>,
     device_login: Arc<dyn CodexDeviceLoginProvider>,
     users: Arc<dyn UserDisplay>,
@@ -147,14 +145,12 @@ pub struct AgentHarnessAccess {
 impl AgentHarnessAccess {
     pub fn new(
         credentials: Arc<CredentialService>,
-        credential_sync: Arc<CredentialSync>,
         oauth_config: Arc<CodexOAuthConfig>,
         device_login: Arc<dyn CodexDeviceLoginProvider>,
         users: Arc<dyn UserDisplay>,
     ) -> Self {
         Self {
             credentials,
-            credential_sync,
             oauth_config,
             device_login,
             users,
@@ -205,9 +201,6 @@ impl AgentHarnessAccess {
             .store_codex_credential(&scope, &serialized, &metadata)
             .await
             .map_err(credential_error)?;
-        self.credential_sync
-            .broadcast_codex_rotation(&scope, &serialized)
-            .await;
         Ok(AgentHarnessCredentialStatus {
             connected: true,
             token_type: Some("auth_json".to_string()),
@@ -296,9 +289,6 @@ impl AgentHarnessAccess {
                     .store_codex_credential(&scope, &serialized, &metadata)
                     .await
                     .map_err(credential_error)?;
-                self.credential_sync
-                    .broadcast_codex_rotation(&scope, &serialized)
-                    .await;
                 Ok(DeviceLoginPoll::Success {
                     connected: true,
                     email: id_token_claims.email,
@@ -344,15 +334,13 @@ fn metadata_string(metadata: Option<&serde_json::Value>, key: &str) -> Option<St
 mod tests {
     use std::sync::atomic::Ordering;
 
-    use moatless_ports::sandbox::{CredentialBroadcast, SandboxError};
-    use tokio::sync::{Mutex, mpsc};
+    use tokio::sync::Mutex;
 
     use super::*;
     use moatless_identity::auth::test_support::StubProviderTokens;
     use moatless_identity::credentials::codex::oauth::IdTokenClaims;
     use moatless_identity::credentials::test_support::credentials_over_stub;
     use moatless_ports::identity::MockUserDisplay;
-    use moatless_tasks::task::test_support::ScriptedTasks;
 
     struct FakeDeviceLogin {
         poll: Mutex<Option<PollStatus>>,
@@ -384,38 +372,9 @@ mod tests {
         }
     }
 
-    struct PersistObservingBroadcast {
-        tokens: Arc<StubProviderTokens>,
-        observed: mpsc::Sender<bool>,
-    }
-
-    #[async_trait]
-    impl CredentialBroadcast for PersistObservingBroadcast {
-        async fn refresh_credential(
-            &self,
-            _task_id: &str,
-            _key: &str,
-            _value: &str,
-        ) -> Result<(), SandboxError> {
-            let _ = self
-                .observed
-                .try_send(self.tokens.writes.load(Ordering::Acquire) > 0);
-            Err(SandboxError::NotReady("test broadcast".to_string()))
-        }
-    }
-
-    fn access(
-        tokens: Arc<StubProviderTokens>,
-        poll: PollStatus,
-        open_codex_tasks: Vec<String>,
-        broadcast: Arc<dyn CredentialBroadcast>,
-    ) -> AgentHarnessAccess {
-        let credentials = credentials_over_stub(tokens);
+    fn access(tokens: Arc<StubProviderTokens>, poll: PollStatus) -> AgentHarnessAccess {
         AgentHarnessAccess::new(
-            Arc::clone(&credentials),
-            ScriptedTasks::new()
-                .open_codex_tasks(open_codex_tasks)
-                .credential_sync(credentials, broadcast),
+            credentials_over_stub(tokens),
             Arc::new(CodexOAuthConfig {
                 issuer: "https://auth.example".to_string(),
                 client_id: "client".to_string(),
@@ -429,48 +388,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn save_persists_before_sandbox_fan_out() {
-        let tokens = Arc::new(StubProviderTokens::default());
-        let (tx, mut rx) = mpsc::channel(8);
-        let broadcast = Arc::new(PersistObservingBroadcast {
-            tokens: Arc::clone(&tokens),
-            observed: tx,
-        });
-        let access = access(
-            tokens,
-            PollStatus::Pending,
-            vec!["task-1".to_string()],
-            broadcast,
-        );
-
-        access
-            .save(
-                &ScopeContext::user("u1"),
-                CodexScope::user("u1"),
-                r#"{"tokens":{"access_token":"a","refresh_token":"r"}}"#.to_string(),
-            )
-            .await
-            .expect("credential should save");
-
-        let persisted = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
-            .await
-            .expect("sandbox fan-out should run")
-            .expect("broadcast should report the observation");
-        assert!(persisted, "persistence must precede sandbox fan-out");
-    }
-
-    #[tokio::test]
     async fn direct_non_admin_calls_cannot_read_or_mutate_other_scopes() {
         let tokens = Arc::new(StubProviderTokens::default());
-        let access = access(
-            Arc::clone(&tokens),
-            PollStatus::Pending,
-            Vec::new(),
-            Arc::new(PersistObservingBroadcast {
-                tokens: Arc::clone(&tokens),
-                observed: mpsc::channel(1).0,
-            }),
-        );
+        let access = access(Arc::clone(&tokens), PollStatus::Pending);
         let ctx = ScopeContext::user("caller");
         for scope in [CodexScope::Global, CodexScope::user("other")] {
             assert!(matches!(
@@ -501,15 +421,7 @@ mod tests {
     async fn device_poll_only_writes_on_success() {
         for poll in [PollStatus::Pending, PollStatus::Expired] {
             let tokens = Arc::new(StubProviderTokens::default());
-            let access = access(
-                Arc::clone(&tokens),
-                poll,
-                Vec::new(),
-                Arc::new(PersistObservingBroadcast {
-                    tokens: Arc::clone(&tokens),
-                    observed: mpsc::channel(1).0,
-                }),
-            );
+            let access = access(Arc::clone(&tokens), poll);
 
             access
                 .poll_device_login(&ScopeContext::user("u1"), "device", "code")
@@ -525,11 +437,6 @@ mod tests {
                 auth_json: serde_json::json!({"tokens": {"access_token": "a"}}),
                 id_token_claims: IdTokenClaims::default(),
             },
-            Vec::new(),
-            Arc::new(PersistObservingBroadcast {
-                tokens: Arc::clone(&tokens),
-                observed: mpsc::channel(1).0,
-            }),
         );
         access
             .poll_device_login(&ScopeContext::user("u1"), "device", "code")

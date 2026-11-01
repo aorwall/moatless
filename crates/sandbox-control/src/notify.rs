@@ -8,7 +8,7 @@ use sandbox_proto::client::{SandboxConnector, classify_grpc_error};
 use moatless_sandbox_runtime::operation::ObservedStatus;
 
 use crate::lifecycle::{Lifecycle, LifecycleError, NotifyPort};
-use moatless_ports::sandbox::{CredentialBroadcast, SandboxError, SandboxWaker};
+use moatless_ports::sandbox::{SandboxError, SandboxWaker};
 
 /// Ping a Task's sandbox through the connector so background owners never
 /// construct service names or raw gRPC URLs.
@@ -129,9 +129,18 @@ impl SandboxWaker for SandboxWakeService {
     }
 }
 
-/// Sandbox-control implementation of the [`CredentialBroadcast`] port.
-///
-/// Owns the connector so the tasks-band fan-out names no gRPC type.
+/// Push one credential to a task's running sandbox.
+#[async_trait]
+pub trait CredentialBroadcast: Send + Sync {
+    async fn refresh_credential(
+        &self,
+        task_id: &str,
+        key: &str,
+        value: &str,
+    ) -> Result<(), SandboxError>;
+}
+
+/// [`CredentialBroadcast`] over the sandbox's gRPC `RefreshCredential`.
 pub struct CredentialBroadcastService {
     connector: Arc<dyn SandboxConnector>,
 }

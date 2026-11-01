@@ -15,7 +15,7 @@ use moatless_workspace_types::workspace::ResourceConfig;
 
 use crate::lifecycle::dao::LifecycleDao;
 use crate::preflight::preflight_validate_sandbox_control;
-use crate::secrets::is_platform_owned_key;
+use crate::secrets::{is_model_credential_key, is_platform_owned_key};
 use moatless_ports::identity::CommitIdentity;
 use moatless_sandbox_runtime::error::SandboxError;
 use moatless_sandbox_runtime::provisioning::{ProvisionRequest, RepoConfig};
@@ -52,13 +52,13 @@ pub fn build_repo_config_from_workspace(ws: &ResolvedWorkspace) -> RepoConfig {
 }
 
 /// The environment variables a workspace declares, less the keys the platform
-/// owns.
+/// owns and the model credentials only the model gateway reads.
 ///
 /// Appended into the container env after the platform's own, where a later
 /// entry of the same name wins.
 pub fn parse_env_vars_from_workspace(ws: &ResolvedWorkspace) -> Option<HashMap<String, String>> {
     let mut env_vars = ws.env_vars.clone()?;
-    env_vars.retain(|key, _| !is_platform_owned_key(key));
+    env_vars.retain(|key, _| !is_platform_owned_key(key) && !is_model_credential_key(key));
     Some(env_vars)
 }
 
@@ -553,6 +553,8 @@ mod tests {
             ("GITHUB_TOKEN".to_string(), "ghp_bypass".to_string()),
             ("GH_TOKEN".to_string(), "ghp_bypass".to_string()),
             ("GIT_TOKEN".to_string(), "ghp_bypass".to_string()),
+            ("ANTHROPIC_AUTH_TOKEN".to_string(), "hub-key".to_string()),
+            ("OPENAI_BASE_URL".to_string(), "http://hub/v1".to_string()),
             ("BUILD_PROFILE".to_string(), "release".to_string()),
         ])))
         .expect("a workspace that declares vars still yields a map");

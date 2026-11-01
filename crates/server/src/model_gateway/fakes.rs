@@ -8,11 +8,7 @@ pub struct FixedCodex(pub Option<&'static str>);
 
 #[async_trait]
 impl CodexCredentials for FixedCodex {
-    async fn ensure_fresh_codex_for(
-        &self,
-        _user_id: &str,
-        _except_task_id: Option<&str>,
-    ) -> Result<Option<String>, String> {
+    async fn ensure_fresh_codex_for(&self, _user_id: &str) -> Result<Option<String>, String> {
         Ok(self.0.map(str::to_string))
     }
 }

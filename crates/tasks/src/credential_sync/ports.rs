@@ -7,12 +7,8 @@ use moatless_identity::credentials::CredentialError;
 /// credential anywhere" told apart from a failure.
 #[async_trait::async_trait]
 impl moatless_ports::sandbox::CodexCredentials for CredentialSync {
-    async fn ensure_fresh_codex_for(
-        &self,
-        user_id: &str,
-        except_task_id: Option<&str>,
-    ) -> Result<Option<String>, String> {
-        match CredentialSync::ensure_fresh_codex_for(self, user_id, except_task_id).await {
+    async fn ensure_fresh_codex_for(&self, user_id: &str) -> Result<Option<String>, String> {
+        match CredentialSync::ensure_fresh_codex_for(self, user_id).await {
             Ok(blob) => Ok(Some(blob)),
             Err(CredentialError::NotFound(_)) => Ok(None),
             Err(e) => Err(e.to_string()),

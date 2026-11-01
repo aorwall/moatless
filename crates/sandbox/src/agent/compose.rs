@@ -1,6 +1,6 @@
 use crate::agent::handle::AgentHandle;
 use std::collections::HashMap;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use moatless_types::agent::{AgentProfile, AgentSubType};
 use tokio::sync::RwLock;
@@ -88,7 +88,6 @@ pub fn spawn_agent(
     commands: Arc<crate::commands::CommandRegistry>,
     credential_failures: CredentialFailureDetector,
     credential_dispatcher: Arc<Dispatcher>,
-    codex_via_gateway: Arc<OnceLock<bool>>,
     system_prompt_cache: Arc<RwLock<Option<String>>>,
     heartbeat: crate::agent::heartbeat::Heartbeat,
     workspace_sync: crate::workspace_sync::WorkspaceSyncTracker,
@@ -125,7 +124,6 @@ pub fn spawn_agent(
                 // service sees the credential flags Codex raises mid-Turn.
                 credential_failures.clone(),
                 Arc::clone(&credential_dispatcher),
-                Arc::clone(&codex_via_gateway),
                 workspace_sync,
             )
             .with_harness_factory({
@@ -200,14 +198,6 @@ mod tests {
         async fn get_credentials(&self, _task_id: &str) -> Result<GetCredentialsResponse, Status> {
             Err(Status::unimplemented("nop"))
         }
-        async fn update_credential(
-            &self,
-            _task_id: &str,
-            _key: &str,
-            _value: &str,
-        ) -> Result<(), Status> {
-            Err(Status::unimplemented("nop"))
-        }
         async fn get_system_prompt(&self, _task_id: &str) -> Result<String, Status> {
             Err(Status::unimplemented("nop"))
         }
@@ -251,7 +241,6 @@ mod tests {
             Arc::new(crate::commands::CommandRegistry::for_test()),
             CredentialFailureDetector::default(),
             Arc::new(Dispatcher::new()),
-            Default::default(),
             Arc::new(RwLock::new(None)),
             Heartbeat::new(),
             crate::workspace_sync::WorkspaceSyncTracker::new(),
@@ -294,7 +283,6 @@ mod tests {
             Arc::new(crate::commands::CommandRegistry::for_test()),
             CredentialFailureDetector::default(),
             Arc::new(Dispatcher::new()),
-            Default::default(),
             Arc::new(RwLock::new(None)),
             Heartbeat::new(),
             crate::workspace_sync::WorkspaceSyncTracker::new(),

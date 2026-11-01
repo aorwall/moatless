@@ -114,7 +114,6 @@ fn service_with_credentials(
         Arc::new(crate::commands::CommandRegistry::for_test()),
         detector,
         dispatcher,
-        Default::default(),
         crate::workspace_sync::WorkspaceSyncTracker::new(),
     );
     let (tx, rx) = mpsc::channel::<AgentCommand>(64);

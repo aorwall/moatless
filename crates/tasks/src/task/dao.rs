@@ -323,17 +323,6 @@ pub(crate) trait TaskDao: Send + Sync {
         user_id: &str,
         task_ids: &[String],
     ) -> Result<std::collections::HashSet<String>, sqlx::Error>;
-
-    /// Open codex tasks in scope whose pod refreshes its own Codex login,
-    /// except `except_task_id` (`""` for none). `scope_kind` is `"user"` or
-    /// `"global"`. A `codex_via_gateway` Sandbox never refreshes, so yielding
-    /// to it would serve an expired login.
-    async fn list_open_codex_tasks_for_scope(
-        &self,
-        scope_kind: String,
-        scope_id: String,
-        except_task_id: String,
-    ) -> Result<Vec<String>, sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`TaskDao`].
@@ -1507,55 +1496,6 @@ impl TaskDao for PgTaskDao {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows.into_iter().map(|(id,)| id).collect())
-    }
-
-    async fn list_open_codex_tasks_for_scope(
-        &self,
-        scope_kind: String,
-        scope_id: String,
-        except_task_id: String,
-    ) -> Result<Vec<String>, sqlx::Error> {
-        let except = if except_task_id.is_empty() {
-            None
-        } else {
-            Some(except_task_id.as_str())
-        };
-        let rows: Vec<(String,)> = match scope_kind.as_str() {
-            "user" => {
-                sqlx::query_as(
-                    r#"SELECT task_id FROM tasks
-                       WHERE status = 'open'
-                         AND agent_profile = 'codex'
-                         AND created_by = $1
-                         AND ($2::text IS NULL OR task_id <> $2)
-                         AND NOT EXISTS (
-                             SELECT 1 FROM sandboxes s
-                             WHERE s.sandbox_id = tasks.sandbox_id AND s.codex_via_gateway
-                         )"#,
-                )
-                .bind(&scope_id)
-                .bind(except)
-                .fetch_all(&self.pool)
-                .await?
-            }
-            "global" => {
-                sqlx::query_as(
-                    r#"SELECT task_id FROM tasks
-                       WHERE status = 'open'
-                         AND agent_profile = 'codex'
-                         AND ($1::text IS NULL OR task_id <> $1)
-                         AND NOT EXISTS (
-                             SELECT 1 FROM sandboxes s
-                             WHERE s.sandbox_id = tasks.sandbox_id AND s.codex_via_gateway
-                         )"#,
-                )
-                .bind(except)
-                .fetch_all(&self.pool)
-                .await?
-            }
-            _ => Vec::new(),
-        };
         Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 }

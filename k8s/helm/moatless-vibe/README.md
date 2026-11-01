@@ -348,30 +348,25 @@ gets a bar only for a window Anthropic has rejected.
 
 #### Routing agent traffic through the hub
 
-Set these on a Workspace's `env_vars`, which reach the sandbox pod verbatim:
+Every sandbox's Claude and Codex call the backend's model gateway,
+`{BACKEND_API_URL}/llm/anthropic` and `/llm/openai/v1`, with the task token as
+their key, and no sandbox holds a provider credential. The backend calls the
+provider with the task's own credential: its `ANTHROPIC_AUTH_TOKEN`,
+`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, else its connected Claude account or
+Codex login. A task with none of those goes to the hub with the api-key stored
+under `modelGateway.hubKeySecretKey` in the chart's Secret.
+
+To pin a Workspace to the hub, set these on its `env_vars`, which the gateway
+reads and the sandbox pod never receives:
 
 ```
 ANTHROPIC_BASE_URL=http://<release>-cliproxy.<namespace>.svc.cluster.local:8317
 ANTHROPIC_AUTH_TOKEN=<an api-key minted in the UI>
 ```
 
-Sandbox egress is allow-listed, and the default rule covers `0.0.0.0/0:443` with
-the private ranges excluded — so a ClusterIP on 8317 is **denied** until the
-deployment also grants it. Add a matching entry to
-`networkPolicy.sandbox.extraInClusterEgress`, or the agent hangs instead of
-failing.
-
-#### The backend's model gateway
-
-With `modelGateway.enabled`, each sandbox's Claude calls
-`{BACKEND_API_URL}/llm/anthropic` with its task token as `ANTHROPIC_API_KEY`,
-and the backend calls Anthropic with the task's own credential: its
-`ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY`, else its connected Claude
-account. A task with none of those goes to the hub with the api-key stored
-under `modelGateway.hubKeySecretKey` in the chart's Secret. A task's
-`ANTHROPIC_BASE_URL` is honoured only when it is Anthropic's API or the hub's
-in-cluster address, so the Workspace `env_vars` above keep working once the
-gateway is on. The backend, not the sandbox, then needs egress to Anthropic.
+A task's `ANTHROPIC_BASE_URL` or `OPENAI_BASE_URL` is honoured only when it is
+the provider's API or the hub's in-cluster address. The backend, not the
+sandbox, needs egress to the providers and the hub.
 
 #### Exposing it
 

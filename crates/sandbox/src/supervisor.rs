@@ -32,7 +32,6 @@ pub const SHUTDOWN_JOIN_DEADLINE: Duration = Duration::from_secs(2);
 /// possibly all before [`Supervisor::run`] drains one, so the registration
 /// queue holds exactly this many. A test pins it to the `supervise` calls.
 const REGISTRANTS: &[&str] = &[
-    "codex-auth-watcher",
     "credential-broker",
     "credential-refresher",
     "event-outbox-drainer",
