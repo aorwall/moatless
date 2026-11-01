@@ -53,7 +53,7 @@ pub(crate) fn server_spec(server: LanguageServer) -> ServerSpec {
             command: "rust-analyzer",
             args: &[],
             extensions: &[(".rs", "rust")],
-            initialization_options: |_| Value::Null,
+            initialization_options: |_| rust_analyzer_options(),
         },
         // `docker/features/java/moatless-jdtls` adds the CodeArtifact token,
         // Lombok and a data directory to JDT.LS.
@@ -64,6 +64,17 @@ pub(crate) fn server_spec(server: LanguageServer) -> ServerSpec {
             initialization_options: jdtls_options,
         },
     }
+}
+
+/// rust-analyzer settings that keep it inside a sandbox's memory. On this repo
+/// its defaults hold 4.8 GiB, and 7.4 GiB with the `cargo check` that
+/// `checkOnSave` runs beside the agent's own build; these hold 2.7 GiB. Lookups
+/// load crates as they reach them rather than priming all at once.
+fn rust_analyzer_options() -> Value {
+    json!({
+        "cachePriming": { "enable": false },
+        "checkOnSave": false,
+    })
 }
 
 /// JDT.LS settings for navigation. Without `autobuild` off it compiles into
@@ -362,6 +373,13 @@ mod tests {
             lsp["rust"]["args"],
             json!(["lsp-proxy", "/run/moatless/lsp/rust.sock"])
         );
+    }
+
+    #[test]
+    fn rust_analyzer_neither_primes_every_crate_nor_checks_on_save() {
+        let options = (server_spec(LanguageServer::Rust).initialization_options)(Path::new("/"));
+        assert_eq!(options["cachePriming"]["enable"], false);
+        assert_eq!(options["checkOnSave"], false);
     }
 
     #[test]
