@@ -107,16 +107,40 @@ pub struct BranchEntry {
 }
 
 /// Resolved facts about the repository's remote.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", into = "RepositoryRemoteWire")]
 pub struct RepositoryRemoteResponse {
     pub url: String,
     pub host_repo: Option<GitHostRepoResponse>,
 }
 
+/// [`RepositoryRemoteResponse`] as the API serializes it, plus a retired
+/// `usesSsh: false`.
+///
+/// A `moat` CLI older than migration 0216 requires `usesSsh` and refuses the
+/// whole repository response without it, which breaks `moat gh pr create`'s
+/// repository lookup in pods and on users' machines.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RepositoryRemoteWire {
+    url: String,
+    uses_ssh: bool,
+    host_repo: Option<GitHostRepoResponse>,
+}
+
+impl From<RepositoryRemoteResponse> for RepositoryRemoteWire {
+    fn from(remote: RepositoryRemoteResponse) -> Self {
+        Self {
+            url: remote.url,
+            uses_ssh: false,
+            host_repo: remote.host_repo,
+        }
+    }
+}
+
 /// A repository's identity on its declared git host.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct GitHostRepoResponse {
@@ -131,6 +155,34 @@ mod tests {
     use crate::schemas::workspace::StorageMedium;
 
     use super::*;
+
+    /// `RepositoryRemoteResponse` as a CLI built before 0216 reads it.
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    #[expect(dead_code, reason = "only deserialization is under test")]
+    struct OldRepositoryRemote {
+        url: String,
+        uses_ssh: bool,
+        host_repo: Option<GitHostRepoResponse>,
+    }
+
+    #[test]
+    fn a_cli_from_before_0216_still_reads_the_remote() {
+        let remote = RepositoryRemoteResponse {
+            url: "https://github.com/acme/api.git".to_string(),
+            host_repo: Some(GitHostRepoResponse {
+                provider: RepositoryProvider::Github,
+                host: "github.com".to_string(),
+                owner: "acme".to_string(),
+                name: "api".to_string(),
+            }),
+        };
+        let json = serde_json::to_string(&remote).unwrap();
+        let old: OldRepositoryRemote = serde_json::from_str(&json).unwrap();
+        assert!(!old.uses_ssh);
+        let current: RepositoryRemoteResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(current.url, remote.url);
+    }
 
     #[test]
     fn resource_config_serializes_storage_switches_as_camel_case() {

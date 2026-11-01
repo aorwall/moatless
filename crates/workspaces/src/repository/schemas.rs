@@ -47,7 +47,7 @@ mod tests {
             response["remote"]["url"],
             "https://github.com/test/repo.git"
         );
-        assert!(response["remote"].get("usesSsh").is_none());
+        assert_eq!(response["remote"]["usesSsh"], false);
         assert_eq!(response["remote"]["hostRepo"]["provider"], "github");
         assert_eq!(response["remote"]["hostRepo"]["owner"], "test");
         assert_eq!(response["remote"]["hostRepo"]["name"], "repo");
