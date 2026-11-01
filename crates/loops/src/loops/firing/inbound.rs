@@ -82,13 +82,13 @@ pub async fn create_task_from_loop(
     );
 
     let run_as = config.effective_user_id();
-    let (created_by, run_as_user_id) = match params
+    // Pass the run-as even when it owns the Task: unpinned, a person who later
+    // writes in Moatless becomes the driver and the Task acts as them.
+    let created_by = params
         .requested_by
-        .filter(|user| !user.is_empty() && user != run_as)
-    {
-        Some(person) => (person, Some(run_as.to_string())),
-        None => (run_as.to_string(), None),
-    };
+        .filter(|user| !user.is_empty())
+        .unwrap_or_else(|| run_as.to_string());
+    let run_as_user_id = Some(run_as.to_string());
     let outcome = task_creation
         .open(NewTask {
             workspace_id: config.workspace_id.clone(),
@@ -290,16 +290,16 @@ mod tests {
     async fn a_chat_messages_user_id_alone_never_owns_the_task() {
         assert_eq!(
             opened_for_message("ada", None).await,
-            (Some("bot".to_string()), None)
+            (Some("bot".to_string()), Some("bot".to_string()))
         );
     }
 
     #[tokio::test]
-    async fn without_a_distinct_requester_the_loops_user_owns_the_task() {
+    async fn without_a_distinct_requester_the_loops_user_owns_the_task_and_stays_its_run_as() {
         for requested_by in [None, Some(""), Some("bot")] {
             assert_eq!(
                 opened_for(requested_by).await,
-                (Some("bot".to_string()), None),
+                (Some("bot".to_string()), Some("bot".to_string())),
                 "requested_by {requested_by:?}"
             );
         }
