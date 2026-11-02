@@ -16,6 +16,11 @@ moat tasks get <task-id> --json | jq '{taskId, sandboxId, workspaceId}'
 Create with `--agent-profile` plus `--repo`, `--workspace`, or `--same-sandbox`.
 `--same-sandbox` can take a task ID or use the ambient task; `--checkout-mode
 shared|isolated` only applies with it. `--parent` sets a parent explicitly.
+`--model` and `--effort` pick the child's model and its first turn's reasoning
+effort (`low`/`medium`/`high`/`xhigh`/`max` for Claude; `--effort` needs
+`--message`). Effort is per message: `moat send --task <id> --effort <level>`
+sets it for the turn that message starts, and a send without it runs on the
+agent's default.
 The backend sends a `created_by` parent a notice, and wakes it, each time a
 child's turn completes or errors. A notice waits for the parent's active turn to
 end, and the notices that land during one turn open the next together. The

@@ -95,6 +95,7 @@ fn create_action(context_file: &str) -> TaskAction {
         branch: None,
         agent_profile: moatless_types::agent::AgentProfile::ClaudeCode,
         model: None,
+        effort: None,
         headless: false,
     }
 }

@@ -72,6 +72,13 @@ pub struct SendArgs {
     /// next one, instead of steering the message into the turn.
     #[arg(long, requires = "task")]
     pub queue: bool,
+
+    /// With `--task`: reasoning effort for the turn this message starts, in
+    /// the harness's own vocabulary (`low`/`medium`/`high`/`xhigh`/`max` for
+    /// Claude). Effort is per message, not per task: omit it and the turn
+    /// runs on the agent's default, whatever an earlier turn used.
+    #[arg(long)]
+    pub effort: Option<String>,
 }
 
 pub async fn run(
@@ -98,7 +105,7 @@ pub async fn run(
             contexts: Vec::new(),
             file_ids: Vec::new(),
             model: None,
-            effort: None,
+            effort: args.effort,
             resume: None,
             tool_name: None,
             tool_response: None,
@@ -111,6 +118,12 @@ pub async fn run(
         let resp = moat.api().send_message(&id, &req).await?;
         output::emit(json, &resp, || println!("Message sent to task {id}."));
         return Ok(());
+    }
+
+    // Checked here rather than with clap's `requires`, which this target
+    // group does not enforce.
+    if args.effort.is_some() {
+        return Err("--effort is only supported with --task".into());
     }
 
     if let Some(login) = args.user {
@@ -168,4 +181,27 @@ pub async fn run(
     }
 
     Err("No target specified. Pass one of --task, --user, --to".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(clap::Parser)]
+    struct TestCli {
+        #[command(flatten)]
+        args: SendArgs,
+    }
+
+    fn parse(argv: &[&str]) -> Result<SendArgs, clap::Error> {
+        let mut full = vec!["moat"];
+        full.extend_from_slice(argv);
+        <TestCli as clap::Parser>::try_parse_from(full).map(|cli| cli.args)
+    }
+
+    #[test]
+    fn effort_reaches_a_task_send() {
+        let args = parse(&["--task", "t-1", "--text", "go", "--effort", "low"]).expect("parses");
+        assert_eq!(args.effort.as_deref(), Some("low"));
+    }
 }

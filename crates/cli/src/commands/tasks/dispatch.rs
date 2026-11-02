@@ -132,6 +132,13 @@ pub enum TaskAction {
         /// Model for the chosen harness, e.g. `haiku` or `gpt-5.5`
         #[arg(long)]
         model: Option<String>,
+        /// Reasoning effort for the first turn, in the harness's own
+        /// vocabulary: `low`/`medium`/`high`/`xhigh`/`max` for Claude,
+        /// `minimal`/`low`/`medium`/`high` for Codex. Requires `--message`.
+        /// Omit it to leave the agent on its own default; later turns take
+        /// theirs from `moat send --effort`.
+        #[arg(long, requires = "message")]
+        effort: Option<String>,
         /// Runs headless: no tools that wait on a person (`AskUserQuestion`,
         /// Enter/ExitPlanMode).
         ///
@@ -318,6 +325,7 @@ pub async fn run(
             branch,
             agent_profile,
             model,
+            effort,
             headless,
         } => {
             // Agent-created tasks inside a sandbox always belong to the
@@ -367,7 +375,7 @@ pub async fn run(
                 description: None,
                 file_ids,
                 model,
-                effort: None,
+                effort,
                 headless: Some(headless),
                 skills: Vec::new(),
             };
@@ -684,6 +692,23 @@ mod tests {
         };
         assert_eq!(agent_profile.as_deref(), Some("codex"));
         assert_eq!(model, None);
+    }
+
+    #[test]
+    fn create_passes_effort_through_with_a_message() {
+        let Ok(TaskAction::Create { effort, .. }) =
+            parse_create(&["--workspace", "ws_1", "--message", "go", "--effort", "high"])
+        else {
+            panic!("create parses");
+        };
+        assert_eq!(effort.as_deref(), Some("high"));
+    }
+
+    #[test]
+    fn create_rejects_effort_without_a_message() {
+        // Effort belongs to the first turn, and without --message the task
+        // starts with no turn to carry it.
+        assert!(parse_create(&["--workspace", "ws_1", "--effort", "high"]).is_err());
     }
 
     #[test]
