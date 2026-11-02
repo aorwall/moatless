@@ -4,7 +4,7 @@ const MAX_CONTEXT_CHARS: usize = 8_000;
 const MAX_ITEM_CHARS: usize = 240;
 const TRUNCATED: &str = "- Earlier items truncated.\n";
 
-pub(super) fn digest(parent_id: &str, items: &[(String, String)]) -> String {
+pub(crate) fn digest(parent_id: &str, items: &[(String, String)]) -> String {
     let mut digest = String::new();
     let mut remaining = MAX_CONTEXT_CHARS
         .saturating_sub(section(parent_id, "").chars().count() + TRUNCATED.chars().count());
@@ -26,7 +26,7 @@ pub(super) fn digest(parent_id: &str, items: &[(String, String)]) -> String {
     digest
 }
 
-pub(super) fn section(parent_id: &str, context: &str) -> String {
+pub(crate) fn section(parent_id: &str, context: &str) -> String {
     format!(
         "# Side Chat\n\nYou are in a side chat beside the main thread. The main thread may still be running in the same worktree. Answer the user's questions; do not continue or redo the main thread's task.\n\nMain thread: `{parent_id}`. The inherited conversation stops at the fork point.\n\n{context}\nRun `moat messages list {parent_id} --full` to see the main thread's live state."
     )

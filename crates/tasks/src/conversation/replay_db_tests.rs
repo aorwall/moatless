@@ -492,35 +492,192 @@ async fn a_fork_of_an_upgraded_task_shows_its_frozen_history(pool: PgPool) {
 }
 
 #[sqlx::test]
-async fn side_chat_context_includes_only_activity_after_the_cut_until_its_own_turn_ends(
-    pool: PgPool,
-) {
+async fn side_chat_context_is_frozen_on_the_first_inbox_item(pool: PgPool) {
+    use crate::inbox::view::PendingView;
+    use crate::message::enricher::AgentPromptBuilder;
+    use crate::message::test_support::{queue_message, user_item};
+    use crate::task::relations::record_forked_from;
+    use crate::task::relations_dao::PgTaskRelationDao;
+    use moatless_types::agent::AgentProfile;
+
     seed_bare_task(&pool, "a", "open").await;
     let cut = run_turn(&pool, "a", "sa", 1, "inherited").await;
-    let session = fork(&pool, "a", "b", 1, cut).await;
+    fork(&pool, "a", "b", 1, cut).await;
+    record_forked_from(&PgTaskRelationDao(pool.clone()), "b", "a", Some(1), true)
+        .await
+        .unwrap();
     run_turn(&pool, "a", "sa", 2, "new work").await;
-    let messages = PgMessageDao(pool.clone());
-    assert_eq!(
-        messages.side_chat_context("b", "a", Some(1)).await.unwrap(),
-        vec![
-            ("agent".into(), "re: new work".into()),
-            ("user".into(), "new work".into())
-        ]
+    queue_named(&pool, "a", "pending-parent", "pending parent question").await;
+
+    let mut first = user_item("b", Uuid::new_v4(), "like this?");
+    first.options.queue = true;
+    let mut tx = pool.begin().await.unwrap();
+    let rolled_back = crate::inbox::dao::submit(&mut tx, &first)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(rolled_back.options.contexts.len(), 1);
+    tx.rollback().await.unwrap();
+    let stored = queue_message(&pool, first.clone()).await.unwrap().unwrap();
+    assert!(queue_message(&pool, first).await.unwrap().is_none());
+    run_turn(&pool, "a", "sa", 3, "after enqueue").await;
+    let second = queue_message(&pool, user_item("b", Uuid::new_v4(), "second question"))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(second.options.contexts.is_empty());
+    let reloaded = crate::inbox::dao::find(&pool, stored.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(reloaded.options.contexts, stored.options.contexts);
+    let context = &reloaded.options.contexts[0];
+    assert_eq!(context.context_type, "sideChat");
+    assert_eq!(context.reference_id, "a");
+    let text = context.data["text"].as_str().unwrap();
+    assert!(text.contains("do not continue or redo the main thread's task"));
+    assert!(text.contains("re: new work"));
+    assert!(text.contains("pending parent question"));
+    assert!(text.find("pending parent question") < text.find("re: new work"));
+    assert!(text.find("re: new work") < text.find("- user: new work"));
+    assert!(!text.contains("re: inherited"));
+    assert!(!text.contains("after enqueue"));
+
+    let view = PendingView::of(&[reloaded, second]);
+    let logins = std::collections::HashMap::new();
+    let builder = AgentPromptBuilder::new(
+        None,
+        None,
+        AgentProfile::ClaudeCode,
+        None,
+        None,
+        vec![],
+        &logins,
     );
-    run_turn(&pool, "b", &session, 2, "question").await;
+    let deliveries = builder
+        .build_pending_deliveries(&view.messages, &view.contexts)
+        .await;
+    assert!(deliveries[0].prompt_text.starts_with("# Side Chat"));
+    let prompt = &deliveries[0].prompt_text;
+    assert_eq!(prompt.matches("# Side Chat").count(), 1);
+    assert!(prompt.ends_with("like this?\nsecond question"));
+}
+
+#[sqlx::test]
+async fn concurrent_first_side_chat_messages_attach_framing_once_even_without_a_digest(
+    pool: PgPool,
+) {
+    use crate::message::test_support::{queue_message, user_item};
+    use crate::task::relations::record_forked_from;
+    use crate::task::relations_dao::PgTaskRelationDao;
+
+    seed_bare_task(&pool, "parent", "open").await;
+    seed_bare_task(&pool, "side", "open").await;
+    record_forked_from(
+        &PgTaskRelationDao(pool.clone()),
+        "side",
+        "parent",
+        None,
+        true,
+    )
+    .await
+    .unwrap();
+    let (a, b) = tokio::join!(
+        queue_message(&pool, user_item("side", Uuid::new_v4(), "one")),
+        queue_message(&pool, user_item("side", Uuid::new_v4(), "two")),
+    );
+    let rows = [a.unwrap().unwrap(), b.unwrap().unwrap()];
+    let contexts: Vec<_> = rows.iter().flat_map(|row| &row.options.contexts).collect();
+    assert_eq!(contexts.len(), 1);
     assert!(
-        messages
-            .side_chat_context("b", "a", Some(1))
+        contexts[0].data["text"]
+            .as_str()
+            .unwrap()
+            .contains("# Side Chat")
+    );
+}
+
+#[sqlx::test]
+async fn side_chat_context_skips_internal_inputs_and_existing_messages(pool: PgPool) {
+    use crate::inbox::InboxOrigin;
+    use crate::message::test_support::{queue_message, user_item};
+    use crate::task::relations::record_forked_from;
+    use crate::task::relations_dao::PgTaskRelationDao;
+
+    seed_bare_task(&pool, "parent", "open").await;
+    for (task, side_chat, own_turn) in [
+        ("new", true, false),
+        ("existing", true, true),
+        ("fork", false, false),
+    ] {
+        seed_bare_task(&pool, task, "open").await;
+        if own_turn {
+            run_turn(&pool, task, "session", 1, "already asked").await;
+        }
+        record_forked_from(
+            &PgTaskRelationDao(pool.clone()),
+            task,
+            "parent",
+            None,
+            side_chat,
+        )
+        .await
+        .unwrap();
+        for (origin, answer) in [
+            (InboxOrigin::Sandbox, None),
+            (
+                InboxOrigin::User {
+                    sent_by: "user-1".into(),
+                },
+                Some("tool".into()),
+            ),
+        ] {
+            let mut input = user_item(task, Uuid::new_v4(), "internal input");
+            input.origin = origin;
+            input.answers_tool_use_id = answer;
+            let stored = queue_message(&pool, input).await.unwrap().unwrap();
+            assert!(stored.options.contexts.is_empty());
+        }
+        let stored = queue_message(&pool, user_item(task, Uuid::new_v4(), "question"))
             .await
             .unwrap()
-            .is_empty()
-    );
-    assert!(
-        !PgTaskDao::new(pool)
-            .close_if_unused("b", &owner())
+            .unwrap();
+        assert_eq!(
+            stored.options.contexts.len(),
+            usize::from(side_chat && !own_turn)
+        );
+    }
+}
+
+#[sqlx::test]
+async fn side_chat_context_waits_through_compact_and_goal_commands(pool: PgPool) {
+    use crate::message::test_support::{queue_message, user_item};
+    use crate::task::relations::record_forked_from;
+    use crate::task::relations_dao::PgTaskRelationDao;
+
+    seed_bare_task(&pool, "parent", "open").await;
+    seed_bare_task(&pool, "side", "open").await;
+    record_forked_from(
+        &PgTaskRelationDao(pool.clone()),
+        "side",
+        "parent",
+        None,
+        true,
+    )
+    .await
+    .unwrap();
+    for (turn, command) in [(1, "  /compact keep the plan"), (2, "/goal")] {
+        run_turn(&pool, "side", "session", turn, command).await;
+        let rows = crate::inbox::dao::delivered_in_turn(&pool, "side", turn)
             .await
-            .unwrap()
-    );
+            .unwrap();
+        assert!(rows[0].options.contexts.is_empty());
+    }
+    let first = queue_message(&pool, user_item("side", Uuid::new_v4(), "question"))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(first.options.contexts.len(), 1);
 }
 
 #[sqlx::test]

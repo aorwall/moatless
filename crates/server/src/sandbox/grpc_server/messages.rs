@@ -592,7 +592,6 @@ pub(super) async fn get_system_prompt(
         service.handlers.as_ref().map(|h| &h.workspace_resolver),
         service.handlers.as_ref().map(|h| prompt::ParentSources {
             relations: h.task_relations.as_ref(),
-            messages: h.messages.as_ref(),
         }),
         service.handlers.as_ref().map(|h| h.user_logins.as_ref()),
         Some(&service.backend_config),

@@ -1002,6 +1002,37 @@ async fn a_side_chat_shares_the_running_parents_checkout_even_without_same_sandb
     )
     .await
     .unwrap();
+    let options: serde_json::Value =
+        sqlx::query_scalar("SELECT delivery_options FROM task_inbox WHERE task_id = $1")
+            .bind(fork_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(options["contexts"][0]["type"], "sideChat");
+    assert!(
+        options["contexts"][0]["data"]["text"]
+            .as_str()
+            .unwrap()
+            .contains("# Side Chat")
+    );
+    let fork_with_message = "44444444-5555-4666-8777-888899990001";
+    let mut request = fork(fork_with_message, "t-source");
+    request.side_chat = true;
+    request.message = Some("inline question".into());
+    sink.fork(&viewer(USER_1), request).await.unwrap();
+    let options: serde_json::Value =
+        sqlx::query_scalar("SELECT delivery_options FROM task_inbox WHERE task_id = $1")
+            .bind(fork_with_message)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(options["contexts"][0]["type"], "sideChat");
+    assert!(
+        options["contexts"][0]["data"]["text"]
+            .as_str()
+            .unwrap()
+            .contains("# Side Chat")
+    );
     sink.delete(&viewer(USER_1), fork_id, true).await.unwrap();
     assert!(
         moatless_tasks::task::test_support::find_task(&pool, fork_id, &viewer(USER_1))

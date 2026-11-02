@@ -13,9 +13,9 @@ pub(crate) async fn submit(
     tx: &mut Transaction<'_, Postgres>,
     item: &NewInboxItem,
 ) -> Result<Option<InboxItem>, sqlx::Error> {
-    let consumes_merge_back = item.answers_tool_use_id.is_none()
+    let consumes_context = item.answers_tool_use_id.is_none()
         && !matches!(item.origin, super::models::InboxOrigin::Sandbox);
-    if consumes_merge_back {
+    if consumes_context {
         // Lock before the INSERT's FK lock rather than upgrading it: concurrent
         // consumers could deadlock. Sandbox and feed locks follow this one.
         sqlx::query("SELECT task_id FROM tasks WHERE task_id = $1 FOR UPDATE")
@@ -57,8 +57,11 @@ pub(crate) async fn submit(
         return Ok(None);
     };
 
-    if consumes_merge_back {
-        let contexts = crate::task::merge_back_dao::take(tx, &item.task_id).await?;
+    if consumes_context {
+        let mut contexts = crate::task::merge_back_dao::take(tx, &item.task_id).await?;
+        contexts.extend(
+            crate::task::side_chat_dao::first_message_context(tx, &item.task_id, item.id).await?,
+        );
         if !contexts.is_empty() {
             let mut options = item.options.clone();
             options.contexts.extend(contexts);

@@ -25,7 +25,7 @@ pub enum ParentTask<'a> {
     /// Spawned by that Task, which is waiting to be told how it went.
     CreatedBy(&'a str),
     /// A question beside the parent's continuing work.
-    SideChat { task_id: &'a str, context: &'a str },
+    SideChat { task_id: &'a str },
     /// Branched off that Task at one of its turns, carrying its conversation up
     /// to that point. `at_turn` is `None` when the cut was at head.
     ForkedFrom {
@@ -270,10 +270,9 @@ same `--scope` to read an entry back. A Loop's `memory.preload` reads only its
 with `--no-expiry`. Memory can be wrong or stale: check an entry's citations
 before you act on it.";
 
-/// Sources for a task's parent identity and live conversation.
+/// Source for a task's parent identity.
 pub struct ParentSources<'a> {
     pub relations: &'a TaskRelations,
-    pub messages: &'a crate::message::operations::Messages,
 }
 
 /// Build the append-system-prompt for a task.
@@ -320,32 +319,13 @@ pub async fn build_for_task(
             },
             None => None,
         };
-    let context = match (
-        &parent_relation,
-        parent_sources.as_ref().map(|sources| sources.messages),
-    ) {
-        (Some((_, parent_id, at_turn, true)), Some(messages)) => {
-            match messages
-                .side_chat_context(task_id, parent_id, *at_turn)
-                .await
-            {
-                Ok(items) => super::side_chat::digest(parent_id, &items),
-                Err(error) => {
-                    warn!(%error, task_id, "Could not load side chat context");
-                    String::new()
-                }
-            }
-        }
-        _ => String::new(),
-    };
     let parent = parent_relation
         .as_ref()
         .and_then(|(kind, id, at_turn, side_chat)| match kind {
             TaskRelationType::CreatedBy => Some(ParentTask::CreatedBy(id)),
-            TaskRelationType::ForkedFrom if *side_chat => Some(ParentTask::SideChat {
-                task_id: id,
-                context: &context,
-            }),
+            TaskRelationType::ForkedFrom if *side_chat => {
+                Some(ParentTask::SideChat { task_id: id })
+            }
             TaskRelationType::ForkedFrom => Some(ParentTask::ForkedFrom {
                 task_id: id,
                 at_turn: *at_turn,
@@ -475,7 +455,7 @@ fn build_task_identity_section(task_name: Option<&str>, forked: bool) -> String 
 /// Build the "# Parent Task" or "# Forked Task" section.
 fn build_parent_task_section(parent: ParentTask<'_>) -> String {
     match parent {
-        ParentTask::SideChat { task_id, context } => super::side_chat::section(task_id, context),
+        ParentTask::SideChat { task_id } => super::side_chat::section(task_id, ""),
         ParentTask::CreatedBy(parent_task_id) => format!(
             "# Parent Task\n\n\
              This task was created by another task (`{parent_task_id}`), which is waiting \

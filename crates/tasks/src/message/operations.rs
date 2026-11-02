@@ -39,18 +39,6 @@ impl Messages {
         self.store.as_ref()
     }
 
-    /// Newest parent activity after the cut, only until this side chat finishes a turn.
-    pub async fn side_chat_context(
-        &self,
-        task_id: &str,
-        parent_id: &str,
-        at_turn: Option<i32>,
-    ) -> Result<Vec<(String, String)>, sqlx::Error> {
-        self.store
-            .side_chat_context(task_id, parent_id, at_turn)
-            .await
-    }
-
     /// See [`MessageDao::get_all`].
     pub async fn get_all(&self, task_id: &str) -> Result<MessagePage, sqlx::Error> {
         self.store.get_all(task_id).await

@@ -270,6 +270,7 @@ pub const CONCERNS: &[Concern] = &[
         roots: &[
             "crates/tasks/src/task/fork_dao",
             "crates/tasks/src/task/merge_back_dao",
+            "crates/tasks/src/task/side_chat_dao",
         ],
         tables: &["task_forks", "task_merge_backs"],
         slice: 9,

@@ -279,7 +279,7 @@ impl<'a> AgentPromptBuilder<'a> {
             message_uuid = %message.uuid,
             "Delivering pending message without context enrichment because file store or config is unavailable"
         );
-        message_text_with_merge_context(message, contexts)
+        message_text_with_inline_context(message, contexts)
     }
 }
 
@@ -481,7 +481,7 @@ pub async fn build_pending_content_blocks(
     message: &TaskMessage,
     contexts: &[TaskMessageContext],
 ) -> Vec<ContentBlock> {
-    let text = message_text_with_merge_context(message, contexts);
+    let text = message_text_with_inline_context(message, contexts);
 
     // A row whose context type this build does not know is dropped, exactly as
     // the transform layer drops it — a forward-incompatible context must not
@@ -494,13 +494,13 @@ pub async fn build_pending_content_blocks(
     build_content_blocks(files, config, &text, &inputs, &message.file_ids()).await
 }
 
-fn message_text_with_merge_context(
+fn message_text_with_inline_context(
     message: &TaskMessage,
     contexts: &[TaskMessageContext],
 ) -> String {
     contexts
         .iter()
-        .filter(|context| context.context_type == "mergeBack")
+        .filter(|context| matches!(context.context_type.as_str(), "mergeBack" | "sideChat"))
         .filter_map(|context| context.data.get("text").and_then(serde_json::Value::as_str))
         .map(str::to_string)
         .chain(std::iter::once(attributed_text(
