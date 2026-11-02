@@ -14,7 +14,7 @@ futures = { workspace = true }
 # Node-archive digest hex encoding.
 hex = { workspace = true }
 kube = { version = "3.0", features = ["runtime", "client", "derive"] }
-k8s-openapi = { version = "0.29", features = ["v1_32"] }
+k8s-openapi = { version = "0.27", features = ["v1_32"] }
 # Raw request construction for the pod log/exec streaming paths.
 hyper = { version = "1", features = ["full"] }
 # Counter/histogram instrumentation for provision/restart durations.

@@ -2,6 +2,20 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["local>soaplabs/renovate-config"],
   "ignoreDeps": ["node", "bun"],
+  "packageRules": [
+    {
+      "description": "kube 3 requires k8s-openapi 0.27; upgrade them together to preserve shared Kubernetes types.",
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["k8s-openapi"],
+      "allowedVersions": ">=0.27 <0.28"
+    },
+    {
+      "description": "utoipa-axum 0.3 requires utoipa 6; upgrade them together to preserve shared OpenAPI types.",
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["utoipa-axum"],
+      "allowedVersions": ">=0.2 <0.3"
+    }
+  ],
   "customManagers": [
     {
       "customType": "regex",
