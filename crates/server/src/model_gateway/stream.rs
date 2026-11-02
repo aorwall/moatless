@@ -84,7 +84,10 @@ fn carries_credential(name: &HeaderName) -> bool {
 /// backend's business rather than the provider's.
 fn describes_the_caller(name: &HeaderName) -> bool {
     let name = name.as_str();
-    matches!(name, "cookie" | "forwarded" | "x-real-ip") || name.starts_with("x-forwarded-")
+    matches!(
+        name,
+        "cookie" | "forwarded" | "x-real-ip" | "x-moatless-auth-mode"
+    ) || name.starts_with("x-forwarded-")
 }
 
 /// The task token a request presents: `x-api-key`, which Claude sends an

@@ -289,3 +289,23 @@ async fn the_upstream_status_headers_and_stream_pass_through() {
         .unwrap();
     assert_eq!(&body[..], b"event: error\ndata: {\"type\":\"error\"}\n\n");
 }
+
+#[test]
+fn api_only_ignores_oauth_and_bearer_credentials() {
+    let mut values = credentials(&[
+        (CLAUDE_CODE_OAUTH_TOKEN, "oauth"),
+        (ANTHROPIC_AUTH_TOKEN, "bearer"),
+        (ANTHROPIC_API_KEY, "key"),
+    ]);
+    crate::model_gateway::auth_mode::AuthMode::ApiKeyOrHub.filter(&mut values);
+    assert_eq!(
+        resolve_upstream(&values, ANTHROPIC, None, None).unwrap(),
+        upstream(ANTHROPIC, Credential::ApiKey("key".into()))
+    );
+    values.remove(ANTHROPIC_API_KEY);
+    assert!(resolve_upstream(&values, ANTHROPIC, None, None).is_err());
+    assert_eq!(
+        resolve_upstream(&values, ANTHROPIC, Some(HUB), Some("hub-key")).unwrap(),
+        upstream(HUB, Credential::Bearer("hub-key".into()))
+    );
+}

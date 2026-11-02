@@ -1,7 +1,7 @@
 # Moatless Vibe
 
 The ubiquitous language for Moatless Vibe — a platform that runs coding agents
-(Claude Code, Codex) inside on-demand sandboxes against git repositories, driven
+(Claude Code, Codex, Pi) inside on-demand sandboxes against git repositories, driven
 by people directly or by Loops (recurring agent work), scoped to users (or global).
 
 This file is a glossary, not a spec. It records what each term means and which
@@ -127,6 +127,7 @@ Task has one-or-more Sessions; a Session spans many Turns. A new Session begins
 only on `start_fresh`. Not a per-Turn unit — that is the Run. Claude identifies a
 Session with a `session_id`; Codex calls the same thing a **thread** (`thread_id`,
 resumed via `codex exec resume`) — a legitimate Codex-scoped synonym.
+Pi identifies its Session with a `sessionId` and resumes its JSONL file via `--session`.
 The Session can span Agent process replacement and Sandbox recreation.
 _Avoid_: bare "session" for the user login session — always qualify that as
 "auth session". Do not confuse the Codex thread with an external Slack "thread"

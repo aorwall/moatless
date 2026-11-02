@@ -54,6 +54,12 @@ pub fn build_harness(
         )
     })?;
 
+    if harness == moatless_types::agent::Harness::Pi {
+        return Ok(HarnessRuntime::pi(crate::agent::harness::PiConfig {
+            config: Arc::clone(config),
+            trajectory,
+        }));
+    }
     if harness == moatless_types::agent::Harness::Codex {
         return Ok(HarnessRuntime::codex(CodexConfig {
             config: Arc::clone(config),

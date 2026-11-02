@@ -196,7 +196,10 @@ fn scope() -> super::super::service::SandboxScope {
 #[tokio::test]
 async fn the_refreshed_codex_login_is_what_the_gateway_presents() {
     let gateway = gateway(Some(CHATGPT_BLOB), &bases().chatgpt);
-    let resolved = gateway.openai_credentials(&scope()).await.unwrap();
+    let resolved = gateway
+        .openai_credentials(&scope(), crate::model_gateway::auth_mode::AuthMode::Default)
+        .await
+        .unwrap();
     assert_eq!(
         resolve_upstream(&resolved, &gateway.bases, None, None).unwrap(),
         chatgpt()
@@ -210,11 +213,27 @@ async fn a_task_routed_to_the_hub_never_refreshes_its_codex_login() {
         &[(OPENAI_BASE_URL, HUB_V1), (OPENAI_API_KEY, "hub-key")],
         &bases().chatgpt,
     );
-    let resolved = gateway.openai_credentials(&scope()).await.unwrap();
+    let resolved = gateway
+        .openai_credentials(&scope(), crate::model_gateway::auth_mode::AuthMode::Default)
+        .await
+        .unwrap();
     assert_eq!(
         resolve_upstream(&resolved, &gateway.bases, Some(HUB), None).unwrap(),
         bearer(HUB_V1, "hub-key")
     );
+}
+
+#[tokio::test]
+async fn api_key_only_requests_never_refresh_a_codex_login() {
+    let gateway = gateway_with(Arc::new(UnusedCodex), &[], &bases().chatgpt);
+    let resolved = gateway
+        .openai_credentials(
+            &scope(),
+            crate::model_gateway::auth_mode::AuthMode::ApiKeyOrHub,
+        )
+        .await
+        .unwrap();
+    assert!(!resolved.contains_key(CODEX_AUTH_JSON));
 }
 
 #[test]
@@ -420,4 +439,20 @@ async fn the_model_list_is_a_bodiless_get_with_its_query() {
         .await
         .unwrap();
     assert_eq!(&body[..], br#"{"query":"client_version=0.164.0"}"#);
+}
+
+#[test]
+fn api_only_ignores_a_subscription_and_uses_the_key_or_hub() {
+    let mut values = credentials(&[(CODEX_AUTH_JSON, CHATGPT_BLOB), (OPENAI_API_KEY, "key")]);
+    crate::model_gateway::auth_mode::AuthMode::ApiKeyOrHub.filter(&mut values);
+    assert_eq!(
+        resolve_upstream(&values, &bases(), Some(HUB), Some("hub-key")).unwrap(),
+        bearer(&bases().openai, "key")
+    );
+    values.remove(OPENAI_API_KEY);
+    assert_eq!(
+        resolve_upstream(&values, &bases(), Some(HUB), Some("hub-key")).unwrap(),
+        bearer(HUB_V1, "hub-key")
+    );
+    assert!(resolve_upstream(&values, &bases(), None, None).is_err());
 }

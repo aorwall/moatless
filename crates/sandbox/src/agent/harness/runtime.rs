@@ -40,6 +40,22 @@ pub struct HarnessRuntime {
 }
 
 impl HarnessRuntime {
+    /// Construct a Pi RPC process for each execution.
+    pub fn pi(config: super::PiConfig) -> Self {
+        let (submit_tx, submit_rx) = mpsc::channel(SUBMIT_CAPACITY);
+        let (cancel_tx, cancel_rx) = mpsc::channel(1);
+        let (signal_tx, signal_rx) = mpsc::channel(SIGNAL_CAPACITY);
+        let factory = move || super::pi::PiProcess::new(config.clone());
+        supervise(tokio::spawn(driver::run(
+            factory, submit_rx, cancel_rx, signal_tx,
+        )));
+        Self {
+            submit_tx,
+            cancel_tx,
+            signal_rx,
+        }
+    }
+
     /// Construct a harness driven by a scripted mock process. The first
     /// execution runs `script`; any later execution ends immediately at EOF.
     #[cfg(test)]

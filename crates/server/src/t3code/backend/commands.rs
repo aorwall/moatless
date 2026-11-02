@@ -147,6 +147,7 @@ impl AppStateCommands {
                 profile,
                 model,
                 SwitchCredentials {
+                    hub_available: self.0.config.model_gateway.hub_url.is_some(),
                     secrets: self.0.secrets.as_ref(),
                     provider_tokens: self.0.harness_credentials.as_ref(),
                     credential_sync: &self.0.credential_sync,
@@ -1008,6 +1009,7 @@ fn agent_instance_for(kind: moatless_types::agent::Harness) -> &'static str {
     match kind {
         moatless_types::agent::Harness::ClaudeCode => "claudeAgent",
         moatless_types::agent::Harness::Codex => "codex",
+        moatless_types::agent::Harness::Pi => "pi",
     }
 }
 

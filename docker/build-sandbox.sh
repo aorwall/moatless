@@ -36,6 +36,7 @@ _default_codex="$(sed -n 's/^CODEX_CLI_VERSION=//p' "$CLI_VERSIONS_FILE")"
 _default_task="$(sed -n 's/^TASK_VERSION=//p' "$CLI_VERSIONS_FILE")"
 CLAUDE_CLI_VERSION="${CLAUDE_CLI_VERSION:-$_default_claude}"
 CODEX_CLI_VERSION="${CODEX_CLI_VERSION:-$_default_codex}"
+PI_CLI_VERSION="${PI_CLI_VERSION:-$(sed -n 's/^PI_CLI_VERSION=//p' "$CLI_VERSIONS_FILE")}"
 TASK_VERSION="${TASK_VERSION:-$_default_task}"
 
 # Parse command line arguments
@@ -304,6 +305,7 @@ if [ "$BUILD_SANDBOX_BASE" = true ]; then
   build_image "Dockerfile.sandbox-base" "moatless-sandbox-base" \
     "--build-arg CLAUDE_CLI_VERSION=${CLAUDE_CLI_VERSION} \
      --build-arg CODEX_CLI_VERSION=${CODEX_CLI_VERSION} \
+     --build-arg PI_CLI_VERSION=${PI_CLI_VERSION} \
      --build-arg TASK_VERSION=${TASK_VERSION}"
 fi
 

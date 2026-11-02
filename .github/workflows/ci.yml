@@ -1275,6 +1275,7 @@ jobs:
           build-args: |
             CLAUDE_CLI_VERSION=${{ env.CLAUDE_CLI_VERSION }}
             CODEX_CLI_VERSION=${{ env.CODEX_CLI_VERSION }}
+            PI_CLI_VERSION=${{ env.PI_CLI_VERSION }}
             TASK_VERSION=${{ env.TASK_VERSION }}
           cache-from: type=registry,ref=${{ env.SANDBOX_BASE_IMAGE }}:buildcache
 
@@ -1322,6 +1323,7 @@ jobs:
           build-args: |
             CLAUDE_CLI_VERSION=${{ env.CLAUDE_CLI_VERSION }}
             CODEX_CLI_VERSION=${{ env.CODEX_CLI_VERSION }}
+            PI_CLI_VERSION=${{ env.PI_CLI_VERSION }}
             TASK_VERSION=${{ env.TASK_VERSION }}
           # Registry cache — a mode=max export of this image does not fit the
           # repo's Actions-cache budget (docker/AGENTS.md). image-manifest and

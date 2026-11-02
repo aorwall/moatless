@@ -315,6 +315,7 @@ pub fn effective_model(
         AgentProfile::ClaudeCodeFable => {
             chosen.or_else(|| Some(catalog::CLAUDE_CODE_FABLE.default_model.to_string()))
         }
+        AgentProfile::Pi => chosen.or_else(|| Some(catalog::PI.default_model.to_string())),
         AgentProfile::Codex => Some(
             chosen
                 .filter(|model| model != UNRESOLVED_MODEL_CHOICE)

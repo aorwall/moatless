@@ -6,6 +6,7 @@
 //! included, so the pod's classifier still recognises a usage limit.
 
 mod anthropic;
+mod auth_mode;
 #[cfg(test)]
 mod fakes;
 mod openai;

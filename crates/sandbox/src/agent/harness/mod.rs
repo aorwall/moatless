@@ -14,6 +14,7 @@ mod transcode;
 mod claude;
 pub(crate) mod codex;
 mod driver;
+mod pi;
 mod process;
 
 // The scripted mock and its `HarnessRuntime::scripted` constructor exist only to drive
@@ -31,6 +32,7 @@ mod persistent_tests;
 pub use claude::ClaudeConfig;
 pub use codex::CodexConfig;
 pub use error::{ErrorClass, FailureStage, HarnessError, SessionImpact};
+pub use pi::PiConfig;
 #[cfg(test)]
 pub(crate) use scripted::{Script, Step};
 pub use signal::{

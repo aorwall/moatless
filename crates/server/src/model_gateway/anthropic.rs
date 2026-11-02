@@ -133,10 +133,15 @@ async fn forward(
         Ok(scope) => scope,
         Err(e) => return error_response(&e),
     };
-    let credentials = match gateway.anthropic_credentials(&scope).await {
+    let mode = match super::auth_mode::AuthMode::parse(headers) {
+        Ok(mode) => mode,
+        Err(error) => return (StatusCode::BAD_REQUEST, error).into_response(),
+    };
+    let mut credentials = match gateway.anthropic_credentials(&scope, mode).await {
         Ok(credentials) => credentials,
         Err(e) => return error_response(&e),
     };
+    mode.filter(&mut credentials);
     let upstream = match resolve_upstream(
         &credentials,
         &gateway.bases.anthropic,

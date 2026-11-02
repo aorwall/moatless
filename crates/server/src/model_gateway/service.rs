@@ -210,15 +210,16 @@ impl ModelGateway {
     }
 
     /// The Anthropic credentials `scope`'s actor calls upstream with.
-    pub async fn anthropic_credentials(
+    pub(super) async fn anthropic_credentials(
         &self,
         scope: &SandboxScope,
+        mode: super::auth_mode::AuthMode,
     ) -> Result<HashMap<String, String>, GatewayError> {
         let inputs = self.task_inputs(scope).await?;
         Ok(resolve_task_anthropic_credentials(
             &inputs.actor,
             Some(&self.secrets),
-            Some(&self.harness_credentials),
+            (mode == super::auth_mode::AuthMode::Default).then_some(&self.harness_credentials),
             inputs.pinned,
             inputs.env_vars,
         )
@@ -226,12 +227,11 @@ impl ModelGateway {
     }
 
     /// The OpenAI credentials `scope`'s actor calls upstream with, its Codex
-    /// login refreshed first unless an `OPENAI_BASE_URL` routes past it: the
-    /// gateway is that login's only presenter. Refreshing regardless would
-    /// call OpenAI's token endpoint on every request for a login never used.
-    pub async fn openai_credentials(
+    /// login refreshed only when that login is selected for the request.
+    pub(super) async fn openai_credentials(
         &self,
         scope: &SandboxScope,
+        mode: super::auth_mode::AuthMode,
     ) -> Result<HashMap<String, String>, GatewayError> {
         let inputs = self.task_inputs(scope).await?;
         let login_pinned = inputs.pinned.contains_key(CODEX_AUTH_JSON)
@@ -245,7 +245,10 @@ impl ModelGateway {
             inputs.env_vars,
         )
         .await;
-        if !login_pinned && openai::reads_codex_login(&credentials, &self.bases) {
+        if mode == super::auth_mode::AuthMode::Default
+            && !login_pinned
+            && openai::reads_codex_login(&credentials, &self.bases)
+        {
             match self.codex.ensure_fresh_codex_for(&user_id).await {
                 Ok(Some(blob)) => {
                     credentials.insert(CODEX_AUTH_JSON.to_string(), blob);

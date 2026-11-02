@@ -35,6 +35,7 @@ use crate::ports::{
 
 /// The agent catalog over the credentials a viewer has stored.
 pub struct AgentCatalog {
+    pub hub_available: bool,
     pub secrets: Arc<dyn SecretCatalog>,
     pub harness_credentials: Arc<dyn HarnessCredentials>,
 }
@@ -46,6 +47,7 @@ impl AgentCatalogSource for AgentCatalog {
             self.secrets.as_ref(),
             self.harness_credentials.as_ref(),
             viewer,
+            self.hub_available,
         )
         .await
     }

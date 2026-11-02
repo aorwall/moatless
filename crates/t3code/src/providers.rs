@@ -1,8 +1,6 @@
 //! The Moatless agent catalog, as T3's provider list.
 //!
-//! Two instances, not five: `instanceId` is a routing key the thread projection
-//! derives from a Task's harness, immutable once the Task exists, so one
-//! instance per catalog agent would rewrite it mid-thread.
+//! Each harness has one provider instance; catalog transport variants share it.
 //!
 //! Publishes T3's canonical slugs and names (its alias table maps only towards
 //! them); the `default` sentinel, naming no model, is never published.
@@ -15,7 +13,7 @@ use crate::agent::catalog::{UNRESOLVED_MODEL_CHOICE, catalog};
 use crate::agent::schemas::AgentDescriptor;
 use moatless_types::agent::Harness;
 
-/// The two provider instances this surface publishes, in display order.
+/// The Claude provider instance id.
 pub const CLAUDE_INSTANCE: &str = "claudeAgent";
 pub const CODEX_INSTANCE: &str = "codex";
 
@@ -24,6 +22,7 @@ pub fn instance_for(harness: Harness) -> &'static str {
     match harness {
         Harness::ClaudeCode => CLAUDE_INSTANCE,
         Harness::Codex => CODEX_INSTANCE,
+        Harness::Pi => "pi",
     }
 }
 
@@ -32,6 +31,7 @@ pub fn harness_for(instance: &str) -> Option<Harness> {
     match instance {
         CLAUDE_INSTANCE => Some(Harness::ClaudeCode),
         CODEX_INSTANCE => Some(Harness::Codex),
+        "pi" => Some(Harness::Pi),
         _ => None,
     }
 }
@@ -42,7 +42,9 @@ pub fn harness_for(instance: &str) -> Option<Harness> {
 /// under any other id leaves a carried-over selection unread and silently runs
 /// the default.
 pub fn effort_option_id(instance: &str) -> &'static str {
-    if instance == CODEX_INSTANCE {
+    if instance == "pi" {
+        "thinking"
+    } else if instance == CODEX_INSTANCE {
         "reasoningEffort"
     } else {
         "effort"
@@ -56,6 +58,9 @@ const DEFAULT_EFFORT: &str = "high";
 
 /// The effort levels a published model row offers, weakest first.
 fn effort_levels(instance: &str, catalog_model: &str) -> &'static [&'static str] {
+    if instance == "pi" {
+        return &["off", "minimal", "low", "medium", "high"];
+    }
     if instance != CODEX_INSTANCE {
         return CLAUDE_EFFORT_LEVELS;
     }
@@ -229,6 +234,7 @@ pub fn providers(
     [
         (CLAUDE_INSTANCE, "Claude Code", Harness::ClaudeCode),
         (CODEX_INSTANCE, "Codex", Harness::Codex),
+        ("pi", "Pi", Harness::Pi),
     ]
     .into_iter()
     .map(|(instance, display_name, harness)| {
@@ -347,11 +353,12 @@ mod tests {
     }
 
     #[test]
-    fn publishes_exactly_two_instances_in_order() {
+    fn publishes_harness_instances_in_order() {
         let list = published();
-        assert_eq!(list.len(), 2);
+        assert_eq!(list.len(), 3);
         assert_eq!(list[0]["instanceId"], CLAUDE_INSTANCE);
         assert_eq!(list[1]["instanceId"], CODEX_INSTANCE);
+        assert_eq!(list[2]["instanceId"], "pi");
     }
 
     /// The regression that matters most: T3 rewrites `opus` to `claude-opus-5-5`
@@ -691,7 +698,7 @@ mod tests {
             std::slice::from_ref(&snapshot),
         );
 
-        assert_eq!(list.len(), 2);
+        assert_eq!(list.len(), 3);
         for provider in &list {
             assert_eq!(provider["workspaceSnapshots"], json!([snapshot]));
         }

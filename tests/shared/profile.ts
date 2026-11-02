@@ -33,6 +33,8 @@ export interface Capabilities {
   claudeCredentials: boolean
   /** The backend holds a Codex connection, so a Codex task can be created. */
   codexConnection: boolean
+  /** A provider API key is available for real Pi execution. */
+  piCredentials: boolean
   /** The run can create and delete real repositories on GitHub — it has a PAT. */
   githubRepositories: boolean
   /** The runtime schedules onto this machine, so an image built here can run. */
@@ -112,6 +114,11 @@ function dockerProfile(): Profile {
       claudeCredentials: hasClaudeCredentials(),
       // The compose stack seeds no Codex connection.
       codexConnection: false,
+      piCredentials: Boolean(
+        process.env.ANTHROPIC_API_KEY ||
+          process.env.OPENAI_API_KEY ||
+          process.env.PI_E2E_HUB === '1',
+      ),
       githubRepositories: Boolean(process.env.GITHUB_PAT),
       localImages: true,
       // The compose stack configures no bucket, so nothing is stored.
@@ -152,6 +159,11 @@ function k8sProfile(): Profile {
       inboundCallbacks: false,
       claudeCredentials: true,
       codexConnection: true,
+      piCredentials: Boolean(
+        process.env.ANTHROPIC_API_KEY ||
+          process.env.OPENAI_API_KEY ||
+          process.env.PI_E2E_HUB === '1',
+      ),
       // A sandbox carries no PAT of its own, and the cluster pulls images
       // from a registry — a local `docker build` is not reachable from it.
       githubRepositories: Boolean(process.env.GITHUB_PAT),
@@ -173,7 +185,10 @@ function localProfile(): Profile {
     name: 'local',
     baseUrl: process.env.MOATLESS_API_URL || 'http://127.0.0.1:8080',
     auth: 'password',
-    fixture: { templateUrl: process.env.E2E_TEMPLATE_URL || DEFAULT_TEMPLATE_URL },
+    fixture: {
+      repositoryId: process.env.E2E_REPOSITORY_ID,
+      templateUrl: process.env.E2E_TEMPLATE_URL || DEFAULT_TEMPLATE_URL,
+    },
     // A process starts in seconds; only the agent's turn is as slow as anywhere.
     timeouts: {
       sandboxReady: 120_000,
@@ -190,6 +205,11 @@ function localProfile(): Profile {
       claudeCredentials: hasClaudeCredentials(),
       // The harness seeds one when `OPENAI_API_KEY` is set.
       codexConnection: Boolean(process.env.OPENAI_API_KEY),
+      piCredentials: Boolean(
+        process.env.ANTHROPIC_API_KEY ||
+          process.env.OPENAI_API_KEY ||
+          process.env.PI_E2E_HUB === '1',
+      ),
       githubRepositories: Boolean(process.env.GITHUB_PAT),
       // Sandboxes are processes, not images.
       localImages: false,

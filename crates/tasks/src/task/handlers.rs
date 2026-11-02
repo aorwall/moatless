@@ -497,6 +497,7 @@ pub async fn get_task_statistics(
 )]
 #[allow(clippy::too_many_arguments)]
 pub async fn update_task_metadata(
+    State(config): State<Arc<moatless_core::config::Config>>,
     State(tasks): State<Arc<TaskCommands>>,
     State(task_switch): State<Arc<TaskSwitchService>>,
     State(secrets): State<Arc<dyn SecretCatalog>>,
@@ -523,6 +524,7 @@ pub async fn update_task_metadata(
                     profile,
                     req.model.as_deref(),
                     SwitchCredentials {
+                        hub_available: config.model_gateway.hub_url.is_some(),
                         secrets: secrets.as_ref(),
                         provider_tokens: provider_tokens.as_ref(),
                         credential_sync: credential_sync.as_ref(),

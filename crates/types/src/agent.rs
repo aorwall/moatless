@@ -239,14 +239,17 @@ mod tests {
 pub enum Harness {
     ClaudeCode,
     Codex,
+    /// Pi over the JSONL RPC transport.
+    Pi,
 }
 
 impl Harness {
-    /// The wire and column value: `claude-code` or `codex`.
+    /// The wire and column value for this harness.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::ClaudeCode => "claude-code",
             Self::Codex => "codex",
+            Self::Pi => "pi",
         }
     }
 
@@ -255,6 +258,7 @@ impl Harness {
         match value {
             "claude-code" => Some(Self::ClaudeCode),
             "codex" => Some(Self::Codex),
+            "pi" => Some(Self::Pi),
             _ => None,
         }
     }
@@ -279,16 +283,19 @@ pub enum AgentProfile {
     /// Claude Code pinned to the `fable` model.
     ClaudeCodeFable,
     Codex,
+    /// Pi over the JSONL RPC transport.
+    Pi,
 }
 
 impl AgentProfile {
     /// Every profile, in catalog display order.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::ClaudeCode,
         Self::ClaudeCodeTui,
         Self::ClaudeCodeCli,
         Self::ClaudeCodeFable,
         Self::Codex,
+        Self::Pi,
     ];
 
     /// The wire and column value, e.g. `claude-code-tui`.
@@ -299,6 +306,7 @@ impl AgentProfile {
             Self::ClaudeCodeCli => "claude-code-cli",
             Self::ClaudeCodeFable => "claude-code-fable",
             Self::Codex => "codex",
+            Self::Pi => "pi",
         }
     }
 
@@ -315,6 +323,7 @@ impl AgentProfile {
             | Self::ClaudeCodeCli
             | Self::ClaudeCodeFable => Harness::ClaudeCode,
             Self::Codex => Harness::Codex,
+            Self::Pi => Harness::Pi,
         }
     }
 }

@@ -4214,6 +4214,7 @@ dependencies = [
  "moatless-supervisor",
  "moatless-types",
  "moatless-workspace-types",
+ "nix 0.31.3",
  "notify",
  "portable-pty",
  "reqwest",

@@ -12,12 +12,13 @@ pub async fn list_agents(
     secrets: &dyn SecretCatalog,
     provider_tokens: &dyn HarnessCredentials,
     ctx: &ScopeContext,
+    hub_available: bool,
 ) -> Vec<AgentDescriptor> {
     let present_keys = collect_credential_keys(secrets, ctx).await;
     let present_providers = collect_provider_token_providers(provider_tokens, ctx).await;
 
     catalog()
-        .map(|entry| build_descriptor(entry, &present_keys, &present_providers))
+        .map(|entry| build_descriptor(entry, &present_keys, &present_providers, hub_available))
         .collect()
 }
 
@@ -25,11 +26,13 @@ fn build_descriptor(
     entry: &AgentProfileEntry,
     present_keys: &HashSet<String>,
     present_providers: &HashSet<String>,
+    hub_available: bool,
 ) -> AgentDescriptor {
-    let installed = entry
-        .credential_keys
-        .iter()
-        .any(|k| present_keys.contains(*k))
+    let installed = hub_available
+        || entry
+            .credential_keys
+            .iter()
+            .any(|k| present_keys.contains(*k))
         || entry
             .provider_token_providers
             .iter()
@@ -121,7 +124,7 @@ pub async fn is_installed(
 ) -> bool {
     let present_keys = collect_credential_keys(secrets, ctx).await;
     let present_providers = collect_provider_token_providers(provider_tokens, ctx).await;
-    build_descriptor(entry, &present_keys, &present_providers).installed
+    build_descriptor(entry, &present_keys, &present_providers, false).installed
 }
 
 /// Whether `ctx` sees one of `entry`'s credential secrets.
@@ -134,4 +137,20 @@ pub async fn holds_a_key(
         keys.iter()
             .any(|key| entry.credential_keys.contains(&key.as_str()))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pi_requires_an_api_key_or_hub_even_when_subscription_credentials_exist() {
+        let keys = HashSet::from(["CLAUDE_CODE_OAUTH_TOKEN".into(), "CODEX_AUTH_JSON".into()]);
+        let providers = HashSet::from(["codex".into(), "anthropic".into()]);
+        let entry = crate::agent::catalog::entry(moatless_types::agent::AgentProfile::Pi);
+        assert!(!build_descriptor(entry, &keys, &providers, false).installed);
+        assert!(build_descriptor(entry, &keys, &providers, true).installed);
+        let keys = HashSet::from(["ANTHROPIC_API_KEY".into()]);
+        assert!(build_descriptor(entry, &keys, &HashSet::new(), false).installed);
+    }
 }

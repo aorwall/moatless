@@ -530,3 +530,8 @@ ARG CLAUDE_CLI_VERSION=2.1.316
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}" \
     && ln -sf "$(npm prefix -g)/bin/claude" /usr/local/bin/claude \
     && (claude --version 2>/dev/null || echo "unknown") > /opt/moatless/.claude-cli-version
+
+ARG PI_CLI_VERSION=1.4.0
+RUN npm install -g "@earendil-works/pi-coding-agent@${PI_CLI_VERSION}" \
+    && ln -sf "$(npm prefix -g)/bin/pi" /usr/local/bin/pi \
+    && pi --version > /opt/moatless/.pi-cli-version

@@ -104,6 +104,7 @@ pub(crate) async fn ui_rpc(
                 std::time::Duration::from_secs(config.sandbox.idle_timeout_minutes * 60),
             ),
             agents: Arc::new(moatless_t3code::owners::AgentCatalog {
+                hub_available: config.model_gateway.hub_url.is_some(),
                 secrets: app_state.secrets.clone(),
                 harness_credentials: app_state.harness_credentials.clone(),
             }),

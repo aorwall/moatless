@@ -67,7 +67,7 @@ async fn get_config_publishes_one_provider_per_agent_kind() {
             .iter()
             .map(|provider| provider["instanceId"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        vec!["claudeAgent", "codex"]
+        vec!["claudeAgent", "codex", "pi"]
     );
     for provider in providers {
         assert!(

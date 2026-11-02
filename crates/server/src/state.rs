@@ -755,6 +755,7 @@ impl From<&AppState> for crate::event_handler::agent_handlers::AgentErrorPorts {
 impl From<&AppState> for crate::event_handler::agent_fallback::FallbackPorts {
     fn from(state: &AppState) -> Self {
         Self {
+            hub_available: state.config.model_gateway.hub_url.is_some(),
             tasks: state.tasks.clone(),
             loops: state.loops.clone(),
             task_switch: state.task_switch.clone(),

@@ -29,6 +29,7 @@ const CODEX_MISSING: &str = "Your Codex connection is missing or has expired. Re
 /// What the caller holds credentials through, read to refuse a profile it
 /// cannot run.
 pub struct SwitchCredentials<'a> {
+    pub hub_available: bool,
     pub secrets: &'a dyn SecretCatalog,
     pub provider_tokens: &'a dyn HarnessCredentials,
     pub credential_sync: &'a CredentialSync,
@@ -170,13 +171,14 @@ impl TaskSwitchService {
         }
         let entry = catalog::entry(profile);
 
-        if !crate::agent::service::is_installed(
-            credentials.secrets,
-            credentials.provider_tokens,
-            scope_ctx,
-            entry,
-        )
-        .await
+        if !credentials.hub_available
+            && !crate::agent::service::is_installed(
+                credentials.secrets,
+                credentials.provider_tokens,
+                scope_ctx,
+                entry,
+            )
+            .await
         {
             return Err(TaskError::BadRequest(
                 entry.missing_credential_hint.to_string(),
@@ -185,6 +187,7 @@ impl TaskSwitchService {
         // A Codex secret needs no refresh; only a ChatGPT connection can have
         // expired while still counting as installed.
         if profile == AgentProfile::Codex
+            && !credentials.hub_available
             && !crate::agent::service::holds_a_key(credentials.secrets, scope_ctx, entry).await
         {
             if let Err(moatless_identity::credentials::CredentialError::NotFound(_)) = credentials

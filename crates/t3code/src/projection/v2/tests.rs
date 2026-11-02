@@ -1478,7 +1478,9 @@ fn a_shell_reports_what_its_activity_run_is_doing() {
     assert_eq!(shell(&open)["activityRunStatus"], json!("waiting"));
     let mut owed = awake(open_turn(conversation("task-1"), 1, "completed"));
     owed.turn_ended_at = Some(Utc::now());
-    owed.latest_queued_message_at = Some(Utc::now());
+    owed.latest_queued_message_at = owed
+        .turn_ended_at
+        .map(|at| at + chrono::Duration::milliseconds(1));
     assert_eq!(shell(&owed)["activityRunStatus"], json!("starting"));
     let mut settled = open_turn(conversation("task-1"), 1, "completed");
     settled.turn_ended_at = Some(Utc::now());

@@ -79,6 +79,7 @@ async fn switch(
             profile,
             model,
             SwitchCredentials {
+                hub_available: false,
                 secrets: state.secrets.as_ref(),
                 provider_tokens: state.harness_credentials.as_ref(),
                 credential_sync: &state.credential_sync,

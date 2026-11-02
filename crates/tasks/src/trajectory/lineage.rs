@@ -37,9 +37,8 @@ impl LineageRow {
     }
 }
 
-/// The event a cut after turn `at_turn` lands on: the last line a harness
-/// wrote in the latest turn at or before it, moved forward past the results
-/// of calls made before it. `rows` are in lineage (`ord`) order.
+/// Cut at the native turn end, or the last line of an unfinished turn, then
+/// include outstanding tool results. `rows` are in lineage (`ord`) order.
 pub(crate) fn cut_at_turn(rows: &[LineageRow], at_turn: i32) -> Option<Uuid> {
     let own = |r: &&LineageRow| !r.prefix && r.turn_number.is_some_and(|n| n <= at_turn);
     let turn = rows
@@ -50,7 +49,12 @@ pub(crate) fn cut_at_turn(rows: &[LineageRow], at_turn: i32) -> Option<Uuid> {
     let last = rows
         .iter()
         .filter(own)
-        .rfind(|r| r.turn_number == Some(turn))?;
+        .rfind(|r| r.turn_number == Some(turn) && r.flag("ends_turn"))
+        .or_else(|| {
+            rows.iter()
+                .filter(own)
+                .rfind(|r| r.turn_number == Some(turn))
+        })?;
     let session: Vec<&LineageRow> = rows
         .iter()
         .filter(|r| r.session_id == last.session_id)
@@ -188,6 +192,18 @@ mod tests {
             .iter()
             .map(|i| i.content["blocks"][0]["text"].as_str().unwrap())
             .collect()
+    }
+
+    #[test]
+    fn a_user_line_appended_before_the_next_turn_starts_cannot_leak_into_a_fork() {
+        let rows = Builder::new()
+            .text(1, "pi", 1, "user", "before the cut")
+            .line(1, "pi", 1, json!({"role":"assistant","ends_turn":true,"blocks":[{"type":"text","text":"done"}]}))
+            .text(1, "pi", 1, "user", "next turn, stamped before its start event")
+            .text(1, "pi", 2, "assistant", "after the cut")
+            .rows;
+        assert_eq!(cut_at_turn(&rows, 1), Some(rows[1].id));
+        assert_eq!(cut_at_turn(&rows, 2), Some(rows[3].id));
     }
 
     #[test]

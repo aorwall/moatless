@@ -140,6 +140,35 @@ pub const CODEX: AgentProfileEntry = AgentProfileEntry {
     missing_credential_hint: "Add CODEX_AUTH_JSON or OPENAI_API_KEY in Settings \u{2192} Secrets",
 };
 
+/// Pi models routed through the backend's API-key gateway.
+pub const PI: AgentProfileEntry = AgentProfileEntry {
+    profile: AgentProfile::Pi,
+    label: "Pi",
+    params: AgentParams { use_tmux: false },
+    credential_keys: &[ANTHROPIC_API_KEY, OPENAI_API_KEY],
+    provider_token_providers: &[],
+    default_model: "anthropic/claude-sonnet-5-5",
+    models: &[
+        ModelEntry {
+            id: "anthropic/claude-sonnet-5-5",
+            label: "Sonnet",
+        },
+        ModelEntry {
+            id: "anthropic/claude-haiku-5-5",
+            label: "Haiku",
+        },
+        ModelEntry {
+            id: "anthropic/claude-opus-5-5",
+            label: "Opus",
+        },
+        ModelEntry {
+            id: "openai/gpt-6.1-sol",
+            label: "GPT 6.1 Sol",
+        },
+    ],
+    missing_credential_hint: "Add ANTHROPIC_API_KEY or OPENAI_API_KEY in Settings → Secrets",
+};
+
 /// The catalog entry for `profile`.
 pub fn entry(profile: AgentProfile) -> &'static AgentProfileEntry {
     match profile {
@@ -148,6 +177,7 @@ pub fn entry(profile: AgentProfile) -> &'static AgentProfileEntry {
         AgentProfile::ClaudeCodeCli => &CLAUDE_CODE_CLI,
         AgentProfile::ClaudeCodeFable => &CLAUDE_CODE_FABLE,
         AgentProfile::Codex => &CODEX,
+        AgentProfile::Pi => &PI,
     }
 }
 
@@ -191,6 +221,15 @@ pub fn validate_agent_model(
     let Some(model) = model else {
         return Ok(());
     };
+    if agent_profile == AgentProfile::Pi
+        && !model.split_once('/').is_some_and(|(provider, model)| {
+            matches!(provider, "anthropic" | "openai") && !model.is_empty()
+        })
+    {
+        return Err(
+            "Pi requires anthropic/model or openai/model using an API key or hub".to_string(),
+        );
+    }
     if !model_conflicts(agent_profile, model) {
         return Ok(());
     }
@@ -212,6 +251,18 @@ mod tests {
     };
     use moatless_types::agent::AgentProfile;
     use moatless_types::model::{ClaudeModel, CodexModel};
+
+    #[test]
+    fn pi_refuses_subscription_providers_and_unqualified_models() {
+        for model in [
+            "openai-codex/gpt-6.1-sol",
+            "claude-sonnet-5-5",
+            "anthropic/",
+        ] {
+            assert!(validate_agent_model(AgentProfile::Pi, Some(model)).is_err());
+        }
+        assert!(validate_agent_model(AgentProfile::Pi, Some("openai/future-model")).is_ok());
+    }
 
     fn offered(profile: AgentProfile) -> Vec<&'static str> {
         entry(profile)

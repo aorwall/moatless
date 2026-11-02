@@ -162,6 +162,15 @@ async fn skill_roots(config: &Config) -> Vec<SkillRoot> {
     roots
 }
 
+/// Managed skill roots passed explicitly to agents whose automatic discovery is disabled.
+pub(crate) async fn discovery_paths(config: &Config) -> Vec<PathBuf> {
+    skill_roots(config)
+        .await
+        .into_iter()
+        .map(|root| root.dir)
+        .collect()
+}
+
 /// `<home>/skills` for the harness this Member is fixed to.
 fn home_skills_dir(config: &Config) -> PathBuf {
     let is_codex = config

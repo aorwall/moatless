@@ -21,6 +21,14 @@ pub fn build_env(
     grpc_port: u16,
 ) -> Vec<(String, String)> {
     let mut env: Vec<(String, String)> = vec![
+        (
+            "SANDBOX_CLAUDE_EXECUTABLE_PATH".to_string(),
+            "claude".to_string(),
+        ),
+        (
+            "SANDBOX_CODEX_EXECUTABLE_PATH".to_string(),
+            "codex".to_string(),
+        ),
         ("TASK_ID".to_string(), task_id.to_string()),
         ("SANDBOX_ID".to_string(), task_id.to_string()),
         ("GIT_CLONE_URL".to_string(), plan.git_clone_url.clone()),

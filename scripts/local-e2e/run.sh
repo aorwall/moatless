@@ -18,6 +18,7 @@ BASE_ENV="${LOCAL_E2E_BASE_ENV:-${RUNTIME_DIR}/shadow/backend.env}"
 TARGET_DIR="${CARGO_TARGET_DIR:-${REPO_ROOT}/target}"
 # Where `moatless-backend`, `sandbox` and `moat` are; CI builds `--profile ci`.
 BIN_DIR="${LOCAL_E2E_BIN_DIR:-${TARGET_DIR}/debug}"
+export PATH="$BIN_DIR:$PATH"
 # Only names this script mints: `e2e_<epoch seconds>_<random>`.
 SCHEMA_PATTERN='^e2e_[0-9]+_[a-z0-9]+$'
 
@@ -45,6 +46,18 @@ free_port() {
 # command they started, whatever session or group those moved to.
 run_pids() {
   local root="$1" proc
+  if [ ! -d /proc ]; then
+    python3 - "$root" <<'PYCODE'
+import os, re, subprocess, sys
+root = re.escape(sys.argv[1])
+rows = subprocess.check_output(['ps', 'eww', '-axo', 'pid=,command='], text=True)
+for row in rows.splitlines():
+    pid, _, command = row.strip().partition(' ')
+    if pid.isdigit() and int(pid) not in (os.getpid(), os.getppid()) and re.search(r'\b(?:LOCAL_SANDBOX_ROOT|HOME|TMPDIR)=' + root + r'(?:/|\s|$)', command):
+        print(pid)
+PYCODE
+    return
+  fi
   for proc in /proc/[0-9]*; do
     [ "${proc#/proc/}" != "$$" ] || continue
     # An `if`, so a last non-match cannot fail the caller's `$(...)` under `set -e`.
@@ -160,6 +173,18 @@ trap 'exit 130' INT TERM
 mkdir -p "$SANDBOX_ROOT" "$RUN_DIR"
 chmod 700 "$RUN_DIR"
 
+if [ "$(uname -s)" = Darwin ] && ! command -v setsid >/dev/null; then
+  mkdir -p "$RUN_DIR/bin"
+  cat > "$RUN_DIR/bin/setsid" <<'PYCODE'
+#!/usr/bin/env python3
+import os, sys
+os.setsid()
+os.execvp(sys.argv[1], sys.argv[1:])
+PYCODE
+  chmod 700 "$RUN_DIR/bin/setsid"
+  export PATH="$RUN_DIR/bin:$PATH"
+fi
+
 if [ "$SKIP_BUILD" = 0 ]; then
   log "Building backend, sandbox and CLI"
   cargo build -p moatless-backend -p moatless-sandbox -p moatless-cli
@@ -217,6 +242,16 @@ curl -fsS "${BASE_URL}/health" > /dev/null || {
   exit 1
 }
 
+if [ -n "${GITHUB_PAT:-}" ]; then
+  log "Seeding the test administrator's GitHub connection"
+  python3 - <<'PYCODE' | PGOPTIONS="-c search_path=${SCHEMA}" psql "$DB_URL" -q -v ON_ERROR_STOP=1
+import os
+print(r'\set VERBOSITY terse')
+pat = os.environ['GITHUB_PAT'].replace("'", "''")
+print("INSERT INTO provider_tokens (user_id, owner_user_id, provider, auth_method, access_token, token_type, scope) SELECT id, id, 'github', 'manual', '" + pat + "', 'Bearer', 'user' FROM users WHERE email = 'admin@localhost';")
+PYCODE
+fi
+
 # An API-key auth.json satisfies the Codex connection check without an OAuth
 # refresh token. Its placeholder JWTs never expire, so the backend never tries
 # to refresh them.
@@ -248,6 +283,11 @@ SQL
   unset CODEX_BLOB
 fi
 
+if [ -n "${LOCAL_E2E_SEED_SQL:-}" ]; then
+  log "Seeding the isolated schema from ${LOCAL_E2E_SEED_SQL}"
+  PGOPTIONS="-c search_path=${SCHEMA}" psql "$DB_URL" -q -v ON_ERROR_STOP=1 -f "$LOCAL_E2E_SEED_SQL"
+fi
+
 # Publishing needs a bucket, and a page's token needs a signing key.
 ARTIFACT_PAGES="$(
   set -a
@@ -264,6 +304,7 @@ env -u IS_SANDBOX -u TASK_ID -u SANDBOX_ID \
   USER_AUTH_TOKEN= \
   HOME="$RUN_DIR" \
   E2E_PROFILE=local \
+  E2E_LOCAL_SANDBOX_ROOT="$SANDBOX_ROOT" \
   E2E_ARTIFACT_PAGES="$ARTIFACT_PAGES" \
   MOATLESS_API_URL="$BASE_URL" \
   FRONTEND_URL="$BASE_URL" \

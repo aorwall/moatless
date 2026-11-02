@@ -11,12 +11,12 @@ schedule:
   # the 03:00 Nightly E2E has released the cluster.
   cron: "0 0 6 * * * *"
   timezone: UTC
-  message: "Check npm for new Claude Code and Codex CLI releases, upgrade the sandbox pins, and move the model catalogs to the current models."
+  message: "Check npm for new Claude Code, Codex, and Pi CLI releases, upgrade the sandbox pins, and move the model catalogs to the current models."
 ---
 
 # Agent CLI upgrade — bump the pins, move the catalogs, prove the agents run
 
-`@anthropic-ai/claude-code` and `@openai/codex` ship several releases a week,
+`@anthropic-ai/claude-code`, `@openai/codex`, and `@earendil-works/pi-coding-agent` ship several releases a week,
 and new Claude and Codex models arrive between them. The sandbox image bakes one
 version of each CLI and the catalog pins each model choice to one model id, so
 both drift behind what the product could run. This run closes that gap: read
@@ -51,18 +51,19 @@ notices.
 
 ## 1. Read what is pinned and what is published
 
-`docker/cli-versions.env` is the source of truth for both pins.
+`docker/cli-versions.env` is the source of truth for all three pins.
 
 ```bash
-grep -E '^(CLAUDE|CODEX)_CLI_VERSION=' docker/cli-versions.env
+grep -E '^(CLAUDE|CODEX|PI)_CLI_VERSION=' docker/cli-versions.env
 npm view @anthropic-ai/claude-code version
 npm view @openai/codex version
+npm view @earendil-works/pi-coding-agent version
 ```
 
 Take the `latest` dist-tag, which is what `npm view <pkg> version` prints. Do not
 take `next`.
 
-When both pins already match, skip to section 3b: a new Claude model needs no
+When all pins already match, skip to section 3b: a new Claude model needs no
 new CLI when the pinned one already reaches its `minCli`.
 
 ## 2. Bump every copy of the pin
@@ -73,8 +74,8 @@ and `crates/claude-agent-sdk`'s smoke test fails on the mismatch.
 
 | File | Pin |
 |------|-----|
-| `docker/cli-versions.env` | both — the source of truth |
-| `docker/Dockerfile.sandbox-base` | both `ARG` fallbacks |
+| `docker/cli-versions.env` | all three — the source of truth |
+| `docker/Dockerfile.sandbox-base` | all three `ARG` fallbacks |
 | `crates/claude-agent-sdk/Dockerfile.test` | `ARG CLAUDE_CLI_VERSION` |
 | `crates/claude-agent-sdk/scripts/test-docker.sh` | the `CLAUDE_CLI_VERSION` default, twice |
 | `crates/claude-agent-sdk/tests/smoke.rs` | `EXPECTED_CLAUDE_CLI_VERSION` |
@@ -299,3 +300,5 @@ It does not bump `TASK_VERSION`, `RUST_VERSION` or anything else in
 `cli-versions.env` — those move with the toolchain, not with the agent CLIs, and
 `RUST_VERSION` is pinned to `rust-toolchain.toml` by the `toolchain-drift` CI
 job. It does not merge its own PR.
+
+A Pi bump must also pass `tests/api/specs/agent-pi-flow.spec.ts` through the local E2E runner with real credentials for both providers. The suite covers tools, steering, cancellation, forks, recovery, and switching.

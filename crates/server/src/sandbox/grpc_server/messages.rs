@@ -177,14 +177,15 @@ pub(super) async fn get_pending_messages(
         _ => latest_agent_session_id,
     };
 
-    // Check the last closed turn — a turn that ended `stopped` or `error`
-    // cut its agent session off mid-flight, so the next run starts fresh
-    // rather than `--resume` into a transcript ending on an unanswered tool
-    // call. Turn state is authoritative here: routine stops leave no result
-    // row behind (see `message::models::stop_is_reported`).
+    // Pi repairs orphaned tool calls when loading a stopped session. Keep its
+    // explicit id deliberately: a replacement sandbox cannot recover the
+    // conversation through Claude's implicit `--continue` fallback.
     let cut_off = match service.ingress.as_ref().map(|i| &i.task_turns) {
         Some(turns) => match turns.latest_closed_turn_status(&req.task_id).await {
-            Ok(status) => status.is_some_and(TurnStatus::cut_off_session),
+            Ok(status) => status.is_some_and(|status| {
+                status.cut_off_session()
+                    && !(status == TurnStatus::Stopped && task_agent_profile == AgentProfile::Pi)
+            }),
             Err(e) => {
                 warn!(error = %e, task_id = %req.task_id, "Failed to read last closed turn; assuming resumable");
                 false

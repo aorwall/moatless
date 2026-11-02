@@ -682,3 +682,82 @@ async fn input_submitted_mid_execution_is_queued_when_the_process_cannot_inject(
         "the second input must not join the first execution"
     );
 }
+
+#[tokio::test]
+async fn a_queued_injection_not_consumed_before_settling_opens_the_next_execution() {
+    let mut harness = HarnessRuntime::scripted_sequence(vec![
+        Script::injecting(vec![
+            Step::SessionReady(SessionId("first".into())),
+            Step::AcceptInput,
+            Step::AwaitInput,
+            Step::Completed,
+        ]),
+        Script::new(vec![
+            Step::SessionReady(SessionId("second".into())),
+            Step::AcceptInput,
+            Step::Completed,
+        ]),
+    ]);
+    harness.submit(Input::text("first", "go")).await.unwrap();
+    assert!(matches!(
+        harness.next_signal().await,
+        Some(Signal::ExecutionStarted { .. })
+    ));
+    assert!(matches!(
+        harness.next_signal().await,
+        Some(Signal::InputAccepted { .. })
+    ));
+    harness.submit(Input::text("late", "steer")).await.unwrap();
+    assert!(matches!(
+        harness.next_signal().await,
+        Some(Signal::ExecutionFinished { .. })
+    ));
+    let signals = drain_to_terminal(&mut harness).await;
+    assert!(
+        matches!(&signals[0], Signal::ExecutionStarted{cause:Cause::Input(id),..} if id.0 == "late")
+    );
+    assert!(matches!(&signals[1], Signal::InputAccepted{input} if input.0 == "late"));
+}
+
+#[tokio::test]
+async fn cancelling_rejects_queued_injections_that_were_not_consumed() {
+    let mut harness = HarnessRuntime::scripted(Script::injecting(vec![
+        Step::SessionReady(SessionId("first".into())),
+        Step::AcceptInput,
+        Step::AwaitInput,
+        Step::Block(assistant_block("queued")),
+        Step::WaitForCancel,
+    ]));
+    harness.submit(Input::text("first", "go")).await.unwrap();
+    harness.next_signal().await.unwrap();
+    harness.next_signal().await.unwrap();
+    harness
+        .submit(Input::text("queued", "steer"))
+        .await
+        .unwrap();
+    assert!(matches!(
+        harness.next_signal().await,
+        Some(Signal::Source(_))
+    ));
+    harness.cancel();
+    let mut rejected = false;
+    while let Some(signal) = harness.next_signal().await {
+        match signal {
+            Signal::InputRejected {
+                input,
+                reason: Rejection::Cancelled,
+            } => {
+                assert_eq!(input.0, "queued");
+                rejected = true;
+            }
+            Signal::ExecutionFinished {
+                outcome: Outcome::Cancelled,
+            } => break,
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+    assert!(
+        rejected,
+        "the queued input's dispatcher must not wait forever"
+    );
+}

@@ -467,6 +467,7 @@ async fn run_execution<P: AgentProcess>(
     // The run's totals, captured just before the terminal and attached to the
     // `Completed` outcome.
     let mut run_totals: Option<super::signal::RunTotals> = None;
+    let mut injected_inputs: VecDeque<Input> = VecDeque::new();
 
     loop {
         tokio::select! {
@@ -520,6 +521,8 @@ async fn run_execution<P: AgentProcess>(
                                     "injection into the active execution failed; queueing for a later one"
                                 );
                                 queue.push_back(next);
+                            } else {
+                                injected_inputs.push_back(next);
                             }
                             // The Stop won the race. Tear the execution down
                             // through the normal path, as the open does: its
@@ -559,6 +562,7 @@ async fn run_execution<P: AgentProcess>(
                         }
                     }
                     Some(ProcessEvent::InputAccepted { input }) => {
+                        injected_inputs.retain(|submitted| submitted.id != input);
                         if started {
                             accepted = true;
                             emit(signal_tx, Signal::InputAccepted { input }).await?;
@@ -594,6 +598,7 @@ async fn run_execution<P: AgentProcess>(
                         // Release buffered source only if acceptance was actually
                         // emitted; a terminal never synthesizes it.
                         flush_early(signal_tx, started, accepted, &mut early).await?;
+                        settle_unconsumed(&mut injected_inputs, queue, signal_tx, cancel_requested).await?;
                         return finalize(
                             signal_tx,
                             started,
@@ -608,6 +613,7 @@ async fn run_execution<P: AgentProcess>(
                     None => {
                         // EOF with no prior Terminated: an unexpected exit.
                         flush_early(signal_tx, started, accepted, &mut early).await?;
+                        settle_unconsumed(&mut injected_inputs, queue, signal_tx, cancel_requested).await?;
                         return finalize(
                             signal_tx,
                             started,
@@ -622,6 +628,29 @@ async fn run_execution<P: AgentProcess>(
             }
         }
     }
+}
+
+async fn settle_unconsumed(
+    inputs: &mut VecDeque<Input>,
+    queue: &mut VecDeque<Input>,
+    signal_tx: &mpsc::Sender<Signal>,
+    cancelled: bool,
+) -> Result<(), SignalClosed> {
+    if cancelled {
+        for input in inputs.drain(..) {
+            emit(
+                signal_tx,
+                Signal::InputRejected {
+                    input: input.id,
+                    reason: Rejection::Cancelled,
+                },
+            )
+            .await?;
+        }
+    } else {
+        queue.extend(inputs.drain(..));
+    }
+    Ok(())
 }
 
 /// Release buffered source events once the execution has both started and had

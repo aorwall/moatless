@@ -538,3 +538,17 @@ of its own.
 | Deferred | Anchor | Entry condition |
 |---|---|---|
 | Side chats use the Sandbox's existing access policy | `crates/sandbox/src/agent/options.rs` reads the Sandbox-wide Claude permission mode; `crates/sandbox/src/agent/codex_app_server/session.rs` requests `AskForApproval::Never`. `crates/t3code/src/v2_commands.rs` refuses approval responses. There is no per-Task approval-required mode to assign to a side chat | When Moatless supports per-Task approval policy and approval responses, give side chats approval-required access before their first turn |
+
+## Pi extension runtime and durable execution
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| Pi Durable integration | `crates/sandbox/src/agent/harness/pi/process.rs::PiProcess` runs one RPC process per Turn and restores native sessions from the backend trajectory | When a workflow needs durable execution beyond Moatless's existing Turn and sandbox recovery |
+| Arbitrary Pi extensions and extension dialogs | `PiProcess::open` disables extension discovery while passing managed skill roots explicitly | When the product defines approval, UI-dialog, and lifecycle contracts for third-party Pi extensions |
+
+## Local test host portability
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| Process inventory and descendant cleanup assume Linux | `crates/sandbox/src/pod_processes.rs` and `crates/sandbox-local/src/client.rs::session_members` read `/proc`; the local client launches `setsid`. The E2E runner supplies a macOS launcher and cleanup fallback, but the crate tests still require Linux | When macOS becomes a supported local-runtime host beyond the E2E runner |
+| The Git rotation test inherits host credential helpers | `crates/sandbox/src/init/git/tests.rs::a_broker_origin_clone_keeps_no_token_and_fetches_after_a_rotation` fails authentication on this Mac while using an additional inline helper | When making the sandbox crate's full test suite host-independent; isolate the test's Git credential configuration |

@@ -24,6 +24,7 @@ use moatless_tasks::task::switch::TaskSwitchService;
 
 /// What a fallback reads and writes, projected out of `AppState`.
 pub struct FallbackPorts {
+    pub hub_available: bool,
     pub tasks: Arc<TaskCommands>,
     pub loops: Arc<Loops>,
     pub task_switch: Arc<TaskSwitchService>,
@@ -79,6 +80,7 @@ pub(crate) fn decide(facts: &FallbackFacts<'_>) -> Fallback {
         Some(false) => {}
     }
     match facts.failed_profile.map(AgentProfile::harness) {
+        Some(Harness::Pi) => Fallback::Skip("Pi has no automatic fallback"),
         Some(Harness::Codex) => Fallback::To(Harness::ClaudeCode),
         Some(Harness::ClaudeCode) => Fallback::To(Harness::Codex),
         None => Fallback::Skip("the failed profile is not in the catalog"),
@@ -239,6 +241,7 @@ pub async fn fall_back_to_other_agent(state: &FallbackPorts, event: &AgentEvent)
 fn label(harness: Harness) -> &'static str {
     match harness {
         Harness::Codex => "Codex",
+        Harness::Pi => "Pi",
         Harness::ClaudeCode => "Claude Code",
     }
 }
@@ -266,6 +269,7 @@ async fn switch(
     note: &SwitchNote<'_>,
 ) -> Result<SwitchOutcome, TaskError> {
     let credentials = SwitchCredentials {
+        hub_available: state.hub_available,
         secrets: state.secrets.as_ref(),
         provider_tokens: state.harness_credentials.as_ref(),
         credential_sync: &state.credential_sync,

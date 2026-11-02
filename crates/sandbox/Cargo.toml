@@ -98,6 +98,9 @@ base64 = { workspace = true }
 # URLs (rustls to match the rest of the workspace; no default features).
 reqwest = { workspace = true, features = ["rustls", "stream"] }
 
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.31", features = ["signal"] }
+
 [dev-dependencies]
 # `S3Storage::at_endpoint`, for the MinIO round trip.
 moatless-s3 = { workspace = true, features = ["restic-backend", "test-support"] }

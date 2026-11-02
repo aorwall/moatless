@@ -29,6 +29,7 @@ pub struct AgentApiDoc;
 pub fn agent_router<S>(state: S) -> (axum::Router, utoipa::openapi::OpenApi)
 where
     S: Clone + Send + Sync + 'static,
+    Arc<moatless_core::config::Config>: FromRef<S>,
     Arc<dyn UserTokenVerifier>: FromRef<S>,
     Arc<dyn SecretCatalog>: FromRef<S>,
     Arc<dyn HarnessCredentials>: FromRef<S>,
