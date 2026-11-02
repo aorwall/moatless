@@ -206,6 +206,16 @@ Notes:
   `trigger_labels` fires on status entry only for the `triggerStates` it lists,
   never the default. `adapterConfig.exclude_labels` stops every trigger,
   mention and delegation included, for an issue carrying one of them.
+  **A mention, assignment or delegation goes to the narrowest loop on the team
+  that admits the issue**, one point per constraint: `projectIds`, and each of
+  `requireLabels`. The most points wins, a tie goes to the oldest, and an
+  unscoped loop is the catch-all that takes the rest. `requireLabels` scopes a
+  mention only on a mention-mode loop (`create_on_status_entry: false`, no
+  `trigger_labels`): an event-driven loop such as a label loop already owns a
+  task on its issue, so it keeps taking no mention by its labels. A narrow loop
+  whose `exclude_labels` match is passed over. So a `requireLabels:
+  ["spec-issue"]` mention loop takes `spec-issue` tickets and the team's
+  catch-all triage loop takes everything else, with no second task.
   `routingMode: ongoing` sends each status-entry or label event, as a message
   naming the issue, its state, URL and the reason, to the loop's one ongoing
   task (opened by the first event) and binds nothing to the issue.

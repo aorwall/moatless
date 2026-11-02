@@ -220,36 +220,65 @@ fn string_list(value: &serde_json::Value, key: &str) -> Option<Vec<String>> {
     })
 }
 
-/// Pick the subscription that should spawn a task for a mention/assignment.
-///
-/// Several listeners can share one team, so this routes by project + labels:
-/// the first project-scoped listener admitting `project_id` and `labels` wins;
-/// else the first unscoped catch-all (labels not consulted); else
-/// `rules.first()` for pre-scoping teams. `None` only when `rules` is empty.
+/// Pick the subscription that spawns a task for a mention or assignment: the
+/// admitting, non-excluding listener with the highest [`session_scope`] (a tie
+/// goes to the oldest), else the first unscoped catch-all, else `rules.first()`.
+/// `None` only when `rules` is empty.
 pub fn select_spawn_rule<'a>(
     rules: &'a [SubscriptionMatch],
     project_id: Option<&str>,
     labels: &[String],
 ) -> Option<&'a SubscriptionMatch> {
-    // Tier 1 — first project-scoped listener that admits this issue's project + labels.
-    if let Some(scoped) = rules.iter().find(|r| {
-        let cfg = LinearRuleConfig::from_rule(r);
-        !cfg.project_ids.is_empty() && cfg.project_allowed(project_id) && cfg.labels_allowed(labels)
-    }) {
+    // Tier 1 — the narrowest scoped listener that admits this issue.
+    let mut best: Option<(usize, &SubscriptionMatch)> = None;
+    for rule in rules {
+        let cfg = LinearRuleConfig::from_rule(rule);
+        let Some(scope) = session_scope(&cfg) else {
+            continue;
+        };
+        if !cfg.project_allowed(project_id) || !cfg.labels_allowed(labels) || cfg.excluded(labels) {
+            continue;
+        }
+        // Strictly greater, so the first listed keeps a tie.
+        if best.is_none_or(|(top, _)| scope > top) {
+            best = Some((scope, rule));
+        }
+    }
+    if let Some((_, scoped)) = best {
         return Some(scoped);
     }
 
-    // Tier 2 — first unscoped (empty project_ids) catch-all listener. Labels are
+    // Tier 2 — first unscoped (no session scope) catch-all listener. Labels are
     // not consulted for the catch-all.
     if let Some(fallback) = rules
         .iter()
-        .find(|r| LinearRuleConfig::from_rule(r).project_ids.is_empty())
+        .find(|r| session_scope(&LinearRuleConfig::from_rule(r)).is_none())
     {
         return Some(fallback);
     }
 
     // Tier 3 — no scoped match, no catch-all: oldest listener wins (legacy).
     rules.first()
+}
+
+/// A listener's mention-routing scope: one point for a project allowlist and
+/// one per required label, `None` for a catch-all. Labels count only on a
+/// mention-mode listener: an event-driven one (the factory) already owns a task
+/// on its issue, and routing a mention to it would start a second.
+fn session_scope(cfg: &LinearRuleConfig) -> Option<usize> {
+    let mention_mode = !cfg.create_on_status_entry && cfg.trigger_labels.is_empty();
+    let project = usize::from(!cfg.project_ids.is_empty());
+    // A project-scoped listener counts its required labels whatever its mode,
+    // as Tier 1 always has.
+    let labels = if project == 1 || mention_mode {
+        cfg.require_labels.len()
+    } else {
+        0
+    };
+    match project + labels {
+        0 => None,
+        scope => Some(scope),
+    }
 }
 
 /// Whether selecting a spawn listener requires fetching the full issue (project
@@ -261,7 +290,7 @@ pub fn select_spawn_rule<'a>(
 pub fn rules_need_issue_fetch(rules: &[SubscriptionMatch]) -> bool {
     rules.iter().any(|r| {
         let cfg = LinearRuleConfig::from_rule(r);
-        !cfg.project_ids.is_empty() || !cfg.exclude_labels.is_empty()
+        session_scope(&cfg).is_some() || !cfg.exclude_labels.is_empty()
     })
 }
 
@@ -657,6 +686,86 @@ pub(crate) mod tests {
             LinearRuleConfig::from_rule(picked).require_labels,
             vec!["a"]
         );
+    }
+
+    /// A mention-mode listener scoped by labels alone, e.g. a `spec-issue` Loop.
+    fn label_rule(labels: &[&str]) -> SubscriptionMatch {
+        rule_with(
+            serde_json::json!({ "create_on_status_entry": false, "require_labels": labels }),
+            false,
+        )
+    }
+
+    fn picked_labels(rule: &SubscriptionMatch) -> Vec<String> {
+        LinearRuleConfig::from_rule(rule).require_labels
+    }
+
+    #[test]
+    fn a_label_scoped_mention_listener_beats_the_older_catch_all() {
+        let rules = vec![unscoped_rule(), label_rule(&["spec-issue"])];
+        let picked = select_spawn_rule(&rules, None, &["spec-issue".to_string()]).unwrap();
+        assert_eq!(picked_labels(picked), vec!["spec-issue"]);
+    }
+
+    #[test]
+    fn a_label_scoped_listener_the_issue_does_not_match_falls_back() {
+        let rules = vec![label_rule(&["spec-issue"]), unscoped_rule()];
+        let picked = select_spawn_rule(&rules, None, &["Bug".to_string()]).unwrap();
+        assert!(picked_labels(picked).is_empty());
+    }
+
+    #[test]
+    fn the_listener_with_more_constraints_wins() {
+        let labels = ["spec-issue".to_string(), "soap-specs".to_string()];
+        let rules = vec![
+            unscoped_rule(),
+            label_rule(&["spec-issue"]),
+            label_rule(&["spec-issue", "soap-specs"]),
+        ];
+        let picked = select_spawn_rule(&rules, None, &labels).unwrap();
+        assert_eq!(picked_labels(picked), vec!["spec-issue", "soap-specs"]);
+    }
+
+    #[test]
+    fn an_event_driven_listener_takes_no_mention_by_its_labels() {
+        // The factory gates its own status and label events with
+        // `require_labels`; a mention on its ticket must not start a second task
+        // from it, so the catch-all keeps the session (and may decline it).
+        let factory = rule_with(
+            serde_json::json!({
+                "create_on_status_entry": true,
+                "trigger_labels": ["factory"],
+                "require_labels": ["factory"],
+            }),
+            false,
+        );
+        let rules = vec![unscoped_rule(), factory];
+        let picked = select_spawn_rule(&rules, None, &["factory".to_string()]).unwrap();
+        assert!(picked_labels(picked).is_empty());
+    }
+
+    #[test]
+    fn a_scoped_listener_that_excludes_the_issue_is_passed_over() {
+        let excluding = rule_with(
+            serde_json::json!({
+                "create_on_status_entry": false,
+                "require_labels": ["spec-issue"],
+                "exclude_labels": ["blocked"],
+            }),
+            false,
+        );
+        let rules = vec![excluding, unscoped_rule()];
+        let labels = ["spec-issue".to_string(), "blocked".to_string()];
+        let picked = select_spawn_rule(&rules, None, &labels).unwrap();
+        assert!(picked_labels(picked).is_empty());
+    }
+
+    #[test]
+    fn rules_need_issue_fetch_true_when_a_listener_is_label_scoped() {
+        assert!(rules_need_issue_fetch(&[
+            unscoped_rule(),
+            label_rule(&["spec-issue"])
+        ]));
     }
 
     #[test]
