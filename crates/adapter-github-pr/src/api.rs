@@ -8,7 +8,7 @@ use tracing::warn;
 
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 
-use crate::rejection::{graphql_rate_limited, rejection, retry_at};
+use crate::rejection::{graphql_rate_limited, rejection};
 use moatless_types::http::HttpTimeouts;
 
 /// Maximum comment length for GitHub's API (64 KB).
@@ -271,7 +271,10 @@ impl GithubPrApi {
                 if graphql_rate_limited(errors) {
                     return Err(SharedAdapterError::RateLimited {
                         detail: format!("GitHub GraphQL: {errors}"),
-                        retry_at: retry_at(&headers, chrono::Utc::now()),
+                        retry_at: moatless_core::github_client::github_retry_at(
+                            &headers,
+                            chrono::Utc::now(),
+                        ),
                     }
                     .into());
                 }

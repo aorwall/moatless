@@ -42,6 +42,11 @@ pub enum TaskError {
     #[error("Forbidden: {0}")]
     Preflight(String),
 
+    /// [`Self::Preflight`] for a check the git host rate-limited: temporary,
+    /// so HTTP answers 503.
+    #[error("{0}")]
+    PreflightThrottled(String),
+
     #[error("{0}")]
     Conflict(String),
 }
@@ -96,6 +101,7 @@ impl IntoResponse for TaskError {
                 internal_error()
             }
             TaskError::Forbidden(_) | TaskError::Preflight(_) => (StatusCode::FORBIDDEN, text),
+            TaskError::PreflightThrottled(_) => (StatusCode::SERVICE_UNAVAILABLE, text),
             TaskError::Conflict(_) => (StatusCode::CONFLICT, text),
         };
 

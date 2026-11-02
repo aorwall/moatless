@@ -28,11 +28,14 @@ pub trait PreflightPort: Send + Sync {
 /// Band-clean preflight failure returned by [`PreflightPort`].
 ///
 /// Pre-computed from the rich `PreflightError` so the tasks band names no
-/// preflight-credential type: `user_message` drives the 403 body +
+/// preflight-credential type: `user_message` drives the HTTP body +
 /// `sandbox.error` event; `detail` is the underlying `Display` for logs.
 #[derive(Debug, thiserror::Error)]
 #[error("{detail}")]
 pub struct PreflightRejection {
     pub user_message: String,
     pub detail: String,
+    /// The git host rate-limited the check, so a retry after the reset can
+    /// pass: HTTP answers 503, not 403.
+    pub throttled: bool,
 }

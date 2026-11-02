@@ -430,7 +430,7 @@ fn open_error(error: crate::task::creation::TaskCreationError) -> TaskOpenError 
     match error {
         E::RepoNotFound(id) => TaskOpenError::RepoNotFound(id),
         E::BadRequest(message) => TaskOpenError::BadRequest(message),
-        E::Preflight(message) => TaskOpenError::Refused(message),
+        E::Preflight { message, .. } => TaskOpenError::Refused(message),
         E::Store(e) => TaskOpenError::Store(e),
         other => TaskOpenError::Store(StoreError::with_source("open a task", other)),
     }

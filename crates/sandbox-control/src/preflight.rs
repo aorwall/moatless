@@ -298,12 +298,15 @@ impl PreflightPort for RealPreflight {
         task: &Task,
         repo: Option<&'a Repository>,
     ) -> Result<(), PreflightRejection> {
-        self.check(task, repo)
-            .await
-            .map_err(|e| PreflightRejection {
-                user_message: e.user_message(),
-                detail: e.to_string(),
-            })
+        self.check(task, repo).await.map_err(rejection)
+    }
+}
+
+fn rejection(e: PreflightError) -> PreflightRejection {
+    PreflightRejection {
+        user_message: e.user_message(),
+        detail: e.to_string(),
+        throttled: matches!(e, PreflightError::GitHostRateLimited { .. }),
     }
 }
 
@@ -1055,6 +1058,7 @@ mod tests {
         assert!(message.contains("rate-limited"), "{message}");
         assert!(message.contains("after 08:00 UTC"), "{message}");
         assert!(!message.contains("no access"), "{message}");
+        assert!(rejection(err).throttled);
     }
 
     #[tokio::test]

@@ -1,6 +1,9 @@
 //! GitHub API client helpers for token validation and repository access.
 
+use chrono::{DateTime, Utc};
 use moatless_types::http::HttpTimeouts;
+use reqwest::StatusCode;
+use reqwest::header::{HeaderMap, RETRY_AFTER};
 
 use crate::git_provider::GitProviderError;
 
@@ -89,13 +92,18 @@ pub async fn check_github_repo_access(
             source,
         })?;
 
-    if resp.status().is_success() {
-        Ok(())
-    } else if let Some(limited) = rate_limit(resp.status(), resp.headers(), chrono::Utc::now()) {
-        Err(limited)
-    } else if resp.status() == reqwest::StatusCode::NOT_FOUND
-        || resp.status() == reqwest::StatusCode::FORBIDDEN
-    {
+    let status = resp.status();
+    if status.is_success() {
+        return Ok(());
+    }
+    let headers = resp.headers().clone();
+    let body = resp.text().await.unwrap_or_default();
+    if let Some(throttle) = github_throttle(status, &headers, &body, Utc::now()) {
+        Err(GitProviderError::RateLimited {
+            operation: "GitHub API",
+            retry_at: throttle.retry_at,
+        })
+    } else if status == StatusCode::NOT_FOUND || status == StatusCode::FORBIDDEN {
         Err(GitProviderError::RepositoryForbidden {
             // The only host `parse_github` accepts, whatever API base this
             // deployment calls.
@@ -104,8 +112,6 @@ pub async fn check_github_repo_access(
             repo: repo.to_string(),
         })
     } else {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
         Err(GitProviderError::Rejected {
             operation: "GitHub API",
             status,
@@ -114,54 +120,71 @@ pub async fn check_github_repo_access(
     }
 }
 
-/// [`GitProviderError::RateLimited`] when GitHub refused the request for its
-/// rate limit rather than for access.
+const RATE_LIMIT_REMAINING: &str = "x-ratelimit-remaining";
+const RATE_LIMIT_RESET: &str = "x-ratelimit-reset";
+
+/// GitHub refused a request for its rate limit, not for access.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GithubThrottle {
+    /// When GitHub accepts requests again, if it said.
+    pub retry_at: Option<DateTime<Utc>>,
+}
+
+/// `Some` when a non-success answer is GitHub's primary or secondary rate
+/// limit: a 429, or a 403 with `retry-after`, `x-ratelimit-remaining: 0` or
+/// "rate limit" in the body.
 ///
-/// GitHub answers a spent limit with 403 or 429, so a 403 alone does not tell
-/// the two apart: the `x-ratelimit-remaining: 0` or `retry-after` header does.
-fn rate_limit(
-    status: reqwest::StatusCode,
-    headers: &reqwest::header::HeaderMap,
-    now: chrono::DateTime<chrono::Utc>,
-) -> Option<GitProviderError> {
-    let header = |name: &str| {
-        headers
-            .get(name)
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.trim().parse::<i64>().ok())
-    };
-    let retry_after = header("retry-after");
-    let spent = header("x-ratelimit-remaining") == Some(0);
-    let limited = status == reqwest::StatusCode::TOO_MANY_REQUESTS
-        || (status == reqwest::StatusCode::FORBIDDEN && (spent || retry_after.is_some()));
-    if !limited {
+/// Every GitHub client classifies through this. A 403 alone does not tell a
+/// spent quota from a missing permission.
+pub fn github_throttle(
+    status: StatusCode,
+    headers: &HeaderMap,
+    body: &str,
+    now: DateTime<Utc>,
+) -> Option<GithubThrottle> {
+    let limited = status == StatusCode::TOO_MANY_REQUESTS
+        || (status == StatusCode::FORBIDDEN
+            && (headers.contains_key(RETRY_AFTER)
+                || header(headers, RATE_LIMIT_REMAINING) == Some("0")
+                || body.to_ascii_lowercase().contains("rate limit")));
+    limited.then(|| GithubThrottle {
+        retry_at: github_retry_at(headers, now),
+    })
+}
+
+/// When GitHub's quota returns: `retry-after` in seconds, else
+/// `x-ratelimit-reset` in epoch seconds once `x-ratelimit-remaining` is zero.
+///
+/// `None` on an answer with quota left, whose reset header is not a refusal's.
+pub fn github_retry_at(headers: &HeaderMap, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+    if let Some(seconds) =
+        header(headers, RETRY_AFTER.as_str()).and_then(|value| value.parse::<i64>().ok())
+    {
+        return Some(now + chrono::Duration::seconds(seconds.max(0)));
+    }
+    if header(headers, RATE_LIMIT_REMAINING) != Some("0") {
         return None;
     }
-    let retry_at = match retry_after {
-        Some(seconds) => Some(now + chrono::Duration::seconds(seconds)),
-        None if spent => {
-            header("x-ratelimit-reset").and_then(|epoch| chrono::DateTime::from_timestamp(epoch, 0))
-        }
-        None => None,
-    };
-    Some(GitProviderError::RateLimited {
-        operation: "GitHub API",
-        retry_at,
-    })
+    header(headers, RATE_LIMIT_RESET)
+        .and_then(|value| value.parse::<i64>().ok())
+        .and_then(|epoch| DateTime::from_timestamp(epoch, 0))
+}
+
+fn header<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use chrono::{DateTime, Utc};
-    use reqwest::StatusCode;
-    use reqwest::header::{HeaderMap, HeaderValue};
-
     fn headers(pairs: &[(&'static str, &str)]) -> HeaderMap {
         let mut map = HeaderMap::new();
         for (name, value) in pairs {
-            map.insert(*name, HeaderValue::from_str(value).unwrap());
+            map.insert(*name, value.parse().unwrap());
         }
         map
     }
@@ -170,50 +193,69 @@ mod tests {
         DateTime::from_timestamp(1_800_000_000, 0).unwrap()
     }
 
-    /// The `retry_at` of an answer that must be a rate limit.
-    fn limited_until(status: StatusCode, headers: &HeaderMap) -> Option<DateTime<Utc>> {
-        match rate_limit(status, headers, now()) {
-            Some(GitProviderError::RateLimited { retry_at, .. }) => retry_at,
-            other => panic!("not a rate limit: {other:?}"),
-        }
+    fn throttle(status: StatusCode, headers: &HeaderMap, body: &str) -> Option<GithubThrottle> {
+        github_throttle(status, headers, body, now())
     }
 
     #[test]
-    fn a_403_with_a_spent_primary_limit_is_a_rate_limit_until_its_reset() {
-        let headers = headers(&[
-            ("x-ratelimit-remaining", "0"),
-            ("x-ratelimit-reset", "1800001000"),
+    fn a_spent_primary_limit_is_throttled_until_its_reset() {
+        let map = headers(&[
+            (RATE_LIMIT_REMAINING, "0"),
+            (RATE_LIMIT_RESET, "1800001000"),
         ]);
 
         assert_eq!(
-            limited_until(StatusCode::FORBIDDEN, &headers),
-            DateTime::from_timestamp(1_800_001_000, 0),
+            throttle(StatusCode::FORBIDDEN, &map, ""),
+            Some(GithubThrottle {
+                retry_at: DateTime::from_timestamp(1_800_001_000, 0),
+            }),
         );
     }
 
     #[test]
-    fn a_secondary_limit_retries_after_its_retry_after_seconds() {
-        let headers = headers(&[("retry-after", "60"), ("x-ratelimit-remaining", "12")]);
+    fn a_secondary_limit_waits_its_retry_after() {
+        let map = headers(&[("retry-after", "60"), (RATE_LIMIT_REMAINING, "12")]);
 
         assert_eq!(
-            limited_until(StatusCode::FORBIDDEN, &headers),
-            Some(now() + chrono::Duration::seconds(60)),
+            throttle(StatusCode::FORBIDDEN, &map, ""),
+            Some(GithubThrottle {
+                retry_at: Some(now() + chrono::Duration::seconds(60)),
+            }),
         );
     }
 
+    /// GitHub can answer a secondary limit with no timing header at all.
     #[test]
-    fn a_429_without_headers_is_a_rate_limit_with_no_known_end() {
+    fn a_403_whose_body_names_a_rate_limit_is_throttled_with_no_known_end() {
+        let body = r#"{"message":"You have exceeded a secondary rate limit."}"#;
+
         assert_eq!(
-            limited_until(StatusCode::TOO_MANY_REQUESTS, &HeaderMap::new()),
-            None,
+            throttle(StatusCode::FORBIDDEN, &HeaderMap::new(), body),
+            Some(GithubThrottle { retry_at: None }),
+        );
+        assert_eq!(
+            throttle(StatusCode::TOO_MANY_REQUESTS, &HeaderMap::new(), ""),
+            Some(GithubThrottle { retry_at: None }),
         );
     }
 
     #[test]
-    fn a_403_with_budget_left_is_an_access_refusal() {
-        let headers = headers(&[("x-ratelimit-remaining", "4999")]);
+    fn a_negative_retry_after_retries_now() {
+        let map = headers(&[("retry-after", "-5")]);
 
-        assert!(rate_limit(StatusCode::FORBIDDEN, &headers, now()).is_none());
-        assert!(rate_limit(StatusCode::NOT_FOUND, &headers, now()).is_none());
+        assert_eq!(github_retry_at(&map, now()), Some(now()));
+    }
+
+    #[test]
+    fn a_permission_refusal_with_quota_left_is_not_throttled() {
+        let map = headers(&[
+            (RATE_LIMIT_REMAINING, "4100"),
+            (RATE_LIMIT_RESET, "1800000600"),
+        ]);
+        let body = r#"{"message":"Resource not accessible by integration"}"#;
+
+        assert_eq!(throttle(StatusCode::FORBIDDEN, &map, body), None);
+        assert_eq!(throttle(StatusCode::NOT_FOUND, &map, ""), None);
+        assert_eq!(github_retry_at(&map, now()), None);
     }
 }

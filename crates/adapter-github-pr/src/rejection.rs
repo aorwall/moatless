@@ -1,19 +1,17 @@
 //! Classifying a GitHub REST or GraphQL rejection, so a quota refusal carries
 //! its reset time and a permission refusal is not retried as transient.
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
+use moatless_core::github_client::github_throttle;
 use reqwest::StatusCode;
-use reqwest::header::{HeaderMap, RETRY_AFTER};
+use reqwest::header::HeaderMap;
 
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 
-const RATE_LIMIT_REMAINING: &str = "x-ratelimit-remaining";
-const RATE_LIMIT_RESET: &str = "x-ratelimit-reset";
-
 /// The error for a non-success answer to `operation`.
 ///
-/// A 429, or a 403 that GitHub marks as a primary or secondary rate limit, is
-/// `RateLimited`; any other 403 is `AccessDenied`; the rest stay `AdapterApi`.
+/// A rate limit by [`github_throttle`] is `RateLimited`; any other 403 is
+/// `AccessDenied`; the rest stay `AdapterApi`.
 pub(crate) fn rejection(
     operation: &str,
     status: StatusCode,
@@ -21,10 +19,10 @@ pub(crate) fn rejection(
     body: &str,
 ) -> AdapterError {
     let detail = format!("{operation} returned {status}: {body}");
-    if is_throttle(status, headers, body) {
+    if let Some(throttle) = github_throttle(status, headers, body, Utc::now()) {
         return SharedAdapterError::RateLimited {
             detail,
-            retry_at: retry_at(headers, Utc::now()),
+            retry_at: throttle.retry_at,
         }
         .into();
     }
@@ -44,42 +42,11 @@ pub(crate) fn graphql_rate_limited(errors: &serde_json::Value) -> bool {
     })
 }
 
-/// When the quota returns, read from the headers GitHub documents: a
-/// `retry-after` in seconds, else `x-ratelimit-reset` in epoch seconds once
-/// `x-ratelimit-remaining` is zero.
-pub(crate) fn retry_at(headers: &HeaderMap, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
-    if let Some(seconds) = header(headers, RETRY_AFTER.as_str()).and_then(|v| v.parse::<i64>().ok())
-    {
-        return Some(now + chrono::Duration::seconds(seconds.max(0)));
-    }
-    if header(headers, RATE_LIMIT_REMAINING) != Some("0") {
-        return None;
-    }
-    header(headers, RATE_LIMIT_RESET)
-        .and_then(|v| v.parse::<i64>().ok())
-        .and_then(|epoch| DateTime::from_timestamp(epoch, 0))
-}
-
-fn is_throttle(status: StatusCode, headers: &HeaderMap, body: &str) -> bool {
-    if status == StatusCode::TOO_MANY_REQUESTS {
-        return true;
-    }
-    status == StatusCode::FORBIDDEN
-        && (headers.contains_key(RETRY_AFTER)
-            || header(headers, RATE_LIMIT_REMAINING) == Some("0")
-            || body.to_ascii_lowercase().contains("rate limit"))
-}
-
-fn header<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
-    headers
-        .get(name)
-        .and_then(|v| v.to_str().ok())
-        .map(str::trim)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use chrono::DateTime;
 
     fn headers(pairs: &[(&'static str, &str)]) -> HeaderMap {
         let mut map = HeaderMap::new();
@@ -99,8 +66,8 @@ mod tests {
         let reset = now() + chrono::Duration::minutes(37);
         let reset_epoch = reset.timestamp().to_string();
         let map = headers(&[
-            (RATE_LIMIT_REMAINING, "0"),
-            (RATE_LIMIT_RESET, reset_epoch.as_str()),
+            ("x-ratelimit-remaining", "0"),
+            ("x-ratelimit-reset", reset_epoch.as_str()),
         ]);
         let error = rejection(
             "GitHub get_pr",
@@ -117,12 +84,8 @@ mod tests {
     }
 
     #[test]
-    fn a_secondary_limit_waits_its_retry_after() {
+    fn a_secondary_limit_is_rate_limited() {
         let map = headers(&[("retry-after", "90")]);
-        assert_eq!(
-            retry_at(&map, now()),
-            Some(now() + chrono::Duration::seconds(90))
-        );
         let error = rejection(
             "GitHub post_comment",
             StatusCode::FORBIDDEN,
@@ -149,18 +112,11 @@ mod tests {
             error,
             AdapterError::Shared(SharedAdapterError::RateLimited { retry_at: None, .. })
         ));
-        // A reset with quota left is the ordinary header on every answer, not
-        // a refusal's.
-        let map = headers(&[
-            (RATE_LIMIT_REMAINING, "12"),
-            (RATE_LIMIT_RESET, "1793000600"),
-        ]);
-        assert_eq!(retry_at(&map, now()), None);
     }
 
     #[test]
     fn a_permission_refusal_is_access_denied() {
-        let map = headers(&[(RATE_LIMIT_REMAINING, "4100")]);
+        let map = headers(&[("x-ratelimit-remaining", "4100")]);
         let error = rejection(
             "GitHub get_pr",
             StatusCode::FORBIDDEN,
