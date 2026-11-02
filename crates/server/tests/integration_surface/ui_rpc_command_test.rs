@@ -765,7 +765,6 @@ async fn a_bootstrapped_thread_is_created_under_the_clients_id_with_its_message(
         "the client's title is its own; the agent names the Task on its first turn"
     );
     assert_eq!(task.agent_profile, catalog::CLAUDE_CODE.profile);
-    assert_eq!(task.name.as_deref(), Some("Alternate approach"));
 
     assert_eq!(
         message_uuids(&pool, task_id).await,
@@ -930,6 +929,7 @@ async fn a_fork_is_created_under_the_clients_id_referencing_its_source(pool: PgP
         .unwrap()
         .expect("the fork exists under the id T3 minted");
     assert_eq!(task.agent_profile, catalog::CLAUDE_CODE.profile);
+    assert_eq!(task.name.as_deref(), Some("Alternate approach"));
 
     let source_task_id: String = sqlx::query_scalar(
         "SELECT to_task_id FROM task_relations WHERE from_task_id = $1 AND relation_type = 'forked_from'",
