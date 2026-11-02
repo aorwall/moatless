@@ -42,6 +42,14 @@ pub(crate) struct SubagentAggregate {
 pub(crate) trait MessageDao: Send + Sync {
     async fn get_all(&self, task_id: &str) -> Result<MessagePage, sqlx::Error>;
 
+    /// Newest fork messages after its inherited cut, bounded by the chosen run.
+    async fn merge_back_context(
+        &self,
+        source: &str,
+        after: i32,
+        through: i32,
+    ) -> Result<Vec<(String, String)>, sqlx::Error>;
+
     /// Newest parent messages after a fork cut, for a side chat's first turn.
     async fn side_chat_context(
         &self,
@@ -259,6 +267,18 @@ impl PgMessageDao {
 
 #[async_trait]
 impl MessageDao for PgMessageDao {
+    async fn merge_back_context(
+        &self,
+        source: &str,
+        after: i32,
+        through: i32,
+    ) -> Result<Vec<(String, String)>, sqlx::Error> {
+        // Even an empty author and body cost five summary characters; 3,201
+        // rows exceed the 16k budget and leave an item to detect truncation.
+        sqlx::query_as("SELECT m.author, COALESCE(i.text, m.text) FROM conversation_messages m LEFT JOIN task_inbox i ON i.id = m.inbox_id WHERE m.task_id = $1 AND m.parent_tool_use_id IS NULL AND COALESCE(i.text, m.text) IS NOT NULL AND COALESCE(m.turn_number, i.turn_number) > $2 AND COALESCE(m.turn_number, i.turn_number) <= $3 ORDER BY m.position DESC LIMIT 3201")
+            .bind(source).bind(after).bind(through).fetch_all(&self.0).await
+    }
+
     async fn side_chat_context(
         &self,
         task_id: &str,

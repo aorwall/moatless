@@ -154,3 +154,17 @@ async fn side_chat_title_and_interaction_mode_reach_creation() {
         if title.as_deref() == Some("Side chat") && agent_mode.as_deref() == Some("plan"))
     );
 }
+
+#[tokio::test]
+async fn merging_back_names_the_source_target_and_completed_turn() {
+    let (result, calls) = run(json!({"type": "thread.merge_back", "sourceThreadId": "side", "targetThreadId": "parent", "atTurn": 2})).await;
+    assert!(result.is_ok());
+    assert_eq!(
+        calls,
+        vec![Call::MergeBack {
+            source: "side".into(),
+            target: "parent".into(),
+            through: 2
+        }]
+    );
+}

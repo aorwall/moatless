@@ -125,7 +125,7 @@ pub(crate) fn translate(command: &Value) -> Result<Translated, CommandRefusal> {
         ),
         // Kept by the client itself; Moatless has no column for either.
         "thread.runtime-mode.set" | "thread.interaction-mode.set" => Ok(Translated::Discarded),
-        "thread.merge_back" => refused(tag, "Merge-back is not available on this server."),
+        "thread.merge_back" => merge_back(command),
         other => refused(other, "This server does not implement that action."),
     }
 }
@@ -264,6 +264,37 @@ fn pull_request_watch(command: &Value) -> Translated {
     );
     copy(link, &mut v1, &["url", "source"]);
     Translated::Sequence(vec![Value::Object(v1), watch])
+}
+
+fn merge_back(command: &Value) -> Result<Translated, CommandRefusal> {
+    let source = command
+        .get("sourceThreadId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| missing("sourceThreadId"))?;
+    let point = command
+        .get("sourcePoint")
+        .ok_or_else(|| missing("sourcePoint"))?;
+    let run = point
+        .get("runId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| missing("sourcePoint.runId"))?;
+    let through = turn_number_of_run(run)
+        .filter(|_| {
+            point.get("type").and_then(Value::as_str) == Some("run")
+                && run.rsplit_once(':').is_some_and(|(task, _)| task == source)
+        })
+        .ok_or_else(|| CommandRefusal::Rejected {
+            message: "Choose a completed run of the source thread.".into(),
+        })?;
+    let mut v1 = Map::new();
+    copy(
+        command,
+        &mut v1,
+        &["commandId", "sourceThreadId", "targetThreadId"],
+    );
+    v1.insert("type".into(), json!("thread.merge_back"));
+    v1.insert("atTurn".into(), json!(through));
+    Ok(Translated::V1(Value::Object(v1)))
 }
 
 /// V2 names the fork's new thread `targetThreadId` and its cut point as a

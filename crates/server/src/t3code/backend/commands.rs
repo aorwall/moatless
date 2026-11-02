@@ -378,6 +378,20 @@ impl ThreadCommandSink for AppStateCommands {
         Ok(())
     }
 
+    async fn merge_back(
+        &self,
+        viewer: &ScopeContext,
+        source: &str,
+        target: &str,
+        through_turn: i32,
+    ) -> Result<(), CommandRefusal> {
+        self.0
+            .task_fork
+            .merge_back(viewer, source, target, through_turn)
+            .await
+            .map_err(|error| create_refusal(target, error))
+    }
+
     async fn revert(
         &self,
         viewer: &ScopeContext,

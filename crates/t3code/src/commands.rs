@@ -62,6 +62,18 @@ pub async fn dispatch(
         "thread.turn.start" => turn_start(ctx, viewer, command).await?,
         "thread.create" => create_thread(ctx, viewer, command).await?,
         "thread.fork" => fork_thread(ctx, viewer, command).await?,
+        "thread.merge_back" => {
+            let source = command
+                .get("sourceThreadId")
+                .and_then(Value::as_str)
+                .ok_or_else(|| missing("sourceThreadId"))?;
+            let target = command
+                .get("targetThreadId")
+                .and_then(Value::as_str)
+                .ok_or_else(|| missing("targetThreadId"))?;
+            let through = parse_at_turn(command)?.ok_or_else(|| missing("atTurn"))?;
+            ctx.sink.merge_back(viewer, source, target, through).await?;
+        }
         "thread.meta.update" => meta_update(ctx, viewer, command).await?,
         "thread.turn.interrupt" => {
             ctx.sink.interrupt(viewer, thread_id(command)?).await?;

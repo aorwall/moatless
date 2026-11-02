@@ -337,7 +337,7 @@ impl TaskGraph {
                 trajectories.clone(),
             )),
             task_rewind: Arc::new(TaskRewindService::new(
-                self.db,
+                self.db.clone(),
                 self.tasks.clone(),
                 self.turns.clone(),
                 self.messages.clone(),
@@ -350,6 +350,7 @@ impl TaskGraph {
                 self.tags,
                 trajectories,
                 self.relations,
+                self.db,
             )),
         }
     }

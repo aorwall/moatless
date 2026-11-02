@@ -7,6 +7,8 @@ pub(crate) mod dao;
 pub mod error;
 pub mod fork;
 pub mod handlers;
+mod merge_back;
+pub(crate) mod merge_back_dao;
 pub mod models;
 pub mod operations;
 pub(crate) mod pin_dao;

@@ -118,12 +118,13 @@ fn blocking_open_turn(point: &ForkPoint) -> Option<i32> {
 /// Creation is not here: a fork goes through the same `normalize` →
 /// `TaskCreationService::create` pair as any Task.
 pub struct TaskForkService {
-    tasks: Arc<dyn TaskDao>,
-    turns: Arc<dyn TaskTurnDao>,
-    messages: Arc<dyn MessageDao>,
+    pub(super) tasks: Arc<dyn TaskDao>,
+    pub(super) turns: Arc<dyn TaskTurnDao>,
+    pub(super) messages: Arc<dyn MessageDao>,
     tags: Arc<dyn TagDao>,
     trajectories: Arc<Trajectories>,
-    relations: Arc<dyn super::relations::TaskRelationDao>,
+    pub(super) relations: Arc<dyn super::relations::TaskRelationDao>,
+    pub(super) merge_backs: super::merge_back_dao::MergeBackDao,
 }
 
 impl TaskForkService {
@@ -134,6 +135,7 @@ impl TaskForkService {
         tags: Arc<dyn TagDao>,
         trajectories: Arc<Trajectories>,
         relations: Arc<dyn super::relations::TaskRelationDao>,
+        db: moatless_core::db::DbPool,
     ) -> Self {
         Self {
             tasks,
@@ -142,6 +144,7 @@ impl TaskForkService {
             tags,
             trajectories,
             relations,
+            merge_backs: super::merge_back_dao::MergeBackDao(db),
         }
     }
 
@@ -560,8 +563,9 @@ mod tests {
             Arc::new(turns),
             Arc::new(messages),
             Arc::new(MockTagDao::new()),
-            Arc::new(Trajectories::new(PgTrajectoryDao(pool))),
+            Arc::new(Trajectories::new(PgTrajectoryDao(pool.clone()))),
             Arc::new(super::super::relations::MockTaskRelationDao::new()),
+            pool,
         );
         let viewer = ScopeContext::user("owner");
         assert!(service.plan(&viewer, "parent", None).await.is_err());

@@ -176,10 +176,6 @@ fn client_local_state_is_discarded_and_unknown_commands_refused() {
         Translated::Discarded
     );
     assert!(matches!(
-        refusal(json!({ "type": "thread.merge_back" })),
-        CommandRefusal::Unsupported { .. }
-    ));
-    assert!(matches!(
         refusal(json!({ "type": "checkpoint.restore" })),
         CommandRefusal::Unsupported { .. }
     ));
@@ -369,4 +365,20 @@ fn completing_a_title_regeneration_is_refused() {
         })),
         CommandRefusal::Unsupported { .. }
     ));
+}
+
+#[test]
+fn merge_back_maps_a_run_of_the_source_and_refuses_foreign_or_queued_runs() {
+    let mut command = json!({"type": "thread.merge_back", "sourceThreadId": "side", "targetThreadId": "parent", "sourcePoint": {"type": "run", "runId": "side:2"}});
+    let mapped = v1(command.clone());
+    assert_eq!(mapped["atTurn"], json!(2));
+    assert_eq!(mapped["sourceThreadId"], json!("side"));
+    assert_eq!(mapped["targetThreadId"], json!("parent"));
+    for run in ["parent:2", "side:0", "side:queued:x", "side:no"] {
+        command["sourcePoint"]["runId"] = json!(run);
+        assert!(matches!(
+            refusal(command.clone()),
+            CommandRefusal::Rejected { .. }
+        ));
+    }
 }

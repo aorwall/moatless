@@ -13,6 +13,16 @@ pub(crate) async fn submit(
     tx: &mut Transaction<'_, Postgres>,
     item: &NewInboxItem,
 ) -> Result<Option<InboxItem>, sqlx::Error> {
+    let consumes_merge_back = item.answers_tool_use_id.is_none()
+        && !matches!(item.origin, super::models::InboxOrigin::Sandbox);
+    if consumes_merge_back {
+        // Lock before the INSERT's FK lock rather than upgrading it: concurrent
+        // consumers could deadlock. Sandbox and feed locks follow this one.
+        sqlx::query("SELECT task_id FROM tasks WHERE task_id = $1 FOR UPDATE")
+            .bind(&item.task_id)
+            .execute(&mut **tx)
+            .await?;
+    }
     let origin = &item.origin;
     let channel = origin.channel();
     let sender = origin.sender();
@@ -43,9 +53,24 @@ pub(crate) async fn submit(
     .bind(channel.and_then(|c| c.source_name.as_deref()))
     .fetch_optional(&mut **tx)
     .await?;
-    let Some(row) = row else {
+    let Some(mut row) = row else {
         return Ok(None);
     };
+
+    if consumes_merge_back {
+        let contexts = crate::task::merge_back_dao::take(tx, &item.task_id).await?;
+        if !contexts.is_empty() {
+            let mut options = item.options.clone();
+            options.contexts.extend(contexts);
+            row.delivery_options =
+                Some(serde_json::to_value(options).map_err(|e| sqlx::Error::Encode(e.into()))?);
+            sqlx::query("UPDATE task_inbox SET delivery_options = $2 WHERE id = $1")
+                .bind(item.id)
+                .bind(&row.delivery_options)
+                .execute(&mut **tx)
+                .await?;
+        }
+    }
 
     // The reconciler must see waiting work while the pod is down, so the wake
     // signal lives on the `sandboxes` row and commits with the item. Ahead of

@@ -279,10 +279,7 @@ impl<'a> AgentPromptBuilder<'a> {
             message_uuid = %message.uuid,
             "Delivering pending message without context enrichment because file store or config is unavailable"
         );
-        attributed_text(
-            message.message_text.as_deref().unwrap_or_default(),
-            message.source_task_id.as_deref(),
-        )
+        message_text_with_merge_context(message, contexts)
     }
 }
 
@@ -484,10 +481,7 @@ pub async fn build_pending_content_blocks(
     message: &TaskMessage,
     contexts: &[TaskMessageContext],
 ) -> Vec<ContentBlock> {
-    let text = attributed_text(
-        message.message_text.as_deref().unwrap_or_default(),
-        message.source_task_id.as_deref(),
-    );
+    let text = message_text_with_merge_context(message, contexts);
 
     // A row whose context type this build does not know is dropped, exactly as
     // the transform layer drops it — a forward-incompatible context must not
@@ -498,6 +492,23 @@ pub async fn build_pending_content_blocks(
         .collect();
 
     build_content_blocks(files, config, &text, &inputs, &message.file_ids()).await
+}
+
+fn message_text_with_merge_context(
+    message: &TaskMessage,
+    contexts: &[TaskMessageContext],
+) -> String {
+    contexts
+        .iter()
+        .filter(|context| context.context_type == "mergeBack")
+        .filter_map(|context| context.data.get("text").and_then(serde_json::Value::as_str))
+        .map(str::to_string)
+        .chain(std::iter::once(attributed_text(
+            message.message_text.as_deref().unwrap_or_default(),
+            message.source_task_id.as_deref(),
+        )))
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 /// Build a content block from a file attachment reference.

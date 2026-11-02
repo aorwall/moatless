@@ -522,3 +522,163 @@ async fn side_chat_context_includes_only_activity_after_the_cut_until_its_own_tu
             .unwrap()
     );
 }
+
+#[sqlx::test]
+async fn merge_back_is_guarded_durable_and_delivered_once_with_the_next_message(pool: PgPool) {
+    use crate::inbox::view::PendingView;
+    use crate::message::enricher::AgentPromptBuilder;
+    use crate::message::test_support::{queue_message, user_item};
+    use crate::tag::dao::PgTagDao;
+    use crate::task::fork::TaskForkService;
+    use crate::task::relations::{TaskRelationDao, record_forked_from};
+    use crate::task::relations_dao::PgTaskRelationDao;
+    use moatless_types::agent::AgentProfile;
+    seed_bare_task(&pool, "a", "open").await;
+    seed_bare_task(&pool, "other", "open").await;
+    let cut = run_turn(&pool, "a", "sa", 1, "inherited main task").await;
+    let session = fork(&pool, "a", "b", 1, cut).await;
+    let relations = PgTaskRelationDao(pool.clone());
+    record_forked_from(&relations, "b", "a", Some(1), true)
+        .await
+        .unwrap();
+    assert!(
+        relations
+            .find_parent("b")
+            .await
+            .unwrap()
+            .unwrap()
+            .is_side_chat()
+    );
+    run_turn(&pool, "b", &session, 2, "side question").await;
+    run_turn(&pool, "b", &session, 3, "later question").await;
+    let service = TaskForkService::new(
+        Arc::new(PgTaskDao::new(pool.clone())),
+        Arc::new(PgTaskTurnDao(pool.clone())),
+        Arc::new(PgMessageDao(pool.clone())),
+        Arc::new(PgTagDao(pool.clone())),
+        Arc::new(Trajectories::new(PgTrajectoryDao(pool.clone()))),
+        Arc::new(relations),
+        pool.clone(),
+    );
+    assert!(
+        service
+            .merge_back(&ScopeContext::user("outsider"), "b", "a", 2)
+            .await
+            .is_err()
+    );
+    assert!(service.merge_back(&owner(), "b", "other", 2).await.is_err());
+    assert!(service.merge_back(&owner(), "b", "a", 1).await.is_err());
+    assert!(service.merge_back(&owner(), "b", "a", 99).await.is_err());
+    sqlx::query("UPDATE task_turns SET status = 'active', ended_at = NULL WHERE task_id = 'a'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(service.merge_back(&owner(), "b", "a", 2).await.is_err());
+    sqlx::query("UPDATE task_turns SET status = 'completed', ended_at = now() WHERE task_id = 'a'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let busy = queue_named(&pool, "a", "queued-parent", "already queued").await;
+    assert!(service.merge_back(&owner(), "b", "a", 2).await.is_err());
+    acknowledge_messages(&pool, "a", std::slice::from_ref(&busy), "sa", 1)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE task_turns SET status = 'active', ended_at = NULL WHERE task_id = 'b' AND turn_number = 3").execute(&pool).await.unwrap();
+    assert!(service.merge_back(&owner(), "b", "a", 3).await.is_err());
+    service.merge_back(&owner(), "b", "a", 2).await.unwrap();
+    service.merge_back(&owner(), "b", "a", 2).await.unwrap();
+    let pending = || async {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM task_merge_backs WHERE target_task_id = 'a' AND pending",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    };
+    assert_eq!(pending().await, 1);
+    assert!(
+        crate::message::test_support::pending_user_messages(&pool, "a")
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        queue_message(&pool, user_item("a", busy.parse().unwrap(), "duplicate"))
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(pending().await, 1);
+    for (origin, answers_tool_use_id) in [
+        (crate::inbox::InboxOrigin::Sandbox, None),
+        (
+            crate::inbox::InboxOrigin::User {
+                sent_by: "owner".into(),
+            },
+            Some("tool".into()),
+        ),
+    ] {
+        let mut tx = pool.begin().await.unwrap();
+        let mut item = user_item("a", Uuid::new_v4(), "context-free input");
+        item.origin = origin;
+        item.answers_tool_use_id = answers_tool_use_id;
+        let staged = crate::inbox::dao::submit(&mut tx, &item)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(staged.options.contexts.is_empty());
+        let mut probe = pool.begin().await.unwrap();
+        sqlx::query("SELECT task_id FROM tasks WHERE task_id = 'a' FOR NO KEY UPDATE NOWAIT")
+            .execute(&mut *probe)
+            .await
+            .unwrap();
+        probe.rollback().await.unwrap();
+        tx.rollback().await.unwrap();
+        assert_eq!(pending().await, 1);
+    }
+    let mut tx = pool.begin().await.unwrap();
+    let staged = crate::inbox::dao::submit(&mut tx, &user_item("a", Uuid::new_v4(), "rolled back"))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(staged.options.contexts.len(), 1);
+    tx.rollback().await.unwrap();
+    assert_eq!(pending().await, 1);
+    remove_task(&pool, "b", &owner()).await.unwrap();
+    let first = user_item("a", Uuid::new_v4(), "next message");
+    let second = user_item("a", Uuid::new_v4(), "another message");
+    let (first, second) = tokio::join!(queue_message(&pool, first), queue_message(&pool, second));
+    let rows = [first.unwrap().unwrap(), second.unwrap().unwrap()];
+    assert_eq!(
+        rows.iter()
+            .map(|row| row.options.contexts.len())
+            .sum::<usize>(),
+        1
+    );
+    assert_eq!(pending().await, 0);
+    let view = PendingView::of(&rows);
+    let logins = std::collections::HashMap::new();
+    let builder = AgentPromptBuilder::new(
+        None,
+        None,
+        AgentProfile::ClaudeCode,
+        None,
+        None,
+        vec![],
+        &logins,
+    );
+    let deliveries = builder
+        .build_pending_deliveries(&view.messages, &view.contexts)
+        .await;
+    let text = &deliveries[0].prompt_text;
+    assert_eq!(
+        text.matches("Merge-back context from forked conversation.")
+            .count(),
+        1
+    );
+    assert!(text.contains("side question"));
+    assert!(text.contains("re: side question"));
+    assert!(text.contains("next message"));
+    assert!(!text.contains("inherited main task"));
+    assert!(!text.contains("later question"));
+}

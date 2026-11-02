@@ -172,7 +172,8 @@ _Avoid_: asset (an uploaded attachment, not something the agent publishes)
 A Fork opened beside its main Task to answer a question while that Task keeps
 working. It shares the main Task's checkout, inherits its last stable conversation,
 and carries `side_chat: true` on the `forked_from` relation. It closes or is deleted
-with its parent; an ordinary Fork has an independent lifecycle.
+with its parent; an ordinary Fork has an independent lifecycle. Its completed
+turns can be merged back as context for the main Task's next message.
 
 **Artifact fork**:
 A copy of one Artifact version, published as version 1 of a private Artifact

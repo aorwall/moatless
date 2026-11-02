@@ -41,6 +41,11 @@ pub(super) enum Call {
         agent_mode: Option<String>,
         effort: Option<String>,
     },
+    MergeBack {
+        source: String,
+        target: String,
+        through: i32,
+    },
     Revert {
         task_id: String,
         keep_through: i32,
@@ -241,6 +246,20 @@ impl ThreadCommandSink for RecordingSink {
             model: fork.model,
             agent_mode: fork.agent_mode.map(|m| m.0),
             effort: fork.effort,
+        });
+        Ok(())
+    }
+    async fn merge_back(
+        &self,
+        _viewer: &ScopeContext,
+        source: &str,
+        target: &str,
+        through: i32,
+    ) -> Result<(), CommandRefusal> {
+        self.0.lock().unwrap().push(Call::MergeBack {
+            source: source.into(),
+            target: target.into(),
+            through,
         });
         Ok(())
     }
