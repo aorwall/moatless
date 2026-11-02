@@ -581,7 +581,7 @@ fn fallback_after_failed_refresh(
 /// someone already connected.
 fn classify(actor: &Actor, account: GitHostAccount, source: AuthError) -> GitHostTokenError {
     let out_of_reach = match &source {
-        AuthError::Forbidden => true,
+        AuthError::Forbidden | AuthError::NotInstalled { .. } => true,
         AuthError::Config(message) => message.contains("does not have access to repository"),
         _ => false,
     };

@@ -23,10 +23,8 @@ pub struct Upstream {
     /// Honouring the stored `git_url`'s scheme would let one downgrade the
     /// connection its own credential travels over.
     pub base_url: String,
-    /// Presented as the HTTP Basic password, which is how git hosts take a
-    /// token over smart-HTTP. `None` fetches anonymously; see
-    /// [`github_credential`].
-    pub token: Option<String>,
+    /// What the proxy presents to `host`; see [`github_credential`].
+    pub credential: Credential,
     /// For the request log. The token is never logged.
     pub host: String,
     /// `{owner}/{name}` on `host`.
@@ -38,13 +36,39 @@ pub struct Upstream {
     pub workspace_id: String,
 }
 
+/// What a proxied request presents to its host.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Credential {
+    /// Sent as the HTTP Basic password, which is how git hosts take a token
+    /// over smart-HTTP.
+    Token(String),
+    /// Nothing is sent. `because` is why the run-as identity has no token for
+    /// the repository, quoted back to git when the host then answers 404.
+    Anonymous { because: String },
+}
+
+impl Credential {
+    /// The token to send, or `None` to fetch anonymously.
+    pub fn token(&self) -> Option<&str> {
+        match self {
+            Self::Token(token) => Some(token),
+            Self::Anonymous { .. } => None,
+        }
+    }
+}
+
 impl Upstream {
-    fn new(repo: &GitHostRepo, token: Option<String>, actor: &Actor, workspace_id: String) -> Self {
+    fn new(
+        repo: &GitHostRepo,
+        credential: Credential,
+        actor: &Actor,
+        workspace_id: String,
+    ) -> Self {
         let host = repo.host().to_string();
         Self {
             base_url: format!("https://{host}/{}/{}.git", repo.owner(), repo.name()),
             host,
-            token,
+            credential,
             path: format!("{}/{}", repo.owner(), repo.name()),
             run_as_user_id: actor.user_id().to_string(),
             workspace_id,
@@ -71,13 +95,13 @@ fn refusal_message(upstream: &Upstream, login: Option<&str>) -> String {
         Some(login) => format!("{login} ({})", upstream.run_as_user_id),
         None => upstream.run_as_user_id.clone(),
     };
-    if upstream.token.is_none() {
+    if let Credential::Anonymous { because } = &upstream.credential {
         return format!(
             "{host} answered not found for {path}.\n\
-             Moatless user {user}, this task's run-as identity, has no {host} connection, \
-             so the proxy fetched anonymously.\n\
-             Either {path} does not exist on {host}, or it is private: connect {host} \
-             for that user.\n",
+             Moatless user {user}, this task's run-as identity, has no {host} token for it \
+             ({because}), so the proxy fetched anonymously.\n\
+             Either {path} does not exist on {host}, or it is private: give that user a \
+             {host} credential that reaches it.\n",
             host = upstream.host,
             path = upstream.path,
         );
@@ -228,7 +252,7 @@ impl GitProxy {
             };
         Ok(Upstream::new(
             &repo,
-            Some(token),
+            Credential::Token(token),
             &actor,
             caller.workspace_id,
         ))
@@ -253,8 +277,13 @@ impl GitProxy {
             .git_host_tokens
             .token(&actor, &repo.credential_account())
             .await;
-        let token = github_credential(resolved, push, repo.host())?;
-        Ok(Upstream::new(&repo, token, &actor, caller.workspace_id))
+        let credential = github_credential(resolved, push, repo.host())?;
+        Ok(Upstream::new(
+            &repo,
+            credential,
+            &actor,
+            caller.workspace_id,
+        ))
     }
 
     /// The Sandbox and Workspace a task token names.
@@ -403,20 +432,26 @@ fn github_repo(owner: &str, name: &str) -> Option<GitHostRepo> {
     (owner_ok && name_ok).then(|| GitHostRepo::github(owner, name))
 }
 
-/// The identity's own token, or none for a fetch by one that never connected
-/// GitHub.
+/// The identity's token, or anonymous for a fetch it has no token to reach:
+/// `NoCredential`, or `Forbidden` as for an App not installed on the owner.
 ///
-/// Deliberately anonymous rather than refused: every github.com URL in a pod
-/// comes here, public tooling installs and submodules included. A push is
-/// refused, as an anonymous one can only fail upstream.
+/// Deliberately anonymous rather than refused: public installs and submodules
+/// come here, and anonymous reaches only public repos. A push, or a `Broken`
+/// credential, is refused rather than hidden.
 fn github_credential(
     resolved: Result<String, GitHostTokenError>,
     push: bool,
     host: &str,
-) -> Result<Option<String>, GitProxyError> {
+) -> Result<Credential, GitProxyError> {
     match resolved {
-        Ok(token) => Ok(Some(token)),
-        Err(GitHostTokenError::NoCredential { .. }) if !push => Ok(None),
+        Ok(token) => Ok(Credential::Token(token)),
+        Err(e @ (GitHostTokenError::NoCredential { .. } | GitHostTokenError::Forbidden { .. }))
+            if !push =>
+        {
+            Ok(Credential::Anonymous {
+                because: e.to_string(),
+            })
+        }
         Err(e) => Err(credential_error(&e, host)),
     }
 }
@@ -533,7 +568,7 @@ mod tests {
     fn upstream() -> Upstream {
         Upstream {
             base_url: "https://github.com/soaplabs/moatless.git".to_string(),
-            token: Some("secret-token".to_string()),
+            credential: Credential::Token("secret-token".to_string()),
             host: "github.com".to_string(),
             path: "soaplabs/moatless".to_string(),
             run_as_user_id: POD_USER.to_string(),
@@ -561,19 +596,54 @@ mod tests {
                 host: None,
             })
         };
-        assert_eq!(
+        assert!(matches!(
             github_credential(missing(), false, "github.com").unwrap(),
-            None
-        );
+            Credential::Anonymous { .. }
+        ));
         assert!(matches!(
             github_credential(missing(), true, "github.com"),
             Err(GitProxyError::Unauthorized(_))
         ));
         assert_eq!(
             github_credential(Ok("ghs".to_string()), true, "github.com").unwrap(),
-            Some("ghs".to_string())
+            Credential::Token("ghs".to_string())
         );
         let broken = Err(GitHostTokenError::Store(StoreError::new("down")));
+        assert!(matches!(
+            github_credential(broken, false, "github.com"),
+            Err(GitProxyError::Upstream(_))
+        ));
+    }
+
+    /// The bot whose App is not installed on `openai` fetching the public
+    /// `openai/plugins`: a 502 there failed the clone and paged as an error.
+    #[test]
+    fn a_credential_that_cannot_reach_the_owner_fetches_anonymously_but_never_pushes() {
+        let out_of_reach = || {
+            Err(GitHostTokenError::Forbidden {
+                actor: Actor::of(POD_USER),
+                account: Box::new(moatless_types::git_host::GitHostAccount::Github {
+                    owner: "openai".to_string(),
+                    repository: Some("plugins".to_string()),
+                }),
+                source: "GitHub App reviewer is not installed on owner openai".into(),
+            })
+        };
+        let Credential::Anonymous { because } =
+            github_credential(out_of_reach(), false, "github.com").unwrap()
+        else {
+            panic!("a fetch out of the credential's reach goes anonymous");
+        };
+        assert!(because.contains("cannot access"), "{because}");
+        assert!(matches!(
+            github_credential(out_of_reach(), true, "github.com"),
+            Err(GitProxyError::Unauthorized(_))
+        ));
+        let broken = Err(GitHostTokenError::Broken {
+            actor: Actor::of(POD_USER),
+            provider: RepositoryProvider::Github,
+            source: "bad_refresh_token".into(),
+        });
         assert!(matches!(
             github_credential(broken, false, "github.com"),
             Err(GitProxyError::Upstream(_))
@@ -583,12 +653,14 @@ mod tests {
     #[test]
     fn an_anonymous_refusal_says_no_credential_was_presented() {
         let anonymous = Upstream {
-            token: None,
+            credential: Credential::Anonymous {
+                because: "user-1 has not connected github".to_string(),
+            },
             ..upstream()
         };
         let refusal = refusal_message(&anonymous, None);
         assert!(
-            refusal.contains("has no github.com connection"),
+            refusal.contains("has no github.com token for it (user-1 has not connected github)"),
             "{refusal}"
         );
         assert!(refusal.contains("fetched anonymously"), "{refusal}");

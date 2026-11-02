@@ -35,6 +35,10 @@ pub enum AuthError {
     #[error("Access denied")]
     Forbidden,
 
+    /// The App has no installation on `owner`, so it can mint no token there.
+    #[error("GitHub App {app} is not installed on owner {owner}")]
+    NotInstalled { app: String, owner: String },
+
     #[error("Too many failed login attempts — try again later")]
     TooManyRequests,
 
@@ -81,7 +85,9 @@ impl IntoResponse for AuthError {
             Self::Unauthorized | Self::InvalidApiKey | Self::SessionExpired => {
                 (StatusCode::UNAUTHORIZED, self.to_string())
             }
-            Self::Forbidden => (StatusCode::FORBIDDEN, self.to_string()),
+            Self::Forbidden | Self::NotInstalled { .. } => {
+                (StatusCode::FORBIDDEN, self.to_string())
+            }
             Self::TooManyRequests => (StatusCode::TOO_MANY_REQUESTS, self.to_string()),
             Self::Conflict(msg) => (StatusCode::CONFLICT, msg.clone()),
             Self::InvalidState => (StatusCode::BAD_REQUEST, self.to_string()),

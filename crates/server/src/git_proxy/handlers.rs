@@ -229,7 +229,7 @@ async fn resolve(
     info!(
         repository = %target.label(),
         host = %upstream.host,
-        anonymous = upstream.token.is_none(),
+        anonymous = upstream.credential.token().is_none(),
         "Proxying a git request"
     );
     Ok(upstream)
@@ -247,7 +247,7 @@ async fn forward(
     let mut request = proxy.http.request(method, &url);
     // `x-access-token` is the username every git host ignores when the password
     // is a token; the token itself is what authenticates.
-    if let Some(token) = &upstream.token {
+    if let Some(token) = upstream.credential.token() {
         request = request.basic_auth("x-access-token", Some(token));
     }
     let mut request = request.body(reqwest::Body::wrap_stream(

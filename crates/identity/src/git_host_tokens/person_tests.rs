@@ -245,3 +245,24 @@ async fn a_bot_running_its_own_work_keeps_the_installation_token() {
 
     assert_eq!(token, "ghs_wide");
 }
+
+#[tokio::test]
+async fn an_owner_the_app_is_not_installed_on_is_out_of_reach_not_broken() {
+    let (tokens, _) = issuer(&[("ada", person_row("ada"))]).await;
+    let elsewhere = |repository: Option<&str>| GitHostAccount::Github {
+        owner: "openai".into(),
+        repository: repository.map(str::to_string),
+    };
+
+    for (actor, account) in [
+        (Actor::of("bot"), elsewhere(None)),
+        (Actor::of("bot"), elsewhere(Some("plugins"))),
+        (bot_for("ada"), elsewhere(Some("plugins"))),
+    ] {
+        let error = tokens.token(&actor, &account).await.unwrap_err();
+        assert!(
+            matches!(error, GitHostTokenError::Forbidden { .. }),
+            "{actor}: {error:?}"
+        );
+    }
+}

@@ -882,8 +882,8 @@ impl GitHubAppService {
     /// Resolves the installation id for an `owner` (org or user), cached.
     ///
     /// Calls `GET /orgs/{owner}/installation` first, falling back to `GET
-    /// /users/{owner}/installation` for user-owned repos; `Config` error if the
-    /// App isn't installed on that owner.
+    /// /users/{owner}/installation` for user-owned repos;
+    /// [`AuthError::NotInstalled`] if the App isn't installed on that owner.
     pub async fn resolve_installation_id(&self, owner: &str) -> Result<u64, AuthError> {
         {
             let cache = self.installation_by_owner.read().await;
@@ -937,10 +937,10 @@ impl GitHubAppService {
             return Ok(parsed.id);
         }
 
-        Err(AuthError::Config(format!(
-            "GitHub App {} is not installed on owner {owner}",
-            self.key
-        )))
+        Err(AuthError::NotInstalled {
+            app: self.key.clone(),
+            owner: owner.to_string(),
+        })
     }
 
     /// Resolves the bot identity for this App (cached).
