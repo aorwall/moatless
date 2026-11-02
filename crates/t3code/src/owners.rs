@@ -212,6 +212,7 @@ impl TaskRelationSource for TaskRelations {
         Ok(relations
             .into_iter()
             .map(|relation| ChildTask {
+                side_chat: relation.is_side_chat(),
                 task_id: relation.from_task_id,
                 relation: relation.relation_type,
             })

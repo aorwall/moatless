@@ -67,7 +67,7 @@ pub async fn list(
         .await
         .map_err(SubtasksError::Relations)?
         .into_iter()
-        .filter(|child| child.relation.is_parent())
+        .filter(|child| child.relation.is_parent() && !child.side_chat)
         .collect::<Vec<_>>();
     let child_ids = children
         .iter()
@@ -120,6 +120,7 @@ mod tests {
                 .iter()
                 .map(|child| crate::ports::ChildTask {
                     task_id: child.task_id.clone(),
+                    side_chat: child.side_chat,
                     relation: child.relation,
                 })
                 .collect())
@@ -196,6 +197,7 @@ mod tests {
     fn child(task_id: &str, relation: TaskRelationType) -> crate::ports::ChildTask {
         crate::ports::ChildTask {
             task_id: task_id.to_string(),
+            side_chat: false,
             relation,
         }
     }
@@ -287,5 +289,66 @@ mod tests {
         .expect("a readable parent lists its children");
 
         assert_eq!(listing["subtasks"].as_array().expect("an array").len(), 0);
+    }
+
+    #[cfg(feature = "db-tests")]
+    #[sqlx::test]
+    async fn side_chats_are_absent_from_the_subtasks_listing(pool: sqlx::PgPool) {
+        use moatless_tasks::task::relations::TaskRelation;
+        use moatless_tasks::task::test_support::{make_task_row, seed_relation, seed_task};
+        let owner = "11111111-1111-1111-1111-111111111111";
+        seed_task(&pool, &make_task_row("parent", owner))
+            .await
+            .unwrap();
+        for (id, relation_type, context) in [
+            ("child", TaskRelationType::CreatedBy, json!({})),
+            ("fork", TaskRelationType::ForkedFrom, json!({})),
+            (
+                "ordinary",
+                TaskRelationType::ForkedFrom,
+                json!({"side_chat": false}),
+            ),
+            (
+                "side-chat",
+                TaskRelationType::ForkedFrom,
+                json!({"side_chat": true}),
+            ),
+        ] {
+            seed_task(&pool, &make_task_row(id, owner)).await.unwrap();
+            seed_relation(
+                &pool,
+                &TaskRelation {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    from_task_id: id.into(),
+                    to_task_id: "parent".into(),
+                    relation_type,
+                    context,
+                    created_at: chrono::Utc::now(),
+                },
+            )
+            .await
+            .unwrap();
+        }
+        let graph = moatless_tasks::compose::task_graph(pool.clone());
+        let state = SubtasksState {
+            relations: graph.relation_recorder(),
+            conversations: Arc::new(crate::dao::PgConversationDao::new(
+                pool,
+                graph.activities(),
+                graph.transcript_reads(),
+                graph.task_reader(),
+            )),
+        };
+        let listing = list(&state, &ScopeContext::user(owner), "parent")
+            .await
+            .unwrap();
+        let mut ids: Vec<_> = listing["subtasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["threadId"].as_str().unwrap())
+            .collect();
+        ids.sort_unstable();
+        assert_eq!(ids, ["child", "fork", "ordinary"]);
     }
 }

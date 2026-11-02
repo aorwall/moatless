@@ -599,6 +599,8 @@ fn listed_children_join() -> String {
             JOIN tasks c ON c.task_id = r.from_task_id
             WHERE r.to_task_id = t.task_id
               AND r.relation_type IN {parent}
+              AND (r.relation_type <> 'forked_from'
+                   OR r.context -> 'side_chat' IS DISTINCT FROM 'true'::jsonb)
               AND {access}
         ) children ON TRUE"
     )

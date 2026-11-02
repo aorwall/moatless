@@ -265,12 +265,26 @@ async fn a_listed_row_names_a_readable_parent_and_counts_its_children(pool: PgPo
             seed_task(&pool, &task).await.expect("seed task");
         }
     };
-    for task_id in ["parent", "child", "fork", "orphan", "unfollowed", "stray"] {
+    for task_id in [
+        "parent",
+        "child",
+        "fork",
+        "regular-fork",
+        "orphan",
+        "unfollowed",
+        "stray",
+    ] {
         seed(task_id, USER_1).await;
     }
     seed("foreign", USER_2).await;
     let edges = [
         ("child", "parent", "created_by", serde_json::json!({})),
+        (
+            "regular-fork",
+            "parent",
+            "forked_from",
+            serde_json::json!({ "side_chat": false }),
+        ),
         (
             "fork",
             "parent",
@@ -357,7 +371,7 @@ async fn a_listed_row_names_a_readable_parent_and_counts_its_children(pool: PgPo
     assert_eq!(
         row("parent").child_count,
         2,
-        "the spawned child and the fork"
+        "the spawned child and ordinary fork, excluding the side chat"
     );
     assert_eq!(
         row("parent")
@@ -367,6 +381,15 @@ async fn a_listed_row_names_a_readable_parent_and_counts_its_children(pool: PgPo
             .collect::<Vec<_>>(),
         vec!["child"],
         "a fork is counted but never at work"
+    );
+    assert_eq!(
+        listing_over(&pool)
+            .readable_by_id(&viewer, "parent")
+            .await
+            .unwrap()
+            .unwrap()
+            .child_count,
+        2
     );
     assert_eq!(row("child").child_count, 0);
     assert!(row("child").running_children.is_empty());

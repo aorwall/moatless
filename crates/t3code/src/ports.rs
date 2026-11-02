@@ -263,6 +263,8 @@ pub trait AgentCatalogSource: Send + Sync {
 /// [`ConversationDao::readable_by_ids`](crate::dao::ConversationDao::readable_by_ids).
 pub struct ChildTask {
     pub task_id: String,
+    /// Whether this fork is a side chat excluded from child-task listings.
+    pub side_chat: bool,
     /// Which parent edge this is. Both make the child a child; they differ in
     /// what a reader should call it.
     pub relation: TaskRelationType,
