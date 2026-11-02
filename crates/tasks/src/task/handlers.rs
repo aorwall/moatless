@@ -54,7 +54,7 @@ use std::sync::{Arc, Mutex};
 )]
 #[expect(
     clippy::too_many_arguments,
-    reason = "eight ports, all forwarded: this handler is the outermost caller of a two-stage service pipeline — five to service::normalize, two to service::create_task, one to the presenter closure. Unlike the service-layer create_task this was split out of, there is no caller above a handler to hoist them to, so the width cannot move anywhere it would be narrower."
+    reason = "nine ports, all forwarded: this handler is the outermost caller of a two-stage service pipeline — six to service::normalize, two to service::create_task, one to the presenter closure. Unlike the service-layer create_task this was split out of, there is no caller above a handler to hoist them to, so the width cannot move anywhere it would be narrower."
 )]
 pub async fn create_task(
     State(workspaces): State<Arc<dyn WorkspaceResolver>>,
@@ -62,6 +62,7 @@ pub async fn create_task(
     State(tasks): State<Arc<TaskCommands>>,
     State(users): State<Arc<dyn UserResolver>>,
     State(credential_sync): State<Arc<CredentialSync>>,
+    State(secrets): State<Arc<dyn SecretCatalog>>,
     State(config): State<Arc<Config>>,
     State(task_creation): State<Arc<TaskCreationService>>,
     State(message_send): State<Arc<MessageSendService>>,
@@ -86,6 +87,7 @@ pub async fn create_task(
             tasks: tasks.as_ref(),
             users: users.as_ref(),
             credential_sync: &credential_sync,
+            secrets: secrets.as_ref(),
             config: &config,
         },
         &auth.scope_context(),
@@ -173,6 +175,7 @@ pub async fn fork_task(
     State(tasks): State<Arc<TaskCommands>>,
     State(users): State<Arc<dyn UserResolver>>,
     State(credential_sync): State<Arc<CredentialSync>>,
+    State(secrets): State<Arc<dyn SecretCatalog>>,
     State(config): State<Arc<Config>>,
     State(task_creation): State<Arc<TaskCreationService>>,
     State(task_fork): State<Arc<TaskForkService>>,
@@ -192,7 +195,7 @@ pub async fn fork_task(
         normalize: service::CreateTaskPorts {
             workspaces: workspaces.as_ref(), repositories: repositories.as_ref(),
             tasks: tasks.as_ref(), users: users.as_ref(),
-            credential_sync: &credential_sync, config: &config,
+            credential_sync: &credential_sync, secrets: secrets.as_ref(), config: &config,
         },
         task_creation: &task_creation,
         message_send,

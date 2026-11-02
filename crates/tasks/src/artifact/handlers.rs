@@ -19,7 +19,7 @@ use crate::task::service::CreateTaskPorts;
 use crate::task::switch::TaskSwitchService;
 use moatless_core::config::Config;
 use moatless_core::http_auth::AuthUser;
-use moatless_ports::identity::UserResolver;
+use moatless_ports::identity::{SecretCatalog, UserResolver};
 use moatless_types::task::Visibility;
 use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
 
@@ -367,6 +367,7 @@ pub async fn fork_artifact(
     State(tasks): State<Arc<TaskCommands>>,
     State(users): State<Arc<dyn UserResolver>>,
     State(credential_sync): State<Arc<CredentialSync>>,
+    State(secrets): State<Arc<dyn SecretCatalog>>,
     State(config): State<Arc<Config>>,
     State(task_creation): State<Arc<TaskCreationService>>,
     State(task_fork): State<Arc<TaskForkService>>,
@@ -388,6 +389,7 @@ pub async fn fork_artifact(
                     tasks: tasks.as_ref(),
                     users: users.as_ref(),
                     credential_sync: &credential_sync,
+                    secrets: secrets.as_ref(),
                     config: &config,
                 },
                 task_creation: &task_creation,

@@ -12,3 +12,13 @@ impl CodexCredentials for FixedCodex {
         Ok(self.0.map(str::to_string))
     }
 }
+
+/// A Codex refresher a test expects never to be asked.
+pub struct UnusedCodex;
+
+#[async_trait]
+impl CodexCredentials for UnusedCodex {
+    async fn ensure_fresh_codex_for(&self, user_id: &str) -> Result<Option<String>, String> {
+        panic!("refreshed the Codex login of {user_id}");
+    }
+}

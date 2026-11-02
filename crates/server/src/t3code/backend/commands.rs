@@ -164,6 +164,7 @@ impl AppStateCommands {
             tasks: self.0.tasks.as_ref(),
             users: self.0.user_directory.as_ref(),
             credential_sync: &self.0.credential_sync,
+            secrets: self.0.secrets.as_ref(),
             config: &self.0.config,
         }
     }

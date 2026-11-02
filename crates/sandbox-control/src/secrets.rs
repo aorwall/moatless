@@ -20,7 +20,6 @@ use crate::lifecycle::ingress::{SandboxIdentity, SandboxIngress};
 use moatless_ports::identity::{
     CommitIdentity, GitHostTokenError, GitHostTokenIssuer, HarnessCredentials, SecretResolver,
 };
-use moatless_ports::sandbox::CodexCredentials;
 use moatless_types::store::StoreError;
 use moatless_workspace_ports::{WorkspaceCredentialReader, WorkspaceResolver};
 use moatless_workspace_types::repository::Repository;
@@ -126,15 +125,12 @@ pub async fn resolve_task_anthropic_credentials(
 }
 
 /// The OpenAI keys the model gateway's Codex upstream is called with for
-/// `actor`, with the precedence of [`resolve_task_anthropic_credentials`].
-///
-/// The Codex login is refreshed through `codex` first: the gateway is its only
-/// presenter.
+/// `actor`, with the precedence of [`resolve_task_anthropic_credentials`]. The
+/// actor's Codex login is not among them: the gateway adds it.
 pub async fn resolve_task_openai_credentials(
     actor: &Actor,
     secrets: Option<&Arc<dyn SecretResolver>>,
     provider_tokens: Option<&Arc<dyn HarnessCredentials>>,
-    codex: Option<&Arc<dyn CodexCredentials>>,
     workspace_credentials: HashMap<String, String>,
     workspace_env_vars: HashMap<String, String>,
 ) -> HashMap<String, String> {
@@ -145,18 +141,6 @@ pub async fn resolve_task_openai_credentials(
         }
     }
     let user_id = actor.user_id();
-    match codex {
-        Some(codex) if !credentials.contains_key(CODEX_AUTH_JSON) => {
-            match codex.ensure_fresh_codex_for(user_id).await {
-                Ok(Some(blob)) => {
-                    credentials.insert(CODEX_AUTH_JSON.to_string(), blob);
-                }
-                Ok(None) => {}
-                Err(e) => warn!(error = %e, user_id, "ensure_fresh_codex_for failed"),
-            }
-        }
-        _ => {}
-    }
     if let Some(provider_tokens) = provider_tokens {
         fill_openai_key(&mut credentials, provider_tokens, user_id).await;
     }
@@ -1211,7 +1195,6 @@ mod tests {
             &Actor::of("u1"),
             None,
             Some(&stored),
-            None,
             HashMap::new(),
             HashMap::new(),
         )

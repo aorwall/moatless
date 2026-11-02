@@ -123,3 +123,15 @@ pub async fn is_installed(
     let present_providers = collect_provider_token_providers(provider_tokens, ctx).await;
     build_descriptor(entry, &present_keys, &present_providers).installed
 }
+
+/// Whether `ctx` sees one of `entry`'s credential secrets.
+pub async fn holds_a_key(
+    secrets: &dyn SecretCatalog,
+    ctx: &ScopeContext,
+    entry: &AgentProfileEntry,
+) -> bool {
+    secrets.list(ctx).await.is_ok_and(|keys| {
+        keys.iter()
+            .any(|key| entry.credential_keys.contains(&key.as_str()))
+    })
+}

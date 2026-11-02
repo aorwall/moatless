@@ -8,6 +8,7 @@ use moatless_core::config::ModelGatewayConfig;
 use moatless_core::sandbox_jwt::{
     GenerationError, TokenGenerations, check_generation, verify_user_auth_token,
 };
+use moatless_core::secret_keys::CODEX_AUTH_JSON;
 use moatless_ports::identity::{HarnessCredentials, SecretResolver};
 use moatless_ports::sandbox::CodexCredentials;
 use moatless_sandbox_control::secrets::{
@@ -19,6 +20,7 @@ use moatless_types::http::HttpStreamTimeouts;
 use moatless_workspace_ports::{WorkspaceCredentialReader, WorkspaceResolver};
 use tracing::warn;
 
+use super::openai;
 use crate::sandbox::lifecycle::SandboxIngress;
 
 /// Anthropic's API root, which a task's own Anthropic credential is sent to.
@@ -224,21 +226,35 @@ impl ModelGateway {
     }
 
     /// The OpenAI credentials `scope`'s actor calls upstream with, its Codex
-    /// login refreshed first: the gateway is that login's only presenter.
+    /// login refreshed first unless an `OPENAI_BASE_URL` routes past it: the
+    /// gateway is that login's only presenter. Refreshing regardless would
+    /// call OpenAI's token endpoint on every request for a login never used.
     pub async fn openai_credentials(
         &self,
         scope: &SandboxScope,
     ) -> Result<HashMap<String, String>, GatewayError> {
         let inputs = self.task_inputs(scope).await?;
-        Ok(resolve_task_openai_credentials(
+        let login_pinned = inputs.pinned.contains_key(CODEX_AUTH_JSON)
+            || inputs.env_vars.contains_key(CODEX_AUTH_JSON);
+        let user_id = inputs.actor.user_id().to_string();
+        let mut credentials = resolve_task_openai_credentials(
             &inputs.actor,
             Some(&self.secrets),
             Some(&self.harness_credentials),
-            Some(&self.codex),
             inputs.pinned,
             inputs.env_vars,
         )
-        .await)
+        .await;
+        if !login_pinned && openai::reads_codex_login(&credentials, &self.bases) {
+            match self.codex.ensure_fresh_codex_for(&user_id).await {
+                Ok(Some(blob)) => {
+                    credentials.insert(CODEX_AUTH_JSON.to_string(), blob);
+                }
+                Ok(None) => {}
+                Err(e) => warn!(error = %e, user_id, "ensure_fresh_codex_for failed"),
+            }
+        }
+        Ok(credentials)
     }
 
     async fn task_inputs(&self, scope: &SandboxScope) -> Result<TaskInputs, GatewayError> {

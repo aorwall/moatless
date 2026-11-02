@@ -24,7 +24,7 @@ use crate::credential_sync::CredentialSync;
 use crate::message::send::MessageSendService;
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
-use moatless_ports::identity::UserResolver;
+use moatless_ports::identity::{SecretCatalog, UserResolver};
 use moatless_ports::sandbox::SandboxLifecycle;
 use moatless_types::access_control::ensure_can_use_repository;
 use moatless_types::access_control::{ScopeContext, ScopedResource};
@@ -195,6 +195,7 @@ pub struct CreateTaskPorts<'a> {
     pub tasks: &'a TaskCommands,
     pub users: &'a dyn UserResolver,
     pub credential_sync: &'a CredentialSync,
+    pub secrets: &'a dyn SecretCatalog,
     pub config: &'a Config,
 }
 
@@ -213,6 +214,37 @@ pub(crate) async fn primary_repository_id(
         .map(|placement| placement.repository_id))
 }
 
+/// Refuses a Codex task `user_id` holds neither a Codex key secret, such as
+/// the hub's `OPENAI_API_KEY`, nor a usable Codex connection for.
+///
+/// Without this, a missing connection or permanent refresh failure surfaces
+/// minutes later as a sandbox that dies on sign-in. A transient refresh error
+/// (upstream outage) does not refuse: the sandbox retries with the stored blob.
+async fn refuse_codex_without_credential(
+    secrets: &dyn SecretCatalog,
+    credential_sync: &CredentialSync,
+    scope_ctx: &ScopeContext,
+    user_id: &str,
+) -> Result<(), TaskError> {
+    let entry = catalog::entry(AgentProfile::Codex);
+    if crate::agent::service::holds_a_key(secrets, scope_ctx, entry).await {
+        return Ok(());
+    }
+    if let Err(moatless_identity::credentials::CredentialError::NotFound(reason)) =
+        credential_sync.ensure_fresh_codex_for(user_id).await
+    {
+        tracing::info!(
+            user_id = %user_id,
+            reason = %reason,
+            "Rejecting codex task creation: no usable Codex credential"
+        );
+        return Err(TaskError::BadRequest(
+            "Your Codex connection is missing or has expired. Reconnect Codex in Settings before creating a Codex task.".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// Turn a create request into the normalised form the creation service takes.
 /// Repository, access and scope resolution lives here, apart from
 /// [`create_task`]; a caller needing only that stops here.
@@ -228,6 +260,7 @@ pub async fn normalize(
         tasks,
         users,
         credential_sync,
+        secrets,
         config,
     } = ports;
     let CreateTaskIntent {
@@ -281,24 +314,8 @@ pub async fn normalize(
         .as_ref()
         .is_some_and(|repo| repo.kind == RepositoryKind::Template);
 
-    // Fast-fail codex tasks with no usable credential: a missing connection
-    // or permanent refresh failure would otherwise surface minutes later as
-    // a sandbox that dies on sign-in. Transient refresh errors (upstream
-    // outage) do NOT block creation — the sandbox retries with the stored
-    // blob.
     if agent_profile == AgentProfile::Codex {
-        if let Err(moatless_identity::credentials::CredentialError::NotFound(reason)) =
-            credential_sync.ensure_fresh_codex_for(user_id).await
-        {
-            tracing::info!(
-                user_id = %user_id,
-                reason = %reason,
-                "Rejecting codex task creation: no usable Codex credential"
-            );
-            return Err(TaskError::BadRequest(
-                "Your Codex connection is missing or has expired. Reconnect Codex in Settings before creating a Codex task.".to_string(),
-            ));
-        }
+        refuse_codex_without_credential(secrets, credential_sync, scope_ctx, user_id).await?;
     }
 
     Ok(NewTaskRequest {
@@ -659,6 +676,51 @@ mod tests {
             .await
             .expect("acting as yourself changes nothing");
         assert_eq!(resolved.as_deref(), Some(OTHER));
+    }
+
+    fn catalog_listing(
+        keys: &'static [&'static str],
+    ) -> moatless_ports::identity::MockSecretCatalog {
+        let mut secrets = moatless_ports::identity::MockSecretCatalog::new();
+        secrets
+            .expect_list()
+            .returning(move |_| Ok(keys.iter().map(|key| (*key).to_string()).collect()));
+        secrets
+    }
+
+    fn no_codex_connection() -> CredentialSync {
+        CredentialSync::new(
+            moatless_identity::credentials::test_support::credentials_over(
+                moatless_identity::credentials::test_support::InMemoryTokens::empty(),
+            ),
+        )
+    }
+
+    #[tokio::test]
+    async fn a_codex_key_secret_creates_a_codex_task_with_no_connection() {
+        let secrets = catalog_listing(&[moatless_core::secret_keys::OPENAI_API_KEY]);
+        refuse_codex_without_credential(
+            &secrets,
+            &no_codex_connection(),
+            &ctx(OTHER, false),
+            OTHER,
+        )
+        .await
+        .expect("the hub's key runs Codex");
+    }
+
+    #[tokio::test]
+    async fn neither_a_key_nor_a_connection_refuses_a_codex_task() {
+        let secrets = catalog_listing(&["GRAFANA_API_KEY"]);
+        let error = refuse_codex_without_credential(
+            &secrets,
+            &no_codex_connection(),
+            &ctx(OTHER, false),
+            OTHER,
+        )
+        .await
+        .expect_err("nothing to run Codex on");
+        assert!(matches!(error, TaskError::BadRequest(_)), "{error:?}");
     }
 
     fn create_request(

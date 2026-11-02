@@ -185,7 +185,7 @@ impl TaskSwitchService {
         // A Codex secret needs no refresh; only a ChatGPT connection can have
         // expired while still counting as installed.
         if profile == AgentProfile::Codex
-            && !holds_a_key(credentials.secrets, scope_ctx, entry).await
+            && !crate::agent::service::holds_a_key(credentials.secrets, scope_ctx, entry).await
         {
             if let Err(moatless_identity::credentials::CredentialError::NotFound(_)) = credentials
                 .credential_sync
@@ -267,16 +267,4 @@ fn switch_event(
         }),
         timestamp: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
     }
-}
-
-/// Whether `ctx` sees one of `entry`'s credential secrets.
-async fn holds_a_key(
-    secrets: &dyn SecretCatalog,
-    ctx: &ScopeContext,
-    entry: &catalog::AgentProfileEntry,
-) -> bool {
-    secrets.list(ctx).await.is_ok_and(|keys| {
-        keys.iter()
-            .any(|key| entry.credential_keys.contains(&key.as_str()))
-    })
 }

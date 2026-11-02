@@ -74,7 +74,6 @@
   "single-implementation-trait::moatless_identity::auth::codex_blob::CodexBlobRefresher implemented by moatless_identity::credentials::codex::refresh::CodexRefresher",
   "single-implementation-trait::moatless_identity::setup::evaluator::SetupRequirementCheck implemented by moatless_identity::setup::github::GithubTokenRequirement",
   "single-implementation-trait::moatless_ports::identity::credentials::CodexScopeReader implemented by moatless_identity::ports::HarnessTokens",
-  "single-implementation-trait::moatless_ports::identity::secret::SecretCatalog implemented by moatless_identity::secret::service::SecretService",
   "single-implementation-trait::moatless_ports::task::tags::TagResolver implemented by moatless_tasks::ports::TagCatalog",
   "single-implementation-trait::moatless_ports::task::turn::TurnCounter implemented by moatless_tasks::ports::TurnLedger",
   "single-implementation-trait::moatless_ports::task::turn::TurnStateReader implemented by moatless_tasks::ports::TurnLedger",

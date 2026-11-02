@@ -11,7 +11,8 @@ use moatless_ports::identity::{MockHarnessCredentials, MockSecretResolver};
 use moatless_workspace_ports::{MockWorkspaceCredentialReader, MockWorkspaceResolver};
 
 use super::*;
-use crate::model_gateway::fakes::FixedCodex;
+use crate::model_gateway::fakes::{FixedCodex, UnusedCodex};
+use moatless_ports::sandbox::CodexCredentials;
 
 const HUB: &str = "http://hub.moatless.svc.cluster.local:8317";
 const HUB_V1: &str = "http://hub.moatless.svc.cluster.local:8317/v1";
@@ -137,6 +138,17 @@ fn a_base_url_that_is_neither_openai_nor_the_hub_is_refused() {
 /// A gateway whose credential lookups resolve `codex` as the actor's login,
 /// presenting a ChatGPT login to `chatgpt_base`.
 fn gateway(codex: Option<&'static str>, chatgpt_base: &str) -> ModelGateway {
+    gateway_with(Arc::new(FixedCodex(codex)), &[], chatgpt_base)
+}
+
+/// [`gateway`], with `codex` as the refresher and `scoped` as the actor's
+/// secrets.
+fn gateway_with(
+    codex: Arc<dyn CodexCredentials>,
+    scoped: &[(&str, &str)],
+    chatgpt_base: &str,
+) -> ModelGateway {
+    let scoped = credentials(scoped);
     let pool = sqlx::postgres::PgPoolOptions::new()
         .connect_lazy("postgres://unused@127.0.0.1:1/unused")
         .unwrap();
@@ -147,7 +159,9 @@ fn gateway(codex: Option<&'static str>, chatgpt_base: &str) -> ModelGateway {
         .expect_resolve_env()
         .returning(|_| Ok(HashMap::new()));
     let mut secrets = MockSecretResolver::new();
-    secrets.expect_plaintext().returning(|_| Ok(HashMap::new()));
+    secrets
+        .expect_plaintext()
+        .returning(move |_| Ok(scoped.clone()));
     let mut provider_tokens = MockHarnessCredentials::new();
     provider_tokens
         .expect_provider_token()
@@ -159,7 +173,7 @@ fn gateway(codex: Option<&'static str>, chatgpt_base: &str) -> ModelGateway {
         Arc::new(workspace_credentials),
         Arc::new(secrets),
         Arc::new(provider_tokens),
-        Arc::new(FixedCodex(codex)),
+        codex,
         Some(SECRET.to_string()),
         ModelGatewayConfig::default(),
         ProviderBases {
@@ -187,6 +201,33 @@ async fn the_refreshed_codex_login_is_what_the_gateway_presents() {
         resolve_upstream(&resolved, &gateway.bases, None, None).unwrap(),
         chatgpt()
     );
+}
+
+#[tokio::test]
+async fn a_task_routed_to_the_hub_never_refreshes_its_codex_login() {
+    let gateway = gateway_with(
+        Arc::new(UnusedCodex),
+        &[(OPENAI_BASE_URL, HUB_V1), (OPENAI_API_KEY, "hub-key")],
+        &bases().chatgpt,
+    );
+    let resolved = gateway.openai_credentials(&scope()).await.unwrap();
+    assert_eq!(
+        resolve_upstream(&resolved, &gateway.bases, Some(HUB), None).unwrap(),
+        bearer(HUB_V1, "hub-key")
+    );
+}
+
+#[test]
+fn only_openais_own_base_url_still_reads_the_codex_login() {
+    assert!(reads_codex_login(&credentials(&[]), &bases()));
+    assert!(reads_codex_login(
+        &credentials(&[(OPENAI_BASE_URL, "https://api.openai.com/v1/")]),
+        &bases()
+    ));
+    assert!(!reads_codex_login(
+        &credentials(&[(OPENAI_BASE_URL, HUB_V1)]),
+        &bases()
+    ));
 }
 
 async fn error_of(response: Response) -> (StatusCode, serde_json::Value) {

@@ -18,7 +18,7 @@ use crate::task::presenter::TaskPresenter;
 use crate::task::switch::TaskSwitchService;
 use moatless_core::config::Config;
 use moatless_core::http_auth::UserTokenVerifier;
-use moatless_ports::identity::UserResolver;
+use moatless_ports::identity::{SecretCatalog, UserResolver};
 use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
 
 #[derive(OpenApi)]
@@ -56,6 +56,7 @@ where
     Arc<dyn RepositoryReader>: FromRef<S>,
     Arc<dyn UserResolver>: FromRef<S>,
     Arc<CredentialSync>: FromRef<S>,
+    Arc<dyn SecretCatalog>: FromRef<S>,
     Arc<TaskCreationService>: FromRef<S>,
     Arc<TaskForkService>: FromRef<S>,
     Arc<TaskSwitchService>: FromRef<S>,

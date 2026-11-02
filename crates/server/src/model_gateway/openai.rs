@@ -99,6 +99,18 @@ fn resolve_upstream(
     }
 }
 
+/// Whether [`resolve_upstream`] reaches the Codex login for `credentials`:
+/// it does unless an `OPENAI_BASE_URL` other than OpenAI's API is set.
+pub(super) fn reads_codex_login(
+    credentials: &HashMap<String, String>,
+    bases: &ProviderBases,
+) -> bool {
+    credentials
+        .get(OPENAI_BASE_URL)
+        .map(|url| url.trim().trim_end_matches('/'))
+        .is_none_or(|url| url.is_empty() || url == bases.openai)
+}
+
 /// A Codex `auth.json`'s upstream, read the way the Codex CLI reads it: its
 /// API key in `apikey` mode or when it has no `auth_mode` and holds one, else
 /// its ChatGPT tokens.
