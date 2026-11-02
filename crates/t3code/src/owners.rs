@@ -224,6 +224,7 @@ impl TaskRelationSource for TaskRelations {
             .await
             .map_err(|cause| StoreError::with_source("find task parent", cause))?;
         Ok(relation.map(|relation| ParentTask {
+            side_chat: relation.is_side_chat(),
             at_turn: relation
                 .context
                 .get("at_turn")

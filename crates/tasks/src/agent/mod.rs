@@ -8,3 +8,4 @@ pub mod prompt;
 pub mod routes;
 pub mod schemas;
 pub mod service;
+mod side_chat;

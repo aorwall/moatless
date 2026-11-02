@@ -204,7 +204,16 @@ pub async fn dispatch(
         "thread.runtime-mode.set" | "thread.interaction-mode.set" => {}
 
         "thread.delete" => {
-            ctx.sink.delete(viewer, thread_id(command)?).await?;
+            ctx.sink
+                .delete(
+                    viewer,
+                    thread_id(command)?,
+                    command
+                        .get("onlyIfUnused")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                )
+                .await?;
         }
         "project.meta.update" => project_meta_update(command)?,
         "project.create" | "project.delete" => {
@@ -594,6 +603,14 @@ async fn fork_thread(
         .fork(
             viewer,
             ForkThread {
+                side_chat: command
+                    .get("sideChat")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                title: command
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
                 new_task_id,
                 source_task_id,
                 at_turn: cut_at_turn,

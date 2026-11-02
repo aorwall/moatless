@@ -19,14 +19,13 @@ use crate::task::models::Task;
 use crate::task::relations::TaskRelations;
 use moatless_types::task::TaskRelationType;
 
-/// The Task this one hangs off, and how — the two shapes of a parent edge.
-///
-/// They read the same in a listing and differently here: a spawned child owes
-/// its parent a result, and a fork owes nobody anything.
+/// Parent identity and whether this task owes it a result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParentTask<'a> {
     /// Spawned by that Task, which is waiting to be told how it went.
     CreatedBy(&'a str),
+    /// A question beside the parent's continuing work.
+    SideChat { task_id: &'a str, context: &'a str },
     /// Branched off that Task at one of its turns, carrying its conversation up
     /// to that point. `at_turn` is `None` when the cut was at head.
     ForkedFrom {
@@ -271,6 +270,12 @@ same `--scope` to read an entry back. A Loop's `memory.preload` reads only its
 with `--no-expiry`. Memory can be wrong or stale: check an entry's citations
 before you act on it.";
 
+/// Sources for a task's parent identity and live conversation.
+pub struct ParentSources<'a> {
+    pub relations: &'a TaskRelations,
+    pub messages: &'a crate::message::operations::Messages,
+}
+
 /// Build the append-system-prompt for a task.
 ///
 /// Loads the task's workspace and URL settings, then delegates to
@@ -280,7 +285,7 @@ pub async fn build_for_task(
     task_id: &str,
     task: Option<&Task>,
     workspaces: Option<&Arc<dyn WorkspaceResolver>>,
-    task_relations: Option<&TaskRelations>,
+    parent_sources: Option<ParentSources<'_>>,
     users: Option<&dyn UserResolver>,
     config: Option<&Arc<Config>>,
     memories: Option<&Memories>,
@@ -295,28 +300,52 @@ pub async fn build_for_task(
 
     // Held as an owned pair because `ParentTask` borrows the id, and the
     // relation row does not outlive this scope.
-    let parent_relation: Option<(TaskRelationType, String, Option<i32>)> = match task_relations {
-        Some(repo) => match repo.find_parent(task_id).await {
-            Ok(Some(r)) => {
-                let at_turn = r
-                    .context
-                    .get("at_turn")
-                    .and_then(serde_json::Value::as_i64)
-                    .and_then(|n| i32::try_from(n).ok());
-                Some((r.relation_type, r.to_task_id, at_turn))
+    let parent_relation: Option<(TaskRelationType, String, Option<i32>, bool)> =
+        match parent_sources.as_ref().map(|sources| sources.relations) {
+            Some(repo) => match repo.find_parent(task_id).await {
+                Ok(Some(r)) => {
+                    let at_turn = r
+                        .context
+                        .get("at_turn")
+                        .and_then(serde_json::Value::as_i64)
+                        .and_then(|n| i32::try_from(n).ok());
+                    let side_chat = r.is_side_chat();
+                    Some((r.relation_type, r.to_task_id, at_turn, side_chat))
+                }
+                Ok(None) => None,
+                Err(e) => {
+                    warn!(error = %e, task_id, "Failed to load parent relation for prompt");
+                    None
+                }
+            },
+            None => None,
+        };
+    let context = match (
+        &parent_relation,
+        parent_sources.as_ref().map(|sources| sources.messages),
+    ) {
+        (Some((_, parent_id, at_turn, true)), Some(messages)) => {
+            match messages
+                .side_chat_context(task_id, parent_id, *at_turn)
+                .await
+            {
+                Ok(items) => super::side_chat::digest(parent_id, &items),
+                Err(error) => {
+                    warn!(%error, task_id, "Could not load side chat context");
+                    String::new()
+                }
             }
-            Ok(None) => None,
-            Err(e) => {
-                warn!(error = %e, task_id, "Failed to load parent relation for prompt");
-                None
-            }
-        },
-        None => None,
+        }
+        _ => String::new(),
     };
     let parent = parent_relation
         .as_ref()
-        .and_then(|(kind, id, at_turn)| match kind {
+        .and_then(|(kind, id, at_turn, side_chat)| match kind {
             TaskRelationType::CreatedBy => Some(ParentTask::CreatedBy(id)),
+            TaskRelationType::ForkedFrom if *side_chat => Some(ParentTask::SideChat {
+                task_id: id,
+                context: &context,
+            }),
             TaskRelationType::ForkedFrom => Some(ParentTask::ForkedFrom {
                 task_id: id,
                 at_turn: *at_turn,
@@ -446,6 +475,7 @@ fn build_task_identity_section(task_name: Option<&str>, forked: bool) -> String 
 /// Build the "# Parent Task" or "# Forked Task" section.
 fn build_parent_task_section(parent: ParentTask<'_>) -> String {
     match parent {
+        ParentTask::SideChat { task_id, context } => super::side_chat::section(task_id, context),
         ParentTask::CreatedBy(parent_task_id) => format!(
             "# Parent Task\n\n\
              This task was created by another task (`{parent_task_id}`), which is waiting \

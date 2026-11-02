@@ -45,6 +45,7 @@ fn conversation(task_id: &str) -> Conversation {
         parent_task_id: None,
         parent_relation: None,
         fork_at_turn: None,
+        side_chat: false,
         settled_override: None,
         settled_at: None,
         snoozed_until: None,
@@ -149,7 +150,7 @@ fn lineage_none_is_its_own_root_with_no_relationship() {
 
 #[test]
 fn lineage_child_fork_reports_relationship_and_forked_from() {
-    let lineage = Lineage::child(
+    let mut lineage = Lineage::child(
         "parent-1".to_string(),
         TaskRelationType::ForkedFrom,
         "parent-1".to_string(),
@@ -165,6 +166,8 @@ fn lineage_child_fork_reports_relationship_and_forked_from() {
     );
     assert_eq!(lineage.created_by, "user");
     assert_eq!(lineage.creation_source, "web");
+    lineage.side_chat = true;
+    assert_eq!(lineage.to_value()["sideChat"], json!(true));
 }
 
 #[test]
@@ -1234,6 +1237,7 @@ fn a_listed_subagent_and_fork_carry_their_parent_and_the_listed_root() {
     let subagent = listed_child("child", "parent", "created_by");
     let mut fork = listed_child("fork", "child", "forked_from");
     fork.fork_at_turn = Some(3);
+    fork.side_chat = true;
     let parents = HashMap::from([("child", "parent"), ("fork", "child")]);
 
     let lineage = Lineage::listed(&subagent, &parents).to_value();
@@ -1247,6 +1251,7 @@ fn a_listed_subagent_and_fork_carry_their_parent_and_the_listed_root() {
         json!("fork")
     );
     assert_eq!(fork_lineage.to_value()["rootThreadId"], json!("parent"));
+    assert_eq!(fork_lineage.to_value()["sideChat"], json!(true));
     assert_eq!(
         fork_lineage.forked_from_value(),
         json!({ "type": "run", "threadId": "child", "runId": "child:3" })

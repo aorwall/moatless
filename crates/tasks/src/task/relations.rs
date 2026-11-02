@@ -35,6 +35,16 @@ pub struct TaskRelation {
 }
 
 impl TaskRelation {
+    /// Whether this fork is a side chat beside its parent.
+    pub fn is_side_chat(&self) -> bool {
+        self.relation_type == TaskRelationType::ForkedFrom
+            && self
+                .context
+                .get("side_chat")
+                .and_then(serde_json::Value::as_bool)
+                == Some(true)
+    }
+
     /// Build a new row with a freshly-generated id and `now()` timestamp.
     pub fn new(
         from_task_id: impl Into<String>,
@@ -123,12 +133,13 @@ pub(crate) async fn record_forked_from(
     from_task_id: &str,
     source_task_id: &str,
     at_turn: Option<i32>,
+    side_chat: bool,
 ) -> Result<(), sqlx::Error> {
     let row = TaskRelation::new(
         from_task_id,
         source_task_id,
         TaskRelationType::ForkedFrom,
-        serde_json::json!({ "at_turn": at_turn }),
+        serde_json::json!({ "at_turn": at_turn, "side_chat": side_chat }),
     );
     repo.insert(&row).await
 }

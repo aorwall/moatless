@@ -297,6 +297,9 @@ fn fork(command: &Value) -> Result<Translated, CommandRefusal> {
         &[
             "commandId",
             "sourceThreadId",
+            "sideChat",
+            "title",
+            "interactionMode",
             "sameSandbox",
             "message",
             "modelSelection",

@@ -120,6 +120,16 @@ pub(super) async fn get_pending_messages(
         .await
         .unwrap_or(None);
 
+    let empty_side_chat = match (&latest_agent_session_id, service.handlers.as_ref()) {
+        (None, Some(handlers)) => handlers
+            .task_relations
+            .find_parent(&req.task_id)
+            .await
+            .map_err(|error| Status::internal(format!("Could not resolve side chat: {error}")))?
+            .is_some_and(|parent| parent.is_side_chat()),
+        _ => false,
+    };
+
     // Fork intent, while the Task is a fork (or rewound) and has recorded
     // nothing since its cut. Nothing is stamped when intent is *sent*: a first
     // turn that died before recording would consume the stamp and leave the
@@ -332,6 +342,7 @@ pub(super) async fn get_pending_messages(
             },
             resume: delivery.resume,
             start_fresh: delivery.start_fresh
+                || empty_side_chat
                 || fork.is_some()
                 || matches!(switch, HarnessSwitch::Switch),
             fork: fork.clone(),
@@ -579,7 +590,10 @@ pub(super) async fn get_system_prompt(
         &req.task_id,
         task.as_ref(),
         service.handlers.as_ref().map(|h| &h.workspace_resolver),
-        service.handlers.as_ref().map(|h| h.task_relations.as_ref()),
+        service.handlers.as_ref().map(|h| prompt::ParentSources {
+            relations: h.task_relations.as_ref(),
+            messages: h.messages.as_ref(),
+        }),
         service.handlers.as_ref().map(|h| h.user_logins.as_ref()),
         Some(&service.backend_config),
         service.handlers.as_ref().map(|h| h.memories.as_ref()),

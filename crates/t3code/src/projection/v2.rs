@@ -91,6 +91,7 @@ pub(crate) struct Lineage {
     /// The turn the fork cut from, read off `task_relations.context`. `None`
     /// means "the whole thread as of the fork", V2's `latest_stable`.
     fork_at_turn: Option<i32>,
+    pub(crate) side_chat: bool,
     created_by: &'static str,
     creation_source: &'static str,
 }
@@ -117,12 +118,14 @@ impl Lineage {
                 _ => break,
             }
         }
-        Self::child(
+        let mut lineage = Self::child(
             parent.to_string(),
             relation,
             root.to_string(),
             conversation.fork_at_turn,
-        )
+        );
+        lineage.side_chat = conversation.side_chat;
+        lineage
     }
 
     /// A thread with no parent edge, lineage fully resolved: it is its own
@@ -133,6 +136,7 @@ impl Lineage {
             relationship: None,
             root_task_id: task_id.to_string(),
             fork_at_turn: None,
+            side_chat: false,
             created_by: "user",
             creation_source: "web",
         }
@@ -156,17 +160,22 @@ impl Lineage {
             relationship: Some(relationship),
             root_task_id,
             fork_at_turn,
+            side_chat: false,
             created_by,
             creation_source,
         }
     }
 
     fn to_value(&self) -> Value {
-        json!({
+        let mut value = json!({
             "parentThreadId": self.parent_task_id,
             "relationshipToParent": self.relationship,
             "rootThreadId": self.root_task_id
-        })
+        });
+        if self.side_chat {
+            value["sideChat"] = json!(true);
+        }
+        value
     }
 
     fn forked_from_value(&self) -> Value {

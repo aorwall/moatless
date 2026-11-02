@@ -401,6 +401,7 @@ impl PullRequestReviewSource for AppStateBoundPullRequests {
                 },
                 viewer,
                 fork::ForkRequest {
+                    side_chat: false,
                     source_task_id: source_task_id.to_string(),
                     new_task_id: Some(task_id.to_string()),
                     at_turn: None,

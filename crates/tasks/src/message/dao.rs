@@ -42,6 +42,14 @@ pub(crate) struct SubagentAggregate {
 pub(crate) trait MessageDao: Send + Sync {
     async fn get_all(&self, task_id: &str) -> Result<MessagePage, sqlx::Error>;
 
+    /// Newest parent messages after a fork cut, for a side chat's first turn.
+    async fn side_chat_context(
+        &self,
+        task_id: &str,
+        parent_id: &str,
+        at_turn: Option<i32>,
+    ) -> Result<Vec<(String, String)>, sqlx::Error>;
+
     /// Record a backend failure as a `task.error` event and project it as an
     /// Error Message, in one transaction.
     async fn append_error_result(
@@ -251,6 +259,30 @@ impl PgMessageDao {
 
 #[async_trait]
 impl MessageDao for PgMessageDao {
+    async fn side_chat_context(
+        &self,
+        task_id: &str,
+        parent_id: &str,
+        at_turn: Option<i32>,
+    ) -> Result<Vec<(String, String)>, sqlx::Error> {
+        sqlx::query_as(
+            "SELECT m.author, COALESCE(i.text, m.text) FROM conversation_messages m \
+             LEFT JOIN task_inbox i ON i.id = m.inbox_id \
+             WHERE m.task_id = $2 AND m.parent_tool_use_id IS NULL \
+               AND COALESCE(i.text, m.text) IS NOT NULL \
+               AND (COALESCE(m.turn_number, i.turn_number) > COALESCE($3, 0) \
+                    OR (i.status = 'pending' AND i.task_id = $2)) \
+               AND NOT EXISTS (SELECT 1 FROM task_turns WHERE task_id = $1 \
+                    AND ended_at IS NOT NULL AND turn_number > COALESCE($3, 0)) \
+             ORDER BY m.position DESC LIMIT 2001",
+        )
+        .bind(task_id)
+        .bind(parent_id)
+        .bind(at_turn)
+        .fetch_all(&self.0)
+        .await
+    }
+
     async fn get_all(&self, task_id: &str) -> Result<MessagePage, sqlx::Error> {
         let (records, activities) = tokio::try_join!(
             read_dao::all(&self.0, task_id),

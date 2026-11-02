@@ -123,6 +123,7 @@ pub struct TaskForkService {
     messages: Arc<dyn MessageDao>,
     tags: Arc<dyn TagDao>,
     trajectories: Arc<Trajectories>,
+    relations: Arc<dyn super::relations::TaskRelationDao>,
 }
 
 impl TaskForkService {
@@ -132,6 +133,7 @@ impl TaskForkService {
         messages: Arc<dyn MessageDao>,
         tags: Arc<dyn TagDao>,
         trajectories: Arc<Trajectories>,
+        relations: Arc<dyn super::relations::TaskRelationDao>,
     ) -> Self {
         Self {
             tasks,
@@ -139,6 +141,7 @@ impl TaskForkService {
             messages,
             tags,
             trajectories,
+            relations,
         }
     }
 
@@ -168,6 +171,17 @@ impl TaskForkService {
         source_task_id: &str,
         at_turn: Option<i32>,
     ) -> Result<(super::models::Task, ForkPlan), TaskError> {
+        self.plan_cut(scope_ctx, source_task_id, at_turn, false)
+            .await
+    }
+
+    async fn plan_cut(
+        &self,
+        scope_ctx: &ScopeContext,
+        source_task_id: &str,
+        at_turn: Option<i32>,
+        side_chat: bool,
+    ) -> Result<(super::models::Task, ForkPlan), TaskError> {
         let source = self
             .tasks
             .find_by_id(source_task_id, scope_ctx)
@@ -192,7 +206,9 @@ impl TaskForkService {
                 at_turn.unwrap_or_default()
             )));
         }
-        if let Some(open) = blocking_open_turn(&point) {
+        if let Some(open) = blocking_open_turn(&point)
+            .filter(|_| !(side_chat && at_turn.is_none() && point.turn.is_none()))
+        {
             return Err(TaskError::Conflict(format!(
                 "task {source_task_id} has turn {open} in flight; fork at a turn before it, or wait for it to finish"
             )));
@@ -269,6 +285,7 @@ pub enum ForkProfile {
 /// A fork of `source_task_id`: the cut, and what the fork changes from its
 /// source.
 pub struct ForkRequest {
+    pub side_chat: bool,
     pub source_task_id: String,
     /// The fork's id, when the caller minted it; `None` mints one here.
     pub new_task_id: Option<String>,
@@ -296,6 +313,7 @@ impl ForkRequest {
         Self {
             source_task_id: source_task_id.to_string(),
             new_task_id: None,
+            side_chat: false,
             at_turn: req.at_turn,
             message: req.message,
             name: None,
@@ -354,9 +372,23 @@ impl TaskForkService {
         EvFut: std::future::Future<Output = serde_json::Value> + Send,
     {
         let source_task_id = request.source_task_id.as_str();
-        let same_sandbox = request.same_sandbox;
+        let same_sandbox = request.same_sandbox || request.side_chat;
+        if request.side_chat {
+            let parent = self
+                .relations
+                .find_parent(source_task_id)
+                .await
+                .map_err(TaskError::Db)
+                .map_err(ForkError::Source)?;
+            validate_side_chat_source(parent.as_ref()).map_err(ForkError::Source)?;
+        }
         let (source, plan) = self
-            .plan(scope_ctx, source_task_id, request.at_turn)
+            .plan_cut(
+                scope_ctx,
+                source_task_id,
+                request.at_turn,
+                request.side_chat,
+            )
             .await
             .map_err(ForkError::Source)?;
 
@@ -431,6 +463,7 @@ impl TaskForkService {
                 source_task_id: source_task_id.to_string(),
                 at_turn: plan.at_turn,
                 source_event_id: plan.source_event_id,
+                side_chat: request.side_chat,
             });
             service::create_task(
                 ports.task_creation,
@@ -465,9 +498,80 @@ impl TaskForkService {
     }
 }
 
+fn validate_side_chat_source(
+    parent: Option<&super::relations::TaskRelation>,
+) -> Result<(), TaskError> {
+    if parent.is_some_and(|parent| {
+        parent.is_side_chat()
+            || parent.relation_type == moatless_types::task::TaskRelationType::CreatedBy
+    }) {
+        return Err(TaskError::Conflict(
+            "Side chats cannot start from a side chat or a child task".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn side_chats_refuse_nested_and_spawned_sources_but_allow_ordinary_forks() {
+        use super::super::relations::{TaskRelation, TaskRelationType};
+        assert!(validate_side_chat_source(None).is_ok());
+        for (kind, side_chat, allowed) in [
+            (TaskRelationType::CreatedBy, false, false),
+            (TaskRelationType::ForkedFrom, true, false),
+            (TaskRelationType::ForkedFrom, false, true),
+        ] {
+            let parent = TaskRelation::new(
+                "source",
+                "parent",
+                kind,
+                serde_json::json!({"side_chat": side_chat}),
+            );
+            assert_eq!(validate_side_chat_source(Some(&parent)).is_ok(), allowed);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_side_chat_can_start_with_an_empty_cut_during_the_first_turn() {
+        use crate::message::dao::MockMessageDao;
+        use crate::tag::dao::MockTagDao;
+        use crate::task::dao::MockTaskDao;
+        use crate::task_turn::dao::MockTaskTurnDao;
+        use crate::trajectory::dao::PgTrajectoryDao;
+        let mut tasks = MockTaskDao::new();
+        tasks
+            .expect_find_by_id()
+            .returning(|id, _| Ok(Some(super::super::test_support::make_task_row(id, "owner"))));
+        let mut turns = MockTaskTurnDao::new();
+        turns
+            .expect_fork_point()
+            .returning(|_, _| Ok(point(Some(1), None)));
+        let mut messages = MockMessageDao::new();
+        messages.expect_is_frozen().returning(|_| Ok(false));
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://unused:unused@localhost/unused")
+            .unwrap();
+        let service = TaskForkService::new(
+            Arc::new(tasks),
+            Arc::new(turns),
+            Arc::new(messages),
+            Arc::new(MockTagDao::new()),
+            Arc::new(Trajectories::new(PgTrajectoryDao(pool))),
+            Arc::new(super::super::relations::MockTaskRelationDao::new()),
+        );
+        let viewer = ScopeContext::user("owner");
+        assert!(service.plan(&viewer, "parent", None).await.is_err());
+        let (_, plan) = service
+            .plan_cut(&viewer, "parent", None, true)
+            .await
+            .unwrap();
+        assert!(plan.at_turn.is_none());
+        assert!(plan.source_event_id.is_none());
+    }
 
     fn point(open_turn: Option<i32>, turn: Option<i32>) -> ForkPoint {
         ForkPoint {

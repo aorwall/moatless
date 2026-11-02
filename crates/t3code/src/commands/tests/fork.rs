@@ -22,6 +22,8 @@ async fn a_fork_persists_under_the_id_the_client_minted() {
     assert_eq!(
         calls,
         vec![Call::Fork {
+            side_chat: false,
+            title: None,
             new_task_id: "fork-1".to_string(),
             source_task_id: "task-1".to_string(),
             at_turn: None,
@@ -49,6 +51,8 @@ async fn a_fork_carries_at_turn_same_sandbox_and_message_but_not_branch() {
     assert_eq!(
         calls,
         vec![Call::Fork {
+            side_chat: false,
+            title: None,
             new_task_id: "fork-1".to_string(),
             source_task_id: "task-1".to_string(),
             at_turn: Some(3),
@@ -122,6 +126,8 @@ async fn a_fork_naming_the_other_instance_runs_on_its_harness() {
                 harness: Harness::Codex,
             },
             Call::Fork {
+                side_chat: false,
+                title: None,
                 new_task_id: "fork-1".to_string(),
                 source_task_id: "task-1".to_string(),
                 at_turn: None,
@@ -132,5 +138,19 @@ async fn a_fork_naming_the_other_instance_runs_on_its_harness() {
                 effort: None,
             }
         ]
+    );
+}
+
+#[tokio::test]
+async fn side_chat_title_and_interaction_mode_reach_creation() {
+    let mut command = fork_command();
+    command["sideChat"] = json!(true);
+    command["title"] = json!("Side chat");
+    command["interactionMode"] = json!("plan");
+    let (result, calls) = run(command).await;
+    assert!(result.is_ok());
+    assert!(
+        matches!(calls.as_slice(), [Call::Fork { side_chat: true, title, agent_mode, .. }]
+        if title.as_deref() == Some("Side chat") && agent_mode.as_deref() == Some("plan"))
     );
 }

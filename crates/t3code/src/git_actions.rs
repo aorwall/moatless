@@ -642,6 +642,7 @@ mod tests {
             &self,
             _viewer: &ScopeContext,
             _task_id: &str,
+            _only_if_unused: bool,
         ) -> Result<(), crate::ports::CommandRefusal> {
             unreachable!()
         }

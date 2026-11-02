@@ -690,6 +690,7 @@ impl ports::ThreadCommandSink for UnreachableCommands {
         &self,
         _viewer: &ScopeContext,
         _task_id: &str,
+        _only_if_unused: bool,
     ) -> Result<(), ports::CommandRefusal> {
         unreachable!("no test in this file deletes a thread")
     }

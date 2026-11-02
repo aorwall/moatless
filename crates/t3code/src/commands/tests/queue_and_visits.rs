@@ -129,6 +129,7 @@ async fn mark_unread_and_delete_reach_the_sink() {
         (
             "thread.delete",
             Call::Delete {
+                only_if_unused: false,
                 task_id: "task-1".to_string(),
             },
         ),
@@ -137,4 +138,20 @@ async fn mark_unread_and_delete_reach_the_sink() {
         assert!(result.is_ok(), "{tag}");
         assert_eq!(calls, vec![expected], "{tag}");
     }
+}
+
+#[tokio::test]
+async fn closing_a_side_chat_tab_requests_deletion_only_if_unused() {
+    let (result, calls) = run(json!({
+        "type": "thread.delete", "threadId": "task-1", "onlyIfUnused": true
+    }))
+    .await;
+    assert!(result.is_ok());
+    assert_eq!(
+        calls,
+        vec![Call::Delete {
+            task_id: "task-1".into(),
+            only_if_unused: true
+        }]
+    );
 }

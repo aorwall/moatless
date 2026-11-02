@@ -120,6 +120,7 @@ pub struct NewTaskRequest {
 /// What makes a Task a fork, carried from the fork handler to the one place
 /// that may write it — after the Task row exists, and before its first message.
 pub struct ForkedFrom {
+    pub side_chat: bool,
     pub source_task_id: String,
     pub at_turn: Option<i32>,
     /// The cut as a trajectory event; `None` when the parent recorded nothing
@@ -424,6 +425,7 @@ impl TaskCreationService {
                 &task_id,
                 &fork.source_task_id,
                 fork.at_turn,
+                fork.side_chat,
             )
             .await?;
             if let Some(source_event_id) = fork.source_event_id {

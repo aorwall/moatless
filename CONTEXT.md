@@ -168,6 +168,12 @@ versions, visibility and Task. A version published with `--inline` is also
 shown in the Task's thread as the page itself.
 _Avoid_: asset (an uploaded attachment, not something the agent publishes)
 
+**Side chat**:
+A Fork opened beside its main Task to answer a question while that Task keeps
+working. It shares the main Task's checkout, inherits its last stable conversation,
+and carries `side_chat: true` on the `forked_from` relation. It closes or is deleted
+with its parent; an ordinary Fork has an independent lifecycle.
+
 **Artifact fork**:
 A copy of one Artifact version, published as version 1 of a private Artifact
 on a new Task: a Fork of the Artifact's Task for a reader who can read it, or

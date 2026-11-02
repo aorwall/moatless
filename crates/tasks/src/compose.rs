@@ -327,7 +327,7 @@ impl TaskGraph {
                 workspace_resolver,
                 user_display,
                 task_bindings,
-                self.relations,
+                self.relations.clone(),
                 self.tasks.clone(),
             )),
             task_switch: Arc::new(TaskSwitchService::new(
@@ -349,6 +349,7 @@ impl TaskGraph {
                 self.messages,
                 self.tags,
                 trajectories,
+                self.relations,
             )),
         }
     }

@@ -356,7 +356,8 @@ impl ThreadCommandSink for AppStateCommands {
                     new_task_id: Some(fork.new_task_id),
                     at_turn: fork.at_turn,
                     message: fork.message,
-                    name: None,
+                    name: fork.title,
+                    side_chat: fork.side_chat,
                     same_sandbox: fork.same_sandbox,
                     profile: fork
                         .harness
@@ -739,7 +740,22 @@ impl ThreadCommandSink for AppStateCommands {
             .map_err(|e| Self::state_refusal(task_id, e))
     }
 
-    async fn delete(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
+    async fn delete(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+        only_if_unused: bool,
+    ) -> Result<(), CommandRefusal> {
+        if only_if_unused
+            && !self
+                .0
+                .tasks
+                .close_if_unused(task_id, viewer)
+                .await
+                .map_err(|e| Self::state_refusal(task_id, e))?
+        {
+            return Ok(());
+        }
         removal::delete_task(
             self.0.sandbox.as_ref(),
             self.0.binding_directory.as_ref(),

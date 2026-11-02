@@ -275,7 +275,7 @@ async fn a_listed_row_names_a_readable_parent_and_counts_its_children(pool: PgPo
             "fork",
             "parent",
             "forked_from",
-            serde_json::json!({ "at_turn": 2 }),
+            serde_json::json!({ "at_turn": 2, "side_chat": true }),
         ),
         ("orphan", "foreign", "created_by", serde_json::json!({})),
         ("stray", "unfollowed", "forked_from", serde_json::json!({})),
@@ -332,6 +332,19 @@ async fn a_listed_row_names_a_readable_parent_and_counts_its_children(pool: PgPo
     };
     assert_eq!(parent_of("child"), named("parent", "created_by", None));
     assert_eq!(parent_of("fork"), named("parent", "forked_from", Some(2)));
+    assert!(
+        rows.iter()
+            .find(|row| row.task_id == "fork")
+            .unwrap()
+            .side_chat
+    );
+    assert!(
+        !rows
+            .iter()
+            .find(|row| row.task_id == "child")
+            .unwrap()
+            .side_chat
+    );
     assert_eq!(parent_of("orphan"), (None, None, None), "unreadable parent");
     assert_eq!(
         parent_of("stray"),

@@ -15,7 +15,7 @@ use crate::message::test_support::{
     acknowledge_messages, freeze, queue_named, record_external_event, seed_agent_blocks,
     seed_agent_line,
 };
-use crate::task::dao::PgTaskDao;
+use crate::task::dao::{PgTaskDao, TaskDao};
 use crate::task::fork_dao::{PgTaskForkDao, TaskForkDao};
 use crate::task::models::TaskFork;
 use crate::task::rewind::TaskRewindService;
@@ -212,6 +212,20 @@ async fn a_fork_gets_its_closed_cut_turn_with_no_trigger(pool: PgPool) {
     .await
     .unwrap();
     assert_eq!(turns, [(2, "stopped".to_string(), true, None)]);
+    let tasks = PgTaskDao::new(pool.clone());
+    assert!(
+        !tasks
+            .close_if_unused("b", &ScopeContext::user("other"))
+            .await
+            .unwrap()
+    );
+    assert!(tasks.close_if_unused("b", &owner()).await.unwrap());
+    sqlx::query("UPDATE tasks SET status = 'open' WHERE task_id = 'b'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    queue_named(&pool, "b", "own-question", "what does this mean?").await;
+    assert!(!tasks.close_if_unused("b", &owner()).await.unwrap());
 }
 
 /// Each generation holds its ancestors' rows up to its cut under ids of its
@@ -475,4 +489,36 @@ async fn a_fork_of_an_upgraded_task_shows_its_frozen_history(pool: PgPool) {
     rebuild(&pool, "b").await;
     assert_eq!(conversation(&pool, "b").await, b);
     assert_eq!(activity_ids(&pool, "b").await, activities);
+}
+
+#[sqlx::test]
+async fn side_chat_context_includes_only_activity_after_the_cut_until_its_own_turn_ends(
+    pool: PgPool,
+) {
+    seed_bare_task(&pool, "a", "open").await;
+    let cut = run_turn(&pool, "a", "sa", 1, "inherited").await;
+    let session = fork(&pool, "a", "b", 1, cut).await;
+    run_turn(&pool, "a", "sa", 2, "new work").await;
+    let messages = PgMessageDao(pool.clone());
+    assert_eq!(
+        messages.side_chat_context("b", "a", Some(1)).await.unwrap(),
+        vec![
+            ("agent".into(), "re: new work".into()),
+            ("user".into(), "new work".into())
+        ]
+    );
+    run_turn(&pool, "b", &session, 2, "question").await;
+    assert!(
+        messages
+            .side_chat_context("b", "a", Some(1))
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        !PgTaskDao::new(pool)
+            .close_if_unused("b", &owner())
+            .await
+            .unwrap()
+    );
 }

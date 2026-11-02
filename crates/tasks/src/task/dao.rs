@@ -145,6 +145,13 @@ pub(crate) trait TaskDao: Send + Sync {
     /// Delete a task. Returns `true` when a row was deleted, `false` when the
     /// task was not found or the caller does not own it (existence hiding).
     async fn delete_task(&self, task_id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error>;
+
+    /// Claim an unused Task for deletion; inherited conversation does not count as use.
+    async fn close_if_unused(&self, task_id: &str, ctx: &ScopeContext)
+    -> Result<bool, sqlx::Error>;
+
+    /// Side chats owned by this parent, including closed ones.
+    async fn side_chat_ids(&self, task_id: &str) -> Result<Vec<String>, sqlx::Error>;
     async fn exists_by_short_id(&self, short_id: &str) -> Result<bool, sqlx::Error>;
     async fn get_created_times(
         &self,
@@ -982,6 +989,35 @@ impl TaskDao for PgTaskDao {
         }
         tx.commit().await?;
         Ok(res.rows_affected() > 0)
+    }
+
+    async fn close_if_unused(
+        &self,
+        task_id: &str,
+        ctx: &ScopeContext,
+    ) -> Result<bool, sqlx::Error> {
+        let ctrl = moatless_core::db::access_control::owner_filter("", 2);
+        let sql = format!(
+            "UPDATE tasks SET status = 'closed' WHERE task_id = $1 AND {} \
+             AND NOT EXISTS (SELECT 1 FROM task_inbox WHERE task_id = $1) \
+             AND NOT EXISTS (SELECT 1 FROM task_turns WHERE task_id = $1 AND turn_number > COALESCE((SELECT at_turn FROM task_forks WHERE task_id = $1), 0)) \
+             AND NOT EXISTS (SELECT 1 FROM trajectory_sessions s JOIN trajectory_events e ON e.session_id = s.id WHERE s.task_id = $1) \
+             AND NOT EXISTS (SELECT 1 FROM conversation_messages m LEFT JOIN task_events e ON e.event_id = m.task_event_id WHERE m.task_id = $1 AND (m.frozen OR e.task_id = $1))",
+            ctrl.sql()
+        );
+        Ok(sqlx::query(AssertSqlSafe(sql))
+            .bind(task_id)
+            .bind(ctx.is_admin)
+            .bind(&ctx.user_id)
+            .execute(&self.pool)
+            .await?
+            .rows_affected()
+            > 0)
+    }
+
+    async fn side_chat_ids(&self, task_id: &str) -> Result<Vec<String>, sqlx::Error> {
+        sqlx::query_scalar("SELECT from_task_id FROM task_relations WHERE to_task_id = $1 AND relation_type = 'forked_from' AND context -> 'side_chat' = 'true'::jsonb")
+            .bind(task_id).fetch_all(&self.pool).await
     }
 
     async fn delete_task(&self, task_id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {

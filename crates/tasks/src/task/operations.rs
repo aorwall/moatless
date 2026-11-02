@@ -150,6 +150,19 @@ impl TaskCommands {
             .await
     }
 
+    /// Claim an unused Task for deletion without counting inherited conversation.
+    pub async fn close_if_unused(
+        &self,
+        task_id: &str,
+        ctx: &ScopeContext,
+    ) -> Result<bool, sqlx::Error> {
+        self.store.close_if_unused(task_id, ctx).await
+    }
+
+    pub(crate) async fn side_chat_ids(&self, task_id: &str) -> Result<Vec<String>, sqlx::Error> {
+        self.store.side_chat_ids(task_id).await
+    }
+
     /// See [`TaskDao::delete_task`].
     pub async fn delete_task(
         &self,

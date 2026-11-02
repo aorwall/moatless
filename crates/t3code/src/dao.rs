@@ -590,6 +590,7 @@ pub(crate) fn running_conversation(task_id: &str) -> crate::dao::Conversation {
         parent_task_id: None,
         parent_relation: None,
         fork_at_turn: None,
+        side_chat: false,
         settled_override: None,
         settled_at: None,
         snoozed_until: None,

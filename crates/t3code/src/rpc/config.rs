@@ -48,6 +48,7 @@ pub(crate) fn descriptor(config: &UiRpcConfig) -> Value {
         },
         "serverVersion": T3_CLIENT_CONTRACT_VERSION,
         "capabilities": {
+            "sideChats": true,
             "repositoryIdentity": false,
             "connectionProbe": true,
             "threadSettlement": true,

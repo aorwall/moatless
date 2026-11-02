@@ -33,7 +33,9 @@ pub(crate) async fn resolve(
             None => break,
         }
     }
-    Lineage::child(parent.task_id, parent.relation, root, parent.at_turn)
+    let mut lineage = Lineage::child(parent.task_id, parent.relation, root, parent.at_turn);
+    lineage.side_chat = parent.side_chat;
+    lineage
 }
 
 async fn readable_parent(

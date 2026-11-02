@@ -198,6 +198,8 @@ pub struct ThreadPullRequestRef {
 
 /// A fork, as this surface understood it.
 pub struct ForkThread {
+    pub side_chat: bool,
+    pub title: Option<String>,
     /// The id the client minted for the fork and has already navigated to — the
     /// same convention [`NewThread::task_id`] follows.
     pub new_task_id: String,
@@ -282,6 +284,7 @@ pub trait TaskRelationSource: Send + Sync {
 
 /// One Task's parent edge, as [`TaskRelationSource::parent`] answers it.
 pub struct ParentTask {
+    pub side_chat: bool,
     pub task_id: String,
     pub relation: TaskRelationType,
     /// The source turn a fork was cut after, from the edge's context. `None`
@@ -966,7 +969,12 @@ pub trait ThreadCommandSink: Send + Sync {
 
     /// Delete the thread and everything it owns. Refuses `NotWritable` for a
     /// viewer who may not delete the Task in the Moatless UI either.
-    async fn delete(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;
+    async fn delete(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+        only_if_unused: bool,
+    ) -> Result<(), CommandRefusal>;
 
     async fn snooze(
         &self,

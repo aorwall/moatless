@@ -134,9 +134,15 @@ fn fork_maps_the_target_thread_and_the_run_it_was_cut_at() {
     let latest = v1(json!({
         "type": "thread.fork",
         "targetThreadId": "task-2",
-        "sourcePoint": { "type": "latest_stable" }
+        "sourcePoint": { "type": "latest_stable" },
+        "sideChat": true,
+        "title": "Side chat",
+        "interactionMode": "plan"
     }));
     assert_eq!(latest["atTurn"], Value::Null);
+    assert_eq!(latest["sideChat"], json!(true));
+    assert_eq!(latest["title"], json!("Side chat"));
+    assert_eq!(latest["interactionMode"], json!("plan"));
     assert!(matches!(
         refusal(json!({
             "type": "thread.fork",

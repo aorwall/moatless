@@ -268,7 +268,8 @@ async fn read(
                    COALESCE(pr.pull_requests, '[]'::jsonb) AS pull_requests,
                    parent.task_id AS parent_task_id,
                    parent.relation_type AS parent_relation,
-                   parent.fork_at_turn
+                   parent.fork_at_turn,
+                   COALESCE(parent.side_chat, false) AS side_chat
                FROM listed t
                LEFT JOIN sandboxes s ON s.sandbox_id = t.sandbox_id
                -- Whose Task this is, for the rows that are somebody else's. The
@@ -539,7 +540,8 @@ fn listed_parent_join() -> String {
                    CASE WHEN jsonb_typeof(edge.context -> 'at_turn') = 'number'
                          AND (edge.context ->> 'at_turn')::numeric BETWEEN 1 AND 2147483647
                         THEN (edge.context ->> 'at_turn')::numeric::int
-                   END AS fork_at_turn
+                   END AS fork_at_turn,
+                   (edge.relation_type = 'forked_from' AND edge.context -> 'side_chat' = 'true'::jsonb) AS side_chat
             FROM (
                 SELECT r.to_task_id, r.relation_type, r.context
                 FROM task_relations r

@@ -107,6 +107,19 @@ impl TaskCloser {
         task_id: &str,
         event: &CloseEvent,
     ) -> Result<(), TaskError> {
+        for relation in self
+            .task_relations
+            .list_incoming(task_id, Some(TaskRelationType::ForkedFrom))
+            .await?
+        {
+            if relation.is_side_chat() {
+                self.close_one(&relation.from_task_id, event).await?;
+            }
+        }
+        self.close_one(task_id, event).await
+    }
+
+    async fn close_one(&self, task_id: &str, event: &CloseEvent) -> Result<(), TaskError> {
         // reason: close cascade reaches child tasks owned by other users; system ctx
         // is required to traverse the full tree without re-checking per-child ownership.
         #[allow(clippy::disallowed_methods)]

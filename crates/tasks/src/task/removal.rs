@@ -32,6 +32,22 @@ pub async fn delete_task(
         )));
     }
 
+    let side_chats = tasks.side_chat_ids(&task_id).await?;
+    for side_chat in side_chats {
+        // reason: side chats belong to the parent whose owner was checked above.
+        #[expect(clippy::disallowed_methods)]
+        let child_ctx = ScopeContext::system();
+        Box::pin(delete_task(
+            sandbox,
+            task_bindings,
+            tasks,
+            artifacts,
+            &child_ctx,
+            side_chat,
+        ))
+        .await?;
+    }
+
     // Leave the active member set before lifecycle decides whether this is a
     // member detach or the final sandbox-scoped remove. Concurrent deletes of
     // all members then serialize with at least one caller seeing no open/error

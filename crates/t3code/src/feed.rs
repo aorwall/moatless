@@ -701,6 +701,7 @@ mod tests {
             parent_task_id: None,
             parent_relation: None,
             fork_at_turn: None,
+            side_chat: false,
             settled_override: None,
             settled_at: None,
             snoozed_until: None,

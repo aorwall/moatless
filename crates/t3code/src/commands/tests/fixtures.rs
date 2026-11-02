@@ -30,6 +30,8 @@ pub(super) enum Call {
         skills: Vec<String>,
     },
     Fork {
+        side_chat: bool,
+        title: Option<String>,
         new_task_id: String,
         source_task_id: String,
         at_turn: Option<i32>,
@@ -95,6 +97,7 @@ pub(super) enum Call {
         task_id: String,
     },
     Delete {
+        only_if_unused: bool,
         task_id: String,
     },
     Snooze {
@@ -228,6 +231,8 @@ impl ThreadCommandSink for RecordingSink {
             });
         }
         self.0.lock().unwrap().push(Call::Fork {
+            side_chat: fork.side_chat,
+            title: fork.title,
             new_task_id: fork.new_task_id,
             source_task_id: fork.source_task_id,
             at_turn: fork.at_turn,
@@ -506,8 +511,14 @@ impl ThreadCommandSink for RecordingSink {
         });
         Ok(())
     }
-    async fn delete(&self, _viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
+    async fn delete(
+        &self,
+        _viewer: &ScopeContext,
+        task_id: &str,
+        only_if_unused: bool,
+    ) -> Result<(), CommandRefusal> {
         self.0.lock().unwrap().push(Call::Delete {
+            only_if_unused,
             task_id: task_id.to_string(),
         });
         Ok(())
@@ -621,6 +632,7 @@ pub(super) fn conversation(agent_profile: AgentProfile) -> Conversation {
         parent_task_id: None,
         parent_relation: None,
         fork_at_turn: None,
+        side_chat: false,
         settled_override: None,
         settled_at: None,
         snoozed_until: None,

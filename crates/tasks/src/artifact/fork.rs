@@ -89,6 +89,7 @@ where
                 .find(|recorded| recorded.version == version)
                 .and_then(|recorded| recorded.turn_number);
             let fork = ForkRequest {
+                side_chat: false,
                 source_task_id: row.task_id.clone(),
                 new_task_id: None,
                 at_turn,

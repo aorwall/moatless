@@ -277,7 +277,13 @@ pub fn test_app_state_with_recorded_events(
     config: Config,
 ) -> (AppState, Arc<RecordingPublisher>) {
     let recorder = Arc::new(RecordingPublisher::new());
-    let state = build_app_state(pool, config, true, Some(recorder.clone()));
+    let state = build_app_state(
+        pool,
+        config,
+        true,
+        Some(recorder.clone()),
+        Arc::new(MockSandboxConnector),
+    );
     (state, recorder)
 }
 
@@ -295,7 +301,25 @@ pub fn test_app_state_with_config(
     config: Config,
     install_adapters: bool,
 ) -> AppState {
-    build_app_state(pool, config, install_adapters, None)
+    build_app_state(
+        pool,
+        config,
+        install_adapters,
+        None,
+        Arc::new(MockSandboxConnector),
+    )
+}
+
+/// Build an `AppState` with the sandbox connection behavior the test exercises.
+#[allow(
+    dead_code,
+    reason = "shared fixtures are compiled into all integration targets"
+)]
+pub fn test_app_state_with_connector(
+    pool: PgPool,
+    connector: Arc<dyn SandboxConnector>,
+) -> AppState {
+    build_app_state(pool, test_config(), false, None, connector)
 }
 
 fn build_app_state(
@@ -303,6 +327,7 @@ fn build_app_state(
     config: Config,
     install_adapters: bool,
     events: Option<Arc<RecordingPublisher>>,
+    connector: Arc<dyn SandboxConnector>,
 ) -> AppState {
     let ports = compose(pool.clone(), &config, None);
     let adapter_installations = install_adapters.then(|| {
@@ -311,7 +336,6 @@ fn build_app_state(
         )
     });
     let config = Arc::new(config);
-    let connector: Arc<dyn SandboxConnector> = Arc::new(MockSandboxConnector);
     let sandbox_graph = ports.sandbox_graph();
     let lifecycle = sandbox_graph.lifecycle(LifecycleInputs {
         lock_pool: pool.clone(),

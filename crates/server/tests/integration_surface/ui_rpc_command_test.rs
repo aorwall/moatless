@@ -765,6 +765,7 @@ async fn a_bootstrapped_thread_is_created_under_the_clients_id_with_its_message(
         "the client's title is its own; the agent names the Task on its first turn"
     );
     assert_eq!(task.agent_profile, catalog::CLAUDE_CODE.profile);
+    assert_eq!(task.name.as_deref(), Some("Alternate approach"));
 
     assert_eq!(
         message_uuids(&pool, task_id).await,
@@ -894,6 +895,8 @@ async fn fork_row(pool: &PgPool, task_id: &str) -> Option<(String, Option<i32>)>
 
 fn fork(new_task_id: &str, source_task_id: &str) -> ForkThread {
     ForkThread {
+        side_chat: false,
+        title: None,
         new_task_id: new_task_id.into(),
         source_task_id: source_task_id.into(),
         at_turn: None,
@@ -915,8 +918,10 @@ async fn a_fork_is_created_under_the_clients_id_referencing_its_source(pool: PgP
     seed_task(&pool, "t-source", USER_1).await;
 
     let fork_id = "44444444-5555-4666-8777-888899990000";
+    let mut request = fork(fork_id, "t-source");
+    request.title = Some("Alternate approach".into());
     sink(&pool)
-        .fork(&viewer(USER_1), fork(fork_id, "t-source"))
+        .fork(&viewer(USER_1), request)
         .await
         .expect("the fork is created");
 
@@ -938,6 +943,71 @@ async fn a_fork_is_created_under_the_clients_id_referencing_its_source(pool: PgP
         fork_row(&pool, fork_id).await,
         None,
         "an unrun parent has no agent session to fork"
+    );
+}
+
+struct WaitingSandbox;
+
+#[async_trait::async_trait]
+impl sandbox_proto::client::SandboxConnector for WaitingSandbox {
+    async fn sandbox_client(
+        &self,
+        _task_id: &str,
+    ) -> Result<sandbox_proto::client::SandboxClient, moatless_ports::sandbox::SandboxError> {
+        Err(moatless_ports::sandbox::SandboxError::NotReady(
+            "test sandbox is starting".into(),
+        ))
+    }
+}
+
+#[sqlx::test]
+async fn a_side_chat_shares_the_running_parents_checkout_even_without_same_sandbox(pool: PgPool) {
+    let sink = AppStateCommands(common::test_app_state_with_connector(
+        pool.clone(),
+        Arc::new(WaitingSandbox),
+    ));
+    seed_project(&pool, USER_1).await;
+    seed_task(&pool, "t-source", USER_1).await;
+    sqlx::query(
+        "INSERT INTO task_turns (task_id, turn_number, status) VALUES ('t-source', 1, 'active')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let fork_id = "44444444-5555-4666-8777-888899990000";
+    let mut request = fork(fork_id, "t-source");
+    request.side_chat = true;
+    request.title = Some("Side chat".into());
+    sink.fork(&viewer(USER_1), request).await.unwrap();
+    let task = moatless_tasks::task::test_support::find_task(&pool, fork_id, &viewer(USER_1))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(task.name.as_deref(), Some("Side chat"));
+    assert_eq!(task.sandbox_id.as_deref(), Some("t-source"));
+    assert_eq!(
+        task.checkout_mode,
+        Some(moatless_types::task::CheckoutMode::Shared)
+    );
+    let context: serde_json::Value = sqlx::query_scalar("SELECT context FROM task_relations WHERE from_task_id = $1 AND relation_type = 'forked_from'")
+        .bind(fork_id).fetch_one(&pool).await.unwrap();
+    assert_eq!(context["side_chat"], serde_json::json!(true));
+    sink.send_turn(
+        &viewer(USER_1),
+        turn(
+            fork_id,
+            "98989898-7676-4545-8323-101010101010",
+            "a question",
+        ),
+    )
+    .await
+    .unwrap();
+    sink.delete(&viewer(USER_1), fork_id, true).await.unwrap();
+    assert!(
+        moatless_tasks::task::test_support::find_task(&pool, fork_id, &viewer(USER_1))
+            .await
+            .unwrap()
+            .is_some()
     );
 }
 

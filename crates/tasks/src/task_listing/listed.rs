@@ -98,6 +98,7 @@ pub struct ListedTask {
     pub parent_task_id: Option<String>,
     pub parent_relation: Option<String>,
     pub fork_at_turn: Option<i32>,
+    pub side_chat: bool,
 
     pub settled_override: Option<String>,
     pub settled_at: Option<DateTime<Utc>>,
