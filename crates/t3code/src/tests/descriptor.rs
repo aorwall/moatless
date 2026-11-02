@@ -117,6 +117,7 @@ async fn the_descriptor_declares_the_moatless_api_and_the_surfaces_it_cannot_bac
 
     assert_eq!(capabilities["moatlessApi"], json!(true));
     let surfaces = capabilities["unsupportedSurfaces"].as_array().unwrap();
+    assert!(!surfaces.contains(&json!("mergeBack")));
     assert!(surfaces.contains(&json!("turnDiffs")));
     assert!(surfaces.contains(&json!("worktreeSelection")));
 }

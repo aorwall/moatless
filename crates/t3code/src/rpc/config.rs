@@ -32,7 +32,6 @@ const UNSUPPORTED_SURFACES: &[&str] = &[
     "snapShots",
     "checkpointFileRestore",
     "deviceHub",
-    "mergeBack",
     "scheduledTasks",
     "defaultModelSetting",
     "serverBehaviorSettings",
