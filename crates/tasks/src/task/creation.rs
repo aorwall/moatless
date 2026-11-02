@@ -215,7 +215,7 @@ impl From<TaskCreationError> for TaskError {
             TaskCreationError::FirstMessageCleanup { message, cleanup } => {
                 TaskError::Internal(format!("{message}; cleanup failed: {cleanup}"))
             }
-            TaskCreationError::Preflight(msg) => TaskError::Forbidden(msg),
+            TaskCreationError::Preflight(msg) => TaskError::Preflight(msg),
             TaskCreationError::ShortId => {
                 TaskError::Internal("Failed to generate unique short ID".to_string())
             }

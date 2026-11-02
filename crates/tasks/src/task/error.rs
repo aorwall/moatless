@@ -37,6 +37,11 @@ pub enum TaskError {
     #[error("Forbidden: {0}")]
     Forbidden(String),
 
+    /// The Task's own preflight refused to start it. The message is written
+    /// for the person who created the Task, so every surface may show it.
+    #[error("Forbidden: {0}")]
+    Preflight(String),
+
     #[error("{0}")]
     Conflict(String),
 }
@@ -90,7 +95,7 @@ impl IntoResponse for TaskError {
                 tracing::error!(error = %msg, "Internal error in task handler");
                 internal_error()
             }
-            TaskError::Forbidden(_) => (StatusCode::FORBIDDEN, text),
+            TaskError::Forbidden(_) | TaskError::Preflight(_) => (StatusCode::FORBIDDEN, text),
             TaskError::Conflict(_) => (StatusCode::CONFLICT, text),
         };
 

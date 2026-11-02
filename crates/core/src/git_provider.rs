@@ -37,6 +37,17 @@ pub enum GitProviderError {
         repo: String,
     },
 
+    /// The provider throttled the token, so whether it has access is unknown.
+    #[error(
+        "{operation} rate limit exceeded{}",
+        retry_at.map_or(String::new(), |at| format!(" until {}", at.format("%H:%M UTC")))
+    )]
+    RateLimited {
+        operation: &'static str,
+        /// When the provider accepts requests again, if it said.
+        retry_at: Option<chrono::DateTime<chrono::Utc>>,
+    },
+
     /// The provider answered, but the body is not decodable JSON.
     #[error("Failed to parse {operation} response: {source}")]
     UndecodableResponse {

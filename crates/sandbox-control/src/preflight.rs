@@ -15,6 +15,7 @@ use async_trait::async_trait;
 use crate::lifecycle::dao::SandboxShape;
 use crate::lifecycle::ingress::SandboxIngress;
 use crate::secrets::{resolve_task_actor, resolve_task_git_token, resolve_workspace_credentials};
+use moatless_core::git_provider::GitProviderError;
 use moatless_ports::identity::CommitIdentity;
 use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer};
 use moatless_ports::sandbox::{CodexCredentials, PreflightPort, PreflightRejection};
@@ -79,6 +80,16 @@ pub enum PreflightError {
         reason: String,
     },
 
+    #[error("{provider} rate-limited the token for {owner}/{repo} on {host}: {reason}")]
+    GitHostRateLimited {
+        provider: RepositoryProvider,
+        host: String,
+        owner: String,
+        repo: String,
+        retry_at: Option<chrono::DateTime<chrono::Utc>>,
+        reason: String,
+    },
+
     #[error("No access to {provider} repository {owner}/{repo} on {host}: {reason}")]
     NoRepoAccess {
         provider: RepositoryProvider,
@@ -129,6 +140,23 @@ impl PreflightError {
                 "The {provider} token has no access to repository {owner}/{repo} on {host}. \
                 Reconnect {provider} or grant the token access to this repo."
             ),
+            Self::GitHostRateLimited {
+                provider,
+                host,
+                owner,
+                repo,
+                retry_at,
+                ..
+            } => {
+                let retry = retry_at.map_or_else(
+                    || "Try again later".to_string(),
+                    |at| format!("Try again after {}", at.format("%H:%M UTC")),
+                );
+                format!(
+                    "The {provider} token is rate-limited on {host}, so its access to \
+                    {owner}/{repo} was not checked. {retry}."
+                )
+            }
         }
     }
 }
@@ -140,7 +168,23 @@ pub trait GitHostValidator: Send + Sync {
     /// Whether `token` can read `repo` on the host its remote named — GitHub's
     /// `GET /repos/{owner}/{repo}`, Forgejo's `GET /api/v1/repos/{owner}/{repo}`.
     /// `Ok(())` on 2xx.
-    async fn check_repo_access(&self, token: &str, repo: &GitHostRepo) -> Result<(), String>;
+    async fn check_repo_access(
+        &self,
+        token: &str,
+        repo: &GitHostRepo,
+    ) -> Result<(), RepoAccessFailure>;
+}
+
+/// Why [`GitHostValidator::check_repo_access`] did not confirm access.
+#[derive(Debug, Clone)]
+pub enum RepoAccessFailure {
+    /// The host throttled the token, so its access is undecided.
+    RateLimited {
+        retry_at: Option<chrono::DateTime<chrono::Utc>>,
+        reason: String,
+    },
+    /// Every other failure, as the client described it.
+    Refused(String),
 }
 
 /// Production validator — delegates to the per-provider clients in
@@ -156,7 +200,11 @@ pub struct RealGitHostValidator {
 
 #[async_trait]
 impl GitHostValidator for RealGitHostValidator {
-    async fn check_repo_access(&self, token: &str, repo: &GitHostRepo) -> Result<(), String> {
+    async fn check_repo_access(
+        &self,
+        token: &str,
+        repo: &GitHostRepo,
+    ) -> Result<(), RepoAccessFailure> {
         match repo.provider() {
             GitHostProvider::Github => {
                 moatless_core::github_client::check_github_repo_access(
@@ -182,7 +230,13 @@ impl GitHostValidator for RealGitHostValidator {
             // exempts: resolving its credential is the whole check.
             GitHostProvider::Gitlab => Ok(()),
         }
-        .map_err(|e| e.to_string())
+        .map_err(|e| match e {
+            GitProviderError::RateLimited { retry_at, .. } => RepoAccessFailure::RateLimited {
+                retry_at,
+                reason: e.to_string(),
+            },
+            other => RepoAccessFailure::Refused(other.to_string()),
+        })
     }
 }
 
@@ -394,14 +448,27 @@ pub async fn preflight_validate_git_credential(
         return Ok(());
     };
 
-    if let Err(e) = validator.check_repo_access(&token, parsed).await {
-        return Err(PreflightError::NoRepoAccess {
-            provider: parsed.provider(),
-            host: parsed.host().to_string(),
-            owner: parsed.owner().to_string(),
-            repo: parsed.name().to_string(),
-            reason: truncate(&e, 200),
-        });
+    match validator.check_repo_access(&token, parsed).await {
+        Ok(()) => {}
+        Err(RepoAccessFailure::RateLimited { retry_at, reason }) => {
+            return Err(PreflightError::GitHostRateLimited {
+                provider: parsed.provider(),
+                host: parsed.host().to_string(),
+                owner: parsed.owner().to_string(),
+                repo: parsed.name().to_string(),
+                retry_at,
+                reason: truncate(&reason, 200),
+            });
+        }
+        Err(RepoAccessFailure::Refused(reason)) => {
+            return Err(PreflightError::NoRepoAccess {
+                provider: parsed.provider(),
+                host: parsed.host().to_string(),
+                owner: parsed.owner().to_string(),
+                repo: parsed.name().to_string(),
+                reason: truncate(&reason, 200),
+            });
+        }
     }
 
     Ok(())
@@ -447,7 +514,7 @@ mod tests {
     /// Mock validator with configurable responses + call counters so tests can
     /// assert which branch was taken, and which repository was probed.
     struct MockValidator {
-        repo_result: std::sync::Mutex<Result<(), String>>,
+        repo_result: std::sync::Mutex<Result<(), RepoAccessFailure>>,
         repo_calls: AtomicUsize,
         probed: std::sync::Mutex<Option<GitHostRepo>>,
     }
@@ -464,7 +531,11 @@ mod tests {
 
     impl MockValidator {
         fn set_repo_err(&self, err: &str) {
-            *self.repo_result.lock().unwrap() = Err(err.to_string());
+            self.set_repo_failure(RepoAccessFailure::Refused(err.to_string()));
+        }
+
+        fn set_repo_failure(&self, failure: RepoAccessFailure) {
+            *self.repo_result.lock().unwrap() = Err(failure);
         }
 
         fn calls(&self) -> usize {
@@ -474,7 +545,11 @@ mod tests {
 
     #[async_trait]
     impl GitHostValidator for MockValidator {
-        async fn check_repo_access(&self, _token: &str, repo: &GitHostRepo) -> Result<(), String> {
+        async fn check_repo_access(
+            &self,
+            _token: &str,
+            repo: &GitHostRepo,
+        ) -> Result<(), RepoAccessFailure> {
             self.repo_calls.fetch_add(1, Ordering::SeqCst);
             *self.probed.lock().unwrap() = Some(repo.clone());
             self.repo_result.lock().unwrap().clone()
@@ -948,6 +1023,38 @@ mod tests {
             ));
             assert_eq!(validator.calls(), 1);
         }
+    }
+
+    /// A throttled probe says nothing about access, so it must not tell the
+    /// person to reconnect or grant access.
+    #[tokio::test]
+    async fn a_rate_limited_probe_is_not_reported_as_missing_access() {
+        let (tokens, _) = issuer_for(Some(RepositoryProvider::Github));
+        let retry_at = chrono::DateTime::from_timestamp(1_800_000_000, 0);
+        let validator = MockValidator::default();
+        validator.set_repo_failure(RepoAccessFailure::RateLimited {
+            retry_at,
+            reason: "GitHub API rate limit exceeded".to_string(),
+        });
+
+        let err = preflight_validate_git_credential(
+            &creds(tokens),
+            &alice(),
+            None,
+            &repo(RepositoryKind::Remote, Some(RepositoryProvider::Github)),
+            &validator,
+        )
+        .await
+        .expect_err("the host throttled the probe");
+
+        assert!(matches!(
+            &err,
+            PreflightError::GitHostRateLimited { retry_at: at, .. } if *at == retry_at
+        ));
+        let message = err.user_message();
+        assert!(message.contains("rate-limited"), "{message}");
+        assert!(message.contains("after 08:00 UTC"), "{message}");
+        assert!(!message.contains("no access"), "{message}");
     }
 
     #[tokio::test]

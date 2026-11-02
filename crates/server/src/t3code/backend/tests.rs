@@ -81,6 +81,21 @@ fn a_conflict_keeps_the_message_that_says_how_to_clear_it() {
     ));
 }
 
+/// A preflight refusal names its own remedy, such as a GitHub rate limit to
+/// wait out. As `NotWritable` it would read as a permission problem on the
+/// Thread.
+#[test]
+fn a_preflight_refusal_keeps_its_remedy() {
+    let message = "The github token is rate-limited on github.com, so its access to \
+                   soaplabs/soap-platform-ci was not checked. Try again after 10:23 UTC.";
+    let refusal = create_refusal("task-a", TaskError::Preflight(message.into()));
+
+    assert!(matches!(
+        refusal,
+        CommandRefusal::Rejected { message: sent } if sent == message
+    ));
+}
+
 /// The wildcard is what keeps a database or store failure from describing this
 /// deployment's insides to a client, so pin it: a new `TaskError` variant is
 /// only safe to name above once somebody has read its message.
