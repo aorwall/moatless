@@ -308,7 +308,21 @@ pub async fn normalize(
         validate_task_name(name)?;
     }
 
-    let run_as_user_id = resolve_run_as(users, scope_ctx, req.run_as_user_id.as_deref()).await?;
+    let run_as_user_id =
+        match resolve_run_as(users, scope_ctx, req.run_as_user_id.as_deref()).await? {
+            Some(run_as) => Some(run_as),
+            None => {
+                inherited_run_as(
+                    tasks,
+                    users,
+                    workspaces,
+                    scope_ctx,
+                    req.parent_task_id.as_deref(),
+                    &workspace_id,
+                )
+                .await?
+            }
+        };
 
     let is_template = repo
         .as_ref()
@@ -418,6 +432,46 @@ async fn resolve_workspace_id(
             "workspaceId is required: parent task {parent_task_id} runs in no workspace"
         ))
     })
+}
+
+/// The run-as a subtask naming none inherits: its parent's bot, when the caller
+/// may write the parent and the subtask's Workspace names no run-as. A writer
+/// already drives the parent as that bot; a person's run-as is deliberately
+/// not inherited, rather than lending their uncapped account.
+async fn inherited_run_as(
+    tasks: &TaskCommands,
+    users: &dyn UserResolver,
+    workspaces: &dyn WorkspaceResolver,
+    scope_ctx: &ScopeContext,
+    parent_task_id: Option<&str>,
+    workspace_id: &str,
+) -> Result<Option<String>, TaskError> {
+    let Some(parent_task_id) = parent_task_id else {
+        return Ok(None);
+    };
+    let Some(parent) = tasks.find_by_id(parent_task_id, scope_ctx).await? else {
+        return Ok(None);
+    };
+    if !scope_ctx.can_write(&parent.scoped_resource(), Some(parent.visibility)) {
+        return Ok(None);
+    }
+    let Some(run_as) = parent.run_as_user_id.filter(|id| !id.is_empty()) else {
+        return Ok(None);
+    };
+    let is_bot = users
+        .run_as_target(&run_as)
+        .await
+        .map_err(|e| TaskError::Internal(e.to_string()))?
+        .is_some_and(|user| user.is_bot);
+    if !is_bot {
+        return Ok(None);
+    }
+    let workspace_run_as = workspaces
+        .resolve(workspace_id)
+        .await?
+        .and_then(|workspace| workspace.run_as_user_id)
+        .filter(|id| !id.is_empty());
+    Ok(workspace_run_as.is_none().then_some(run_as))
 }
 
 /// Resolve and authorize an explicit run-as target. `None` in, `None` out — the
@@ -592,6 +646,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
+    use moatless_workspace_ports::MockWorkspaceResolver;
 
     #[test]
     fn an_unknown_agent_profile_is_a_bad_request_listing_the_options() {
@@ -749,48 +804,129 @@ mod tests {
         }
     }
 
+    /// A private parent owned by `owner`, running as `run_as`.
+    fn parent_task(workspace_id: Option<&'static str>, owner: &str, run_as: Option<&str>) -> Task {
+        let now = chrono::Utc::now();
+        Task {
+            task_id: "task-parent".to_string(),
+            short_id: None,
+            created_at: now,
+            last_message_at: now,
+            agent_profile: AgentProfile::ClaudeCode,
+            repository_id: Some("repo-1".to_string()),
+            workspace_id: workspace_id.map(str::to_string),
+            sandbox_id: None,
+            checkout_mode: None,
+            status: TaskStatus::Open,
+            total_cost_usd: 0.0,
+            site_url: None,
+            template_id: None,
+            vibe: None,
+            name: None,
+            description: None,
+            site_id: None,
+            site_provider: None,
+            branch: None,
+            model: None,
+            created_by: Some(owner.to_string()),
+            visibility: Visibility::Private,
+            scope: moatless_types::access_control::Scope::User,
+            owner_user_id: Some(owner.to_string()),
+            run_as_user_id: run_as.map(str::to_string),
+            updated_at: None,
+            append_system_prompt: None,
+            headless: false,
+            ttl_minutes: 15,
+            close_after_settled_days: 7,
+            settle_after_hours: None,
+            loop_id: None,
+            memory_preload: Vec::new(),
+            skills: Vec::new(),
+        }
+    }
+
     fn parent_running_in(workspace_id: Option<&'static str>) -> TaskCommands {
         let mut tasks = crate::task::dao::MockTaskDao::new();
-        tasks.expect_find_by_id().returning(move |task_id, _| {
-            let now = chrono::Utc::now();
-            Ok(Some(Task {
-                task_id: task_id.to_string(),
-                short_id: None,
-                created_at: now,
-                last_message_at: now,
-                agent_profile: AgentProfile::ClaudeCode,
-                repository_id: Some("repo-1".to_string()),
-                workspace_id: workspace_id.map(str::to_string),
-                sandbox_id: None,
-                checkout_mode: None,
-                status: TaskStatus::Open,
-                total_cost_usd: 0.0,
-                site_url: None,
-                template_id: None,
-                vibe: None,
-                name: None,
-                description: None,
-                site_id: None,
-                site_provider: None,
-                branch: None,
-                model: None,
-                created_by: Some(ADMIN.to_string()),
-                visibility: Visibility::Private,
-                scope: moatless_types::access_control::Scope::User,
-                owner_user_id: Some(ADMIN.to_string()),
-                run_as_user_id: None,
-                updated_at: None,
-                append_system_prompt: None,
-                headless: false,
-                ttl_minutes: 15,
-                close_after_settled_days: 7,
-                settle_after_hours: None,
-                loop_id: None,
-                memory_preload: Vec::new(),
-                skills: Vec::new(),
+        tasks
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(parent_task(workspace_id, ADMIN, None))));
+        TaskCommands::new(Arc::new(tasks))
+    }
+
+    fn parent(task: Task) -> TaskCommands {
+        let mut tasks = crate::task::dao::MockTaskDao::new();
+        tasks
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(task.clone())));
+        TaskCommands::new(Arc::new(tasks))
+    }
+
+    fn workspace_running_as(run_as: Option<&'static str>) -> MockWorkspaceResolver {
+        let mut workspaces = MockWorkspaceResolver::new();
+        workspaces.expect_resolve().returning(move |id| {
+            Ok(Some(moatless_workspace_ports::ResolvedWorkspace {
+                id: id.to_string(),
+                name: id.to_string(),
+                docker_image: None,
+                docker_access: None,
+                sandbox_service_account: None,
+                system_prompt: None,
+                setup_commands: None,
+                env_vars: None,
+                resources: None,
+                language_servers: None,
+                network_profile: None,
+                node_selector: None,
+                run_as_user_id: run_as.map(str::to_string),
+                deleted: false,
             }))
         });
-        TaskCommands::new(Arc::new(tasks))
+        workspaces
+    }
+
+    async fn inherited_by(
+        caller: &str,
+        parent_task: Task,
+        parent_run_as_is_bot: bool,
+        workspace_run_as: Option<&'static str>,
+    ) -> Option<String> {
+        inherited_run_as(
+            &parent(parent_task),
+            &resolving_to(BOT, "soap-agentops[bot]", parent_run_as_is_bot),
+            &workspace_running_as(workspace_run_as),
+            &ctx(caller, false),
+            Some("task-parent"),
+            "ws-child",
+        )
+        .await
+        .expect("inheritance reads succeed")
+    }
+
+    #[tokio::test]
+    async fn a_subtask_inherits_its_parents_bot_run_as() {
+        let parent = parent_task(Some("ws-parent"), OTHER, Some(BOT));
+        assert_eq!(
+            inherited_by(OTHER, parent, true, None).await.as_deref(),
+            Some(BOT)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_persons_run_as_is_never_inherited() {
+        let parent = parent_task(Some("ws-parent"), OTHER, Some(BOT));
+        assert_eq!(inherited_by(OTHER, parent, false, None).await, None);
+    }
+
+    #[tokio::test]
+    async fn the_subtasks_workspace_run_as_outranks_the_parents() {
+        let parent = parent_task(Some("ws-parent"), OTHER, Some(BOT));
+        assert_eq!(inherited_by(OTHER, parent, true, Some(ADMIN)).await, None);
+    }
+
+    #[tokio::test]
+    async fn a_caller_who_cannot_write_the_parent_inherits_nothing() {
+        let parent = parent_task(Some("ws-parent"), ADMIN, Some(BOT));
+        assert_eq!(inherited_by(OTHER, parent, true, None).await, None);
     }
 
     #[tokio::test]
