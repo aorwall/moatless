@@ -100,14 +100,23 @@ pub(crate) async fn create_issue(
         Some(&team_id),
     )
     .await?;
+    // Reporter (records who requested the issue) hard-fails on an explicit miss.
+    let reporter = match req.reporter.as_deref() {
+        Some(value) => Some(resolve_user_required(&api, identity.as_ref(), value).await?),
+        None => None,
+    };
     // Explicit assignee hard-fails on miss; when omitted, default to the
-    // caller (best-effort — never fails issue creation).
+    // reporter, else a non-app caller (best-effort — never fails issue creation).
     let assignee_id = match req.assignee.as_deref() {
         Some(value) => Some(
             resolve_user_required(&api, identity.as_ref(), value)
                 .await?
                 .id,
         ),
+        // An app reporter is skipped too: Linear would file it as a delegate.
+        None if reporter.as_ref().is_some_and(|r| !r.app) => {
+            reporter.as_ref().map(|r| r.id.clone())
+        }
         None => {
             default_assignee_from_caller(
                 users.as_ref(),
@@ -120,11 +129,6 @@ pub(crate) async fn create_issue(
         }
     };
     let delegate_id = resolve_delegate(&api, identity.as_ref(), req.delegate.as_deref()).await?;
-    // Reporter (records who requested the issue) hard-fails on an explicit miss.
-    let reporter = match req.reporter.as_deref() {
-        Some(value) => Some(resolve_user_required(&api, identity.as_ref(), value).await?),
-        None => None,
-    };
     let parent_id = resolve_optional_issue(&api, req.parent.as_deref()).await?;
     let cycle_id = resolve_cycle_id(&api, Some(&team_id), req.cycle.as_deref()).await?;
     let mut label_ids: Vec<String> = Vec::with_capacity(req.labels.len());

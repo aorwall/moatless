@@ -87,8 +87,9 @@ pub enum IssueAction {
         /// Label name or UUID (repeatable)
         #[arg(long = "label")]
         labels: Vec<String>,
-        /// Moatless login, email, display name, `me`, or UUID. Defaults to you
-        /// when omitted.
+        /// Moatless login, email, display name, `me`, or UUID. Defaults to
+        /// `--reporter`, else you when you are not an app user; an app is never
+        /// the default.
         #[arg(long)]
         assignee: Option<String>,
         /// Moatless login, email, display name, `me`, or UUID. Use this for an

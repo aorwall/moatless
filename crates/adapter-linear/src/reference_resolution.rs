@@ -141,9 +141,11 @@ pub(super) async fn default_team_id(api: &LinearAgentApi) -> Result<String, Adap
 pub(super) struct ResolvedUser {
     pub(super) id: String,
     pub(super) url: String,
+    /// Linear marks an app user (an agent such as Moatless) with `app: true`.
+    pub(super) app: bool,
 }
 
-/// Build a [`ResolvedUser`] from a GraphQL user node selecting `id url`.
+/// Build a [`ResolvedUser`] from a GraphQL user node selecting `id url app`.
 pub(super) fn user_from_node(node: &Value) -> Option<ResolvedUser> {
     let id = node.get("id").and_then(Value::as_str)?.to_string();
     let url = node
@@ -151,7 +153,8 @@ pub(super) fn user_from_node(node: &Value) -> Option<ResolvedUser> {
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
-    Some(ResolvedUser { id, url })
+    let app = node.get("app").and_then(Value::as_bool).unwrap_or(false);
+    Some(ResolvedUser { id, url, app })
 }
 
 /// The Linear user id stored against a Moatless `login`, or `None` when there's
@@ -219,7 +222,7 @@ async fn user_by_email_or_name(
 ) -> Result<Option<ResolvedUser>, AdapterError> {
     let by_email = api
         .graphql(json!({
-            "query": "query($email: String!) { users(filter: { email: { eq: $email } }, first: 1) { nodes { id url } } }",
+            "query": "query($email: String!) { users(filter: { email: { eq: $email } }, first: 1) { nodes { id url app } } }",
             "variables": { "email": value }
         }))
         .await?;
@@ -239,7 +242,7 @@ async fn user_by_email_or_name(
 async fn user_by_id(api: &LinearAgentApi, id: &str) -> Result<Option<ResolvedUser>, AdapterError> {
     let by_id = api
         .graphql(json!({
-            "query": "query($id: String!) { user(id: $id) { id url } }",
+            "query": "query($id: String!) { user(id: $id) { id url app } }",
             "variables": { "id": id }
         }))
         .await?;
@@ -297,12 +300,9 @@ pub(super) async fn resolve_delegate(
     }
 }
 
-/// Best-effort assignee default: the caller's Linear user, from their stored
-/// `linear` provider id, falling back to matching their moat email against
-/// Linear's members.
-///
-/// The provider id is the reliable half; an email only matches when both
-/// directories agree. Never fails issue creation — returns `None` on a miss.
+/// Best-effort assignee default: the caller's Linear user, by stored `linear`
+/// provider id, else by moat email. `None` on a miss, and for an app user,
+/// which Linear would file as a `delegate`. Never fails issue creation.
 pub(super) async fn default_assignee_from_caller(
     users: &dyn UserDisplay,
     identity: &dyn ProviderIdentityLink,
@@ -312,7 +312,7 @@ pub(super) async fn default_assignee_from_caller(
 ) -> Option<String> {
     if let Some(id) = linear_id_for_login(identity, login).await {
         match user_by_id(api, &id).await {
-            Ok(Some(u)) => return Some(u.id),
+            Ok(Some(u)) => return (!u.app).then_some(u.id),
             Ok(None) => warn!(
                 login,
                 linear_id = id,
@@ -341,7 +341,7 @@ pub(super) async fn default_assignee_from_caller(
         }
     };
     match user_by_email_or_name(api, &email).await {
-        Ok(Some(u)) => Some(u.id),
+        Ok(Some(u)) => (!u.app).then_some(u.id),
         Ok(None) => {
             warn!(
                 user_id,
@@ -592,6 +592,33 @@ mod tests {
 
         assert_eq!(assignee.as_deref(), Some(DIRECTORY_ID));
         assert_eq!(stub.graphql_operations(), vec!["users".to_string()]);
+    }
+
+    /// A bot caller maps to Linear's app user; defaulting to it would delegate
+    /// the new issue to the agent.
+    #[tokio::test]
+    async fn the_assignee_default_skips_an_app_user() {
+        let stub = ProviderStub::start(
+            |_path| json!({ "data": { "user": { "id": MAPPED_ID, "url": "u", "app": true } } }),
+        )
+        .await;
+        let api = api_at(stub.base_url());
+        let mut identity = MockProviderIdentityLink::new();
+        identity
+            .expect_provider_id_for_login()
+            .returning(|_, _| Ok(Some(MAPPED_ID.into())));
+        let users = MockUserDisplay::new();
+
+        let assignee = default_assignee_from_caller(
+            &users,
+            &identity,
+            &api,
+            "00000000-0000-4000-8000-000000000001",
+            "soap-agentops[bot]",
+        )
+        .await;
+
+        assert_eq!(assignee, None);
     }
 
     #[tokio::test]
