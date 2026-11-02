@@ -134,3 +134,69 @@ async fn a_search_reaches_every_readable_open_task_and_ranks_by_source(pool: PgP
     assert_eq!(by_name[0].matched_text, "Test task by-wake");
     assert!(by_name[0].matched_at.is_none());
 }
+
+/// Any `limit` answers a prefix of the full ranking, and a Task answers with
+/// its best source's newest match: a person's Message over the agent's over
+/// the name, however recently the lower-ranked Task was updated.
+#[sqlx::test]
+async fn a_limited_search_is_a_prefix_of_the_full_ranking(pool: PgPool) {
+    seed_repo(&pool).await;
+    seed_owned(&pool, "person-twice", USER_1).await;
+    seed_inbox_message(&pool, "person-twice", 1, "user", "alpha older").await;
+    seed_agent_message(&pool, "person-twice", 2, "alpha from the agent").await;
+    seed_inbox_message(&pool, "person-twice", 3, "user", "alpha newer").await;
+    seed_owned(&pool, "person-once", USER_1).await;
+    seed_inbox_message(&pool, "person-once", 1, "user", "alpha once").await;
+    seed_owned(&pool, "alpha-agent", USER_1).await;
+    seed_agent_message(&pool, "alpha-agent", 1, "alpha first").await;
+    seed_agent_message(&pool, "alpha-agent", 2, "alpha second").await;
+    seed_owned(&pool, "alpha-name-only", USER_1).await;
+    seed_inbox_message(&pool, "alpha-name-only", 1, "sandbox", "alpha woke").await;
+
+    for (task_id, minutes_ago) in [
+        ("alpha-name-only", 1),
+        ("alpha-agent", 2),
+        ("person-once", 3),
+        ("person-twice", 4),
+    ] {
+        sqlx::query(
+            "UPDATE tasks SET updated_at = now() - make_interval(mins => $2) WHERE task_id = $1",
+        )
+        .bind(task_id)
+        .bind(minutes_ago)
+        .execute(&pool)
+        .await
+        .expect("pin updated_at");
+    }
+
+    let search = TaskSearch::new(pool.clone());
+    let viewer = ScopeContext::user(USER_1.to_string());
+    let answer = |limit| {
+        let search = search.clone();
+        let viewer = viewer.clone();
+        async move {
+            search
+                .search(&viewer, "alpha", limit)
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|m| (m.task_id, m.from_user, m.matched_text))
+                .collect::<Vec<_>>()
+        }
+    };
+
+    let full = answer(10).await;
+    let expected: Vec<(String, bool, String)> = [
+        ("person-once", true, "alpha once"),
+        ("person-twice", true, "alpha newer"),
+        ("alpha-agent", false, "alpha second"),
+        ("alpha-name-only", true, "Test task alpha-name-only"),
+    ]
+    .into_iter()
+    .map(|(task_id, from_user, text)| (task_id.to_string(), from_user, text.to_string()))
+    .collect();
+    assert_eq!(full, expected);
+    for limit in 1..=3 {
+        assert_eq!(answer(limit).await, full[..limit as usize], "limit {limit}");
+    }
+}

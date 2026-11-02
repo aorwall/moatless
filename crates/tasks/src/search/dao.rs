@@ -8,10 +8,10 @@ use moatless_types::task::TaskStatus;
 
 use super::TaskMatch;
 
-/// How long one search may run. The scan covers every readable open Task's
-/// Messages through an unindexed `ILIKE '%…%'`, so without a bound a slow
-/// search holds a pool connection the other reads need. A cancelled search
-/// fails with Postgres's `57014`.
+/// How long one search may run. A term matching few Messages still scans
+/// every readable open Task's Messages through an unindexed `ILIKE '%…%'`, so
+/// without a bound a slow search holds a pool connection the other reads
+/// need. A cancelled search fails with Postgres's `57014`.
 const SEARCH_STATEMENT_TIMEOUT: &str = "5s";
 pub(crate) const SEARCH_TIMEOUTS: &str = "moatless_task_search_timeouts_total";
 
@@ -44,65 +44,76 @@ pub(crate) async fn search(
     let access = moatless_core::db::access_control::access_filter(ScopedEntity::Task, "t.", 1);
     let pattern = access.next_param();
     let row_limit = pattern + 1;
+    let newest_hit = |author: &str| {
+        format!(
+            r#"SELECT COALESCE(m.text, i.text) AS matched_text, m.created_at AS matched_at
+               FROM conversation_messages m
+               LEFT JOIN task_inbox i ON i.id = m.inbox_id
+               WHERE m.task_id = t.task_id
+                 AND m.author {author}
+                 -- Subagent rows are never rendered inline and would
+                 -- otherwise be the bulk of what a long conversation matches.
+                 AND m.parent_tool_use_id IS NULL
+                 -- A sandbox wake is in no conversation to jump to.
+                 AND i.origin IS DISTINCT FROM 'sandbox'
+                 AND COALESCE(m.text, i.text) ILIKE ${pattern} ESCAPE '\'
+               ORDER BY m.created_at DESC
+               LIMIT 1"#
+        )
+    };
+    let (person_hit, agent_hit) = (newest_hit("= 'user'"), newest_hit("<> 'user'"));
+    // Each source is walked Task by Task in the final order and stops at
+    // `limit` Tasks, rather than matching every Message and ranking them all:
+    // a common term then reads a few Tasks, where ranking every match sorted
+    // the whole corpus past the statement timeout. A source cut short only
+    // drops Tasks the sources above it already push past `limit`.
     let sql = format!(
         r#"WITH listed AS MATERIALIZED (
                SELECT t.task_id, t.workspace_id, t.name, t.updated_at
                FROM tasks t
                WHERE t.status = '{open}'
-                 AND {}
+                 AND {access}
+           ),
+           person AS MATERIALIZED (
+               SELECT t.task_id, t.workspace_id, t.updated_at, hit.matched_text, hit.matched_at
+               FROM listed t
+               CROSS JOIN LATERAL ({person_hit}) hit
+               ORDER BY t.updated_at DESC NULLS LAST, t.task_id ASC
+               LIMIT ${row_limit}
+           ),
+           agent AS MATERIALIZED (
+               SELECT t.task_id, t.workspace_id, t.updated_at, hit.matched_text, hit.matched_at
+               FROM listed t
+               CROSS JOIN LATERAL ({agent_hit}) hit
+               WHERE (SELECT count(*) FROM person) < ${row_limit}
+                 AND NOT EXISTS (SELECT 1 FROM person p WHERE p.task_id = t.task_id)
+               ORDER BY t.updated_at DESC NULLS LAST, t.task_id ASC
+               LIMIT ${row_limit}
            ),
            matched AS (
-               -- A Message match. `author` distinguishes the person from
-               -- the agent; `parent_tool_use_id IS NULL` drops subagent rows,
-               -- which are never rendered inline and would otherwise be the
-               -- bulk of what a long conversation matches.
-               SELECT
-                   t.task_id,
-                   t.workspace_id,
-                   m.author = 'user' AS from_user,
-                   COALESCE(m.text, i.text) AS matched_text,
-                   m.created_at          AS matched_at,
-                   t.updated_at,
-                   CASE WHEN m.author = 'user' THEN 0 ELSE 1 END AS rank
-               FROM listed t
-               JOIN conversation_messages m ON m.task_id = t.task_id
-               LEFT JOIN task_inbox i ON i.id = m.inbox_id
-               WHERE m.parent_tool_use_id IS NULL
-                 -- A sandbox wake is in no conversation to jump to.
-                 AND i.origin IS DISTINCT FROM 'sandbox'
-                 AND COALESCE(m.text, i.text) ILIKE ${pattern} ESCAPE '\'
+               SELECT task_id, workspace_id, true AS from_user, matched_text, matched_at,
+                      updated_at, 0 AS rank
+               FROM person
+               UNION ALL
+               SELECT task_id, workspace_id, false, matched_text, matched_at, updated_at, 1
+               FROM agent
                UNION ALL
                -- A name match, which the reference server has no equivalent
                -- of. `tasks.name` is Moatless's own handle for a Task and is
                -- often the only text a person remembers; it ranks below both
                -- Message sources because a Message match is the more
                -- specific answer about the same Task.
-               SELECT
-                   t.task_id,
-                   t.workspace_id,
-                   true   AS from_user,
-                   t.name AS matched_text,
-                   NULL::timestamptz AS matched_at,
-                   t.updated_at,
-                   2 AS rank
+               SELECT t.task_id, t.workspace_id, true, t.name, NULL::timestamptz, t.updated_at, 2
                FROM listed t
                WHERE t.name ILIKE ${pattern} ESCAPE '\'
-           ),
-           ranked AS (
-               SELECT
-                   matched.*,
-                   ROW_NUMBER() OVER (
-                       PARTITION BY task_id
-                       ORDER BY rank ASC, matched_at DESC NULLS LAST
-                   ) AS per_task
-               FROM matched
+                 AND NOT EXISTS (SELECT 1 FROM person p WHERE p.task_id = t.task_id)
+                 AND NOT EXISTS (SELECT 1 FROM agent a WHERE a.task_id = t.task_id)
            )
            SELECT task_id, workspace_id, from_user, matched_text, matched_at
-           FROM ranked
-           WHERE per_task = 1
+           FROM matched
            ORDER BY rank ASC, updated_at DESC NULLS LAST, task_id ASC
            LIMIT ${row_limit}"#,
-        access.sql(),
+        access = access.sql(),
     );
 
     let mut tx = pool.begin().await?;
