@@ -4,6 +4,8 @@
 
 use std::time::Duration;
 
+use chrono::{DateTime, Utc};
+
 /// The admission, retry, capacity, and retention policy for Adapter delivery.
 ///
 /// Tests override the timing fields to exercise retry and recovery without
@@ -42,6 +44,15 @@ pub struct AdapterDeliveryPolicy {
     pub succeeded_retention: Duration,
     /// How long terminal failures are kept for operators.
     pub failed_retention: Duration,
+    /// Delay after a quota refusal that named no reset time. GitHub asks for
+    /// at least a minute after a secondary limit without `retry-after`.
+    pub throttle_fallback: Duration,
+    /// Ceiling on a provider-named reset, so a skewed or hostile header cannot
+    /// park a record for days. GitHub's primary window is one hour.
+    pub max_throttle_delay: Duration,
+    /// Age past which a quota refusal spends an attempt like any retryable
+    /// failure, so a quota that never returns still ends the record.
+    pub throttle_deadline: Duration,
 }
 
 impl Default for AdapterDeliveryPolicy {
@@ -58,6 +69,9 @@ impl Default for AdapterDeliveryPolicy {
             backlog_capacity: 10_000,
             succeeded_retention: Duration::from_hours(24 * 7),
             failed_retention: Duration::from_hours(24 * 30),
+            throttle_fallback: Duration::from_mins(1),
+            max_throttle_delay: Duration::from_mins(65),
+            throttle_deadline: Duration::from_hours(24),
         }
     }
 }
@@ -73,6 +87,25 @@ impl AdapterDeliveryPolicy {
         self.base_backoff
             .saturating_mul(1u32 << doublings)
             .min(self.max_backoff)
+    }
+
+    /// When a throttled record is next due: the provider's `not_before`, or
+    /// `throttle_fallback` without one, held between `base_backoff` and
+    /// `max_throttle_delay` from `now`.
+    pub(crate) fn throttled_retry_at(
+        &self,
+        now: DateTime<Utc>,
+        not_before: Option<DateTime<Utc>>,
+    ) -> DateTime<Utc> {
+        let after = |delay: Duration| {
+            now + chrono::Duration::from_std(delay).unwrap_or(chrono::Duration::zero())
+        };
+        // `max` then `min`, not `clamp`: `clamp` panics when an overridden
+        // `base_backoff` exceeds `max_throttle_delay`.
+        not_before
+            .unwrap_or_else(|| after(self.throttle_fallback))
+            .max(after(self.base_backoff))
+            .min(after(self.max_throttle_delay))
     }
 }
 
@@ -91,6 +124,27 @@ mod tests {
         assert_eq!(policy.backoff(i32::MAX), policy.max_backoff);
         // A zeroth attempt is not reachable, but must not panic either.
         assert_eq!(policy.backoff(0), policy.base_backoff);
+    }
+
+    #[test]
+    fn a_throttled_retry_honours_the_reset_inside_its_bounds() {
+        let policy = AdapterDeliveryPolicy::default();
+        let now = DateTime::from_timestamp(1_793_000_000, 0).unwrap();
+        let reset = now + chrono::Duration::minutes(40);
+        assert_eq!(policy.throttled_retry_at(now, Some(reset)), reset);
+        assert_eq!(
+            policy.throttled_retry_at(now, None),
+            now + chrono::Duration::minutes(1)
+        );
+        // A reset already past, or days away, is held to the bounds.
+        assert_eq!(
+            policy.throttled_retry_at(now, Some(now - chrono::Duration::minutes(5))),
+            now + chrono::Duration::seconds(5)
+        );
+        assert_eq!(
+            policy.throttled_retry_at(now, Some(now + chrono::Duration::days(3))),
+            now + chrono::Duration::minutes(65)
+        );
     }
 
     #[test]

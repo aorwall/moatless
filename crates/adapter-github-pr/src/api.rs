@@ -7,6 +7,8 @@ use serde::Deserialize;
 use tracing::warn;
 
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
+
+use crate::rejection::{graphql_rate_limited, rejection, retry_at};
 use moatless_types::http::HttpTimeouts;
 
 /// Maximum comment length for GitHub's API (64 KB).
@@ -251,12 +253,11 @@ impl GithubPrApi {
             .map_err(|e| SharedAdapterError::provider_unreachable("GitHub GraphQL", e))?;
         if !resp.status().is_success() {
             let status = resp.status();
+            let headers = resp.headers().clone();
             let text = resp.text().await.unwrap_or_default();
-            return Err(SharedAdapterError::AdapterApi(format!(
-                "GitHub GraphQL returned {status}: {text}"
-            ))
-            .into());
+            return Err(rejection("GitHub GraphQL", status, &headers, &text));
         }
+        let headers = resp.headers().clone();
         let mut body: serde_json::Value = resp
             .json()
             .await
@@ -267,6 +268,13 @@ impl GithubPrApi {
         let data = body["data"].take();
         if let Some(errors) = body.get("errors").filter(|errors| !errors.is_null()) {
             if data.is_null() {
+                if graphql_rate_limited(errors) {
+                    return Err(SharedAdapterError::RateLimited {
+                        detail: format!("GitHub GraphQL: {errors}"),
+                        retry_at: retry_at(&headers, chrono::Utc::now()),
+                    }
+                    .into());
+                }
                 return Err(
                     SharedAdapterError::AdapterApi(format!("GitHub GraphQL: {errors}")).into(),
                 );
@@ -300,12 +308,10 @@ impl GithubPrApi {
 
         if !resp.status().is_success() {
             let status = resp.status();
+            let headers = resp.headers().clone();
             let text = resp.text().await.unwrap_or_default();
             warn!(status = %status, body = %text, "GitHub post_comment error");
-            return Err(SharedAdapterError::AdapterApi(format!(
-                "GitHub post_comment returned {status}: {text}"
-            ))
-            .into());
+            return Err(rejection("GitHub post_comment", status, &headers, &text));
         }
 
         let data: serde_json::Value = resp
@@ -350,12 +356,10 @@ impl GithubPrApi {
 
         if !resp.status().is_success() {
             let status = resp.status();
+            let headers = resp.headers().clone();
             let text = resp.text().await.unwrap_or_default();
             warn!(status = %status, body = %text, "GitHub create_pr error");
-            return Err(SharedAdapterError::AdapterApi(format!(
-                "GitHub create_pr returned {status}: {text}"
-            ))
-            .into());
+            return Err(rejection("GitHub create_pr", status, &headers, &text));
         }
 
         resp.json().await.map_err(|e| {
@@ -379,11 +383,9 @@ impl GithubPrApi {
 
         if !resp.status().is_success() {
             let status = resp.status();
+            let headers = resp.headers().clone();
             let text = resp.text().await.unwrap_or_default();
-            return Err(SharedAdapterError::AdapterApi(format!(
-                "GitHub get_repo returned {status}: {text}"
-            ))
-            .into());
+            return Err(rejection("GitHub get_repo", status, &headers, &text));
         }
 
         let data: serde_json::Value = resp
@@ -421,11 +423,14 @@ impl GithubPrApi {
 
         if !resp.status().is_success() {
             let status = resp.status();
+            let headers = resp.headers().clone();
             let text = resp.text().await.unwrap_or_default();
-            return Err(SharedAdapterError::AdapterApi(format!(
-                "GitHub get_pulls_for_commit returned {status}: {text}"
-            ))
-            .into());
+            return Err(rejection(
+                "GitHub get_pulls_for_commit",
+                status,
+                &headers,
+                &text,
+            ));
         }
 
         resp.json::<Vec<CommitPr>>().await.map_err(|e| {
@@ -459,11 +464,14 @@ impl GithubPrApi {
 
         if !resp.status().is_success() {
             let status = resp.status();
+            let headers = resp.headers().clone();
             let text = resp.text().await.unwrap_or_default();
-            return Err(SharedAdapterError::AdapterApi(format!(
-                "GitHub get_check_run_annotations returned {status}: {text}"
-            ))
-            .into());
+            return Err(rejection(
+                "GitHub get_check_run_annotations",
+                status,
+                &headers,
+                &text,
+            ));
         }
 
         resp.json::<Vec<CheckAnnotation>>().await.map_err(|e| {
@@ -501,11 +509,14 @@ impl GithubPrApi {
 
         if !resp.status().is_success() {
             let status = resp.status();
+            let headers = resp.headers().clone();
             let text = resp.text().await.unwrap_or_default();
-            return Err(SharedAdapterError::AdapterApi(format!(
-                "GitHub find_open_pr_for_head returned {status}: {text}"
-            ))
-            .into());
+            return Err(rejection(
+                "GitHub find_open_pr_for_head",
+                status,
+                &headers,
+                &text,
+            ));
         }
 
         let prs: Vec<PrInfo> = resp.json().await.map_err(|e| {
@@ -556,12 +567,15 @@ impl GithubPrApi {
         }
         if !resp.status().is_success() {
             let status = resp.status();
+            let headers = resp.headers().clone();
             let text = resp.text().await.unwrap_or_default();
             warn!(status = %status, body = %text, "GitHub reply_to_review_comment error");
-            return Err(SharedAdapterError::AdapterApi(format!(
-                "GitHub reply_to_review_comment returned {status}: {text}"
-            ))
-            .into());
+            return Err(rejection(
+                "GitHub reply_to_review_comment",
+                status,
+                &headers,
+                &text,
+            ));
         }
 
         let data: serde_json::Value = resp.json().await.map_err(|e| {
@@ -593,11 +607,9 @@ impl GithubPrApi {
 
         if !resp.status().is_success() {
             let status = resp.status();
+            let headers = resp.headers().clone();
             let text = resp.text().await.unwrap_or_default();
-            return Err(SharedAdapterError::AdapterApi(format!(
-                "GitHub get_pr returned {status}: {text}"
-            ))
-            .into());
+            return Err(rejection("GitHub get_pr", status, &headers, &text));
         }
 
         resp.json()
@@ -625,11 +637,9 @@ impl GithubPrApi {
             .map_err(|e| SharedAdapterError::provider_unreachable("GitHub list_pr_files", e))?;
         if !resp.status().is_success() {
             let status = resp.status();
+            let headers = resp.headers().clone();
             let text = resp.text().await.unwrap_or_default();
-            return Err(SharedAdapterError::AdapterApi(format!(
-                "GitHub list_pr_files returned {status}: {text}"
-            ))
-            .into());
+            return Err(rejection("GitHub list_pr_files", status, &headers, &text));
         }
         resp.json().await.map_err(|e| {
             SharedAdapterError::provider_response_invalid("GitHub list_pr_files", e).into()
@@ -656,11 +666,9 @@ impl GithubPrApi {
             .map_err(|e| SharedAdapterError::provider_unreachable("GitHub get_commit", e))?;
         if !resp.status().is_success() {
             let status = resp.status();
+            let headers = resp.headers().clone();
             let text = resp.text().await.unwrap_or_default();
-            return Err(SharedAdapterError::AdapterApi(format!(
-                "GitHub get_commit returned {status}: {text}"
-            ))
-            .into());
+            return Err(rejection("GitHub get_commit", status, &headers, &text));
         }
         resp.json().await.map_err(|e| {
             SharedAdapterError::provider_response_invalid("GitHub get_commit", e).into()
@@ -692,11 +700,9 @@ impl GithubPrApi {
             .map_err(|e| SharedAdapterError::provider_unreachable("GitHub merge_base", e))?;
         if !resp.status().is_success() {
             let status = resp.status();
+            let headers = resp.headers().clone();
             let text = resp.text().await.unwrap_or_default();
-            return Err(SharedAdapterError::AdapterApi(format!(
-                "GitHub merge_base returned {status}: {text}"
-            ))
-            .into());
+            return Err(rejection("GitHub merge_base", status, &headers, &text));
         }
         let comparison: Comparison = resp
             .json()
@@ -731,10 +737,9 @@ impl GithubPrApi {
             .map_err(|e| SharedAdapterError::provider_unreachable("GitHub file_text", e))?;
         if !resp.status().is_success() {
             let status = resp.status();
+            let headers = resp.headers().clone();
             let text = resp.text().await.unwrap_or_default();
-            return Err(invalid(format!(
-                "GitHub file_text returned {status}: {text}"
-            )));
+            return Err(rejection("GitHub file_text", status, &headers, &text));
         }
         let too_large = || invalid(format!("{path} is too large to show"));
         // Read in chunks so a file of up to GitHub's 100 MB is refused at the
@@ -840,12 +845,10 @@ impl GithubPrApi {
         let status = resp.status();
         // GitHub returns 200 (existing) or 201 (created); both contain the reaction body.
         if !status.is_success() {
+            let headers = resp.headers().clone();
             let text = resp.text().await.unwrap_or_default();
             warn!(status = %status, body = %text, "GitHub create_reaction error");
-            return Err(SharedAdapterError::AdapterApi(format!(
-                "GitHub create_reaction returned {status}: {text}"
-            ))
-            .into());
+            return Err(rejection("GitHub create_reaction", status, &headers, &text));
         }
 
         let data: serde_json::Value = resp.json().await.map_err(|e| {
@@ -898,11 +901,9 @@ impl GithubPrApi {
 
         if !resp.status().is_success() {
             let status = resp.status();
+            let headers = resp.headers().clone();
             let text = resp.text().await.unwrap_or_default();
-            return Err(SharedAdapterError::AdapterApi(format!(
-                "GitHub list_reactions returned {status}: {text}"
-            ))
-            .into());
+            return Err(rejection("GitHub list_reactions", status, &headers, &text));
         }
 
         resp.json().await.map_err(|e| {
@@ -948,11 +949,9 @@ impl GithubPrApi {
             .map_err(|e| SharedAdapterError::provider_unreachable("GitHub delete_reaction", e))?;
         if !resp.status().is_success() {
             let status = resp.status();
+            let headers = resp.headers().clone();
             let text = resp.text().await.unwrap_or_default();
-            return Err(SharedAdapterError::AdapterApi(format!(
-                "GitHub delete_reaction returned {status}: {text}"
-            ))
-            .into());
+            return Err(rejection("GitHub delete_reaction", status, &headers, &text));
         }
         Ok(())
     }
@@ -967,11 +966,9 @@ impl GithubPrApi {
             .map_err(|e| SharedAdapterError::provider_unreachable("GitHub user", e))?;
         if !resp.status().is_success() {
             let status = resp.status();
+            let headers = resp.headers().clone();
             let text = resp.text().await.unwrap_or_default();
-            return Err(SharedAdapterError::AdapterApi(format!(
-                "GitHub user returned {status}: {text}"
-            ))
-            .into());
+            return Err(rejection("GitHub user", status, &headers, &text));
         }
         let data: serde_json::Value = resp
             .json()
@@ -1036,7 +1033,8 @@ mod error_source_tests {
         assert!(err.source().is_some(), "cause must stay reachable");
     }
 
-    /// GitHub answering 403 is a rejection, not a wrapped failure.
+    /// GitHub answering 403 without a rate-limit mark is a permission
+    /// refusal, synthesized rather than wrapped.
     #[tokio::test]
     async fn github_rejection_stays_a_synthesized_message() {
         let base = stub_provider(StatusCode::FORBIDDEN, r#"{"message":"Bad credentials"}"#).await;
@@ -1048,10 +1046,48 @@ mod error_source_tests {
             .expect_err("403 must be an error");
 
         assert!(
-            matches!(err, AdapterError::Shared(SharedAdapterError::AdapterApi(_))),
+            matches!(
+                err,
+                AdapterError::Shared(SharedAdapterError::AccessDenied(_))
+            ),
             "got {err:?}"
         );
         assert!(err.source().is_none());
+    }
+
+    /// The reset GitHub sends on a spent quota reaches the error, so the
+    /// delivery seam can schedule at it.
+    #[tokio::test]
+    async fn a_spent_quota_carries_its_reset_to_the_error() {
+        use axum::Router;
+        use axum::response::IntoResponse;
+        use axum::routing::get;
+
+        async fn spent() -> axum::response::Response {
+            (
+                StatusCode::FORBIDDEN,
+                [
+                    ("x-ratelimit-remaining", "0"),
+                    ("x-ratelimit-reset", "1793002200"),
+                ],
+                r#"{"message":"API rate limit exceeded for user ID 609489."}"#,
+            )
+                .into_response()
+        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let app = Router::new().route("/repos/acme/widgets/pulls/42", get(spent));
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let api = GithubPrApi::new(test_client(), "ghp_test", format!("http://{address}"));
+        let err = api
+            .get_pr("acme", "widgets", 42)
+            .await
+            .expect_err("a spent quota is an error");
+        let AdapterError::Shared(SharedAdapterError::RateLimited { retry_at, .. }) = err else {
+            panic!("expected RateLimited, got {err:?}");
+        };
+        assert_eq!(retry_at, chrono::DateTime::from_timestamp(1_793_002_200, 0));
     }
 }
 
@@ -1401,7 +1437,10 @@ mod check_annotation_tests {
             .await
             .expect_err("403 must not read as zero annotations");
         assert!(
-            matches!(err, AdapterError::Shared(SharedAdapterError::AdapterApi(_))),
+            matches!(
+                err,
+                AdapterError::Shared(SharedAdapterError::AccessDenied(_))
+            ),
             "got {err:?}"
         );
     }

@@ -21,7 +21,7 @@ pub fn describe_adapter_delivery_metrics() {
     );
     metrics::describe_counter!(
         ADAPTER_DELIVERY_EXECUTED_TOTAL,
-        "Durable Adapter delivery execution outcomes (succeeded | retry | terminal) by adapter and kind"
+        "Durable Adapter delivery execution outcomes (succeeded | retry | throttled | terminal) by adapter and kind"
     );
     metrics::describe_gauge!(
         ADAPTER_DELIVERY_BACKLOG,
@@ -46,7 +46,7 @@ pub(crate) fn record_admission(adapter: &'static str, kind: &'static str, outcom
 }
 
 /// Record one execution outcome. `outcome` is one of `succeeded`, `retry`,
-/// `terminal`.
+/// `throttled`, `terminal`.
 ///
 /// `terminal` is the series to alert on: it counts webhooks the backend
 /// accepted and then gave up on.

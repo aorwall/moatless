@@ -175,6 +175,11 @@ async fn execute(
             );
         }
         Ok(Ok(Err(failure))) => {
+            if let Some(not_before) = failure.throttled_until() {
+                if defer_throttled(store, &delivery, not_before, &describe(&failure)).await {
+                    return;
+                }
+            }
             let terminal = failure.is_permanent() || delivery.is_last_attempt();
             finish_failed(store, &delivery, terminal, &describe(&failure)).await;
         }
@@ -234,6 +239,43 @@ async fn finish_failed(
         .await
     {
         warn!(id = %delivery.id, error = %e, "Failed to record an Adapter delivery attempt failure");
+    }
+}
+
+/// Park a quota-refused record until its provider's reset without charging
+/// the attempt. `false` only when the record is past `throttle_deadline`, so
+/// the caller charges it as an ordinary retryable failure.
+async fn defer_throttled(
+    store: &AdapterDeliveryStore,
+    delivery: &AdapterDelivery,
+    not_before: Option<chrono::DateTime<chrono::Utc>>,
+    reason: &str,
+) -> bool {
+    match store
+        .defer_throttled(&delivery.id, not_before, reason)
+        .await
+    {
+        Ok(Some(retry_at)) => {
+            warn!(
+                id = %delivery.id,
+                adapter = %delivery.adapter,
+                kind = %delivery.kind,
+                event_id = %delivery.event_id,
+                attempt = delivery.attempts,
+                %retry_at,
+                reason,
+                "Adapter delivery throttled by its provider; deferred without spending an attempt"
+            );
+            record_execution(&delivery.adapter, &delivery.kind, "throttled");
+            true
+        }
+        Ok(None) => false,
+        Err(e) => {
+            // Left claimed: the lease returns it, charged, which is the
+            // conservative side of a store that just failed.
+            warn!(id = %delivery.id, error = %e, "Failed to defer a throttled Adapter delivery");
+            true
+        }
     }
 }
 
@@ -349,6 +391,9 @@ mod db_tests {
             backlog_capacity: 10_000,
             succeeded_retention: Duration::from_hours(24 * 7),
             failed_retention: Duration::from_hours(24 * 30),
+            throttle_fallback: Duration::from_mins(1),
+            max_throttle_delay: Duration::from_mins(65),
+            throttle_deadline: Duration::from_hours(24),
         }
     }
 
@@ -368,6 +413,8 @@ mod db_tests {
         Retryable,
         Permanent,
         Panic,
+        /// GitHub's primary limit, resetting forty minutes from now.
+        Throttled,
     }
 
     #[async_trait::async_trait]
@@ -383,6 +430,10 @@ mod db_tests {
                     std::io::Error::other("task was deleted"),
                 )),
                 Outcome::Panic => panic!("poison record"),
+                Outcome::Throttled => Err(AdapterDeliveryFailure::throttled(
+                    std::io::Error::other("API rate limit exceeded for user ID 609489"),
+                    Some(chrono::Utc::now() + chrono::Duration::minutes(40)),
+                )),
             }
         }
     }
@@ -685,6 +736,73 @@ mod db_tests {
         assert_eq!(attempts, 1, "no attempt budget is spent on retrying");
         assert!(last_error.unwrap_or_default().contains("task was deleted"));
         assert_eq!(runs.load(Ordering::SeqCst), 1);
+    }
+
+    /// The 2026-11-02 burst: a record on its last attempt was refused for
+    /// quota, and must wait for the reset rather than go terminal.
+    #[sqlx::test]
+    async fn a_throttled_last_attempt_waits_for_the_reset_without_spending_it(pool: PgPool) {
+        let store = store(pool.clone());
+        store.admit(request(KIND, "evt-quota")).await.unwrap();
+        sqlx::query("UPDATE adapter_delivery SET attempts = 2 WHERE event_id = 'evt-quota'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let (handlers, runs) = handler(KIND, Outcome::Throttled);
+        let before = chrono::Utc::now();
+        run_worker_until(&store, Arc::new(handlers), Duration::from_secs(5), || {
+            runs.load(Ordering::SeqCst) >= 1
+        })
+        .await;
+
+        let (status, attempts, last_error) = store
+            .peek("test", KIND, "evt-quota")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(status, "pending", "a quota refusal never ends the record");
+        assert_eq!(attempts, 2, "the claim's attempt is refunded");
+        assert!(
+            last_error
+                .unwrap_or_default()
+                .contains("rate limit exceeded")
+        );
+        let due = store.next_attempt_at("evt-quota").await.unwrap();
+        assert!(
+            due >= before + chrono::Duration::minutes(39),
+            "due at the provider's reset, not the backoff: {due}"
+        );
+        assert_eq!(runs.load(Ordering::SeqCst), 1);
+    }
+
+    /// A quota that never returns still ends the record: past
+    /// `throttle_deadline` the refusal spends attempts like any other.
+    #[sqlx::test]
+    async fn a_throttled_record_past_its_deadline_spends_the_attempt(pool: PgPool) {
+        let store = store(pool.clone());
+        store.admit(request(KIND, "evt-stale-quota")).await.unwrap();
+        sqlx::query(
+            "UPDATE adapter_delivery SET attempts = 2, admitted_at = NOW() - INTERVAL '2 days' \
+             WHERE event_id = 'evt-stale-quota'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let (handlers, runs) = handler(KIND, Outcome::Throttled);
+        run_worker_until(&store, Arc::new(handlers), Duration::from_secs(5), || {
+            runs.load(Ordering::SeqCst) >= 1
+        })
+        .await;
+
+        let (status, attempts, _) = store
+            .peek("test", KIND, "evt-stale-quota")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(status, "failed");
+        assert_eq!(attempts, 3);
     }
 
     /// Admission is bounded: past the configured backlog the seam refuses the

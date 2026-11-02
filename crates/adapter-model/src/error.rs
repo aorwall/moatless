@@ -106,6 +106,15 @@ pub enum SharedAdapterError {
     #[error("Access denied: {0}")]
     AccessDenied(String),
 
+    /// The provider refused the call for quota: a primary or secondary rate
+    /// limit. `retry_at` is when its own response said the quota returns, and
+    /// `None` when it named no time.
+    #[error("Adapter API rate limited: {detail}")]
+    RateLimited {
+        detail: String,
+        retry_at: Option<chrono::DateTime<chrono::Utc>>,
+    },
+
     /// Returned by the no-flag send endpoint when a task has more than one
     /// reply target — the caller must pick one with `--thread`, `--binding`, or
     /// `--pr`.
@@ -194,7 +203,7 @@ pub enum AdapterError {
     #[error(transparent)]
     Store(#[from] StoreError),
 
-    /// The band-local adapter vocabulary — the sixteen variants that name
+    /// The band-local adapter vocabulary — the seventeen variants that name
     /// nothing above this crate.
     #[error(transparent)]
     Shared(#[from] SharedAdapterError),
@@ -325,6 +334,9 @@ impl IntoResponse for AdapterError {
                 }
                 SharedAdapterError::Overloaded => {
                     tracing::warn!("Adapter delivery admission refused: backlog at capacity");
+                    (StatusCode::SERVICE_UNAVAILABLE, inner.to_string())
+                }
+                SharedAdapterError::RateLimited { .. } => {
                     (StatusCode::SERVICE_UNAVAILABLE, inner.to_string())
                 }
                 SharedAdapterError::Internal(msg) => {

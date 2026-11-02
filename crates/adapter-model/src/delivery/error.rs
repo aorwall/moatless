@@ -1,6 +1,7 @@
 //! Delivery admission and execution failures.
 
 use crate::error::{AdapterError, SharedAdapterError};
+use chrono::{DateTime, Utc};
 use moatless_types::store::StoreError;
 
 /// Admission failed, so the sender must not be told the delivery was accepted.
@@ -21,8 +22,9 @@ pub enum AdmitError {
 
 /// Why a handler could not complete an Adapter delivery.
 ///
-/// `Retryable` spends one attempt; `Permanent` ends the record immediately.
-/// Both keep the causing error as their source.
+/// `Retryable` spends one attempt; `Permanent` ends the record immediately;
+/// `Throttled` waits out the provider's quota without spending one. All keep
+/// the causing error as their source.
 #[derive(Debug, thiserror::Error)]
 pub enum AdapterDeliveryFailure {
     /// A transient failure — a timeout, a sender 5xx, a lost connection.
@@ -34,6 +36,15 @@ pub enum AdapterDeliveryFailure {
     /// budget is left.
     #[error("permanent Adapter delivery failure")]
     Permanent(#[source] Box<dyn std::error::Error + Send + Sync>),
+    /// The provider refused for quota. Rescheduled at `not_before` (or a
+    /// fallback delay when it is `None`) and the attempt refunded, so a quota
+    /// window longer than the backoff schedule cannot exhaust the budget.
+    #[error("throttled Adapter delivery failure")]
+    Throttled {
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+        not_before: Option<DateTime<Utc>>,
+    },
 }
 
 impl AdapterDeliveryFailure {
@@ -47,8 +58,27 @@ impl AdapterDeliveryFailure {
         Self::Permanent(Box::new(source))
     }
 
+    /// Wrap a quota refusal the provider says lifts at `not_before`.
+    pub fn throttled(
+        source: impl std::error::Error + Send + Sync + 'static,
+        not_before: Option<DateTime<Utc>>,
+    ) -> Self {
+        Self::Throttled {
+            source: Box::new(source),
+            not_before,
+        }
+    }
+
     pub fn is_permanent(&self) -> bool {
         matches!(self, Self::Permanent(_))
+    }
+
+    /// `Some` for a quota refusal, carrying the provider's not-before instant.
+    pub fn throttled_until(&self) -> Option<Option<DateTime<Utc>>> {
+        match self {
+            Self::Throttled { not_before, .. } => Some(*not_before),
+            Self::Retryable(_) | Self::Permanent(_) => None,
+        }
     }
 }
 /// Admission failures reach the sender as "not accepted, send it again", never
@@ -70,6 +100,9 @@ impl From<AdmitError> for AdapterError {
 impl From<AdapterError> for AdapterDeliveryFailure {
     fn from(error: AdapterError) -> Self {
         match error {
+            AdapterError::Shared(SharedAdapterError::RateLimited { retry_at, .. }) => {
+                Self::throttled(error, retry_at)
+            }
             // Transient: resolving a credential failed (the token may be
             // refreshed or the installation repaired between attempts), or a
             // task-flow storage failure the call site already decided is worth
@@ -204,6 +237,26 @@ mod tests {
                 "{rendered} must go terminal"
             );
         }
+    }
+
+    /// A quota refusal neither spends the budget nor ends the record, and the
+    /// provider's reset instant survives the conversion.
+    #[test]
+    fn a_rate_limit_is_throttled_with_its_reset_instant() {
+        let reset = chrono::DateTime::from_timestamp(1_793_000_000, 0).unwrap();
+        for retry_at in [Some(reset), None] {
+            let failure =
+                AdapterDeliveryFailure::from(AdapterError::from(SharedAdapterError::RateLimited {
+                    detail: "GitHub get_pr returned 403 Forbidden".into(),
+                    retry_at,
+                }));
+            assert!(!failure.is_permanent());
+            assert_eq!(failure.throttled_until(), Some(retry_at));
+        }
+        let ordinary = AdapterDeliveryFailure::from(AdapterError::from(
+            SharedAdapterError::AdapterApi("502".into()),
+        ));
+        assert_eq!(ordinary.throttled_until(), None);
     }
 
     /// A terminal record has to say what actually failed, not just that

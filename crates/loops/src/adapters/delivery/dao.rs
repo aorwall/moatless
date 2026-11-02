@@ -207,6 +207,42 @@ impl AdapterDeliveryStore {
         Ok(())
     }
 
+    /// Return a throttled record to `pending` at the policy's
+    /// [`AdapterDeliveryPolicy::throttled_retry_at`], refunding the attempt its
+    /// claim charged. Returns the time it is due, or `None` when the record is
+    /// older than `throttle_deadline` and must be charged instead.
+    pub(crate) async fn defer_throttled(
+        &self,
+        id: &str,
+        not_before: Option<DateTime<Utc>>,
+        error: &str,
+    ) -> Result<Option<DateTime<Utc>>, sqlx::Error> {
+        let now = Utc::now();
+        let next_attempt_at = self.policy.throttled_retry_at(now, not_before);
+        let admitted_after = now
+            - chrono::Duration::from_std(self.policy.throttle_deadline)
+                .unwrap_or(chrono::Duration::zero());
+        let deferred = sqlx::query(
+            r#"UPDATE adapter_delivery SET
+                   status          = 'pending',
+                   attempts        = GREATEST(attempts - 1, 0),
+                   next_attempt_at = $2,
+                   claimed_at      = NULL,
+                   claimed_by      = NULL,
+                   last_error      = $3,
+                   updated_at      = NOW()
+               WHERE id = $1 AND admitted_at > $4
+               RETURNING id"#,
+        )
+        .bind(id)
+        .bind(next_attempt_at)
+        .bind(truncate_error(error))
+        .bind(admitted_after)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(deferred.map(|_| next_attempt_at))
+    }
+
     /// Return this owner's claims to `pending` immediately.
     ///
     /// Called once at worker startup, so a process killed mid-execution resumes
@@ -297,6 +333,18 @@ impl AdapterDeliveryStore {
             oldest_pending_secs: oldest_pending
                 .map_or(0, |admitted| (Utc::now() - admitted).num_seconds().max(0)),
         })
+    }
+
+    /// Read one record's `next_attempt_at`, for the throttling tests.
+    #[cfg(all(test, feature = "db-tests"))]
+    pub(crate) async fn next_attempt_at(
+        &self,
+        event_id: &str,
+    ) -> Result<DateTime<Utc>, sqlx::Error> {
+        sqlx::query_scalar("SELECT next_attempt_at FROM adapter_delivery WHERE event_id = $1")
+            .bind(event_id)
+            .fetch_one(&self.pool)
+            .await
     }
 
     /// Read one record's status and last error. Only the tests below and
