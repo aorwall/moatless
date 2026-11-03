@@ -111,6 +111,18 @@ mod tests {
         assert!(cfg.allow_bot_messages);
     }
 
+    /// A Loop saved with the retired `pairing` policy keeps its allowlists.
+    #[test]
+    fn a_stored_pairing_policy_reads_as_allowlist() {
+        let json = serde_json::json!({
+            "access_policy": "pairing",
+            "user_allowlist": ["U789"]
+        });
+        let cfg: SlackAdapterConfig = serde_json::from_value(json).unwrap();
+        assert_eq!(cfg.access_policy, SourceAccessPolicy::Allowlist);
+        assert_eq!(cfg.user_allowlist, vec!["U789"]);
+    }
+
     #[test]
     fn deserialize_empty_gives_defaults() {
         let json = serde_json::json!({});

@@ -29,7 +29,6 @@ const APP_TABLES = [
   'loop_configs',
   'triggers',
   'adapter_connections',
-  'integration_pairing_requests',
   'team_members',
   'teams',
   'sessions',

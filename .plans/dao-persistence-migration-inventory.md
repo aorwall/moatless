@@ -35,7 +35,6 @@ A consumer count is the number of `use` declarations naming the concern's module
 | [inbound message buffer](#inbound-message-buffer) | moatless-loops | 14 | 0 | 0 |
 | [adapter delivery](#adapter-delivery) | moatless-loops | 15 | 0 | 0 |
 | [firing receipts](#firing-receipts) | moatless-loops | 15 | 0 | 0 |
-| [retired telegram pairing](#retired-telegram-pairing) | moatless-loops | 15 | 0 | 0 |
 | [sandbox lifecycle](#sandbox-lifecycle) | moatless-sandbox-control | 16 | 0 | 0 |
 | [t3 conversation projection](#t3-conversation-projection) | moatless-t3code | 17 | 0 | 0 |
 | [task graph](#task-graph) | moatless-tasks | 09 | 0 | 0 |
@@ -331,17 +330,6 @@ A consumer count is the number of `use` declarations naming the concern's module
 - **Closing slice:** 15
 - **Persistence roots:** `crates/loops/src/loops/firing/receipts_dao.rs`
 - **Owning tables:** `adapter_event_receipts`, `adapter_task_creation_claims`
-- **Exports:** none
-- **Constructors:** none
-- **Peer consumers:** none
-- **Test-only consumers:** none
-
-## retired telegram pairing
-
-- **Owner:** moatless-loops
-- **Closing slice:** 15
-- **Persistence roots:** none
-- **Owning tables:** `integration_pairing_requests`
 - **Exports:** none
 - **Constructors:** none
 - **Peer consumers:** none

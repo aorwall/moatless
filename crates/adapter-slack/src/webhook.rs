@@ -321,7 +321,7 @@ fn screen(
 
     match enforce_slack_access(slack_config, event.channel, event.user) {
         AccessDecision::Allowed => {}
-        AccessDecision::Blocked | AccessDecision::PairingSent => {
+        AccessDecision::Blocked => {
             debug!(
                 reason = "access_policy",
                 event_type = %event.event_type,

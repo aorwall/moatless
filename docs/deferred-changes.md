@@ -99,11 +99,7 @@ cover the schema — the checker replays `crates/core/migrations` and fails on a
 live table with no owner, and on an owner for a table that no longer exists.
 `tooling/arch-rules/arch-baseline.json` holds the statements that predate the
 check and only shrinks. Deferred decisions sit outside that
-file.
-
-| Deferred | Anchor | Entry condition |
-|---|---|---|
-| `integration_pairing_requests` outlives the Telegram Adapter that wrote it | `tooling/arch-rules/src/table_ownership.rs::TABLES` maps it to `moatless-loops` only so the schema stays covered; no code reads or writes it, and `crates/core/migrations/0053_integration_pairing_requests.sql` is its last shape | When a migration drops it, after no deployed image still ships the Telegram Adapter. Drop the `TABLES` entry in the same change |
+file. No deferred decision is open here.
 
 ## Preview tabs do not survive a restart
 

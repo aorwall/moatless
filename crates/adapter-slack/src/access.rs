@@ -6,8 +6,6 @@ use moatless_adapter_model::access::SourceAccessPolicy;
 use super::config::SlackAdapterConfig;
 
 /// Enforce Slack access policy (synchronous, no DB/API needed).
-///
-/// Slack does not support `Pairing` — it is treated as `Allowlist`.
 pub fn enforce_slack_access(
     config: &SlackAdapterConfig,
     channel_id: &str,
@@ -16,7 +14,7 @@ pub fn enforce_slack_access(
     match config.access_policy {
         SourceAccessPolicy::Disabled => AccessDecision::Blocked,
         SourceAccessPolicy::Open => AccessDecision::Allowed,
-        SourceAccessPolicy::Allowlist | SourceAccessPolicy::Pairing => {
+        SourceAccessPolicy::Allowlist => {
             if !config.channel_allowlist.is_empty()
                 && !config.channel_allowlist.iter().any(|c| c == channel_id)
             {

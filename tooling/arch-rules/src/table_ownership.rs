@@ -30,7 +30,6 @@ pub const TABLES: &[(&str, &str)] = &[
     ("file_metadata", "moatless-core"),
     ("forgejo_instances", "moatless-identity"),
     ("inbound_message_buffer", "moatless-loops"),
-    ("integration_pairing_requests", "moatless-loops"),
     ("loop_configs", "moatless-loops"),
     ("loops", "moatless-loops"),
     ("memory_entries", "moatless-tasks"),

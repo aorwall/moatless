@@ -21,9 +21,11 @@ pub enum SourceAccessPolicy {
     /// Reject all messages.
     Disabled,
     /// Accept only from sources in the allowlist.
+    ///
+    /// Do not drop the `pairing` alias: a stored config that fails to parse
+    /// falls back to `Open`, so its allowlists would stop applying.
+    #[serde(alias = "pairing")]
     Allowlist,
-    /// Allowlist + prompt unknown users with a pairing code (DM only).
-    Pairing,
 }
 
 /// When to trigger processing of an inbound message.
@@ -44,8 +46,6 @@ pub enum AccessDecision {
     Allowed,
     /// Message is blocked (silently dropped).
     Blocked,
-    /// A pairing code was sent to the user; message is not processed.
-    PairingSent,
 }
 
 pub fn resolve_scope_for_adapter_create(
