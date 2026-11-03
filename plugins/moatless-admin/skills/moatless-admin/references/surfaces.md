@@ -32,9 +32,9 @@ backend.
 | Plugins | Skill plugins and where each skill is on | `plugins create --name <n> --git-url <url>`, `delete`, `enable` and `disable <id> --reach everyone\|personal\|workspace [--skill --workspace --user]`, `clear`; `plugins effective` shows what someone gets | Admin for create, delete, `--reach everyone` and another user; workspace reach needs control of the workspace |
 | Secrets | Env vars, provider tokens, runtime files delivered to agents or servers | `secret set <KEY> --value-file <file> [-s user\|global] [-t agent\|all\|backend\|server:<name>] [-k env\|provider_token\|runtime_file]`, `remove`, `disable`, `enable` | Owner for user scope, admin for global; values are write-only |
 | Personal settings | The caller's own GitHub PAT | `settings github-pat` | Each user |
-| Adapters | Inbound Slack, Linear, GitHub, Telegram and webhook connections | `adapters connections create …` (an upsert), `adapters install --adapter linear` | Admin for global connections |
+| Adapters | Inbound Slack, Linear, GitHub and webhook connections | `adapters connections create …` (an upsert), `adapters install --adapter linear` | Admin for global connections |
 | Bindings | A task's link to an adapter subject | `bindings create …` | Whoever controls the task |
-| Provider apps | Forgejo, Slack, Telegram and Linear app credentials | `app set <provider> <key> --field n=v…`, `app remove` | Admin |
+| Provider apps | Forgejo, Slack and Linear app credentials | `app set <provider> <key> --field n=v…`, `app remove` | Admin |
 | GitHub Apps | Apps that back bot users | `github-app register <key> --app-id <n> --key-file <f>`, `rotate`, `remove` | Admin |
 
 Area gotchas:

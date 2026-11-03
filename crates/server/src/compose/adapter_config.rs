@@ -1,7 +1,7 @@
 //! Provider configuration assembled from stored Adapter registrations.
 
 use moatless_core::{
-    config::{Config, SlackConfig, TelegramConfig},
+    config::{Config, SlackConfig},
     db::DbPool,
 };
 use moatless_identity::{
@@ -28,20 +28,6 @@ pub async fn load_adapter_app_config(config: &Config, db: &DbPool) -> Result<Con
         info!(
             revision = row.revision,
             "Loaded Slack Adapter app config from DB"
-        );
-    }
-    if let Some((row, secrets)) = default_app_secrets(db, config, "telegram").await? {
-        next.telegram = TelegramConfig {
-            bot_token: secrets.get("bot_token").cloned(),
-            mode: row
-                .config_json
-                .get("mode")
-                .and_then(Value::as_str)
-                .map_or_else(|| TelegramConfig::default().mode, str::to_string),
-        };
-        info!(
-            revision = row.revision,
-            "Loaded Telegram Adapter app config from DB"
         );
     }
     if let Some((row, secrets)) = default_app_secrets(db, config, "linear").await? {

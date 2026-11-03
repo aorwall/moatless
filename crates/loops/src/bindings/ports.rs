@@ -165,11 +165,6 @@ fn summarize(
             .get("thread_ts")
             .and_then(serde_json::Value::as_str)
             .map(String::from),
-        "telegram" => binding
-            .destination_config
-            .get("message_id")
-            .and_then(serde_json::Value::as_i64)
-            .map(|id| id.to_string()),
         _ => None,
     };
 

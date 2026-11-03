@@ -1185,11 +1185,9 @@ mod tests {
         ];
         let forbidden = [
             concat!("slack_", "thread"),
-            concat!("telegram_", "thread"),
             concat!("github", "_pr_event"),
             concat!("github", "_issue_comment"),
             concat!("github", "_review_comment"),
-            concat!("telegram", "_msg"),
             concat!("slack", "_ts"),
         ];
 

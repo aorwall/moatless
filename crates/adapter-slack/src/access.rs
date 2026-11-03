@@ -7,8 +7,7 @@ use super::config::SlackAdapterConfig;
 
 /// Enforce Slack access policy (synchronous, no DB/API needed).
 ///
-/// Unlike Telegram, Slack does not support `Pairing` — it is treated as
-/// `Allowlist`.
+/// Slack does not support `Pairing` — it is treated as `Allowlist`.
 pub fn enforce_slack_access(
     config: &SlackAdapterConfig,
     channel_id: &str,

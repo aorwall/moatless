@@ -103,7 +103,7 @@ file.
 
 | Deferred | Anchor | Entry condition |
 |---|---|---|
-| `adapter-telegram` pairing is mostly unreachable | `crates/adapter-telegram/src/pairing/` — `dao.rs::find_by_code`, `dao.rs::list_pending`, `dao.rs::prune_expired`, `approval.rs::list_pending_for_user` and `approval.rs::approve_request` have no caller anywhere in the workspace; only `request.rs::upsert_pairing_request` is reached (from `ingress.rs`) | When the Telegram pairing flow is next worked on. Deleting them now would be a behaviour question dressed as a cleanup — nothing says whether the flow is unfinished or abandoned |
+| `integration_pairing_requests` outlives the Telegram Adapter that wrote it | `tooling/arch-rules/src/table_ownership.rs::TABLES` maps it to `moatless-loops` only so the schema stays covered; no code reads or writes it, and `crates/core/migrations/0053_integration_pairing_requests.sql` is its last shape | When a migration drops it, after no deployed image still ships the Telegram Adapter. Drop the `TABLES` entry in the same change |
 
 ## Preview tabs do not survive a restart
 

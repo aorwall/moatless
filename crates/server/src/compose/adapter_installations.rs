@@ -18,7 +18,6 @@ use crate::adapters::providers::github_pr::router::ReviewGuideTasks;
 use crate::adapters::providers::linear::active_turns::ActiveLinearTurns;
 use crate::adapters::providers::linear::adapter::LinearAdapter;
 use crate::adapters::providers::slack::adapter::SlackAdapter;
-use crate::adapters::providers::telegram::adapter::TelegramAdapter;
 use crate::adapters::providers::webhook::adapter::WebhookAdapter;
 use crate::compose::Ports;
 use crate::state::AppState;
@@ -30,13 +29,12 @@ use moatless_types::store::StoreError;
 
 /// The external Adapters installed in one backend process.
 ///
-/// Production installs all five unconditionally, since credentials and
+/// Production installs all four unconditionally, since credentials and
 /// transport are resolved per workspace; a process without database ports
 /// carries none.
 pub struct AdapterInstallations {
     adapters: Arc<Adapters>,
     slack: SlackInstallation,
-    telegram: TelegramInstallation,
     github_pr: GithubPrInstallation,
     linear: LinearInstallation,
 }
@@ -49,14 +47,12 @@ impl AdapterInstallations {
 
         let slack = SlackInstallation::install(runtime_config.clone(), ports, &mut adapters);
         WebhookInstallation::install(config, &mut adapters);
-        let telegram = TelegramInstallation::install(runtime_config.clone(), ports, &mut adapters);
         let github_pr = GithubPrInstallation::install(config, ports, &mut adapters);
         let linear = LinearInstallation::install(runtime_config, ports, &mut adapters);
 
         Self {
             adapters: Arc::new(adapters),
             slack,
-            telegram,
             github_pr,
             linear,
         }
@@ -76,7 +72,6 @@ impl AdapterInstallations {
         let mut handlers = AdapterDeliveryHandlers::new();
         self.slack.register_delivery(&mut handlers, state);
         WebhookInstallation::register_delivery(&mut handlers, state);
-        TelegramInstallation::register_delivery(&mut handlers, state);
         self.github_pr.register_delivery(&mut handlers, state);
         self.linear.register_delivery(&mut handlers, state);
         if let Some(adapters) = &state.adapters {
@@ -108,11 +103,6 @@ impl AdapterInstallations {
     /// Concrete Slack Adapter for Slack-specific HTTP handlers.
     pub fn slack(&self) -> Arc<SlackAdapter> {
         self.slack.adapter.clone()
-    }
-
-    /// Concrete Telegram Adapter for Telegram-specific handlers and polling.
-    pub fn telegram(&self) -> Arc<TelegramAdapter> {
-        self.telegram.adapter.clone()
     }
 
     /// Concrete GitHub PR Adapter for GitHub-specific handlers.
@@ -182,36 +172,6 @@ impl WebhookInstallation {
 
     fn register_delivery(handlers: &mut AdapterDeliveryHandlers, state: &AppState) {
         use crate::adapters::providers::webhook::delivery;
-        register_inbound_message_delivery(
-            handlers,
-            state,
-            delivery::INBOUND_MESSAGE,
-            delivery::ADAPTER,
-        );
-    }
-}
-
-struct TelegramInstallation {
-    adapter: Arc<TelegramAdapter>,
-}
-
-impl TelegramInstallation {
-    fn install(config: Arc<Config>, ports: &Ports, adapters: &mut Adapters) -> Self {
-        let adapter = Arc::new(
-            TelegramAdapter::from_db(&config, ports.pool.clone(), ports.adapter_apps.clone())
-                .with_ingress_ports(
-                    ports.connection_routing.clone(),
-                    ports.loop_reader.clone(),
-                    ports.adapter_delivery.clone(),
-                ),
-        );
-        adapter.clone().register_into(adapters);
-        tracing::info!("Telegram Adapter installed");
-        Self { adapter }
-    }
-
-    fn register_delivery(handlers: &mut AdapterDeliveryHandlers, state: &AppState) {
-        use crate::adapters::providers::telegram::delivery;
         register_inbound_message_delivery(
             handlers,
             state,

@@ -27,7 +27,7 @@ pub enum MessageAction {
     },
 
     /// Reply to a specific message. The backend picks the right destination
-    /// (Slack thread, Linear comment, GitHub PR review reply, Telegram reply).
+    /// (Slack thread, Linear comment, GitHub PR review reply).
     Reply {
         /// Internal message id (uuid from `conversation_messages`).
         #[arg(long)]

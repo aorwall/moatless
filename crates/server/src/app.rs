@@ -7,7 +7,6 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
-use crate::adapters;
 use crate::adapters::events::TaskEventSubscribers;
 use crate::compose::{Ports, compose};
 use crate::event_handler;
@@ -73,7 +72,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             Err(e) => {
                 warn!(
                     error = %e,
-                    "Failed to load Adapter app config from the DB; Slack, Telegram and Linear stay unconfigured"
+                    "Failed to load Adapter app config from the DB; Slack and Linear stay unconfigured"
                 );
                 config
             }
@@ -625,27 +624,6 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 }
             } else {
                 info!("Cron scheduler disabled (CRON_SCHEDULER_ENABLED=false)");
-            }
-
-            // Telegram long-polling (when webhook mode is not available)
-            if config.telegram.bot_token.is_some() && config.telegram.mode == "polling" {
-                if let Some(telegram) = app_state
-                    .adapter_installations
-                    .as_ref()
-                    .map(|installations| installations.telegram())
-                {
-                    supervisor.supervise(
-                        "telegram-poller",
-                        // Optional: losing it degrades the Telegram channel alone,
-                        // and its own early-exit branches already log the reason.
-                        Criticality::Optional,
-                        adapters::providers::telegram::spawn_telegram_poller(
-                            telegram,
-                            app_state.user_directory.clone(),
-                            cancel.clone(),
-                        ),
-                    );
-                }
             }
         }
     } else {

@@ -830,14 +830,6 @@ impl axum::extract::FromRef<AppState>
 }
 
 impl axum::extract::FromRef<AppState>
-    for Option<Arc<moatless_adapter_telegram::adapter::TelegramAdapter>>
-{
-    fn from_ref(state: &AppState) -> Self {
-        state.adapter_installations.as_ref().map(|i| i.telegram())
-    }
-}
-
-impl axum::extract::FromRef<AppState>
     for Option<Arc<moatless_adapter_github_pr::adapter::GithubPrAdapter>>
 {
     fn from_ref(state: &AppState) -> Self {

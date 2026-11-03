@@ -27,7 +27,7 @@ pub struct ProviderAppField {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderAppSpec {
-    /// The `{provider}` path segment: `forgejo`, `slack`, `telegram`, `linear`.
+    /// The `{provider}` path segment: `forgejo`, `slack`, `linear`.
     pub provider: String,
     pub display_name: String,
     /// What the `{key}` path segment names here — a Forgejo host, an adapter's

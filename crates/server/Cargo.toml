@@ -97,7 +97,6 @@ moatless-loops = { workspace = true }
 moatless-decisions = { workspace = true }
 moatless-adapter-webhook = { workspace = true }
 moatless-adapter-slack = { workspace = true }
-moatless-adapter-telegram = { workspace = true }
 moatless-adapter-linear = { workspace = true }
 moatless-adapter-github-pr = { workspace = true }
 moatless-sandbox-runtime = { workspace = true }
@@ -159,7 +158,7 @@ hmac = { workspace = true }
 sha2 = { workspace = true }
 # Thread-local recorder + snapshotter, so a test can assert what a code path
 # actually wrote to a counter rather than that it compiled. Used by
-# `tests/integration_adapters/telegram_ingress_test.rs`, which only builds under `db-tests`.
+# `tests/integration_adapters/linear_webhook_metrics_test.rs`, which only builds under `db-tests`.
 metrics-util = { version = "0.20", features = ["debugging"], default-features = false }
 
 # In-memory span exporter, so ui_rpc::tests can assert a request's spans share

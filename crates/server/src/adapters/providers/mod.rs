@@ -3,5 +3,4 @@
 pub mod github_pr;
 pub mod linear;
 pub mod slack;
-pub mod telegram;
 pub mod webhook;

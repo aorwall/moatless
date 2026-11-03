@@ -47,8 +47,7 @@ pub struct SendArgs {
     #[arg(long, requires = "to")]
     pub rich: Option<String>,
 
-    /// Adapter selector. For `--user`: provider ID type to look up (slack |
-    /// telegram). For `--to`: adapter kind to dispatch through.
+    /// Adapter selector. For `--user`: provider ID type to look up (slack). For `--to`: adapter kind to dispatch through.
     #[arg(long)]
     pub via: Option<String>,
 

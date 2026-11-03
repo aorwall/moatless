@@ -833,55 +833,6 @@ impl LoopDao {
     }
 
     // ---------------------------------------------------------------------
-    // Telegram pairing: adapter_config read-modify-write.
-    // ---------------------------------------------------------------------
-
-    /// The ids of every Loop `user_id` created. For a peer that keys its own
-    /// rows on `loop_id` and needs the owner filter without reading `loops`.
-    pub async fn ids_created_by(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
-        sqlx::query_scalar("SELECT id FROM loops WHERE created_by = $1")
-            .bind(user_id)
-            .fetch_all(&self.db)
-            .await
-    }
-
-    /// Read the `adapter_config` JSON for an adapter-event subscription.
-    /// Returns `Ok(None)` when the Loop has no adapter-event source row (the
-    /// outer `Option` is the `adapter_config` column, which is itself
-    /// nullable).
-    pub async fn get_adapter_config(
-        &self,
-        loop_id: &str,
-    ) -> Result<Option<serde_json::Value>, sqlx::Error> {
-        let row: Option<(Option<serde_json::Value>,)> =
-            sqlx::query_as("SELECT adapter_config FROM subscriptions WHERE loop_id = $1")
-                .bind(loop_id)
-                .fetch_optional(&self.db)
-                .await?;
-        Ok(row.and_then(|(config,)| config))
-    }
-
-    /// Overwrite the `adapter_config` JSON for an adapter-event subscription
-    /// and bump the Loop's `updated_at`, in one transaction.
-    pub async fn set_adapter_config(
-        &self,
-        loop_id: &str,
-        config: &serde_json::Value,
-    ) -> Result<(), sqlx::Error> {
-        let mut tx = self.db.begin().await?;
-        sqlx::query("UPDATE subscriptions SET adapter_config = $1 WHERE loop_id = $2")
-            .bind(config)
-            .bind(loop_id)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("UPDATE loops SET updated_at = now() WHERE id = $1")
-            .bind(loop_id)
-            .execute(&mut *tx)
-            .await?;
-        tx.commit().await
-    }
-
-    // ---------------------------------------------------------------------
     // Repository Loop reconciliation.
     // ---------------------------------------------------------------------
 

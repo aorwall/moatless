@@ -42,17 +42,10 @@ pub fn check(ws: &Workspace) -> Result<Vec<Violation>> {
         }
     }
     // This legacy restriction includes documentation and tests, not only compiled paths.
-    for name in [
-        "moatless-adapter-slack",
-        "moatless-adapter-webhook",
-        "moatless-adapter-telegram",
-    ] {
+    for name in ["moatless-adapter-slack", "moatless-adapter-webhook"] {
         if let Some(m) = ws.member(name) {
             for (file, text) in ws.sources(m)? {
-                if text.contains("moatless_loops")
-                    && !(name == "moatless-adapter-telegram"
-                        && file.ends_with("/src/pairing/approval.rs"))
-                {
+                if text.contains("moatless_loops") {
                     out.push(Violation::at(
                         RULE,
                         format!("{file} names moatless_loops"),

@@ -28,7 +28,6 @@ pub async fn list_adapters(State(state): State<AppState>) -> Json<Vec<String>> {
         .into_iter()
         .map(|t| match t {
             AdapterKind::Slack => "slack".to_string(),
-            AdapterKind::Telegram => "telegram".to_string(),
             AdapterKind::Github => "github".to_string(),
             AdapterKind::GithubPr => "github".to_string(),
             AdapterKind::Linear => "linear".to_string(),

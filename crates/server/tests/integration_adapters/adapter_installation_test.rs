@@ -14,7 +14,6 @@ use axum::extract::FromRef;
 use moatless_backend::adapters::providers::github_pr::adapter::GithubPrAdapter;
 use moatless_backend::adapters::providers::linear::adapter::LinearAdapter;
 use moatless_backend::adapters::providers::slack::adapter::SlackAdapter;
-use moatless_backend::adapters::providers::telegram::adapter::TelegramAdapter;
 use moatless_types::adapter::AdapterKind;
 use sqlx::PgPool;
 
@@ -33,7 +32,6 @@ async fn installation_registers_capabilities_deliveries_and_handler_access(pool:
     for kind in [
         AdapterKind::Slack,
         AdapterKind::Webhook,
-        AdapterKind::Telegram,
         AdapterKind::GithubPr,
         AdapterKind::Linear,
     ] {
@@ -41,7 +39,6 @@ async fn installation_registers_capabilities_deliveries_and_handler_access(pool:
     }
 
     assert!(Option::<Arc<SlackAdapter>>::from_ref(&state).is_some());
-    assert!(Option::<Arc<TelegramAdapter>>::from_ref(&state).is_some());
     assert!(Option::<Arc<GithubPrAdapter>>::from_ref(&state).is_some());
     assert!(Option::<Arc<LinearAdapter>>::from_ref(&state).is_some());
 
@@ -65,7 +62,6 @@ async fn installation_registers_capabilities_deliveries_and_handler_access(pool:
             "linear.session_provision",
             "room.open",
             "slack.inbound_message",
-            "telegram.inbound_message",
             "webhook.inbound_message",
         ]
     );

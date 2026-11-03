@@ -38,9 +38,6 @@ pub struct HttpConfig {
     pub linear: HttpTimeouts,
     /// Slack's Web API. Prefix `SLACK`.
     pub slack: HttpTimeouts,
-    /// Telegram's Bot API; `getUpdates` sets a longer per-request bound over
-    /// this one. Prefix `TELEGRAM`.
-    pub telegram: HttpTimeouts,
     /// A webhook adapter's callback POST. Prefix `WEBHOOK`.
     pub webhook: HttpTimeouts,
     /// OIDC and Auth0 sign-in: discovery, token exchange and user info. Prefix
@@ -71,7 +68,6 @@ impl Default for HttpConfig {
             model_gateway: stream_timeouts(10, 600),
             linear: api,
             slack: api,
-            telegram: api,
             webhook: api,
             identity_provider: api,
             decision: api,
@@ -97,7 +93,6 @@ impl HttpConfig {
             model_gateway: read_stream(var, "MODEL_GATEWAY", d.model_gateway),
             linear: read(var, "LINEAR", d.linear),
             slack: read(var, "SLACK", d.slack),
-            telegram: read(var, "TELEGRAM", d.telegram),
             webhook: read(var, "WEBHOOK", d.webhook),
             identity_provider: read(var, "IDENTITY_PROVIDER", d.identity_provider),
             decision: read(var, "DECISION", d.decision),

@@ -265,8 +265,8 @@ never called a "provider".)
 ### Integrations
 
 **Adapter**:
-A pluggable external-system integration — Slack, Telegram, GitHub, GitHub PR,
-Linear, or Webhook. The integration type; each implements the `Adapter` trait.
+A pluggable external-system integration — Slack, GitHub, GitHub PR, Linear,
+or Webhook. The integration type; each implements the `Adapter` trait.
 _Avoid_: provider, integration (for the type)
 
 **Adapter connection**:
@@ -395,8 +395,8 @@ _Avoid_: trigger source, adapter-event trigger, TaskTrigger, TaskRoute
 
 **Requester**:
 The Moatless user an Adapter verified wrote the event that opens a Task
-(`InboundMessage::requester`): a mapped Slack sender, a connected Telegram
-account, a Linear session's creator. Recorded as the Task's Reporter.
+(`InboundMessage::requester`): a mapped Slack sender, a Linear session's
+creator. Recorded as the Task's Reporter.
 When the Loop runs as a bot, or its Workspace sets a run-as user, the Task is
 owned by them: its commits credit them as
 co-author, and its git-host token is capped by their own connection and

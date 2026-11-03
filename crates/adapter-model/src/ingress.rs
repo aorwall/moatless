@@ -87,9 +87,8 @@ pub enum IngressError {
     /// Everything the ingress path itself rejected or failed on: a missing
     /// header, unparseable body, refused signature, or database read.
     ///
-    /// Deliberately not `#[from]`: an inferred `?` here would wedge Telegram's
-    /// poller on one update, holding its offset back and blocking the queue
-    /// behind it. Every construction is written out instead.
+    /// Not `#[from]`: every construction is written out, so an ingress
+    /// failure is never turned into this arm by an inferred `?`.
     #[error(transparent)]
     Ingress(AdapterError),
 }

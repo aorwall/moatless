@@ -1,6 +1,6 @@
 //! Capability-matrix tests for the adapter registry.
 //!
-//! These build the five concrete providers, which live in this crate above the
+//! These build the four concrete providers, which live in this crate above the
 //! loops band, so they cannot live in the Adapter kernel alongside the registry
 //! itself. They call the registry's capability accessors directly, which is
 //! what makes the assertion worth something: the lookup under test is the
@@ -23,13 +23,6 @@ fn registry_with_all_current_adapters() -> Adapters {
             "slack-secret",
             Some("U_BOT".to_string()),
             moatless_core::config::HttpConfig::default().slack,
-        ),
-    )
-    .register_into(&mut providers);
-    Arc::new(
-        crate::adapters::providers::telegram::adapter::TelegramAdapter::new(
-            "telegram-token",
-            moatless_core::config::HttpConfig::default().telegram,
         ),
     )
     .register_into(&mut providers);
@@ -68,7 +61,6 @@ async fn registry_exposes_expected_capability_slots_for_current_adapters() {
 
     for kind in [
         AdapterKind::Slack,
-        AdapterKind::Telegram,
         AdapterKind::GithubPr,
         AdapterKind::Linear,
     ] {
@@ -98,11 +90,7 @@ async fn registry_exposes_expected_capability_slots_for_current_adapters() {
             .is_ok()
     );
 
-    for kind in [
-        AdapterKind::Slack,
-        AdapterKind::Telegram,
-        AdapterKind::GithubPr,
-    ] {
+    for kind in [AdapterKind::Slack, AdapterKind::GithubPr] {
         assert!(providers.reactions(kind).is_ok(), "{kind:?} reactions");
         assert!(
             providers
@@ -146,11 +134,6 @@ async fn registry_exposes_expected_capability_slots_for_current_adapters() {
     );
     assert!(
         providers
-            .outbound_for_direct_destination(AdapterKind::Telegram)
-            .is_err()
-    );
-    assert!(
-        providers
             .outbound_for_direct_destination(AdapterKind::Webhook)
             .is_err()
     );
@@ -162,11 +145,6 @@ async fn registry_exposes_expected_capability_slots_for_current_adapters() {
     assert!(
         providers
             .outbound_for_direct_message(AdapterKind::Linear)
-            .is_err()
-    );
-    assert!(
-        providers
-            .outbound_for_direct_message(AdapterKind::Telegram)
             .is_err()
     );
     assert!(
@@ -198,11 +176,6 @@ async fn registry_exposes_expected_capability_slots_for_current_adapters() {
     );
     assert!(
         providers
-            .binding_status_by_name(AdapterKind::Telegram.as_str())
-            .is_none()
-    );
-    assert!(
-        providers
             .binding_status_by_name(AdapterKind::Webhook.as_str())
             .is_none()
     );
@@ -217,9 +190,8 @@ async fn registry_exposes_expected_capability_slots_for_current_adapters() {
 async fn direct_message_registration_requires_direct_destination_send() {
     let providers = registry_with_all_current_adapters();
 
-    const ALL: [AdapterKind; 6] = [
+    const ALL: [AdapterKind; 5] = [
         AdapterKind::Slack,
-        AdapterKind::Telegram,
         AdapterKind::Github,
         AdapterKind::GithubPr,
         AdapterKind::Linear,
@@ -231,7 +203,6 @@ async fn direct_message_registration_requires_direct_destination_send() {
     fn known_kind(kind: AdapterKind) -> bool {
         match kind {
             AdapterKind::Slack
-            | AdapterKind::Telegram
             | AdapterKind::Github
             | AdapterKind::GithubPr
             | AdapterKind::Linear

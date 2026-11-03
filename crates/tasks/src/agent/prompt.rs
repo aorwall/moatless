@@ -100,7 +100,7 @@ const SANDBOX_TOOLS_PROMPT: &str = "\
 User messages from an external channel carry a header so you can tell where they
 came from and respond appropriately.
 
-## External (message originated from an adapter — Slack, Telegram, Linear, GitHub PR)
+## External (message originated from an adapter — Slack, Linear, GitHub PR)
 
 ```
 <message_id>msg_abc123</message_id>
@@ -117,7 +117,6 @@ moat messages reply --message msg_abc123 --text \"…\"
 
 The backend routes the reply to the right surface based on `<source>`:
 - `slack` → reply in the same Slack thread
-- `telegram` → reply on the same Telegram message
 - `linear` → comment on the same Linear issue
 - `github_pr` → threaded review-comment reply (or top-level PR comment for
   conversation comments)

@@ -35,7 +35,7 @@ pub(super) struct WebhookRequest<'a> {
 /// thing Slack answers that no other Adapter has.
 ///
 /// Kept out of the shared enum: putting Slack's endpoint-check challenge there
-/// would add an arm no GitHub, Linear, or Telegram delivery can ever reach.
+/// would add an arm no GitHub, Linear, or Webhook delivery can ever reach.
 pub(super) enum Received {
     /// Slack's endpoint check: answer with the challenge string it sent.
     Challenge(String),

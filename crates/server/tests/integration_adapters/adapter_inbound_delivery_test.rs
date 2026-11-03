@@ -5,7 +5,7 @@
     clippy::print_stdout,
     clippy::print_stderr
 )]
-//! DB-backed tests for Slack and Telegram inbound routing on the durable
+//! DB-backed tests for Slack and Webhook inbound routing on the durable
 //! Adapter delivery seam.
 //!
 //! These drive the seam at the highest point reachable without a live chat
@@ -28,7 +28,7 @@ use moatless_backend::state::AppState;
 use common::{test_app_state_with_adapters, test_config};
 
 const SLACK_KIND: &str = "slack.inbound_message";
-const TELEGRAM_KIND: &str = "telegram.inbound_message";
+const WEBHOOK_KIND: &str = "webhook.inbound_message";
 
 /// The payload shape the webhook handlers write, spelled out rather than built
 /// from the private struct: it is a wire contract between two processes and a
@@ -178,33 +178,6 @@ async fn a_redelivered_slack_event_admits_one_unit_of_work(pool: PgPool) {
     );
 }
 
-/// The Telegram half of the same property. `update_id` is Telegram's delivery
-/// id and survives a re-delivery, which is why it is the admission key.
-#[sqlx::test]
-async fn a_redelivered_telegram_update_admits_one_unit_of_work(pool: PgPool) {
-    let state = test_app_state_with_adapters(pool.clone(), test_config());
-    let work = payload("pc_telegram", "tt_telegram", "telegram");
-
-    assert_eq!(
-        state
-            .adapter_delivery
-            .admit(request("telegram", TELEGRAM_KIND, "90210", work.clone()))
-            .await
-            .unwrap(),
-        Admission::Admitted
-    );
-    assert_eq!(
-        state
-            .adapter_delivery
-            .admit(request("telegram", TELEGRAM_KIND, "90210", work))
-            .await
-            .unwrap(),
-        Admission::Duplicate
-    );
-
-    assert_eq!(count(&pool, TELEGRAM_KIND, "90210").await, 1);
-}
-
 /// A trigger deleted between admission and execution ends the record on its
 /// first attempt: no retry can bring the row back, and the record has to say so
 /// rather than fail silently seven more times.
@@ -253,7 +226,7 @@ async fn claims_left_by_a_killed_worker_are_recovered_for_both_providers(pool: P
 
     for (provider, kind, event_id, connection) in [
         ("slack", SLACK_KIND, "Ev-restart", "pc_slack"),
-        ("telegram", TELEGRAM_KIND, "70001", "pc_telegram"),
+        ("webhook", WEBHOOK_KIND, "70001", "pc_webhook"),
     ] {
         state
             .adapter_delivery
@@ -283,12 +256,12 @@ async fn claims_left_by_a_killed_worker_are_recovered_for_both_providers(pool: P
     run_worker_until_terminal(
         &state,
         &pool,
-        &[(SLACK_KIND, "Ev-restart"), (TELEGRAM_KIND, "70001")],
+        &[(SLACK_KIND, "Ev-restart"), (WEBHOOK_KIND, "70001")],
         Duration::from_secs(20),
     )
     .await;
 
-    for (kind, event_id) in [(SLACK_KIND, "Ev-restart"), (TELEGRAM_KIND, "70001")] {
+    for (kind, event_id) in [(SLACK_KIND, "Ev-restart"), (WEBHOOK_KIND, "70001")] {
         let (status, _, last_error) = record(&pool, kind, event_id).await;
         assert_eq!(status, "failed", "{kind} was recovered and executed");
         assert!(

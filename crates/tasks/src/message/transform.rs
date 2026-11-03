@@ -644,7 +644,7 @@ pub(crate) fn enrich_codex_typed_result(
 /// Render a stable external event id as a short human-readable label.
 ///
 /// Mirrors the prefix scheme produced by inbound adapters (`github:*`,
-/// `slack:ts:*`, `tg:m:*`); falls back to the raw value for legacy bare-int
+/// `slack:ts:*`); falls back to the raw value for legacy bare-int
 /// rows or unknown shapes.
 pub(crate) fn format_external_label(raw: &str) -> String {
     let parts: Vec<&str> = raw.split(':').collect();
@@ -659,7 +659,6 @@ pub(crate) fn format_external_label(raw: &str) -> String {
     match namespace {
         "github" => format_github_label(kind, rest, raw),
         "slack" if kind == "ts" && rest.len() == 1 => format!("ts {}", rest[0]),
-        "tg" if kind == "m" && rest.len() == 1 => format!("msg #{}", rest[0]),
         _ => raw.to_string(),
     }
 }
@@ -949,11 +948,6 @@ mod tests {
             format_external_label("slack:ts:1700000.000123"),
             "ts 1700000.000123",
         );
-    }
-
-    #[test]
-    fn format_external_label_telegram() {
-        assert_eq!(format_external_label("tg:m:789"), "msg #789");
     }
 
     #[test]

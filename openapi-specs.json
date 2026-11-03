@@ -1284,29 +1284,6 @@
         }
       }
     },
-    "/api/v1/adapters/telegram/webhook": {
-      "post": {
-        "tags": [
-          "adapters"
-        ],
-        "operationId": "telegram_webhook",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Webhook processed"
-          }
-        }
-      }
-    },
     "/api/v1/adapters/webhook/{loop_id}": {
       "post": {
         "tags": [
@@ -11018,7 +10995,6 @@
         "description": "Canonical external adapter identifier.",
         "enum": [
           "slack",
-          "telegram",
           "github",
           "github_pr",
           "linear",
@@ -16563,7 +16539,7 @@
           },
           "provider": {
             "type": "string",
-            "description": "The `{provider}` path segment: `forgejo`, `slack`, `telegram`, `linear`."
+            "description": "The `{provider}` path segment: `forgejo`, `slack`, `linear`."
           }
         }
       },

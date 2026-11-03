@@ -7,12 +7,9 @@
  */
 import type { SaveLinearAdapterAppRequest } from './saveLinearAdapterAppRequest';
 import type { SaveSlackAdapterAppRequest } from './saveSlackAdapterAppRequest';
-import type { SaveTelegramAdapterAppRequest } from './saveTelegramAdapterAppRequest';
 
 export type SaveAdapterAppRequest = SaveSlackAdapterAppRequest & {
   adapterKind: 'slack';
-} | SaveTelegramAdapterAppRequest & {
-  adapterKind: 'telegram';
 } | SaveLinearAdapterAppRequest & {
   adapterKind: 'linear';
 };

@@ -3,7 +3,7 @@
 //!
 //! States whether a source may reach the agent, when an allowed source triggers
 //! a run, and what a single check decided. Used by the chat providers
-//! (Telegram, Slack, and future ones) that gate inbound traffic per source.
+//! (Slack, and future ones) that gate inbound traffic per source.
 
 use crate::error::AdapterError;
 use moatless_types::access_control::{

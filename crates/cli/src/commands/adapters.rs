@@ -213,7 +213,7 @@ pub async fn run_bindings(
 pub(crate) fn parse_adapter_kind(value: &str) -> Result<AdapterKind, ClientError> {
     AdapterKind::parse(value).ok_or_else(|| {
         ClientError::Other(format!(
-            "Invalid adapter '{value}'. Expected slack, telegram, github, linear, or webhook"
+            "Invalid adapter '{value}'. Expected slack, github, linear, or webhook"
         ))
     })
 }

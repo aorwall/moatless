@@ -584,36 +584,6 @@ impl fmt::Debug for SlackConfig {
     }
 }
 
-/// Telegram Bot API integration settings.
-///
-/// Implements a custom `Debug` to redact the bot token.
-#[derive(Clone)]
-pub struct TelegramConfig {
-    /// Telegram bot token from BotFather.
-    pub bot_token: Option<String>,
-    /// Ingress mode: "webhook" (default) or "polling".
-    pub mode: String,
-}
-
-#[allow(clippy::missing_fields_in_debug)]
-impl fmt::Debug for TelegramConfig {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("TelegramConfig")
-            .field("bot_token", &self.bot_token.as_ref().map(|_| "[REDACTED]"))
-            .field("mode", &self.mode)
-            .finish()
-    }
-}
-
-impl Default for TelegramConfig {
-    fn default() -> Self {
-        Self {
-            bot_token: None,
-            mode: "webhook".to_string(),
-        }
-    }
-}
-
 /// GitHub PR adapter settings.
 ///
 /// Implements a custom `Debug` to redact secrets.
@@ -812,7 +782,6 @@ pub struct Config {
     pub auth: AuthConfig,
     pub s3: S3Config,
     pub slack: SlackConfig,
-    pub telegram: TelegramConfig,
     pub github_pr: GithubPrConfig,
     /// GitHub REST API root, without a trailing `/`. `GITHUB_API_BASE_URL`
     /// overrides [`DEFAULT_GITHUB_API_BASE`], for an E2E mock server or a
@@ -1086,7 +1055,6 @@ impl Config {
             // Adapter app credentials load from `adapter_apps` after the DB is
             // up; see `moatless_server::compose::adapter_config`.
             slack: SlackConfig::default(),
-            telegram: TelegramConfig::default(),
 
             github_pr: GithubPrConfig {
                 webhook_secret: env_opt("GITHUB_CHANNEL_WEBHOOK_SECRET"),
@@ -1521,10 +1489,6 @@ impl Config {
                 bot_token: None,
                 signing_secret: None,
                 bot_user_id: None,
-            },
-            telegram: TelegramConfig {
-                bot_token: None,
-                mode: "webhook".into(),
             },
             github_pr: GithubPrConfig {
                 webhook_secret: None,

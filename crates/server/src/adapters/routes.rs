@@ -6,7 +6,7 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use axum::{Router, routing::post};
 
 use super::handlers;
-use super::providers::{github_pr, linear, slack, telegram, webhook};
+use super::providers::{github_pr, linear, slack, webhook};
 use crate::state::AppState;
 use moatless_loops::bindings;
 
@@ -34,7 +34,6 @@ use moatless_loops::bindings;
         bindings::handlers::add_message_reaction,
         bindings::handlers::remove_message_reaction,
         slack::handlers::slack_webhook,
-        telegram::handlers::telegram_webhook,
         github_pr::handlers::github_webhook,
         github_pr::api_routes::create_pr,
         github_pr::api_routes::post_comment,
@@ -77,7 +76,6 @@ pub fn adapter_router(state: AppState) -> (axum::Router, utoipa::openapi::OpenAp
         .routes(routes!(bindings::handlers::add_message_reaction))
         .routes(routes!(bindings::handlers::remove_message_reaction))
         .routes(routes!(slack::handlers::slack_webhook))
-        .routes(routes!(telegram::handlers::telegram_webhook))
         .routes(routes!(github_pr::handlers::github_webhook))
         .routes(routes!(github_pr::api_routes::create_pr))
         .routes(routes!(github_pr::api_routes::post_comment))
@@ -110,10 +108,6 @@ fn legacy_webhook_router(state: AppState) -> Router {
         .route(
             "/api/v1/channels/slack/webhook",
             post(slack::handlers::slack_webhook),
-        )
-        .route(
-            "/api/v1/channels/telegram/webhook",
-            post(telegram::handlers::telegram_webhook),
         )
         .route(
             "/api/v1/channels/github/webhook",

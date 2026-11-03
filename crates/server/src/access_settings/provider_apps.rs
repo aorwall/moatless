@@ -35,7 +35,6 @@ pub struct ProviderApps {
 
 pub const FORGEJO: &str = moatless_types::git_host::RepositoryProvider::Forgejo.as_str();
 pub const SLACK: &str = moatless_adapter_slack::delivery::ADAPTER;
-pub const TELEGRAM: &str = moatless_adapter_telegram::delivery::ADAPTER;
 pub const LINEAR: &str = moatless_adapter_linear::delivery::ADAPTER;
 
 /// A [`ProviderAppSpec`] before the deployment's own URLs are filled into it.
@@ -121,30 +120,6 @@ const SPECS: &[SpecEntry] = &[
                 stored_as: "bot_user_id",
                 label: "Bot user ID",
                 description: "The bot's own 'U...' id, so its own messages are ignored.",
-                secret: false,
-                required: false,
-            },
-        ],
-    },
-    SpecEntry {
-        provider: TELEGRAM,
-        display_name: "Telegram",
-        key_label: "app key",
-        key_description: "Only 'default' is supported.",
-        fields: &[
-            FieldEntry {
-                name: "botToken",
-                stored_as: "bot_token",
-                label: "Bot token",
-                description: "The token BotFather issued.",
-                secret: true,
-                required: true,
-            },
-            FieldEntry {
-                name: "mode",
-                stored_as: "mode",
-                label: "Mode",
-                description: "'webhook' or 'polling'. Defaults to 'webhook'.",
                 secret: false,
                 required: false,
             },
@@ -488,10 +463,6 @@ fn adapter_save(
             signing_secret: required(fields, "signingSecret")?,
             bot_user_id: fields.get("botUserId").cloned(),
         }),
-        TELEGRAM => Ok(AdapterAppSave::Telegram {
-            bot_token: required(fields, "botToken")?,
-            mode: fields.get("mode").cloned(),
-        }),
         LINEAR => Ok(AdapterAppSave::Linear {
             webhook_secret: fields.get("webhookSecret").cloned(),
             oauth_client_id: fields.get("oauthClientId").cloned(),
@@ -602,20 +573,12 @@ mod tests {
 
     #[test]
     fn every_spec_field_maps_to_its_adapter_app_save_variant() {
-        for provider in [SLACK, TELEGRAM, LINEAR] {
+        for provider in [SLACK, LINEAR] {
             let spec = spec_for(provider);
             let given = spec
                 .fields
                 .iter()
-                .map(|field| {
-                    // `adapter_app_input` checks Telegram's mode against its two
-                    // legal values, so this one field takes a real one.
-                    let value = match field.name.as_str() {
-                        "mode" => "webhook".to_string(),
-                        name => format!("value-of-{name}"),
-                    };
-                    (field.name.clone(), value)
-                })
+                .map(|field| (field.name.clone(), format!("value-of-{}", field.name)))
                 .collect::<BTreeMap<_, _>>();
 
             let checked = validate(&spec, given.clone()).expect("every field is its own");

@@ -14,7 +14,6 @@ export type AdapterKind = typeof AdapterKind[keyof typeof AdapterKind];
 
 export const AdapterKind = {
   slack: 'slack',
-  telegram: 'telegram',
   github: 'github',
   github_pr: 'github_pr',
   linear: 'linear',

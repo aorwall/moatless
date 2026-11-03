@@ -438,10 +438,12 @@ pub const CONCERNS: &[Concern] = &[
         tables: &["adapter_event_receipts", "adapter_task_creation_claims"],
         slice: 15,
     },
+    // No root: the Telegram Adapter that queried it is gone and the table
+    // waits for a drop; see `docs/deferred-changes.md`.
     Concern {
-        name: "telegram pairing",
-        owner: "moatless-adapter-telegram",
-        roots: &["crates/adapter-telegram/src/pairing/dao"],
+        name: "retired telegram pairing",
+        owner: "moatless-loops",
+        roots: &[],
         tables: &["integration_pairing_requests"],
         slice: 15,
     },

@@ -626,7 +626,6 @@ mod tests {
     fn exempt_webhook_routes() {
         assert!(is_exempt("/api/v1/adapters/slack/webhook"));
         assert!(is_exempt("/api/v1/adapters/slack/webhook/"));
-        assert!(is_exempt("/api/v1/adapters/telegram/webhook"));
         assert!(is_exempt("/api/v1/adapters/github/webhook"));
         assert!(is_exempt("/api/v1/adapters/linear/webhook"));
         assert!(is_exempt("/api/v1/adapters/webhook/trigger-123"));

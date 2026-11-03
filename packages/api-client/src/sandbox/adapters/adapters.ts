@@ -30,7 +30,6 @@ import type {
   AdapterSendResponse,
   CreateAdapterConnectionRequest,
   ErrorBody,
-  TelegramWebhookBody,
   WebhookAccepted,
   WebhookPayload
 } from '../model';
@@ -961,129 +960,6 @@ export const prefetchSlackWebhookQuery = async <TData = Awaited<ReturnType<typeo
   ): Promise<QueryClient> => {
 
   const queryOptions = getSlackWebhookQueryOptions(slackWebhookBody,options)
-
-  await queryClient.prefetchQuery(queryOptions);
-
-  return queryClient;
-}
-
-
-
-
-
-export type telegramWebhookResponse200 = {
-  data: void
-  status: 200
-}
-
-export type telegramWebhookResponseSuccess = (telegramWebhookResponse200) & {
-  headers: Headers;
-};
-;
-
-export type telegramWebhookResponse = (telegramWebhookResponseSuccess)
-
-export const getTelegramWebhookUrl = () => {
-
-
-
-
-  return `/api/v1/adapters/telegram/webhook`
-}
-
-export const telegramWebhook = async (telegramWebhookBody: TelegramWebhookBody, options?: Parameters<typeof customInstance>[1]): Promise<telegramWebhookResponse> => {
-
-    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
-    if (!h) return {};
-    if (h instanceof Headers) return Object.fromEntries(h.entries());
-    if (Array.isArray(h)) return Object.fromEntries(h);
-    return h;
-  };
-return customInstance<telegramWebhookResponse>(getTelegramWebhookUrl(),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(telegramWebhookBody)
-  }
-);}
-
-
-
-
-
-export const getTelegramWebhookQueryKey = (telegramWebhookBody?: TelegramWebhookBody,) => {
-    return [
-    'POST', `/api/v1/adapters/telegram/webhook`, telegramWebhookBody
-    ] as const;
-    }
-
-
-export const getTelegramWebhookQueryOptions = <TData = Awaited<ReturnType<typeof telegramWebhook>>, TError = ErrorType<unknown>>(telegramWebhookBody: TelegramWebhookBody, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof telegramWebhook>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
-) => {
-
-const {query: queryOptions, request: requestOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getTelegramWebhookQueryKey(telegramWebhookBody);
-
-
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof telegramWebhook>>> = ({ signal }) => telegramWebhook(telegramWebhookBody, { signal, ...requestOptions });
-
-
-
-
-
-   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof telegramWebhook>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
-}
-
-export type TelegramWebhookQueryResult = NonNullable<Awaited<ReturnType<typeof telegramWebhook>>>
-export type TelegramWebhookQueryError = ErrorType<unknown>
-
-
-export function useTelegramWebhook<TData = Awaited<ReturnType<typeof telegramWebhook>>, TError = ErrorType<unknown>>(
- telegramWebhookBody: TelegramWebhookBody, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof telegramWebhook>>, TError, TData>> & Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof telegramWebhook>>,
-          TError,
-          Awaited<ReturnType<typeof telegramWebhook>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
-  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useTelegramWebhook<TData = Awaited<ReturnType<typeof telegramWebhook>>, TError = ErrorType<unknown>>(
- telegramWebhookBody: TelegramWebhookBody, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof telegramWebhook>>, TError, TData>> & Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof telegramWebhook>>,
-          TError,
-          Awaited<ReturnType<typeof telegramWebhook>>
-        > , 'initialData'
-      >, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useTelegramWebhook<TData = Awaited<ReturnType<typeof telegramWebhook>>, TError = ErrorType<unknown>>(
- telegramWebhookBody: TelegramWebhookBody, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof telegramWebhook>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-
-export function useTelegramWebhook<TData = Awaited<ReturnType<typeof telegramWebhook>>, TError = ErrorType<unknown>>(
- telegramWebhookBody: TelegramWebhookBody, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof telegramWebhook>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient
- ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
-
-  const queryOptions = getTelegramWebhookQueryOptions(telegramWebhookBody,options)
-
-  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  return withQueryKey(query, queryOptions.queryKey);
-}
-
-export const prefetchTelegramWebhookQuery = async <TData = Awaited<ReturnType<typeof telegramWebhook>>, TError = ErrorType<unknown>>(
- queryClient: QueryClient, telegramWebhookBody: TelegramWebhookBody, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof telegramWebhook>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
-
-  ): Promise<QueryClient> => {
-
-  const queryOptions = getTelegramWebhookQueryOptions(telegramWebhookBody,options)
 
   await queryClient.prefetchQuery(queryOptions);
 

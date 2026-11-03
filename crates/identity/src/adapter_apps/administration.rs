@@ -22,10 +22,6 @@ pub enum AdapterAppSave {
         signing_secret: String,
         bot_user_id: Option<String>,
     },
-    Telegram {
-        bot_token: String,
-        mode: Option<String>,
-    },
     Linear {
         webhook_secret: Option<String>,
         oauth_client_id: Option<String>,
@@ -550,27 +546,6 @@ pub fn adapter_app_input(
                 ],
             })
         }
-        AdapterAppSave::Telegram { bot_token, mode } => {
-            if adapter_kind != "telegram" {
-                return Err(mismatch());
-            }
-            let mode = mode.unwrap_or_else(|| "webhook".to_string());
-            if mode != "webhook" && mode != "polling" {
-                return Err(AppAdministrationError::BadRequest(
-                    "Telegram mode must be 'webhook' or 'polling'".to_string(),
-                ));
-            }
-            Ok(AdapterAppInput {
-                adapter_kind: "telegram",
-                app_key: app_key.to_string(),
-                display_name: "Telegram".to_string(),
-                config_json: serde_json::json!({ "mode": mode }),
-                secrets: vec![AdapterAppSecretInput {
-                    name: "bot_token",
-                    plaintext: bot_token,
-                }],
-            })
-        }
         AdapterAppSave::Linear {
             webhook_secret,
             oauth_client_id,
@@ -673,11 +648,12 @@ mod tests {
         assert!(matches!(
             administration
                 .save_adapter_app(
-                    "telegram",
+                    "slack",
                     "default",
-                    AdapterAppSave::Telegram {
+                    AdapterAppSave::Slack {
                         bot_token: "token".into(),
-                        mode: None
+                        signing_secret: "secret".into(),
+                        bot_user_id: None
                     },
                     &ctx
                 )
@@ -686,7 +662,7 @@ mod tests {
         ));
         assert!(matches!(
             administration
-                .delete_adapter_app(&ctx, "telegram", "default")
+                .delete_adapter_app(&ctx, "slack", "default")
                 .await,
             Err(AppAdministrationError::Forbidden(_))
         ));

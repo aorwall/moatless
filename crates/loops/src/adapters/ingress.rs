@@ -28,12 +28,12 @@ mod tests {
     /// Every `receive` shares this `?` step, so the class must survive rather
     /// than arrive pre-flattened; a helper that flattens it again fails here
     /// instead of silently downgrading an unwritten delivery into one the
-    /// poller retries forever.
+    /// sender retries forever.
     #[tokio::test]
     async fn a_refused_admission_reaches_receive_as_not_admitted() {
         let request = AdapterDeliveryRequest {
-            adapter: "telegram",
-            kind: "telegram.inbound_message",
+            adapter: "webhook",
+            kind: "webhook.inbound_message",
             event_id: "1".into(),
             payload: serde_json::json!({}),
         };

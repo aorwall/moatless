@@ -143,8 +143,8 @@ pub(super) enum SharedCommands {
         #[command(subcommand)]
         action: commands::github_apps::GitHubAppAction,
     },
-    /// Provider app administration — register the Forgejo, Slack, Telegram and
-    /// Linear credentials this deployment connects with.
+    /// Provider app administration — register the Forgejo, Slack and Linear
+    /// credentials this deployment connects with.
     App {
         #[command(subcommand)]
         action: commands::provider_apps::ProviderAppAction,

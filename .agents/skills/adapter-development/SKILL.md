@@ -12,7 +12,7 @@ the nearest crate's AGENTS.md, and [the domain glossary](../../../CONTEXT.md) be
 
 | Responsibility | Owner |
 |---|---|
-| Sender-specific behavior | `crates/adapter-{github-pr,slack,telegram,linear,webhook}/src` |
+| Sender-specific behavior | `crates/adapter-{github-pr,slack,linear,webhook}/src` |
 | Capability traits, registry, durable-delivery contracts | `crates/adapter-model/src` |
 | Delivery worker, binding routing, subscriptions | `crates/loops/src/adapters` and `crates/loops/src/bindings` |
 | Provider composition | [adapter_installations.rs](../../../crates/server/src/adapter_installations.rs) |

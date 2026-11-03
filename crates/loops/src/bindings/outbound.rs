@@ -282,7 +282,7 @@ impl OutboundSender {
         task_id: &str,
         rule: Option<&SubscriptionMatch>,
     ) -> Option<TaskProvenance> {
-        if !matches!(adapter_kind, AdapterKind::Slack | AdapterKind::Telegram) {
+        if adapter_kind != AdapterKind::Slack {
             return None;
         }
         let base = self.auth_config.frontend_url.trim_end_matches('/');
@@ -462,7 +462,7 @@ mod tests {
         TaskBinding {
             id: "tb_1".into(),
             task_id: "task-1".into(),
-            adapter_kind: moatless_types::adapter::AdapterKind::Telegram,
+            adapter_kind: moatless_types::adapter::AdapterKind::Slack,
             subject_kind: "thread".into(),
             subject_key: "subject-1".into(),
             connection_id: "conn-1".into(),

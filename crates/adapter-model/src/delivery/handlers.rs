@@ -79,11 +79,11 @@ mod tests {
     fn registered_kinds_are_the_kinds_the_worker_claims() {
         let mut handlers = AdapterDeliveryHandlers::new();
         handlers.register("slack.inbound_message", Arc::new(Noop));
-        handlers.register("telegram.inbound_message", Arc::new(Noop));
+        handlers.register("webhook.inbound_message", Arc::new(Noop));
 
         let mut kinds = handlers.kinds();
         kinds.sort_unstable();
-        assert_eq!(kinds, ["slack.inbound_message", "telegram.inbound_message"]);
+        assert_eq!(kinds, ["slack.inbound_message", "webhook.inbound_message"]);
         assert!(handlers.get("slack.inbound_message").is_some());
         assert!(handlers.get("github.pr_message").is_none());
     }

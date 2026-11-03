@@ -4,7 +4,7 @@
 //! The backend is the composition root and reaches this crate through the
 //! permanent facades `crate::adapters`, `crate::bindings` and `crate::loops`,
 //! so callers keep naming those paths unchanged. The concrete providers
-//! (`github_pr`, `slack`, `telegram`, `linear`, `webhook`) and the
+//! (`github_pr`, `slack`, `linear`, `webhook`) and the
 //! `AppState`-taking `handlers`/`routes` register into it from the root above.
 
 // Allow unwrap/expect in test code — production code still enforces the deny.

@@ -13,7 +13,6 @@ crate::string_enum!(
     /// Canonical external adapter identifier.
     AdapterKind [Hash] {
         Slack => "slack",
-        Telegram => "telegram",
         Github => "github",
         GithubPr => "github_pr",
         Linear => "linear",
@@ -25,7 +24,6 @@ impl AdapterKind {
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "slack" => Some(Self::Slack),
-            "telegram" => Some(Self::Telegram),
             "github" => Some(Self::Github),
             "github_pr" => Some(Self::GithubPr),
             "linear" => Some(Self::Linear),
@@ -127,7 +125,7 @@ pub struct InboundMessage {
     pub thread_properties: serde_json::Value,
     /// Adapter-specific context.
     pub adapter_context: serde_json::Value,
-    /// External message ID for dedup (e.g., Slack `ts`, Telegram `message_id`).
+    /// External message ID for dedup (e.g., Slack `ts`).
     /// Must be unique per message — NOT the thread ID.
     pub external_event_id: Option<String>,
     /// Source task id when the event was authored by a moatless task (parsed

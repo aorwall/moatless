@@ -124,28 +124,6 @@ impl Loops {
             .ok_or_else(|| SharedAdapterError::NotFound(format!("Loop {id} not found")).into())
     }
 
-    /// The Loops a user created, for an owner filter another domain applies.
-    pub async fn ids_created_by(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
-        self.store.ids_created_by(user_id).await
-    }
-
-    /// A Loop's adapter-specific configuration blob.
-    pub async fn adapter_config(
-        &self,
-        loop_id: &str,
-    ) -> Result<Option<serde_json::Value>, sqlx::Error> {
-        self.store.get_adapter_config(loop_id).await
-    }
-
-    /// Replace a Loop's adapter-specific configuration blob.
-    pub async fn set_adapter_config(
-        &self,
-        loop_id: &str,
-        config: &serde_json::Value,
-    ) -> Result<(), sqlx::Error> {
-        self.store.set_adapter_config(loop_id, config).await
-    }
-
     /// Restore one Git-owned Loop to its declaration, undoing an override.
     pub async fn reset_managed_loop(&self, input: &ManagedLoopUpsert) -> Result<bool, sqlx::Error> {
         self.store.reset_managed_loop(input).await

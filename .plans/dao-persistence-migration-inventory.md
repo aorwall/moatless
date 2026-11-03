@@ -11,7 +11,6 @@ A consumer count is the number of `use` declarations naming the concern's module
 | Concern | Owner | Slice | Exports | Peer consumers |
 |---|---|---|---|---|
 | [adapter connections](#adapter-connections) | moatless-adapter-model | 02 | 0 | 0 |
-| [telegram pairing](#telegram-pairing) | moatless-adapter-telegram | 15 | 0 | 0 |
 | [file metadata](#file-metadata) | moatless-core | 01 | 0 | 0 |
 | [conversation feed](#conversation-feed) | moatless-core | 01 | 9 | 7 |
 | [events feed](#events-feed) | moatless-core | 01 | 7 | 6 |
@@ -36,6 +35,7 @@ A consumer count is the number of `use` declarations naming the concern's module
 | [inbound message buffer](#inbound-message-buffer) | moatless-loops | 14 | 0 | 0 |
 | [adapter delivery](#adapter-delivery) | moatless-loops | 15 | 0 | 0 |
 | [firing receipts](#firing-receipts) | moatless-loops | 15 | 0 | 0 |
+| [retired telegram pairing](#retired-telegram-pairing) | moatless-loops | 15 | 0 | 0 |
 | [sandbox lifecycle](#sandbox-lifecycle) | moatless-sandbox-control | 16 | 0 | 0 |
 | [t3 conversation projection](#t3-conversation-projection) | moatless-t3code | 17 | 0 | 0 |
 | [task graph](#task-graph) | moatless-tasks | 09 | 0 | 0 |
@@ -67,17 +67,6 @@ A consumer count is the number of `use` declarations naming the concern's module
 - **Closing slice:** 02
 - **Persistence roots:** `crates/adapter-model/src/connections/dao.rs`, `crates/adapter-model/src/connections/dao/postgres.rs`, `crates/adapter-model/src/connections/dao/row.rs`
 - **Owning tables:** `adapter_connections`
-- **Exports:** none
-- **Constructors:** none
-- **Peer consumers:** none
-- **Test-only consumers:** none
-
-## telegram pairing
-
-- **Owner:** moatless-adapter-telegram
-- **Closing slice:** 15
-- **Persistence roots:** `crates/adapter-telegram/src/pairing/dao.rs`
-- **Owning tables:** `integration_pairing_requests`
 - **Exports:** none
 - **Constructors:** none
 - **Peer consumers:** none
@@ -347,6 +336,17 @@ A consumer count is the number of `use` declarations naming the concern's module
 - **Peer consumers:** none
 - **Test-only consumers:** none
 
+## retired telegram pairing
+
+- **Owner:** moatless-loops
+- **Closing slice:** 15
+- **Persistence roots:** none
+- **Owning tables:** `integration_pairing_requests`
+- **Exports:** none
+- **Constructors:** none
+- **Peer consumers:** none
+- **Test-only consumers:** none
+
 ## sandbox lifecycle
 
 - **Owner:** moatless-sandbox-control
@@ -406,8 +406,8 @@ A consumer count is the number of `use` declarations naming the concern's module
 
 - **Owner:** moatless-tasks
 - **Closing slice:** 09
-- **Persistence roots:** `crates/tasks/src/task/fork_dao.rs`
-- **Owning tables:** `task_forks`
+- **Persistence roots:** `crates/tasks/src/task/fork_dao.rs`, `crates/tasks/src/task/merge_back_dao.rs`, `crates/tasks/src/task/side_chat_dao.rs`
+- **Owning tables:** `task_forks`, `task_merge_backs`
 - **Exports:** none
 - **Constructors:** none
 - **Peer consumers:** none
@@ -418,7 +418,7 @@ A consumer count is the number of `use` declarations naming the concern's module
 - **Owner:** moatless-tasks
 - **Closing slice:** 09
 - **Persistence roots:** `crates/tasks/src/artifact/dao.rs`
-- **Owning tables:** `task_artifacts`
+- **Owning tables:** `task_artifacts`, `task_artifact_versions`
 - **Exports:** none
 - **Constructors:** none
 - **Peer consumers:** none

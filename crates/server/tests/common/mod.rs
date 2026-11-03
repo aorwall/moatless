@@ -207,32 +207,6 @@ pub async fn seed_linear_app(pool: &sqlx::PgPool, api_base_url: &str) {
     .expect("seed Linear adapter app");
 }
 
-/// The `adapter_apps` row every Telegram Bot API call resolves its client from.
-///
-/// The bot token is a secret, so this goes through
-/// `adapter_apps::upsert_adapter_app`; without it the ingress path turns a
-/// missing app into a `400` and refuses every delivery.
-#[allow(dead_code)]
-pub async fn seed_telegram_app(pool: &sqlx::PgPool, config: &Config, bot_token: &str) {
-    moatless_identity::adapter_apps::upsert_adapter_app(
-        pool,
-        &config.secrets,
-        moatless_identity::adapter_apps::AdapterAppInput {
-            adapter_kind: "telegram",
-            app_key: moatless_identity::adapter_apps::DEFAULT_APP_KEY.to_string(),
-            display_name: "Telegram (test)".to_string(),
-            config_json: serde_json::json!({ "mode": "webhook" }),
-            secrets: vec![moatless_identity::adapter_apps::AdapterAppSecretInput {
-                name: "bot_token",
-                plaintext: bot_token.to_string(),
-            }],
-        },
-        USER_1,
-    )
-    .await
-    .expect("seed Telegram adapter app");
-}
-
 /// Minimal Config for tests — no env vars needed.
 #[allow(dead_code)]
 pub fn test_config() -> Config {

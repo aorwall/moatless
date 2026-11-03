@@ -25,6 +25,6 @@ export interface ProviderAppSpec {
      * app key.
      */
   keyLabel: string;
-  /** The `{provider}` path segment: `forgejo`, `slack`, `telegram`, `linear`. */
+  /** The `{provider}` path segment: `forgejo`, `slack`, `linear`. */
   provider: string;
 }

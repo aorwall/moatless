@@ -110,13 +110,6 @@ spec:
                 name: {{ $fullname }}-backend
                 port:
                   number: 8080
-          - path: /api/v1/channels/telegram/webhook
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ $fullname }}-backend
-                port:
-                  number: 8080
           - path: /api/v1/adapters/linear/webhook
             pathType: Prefix
             backend:
