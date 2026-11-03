@@ -219,7 +219,7 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
         if let Some(ticket) = websocket_ticket(&req) {
             let Some(jwt_secret) = jwt::get_jwt_secret(&state.config) else {
                 warn!(path = %path, "Auth middleware: no JWT secret configured");
-                return unauthorized_response();
+                return unauthorized_response(&path, Credential::Invalid);
             };
             return match jwt::verify_ws_ticket_jwt(&ticket, jwt_secret) {
                 Ok(claims) => {
@@ -241,7 +241,7 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
                 }
                 Err(error) => {
                     warn!(error = %error, path = %path, "Auth middleware: invalid websocket ticket");
-                    unauthorized_response()
+                    unauthorized_response(&path, Credential::Invalid)
                 }
             };
         }
@@ -265,7 +265,7 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
                 Ok(Some(payload)) => {
                     let Ok(user_id) = payload.user_id.parse::<Uuid>() else {
                         warn!(path = %path, user_id = %payload.user_id, "Auth middleware: API key user_id is not a uuid");
-                        return unauthorized_response();
+                        return unauthorized_response(&path, Credential::Invalid);
                     };
                     debug!(user_id = %user_id, path = %path, "Auth middleware: API key valid");
                     // Stamp user_id onto the surrounding request-trace span so
@@ -286,11 +286,11 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
                 }
                 Ok(None) => {
                     warn!(path = %path, "Auth middleware: invalid API key");
-                    return unauthorized_response();
+                    return unauthorized_response(&path, Credential::Invalid);
                 }
                 Err(e) => {
                     warn!(error = %e, path = %path, "Auth middleware: API key validation error");
-                    return unauthorized_response();
+                    return unauthorized_response(&path, Credential::Invalid);
                 }
             }
         }
@@ -383,12 +383,22 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
         }
     }
 
+    let presented = !tokens.is_empty()
+        || req.headers().contains_key(header::AUTHORIZATION)
+        || req.headers().contains_key("x-user-token");
     if tokens.is_empty() {
         debug!(path = %path, "Auth middleware: no credentials provided");
     } else {
         warn!(path = %path, count = tokens.len(), "Auth middleware: all session cookies invalid/expired");
     }
-    unauthorized_response()
+    unauthorized_response(
+        &path,
+        if presented {
+            Credential::Invalid
+        } else {
+            Credential::Missing
+        },
+    )
 }
 
 fn is_unsafe(method: &Method) -> bool {
@@ -437,8 +447,43 @@ fn websocket_ticket(req: &Request<Body>) -> Option<String> {
     })
 }
 
+/// Whether a refused request presented a credential at all.
+#[derive(Clone, Copy)]
+enum Credential {
+    Missing,
+    Invalid,
+}
+
+/// The HTTP routes T3 Code's client calls, whose contract declares its own
+/// 401 body (`moatless_t3code::router`). `/api/v1/` is Moatless's API, not these.
+fn is_t3_http_path(path: &str) -> bool {
+    path.starts_with("/api/auth/")
+        || path.starts_with("/api/orchestration/")
+        || path.starts_with("/api/pull-requests/")
+}
+
 /// Build a 401 JSON response.
-fn unauthorized_response() -> Response {
+///
+/// On a T3 route the body is T3's `EnvironmentAuthInvalidError`: the client
+/// treats any other 401 body as the environment being unreachable and retries
+/// forever, rather than asking the person to pair again.
+fn unauthorized_response(path: &str, credential: Credential) -> Response {
+    if is_t3_http_path(path) {
+        let reason = match credential {
+            Credential::Missing => "missing_credential",
+            Credential::Invalid => "invalid_credential",
+        };
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({
+                "_tag": "EnvironmentAuthInvalidError",
+                "code": "auth_invalid",
+                "reason": reason,
+                "traceId": Uuid::new_v4().to_string(),
+            })),
+        )
+            .into_response();
+    }
     (
         StatusCode::UNAUTHORIZED,
         Json(ErrorBody {
@@ -613,5 +658,41 @@ mod tests {
         assert!(!is_exempt("/api/v1/repositories"));
         assert!(!is_exempt("/api/v1/messages"));
         assert!(!is_exempt("/api/v1/commands"));
+    }
+
+    async fn body_of(response: Response) -> serde_json::Value {
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_t3_route_is_refused_in_t3s_own_shape() {
+        let response = unauthorized_response("/api/auth/websocket-ticket/rpc", Credential::Invalid);
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        let body = body_of(response).await;
+        assert_eq!(body["_tag"], "EnvironmentAuthInvalidError");
+        assert_eq!(body["code"], "auth_invalid");
+        assert_eq!(body["reason"], "invalid_credential");
+        assert!(!body["traceId"].as_str().unwrap().is_empty());
+
+        let missing = body_of(unauthorized_response(
+            "/api/orchestration/shell",
+            Credential::Missing,
+        ))
+        .await;
+        assert_eq!(missing["reason"], "missing_credential");
+    }
+
+    #[tokio::test]
+    async fn a_moatless_route_keeps_its_error_body() {
+        let body = body_of(unauthorized_response(
+            "/api/v1/auth/me",
+            Credential::Invalid,
+        ))
+        .await;
+        assert_eq!(body["error"], "Authentication required");
+        assert!(body.get("_tag").is_none());
     }
 }
