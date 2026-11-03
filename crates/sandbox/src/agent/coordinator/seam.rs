@@ -1,8 +1,8 @@
 //! Maps one [`HarnessRuntime`]'s signal stream onto Run events and acknowledgements.
 //!
 //! Drives a fixed [`HarnessRuntime`] alone, never touching a Claude or Codex handle. A
-//! fresh Run id is minted per [`Signal::ExecutionStarted`] and stamped on every
-//! event and ack of that Run.
+//! fresh Run id is minted per execution or terminal configuration rejection and
+//! stamped on every event and ack of that Run.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -323,6 +323,25 @@ impl Coordinator {
                         // `is_some_and` above proved `original` is present.
                         if let Some(original) = original {
                             self.recover_lost_session(input, &original, &err).await;
+                        }
+                    }
+                    Rejection::Failed(err)
+                        if err.class == ErrorClass::InvalidConfiguration
+                            && err.session_impact == SessionImpact::Intact =>
+                    {
+                        if !self.hold_run_id {
+                            self.run_id = new_run_id();
+                        }
+                        self.hold_run_id = false;
+                        self.session_id = original
+                            .as_ref()
+                            .map(|input| stale_session_id(&input.resume))
+                            .unwrap_or_default();
+                        // Settle this batch against its error Run rather than
+                        // dropping the ack, which redelivers a permanent failure.
+                        self.publish_error(&err).await;
+                        if let Some(ack) = self.pending_acks.remove(&input) {
+                            self.send_run_ack(input, ack, "configuration rejection");
                         }
                     }
                     // No `ExecutionStarted` preceded this, so no Run was minted

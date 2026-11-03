@@ -67,11 +67,19 @@ const SERVER_OVERLOADED: i64 = -32001;
 
 /// A rejected request.
 ///
-/// `thread/resume` is the one method whose rejection says something about the
-/// Session itself (the thread could not be reopened), so it reports the Session
-/// lost rather than letting the coordinator retry against a thread that isn't
-/// there.
+/// A missing provider preserves the Session; other `thread/resume` rejections
+/// report it lost so the coordinator can recover an unavailable transcript.
 pub(super) fn classify_request_error(method: &str, error: &RpcError) -> HarnessError {
+    if matches!(error, RpcError::Rpc(info) if info.missing_model_provider().is_some()) {
+        return HarnessError::new(
+            FailureStage::Execution,
+            ErrorClass::InvalidConfiguration,
+            SessionImpact::Intact,
+            truncate_diagnostic(&format!(
+                "Restore the Codex model provider configuration or switch this task's agent profile, then send a new message. {method} failed: {error}"
+            )),
+        );
+    }
     let (class, impact) = match error {
         RpcError::Rpc(info) if info.code == SERVER_OVERLOADED => {
             (ErrorClass::RateLimit, SessionImpact::Intact)

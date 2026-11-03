@@ -13,11 +13,12 @@ use tracing::{info, warn};
 use crate::config::Config;
 
 use super::protocol::{
-    AskForApproval, ClientInfo, ErrorNotification, IncomingMessage, InitializeParams,
-    InitializeResponse, ItemNotification, JsonRpcErrorInfo, RequestId, SandboxMode, ThreadEnvelope,
-    ThreadForkParams, ThreadResumeParams, ThreadStartParams, ThreadTokenUsageUpdatedNotification,
-    TurnCompletedNotification, TurnInterruptParams, TurnPlanUpdatedNotification, TurnStartParams,
-    TurnStartResponse, TurnStartedNotification, TurnSteerParams, TurnSteerResponse, UserInput,
+    AskForApproval, ClientInfo, ConfigReadParams, ConfigReadResponse, ErrorNotification,
+    IncomingMessage, InitializeParams, InitializeResponse, ItemNotification, JsonRpcErrorInfo,
+    RequestId, SandboxMode, ThreadEnvelope, ThreadForkParams, ThreadResumeParams,
+    ThreadStartParams, ThreadTokenUsageUpdatedNotification, TurnCompletedNotification,
+    TurnInterruptParams, TurnPlanUpdatedNotification, TurnStartParams, TurnStartResponse,
+    TurnStartedNotification, TurnSteerParams, TurnSteerResponse, UserInput,
 };
 use crate::agent::options::build_prompt_append;
 use crate::agent::types::AgentRunRequest;
@@ -161,9 +162,38 @@ impl AppServerSession {
     /// forever.
     pub(crate) async fn resume_thread(
         &self,
-        params: ThreadResumeParams,
+        mut params: ThreadResumeParams,
     ) -> Result<String, RpcError> {
-        let value = self.rpc.request("thread/resume", params).await?;
+        let value = match self.rpc.request("thread/resume", &params).await {
+            // A transcoded rollout written after `initialize` has no provider.
+            // Retry that same thread with Codex's effective provider rather
+            // than starting fresh, which would discard its conversation.
+            Err(RpcError::Rpc(info))
+                if params.model_provider.is_none() && info.missing_model_provider() == Some("") =>
+            {
+                let value = self
+                    .rpc
+                    .request(
+                        "config/read",
+                        ConfigReadParams {
+                            cwd: params.cwd.clone(),
+                            include_layers: false,
+                        },
+                    )
+                    .await?;
+                let response: ConfigReadResponse = serde_json::from_value(value)?;
+                let Some(provider) = response
+                    .config
+                    .model_provider
+                    .filter(|p| !p.trim().is_empty())
+                else {
+                    return Err(RpcError::Rpc(info));
+                };
+                params.model_provider = Some(provider);
+                self.rpc.request("thread/resume", params).await?
+            }
+            result => result?,
+        };
         Ok(serde_json::from_value::<ThreadEnvelope>(value)?.thread.id)
     }
 
@@ -591,6 +621,7 @@ pub(crate) fn thread_resume_params(
         thread_id: thread_id.to_string(),
         cwd: Some(config.workspace_dir.clone()),
         model: Some(model.to_string()),
+        model_provider: None,
         sandbox: Some(SandboxMode::DangerFullAccess),
         approval_policy: Some(AskForApproval::Never),
         developer_instructions: Some(build_prompt_append(config, request)),
@@ -737,3 +768,11 @@ impl AppServerSession {
 #[cfg(test)]
 #[path = "tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "resume_tests.rs"]
+mod resume_tests;
+
+#[cfg(test)]
+#[path = "resume_e2e_tests.rs"]
+mod resume_e2e_tests;

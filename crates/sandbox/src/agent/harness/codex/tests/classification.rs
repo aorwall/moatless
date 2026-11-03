@@ -7,6 +7,32 @@ use super::fixtures::*;
 use super::*;
 
 #[test]
+fn missing_model_provider_is_actionable_configuration_error_without_session_loss() {
+    use crate::agent::codex_app_server::RpcError;
+    use crate::agent::codex_app_server::protocol::JsonRpcErrorInfo;
+    use crate::agent::harness::codex::classify::classify_request_error;
+
+    for provider in ["", "retired"] {
+        let error = RpcError::Rpc(JsonRpcErrorInfo {
+            code: -32600,
+            message: format!(
+                "This chat uses model provider {provider:?}, which is no longer configured."
+            ),
+            data: Some(json!({"type": "modelProviderNotConfigured", "modelProvider": provider})),
+        });
+        let classified = classify_request_error("thread/resume", &error);
+        assert_eq!(classified.class, ErrorClass::InvalidConfiguration);
+        assert_eq!(classified.session_impact, SessionImpact::Intact);
+        assert!(!crate::agent::retry::is_retryable_harness_error(
+            &classified
+        ));
+        assert!(classified.diagnostic.contains("Restore"));
+        assert!(classified.diagnostic.contains("switch"));
+        assert!(classified.diagnostic.contains("no longer configured"));
+    }
+}
+
+#[test]
 fn startup_spawn_failure_is_invalid_configuration() {
     let error = std::io::Error::new(std::io::ErrorKind::NotFound, "codex: not found");
     let classified = classify_startup_error(&error);

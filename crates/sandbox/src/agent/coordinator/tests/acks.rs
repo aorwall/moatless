@@ -401,3 +401,63 @@ async fn rejected_input_opens_no_run_and_drops_the_ack() {
         Err(oneshot::error::RecvError { .. })
     ));
 }
+
+#[tokio::test]
+async fn invalid_configuration_rejection_settles_the_batch_and_allows_a_follow_up() {
+    for interrupted_run in [None, Some("interrupted-run")] {
+        let (events, received, _cancel) = recording_publisher();
+        let error = HarnessError::new(
+            FailureStage::Execution,
+            ErrorClass::InvalidConfiguration,
+            SessionImpact::Intact,
+            "Restore the provider configuration or switch agent profile.",
+        );
+        let mut coord = Coordinator::new(
+            HarnessRuntime::scripted_sequence(vec![
+                Script::rejecting(error),
+                Script::new(vec![
+                    Step::SessionReady(SessionId("recovered".to_string())),
+                    Step::AcceptInput,
+                    Step::Completed,
+                ]),
+            ]),
+            events.clone(),
+            "task-1",
+        );
+        if let Some(run_id) = interrupted_run {
+            coord.resume_run(run_id.to_string());
+        }
+        let (ack_tx, ack_rx) = oneshot::channel();
+        coord
+            .submit(
+                Input {
+                    resume: Some(ResumeSession::WithId("existing-session".to_string())),
+                    ..Input::text("bad-config", "continue")
+                },
+                ack_tx,
+            )
+            .await
+            .expect("submit");
+        coord.pump_one_execution().await;
+        flush(&events).await;
+
+        let rejected = ack_rx.await.expect("terminal rejection settles the batch");
+        assert_eq!(rejected.session_id, "existing-session");
+        assert!(!rejected.run_id.is_empty());
+        if let Some(run_id) = interrupted_run {
+            assert_eq!(rejected.run_id, run_id);
+        }
+        assert_eq!(sub_types(&received), vec!["error"]);
+        assert_eq!(only(&received, "error").run_id, rejected.run_id);
+
+        let (ack_tx, ack_rx) = oneshot::channel();
+        coord
+            .submit(Input::text("fixed-config", "try again"), ack_tx)
+            .await
+            .expect("submit follow-up");
+        coord.pump_one_execution().await;
+        let accepted = ack_rx.await.expect("follow-up accepted");
+        assert_eq!(accepted.session_id, "recovered");
+        assert_ne!(accepted.run_id, rejected.run_id);
+    }
+}

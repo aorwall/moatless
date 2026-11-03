@@ -416,7 +416,7 @@ async fn dispatch_pending_messages_for_context(
             // leaves the row pending, and one that came back unmarked could
             // answer a prompt the agent parked in the meantime.
             redelivery_context.forget_self_queued(&uuids).await;
-            // The harness has already accepted this Input, so the Message must
+            // The Input was accepted or terminally rejected, so the Message must
             // never be resubmitted — only the ack RPC may still fail. Retry it
             // until it lands or the pod stops (a failed ack is never treated as
             // success), holding the guard throughout so a waiting dispatcher
@@ -753,8 +753,8 @@ fn schedule_dispatch(
     })
 }
 
-/// Acknowledge accepted messages, retrying until the RPC lands or the sandbox
-/// shuts down; only the ack retries since the Input was already accepted.
+/// Acknowledge settled messages, retrying until the RPC lands or the sandbox
+/// shuts down; only the ack retries after acceptance or terminal rejection.
 ///
 /// Returns `true` once acked; `false` only on shutdown, leaving the row for the
 /// replacement pod's post-restore dispatch.

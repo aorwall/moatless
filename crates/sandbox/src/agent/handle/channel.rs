@@ -11,6 +11,7 @@ const COMMAND_CAPACITY: usize = 64;
 ///
 /// The run id lets the backend attribute a mid-run injected message to its run,
 /// whichever of the ack or `taskTurn.active` event arrives first.
+/// A terminal configuration rejection settles the batch against its error Run.
 #[derive(Debug, Clone)]
 pub struct RunAck {
     pub session_id: String,

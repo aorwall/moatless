@@ -77,11 +77,33 @@ pub(crate) struct ThreadResumeParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) model_provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) sandbox: Option<SandboxMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) approval_policy: Option<AskForApproval>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) developer_instructions: Option<String>,
+}
+
+/// `config/read` resolves the effective provider for a working directory.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ConfigReadParams {
+    pub(crate) cwd: Option<String>,
+    pub(crate) include_layers: bool,
+}
+
+/// The effective configuration returned by `config/read`.
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct ConfigReadResponse {
+    pub(crate) config: EffectiveConfig,
+}
+
+/// The provider selected by Codex's merged configuration layers.
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct EffectiveConfig {
+    pub(crate) model_provider: Option<String>,
 }
 
 /// `thread/fork` — branches a new Session off an existing one at a cut.
@@ -976,6 +998,16 @@ pub(crate) struct JsonRpcErrorInfo {
     pub(crate) message: String,
     #[serde(default)]
     pub(crate) data: Option<serde_json::Value>,
+}
+
+impl JsonRpcErrorInfo {
+    /// The unavailable provider named by Codex's structured configuration error.
+    pub(crate) fn missing_model_provider(&self) -> Option<&str> {
+        let data = self.data.as_ref()?;
+        (data["type"] == "modelProviderNotConfigured")
+            .then(|| data["modelProvider"].as_str())
+            .flatten()
+    }
 }
 
 impl std::fmt::Display for JsonRpcErrorInfo {
