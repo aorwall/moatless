@@ -75,6 +75,20 @@ fn codex_base_url() -> Option<String> {
         .filter(|u| !u.trim().is_empty())
 }
 
+/// The backend whose model gateway the CLIs route through, like a pod's:
+/// `BACKEND_API_URL`, keyed by the task token in `MOATLESS_E2E_TOKEN_FILE`
+/// (default `/run/moatless/.user_auth_token`). `None` falls back to the
+/// `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` env path.
+fn gateway() -> Option<(String, std::path::PathBuf)> {
+    let backend = std::env::var("BACKEND_API_URL")
+        .ok()
+        .filter(|u| !u.trim().is_empty())?;
+    let token_file = std::env::var("MOATLESS_E2E_TOKEN_FILE")
+        .unwrap_or_else(|_| "/run/moatless/.user_auth_token".to_string());
+    let token_file = std::path::PathBuf::from(token_file);
+    token_file.is_file().then_some((backend, token_file))
+}
+
 // ── Auth token from the host environment ────────────────────────────────────
 
 /// Auth credentials forwarded to the agent subprocess.
@@ -158,7 +172,7 @@ fn test_config(tmp: &TempDir, use_tmux: bool, agent_profile: &str) -> Config {
         upload_dir: tmp.path().join("uploads").display().to_string(),
         log_level: "info".to_string(),
         backend_grpc_url: "http://localhost:50051".to_string(),
-        backend_api_url: None,
+        backend_api_url: gateway().map(|(backend, _)| backend),
         user_auth_token: None,
         bootstrap_token: None,
         agent_config: AgentConfig::default(),
@@ -223,6 +237,7 @@ fn spawn_test_agent(
         "home/.claude",
         "home/.codex",
         "claude-config",
+        "run",
     ] {
         std::fs::create_dir_all(tmp.path().join(sub)).expect("create test dir");
     }
@@ -230,11 +245,23 @@ fn spawn_test_agent(
     // directly and never run init. Codex reads its base URL from `config.toml`
     // alone — it has no `ANTHROPIC_BASE_URL` equivalent — so without the file
     // the CLI ignores `OPENAI_BASE_URL` and sends every turn to api.openai.com.
-    std::fs::write(
-        tmp.path().join("home/.codex/config.toml"),
-        codex_hub::config_toml(codex_base_url().as_deref()),
-    )
-    .expect("write Codex config.toml");
+    // Gateway mode copies the task token to `persisted_user_token_path`, where
+    // Claude's `apiKeyHelper`, Codex's `auth.command` and Pi's key helper read it.
+    let config_toml = if let Some((backend, token_file)) = gateway() {
+        let token_path = tmp.path().join("run/.user_auth_token");
+        std::fs::copy(&token_file, &token_path).expect("copy task token");
+        let base_url = moatless_sandbox::init::codex_config::gateway_base_url(&backend);
+        moatless_sandbox::init::codex_config::render_config_toml(Some(
+            &moatless_sandbox::init::codex_config::ModelRoute {
+                base_url: &base_url,
+                token_file: &token_path,
+            },
+        ))
+    } else {
+        codex_hub::config_toml(codex_base_url().as_deref())
+    };
+    std::fs::write(tmp.path().join("home/.codex/config.toml"), config_toml)
+        .expect("write Codex config.toml");
     if let Ok(auth_json) = std::env::var("CODEX_AUTH_JSON") {
         std::fs::write(tmp.path().join("home/.codex/auth.json"), auth_json)
             .expect("write Codex auth.json");
@@ -769,7 +796,7 @@ async fn test_missing_session_resume_classifies_lost() {
 
 /// Codex CLI transport (`codex app-server --stdio` subprocess). Gated on
 /// `CODEX_E2E=1`. Needs the `codex` CLI on PATH (baked into the sandbox base
-/// image) and `OPENAI_API_KEY` (or `CODEX_AUTH_JSON`).
+/// image) and [`gateway`], `OPENAI_API_KEY` or `CODEX_AUTH_JSON`.
 #[tokio::test]
 #[ignore]
 async fn test_spawn_agent_codex() {
