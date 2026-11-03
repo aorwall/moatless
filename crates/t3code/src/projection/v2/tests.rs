@@ -514,6 +514,33 @@ fn a_running_turn_offers_steering_through_its_session_and_provider_turn() {
     );
 }
 
+/// The client keeps every provider pickable on a started thread only while
+/// its session says so; `send_turn` switches the harness when the turn names
+/// the other instance.
+#[test]
+fn a_started_thread_offers_switching_provider() {
+    let conversation = open_turn(conversation("task-1"), 2, "active");
+    let names = HashMap::new();
+    let projection = thread_projection(
+        &conversation,
+        "ws-a",
+        &AgentModelDefaults::default(),
+        &Transcript::default(),
+        &origins(&names),
+        &Lineage::root("task-1"),
+        &[],
+    );
+    let session = &projection["providerSessions"][0];
+    assert_eq!(
+        projection["providerThreads"][0]["providerSessionId"],
+        session["id"]
+    );
+    assert_eq!(
+        session["capabilities"]["sessions"]["supportsProviderSwitchingViaHandoff"],
+        json!(true)
+    );
+}
+
 #[test]
 fn fork_turn_item_is_none_without_a_fork_relationship() {
     let conversation = conversation("task-1");

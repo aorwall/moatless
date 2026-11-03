@@ -43,15 +43,15 @@ pub(super) fn root_node_id(run_id: &str) -> String {
 
 /// What the agent in a Moatless Sandbox can do, as V2's capability record.
 ///
-/// Restart is served by `v2_commands` as an interrupt then a queued send. A
-/// fork copies the transcript, not the provider's thread, so it is a full
-/// handoff. Nothing asks for approval: the agent runs with full access.
+/// Restart is an interrupt then a queued send (`v2_commands`). A fork copies
+/// the transcript, so it is a full handoff; so is a turn naming the other
+/// instance, which switches the Task's harness. Nothing asks for approval.
 fn capabilities() -> Value {
     json!({
         "sessions": {
             "supportsMultipleProviderThreadsPerSession": false,
             "supportsModelSwitchInSession": true,
-            "supportsProviderSwitchingViaHandoff": false,
+            "supportsProviderSwitchingViaHandoff": true,
             "supportsRuntimeModeSwitchInSession": false,
             "pendingRequestsSurviveRestart": true
         },
