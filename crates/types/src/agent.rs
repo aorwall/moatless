@@ -243,6 +243,23 @@ pub enum Harness {
     Pi,
 }
 
+/// The vendors a Pi model id may name, as `vendor/model`.
+///
+/// The backend's model gateway reaches each through the deployment's hub or the
+/// task's own API key; `openai-codex/…` and the like are refused rather than
+/// run against a subscription login.
+pub const PI_VENDORS: [&str; 3] = ["anthropic", "openai", "openrouter"];
+
+/// A Pi model id split into its vendor and the model name the gateway is sent,
+/// or `None` for a vendor outside [`PI_VENDORS`] or an empty name.
+///
+/// The name keeps any further `/`: an `openrouter` id is itself `maker/model`.
+pub fn split_pi_model(model: &str) -> Option<(&str, &str)> {
+    model
+        .split_once('/')
+        .filter(|(vendor, name)| PI_VENDORS.contains(vendor) && !name.is_empty())
+}
+
 impl Harness {
     /// The wire and column value for this harness.
     pub fn as_str(self) -> &'static str {

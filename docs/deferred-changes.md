@@ -546,6 +546,7 @@ of its own.
 | Pi Durable integration | `crates/sandbox/src/agent/harness/pi/process.rs::PiProcess` runs one RPC process per Turn and restores native sessions from the backend trajectory | When a workflow needs durable execution beyond Moatless's existing Turn and sandbox recovery |
 | Arbitrary Pi extensions and extension dialogs | `PiProcess::open` disables extension discovery while passing managed skill roots explicitly | When the product defines approval, UI-dialog, and lifecycle contracts for third-party Pi extensions |
 | Hub-discovered Pi models all offer the same thinking levels | `crates/t3code/src/hub_models.rs::pi_models` publishes the hub's `/v1/models` rows, which carry no capabilities, so `providers::effort_levels` gives every Pi model `off` to `high` | When the hub or Pi reports per-model thinking support worth reading |
+| An `openrouter/` Pi model runs on the task's own OpenAI key when it has one | `crates/sandbox/src/agent/harness/pi/process.rs::openrouter_provider` sends `X-Moatless-Auth-Mode: api-key-or-hub` to `/llm/openai/v1`; `crates/server/src/model_gateway/openai.rs::resolve_upstream` prefers a stored `OPENAI_API_KEY` to the hub, so OpenAI's API receives the OpenRouter model id and refuses it | When a user with their own OpenAI key reports an OpenRouter model failing. Add an auth mode that selects the hub only, and send it for `openrouter` |
 
 ## Local test host portability
 

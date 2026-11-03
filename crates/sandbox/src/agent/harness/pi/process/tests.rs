@@ -124,3 +124,12 @@ fn switched_history_keeps_roles_and_links_entries_after_the_header() {
     assert_eq!(values[1]["message"]["role"], "user");
     assert_eq!(values[2]["message"]["role"], "assistant");
 }
+
+#[test]
+fn the_openrouter_provider_speaks_responses_to_the_gateway_and_declares_its_model() {
+    let provider = openrouter_provider("http://backend:8080/", "!cat t", "mistralai/mistral-large");
+
+    assert_eq!(provider["baseUrl"], "http://backend:8080/llm/openai/v1");
+    assert_eq!(provider["api"], "openai-responses");
+    assert_eq!(provider["models"][0]["id"], "mistralai/mistral-large");
+}

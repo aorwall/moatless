@@ -3,7 +3,7 @@
 use crate::secret_keys::{
     ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, CODEX_AUTH_JSON, OPENAI_API_KEY,
 };
-use moatless_types::agent::{AgentProfile, Harness};
+use moatless_types::agent::{AgentProfile, Harness, split_pi_model};
 use moatless_types::model::{ClaudeModel, CodexModel};
 
 /// A catalog model choice that names no model: the sandbox runs the CLI's own
@@ -221,13 +221,10 @@ pub fn validate_agent_model(
     let Some(model) = model else {
         return Ok(());
     };
-    if agent_profile == AgentProfile::Pi
-        && !model.split_once('/').is_some_and(|(provider, model)| {
-            matches!(provider, "anthropic" | "openai") && !model.is_empty()
-        })
-    {
+    if agent_profile == AgentProfile::Pi && split_pi_model(model).is_none() {
         return Err(
-            "Pi requires anthropic/model or openai/model using an API key or hub".to_string(),
+            "Pi requires anthropic/model, openai/model or openrouter/model using an API key or hub"
+                .to_string(),
         );
     }
     if !model_conflicts(agent_profile, model) {
@@ -262,6 +259,11 @@ mod tests {
             assert!(validate_agent_model(AgentProfile::Pi, Some(model)).is_err());
         }
         assert!(validate_agent_model(AgentProfile::Pi, Some("openai/future-model")).is_ok());
+        assert!(
+            validate_agent_model(AgentProfile::Pi, Some("openrouter/mistralai/mistral-large"))
+                .is_ok()
+        );
+        assert!(validate_agent_model(AgentProfile::Pi, Some("openrouter/")).is_err());
     }
 
     fn offered(profile: AgentProfile) -> Vec<&'static str> {

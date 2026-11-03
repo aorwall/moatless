@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use crate::AgentModelDefaults;
 use crate::agent::catalog::{UNRESOLVED_MODEL_CHOICE, catalog};
 use crate::agent::schemas::AgentDescriptor;
-use moatless_types::agent::Harness;
+use moatless_types::agent::{Harness, split_pi_model};
 
 /// The Claude provider instance id.
 pub const CLAUDE_INSTANCE: &str = "claudeAgent";
@@ -156,18 +156,9 @@ pub fn publish_model(catalog_model: &str) -> Option<(&'static str, String)> {
             let instance = instance_for(agent.harness());
             (instance, published_slug(instance, catalog_model))
         })
-        // Pi runs models the hub lists beyond the static catalog; the prefix is
-        // what `validate_agent_model` requires of one.
-        .or_else(|| {
-            ["anthropic/", "openai/"]
-                .iter()
-                .any(|vendor| {
-                    catalog_model
-                        .strip_prefix(vendor)
-                        .is_some_and(|m| !m.is_empty())
-                })
-                .then(|| (PI_INSTANCE, catalog_model.to_string()))
-        })
+        // Pi runs models the hub lists beyond the static catalog; the vendor
+        // prefix is what `validate_agent_model` requires of one.
+        .or_else(|| split_pi_model(catalog_model).map(|_| (PI_INSTANCE, catalog_model.to_string())))
 }
 
 /// Every `(catalog id, label)` an instance offers, deduplicated across the
@@ -370,6 +361,13 @@ mod tests {
         assert_eq!(
             publish_model("anthropic/claude-opus-4-8"),
             Some((PI_INSTANCE, "anthropic/claude-opus-4-8".to_string()))
+        );
+        assert_eq!(
+            publish_model("openrouter/mistralai/mistral-large-4-0"),
+            Some((
+                PI_INSTANCE,
+                "openrouter/mistralai/mistral-large-4-0".to_string()
+            ))
         );
         assert_eq!(publish_model("openai/"), None);
         assert_eq!(publish_model("claude-opus-4-8-unknown"), None);

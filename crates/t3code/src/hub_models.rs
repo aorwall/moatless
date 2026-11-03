@@ -1,12 +1,14 @@
 //! The models the deployment's `CLIProxyAPI` hub serves, as Pi's model list.
 //!
-//! Pi runs any `anthropic/<id>` or `openai/<id>` the gateway can reach, so the
-//! hub's own `GET /v1/models` is a better list than a static catalog.
+//! Pi runs any `anthropic/`, `openai/` or `openrouter/` model the gateway can
+//! reach, so the hub's own `GET /v1/models` is a better list than a static
+//! catalog.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use moatless_api_schemas::agent::AgentModel;
+use moatless_types::agent::PI_VENDORS;
 use moatless_types::http::HttpTimeouts;
 use serde_json::Value;
 use tokio::sync::Mutex;
@@ -112,10 +114,12 @@ impl HubModels {
 fn pi_models(body: &Value, static_models: &[AgentModel]) -> Vec<AgentModel> {
     let mut rows: Vec<(i64, String)> = Vec::new();
     for row in body["data"].as_array().into_iter().flatten() {
-        let (Some(id), Some(vendor)) = (row["id"].as_str(), row["owned_by"].as_str()) else {
+        let (Some(id), Some(owner)) = (row["id"].as_str(), row["owned_by"].as_str()) else {
             continue;
         };
-        if !matches!(vendor, "anthropic" | "openai") || is_non_chat(id) {
+        // The hub names an OpenAI-compatible provider as its operator typed it.
+        let vendor = owner.to_ascii_lowercase();
+        if !PI_VENDORS.contains(&vendor.as_str()) || is_non_chat(id) {
             continue;
         }
         let slug = format!("{vendor}/{id}");
@@ -205,6 +209,18 @@ mod tests {
         );
         assert_eq!(models[0].label, "Sonnet");
         assert_eq!(models[2].label, "gpt-6.1-terra");
+    }
+
+    #[test]
+    fn openrouter_rows_keep_their_maker_in_the_id_whatever_the_hub_calls_the_provider() {
+        let body = json!({"data": [
+            {"id": "mistralai/mistral-large-4-0", "owned_by": "OpenRouter", "created": 1},
+        ]});
+
+        let models = pi_models(&body, &[]);
+
+        assert_eq!(ids(&models), ["openrouter/mistralai/mistral-large-4-0"]);
+        assert_eq!(models[0].label, "mistralai/mistral-large-4-0");
     }
 
     #[test]
