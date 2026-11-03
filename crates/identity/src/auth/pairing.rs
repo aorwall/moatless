@@ -13,6 +13,7 @@ use sha2::{Digest, Sha256};
 use tracing::{info, warn};
 
 pub const PAIRING_CODE_TTL: Duration = Duration::minutes(5);
+/// How long a paired device's key lasts unused; each use renews it.
 pub const PAIRED_DEVICE_KEY_TTL: Duration = Duration::days(90);
 
 const FINISHED_CODE_RETENTION: Duration = Duration::days(1);

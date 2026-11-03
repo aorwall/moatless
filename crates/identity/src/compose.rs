@@ -292,7 +292,7 @@ pub async fn local_credential(
     reason = "a database fixture fails the test loudly"
 )]
 pub async fn issue_api_key(db: DbPool, user_id: &str, name: &str) -> String {
-    crate::auth::api_key::generate_key(&PgApiKeyDao(db), user_id, name, None, None, None)
+    crate::auth::api_key::generate_key(&PgApiKeyDao(db), user_id, name, None, None, None, None)
         .await
         .expect("the test API key is minted")
         .key

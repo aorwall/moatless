@@ -37,6 +37,8 @@ pub struct ApiKeyCreateResult {
 }
 
 /// Generate a new API key for a user.
+///
+/// `idle_ttl` makes `expires_at` slide: see [`ApiKey::idle_ttl_secs`].
 pub(crate) async fn generate_key(
     api_keys: &dyn ApiKeyDao,
     user_id: &str,
@@ -44,6 +46,7 @@ pub(crate) async fn generate_key(
     scopes: Option<Vec<String>>,
     expires_at: Option<DateTime<Utc>>,
     group_id: Option<&str>,
+    idle_ttl: Option<chrono::Duration>,
 ) -> Result<ApiKeyCreateResult, crate::auth::error::AuthError> {
     let key_bytes: [u8; KEY_BYTES] = rand::rng().random();
     let key_hex = hex::encode(key_bytes);
@@ -69,6 +72,7 @@ pub(crate) async fn generate_key(
         group_id: group_id.map(String::from),
         last_used_at: None,
         expires_at,
+        idle_ttl_secs: idle_ttl.map(|ttl| ttl.num_seconds()),
         created_at: now,
     };
     api_keys.insert_api_key(&row).await?;
@@ -104,18 +108,23 @@ pub(crate) async fn validate_key(
         return Ok(None);
     };
 
+    let now = chrono::Utc::now();
     if let Some(exp) = row.expires_at {
-        if chrono::Utc::now() > exp {
+        if now > exp {
             debug!(key_id = %row.id, "API key expired");
             return Ok(None);
         }
     }
+    let renewed_expires_at = renewed_expiry(&row, now);
 
     // Update last_used_at (fire and forget)
     let api_keys_clone = api_keys.clone();
     let key_id_clone = row.id.clone();
     tokio::spawn(async move {
-        if let Err(e) = api_keys_clone.update_last_used(&key_id_clone).await {
+        if let Err(e) = api_keys_clone
+            .update_last_used(&key_id_clone, renewed_expires_at)
+            .await
+        {
             warn!(error = %e, key_id = %key_id_clone, "Failed to update API key last used");
         }
     });
@@ -140,8 +149,19 @@ pub(crate) async fn validate_key(
         user_name,
         role,
         group_id: row.group_id,
-        expires_at: row.expires_at,
+        // The renewed instant, so a cached entry does not expire on the old one.
+        expires_at: renewed_expires_at.or(row.expires_at),
     }))
+}
+
+/// The expiry a use of `row` at `now` moves it to, if it slides at all.
+/// Never earlier than it already was.
+fn renewed_expiry(row: &ApiKey, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+    let renewed = now + chrono::Duration::seconds(row.idle_ttl_secs?);
+    Some(
+        row.expires_at
+            .map_or(renewed, |current| current.max(renewed)),
+    )
 }
 
 /// Validates an API key with cache-aside — the path `auth_middleware` and
@@ -230,4 +250,51 @@ pub fn hash_key(key: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(key.as_bytes());
     hex::encode(hasher.finalize())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Duration;
+
+    fn key(expires_at: Option<DateTime<Utc>>, idle_ttl_secs: Option<i64>) -> ApiKey {
+        ApiKey {
+            id: "k".to_string(),
+            user_id: "u".to_string(),
+            name: "n".to_string(),
+            key_hash: "h".to_string(),
+            key_prefix: "mvk_00000000".to_string(),
+            scopes: None,
+            group_id: None,
+            last_used_at: None,
+            expires_at,
+            idle_ttl_secs,
+            created_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn a_key_with_an_idle_ttl_is_renewed_from_now() {
+        let now = Utc::now();
+        let row = key(Some(now + Duration::days(1)), Some(90 * 86_400));
+        assert_eq!(renewed_expiry(&row, now), Some(now + Duration::days(90)));
+    }
+
+    #[test]
+    fn renewal_never_shortens_a_key() {
+        let now = Utc::now();
+        let later = now + Duration::days(200);
+        let row = key(Some(later), Some(86_400));
+        assert_eq!(renewed_expiry(&row, now), Some(later));
+    }
+
+    #[test]
+    fn a_key_without_an_idle_ttl_keeps_its_expiry() {
+        let now = Utc::now();
+        assert_eq!(
+            renewed_expiry(&key(Some(now + Duration::days(7)), None), now),
+            None
+        );
+        assert_eq!(renewed_expiry(&key(None, None), now), None);
+    }
 }

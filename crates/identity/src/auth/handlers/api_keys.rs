@@ -42,6 +42,7 @@ pub(in crate::auth) async fn create_api_key_handler(
         body.scopes,
         expires_at,
         claims.group_id.as_deref(),
+        None,
     )
     .await?;
 

@@ -2,6 +2,7 @@
 
 use super::api_keys::ApiKey;
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use moatless_core::db::DbPool;
 
 /// DAO trait for API key persistence.
@@ -13,7 +14,13 @@ pub(crate) trait ApiKeyDao: Send + Sync {
     async fn get_api_key_by_id(&self, key_id: &str) -> Result<Option<ApiKey>, sqlx::Error>;
     async fn list_api_keys_by_user(&self, user_id: &str) -> Result<Vec<ApiKey>, sqlx::Error>;
     async fn delete_api_key(&self, key_id: &str) -> Result<(), sqlx::Error>;
-    async fn update_last_used(&self, key_id: &str) -> Result<(), sqlx::Error>;
+    /// Stamps `last_used_at`, and moves `expires_at` to `renewed_expires_at`
+    /// when one is given.
+    async fn update_last_used(
+        &self,
+        key_id: &str,
+        renewed_expires_at: Option<DateTime<Utc>>,
+    ) -> Result<(), sqlx::Error>;
 }
 
 /// PostgreSQL implementation of [`ApiKeyDao`].
@@ -24,8 +31,8 @@ impl ApiKeyDao for PgApiKeyDao {
     async fn insert_api_key(&self, key: &ApiKey) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"
-            INSERT INTO api_keys (id, user_id, name, key_hash, key_prefix, scopes, group_id, last_used_at, expires_at, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            INSERT INTO api_keys (id, user_id, name, key_hash, key_prefix, scopes, group_id, last_used_at, expires_at, idle_ttl_secs, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             "#,
         )
         .bind(&key.id)
@@ -37,6 +44,7 @@ impl ApiKeyDao for PgApiKeyDao {
         .bind(&key.group_id)
         .bind(key.last_used_at)
         .bind(key.expires_at)
+        .bind(key.idle_ttl_secs)
         .bind(key.created_at)
         .execute(&self.0)
         .await?;
@@ -74,11 +82,19 @@ impl ApiKeyDao for PgApiKeyDao {
         Ok(())
     }
 
-    async fn update_last_used(&self, key_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query("UPDATE api_keys SET last_used_at = NOW() WHERE id = $1")
-            .bind(key_id)
-            .execute(&self.0)
-            .await?;
+    async fn update_last_used(
+        &self,
+        key_id: &str,
+        renewed_expires_at: Option<DateTime<Utc>>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE api_keys SET last_used_at = NOW(), expires_at = COALESCE($2, expires_at) \
+             WHERE id = $1",
+        )
+        .bind(key_id)
+        .bind(renewed_expires_at)
+        .execute(&self.0)
+        .await?;
         Ok(())
     }
 }

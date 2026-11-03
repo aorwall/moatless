@@ -220,3 +220,56 @@ async fn pruning_clears_finished_codes_and_leaves_live_ones(pool: PgPool) {
             .is_some()
     );
 }
+
+#[sqlx::test]
+async fn a_paired_key_slides_its_expiry_and_a_bare_stamp_does_not(pool: PgPool) {
+    let user_id = seed_user(&pool).await;
+    let pairing = crate::compose::device_pairing(pool.clone());
+    let issued = pairing
+        .issue_code(&user_id.to_string(), None, None)
+        .await
+        .unwrap();
+    let device = pairing
+        .redeem_code(&issued.code, &phone(), scopes())
+        .await
+        .unwrap();
+
+    let api_keys = PgApiKeyDao(pool.clone());
+    let row = api_keys
+        .get_api_key_by_id(&device.key_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        row.idle_ttl_secs,
+        Some(PAIRED_DEVICE_KEY_TTL.num_seconds()),
+        "pairing mints a key that renews on use"
+    );
+
+    let renewed = Utc::now() + Duration::days(200);
+    api_keys
+        .update_last_used(&device.key_id, Some(renewed))
+        .await
+        .unwrap();
+    let after_renewal = api_keys
+        .get_api_key_by_id(&device.key_id)
+        .await
+        .unwrap()
+        .unwrap()
+        .expires_at
+        .unwrap();
+    // Postgres keeps microseconds, so the round trip can drop nanoseconds.
+    assert!((after_renewal - renewed).num_milliseconds().abs() < 1);
+
+    api_keys
+        .update_last_used(&device.key_id, None)
+        .await
+        .unwrap();
+    let after_stamp = api_keys
+        .get_api_key_by_id(&device.key_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(after_stamp.expires_at, Some(after_renewal));
+    assert!(after_stamp.last_used_at.is_some());
+}

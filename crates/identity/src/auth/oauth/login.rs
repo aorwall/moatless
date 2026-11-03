@@ -105,6 +105,7 @@ pub(in crate::auth) async fn complete_login(
                 None,
                 None,
                 None,
+                None,
             )
             .await?
             .key,

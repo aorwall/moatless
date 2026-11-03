@@ -255,6 +255,7 @@ pub(in crate::auth) async fn oidc_callback_handler(
             None,
             None,
             None,
+            None,
         )
         .await?;
         let key = urlencoding::encode(&key.key);

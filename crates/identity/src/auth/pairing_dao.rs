@@ -4,7 +4,9 @@ use std::sync::Arc;
 
 use super::api_key;
 use super::api_keys_dao::ApiKeyDao;
-use super::pairing::{PairedDevice, PairingApiKeyIssuer, PairingCode, PairingError};
+use super::pairing::{
+    PAIRED_DEVICE_KEY_TTL, PairedDevice, PairingApiKeyIssuer, PairingCode, PairingError,
+};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use moatless_core::db::DbPool;
@@ -126,6 +128,7 @@ impl PairingApiKeyIssuer for PgPairingApiKeyIssuer {
             Some(scopes.clone()),
             Some(expires_at),
             group_id,
+            Some(PAIRED_DEVICE_KEY_TTL),
         )
         .await
         .map_err(|error| PairingError::Storage(error.to_string()))?;
