@@ -524,6 +524,7 @@ fn test_config(dir: &std::path::Path) -> Config {
         upload_dir: path("upload"),
         home_dir: path("home"),
         codex_home_dir: path("codex-home"),
+        pi_home_dir: path("pi-home"),
         log_level: "info".to_string(),
         backend_grpc_url: "http://localhost:50051".to_string(),
         backend_api_url: None,

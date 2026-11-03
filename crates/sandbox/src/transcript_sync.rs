@@ -1,11 +1,8 @@
 //! Agent session-state sync: backend-proxied S3 persistence of CLI resume data.
 //!
-//! Claude's transcripts and Codex's resumable rollouts must survive pod
-//! recreation, or `thread/resume` fails with a missing rollout even when the
-//! backend remembers the thread id. See [`transcript_dir`] and
-//! [`codex_sessions_dir`] for the on-disk paths. AWS-credential-less by design:
-//! I/O is proxied through the backend over JWT-authed gRPC, mirroring
-//! `DownloadUploadChunked`.
+//! Claude, Codex and Pi sessions survive pod recreation through the backend
+//! archive. Only session directories are archived; agent configuration and
+//! credentials stay out. I/O is proxied through JWT-authed gRPC.
 
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
@@ -22,6 +19,7 @@ use crate::state::SandboxState;
 pub(crate) const SHUTDOWN_FLUSH_TIMEOUT: Duration = Duration::from_secs(12);
 const CLAUDE_ARCHIVE_PREFIX: &str = "claude";
 const CODEX_SESSIONS_ARCHIVE_PREFIX: &str = "codex/sessions";
+const PI_SESSIONS_ARCHIVE_PREFIX: &str = "pi/sessions";
 
 /// Resolve the transcript dir: `<claude_config_dir>/projects/<dashed-cwd>`.
 ///
@@ -41,6 +39,11 @@ pub fn codex_sessions_dir(config: &Config) -> PathBuf {
     Path::new(&config.codex_home_dir).join("sessions")
 }
 
+/// Resolve the Pi resumable session dir: `<pi_home_dir>/sessions`.
+pub(crate) fn pi_sessions_dir(config: &Config) -> PathBuf {
+    Path::new(&config.pi_home_dir).join("sessions")
+}
+
 /// Download the stored session-state archive and restore it.
 ///
 /// Runs after the repo clone, before Ready, so `recover_interrupted_run` and
@@ -50,8 +53,9 @@ pub async fn download_on_start(state: &SandboxState) {
     let task_id = &state.config.task_id;
     let claude_dir = transcript_dir(&state.config);
     let codex_dir = codex_sessions_dir(&state.config);
+    let pi_dir = pi_sessions_dir(&state.config);
 
-    for dir in [&claude_dir, &codex_dir] {
+    for dir in [&claude_dir, &codex_dir, &pi_dir] {
         if let Err(e) = tokio::fs::create_dir_all(dir).await {
             warn!(task_id = %task_id, dir = %dir.display(), error = %e, "Failed to create session-state dir");
             return;
@@ -75,12 +79,13 @@ pub async fn download_on_start(state: &SandboxState) {
         return;
     }
 
-    match extract_tar(tar, claude_dir.clone(), codex_dir.clone()).await {
+    match extract_tar(tar, claude_dir.clone(), codex_dir.clone(), pi_dir.clone()).await {
         Ok(()) => {
             info!(
                 task_id = %task_id,
                 claude_dir = %claude_dir.display(),
                 codex_dir = %codex_dir.display(),
+                pi_dir = %pi_dir.display(),
                 "Restored session state from backend"
             );
         }
@@ -91,18 +96,20 @@ pub async fn download_on_start(state: &SandboxState) {
 }
 
 /// Tar the CLI session-state dirs and upload them to the backend. No-op when
-/// both dirs are absent or empty. Best-effort: failures (including a disabled
+/// all dirs are absent or empty. Best-effort: failures (including a disabled
 /// feature) are logged, never propagated.
 pub async fn upload(state: &SandboxState) {
     let task_id = &state.config.task_id;
     let claude_dir = transcript_dir(&state.config);
     let codex_dir = codex_sessions_dir(&state.config);
+    let pi_dir = pi_sessions_dir(&state.config);
 
-    let Some(tar) = build_tar(claude_dir.clone(), codex_dir.clone()).await else {
+    let Some(tar) = build_tar(claude_dir.clone(), codex_dir.clone(), pi_dir.clone()).await else {
         debug!(
             task_id = %task_id,
             claude_dir = %claude_dir.display(),
             codex_dir = %codex_dir.display(),
+            pi_dir = %pi_dir.display(),
             "No session state to upload"
         );
         return;
@@ -170,15 +177,16 @@ fn is_feature_disabled(status: &tonic::Status) -> bool {
     )
 }
 
-/// Build an in-memory tar of the CLI session-state dirs, or `None` when neither
+/// Build an in-memory tar of the CLI session-state dirs, or `None` when none
 /// has entries.
 ///
 /// Entries are stored under stable top-level prefixes so the archive can
-/// restore both CLIs location-independently on the next pod.
-async fn build_tar(claude_dir: PathBuf, codex_dir: PathBuf) -> Option<Vec<u8>> {
+/// restore each CLI location-independently on the next pod.
+async fn build_tar(claude_dir: PathBuf, codex_dir: PathBuf, pi_dir: PathBuf) -> Option<Vec<u8>> {
     let has_claude_entries = has_entries(&claude_dir).await;
     let has_codex_entries = has_entries(&codex_dir).await;
-    if !has_claude_entries && !has_codex_entries {
+    let has_pi_entries = has_entries(&pi_dir).await;
+    if !has_claude_entries && !has_codex_entries && !has_pi_entries {
         return None;
     }
 
@@ -192,6 +200,11 @@ async fn build_tar(claude_dir: PathBuf, codex_dir: PathBuf) -> Option<Vec<u8>> {
         if has_codex_entries {
             builder
                 .append_dir_all(CODEX_SESSIONS_ARCHIVE_PREFIX, &codex_dir)
+                .ok()?;
+        }
+        if has_pi_entries {
+            builder
+                .append_dir_all(PI_SESSIONS_ARCHIVE_PREFIX, &pi_dir)
                 .ok()?;
         }
         builder.into_inner().ok()
@@ -215,6 +228,7 @@ async fn extract_tar(
     bytes: Vec<u8>,
     claude_dir: PathBuf,
     codex_dir: PathBuf,
+    pi_dir: PathBuf,
 ) -> std::io::Result<()> {
     tokio::task::spawn_blocking(move || {
         if !has_combined_archive_prefixes(&bytes)? {
@@ -230,6 +244,8 @@ async fn extract_tar(
                 safe_join(&claude_dir, rel)
             } else if let Ok(rel) = path.strip_prefix(CODEX_SESSIONS_ARCHIVE_PREFIX) {
                 safe_join(&codex_dir, rel)
+            } else if let Ok(rel) = path.strip_prefix(PI_SESSIONS_ARCHIVE_PREFIX) {
+                safe_join(&pi_dir, rel)
             } else {
                 None
             };
@@ -250,6 +266,7 @@ fn has_combined_archive_prefixes(bytes: &[u8]) -> std::io::Result<bool> {
         let path = entry.path()?;
         if path.starts_with(CLAUDE_ARCHIVE_PREFIX)
             || path.starts_with(CODEX_SESSIONS_ARCHIVE_PREFIX)
+            || path.starts_with(PI_SESSIONS_ARCHIVE_PREFIX)
         {
             return Ok(true);
         }
@@ -277,6 +294,61 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    async fn pi_only_archive_restores_a_session_larger_than_the_runtime_mount() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut config = crate::config::test_support::minimal_config();
+        config.pi_home_dir = tmp.path().join("pi-agent").display().to_string();
+        let pi_src = pi_sessions_dir(&config);
+        tokio::fs::create_dir_all(&pi_src).await.unwrap();
+        let session = format!(
+            "{{\"type\":\"message\",\"text\":\"{}\"}}\n",
+            "x".repeat(2 * 1024 * 1024)
+        );
+        tokio::fs::write(pi_src.join("session.jsonl"), &session)
+            .await
+            .unwrap();
+        tokio::fs::write(Path::new(&config.pi_home_dir).join("auth.json"), "private")
+            .await
+            .unwrap();
+
+        let tar = build_tar(
+            tmp.path().join("no-claude"),
+            tmp.path().join("no-codex"),
+            pi_src,
+        )
+        .await
+        .expect("Pi sessions alone must trigger an upload");
+        let paths: Vec<_> = tar::Archive::new(std::io::Cursor::new(&tar))
+            .entries()
+            .unwrap()
+            .map(|entry| entry.unwrap().path().unwrap().into_owned())
+            .collect();
+        assert!(
+            paths
+                .iter()
+                .all(|path| path.starts_with(PI_SESSIONS_ARCHIVE_PREFIX))
+        );
+        assert!(!paths.iter().any(|path| path.ends_with("auth.json")));
+
+        let pi_dst = tmp.path().join("restored-pi-sessions");
+        tokio::fs::create_dir_all(&pi_dst).await.unwrap();
+        extract_tar(
+            tar,
+            tmp.path().join("restored-claude"),
+            tmp.path().join("restored-codex"),
+            pi_dst.clone(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            tokio::fs::read_to_string(pi_dst.join("session.jsonl"))
+                .await
+                .unwrap(),
+            session
+        );
+    }
+
+    #[tokio::test]
     async fn tar_round_trip_preserves_claude_transcripts_and_codex_sessions() {
         let tmp = tempfile::TempDir::new().unwrap();
         let claude_src = tmp.path().join("projects").join("-workspace");
@@ -294,7 +366,7 @@ mod tests {
         .await
         .unwrap();
 
-        let tar = build_tar(claude_src.clone(), codex_src.clone())
+        let tar = build_tar(claude_src.clone(), codex_src.clone(), tmp.path().join("pi"))
             .await
             .expect("tar built");
         assert!(!tar.is_empty());
@@ -303,9 +375,14 @@ mod tests {
         let codex_dst = tmp.path().join("restored-codex-sessions");
         tokio::fs::create_dir_all(&claude_dst).await.unwrap();
         tokio::fs::create_dir_all(&codex_dst).await.unwrap();
-        extract_tar(tar, claude_dst.clone(), codex_dst.clone())
-            .await
-            .unwrap();
+        extract_tar(
+            tar,
+            claude_dst.clone(),
+            codex_dst.clone(),
+            tmp.path().join("pi"),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(
             tokio::fs::read_to_string(claude_dst.join("a.jsonl"))
@@ -352,9 +429,14 @@ mod tests {
         let codex_dst = tmp.path().join("restored-codex");
         tokio::fs::create_dir_all(&claude_dst).await.unwrap();
         tokio::fs::create_dir_all(&codex_dst).await.unwrap();
-        extract_tar(tar, claude_dst.clone(), codex_dst.clone())
-            .await
-            .unwrap();
+        extract_tar(
+            tar,
+            claude_dst.clone(),
+            codex_dst.clone(),
+            tmp.path().join("pi"),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(
             tokio::fs::read_to_string(claude_dst.join("legacy.jsonl"))
@@ -379,12 +461,20 @@ mod tests {
 
         let missing = tmp.path().join("nope");
         let also_missing = tmp.path().join("also-nope");
-        assert!(build_tar(missing, also_missing).await.is_none());
+        assert!(
+            build_tar(missing, also_missing, tmp.path().join("pi"))
+                .await
+                .is_none()
+        );
 
         let empty = tmp.path().join("empty");
         let also_empty = tmp.path().join("also-empty");
         tokio::fs::create_dir_all(&empty).await.unwrap();
         tokio::fs::create_dir_all(&also_empty).await.unwrap();
-        assert!(build_tar(empty, also_empty).await.is_none());
+        assert!(
+            build_tar(empty, also_empty, tmp.path().join("pi"))
+                .await
+                .is_none()
+        );
     }
 }

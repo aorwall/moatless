@@ -103,7 +103,7 @@ impl PiProcess {
             ));
         }
         let config = Arc::clone(&self.cfg.config);
-        let home = std::path::Path::new(&config.runtime_dir).join("pi");
+        let home = std::path::PathBuf::from(&config.pi_home_dir);
         tokio::fs::create_dir_all(home.join("sessions"))
             .await
             .map_err(|e| error(ErrorClass::InvalidConfiguration, e))?;

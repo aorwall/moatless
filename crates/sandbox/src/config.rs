@@ -216,6 +216,8 @@ pub struct Config {
     pub home_dir: String,
     /// Codex home directory (default: "$HOME/.codex")
     pub codex_home_dir: String,
+    /// Pi agent directory (env: `PI_CODING_AGENT_DIR`, default: `$HOME/.pi/agent`).
+    pub pi_home_dir: String,
     /// Claude config directory (default: "$HOME/.claude")
     pub claude_config_dir: String,
     /// Primary repo's clone URL (env `GIT_CLONE_URL`). Mirrors `repos[0]`.
@@ -556,6 +558,8 @@ impl Config {
             .unwrap_or_else(|_| format!("{home_dir}/.claude"));
         let codex_home_dir =
             env::var("CODEX_HOME").unwrap_or_else(|_| format!("{home_dir}/.codex"));
+        let pi_home_dir =
+            env::var("PI_CODING_AGENT_DIR").unwrap_or_else(|_| format!("{home_dir}/.pi/agent"));
 
         // The workspace is the persisted container dir; every repository the
         // task's workspace declares is cloned into a named subdirectory of it.
@@ -669,6 +673,7 @@ impl Config {
 
             home_dir,
             codex_home_dir,
+            pi_home_dir,
             claude_config_dir,
             git_clone_url,
             git_branch,
@@ -776,6 +781,7 @@ pub(crate) mod test_support {
             shell: "/bin/bash".to_string(),
             home_dir: "/tmp/home".to_string(),
             codex_home_dir: "/tmp/home/.codex".to_string(),
+            pi_home_dir: "/tmp/home/.pi/agent".to_string(),
             claude_config_dir: "/tmp/home/.claude".to_string(),
             git_clone_url: None,
             git_branch: None,

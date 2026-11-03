@@ -149,6 +149,7 @@ fn test_config() -> Config {
         upload_dir: "/tmp/test-upload".to_string(),
         home_dir: "/tmp/test-home".to_string(),
         codex_home_dir: "/tmp/test-codex-home".to_string(),
+        pi_home_dir: "/tmp/test-pi-home".to_string(),
         log_level: "info".to_string(),
         backend_grpc_url: "http://localhost:50051".to_string(),
         backend_api_url: None,

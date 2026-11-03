@@ -949,6 +949,7 @@ fn build_config(tmp: &TempDir, agent: EvalAgent) -> Config {
         workspace_restore_if_empty: false,
         home_dir: home.display().to_string(),
         codex_home_dir: home.join(".codex").display().to_string(),
+        pi_home_dir: home.join(".pi/agent").display().to_string(),
         claude_config_dir: home.join(".claude").display().to_string(),
         git_clone_url: None,
         git_branch: None,

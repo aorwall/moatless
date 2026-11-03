@@ -161,6 +161,7 @@ impl RealEnv {
             command_default_timeout_secs: moatless_sandbox::config::DEFAULT_COMMAND_TIMEOUT_SECS,
             home_dir: home.display().to_string(),
             codex_home_dir: codex_home.display().to_string(),
+            pi_home_dir: home.join(".pi/agent").display().to_string(),
             claude_config_dir: tmp.path().join("claude-config").display().to_string(),
             git_clone_url: None,
             git_branch: None,

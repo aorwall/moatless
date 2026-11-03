@@ -16,10 +16,12 @@ use super::support::{
 };
 use crate::agent::types::ResumeSession;
 use crate::init::{InitPhase, WorkspaceOrigin, open_for_work};
-use crate::transcript_sync::{codex_sessions_dir, download_on_start, transcript_dir};
+use crate::transcript_sync::{
+    codex_sessions_dir, download_on_start, pi_sessions_dir, transcript_dir,
+};
 
 #[tokio::test]
-async fn download_on_start_restores_claude_and_codex_session_state() {
+async fn download_on_start_restores_claude_codex_and_pi_session_state() {
     let tmp = tempfile::TempDir::new().unwrap();
     tokio::fs::create_dir_all(tmp.path().join("workspace"))
         .await
@@ -44,6 +46,12 @@ async fn download_on_start_restores_claude_and_codex_session_state() {
             .await
             .unwrap(),
         "{\"thread\":\"xyz\"}\n"
+    );
+    assert_eq!(
+        tokio::fs::read_to_string(pi_sessions_dir(&config).join("pi-session.jsonl"))
+            .await
+            .unwrap(),
+        "{\"type\":\"session\"}\n"
     );
 }
 
@@ -103,7 +111,7 @@ async fn restore_precedes_the_harness_accepting_the_resumed_turn() {
     // agent would `--resume` against history not yet landed. Observes that
     // the restored file exists before the harness accepts the interrupted
     // run, across download_on_start (restore) → open_for_work (recover).
-    for family in ["claude-code", "codex"] {
+    for family in ["claude-code", "codex", "pi"] {
         let tmp = tempfile::TempDir::new().unwrap();
         tokio::fs::create_dir_all(tmp.path().join("workspace"))
             .await
@@ -121,6 +129,7 @@ async fn restore_precedes_the_harness_accepting_the_resumed_turn() {
         download_on_start(&state).await;
         let restored = match family {
             "claude-code" => transcript_dir(&config).join("session.jsonl"),
+            "pi" => pi_sessions_dir(&config).join("pi-session.jsonl"),
             _ => codex_sessions_dir(&config)
                 .join("2026")
                 .join("rollout-xyz.jsonl"),

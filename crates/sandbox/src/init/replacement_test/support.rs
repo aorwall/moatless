@@ -292,9 +292,7 @@ pub(super) fn interrupted_turn(
     }
 }
 
-/// A config whose Claude/Codex/workspace dirs live under an isolated tmp dir,
-/// so restore lands in a place the test can inspect without touching shared
-/// paths.
+/// Isolate agent homes and the workspace for replacement tests.
 pub(super) fn tmp_config(agent_profile: &str, tmp: &tempfile::TempDir) -> Config {
     let mut config = minimal_config();
     config.agent_profile = Some(agent_profile.to_string());
@@ -302,17 +300,22 @@ pub(super) fn tmp_config(agent_profile: &str, tmp: &tempfile::TempDir) -> Config
     config.repo_dir = config.workspace_dir.clone();
     config.claude_config_dir = tmp.path().join("claude-config").display().to_string();
     config.codex_home_dir = tmp.path().join("codex-home").display().to_string();
+    config.pi_home_dir = tmp.path().join("pi-home").display().to_string();
     config
 }
 
-/// Build the combined archive exactly as the backend serves it: Claude entries
-/// under `claude/`, Codex rollouts under `codex/sessions/`.
+/// Build the session archive served by the backend for all three harnesses.
 pub(super) async fn combined_archive() -> Vec<u8> {
     let staging = tempfile::TempDir::new().expect("tmp");
     let claude_src = staging.path().join("claude");
     let codex_src = staging.path().join("codex").join("sessions").join("2026");
+    let pi_src = staging.path().join("pi").join("sessions");
     tokio::fs::create_dir_all(&claude_src).await.unwrap();
     tokio::fs::create_dir_all(&codex_src).await.unwrap();
+    tokio::fs::create_dir_all(&pi_src).await.unwrap();
+    tokio::fs::write(pi_src.join("pi-session.jsonl"), b"{\"type\":\"session\"}\n")
+        .await
+        .unwrap();
     tokio::fs::write(claude_src.join("session.jsonl"), b"{\"turn\":1}\n")
         .await
         .unwrap();
@@ -327,6 +330,8 @@ pub(super) async fn combined_archive() -> Vec<u8> {
         let mut b = tar::Builder::new(Vec::new());
         b.append_dir_all("claude", root.join("claude")).unwrap();
         b.append_dir_all("codex/sessions", root.join("codex").join("sessions"))
+            .unwrap();
+        b.append_dir_all("pi/sessions", root.join("pi").join("sessions"))
             .unwrap();
         b.into_inner().unwrap()
     })
