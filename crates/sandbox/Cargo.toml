@@ -42,6 +42,7 @@ tikv-jemallocator = { workspace = true }
 # Serialization
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+serde_yaml = { workspace = true }
 
 # Error handling
 thiserror = { workspace = true }

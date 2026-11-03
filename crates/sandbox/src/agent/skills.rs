@@ -1,4 +1,4 @@
-//! Frontload activated skills into the user turn.
+//! Discover managed skills and frontload activated bodies into the user turn.
 //!
 //! The backend ships skill *names*; the body lives on this pod's disk. Each
 //! name is looked up in order: the repo's own skill roots under every checkout,
@@ -171,6 +171,90 @@ pub(crate) async fn discovery_paths(config: &Config) -> Vec<PathBuf> {
         .collect()
 }
 
+/// Skill file paths and frontmatter descriptions for agents without native discovery.
+pub(crate) async fn catalog_prompt(config: &Config) -> String {
+    let roots = skill_roots(config).await;
+    tokio::task::spawn_blocking(move || catalog_from_roots(&roots))
+        .await
+        .unwrap_or_else(|error| {
+            warn!(%error, "Skill catalog scan failed");
+            String::new()
+        })
+}
+
+fn catalog_from_roots(roots: &[SkillRoot]) -> String {
+    use std::io::Read;
+
+    let mut seen = std::collections::HashSet::new();
+    let mut rows = Vec::new();
+    for root in roots {
+        let entries = match std::fs::read_dir(&root.dir) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                warn!(path = %root.dir.display(), %error, "Cannot scan skill root");
+                continue;
+            }
+        };
+        let mut paths: Vec<_> = entries
+            .filter_map(Result::ok)
+            .map(|entry| entry.path().join("SKILL.md"))
+            .collect();
+        paths.sort();
+        for path in paths {
+            let Ok(canonical) = std::fs::canonicalize(&path) else {
+                continue;
+            };
+            if !seen.insert(canonical.clone()) {
+                continue;
+            }
+            let mut bytes = Vec::new();
+            let read = std::fs::File::open(&canonical)
+                .and_then(|file| file.take(64 * 1024).read_to_end(&mut bytes));
+            if let Err(error) = read {
+                warn!(path = %path.display(), %error, "Cannot read skill metadata");
+                continue;
+            }
+            let contents = String::from_utf8_lossy(&bytes);
+            let Some((yaml, _)) = split_frontmatter(&contents) else {
+                continue;
+            };
+            let metadata = match serde_yaml::from_str::<serde_yaml::Value>(yaml) {
+                Ok(metadata) => metadata,
+                Err(error) => {
+                    warn!(path = %path.display(), %error, "Invalid skill metadata");
+                    continue;
+                }
+            };
+            let Some(description) = metadata
+                .get("description")
+                .and_then(serde_yaml::Value::as_str)
+                .filter(|description| !description.trim().is_empty())
+            else {
+                continue;
+            };
+            let name = metadata
+                .get("name")
+                .and_then(serde_yaml::Value::as_str)
+                .filter(|name| !name.trim().is_empty())
+                .or_else(|| path.parent()?.file_name()?.to_str())
+                .unwrap_or("skill");
+            let mut row = serde_json::json!({"name": name, "description": description, "path": path.display().to_string()});
+            if let Some(plugin_root) = &root.plugin_root {
+                row["plugin_root"] = serde_json::json!(plugin_root.display().to_string());
+            }
+            rows.push(row.to_string());
+        }
+    }
+    if rows.is_empty() {
+        return String::new();
+    }
+    format!(
+        "Available skills (one JSON object per skill):\nWhen the task matches a skill description, read its SKILL.md with bash before acting and follow its applicable instructions. Load only relevant skills and referenced resources. Resolve relative references from the directory containing SKILL.md. For plugin skills, substitute the listed plugin_root for ${{CLAUDE_PLUGIN_ROOT}} and the skill directory for ${{CLAUDE_SKILL_DIR}}.\n{}",
+        rows.join("\n")
+    )
+}
+
 /// `<home>/skills` for the harness this Member is fixed to.
 fn home_skills_dir(config: &Config) -> PathBuf {
     let is_codex = config
@@ -231,24 +315,25 @@ fn is_safe_skill_name(name: &str) -> bool {
 /// closed by a `---` line goes: a horizontal rule further down survives, and
 /// an unclosed block is left alone rather than swallowing the body.
 fn strip_frontmatter(contents: &str) -> &str {
-    // Tolerate a leading UTF-8 BOM and CRLF, like the skill scanner in
-    // `moatless-workspaces` that parses these same files.
-    let trimmed = contents.strip_prefix('\u{feff}').unwrap_or(contents);
-    let Some(rest) = trimmed
-        .strip_prefix("---\n")
-        .or_else(|| trimmed.strip_prefix("---\r\n"))
-    else {
-        return contents;
-    };
+    split_frontmatter(contents).map_or(contents, |(_, body)| body)
+}
 
-    let mut cursor = 0usize;
+fn split_frontmatter(contents: &str) -> Option<(&str, &str)> {
+    let trimmed = contents.strip_prefix('\u{feff}').unwrap_or(contents);
+    let rest = trimmed
+        .strip_prefix("---\n")
+        .or_else(|| trimmed.strip_prefix("---\r\n"))?;
+    let mut cursor = 0;
     for line in rest.split_inclusive('\n') {
         if line.trim_end_matches(['\n', '\r']) == "---" {
-            return rest[cursor + line.len()..].trim_start_matches(['\n', '\r']);
+            return Some((
+                &rest[..cursor],
+                rest[cursor + line.len()..].trim_start_matches(['\n', '\r']),
+            ));
         }
         cursor += line.len();
     }
-    contents
+    None
 }
 
 /// A self-contained block ending in a blank line, so several concatenate and
@@ -277,6 +362,86 @@ mod tests {
         let skill = dir.join(name);
         std::fs::create_dir_all(&skill).expect("create skill dir");
         std::fs::write(skill.join("SKILL.md"), body).expect("write SKILL.md");
+    }
+
+    #[tokio::test]
+    async fn catalog_lists_yaml_metadata_and_paths_without_loading_skill_bodies() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = config_in(tmp.path(), "mini-swe");
+        let root = Path::new(&config.repo_dir).join(".agents/skills");
+        write_skill(
+            &root,
+            "release",
+            "\u{feff}---\r\nname: Ship it\r\ndescription: >-\r\n  Prepare a release\r\n  and verify its artifacts.\r\n---\r\nBODY_ONLY_SECRET\n",
+        );
+        write_skill(
+            &root,
+            "invalid",
+            "---\nname: [broken\ndescription: broken\n---\n",
+        );
+        write_skill(&root, "missing", "---\nname: Missing description\n---\n");
+        write_skill(
+            &Path::new(&config.claude_config_dir).join("skills"),
+            "home-skill",
+            "---\ndescription: 'Use for home tasks: verify output.'\n---\nHOME_BODY\n",
+        );
+
+        let prompt = catalog_prompt(&config).await;
+        let rows: Vec<serde_json::Value> = prompt
+            .lines()
+            .filter_map(|line| serde_json::from_str(line).ok())
+            .collect();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["name"], "Ship it");
+        assert_eq!(
+            rows[0]["description"],
+            "Prepare a release and verify its artifacts."
+        );
+        assert_eq!(
+            rows[0]["path"],
+            root.join("release/SKILL.md").display().to_string()
+        );
+        assert_eq!(rows[1]["name"], "home-skill");
+        assert!(!prompt.contains("BODY_ONLY_SECRET"));
+        assert!(!prompt.contains("HOME_BODY"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn catalog_deduplicates_symlinks_and_preserves_plugin_reference_context() {
+        let tmp = tempfile::tempdir().unwrap();
+        let plugin = tmp.path().join("plugin");
+        let skills = plugin.join("skills");
+        write_skill(
+            &skills,
+            "review",
+            "---\nname: review\ndescription: Review code\n---\nRead ${CLAUDE_PLUGIN_ROOT}/rules.md\n",
+        );
+        let alias = tmp.path().join("alias");
+        std::os::unix::fs::symlink(&skills, &alias).unwrap();
+        let roots = [skills, alias].map(|dir| SkillRoot {
+            label_prefix: String::new(),
+            dir,
+            plugin_root: Some(plugin.clone()),
+        });
+        let prompt = catalog_from_roots(&roots);
+        let rows: Vec<serde_json::Value> = prompt
+            .lines()
+            .filter_map(|line| serde_json::from_str(line).ok())
+            .collect();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["plugin_root"], plugin.display().to_string());
+        assert!(prompt.contains("${CLAUDE_SKILL_DIR}"));
+    }
+
+    #[tokio::test]
+    async fn an_empty_skill_catalog_adds_no_prompt() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(
+            catalog_prompt(&config_in(tmp.path(), "mini-swe"))
+                .await
+                .is_empty()
+        );
     }
 
     #[tokio::test]

@@ -227,17 +227,12 @@ impl MiniSweProcess {
         self.stdout = child.stdout.take().map(BufReader::new);
         self.child = Some(child);
         let prompt = format!(
-            "{}\nUse the bash tool for actions. Every response must include a bash call. To finish, execute a command whose first output line is COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT and put your final answer on the following lines. Each command runs in a fresh shell.\nManaged skills: {}",
+            "{}\nUse the bash tool for actions. Every response must include a bash call. To finish, execute a command whose first output line is COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT and put your final answer on the following lines. Each command runs in a fresh shell.\n{}",
             input
                 .system_prompt
                 .as_deref()
                 .unwrap_or("You are a coding agent."),
-            crate::agent::skills::discovery_paths(&config)
-                .await
-                .iter()
-                .map(|p| p.display().to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
+            crate::agent::skills::catalog_prompt(&config).await
         );
         self.send(
             json!({"journal":session_path,"session":self.session,"resume":resume.is_some(),

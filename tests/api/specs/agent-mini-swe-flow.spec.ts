@@ -1,6 +1,6 @@
 /** Real mini-swe-agent execution, follow-up, and transcript recovery after sandbox replacement. */
 import { readdir, rm } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { findNamedFileWithContent } from '../../shared/content-helpers'
 import { EventStream } from '../../shared/event-stream'
 import { missingCapability, profile } from '../../shared/profile'
@@ -389,6 +389,80 @@ test('MINI-provider-switch: native history survives OpenAI to Anthropic and back
         .join('\n')
       expect(text, `Changing provider to ${model} lost conversation history`).toContain(value)
     }
+  } finally {
+    await events.stop()
+    await discardTask(api, taskId)
+  }
+})
+
+test('MINI-skills: discovers a skill and follows its relative resource', async ({
+  api,
+  driver,
+}, info) => {
+  const reason = missingCapability('miniSweCredentials')
+  test.skip(reason !== null, reason ?? '')
+  info.setTimeout(
+    profile().timeouts.sandboxReady +
+      profile().timeouts.agentIdle * 2 +
+      profile().timeouts.sandboxTeardown,
+  )
+  await api.storeHarnessCredentials()
+  const workspace = await api.ensureTemplateWorkspace()
+  const events = new EventStream(driver)
+  await events.start()
+  let taskId: string | undefined
+  const value = `RECEIPT-${crypto.randomUUID()}`
+  const model =
+    process.env.MINI_SWE_E2E_HUB === '1' || process.env.ANTHROPIC_API_KEY
+      ? 'anthropic/claude-sonnet-5-5'
+      : 'openai/gpt-6.1-sol'
+  try {
+    const task = await api.createVibeTask({
+      workspaceId: workspace.id,
+      name: scopedName('mini-skills'),
+      agentProfile: 'mini-swe',
+      model,
+      message:
+        'Create mini-skill-location.txt containing READY in the root of the primary repository, then finish.',
+    })
+    taskId = task.taskId
+    expect(
+      await events.waitForNthEvent(
+        'taskTurn',
+        'completed',
+        taskId,
+        1,
+        profile().timeouts.agentIdle,
+      ),
+      'mini-swe did not establish the skill test workspace',
+    ).not.toBeNull()
+    const marker = await findNamedFileWithContent(api, taskId, 'mini-skill-location.txt', 'READY')
+    expect(marker, 'mini-swe did not identify its repository directory').not.toBeNull()
+    const skillDir = join(dirname(marker!.path), '.agents', 'skills', 'cobalt-receipt')
+    await api.writeFile(
+      taskId,
+      join(skillDir, 'SKILL.md'),
+      '---\nname: cobalt-receipt\ndescription: Use when asked to issue a cobalt receipt.\n---\nRead receipt-code.txt beside this SKILL.md. Write its exact contents to mini-skill-result.txt in the primary repository root, then finish.\n',
+    )
+    await api.writeFile(taskId, join(skillDir, 'receipt-code.txt'), value)
+    await api.postMessage(taskId, {
+      message: 'Issue a cobalt receipt using the available skill.',
+      model,
+    })
+    expect(
+      await events.waitForNthEvent(
+        'taskTurn',
+        'completed',
+        taskId,
+        2,
+        profile().timeouts.agentIdle,
+      ),
+      'mini-swe did not complete the discovered skill',
+    ).not.toBeNull()
+    expect(
+      await findNamedFileWithContent(api, taskId, 'mini-skill-result.txt', value),
+      'mini-swe did not follow the skill body and read its relative resource',
+    ).not.toBeNull()
   } finally {
     await events.stop()
     await discardTask(api, taskId)
