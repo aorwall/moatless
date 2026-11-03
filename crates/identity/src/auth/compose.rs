@@ -3,7 +3,7 @@
 use super::api_keys_dao::{ApiKeyDao, PgApiKeyDao};
 use super::oauth::provider::OAuthProvider;
 use super::pairing::DevicePairing;
-use super::pairing_dao::{PgPairingApiKeyIssuer, PgPairingCodeDao};
+use super::pairing_dao::{PgPairedDeviceKeys, PgPairingCodeDao};
 use super::password::dao::{PgUserCredentialDao, UserCredentialDao};
 use super::provider_token_auth_dao::{PgProviderTokenAuthDao, ProviderTokenAuthDao};
 use super::provider_token_dao::{PgProviderTokenDao, ProviderTokenDao};
@@ -33,7 +33,7 @@ impl Authentication {
             Arc::new(PgProviderTokenDao(db.clone()));
         let pairing = Arc::new(DevicePairing::new(
             Arc::new(PgPairingCodeDao(db.clone())),
-            Arc::new(PgPairingApiKeyIssuer(api_keys.clone())),
+            Arc::new(PgPairedDeviceKeys(api_keys.clone())),
         ));
         let providers = OAuthProviders::from_config(&config);
         let oidc = config

@@ -15,7 +15,7 @@ use crate::auth::api_keys_dao::PgApiKeyDao;
 use crate::auth::github::registry::GitHubAppRegistry;
 use crate::auth::github::service::GitHubAppService;
 use crate::auth::pairing::DevicePairing;
-use crate::auth::pairing_dao::{PgPairingApiKeyIssuer, PgPairingCodeDao};
+use crate::auth::pairing_dao::{PgPairedDeviceKeys, PgPairingCodeDao};
 use crate::auth::password::bootstrap::BootstrapError;
 use crate::auth::password::dao::PgUserCredentialDao;
 use crate::auth::provider_token_auth_dao::PgProviderTokenAuthDao;
@@ -185,7 +185,7 @@ pub fn github_app_registry(
 pub fn device_pairing(db: DbPool) -> Arc<DevicePairing> {
     Arc::new(DevicePairing::new(
         Arc::new(PgPairingCodeDao(db.clone())),
-        Arc::new(PgPairingApiKeyIssuer(Arc::new(PgApiKeyDao(db)))),
+        Arc::new(PgPairedDeviceKeys(Arc::new(PgApiKeyDao(db)))),
     ))
 }
 

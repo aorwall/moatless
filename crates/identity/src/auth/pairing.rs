@@ -66,8 +66,23 @@ impl From<sqlx::Error> for PairingError {
     }
 }
 
+/// A paired device's API key, as its owner sees it in order to revoke it.
+#[derive(Debug, Clone)]
+pub struct PairedDeviceKey {
+    pub id: String,
+    /// The key's name, which [`key_name`] built from the label and client OS.
+    pub name: String,
+    pub created_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+    pub last_used_at: Option<DateTime<Utc>>,
+}
+
+/// The API keys pairing mints, and the owner's view of them.
+///
+/// A paired key is one with a sliding expiry (`api_keys.idle_ttl_secs`), which
+/// only pairing sets; a key a person minted is never listed or revoked here.
 #[async_trait]
-pub trait PairingApiKeyIssuer: Send + Sync {
+pub trait PairedDeviceKeys: Send + Sync {
     async fn issue_api_key(
         &self,
         user_id: &str,
@@ -76,17 +91,27 @@ pub trait PairingApiKeyIssuer: Send + Sync {
         expires_at: DateTime<Utc>,
         group_id: Option<&str>,
     ) -> Result<PairedDevice, PairingError>;
+
+    /// `user_id`'s paired keys that have not expired at `now`.
+    async fn list_paired_keys(
+        &self,
+        user_id: &str,
+        now: DateTime<Utc>,
+    ) -> Result<Vec<PairedDeviceKey>, PairingError>;
+
+    /// Deletes `key_id` if it is one of `user_id`'s paired keys.
+    async fn delete_paired_key(&self, user_id: &str, key_id: &str) -> Result<bool, PairingError>;
 }
 
 pub struct DevicePairing {
     codes: Arc<dyn super::pairing_dao::PairingCodeDao>,
-    api_keys: Arc<dyn PairingApiKeyIssuer>,
+    api_keys: Arc<dyn PairedDeviceKeys>,
 }
 
 impl DevicePairing {
     pub(crate) fn new(
         codes: Arc<dyn super::pairing_dao::PairingCodeDao>,
-        api_keys: Arc<dyn PairingApiKeyIssuer>,
+        api_keys: Arc<dyn PairedDeviceKeys>,
     ) -> Self {
         Self { codes, api_keys }
     }
@@ -165,6 +190,57 @@ impl DevicePairing {
         );
         Ok(device)
     }
+
+    /// `user_id`'s codes that are neither redeemed nor expired.
+    pub async fn pending_codes(&self, user_id: &str) -> Result<Vec<PairingCode>, PairingError> {
+        Ok(self
+            .codes
+            .list_pending_pairing_codes(user_id, Utc::now())
+            .await?)
+    }
+
+    /// Withdraws one of `user_id`'s unredeemed codes. False when there is none
+    /// by that id, including one already redeemed.
+    pub async fn revoke_code(&self, user_id: &str, code_id: &str) -> Result<bool, PairingError> {
+        let revoked = self
+            .codes
+            .delete_pending_pairing_code(user_id, code_id)
+            .await?;
+        if revoked {
+            info!(user_id = %user_id, pairing_code_id = %code_id, "Revoked device pairing code");
+        }
+        Ok(revoked)
+    }
+
+    /// `user_id`'s paired devices, by the key each one holds.
+    pub async fn devices(&self, user_id: &str) -> Result<Vec<PairedDeviceKey>, PairingError> {
+        self.api_keys.list_paired_keys(user_id, Utc::now()).await
+    }
+
+    /// Unpairs one of `user_id`'s devices by deleting its key.
+    ///
+    /// The backend's auth cache can still accept the key for up to
+    /// `AUTH_CACHE_TTL_SECS`, and a socket the device already holds stays open
+    /// until it reconnects; see `docs/deferred-changes.md`.
+    pub async fn revoke_device(&self, user_id: &str, key_id: &str) -> Result<bool, PairingError> {
+        let revoked = self.api_keys.delete_paired_key(user_id, key_id).await?;
+        if revoked {
+            info!(user_id = %user_id, key_id = %key_id, "Unpaired a device");
+        }
+        Ok(revoked)
+    }
+
+    /// Unpairs every one of `user_id`'s devices, as [`Self::revoke_device`]
+    /// does one. Returns how many it unpaired.
+    pub async fn revoke_all_devices(&self, user_id: &str) -> Result<usize, PairingError> {
+        let mut revoked = 0;
+        for device in self.devices(user_id).await? {
+            if self.revoke_device(user_id, &device.id).await? {
+                revoked += 1;
+            }
+        }
+        Ok(revoked)
+    }
 }
 
 /// A [`DevicePairing`] whose only redeemable code is `code`, for a consumer's
@@ -172,7 +248,7 @@ impl DevicePairing {
 #[cfg(any(test, feature = "test-support"))]
 pub fn device_pairing_over(
     code: Option<PairingCode>,
-    api_keys: Arc<dyn PairingApiKeyIssuer>,
+    api_keys: Arc<dyn PairedDeviceKeys>,
 ) -> DevicePairing {
     struct CannedCode(Option<PairingCode>);
 
@@ -199,6 +275,30 @@ pub fn device_pairing_over(
             _cutoff: DateTime<Utc>,
         ) -> Result<u64, sqlx::Error> {
             Ok(0)
+        }
+
+        async fn list_pending_pairing_codes(
+            &self,
+            user_id: &str,
+            _now: DateTime<Utc>,
+        ) -> Result<Vec<PairingCode>, sqlx::Error> {
+            Ok(self
+                .0
+                .iter()
+                .filter(|code| code.user_id == user_id)
+                .cloned()
+                .collect())
+        }
+
+        async fn delete_pending_pairing_code(
+            &self,
+            user_id: &str,
+            code_id: &str,
+        ) -> Result<bool, sqlx::Error> {
+            Ok(self
+                .0
+                .as_ref()
+                .is_some_and(|code| code.user_id == user_id && code.id == code_id))
         }
     }
 

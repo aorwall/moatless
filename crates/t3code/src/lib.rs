@@ -2,6 +2,7 @@
 //! T3 wire compatibility over Moatless-owned operations and scoped read
 //! projections.
 
+mod access;
 pub mod activity;
 pub mod agent;
 mod assets;

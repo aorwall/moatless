@@ -156,6 +156,7 @@ pub async fn mount(
         frontend_url: Arc::from(frontend_url),
         session_jwt_secret: session_jwt_secret.map(Arc::from),
         pairing,
+        access_changes: crate::access::AccessChanges::new(),
         sandboxes,
         snapshots,
         scripts,

@@ -23,6 +23,9 @@ const UNSUPPORTED_SURFACES: &[&str] = &[
     "providerConfiguration",
     "diagnostics",
     "connections",
+    // A paired device holds the whole grant (`crate::access`), so the Create
+    // link dialog offers no permissions to narrow it to.
+    "pairingScopes",
     "assistantStreaming",
     "serverUpdateBanner",
     "projectGrouping",
@@ -196,6 +199,19 @@ pub(crate) fn auth_descriptor(state: &UiRpcState) -> Value {
     })
 }
 
+/// The deployment's grant, plus `access:write` for a browser session: the
+/// pairing and revoke routes in [`crate::access`] answer only that caller.
+fn session_scopes(method: Option<UiRpcAuthMethod>) -> Vec<&'static str> {
+    let mut scopes: Vec<&'static str> = oauth::GRANTED_SCOPES
+        .iter()
+        .map(|scope| scope.as_str())
+        .collect();
+    if method == Some(UiRpcAuthMethod::SessionCookie) {
+        scopes.push(oauth::Scope::AccessWrite.as_str());
+    }
+    scopes
+}
+
 /// What a client is told about the session it is already holding.
 ///
 /// `sessionMethod` reports the credential this request actually arrived with,
@@ -205,7 +221,7 @@ pub(crate) fn session_state(state: &UiRpcState, method: Option<UiRpcAuthMethod>)
     json!({
         "authenticated": true,
         "auth": auth_descriptor(state),
-        "scopes": oauth::GRANTED_SCOPES,
+        "scopes": session_scopes(method),
         "sessionMethod": match method {
             Some(UiRpcAuthMethod::SessionCookie) | None => "browser-session-cookie",
             Some(UiRpcAuthMethod::ApiKey) | Some(UiRpcAuthMethod::WebSocketTicket) => "bearer-access-token",

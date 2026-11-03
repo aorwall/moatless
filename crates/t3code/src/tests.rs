@@ -57,7 +57,8 @@ use moatless_core::change_feed::listing::EnvironmentIdentity;
 use moatless_core::change_feed::listing::ListingHead;
 use moatless_identity::auth::pairing::DevicePairing;
 use moatless_identity::auth::pairing::{
-    PairedDevice, PairingApiKeyIssuer, PairingCode, PairingError, device_pairing_over, hash_key,
+    PairedDevice, PairedDeviceKey, PairedDeviceKeys, PairingCode, PairingError,
+    device_pairing_over, hash_key,
 };
 use moatless_ports::sandbox::ClusterDiagnostics;
 use moatless_ports::sandbox::SandboxIntentReader;
@@ -103,6 +104,7 @@ pub(crate) fn open_task(task_id: &str) -> TaskDescriptor {
 pub(crate) mod fixtures;
 pub(crate) mod logs;
 
+mod access;
 mod artifacts;
 mod assets;
 mod attachment_uploads;

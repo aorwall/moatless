@@ -273,3 +273,82 @@ async fn a_paired_key_slides_its_expiry_and_a_bare_stamp_does_not(pool: PgPool) 
     assert_eq!(after_stamp.expires_at, Some(after_renewal));
     assert!(after_stamp.last_used_at.is_some());
 }
+
+#[sqlx::test]
+async fn only_unredeemed_codes_are_listed_and_only_their_owner_revokes_one(pool: PgPool) {
+    let user_id = seed_user(&pool).await.to_string();
+    let pairing = crate::compose::device_pairing(pool.clone());
+    let redeemed = pairing.issue_code(&user_id, None, None).await.unwrap();
+    pairing
+        .redeem_code(&redeemed.code, &phone(), scopes())
+        .await
+        .unwrap();
+    let pending = pairing
+        .issue_code(&user_id, None, Some("Tablet"))
+        .await
+        .unwrap();
+
+    let listed = pairing.pending_codes(&user_id).await.unwrap();
+    assert_eq!(listed.len(), 1, "a redeemed code is no longer a link");
+    assert_eq!(listed[0].id, pending.id);
+    assert_eq!(listed[0].label.as_deref(), Some("Tablet"));
+
+    assert!(!pairing.revoke_code(&user_id, &redeemed.id).await.unwrap());
+    assert!(
+        !pairing
+            .revoke_code("22222222-2222-2222-2222-222222222222", &pending.id)
+            .await
+            .unwrap(),
+        "another account cannot revoke the link"
+    );
+    assert!(pairing.revoke_code(&user_id, &pending.id).await.unwrap());
+    assert!(pairing.pending_codes(&user_id).await.unwrap().is_empty());
+}
+
+#[sqlx::test]
+async fn unpairing_deletes_paired_keys_and_leaves_ordinary_ones(pool: PgPool) {
+    let user_id = seed_user(&pool).await.to_string();
+    let pairing = crate::compose::device_pairing(pool.clone());
+    let api_keys = PgApiKeyDao(pool.clone());
+    let ordinary = crate::auth::api_key::generate_key(
+        &api_keys,
+        &user_id,
+        "CI token",
+        None,
+        Some(Utc::now() + Duration::days(30)),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    let mut paired = Vec::new();
+    for _ in 0..2 {
+        let issued = pairing.issue_code(&user_id, None, None).await.unwrap();
+        let device = pairing
+            .redeem_code(&issued.code, &phone(), scopes())
+            .await
+            .unwrap();
+        paired.push(device.key_id);
+    }
+
+    let devices = pairing.devices(&user_id).await.unwrap();
+    assert_eq!(devices.len(), 2, "an ordinary API key is not a device");
+    assert!(devices.iter().all(|device| paired.contains(&device.id)));
+    assert_eq!(devices[0].name, "T3 Code Mobile (iOS)");
+
+    assert!(!pairing.revoke_device(&user_id, &ordinary.id).await.unwrap());
+    assert!(
+        !pairing
+            .revoke_device("22222222-2222-2222-2222-222222222222", &paired[0])
+            .await
+            .unwrap(),
+        "another account cannot unpair the device"
+    );
+    assert!(pairing.revoke_device(&user_id, &paired[0]).await.unwrap());
+    assert_eq!(pairing.revoke_all_devices(&user_id).await.unwrap(), 1);
+    assert!(pairing.devices(&user_id).await.unwrap().is_empty());
+
+    let left = api_keys.list_api_keys_by_user(&user_id).await.unwrap();
+    assert_eq!(left.len(), 1);
+    assert_eq!(left[0].id, ordinary.id);
+}

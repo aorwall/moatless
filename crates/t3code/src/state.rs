@@ -36,6 +36,8 @@ pub(crate) struct UiRpcState {
     /// Turns a pairing code into the token a client on another device keeps.
     /// The issuing half lives with the rest of the account routes.
     pub(crate) pairing: Arc<DevicePairing>,
+    /// Nudges open Authorized clients lists after a pairing changes.
+    pub(crate) access_changes: crate::access::AccessChanges,
     /// Every scoped read this surface answers from.
     pub(crate) reads: T3Reads,
     /// The change counters this replica's subscriptions wait on, read by one

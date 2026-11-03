@@ -168,6 +168,7 @@ pub(super) async fn token_exchange(
     {
         Ok(device) => {
             info!(key_id = %device.key_id, "Paired a T3 client");
+            state.access_changes.notify();
             Json(json!({
                 "access_token": device.token,
                 "issued_token_type": ACCESS_TOKEN_TYPE,
@@ -245,7 +246,7 @@ fn granted_scopes(requested: Option<&str>) -> Result<Vec<String>, &'static str> 
 /// A T3 error body. Every failure on this surface is one of these, because the
 /// client decodes the failure shapes its contract declares and treats anything
 /// else as the environment being unreachable.
-fn error_body(tag: &str, code: &str, reason: &str) -> Value {
+pub(crate) fn error_body(tag: &str, code: &str, reason: &str) -> Value {
     json!({
         "_tag": tag,
         "code": code,
@@ -282,7 +283,7 @@ fn auth_invalid() -> Response {
         .into_response()
 }
 
-fn internal_error(reason: &'static str) -> Response {
+pub(crate) fn internal_error(reason: &'static str) -> Response {
     (
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(error_body(

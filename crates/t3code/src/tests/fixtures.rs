@@ -144,7 +144,7 @@ impl SandboxObserver for UnreachableSandboxes {
 struct TestApiKeyIssuer;
 
 #[async_trait]
-impl PairingApiKeyIssuer for TestApiKeyIssuer {
+impl PairedDeviceKeys for TestApiKeyIssuer {
     async fn issue_api_key(
         &self,
         _user_id: &str,
@@ -160,6 +160,24 @@ impl PairingApiKeyIssuer for TestApiKeyIssuer {
             expires_at,
             scopes,
         })
+    }
+
+    async fn list_paired_keys(
+        &self,
+        _user_id: &str,
+        now: DateTime<Utc>,
+    ) -> Result<Vec<PairedDeviceKey>, PairingError> {
+        Ok(vec![PairedDeviceKey {
+            id: "key-1".into(),
+            name: "T3 Code Mobile (iOS)".into(),
+            created_at: now,
+            expires_at: now + chrono::Duration::days(90),
+            last_used_at: None,
+        }])
+    }
+
+    async fn delete_paired_key(&self, _user_id: &str, key_id: &str) -> Result<bool, PairingError> {
+        Ok(key_id == "key-1")
     }
 }
 
@@ -830,6 +848,7 @@ fn state_over(
         frontend_url: Arc::from("http://localhost:3000"),
         session_jwt_secret: Some(Arc::from("test-secret")),
         pairing: Arc::new(test_pairing(None)),
+        access_changes: crate::access::AccessChanges::new(),
         reads: T3Reads::new(
             conversations.clone(),
             Arc::new(workspaces),

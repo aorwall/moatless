@@ -377,18 +377,12 @@ impl ProtocolSession {
         &mut self,
         request: Request<IgnoredAny>,
     ) -> Vec<Value> {
-        self.streams.start(
-            &request.id,
-            Some(vec![json!({
-                "version": 1,
-                "revision": 1,
-                "type": "snapshot",
-                "payload": {
-                    "pairingLinks": [],
-                    "clientSessions": []
-                }
-            })]),
-        )
+        let pairing = request.state.pairing.clone();
+        let changes = request.state.access_changes.clone();
+        let user_id = request.identity.user_id.to_string();
+        self.streams.start_produced(&request.id, None, move |sink| {
+            crate::access::watch_access(sink, pairing, changes, user_id)
+        })
     }
 
     pub(super) async fn subscribe_preview_events(

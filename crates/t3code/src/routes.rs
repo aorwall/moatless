@@ -1,3 +1,4 @@
+use crate::access;
 use crate::assets;
 use crate::attachments;
 use crate::handlers::auth_session;
@@ -31,6 +32,19 @@ pub(crate) fn router(state: UiRpcState) -> Router {
         .route("/oauth/token", post(oauth::token_exchange))
         .route("/api/auth/websocket-ticket", post(oauth::websocket_ticket))
         .route("/api/auth/session", get(auth_session))
+        .route(
+            "/api/auth/pairing-token",
+            post(access::create_pairing_credential),
+        )
+        .route(
+            "/api/auth/pairing-links/revoke",
+            post(access::revoke_pairing_link),
+        )
+        .route("/api/auth/clients/revoke", post(access::revoke_client))
+        .route(
+            "/api/auth/clients/revoke-others",
+            post(access::revoke_other_clients),
+        )
         .route(assets::ASSET_ROUTE_PATTERN, get(assets::serve))
         // The token in the path is the credential — see [`attachments`] — so
         // this one route is exempt from the auth middleware's cookie handling
