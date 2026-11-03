@@ -109,7 +109,9 @@ to keep them apart.
 **Task**:
 The central unit of work: one conversation with a coding agent, run against a
 Workspace inside a Sandbox. Owns its status (open / closed / error), visibility,
-cost, and ownership. Created by a human or an external Trigger.
+cost, and ownership. Created directly by a person or automatically by a Loop.
+Loop-created Tasks are attributed to the Loop's run-as user and do not
+automatically add anyone to their personal task feed.
 _Avoid_: agent run (a legacy name for a running Task)
 
 **Turn**:
@@ -392,13 +394,20 @@ _Avoid_: trigger source, adapter-event trigger, TaskTrigger, TaskRoute
 **Requester**:
 The Moatless user an Adapter verified wrote the event that opens a Task
 (`InboundMessage::requester`): a mapped Slack sender, a connected Telegram
-account, a Linear session's creator. When the Loop runs as a bot, or its
-Workspace sets a run-as user, the Task is theirs: its commits credit them as
+account, a Linear session's creator. Recorded as the Task's Reporter.
+When the Loop runs as a bot, or its Workspace sets a run-as user, the Task is
+owned by them: its commits credit them as
 co-author, and its git-host token is capped by their own connection and
 repository role, so a Requester who has not connected GitHub, or has no role on
 the repository, is refused. Otherwise the Loop's own user keeps the Task.
 _Avoid_: sender (the external writer, verified or not), `user_id` on an inbound
 message (falls back to the Loop's user)
+
+**Reporter**:
+The verified person who requested a Loop-created Task's work, recorded as
+`reporter_user_id` independently of its `created_by` attribution and personal
+follows. Used for commit co-authorship and the default "Reported by" attribution
+on Linear issues the Task files. Scheduled and unmapped events have no Reporter.
 
 **Check-run trigger**:
 A completed GitHub check run, from a trusted App and matching a `github_pr`

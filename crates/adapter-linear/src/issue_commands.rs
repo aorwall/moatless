@@ -15,7 +15,7 @@ use tracing::warn;
 use moatless_adapter_model::binding::{BindScope, TASK_OWNED_BINDING_ORIGIN};
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_core::config::Config;
-use moatless_loops::adapters::access::ensure_task_access_only;
+use moatless_loops::adapters::access::{ensure_task_access_only, ensure_task_access_with};
 use moatless_loops::bindings::operations::Bindings;
 use moatless_loops::bindings::recently_sent::RecentlySent;
 use moatless_ports::identity::{ProviderIdentityLink, UserDisplay};
@@ -74,9 +74,10 @@ pub(crate) async fn create_issue(
     let (connection, api) =
         resolve_linear_api(&linear, &ctx, params.connection_id.as_deref()).await?;
 
-    if let Some(task_id) = req.task_id.as_deref() {
-        ensure_task_access_only(tasks.as_ref(), &ctx, task_id).await?;
-    }
+    let task = match req.task_id.as_deref() {
+        Some(task_id) => Some(ensure_task_access_with(tasks.as_ref(), &ctx, task_id).await?),
+        None => None,
+    };
 
     let team_id = match req.team.as_deref() {
         Some(t) => Some(resolve_team_id(&api, t).await?),
@@ -100,11 +101,15 @@ pub(crate) async fn create_issue(
         Some(&team_id),
     )
     .await?;
-    // Reporter (records who requested the issue) hard-fails on an explicit miss.
-    let reporter = match req.reporter.as_deref() {
-        Some(value) => Some(resolve_user_required(&api, identity.as_ref(), value).await?),
-        None => None,
-    };
+    let reporter = resolve_issue_reporter(
+        &api,
+        users.as_ref(),
+        identity.as_ref(),
+        req.reporter.as_deref(),
+        task.as_ref()
+            .and_then(|task| task.reporter_user_id.as_deref()),
+    )
+    .await?;
     // Explicit assignee hard-fails on miss; when omitted, default to the
     // reporter, else a non-app caller (best-effort — never fails issue creation).
     let assignee_id = match req.assignee.as_deref() {

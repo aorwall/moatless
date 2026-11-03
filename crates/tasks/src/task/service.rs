@@ -332,6 +332,14 @@ pub async fn normalize(
         refuse_codex_without_credential(secrets, credential_sync, scope_ctx, user_id).await?;
     }
 
+    let reporter_user_id = match req.parent_task_id.as_deref() {
+        Some(parent_id) => tasks
+            .find_by_id(parent_id, scope_ctx)
+            .await?
+            .and_then(|parent| parent.reporter_user_id),
+        None => None,
+    };
+
     Ok(NewTaskRequest {
         // The HTTP path has no Loop behind it, so the Sandbox takes whatever
         // its Workspace declares.
@@ -346,6 +354,8 @@ pub async fn normalize(
             .or_else(|| repo.as_ref().and_then(|repo| repo.default_branch.clone())),
         model: req.model.clone(),
         created_by: Some(user_id.to_string()),
+        reporter_user_id,
+        owner_user_id: None,
         run_as_user_id,
         headless: req.headless.unwrap_or(false),
         visibility: Visibility::Private,
@@ -829,6 +839,7 @@ mod tests {
             branch: None,
             model: None,
             created_by: Some(owner.to_string()),
+            reporter_user_id: None,
             visibility: Visibility::Private,
             scope: moatless_types::access_control::Scope::User,
             owner_user_id: Some(owner.to_string()),

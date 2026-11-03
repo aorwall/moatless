@@ -12,7 +12,7 @@ use crate::sandbox::secrets::{
 };
 use moatless_core::sandbox_jwt as jwt;
 use moatless_core::secret_keys;
-use moatless_types::access_control::Actor;
+use moatless_types::access_control::{Actor, ScopeContext};
 use moatless_types::credential_key;
 
 use super::authorize::TaskGrant;
@@ -134,6 +134,23 @@ pub(super) async fn get_credentials(
     })?;
     let workspace_credential_count = workspace_credentials.len();
     let actor = task_actor(service, &targets, &grant).await;
+    let reporter_user_id = match handlers {
+        Some(handlers) => {
+            // reason: the Sandbox grant authorized this Task before its reporter is read
+            #[allow(clippy::disallowed_methods)]
+            let scope = ScopeContext::system();
+            handlers
+                .tasks
+                .find_by_id(&req.task_id, &scope)
+                .await
+                .map_err(|error| {
+                    warn!(%error, task_id = %req.task_id, "Failed to read task reporter");
+                    Status::internal("Failed to resolve task reporter")
+                })?
+                .and_then(|task| task.reporter_user_id)
+        }
+        None => None,
+    };
     // Workspace-scoped configuration travels on this channel and not only the
     // pod spec: the per-turn map overlays the pod env, so a workspace var
     // delivered solely through the plan loses to a user- or global-scoped secret.
@@ -145,6 +162,7 @@ pub(super) async fn get_credentials(
     let mut credentials = resolve_task_credentials(TaskCredentialInputs {
         task_id: &req.task_id,
         actor: &actor,
+        reporter_user_id: reporter_user_id.as_deref(),
         secrets: handlers.map(|h| &h.secrets),
         git_host_tokens: handlers.map(|h| &h.git_host_tokens),
         users: handlers.map(|h| &h.commit_identity),

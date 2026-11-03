@@ -462,6 +462,7 @@ impl TaskForkService {
             )
             .await?;
             new_task.tag_ids = self.source_tag_ids(source_task_id).await;
+            new_task.reporter_user_id = source.reporter_user_id.clone();
             new_task.forked_from = Some(ForkedFrom {
                 source_task_id: source_task_id.to_string(),
                 at_turn: plan.at_turn,

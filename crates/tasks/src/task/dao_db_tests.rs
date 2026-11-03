@@ -63,6 +63,65 @@ async fn insert_and_find_by_id(pool: PgPool) {
 }
 
 #[sqlx::test]
+async fn loop_attribution_and_reporting_do_not_subscribe_personal_feeds(pool: PgPool) {
+    sqlx::query("INSERT INTO loops (id, name, kind, scope, created_by) VALUES ('loop-1', 'Test', 'manual', 'global', 'loop-user')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mut task = make_task_row("task-loop", "loop-user");
+    task.loop_id = Some("loop-1".into());
+    task.reporter_user_id = Some("reporter".into());
+    task.owner_user_id = Some("reporter".into());
+    seed_task(&pool, &task).await.unwrap();
+    let commands = store_over(&pool);
+
+    let found = find_task(&pool, "task-loop", &scope_ctx("reporter"))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(found.created_by.as_deref(), Some("loop-user"));
+    assert_eq!(found.reporter_user_id.as_deref(), Some("reporter"));
+    let (listed, _) = list_tasks(&pool, &base_filter("reporter")).await.unwrap();
+    assert_eq!(listed[0].reporter_user_id.as_deref(), Some("reporter"));
+    for user in ["loop-user", "reporter"] {
+        assert!(
+            commands
+                .get_followed(user, std::slice::from_ref(&task.task_id))
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    commands
+        .follow_task("reporter", &task.task_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        commands
+            .get_followed("reporter", &[task.task_id])
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[sqlx::test]
+async fn directly_created_tasks_still_follow_the_creator(pool: PgPool) {
+    let task = make_task_row("task-direct", "creator");
+    seed_task(&pool, &task).await.unwrap();
+    assert_eq!(
+        store_over(&pool)
+            .get_followed("creator", &[task.task_id])
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[sqlx::test]
 async fn find_by_id_access_control_private(pool: PgPool) {
     let owner = "user-1";
     let other = "user-2";

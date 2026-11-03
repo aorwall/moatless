@@ -143,6 +143,7 @@ mod thread_ids {
             branch: None,
             model: None,
             created_by: Some(owner.to_string()),
+            reporter_user_id: None,
             visibility: moatless_types::task::Visibility::Private,
             scope: Scope::User,
             owner_user_id: Some(owner.to_string()),

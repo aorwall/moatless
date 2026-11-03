@@ -157,6 +157,38 @@ pub(super) fn user_from_node(node: &Value) -> Option<ResolvedUser> {
     Some(ResolvedUser { id, url, app })
 }
 
+/// Resolve an explicit reporter, else the Task's verified reporter's Linear user.
+pub(super) async fn resolve_issue_reporter(
+    api: &LinearAgentApi,
+    users: &dyn UserDisplay,
+    identity: &dyn ProviderIdentityLink,
+    explicit: Option<&str>,
+    task_reporter: Option<&str>,
+) -> Result<Option<ResolvedUser>, AdapterError> {
+    if let Some(explicit) = explicit {
+        return resolve_user_required(api, identity, explicit)
+            .await
+            .map(Some);
+    }
+    let Some(user_id) = task_reporter.and_then(|id| uuid::Uuid::parse_str(id).ok()) else {
+        return Ok(None);
+    };
+    if let Some(id) = identity
+        .provider_id_for_user(LINEAR_PROVIDER, &user_id)
+        .await?
+    {
+        if let Some(user) = user_by_id(api, &id).await? {
+            return Ok((!user.app).then_some(user));
+        }
+    }
+    let Some(email) = users.email(&user_id).await? else {
+        return Ok(None);
+    };
+    Ok(user_by_email_or_name(api, &email)
+        .await?
+        .filter(|user| !user.app))
+}
+
 /// The Linear user id stored against a Moatless `login`, or `None` when there's
 /// no `linear` mapping.
 ///
@@ -450,7 +482,7 @@ mod tests {
     use super::super::agent_api::LinearAgentApi;
     use super::{
         LINEAR_PROVIDER, creator_name, default_assignee_from_caller, linear_id_for_login,
-        resolve_assignee, resolve_user_opt,
+        resolve_assignee, resolve_issue_reporter, resolve_user_opt,
     };
 
     /// The Linear id stored against the login, and the answer the precedence
@@ -498,6 +530,99 @@ mod tests {
             })
         })
         .await
+    }
+
+    #[tokio::test]
+    async fn an_issue_uses_its_tasks_reporter_through_the_stored_linear_link() {
+        let stub = stub_answering_every_user_query().await;
+        let api = api_at(stub.base_url());
+        let reporter = uuid::Uuid::new_v4();
+        let mut identity = MockProviderIdentityLink::new();
+        identity
+            .expect_provider_id_for_user()
+            .withf(move |provider, user| provider == LINEAR_PROVIDER && *user == reporter)
+            .times(1)
+            .returning(|_, _| Ok(Some(MAPPED_ID.into())));
+
+        let user = resolve_issue_reporter(
+            &api,
+            &MockUserDisplay::new(),
+            &identity,
+            None,
+            Some(&reporter.to_string()),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(user.id, MAPPED_ID);
+        assert_eq!(user.url, "https://linear.app/u/mapped");
+        assert_eq!(stub.graphql_operations(), vec!["user".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn an_unlinked_task_reporter_resolves_by_their_email() {
+        let stub = stub_answering_every_user_query().await;
+        let api = api_at(stub.base_url());
+        let reporter = uuid::Uuid::new_v4();
+        let mut identity = MockProviderIdentityLink::new();
+        identity
+            .expect_provider_id_for_user()
+            .returning(|_, _| Ok(None));
+        let mut users = MockUserDisplay::new();
+        users
+            .expect_email()
+            .withf(move |user| *user == reporter)
+            .returning(|_| Ok(Some("reporter@example.com".into())));
+
+        let user =
+            resolve_issue_reporter(&api, &users, &identity, None, Some(&reporter.to_string()))
+                .await
+                .unwrap()
+                .unwrap();
+
+        assert_eq!(user.id, DIRECTORY_ID);
+        assert_eq!(stub.graphql_operations(), vec!["users".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn an_explicit_issue_reporter_outranks_the_tasks_reporter() {
+        let stub = stub_answering_every_user_query().await;
+        let api = api_at(stub.base_url());
+
+        let user = resolve_issue_reporter(
+            &api,
+            &MockUserDisplay::new(),
+            &MockProviderIdentityLink::new(),
+            Some(MAPPED_ID),
+            Some(DIRECTORY_ID),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(user.id, MAPPED_ID);
+        assert_eq!(stub.graphql_operations(), vec!["user".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn an_issue_without_a_task_reporter_does_not_credit_the_loop_user() {
+        let stub = stub_answering_every_user_query().await;
+        let api = api_at(stub.base_url());
+
+        assert!(
+            resolve_issue_reporter(
+                &api,
+                &MockUserDisplay::new(),
+                &MockProviderIdentityLink::new(),
+                None,
+                None
+            )
+            .await
+            .unwrap()
+            .is_none()
+        );
+        assert!(stub.graphql_operations().is_empty());
     }
 
     /// The branch order this change exists for: a stored id beats an email or

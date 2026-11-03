@@ -33,6 +33,8 @@ pub struct TaskCredentialInputs<'a> {
     /// Taken whole (not just a user id) so the git-host token resolved here
     /// matches what every other caller resolves for this task.
     pub actor: &'a Actor,
+    /// The Task's reporter, credited ahead of the actor's current driver.
+    pub reporter_user_id: Option<&'a str>,
     pub secrets: Option<&'a Arc<dyn SecretResolver>>,
     /// The one way to a git-host token. Supplied once at the composition root,
     /// so this struct threads no credential ports of its own.
@@ -78,7 +80,7 @@ pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMa
     fill_git_host_tokens(&mut credentials, input.git_host_tokens, input.actor).await;
 
     fill_git_identity(&mut credentials, input.users, user_id).await;
-    if let Some(person) = input.actor.person() {
+    if let Some(person) = input.reporter_user_id.or_else(|| input.actor.person()) {
         fill_co_author(&mut credentials, input.users, person).await;
     }
 
@@ -718,6 +720,7 @@ mod tests {
         TaskCredentialInputs {
             task_id: "t1",
             actor,
+            reporter_user_id: None,
             secrets,
             git_host_tokens: Some(git_host_tokens),
             users: None,
@@ -1244,6 +1247,47 @@ mod tests {
             Some("ada <ada@example.com>"),
             "a person with no account name is credited by login"
         );
+    }
+
+    #[tokio::test]
+    async fn the_reporter_is_credited_without_changing_the_execution_identity() {
+        let mut users = MockCommitIdentity::new();
+        users.expect_git_identity().returning(|user| {
+            Ok(Some(moatless_ports::identity::GitIdentity {
+                is_bot: user == "bot",
+                login: user.to_string(),
+                name: Some(user.to_string()),
+                email: Some(format!("{user}@example.com")),
+            }))
+        });
+        let users: Arc<dyn CommitIdentity> = Arc::new(users);
+        let actor = Actor::of("bot").on_behalf_of(Some("current-driver"));
+
+        let credentials = resolve_task_credentials(TaskCredentialInputs {
+            task_id: "t1",
+            actor: &actor,
+            reporter_user_id: Some("reporter"),
+            secrets: None,
+            git_host_tokens: None,
+            users: Some(&users),
+            workspace_credentials: HashMap::new(),
+            workspace_env_vars: HashMap::new(),
+        })
+        .await;
+
+        assert_eq!(
+            credentials.get(GIT_USER_NAME).map(String::as_str),
+            Some("bot")
+        );
+        assert_eq!(
+            credentials.get(GIT_USER_EMAIL).map(String::as_str),
+            Some("bot@example.com")
+        );
+        assert_eq!(
+            credentials.get(GIT_CO_AUTHOR).map(String::as_str),
+            Some("reporter <reporter@example.com>")
+        );
+        assert_eq!(actor.person(), Some("current-driver"));
     }
 
     #[tokio::test]

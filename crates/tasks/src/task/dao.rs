@@ -453,12 +453,12 @@ impl TaskDao for PgTaskDao {
                 append_system_prompt, updated_at, headless, ttl_minutes,
                 close_after_settled_days, loop_id, model,
                 workspace_id, sandbox_id, checkout_mode, skills, memory_preload,
-                settle_after_hours
+                settle_after_hours, reporter_user_id
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
                 $21, $22, NOW(), $23, $24, $25, $26,
-                $27, $28, $29, $30, $31, $32, $33
+                $27, $28, $29, $30, $31, $32, $33, $34
             )"#,
         )
         .bind(&row.task_id)
@@ -494,6 +494,7 @@ impl TaskDao for PgTaskDao {
         .bind(&row.skills)
         .bind(&row.memory_preload)
         .bind(row.settle_after_hours)
+        .bind(&row.reporter_user_id)
         .execute(&mut *tx)
         .await?;
 
@@ -502,12 +503,9 @@ impl TaskDao for PgTaskDao {
         moatless_core::change_feed::listing::record_change(&mut tx, &row.task_id).await?;
         tx.commit().await?;
 
-        // Auto-follow the creator so every creation path (HTTP, adapters,
-        // loops) behaves consistently; best-effort, never fails the insert.
-        // Deliberately after the commit, not inside it: an error inside the
-        // tx would abort it. It records its own change, coalescing with the
-        // task's into one delivered row.
-        if let Some(ref creator) = row.created_by {
+        // Loop attribution does not imply interest in a personal feed.
+        // Deliberately after commit: a failed follow must not abort creation.
+        if let Some(creator) = row.created_by.as_ref().filter(|_| row.loop_id.is_none()) {
             if let Err(e) = self.follow_task(creator, &row.task_id).await {
                 tracing::warn!(
                     error = %e,
@@ -664,6 +662,7 @@ impl TaskDao for PgTaskDao {
             branch: Option<String>,
             model: Option<String>,
             created_by: Option<String>,
+            reporter_user_id: Option<String>,
             visibility: Option<String>,
             scope: Option<String>,
             owner_user_id: Option<String>,
@@ -720,6 +719,7 @@ impl TaskDao for PgTaskDao {
                     branch: self.branch,
                     model: self.model,
                     created_by: self.created_by,
+                    reporter_user_id: self.reporter_user_id,
                     visibility: Visibility::try_from(self.visibility?.as_str()).ok()?,
                     scope: Scope::try_from(self.scope?).ok()?,
                     owner_user_id: self.owner_user_id,
@@ -752,7 +752,7 @@ impl TaskDao for PgTaskDao {
                     t.repository_id, t.workspace_id, t.status, t.total_cost_usd, t.site_url, t.template_id,
                     t.sandbox_id, t.checkout_mode,
                     t.vibe, t.name, t.description, t.site_id, t.site_provider, t.branch,
-                    t.model, t.created_by, t.visibility, t.scope, t.owner_user_id,
+                    t.model, t.created_by, t.reporter_user_id, t.visibility, t.scope, t.owner_user_id,
                     t.run_as_user_id,
                     t.created_at_db, t.updated_at, t.append_system_prompt,
                     t.headless, t.ttl_minutes,

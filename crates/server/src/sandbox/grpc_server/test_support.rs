@@ -45,6 +45,7 @@ pub(super) fn task_fixture(scope: Scope, owner_user_id: Option<&str>) -> Task {
         branch: None,
         model: None,
         created_by: owner_user_id.map(|u| uid(u).to_string()),
+        reporter_user_id: None,
         visibility: moatless_types::task::Visibility::Private,
         scope,
         owner_user_id: owner_user_id.map(|u| uid(u).to_string()),

@@ -446,6 +446,8 @@ pub struct Task {
     /// explicitly names a model and reused for later messages that omit one.
     pub model: Option<String>,
     pub created_by: Option<String>,
+    /// The verified person who requested a Loop's work; independent of following.
+    pub reporter_user_id: Option<String>,
     pub visibility: Visibility,
     pub scope: Scope,
     pub owner_user_id: Option<String>,

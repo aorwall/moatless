@@ -51,6 +51,7 @@ fn task_row(task_id: &str) -> Task {
         branch: None,
         model: None,
         created_by: Some("user-1".to_string()),
+        reporter_user_id: None,
         visibility: Visibility::Private,
         scope: Scope::User,
         owner_user_id: Some("user-1".to_string()),

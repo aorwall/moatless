@@ -21,6 +21,8 @@ pub struct NewTask {
     pub description: Option<String>,
     /// The identity the Task is attributed to.
     pub created_by: Option<String>,
+    /// See [`moatless_types::task::Task::reporter_user_id`].
+    pub reporter_user_id: Option<String>,
     /// The account the Task acts as, even when it is `created_by`: a set value
     /// pins it over whoever later drives the Sandbox. A Workspace that names
     /// its own run-as identity still outranks it.

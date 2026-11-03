@@ -4,8 +4,7 @@
 //!
 //! [`TaskCreationService::create`] is every caller's one entry point. It
 //! guarantees a failed preflight or provisioning step still records the task as
-//! `Error` with a `SandboxStatus::Error` event, and that every task persists as
-//! `Scope::User` owned by `created_by` regardless of caller input.
+//! `Error` with a `SandboxStatus::Error` event. Every Task is `Scope::User`.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -45,8 +44,7 @@ pub const FIRST_MESSAGE_FAILED: &str = "first_message_failed";
 pub const TASK_ERRORED_LIFECYCLE_EVENTS: &[&str] = &[PREFLIGHT_FAILED, FIRST_MESSAGE_FAILED];
 
 /// Normalised task-creation input; every call path translates its domain input
-/// into this. Scope/ownership are absent — derived from `created_by` in
-/// [`TaskCreationService::create`], not from the caller.
+/// into this. Scope is always `Scope::User`.
 pub struct NewTaskRequest {
     /// The Workspace's primary repository; `None` when it places none.
     pub repository_id: Option<String>,
@@ -56,6 +54,12 @@ pub struct NewTaskRequest {
     pub branch: Option<String>,
     pub model: Option<String>,
     pub created_by: Option<String>,
+    /// See [`Task::reporter_user_id`].
+    pub reporter_user_id: Option<String>,
+    /// Authorized owner selected by `TaskOpener::open`; `None` uses `created_by`.
+    /// A reporter may own the Task under a bot or Workspace run-as.
+    /// HTTP normalization leaves this unset.
+    pub owner_user_id: Option<String>,
     /// See [`moatless_types::task::Task::run_as_user_id`]. Already authorized
     /// by the time it reaches here: by `ScopeContext::can_run_as` in
     /// `service::normalize`, or on a Loop's path by the admin who set its run-as.
@@ -316,7 +320,7 @@ impl TaskCreationService {
         let persisted_checkout_mode = join_checkout_mode.or(req.checkout_mode);
         let short_id = self.generate_unique_short_id().await?;
         let now = chrono::Utc::now();
-        let owner_user_id = req.created_by.clone();
+        let owner_user_id = req.owner_user_id.clone().or_else(|| req.created_by.clone());
 
         let mut row = Task {
             task_id: task_id.clone(),
@@ -337,6 +341,7 @@ impl TaskCreationService {
             branch: req.branch.clone(),
             model: req.model.clone(),
             created_by: req.created_by.clone(),
+            reporter_user_id: req.reporter_user_id.clone(),
             visibility: req.visibility,
             scope: Scope::User,
             owner_user_id,

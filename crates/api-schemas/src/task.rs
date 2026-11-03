@@ -324,6 +324,9 @@ pub struct TaskResponse {
     pub vibe: Option<bool>,
     pub created_by: Option<String>,
     pub created_by_display_name: Option<String>,
+    /// The verified person who requested the Loop's work, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reporter_user_id: Option<String>,
     pub visibility: Visibility,
     pub scope: Scope,
     pub owner_user_id: Option<String>,

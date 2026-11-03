@@ -58,9 +58,7 @@ pub struct CreateTaskParams<'a> {
     pub related_to: Option<RelatedTask>,
     /// `adapter`/source metadata attached to the `Open` task event.
     pub event_metadata: serde_json::Value,
-    /// The user the firing works for, when the adapter resolved one. The Task
-    /// becomes theirs while acting as the Loop's run-as, when the task band's
-    /// `TaskOpener` allows it; their repository access then caps its token.
+    /// The verified user requesting the work, recorded as the Task's reporter.
     pub requested_by: Option<String>,
 }
 
@@ -84,10 +82,7 @@ pub async fn create_task_from_loop(
     let run_as = config.effective_user_id();
     // Pass the run-as even when it owns the Task: unpinned, a person who later
     // writes in Moatless becomes the driver and the Task acts as them.
-    let created_by = params
-        .requested_by
-        .filter(|user| !user.is_empty())
-        .unwrap_or_else(|| run_as.to_string());
+    let reporter_user_id = params.requested_by.filter(|user| !user.is_empty());
     let run_as_user_id = Some(run_as.to_string());
     let outcome = task_creation
         .open(NewTask {
@@ -96,7 +91,8 @@ pub async fn create_task_from_loop(
             model: config.model.clone(),
             name: params.name,
             description: Some(params.description),
-            created_by: Some(created_by),
+            created_by: Some(run_as.to_string()),
+            reporter_user_id,
             run_as_user_id,
             visibility: params.visibility,
             loop_id: config.id.clone(),
@@ -126,7 +122,7 @@ pub async fn create_task_from_loop(
 
 /// Create a task from a chat message or schedule firing: private, named by
 /// the Loop, with a truncated message preview and `{adapter, source_id}`
-/// event metadata. It is opened for [`InboundMessage::requester`], never for
+/// event metadata. Its reporter is [`InboundMessage::requester`], never
 /// `msg.user_id`.
 pub(crate) async fn create_task_for_external_message(
     task_creation: &dyn TaskOpener,
@@ -215,8 +211,7 @@ mod tests {
         }
     }
 
-    /// `(created_by, run_as_user_id)` of the Task opened for `requested_by`.
-    async fn opened_for(requested_by: Option<&str>) -> (Option<String>, Option<String>) {
+    async fn opened_for(requested_by: Option<&str>) -> NewTask {
         let opener = CapturingOpener::default();
         create_task_from_loop(
             &opener,
@@ -234,23 +229,19 @@ mod tests {
         )
         .await
         .expect("the opener accepts every task");
-        let task = opener.0.lock().unwrap().take().expect("a task was opened");
-        (task.created_by, task.run_as_user_id)
+        let mut captured = opener.0.lock().unwrap();
+        captured.take().expect("a task was opened")
     }
 
     #[tokio::test]
-    async fn a_requester_owns_the_task_that_still_runs_as_the_loops_user() {
-        assert_eq!(
-            opened_for(Some("ada")).await,
-            (Some("ada".to_string()), Some("bot".to_string()))
-        );
+    async fn a_loop_task_records_its_reporter_separately_from_its_creator() {
+        let task = opened_for(Some("ada")).await;
+        assert_eq!(task.created_by.as_deref(), Some("bot"));
+        assert_eq!(task.run_as_user_id.as_deref(), Some("bot"));
+        assert_eq!(task.reporter_user_id.as_deref(), Some("ada"));
     }
 
-    /// `(created_by, run_as_user_id)` of the Task a chat message opens.
-    async fn opened_for_message(
-        user_id: &str,
-        requester: Option<&str>,
-    ) -> (Option<String>, Option<String>) {
+    async fn opened_for_message(user_id: &str, requester: Option<&str>) -> NewTask {
         let opener = CapturingOpener::default();
         let msg = InboundMessage {
             adapter_kind: moatless_types::adapter::AdapterKind::Slack,
@@ -274,34 +265,31 @@ mod tests {
         create_task_for_external_message(&opener, &loop_running_as("bot"), &msg, None, None, None)
             .await
             .expect("the opener accepts every task");
-        let task = opener.0.lock().unwrap().take().expect("a task was opened");
-        (task.created_by, task.run_as_user_id)
+        let mut captured = opener.0.lock().unwrap();
+        captured.take().expect("a task was opened")
     }
 
     #[tokio::test]
-    async fn a_chat_messages_verified_requester_owns_the_task() {
-        assert_eq!(
-            opened_for_message("ada", Some("ada")).await,
-            (Some("ada".to_string()), Some("bot".to_string()))
-        );
+    async fn a_chat_messages_verified_requester_is_its_reporter() {
+        let task = opened_for_message("ada", Some("ada")).await;
+        assert_eq!(task.created_by.as_deref(), Some("bot"));
+        assert_eq!(task.reporter_user_id.as_deref(), Some("ada"));
     }
 
     #[tokio::test]
-    async fn a_chat_messages_user_id_alone_never_owns_the_task() {
-        assert_eq!(
-            opened_for_message("ada", None).await,
-            (Some("bot".to_string()), Some("bot".to_string()))
-        );
+    async fn a_chat_messages_user_id_alone_never_becomes_its_reporter() {
+        let task = opened_for_message("ada", None).await;
+        assert_eq!(task.created_by.as_deref(), Some("bot"));
+        assert_eq!(task.reporter_user_id, None);
     }
 
     #[tokio::test]
-    async fn without_a_distinct_requester_the_loops_user_owns_the_task_and_stays_its_run_as() {
-        for requested_by in [None, Some(""), Some("bot")] {
-            assert_eq!(
-                opened_for(requested_by).await,
-                (Some("bot".to_string()), Some("bot".to_string())),
-                "requested_by {requested_by:?}"
-            );
+    async fn a_scheduled_or_unmapped_firing_has_no_reporter() {
+        for requested_by in [None, Some("")] {
+            let task = opened_for(requested_by).await;
+            assert_eq!(task.created_by.as_deref(), Some("bot"));
+            assert_eq!(task.run_as_user_id.as_deref(), Some("bot"));
+            assert_eq!(task.reporter_user_id, None);
         }
     }
 }

@@ -319,6 +319,7 @@ mod tests {
             name: Some("SP-1234".into()),
             description: Some("Build it".into()),
             created_by: Some("person".into()),
+            reporter_user_id: None,
             run_as_user_id: Some("bot".into()),
             visibility: Visibility::Private,
             loop_id: "loop-1".into(),

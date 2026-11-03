@@ -47,6 +47,7 @@ fn descriptor(task: moatless_types::task::Task) -> TaskDescriptor {
         owner_user_id: task.owner_user_id,
         workspace_id: task.workspace_id,
         created_by: task.created_by,
+        reporter_user_id: task.reporter_user_id,
         run_as_user_id: task.run_as_user_id,
         ttl_minutes: task.ttl_minutes,
     }
@@ -329,10 +330,12 @@ impl TaskOpener for crate::task::creation::TaskCreationService {
         let repository_id =
             crate::task::service::primary_repository_id(self.workspaces.as_ref(), &workspace_id)
                 .await?;
-        let (created_by, run_as_user_id) = owner_and_run_as(
+        let (owner_user_id, run_as_user_id) = owner_and_run_as(
             self.users.as_ref(),
             workspace.run_as_user_id.as_deref(),
-            req.created_by,
+            req.reporter_user_id
+                .clone()
+                .or_else(|| req.created_by.clone()),
             req.run_as_user_id,
         )
         .await?;
@@ -346,7 +349,9 @@ impl TaskOpener for crate::task::creation::TaskCreationService {
                     description: req.description,
                     branch: None,
                     model: req.model,
-                    created_by,
+                    created_by: req.created_by,
+                    reporter_user_id: req.reporter_user_id,
+                    owner_user_id,
                     run_as_user_id,
                     headless: true,
                     visibility: req.visibility,
@@ -397,27 +402,27 @@ impl TaskOpener for crate::task::creation::TaskCreationService {
 
 /// The owner and Task-level run-as of a Loop's [`NewTask`].
 ///
-/// A requester owns it only under a bot run-as, rather than a human whose
+/// A reporter owns it only under a bot run-as, rather than a human whose
 /// provider tokens and secrets would then sit in someone else's Task. A
 /// Workspace run-as drops the Loop's: a Task-level one would outrank it.
 async fn owner_and_run_as(
     users: &dyn UserResolver,
     workspace_run_as: Option<&str>,
-    created_by: Option<String>,
+    owner_user_id: Option<String>,
     run_as: Option<String>,
 ) -> Result<(Option<String>, Option<String>), StoreError> {
     let Some(run_as) = run_as else {
-        return Ok((created_by, None));
+        return Ok((owner_user_id, None));
     };
     if workspace_run_as.is_some_and(|user| !user.is_empty()) {
-        return Ok((created_by, None));
+        return Ok((owner_user_id, None));
     }
     let is_bot = users
         .run_as_target(&run_as)
         .await?
         .is_some_and(|user| user.is_bot);
     Ok(if is_bot {
-        (created_by, Some(run_as))
+        (owner_user_id, Some(run_as))
     } else {
         (Some(run_as), None)
     })

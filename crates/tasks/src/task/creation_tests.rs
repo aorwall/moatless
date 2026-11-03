@@ -53,6 +53,8 @@ fn sample_request() -> NewTaskRequest {
         branch: None,
         model: None,
         created_by: Some("user1".into()),
+        reporter_user_id: None,
+        owner_user_id: None,
         run_as_user_id: None,
         headless: false,
         visibility: Visibility::Private,
@@ -238,7 +240,7 @@ async fn the_persisted_and_returned_rows_carry_the_requested_workspace() {
 /// be `Scope::User` owned by that bot — the pod authenticates as
 /// `created_by`, and the gate refuses a global or ownerless row.
 #[tokio::test]
-async fn a_task_is_always_user_scoped_and_owned_by_its_creator() {
+async fn a_task_defaults_to_user_scope_and_ownership_by_its_creator() {
     let mut tasks = MockTaskDao::new();
     tasks.expect_exists_by_short_id().returning(|_| Ok(false));
     tasks
@@ -261,6 +263,43 @@ async fn a_task_is_always_user_scoped_and_owned_by_its_creator() {
 
     assert_eq!(outcome.task.scope, Scope::User);
     assert_eq!(outcome.task.owner_user_id.as_deref(), Some("bot1"));
+}
+
+#[tokio::test]
+async fn a_loop_task_keeps_its_creator_and_reporter_without_changing_the_authorized_owner() {
+    let mut tasks = MockTaskDao::new();
+    tasks.expect_exists_by_short_id().returning(|_| Ok(false));
+    tasks
+        .expect_insert_task()
+        .withf(|row, _| {
+            row.created_by.as_deref() == Some("bot1")
+                && row.reporter_user_id.as_deref() == Some("user1")
+                && row.owner_user_id.as_deref() == Some("user1")
+                && row.loop_id.as_deref() == Some("loop1")
+        })
+        .times(1)
+        .returning(|_, _| Ok(()));
+    let mut starter = MockStarter::new();
+    starter.expect_start().returning(|_| Ok(()));
+    let svc = service(
+        tasks,
+        starter,
+        joiner_never(),
+        preflight_ok(),
+        Arc::new(RecordingPublisher::new()),
+    );
+    let mut req = sample_request();
+    req.created_by = Some("bot1".into());
+    req.reporter_user_id = Some("user1".into());
+    req.owner_user_id = Some("user1".into());
+    req.run_as_user_id = Some("bot1".into());
+    req.loop_id = Some("loop1".into());
+
+    let outcome = svc.create(req, empty_payload, no_message).await.unwrap();
+
+    assert_eq!(outcome.task.created_by.as_deref(), Some("bot1"));
+    assert_eq!(outcome.task.reporter_user_id.as_deref(), Some("user1"));
+    assert_eq!(outcome.task.owner_user_id.as_deref(), Some("user1"));
 }
 
 #[tokio::test]

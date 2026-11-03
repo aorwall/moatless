@@ -72,6 +72,7 @@ pub struct TaskRow {
     /// explicitly names a model and reused for later messages that omit one.
     pub model: Option<String>,
     pub created_by: Option<String>,
+    pub reporter_user_id: Option<String>,
     #[sqlx(try_from = "String")]
     pub visibility: Visibility,
     #[sqlx(try_from = "String")]
@@ -131,6 +132,7 @@ impl TryFrom<TaskRow> for Task {
             branch: row.branch,
             model: row.model,
             created_by: row.created_by,
+            reporter_user_id: row.reporter_user_id,
             visibility: row.visibility,
             scope: row.scope,
             owner_user_id: row.owner_user_id,

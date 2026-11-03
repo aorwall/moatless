@@ -233,6 +233,7 @@ pub fn make_task_row(task_id: &str, user_id: &str) -> Task {
         branch: Some("main".to_string()),
         model: None,
         created_by: Some(user_id.to_string()),
+        reporter_user_id: None,
         visibility: Visibility::Private,
         scope: moatless_types::access_control::Scope::User,
         owner_user_id: Some(user_id.to_string()),

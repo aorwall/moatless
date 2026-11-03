@@ -41,6 +41,8 @@ pub struct PromptInputs<'a> {
     pub task_name: Option<&'a str>,
     /// Moatless login of the person the task runs for.
     pub task_user: Option<&'a str>,
+    /// Moatless login of the person who requested the work.
+    pub task_reporter: Option<&'a str>,
     /// Set when this task hangs off another one.
     pub parent: Option<ParentTask<'a>>,
     /// `Task.append_system_prompt` — trigger-set instructions.
@@ -275,6 +277,21 @@ pub struct ParentSources<'a> {
     pub relations: &'a TaskRelations,
 }
 
+async fn resolve_user_login(
+    users: Option<&dyn UserResolver>,
+    user_id: Option<&str>,
+) -> Option<String> {
+    // Parse before lookup: a legacy provider id can collide with a login.
+    let user_id = user_id?.parse::<uuid::Uuid>().ok()?;
+    match users?.run_as_target(&user_id.to_string()).await {
+        Ok(user) => user.map(|user| user.login),
+        Err(error) => {
+            warn!(%error, %user_id, "Failed to resolve task attribution for prompt");
+            None
+        }
+    }
+}
+
 /// Build the append-system-prompt for a task.
 ///
 /// Loads the task's workspace and URL settings, then delegates to
@@ -334,22 +351,16 @@ pub async fn build_for_task(
             TaskRelationType::RelatedTo => None,
         });
 
-    let task_user = match (
-        task.and_then(|t| t.created_by.as_deref().or(t.owner_user_id.as_deref()))
-            .and_then(|id| id.parse::<uuid::Uuid>().ok()),
+    let task_user = resolve_user_login(
         users,
-    ) {
-        // Parsed first because `run_as_target` also matches a login, which a
-        // legacy provider id could collide with.
-        (Some(user_id), Some(users)) => match users.run_as_target(&user_id.to_string()).await {
-            Ok(user) => user.map(|u| u.login),
-            Err(e) => {
-                warn!(error = %e, task_id, "Failed to resolve task user for prompt");
-                None
-            }
-        },
-        _ => None,
-    };
+        task.and_then(|task| task.created_by.as_deref().or(task.owner_user_id.as_deref())),
+    )
+    .await;
+    let task_reporter = resolve_user_login(
+        users,
+        task.and_then(|task| task.reporter_user_id.as_deref()),
+    )
+    .await;
 
     let frontend_url = config.map(|c| c.auth.frontend_url.as_str());
 
@@ -362,6 +373,7 @@ pub async fn build_for_task(
         task_id,
         task_name: task.and_then(|t| t.name.as_deref()),
         task_user: task_user.as_deref(),
+        task_reporter: task_reporter.as_deref(),
         parent,
         task_append_system_prompt: task.and_then(|t| t.append_system_prompt.as_deref()),
         repo_system_prompt: workspace.as_ref().and_then(|w| w.system_prompt.as_deref()),
@@ -384,6 +396,13 @@ pub fn build_append_system_prompt(inputs: &PromptInputs<'_>) -> String {
             "# Task User\n\nThis task runs for the Moatless user `{login}`. A message \
              without a header does not identify its sender: anyone with access to the \
              task, or the scheduler, may have sent it."
+        ));
+    }
+
+    if let Some(login) = inputs.task_reporter {
+        sections.push(format!(
+            "# Task Reporter\n\nThe Moatless user `{login}` requested this work. \
+             Credit them as the reporter in tickets and as a co-author in commits."
         ));
     }
 
@@ -491,6 +510,7 @@ mod tests {
             task_id,
             task_name: None,
             task_user: None,
+            task_reporter: None,
             parent: None,
             task_append_system_prompt: None,
             repo_system_prompt: None,
@@ -608,6 +628,20 @@ mod tests {
         assert!(prompt.contains("does not identify its sender"));
         assert!(!prompt.contains("<sent_by>"));
         assert!(!build_append_system_prompt(&base_inputs("task-123")).contains("# Task User"));
+    }
+
+    #[test]
+    fn a_reporter_is_named_separately_from_the_loop_user() {
+        let inputs = PromptInputs {
+            task_user: Some("loop-bot"),
+            task_reporter: Some("ada"),
+            ..base_inputs("task-123")
+        };
+        let prompt = build_append_system_prompt(&inputs);
+        assert!(prompt.contains("This task runs for the Moatless user `loop-bot`"));
+        assert!(prompt.contains("The Moatless user `ada` requested this work"));
+        assert!(prompt.contains("reporter in tickets and as a co-author in commits"));
+        assert!(!build_append_system_prompt(&base_inputs("task-123")).contains("# Task Reporter"));
     }
 
     #[test]
