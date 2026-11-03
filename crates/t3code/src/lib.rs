@@ -18,6 +18,7 @@ mod feed;
 pub mod files;
 mod git_actions;
 mod handlers;
+pub mod hub_models;
 mod lineage;
 mod message_context;
 mod nominal_path;

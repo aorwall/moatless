@@ -545,6 +545,7 @@ of its own.
 |---|---|---|
 | Pi Durable integration | `crates/sandbox/src/agent/harness/pi/process.rs::PiProcess` runs one RPC process per Turn and restores native sessions from the backend trajectory | When a workflow needs durable execution beyond Moatless's existing Turn and sandbox recovery |
 | Arbitrary Pi extensions and extension dialogs | `PiProcess::open` disables extension discovery while passing managed skill roots explicitly | When the product defines approval, UI-dialog, and lifecycle contracts for third-party Pi extensions |
+| Hub-discovered Pi models all offer the same thinking levels | `crates/t3code/src/hub_models.rs::pi_models` publishes the hub's `/v1/models` rows, which carry no capabilities, so `providers::effort_levels` gives every Pi model `off` to `high` | When the hub or Pi reports per-model thinking support worth reading |
 
 ## Local test host portability
 

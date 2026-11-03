@@ -26,16 +26,20 @@ use moatless_workspaces::skill::service::SkillService;
 use moatless_workspaces::workspace::Workspaces;
 use uuid::Uuid;
 
+use crate::hub_models::HubModels;
 use crate::ports::{
     AgentCatalogSource, ArtifactVisibilityError, ArtifactVisibilitySetter, BranchListError,
     ChildTask, GithubIdentity, ParentTask, RepositoryBranchSource, SecretRequestAnswerError,
     SecretRequestAnswerer, SkillCatalog, SourceControlAuthSource, TaskRelationSource,
     WorkspaceScriptSource, WorkspaceSkill,
 };
+use crate::providers;
 
 /// The agent catalog over the credentials a viewer has stored.
 pub struct AgentCatalog {
     pub hub_available: bool,
+    /// Replaces Pi's static models with the hub's own list when it answers.
+    pub hub_models: Option<Arc<HubModels>>,
     pub secrets: Arc<dyn SecretCatalog>,
     pub harness_credentials: Arc<dyn HarnessCredentials>,
 }
@@ -43,13 +47,25 @@ pub struct AgentCatalog {
 #[async_trait]
 impl AgentCatalogSource for AgentCatalog {
     async fn list(&self, viewer: &ScopeContext) -> Vec<AgentDescriptor> {
-        moatless_tasks::agent::service::list_agents(
+        let mut agents = moatless_tasks::agent::service::list_agents(
             self.secrets.as_ref(),
             self.harness_credentials.as_ref(),
             viewer,
             self.hub_available,
         )
-        .await
+        .await;
+        if let Some(hub_models) = &self.hub_models {
+            for agent in agents
+                .iter_mut()
+                .filter(|agent| providers::kind_of(agent) == providers::PI_INSTANCE)
+            {
+                let discovered = hub_models.models(&agent.models).await;
+                if !discovered.is_empty() {
+                    agent.models = discovered;
+                }
+            }
+        }
+        agents
     }
 }
 

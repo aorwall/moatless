@@ -235,6 +235,7 @@ fn mounted_dependencies(pool: &PgPool) -> UiRpcDependencies {
         // `crates/server/tests/ui_rpc_command_test.rs`.
         agents: Arc::new(moatless_t3code::owners::AgentCatalog {
             hub_available: false,
+            hub_models: None,
             secrets: app.secrets.clone(),
             harness_credentials: app.harness_credentials.clone(),
         }),

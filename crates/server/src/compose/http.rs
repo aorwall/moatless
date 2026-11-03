@@ -105,6 +105,18 @@ pub(crate) async fn ui_rpc(
             ),
             agents: Arc::new(moatless_t3code::owners::AgentCatalog {
                 hub_available: config.model_gateway.hub_url.is_some(),
+                hub_models: config
+                    .model_gateway
+                    .hub_url
+                    .as_deref()
+                    .zip(config.model_gateway.hub_key.clone())
+                    .map(|(url, key)| {
+                        moatless_t3code::hub_models::HubModels::new(
+                            url,
+                            key,
+                            config.http.usage_limits,
+                        )
+                    }),
                 secrets: app_state.secrets.clone(),
                 harness_credentials: app_state.harness_credentials.clone(),
             }),

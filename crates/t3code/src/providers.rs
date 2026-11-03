@@ -16,13 +16,14 @@ use moatless_types::agent::Harness;
 /// The Claude provider instance id.
 pub const CLAUDE_INSTANCE: &str = "claudeAgent";
 pub const CODEX_INSTANCE: &str = "codex";
+pub const PI_INSTANCE: &str = "pi";
 
 /// Which instance a catalog agent belongs to.
 pub fn instance_for(harness: Harness) -> &'static str {
     match harness {
         Harness::ClaudeCode => CLAUDE_INSTANCE,
         Harness::Codex => CODEX_INSTANCE,
-        Harness::Pi => "pi",
+        Harness::Pi => PI_INSTANCE,
     }
 }
 
@@ -31,7 +32,7 @@ pub fn harness_for(instance: &str) -> Option<Harness> {
     match instance {
         CLAUDE_INSTANCE => Some(Harness::ClaudeCode),
         CODEX_INSTANCE => Some(Harness::Codex),
-        "pi" => Some(Harness::Pi),
+        PI_INSTANCE => Some(Harness::Pi),
         _ => None,
     }
 }
@@ -42,7 +43,7 @@ pub fn harness_for(instance: &str) -> Option<Harness> {
 /// under any other id leaves a carried-over selection unread and silently runs
 /// the default.
 pub fn effort_option_id(instance: &str) -> &'static str {
-    if instance == "pi" {
+    if instance == PI_INSTANCE {
         "thinking"
     } else if instance == CODEX_INSTANCE {
         "reasoningEffort"
@@ -58,7 +59,7 @@ const DEFAULT_EFFORT: &str = "high";
 
 /// The effort levels a published model row offers, weakest first.
 fn effort_levels(instance: &str, catalog_model: &str) -> &'static [&'static str] {
-    if instance == "pi" {
+    if instance == PI_INSTANCE {
         return &["off", "minimal", "low", "medium", "high"];
     }
     if instance != CODEX_INSTANCE {
@@ -155,6 +156,18 @@ pub fn publish_model(catalog_model: &str) -> Option<(&'static str, String)> {
             let instance = instance_for(agent.harness());
             (instance, published_slug(instance, catalog_model))
         })
+        // Pi runs models the hub lists beyond the static catalog; the prefix is
+        // what `validate_agent_model` requires of one.
+        .or_else(|| {
+            ["anthropic/", "openai/"]
+                .iter()
+                .any(|vendor| {
+                    catalog_model
+                        .strip_prefix(vendor)
+                        .is_some_and(|m| !m.is_empty())
+                })
+                .then(|| (PI_INSTANCE, catalog_model.to_string()))
+        })
 }
 
 /// Every `(catalog id, label)` an instance offers, deduplicated across the
@@ -177,7 +190,7 @@ fn models_for(agents: &[AgentDescriptor], instance: &str) -> Vec<(String, String
 }
 
 /// The instance a descriptor belongs to, looked up through the catalog.
-fn kind_of(agent: &AgentDescriptor) -> &'static str {
+pub(crate) fn kind_of(agent: &AgentDescriptor) -> &'static str {
     crate::agent::catalog::find(&agent.id)
         .map_or(CLAUDE_INSTANCE, |entry| instance_for(entry.harness()))
 }
@@ -234,7 +247,7 @@ pub fn providers(
     [
         (CLAUDE_INSTANCE, "Claude Code", Harness::ClaudeCode),
         (CODEX_INSTANCE, "Codex", Harness::Codex),
-        ("pi", "Pi", Harness::Pi),
+        (PI_INSTANCE, "Pi", Harness::Pi),
     ]
     .into_iter()
     .map(|(instance, display_name, harness)| {
@@ -350,6 +363,16 @@ mod tests {
             .iter()
             .map(|m| m[key].as_str().unwrap().to_string())
             .collect()
+    }
+
+    #[test]
+    fn a_hub_model_outside_the_catalog_publishes_on_pi() {
+        assert_eq!(
+            publish_model("anthropic/claude-opus-4-8"),
+            Some((PI_INSTANCE, "anthropic/claude-opus-4-8".to_string()))
+        );
+        assert_eq!(publish_model("openai/"), None);
+        assert_eq!(publish_model("claude-opus-4-8-unknown"), None);
     }
 
     #[test]
