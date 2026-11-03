@@ -257,7 +257,13 @@ pub(crate) async fn server_config(
         "observability": observability,
         // Partial: the client fills every other server setting with its
         // default. Guided reviews are written by a Task the viewer starts.
-        "settings": { "reviewGuidesEnabled": true },
+        // `providerInstances` enables Pi explicitly: T3 resolves a provider's
+        // enabled state from settings, not from the provider's own `enabled`,
+        // and treats an unconfigured Pi as off, which hides it from the picker.
+        "settings": {
+            "reviewGuidesEnabled": true,
+            "providerInstances": { "pi": { "driver": "pi", "enabled": true } }
+        },
         "shellResumeCompletionMarker": true,
         "threadResumeCompletionMarker": true
     })

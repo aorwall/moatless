@@ -78,6 +78,25 @@ async fn get_config_publishes_one_provider_per_agent_kind() {
     }
 }
 
+/// T3 reads a provider's enabled state from settings and defaults Pi to off, so
+/// a config without this entry publishes Pi but the picker never lists it.
+#[tokio::test]
+async fn get_config_enables_pi_in_settings() {
+    let mut connection = connection();
+    let output = connection
+        .exchange(
+            &request("1", "server.getConfig", json!({})),
+            &state(),
+            &viewer(),
+        )
+        .await;
+
+    assert_eq!(
+        output.frames[0]["exit"]["value"]["settings"]["providerInstances"]["pi"],
+        json!({ "driver": "pi", "enabled": true })
+    );
+}
+
 /// T3 calls `refreshProviders` when a person opens the picker, and merges the
 /// answer into the same state the config populated. Two lists that disagree
 /// would move a thread's provider under it.
