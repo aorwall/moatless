@@ -38,7 +38,7 @@ use crate::providers;
 /// The agent catalog over the credentials a viewer has stored.
 pub struct AgentCatalog {
     pub hub_available: bool,
-    /// Replaces Pi's static models with the hub's own list when it answers.
+    /// Replaces gateway harnesses' static models with the hub's supported models.
     pub hub_models: Option<Arc<HubModels>>,
     pub secrets: Arc<dyn SecretCatalog>,
     pub harness_credentials: Arc<dyn HarnessCredentials>,
@@ -55,11 +55,16 @@ impl AgentCatalogSource for AgentCatalog {
         )
         .await;
         if let Some(hub_models) = &self.hub_models {
-            for agent in agents
-                .iter_mut()
-                .filter(|agent| providers::kind_of(agent) == providers::PI_INSTANCE)
-            {
-                let discovered = hub_models.models(&agent.models).await;
+            for agent in agents.iter_mut().filter(|agent| {
+                matches!(
+                    providers::kind_of(agent),
+                    providers::PI_INSTANCE | providers::MINI_SWE_INSTANCE
+                )
+            }) {
+                let Some(entry) = crate::agent::catalog::find(&agent.id) else {
+                    continue;
+                };
+                let discovered = hub_models.models(entry.profile, &agent.models).await;
                 if !discovered.is_empty() {
                     agent.models = discovered;
                 }

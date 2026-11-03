@@ -241,6 +241,8 @@ pub enum Harness {
     Codex,
     /// Pi over the JSONL RPC transport.
     Pi,
+    /// mini-swe-agent over the Python JSONL bridge.
+    MiniSwe,
 }
 
 /// The vendors a Pi model id may name, as `vendor/model`.
@@ -267,6 +269,7 @@ impl Harness {
             Self::ClaudeCode => "claude-code",
             Self::Codex => "codex",
             Self::Pi => "pi",
+            Self::MiniSwe => "mini-swe",
         }
     }
 
@@ -276,6 +279,7 @@ impl Harness {
             "claude-code" => Some(Self::ClaudeCode),
             "codex" => Some(Self::Codex),
             "pi" => Some(Self::Pi),
+            "mini-swe" => Some(Self::MiniSwe),
             _ => None,
         }
     }
@@ -302,17 +306,20 @@ pub enum AgentProfile {
     Codex,
     /// Pi over the JSONL RPC transport.
     Pi,
+    /// mini-swe-agent over the Python JSONL bridge.
+    MiniSwe,
 }
 
 impl AgentProfile {
     /// Every profile, in catalog display order.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::ClaudeCode,
         Self::ClaudeCodeTui,
         Self::ClaudeCodeCli,
         Self::ClaudeCodeFable,
         Self::Codex,
         Self::Pi,
+        Self::MiniSwe,
     ];
 
     /// The wire and column value, e.g. `claude-code-tui`.
@@ -324,6 +331,7 @@ impl AgentProfile {
             Self::ClaudeCodeFable => "claude-code-fable",
             Self::Codex => "codex",
             Self::Pi => "pi",
+            Self::MiniSwe => "mini-swe",
         }
     }
 
@@ -341,6 +349,7 @@ impl AgentProfile {
             | Self::ClaudeCodeFable => Harness::ClaudeCode,
             Self::Codex => Harness::Codex,
             Self::Pi => Harness::Pi,
+            Self::MiniSwe => Harness::MiniSwe,
         }
     }
 }

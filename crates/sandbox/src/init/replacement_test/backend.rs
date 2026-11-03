@@ -27,6 +27,7 @@ pub(super) struct ReplayBackend {
     interrupted: Option<InterruptedTurn>,
     /// The session-state archive `download_transcript` serves (immutable).
     download_tar: Vec<u8>,
+    uploaded_tar: Mutex<Option<Vec<u8>>>,
     /// Number of `acknowledge_messages` calls that fail (without pruning)
     /// before the RPC starts succeeding — models a transient ack outage.
     ack_failures: AtomicUsize,
@@ -74,6 +75,7 @@ impl ReplayBackend {
             member_pending: Mutex::new(HashMap::new()),
             interrupted,
             download_tar,
+            uploaded_tar: Mutex::new(None),
             ack_failures: AtomicUsize::new(0),
             queued: Mutex::new(Vec::new()),
             enqueue_fails: AtomicBool::new(false),
@@ -235,8 +237,22 @@ impl BackendClient for ReplayBackend {
         Ok(self.interrupted.clone())
     }
 
+    async fn upload_transcript(
+        &self,
+        _task_id: &str,
+        tar_data: Vec<u8>,
+    ) -> Result<(), tonic::Status> {
+        *self.uploaded_tar.lock().await = Some(tar_data);
+        Ok(())
+    }
+
     async fn download_transcript(&self, _task_id: &str) -> Result<Vec<u8>, tonic::Status> {
-        Ok(self.download_tar.clone())
+        Ok(self
+            .uploaded_tar
+            .lock()
+            .await
+            .clone()
+            .unwrap_or_else(|| self.download_tar.clone()))
     }
 
     /// Queue the message as a pending delivery, so the caller's dispatch finds

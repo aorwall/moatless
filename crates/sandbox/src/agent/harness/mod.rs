@@ -14,7 +14,9 @@ mod transcode;
 mod claude;
 pub(crate) mod codex;
 mod driver;
+mod mini_swe;
 mod pi;
+pub use mini_swe::MiniSweConfig;
 mod process;
 
 // The scripted mock and its `HarnessRuntime::scripted` constructor exist only to drive

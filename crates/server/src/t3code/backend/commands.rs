@@ -1010,6 +1010,7 @@ fn agent_instance_for(kind: moatless_types::agent::Harness) -> &'static str {
         moatless_types::agent::Harness::ClaudeCode => "claudeAgent",
         moatless_types::agent::Harness::Codex => "codex",
         moatless_types::agent::Harness::Pi => "pi",
+        moatless_types::agent::Harness::MiniSwe => "mini-swe",
     }
 }
 

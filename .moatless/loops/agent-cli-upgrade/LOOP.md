@@ -302,3 +302,9 @@ It does not bump `TASK_VERSION`, `RUST_VERSION` or anything else in
 job. It does not merge its own PR.
 
 A Pi bump must also pass `tests/api/specs/agent-pi-flow.spec.ts` through the local E2E runner with real credentials for both providers. The suite covers tools, steering, cancellation, forks, recovery, and switching.
+
+A mini-swe-agent upgrade updates `MINI_SWE_VERSION` in `docker/cli-versions.env`
+and `docker/Dockerfile.sandbox-base`. Keep the bridge's LiteLLM and MCP pins
+compatible. Run the Python bridge contract tests and
+`tests/api/specs/agent-mini-swe-flow.spec.ts` through the local E2E runner with
+both providers before changing these pins.

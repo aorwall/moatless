@@ -35,6 +35,8 @@ export interface Capabilities {
   codexConnection: boolean
   /** A provider API key is available for real Pi execution. */
   piCredentials: boolean
+  /** A provider API key or hub is available for mini-swe-agent. */
+  miniSweCredentials: boolean
   /** The run can create and delete real repositories on GitHub — it has a PAT. */
   githubRepositories: boolean
   /** The runtime schedules onto this machine, so an image built here can run. */
@@ -114,6 +116,11 @@ function dockerProfile(): Profile {
       claudeCredentials: hasClaudeCredentials(),
       // The compose stack seeds no Codex connection.
       codexConnection: false,
+      miniSweCredentials: Boolean(
+        process.env.ANTHROPIC_API_KEY ||
+          process.env.OPENAI_API_KEY ||
+          process.env.MINI_SWE_E2E_HUB === '1',
+      ),
       piCredentials: Boolean(
         process.env.ANTHROPIC_API_KEY ||
           process.env.OPENAI_API_KEY ||
@@ -159,6 +166,11 @@ function k8sProfile(): Profile {
       inboundCallbacks: false,
       claudeCredentials: true,
       codexConnection: true,
+      miniSweCredentials: Boolean(
+        process.env.ANTHROPIC_API_KEY ||
+          process.env.OPENAI_API_KEY ||
+          process.env.MINI_SWE_E2E_HUB === '1',
+      ),
       piCredentials: Boolean(
         process.env.ANTHROPIC_API_KEY ||
           process.env.OPENAI_API_KEY ||
@@ -205,6 +217,11 @@ function localProfile(): Profile {
       claudeCredentials: hasClaudeCredentials(),
       // The harness seeds one when `OPENAI_API_KEY` is set.
       codexConnection: Boolean(process.env.OPENAI_API_KEY),
+      miniSweCredentials: Boolean(
+        process.env.ANTHROPIC_API_KEY ||
+          process.env.OPENAI_API_KEY ||
+          process.env.MINI_SWE_E2E_HUB === '1',
+      ),
       piCredentials: Boolean(
         process.env.ANTHROPIC_API_KEY ||
           process.env.OPENAI_API_KEY ||

@@ -80,6 +80,7 @@ pub(crate) fn decide(facts: &FallbackFacts<'_>) -> Fallback {
         Some(false) => {}
     }
     match facts.failed_profile.map(AgentProfile::harness) {
+        Some(Harness::MiniSwe) => Fallback::Skip("mini-swe has no automatic fallback"),
         Some(Harness::Pi) => Fallback::Skip("Pi has no automatic fallback"),
         Some(Harness::Codex) => Fallback::To(Harness::ClaudeCode),
         Some(Harness::ClaudeCode) => Fallback::To(Harness::Codex),
@@ -242,6 +243,7 @@ fn label(harness: Harness) -> &'static str {
     match harness {
         Harness::Codex => "Codex",
         Harness::Pi => "Pi",
+        Harness::MiniSwe => "mini-swe-agent",
         Harness::ClaudeCode => "Claude Code",
     }
 }

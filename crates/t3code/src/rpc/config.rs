@@ -278,7 +278,7 @@ pub(crate) async fn server_config(
         // and treats an unconfigured Pi as off, which hides it from the picker.
         "settings": {
             "reviewGuidesEnabled": true,
-            "providerInstances": { "pi": { "driver": "pi", "enabled": true } }
+            "providerInstances": { "pi": { "driver": "pi", "enabled": true }, "mini-swe": { "driver": "mini-swe", "enabled": true } }
         },
         "shellResumeCompletionMarker": true,
         "threadResumeCompletionMarker": true

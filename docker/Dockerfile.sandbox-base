@@ -227,7 +227,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev \
     libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev \
     pkg-config protobuf-compiler \
-    libsecret-1-dev python3-yaml python3-pip python3-pil \
+    libsecret-1-dev python3-yaml python3-pip python3-venv python3-pil \
     && rm -rf /var/lib/apt/lists/*
 
 # Remove default ubuntu user (has UID/GID 1000 which we want for moatless)
@@ -509,6 +509,15 @@ RUN ARCH=$(dpkg --print-architecture) && \
 # and the pod is OOMKilled. System scope, so every user and repo inherits it.
 RUN git config --system gc.auto 0 \
     && git config --system maintenance.auto false
+
+ARG MINI_SWE_VERSION=2.4.6
+ARG MINI_SWE_LITELLM_VERSION=1.106.6
+ARG MINI_SWE_MCP_VERSION=2.3.0
+RUN python3 -m venv /opt/mini-swe \
+    && /opt/mini-swe/bin/pip install --no-cache-dir "mini-swe-agent==${MINI_SWE_VERSION}" "litellm==${MINI_SWE_LITELLM_VERSION}" "mcp==${MINI_SWE_MCP_VERSION}" \
+    && printf '#!/bin/sh\nexec /opt/mini-swe/bin/python "$@"\n' > /usr/local/bin/mini-swe-python \
+    && chmod +x /usr/local/bin/mini-swe-python \
+    && mini-swe-python -c 'import minisweagent'
 
 # Claude/Codex CLIs. Version source of truth is docker/cli-versions.env, passed
 # in as --build-arg by every build path (ci.yml, build-sandbox.sh); the defaults

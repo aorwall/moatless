@@ -17,8 +17,42 @@ use super::support::{
 use crate::agent::types::ResumeSession;
 use crate::init::{InitPhase, WorkspaceOrigin, open_for_work};
 use crate::transcript_sync::{
-    codex_sessions_dir, download_on_start, pi_sessions_dir, transcript_dir,
+    codex_sessions_dir, download_on_start, mini_swe_sessions_dir, pi_sessions_dir, transcript_dir,
 };
+
+#[tokio::test]
+async fn mini_swe_shutdown_archive_restores_into_a_replacement_home() {
+    let source = tempfile::TempDir::new().unwrap();
+    let source_config = Arc::new(tmp_config("mini-swe", &source));
+    let backend = ReplayBackend::with_archive(Vec::new());
+    let state = restore_state(source_config.clone(), InitPhase::Starting, backend.clone());
+    let sessions = mini_swe_sessions_dir(&source_config);
+    tokio::fs::create_dir_all(&sessions).await.unwrap();
+    let journal = "{\"type\":\"session\",\"id\":\"native-id\"}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"remember indigo\"}}\n";
+    tokio::fs::write(sessions.join("native-id.jsonl"), journal)
+        .await
+        .unwrap();
+    tokio::fs::write(
+        source_config.mini_swe_home_dir().join("auth.json"),
+        "private",
+    )
+    .await
+    .unwrap();
+    crate::transcript_sync::flush_on_shutdown(&state).await;
+
+    let replacement = tempfile::TempDir::new().unwrap();
+    let config = Arc::new(tmp_config("mini-swe", &replacement));
+    let state = restore_state(config.clone(), InitPhase::Starting, backend);
+    download_on_start(&state).await;
+
+    assert_eq!(
+        tokio::fs::read_to_string(mini_swe_sessions_dir(&config).join("native-id.jsonl"))
+            .await
+            .unwrap(),
+        journal
+    );
+    assert!(!config.mini_swe_home_dir().join("auth.json").exists());
+}
 
 #[tokio::test]
 async fn download_on_start_restores_claude_codex_and_pi_session_state() {
@@ -111,7 +145,7 @@ async fn restore_precedes_the_harness_accepting_the_resumed_turn() {
     // agent would `--resume` against history not yet landed. Observes that
     // the restored file exists before the harness accepts the interrupted
     // run, across download_on_start (restore) → open_for_work (recover).
-    for family in ["claude-code", "codex", "pi"] {
+    for family in ["claude-code", "codex", "pi", "mini-swe"] {
         let tmp = tempfile::TempDir::new().unwrap();
         tokio::fs::create_dir_all(tmp.path().join("workspace"))
             .await
@@ -129,6 +163,7 @@ async fn restore_precedes_the_harness_accepting_the_resumed_turn() {
         download_on_start(&state).await;
         let restored = match family {
             "claude-code" => transcript_dir(&config).join("session.jsonl"),
+            "mini-swe" => mini_swe_sessions_dir(&config).join("mini-session.jsonl"),
             "pi" => pi_sessions_dir(&config).join("pi-session.jsonl"),
             _ => codex_sessions_dir(&config)
                 .join("2026")

@@ -169,6 +169,18 @@ pub const PI: AgentProfileEntry = AgentProfileEntry {
     missing_credential_hint: "Add ANTHROPIC_API_KEY or OPENAI_API_KEY in Settings → Secrets",
 };
 
+/// mini-swe-agent models routed through the model gateway.
+pub const MINI_SWE: AgentProfileEntry = AgentProfileEntry {
+    profile: AgentProfile::MiniSwe,
+    label: "mini-swe-agent",
+    params: AgentParams { use_tmux: false },
+    credential_keys: &[ANTHROPIC_API_KEY, OPENAI_API_KEY],
+    provider_token_providers: &[],
+    default_model: "openai/gpt-6.1-sol",
+    models: PI.models,
+    missing_credential_hint: "Add ANTHROPIC_API_KEY or OPENAI_API_KEY, or configure the model hub",
+};
+
 /// The catalog entry for `profile`.
 pub fn entry(profile: AgentProfile) -> &'static AgentProfileEntry {
     match profile {
@@ -178,6 +190,7 @@ pub fn entry(profile: AgentProfile) -> &'static AgentProfileEntry {
         AgentProfile::ClaudeCodeFable => &CLAUDE_CODE_FABLE,
         AgentProfile::Codex => &CODEX,
         AgentProfile::Pi => &PI,
+        AgentProfile::MiniSwe => &MINI_SWE,
     }
 }
 
@@ -221,6 +234,15 @@ pub fn validate_agent_model(
     let Some(model) = model else {
         return Ok(());
     };
+    if agent_profile == AgentProfile::MiniSwe
+        && !model
+            .split_once('/')
+            .is_some_and(|(p, n)| ["anthropic", "openai"].contains(&p) && !n.is_empty())
+    {
+        return Err(
+            "mini-swe requires anthropic/model or openai/model using an API key or hub".into(),
+        );
+    }
     if agent_profile == AgentProfile::Pi && split_pi_model(model).is_none() {
         return Err(
             "Pi requires anthropic/model, openai/model or openrouter/model using an API key or hub"
@@ -264,6 +286,21 @@ mod tests {
                 .is_ok()
         );
         assert!(validate_agent_model(AgentProfile::Pi, Some("openrouter/")).is_err());
+    }
+
+    #[test]
+    fn mini_swe_accepts_only_tested_api_key_providers() {
+        for id in ["openai/gpt-6.1-sol", "anthropic/claude-sonnet-5-5"] {
+            assert!(validate_agent_model(AgentProfile::MiniSwe, Some(id)).is_ok());
+        }
+        for id in [
+            "openai-codex/gpt-6.1-sol",
+            "openrouter/test",
+            "openai/",
+            "sonnet",
+        ] {
+            assert!(validate_agent_model(AgentProfile::MiniSwe, Some(id)).is_err());
+        }
     }
 
     fn offered(profile: AgentProfile) -> Vec<&'static str> {

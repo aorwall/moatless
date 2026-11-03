@@ -120,6 +120,8 @@ fn the_provider_instance_follows_the_agent_kind() {
     assert_eq!(provider_instance(&row), "claudeAgent");
     row.agent_profile = AgentProfile::Codex.into();
     assert_eq!(provider_instance(&row), "codex");
+    row.agent_profile = AgentProfile::MiniSwe.into();
+    assert_eq!(provider_instance(&row), "mini-swe");
     // An agent this build does not know lists, on no instance it could run on.
     row.agent_profile = "from-a-newer-backend".to_string().into();
     assert_eq!(provider_instance(&row), "unknown");

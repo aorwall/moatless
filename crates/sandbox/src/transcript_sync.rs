@@ -1,6 +1,6 @@
 //! Agent session-state sync: backend-proxied S3 persistence of CLI resume data.
 //!
-//! Claude, Codex and Pi sessions survive pod recreation through the backend
+//! Claude, Codex, Pi and mini-swe sessions survive pod recreation through the backend
 //! archive. Only session directories are archived; agent configuration and
 //! credentials stay out. I/O is proxied through JWT-authed gRPC.
 
@@ -19,6 +19,7 @@ use crate::state::SandboxState;
 pub(crate) const SHUTDOWN_FLUSH_TIMEOUT: Duration = Duration::from_secs(12);
 const CLAUDE_ARCHIVE_PREFIX: &str = "claude";
 const CODEX_SESSIONS_ARCHIVE_PREFIX: &str = "codex/sessions";
+const MINI_SWE_SESSIONS_ARCHIVE_PREFIX: &str = "mini-swe/sessions";
 const PI_SESSIONS_ARCHIVE_PREFIX: &str = "pi/sessions";
 
 /// Resolve the transcript dir: `<claude_config_dir>/projects/<dashed-cwd>`.
@@ -44,6 +45,11 @@ pub(crate) fn pi_sessions_dir(config: &Config) -> PathBuf {
     Path::new(&config.pi_home_dir).join("sessions")
 }
 
+/// Resolve the mini-swe resumable journal directory.
+pub(crate) fn mini_swe_sessions_dir(config: &Config) -> PathBuf {
+    config.mini_swe_home_dir().join("sessions")
+}
+
 /// Download the stored session-state archive and restore it.
 ///
 /// Runs after the repo clone, before Ready, so `recover_interrupted_run` and
@@ -54,8 +60,9 @@ pub async fn download_on_start(state: &SandboxState) {
     let claude_dir = transcript_dir(&state.config);
     let codex_dir = codex_sessions_dir(&state.config);
     let pi_dir = pi_sessions_dir(&state.config);
+    let mini_swe_dir = mini_swe_sessions_dir(&state.config);
 
-    for dir in [&claude_dir, &codex_dir, &pi_dir] {
+    for dir in [&claude_dir, &codex_dir, &pi_dir, &mini_swe_dir] {
         if let Err(e) = tokio::fs::create_dir_all(dir).await {
             warn!(task_id = %task_id, dir = %dir.display(), error = %e, "Failed to create session-state dir");
             return;
@@ -79,7 +86,15 @@ pub async fn download_on_start(state: &SandboxState) {
         return;
     }
 
-    match extract_tar(tar, claude_dir.clone(), codex_dir.clone(), pi_dir.clone()).await {
+    match extract_tar(
+        tar,
+        claude_dir.clone(),
+        codex_dir.clone(),
+        pi_dir.clone(),
+        mini_swe_dir.clone(),
+    )
+    .await
+    {
         Ok(()) => {
             info!(
                 task_id = %task_id,
@@ -103,8 +118,16 @@ pub async fn upload(state: &SandboxState) {
     let claude_dir = transcript_dir(&state.config);
     let codex_dir = codex_sessions_dir(&state.config);
     let pi_dir = pi_sessions_dir(&state.config);
+    let mini_swe_dir = mini_swe_sessions_dir(&state.config);
 
-    let Some(tar) = build_tar(claude_dir.clone(), codex_dir.clone(), pi_dir.clone()).await else {
+    let Some(tar) = build_tar(
+        claude_dir.clone(),
+        codex_dir.clone(),
+        pi_dir.clone(),
+        mini_swe_dir.clone(),
+    )
+    .await
+    else {
         debug!(
             task_id = %task_id,
             claude_dir = %claude_dir.display(),
@@ -182,11 +205,17 @@ fn is_feature_disabled(status: &tonic::Status) -> bool {
 ///
 /// Entries are stored under stable top-level prefixes so the archive can
 /// restore each CLI location-independently on the next pod.
-async fn build_tar(claude_dir: PathBuf, codex_dir: PathBuf, pi_dir: PathBuf) -> Option<Vec<u8>> {
+async fn build_tar(
+    claude_dir: PathBuf,
+    codex_dir: PathBuf,
+    pi_dir: PathBuf,
+    mini_swe_dir: PathBuf,
+) -> Option<Vec<u8>> {
     let has_claude_entries = has_entries(&claude_dir).await;
     let has_codex_entries = has_entries(&codex_dir).await;
     let has_pi_entries = has_entries(&pi_dir).await;
-    if !has_claude_entries && !has_codex_entries && !has_pi_entries {
+    let has_mini_swe_entries = has_entries(&mini_swe_dir).await;
+    if !has_claude_entries && !has_codex_entries && !has_pi_entries && !has_mini_swe_entries {
         return None;
     }
 
@@ -205,6 +234,11 @@ async fn build_tar(claude_dir: PathBuf, codex_dir: PathBuf, pi_dir: PathBuf) -> 
         if has_pi_entries {
             builder
                 .append_dir_all(PI_SESSIONS_ARCHIVE_PREFIX, &pi_dir)
+                .ok()?;
+        }
+        if has_mini_swe_entries {
+            builder
+                .append_dir_all(MINI_SWE_SESSIONS_ARCHIVE_PREFIX, &mini_swe_dir)
                 .ok()?;
         }
         builder.into_inner().ok()
@@ -229,6 +263,7 @@ async fn extract_tar(
     claude_dir: PathBuf,
     codex_dir: PathBuf,
     pi_dir: PathBuf,
+    mini_swe_dir: PathBuf,
 ) -> std::io::Result<()> {
     tokio::task::spawn_blocking(move || {
         if !has_combined_archive_prefixes(&bytes)? {
@@ -246,6 +281,8 @@ async fn extract_tar(
                 safe_join(&codex_dir, rel)
             } else if let Ok(rel) = path.strip_prefix(PI_SESSIONS_ARCHIVE_PREFIX) {
                 safe_join(&pi_dir, rel)
+            } else if let Ok(rel) = path.strip_prefix(MINI_SWE_SESSIONS_ARCHIVE_PREFIX) {
+                safe_join(&mini_swe_dir, rel)
             } else {
                 None
             };
@@ -267,6 +304,7 @@ fn has_combined_archive_prefixes(bytes: &[u8]) -> std::io::Result<bool> {
         if path.starts_with(CLAUDE_ARCHIVE_PREFIX)
             || path.starts_with(CODEX_SESSIONS_ARCHIVE_PREFIX)
             || path.starts_with(PI_SESSIONS_ARCHIVE_PREFIX)
+            || path.starts_with(MINI_SWE_SESSIONS_ARCHIVE_PREFIX)
         {
             return Ok(true);
         }
@@ -315,6 +353,7 @@ mod tests {
             tmp.path().join("no-claude"),
             tmp.path().join("no-codex"),
             pi_src,
+            tmp.path().join("mini-swe"),
         )
         .await
         .expect("Pi sessions alone must trigger an upload");
@@ -337,11 +376,69 @@ mod tests {
             tmp.path().join("restored-claude"),
             tmp.path().join("restored-codex"),
             pi_dst.clone(),
+            tmp.path().join("mini-swe"),
         )
         .await
         .unwrap();
         assert_eq!(
             tokio::fs::read_to_string(pi_dst.join("session.jsonl"))
+                .await
+                .unwrap(),
+            session
+        );
+    }
+
+    #[tokio::test]
+    async fn mini_swe_only_archive_restores_a_session_larger_than_the_runtime_mount() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut config = crate::config::test_support::minimal_config();
+        config.home_dir = tmp.path().join("home").display().to_string();
+        let mini_src = mini_swe_sessions_dir(&config);
+        tokio::fs::create_dir_all(&mini_src).await.unwrap();
+        let session = format!(
+            "{{\"type\":\"message\",\"text\":\"{}\"}}\n",
+            "x".repeat(2 * 1024 * 1024)
+        );
+        tokio::fs::write(mini_src.join("session.jsonl"), &session)
+            .await
+            .unwrap();
+        tokio::fs::write(config.mini_swe_home_dir().join("auth.json"), "private")
+            .await
+            .unwrap();
+
+        let tar = build_tar(
+            tmp.path().join("no-claude"),
+            tmp.path().join("no-codex"),
+            tmp.path().join("no-pi"),
+            mini_src,
+        )
+        .await
+        .expect("mini-swe sessions alone must trigger an upload");
+        let paths: Vec<_> = tar::Archive::new(std::io::Cursor::new(&tar))
+            .entries()
+            .unwrap()
+            .map(|entry| entry.unwrap().path().unwrap().into_owned())
+            .collect();
+        assert!(
+            paths
+                .iter()
+                .all(|path| path.starts_with(MINI_SWE_SESSIONS_ARCHIVE_PREFIX))
+        );
+        assert!(!paths.iter().any(|path| path.ends_with("auth.json")));
+
+        let mini_dst = tmp.path().join("restored-mini-sessions");
+        tokio::fs::create_dir_all(&mini_dst).await.unwrap();
+        extract_tar(
+            tar,
+            tmp.path().join("restored-claude"),
+            tmp.path().join("restored-codex"),
+            tmp.path().join("restored-pi"),
+            mini_dst.clone(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            tokio::fs::read_to_string(mini_dst.join("session.jsonl"))
                 .await
                 .unwrap(),
             session
@@ -366,9 +463,14 @@ mod tests {
         .await
         .unwrap();
 
-        let tar = build_tar(claude_src.clone(), codex_src.clone(), tmp.path().join("pi"))
-            .await
-            .expect("tar built");
+        let tar = build_tar(
+            claude_src.clone(),
+            codex_src.clone(),
+            tmp.path().join("pi"),
+            tmp.path().join("mini-swe"),
+        )
+        .await
+        .expect("tar built");
         assert!(!tar.is_empty());
 
         let claude_dst = tmp.path().join("restored-claude");
@@ -380,6 +482,7 @@ mod tests {
             claude_dst.clone(),
             codex_dst.clone(),
             tmp.path().join("pi"),
+            tmp.path().join("mini-swe"),
         )
         .await
         .unwrap();
@@ -434,6 +537,7 @@ mod tests {
             claude_dst.clone(),
             codex_dst.clone(),
             tmp.path().join("pi"),
+            tmp.path().join("mini-swe"),
         )
         .await
         .unwrap();
@@ -462,9 +566,14 @@ mod tests {
         let missing = tmp.path().join("nope");
         let also_missing = tmp.path().join("also-nope");
         assert!(
-            build_tar(missing, also_missing, tmp.path().join("pi"))
-                .await
-                .is_none()
+            build_tar(
+                missing,
+                also_missing,
+                tmp.path().join("pi"),
+                tmp.path().join("mini-swe"),
+            )
+            .await
+            .is_none()
         );
 
         let empty = tmp.path().join("empty");
@@ -472,9 +581,14 @@ mod tests {
         tokio::fs::create_dir_all(&empty).await.unwrap();
         tokio::fs::create_dir_all(&also_empty).await.unwrap();
         assert!(
-            build_tar(empty, also_empty, tmp.path().join("pi"))
-                .await
-                .is_none()
+            build_tar(
+                empty,
+                also_empty,
+                tmp.path().join("pi"),
+                tmp.path().join("mini-swe"),
+            )
+            .await
+            .is_none()
         );
     }
 }

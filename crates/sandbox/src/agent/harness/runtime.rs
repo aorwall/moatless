@@ -40,6 +40,22 @@ pub struct HarnessRuntime {
 }
 
 impl HarnessRuntime {
+    /// Construct a mini-swe-agent bridge process for each execution.
+    pub fn mini_swe(config: super::MiniSweConfig) -> Self {
+        let (submit_tx, submit_rx) = mpsc::channel(SUBMIT_CAPACITY);
+        let (cancel_tx, cancel_rx) = mpsc::channel(1);
+        let (signal_tx, signal_rx) = mpsc::channel(SIGNAL_CAPACITY);
+        let factory = move || super::mini_swe::MiniSweProcess::new(config.clone());
+        supervise(tokio::spawn(driver::run(
+            factory, submit_rx, cancel_rx, signal_tx,
+        )));
+        Self {
+            submit_tx,
+            cancel_tx,
+            signal_rx,
+        }
+    }
+
     /// Construct a Pi RPC process for each execution.
     pub fn pi(config: super::PiConfig) -> Self {
         let (submit_tx, submit_rx) = mpsc::channel(SUBMIT_CAPACITY);

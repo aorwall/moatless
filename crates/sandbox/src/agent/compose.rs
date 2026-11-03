@@ -54,6 +54,14 @@ pub fn build_harness(
         )
     })?;
 
+    if harness == moatless_types::agent::Harness::MiniSwe {
+        return Ok(HarnessRuntime::mini_swe(
+            crate::agent::harness::MiniSweConfig {
+                config: Arc::clone(config),
+                trajectory,
+            },
+        ));
+    }
     if harness == moatless_types::agent::Harness::Pi {
         return Ok(HarnessRuntime::pi(crate::agent::harness::PiConfig {
             config: Arc::clone(config),

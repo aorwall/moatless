@@ -62,6 +62,30 @@ env:
   # (single source of truth). Each sandbox image job loads it into $GITHUB_ENV.
 
 jobs:
+  mini-swe-bridge:
+    name: mini-swe-agent bridge contracts
+    runs-on: staging-runners
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Verify native history and process cleanup on Linux
+        run: |
+          . ./docker/cli-versions.env
+          docker build --progress=plain --build-arg MINI_SWE_VERSION="$MINI_SWE_VERSION" \
+            --build-arg MINI_SWE_LITELLM_VERSION="$MINI_SWE_LITELLM_VERSION" \
+            --build-arg MINI_SWE_MCP_VERSION="$MINI_SWE_MCP_VERSION" \
+            -f - crates/sandbox/src/agent/harness/mini_swe <<'DOCKERFILE'
+          FROM python:3.12-slim
+          ARG MINI_SWE_VERSION
+          ARG MINI_SWE_LITELLM_VERSION
+          ARG MINI_SWE_MCP_VERSION
+          RUN pip install --no-cache-dir "mini-swe-agent==$MINI_SWE_VERSION" "litellm==$MINI_SWE_LITELLM_VERSION" "mcp==$MINI_SWE_MCP_VERSION"
+          WORKDIR /bridge
+          COPY bridge.py test_bridge.py ./
+          RUN python test_bridge.py
+          DOCKERFILE
+
   # ── Detect which areas of code changed ──
   detect-changes:
     name: Detect changes
@@ -1276,6 +1300,9 @@ jobs:
             CLAUDE_CLI_VERSION=${{ env.CLAUDE_CLI_VERSION }}
             CODEX_CLI_VERSION=${{ env.CODEX_CLI_VERSION }}
             PI_CLI_VERSION=${{ env.PI_CLI_VERSION }}
+            MINI_SWE_VERSION=${{ env.MINI_SWE_VERSION }}
+            MINI_SWE_LITELLM_VERSION=${{ env.MINI_SWE_LITELLM_VERSION }}
+            MINI_SWE_MCP_VERSION=${{ env.MINI_SWE_MCP_VERSION }}
             TASK_VERSION=${{ env.TASK_VERSION }}
           cache-from: type=registry,ref=${{ env.SANDBOX_BASE_IMAGE }}:buildcache
 
@@ -1324,6 +1351,9 @@ jobs:
             CLAUDE_CLI_VERSION=${{ env.CLAUDE_CLI_VERSION }}
             CODEX_CLI_VERSION=${{ env.CODEX_CLI_VERSION }}
             PI_CLI_VERSION=${{ env.PI_CLI_VERSION }}
+            MINI_SWE_VERSION=${{ env.MINI_SWE_VERSION }}
+            MINI_SWE_LITELLM_VERSION=${{ env.MINI_SWE_LITELLM_VERSION }}
+            MINI_SWE_MCP_VERSION=${{ env.MINI_SWE_MCP_VERSION }}
             TASK_VERSION=${{ env.TASK_VERSION }}
           # Registry cache — a mode=max export of this image does not fit the
           # repo's Actions-cache budget (docker/AGENTS.md). image-manifest and

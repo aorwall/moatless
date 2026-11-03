@@ -17,6 +17,7 @@ use moatless_types::agent::{Harness, split_pi_model};
 pub const CLAUDE_INSTANCE: &str = "claudeAgent";
 pub const CODEX_INSTANCE: &str = "codex";
 pub const PI_INSTANCE: &str = "pi";
+pub const MINI_SWE_INSTANCE: &str = "mini-swe";
 
 /// Which instance a catalog agent belongs to.
 pub fn instance_for(harness: Harness) -> &'static str {
@@ -24,6 +25,7 @@ pub fn instance_for(harness: Harness) -> &'static str {
         Harness::ClaudeCode => CLAUDE_INSTANCE,
         Harness::Codex => CODEX_INSTANCE,
         Harness::Pi => PI_INSTANCE,
+        Harness::MiniSwe => MINI_SWE_INSTANCE,
     }
 }
 
@@ -33,6 +35,7 @@ pub fn harness_for(instance: &str) -> Option<Harness> {
         CLAUDE_INSTANCE => Some(Harness::ClaudeCode),
         CODEX_INSTANCE => Some(Harness::Codex),
         PI_INSTANCE => Some(Harness::Pi),
+        MINI_SWE_INSTANCE => Some(Harness::MiniSwe),
         _ => None,
     }
 }
@@ -59,6 +62,9 @@ const DEFAULT_EFFORT: &str = "high";
 
 /// The effort levels a published model row offers, weakest first.
 fn effort_levels(instance: &str, catalog_model: &str) -> &'static [&'static str] {
+    if instance == MINI_SWE_INSTANCE {
+        return &[];
+    }
     if instance == PI_INSTANCE {
         return &["off", "minimal", "low", "medium", "high"];
     }
@@ -92,6 +98,9 @@ fn effort_label(level: &str) -> &str {
 ///
 /// T3 sends the chosen value back on `modelSelection.options`.
 fn capabilities(instance: &str, catalog_model: &str) -> Value {
+    if instance == MINI_SWE_INSTANCE {
+        return json!({"optionDescriptors": []});
+    }
     let options: Vec<Value> = effort_levels(instance, catalog_model)
         .iter()
         .map(|level| {
@@ -239,6 +248,7 @@ pub fn providers(
         (CLAUDE_INSTANCE, "Claude Code", Harness::ClaudeCode),
         (CODEX_INSTANCE, "Codex", Harness::Codex),
         (PI_INSTANCE, "Pi", Harness::Pi),
+        (MINI_SWE_INSTANCE, "mini-swe-agent", Harness::MiniSwe),
     ]
     .into_iter()
     .map(|(instance, display_name, harness)| {
@@ -270,7 +280,7 @@ pub fn providers(
                 "status": if is_installed { "authenticated" } else { "unauthenticated" },
             },
             "checkedAt": checked_at,
-            "showInteractionModeToggle": true,
+            "showInteractionModeToggle": instance != MINI_SWE_INSTANCE,
             // Both harnesses resume a branched transcript, which is the whole of
             // what a history-only rewind needs. The file-restoring half is
             // refused in `commands::dispatch` rather than turned off here: this
@@ -376,7 +386,7 @@ mod tests {
     #[test]
     fn publishes_harness_instances_in_order() {
         let list = published();
-        assert_eq!(list.len(), 3);
+        assert_eq!(list.len(), 4);
         assert_eq!(list[0]["instanceId"], CLAUDE_INSTANCE);
         assert_eq!(list[1]["instanceId"], CODEX_INSTANCE);
         assert_eq!(list[2]["instanceId"], "pi");
@@ -633,6 +643,10 @@ mod tests {
     fn exactly_one_level_per_row_is_the_default() {
         for provider in published() {
             for row in provider["models"].as_array().unwrap() {
+                if provider["instanceId"] == MINI_SWE_INSTANCE {
+                    assert_eq!(row["capabilities"]["optionDescriptors"], json!([]));
+                    continue;
+                }
                 let slug = row["slug"].as_str().unwrap();
                 let defaults: Vec<String> = effort_descriptor(&provider, slug)["options"]
                     .as_array()
@@ -662,9 +676,12 @@ mod tests {
     }
 
     #[test]
-    fn every_instance_offers_the_build_plan_toggle() {
+    fn only_harnesses_with_plan_mode_offer_the_toggle() {
         for provider in published() {
-            assert_eq!(provider["showInteractionModeToggle"], json!(true));
+            assert_eq!(
+                provider["showInteractionModeToggle"],
+                json!(provider["instanceId"] != MINI_SWE_INSTANCE)
+            );
         }
     }
 
@@ -719,7 +736,7 @@ mod tests {
             std::slice::from_ref(&snapshot),
         );
 
-        assert_eq!(list.len(), 3);
+        assert_eq!(list.len(), 4);
         for provider in &list {
             assert_eq!(provider["workspaceSnapshots"], json!([snapshot]));
         }

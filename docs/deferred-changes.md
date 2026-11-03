@@ -550,7 +550,7 @@ of its own.
 |---|---|---|
 | Pi Durable integration | `crates/sandbox/src/agent/harness/pi/process.rs::PiProcess` runs one RPC process per Turn and restores native sessions from the backend trajectory | When a workflow needs durable execution beyond Moatless's existing Turn and sandbox recovery |
 | Arbitrary Pi extensions and extension dialogs | `PiProcess::open` disables extension discovery while passing managed skill roots explicitly | When the product defines approval, UI-dialog, and lifecycle contracts for third-party Pi extensions |
-| Hub-discovered Pi models all offer the same thinking levels | `crates/t3code/src/hub_models.rs::pi_models` publishes the hub's `/v1/models` rows, which carry no capabilities, so `providers::effort_levels` gives every Pi model `off` to `high` | When the hub or Pi reports per-model thinking support worth reading |
+| Hub-discovered Pi models all offer the same thinking levels | `crates/t3code/src/hub_models.rs::chat_models` publishes the hub's `/v1/models` rows, which carry no capabilities, so `providers::effort_levels` gives every Pi model `off` to `high` | When the hub or Pi reports per-model thinking support worth reading |
 | An `openrouter/` Pi model runs on the task's own OpenAI key when it has one | `crates/sandbox/src/agent/harness/pi/process.rs::openrouter_provider` sends `X-Moatless-Auth-Mode: api-key-or-hub` to `/llm/openai/v1`; `crates/server/src/model_gateway/openai.rs::resolve_upstream` prefers a stored `OPENAI_API_KEY` to the hub, so OpenAI's API receives the OpenRouter model id and refuses it | When a user with their own OpenAI key reports an OpenRouter model failing. Add an auth mode that selects the hub only, and send it for `openrouter` |
 
 ## Local test host portability
@@ -559,3 +559,10 @@ of its own.
 |---|---|---|
 | Process inventory and descendant cleanup assume Linux | `crates/sandbox/src/pod_processes.rs` and `crates/sandbox-local/src/client.rs::session_members` read `/proc`; the local client launches `setsid`. The E2E runner supplies a macOS launcher and cleanup fallback, but the crate tests still require Linux | When macOS becomes a supported local-runtime host beyond the E2E runner |
 | The Git rotation test inherits host credential helpers | `crates/sandbox/src/init/git/tests.rs::a_broker_origin_clone_keeps_no_token_and_fetches_after_a_rotation` fails authentication on this Mac while using an additional inline helper | When making the sandbox crate's full test suite host-independent; isolate the test's Git credential configuration |
+
+## mini-swe-agent capabilities
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| Token streaming, plan mode, reasoning controls, and interactive approvals | `crates/sandbox/src/agent/harness/mini_swe/bridge.py` uses synchronous model queries and automatic sandbox command execution; T3 publishes no reasoning options | When the product needs these controls for mini-swe-agent and its bridge protocol can represent them |
+| OpenRouter and other model backends | `MINI_SWE` in `crates/core/src/agent_catalog.rs` and `MiniSweProcess::open` accept Anthropic and OpenAI only | When a requested provider has a tested gateway route and native-history conversion |

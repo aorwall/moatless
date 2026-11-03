@@ -691,6 +691,11 @@ impl Config {
         })
     }
 
+    /// Native mini-swe journals, outside the credential runtime mount.
+    pub(crate) fn mini_swe_home_dir(&self) -> std::path::PathBuf {
+        std::path::Path::new(&self.home_dir).join(".mini-swe")
+    }
+
     /// Filesystem path where the long-lived user auth token is persisted after
     /// `GetCredentials` fetches it.
     ///

@@ -298,17 +298,26 @@ pub(super) fn tmp_config(agent_profile: &str, tmp: &tempfile::TempDir) -> Config
     config.agent_profile = Some(agent_profile.to_string());
     config.workspace_dir = tmp.path().join("workspace").display().to_string();
     config.repo_dir = config.workspace_dir.clone();
+    config.home_dir = tmp.path().join("home").display().to_string();
     config.claude_config_dir = tmp.path().join("claude-config").display().to_string();
     config.codex_home_dir = tmp.path().join("codex-home").display().to_string();
     config.pi_home_dir = tmp.path().join("pi-home").display().to_string();
     config
 }
 
-/// Build the session archive served by the backend for all three harnesses.
+/// Build the session archive served by the backend for all harnesses.
 pub(super) async fn combined_archive() -> Vec<u8> {
     let staging = tempfile::TempDir::new().expect("tmp");
     let claude_src = staging.path().join("claude");
     let codex_src = staging.path().join("codex").join("sessions").join("2026");
+    let mini_src = staging.path().join("mini-swe/sessions");
+    tokio::fs::create_dir_all(&mini_src).await.unwrap();
+    tokio::fs::write(
+        mini_src.join("mini-session.jsonl"),
+        b"{\"type\":\"session\"}\n",
+    )
+    .await
+    .unwrap();
     let pi_src = staging.path().join("pi").join("sessions");
     tokio::fs::create_dir_all(&claude_src).await.unwrap();
     tokio::fs::create_dir_all(&codex_src).await.unwrap();
@@ -332,6 +341,8 @@ pub(super) async fn combined_archive() -> Vec<u8> {
         b.append_dir_all("codex/sessions", root.join("codex").join("sessions"))
             .unwrap();
         b.append_dir_all("pi/sessions", root.join("pi").join("sessions"))
+            .unwrap();
+        b.append_dir_all("mini-swe/sessions", root.join("mini-swe/sessions"))
             .unwrap();
         b.into_inner().unwrap()
     })

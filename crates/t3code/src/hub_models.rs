@@ -1,14 +1,10 @@
-//! The models the deployment's `CLIProxyAPI` hub serves, as Pi's model list.
-//!
-//! Pi runs any `anthropic/`, `openai/` or `openrouter/` model the gateway can
-//! reach, so the hub's own `GET /v1/models` is a better list than a static
-//! catalog.
+//! Cached chat models from the deployment's `CLIProxyAPI` hub.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use moatless_api_schemas::agent::AgentModel;
-use moatless_types::agent::PI_VENDORS;
+use moatless_types::agent::{AgentProfile, PI_VENDORS};
 use moatless_types::http::HttpTimeouts;
 use serde_json::Value;
 use tokio::sync::Mutex;
@@ -64,22 +60,22 @@ impl HubModels {
         })
     }
 
-    /// Pi's models as `provider/model`; empty when the hub never gave a usable
+    /// Gateway chat models as `provider/model`; empty when the hub never gave a usable
     /// answer. A failed refresh serves the last answer.
     ///
     /// The lock is held across the request, so while the hub hangs every caller
     /// waits out the client timeout.
-    pub async fn models(&self, static_models: &[AgentModel]) -> Vec<AgentModel> {
+    async fn discovered_models(&self, static_models: &[AgentModel]) -> Vec<AgentModel> {
         let mut cached = self.cached.lock().await;
         if let Some((at, body)) = cached.as_ref() {
             if at.elapsed() < CACHE_TTL {
-                return pi_models(body, static_models);
+                return chat_models(body, static_models);
             }
         }
         match self.fetch().await {
-            Ok(body) if !pi_models(&body, &[]).is_empty() => {
+            Ok(body) if !chat_models(&body, &[]).is_empty() => {
                 *cached = Some((Instant::now(), body.clone()));
-                return pi_models(&body, static_models);
+                return chat_models(&body, static_models);
             }
             Ok(_) => warn!("the hub's model list held no usable chat models"),
             Err(error) => warn!(%error, "reading the hub's model list failed"),
@@ -88,10 +84,23 @@ impl HubModels {
         match cached.as_mut() {
             Some((at, body)) => {
                 *at = Instant::now();
-                pi_models(body, static_models)
+                chat_models(body, static_models)
             }
             None => Vec::new(),
         }
+    }
+
+    /// Discovered models accepted by the selected harness's runtime validation.
+    pub async fn models(
+        &self,
+        profile: AgentProfile,
+        static_models: &[AgentModel],
+    ) -> Vec<AgentModel> {
+        let mut models = self.discovered_models(static_models).await;
+        models.retain(|model| {
+            moatless_core::agent_catalog::validate_agent_model(profile, Some(&model.id)).is_ok()
+        });
+        models
     }
 
     async fn fetch(&self) -> Result<Value, reqwest::Error> {
@@ -111,7 +120,7 @@ impl HubModels {
 ///
 /// The hub lists a dated id (`claude-sonnet-4-20250514`) beside its alias; only
 /// the alias is kept.
-fn pi_models(body: &Value, static_models: &[AgentModel]) -> Vec<AgentModel> {
+fn chat_models(body: &Value, static_models: &[AgentModel]) -> Vec<AgentModel> {
     let mut rows: Vec<(i64, String)> = Vec::new();
     for row in body["data"].as_array().into_iter().flatten() {
         let (Some(id), Some(owner)) = (row["id"].as_str(), row["owned_by"].as_str()) else {
@@ -196,7 +205,7 @@ mod tests {
             {"id": "gpt-6.1-terra", "owned_by": "openai", "created": 20},
         ]});
 
-        let models = pi_models(&body, &static_models());
+        let models = chat_models(&body, &static_models());
 
         assert_eq!(
             ids(&models),
@@ -217,7 +226,7 @@ mod tests {
             {"id": "mistralai/mistral-large-4-0", "owned_by": "OpenRouter", "created": 1},
         ]});
 
-        let models = pi_models(&body, &[]);
+        let models = chat_models(&body, &[]);
 
         assert_eq!(ids(&models), ["openrouter/mistralai/mistral-large-4-0"]);
         assert_eq!(models[0].label, "mistralai/mistral-large-4-0");
@@ -230,7 +239,7 @@ mod tests {
         ]});
 
         assert_eq!(
-            ids(&pi_models(&body, &static_models())),
+            ids(&chat_models(&body, &static_models())),
             ["openai/gpt-6.1-sol"]
         );
     }
@@ -245,7 +254,7 @@ mod tests {
             {"id": "gpt-6-luna", "owned_by": "openai", "created": 1},
         ]});
 
-        assert_eq!(ids(&pi_models(&body, &[])), ["openai/gpt-6-luna"]);
+        assert_eq!(ids(&chat_models(&body, &[])), ["openai/gpt-6-luna"]);
     }
 
     #[test]
@@ -257,7 +266,7 @@ mod tests {
         ]});
 
         assert_eq!(
-            ids(&pi_models(&body, &[])),
+            ids(&chat_models(&body, &[])),
             [
                 "anthropic/claude-sonnet-4",
                 "anthropic/claude-opus-4-1-20250805"
@@ -267,7 +276,7 @@ mod tests {
 
     #[test]
     fn an_answer_without_rows_publishes_nothing() {
-        assert!(pi_models(&json!({"error": "x"}), &static_models()).is_empty());
+        assert!(chat_models(&json!({"error": "x"}), &static_models()).is_empty());
     }
 
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -322,8 +331,8 @@ mod tests {
         let hub = fake_hub(body()).await;
         let models = client(&hub.url);
 
-        let labelled = models.models(&static_models()).await;
-        let bare = models.models(&[]).await;
+        let labelled = models.discovered_models(&static_models()).await;
+        let bare = models.discovered_models(&[]).await;
 
         assert_eq!(labelled[0].label, "GPT 6.1 Sol");
         assert_eq!(bare[0].label, "gpt-6.1-sol");
@@ -331,10 +340,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn mini_swe_discovers_selectable_models_from_the_same_cache_as_pi() {
+        let hub = fake_hub(json!({"data": [
+            {"id": "gpt-new-chat", "owned_by": "openai"},
+            {"id": "claude-new-chat", "owned_by": "anthropic"},
+            {"id": "maker/chat", "owned_by": "openrouter"},
+            {"id": "gpt-image-2", "owned_by": "openai"}
+        ]}))
+        .await;
+        let models = client(&hub.url);
+        let pi = models.models(AgentProfile::Pi, &[]).await;
+        let mini = models.models(AgentProfile::MiniSwe, &static_models()).await;
+        assert_eq!(
+            ids(&mini),
+            ["openai/gpt-new-chat", "anthropic/claude-new-chat"]
+        );
+        assert_eq!(pi.len(), 3);
+        assert_eq!(hub.hits.load(Ordering::SeqCst), 1);
+        let agents = vec![moatless_api_schemas::agent::AgentDescriptor {
+            id: "mini-swe".into(),
+            label: "mini-swe-agent".into(),
+            installed: true,
+            default_model: "openai/gpt-new-chat".into(),
+            models: mini,
+            missing_credential_hint: None,
+        }];
+        let providers =
+            crate::providers::providers(&agents, &crate::AgentModelDefaults::default(), "now", &[]);
+        let provider = providers
+            .iter()
+            .find(|p| p["instanceId"] == "mini-swe")
+            .unwrap();
+        assert_eq!(provider["status"], "ready");
+        assert_eq!(provider["models"][0]["slug"], "openai/gpt-new-chat");
+        assert_eq!(
+            crate::providers::catalog_model_for(&agents, "mini-swe", "openai/gpt-new-chat"),
+            Some("openai/gpt-new-chat".into())
+        );
+        assert_eq!(
+            crate::providers::catalog_model_for(&agents, "mini-swe", "openrouter/maker/chat"),
+            None
+        );
+    }
+
+    #[tokio::test]
     async fn a_failed_refresh_serves_the_last_answer_and_waits_a_ttl_to_retry() {
         let hub = fake_hub(body()).await;
         let models = client(&hub.url);
-        models.models(&[]).await;
+        models.discovered_models(&[]).await;
         hub.down.store(true, Ordering::SeqCst);
 
         if let Some((at, _)) = models.cached.lock().await.as_mut() {
@@ -342,8 +395,8 @@ mod tests {
                 .checked_sub(CACHE_TTL + Duration::from_secs(1))
                 .unwrap_or(*at);
         }
-        let stale = models.models(&[]).await;
-        let again = models.models(&[]).await;
+        let stale = models.discovered_models(&[]).await;
+        let again = models.discovered_models(&[]).await;
 
         assert_eq!(ids(&stale), ["openai/gpt-6.1-sol"]);
         assert_eq!(ids(&again), ["openai/gpt-6.1-sol"]);
@@ -355,6 +408,11 @@ mod tests {
         let hub = fake_hub(body()).await;
         hub.down.store(true, Ordering::SeqCst);
 
-        assert!(client(&hub.url).models(&static_models()).await.is_empty());
+        assert!(
+            client(&hub.url)
+                .discovered_models(&static_models())
+                .await
+                .is_empty()
+        );
     }
 }
