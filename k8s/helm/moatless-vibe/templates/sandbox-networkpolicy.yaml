@@ -36,40 +36,7 @@ spec:
   {{- if .Values.networkPolicy.sandbox.restrictIngress }}
   # ---------------- INGRESS: only backend + Traefik may dial sandboxes ----------------
   ingress:
-    # Backend → sandbox gRPC (control plane) and sandbox HTTP health
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: {{ $releaseNamespace }}
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: {{ include "moatless-vibe.name" . }}
-              app.kubernetes.io/component: backend
-      ports:
-        - protocol: TCP
-          port: {{ .Values.kubernetes.sandboxGrpcPort }}
-        - protocol: TCP
-          port: 8001
-    # Traefik → sandbox dev servers (preview proxy routes to user dev servers)
-    {{- with .Values.networkPolicy.sandbox.ingressFromTraefik }}
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: {{ .namespace }}
-          {{- if .podLabels }}
-          podSelector:
-            matchLabels:
-              {{- toYaml .podLabels | nindent 14 }}
-          {{- end }}
-      ports:
-        {{- range .ports }}
-        - protocol: TCP
-          port: {{ . }}
-        {{- end }}
-    {{- end }}
-    {{- with .Values.networkPolicy.sandbox.extraIngress }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
+    {{- include "moatless-vibe.sandboxIngressRules" . | nindent 4 }}
   {{- end }}
   egress:
     # ---------------- In-cluster: DNS ----------------

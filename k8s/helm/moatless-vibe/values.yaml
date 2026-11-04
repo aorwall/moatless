@@ -764,6 +764,10 @@ kubernetes:
       memory: 256Mi
   # -- gRPC port on sandbox pods (for backend→sandbox communication)
   sandboxGrpcPort: 50052
+  # -- Whether a sandbox refuses a gRPC call that lacks the backend's
+  #    per-sandbox MAC (`enforce: true`) or only logs it. Turn on once the
+  #    "Unauthenticated sandbox gRPC call" warning is absent from sandbox logs.
+  sandboxGrpcAuthEnforce: false
   # -- Pod startup timeout in seconds
   podStartupTimeout: 120
   # -- Seconds a sandbox's init clone may receive nothing before git abandons

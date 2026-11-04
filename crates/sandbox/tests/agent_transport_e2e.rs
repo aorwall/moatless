@@ -175,6 +175,8 @@ fn test_config(tmp: &TempDir, use_tmux: bool, agent_profile: &str) -> Config {
         backend_api_url: gateway().map(|(backend, _)| backend),
         user_auth_token: None,
         bootstrap_token: None,
+        grpc_key: None,
+        grpc_auth_enforce: false,
         agent_config: AgentConfig::default(),
         claude_cli_path: std::env::var("CLAUDE_CLI_PATH")
             .unwrap_or_else(|_| "/usr/local/bin/claude".to_string()),

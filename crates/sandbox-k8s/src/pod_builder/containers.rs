@@ -314,6 +314,9 @@ pub(super) fn build_sandbox_container(
     // authenticates the initial GetCredentials call, which hands back the
     // long-lived token. USER_AUTH_TOKEN is legacy, emitted only when
     // SANDBOX_EMIT_LEGACY_USER_TOKEN is set.
+    for (key, value) in moatless_sandbox_runtime::client::grpc_auth_env(&config.sandbox, task_id) {
+        env.push(env_var(key, &value));
+    }
     if let Some(tokens) = tokens {
         env.push(env_var("SANDBOX_BOOTSTRAP_TOKEN", tokens.bootstrap));
         if let Some(legacy) = tokens.legacy_user_token {

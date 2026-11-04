@@ -1,5 +1,6 @@
 //! Generated gRPC types and services for sandbox <-> backend communication.
 
+pub mod auth;
 pub mod client;
 
 pub mod sandbox {

@@ -530,6 +530,8 @@ fn test_config(dir: &std::path::Path) -> Config {
         backend_api_url: None,
         user_auth_token: None,
         bootstrap_token: None,
+        grpc_key: None,
+        grpc_auth_enforce: false,
         agent_config: moatless_sandbox::config::AgentConfig::default(),
         claude_cli_path: path("bin/claude"),
         codex_cli_path: path("bin/codex"),

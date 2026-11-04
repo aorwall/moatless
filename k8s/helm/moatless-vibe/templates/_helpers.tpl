@@ -367,3 +367,45 @@ workspace naming it mounts its token, and by default it is the backend SA.
 {{- $names | uniq | join "," -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Ingress rules for a sandbox pod: backend (gRPC + health), Traefik preview, and
+extraIngress. Shared by the base and the sealed-egress policies, rendered at
+the `ingress:` list indent.
+*/}}
+{{- define "moatless-vibe.sandboxIngressRules" -}}
+# Backend → sandbox gRPC (control plane) and sandbox HTTP health
+- from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: {{ .Release.Namespace }}
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: {{ include "moatless-vibe.name" . }}
+          app.kubernetes.io/component: backend
+  ports:
+    - protocol: TCP
+      port: {{ .Values.kubernetes.sandboxGrpcPort }}
+    - protocol: TCP
+      port: 8001
+{{- with .Values.networkPolicy.sandbox.ingressFromTraefik }}
+# Traefik → sandbox dev servers (preview proxy routes to user dev servers)
+- from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: {{ .namespace }}
+      {{- if .podLabels }}
+      podSelector:
+        matchLabels:
+          {{- toYaml .podLabels | nindent 10 }}
+      {{- end }}
+  ports:
+    {{- range .ports }}
+    - protocol: TCP
+      port: {{ . }}
+    {{- end }}
+{{- end }}
+{{- with .Values.networkPolicy.sandbox.extraIngress }}
+{{ toYaml . }}
+{{- end }}
+{{- end }}

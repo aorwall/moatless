@@ -20,6 +20,17 @@ spec:
     matchLabels:
       app.kubernetes.io/name: moatless-sandbox
       app.kubernetes.io/component: sandbox
+    {{- if and .Values.egressProxy.enabled .Values.egressProxy.sealEgress .Values.egressProxy.profiles }}
+    # Sealed profiles are excluded as in sandbox-networkpolicy.yaml: this
+    # policy's FQDN allows would otherwise reopen their internet egress.
+    matchExpressions:
+      - key: moatless.io/network-profile
+        operator: NotIn
+        values:
+          {{- range .Values.egressProxy.profiles }}
+          - {{ . | quote }}
+          {{- end }}
+    {{- end }}
   egress:
     # DNS must be allowed for FQDN policies to resolve
     - toEndpoints:

@@ -158,6 +158,11 @@ pub struct Config {
     /// authenticate only the initial `GetCredentials` call, after which the
     /// sandbox swaps to the long-lived user token from that response.
     pub bootstrap_token: Option<String>,
+    /// The key the backend signs this pod's gRPC calls with (see
+    /// `sandbox_proto::auth`); `None` serves every call unchecked.
+    pub grpc_key: Option<String>,
+    /// Whether a call failing that check is refused rather than logged.
+    pub grpc_auth_enforce: bool,
     /// Agent-specific configuration
     pub agent_config: AgentConfig,
     /// Path to the Claude CLI binary
@@ -624,6 +629,12 @@ impl Config {
 
             bootstrap_token: env::var("SANDBOX_BOOTSTRAP_TOKEN").ok(),
 
+            grpc_key: env::var(sandbox_proto::auth::SANDBOX_GRPC_KEY_ENV)
+                .ok()
+                .filter(|key| !key.is_empty()),
+            grpc_auth_enforce: env::var(sandbox_proto::auth::SANDBOX_GRPC_AUTH_ENV)
+                .is_ok_and(|mode| mode == "enforce"),
+
             // `SANDBOX_FRONTLOAD_REPO_INSTRUCTIONS` outranks REPO_CONFIG. It is
             // the lever a repo can actually reach today: the provisioning path
             // rebuilds REPO_CONFIG from typed fields, but per-repo `envVars`
@@ -767,6 +778,8 @@ pub(crate) mod test_support {
             backend_api_url: None,
             user_auth_token: None,
             bootstrap_token: None,
+            grpc_key: None,
+            grpc_auth_enforce: false,
             agent_config: AgentConfig::default(),
             claude_cli_path: "/usr/local/bin/claude".to_string(),
             codex_cli_path: "/usr/local/bin/codex".to_string(),

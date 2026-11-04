@@ -93,6 +93,9 @@ pub fn build_container_config(
     if let Some(token) = user_auth_token {
         env.push(format!("USER_AUTH_TOKEN={token}"));
     }
+    for (key, value) in moatless_sandbox_runtime::client::grpc_auth_env(&config.sandbox, task_id) {
+        env.push(format!("{key}={value}"));
+    }
 
     if let Some(repo_config_json) = build_repo_config_json(plan) {
         env.push(format!("REPO_CONFIG={repo_config_json}"));

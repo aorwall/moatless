@@ -9,6 +9,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use moatless_types::sandbox::SandboxError;
 
+use crate::auth::SignCalls;
 use crate::sandbox_service_client::SandboxServiceClient;
 use crate::{
     ApplyTaskScriptRequest, ExecuteAgentRequest, GetAgentStatusRequest, GetAgentStatusResponse,
@@ -22,6 +23,7 @@ use crate::{
     TerminalSessionSnapshot, TerminalWriteRequest, WriteFileRequest,
 };
 use tonic::Streaming;
+use tonic::service::interceptor::InterceptedService;
 use tonic::transport::Channel;
 use tracing::debug;
 
@@ -41,7 +43,7 @@ pub enum ClientError {
 /// Wrapper around `SandboxServiceClient` for calling sandbox pods via gRPC.
 #[derive(Clone)]
 pub struct SandboxClient {
-    client: SandboxServiceClient<Channel>,
+    client: SandboxServiceClient<InterceptedService<Channel, SignCalls>>,
 }
 
 impl SandboxClient {
@@ -52,13 +54,20 @@ impl SandboxClient {
         service_name: &str,
         namespace: &str,
         port: u16,
+        key: Option<String>,
     ) -> Result<Self, ClientError> {
         let url = format!("http://{service_name}.{namespace}.svc.cluster.local:{port}");
-        Self::connect(&url)
+        Self::connect_signed(&url, key)
     }
 
-    /// Create a gRPC client from a URL.
+    /// Create a gRPC client from a URL that signs no call.
     pub fn connect(url: &str) -> Result<Self, ClientError> {
+        Self::connect_signed(url, None)
+    }
+
+    /// Create a gRPC client from a URL whose every call carries `key`'s MAC
+    /// (see [`crate::auth`]).
+    pub fn connect_signed(url: &str, key: Option<String>) -> Result<Self, ClientError> {
         let channel = Channel::from_shared(url.to_string())?
             .connect_timeout(Duration::from_secs(5))
             .http2_keep_alive_interval(Duration::from_secs(30))
@@ -66,7 +75,7 @@ impl SandboxClient {
             .connect_lazy();
 
         Ok(Self {
-            client: SandboxServiceClient::new(channel)
+            client: SandboxServiceClient::with_interceptor(channel, SignCalls::new(key))
                 .max_decoding_message_size(MAX_GRPC_MESSAGE_SIZE)
                 .max_encoding_message_size(MAX_GRPC_MESSAGE_SIZE),
         })

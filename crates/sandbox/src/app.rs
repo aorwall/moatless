@@ -67,6 +67,8 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let code_intel = svc.code_intel().clone();
     let grpc_port = config.grpc_port;
     let grpc_shutdown = state.lifecycle_cancel.clone();
+    let verify_calls =
+        sandbox_proto::auth::VerifyCalls::new(config.grpc_key.clone(), config.grpc_auth_enforce);
     let grpc_server = tokio::spawn(async move {
         let addr = SocketAddr::from(([0, 0, 0, 0], grpc_port));
         info!(port = grpc_port, "Starting sandbox gRPC server");
@@ -74,6 +76,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         let service = sandbox_proto::sandbox_service_server::SandboxServiceServer::new(svc)
             .max_decoding_message_size(limit)
             .max_encoding_message_size(limit);
+        let service = tonic::service::interceptor::InterceptedService::new(service, verify_calls);
         if let Err(e) = tonic::transport::Server::builder()
             .add_service(service)
             .serve_with_shutdown(addr, async move { grpc_shutdown.cancelled().await })

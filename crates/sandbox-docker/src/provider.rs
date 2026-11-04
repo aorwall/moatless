@@ -611,7 +611,8 @@ impl moatless_sandbox_runtime::client::SandboxConnector for DockerSandboxAdapter
             "http://{}:{}",
             container_name, self.config.sandbox.grpc_port
         );
-        SandboxClient::connect(&url)
+        let key = moatless_sandbox_runtime::client::grpc_key(&self.config.sandbox, &sandbox_id);
+        SandboxClient::connect_signed(&url, key)
             .map_err(|e| core_sandbox::SandboxError::GrpcClient(e.to_string()))
     }
 }

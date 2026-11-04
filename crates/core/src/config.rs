@@ -361,6 +361,9 @@ pub struct SandboxConfig {
     /// removing the long-lived secret from etcd. Env
     /// `SANDBOX_EMIT_LEGACY_USER_TOKEN` (default `true`).
     pub emit_legacy_user_token_env: bool,
+    /// Whether a sandbox refuses a gRPC call without the backend's MAC, or
+    /// only logs it. Env `SANDBOX_GRPC_AUTH_ENFORCE` (default `false`).
+    pub grpc_auth_enforce: bool,
     /// Whether the sandbox gRPC verification layer accepts legacy claim-less
     /// tokens (minted before the per-task `taskId` binding existed).
     ///
@@ -891,6 +894,7 @@ impl Config {
                 user_token_ttl_secs: env_or("SANDBOX_USER_TOKEN_TTL_SECS", 7 * 24 * 3600),
                 bootstrap_token_ttl_secs: env_or("SANDBOX_BOOTSTRAP_TOKEN_TTL_SECS", 1800),
                 emit_legacy_user_token_env: env_bool("SANDBOX_EMIT_LEGACY_USER_TOKEN", true),
+                grpc_auth_enforce: env_bool("SANDBOX_GRPC_AUTH_ENFORCE", false),
                 accept_claimless_tokens: env_bool("SANDBOX_ACCEPT_CLAIMLESS_TOKENS", true),
                 file_mount_path: env_str(
                     "SANDBOX_FILE_MOUNT_PATH",
@@ -1381,6 +1385,7 @@ impl Config {
                 user_token_ttl_secs: 7 * 24 * 3600,
                 bootstrap_token_ttl_secs: 1800,
                 emit_legacy_user_token_env: true,
+                grpc_auth_enforce: false,
                 accept_claimless_tokens: true,
                 file_mount_path: "/tmp".into(),
                 idle_reaper_enabled: false,

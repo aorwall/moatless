@@ -6,6 +6,8 @@
 
 pub use sandbox_proto::client::*;
 
+use moatless_core::config::SandboxConfig;
+use sandbox_proto::auth::{SANDBOX_GRPC_AUTH_ENV, SANDBOX_GRPC_KEY_ENV, derive_key};
 use tracing::debug;
 
 use super::live_status::AgentStatus;
@@ -14,6 +16,31 @@ use super::schemas::{
     ManagedCommandState as SchemaManagedCommandState, ScheduledJobInfo as SchemaScheduledJobInfo,
     ScheduledJobKind, WakeupJobInfo as SchemaWakeupJobInfo,
 };
+
+/// The key the backend signs `sandbox_id`'s gRPC calls with, or `None` where
+/// the deployment has no `TASK_TOKEN_SECRET`.
+pub fn grpc_key(config: &SandboxConfig, sandbox_id: &str) -> Option<String> {
+    config
+        .task_token_secret
+        .as_deref()
+        .map(|secret| derive_key(secret, sandbox_id))
+}
+
+/// The env a sandbox needs to check [`grpc_key`]'s MAC: empty without a key.
+pub fn grpc_auth_env(config: &SandboxConfig, sandbox_id: &str) -> Vec<(&'static str, String)> {
+    let Some(key) = grpc_key(config, sandbox_id) else {
+        return Vec::new();
+    };
+    let mode = if config.grpc_auth_enforce {
+        "enforce"
+    } else {
+        "log"
+    };
+    vec![
+        (SANDBOX_GRPC_KEY_ENV, key),
+        (SANDBOX_GRPC_AUTH_ENV, mode.to_string()),
+    ]
+}
 
 /// Snapshot of the agent's gRPC status response — state, scheduled jobs, and
 /// live background processes.

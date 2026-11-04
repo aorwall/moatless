@@ -1018,6 +1018,7 @@ impl moatless_sandbox_runtime::client::SandboxConnector for K8sSandboxAdapter {
             &service_name,
             self.k8s.namespace(),
             self.config.sandbox.grpc_port,
+            moatless_sandbox_runtime::client::grpc_key(&self.config.sandbox, &sandbox_id),
         )
         .map_err(|e| core_sandbox::SandboxError::GrpcClient(e.to_string()))
     }

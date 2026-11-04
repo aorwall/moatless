@@ -387,6 +387,7 @@ fronts the deployment.
 |-----------|-------------|---------|
 | `kubernetes.enabled` | Enable Kubernetes execution mode | `true` |
 | `kubernetes.namespace` | Namespace for sandbox pods | Release namespace |
+| `kubernetes.sandboxGrpcAuthEnforce` | Sandboxes refuse gRPC calls without the backend's per-sandbox MAC; `false` only logs them | `false` |
 | `kubernetes.allowedSandboxServiceAccounts` | Service accounts a workspace may name, plus the chart-created ones; empty restricts nothing (see [Sandbox access](#sandbox-access-using-the-cluster-from-a-sandbox)) | `[]` |
 | `kubernetes.extraNetworkProfiles` | Network profiles selected by policies outside the chart, accepted beside the chart's own | `[]` |
 | `kubernetes.sandboxStorage.enabled` | Global kill switch for per-task PVCs | `true` |
@@ -751,6 +752,11 @@ this feature exists to remove.
 > from the base sandbox policy, so those pods would get API-server access and
 > lose general internet egress. The chart fails the render on that combination
 > rather than leaving it as a runtime surprise.
+
+> A sealed pod's ingress is always restricted to the backend, Traefik and
+> `networkPolicy.sandbox.extraIngress`, whatever
+> `networkPolicy.sandbox.restrictIngress` says: the base policy excludes those
+> pods, so it cannot restrict them. Add any other source to `extraIngress`.
 
 ### Ingress Parameters
 

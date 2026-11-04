@@ -574,3 +574,12 @@ of its own.
 |---|---|---|
 | Token streaming, plan mode, reasoning controls, and interactive approvals | `crates/sandbox/src/agent/harness/mini_swe/bridge.py` uses synchronous model queries and automatic sandbox command execution; T3 publishes no reasoning options | When the product needs these controls for mini-swe-agent and its bridge protocol can represent them |
 | OpenRouter and other model backends | `MINI_SWE` in `crates/core/src/agent_catalog.rs` and `MiniSweProcess::open` accept Anthropic and OpenAI only | When a requested provider has a tested gateway route and native-history conversion |
+
+## Sandbox gRPC authentication
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| Sandboxes only log an unsigned gRPC call | `crates/core/src/config.rs::SandboxConfig::grpc_auth_enforce` defaults to `false`; Helm `kubernetes.sandboxGrpcAuthEnforce` | When a deployment's sandbox logs carry no "Unauthenticated sandbox gRPC call" warning for a release cycle. Flip the default to `true` |
+| The MAC key is in the pod spec | `crates/sandbox-k8s/src/pod_builder/containers.rs` sets `SANDBOX_GRPC_KEY` beside the bootstrap token, so anyone who can read the Deployment can sign calls to that one sandbox | When the bootstrap token moves off the pod spec. Deliver the key over the same channel |
+| A signature binds a time, not a call | `crates/sandbox-proto/src/auth.rs::verify` accepts any call with a MAC under `MAX_SKEW_SECS` old; a tonic `Interceptor` cannot see the method path | When a captured backend→sandbox request is a credible threat. Sign the path in a tower layer |
+| Local sandboxes are unauthenticated | `crates/sandbox-proto/src/auth.rs::VerifyCalls` admits loopback peers, and `crates/sandbox-local` connects without a key | When a local sandbox shares a host with untrusted processes |
