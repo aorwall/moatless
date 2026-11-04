@@ -67,7 +67,8 @@ pub struct CreateTaskParams<'a> {
 /// Hands create-then-provision to the task band with no first turn (every
 /// adapter delivers its inbound prompt via the binding instead); a shared,
 /// possibly global-scoped Loop always fires a scoped task, and callers see
-/// [`TaskOpenError`] verbatim, including [`TaskOpenError::Refused`].
+/// [`TaskOpenError`] verbatim, including [`TaskOpenError::Refused`], which is
+/// also counted as `moatless_loop_task_refused_total`.
 pub async fn create_task_from_loop(
     task_creation: &dyn TaskOpener,
     config: &LoopContext,
@@ -115,7 +116,12 @@ pub async fn create_task_from_loop(
             event_metadata: params.event_metadata,
             room: config.room.clone(),
         })
-        .await?;
+        .await
+        .inspect_err(|e| {
+            if matches!(e, TaskOpenError::Refused(_)) {
+                super::metrics::record_task_refused(&config.id, &config.adapter_kind);
+            }
+        })?;
 
     Ok(outcome)
 }

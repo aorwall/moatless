@@ -583,3 +583,9 @@ of its own.
 | The MAC key is in the pod spec | `crates/sandbox-k8s/src/pod_builder/containers.rs` sets `SANDBOX_GRPC_KEY` beside the bootstrap token, so anyone who can read the Deployment can sign calls to that one sandbox | When the bootstrap token moves off the pod spec. Deliver the key over the same channel |
 | A signature binds a time, not a call | `crates/sandbox-proto/src/auth.rs::verify` accepts any call with a MAC under `MAX_SKEW_SECS` old; a tonic `Interceptor` cannot see the method path | When a captured backend→sandbox request is a credible threat. Sign the path in a tower layer |
 | Local sandboxes are unauthenticated | `crates/sandbox-proto/src/auth.rs::VerifyCalls` admits loopback peers, and `crates/sandbox-local` connects without a key | When a local sandbox shares a host with untrusted processes |
+
+## Loop firing refusals
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| A refused firing tells nobody on the originating channel | `crates/loops/src/bindings/runtime.rs` (the `TaskOpenError::Refused` arm) and `crates/adapter-github-pr/src/routing.rs` only `warn!`. The person who asked sees silence, and only `moatless_loop_task_refused_total` and its Grafana alert report it | When a refusal reaches a person who then asks why nothing happened, even with the alert in place. Reply on the subject with the preflight's `user_message` |

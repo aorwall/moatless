@@ -310,18 +310,29 @@ fn rejection(e: PreflightError) -> PreflightRejection {
     }
 }
 
+/// The person the pod will act for: `driver`, else the task's owner, else its
+/// creator, as [`SandboxShape::acting_user_id`] reads the Sandbox row.
+///
+/// Not `created_by` first: a bot Loop's Task is created by the bot but owned
+/// by its Reporter, and the bot cannot write that user-scoped Task.
+fn acting_user_id<'a>(task: &'a Task, driver: Option<&'a str>) -> &'a str {
+    driver
+        .or(task.owner_user_id.as_deref())
+        .or(task.created_by.as_deref())
+        .unwrap_or("system")
+}
+
 /// Verify the sandbox's own identity can write the task before provisioning.
 ///
-/// The pod authenticates back as `driver`, else the task's creator; every
-/// sandbox gRPC call is gated on that user having write, so failing here is
-/// what stands between that and a pod that crash-loops forever refused its
-/// credentials.
+/// The pod authenticates back as [`acting_user_id`]; every sandbox gRPC call
+/// is gated on that user having write, so failing here is what stands between
+/// that and a pod that crash-loops forever refused its credentials.
 pub async fn preflight_validate_task_control(
     users: &dyn CommitIdentity,
     task: &Task,
     driver: Option<&str>,
 ) -> Result<(), PreflightError> {
-    let user_id = driver.or(task.created_by.as_deref()).unwrap_or("system");
+    let user_id = acting_user_id(task, driver);
     validate_control(
         users,
         &task.task_id,
@@ -405,7 +416,7 @@ pub async fn preflight_validate_git_credential(
         Some(&creds.workspaces),
         task.workspace_id.as_deref(),
         task.run_as_user_id.as_deref(),
-        driver.or(task.created_by.as_deref()).unwrap_or("system"),
+        acting_user_id(task, driver),
     )
     .await;
     let user_id = actor.user_id().to_string();
@@ -672,17 +683,17 @@ mod tests {
         );
     }
 
-    /// A user-scoped row owned by somebody else is exactly as unreachable as a
-    /// global one — the pod runs as `created_by`.
+    /// A bot Loop's Task is created by the bot and owned by the person who
+    /// asked; its Sandbox row, and so its pod, act as that owner.
     #[tokio::test]
-    async fn a_user_task_owned_by_someone_else_is_rejected() {
+    async fn a_loop_task_owned_by_its_reporter_passes() {
         let users = users_with_role(UserRole::User);
-        let task = task(Scope::User, Some("alice"), Some("bob"));
+        let task = task(Scope::User, Some("bot"), Some("alice"));
 
         assert!(
             preflight_validate_task_control(&users, &task, None)
                 .await
-                .is_err()
+                .is_ok()
         );
     }
 

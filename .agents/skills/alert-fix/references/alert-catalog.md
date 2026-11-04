@@ -44,6 +44,7 @@ ignores a pod's first 5 minutes, when it fills its pool after a rollout.
 | Rule | Fires when | Look first | Fix usually in |
 |---|---|---|---|
 | Sandbox Provisioning Failing | any failed provision in 30m | `moatless_sandbox_provision_duration_seconds_count` by outcome; backend logs for the task ids | moatless, or needs a person for node capacity |
+| Loop Task Refused | a Loop firing was refused at task preflight, so no agent ran | `moat loops tasks --id <loop_id>`, then `moat events list <task>` for the `preflight_failed` message | moatless when the refusal is identity or ownership; the Loop config or a credential when it names a token or repository |
 | Workspace Sync Failing | any failed workspace upload or download to S3 in 30m | `moatless_workspace_sync_total` by direction and outcome | moatless |
 | Sandbox Evicted | a `moatless-ws-*` pod became `Evicted` | `kubectl describe` the pod: ephemeral storage or memory pressure | the `sandbox-troubleshooting` skill; gitops for sandbox resources |
 | Sandbox OOMKilled | a `moatless-ws-*` container ran out of memory | which workspace and task the pod belongs to; the `workspace-resource-tuning` skill, if available | gitops or the workspace's resources, rarely moatless |
