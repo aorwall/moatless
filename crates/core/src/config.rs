@@ -10,7 +10,9 @@ use std::str::FromStr;
 
 use moatless_types::adapter::{LinearConfig, MessageBufferConfig};
 use moatless_types::agent::CodexOAuthConfig;
-use moatless_types::auth::{AllowedOrigin, AuthConfig, AuthProvider, OidcConfig};
+use moatless_types::auth::{
+    AllowedOrigin, AuthConfig, AuthProvider, OidcConfig, SandboxTokenScope,
+};
 use moatless_types::model::CodexModel;
 use moatless_types::sandbox::SandboxProviderType;
 use moatless_types::secret::SecretsConfig;
@@ -1029,6 +1031,10 @@ impl Config {
                     .unwrap_or_default(),
                 break_glass_enabled: env_bool("AUTH_BREAK_GLASS_ENABLED", false),
                 cache_ttl_secs: env_or("AUTH_CACHE_TTL_SECS", 30),
+                sandbox_token_scope: match env_opt("SANDBOX_TOKEN_SCOPE") {
+                    Some(v) => v.parse().map_err(ConfigError::Invalid)?,
+                    None => SandboxTokenScope::default(),
+                },
                 session_jwt_secret: env_opt("SESSION_JWT_SECRET"),
                 test_api_key: env_opt("TEST_API_KEY").map(|s| s.trim().to_string()),
                 default_team_slug: env_opt("DEFAULT_TEAM_SLUG"),
@@ -1467,6 +1473,7 @@ impl Config {
                 admin_user_ids: Vec::new(),
                 break_glass_enabled: false,
                 cache_ttl_secs: 0,
+                sandbox_token_scope: SandboxTokenScope::Enforce,
                 session_jwt_secret: Some("test-session-secret".into()),
                 test_api_key: None,
                 default_team_slug: None,

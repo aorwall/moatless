@@ -52,6 +52,7 @@ impl Authentication {
             users: users.clone(),
             sessions: sessions.clone(),
             token_verifier: ports.token_verifier.clone(),
+            sandbox_reach: ports.sandbox_reach,
             cache: cache.clone(),
             config: config.clone(),
         };

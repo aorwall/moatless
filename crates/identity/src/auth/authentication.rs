@@ -4,7 +4,7 @@ use super::{github, middleware, routes, state};
 use std::sync::Arc;
 
 use crate::secret::service::SecretService;
-use moatless_core::http_auth::{TaskAccess, UserTokenVerifier};
+use moatless_core::http_auth::{SandboxReach, TaskAccess, UserTokenVerifier};
 
 /// Application-owned ports needed by authentication. Construction pays this
 /// wiring cost once; route callers see only [`Authentication`].
@@ -16,6 +16,7 @@ pub struct AuthenticationPorts {
     pub secrets: Arc<SecretService>,
     pub task_access: Arc<dyn TaskAccess>,
     pub token_verifier: Arc<dyn UserTokenVerifier>,
+    pub sandbox_reach: Arc<dyn SandboxReach>,
 }
 
 /// Deep authentication capsule: protocol routes and request authentication

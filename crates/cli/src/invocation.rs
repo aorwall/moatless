@@ -5,39 +5,8 @@ use moatless_cli::{auth, client::MoatClient, commands, config::Config};
 
 pub(super) async fn run_sandbox(cli: SandboxCli) -> Result<(), Box<dyn std::error::Error>> {
     let cfg = Config::from_env();
-    let mut moat = crate::compose::client(&cfg, cli.opts.verbose, cli.opts.timeout);
-
-    let needs_auth = !runs_without_auth_sandbox(&cli.command);
-    if needs_auth {
-        auth::ensure_auth(&mut moat, &cfg).await?;
-    }
-
-    let result = dispatch_sandbox(cli.command, &moat, &cfg, cli.opts.json).await;
-
-    // A cached sandbox session can be stale (expired or rotated). On rejection,
-    // drop it so the next `moat` invocation re-exchanges the refreshed user
-    // token instead of replaying the dead session into another 401.
-    if needs_auth && is_unauthorized(&result) {
-        auth::invalidate_session(&cfg);
-    }
-
-    result
-}
-
-/// Whether a command result failed because the request was rejected as
-/// unauthorized. Commands surface a 401 either as a `ClientError` (raw helpers)
-/// or an `ApiError` (the typed client), so check both boxed error types.
-fn is_unauthorized(result: &Result<(), Box<dyn std::error::Error>>) -> bool {
-    let Some(err) = result.as_ref().err() else {
-        return false;
-    };
-    matches!(
-        err.downcast_ref::<moatless_cli::client::ClientError>(),
-        Some(moatless_cli::client::ClientError::Unauthorized)
-    ) || matches!(
-        err.downcast_ref::<moatless_api_client::ApiError>(),
-        Some(moatless_api_client::ApiError::Unauthorized)
-    )
+    let moat = crate::compose::client(&cfg, cli.opts.verbose, cli.opts.timeout);
+    dispatch_sandbox(cli.command, &moat, &cfg, cli.opts.json).await
 }
 
 async fn dispatch_sandbox(
@@ -206,20 +175,6 @@ async fn run_shared(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/// `moat cmd` talks only to the sandbox's own loopback gRPC server, so it must
-/// keep working when the backend session is stale — that is exactly when a
-/// build still needs supervising. `moat lsp-proxy` reaches only a local socket.
-fn runs_without_auth_sandbox(cmd: &SandboxCommands) -> bool {
-    match cmd {
-        SandboxCommands::Cmd { .. } | SandboxCommands::LspProxy { .. } => true,
-        SandboxCommands::Shared(c) => matches!(
-            **c,
-            SharedCommands::Status | SharedCommands::K8s { .. } | SharedCommands::Docker { .. }
-        ),
-        _ => false,
-    }
-}
 
 fn is_status_command_standalone(cmd: &StandaloneCommands) -> bool {
     matches!(

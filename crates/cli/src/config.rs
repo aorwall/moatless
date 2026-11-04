@@ -1,8 +1,8 @@
 //! Configuration from environment variables.
 //!
 //! Auth mode resolution, first match wins: a sandbox user token (refreshed copy
-//! on disk, else the `USER_AUTH_TOKEN` baked into the pod at creation) is
-//! exchanged for a session cookie; else `MOATLESS_API_KEY` is used directly as
+//! on disk, else the `USER_AUTH_TOKEN` baked into the pod at creation) is sent
+//! as `X-User-Token`; else `MOATLESS_API_KEY` is used directly as
 //! `Authorization: Bearer <key>` for non-interactive contexts; else the API key
 //! comes from `~/.config/moatless/credentials.json` (set by `moat login`).
 
@@ -11,7 +11,7 @@ pub use crate::http_config::HttpConfig;
 /// Authentication mode.
 #[derive(Debug, Clone)]
 pub enum AuthMode {
-    /// Inside a sandbox pod — uses `USER_AUTH_TOKEN` for session exchange.
+    /// Inside a sandbox pod — sends `USER_AUTH_TOKEN` on every request.
     Sandbox {
         user_auth_token: String,
         task_id: Option<String>,
@@ -27,10 +27,6 @@ pub struct Config {
     pub api_url: String,
     /// Authentication mode (sandbox vs standalone).
     pub auth_mode: AuthMode,
-    /// Session file path (sandbox mode only).
-    pub session_file: String,
-    /// Session cookie name.
-    pub cookie_name: String,
     /// What `moat login` fills its prompts from instead of asking.
     pub login: LoginEnv,
     /// The loopback port of this sandbox's own gRPC server: `GRPC_PORT`, else
@@ -101,17 +97,9 @@ impl Config {
             AuthMode::Standalone { api_key }
         };
 
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        let session_file = format!("{home}/.moat_session");
-
-        let cookie_name =
-            std::env::var("MOAT_COOKIE_NAME").unwrap_or_else(|_| "moatless_session".to_string());
-
         Self {
             api_url,
             auth_mode,
-            session_file,
-            cookie_name,
             login: LoginEnv {
                 email: std::env::var("MOATLESS_EMAIL")
                     .or_else(|_| std::env::var("MOATLESS_USERNAME"))

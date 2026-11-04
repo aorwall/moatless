@@ -35,11 +35,11 @@ pub trait UserTokenVerifier: Send + Sync {
     async fn verify_user_token(&self, token: &str) -> Result<VerifiedUserToken, TokenVerifyError>;
 }
 
-/// The identity a verified user token carries. Only the two fields the auth
-/// extractor reads.
+/// The identity a verified user token carries, and the Sandbox it is bound to.
 pub struct VerifiedUserToken {
     pub user_id: String,
     pub login: String,
+    pub sandbox_id: String,
 }
 
 /// Why verifying a user token failed.
@@ -63,6 +63,21 @@ pub trait TaskAccess: Send + Sync {
     /// True iff the task exists and `ctx` is allowed to see it. Fail-closed: an
     /// implementation denies (returns `false`) on a lookup error.
     async fn may_access_task(&self, task_id: &str, ctx: &ScopeContext) -> bool;
+}
+
+/// What a sandbox-issued user token may reach beyond its own Sandbox. Every
+/// method is fail-closed: a lookup error answers `false`.
+#[async_trait]
+pub trait SandboxReach: Send + Sync {
+    /// True iff `task_id` runs in `sandbox_id`, or a task running there
+    /// created it.
+    async fn task_in_reach(&self, task_id: &str, sandbox_id: &str) -> bool;
+    /// True iff the Task that owns message `message_id` is in reach, as
+    /// [`SandboxReach::task_in_reach`] decides.
+    async fn message_in_reach(&self, message_id: &str, sandbox_id: &str) -> bool;
+    /// True iff an administrator granted `sandbox_id`'s Workspace `agentAdmin`
+    /// in `WORKSPACE_IDENTITY_GRANTS`.
+    async fn is_agent_admin(&self, sandbox_id: &str) -> bool;
 }
 
 /// Authenticated user extracted from request extensions, user token, or
@@ -245,6 +260,7 @@ mod tests {
                 StubOutcome::Ok { user_id, login } => Ok(VerifiedUserToken {
                     user_id: user_id.clone(),
                     login: login.clone(),
+                    sandbox_id: "sandbox-1".to_string(),
                 }),
                 StubOutcome::NotConfigured => Err(TokenVerifyError::NotConfigured),
                 StubOutcome::Invalid(msg) => Err(TokenVerifyError::Invalid(msg.clone())),

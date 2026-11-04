@@ -111,8 +111,6 @@ async fn a_context_file_is_uploaded_and_its_id_is_what_create_attaches() {
     let config = Config {
         api_url: base_url,
         auth_mode: AuthMode::Standalone { api_key: None },
-        session_file: String::new(),
-        cookie_name: "session".to_string(),
         login: moatless_cli::config::LoginEnv::default(),
         sandbox_grpc_port: "50052".to_string(),
         gh_repo: None,

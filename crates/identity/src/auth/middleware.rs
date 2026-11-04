@@ -25,9 +25,13 @@ use super::sessions::SessionDao;
 use super::users_dao::UserDao;
 use moatless_api_schemas::error::ErrorBody;
 use moatless_core::config::Config;
-use moatless_core::http_auth::UserTokenVerifier;
-use moatless_types::auth::{AuthIdentity, AuthMethod};
+use moatless_core::http_auth::{SandboxReach, UserTokenVerifier};
+use moatless_types::auth::{AuthIdentity, AuthMethod, SandboxTokenScope};
 use moatless_types::user::UserStatus;
+
+/// The `authenticated_via` of a session exchanged for a sandbox token, which
+/// would otherwise carry the driver past [`super::sandbox_scope`].
+pub(super) const SANDBOX_TOKEN_SESSION_PROVIDER: &str = "sandbox-token";
 
 /// The one route that accepts a ticket in its query string.
 const WEBSOCKET_PATH: &str = "/ws";
@@ -43,6 +47,7 @@ pub struct AuthMiddlewareState {
     pub(crate) users: Arc<dyn UserDao>,
     pub(super) sessions: Arc<dyn SessionDao>,
     pub token_verifier: Arc<dyn UserTokenVerifier>,
+    pub(crate) sandbox_reach: Arc<dyn SandboxReach>,
     pub cache: AuthCache,
     pub config: Arc<Config>,
 }
@@ -312,12 +317,25 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
                     Ok(Some(user)) if user.status == UserStatus::Active => {
                         debug!(user_id = %user_id, path = %path, "Auth middleware: user token valid");
                         tracing::Span::current().record("user_id", user_id.to_string().as_str());
+                        let role = match super::sandbox_scope::admit(
+                            state.sandbox_reach.as_ref(),
+                            state.config.auth.sandbox_token_scope,
+                            req.method(),
+                            &path,
+                            &verified.sandbox_id,
+                            user.role,
+                        )
+                        .await
+                        {
+                            Ok(role) => role,
+                            Err(status) => return sandbox_refusal(status),
+                        };
                         insert_auth_extensions(
                             &mut req,
                             AuthIdentity {
                                 user_id,
                                 login: user.login,
-                                role: user.role,
+                                role,
                                 provider: "user-token".to_string(),
                                 group_id: None,
                             },
@@ -355,6 +373,12 @@ pub async fn auth_middleware(mut req: Request<Body>, next: Next) -> Response {
         .await
         {
             Ok(Some(auth_session)) => {
+                if auth_session.authenticated_via == SANDBOX_TOKEN_SESSION_PROVIDER
+                    && state.config.auth.sandbox_token_scope == SandboxTokenScope::Enforce
+                {
+                    warn!(path = %path, "Auth middleware: refused a session minted from a sandbox token");
+                    continue;
+                }
                 if is_unsafe(req.method())
                     && !valid_csrf(req.headers(), &auth_session.csrf_token_hash, &state.config)
                 {
@@ -488,6 +512,16 @@ fn unauthorized_response(path: &str, credential: Credential) -> Response {
         StatusCode::UNAUTHORIZED,
         Json(ErrorBody {
             error: "Authentication required".to_string(),
+        }),
+    )
+        .into_response()
+}
+
+fn sandbox_refusal(status: StatusCode) -> Response {
+    (
+        status,
+        Json(ErrorBody {
+            error: "Not available to a sandbox token".to_string(),
         }),
     )
         .into_response()

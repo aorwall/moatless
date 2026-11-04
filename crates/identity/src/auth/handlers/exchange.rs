@@ -3,6 +3,7 @@
 use super::session::{issued_session_headers, revoke_present_session};
 use crate::auth::api_key;
 use crate::auth::error::AuthError;
+use crate::auth::middleware::SANDBOX_TOKEN_SESSION_PROVIDER;
 use crate::auth::schemas::{SessionResponse, TokenSessionResponse, UserInfo, format_datetime};
 use crate::auth::sessions as session;
 use crate::auth::state::AuthState;
@@ -11,6 +12,7 @@ use axum::extract::State;
 use axum::http::{HeaderMap, header};
 use axum::response::{IntoResponse, Response};
 use moatless_api_schemas::error::ErrorBody;
+use moatless_types::auth::SandboxTokenScope;
 
 /// Exchange a valid API key for a session cookie (for local dev auth).
 #[utoipa::path(
@@ -82,8 +84,8 @@ pub(in crate::auth) async fn exchange_api_key_handler(
 
 /// Exchange a sandbox user auth token (JWT) for a session cookie.
 ///
-/// Sandbox pods carry a `USER_AUTH_TOKEN` JWT signed with `TASK_TOKEN_SECRET`;
-/// verifying it lets the CLI call authenticated `/api/v1/*` endpoints.
+/// Refused under [`SandboxTokenScope::Enforce`]: the session would carry the
+/// driver past `sandbox_scope`. The CLI sends the token itself instead.
 #[utoipa::path(
     post,
     path = "/api/v1/auth/token/session",
@@ -101,6 +103,9 @@ pub(in crate::auth) async fn exchange_token_handler(
         .get("X-User-Token")
         .and_then(|v| v.to_str().ok())
         .ok_or(AuthError::Unauthorized)?;
+    if state.config.auth.sandbox_token_scope == SandboxTokenScope::Enforce {
+        return Err(AuthError::Forbidden);
+    }
 
     let verified = state
         .token_verifier
@@ -124,12 +129,14 @@ pub(in crate::auth) async fn exchange_token_handler(
         .ok_or(AuthError::Unauthorized)?;
 
     revoke_present_session(&state, &headers).await?;
-    let issued = session::create_session_from_user(
+    tracing::info!(user_id = %user.id, sandbox_id = %verified.sandbox_id, "Sandbox token exchanged for a session");
+    let issued = session::create_session_from_user_with_provider(
         state.sessions.as_ref(),
         &user,
         None, // sandbox tokens don't carry group_id
         state.config.auth.session_max_age_secs,
         state.config.auth.session_absolute_age_secs,
+        SANDBOX_TOKEN_SESSION_PROVIDER,
     )
     .await?;
 

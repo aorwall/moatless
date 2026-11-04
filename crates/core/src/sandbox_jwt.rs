@@ -390,14 +390,14 @@ impl crate::http_auth::UserTokenVerifier for JwtUserTokenVerifier {
         // never be revoked; every minted token names one.
         let sandbox_id = claims
             .sandbox_id
-            .as_deref()
             .ok_or_else(|| TokenVerifyError::Invalid("token names no sandbox".to_string()))?;
-        check_generation(self.generations.as_ref(), sandbox_id, claims.generation)
+        check_generation(self.generations.as_ref(), &sandbox_id, claims.generation)
             .await
             .map_err(|e| TokenVerifyError::Invalid(e.to_string()))?;
         Ok(crate::http_auth::VerifiedUserToken {
             user_id: claims.user_id,
             login: claims.login,
+            sandbox_id,
         })
     }
 }

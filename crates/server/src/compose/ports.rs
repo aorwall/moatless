@@ -147,6 +147,8 @@ pub struct Ports {
     /// Verifies sandbox-issued user tokens behind a port, so the token secret
     /// and `sandbox::jwt` stay out of the auth handlers that consume it.
     pub token_verifier: Arc<dyn moatless_core::http_auth::UserTokenVerifier>,
+    /// What a sandbox token may reach, checked by the auth middleware.
+    pub sandbox_reach: Arc<dyn moatless_core::http_auth::SandboxReach>,
     /// The `secret_audit_events` trail `WorkspaceCredentialService` records its
     /// own writes to.
     pub secret_audits: Arc<SecretAudit>,
@@ -291,6 +293,7 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
     Ports {
         tasks: task_graph.tasks(),
         task_access: task_graph.task_access(),
+        sandbox_reach: task_graph.sandbox_reach(config.workspace_sync.identity_grants.clone()),
         task_reader: task_graph.task_reader(),
         task_relations: task_graph.relation_recorder(),
         task_repositories: task_graph.task_repositories(),
@@ -389,6 +392,7 @@ impl Ports {
                 secrets: self.secrets.clone(),
                 task_access: self.task_access.clone(),
                 token_verifier: self.token_verifier.clone(),
+                sandbox_reach: self.sandbox_reach.clone(),
             },
         )
     }

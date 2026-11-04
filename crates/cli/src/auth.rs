@@ -1,70 +1,8 @@
-//! Authentication flows: sandbox token exchange and browser-based OAuth login.
-
-use std::path::Path;
+//! Authentication flows: browser-based OAuth and password login.
 
 use crate::client::{ClientError, MoatClient};
 use crate::config::{AuthMode, Config};
 use moatless_types::http::HttpTimeouts;
-
-// ============================================================================
-// Sandbox mode: token exchange
-// ============================================================================
-
-/// Exchange the `USER_AUTH_TOKEN` for a session JWT, save to disk.
-pub async fn login_sandbox(client: &mut MoatClient, config: &Config) -> Result<(), ClientError> {
-    if !matches!(config.auth_mode, AuthMode::Sandbox { .. }) {
-        return Err(ClientError::Api {
-            status: 500,
-            body: "login_sandbox called in standalone mode".to_string(),
-        });
-    }
-
-    let session = client.api().exchange_token().await?;
-
-    std::fs::write(&config.session_file, &session.token).map_err(|e| ClientError::Api {
-        status: 500,
-        body: format!("Failed to write session file: {e}"),
-    })?;
-
-    client.set_session_token(session.token.clone());
-    Ok(())
-}
-
-/// Load session from disk, or auto-login if missing/expired (sandbox mode).
-pub async fn ensure_session_sandbox(
-    client: &mut MoatClient,
-    config: &Config,
-) -> Result<(), ClientError> {
-    if let Some(token) = load_session(&config.session_file) {
-        client.set_session_token(token);
-        return Ok(());
-    }
-    login_sandbox(client, config).await
-}
-
-/// Drop the cached sandbox session so the next invocation re-exchanges the
-/// (refreshed) user token.
-///
-/// Called on a 401 — replaying a stale session would wedge the CLI in a loop.
-/// No-op outside sandbox mode.
-pub fn invalidate_session(config: &Config) {
-    if matches!(config.auth_mode, AuthMode::Sandbox { .. }) {
-        let _ = std::fs::remove_file(&config.session_file);
-    }
-}
-
-fn load_session(path: &str) -> Option<String> {
-    let path = Path::new(path);
-    if !path.exists() {
-        return None;
-    }
-    let token = std::fs::read_to_string(path).ok()?;
-    let token = token.trim().to_string();
-    if token.is_empty() {
-        return None;
-    }
-    Some(token)
-}
 
 // ============================================================================
 // Standalone mode: login dispatcher (password vs OAuth)
@@ -359,11 +297,12 @@ fn parse_callback_request(request: &str) -> Result<(String, String), ClientError
 // Ensure auth: dispatcher for both modes
 // ============================================================================
 
-/// Ensure we have valid auth. In sandbox mode, exchanges token for session. In
-/// standalone mode, checks for API key and prompts login if missing.
+/// Ensure we have valid auth. In sandbox mode the user token is the
+/// credential, so there is nothing to do. In standalone mode, checks for an
+/// API key and prompts login if missing.
 pub async fn ensure_auth(client: &mut MoatClient, config: &Config) -> Result<(), ClientError> {
     match &config.auth_mode {
-        AuthMode::Sandbox { .. } => ensure_session_sandbox(client, config).await,
+        AuthMode::Sandbox { .. } => Ok(()),
         AuthMode::Standalone { api_key } => {
             if api_key.is_none() {
                 // No API key — try an unauthenticated probe to see if the

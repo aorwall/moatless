@@ -376,6 +376,18 @@ Gaps left by the first scoped-collection change, each reached from `crates/tasks
 | A Workspace run-as naming the Task's owner yields to the driver | `crates/sandbox-control/src/lifecycle/dao.rs::SandboxShape::pinned_run_as` counts only a Task pin when the row's run-as equals the owner: reading `workspaces` there is another crate's table | When the Sandbox row records whether its run-as came from a pin |
 | Plugin picks follow the run-as, not the driver | `crates/server/src/sandbox/grpc_server/plugins.rs` and `crates/sandbox-control/src/auto_provision.rs` resolve plugins for `run_as_user_id` | When a driver needs their own plugins on someone else's Task |
 
+## Sandbox token scope
+
+`crates/identity/src/auth/sandbox_scope.rs` decides what a sandbox `X-User-Token` reaches. It ships under `SANDBOX_TOKEN_SCOPE=log`.
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| The scope is logged, not enforced | `crates/types/src/auth.rs::SandboxTokenScope` defaults to `Log`; every refusal logs `Sandbox token outside its reach` | When a week of those logs shows no legitimate caller, every admin Workspace carries `agentAdmin` in `WORKSPACE_IDENTITY_GRANTS`, and no session older than the deploy remains: a session exchanged before it carries `authenticated_via = 'api-key'` and is not refused. Then set `enforce` |
+| A sandbox token reads every Task its driver can | `sandbox_scope::v1` gives `GET /api/v1/tasks/**` and `GET /api/v1/events/**` `Reach::Any`, so a loop run can read the children of earlier runs | When a read across Sandboxes is reported as a leak, or loop runs record which runs they may read |
+| Artifact records are written outside the Sandbox's reach | `sandbox_scope::v1` gives `/api/v1/artifacts/**` `Reach::Any`; an Artifact names no Task the guard can check | When `crates/tasks/src/artifact` can answer which Task owns an Artifact, so it becomes `Reach::Task` |
+| The sandbox user token lives seven days | `crates/core/src/config.rs::SandboxConfig::user_token_ttl_secs` defaults to 604800, though `crates/sandbox/src/credentials/refresher.rs` refreshes every 15 minutes | When a hibernated Sandbox is shown to resume with a fresh token, so a 1–2 hour TTL cannot strand it |
+| The token exchange route remains | `crates/identity/src/auth/handlers/exchange.rs::exchange_token_handler` serves CLIs built before they sent `X-User-Token` alone; `enforce` refuses it | When no running sandbox image predates the CLI change. Then delete the route and `TokenSessionResponse` |
+
 ## Sandbox restarts
 
 | Deferred | Anchor | Entry condition |

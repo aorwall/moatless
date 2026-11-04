@@ -177,13 +177,6 @@ impl ApiClient {
         self.get("/api/v1/auth/mode").await
     }
 
-    /// POST /api/v1/auth/token/session (sandbox token exchange)
-    pub async fn exchange_token(
-        &self,
-    ) -> Result<moatless_api_schemas::auth::TokenSessionResponse, ApiError> {
-        self.post_no_body("/api/v1/auth/token/session").await
-    }
-
     // ========================================================================
     // Tasks
     // ========================================================================

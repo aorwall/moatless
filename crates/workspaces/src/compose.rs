@@ -25,6 +25,7 @@ use crate::repository::operations::Repositories;
 use crate::repository::org_sync::OrgSync;
 use crate::skill::fetcher::SkillFetcher;
 use crate::skill::service::SkillService;
+use crate::workspace::agent_admin::AgentAdminGrants;
 use crate::workspace::credentials::dao::PgWorkspaceCredentialDao;
 use crate::workspace::credentials::service::WorkspaceCredentialService;
 use crate::workspace::dao::PgWorkspaceDao;
@@ -75,6 +76,18 @@ pub fn syncing_workspace_resolver(
 /// The `repositories` store narrowed to what a peer band reads.
 pub fn repository_reader(db: DbPool) -> Arc<dyn RepositoryReader> {
     Arc::new(RepositoryProjection::new(Arc::new(PgRepositoryDao(db))))
+}
+
+/// Whether a Workspace holds an `agentAdmin` grant in `identity_grants`.
+pub fn agent_admin_grants(
+    db: DbPool,
+    identity_grants: WorkspaceIdentityGrants,
+) -> Arc<AgentAdminGrants> {
+    Arc::new(AgentAdminGrants::new(
+        Arc::new(PgWorkspaceDao(db.clone())),
+        Arc::new(PgRepositoryDao(db)),
+        identity_grants,
+    ))
 }
 
 /// Reconciles a repository's git-declared workspaces, reading files within

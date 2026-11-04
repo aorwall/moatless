@@ -23,6 +23,11 @@ pub struct WorkspaceIdentityGrant {
     /// repository's scope. Never read from git: a privileged identity would
     /// otherwise reach every user of a global repository.
     pub owner_user_id: Option<String>,
+    /// Lets a sandbox token from this Workspace keep its administrator
+    /// driver's role and reach every route (`moatless_identity`'s
+    /// `sandbox_scope`). Never read from git, like every field here.
+    #[serde(default)]
+    pub agent_admin: bool,
 }
 
 /// Every grant this deployment makes, read from `WORKSPACE_IDENTITY_GRANTS`.
@@ -53,6 +58,11 @@ impl WorkspaceIdentityGrants {
             }
         }
         Ok(())
+    }
+
+    /// True iff some grant sets [`WorkspaceIdentityGrant::agent_admin`].
+    pub fn grants_agent_admin(&self) -> bool {
+        self.0.iter().any(|g| g.agent_admin)
     }
 
     /// The grant for `workspace` in the repository `owner/name`, if any.
@@ -122,8 +132,21 @@ mod tests {
             Some("moatless-soap-nonprod-admin")
         );
         assert_eq!(grant.owner_user_id.as_deref(), Some("u1"));
+        assert!(!grant.agent_admin);
+        assert!(!grants.grants_agent_admin());
         assert!(grants.find("soaplabs/soap-agent-ops", "Admin").is_none());
         assert!(grants.find("soaplabs/soap-specs", "admin").is_none());
+    }
+
+    #[test]
+    fn agent_admin_is_read_from_the_grant() {
+        let grants = WorkspaceIdentityGrants::parse(
+            r#"[{"repository":"a/b","workspace":"admin","agentAdmin":true}]"#,
+        )
+        .unwrap();
+
+        assert!(grants.find("a/b", "admin").unwrap().agent_admin);
+        assert!(grants.grants_agent_admin());
     }
 
     #[test]

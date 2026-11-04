@@ -59,6 +59,27 @@ impl FromStr for AuthProvider {
     }
 }
 
+/// Whether the route policy for sandbox-issued user tokens refuses what it
+/// would deny, or only logs it (env: `SANDBOX_TOKEN_SCOPE`, `log` by default).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SandboxTokenScope {
+    #[default]
+    Log,
+    Enforce,
+}
+
+impl FromStr for SandboxTokenScope {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "log" => Ok(Self::Log),
+            "enforce" => Ok(Self::Enforce),
+            _ => Err(format!("unknown sandbox token scope: {s}")),
+        }
+    }
+}
+
 /// Authentication and session settings.
 ///
 /// Implements a custom `Debug` to redact secrets.
@@ -120,6 +141,8 @@ pub struct AuthConfig {
     pub break_glass_enabled: bool,
     /// Auth cache TTL in seconds (default: 30).
     pub cache_ttl_secs: u64,
+    /// See [`SandboxTokenScope`].
+    pub sandbox_token_scope: SandboxTokenScope,
     /// Secret for signing session JWTs (env: `SESSION_JWT_SECRET`). Falls back
     /// to `sandbox.task_token_secret` when not set.
     pub session_jwt_secret: Option<String>,
@@ -315,6 +338,7 @@ impl fmt::Debug for AuthConfig {
             )
             .field("admin_user_ids", &self.admin_user_ids)
             .field("break_glass_enabled", &self.break_glass_enabled)
+            .field("sandbox_token_scope", &self.sandbox_token_scope)
             .field(
                 "session_jwt_secret",
                 &self.session_jwt_secret.as_ref().map(|_| "[REDACTED]"),

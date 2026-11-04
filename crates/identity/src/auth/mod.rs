@@ -29,6 +29,7 @@ pub(crate) mod provider_token_auth_dao;
 pub(crate) mod provider_token_dao;
 pub mod provider_tokens;
 pub mod routes;
+mod sandbox_scope;
 pub mod schemas;
 mod sessions;
 // `test` stays first so the census keeps scoring this fake as test-context; the

@@ -25,7 +25,6 @@ pub fn print_status(config: &Config) {
             if let Some(ref tid) = task_id {
                 println!("Task:    {tid}");
             }
-            println!("Session: {}", config.session_file);
         }
         AuthMode::Standalone { api_key } => {
             println!("Mode:    standalone");

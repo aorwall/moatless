@@ -42,6 +42,7 @@ moatless-core = { workspace = true, features = ["openapi"] }
 moatless-types = { workspace = true }
 moatless-identity = { workspace = true }
 moatless-workspaces = { workspace = true }
+moka = { workspace = true, features = ["future"] }
 # Artifact objects.
 moatless-s3 = { workspace = true }
 

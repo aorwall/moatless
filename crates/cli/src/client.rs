@@ -77,12 +77,9 @@ enum ClientAuthMode {
     ApiKey(String),
     /// Session cookie, as a browser would send it. Raw `name=value` pair.
     SessionCookie(String),
-    /// Sandbox: use X-User-Token for sandbox routes, session cookie for others.
-    Sandbox {
-        user_auth_token: String,
-        cookie_name: String,
-        session_token: Option<String>,
-    },
+    /// Sandbox: `X-User-Token` on every request. No session cookie: the
+    /// backend scopes the token to its Sandbox, and a session would not be.
+    Sandbox { user_auth_token: String },
 }
 
 impl MoatClient {
@@ -151,8 +148,6 @@ impl MoatClient {
                 user_auth_token, ..
             } => ClientAuthMode::Sandbox {
                 user_auth_token: user_auth_token.clone(),
-                cookie_name: config.cookie_name.clone(),
-                session_token: None,
             },
         };
 
@@ -203,18 +198,7 @@ impl MoatClient {
                     default_headers.insert(COOKIE, v);
                 }
             }
-            ClientAuthMode::Sandbox {
-                user_auth_token,
-                cookie_name,
-                session_token,
-            } => {
-                if let Some(ref token) = session_token {
-                    let cookie = format!("{cookie_name}={token}");
-                    if let Ok(v) = HeaderValue::from_str(&cookie) {
-                        default_headers.insert(COOKIE, v);
-                    }
-                }
-                // Also set X-User-Token for sandbox routes
+            ClientAuthMode::Sandbox { user_auth_token } => {
                 if let Ok(v) = HeaderValue::from_str(user_auth_token) {
                     default_headers.insert("X-User-Token", v);
                 }
@@ -227,18 +211,6 @@ impl MoatClient {
             .default_headers(default_headers)
             .build()
             .expect("the TLS backend initialises")
-    }
-
-    pub fn set_session_token(&mut self, token: String) {
-        if let ClientAuthMode::Sandbox {
-            ref mut session_token,
-            ..
-        } = self.auth_mode
-        {
-            *session_token = Some(token);
-            let http = Self::build_http_client(&self.auth_mode, self.http.api);
-            self.typed_client = ApiClient::new(&self.base_url, http);
-        }
     }
 
     pub fn api(&self) -> &ApiClient {
@@ -445,17 +417,7 @@ impl MoatClient {
                     default_headers.insert(COOKIE, v);
                 }
             }
-            ClientAuthMode::Sandbox {
-                user_auth_token,
-                cookie_name,
-                session_token,
-            } => {
-                if let Some(ref token) = session_token {
-                    let cookie = format!("{cookie_name}={token}");
-                    if let Ok(v) = HeaderValue::from_str(&cookie) {
-                        default_headers.insert(COOKIE, v);
-                    }
-                }
+            ClientAuthMode::Sandbox { user_auth_token } => {
                 if let Ok(v) = HeaderValue::from_str(user_auth_token) {
                     default_headers.insert("X-User-Token", v);
                 }

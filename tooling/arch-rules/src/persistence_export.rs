@@ -240,6 +240,7 @@ pub const CONCERNS: &[Concern] = &[
             "crates/tasks/src/task/access_dao",
             "crates/tasks/src/task/dao",
             "crates/tasks/src/task/pin_dao",
+            "crates/tasks/src/task/sandbox_reach_dao",
             "crates/tasks/src/task/settle_dao",
             "crates/tasks/src/task/snooze_dao",
             "crates/tasks/src/task/switch_dao",

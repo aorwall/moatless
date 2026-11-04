@@ -114,6 +114,19 @@ impl TaskGraph {
         self.tasks.clone()
     }
 
+    /// What a sandbox token may reach, the auth middleware's
+    /// [`moatless_core::http_auth::SandboxReach`] port.
+    pub fn sandbox_reach(
+        &self,
+        identity_grants: moatless_core::workspace_identity_grants::WorkspaceIdentityGrants,
+    ) -> Arc<dyn moatless_core::http_auth::SandboxReach> {
+        Arc::new(crate::task::sandbox_reach::SandboxReachStore::new(
+            self.tasks.clone(),
+            self.messages.clone(),
+            moatless_workspaces::compose::agent_admin_grants(self.db.clone(), identity_grants),
+        ))
+    }
+
     /// The `task_relations` table, as a host reads and writes it. Also the
     /// published `RelationRecorder` seam.
     pub fn relation_recorder(&self) -> Arc<TaskRelations> {

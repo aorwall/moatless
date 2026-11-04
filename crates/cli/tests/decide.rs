@@ -124,8 +124,6 @@ async fn each_fails_the_command_after_every_row_when_an_item_failed() {
     let config = Config {
         api_url: base_url,
         auth_mode: AuthMode::Standalone { api_key: None },
-        session_file: String::new(),
-        cookie_name: "session".to_string(),
         login: moatless_cli::config::LoginEnv::default(),
         sandbox_grpc_port: "50052".to_string(),
         gh_repo: None,

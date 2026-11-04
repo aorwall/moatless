@@ -548,10 +548,16 @@ workspaceSync:
   # -- Admin-only fields a git-declared Workspace may carry. A git value for
   # `sandboxServiceAccount`, `networkProfile` or `nodeSelector` is kept only
   # when a grant for that repository and Workspace key names the same value;
-  # `ownerUserId` makes the Workspace private to that user.
+  # `ownerUserId` makes the Workspace private to that user. `agentAdmin: true`
+  # lets an administrator driver's sandbox token keep the admin role and reach
+  # admin routes (see `sandboxTokenScope`).
   # e.g. [{repository: soaplabs/soap-specs, workspace: default,
   #        sandboxServiceAccount: moatless-soap-nonprod-admin}]
   identityGrants: []
+  # -- `log` logs a sandbox token's call outside its Sandbox's reach; `enforce`
+  # refuses it and caps the role. Set `enforce` once the logs are clean and the
+  # admin Workspaces carry `agentAdmin`.
+  sandboxTokenScope: log
 
 # Application configuration
 config:

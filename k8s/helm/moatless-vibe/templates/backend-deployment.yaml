@@ -91,6 +91,10 @@ spec:
             - name: WORKSPACE_IDENTITY_GRANTS
               value: {{ toJson .identityGrants | quote }}
             {{- end }}
+            {{- with .sandboxTokenScope }}
+            - name: SANDBOX_TOKEN_SCOPE
+              value: {{ . | quote }}
+            {{- end }}
             {{- end }}
             {{- with .Values.backend.otel.otlpEndpoint }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT

@@ -153,7 +153,8 @@ entry with `"key": "default"` overrides.
 |-----------|-------------|---------|
 | `workspaceSync.githubOrgs` | GitHub organizations whose repositories are registered as global repositories every ten minutes; one the listing leaves out is soft-deleted only once GitHub confirms it archived, renamed, transferred or deleted | `[]` |
 | `workspaceSync.orgSyncUserId` | User whose GitHub credential lists the organizations; required with `githubOrgs` | `""` |
-| `workspaceSync.identityGrants` | Grants that let a repository's Workspace keep a git-declared `sandboxServiceAccount`, `networkProfile` or `nodeSelector`, and optionally make it private to `ownerUserId` | `[]` |
+| `workspaceSync.identityGrants` | Grants that let a repository's Workspace keep a git-declared `sandboxServiceAccount`, `networkProfile` or `nodeSelector`, and optionally make it private to `ownerUserId` or mark it `agentAdmin` | `[]` |
+| `workspaceSync.sandboxTokenScope` | `log` or `enforce`: whether a sandbox token's call outside its Sandbox's reach is only logged or refused | `log` |
 
 ### S3-only EKS Fargate
 

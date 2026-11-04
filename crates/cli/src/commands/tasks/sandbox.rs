@@ -445,8 +445,6 @@ mod tests {
                 user_auth_token: "token".to_string(),
                 task_id: Some(task_id.to_string()),
             },
-            session_file: "/tmp/.moat_session".to_string(),
-            cookie_name: "moatless_session".to_string(),
             login: crate::config::LoginEnv::default(),
             sandbox_grpc_port: "50052".to_string(),
             gh_repo: None,
