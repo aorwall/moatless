@@ -411,3 +411,63 @@ impl From<String> for AgentMode {
         Self(value)
     }
 }
+
+crate::string_enum!(
+    /// How long Anthropic keeps a Claude Code session's prompt cache warm
+    /// between requests. A 1-hour write costs 2× base input against 1.25× for
+    /// 5 minutes; reads cost the same.
+    ///
+    /// arch-allow(floor-type-admission): consumers reach it only through
+    /// `AgentProperties`, which is admitted.
+    PromptCacheTtl {
+        FiveMinutes => "5m",
+        OneHour => "1h",
+    }
+);
+
+/// Harness settings a Loop gives every Task it spawns, and a Task gives every
+/// agent session it runs. A property a harness does not read is ignored by it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct AgentProperties {
+    /// Claude Code's main-conversation prompt cache TTL. `None` keeps the CLI's
+    /// own choice, which is 5 minutes behind the model gateway.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_ttl: Option<PromptCacheTtl>,
+}
+
+impl AgentProperties {
+    /// The agent environment these properties set, as `(name, value)` pairs.
+    pub fn agent_env(&self) -> Vec<(&'static str, &'static str)> {
+        let mut env = Vec::new();
+        if let Some(ttl) = self.prompt_cache_ttl {
+            env.push(("CLAUDE_CODE_PROMPT_CACHE_TTL", ttl.as_str()));
+        }
+        env
+    }
+}
+
+#[cfg(test)]
+mod agent_properties_tests {
+    use super::{AgentProperties, PromptCacheTtl};
+
+    #[test]
+    fn prompt_cache_ttl_reads_the_values_the_claude_cli_accepts() {
+        let props: AgentProperties = serde_json::from_str(r#"{"promptCacheTtl":"1h"}"#).unwrap();
+        assert_eq!(props.prompt_cache_ttl, Some(PromptCacheTtl::OneHour));
+        assert_eq!(props.agent_env(), [("CLAUDE_CODE_PROMPT_CACHE_TTL", "1h")]);
+        assert!(serde_json::from_str::<AgentProperties>(r#"{"promptCacheTtl":"2h"}"#).is_err());
+    }
+
+    #[test]
+    fn empty_properties_set_no_env_and_serialize_to_an_empty_object() {
+        let props = AgentProperties::default();
+        assert!(props.agent_env().is_empty());
+        assert_eq!(serde_json::to_string(&props).unwrap(), "{}");
+        assert_eq!(
+            serde_json::from_str::<AgentProperties>("{}").unwrap(),
+            props
+        );
+    }
+}

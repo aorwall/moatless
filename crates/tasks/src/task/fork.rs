@@ -446,6 +446,7 @@ impl TaskForkService {
             run_as_user_id: None,
             headless: None,
             skills: request.skills,
+            agent_properties: source.agent_properties.clone(),
         };
 
         let create_result = async {

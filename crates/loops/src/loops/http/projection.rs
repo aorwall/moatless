@@ -76,6 +76,7 @@ pub(crate) fn loop_response(record: &LoopRecord) -> Loop {
             tag_ids: record.config.tag_ids.clone(),
             memory_preload: record.config.memory_preload.clone(),
             skills: record.config.skills.clone(),
+            agent_properties: record.config.agent_properties.clone(),
             run_as_user_id: record.config.run_as_user_id.clone(),
             agent_profile: record.config.agent_profile.as_str().to_string(),
             model: record.config.model.clone(),

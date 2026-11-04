@@ -597,6 +597,7 @@ fn create_config(args: CreateConfigArgs) -> Result<CreateLoopConfig, ClientError
         stop_when_done: args.stop_when_done,
         message_buffer_seconds: args.message_buffer_seconds,
         fallback_to_other_agent: args.fallback_to_other_agent,
+        agent_properties: None,
     })
 }
 
@@ -673,6 +674,7 @@ fn update_config(
             "message-buffer-seconds",
         )?,
         fallback_to_other_agent,
+        agent_properties: None,
     };
     if config.workspace_id.is_none()
         && config.routing_mode.is_none()

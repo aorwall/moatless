@@ -53,6 +53,8 @@ pub struct LoopContext {
     pub skills: Vec<String>,
     /// See [`crate::task::Task::memory_preload`].
     pub memory_preload: Vec<String>,
+    /// See [`crate::task::Task::agent_properties`].
+    pub agent_properties: crate::agent::AgentProperties,
     pub run_as_user_id: Option<String>,
     pub agent_profile: AgentProfile,
     /// Per-Loop model override. `None` keeps the platform default the sandbox
@@ -166,6 +168,8 @@ pub struct SubscriptionMatch {
     pub skills: Vec<String>,
     /// See [`crate::task::Task::memory_preload`].
     pub memory_preload: Vec<String>,
+    /// See [`crate::task::Task::agent_properties`].
+    pub agent_properties: crate::agent::AgentProperties,
     pub run_as_user_id: Option<String>,
     pub agent_profile: AgentProfile,
     /// Per-Loop model override. See [`LoopContext::model`].

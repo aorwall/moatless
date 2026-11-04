@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use moatless_types::{
     access_control::Scope,
     adapter::AdapterKind,
-    agent::AgentProfile,
+    agent::{AgentProfile, AgentProperties},
     loops::{LoopConfigSource, LoopKind, RoomSpec, RoutingMode},
 };
 
@@ -21,6 +21,7 @@ pub struct LoopSpawnConfig {
     pub tag_ids: Vec<String>,
     pub skills: Vec<String>,
     pub memory_preload: Vec<String>,
+    pub agent_properties: AgentProperties,
     pub run_as_user_id: Option<String>,
     pub agent_profile: AgentProfile,
     /// Per-Loop model override. See
@@ -108,6 +109,7 @@ pub(crate) struct LoopConfigRow {
     pub tag_ids: Vec<String>,
     pub skills: Vec<String>,
     pub memory_preload: Vec<String>,
+    pub agent_properties: AgentProperties,
     pub run_as_user_id: Option<String>,
     pub agent_profile: AgentProfile,
     pub model: Option<String>,
@@ -196,6 +198,7 @@ pub struct NewLoopConfig {
     pub tag_ids: Vec<String>,
     pub skills: Vec<String>,
     pub memory_preload: Vec<String>,
+    pub agent_properties: AgentProperties,
     pub run_as_user_id: Option<String>,
     pub agent_profile: AgentProfile,
     pub model: Option<String>,
@@ -286,6 +289,7 @@ pub struct ManagedLoopUpsert {
     pub tag_ids: Vec<String>,
     pub skills: Vec<String>,
     pub memory_preload: Vec<String>,
+    pub agent_properties: AgentProperties,
     pub agent_profile: AgentProfile,
     pub model: Option<String>,
     pub close_after_settled_days: Option<i32>,

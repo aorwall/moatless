@@ -57,6 +57,7 @@ fn loop_task(workspace_id: &str) -> NewTask {
         room: None,
         tag_ids: Vec::new(),
         memory_preload: Vec::new(),
+        agent_properties: Default::default(),
         skills: Vec::new(),
         related_to: None,
         event_metadata: serde_json::json!({}),

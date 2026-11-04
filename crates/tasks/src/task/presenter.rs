@@ -340,6 +340,7 @@ pub(crate) fn build_task_response(
         created_by: row.created_by.clone(),
         created_by_display_name: names.creator,
         reporter_user_id: row.reporter_user_id.clone(),
+        agent_properties: row.agent_properties.clone(),
         visibility: row.visibility,
         scope: row.scope,
         owner_user_id: row.owner_user_id.clone(),

@@ -23,6 +23,8 @@ tags: [review]           # optional
 skills: [java-review]    # optional — activated on every fresh agent session
 memory:                  # optional — summaries of loop-scope entries in each task's prompt
   preload: [review:conventions, review:*]   # keys, or `prefix*`
+agentProperties:         # optional — harness settings every task runs with
+  promptCacheTtl: 1h     # `5m` or `1h`; 1h pays when a task idles 5–60 min between turns
 # optional: sourceMatcher, teamId, eventFilter, adapterConfig, settleAfterHours, closeAfterSettledDays
 ---
 

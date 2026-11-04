@@ -29,6 +29,7 @@ fn review_loop(adapter_config: serde_json::Value) -> SubscriptionMatch {
         task_name: None,
         tag_ids: vec![],
         memory_preload: Vec::new(),
+        agent_properties: Default::default(),
         skills: vec!["pr-review".to_string()],
         run_as_user_id: Some("alice".into()),
         agent_profile: moatless_types::agent::AgentProfile::ClaudeCode,

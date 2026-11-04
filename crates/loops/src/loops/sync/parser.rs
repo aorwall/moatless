@@ -111,6 +111,20 @@ mod tests {
     }
 
     #[test]
+    fn parses_agent_properties_and_refuses_an_unknown_cache_ttl() {
+        let content = "---\non: github_pr\nname: Review\nagentProperties:\n  promptCacheTtl: 1h\n---\n\nbody\n";
+        let loop_ = parse_loop(content, "review").expect("valid loop parses");
+        assert_eq!(
+            loop_.frontmatter.agent_properties,
+            Some(moatless_types::agent::AgentProperties {
+                prompt_cache_ttl: Some(moatless_types::agent::PromptCacheTtl::OneHour),
+            })
+        );
+        let bad = content.replace("1h", "2h");
+        assert!(parse_loop(&bad, "review").is_err());
+    }
+
+    #[test]
     fn absent_model_is_none() {
         let content = "---\non: github_pr\nname: Review\n---\n\nbody\n";
         let loop_ = parse_loop(content, "review").expect("valid loop parses");

@@ -332,6 +332,7 @@ mod tests {
             tag_ids: Vec::new(),
             skills: Vec::new(),
             memory_preload: Vec::new(),
+            agent_properties: Default::default(),
             related_to: None,
             event_metadata: serde_json::Value::Null,
             room,

@@ -263,6 +263,7 @@ pub(super) async fn seed_rule_routed(
             task_name: None,
             tag_ids: vec![],
             memory_preload: Vec::new(),
+            agent_properties: Default::default(),
             skills: Vec::new(),
             // A Subscription with no run-as user is invisible to every lookup
             // that resolves rules — `run_as_user_id IS NOT NULL` is in the

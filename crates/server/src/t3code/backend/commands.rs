@@ -287,6 +287,7 @@ impl ThreadCommandSink for AppStateCommands {
                 .as_ref()
                 .map(|message| message.skills.clone())
                 .unwrap_or_default(),
+            agent_properties: Default::default(),
         };
 
         let mut intent = task_service::CreateTaskIntent::new(request);

@@ -73,6 +73,9 @@ pub struct CreateTaskRequest {
     /// message.
     #[serde(default)]
     pub skills: Vec<String>,
+    /// See [`moatless_types::task::Task::agent_properties`].
+    #[serde(default)]
+    pub agent_properties: moatless_types::agent::AgentProperties,
 }
 
 /// Branch a Task off another Task at one of its completed turns.
@@ -327,6 +330,9 @@ pub struct TaskResponse {
     /// The verified person who requested the Loop's work, when known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reporter_user_id: Option<String>,
+    /// See [`moatless_types::task::Task::agent_properties`].
+    #[serde(default)]
+    pub agent_properties: moatless_types::agent::AgentProperties,
     pub visibility: Visibility,
     pub scope: Scope,
     pub owner_user_id: Option<String>,

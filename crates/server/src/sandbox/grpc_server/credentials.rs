@@ -134,7 +134,7 @@ pub(super) async fn get_credentials(
     })?;
     let workspace_credential_count = workspace_credentials.len();
     let actor = task_actor(service, &targets, &grant).await;
-    let reporter_user_id = match handlers {
+    let task = match handlers {
         Some(handlers) => {
             // reason: the Sandbox grant authorized this Task before its reporter is read
             #[allow(clippy::disallowed_methods)]
@@ -147,10 +147,10 @@ pub(super) async fn get_credentials(
                     warn!(%error, task_id = %req.task_id, "Failed to read task reporter");
                     Status::internal("Failed to resolve task reporter")
                 })?
-                .and_then(|task| task.reporter_user_id)
         }
         None => None,
     };
+    let reporter_user_id = task.as_ref().and_then(|t| t.reporter_user_id.clone());
     // Workspace-scoped configuration travels on this channel and not only the
     // pod spec: the per-turn map overlays the pod env, so a workspace var
     // delivered solely through the plan loses to a user- or global-scoped secret.
@@ -170,6 +170,14 @@ pub(super) async fn get_credentials(
         workspace_env_vars,
     })
     .await;
+
+    // After resolution so a Task's own setting wins over a Workspace env var of
+    // the same name.
+    if let Some(task) = &task {
+        for (name, value) in task.agent_properties.agent_env() {
+            credentials.insert(name.to_string(), value.to_string());
+        }
+    }
 
     if let Some(user_token) = service.mint_user_auth_token(&grant) {
         credentials.insert(CredentialKey::USER_AUTH_TOKEN.to_string(), user_token);

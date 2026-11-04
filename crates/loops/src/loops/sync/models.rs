@@ -122,6 +122,11 @@ pub struct LoopFrontmatter {
     /// `None` is on.
     #[serde(default)]
     pub fallback_to_other_agent: Option<bool>,
+    /// Harness settings the spawned tasks run with
+    /// (`loop_configs.agent_properties`), such as `promptCacheTtl: 1h`. A
+    /// value the type does not name fails the whole frontmatter.
+    #[serde(default)]
+    pub agent_properties: Option<moatless_types::agent::AgentProperties>,
     /// Schedule settings — only meaningful when `on: schedule`.
     #[serde(default)]
     pub schedule: Option<LoopSchedule>,

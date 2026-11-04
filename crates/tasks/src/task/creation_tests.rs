@@ -72,6 +72,7 @@ fn sample_request() -> NewTaskRequest {
         settle_after_hours: None,
         tag_ids: vec![],
         memory_preload: Vec::new(),
+        agent_properties: Default::default(),
         skills: vec![],
         parent: None,
         related_to: None,

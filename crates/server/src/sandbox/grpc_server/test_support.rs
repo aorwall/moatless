@@ -61,6 +61,7 @@ pub(super) fn task_fixture(scope: Scope, owner_user_id: Option<&str>) -> Task {
         sandbox_id: None,
         checkout_mode: None,
         memory_preload: Vec::new(),
+        agent_properties: Default::default(),
         skills: Vec::new(),
     }
 }

@@ -269,6 +269,7 @@ impl Loops {
                         req.config.memory_preload.clone().unwrap_or_default(),
                     )?,
                     skills: req.config.skills.clone().unwrap_or_default(),
+                    agent_properties: req.config.agent_properties.clone().unwrap_or_default(),
                     run_as_user_id,
                     agent_profile,
                     model: req.config.model.clone(),
@@ -630,6 +631,9 @@ fn next_config(
             None => current.config.memory_preload.clone(),
         },
         skills: rule.skills.unwrap_or_else(|| current.config.skills.clone()),
+        agent_properties: rule
+            .agent_properties
+            .unwrap_or_else(|| current.config.agent_properties.clone()),
         run_as_user_id: current.config.run_as_user_id.clone(),
         agent_profile,
         model,
@@ -670,6 +674,7 @@ pub(crate) struct ResetLoopOutcome {
 mod tests {
     use super::*;
     use moatless_ports::identity::RunAsUser;
+    use moatless_types::agent::{AgentProperties, PromptCacheTtl};
     use moatless_types::store::StoreError;
 
     struct MissingUser;
@@ -720,6 +725,7 @@ mod tests {
                 task_name: None,
                 tag_ids: vec![],
                 memory_preload: Vec::new(),
+                agent_properties: Default::default(),
                 skills: vec![],
                 run_as_user_id: Some("runner".into()),
                 agent_profile: agent_profile.parse().expect("a catalog agent_profile"),
@@ -791,6 +797,39 @@ mod tests {
         current.config.memory_preload = vec!["state".into()];
         let kept = next_config(&current, UpdateLoopConfig::default()).expect("no change");
         assert_eq!(kept.memory_preload, ["state"]);
+    }
+
+    #[test]
+    fn an_edit_replaces_or_keeps_the_agent_properties() {
+        let one_hour = AgentProperties {
+            prompt_cache_ttl: Some(PromptCacheTtl::OneHour),
+        };
+        let set = |agent_properties| {
+            next_config(
+                &record_on("claude-code", None),
+                UpdateLoopConfig {
+                    agent_properties,
+                    ..UpdateLoopConfig::default()
+                },
+            )
+            .expect("valid edit")
+            .agent_properties
+        };
+        assert_eq!(set(Some(one_hour.clone())), one_hour);
+
+        let mut current = record_on("claude-code", None);
+        current.config.agent_properties = one_hour.clone();
+        let kept = next_config(&current, UpdateLoopConfig::default()).expect("no change");
+        assert_eq!(kept.agent_properties, one_hour);
+        let cleared = next_config(
+            &current,
+            UpdateLoopConfig {
+                agent_properties: Some(AgentProperties::default()),
+                ..UpdateLoopConfig::default()
+            },
+        )
+        .expect("clearing");
+        assert_eq!(cleared.agent_properties, AgentProperties::default());
     }
 
     /// Sync wrote `model` without validating it before this change, so a row

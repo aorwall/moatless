@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::bindings::TaskBindingResponse;
 use crate::enums::{AdapterKind, RoutingMode, Scope, TaskStatus};
 use crate::patch::deserialize_optional_nullable_field;
+use moatless_types::agent::AgentProperties;
 use moatless_workspace_types::schemas::repository::RepositoryResponse;
 use moatless_workspace_types::schemas::workspace::WorkspaceSyncSummary;
 
@@ -47,6 +48,10 @@ pub struct LoopConfig {
     /// Skills every task this Loop spawns activates on each fresh agent
     /// session.
     pub skills: Vec<String>,
+    /// Harness settings every task this Loop spawns runs with. A `LOOP.md`
+    /// sets them with `agentProperties`.
+    #[serde(default)]
+    pub agent_properties: AgentProperties,
     pub run_as_user_id: Option<String>,
     pub agent_profile: String,
     /// Model the spawned Tasks run on, from the `agent_profile` entry's catalog
@@ -96,6 +101,9 @@ pub struct CreateLoopConfig {
     #[serde(default)]
     pub memory_preload: Option<Vec<String>>,
     pub skills: Option<Vec<String>>,
+    /// See [`LoopConfig::agent_properties`].
+    #[serde(default)]
+    pub agent_properties: Option<AgentProperties>,
     pub run_as_user_id: Option<String>,
     pub agent_profile: Option<String>,
     /// See [`LoopConfig::model`].
@@ -148,6 +156,10 @@ pub struct UpdateLoopConfig {
     #[serde(default)]
     pub memory_preload: Option<Vec<String>>,
     pub skills: Option<Vec<String>>,
+    /// See [`LoopConfig::agent_properties`]. Replaces the whole set, so `{}`
+    /// clears it.
+    #[serde(default)]
+    pub agent_properties: Option<AgentProperties>,
     pub agent_profile: Option<String>,
     /// See [`LoopConfig::model`]. `Some(None)` clears the override.
     #[serde(

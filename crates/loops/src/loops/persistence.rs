@@ -4,7 +4,7 @@ use crate::loops::models::{LoopSpawnConfig, Schedule};
 use chrono::{DateTime, Utc};
 use moatless_types::access_control::Scope;
 use moatless_types::adapter::AdapterKind;
-use moatless_types::agent::AgentProfile;
+use moatless_types::agent::{AgentProfile, AgentProperties};
 use moatless_types::loops::{RoomSpec, RoutingMode, SubscriptionMatch};
 use std::collections::BTreeMap;
 
@@ -21,6 +21,7 @@ pub struct LoopSpawnConfigRow {
     pub tag_ids: Vec<String>,
     pub skills: Vec<String>,
     pub memory_preload: Vec<String>,
+    pub agent_properties: sqlx::types::Json<AgentProperties>,
     pub run_as_user_id: Option<String>,
     #[sqlx(try_from = "String")]
     pub agent_profile: AgentProfile,
@@ -54,6 +55,7 @@ impl From<LoopSpawnConfigRow> for LoopSpawnConfig {
             tag_ids: row.tag_ids,
             skills: row.skills,
             memory_preload: row.memory_preload,
+            agent_properties: row.agent_properties.0,
             run_as_user_id: row.run_as_user_id,
             close_after_settled_days: row.close_after_settled_days,
             settle_after_hours: row.settle_after_hours,
@@ -88,6 +90,7 @@ pub struct SubscriptionMatchRow {
     pub tag_ids: Vec<String>,
     pub skills: Vec<String>,
     pub memory_preload: Vec<String>,
+    pub agent_properties: sqlx::types::Json<AgentProperties>,
     pub run_as_user_id: Option<String>,
     #[sqlx(try_from = "String")]
     pub agent_profile: AgentProfile,
@@ -132,6 +135,7 @@ impl From<SubscriptionMatchRow> for SubscriptionMatch {
             tag_ids: row.tag_ids,
             skills: row.skills,
             memory_preload: row.memory_preload,
+            agent_properties: row.agent_properties.0,
             run_as_user_id: row.run_as_user_id,
             close_after_settled_days: row.close_after_settled_days,
             settle_after_hours: row.settle_after_hours,

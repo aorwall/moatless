@@ -360,6 +360,7 @@ impl PullRequestReviewSource for AppStateBoundPullRequests {
             run_as_user_id: None,
             headless: Some(false),
             skills: vec![],
+            agent_properties: Default::default(),
         };
         let mut intent = task_service::CreateTaskIntent::new(request);
         // The caller attaches the Task to its run and then starts the sandbox.

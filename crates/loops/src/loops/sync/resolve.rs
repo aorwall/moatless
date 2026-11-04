@@ -8,7 +8,7 @@ use crate::loops::schedule::next_fire_at;
 use chrono::{DateTime, Utc};
 use moatless_tasks::agent::catalog;
 use moatless_types::access_control::{Actor, ScopeContext};
-use moatless_types::agent::AgentProfile;
+use moatless_types::agent::{AgentProfile, AgentProperties};
 use moatless_types::loops::{LoopKind, RoutingMode};
 use moatless_workspace_types::repository::{
     Repository, RepositoryProvider as GitHostProvider, RepositoryRemote,
@@ -29,6 +29,7 @@ pub(super) struct ResolvedLoop {
     tag_ids: Vec<String>,
     skills: Vec<String>,
     memory_preload: Vec<String>,
+    agent_properties: AgentProperties,
     close_after_settled_days: Option<i32>,
     settle_after_hours: Option<i32>,
     stop_when_done: Option<bool>,
@@ -406,6 +407,7 @@ impl LoopSyncService {
             tag_ids,
             skills,
             memory_preload,
+            agent_properties: fm.agent_properties.clone().unwrap_or_default(),
             close_after_settled_days: fm.close_after_settled_days,
             settle_after_hours: fm.settle_after_hours,
             stop_when_done: fm.stop_when_done,
@@ -463,6 +465,7 @@ pub(super) fn managed_loop_input(
         tag_ids: resolved.tag_ids.clone(),
         skills: resolved.skills.clone(),
         memory_preload: resolved.memory_preload.clone(),
+        agent_properties: resolved.agent_properties.clone(),
         agent_profile: resolved.agent_profile,
         model: resolved.model.clone(),
         close_after_settled_days: resolved.close_after_settled_days,
@@ -596,6 +599,7 @@ mod tests {
             message_buffer_seconds: None,
             room: None,
             fallback_to_other_agent: None,
+            agent_properties: None,
             schedule: None,
         }
     }

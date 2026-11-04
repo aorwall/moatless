@@ -378,6 +378,7 @@ pub async fn run(
                 effort,
                 headless: Some(headless),
                 skills: Vec::new(),
+                agent_properties: Default::default(),
             };
             let created = client.api().create_task(&req).await?;
             // A joined task skips provisioning entirely — saying "sandbox

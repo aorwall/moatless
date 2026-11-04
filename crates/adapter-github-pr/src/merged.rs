@@ -319,6 +319,7 @@ mod tests {
             task_name: None,
             tag_ids: vec![],
             memory_preload: Vec::new(),
+            agent_properties: Default::default(),
             skills: Vec::new(),
             run_as_user_id: Some("alice".into()),
             agent_profile: moatless_types::agent::AgentProfile::ClaudeCode,

@@ -16,7 +16,7 @@ use super::snooze_dao;
 use moatless_core::db::DbPool;
 use moatless_core::db_enum::decode_optional;
 use moatless_types::access_control::{Scope, ScopeContext, ScopedEntity};
-use moatless_types::agent::AgentProfile;
+use moatless_types::agent::{AgentProfile, AgentProperties};
 use moatless_types::task::TaskRelationType;
 
 #[derive(sqlx::FromRow)]
@@ -453,12 +453,12 @@ impl TaskDao for PgTaskDao {
                 append_system_prompt, updated_at, headless, ttl_minutes,
                 close_after_settled_days, loop_id, model,
                 workspace_id, sandbox_id, checkout_mode, skills, memory_preload,
-                settle_after_hours, reporter_user_id
+                settle_after_hours, reporter_user_id, agent_properties
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                 $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
                 $21, $22, NOW(), $23, $24, $25, $26,
-                $27, $28, $29, $30, $31, $32, $33, $34
+                $27, $28, $29, $30, $31, $32, $33, $34, $35
             )"#,
         )
         .bind(&row.task_id)
@@ -495,6 +495,7 @@ impl TaskDao for PgTaskDao {
         .bind(&row.memory_preload)
         .bind(row.settle_after_hours)
         .bind(&row.reporter_user_id)
+        .bind(sqlx::types::Json(&row.agent_properties))
         .execute(&mut *tx)
         .await?;
 
@@ -676,6 +677,7 @@ impl TaskDao for PgTaskDao {
             loop_id: Option<String>,
             skills: Option<Vec<String>>,
             memory_preload: Option<Vec<String>>,
+            agent_properties: Option<sqlx::types::Json<AgentProperties>>,
         }
 
         impl TaskPageRow {
@@ -735,6 +737,7 @@ impl TaskDao for PgTaskDao {
                     // NULL here — and that row is rejected before this point.
                     skills: self.skills.unwrap_or_default(),
                     memory_preload: self.memory_preload.unwrap_or_default(),
+                    agent_properties: self.agent_properties.map(|p| p.0).unwrap_or_default(),
                 })
             }
         }
@@ -757,7 +760,7 @@ impl TaskDao for PgTaskDao {
                     t.created_at_db, t.updated_at, t.append_system_prompt,
                     t.headless, t.ttl_minutes,
                     t.close_after_settled_days, t.settle_after_hours, t.loop_id, t.skills,
-                    t.memory_preload
+                    t.memory_preload, t.agent_properties
                 FROM tasks t
                 WHERE {}
                   AND ($3::text IS NULL OR t.status = $3)

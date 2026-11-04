@@ -479,6 +479,9 @@ pub struct Task {
     /// Memory keys, or `prefix*` patterns, whose summaries this task's system
     /// prompt lists. Set by the Loop that spawned it; empty preloads nothing.
     pub memory_preload: Vec<String>,
+    /// Harness settings every agent session on this task runs with. Set by the
+    /// Loop that spawned it, or by the request that created it.
+    pub agent_properties: crate::agent::AgentProperties,
 }
 
 impl Task {

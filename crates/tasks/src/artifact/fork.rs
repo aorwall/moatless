@@ -202,6 +202,7 @@ where
         run_as_user_id: None,
         headless: None,
         skills: Vec::new(),
+        agent_properties: Default::default(),
     };
     let new_task = service::normalize(
         normalize,

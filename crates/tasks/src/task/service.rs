@@ -376,6 +376,7 @@ pub async fn normalize(
         settle_after_hours: None,
         tag_ids: vec![],
         memory_preload: Vec::new(),
+        agent_properties: req.agent_properties.clone(),
         skills: req.skills.clone(),
         parent: req.parent_task_id.as_deref().map(|p| CreatedByParent {
             parent_task_id: p.to_string(),
@@ -811,6 +812,7 @@ mod tests {
             run_as_user_id: None,
             headless: None,
             skills: Vec::new(),
+            agent_properties: Default::default(),
         }
     }
 
@@ -852,6 +854,7 @@ mod tests {
             settle_after_hours: None,
             loop_id: None,
             memory_preload: Vec::new(),
+            agent_properties: Default::default(),
             skills: Vec::new(),
         }
     }

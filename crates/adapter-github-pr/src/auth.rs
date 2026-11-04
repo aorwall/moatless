@@ -356,6 +356,7 @@ mod tests {
             task_name: Some("Review".into()),
             tag_ids: vec![],
             memory_preload: Vec::new(),
+            agent_properties: Default::default(),
             skills: Vec::new(),
             run_as_user_id: Some(user_id.into()),
             agent_profile: moatless_types::agent::AgentProfile::ClaudeCode,

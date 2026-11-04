@@ -89,6 +89,8 @@ pub struct NewTaskRequest {
     pub skills: Vec<String>,
     /// See [`Task::memory_preload`].
     pub memory_preload: Vec<String>,
+    /// See [`Task::agent_properties`].
+    pub agent_properties: moatless_types::agent::AgentProperties,
     /// Optional `created_by` parent relation to record after insert. A child
     /// joining its parent's Sandbox is also cut at the parent's head; see
     /// `TaskCreationService::continue_parent_session`.
@@ -358,6 +360,7 @@ impl TaskCreationService {
             checkout_mode: persisted_checkout_mode,
             skills: req.skills.clone(),
             memory_preload: req.memory_preload.clone(),
+            agent_properties: req.agent_properties.clone(),
         };
 
         // Repo is needed for preflight. Reuse a caller-supplied one if present

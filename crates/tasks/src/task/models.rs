@@ -101,6 +101,8 @@ pub struct TaskRow {
     /// because the transcript that carried them is gone.
     pub skills: Vec<String>,
     pub memory_preload: Vec<String>,
+    #[sqlx(json)]
+    pub agent_properties: moatless_types::agent::AgentProperties,
 }
 
 /// Parsing a row into the domain Task. A column no variant names, or a
@@ -146,6 +148,7 @@ impl TryFrom<TaskRow> for Task {
             loop_id: row.loop_id,
             skills: row.skills,
             memory_preload: row.memory_preload,
+            agent_properties: row.agent_properties,
         })
     }
 }
