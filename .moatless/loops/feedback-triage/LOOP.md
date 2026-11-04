@@ -1,7 +1,7 @@
 ---
 on: schedule
 name: Feedback Triage
-workspace: moatless-global
+workspace: moatless-feedback
 agentProfile: claude-code
 model: opus
 tags:

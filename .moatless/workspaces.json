@@ -47,6 +47,19 @@
       "networkProfile": "moatless-admin"
     },
     {
+      "key": "moatless-feedback",
+      "name": "moatless-feedback",
+      "description": "Feedback Triage Loop only. Its sandbox token keeps the admin role through the deployment's agentAdmin grant, so start no other work here.",
+      "repos": [
+        { "url": "https://github.com/soaplabs/moatless.git", "primary": true }
+      ],
+      "resources": {
+        "requests": { "cpu": "250m", "memory": "1Gi" },
+        "limits": { "cpu": "2", "memory": "4Gi" },
+        "storage": "20Gi"
+      }
+    },
+    {
       "key": "scratch",
       "name": "Scratch",
       "description": "Empty sandbox, nothing cloned. Clone what you need with `moat repos clone`.",
