@@ -42,7 +42,7 @@ jobs:
   # ── Enumerate docker/recipes/*.json, skip the ones already built ──
   discover:
     name: Discover recipes needing a build
-    runs-on: staging-runners
+    runs-on: ci-runners
     if: |
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.event == 'push' &&
@@ -95,7 +95,7 @@ jobs:
     name: Build & push ${{ matrix.alias }}
     needs: discover
     if: needs.discover.outputs.matrix != '{"include":[]}'
-    runs-on: staging-runners-large
+    runs-on: ci-runners-large
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.discover.outputs.matrix) }}

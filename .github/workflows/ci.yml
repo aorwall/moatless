@@ -64,7 +64,7 @@ env:
 jobs:
   mini-swe-bridge:
     name: mini-swe-agent bridge contracts
-    runs-on: staging-runners
+    runs-on: ci-runners
     permissions:
       contents: read
     steps:
@@ -89,7 +89,7 @@ jobs:
   # ── Detect which areas of code changed ──
   detect-changes:
     name: Detect changes
-    runs-on: staging-runners
+    runs-on: ci-runners
     # Only workflow_dispatch bypasses change detection. On a PR paths-filter
     # diffs against the base ref, so a docs-only PR runs no clippy and no
     # TypeScript type-check.
@@ -252,7 +252,7 @@ jobs:
     name: Rust architecture
     # Bot PR gate: see `detect-changes`.
     if: (github.event_name != 'pull_request' || !endsWith(github.triggering_actor, '[bot]') || github.triggering_actor == 'soap-agentops[bot]')
-    runs-on: staging-runners-large
+    runs-on: ci-runners-large
     container:
       image: rust:1.97-bookworm
     timeout-minutes: 10
@@ -387,7 +387,7 @@ jobs:
   # build, so it runs unconditionally like its siblings.
   plan-assertions:
     name: Plan claims still hold
-    runs-on: staging-runners
+    runs-on: ci-runners
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Every plan-assert in .plans/ still describes the source
@@ -395,7 +395,7 @@ jobs:
 
   toolchain-drift:
     name: Sandbox toolchain drift
-    runs-on: staging-runners
+    runs-on: ci-runners
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Compare rust-toolchain.toml with Dockerfile.sandbox-base
@@ -414,7 +414,7 @@ jobs:
 
   playwright-pins:
     name: Playwright pin drift
-    runs-on: staging-runners
+    runs-on: ci-runners
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Compare the Playwright pins with the lockfiles that decide them
@@ -449,7 +449,7 @@ jobs:
       (github.event_name != 'pull_request' || !endsWith(github.triggering_actor, '[bot]') || github.triggering_actor == 'soap-agentops[bot]') &&
       (github.event_name == 'pull_request' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
-    runs-on: staging-runners-large
+    runs-on: ci-runners-large
     container:
       image: rust:1.97-bookworm
     timeout-minutes: 30
@@ -585,7 +585,7 @@ jobs:
       (github.event_name != 'pull_request' || !endsWith(github.triggering_actor, '[bot]') || github.triggering_actor == 'soap-agentops[bot]') &&
       (github.event_name == 'pull_request' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
-    runs-on: staging-runners-large
+    runs-on: ci-runners-large
     container:
       image: rust:1.97-bookworm
     # `#[sqlx::test]` creates and drops a database per test, so the role it
@@ -881,7 +881,7 @@ jobs:
         ) ||
         (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)
       )
-    runs-on: staging-runners-large
+    runs-on: ci-runners-large
     # Build inside Debian 12 (bookworm) container so the binaries link against
     # GLIBC 2.36, matching the distroless/cc-debian12 runtime image.
     container:
@@ -1032,7 +1032,7 @@ jobs:
       (github.event_name != 'push' ||
        needs.detect-changes.outputs.rust == 'true' ||
        needs.detect-changes.outputs.docker-backend == 'true')
-    runs-on: staging-runners
+    runs-on: ci-runners
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
@@ -1075,7 +1075,7 @@ jobs:
         needs.detect-changes.outputs.skill-scripts == 'true' ||
         (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)
       )
-    runs-on: staging-runners
+    runs-on: ci-runners
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
@@ -1119,7 +1119,7 @@ jobs:
         (github.event_name == 'push' && needs.detect-changes.outputs.rust == 'true') ||
         (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)
       )
-    runs-on: staging-runners-build
+    runs-on: ci-runners
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
@@ -1166,7 +1166,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       needs.detect-changes.outputs.dockerfile-e2e == 'true'
-    runs-on: staging-runners-large
+    runs-on: ci-runners-large
     timeout-minutes: 45
     permissions:
       contents: read
@@ -1204,7 +1204,7 @@ jobs:
        (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)) &&
       needs.build-rust.result == 'success' &&
       (github.event_name == 'workflow_dispatch' || needs.rust-test.result == 'success')
-    runs-on: staging-runners-build
+    runs-on: ci-runners
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
@@ -1263,7 +1263,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       needs.detect-changes.outputs.sandbox-base == 'true'
-    runs-on: staging-runners-large
+    runs-on: ci-runners-large
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
@@ -1317,7 +1317,7 @@ jobs:
         needs.detect-changes.outputs.sandbox-base == 'true' ||
         (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)
       )
-    runs-on: staging-runners-large
+    runs-on: ci-runners-large
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
@@ -1375,7 +1375,7 @@ jobs:
         (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)
       ) &&
       needs.build-rust.result == 'success'
-    runs-on: staging-runners-build
+    runs-on: ci-runners
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
@@ -1443,7 +1443,7 @@ jobs:
       needs.build-rust.result == 'success' &&
       (needs.build-sandbox-tools.result == 'success' || needs.build-sandbox-tools.result == 'skipped') &&
       (needs.build-sandbox-base.result == 'success' || needs.build-sandbox-base.result == 'skipped')
-    runs-on: staging-runners-build
+    runs-on: ci-runners
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
@@ -1508,7 +1508,7 @@ jobs:
         needs.detect-changes.outputs.helm == 'true' ||
         needs.build-backend-image.result == 'success'
       )
-    runs-on: staging-runners
+    runs-on: ci-runners
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
@@ -1549,7 +1549,7 @@ jobs:
       - build-sandbox-tools
       - build-sandbox
     if: always() && needs.build-rust.result != 'skipped'
-    runs-on: staging-runners
+    runs-on: ci-runners
     permissions:
       actions: write
     steps:
@@ -1580,7 +1580,7 @@ jobs:
       !cancelled() &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
        (github.event_name == 'workflow_dispatch' && inputs.prune_rust_caches_dry_run))
-    runs-on: staging-runners
+    runs-on: ci-runners
     permissions:
       actions: write
     steps:

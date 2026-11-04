@@ -16,7 +16,7 @@ jobs:
     name: Cancel unfinished runs
     # A fork PR's token cannot cancel runs, and its branch name is not unique.
     if: github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: staging-runners
+    runs-on: ci-runners
     steps:
       - name: Cancel the PR's queued and in-progress runs
         env:

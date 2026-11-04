@@ -33,7 +33,7 @@ permissions:
 
 jobs:
   sync:
-    runs-on: staging-runners
+    runs-on: ci-runners
     env:
       UPSTREAM_URL: https://github.com/aorwall/moatless-vibe.git
       UPSTREAM_BRANCH: main

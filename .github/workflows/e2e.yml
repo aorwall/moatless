@@ -15,7 +15,7 @@ name: E2E (manual)
 #   OPENAI_API_KEY | CODEX_AUTH_JSON             — Codex chains, SDK, and CLI eval
 #   E2E_GITHUB_PAT                               — repo-clone / Playwright api suite
 #
-# Runner: the playwright suite runs on staging-runners-large, in the sandbox base
+# Runner: the playwright suite runs on ci-runners-large, in the sandbox base
 # image, which ships the `claude` and `codex` CLIs the sandboxes spawn.
 # The Rust-backed jobs shell out to a host Rust toolchain, which the arc-runner
 # image does not ship. They default to ubuntu-latest for that reason. The test
@@ -86,7 +86,7 @@ jobs:
   build-binaries:
     name: Build backend, sandbox + moat CLI
     if: inputs.run_playwright || inputs.run_trajectory_cli
-    runs-on: ${{ github.repository == 'soaplabs/moatless' && 'staging-runners-large' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'soaplabs/moatless' && 'ci-runners-large' || 'ubuntu-latest' }}
     container:
       image: rust:1.97-bookworm
     env:
@@ -197,7 +197,7 @@ jobs:
     name: Playwright
     needs: build-binaries
     if: inputs.run_playwright
-    runs-on: ${{ github.repository == 'soaplabs/moatless' && 'staging-runners-large' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'soaplabs/moatless' && 'ci-runners-large' || 'ubuntu-latest' }}
     container:
       image: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-sandbox-base:latest
     services:
@@ -275,7 +275,7 @@ jobs:
     name: Real-CLI trajectory tier
     needs: build-binaries
     if: inputs.run_trajectory_cli
-    runs-on: ${{ github.repository == 'soaplabs/moatless' && 'staging-runners-large' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository == 'soaplabs/moatless' && 'ci-runners-large' || 'ubuntu-latest' }}
     container:
       image: ${{ vars.REGISTRY_ORG || 'aorwall' }}/moatless-sandbox-base:latest
     steps:
