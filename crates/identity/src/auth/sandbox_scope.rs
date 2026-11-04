@@ -89,6 +89,9 @@ pub(super) fn reach<'a>(method: &Method, path: &'a str) -> Reach<'a> {
     let segments: Vec<&'a str> = path.split('/').filter(|s| !s.is_empty()).collect();
     match segments.as_slice() {
         ["api", "v1", rest @ ..] => v1(read, method, rest),
+        // Status reads of any task the driver can see are open; `logs` and file
+        // reads stay with the sandbox's own tasks, since they carry tool output.
+        ["api", "sandbox", "v1", "tasks", _, "status" | "live-status"] if read => Reach::Any,
         ["api", "sandbox", "v1", "tasks", task, ..] => Reach::Task(task),
         ["api", "orchestration", "scripts", task, ..] => Reach::Task(task),
         // Session, client and WebSocket-ticket minting; `/ws` is UI-RPC under
@@ -106,6 +109,7 @@ fn v1<'a>(read: bool, method: &Method, rest: &[&'a str]) -> Reach<'a> {
 
         ["tasks"] => Reach::Any,
         ["tasks", ..] if read => Reach::Any,
+        ["tasks", _, "messages"] if *method == Method::POST => Reach::Any,
         ["tasks", task, ..] => Reach::Task(task),
         ["messages", message, _, ..] => Reach::Message(message),
 
@@ -217,7 +221,7 @@ mod tests {
                 user,
                 enforce,
                 Method::POST,
-                "/api/v1/tasks/t-other/messages"
+                "/api/v1/tasks/t-other/cancel"
             )
             .await,
             Err(StatusCode::NOT_FOUND)
@@ -245,6 +249,33 @@ mod tests {
             Err(StatusCode::FORBIDDEN),
             "not even an agent admin mints a credential"
         );
+    }
+
+    #[tokio::test]
+    async fn enforce_admits_messaging_and_status_reads_of_any_task() {
+        let enforce = SandboxTokenScope::Enforce;
+        for (method, path) in [
+            (Method::POST, "/api/v1/tasks/t-other/messages"),
+            (Method::GET, "/api/sandbox/v1/tasks/t-other/status"),
+            (Method::GET, "/api/sandbox/v1/tasks/t-other/live-status"),
+        ] {
+            assert_eq!(
+                admit_as(false, UserRole::User, enforce, method.clone(), path).await,
+                Ok(UserRole::User),
+                "{method} {path}"
+            );
+        }
+        for (method, path) in [
+            (Method::GET, "/api/sandbox/v1/tasks/t-other/files/read"),
+            (Method::GET, "/api/sandbox/v1/tasks/t-other/logs"),
+            (Method::POST, "/api/sandbox/v1/tasks/t-other/stop"),
+        ] {
+            assert_eq!(
+                admit_as(false, UserRole::User, enforce, method.clone(), path).await,
+                Err(StatusCode::NOT_FOUND),
+                "{method} {path}"
+            );
+        }
     }
 
     #[tokio::test]
@@ -281,7 +312,17 @@ mod tests {
             (Method::POST, "/api/v1/tasks", Reach::Any),
             (Method::GET, "/api/v1/tasks", Reach::Any),
             (Method::GET, "/api/v1/tasks/t1/events/history", Reach::Any),
-            (Method::POST, "/api/v1/tasks/t1/messages", Reach::Task("t1")),
+            (Method::POST, "/api/v1/tasks/t1/messages", Reach::Any),
+            (
+                Method::GET,
+                "/api/sandbox/v1/tasks/t1/live-status",
+                Reach::Any,
+            ),
+            (
+                Method::POST,
+                "/api/sandbox/v1/tasks/t1/status",
+                Reach::Task("t1"),
+            ),
             (Method::PUT, "/api/v1/tasks/t1/memory", Reach::Task("t1")),
             (Method::DELETE, "/api/v1/tasks/t1", Reach::Task("t1")),
             (
