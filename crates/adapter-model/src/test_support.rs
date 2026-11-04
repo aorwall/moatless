@@ -281,17 +281,25 @@ fn graphql_operation_name(document: &str) -> Option<String> {
 #[derive(Default)]
 pub struct InMemoryConnections {
     rows: Mutex<Vec<AdapterConnection>>,
+    events: Mutex<Vec<(String, String, String, String)>>,
 }
 
 impl InMemoryConnections {
     pub fn new(rows: Vec<AdapterConnection>) -> Self {
         Self {
             rows: Mutex::new(rows),
+            events: Mutex::new(Vec::new()),
         }
     }
 
     pub fn rows(&self) -> Vec<AdapterConnection> {
         self.rows.lock().expect("connections lock").clone()
+    }
+
+    /// Every `(connection_id, event_type, subject_key, external_id)` recorded,
+    /// oldest first.
+    pub fn events(&self) -> Vec<(String, String, String, String)> {
+        self.events.lock().expect("events lock").clone()
     }
 }
 
@@ -326,6 +334,22 @@ impl ConnectionLookup for InMemoryConnections {
             .into_iter()
             .filter(|row| row.adapter_kind.as_str() == provider)
             .collect())
+    }
+
+    async fn record_event(
+        &self,
+        connection_id: &str,
+        event_type: &str,
+        subject_key: &str,
+        external_id: &str,
+    ) -> Result<(), StoreError> {
+        self.events.lock().expect("events lock").push((
+            connection_id.to_string(),
+            event_type.to_string(),
+            subject_key.to_string(),
+            external_id.to_string(),
+        ));
+        Ok(())
     }
 }
 

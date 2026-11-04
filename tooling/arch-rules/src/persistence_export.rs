@@ -94,7 +94,7 @@ pub const CONCERNS: &[Concern] = &[
         name: "adapter connections",
         owner: "moatless-adapter-model",
         roots: &["crates/adapter-model/src/connections/dao"],
-        tables: &["adapter_connections"],
+        tables: &["adapter_connections", "adapter_connection_events"],
         slice: 2,
     },
     Concern {

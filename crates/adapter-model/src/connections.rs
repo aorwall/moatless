@@ -18,7 +18,7 @@ mod ports;
 #[cfg(feature = "postgres")]
 pub use operations::{AdapterConnections, ConnectionGraph, ConnectionRouting};
 pub use ports::{
-    ConnectionInstaller, ConnectionLookup, ConnectionReader, connection_for_auth,
+    ConnectionEvent, ConnectionInstaller, ConnectionLookup, ConnectionReader, connection_for_auth,
     resolve_chat_provider_event, resolve_connection,
 };
 

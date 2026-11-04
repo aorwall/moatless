@@ -3,13 +3,14 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 
 use moatless_types::access_control::ScopeContext;
 use moatless_types::adapter::{AdapterConnection, AdapterKind};
 use moatless_types::store::StoreError;
 
 use super::dao::PgAdapterConnectionDao;
-use super::ports::{ConnectionInstaller, ConnectionLookup, ConnectionReader};
+use super::ports::{ConnectionEvent, ConnectionInstaller, ConnectionLookup, ConnectionReader};
 use crate::error::AdapterError;
 
 /// Both connection handles over one store.
@@ -158,6 +159,30 @@ impl ConnectionRouting {
         self.store.list_by_provider(provider).await
     }
 
+    /// See [`ConnectionLookup::record_event`].
+    pub async fn record_event(
+        &self,
+        connection_id: &str,
+        event_type: &str,
+        subject_key: &str,
+        external_id: &str,
+    ) -> Result<(), StoreError> {
+        self.store
+            .record_event(connection_id, event_type, subject_key, external_id)
+            .await
+    }
+
+    /// Every `event_type` a `provider` connection delivered at or after
+    /// `since`.
+    pub async fn events_since(
+        &self,
+        provider: &str,
+        event_type: &str,
+        since: DateTime<Utc>,
+    ) -> Result<Vec<ConnectionEvent>, StoreError> {
+        self.store.events_since(provider, event_type, since).await
+    }
+
     /// See [`ConnectionInstaller::install`].
     pub async fn install(
         &self,
@@ -195,6 +220,17 @@ impl ConnectionLookup for ConnectionRouting {
 
     async fn by_provider(&self, provider: &str) -> Result<Vec<AdapterConnection>, StoreError> {
         ConnectionRouting::by_provider(self, provider).await
+    }
+
+    async fn record_event(
+        &self,
+        connection_id: &str,
+        event_type: &str,
+        subject_key: &str,
+        external_id: &str,
+    ) -> Result<(), StoreError> {
+        ConnectionRouting::record_event(self, connection_id, event_type, subject_key, external_id)
+            .await
     }
 }
 

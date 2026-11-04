@@ -12,10 +12,23 @@ use tracing::{debug, warn};
 use crate::error::{AdapterError, SharedAdapterError};
 use crate::loops::LoopReader;
 use crate::metrics::{inbound_reason, record_inbound};
+use chrono::{DateTime, Utc};
 use moatless_types::access_control::ScopeContext;
 use moatless_types::adapter::{AdapterConnection, AdapterKind};
 use moatless_types::loops::SubscriptionMatch;
 use moatless_types::store::StoreError;
+
+/// One event a connection's webhook delivered, as
+/// [`ConnectionLookup::record_event`] last recorded it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectionEvent {
+    pub connection_id: String,
+    /// The delivering connection's scope value, such as a GitHub owner.
+    pub scope_value: String,
+    pub subject_key: String,
+    pub external_id: String,
+    pub received_at: DateTime<Utc>,
+}
 
 /// The connection reads a provider makes as itself, where there is no viewer to
 /// filter by: an inbound event names its tenant, and a stored Binding names the
@@ -42,6 +55,17 @@ pub trait ConnectionLookup: Send + Sync {
 
     /// Every connection installed for this Adapter, oldest first.
     async fn by_provider(&self, provider: &str) -> Result<Vec<AdapterConnection>, StoreError>;
+
+    /// Record that `connection_id`'s webhook delivered `event_type` for
+    /// `subject_key`, reporting `external_id`. Call it only for a delivery whose
+    /// signature verified: the record is evidence of what the hook sends.
+    async fn record_event(
+        &self,
+        connection_id: &str,
+        event_type: &str,
+        subject_key: &str,
+        external_id: &str,
+    ) -> Result<(), StoreError>;
 }
 
 /// The connection reads a provider makes on behalf of a caller. Both are

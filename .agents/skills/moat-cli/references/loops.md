@@ -2,8 +2,9 @@
 
 Instead of creating triggers by hand, a repo can declare its automations in git
 under `.moatless/loops/<loop-name>/LOOP.md`. The backend reconciles them into the
-loop tables on its own: every two minutes it reads each GitHub repository's
-default-branch head, and when the head has moved it syncs that repository's
+loop tables on its own: every two minutes it checks each GitHub repository's
+default-branch head (from the org webhook's `push` events where they arrive,
+else by reading GitHub), and when the head has moved it syncs that repository's
 workspaces (overrides left alone) and then its Loops. A merged `LOOP.md` shows
 up in `moat loops list` within a few minutes, inactive. `sync-config` runs the
 same Loop sync at once, on request. The YAML **frontmatter is the config**; the markdown

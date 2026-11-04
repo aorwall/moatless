@@ -148,6 +148,9 @@ mod tests {
         async fn by_provider(&self, _: &str) -> Result<Vec<AdapterConnection>, StoreError> {
             panic!("unexpected listing")
         }
+        async fn record_event(&self, _: &str, _: &str, _: &str, _: &str) -> Result<(), StoreError> {
+            panic!("unexpected event record")
+        }
     }
 
     #[async_trait::async_trait]

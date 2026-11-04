@@ -29,13 +29,22 @@ gh api -X POST /orgs/soaplabs/hooks \
   -F 'events[]=pull_request_review_comment' \
   -F 'events[]=check_run' \
   -F 'events[]=check_suite' \
-  -f config[url]=https://moatless.example/api/v1/channels/webhooks/github \
+  -F 'events[]=workflow_run' \
+  -F 'events[]=push' \
+  -F 'events[]=repository' \
+  -f config[url]=https://moatless.example/api/v1/adapters/github/webhook \
   -f config[content_type]=json \
   -f config[secret]="$(cat /tmp/gh-org-webhook-secret)" \
   -f config[insecure_ssl]=0
 ```
 
 Capture the resulting hook id from the response — needed for rollback.
+
+`workflow_run` carries post-merge CI results to a merged PR's tasks. `push`
+lets the default-branch Loop sync skip polling this organization's
+repositories, and `repository` registers a new one at once; without them the
+backend polls. An existing hook takes the same
+list with `gh api -X PATCH /orgs/soaplabs/hooks/<id>`, which replaces it.
 
 ## 3. Apply migration `0034`
 

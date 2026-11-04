@@ -38,6 +38,8 @@ mod test_support;
 mod text;
 mod webhook;
 
+pub use ingress::{DEFAULT_BRANCH_PUSH, REPOSITORY_CHANGE};
+
 mod mutations;
 pub mod pull_request_conversation;
 pub mod pull_request_lookup;

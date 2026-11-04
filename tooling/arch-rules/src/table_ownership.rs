@@ -12,6 +12,7 @@ pub const TABLES: &[(&str, &str)] = &[
     ("adapter_app_migrations", "moatless-identity"),
     ("adapter_app_secrets", "moatless-identity"),
     ("adapter_apps", "moatless-identity"),
+    ("adapter_connection_events", "moatless-adapter-model"),
     ("adapter_connections", "moatless-adapter-model"),
     ("adapter_delivery", "moatless-loops"),
     ("adapter_event_receipts", "moatless-loops"),

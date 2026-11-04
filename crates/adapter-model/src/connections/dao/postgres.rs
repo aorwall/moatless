@@ -7,6 +7,8 @@ use moatless_types::adapter::AdapterConnection;
 use moatless_types::store::StoreError;
 
 use super::row::AdapterConnectionRow;
+use crate::connections::ConnectionEvent;
+use chrono::{DateTime, Utc};
 
 pub(crate) struct PgAdapterConnectionDao(PgPool);
 
@@ -225,6 +227,76 @@ impl PgAdapterConnectionDao {
                 StoreError::with_source(format!("write adapter connection {}", row.id), e)
             })?;
         Ok(AdapterConnection::from(inserted))
+    }
+
+    /// Record that `connection_id` delivered `event_type` for `subject_key`,
+    /// replacing the previous record of that pair.
+    pub(crate) async fn record_event(
+        &self,
+        connection_id: &str,
+        event_type: &str,
+        subject_key: &str,
+        external_id: &str,
+    ) -> Result<(), StoreError> {
+        sqlx::query(
+            "INSERT INTO adapter_connection_events \
+               (connection_id, event_type, subject_key, external_id, received_at) \
+             VALUES ($1, $2, $3, $4, now()) \
+             ON CONFLICT (connection_id, event_type, subject_key) DO UPDATE \
+               SET external_id = EXCLUDED.external_id, received_at = EXCLUDED.received_at",
+        )
+        .bind(connection_id)
+        .bind(event_type)
+        .bind(subject_key)
+        .bind(external_id)
+        .execute(&self.0)
+        .await
+        .map_err(|e| {
+            StoreError::with_source(
+                format!("record {event_type} for {subject_key} on connection {connection_id}"),
+                e,
+            )
+        })?;
+        Ok(())
+    }
+
+    /// Every `event_type` an `adapter_kind` connection delivered at or after
+    /// `since`, with the scope value of the connection that delivered it.
+    pub(crate) async fn events_since(
+        &self,
+        adapter_kind: &str,
+        event_type: &str,
+        since: DateTime<Utc>,
+    ) -> Result<Vec<ConnectionEvent>, StoreError> {
+        let rows: Vec<(String, String, String, String, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT e.connection_id, c.external_account_id, e.subject_key, e.external_id, \
+                    e.received_at \
+             FROM adapter_connection_events e \
+             JOIN adapter_connections c ON c.id = e.connection_id \
+             WHERE c.adapter_kind = $1 AND e.event_type = $2 AND e.received_at >= $3",
+        )
+        .bind(adapter_kind)
+        .bind(event_type)
+        .bind(since)
+        .fetch_all(&self.0)
+        .await
+        .map_err(|e| {
+            StoreError::with_source(format!("list {adapter_kind} {event_type} events"), e)
+        })?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(connection_id, scope_value, subject_key, external_id, received_at)| {
+                    ConnectionEvent {
+                        connection_id,
+                        scope_value,
+                        subject_key,
+                        external_id,
+                        received_at,
+                    }
+                },
+            )
+            .collect())
     }
 
     pub(crate) async fn delete(&self, id: &str, ctx: &ScopeContext) -> Result<u64, StoreError> {

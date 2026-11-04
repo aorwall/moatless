@@ -590,6 +590,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                     Criticality::Optional,
                     crate::repository_sync::watch::DefaultBranchWatch::new(
                         app_state.repositories.clone(),
+                        app_state.connection_routing.clone(),
                         app_state.loop_sync.clone(),
                         app_state.git_sync.clone(),
                     )
@@ -616,8 +617,8 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                         Criticality::Optional,
                         crate::repository_sync::org_watch::spawn(
                             org_sync,
+                            app_state.connection_routing.clone(),
                             org_sync_leader,
-                            crate::repository_sync::org_watch::ORG_SYNC_INTERVAL,
                             cancel.clone(),
                         ),
                     );

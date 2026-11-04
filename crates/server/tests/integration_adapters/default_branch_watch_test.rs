@@ -138,6 +138,7 @@ async fn watched_without_credential(
     let state = test_app_state_with_config(pool.clone(), config, false);
     let watch = DefaultBranchWatch::new(
         state.repositories.clone(),
+        state.connection_routing.clone(),
         state.loop_sync.clone(),
         state.git_sync.clone(),
     );
@@ -324,5 +325,46 @@ async fn a_repository_read_without_a_credential_is_read_less_often(pool: PgPool)
         branch.lock().unwrap().head_reads,
         1,
         "an unauthenticated read waits out `UNAUTHENTICATED_POLL_INTERVAL`"
+    );
+}
+
+#[sqlx::test]
+async fn an_owner_whose_webhook_delivers_pushes_syncs_from_the_push_alone(pool: PgPool) {
+    let (state, watch, branch) = watched(&pool, nightly_only()).await;
+    // First sight since start is always read, covered or not.
+    watch.tick(&CancellationToken::new()).await;
+    assert_eq!(branch.lock().unwrap().head_reads, 1);
+
+    sqlx::query(
+        "INSERT INTO adapter_connections \
+         (id, adapter_kind, connection_kind, external_account_id, created_by, scope) \
+         VALUES ('conn-test', 'github', 'env', 'test', 'user-1', 'global')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    {
+        let mut branch = branch.lock().unwrap();
+        branch.head = "sha-2".into();
+        branch.loops.insert("weekly".into(), WEEKLY.into());
+    }
+    state
+        .connection_routing
+        .record_event(
+            "conn-test",
+            moatless_adapter_github_pr::DEFAULT_BRANCH_PUSH,
+            &format!("test/{REPO}"),
+            "sha-2",
+        )
+        .await
+        .unwrap();
+
+    watch.tick(&CancellationToken::new()).await;
+    assert_eq!(loop_approval(&pool, "weekly").await, Some((false, None)));
+    watch.tick(&CancellationToken::new()).await;
+    assert_eq!(
+        branch.lock().unwrap().head_reads,
+        1,
+        "a covered repository takes its head from the recorded push"
     );
 }

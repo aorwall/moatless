@@ -119,17 +119,6 @@ pub(crate) async fn receive(
         return Ok(Outcome::ignored(event_type, "no_connection"));
     };
 
-    // An *inactive* trigger suppresses delivery. A *missing* trigger does not —
-    // events still fan out to existing PR bindings (the binding is the opt-in);
-    // only new-task creation is gated on a trigger, in `routing::route_event`.
-    if rule.as_ref().is_some_and(|r| !r.active) {
-        debug!(
-            repo = repo_full_name,
-            "GitHub webhook ignored: task trigger inactive"
-        );
-        return Ok(Outcome::ignored(event_type, "inactive"));
-    }
-
     let secret = connection
         .webhook_secret
         .as_deref()
@@ -148,6 +137,30 @@ pub(crate) async fn receive(
             )
             .into(),
         ));
+    }
+
+    // Ahead of every Loop gate: these are evidence of what the hook delivers,
+    // whatever a Loop on this repository asks to receive.
+    if matches!(event_type, DEFAULT_BRANCH_PUSH | REPOSITORY_CHANGE) {
+        return record_connection_event(
+            adapter_connections,
+            &connection,
+            event_type,
+            repo_full_name,
+            &payload,
+        )
+        .await;
+    }
+
+    // An *inactive* trigger suppresses delivery. A *missing* trigger does not —
+    // events still fan out to existing PR bindings (the binding is the opt-in);
+    // only new-task creation is gated on a trigger, in `routing::route_event`.
+    if rule.as_ref().is_some_and(|r| !r.active) {
+        debug!(
+            repo = repo_full_name,
+            "GitHub webhook ignored: task trigger inactive"
+        );
+        return Ok(Outcome::ignored(event_type, "inactive"));
     }
 
     // No delivery-level gate here on purpose: a GitHub redelivery reuses the
@@ -411,6 +424,62 @@ pub(crate) async fn receive(
     Ok(Outcome::Processed {
         event_type: event_type.to_string(),
     })
+}
+
+/// The `event_type` a default-branch push is recorded under, per repository,
+/// with the pushed sha.
+pub const DEFAULT_BRANCH_PUSH: &str = "push";
+
+/// The `event_type` a repository created, renamed, transferred, deleted or
+/// otherwise changed is recorded under, per repository, with the action.
+pub const REPOSITORY_CHANGE: &str = "repository";
+
+/// Record a [`DEFAULT_BRANCH_PUSH`] or [`REPOSITORY_CHANGE`] on the
+/// connection that delivered it, keyed by `owner/repo`.
+async fn record_connection_event(
+    adapter_connections: &dyn ConnectionLookup,
+    connection: &AdapterConnection,
+    event_type: &str,
+    repo_full_name: &str,
+    payload: &serde_json::Value,
+) -> Result<Outcome, IngressError> {
+    let external_id = if event_type == DEFAULT_BRANCH_PUSH {
+        default_branch_head(payload)
+    } else {
+        payload.get("action").and_then(serde_json::Value::as_str)
+    };
+    let Some(external_id) = external_id else {
+        return Ok(Outcome::ignored(event_type, "not_recorded"));
+    };
+    adapter_connections
+        .record_event(&connection.id, event_type, repo_full_name, external_id)
+        .await
+        .map_err(|e| IngressError::NotAdmitted(e.into()))?;
+    debug!(
+        repo = repo_full_name,
+        event_type, external_id, "Recorded a GitHub webhook event"
+    );
+    Ok(Outcome::Processed {
+        event_type: event_type.to_string(),
+    })
+}
+
+/// The sha a push moved the default branch to, or `None` for a push to any
+/// other ref or one deleting the branch.
+fn default_branch_head(payload: &serde_json::Value) -> Option<&str> {
+    let str_at = |pointer: &str| payload.pointer(pointer).and_then(serde_json::Value::as_str);
+    let default_branch = str_at("/repository/default_branch")?;
+    if str_at("/ref")? != format!("refs/heads/{default_branch}") {
+        return None;
+    }
+    if payload
+        .get("deleted")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        return None;
+    }
+    str_at("/after").filter(|sha| !sha.is_empty() && !sha.bytes().all(|b| b == b'0'))
 }
 
 /// Look up the connection and optional matching Subscription for one event.
@@ -911,5 +980,123 @@ mod tests {
         assert!(a.starts_with("sha256:"), "{a}");
         assert_ne!(a, b, "different deliveries must not share a record");
         assert_eq!(a, a_again, "an identical retry must collapse");
+    }
+
+    fn push(git_ref: &str, after: &str, deleted: bool) -> serde_json::Value {
+        serde_json::json!({
+            "ref": git_ref,
+            "after": after,
+            "deleted": deleted,
+            "repository": {"full_name": "soaplabs/repo", "default_branch": "main"},
+        })
+    }
+
+    #[test]
+    fn only_a_push_moving_the_default_branch_yields_its_head() {
+        let head = "aaf59510c6e264ecd66fcaead07d65e557c03f02";
+        assert_eq!(
+            super::default_branch_head(&push("refs/heads/main", head, false)),
+            Some(head)
+        );
+        for payload in [
+            push("refs/heads/feature", head, false),
+            push("refs/tags/main", head, false),
+            push(
+                "refs/heads/main",
+                "0000000000000000000000000000000000000000",
+                true,
+            ),
+            push("refs/heads/main", "", false),
+        ] {
+            assert_eq!(super::default_branch_head(&payload), None, "{payload}");
+        }
+    }
+
+    /// A push or repository change is recorded as evidence of what the hook
+    /// delivers, under the delivering connection, and schedules no Adapter work.
+    #[tokio::test]
+    async fn pushes_and_repository_changes_are_recorded_on_their_connection() {
+        let connections =
+            InMemoryConnections::new(vec![connection("conn-1", AdapterKind::Github, "acme")]);
+        let admission = FakeAdmission::new(FakeAdmissionAnswer::Admitted);
+        let github_provider = GithubPrAdapter::new(
+            None,
+            "https://app.example".to_string(),
+            "https://api.github.com".to_string(),
+            std::sync::Arc::new(MockGitHostTokenIssuer::new()),
+            moatless_types::http::HttpTimeouts {
+                connect: Duration::from_secs(5),
+                total: Duration::from_secs(30),
+            },
+        );
+        let task_bindings = unconnected_bindings();
+        let send = |git_ref: &'static str| {
+            let body = serde_json::to_vec(&serde_json::json!({
+                "ref": git_ref,
+                "after": "abc123",
+                "repository": {
+                    "full_name": "acme/widgets",
+                    "owner": { "login": "acme" },
+                    "default_branch": "main",
+                },
+                "sender": { "login": "octocat" },
+            }))
+            .expect("serializes");
+            (body, git_ref)
+        };
+
+        for (body, git_ref) in [send("refs/heads/main"), send("refs/heads/feature")] {
+            let outcome = receive(
+                &connections as &dyn ConnectionLookup,
+                &NoSubscriptions as &dyn LoopReader,
+                &MockProviderIdentityLink::new(),
+                &task_bindings,
+                &admission,
+                &github_provider,
+                WebhookRequest::new("push", git_ref, "", &body),
+            )
+            .await;
+            assert!(outcome.is_ok(), "{git_ref}: {outcome:?}");
+        }
+
+        let created = serde_json::to_vec(&serde_json::json!({
+            "action": "created",
+            "repository": {
+                "full_name": "acme/gadgets",
+                "owner": { "login": "acme" },
+                "default_branch": "main",
+            },
+            "sender": { "login": "octocat" },
+        }))
+        .expect("serializes");
+        let outcome = receive(
+            &connections as &dyn ConnectionLookup,
+            &NoSubscriptions as &dyn LoopReader,
+            &MockProviderIdentityLink::new(),
+            &task_bindings,
+            &admission,
+            &github_provider,
+            WebhookRequest::new(REPOSITORY_CHANGE, "created", "", &created),
+        )
+        .await;
+        assert!(outcome.is_ok(), "{outcome:?}");
+
+        let recorded = |event_type: &str, subject: &str, external_id: &str| {
+            (
+                "conn-1".to_string(),
+                event_type.to_string(),
+                subject.to_string(),
+                external_id.to_string(),
+            )
+        };
+        assert_eq!(
+            connections.events(),
+            vec![
+                recorded(DEFAULT_BRANCH_PUSH, "acme/widgets", "abc123"),
+                recorded(REPOSITORY_CHANGE, "acme/gadgets", "created"),
+            ],
+            "the feature-branch push is not recorded"
+        );
+        assert!(admission.seen().is_empty());
     }
 }

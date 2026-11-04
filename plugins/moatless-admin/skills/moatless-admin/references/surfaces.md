@@ -63,8 +63,10 @@ Call these with `moat api <METHOD> <path> --body '<json>'` and read the
 ## Git-synced config
 
 A repository's default branch owns these. Change them by PR; the backend
-polls each default branch every 2 minutes (30 for a repository read without a
-credential), and `moat repos sync-config <repo>` syncs at once.
+checks each default branch every 2 minutes, from the webhook's `push` events
+for an owner whose hook delivered one in the last 24 hours, else by polling
+GitHub (every 30 minutes for a repository read without a credential).
+`moat repos sync-config <repo>` syncs at once.
 
 | File | Controls |
 |---|---|
@@ -103,7 +105,7 @@ Deployment gotchas:
 
 - **A plugin in `plugins.repositories` is a `deployment` plugin.** Each start creates it if missing, and disables, without deleting, one that left the list. The API refuses to delete it while the values still declare it. Plugins an admin registered through the API are never touched.
 - **`WORKSPACE_IDENTITY_GRANTS` entries name a repository and a workspace key exactly,** with the privileged values that workspace may declare, and optionally an `ownerUserId` that makes it private. Unknown fields fail the backend's start.
-- **`GITHUB_ORG_SYNC_ORGS` needs `GITHUB_ORG_SYNC_USER_ID`.** Org sync then registers each org repository every 10 minutes and soft-deletes archived or missing ones.
+- **`GITHUB_ORG_SYNC_ORGS` needs `GITHUB_ORG_SYNC_USER_ID`.** Org sync then registers each org repository, and soft-deletes archived or missing ones, as soon as the org webhook reports a `repository` event, else hourly when the webhook is live and every 10 minutes when it is not.
 - **Network profiles, service accounts and network policies are chart resources,** so changing one may need a chart change in this repository before the values can use it.
 
 ## Skills that own the neighbouring work
