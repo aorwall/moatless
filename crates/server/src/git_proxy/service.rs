@@ -6,9 +6,12 @@ use std::sync::Arc;
 use moatless_ports::identity::{CommitIdentity, GitHostTokenError, GitHostTokenIssuer};
 use moatless_sandbox_control::secrets::{resolve_task_actor, resolve_task_git_token};
 use moatless_types::access_control::{Actor, ScopeContext, ScopedResource};
+use moatless_types::git_host::GitHostAccount;
 use moatless_types::http::HttpStreamTimeouts;
 use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
-use moatless_workspace_types::repository::{GitHostRepo, Repository};
+use moatless_workspace_types::repository::{
+    GITLAB_HOST, GitHostRepo, Repository, RepositoryProvider,
+};
 use tracing::warn;
 
 use crate::github_policy::GitHubPolicy;
@@ -21,8 +24,11 @@ pub struct Upstream {
     /// Honouring the stored `git_url`'s scheme would let one downgrade the
     /// connection its own credential travels over.
     pub base_url: String,
-    /// What the proxy presents to `host`; see [`github_credential`].
+    /// What the proxy presents to `host`; see [`host_credential`].
     pub credential: Credential,
+    /// The HTTP Basic username sent with the token. GitLab refuses an OAuth
+    /// token under any username but `oauth2`; GitHub and Forgejo ignore it.
+    pub username: &'static str,
     /// For the request log. The token is never logged.
     pub host: String,
     /// `{owner}/{name}` on `host`.
@@ -69,6 +75,10 @@ impl Upstream {
             base_url: format!("https://{host}/{}/{}.git", repo.owner(), repo.name()),
             host,
             credential,
+            username: match repo.provider() {
+                RepositoryProvider::Gitlab => "oauth2",
+                RepositoryProvider::Github | RepositoryProvider::Forgejo => "x-access-token",
+            },
             path: format!("{}/{}", repo.owner(), repo.name()),
             run_as_user_id: actor.user_id().to_string(),
             workspace_id: caller.workspace,
@@ -246,7 +256,7 @@ impl GitProxy {
     /// sandbox `task_token` was minted for; `push` is a `receive-pack`.
     ///
     /// No placement or repository row is consulted: the run-as identity's own
-    /// GitHub credential is the whole authorization ([`github_credential`]).
+    /// GitHub credential is the whole authorization ([`host_credential`]).
     pub async fn resolve_github(
         &self,
         owner: &str,
@@ -261,7 +271,35 @@ impl GitProxy {
             .git_host_tokens
             .token(&actor, &repo.credential_account())
             .await;
-        let credential = github_credential(resolved, push, repo.host())?;
+        let credential = host_credential(resolved, push, repo.host())?;
+        Ok(Upstream::new(&repo, credential, &actor, caller))
+    }
+
+    /// Resolve `path` (`{group…}/{name}`) on the GitLab instance `host`,
+    /// registered or not; `push` is a `receive-pack`.
+    ///
+    /// `host` must be `gitlab.com` or the host of a GitLab repository the
+    /// Workspace places: the run-as identity's GitLab token goes to it, and a
+    /// pod-chosen host would receive that token.
+    pub async fn resolve_gitlab(
+        &self,
+        host: &str,
+        path: &str,
+        task_token: &str,
+        push: bool,
+    ) -> Result<Upstream, GitProxyError> {
+        let repo = gitlab_repo(host, path).ok_or(GitProxyError::NotFound)?;
+        let caller = self.authenticate(task_token).await?;
+        if !gitlab_host_allowed(&self.workspaces, &caller.workspace, repo.host()).await? {
+            warn!(host, workspace_id = %caller.workspace, "Refused a git request to a GitLab host the workspace does not place");
+            return Err(GitProxyError::NotFound);
+        }
+        let actor = self.actor(&caller).await;
+        let resolved = self
+            .git_host_tokens
+            .token(&actor, &GitHostAccount::Gitlab)
+            .await;
+        let credential = host_credential(resolved, push, repo.host())?;
         Ok(Upstream::new(&repo, credential, &actor, caller))
     }
 
@@ -364,13 +402,59 @@ fn github_repo(owner: &str, name: &str) -> Option<GitHostRepo> {
     (owner_ok && name_ok).then(|| GitHostRepo::github(owner, name))
 }
 
+/// `{group…}/{name}` on GitLab `host` as a git URL path names it, or `None`
+/// for a host or path GitLab could not hold.
+///
+/// Checked as [`github_repo`] is: each piece is interpolated into the
+/// upstream URL. A host carries no port or userinfo, so it names one HTTPS
+/// origin.
+fn gitlab_repo(host: &str, path: &str) -> Option<GitHostRepo> {
+    let host = host.to_ascii_lowercase();
+    let host_ok = host.contains('.')
+        && host.split('.').all(|label| {
+            !label.is_empty() && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+        });
+    let path = path.trim_end_matches('/');
+    let path = path.strip_suffix(".git").unwrap_or(path);
+    let (owner, name) = path.rsplit_once('/')?;
+    let segment_ok = |segment: &str| {
+        !matches!(segment, "" | "." | "..")
+            && segment
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    };
+    (host_ok && segment_ok(name) && owner.split('/').all(segment_ok))
+        .then(|| GitHostRepo::new(RepositoryProvider::Gitlab, host, owner, name))
+}
+
+/// Whether `host` is `gitlab.com` or a GitLab host `workspace_id` places.
+async fn gitlab_host_allowed(
+    workspaces: &Arc<dyn WorkspaceResolver>,
+    workspace_id: &str,
+    host: &str,
+) -> Result<bool, GitProxyError> {
+    if host == GITLAB_HOST {
+        return Ok(true);
+    }
+    let placements = workspaces.placements(workspace_id).await.map_err(|e| {
+        warn!(error = %e, workspace_id, "Failed to read the workspace placements");
+        GitProxyError::Upstream("Failed to read the workspace".to_string())
+    })?;
+    Ok(placements
+        .iter()
+        .filter_map(|p| git_host_repo(p.repository.as_ref()?))
+        .any(|repo| {
+            repo.provider() == RepositoryProvider::Gitlab && repo.host().eq_ignore_ascii_case(host)
+        }))
+}
+
 /// The identity's token, or anonymous for a fetch it has no token to reach:
 /// `NoCredential`, or `Forbidden` as for an App not installed on the owner.
 ///
 /// Deliberately anonymous rather than refused: public installs and submodules
 /// come here, and anonymous reaches only public repos. A push, or a `Broken`
 /// credential, is refused rather than hidden.
-fn github_credential(
+fn host_credential(
     resolved: Result<String, GitHostTokenError>,
     push: bool,
     host: &str,
@@ -501,6 +585,7 @@ mod tests {
         Upstream {
             base_url: "https://github.com/soaplabs/moatless.git".to_string(),
             credential: Credential::Token("secret-token".to_string()),
+            username: "x-access-token",
             host: "github.com".to_string(),
             path: "soaplabs/moatless".to_string(),
             run_as_user_id: POD_USER.to_string(),
@@ -530,20 +615,20 @@ mod tests {
             })
         };
         assert!(matches!(
-            github_credential(missing(), false, "github.com").unwrap(),
+            host_credential(missing(), false, "github.com").unwrap(),
             Credential::Anonymous { .. }
         ));
         assert!(matches!(
-            github_credential(missing(), true, "github.com"),
+            host_credential(missing(), true, "github.com"),
             Err(GitProxyError::Unauthorized(_))
         ));
         assert_eq!(
-            github_credential(Ok("ghs".to_string()), true, "github.com").unwrap(),
+            host_credential(Ok("ghs".to_string()), true, "github.com").unwrap(),
             Credential::Token("ghs".to_string())
         );
         let broken = Err(GitHostTokenError::Store(StoreError::new("down")));
         assert!(matches!(
-            github_credential(broken, false, "github.com"),
+            host_credential(broken, false, "github.com"),
             Err(GitProxyError::Upstream(_))
         ));
     }
@@ -563,13 +648,13 @@ mod tests {
             })
         };
         let Credential::Anonymous { because } =
-            github_credential(out_of_reach(), false, "github.com").unwrap()
+            host_credential(out_of_reach(), false, "github.com").unwrap()
         else {
             panic!("a fetch out of the credential's reach goes anonymous");
         };
         assert!(because.contains("cannot access"), "{because}");
         assert!(matches!(
-            github_credential(out_of_reach(), true, "github.com"),
+            host_credential(out_of_reach(), true, "github.com"),
             Err(GitProxyError::Unauthorized(_))
         ));
         let broken = Err(GitHostTokenError::Broken {
@@ -578,7 +663,7 @@ mod tests {
             source: "bad_refresh_token".into(),
         });
         assert!(matches!(
-            github_credential(broken, false, "github.com"),
+            host_credential(broken, false, "github.com"),
             Err(GitProxyError::Upstream(_))
         ));
     }
@@ -649,6 +734,97 @@ mod tests {
             ("owner", "repo?x"),
         ] {
             assert!(github_repo(owner, name).is_none(), "{owner}/{name}");
+        }
+    }
+
+    #[test]
+    fn a_gitlab_path_keeps_its_nested_groups_and_refuses_one_that_would_leave_the_host() {
+        let repo = gitlab_repo("GitLab.com", "group/sub/project.git").unwrap();
+        assert_eq!(
+            (repo.host(), repo.owner(), repo.name()),
+            ("gitlab.com", "group/sub", "project")
+        );
+        let upstream = Upstream::new(
+            &repo,
+            Credential::Token("t".to_string()),
+            &Actor::of("user-1"),
+            SandboxScope {
+                sandbox: "sandbox-1".to_string(),
+                token_user: "user-1".to_string(),
+                user: "user-1".to_string(),
+                workspace: "ws_1".to_string(),
+                run_as: None,
+            },
+        );
+        assert_eq!(upstream.username, "oauth2");
+        assert_eq!(
+            upstream.base_url,
+            "https://gitlab.com/group/sub/project.git"
+        );
+        for (host, path) in [
+            ("gitlab.com", "project"),
+            ("gitlab.com", "group/../project"),
+            ("gitlab.com", "group/.git"),
+            ("gitlab.com", "group/a%2Fb"),
+            ("gitlab.com:8443", "group/project"),
+            ("user@gitlab.com", "group/project"),
+            ("localhost", "group/project"),
+            ("gitlab..com", "group/project"),
+        ] {
+            assert!(gitlab_repo(host, path).is_none(), "{host} {path}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_gitlab_host_is_reachable_only_when_it_is_gitlab_com_or_placed() {
+        let mut placed = repository(Scope::Global, None);
+        placed.provider = Some(RepositoryProvider::Gitlab);
+        placed.remote = Some(moatless_workspace_types::repository::RepositoryRemote {
+            url: "https://gitlab.example.com/group/project.git".to_string(),
+            host_repo: Some(GitHostRepo::new(
+                RepositoryProvider::Gitlab,
+                "gitlab.example.com",
+                "group",
+                "project",
+            )),
+        });
+        let placements = vec![
+            moatless_workspace_ports::RepoPlacement {
+                repository_id: "repo-1".to_string(),
+                branch: None,
+                mount_name: None,
+                is_primary: true,
+                position: 0,
+                repository: Some(placed),
+            },
+            moatless_workspace_ports::RepoPlacement {
+                repository_id: "repo-2".to_string(),
+                branch: None,
+                mount_name: None,
+                is_primary: false,
+                position: 1,
+                repository: Some(repository(Scope::Global, None)),
+            },
+        ];
+        let mut workspaces = MockWorkspaceResolver::new();
+        workspaces
+            .expect_placements()
+            .returning(move |_| Ok(placements.clone()));
+        let workspaces: Arc<dyn WorkspaceResolver> = Arc::new(workspaces);
+        for (host, allowed) in [
+            ("gitlab.com", true),
+            ("gitlab.example.com", true),
+            ("GitLab.Example.com", true),
+            ("git.example.com", false),
+            ("attacker.example.com", false),
+        ] {
+            assert_eq!(
+                gitlab_host_allowed(&workspaces, "ws_1", host)
+                    .await
+                    .unwrap(),
+                allowed,
+                "{host}"
+            );
         }
     }
 

@@ -49,6 +49,10 @@ pub struct RepositoryRemote {
 /// The one host GitHub serves, which no other provider here is fixed to.
 pub const GITHUB_HOST: &str = "github.com";
 
+/// The GitLab instance a pod reaches through the git proxy without placing a
+/// repository on it.
+pub const GITLAB_HOST: &str = "gitlab.com";
+
 /// A repository identity on a git host.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitHostRepo {

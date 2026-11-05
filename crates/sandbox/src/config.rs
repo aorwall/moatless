@@ -26,6 +26,7 @@ pub use crate::http_config::SandboxHttpConfig;
 pub const RUNTIME_DIR: &str = "/run/moatless";
 
 const GITHUB_PROVIDER: &str = moatless_types::git_host::RepositoryProvider::Github.as_str();
+const GITLAB_PROVIDER: &str = moatless_types::git_host::RepositoryProvider::Gitlab.as_str();
 
 /// Deadline a `moat cmd` command takes when it declares none.
 pub const DEFAULT_COMMAND_TIMEOUT_SECS: u64 = 4 * 60 * 60;
@@ -322,12 +323,13 @@ fn scheme_and_authority(url: &str) -> Option<(&str, &str)> {
     Some((scheme, authority))
 }
 
-/// The backend-proxied remote to clone this checkout from: every Forgejo and
-/// every HTTPS GitHub checkout, so git asks the broker for the task token
+/// The backend-proxied remote to clone this checkout from: every Forgejo,
+/// GitHub and GitLab checkout, so git asks the broker for the task token
 /// rather than a provider token.
 /// `None` with no `BACKEND_API_URL` or repository id.
 fn proxied_clone_url(repo: &RepoCheckout, backend_api_url: Option<&str>) -> Option<String> {
-    let proxied = repo.provider == PROXIED_PROVIDER || repo.provider == GITHUB_PROVIDER;
+    let proxied =
+        [PROXIED_PROVIDER, GITHUB_PROVIDER, GITLAB_PROVIDER].contains(&repo.provider.as_str());
     if !proxied || repo.repository_id.is_empty() {
         return None;
     }
@@ -1318,17 +1320,17 @@ mod tests {
         (repos, upstreams)
     }
 
-    /// A Forgejo token never reaches the pod, so its checkout clones from the
-    /// backend.
+    /// No Forgejo or GitLab token reaches the pod, so their checkouts clone
+    /// from the backend.
     #[test]
-    fn a_forgejo_checkout_clones_through_the_backend_proxy() {
+    fn a_forgejo_or_gitlab_checkout_clones_through_the_backend_proxy() {
         let raw = r#"[
             {"cloneUrl":"https://forge.example/acme/api.git","repositoryId":"repo_1","provider":"forgejo","mountName":"api","isPrimary":true},
             {"cloneUrl":"https://gitlab.com/acme/lib.git","repositoryId":"repo_3","provider":"gitlab","mountName":"lib"}
         ]"#;
         let (repos, upstreams) = routed(raw, Some("http://backend:8001/"));
         assert_eq!(repos[0].clone_url, "http://backend:8001/git/repo_1");
-        assert_eq!(repos[1].clone_url, "https://gitlab.com/acme/lib.git");
+        assert_eq!(repos[1].clone_url, "http://backend:8001/git/repo_3");
         assert!(upstreams.is_empty(), "{upstreams:?}");
     }
 
@@ -1364,7 +1366,7 @@ mod tests {
         config.backend_api_url = Some("http://backend:8001".to_string());
         let raw = r#"[
             {"cloneUrl":"https://github.com/acme/web.git","repositoryId":"repo_2","provider":"github","mountName":"web","isPrimary":true},
-            {"cloneUrl":"https://gitlab.com/acme/lib.git","repositoryId":"repo_3","provider":"gitlab","mountName":"lib"}
+            {"cloneUrl":"https://gitlab.com/acme/lib.git","provider":"gitlab","mountName":"lib"}
         ]"#;
         let (repos, _) = routed(raw, config.backend_api_url.as_deref());
         assert!(config.clones_through_proxy(&repos[0]));

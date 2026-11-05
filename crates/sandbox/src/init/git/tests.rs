@@ -1165,3 +1165,44 @@ async fn github_urls_fetch_and_push_through_the_proxy_with_the_task_token() {
         "other"
     );
 }
+
+#[test]
+fn a_gitlab_url_is_rewritten_to_the_backend_git_proxy() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut config = minimal_config();
+    config.backend_api_url = Some("http://backend:8001/".to_string());
+    let (rewrite, bases) = gitlab_proxy_rewrite(&config).unwrap();
+    let global = tmp.path().join("gitconfig");
+    for base in &bases {
+        let status = std::process::Command::new("git")
+            .args(["config", "--file", &global.display().to_string()])
+            .args(["--add", &rewrite, base])
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
+    let resolved = |url: &str| {
+        let output = std::process::Command::new("git")
+            .args(["ls-remote", "--get-url", url])
+            .env("GIT_CONFIG_GLOBAL", &global)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .output()
+            .unwrap();
+        String::from_utf8(output.stdout).unwrap().trim().to_string()
+    };
+    let proxied = "http://backend:8001/git/gitlab/gitlab.com/group/sub/project.git";
+    assert_eq!(
+        resolved("https://gitlab.com/group/sub/project.git"),
+        proxied
+    );
+    assert_eq!(resolved("git@gitlab.com:group/sub/project.git"), proxied);
+    assert_eq!(
+        resolved("https://gitlab.example.com/group/project.git"),
+        "https://gitlab.example.com/group/project.git"
+    );
+
+    assert!(broker_origins(&config).contains(&"https://gitlab.com".to_string()));
+    config.backend_api_url = None;
+    assert!(gitlab_proxy_rewrite(&config).is_none());
+    assert!(!broker_origins(&config).contains(&"https://gitlab.com".to_string()));
+}

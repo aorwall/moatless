@@ -1,4 +1,4 @@
-//! The three git smart-HTTP routes, streamed in both directions.
+//! The git smart-HTTP routes, streamed in both directions.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -77,6 +77,12 @@ pub struct RefsQuery {
     service: String,
 }
 
+/// [`RefsQuery`] on the one GitLab route, whose RPCs carry no query.
+#[derive(Deserialize)]
+pub struct GitLabQuery {
+    service: Option<String>,
+}
+
 /// The repository one proxied request names in its path.
 enum Target {
     /// `/git/{repository_id}`: a registered repository.
@@ -84,6 +90,10 @@ enum Target {
     /// `/git/github/{owner}/{name}`: any github.com repository, registered or
     /// not, which is how the pod's `git-remote-git+https` helper addresses one.
     GitHub { owner: String, name: String },
+    /// `/git/gitlab/{host}/{group…}/{name}`: any repository on a GitLab
+    /// instance the Workspace may reach, which the pod's `insteadOf` rewrite
+    /// of a GitLab URL addresses.
+    GitLab { host: String, path: String },
 }
 
 impl Target {
@@ -92,6 +102,7 @@ impl Target {
         match self {
             Self::Registered(repository_id) => repository_id.clone(),
             Self::GitHub { owner, name } => format!("github.com/{owner}/{name}"),
+            Self::GitLab { host, path } => format!("{host}/{path}"),
         }
     }
 }
@@ -161,6 +172,35 @@ pub async fn github_receive_pack(
 ) -> Response {
     let target = Target::GitHub { owner, name };
     service_rpc(&proxy, target, GitService::ReceivePack, &headers, body).await
+}
+
+/// `/git/gitlab/{host}/{*rest}`, where `rest` is the repository path then
+/// `info/refs`, `git-upload-pack` or `git-receive-pack`. One route: a path
+/// with nested groups cannot be matched ahead of a fixed suffix.
+pub async fn gitlab(
+    State(proxy): State<Arc<GitProxy>>,
+    Path((host, rest)): Path<(String, String)>,
+    method: axum::http::Method,
+    Query(query): Query<GitLabQuery>,
+    headers: HeaderMap,
+    body: Body,
+) -> Response {
+    let target = |path: &str| Target::GitLab {
+        host: host.clone(),
+        path: path.to_string(),
+    };
+    if method == axum::http::Method::GET {
+        if let (Some(path), Some(service)) = (rest.strip_suffix("/info/refs"), query.service) {
+            return refs(&proxy, target(path), &RefsQuery { service }, &headers).await;
+        }
+    } else if method == axum::http::Method::POST {
+        for service in [GitService::UploadPack, GitService::ReceivePack] {
+            if let Some(path) = rest.strip_suffix(&format!("/{}", service.name())) {
+                return service_rpc(&proxy, target(path), service, &headers, body).await;
+            }
+        }
+    }
+    GitProxyError::NotFound.into_response()
 }
 
 async fn refs(
@@ -337,6 +377,10 @@ async fn resolve(
             let push = service == GitService::ReceivePack;
             proxy.resolve_github(owner, name, &token, push).await?
         }
+        Target::GitLab { host, path } => {
+            let push = service == GitService::ReceivePack;
+            proxy.resolve_gitlab(host, path, &token, push).await?
+        }
     };
     info!(
         repository = %target.label(),
@@ -357,10 +401,8 @@ async fn forward(
     body: Body,
 ) -> Response {
     let mut request = proxy.http.request(method, &url);
-    // `x-access-token` is the username every git host ignores when the password
-    // is a token; the token itself is what authenticates.
     if let Some(token) = upstream.credential.token() {
-        request = request.basic_auth("x-access-token", Some(token));
+        request = request.basic_auth(upstream.username, Some(token));
     }
     let mut request = request.body(reqwest::Body::wrap_stream(
         body.into_data_stream().map_err(std::io::Error::other),

@@ -168,6 +168,7 @@ pub(super) async fn get_credentials(
         users: handlers.map(|h| &h.commit_identity),
         workspace_credentials,
         workspace_env_vars,
+        gitlab_token_to_pods: handlers.is_none_or(|h| h.gitlab_token_to_pods),
     })
     .await;
 

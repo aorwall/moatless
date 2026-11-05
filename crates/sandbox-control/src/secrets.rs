@@ -55,6 +55,11 @@ pub struct TaskCredentialInputs<'a> {
     /// Workspace scope outranks user- and global-scoped secrets; a pinned
     /// Workspace credential still wins a key they both name.
     pub workspace_env_vars: HashMap<String, String>,
+    /// `GITLAB_TOKEN_TO_PODS`: whether a GitLab token still reaches the pod,
+    /// for an image built before GitLab cloned through the backend git proxy.
+    /// When false, `GITLAB_TOKEN` and `GIT_TOKEN` are withheld whatever their
+    /// source.
+    pub gitlab_token_to_pods: bool,
 }
 
 /// Resolve the credentials a task's sandbox needs.
@@ -77,7 +82,9 @@ pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMa
     }
 
     let user_id = input.actor.user_id();
-    fill_git_host_tokens(&mut credentials, input.git_host_tokens, input.actor).await;
+    if input.gitlab_token_to_pods {
+        fill_git_host_tokens(&mut credentials, input.git_host_tokens, input.actor).await;
+    }
 
     fill_git_identity(&mut credentials, input.users, user_id).await;
     if let Some(person) = input.reporter_user_id.or_else(|| input.actor.person()) {
@@ -90,7 +97,10 @@ pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMa
     // Screened last rather than per source: a Workspace pin, a per-host PAT
     // secret, an OAuth stash and a model key all reach this map by different
     // routes, and none of them may leave the backend.
-    credentials.retain(|key, _| !is_proxied_credential_key(key));
+    credentials.retain(|key, _| {
+        !is_proxied_credential_key(key)
+            && (input.gitlab_token_to_pods || !matches!(key.as_str(), GITLAB_TOKEN | GIT_TOKEN))
+    });
     credentials
 }
 
@@ -751,6 +761,7 @@ mod tests {
             users: None,
             workspace_credentials,
             workspace_env_vars: HashMap::new(),
+            gitlab_token_to_pods: true,
         }
     }
 
@@ -889,6 +900,27 @@ mod tests {
         assert_eq!(credentials[GITLAB_TOKEN], "glpat_validated");
         assert!(!credentials.contains_key(GH_TOKEN));
         assert!(!credentials.contains_key(GIT_TOKEN));
+    }
+
+    #[tokio::test]
+    async fn without_gitlab_token_to_pods_no_gitlab_token_reaches_the_pod() {
+        let actor = Actor::of("u1");
+        let git_host_tokens = issuer(Some("glpat_validated"));
+        let mut inputs = workspace_github_inputs(
+            &actor,
+            &git_host_tokens,
+            None,
+            HashMap::from([
+                (GITLAB_TOKEN.to_string(), "glpat_pinned".to_string()),
+                (GIT_TOKEN.to_string(), "glpat_pinned".to_string()),
+            ]),
+        );
+        inputs.gitlab_token_to_pods = false;
+
+        let credentials = resolve_task_credentials(inputs).await;
+
+        assert!(!credentials.contains_key(GITLAB_TOKEN), "{credentials:?}");
+        assert!(!credentials.contains_key(GIT_TOKEN), "{credentials:?}");
     }
 
     /// The same names on the scoped-secret channel. `fill_missing_from_scoped`
@@ -1298,6 +1330,7 @@ mod tests {
             users: Some(&users),
             workspace_credentials: HashMap::new(),
             workspace_env_vars: HashMap::new(),
+            gitlab_token_to_pods: true,
         })
         .await;
 

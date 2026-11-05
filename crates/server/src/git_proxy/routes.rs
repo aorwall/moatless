@@ -32,5 +32,9 @@ pub fn git_proxy_router(state: AppState) -> Router {
             "/git/github/{owner}/{name}/git-receive-pack",
             post(handlers::github_receive_pack),
         )
+        .route(
+            "/git/gitlab/{host}/{*rest}",
+            get(handlers::gitlab).post(handlers::gitlab),
+        )
         .with_state(state)
 }

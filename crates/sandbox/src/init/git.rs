@@ -9,6 +9,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use moatless_types::http::HttpTimeouts;
+use moatless_workspace_types::repository::GITLAB_HOST;
 use moatless_workspace_types::workspace::RepoCheckout;
 use tokio::net::TcpStream;
 use tokio::process::Command;
@@ -30,6 +31,7 @@ pub async fn configure_git(config: &Config, credentials: &GitCredentials) -> Res
         wire_broker_git_helper(origin).await;
     }
     route_github_through_proxy(config).await;
+    route_gitlab_through_proxy(config).await;
 
     if !is_github && credentials.get(GIT_TOKEN).is_none() && proxy_origin.is_none() {
         info!(provider = %config.git_provider, "No git token set — skipping the provider helper and the git identity");
@@ -179,6 +181,38 @@ pub(crate) fn github_proxy_settings(config: &Config) -> Option<Vec<(String, Stri
     Some(settings)
 }
 
+/// The `url.<base>.insteadOf` key sending gitlab.com to the backend git
+/// proxy, and the URL prefixes it rewrites. `None` with no `BACKEND_API_URL`.
+pub(crate) fn gitlab_proxy_rewrite(config: &Config) -> Option<(String, [String; 2])> {
+    let base = config
+        .backend_api_url
+        .as_deref()
+        .filter(|url| !url.is_empty())?
+        .trim_end_matches('/');
+    Some((
+        format!("url.{base}/git/gitlab/{GITLAB_HOST}/.insteadOf"),
+        [
+            format!("https://{GITLAB_HOST}/"),
+            format!("git@{GITLAB_HOST}:"),
+        ],
+    ))
+}
+
+/// Route every gitlab.com fetch and push through the backend git proxy, which
+/// presents the run-as identity's GitLab token, so the pod holds none.
+async fn route_gitlab_through_proxy(config: &Config) {
+    let Some((rewrite, bases)) = gitlab_proxy_rewrite(config) else {
+        return;
+    };
+    let _ = run_command("git", &["config", "--global", "--unset-all", &rewrite]).await;
+    for base in &bases {
+        if let Err(e) = run_command("git", &["config", "--global", "--add", &rewrite, base]).await {
+            warn!(error = %e, base, "Failed to route GitLab URLs through the git proxy");
+        }
+    }
+    info!("Routed gitlab.com through the backend git proxy");
+}
+
 /// The outcome of cloning the workspace's repositories.
 pub struct CloneSummary {
     /// Mount names freshly cloned in this pass; empty when every repo was
@@ -192,11 +226,15 @@ pub struct CloneSummary {
 
 /// The origins whose URLs carry no credential of their own: the backend,
 /// which the broker answers (`credentials::broker::get_git_credential`), and
-/// github.com, which [`route_github_through_proxy`] sends to it. A credential
+/// github.com and gitlab.com, which [`route_github_through_proxy`] and
+/// [`route_gitlab_through_proxy`] send to it. A credential
 /// left in such a URL would outrank both.
 pub(crate) fn broker_origins(config: &Config) -> Vec<String> {
     let mut origins = vec![GITHUB_ORIGIN.to_string()];
-    origins.extend(config.backend_api_origin());
+    if let Some(backend) = config.backend_api_origin() {
+        origins.push(format!("https://{GITLAB_HOST}"));
+        origins.push(backend);
+    }
     origins
 }
 

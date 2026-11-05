@@ -414,6 +414,16 @@ Gaps left by the first scoped-collection change, each reached from `crates/tasks
 | A signed push is unreadable | `github_policy/push.rs::parse` reads `<old> <new> <ref>` lines; a `push-cert` block fails it and logs `push_unreadable`, which `enforce` refuses | When the log shows a `push_unreadable` from a signed push. Then read the ref commands inside the certificate |
 | The default branch is guessed, not looked up | `github_policy/scope.rs::PolicyScope::is_default_branch` counts the registered `default_branch` plus `main` and `master` | When a repository whose default branch is something else is pushed to under a stale registration |
 
+## GitLab through the git proxy
+
+GitLab checkouts clone through `/git/{repository_id}`, and the pod rewrites gitlab.com URLs to `/git/gitlab/gitlab.com/…`, which presents the run-as identity's GitLab token as `oauth2`.
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| Pods are still handed a GitLab token | `moatless_core::config::Config::gitlab_token_to_pods` (Helm `gitlabTokenToPods`) defaults to `true` | When no running sandbox uses an image older than `sandbox::init::git::route_gitlab_through_proxy`. Then set `gitlabTokenToPods: false` |
+| A self-hosted GitLab URL is not rewritten in the pod | `sandbox::init::git::gitlab_proxy_rewrite` names only gitlab.com; `git_proxy::service::gitlab_host_allowed` already accepts a placed self-hosted host | When a Workspace fetches an unregistered repository from a self-hosted GitLab. Then rewrite each placed GitLab host too |
+| `glab` and the GitLab REST API have no proxy | With `gitlabTokenToPods: false` a pod holds no GitLab token for either | When a skill or a Loop calls `glab` or the GitLab API. Then add a GitLab API proxy beside `github_proxy` |
+
 ## Sandbox restarts
 
 | Deferred | Anchor | Entry condition |

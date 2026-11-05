@@ -310,6 +310,7 @@ pub fn grpc_service(
                 p.git_host_tokens.clone(),
             ),
             service_access: p.service_access.clone(),
+            gitlab_token_to_pods: config.gitlab_token_to_pods,
         }
     });
 

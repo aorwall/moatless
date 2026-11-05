@@ -71,6 +71,8 @@ pub struct HandlerDbPorts {
     /// Hands a pod its enabled services' relay URLs, and withholds the secrets
     /// they broker.
     pub service_access: Arc<crate::service_proxy::ServiceAccess>,
+    /// [`moatless_core::config::Config::gitlab_token_to_pods`].
+    pub gitlab_token_to_pods: bool,
 }
 
 /// Durable-admission writers.

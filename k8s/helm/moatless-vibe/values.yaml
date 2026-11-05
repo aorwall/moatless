@@ -582,6 +582,10 @@ serviceProxies: {}
 # reaches the upstream only through its proxy. Leave `false` until the tools
 # that call an upstream directly use its `expose.urlEnv`.
 brokerServiceSecrets: false
+# -- `false` stops handing pods a GitLab token: they clone and push GitLab
+# through the backend git proxy instead. Set it once no running sandbox uses an
+# image older than that proxy route.
+gitlabTokenToPods: true
 
 # Application configuration
 config:

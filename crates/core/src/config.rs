@@ -811,6 +811,9 @@ pub struct Config {
     /// `GITHUB_PROXY_POLICY_MODE`: whether the GitHub and git proxies refuse
     /// a write outside `crate::workspace_identity_grants`' policy or only log it.
     pub github_proxy_policy_mode: crate::proxy_rules::ProxyPolicyMode,
+    /// `GITLAB_TOKEN_TO_PODS`: whether pods are still handed a GitLab token.
+    /// Off once no running sandbox image predates GitLab through the git proxy.
+    pub gitlab_token_to_pods: bool,
     pub secrets: SecretsConfig,
     pub codex_oauth: CodexOAuthConfig,
     pub otel: OtelConfig,
@@ -1102,6 +1105,7 @@ impl Config {
                 .map_err(ConfigError::Invalid)?,
                 broker_secrets: env_bool("SERVICE_PROXY_BROKER_SECRETS", false),
             },
+            gitlab_token_to_pods: env_bool("GITLAB_TOKEN_TO_PODS", true),
             github_proxy_policy_mode: match env_opt("GITHUB_PROXY_POLICY_MODE") {
                 Some(v) => v
                     .parse()
@@ -1555,6 +1559,7 @@ impl Config {
             declared_plugins: vec![],
             service_proxies: ServiceProxyConfig::default(),
             github_proxy_policy_mode: crate::proxy_rules::ProxyPolicyMode::default(),
+            gitlab_token_to_pods: true,
             secrets: SecretsConfig {
                 encryption_key: Some("0123456789abcdef0123456789abcdef".to_string()),
                 kms_key_id: None,
