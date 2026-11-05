@@ -159,6 +159,12 @@ pub(super) fn parse_destination(
     Ok((raw.to_string(), None))
 }
 
+/// Whether `id` names a Slack user (`U...`, or `W...` on Enterprise Grid)
+/// rather than a conversation.
+pub(super) fn is_user_id(id: &str) -> bool {
+    id.starts_with('U') || id.starts_with('W')
+}
+
 /// Resolve the `(channel, ts)` pair needed by Slack's reactions API from the
 /// target message's external id, falling back to the binding's
 /// `destination_config` for `channel`.

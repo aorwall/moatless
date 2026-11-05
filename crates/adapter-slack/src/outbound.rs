@@ -327,6 +327,13 @@ impl AdapterDirectDestination for SlackAdapter {
             .await?;
         let workspace_id = self.ensure_workspace_id().await?;
         let (channel, thread_ts) = subject::parse_destination(destination)?;
+        // `chat.postMessage` takes a user id, `files.completeUploadExternal`
+        // answers `invalid_arguments` to one, so DM the user's `D...` channel.
+        let channel = if subject::is_user_id(&channel) {
+            app.api.open_dm(&channel).await?
+        } else {
+            channel
+        };
 
         // No `LoopContext` on this path, so the `task_link` toggle is not
         // readable; the caller decides by setting `provenance` or not.
@@ -855,6 +862,49 @@ mod tests {
         assert_eq!(result.subject_key, "T1:C1:1700000000.000100");
         assert_eq!(result.destination_config["ts"], "1700000000.000900");
         assert_eq!(body(&stub.requests()[1])["thread_ts"], "1700000000.000100");
+    }
+
+    /// A user id is not a channel `files.completeUploadExternal` accepts, so
+    /// the post, the share and the binding all use the DM channel instead.
+    #[tokio::test]
+    async fn a_direct_send_to_a_user_id_posts_and_shares_into_the_dm_channel() {
+        let base = Arc::new(OnceLock::<String>::new());
+        let upload_base = base.clone();
+        let stub = ProviderStub::start(move |path| match path {
+            "/chat.postMessage" => serde_json::json!({"ok": true, "ts": "1700000000.000900"}),
+            "/auth.test" => serde_json::json!({
+                "ok": true, "user_id": "U0BOT", "team_id": "T1",
+            }),
+            "/conversations.open" => {
+                serde_json::json!({"ok": true, "channel": {"id": "D123"}})
+            }
+            "/files.getUploadURLExternal" => serde_json::json!({
+                "ok": true,
+                "upload_url": format!("{}/upload", upload_base.get().expect("base is set")),
+                "file_id": "F1",
+            }),
+            _ => serde_json::json!({"ok": true}),
+        })
+        .await;
+        base.set(stub.base_url().to_string()).expect("set once");
+
+        let result = adapter(&stub)
+            .post_to_destination("dm:U1", &with_files("with a file", &["a.txt"]))
+            .await
+            .expect("the stub accepts the post");
+
+        let requests = stub.requests();
+        let posted = requests
+            .iter()
+            .find(|r| r.path == "/chat.postMessage")
+            .expect("the text is posted");
+        let shared = requests
+            .iter()
+            .find(|r| r.path == "/files.completeUploadExternal")
+            .expect("the file is shared");
+        assert_eq!(body(posted)["channel"], "D123");
+        assert_eq!(body(shared)["channel_id"], "D123");
+        assert_eq!(result.subject_key, "T1:D123:1700000000.000900");
     }
 
     #[tokio::test]
