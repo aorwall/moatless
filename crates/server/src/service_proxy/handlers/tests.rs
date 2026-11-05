@@ -60,8 +60,8 @@ async fn fake_upstream(seen: Seen) -> String {
     format!("http://{addr}")
 }
 
-/// A `grafana` (availability `all`, bearer) and a `keyed` (query-injected)
-/// service, both pointed at `upstream`.
+/// A `grafana` (availability `all`, bearer), a `keyed` (query-injected) and a
+/// `gated` (availability `granted`) service, all pointed at `upstream`.
 fn services(upstream: &str) -> Arc<ServiceProxies> {
     let json = serde_json::json!({
         "grafana": {
@@ -81,11 +81,17 @@ fn services(upstream: &str) -> Arc<ServiceProxies> {
             "credential": { "secret": "GRAFANA_TOKEN", "inject": { "style": "query", "param": "key" } },
             "availability": "all",
             "rules": [{ "methods": ["GET"], "path": "/**" }]
+        },
+        "gated": {
+            "upstream": "https://gated.example.com",
+            "credential": { "secret": "GATED_TOKEN", "inject": { "style": "bearer" } },
+            "availability": "granted",
+            "rules": [{ "methods": ["GET"], "path": "/**" }]
         }
     });
     // Two services sharing a secret is refused by the parser, so each is parsed
     // on its own before both are pointed at the local upstream.
-    let parsed: Vec<_> = ["grafana", "keyed"]
+    let parsed: Vec<_> = ["grafana", "keyed", "gated"]
         .iter()
         .flat_map(|name| {
             let one = serde_json::json!({ *name: json[*name].clone() });
@@ -304,13 +310,24 @@ async fn a_body_over_the_limit_is_a_413() {
 }
 
 #[tokio::test]
-async fn a_workspace_that_has_not_opted_in_is_told_the_setting() {
+async fn an_ungranted_workspace_is_told_the_setting() {
+    let upstream = fake_upstream(Seen::default()).await;
+    let gateway = gateway(&upstream, &["gated"], &[("GATED_TOKEN", GRAFANA_SECRET)]);
+    let response = send(&gateway, "gated", Method::GET, "/api/health", "").await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let body = text(response).await;
+    assert!(
+        body.contains("workspaces.json") && body.contains("WORKSPACE_IDENTITY_GRANTS"),
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn an_all_service_needs_no_opt_in() {
     let upstream = fake_upstream(Seen::default()).await;
     let gateway = gateway(&upstream, &[], &[("GRAFANA_TOKEN", GRAFANA_SECRET)]);
     let response = send(&gateway, "grafana", Method::GET, "/api/health", "").await;
-    assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    let body = text(response).await;
-    assert!(body.contains("workspaces.json"), "{body}");
+    assert_eq!(response.status(), StatusCode::OK);
 }
 
 #[tokio::test]

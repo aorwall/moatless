@@ -19,8 +19,8 @@ pub use crate::proxy::grants::GrantReader;
 /// withdrawn grant or opt-in takes effect.
 const ACCESS_CACHE_TTL: Duration = Duration::from_secs(30);
 
-/// Answers which services a Workspace has on, from its `services` opt-in and,
-/// for an `availability: granted` service, its grant.
+/// Answers which services a Workspace has on: every `availability: all` one,
+/// and each `granted` one both its `services` opt-in and its grant list.
 pub struct ServiceAccess {
     services: Arc<ServiceProxies>,
     broker_secrets: bool,
@@ -52,7 +52,7 @@ impl ServiceAccess {
         &self.services
     }
 
-    /// The names of the services `workspace_id` has on.
+    /// The names of the services `workspace_id` has on, in name order.
     pub async fn enabled(&self, workspace_id: &str) -> Result<Arc<Vec<String>>, String> {
         if self.services.is_empty() {
             return Ok(Arc::default());
@@ -73,13 +73,10 @@ impl ServiceAccess {
             self.grants.grant_for(workspace_id).await?
         };
         let enabled = Arc::new(
-            opted_in
-                .into_iter()
-                .filter(|name| {
-                    self.services
-                        .get(name)
-                        .is_some_and(|service| available(service, grant.as_ref()))
-                })
+            self.services
+                .iter()
+                .filter(|service| available(service, &opted_in, grant.as_ref()))
+                .map(|service| service.name.clone())
                 .collect::<Vec<_>>(),
         );
         self.cache
@@ -122,11 +119,18 @@ impl ServiceAccess {
     }
 }
 
-/// Whether `service` is open to a Workspace that opted in, given its grant.
-fn available(service: &ServiceProxy, grant: Option<&WorkspaceIdentityGrant>) -> bool {
+/// Whether `service` is on for a Workspace listing `opted_in`, given its grant.
+fn available(
+    service: &ServiceProxy,
+    opted_in: &[String],
+    grant: Option<&WorkspaceIdentityGrant>,
+) -> bool {
     match service.availability {
         Availability::All => true,
-        Availability::Granted => grant.is_some_and(|g| g.services.contains(&service.name)),
+        Availability::Granted => {
+            opted_in.contains(&service.name)
+                && grant.is_some_and(|g| g.services.contains(&service.name))
+        }
     }
 }
 
@@ -158,6 +162,7 @@ mod tests {
             "npm": {
                 "upstream": "https://npm.pkg.github.com",
                 "credential": { "secret": "NPM_TOKEN", "inject": { "style": "bearer" } },
+                "expose": { "urlEnv": "NPM_URL" },
                 "availability": "all",
                 "rules": [{ "methods": ["GET"], "path": "/**" }]
             }
@@ -215,11 +220,25 @@ mod tests {
             workspace(&["grafana"]),
             grant(&["grafana"]),
         );
-        assert_eq!(*granted.enabled("ws").await.unwrap(), vec!["grafana"]);
+        assert_eq!(
+            *granted.enabled("ws").await.unwrap(),
+            vec!["grafana", "npm"]
+        );
 
         let not_opted_in =
             ServiceAccess::new(services(), false, workspace(&[]), grant(&["grafana"]));
-        assert!(not_opted_in.enabled("ws").await.unwrap().is_empty());
+        assert_eq!(*not_opted_in.enabled("ws").await.unwrap(), vec!["npm"]);
+    }
+
+    #[tokio::test]
+    async fn an_all_service_reaches_a_workspace_that_lists_nothing() {
+        let mut credentials = HashMap::new();
+        ServiceAccess::new(services(), true, workspace(&[]), grant(&[]))
+            .shape_pod_credentials(Some("ws"), &mut credentials)
+            .await
+            .unwrap();
+        assert_eq!(credentials["NPM_URL"], "http://127.0.0.1:7781/npm");
+        assert!(!credentials.contains_key("GRAFANA_URL"));
     }
 
     #[tokio::test]

@@ -569,9 +569,9 @@ workspaceSync:
   githubProxyPolicyMode: log
 
 # Upstream APIs a pod reaches through the backend, which injects the credential.
-# A Workspace opts in with `services: [name]` in `.moatless/workspaces.json`;
-# an `availability: granted` service (the default) also needs the name in its
-# `workspaceSync.identityGrants` entry. A pod reaches one at
+# An `availability: all` service is on in every Workspace. A `granted` one (the
+# default) needs `services: [name]` in the Workspace's `.moatless/workspaces.json`
+# entry and in its `workspaceSync.identityGrants` entry. A pod reaches one at
 # `http://127.0.0.1:7781/{name}`, handed under `expose.urlEnv`.
 # e.g. grafana: {upstream: https://grafana.example.com,
 #   credential: {secret: GRAFANA_TOKEN, inject: {style: bearer}},

@@ -35,7 +35,7 @@ pub struct ServiceCredential {
     pub inject: Injection,
 }
 
-/// The env vars an opted-in sandbox gets for a service.
+/// The env vars a sandbox gets for a service its Workspace has on.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Exposure {
@@ -50,11 +50,11 @@ pub struct Exposure {
 /// What a sandbox holds in place of a brokered secret.
 pub const BROKERED_PLACEHOLDER: &str = "moatless-brokered";
 
-/// Who may use a service once their Workspace opts in.
+/// Which Workspaces have a service on.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Availability {
-    /// Any Workspace that lists the service.
+    /// Every Workspace, with no opt-in.
     All,
     /// Only a Workspace whose `WORKSPACE_IDENTITY_GRANTS` entry also lists it.
     #[default]

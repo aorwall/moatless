@@ -106,17 +106,10 @@ impl ServiceProxyGateway {
         if enabled.contains(&service.name) {
             return Ok(());
         }
-        let grant = match service.availability {
-            moatless_core::service_proxies::Availability::All => String::new(),
-            moatless_core::service_proxies::Availability::Granted => {
-                ", and an administrator must add it to `services` in this \
-                 workspace's WORKSPACE_IDENTITY_GRANTS entry"
-                    .to_string()
-            }
-        };
         Err(ServiceProxyError::NotEnabled(format!(
             "Workspace {} does not use the {name} service proxy: list \"{name}\" in `services` \
-             in its .moatless/workspaces.json entry{grant}",
+             in its .moatless/workspaces.json entry, and an administrator must add it to \
+             `services` in this workspace's WORKSPACE_IDENTITY_GRANTS entry",
             scope.workspace,
             name = service.name,
         )))

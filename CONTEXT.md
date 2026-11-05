@@ -73,8 +73,9 @@ place.
 **Service proxy**:
 An upstream API, defined in `SERVICE_PROXIES_JSON`, that a pod reaches at
 `http://127.0.0.1:7781/{name}` through the backend, which checks the request
-against the definition's rules and injects the credential. A Workspace opts in
-by listing the name in `services`.
+against the definition's rules and injects the credential. An
+`availability: all` service is on in every Workspace; a `granted` one only in a
+Workspace that lists it in `services` and whose **Identity grant** lists it too.
 _Avoid_: integration (that is an **Adapter**)
 
 **Org sync**:
