@@ -96,14 +96,15 @@ jobs:
     # Only workflow_dispatch bypasses change detection. On a PR paths-filter
     # diffs against the base ref, so a docs-only PR runs no clippy and no
     # TypeScript type-check.
-    # A PR that a bot other than `soap-agentops[bot]` triggered (Renovate's
-    # `soapgitops[bot]`) builds and tests nothing: skipping this job skips every
+    # A PR that a bot other than the agent identities `soap-agentops[bot]` and
+    # `moatless-soap[bot]` triggered (Renovate's `soapgitops[bot]`) builds and
+    # tests nothing: skipping this job skips every
     # job gated on its outputs, and `rust-clippy`, `rust-test` and
     # `architecture` repeat the gate. `triggering_actor` rather than the author,
     # so a person re-running the workflow or pushing to the PR gets full CI.
     if: >-
       github.event_name != 'workflow_dispatch' &&
-      (github.event_name != 'pull_request' || !endsWith(github.triggering_actor, '[bot]') || github.triggering_actor == 'soap-agentops[bot]')
+      (github.event_name != 'pull_request' || !endsWith(github.triggering_actor, '[bot]') || github.triggering_actor == 'soap-agentops[bot]' || github.triggering_actor == 'moatless-soap[bot]')
     # paths-filter reads the PR's changed-file list over the API rather than
     # diffing locally, so it needs this even though checkout only needs contents.
     # `actions: read` lets the base step find the last green push run.
@@ -261,7 +262,7 @@ jobs:
   architecture:
     name: Rust architecture
     # Bot PR gate: see `detect-changes`.
-    if: (github.event_name != 'pull_request' || !endsWith(github.triggering_actor, '[bot]') || github.triggering_actor == 'soap-agentops[bot]')
+    if: (github.event_name != 'pull_request' || !endsWith(github.triggering_actor, '[bot]') || github.triggering_actor == 'soap-agentops[bot]' || github.triggering_actor == 'moatless-soap[bot]')
     runs-on: ci-runners-large
     container:
       image: rust:1.97-bookworm
@@ -456,7 +457,7 @@ jobs:
     # Bot PR gate: see `detect-changes`.
     if: >-
       !cancelled() &&
-      (github.event_name != 'pull_request' || !endsWith(github.triggering_actor, '[bot]') || github.triggering_actor == 'soap-agentops[bot]') &&
+      (github.event_name != 'pull_request' || !endsWith(github.triggering_actor, '[bot]') || github.triggering_actor == 'soap-agentops[bot]' || github.triggering_actor == 'moatless-soap[bot]') &&
       (github.event_name == 'pull_request' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: ci-runners-large
@@ -592,7 +593,7 @@ jobs:
     # see the note above rust-clippy. Bot PR gate: see `detect-changes`.
     if: >-
       !cancelled() &&
-      (github.event_name != 'pull_request' || !endsWith(github.triggering_actor, '[bot]') || github.triggering_actor == 'soap-agentops[bot]') &&
+      (github.event_name != 'pull_request' || !endsWith(github.triggering_actor, '[bot]') || github.triggering_actor == 'soap-agentops[bot]' || github.triggering_actor == 'moatless-soap[bot]') &&
       (github.event_name == 'pull_request' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: ci-runners-large
