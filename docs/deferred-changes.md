@@ -614,6 +614,12 @@ of its own.
 | Token streaming, plan mode, reasoning controls, and interactive approvals | `crates/sandbox/src/agent/harness/mini_swe/bridge.py` uses synchronous model queries and automatic sandbox command execution; T3 publishes no reasoning options | When the product needs these controls for mini-swe-agent and its bridge protocol can represent them |
 | OpenRouter and other model backends | `MINI_SWE` in `crates/core/src/agent_catalog.rs` and `MiniSweProcess::open` accept Anthropic and OpenAI only | When a requested provider has a tested gateway route and native-history conversion |
 
+## Sandbox Bun version
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| The sandbox ignores a checkout's `.bun-version` | `docker/Dockerfile.sandbox-base` installs one Bun from `ARG BUN_VERSION` into root-owned `/opt/bun/bin`, so `bun upgrade` fails and a repo that pins a newer Bun has to download it by hand | When a repository pins a Bun newer than the image's, or the image's Bun falls behind its repositories more than once a quarter. Have the bootstrap install the pinned version before the boot install |
+
 ## Sandbox gRPC authentication
 
 | Deferred | Anchor | Entry condition |
