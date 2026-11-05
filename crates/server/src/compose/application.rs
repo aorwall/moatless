@@ -217,12 +217,21 @@ impl AppState {
             ports.sandbox_graph.token_generations(),
             config.sandbox.task_token_secret.clone(),
         ));
+        let github_policy = Arc::new(crate::github_policy::GitHubPolicy::new(
+            config.github_proxy_policy_mode,
+            workspace_resolver.clone(),
+            moatless_workspaces::compose::workspace_grants(
+                pool.clone(),
+                config.workspace_sync.identity_grants.clone(),
+            ),
+        ));
         let git_proxy = Arc::new(crate::git_proxy::GitProxy::new(
             sandbox_callers.clone(),
             workspace_resolver.clone(),
             repository_reader.clone(),
             user_directory.clone(),
             git_host_tokens.clone(),
+            github_policy.clone(),
             config.http.git_proxy,
         ));
         let github_proxy = Arc::new(crate::github_proxy::GitHubProxy::new(
@@ -232,6 +241,7 @@ impl AppState {
             git_host_tokens.clone(),
             &config.github_api_base,
             crate::github_proxy::GITHUB_UPLOADS_BASE,
+            github_policy,
             config.http.github_proxy,
         ));
         let service_proxy = Arc::new(crate::service_proxy::ServiceProxyGateway::new(

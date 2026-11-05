@@ -3,16 +3,18 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::body::Body;
+use axum::body::{Body, Bytes};
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use futures::TryStreamExt;
+use futures::{StreamExt, TryStreamExt};
 use serde::Deserialize;
 use tracing::{info, warn};
 
 use crate::git_proxy::body::WatchedBody;
 use crate::git_proxy::service::{GitProxy, GitProxyError, Upstream};
+use crate::github_policy::push::{self, Parsed};
+use crate::github_policy::{self, Refusal, Request as PolicyRequest};
 
 /// The two git services this proxy forwards.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -198,6 +200,13 @@ async fn service_rpc(
         Ok(upstream) => upstream,
         Err(error) => return error.into_response(),
     };
+    let body = match service {
+        GitService::UploadPack => body,
+        GitService::ReceivePack => match check_push(proxy, &upstream, headers, body).await {
+            Ok(body) => body,
+            Err(refused) => return *refused,
+        },
+    };
     let url = format!("{}/{}", upstream.base_url, service.name());
     forward(
         proxy,
@@ -209,6 +218,109 @@ async fn service_rpc(
         body,
     )
     .await
+}
+
+/// Read a push's command list and run each ref past the policy. The buffered
+/// pkt-lines are replayed ahead of the rest of the body when the push goes on.
+async fn check_push(
+    proxy: &GitProxy,
+    upstream: &Upstream,
+    headers: &HeaderMap,
+    body: Body,
+) -> Result<Body, Box<Response>> {
+    let mut stream = body.into_data_stream();
+    let mut buf = Vec::new();
+    let compressed = headers
+        .get(header::CONTENT_ENCODING)
+        .is_some_and(|v| v.as_bytes() != b"identity");
+    let parsed = if compressed {
+        Err("the push is compressed".to_string())
+    } else {
+        loop {
+            match push::parse(&buf) {
+                Parsed::Complete { commands, .. } => break Ok(commands),
+                Parsed::Invalid(why) => break Err(why),
+                Parsed::NeedMore if buf.len() > push::COMMANDS_LIMIT => {
+                    break Err("the command list is too long".to_string());
+                }
+                Parsed::NeedMore => {}
+            }
+            match stream.next().await {
+                Some(Ok(chunk)) => buf.extend_from_slice(&chunk),
+                Some(Err(error)) => {
+                    warn!(%error, "A push body failed before its command list ended");
+                    return Err(Box::new(StatusCode::BAD_REQUEST.into_response()));
+                }
+                None => break Err("the push ended inside its command list".to_string()),
+            }
+        }
+    };
+    let replay = |buf: Vec<u8>, rest| {
+        Body::from_stream(futures::stream::once(async move { Ok(Bytes::from(buf)) }).chain(rest))
+    };
+    let label = format!("{}/{}", upstream.host, upstream.path);
+    let request = |path: &'_ str| PolicyRequest {
+        proxy: "git",
+        sandbox_id: &upstream.sandbox_id,
+        workspace_id: &upstream.workspace_id,
+        method: "push",
+        path: path.to_string(),
+    };
+
+    let commands = match parsed {
+        Ok(commands) => commands,
+        Err(why) => {
+            let refusal = Refusal::new(
+                "push_unreadable",
+                format!("The git proxy could not read this push's refs: {why}"),
+            );
+            if proxy.policy.refuses(&request(&label), &refusal) {
+                return Err(Box::new(
+                    (StatusCode::FORBIDDEN, refusal.message).into_response(),
+                ));
+            }
+            return Ok(replay(buf, stream));
+        }
+    };
+    let (owner, name) = upstream
+        .path
+        .split_once('/')
+        .unwrap_or((&upstream.path, ""));
+    let refused = proxy
+        .policy
+        .check_push(
+            &upstream.workspace_id,
+            &github_policy::repo_key(&upstream.host, owner, name),
+            &commands.updates,
+        )
+        .await;
+    let mut enforce = false;
+    for (ref_name, refusal) in &refused {
+        enforce |= proxy
+            .policy
+            .refuses(&request(&format!("{label}:{ref_name}")), refusal);
+    }
+    if !enforce {
+        return Ok(replay(buf, stream));
+    }
+    // Read to the end so git sees the report rather than a reset connection.
+    while stream.next().await.is_some() {}
+    Err(Box::new(match push::report(&commands, &refused) {
+        Some(report) => (
+            StatusCode::OK,
+            [(
+                header::CONTENT_TYPE,
+                "application/x-git-receive-pack-result",
+            )],
+            report,
+        )
+            .into_response(),
+        None => (
+            StatusCode::FORBIDDEN,
+            "The git proxy refused this push's refs",
+        )
+            .into_response(),
+    }))
 }
 
 async fn resolve(

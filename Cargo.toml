@@ -41,6 +41,7 @@ edition = "2021"
 authors = ["Moatless Team"]
 
 [workspace.dependencies]
+apollo-parser = { version = "0.8.7" }
 async-trait = { version = "0.1" }
 aws-sdk-s3 = { version = "1" }
 aws-sdk-sts = { version = "1" }

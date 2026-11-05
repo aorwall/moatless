@@ -32,6 +32,48 @@ pub struct WorkspaceIdentityGrant {
     /// its `workspaces.json` entry lists them too.
     #[serde(default)]
     pub services: Vec<String>,
+    /// What the GitHub and git proxies let the Workspace write beyond its
+    /// placed repositories' pull requests and feature branches.
+    #[serde(default)]
+    pub github_policy: Option<GitHubPolicyGrant>,
+}
+
+/// A write the GitHub and git proxies refuse unless a grant names it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum GitHubCapability {
+    /// A review whose event is `APPROVE`.
+    Approve,
+    /// Merging a pull request.
+    Merge,
+    /// Pushing a ref under `refs/tags/`.
+    PushTags,
+    /// Pushing the default branch, `main` or `master`.
+    PushDefaultBranch,
+}
+
+impl GitHubCapability {
+    /// The name a grant spells it with.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Approve => "approve",
+            Self::Merge => "merge",
+            Self::PushTags => "pushTags",
+            Self::PushDefaultBranch => "pushDefaultBranch",
+        }
+    }
+}
+
+/// A grant's `githubPolicy`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct GitHubPolicyGrant {
+    #[serde(default)]
+    pub capabilities: Vec<GitHubCapability>,
+    /// github.com repositories as `owner/name` the Workspace may write to
+    /// without placing them.
+    #[serde(default)]
+    pub extra_repos: Vec<String>,
 }
 
 /// Every grant this deployment makes, read from `WORKSPACE_IDENTITY_GRANTS`.
@@ -64,6 +106,32 @@ impl WorkspaceIdentityGrants {
         Ok(())
     }
 
+    /// Refuses an `extraRepos` entry that is not `owner/name`.
+    pub fn check_github_policy(&self) -> Result<(), String> {
+        let valid = |part: &str| {
+            !matches!(part, "" | "." | "..")
+                && part
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        };
+        for grant in &self.0 {
+            let Some(policy) = &grant.github_policy else {
+                continue;
+            };
+            if let Some(slug) = policy.extra_repos.iter().find(|slug| {
+                !slug
+                    .split_once('/')
+                    .is_some_and(|(owner, name)| valid(owner) && valid(name))
+            }) {
+                return Err(format!(
+                    "{}/{}: githubPolicy.extraRepos names `{slug}`, which is not `owner/name`",
+                    grant.repository, grant.workspace
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// Refuses a grant naming a service `defined` does not hold.
     pub fn check_services(&self, defined: impl Fn(&str) -> bool) -> Result<(), String> {
         for grant in &self.0 {
@@ -77,13 +145,13 @@ impl WorkspaceIdentityGrants {
         Ok(())
     }
 
-    /// True iff some grant names a service or sets
+    /// True iff some grant names a service, a `githubPolicy` or sets
     /// [`WorkspaceIdentityGrant::agent_admin`], so a Workspace's grant is
     /// worth reading.
     pub fn grants_proxy_access(&self) -> bool {
         self.0
             .iter()
-            .any(|g| g.agent_admin || !g.services.is_empty())
+            .any(|g| g.agent_admin || !g.services.is_empty() || g.github_policy.is_some())
     }
 
     /// True iff some grant sets [`WorkspaceIdentityGrant::agent_admin`].
@@ -185,6 +253,42 @@ mod tests {
         let err = grants.check_services(|s| s == "grafana").unwrap_err();
         assert!(err.contains("`jira`"), "{err}");
         assert!(grants.check_services(|_| true).is_ok());
+    }
+
+    #[test]
+    fn a_github_policy_is_read_and_a_malformed_extra_repo_refused() {
+        let grants = WorkspaceIdentityGrants::parse(
+            r#"[{"repository":"a/b","workspace":"global","githubPolicy":
+                {"capabilities":["approve","pushDefaultBranch"],"extraRepos":["soaplabs/ci"]}}]"#,
+        )
+        .unwrap();
+        assert!(grants.grants_proxy_access());
+        let policy = grants
+            .find("a/b", "global")
+            .unwrap()
+            .github_policy
+            .clone()
+            .unwrap();
+        assert_eq!(
+            policy.capabilities,
+            [
+                GitHubCapability::Approve,
+                GitHubCapability::PushDefaultBranch
+            ]
+        );
+        assert!(grants.check_github_policy().is_ok());
+
+        let bad = WorkspaceIdentityGrants::parse(
+            r#"[{"repository":"a/b","workspace":"global","githubPolicy":{"extraRepos":["ci"]}}]"#,
+        )
+        .unwrap();
+        assert!(bad.check_github_policy().unwrap_err().contains("`ci`"));
+        assert!(
+            WorkspaceIdentityGrants::parse(
+                r#"[{"repository":"a/b","workspace":"g","githubPolicy":{"capabilities":["admin"]}}]"#
+            )
+            .is_err()
+        );
     }
 
     #[test]

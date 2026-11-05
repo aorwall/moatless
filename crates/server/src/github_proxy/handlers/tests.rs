@@ -18,6 +18,11 @@ use moatless_workspace_types::repository::{
     GitHostRepo, Repository, RepositoryKind, RepositoryProvider, RepositoryRemote,
 };
 
+use moatless_core::proxy_rules::ProxyPolicyMode;
+use moatless_core::workspace_identity_grants::{
+    GitHubCapability, GitHubPolicyGrant, WorkspaceIdentityGrant,
+};
+
 use super::*;
 use crate::proxy::caller::SandboxCallers;
 
@@ -98,6 +103,20 @@ fn issuer(live: &LiveToken) -> Arc<dyn GitHostTokenIssuer> {
 /// A proxy whose sandbox lookups never connect: the tests below either fail
 /// before reaching the sandbox row or start from a resolved [`SandboxScope`].
 fn proxy(
+    workspaces: (
+        Arc<dyn WorkspaceResolver>,
+        Arc<dyn WorkspaceCredentialReader>,
+    ),
+    tokens: Arc<dyn GitHostTokenIssuer>,
+    api_base: &str,
+) -> GitHubProxy {
+    proxy_under(ProxyPolicyMode::Log, None, workspaces, tokens, api_base)
+}
+
+/// [`proxy`] under `mode`, with `grant` as every Workspace's grant.
+fn proxy_under(
+    mode: ProxyPolicyMode,
+    grant: Option<WorkspaceIdentityGrant>,
     (workspaces, credentials): (
         Arc<dyn WorkspaceResolver>,
         Arc<dyn WorkspaceCredentialReader>,
@@ -118,11 +137,12 @@ fn proxy(
             )),
             Some(SECRET.to_string()),
         )),
-        workspaces,
+        workspaces.clone(),
         credentials,
         tokens,
         api_base,
         api_base,
+        crate::github_policy::test_support::policy(mode, workspaces, grant),
         moatless_core::config::HttpConfig::default().git_proxy,
     )
 }
@@ -521,4 +541,131 @@ fn client() -> reqwest::Client {
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .unwrap()
+}
+
+async fn send(proxy: &GitHubProxy, method: Method, path: &str, body: &str) -> Response {
+    forward(
+        proxy,
+        &scope(),
+        GitHubUpstream::Api,
+        method,
+        path,
+        &HeaderMap::new(),
+        Body::from(body.to_string()),
+    )
+    .await
+}
+
+fn approving_grant() -> WorkspaceIdentityGrant {
+    WorkspaceIdentityGrant {
+        repository: "owner/repo".to_string(),
+        workspace: "default".to_string(),
+        github_policy: Some(GitHubPolicyGrant {
+            capabilities: vec![GitHubCapability::Approve],
+            extra_repos: Vec::new(),
+        }),
+        ..WorkspaceIdentityGrant::default()
+    }
+}
+
+/// The fake answers 404 to anything but `/user`, so a 404 means the request
+/// reached it and a 403 that the policy stopped it.
+#[tokio::test]
+async fn an_approving_review_is_refused_under_enforce_without_the_capability() {
+    let live: LiveToken = Arc::new(Mutex::new("ghs_first".to_string()));
+    let base = fake_github(Arc::clone(&live)).await;
+    let review = r#"{"event":"APPROVE","body":"lgtm"}"#;
+    let path = "/repos/owner/repo/pulls/1/reviews";
+
+    let enforcing = proxy_under(
+        ProxyPolicyMode::Enforce,
+        None,
+        workspaces(github_repository(), HashMap::new()),
+        issuer(&live),
+        &base,
+    );
+    let refused = send(&enforcing, Method::POST, path, review).await;
+    assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+    assert!(message(refused).await.contains("`approve` capability"));
+    let comment = send(&enforcing, Method::POST, path, r#"{"event":"COMMENT"}"#).await;
+    assert_eq!(comment.status(), StatusCode::NOT_FOUND);
+
+    let granted = proxy_under(
+        ProxyPolicyMode::Enforce,
+        Some(approving_grant()),
+        workspaces(github_repository(), HashMap::new()),
+        issuer(&live),
+        &base,
+    );
+    assert_eq!(
+        send(&granted, Method::POST, path, review).await.status(),
+        StatusCode::NOT_FOUND
+    );
+
+    let logging = proxy(
+        workspaces(github_repository(), HashMap::new()),
+        issuer(&live),
+        &base,
+    );
+    assert_eq!(
+        send(&logging, Method::POST, path, review).await.status(),
+        StatusCode::NOT_FOUND
+    );
+    let oversized = format!(
+        r#"{{"event":"COMMENT","body":"{}"}}"#,
+        "x".repeat(1024 * 1024)
+    );
+    assert_eq!(
+        send(&logging, Method::POST, path, &oversized)
+            .await
+            .status(),
+        StatusCode::NOT_FOUND,
+        "under log a review too large to read still goes on"
+    );
+    assert_eq!(
+        send(&enforcing, Method::POST, path, &oversized)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+}
+
+#[tokio::test]
+async fn a_write_elsewhere_or_an_unlisted_mutation_is_refused_under_enforce() {
+    let live: LiveToken = Arc::new(Mutex::new("ghs_first".to_string()));
+    let base = fake_github(Arc::clone(&live)).await;
+    let enforcing = proxy_under(
+        ProxyPolicyMode::Enforce,
+        None,
+        workspaces(github_repository(), HashMap::new()),
+        issuer(&live),
+        &base,
+    );
+
+    let elsewhere = send(&enforcing, Method::POST, "/repos/other/repo/issues", "{}").await;
+    assert_eq!(elsewhere.status(), StatusCode::FORBIDDEN);
+    let contents = send(
+        &enforcing,
+        Method::PUT,
+        "/repos/owner/repo/contents/README.md",
+        "{}",
+    )
+    .await;
+    assert_eq!(contents.status(), StatusCode::FORBIDDEN);
+
+    let mutation = serde_json::json!({
+        "query": "mutation { deleteRef(input: {refId: \"R\"}) { clientMutationId } }"
+    })
+    .to_string();
+    let graphql = send(&enforcing, Method::POST, "/graphql", &mutation).await;
+    assert_eq!(graphql.status(), StatusCode::FORBIDDEN);
+
+    let read = send(
+        &enforcing,
+        Method::GET,
+        "/repos/other/repo/contents/README.md",
+        "",
+    )
+    .await;
+    assert_eq!(read.status(), StatusCode::NOT_FOUND);
 }

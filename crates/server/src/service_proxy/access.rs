@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use async_trait::async_trait;
 use moatless_core::service_proxies::{
     Availability, BROKERED_PLACEHOLDER, ServiceProxies, ServiceProxy,
 };
@@ -14,24 +13,7 @@ use moatless_types::credential_key::SERVICE_RELAY_ORIGIN;
 use moatless_workspace_ports::WorkspaceResolver;
 use moka::future::Cache;
 
-/// Reads the `WORKSPACE_IDENTITY_GRANTS` entry a Workspace holds.
-#[async_trait]
-pub trait GrantReader: Send + Sync {
-    async fn grant_for(&self, workspace_id: &str)
-    -> Result<Option<WorkspaceIdentityGrant>, String>;
-}
-
-#[async_trait]
-impl GrantReader for moatless_workspaces::workspace::grants::WorkspaceGrants {
-    async fn grant_for(
-        &self,
-        workspace_id: &str,
-    ) -> Result<Option<WorkspaceIdentityGrant>, String> {
-        Self::grant_for(self, workspace_id)
-            .await
-            .map_err(|e| e.to_string())
-    }
-}
+pub use crate::proxy::grants::GrantReader;
 
 /// How long a Workspace's enabled services are reused, which bounds how late a
 /// withdrawn grant or opt-in takes effect.
@@ -150,6 +132,7 @@ fn available(service: &ServiceProxy, grant: Option<&WorkspaceIdentityGrant>) -> 
 
 #[cfg(test)]
 mod tests {
+    use async_trait::async_trait;
     use moatless_workspace_ports::{MockWorkspaceResolver, ResolvedWorkspace};
 
     use super::*;

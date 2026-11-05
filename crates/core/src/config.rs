@@ -808,6 +808,9 @@ pub struct Config {
     /// The Plugins the deployment owns; see `Plugins::reconcile_declared`.
     pub declared_plugins: Vec<DeclaredPlugin>,
     pub service_proxies: ServiceProxyConfig,
+    /// `GITHUB_PROXY_POLICY_MODE`: whether the GitHub and git proxies refuse
+    /// a write outside `crate::workspace_identity_grants`' policy or only log it.
+    pub github_proxy_policy_mode: crate::proxy_rules::ProxyPolicyMode,
     pub secrets: SecretsConfig,
     pub codex_oauth: CodexOAuthConfig,
     pub otel: OtelConfig,
@@ -1099,6 +1102,12 @@ impl Config {
                 .map_err(ConfigError::Invalid)?,
                 broker_secrets: env_bool("SERVICE_PROXY_BROKER_SECRETS", false),
             },
+            github_proxy_policy_mode: match env_opt("GITHUB_PROXY_POLICY_MODE") {
+                Some(v) => v
+                    .parse()
+                    .map_err(|e| ConfigError::Invalid(format!("GITHUB_PROXY_POLICY_MODE: {e}")))?,
+                None => crate::proxy_rules::ProxyPolicyMode::default(),
+            },
             secrets: SecretsConfig {
                 encryption_key: env_opt("SECRETS_ENCRYPTION_KEY"),
                 kms_key_id: env_opt("SECRETS_KMS_KEY_ID").or_else(|| env_opt("AWS_KMS_KEY_ID")),
@@ -1141,6 +1150,10 @@ impl Config {
         self.workspace_sync
             .identity_grants
             .check_services(|name| self.service_proxies.services.get(name).is_some())
+            .map_err(|e| ConfigError::Invalid(format!("WORKSPACE_IDENTITY_GRANTS: {e}")))?;
+        self.workspace_sync
+            .identity_grants
+            .check_github_policy()
             .map_err(|e| ConfigError::Invalid(format!("WORKSPACE_IDENTITY_GRANTS: {e}")))?;
 
         // Production must authenticate sandbox gRPC calls: without the signing
@@ -1541,6 +1554,7 @@ impl Config {
             skill: SkillConfig { cache_ttl_secs: 60 },
             declared_plugins: vec![],
             service_proxies: ServiceProxyConfig::default(),
+            github_proxy_policy_mode: crate::proxy_rules::ProxyPolicyMode::default(),
             secrets: SecretsConfig {
                 encryption_key: Some("0123456789abcdef0123456789abcdef".to_string()),
                 kms_key_id: None,

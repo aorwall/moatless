@@ -62,6 +62,9 @@ utoipa-axum = { workspace = true }
 # Decoding the git proxy's HTTP Basic header
 base64 = { workspace = true }
 
+# Reading every operation in a proxied GitHub GraphQL request
+apollo-parser = { workspace = true }
+
 # Async streams
 futures = { workspace = true }
 async-stream = "0.3"

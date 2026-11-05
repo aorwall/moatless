@@ -12,6 +12,7 @@ use moatless_workspace_ports::{WorkspaceCredentialReader, WorkspaceResolver};
 use moatless_workspace_types::repository::GitHostRepo;
 use tracing::{debug, warn};
 
+use crate::github_policy::GitHubPolicy;
 use crate::proxy::caller::{CallerError, SandboxCallers, SandboxScope};
 
 /// GitHub's release-asset upload host, which `gh release upload` posts to.
@@ -62,6 +63,8 @@ pub struct GitHubProxy {
     api_base: String,
     /// [`GitHubUpstream::Uploads`]'s root, without a trailing `/`.
     uploads_base: String,
+    /// Decides which writes a sandbox may send.
+    pub(crate) policy: Arc<GitHubPolicy>,
     pub(crate) http: reqwest::Client,
 }
 
@@ -86,6 +89,10 @@ fn http_client(timeouts: HttpStreamTimeouts) -> reqwest::Client {
 }
 
 impl GitHubProxy {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one port per lookup a proxied request makes"
+    )]
     pub(crate) fn new(
         callers: Arc<SandboxCallers>,
         workspaces: Arc<dyn WorkspaceResolver>,
@@ -93,6 +100,7 @@ impl GitHubProxy {
         git_host_tokens: Arc<dyn GitHostTokenIssuer>,
         api_base: &str,
         uploads_base: &str,
+        policy: Arc<GitHubPolicy>,
         timeouts: HttpStreamTimeouts,
     ) -> Self {
         Self {
@@ -102,6 +110,7 @@ impl GitHubProxy {
             git_host_tokens,
             api_base: api_base.trim_end_matches('/').to_string(),
             uploads_base: uploads_base.trim_end_matches('/').to_string(),
+            policy,
             http: http_client(timeouts),
         }
     }

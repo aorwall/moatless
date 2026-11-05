@@ -85,6 +85,7 @@ async fn proxy(env: &Env, repository_id: &str) -> GitProxy {
         .expect_placements()
         .returning(move |_| Ok(vec![placement.clone()]));
     workspaces.expect_resolve().returning(|_| Ok(None));
+    let workspaces: Arc<dyn moatless_workspace_ports::WorkspaceResolver> = Arc::new(workspaces);
 
     let mut tokens = MockGitHostTokenIssuer::new();
     let token = env.token.clone();
@@ -106,10 +107,15 @@ async fn proxy(env: &Env, repository_id: &str) -> GitProxy {
             graph.token_generations(),
             Some(SECRET.to_string()),
         )),
-        Arc::new(workspaces),
+        workspaces.clone(),
         Arc::new(repositories),
         Arc::new(users),
         Arc::new(tokens),
+        crate::github_policy::test_support::policy(
+            moatless_core::proxy_rules::ProxyPolicyMode::Log,
+            workspaces,
+            None,
+        ),
         moatless_core::config::HttpConfig::default().git_proxy,
     )
 }

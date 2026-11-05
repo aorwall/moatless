@@ -97,6 +97,10 @@ spec:
             - name: SANDBOX_TOKEN_SCOPE
               value: {{ . | quote }}
             {{- end }}
+            {{- with .githubProxyPolicyMode }}
+            - name: GITHUB_PROXY_POLICY_MODE
+              value: {{ . | quote }}
+            {{- end }}
             {{- end }}
             {{- if .Values.serviceProxies }}
             - name: SERVICE_PROXIES_JSON

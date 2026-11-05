@@ -552,6 +552,8 @@ workspaceSync:
   # lets an administrator driver's sandbox token keep the admin role and reach
   # admin routes (see `sandboxTokenScope`). `services: [grafana]` opens an
   # `availability: granted` service proxy (see `serviceProxies`).
+  # `githubPolicy: {capabilities: [approve, merge, pushTags, pushDefaultBranch],
+  # extraRepos: [owner/name]}` relaxes `githubProxyPolicyMode` for the Workspace.
   # e.g. [{repository: soaplabs/soap-specs, workspace: default,
   #        sandboxServiceAccount: moatless-soap-nonprod-admin}]
   identityGrants: []
@@ -559,6 +561,12 @@ workspaceSync:
   # refuses it and caps the role. Set `enforce` once the logs are clean and the
   # admin Workspaces carry `agentAdmin`.
   sandboxTokenScope: log
+  # -- `log` logs a sandbox's GitHub API or git push write outside its policy
+  # (`Proxy request outside its policy`); `enforce` refuses it. A write must
+  # name a placed repository or a grant's `githubPolicy.extraRepos`; approving,
+  # merging, pushing tags and pushing the default branch need a grant
+  # capability. Set `enforce` once the logs show no caller missing a grant.
+  githubProxyPolicyMode: log
 
 # Upstream APIs a pod reaches through the backend, which injects the credential.
 # A Workspace opts in with `services: [name]` in `.moatless/workspaces.json`;

@@ -65,7 +65,10 @@ A deployment's `WORKSPACE_IDENTITY_GRANTS` entry that lets one repository's
 Workspace keep the admin-only `sandboxServiceAccount`, `networkProfile` or
 `nodeSelector` its git entry declares, and optionally makes it private to one
 user. An ungranted value is dropped with a sync warning. Its `services` list
-opens an `availability: granted` **Service proxy** to that Workspace.
+opens an `availability: granted` **Service proxy** to that Workspace. Its
+`githubPolicy` adds the GitHub writes the proxies otherwise refuse: approving,
+merging, pushing tags or the default branch, and repositories it does not
+place.
 
 **Service proxy**:
 An upstream API, defined in `SERVICE_PROXIES_JSON`, that a pod reaches at

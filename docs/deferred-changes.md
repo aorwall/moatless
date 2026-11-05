@@ -401,6 +401,19 @@ Gaps left by the first scoped-collection change, each reached from `crates/tasks
 | A WebSocket upgrade is not proxied | `crates/server/src/service_proxy/handlers.rs::forward` buffers one request body and streams one response; Grafana Live and other upgrades fail | When a tool behind a service proxy needs a WebSocket |
 | A pod learns a newly enabled service only on its next credential fetch | `crates/server/src/sandbox/grpc_server/credentials.rs::get_credentials` adds `expose.urlEnv`; the pod's refresher fetches again on its own schedule | When an opt-in is reported as not taking effect in a running Task |
 
+## GitHub proxy policy
+
+`crates/server/src/github_policy` decides which writes the GitHub API proxy and the git proxy's `receive-pack` forward. It ships under `GITHUB_PROXY_POLICY_MODE=log`.
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| The policy is logged, not enforced | `moatless_core::proxy_rules::ProxyPolicyMode` defaults to `Log`; every refusal logs `Proxy request outside its policy` with `proxy` `github` or `git` | When a week of those lines shows only callers that a grant now covers. The review loops need `githubPolicy.capabilities: [approve]`, and `soap-platform-ci` dispatches need `extraRepos`. Then set Helm `githubProxyPolicyMode: enforce` |
+| A node-id mutation is not checked against the Workspace's repositories | `github_policy/graphql.rs::ALLOWED_MUTATIONS` names `addComment`, `resolveReviewThread` and `createPullRequest`, which carry a node id rather than `owner`/`repo` | When audit events show a sandbox writing through one to a repository it does not place. Then resolve the node to its repository before forwarding |
+| The `moat gh` routes do not check placements | `crates/adapter-github-pr/src/mutations.rs::create_pr`, `post_comment` and `reply_to_review_comment` reach any repository the Task's identity can, outside the proxy's policy | When the GitHub policy is enforced. The adapter then needs the same placement and `extraRepos` check behind a port it can call |
+| A Workspace cannot tighten its own GitHub policy from git | Every relaxation comes from `WorkspaceIdentityGrant::github_policy`; `.moatless/workspaces.json` carries no `githubPolicy` | When a Workspace owner asks to refuse a write that the default allows |
+| A signed push is unreadable | `github_policy/push.rs::parse` reads `<old> <new> <ref>` lines; a `push-cert` block fails it and logs `push_unreadable`, which `enforce` refuses | When the log shows a `push_unreadable` from a signed push. Then read the ref commands inside the certificate |
+| The default branch is guessed, not looked up | `github_policy/scope.rs::PolicyScope::is_default_branch` counts the registered `default_branch` plus `main` and `master` | When a repository whose default branch is something else is pushed to under a stale registration |
+
 ## Sandbox restarts
 
 | Deferred | Anchor | Entry condition |

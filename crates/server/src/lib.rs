@@ -22,6 +22,7 @@ pub mod event_handler;
 pub mod feature_flags;
 pub mod file_storage;
 pub mod git_proxy;
+pub(crate) mod github_policy;
 pub mod github_proxy;
 mod http_trace;
 pub mod model_gateway;

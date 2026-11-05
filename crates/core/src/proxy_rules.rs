@@ -3,6 +3,26 @@
 
 use serde::Deserialize;
 
+/// Whether a proxy acts on a request outside its policy or only logs it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ProxyPolicyMode {
+    #[default]
+    Log,
+    Enforce,
+}
+
+impl std::str::FromStr for ProxyPolicyMode {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim() {
+            "log" => Ok(Self::Log),
+            "enforce" => Ok(Self::Enforce),
+            other => Err(format!("`{other}` is neither `log` nor `enforce`")),
+        }
+    }
+}
+
 /// A request path made safe to match: percent-decoded once, with no `.` or
 /// `..` segment, no empty segment, no backslash and no control byte.
 #[derive(Debug, Clone, PartialEq, Eq)]

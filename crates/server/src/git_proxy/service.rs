@@ -11,6 +11,7 @@ use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
 use moatless_workspace_types::repository::{GitHostRepo, Repository};
 use tracing::warn;
 
+use crate::github_policy::GitHubPolicy;
 use crate::proxy::caller::{CallerError, SandboxCallers, SandboxScope};
 
 /// Where one proxied request goes, and what it presents on arrival.
@@ -31,6 +32,8 @@ pub struct Upstream {
     pub run_as_user_id: String,
     /// The Workspace of the Sandbox the task token names.
     pub workspace_id: String,
+    /// The Sandbox the task token names, for the policy's log line.
+    pub sandbox_id: String,
 }
 
 /// What a proxied request presents to its host.
@@ -59,7 +62,7 @@ impl Upstream {
         repo: &GitHostRepo,
         credential: Credential,
         actor: &Actor,
-        workspace_id: String,
+        caller: SandboxScope,
     ) -> Self {
         let host = repo.host().to_string();
         Self {
@@ -68,7 +71,8 @@ impl Upstream {
             credential,
             path: format!("{}/{}", repo.owner(), repo.name()),
             run_as_user_id: actor.user_id().to_string(),
-            workspace_id,
+            workspace_id: caller.workspace,
+            sandbox_id: caller.sandbox,
         }
     }
 }
@@ -129,6 +133,8 @@ pub struct GitProxy {
     repositories: Arc<dyn RepositoryReader>,
     users: Arc<dyn CommitIdentity>,
     git_host_tokens: Arc<dyn GitHostTokenIssuer>,
+    /// Decides which refs a push may update.
+    pub(crate) policy: Arc<GitHubPolicy>,
     pub(crate) http: reqwest::Client,
 }
 
@@ -157,6 +163,7 @@ impl GitProxy {
         repositories: Arc<dyn RepositoryReader>,
         users: Arc<dyn CommitIdentity>,
         git_host_tokens: Arc<dyn GitHostTokenIssuer>,
+        policy: Arc<GitHubPolicy>,
         timeouts: HttpStreamTimeouts,
     ) -> Self {
         Self {
@@ -165,6 +172,7 @@ impl GitProxy {
             repositories,
             users,
             git_host_tokens,
+            policy,
             // `FORWARDED_REQUEST_HEADERS` copies git's own `User-Agent` over
             // this default, so it covers only a client that sends none. See
             // `moatless_core::USER_AGENT`.
@@ -230,7 +238,7 @@ impl GitProxy {
             &repo,
             Credential::Token(token),
             &actor,
-            caller.workspace,
+            caller,
         ))
     }
 
@@ -254,7 +262,7 @@ impl GitProxy {
             .token(&actor, &repo.credential_account())
             .await;
         let credential = github_credential(resolved, push, repo.host())?;
-        Ok(Upstream::new(&repo, credential, &actor, caller.workspace))
+        Ok(Upstream::new(&repo, credential, &actor, caller))
     }
 
     /// The Sandbox and Workspace a task token names.
@@ -497,6 +505,7 @@ mod tests {
             path: "soaplabs/moatless".to_string(),
             run_as_user_id: POD_USER.to_string(),
             workspace_id: "ws_1".to_string(),
+            sandbox_id: "sandbox-1".to_string(),
         }
     }
 
@@ -678,6 +687,11 @@ mod tests {
             Arc::new(MockRepositoryReader::new()),
             Arc::new(MockCommitIdentity::new()),
             Arc::new(MockGitHostTokenIssuer::new()),
+            crate::github_policy::test_support::policy(
+                moatless_core::proxy_rules::ProxyPolicyMode::Log,
+                Arc::new(MockWorkspaceResolver::new()),
+                None,
+            ),
             moatless_core::config::HttpConfig::default().git_proxy,
         )
     }
