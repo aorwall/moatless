@@ -628,6 +628,8 @@ auth:
     callbackUrl: ""
     # -- Required GitHub organization. When set, only members of this org can log in.
     requiredOrg: ""
+    # -- Refuse GitHub personal access tokens, so every GitHub call goes through the App.
+    patsDisabled: false
     # -- GitHub App numeric ID (from App settings page)
     appId: ""
     # -- Default installation ID for server-to-server operations

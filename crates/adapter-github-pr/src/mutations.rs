@@ -21,11 +21,11 @@ use moatless_types::access_control::Actor;
 
 use super::adapter::GithubPrAdapter;
 use super::api::MAX_COMMENT_LENGTH;
-use super::auth::{resolve_task_github_api, task_write_actor};
+use super::auth::{resolve_task_github_api, resolve_task_github_writer, task_write_actor};
 use super::external_id;
 use super::reply_keys;
 use super::subject::GithubPrSubject;
-use super::text::truncate_on_char_boundary;
+use super::text::{credit_driver, truncate_on_char_boundary};
 
 /// Provider label recorded on an external event, and the `external_adapter` an
 /// inbound event is matched under.
@@ -54,7 +54,8 @@ pub(crate) async fn create_pr(
 ) -> Result<GithubCreatePrResponse, AdapterError> {
     let adapter = require_provider(github_pr_provider)?;
     let actor = task_actor(tasks.as_ref(), &ctx, req.task_id.as_deref()).await?;
-    let api = resolve_task_github_api(&adapter, &actor, &owner, &repo).await?;
+    let writer = resolve_task_github_writer(&adapter, &actor, &owner, &repo).await?;
+    let api = &writer.api;
 
     let base = match req.base.as_deref() {
         Some(b) => b.to_string(),
@@ -62,9 +63,12 @@ pub(crate) async fn create_pr(
     };
 
     let body = build_pr_body(
-        &with_requester(
-            req.body.as_deref().unwrap_or(""),
-            actor.person().map(|_| login),
+        &credit_driver(
+            &with_requester(
+                req.body.as_deref().unwrap_or(""),
+                actor.person().map(|_| login),
+            ),
+            writer.driver_login.as_deref(),
         ),
         task_footer_url(adapter.frontend_url(), req.task_id.as_deref()).as_deref(),
     );
@@ -90,6 +94,9 @@ pub(crate) async fn create_pr(
             _ => return Err(create_error),
         },
     };
+    if let (Some(driver), false) = (writer.driver_login.as_deref(), created.opened_existing) {
+        assign_driver(api, &owner, &repo, created.number, driver).await;
+    }
 
     let binding_id = if let Some(task_id) = req.task_id.as_deref() {
         let bid = bind_task_to_pr(
@@ -196,13 +203,14 @@ pub(crate) async fn post_comment(
 ) -> Result<GithubCommentResponse, AdapterError> {
     let adapter = require_provider(github_pr_provider)?;
     let actor = task_actor(tasks.as_ref(), &ctx, req.task_id.as_deref()).await?;
-    let api = resolve_task_github_api(&adapter, &actor, &owner, &repo).await?;
+    let writer = resolve_task_github_writer(&adapter, &actor, &owner, &repo).await?;
+    let api = &writer.api;
 
     let body = body_with_task_footer(
         tasks.as_ref(),
         adapter.frontend_url(),
         req.task_id.as_deref(),
-        &req.body,
+        &credit_driver(&req.body, writer.driver_login.as_deref()),
     )
     .await;
     let comment_id = api.post_comment(&owner, &repo, number, &body).await?;
@@ -265,13 +273,14 @@ pub(crate) async fn reply_to_review_comment(
 ) -> Result<GithubCommentResponse, AdapterError> {
     let adapter = require_provider(github_pr_provider)?;
     let actor = task_actor(tasks.as_ref(), &ctx, req.task_id.as_deref()).await?;
-    let api = resolve_task_github_api(&adapter, &actor, &owner, &repo).await?;
+    let writer = resolve_task_github_writer(&adapter, &actor, &owner, &repo).await?;
+    let api = &writer.api;
 
     let body = body_with_task_footer(
         tasks.as_ref(),
         adapter.frontend_url(),
         req.task_id.as_deref(),
-        &req.body,
+        &credit_driver(&req.body, writer.driver_login.as_deref()),
     )
     .await;
     let new_id = api
@@ -496,6 +505,21 @@ fn with_requester(body: &str, requester: Option<&str>) -> String {
             }
         }
         None => body.to_string(),
+    }
+}
+
+/// Assign `driver` to the pull request the App opened for them, so GitHub
+/// itself shows whose it is. Best effort: the pull request already exists, and
+/// the body credits the driver either way.
+async fn assign_driver(
+    api: &super::api::GithubPrApi,
+    owner: &str,
+    repo: &str,
+    number: u64,
+    driver: &str,
+) {
+    if let Err(e) = api.add_assignee(owner, repo, number, driver).await {
+        warn!(owner, repo, number, driver, error = %e, "Failed to assign the driver to the pull request");
     }
 }
 

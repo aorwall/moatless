@@ -56,7 +56,7 @@ pub async fn get_github_config(
     request_body = SaveGitHubProviderTokenRequest,
     responses(
         (status = 200, description = "PAT saved", body = GitHubProviderTokenStatusResponse),
-        (status = 400, description = "Invalid token", body = moatless_api_schemas::error::ErrorBody)
+        (status = 400, description = "Invalid token, or PATs are disabled on this deployment", body = moatless_api_schemas::error::ErrorBody)
     )
 )]
 pub async fn save_github_pat(
@@ -668,6 +668,7 @@ fn github_status(status: GitHubProviderTokenStatus) -> GitHubProviderTokenStatus
         auth_method: status.auth_method,
         has_pat_override: status.has_pat_override,
         app_connect_available: status.app_connect_available,
+        pat_connect_available: status.pat_connect_available,
     }
 }
 

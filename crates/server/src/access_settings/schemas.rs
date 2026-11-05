@@ -22,6 +22,8 @@ pub struct GitHubProviderTokenStatusResponse {
     /// Whether `GET /auth/github-app/connect` can run on this deployment. False
     /// leaves a Personal Access Token as the only way to connect.
     pub app_connect_available: bool,
+    /// Whether `PUT /settings/github/pat` accepts a token on this deployment.
+    pub pat_connect_available: bool,
 }
 
 #[derive(Serialize, Deserialize, utoipa::ToSchema)]

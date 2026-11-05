@@ -329,6 +329,25 @@ pub(super) fn truncate_on_char_boundary(s: &str, max: usize) -> &str {
     &s[..idx]
 }
 
+/// `body` with a line crediting `driver_login`, the person an App posted it
+/// for; unchanged when there is none or the line is already there.
+///
+/// The login is a profile link rather than a bare `@login`: GitHub mentions
+/// nobody inside a link, so the driver is not notified of every comment.
+pub(super) fn credit_driver(body: &str, driver_login: Option<&str>) -> String {
+    let Some(login) = driver_login else {
+        return body.to_string();
+    };
+    let credit = format!("Driven by [@{login}](https://github.com/{login})");
+    if body.contains(&credit) {
+        body.to_string()
+    } else if body.trim().is_empty() {
+        credit
+    } else {
+        format!("{}\n\n{credit}", body.trim_end())
+    }
+}
+
 /// Task message for a PR that GitHub reports as having merge conflicts
 /// (`mergeable_state == "dirty"`). Points the agent at the live diff and
 /// suggests the usual resolution path.
@@ -609,5 +628,20 @@ mod tests {
         // 'é' is 2 bytes — truncating mid-char backs off to the boundary.
         assert_eq!(truncate_on_char_boundary("é", 1), "");
         assert_eq!(truncate_on_char_boundary("aé", 2), "a");
+    }
+
+    #[test]
+    fn a_driver_is_credited_once_without_a_mention() {
+        let credited = credit_driver("Fixes the bug.\n", Some("ada"));
+        assert_eq!(
+            credited,
+            "Fixes the bug.\n\nDriven by [@ada](https://github.com/ada)"
+        );
+        assert_eq!(credit_driver(&credited, Some("ada")), credited);
+        assert_eq!(
+            credit_driver("", Some("ada")),
+            "Driven by [@ada](https://github.com/ada)"
+        );
+        assert_eq!(credit_driver("As myself.", None), "As myself.");
     }
 }

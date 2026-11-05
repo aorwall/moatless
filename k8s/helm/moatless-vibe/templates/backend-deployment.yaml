@@ -392,6 +392,10 @@ spec:
             - name: GITHUB_REQUIRED_ORG
               value: {{ . | quote }}
             {{- end }}
+            {{- if .Values.auth.githubApp.patsDisabled }}
+            - name: GITHUB_PATS_DISABLED
+              value: "true"
+            {{- end }}
             {{- with .Values.auth.githubApp.appId }}
             - name: GITHUB_APP_ID
               value: {{ . | quote }}

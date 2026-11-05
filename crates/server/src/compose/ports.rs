@@ -242,6 +242,7 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
         Some(workspace_credentials.clone()),
         forgejo_instances.clone(),
         config.http.self_hosted_git,
+        config.auth.github_pats_disabled,
     );
 
     let skill_fetcher: Arc<dyn SkillFetcher> =

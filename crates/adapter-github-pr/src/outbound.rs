@@ -13,6 +13,7 @@ use moatless_workspace_types::repository::GitHostRepo;
 use super::adapter::GithubPrAdapter;
 use super::external_id::{self, CommentTarget};
 use super::subject::GithubPrSubject;
+use super::text::credit_driver;
 
 #[async_trait::async_trait]
 impl AdapterBindingReply for GithubPrAdapter {
@@ -40,7 +41,7 @@ impl AdapterBindingReply for GithubPrAdapter {
         message: &OutboundReply,
     ) -> Result<Option<String>, AdapterError> {
         let subject = GithubPrSubject::from_binding(binding)?;
-        let api = self
+        let writer = self
             .auth()
             .client_for_outbound_reply(
                 message.author_user_id.as_deref(),
@@ -52,12 +53,13 @@ impl AdapterBindingReply for GithubPrAdapter {
 
         // The `Moatless task:` footer (carrying the task URL) doubles as the
         // echo-filter source on the way back in — no hidden marker needed.
-        let mut body = message.text.clone();
+        let mut body = credit_driver(&message.text, writer.driver_login.as_deref());
         if let Some(ref footer) = message.footer {
             body.push_str(footer);
         }
 
-        let comment_id = api
+        let comment_id = writer
+            .api
             .post_comment(subject.owner(), subject.repo(), subject.pr_number(), &body)
             .await?;
         Ok(Some(external_id::issue_comment(comment_id)))
@@ -80,7 +82,7 @@ impl AdapterMessageReply for GithubPrAdapter {
         match external_id::comment_target_from_id(target_external_id) {
             Some(CommentTarget::Review(comment_id)) => {
                 let subject = GithubPrSubject::from_binding(binding)?;
-                let api = self
+                let writer = self
                     .auth()
                     .client_for_outbound_reply(
                         message.author_user_id.as_deref(),
@@ -91,12 +93,13 @@ impl AdapterMessageReply for GithubPrAdapter {
                     .await?;
 
                 // The `Moatless task:` footer doubles as the echo-filter source.
-                let mut body = message.text.clone();
+                let mut body = credit_driver(&message.text, writer.driver_login.as_deref());
                 if let Some(ref footer) = message.footer {
                     body.push_str(footer);
                 }
 
-                let new_id = api
+                let new_id = writer
+                    .api
                     .reply_to_review_comment(
                         subject.owner(),
                         subject.repo(),
@@ -191,6 +194,59 @@ mod tests {
                 .iter()
                 .all(|request| request.authorization.as_deref() == selected_outbound_token),
             "outbound replies keep their selected user token: {recorded:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_reply_the_app_authors_credits_its_driver() {
+        let stub = start_github_api_stub(|method, path, uri| match (method, path) {
+            (Method::POST, "/repos/soaplabs/repo/issues/42/comments") => {
+                StubResponse::json(StatusCode::CREATED, serde_json::json!({"id": 101}))
+            }
+            _ => StubResponse::not_found(uri),
+        })
+        .await;
+        let mut tokens = moatless_ports::identity::MockGitHostTokenIssuer::new();
+        tokens
+            .expect_github_app_authored()
+            .withf(|actor, owner, repo| {
+                actor.user_id() == "owner-user" && owner == "soaplabs" && repo == "repo"
+            })
+            .returning(|_, _, _| {
+                Ok(Some(moatless_ports::identity::AppAuthoredToken {
+                    token: "ghs_app".to_string(),
+                    driver_login: "ada".to_string(),
+                }))
+            });
+        let provider = GithubPrAdapter::new(
+            None,
+            "https://app.example.com".to_string(),
+            moatless_core::config::DEFAULT_GITHUB_API_BASE.to_string(),
+            Arc::new(tokens),
+            moatless_core::config::HttpConfig::default().github,
+        )
+        .with_api_base(stub.base_url());
+
+        provider
+            .send_reply_for_binding(
+                &binding_target(None),
+                &connection(),
+                None,
+                &outbound_reply(),
+            )
+            .await
+            .unwrap();
+
+        let recorded = stub.recorded_requests().await;
+        let [request] = recorded.as_slice() else {
+            panic!("one comment, nothing else: {recorded:?}");
+        };
+        assert_eq!(request.authorization.as_deref(), Some("Bearer ghs_app"));
+        let body: serde_json::Value = serde_json::from_str(&request.body).unwrap();
+        assert_eq!(
+            body["body"],
+            "Characterization reply\n\nDriven by [@ada](https://github.com/ada)\
+             \n\n---\nMoatless task: https://app.example.com/tasks/task_test"
         );
     }
 

@@ -66,13 +66,17 @@ pub fn git_host_access(
     secrets: Arc<SecretService>,
     validator: Arc<dyn GitHostTokenValidator>,
     app_connect_available: bool,
+    github_pats_disabled: bool,
 ) -> Arc<GitHostAccess> {
-    Arc::new(GitHostAccess::new(
-        Arc::new(PgProviderTokenDao(db)),
-        secrets,
-        validator,
-        app_connect_available,
-    ))
+    Arc::new(
+        GitHostAccess::new(
+            Arc::new(PgProviderTokenDao(db)),
+            secrets,
+            validator,
+            app_connect_available,
+        )
+        .with_github_pats_disabled(github_pats_disabled),
+    )
 }
 
 /// The `provider_tokens` table narrowed to what an agent harness runs with.
@@ -85,6 +89,10 @@ pub fn harness_credentials(db: DbPool) -> Arc<HarnessTokens> {
 ///
 /// `credential_overrides` is `None` in a deployment that wires no workspace
 /// credential store, which resolves every identity to its own credential.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one store or policy per credential kind the seam resolves"
+)]
 pub fn git_host_tokens(
     db: DbPool,
     github_app_service: Option<Arc<GitHubAppService>>,
@@ -93,6 +101,7 @@ pub fn git_host_tokens(
     credential_overrides: Option<Arc<dyn GitCredentialOverrides>>,
     forgejo: Arc<ForgejoInstances>,
     self_hosted_git: HttpTimeouts,
+    github_pats_disabled: bool,
 ) -> Arc<GitHostTokens> {
     let tokens = GitHostTokens::new(
         Arc::new(PgProviderTokenDao(db.clone())),
@@ -101,7 +110,8 @@ pub fn git_host_tokens(
         github_apps,
         secrets,
     )
-    .with_forgejo(forgejo, self_hosted_git);
+    .with_forgejo(forgejo, self_hosted_git)
+    .with_github_pats_disabled(github_pats_disabled);
     Arc::new(match credential_overrides {
         Some(reader) => tokens.with_credential_overrides(reader),
         None => tokens,

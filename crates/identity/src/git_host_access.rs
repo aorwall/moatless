@@ -45,6 +45,9 @@ pub struct GitHubProviderTokenStatus {
     /// leaves a PAT as the only way to connect, which is what the screen
     /// offers.
     pub app_connect_available: bool,
+    /// Whether this deployment accepts a PAT at all; see
+    /// `AuthConfig::github_pats_disabled`.
+    pub pat_connect_available: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -106,6 +109,8 @@ pub struct GitHostAccess {
     /// Start-up state, so it is passed in rather than read per request. See
     /// [`GitHubProviderTokenStatus::app_connect_available`].
     app_connect_available: bool,
+    /// Start-up state; see [`GitHubProviderTokenStatus::pat_connect_available`].
+    pat_connect_available: bool,
 }
 
 impl GitHostAccess {
@@ -120,7 +125,15 @@ impl GitHostAccess {
             secrets,
             validator,
             app_connect_available,
+            pat_connect_available: true,
         }
+    }
+
+    /// Refuse every new GitHub PAT.
+    #[must_use]
+    pub(crate) fn with_github_pats_disabled(mut self, disabled: bool) -> Self {
+        self.pat_connect_available = !disabled;
+        self
     }
 
     pub async fn github_status(
@@ -139,6 +152,7 @@ impl GitHostAccess {
                 auth_method: None,
                 has_pat_override: false,
                 app_connect_available: self.app_connect_available,
+                pat_connect_available: self.pat_connect_available,
             });
         };
         Ok(GitHubProviderTokenStatus {
@@ -150,6 +164,7 @@ impl GitHostAccess {
             auth_method: row.auth_method,
             token_type: row.token_type,
             app_connect_available: self.app_connect_available,
+            pat_connect_available: self.pat_connect_available,
         })
     }
 
@@ -177,6 +192,13 @@ impl GitHostAccess {
         principal: &GitHostPrincipal,
         token: String,
     ) -> Result<GitHubProviderTokenStatus, GitHostAccessError> {
+        if !self.pat_connect_available {
+            return Err(GitHostAccessError::BadRequest(
+                "GitHub personal access tokens are disabled on this deployment; \
+                 connect GitHub through the App instead"
+                    .to_string(),
+            ));
+        }
         let login = self
             .validator
             .validate_github(&token)
@@ -259,6 +281,7 @@ impl GitHostAccess {
                 .has_stashed_app_token(&principal.user_id, Some("pat"))
                 .await,
             app_connect_available: self.app_connect_available,
+            pat_connect_available: self.pat_connect_available,
         })
     }
 
@@ -278,6 +301,7 @@ impl GitHostAccess {
             auth_method: None,
             has_pat_override: false,
             app_connect_available: self.app_connect_available,
+            pat_connect_available: self.pat_connect_available,
         })
     }
 
@@ -339,6 +363,7 @@ impl GitHostAccess {
             auth_method: Some(restored_auth_method),
             has_pat_override: false,
             app_connect_available: self.app_connect_available,
+            pat_connect_available: self.pat_connect_available,
         })
     }
 
@@ -496,6 +521,32 @@ mod tests {
 
         assert!(matches!(result, Err(GitHostAccessError::Provider(_))));
         assert_eq!(tokens.writes.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn a_deployment_refusing_pats_saves_none() {
+        let tokens = Arc::new(StubProviderTokens::default());
+        let access = GitHostAccess::new(
+            Arc::clone(&tokens) as Arc<dyn ProviderTokenDao>,
+            Arc::new(service_with(Vec::new())),
+            Arc::new(AcceptingValidator),
+            true,
+        )
+        .with_github_pats_disabled(true);
+
+        let result = access
+            .save_github_provider_token(&principal(), "ghp_valid".to_string())
+            .await;
+
+        assert!(matches!(result, Err(GitHostAccessError::BadRequest(_))));
+        assert_eq!(tokens.writes.load(Ordering::Relaxed), 0);
+        assert!(
+            !access
+                .github_status(&principal())
+                .await
+                .unwrap()
+                .pat_connect_available
+        );
     }
 
     /// The principal never says how anyone signed in, so every status test

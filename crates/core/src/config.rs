@@ -1016,6 +1016,7 @@ impl Config {
                     None => AuthProvider::default(),
                 },
                 github_required_org: env_opt("GITHUB_REQUIRED_ORG"),
+                github_pats_disabled: env_bool("GITHUB_PATS_DISABLED", false),
                 auth0_domain: env_opt("AUTH0_DOMAIN"),
                 auth0_client_id: env_opt("AUTH0_CLIENT_ID"),
                 auth0_client_secret: env_opt("AUTH0_CLIENT_SECRET"),
@@ -1480,6 +1481,7 @@ impl Config {
             auth: AuthConfig {
                 provider: AuthProvider::Local,
                 github_required_org: None,
+                github_pats_disabled: false,
                 auth0_domain: None,
                 auth0_client_id: None,
                 auth0_client_secret: None,

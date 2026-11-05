@@ -27,6 +27,15 @@ pub(super) struct GithubPrAuth {
     http: reqwest::Client,
 }
 
+/// A client that writes to one repository, and the driver to credit when the
+/// App it authenticates as, rather than the driver, authors what it posts.
+pub(super) struct RepoWriter {
+    pub(super) api: GithubPrApi,
+    /// GitHub login of the driver the App writes for; `None` when the client
+    /// writes as the identity itself, which GitHub already shows.
+    pub(super) driver_login: Option<String>,
+}
+
 pub(super) struct AuthenticatedGithub {
     pub(super) user_id: String,
     pub(super) api: GithubPrApi,
@@ -78,9 +87,9 @@ impl GithubPrAuth {
         binding: &TaskBinding,
         rule: Option<&SubscriptionMatch>,
         repo: &GitHostRepo,
-    ) -> Result<GithubPrApi, AdapterError> {
+    ) -> Result<RepoWriter, AdapterError> {
         let actor = outbound_actor(author_user_id, binding, rule)?;
-        self.client_for(&actor, repo).await
+        self.writer_for(&actor, repo).await
     }
 
     pub(super) async fn client_for_reaction(
@@ -99,6 +108,30 @@ impl GithubPrAuth {
         repo: &GitHostRepo,
     ) -> Result<GithubPrApi, AdapterError> {
         self.client_for(&Actor::of(acting_user), repo).await
+    }
+
+    /// A client that writes to `repo` as the App `actor` signed in through,
+    /// else as `actor`, per [`GitHostTokenIssuer::github_app_authored`].
+    pub(super) async fn writer_for(
+        &self,
+        actor: &Actor,
+        repo: &GitHostRepo,
+    ) -> Result<RepoWriter, AdapterError> {
+        let authored = self
+            .git_host_tokens
+            .github_app_authored(actor, repo.owner(), repo.name())
+            .await
+            .map_err(|source| adapter_error(actor, source))?;
+        match authored {
+            Some(authored) => Ok(RepoWriter {
+                api: self.client(&authored.token),
+                driver_login: Some(authored.driver_login),
+            }),
+            None => Ok(RepoWriter {
+                api: self.client_for(actor, repo).await?,
+                driver_login: None,
+            }),
+        }
     }
 
     /// Mint a GitHub client from `actor`'s OWN row, scoped to `repo`.
@@ -128,6 +161,14 @@ fn adapter_error(actor: &Actor, source: GitHostTokenError) -> AdapterError {
         GitHostTokenError::Store(e) => AdapterError::from(SharedAdapterError::AdapterApi(format!(
             "GitHub token lookup failed for {actor}: {e}"
         ))),
+        // `Forbidden` displays without its source, which carries what to do.
+        forbidden @ GitHostTokenError::Forbidden { .. } => {
+            let message = match std::error::Error::source(&forbidden) {
+                Some(reason) => format!("{forbidden}: {reason}"),
+                None => forbidden.to_string(),
+            };
+            SharedAdapterError::AdapterApi(message).into()
+        }
         other => SharedAdapterError::AdapterApi(other.to_string()).into(),
     }
 }
@@ -259,6 +300,20 @@ pub(super) async fn resolve_task_github_api(
         .await
 }
 
+/// Resolve the writer for `actor` posting to `owner/repo_name`, per
+/// [`GithubPrAuth::writer_for`].
+pub(super) async fn resolve_task_github_writer(
+    adapter: &GithubPrAdapter,
+    actor: &Actor,
+    owner: &str,
+    repo_name: &str,
+) -> Result<RepoWriter, AdapterError> {
+    adapter
+        .auth()
+        .writer_for(actor, &GitHostRepo::github(owner, repo_name))
+        .await
+}
+
 /// The identity a Task's GitHub write acts as: the Task's own run-as on behalf
 /// of `caller`, else `caller`, matching the sandbox's `GITHUB_TOKEN`.
 ///
@@ -282,6 +337,24 @@ mod tests {
     use super::*;
     use moatless_identity::auth::test_support::{StubProviderTokens, github_row};
     use moatless_types::adapter::AdapterKind;
+
+    #[test]
+    fn a_refusal_keeps_what_to_do_about_it() {
+        let error = adapter_error(
+            &Actor::of("ada"),
+            GitHostTokenError::Forbidden {
+                actor: Actor::of("ada"),
+                account: Box::new(GitHostRepo::github("acme", "repo").credential_account()),
+                source: "ada needs write access to acme/repo".into(),
+            },
+        );
+        assert!(
+            error
+                .to_string()
+                .ends_with(": ada needs write access to acme/repo"),
+            "{error}"
+        );
+    }
 
     #[test]
     fn a_task_run_as_writes_on_behalf_of_the_caller() {

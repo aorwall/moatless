@@ -10,12 +10,16 @@ use tracing::warn;
 
 use crate::git_credential_overrides::GitCredentialOverrides;
 use moatless_core::secret_keys::{GITHUB_TOKEN, forgejo_token_key};
-use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer};
+use moatless_ports::identity::{AppAuthoredToken, GitHostTokenError, GitHostTokenIssuer};
 use moatless_types::git_host::{GitHostAccount, RepositoryProvider};
 use moatless_types::store::StoreError;
 
+use crate::auth::credentials::{
+    GITHUB_OAUTH_STASH_KEY, StashedOAuthCredential, read_oauth_stash, stash_oauth_credential,
+};
 use crate::auth::error::AuthError;
 use crate::auth::github::registry::GitHubAppRegistry;
+use crate::auth::github::repository_role::RepositoryRole;
 use crate::auth::github::service::GitHubAppService;
 use crate::auth::models::ProviderToken;
 use crate::auth::provider_token_auth_dao::ProviderTokenAuthDao;
@@ -49,6 +53,9 @@ pub struct GitHostTokens {
     /// `None` in a deployment that wires no Forgejo registry, which leaves a
     /// stored Forgejo credential to be presented until its host rejects it.
     forgejo: Option<ForgejoRefresh>,
+    /// `AuthConfig::github_pats_disabled`: a PAT row presents the App
+    /// credential stashed behind it, never the PAT.
+    github_pats_disabled: bool,
 }
 
 /// The two handles renewing a Forgejo OAuth credential needs: the instance's
@@ -74,6 +81,7 @@ impl GitHostTokens {
             secrets,
             credential_overrides: None,
             forgejo: None,
+            github_pats_disabled: false,
         }
     }
 
@@ -84,6 +92,13 @@ impl GitHostTokens {
         credential_overrides: Arc<dyn GitCredentialOverrides>,
     ) -> Self {
         self.credential_overrides = Some(credential_overrides);
+        self
+    }
+
+    /// Refuse to present a GitHub personal access token.
+    #[must_use]
+    pub(crate) fn with_github_pats_disabled(mut self, disabled: bool) -> Self {
+        self.github_pats_disabled = disabled;
         self
     }
 
@@ -152,18 +167,7 @@ impl GitHostTokens {
     /// An App-installation row is reported usable on the strength of the App
     /// handle alone — see [`GitHostTokenIssuer::github_is_usable`], which this
     /// serves.
-    ///
-    /// A Workspace pin is usable on its own: it is the token every call on that
-    /// Workspace presents, so the identity needs no row of its own behind it.
     async fn github_credential_is_usable(&self, actor: &Actor) -> Result<(), GitHostTokenError> {
-        if self
-            .pinned_token(actor, RepositoryProvider::Github)
-            .await?
-            .is_some()
-        {
-            return Ok(());
-        }
-
         let Some(row) = self
             .provider_tokens
             .find_github_row(actor.user_id())
@@ -178,6 +182,7 @@ impl GitHostTokens {
         };
 
         let checked = match row.auth_method.as_deref() {
+            _ if self.blocks_pat(&row) => self.stashed_app_token(actor).await.map(|_| ()),
             Some(AUTH_METHOD_APP_INSTALLATION) => self.installation_app(&row).await.map(|_| ()),
             Some(AUTH_METHOD_SECRET_REF) => self
                 .read_secret_ref_token(actor, GITHUB_TOKEN)
@@ -215,6 +220,7 @@ impl GitHostTokens {
         };
 
         let resolved = match (row.auth_method.as_deref(), actor.person()) {
+            _ if self.blocks_pat(&row) => self.stashed_app_token(actor).await,
             (Some(AUTH_METHOD_APP_INSTALLATION), Some(person)) => match repository {
                 Some(repository) => {
                     return self
@@ -287,33 +293,78 @@ impl GitHostTokens {
             provider: RepositoryProvider::Github,
             source: "the GitHub connection records no login to check repository access for".into(),
         })?;
-        let refused = || GitHostTokenError::Forbidden {
-            actor: person_actor.clone(),
-            account: Box::new(account()),
-            source: format!("{login} has no role on {owner}/{repository} the App can act with")
-                .into(),
-        };
-
         let app = self.installation_app(row).await.map_err(as_actor)?;
-        let installation = app.resolve_installation_id(owner).await.map_err(as_actor)?;
-        let Some(role) = app
-            .repository_role(installation, owner, repository, &login)
+        role_capped_token(&app, owner, repository, &login, RepositoryRole::Read)
             .await
             .map_err(as_actor)?
-        else {
-            return Err(refused());
-        };
-        let permissions = role.cap(
-            &app.installation_permissions(installation)
-                .await
-                .map_err(as_actor)?,
-        );
-        if permissions.is_empty() {
-            return Err(refused());
+            .ok_or_else(|| GitHostTokenError::Forbidden {
+                actor: person_actor.clone(),
+                account: Box::new(account()),
+                source: format!("{login} has no role on {owner}/{repository} the App can act with")
+                    .into(),
+            })
+    }
+
+    /// Serves [`GitHostTokenIssuer::github_app_authored`] for an actor whose
+    /// own row is a login-App user token.
+    async fn app_authored_token(
+        &self,
+        actor: &Actor,
+        owner: &str,
+        repository: &str,
+    ) -> Result<Option<AppAuthoredToken>, GitHostTokenError> {
+        if actor.person().is_some() {
+            return Ok(None);
         }
-        app.get_repository_installation_token(installation, owner, repository, &permissions)
+        let row = self
+            .provider_tokens
+            .find_github_row(actor.user_id())
             .await
-            .map_err(as_actor)
+            .map_err(|e| StoreError::with_source(format!("read {actor}'s GitHub row"), e))?;
+        let (row_is_app_sign_in, login) = match row {
+            Some(row) if row.auth_method.as_deref() == Some(AUTH_METHOD_APP_USER) => {
+                (true, github_login(&row))
+            }
+            // The App sign-in the PAT stands in front of names the driver.
+            Some(row) if self.blocks_pat(&row) => (true, metadata_login(&row, "oauth_login")),
+            _ => (false, None),
+        };
+        let Some(login) = login else {
+            return if row_is_app_sign_in {
+                Err(broken(
+                    actor,
+                    "the GitHub connection records no login to post for; reconnect GitHub",
+                ))
+            } else {
+                Ok(None)
+            };
+        };
+        let Some(app) = self.github_apps.default_service() else {
+            return Err(broken(
+                actor,
+                "no GitHub login App is configured to post as",
+            ));
+        };
+        let account = GitHostAccount::Github {
+            owner: owner.to_string(),
+            repository: Some(repository.to_string()),
+        };
+        let token = role_capped_token(&app, owner, repository, &login, RepositoryRole::Write)
+            .await
+            .map_err(|source| classify(actor, account.clone(), source))?
+            .ok_or_else(|| GitHostTokenError::Forbidden {
+                actor: actor.clone(),
+                account: Box::new(account),
+                source: format!(
+                    "{login} needs write access to {owner}/{repository} for the GitHub App to \
+                     post for them; ask a repository admin to grant it"
+                )
+                .into(),
+            })?;
+        Ok(Some(AppAuthoredToken {
+            token,
+            driver_login: login,
+        }))
     }
 
     /// An App-installation row mints an installation-wide token: it can reach
@@ -347,6 +398,70 @@ impl GitHostTokens {
                 row.user_id
             ))
         })
+    }
+
+    /// Whether `row` is a GitHub personal access token this deployment refuses.
+    fn blocks_pat(&self, row: &ProviderToken) -> bool {
+        self.github_pats_disabled
+            && (row.auth_method.as_deref() == Some(AUTH_METHOD_SECRET_REF)
+                || row.token_type.as_deref() == Some("pat"))
+    }
+
+    /// The App credential stashed behind `actor`'s refused PAT, renewed and
+    /// re-stashed near expiry. The PAT row itself is left as it is, so the
+    /// person can still remove the override in Settings.
+    async fn stashed_app_token(&self, actor: &Actor) -> Result<String, AuthError> {
+        let user_id = actor.user_id();
+        let stashed = read_oauth_stash(&self.secrets, user_id, GITHUB_OAUTH_STASH_KEY)
+            .await
+            .map_err(|e| AuthError::Config(format!("Failed to read the GitHub App stash: {e}")))?
+            .ok_or_else(|| {
+                AuthError::Config(
+                    "GitHub personal access tokens are disabled on this deployment; \
+                     remove the token in Settings and connect GitHub through the App"
+                        .to_string(),
+                )
+            })?;
+        let (Some(refresh_token), Some(app), false) = (
+            stashed.refresh_token.as_deref(),
+            self.github_app_service.as_deref(),
+            stash_is_fresh(&stashed),
+        ) else {
+            return Ok(stashed.access_token);
+        };
+        let renewed = match app.refresh_user_token(refresh_token).await {
+            Ok(renewed) => renewed,
+            // A concurrent caller may have spent the single-use refresh token
+            // and stashed the new pair; `stashed` predates that.
+            Err(e) => {
+                return match read_oauth_stash(&self.secrets, user_id, GITHUB_OAUTH_STASH_KEY).await
+                {
+                    Ok(Some(current)) if stash_is_fresh(&current) => Ok(current.access_token),
+                    _ => Err(e),
+                };
+            }
+        };
+        let now = chrono::Utc::now();
+        let credential = StashedOAuthCredential {
+            access_token: renewed.access_token.clone(),
+            refresh_token: renewed.refresh_token,
+            expires_at: renewed
+                .expires_in
+                .map(|secs| now + chrono::Duration::seconds(secs as i64)),
+        };
+        // The refresh token is single-use: an unsaved pair strands the stash.
+        stash_oauth_credential(
+            &self.secrets,
+            user_id,
+            GITHUB_OAUTH_STASH_KEY,
+            "github",
+            &credential,
+        )
+        .await
+        .map_err(|e| {
+            AuthError::Config(format!("Failed to save the renewed GitHub App token: {e}"))
+        })?;
+        Ok(renewed.access_token)
     }
 
     /// A GitHub App user row refreshes near expiry; a failed refresh falls back
@@ -531,14 +646,61 @@ impl GitHostTokens {
 fn github_login(row: &ProviderToken) -> Option<String> {
     row.provider_login
         .clone()
-        .or_else(|| {
-            row.metadata
-                .as_ref()?
-                .get("login")?
-                .as_str()
-                .map(str::to_string)
-        })
         .filter(|login| !login.is_empty())
+        .or_else(|| metadata_login(row, "login"))
+}
+
+/// A non-empty login `row`'s metadata records under `key`.
+fn metadata_login(row: &ProviderToken, key: &str) -> Option<String> {
+    row.metadata
+        .as_ref()?
+        .get(key)?
+        .as_str()
+        .filter(|login| !login.is_empty())
+        .map(str::to_string)
+}
+
+/// An installation token of `app` for `owner/repository` alone, capped by
+/// `login`'s role there; `None` when that role is below `minimum` or grants
+/// the App nothing.
+async fn role_capped_token(
+    app: &GitHubAppService,
+    owner: &str,
+    repository: &str,
+    login: &str,
+    minimum: RepositoryRole,
+) -> Result<Option<String>, AuthError> {
+    let installation = app.resolve_installation_id(owner).await?;
+    let Some(role) = app
+        .repository_role(installation, owner, repository, login)
+        .await?
+        .filter(|role| *role == RepositoryRole::Write || minimum == RepositoryRole::Read)
+    else {
+        return Ok(None);
+    };
+    let permissions = role.cap(&app.installation_permissions(installation).await?);
+    if permissions.is_empty() {
+        return Ok(None);
+    }
+    app.get_repository_installation_token(installation, owner, repository, &permissions)
+        .await
+        .map(Some)
+}
+
+/// Whether `stash` stays in date for at least the refresh margin.
+fn stash_is_fresh(stash: &StashedOAuthCredential) -> bool {
+    stash
+        .expires_at
+        .is_some_and(|at| at > chrono::Utc::now() + chrono::Duration::minutes(5))
+}
+
+/// `actor`'s GitHub credential reported unusable for `reason`.
+fn broken(actor: &Actor, reason: &str) -> GitHostTokenError {
+    GitHostTokenError::Broken {
+        actor: actor.clone(),
+        provider: RepositoryProvider::Github,
+        source: reason.into(),
+    }
 }
 
 /// The stored token after its refresh failed, while it is still in date.
@@ -630,8 +792,12 @@ impl GitHostTokenIssuer for GitHostTokens {
         account: &GitHostAccount,
     ) -> Result<String, GitHostTokenError> {
         let provider = account.provider();
-        if let Some(pinned) = self.pinned_token(actor, provider).await? {
-            return Ok(pinned);
+        // No GitHub pin: a Workspace cannot name the account GitHub work acts
+        // as, which would bypass the App authoring it.
+        if provider != RepositoryProvider::Github {
+            if let Some(pinned) = self.pinned_token(actor, provider).await? {
+                return Ok(pinned);
+            }
         }
         match account {
             GitHostAccount::Github { owner, repository } => {
@@ -647,6 +813,15 @@ impl GitHostTokenIssuer for GitHostTokens {
 
     async fn github_is_usable(&self, actor: &Actor) -> Result<(), GitHostTokenError> {
         self.github_credential_is_usable(actor).await
+    }
+
+    async fn github_app_authored(
+        &self,
+        actor: &Actor,
+        owner: &str,
+        repository: &str,
+    ) -> Result<Option<AppAuthoredToken>, GitHostTokenError> {
+        self.app_authored_token(actor, owner, repository).await
     }
 }
 
@@ -748,6 +923,84 @@ mod tests {
         tokens(StubProviderTokens::with_user_row(row), secrets)
             .token(&Actor::of("u1"), &github_account())
             .await
+    }
+
+    /// A PAT row standing in front of `stash`, the App credential it displaced.
+    fn pat_over_stash(
+        stash: Option<&StashedOAuthCredential>,
+    ) -> (StubProviderTokens, SecretService) {
+        let mut records = vec![secret(
+            "user",
+            Some("u1"),
+            "provider_token",
+            "GITHUB_TOKEN",
+            "ghp_real",
+        )];
+        if let Some(stash) = stash {
+            records.push(secret(
+                "user",
+                Some("u1"),
+                "internal",
+                GITHUB_OAUTH_STASH_KEY,
+                &serde_json::to_string(stash).unwrap(),
+            ));
+        }
+        let row = ProviderToken {
+            token_type: Some("pat".to_string()),
+            ..github_row(AUTH_METHOD_SECRET_REF, SECRET_REF_TOKEN_PLACEHOLDER)
+        };
+        (
+            StubProviderTokens::with_user_row(Some(row)),
+            service_with(records),
+        )
+    }
+
+    #[tokio::test]
+    async fn a_refused_pat_presents_the_app_token_stashed_behind_it() {
+        let stash = StashedOAuthCredential {
+            access_token: "ghu_stashed".to_string(),
+            refresh_token: Some("ghr_stashed".to_string()),
+            expires_at: Some(chrono::Utc::now() + chrono::Duration::hours(1)),
+        };
+        let (rows, secrets) = pat_over_stash(Some(&stash));
+        let seam = tokens(rows, secrets).with_github_pats_disabled(true);
+
+        let token = seam
+            .token(&Actor::of("u1"), &github_account())
+            .await
+            .expect("the stash stands in for the PAT");
+        assert_eq!(token, "ghu_stashed");
+        seam.github_is_usable(&Actor::of("u1"))
+            .await
+            .expect("the stash is a usable credential");
+    }
+
+    #[tokio::test]
+    async fn a_refused_pat_with_nothing_stashed_says_pats_are_disabled() {
+        let (rows, secrets) = pat_over_stash(None);
+        let seam = tokens(rows, secrets).with_github_pats_disabled(true);
+
+        let error = seam
+            .token(&Actor::of("u1"), &github_account())
+            .await
+            .expect_err("a refused PAT is never presented");
+        assert!(
+            error
+                .to_string()
+                .contains("personal access tokens are disabled"),
+            "got {error}"
+        );
+        assert!(seam.github_is_usable(&Actor::of("u1")).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_pat_is_presented_while_pats_are_allowed() {
+        let (rows, secrets) = pat_over_stash(None);
+        let token = tokens(rows, secrets)
+            .token(&Actor::of("u1"), &github_account())
+            .await
+            .expect("resolves");
+        assert_eq!(token, "ghp_real");
     }
 
     #[tokio::test]
@@ -1064,7 +1317,7 @@ mod tests {
         fn unreadable() -> Arc<dyn GitCredentialOverrides> {
             Arc::new(Self {
                 workspace_id: "ws_1",
-                provider: RepositoryProvider::Github,
+                provider: RepositoryProvider::Gitlab,
                 value: String::new(),
                 fails: true,
             })
@@ -1089,9 +1342,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_workspace_pin_outranks_the_identitys_own_github_row() {
-        // The whole point: the workspace names the account, so a task on it
-        // reaches repositories the user's own token cannot.
+    async fn a_workspace_never_pins_github() {
         let seam = tokens(
             StubProviderTokens::with_user_row(Some(github_row("manual", "ghp_user"))),
             service_with(vec![]),
@@ -1108,48 +1359,26 @@ mod tests {
                 &github_account(),
             )
             .await
-            .expect("the pin resolves");
-        assert_eq!(token, "ghp_workspace");
+            .expect("the identity's own row resolves");
+        assert_eq!(token, "ghp_user");
     }
 
     #[tokio::test]
     async fn a_workspace_pin_answers_for_an_identity_holding_no_row_at_all() {
         let seam =
             tokens(StubProviderTokens::default(), service_with(vec![])).with_credential_overrides(
-                PinnedCredentials::holding("ws_1", RepositoryProvider::Github, "ghp_workspace"),
+                PinnedCredentials::holding("ws_1", RepositoryProvider::Gitlab, "glpat_workspace"),
             );
-        let actor = Actor::of("u1").on_workspace(Some("ws_1"));
 
         assert_eq!(
-            seam.token(&actor, &github_account())
-                .await
-                .expect("resolves"),
-            "ghp_workspace"
+            seam.token(
+                &Actor::of("u1").on_workspace(Some("ws_1")),
+                &GitHostAccount::Gitlab
+            )
+            .await
+            .expect("resolves"),
+            "glpat_workspace"
         );
-        seam.github_is_usable(&actor)
-            .await
-            .expect("a pin is a usable credential on its own");
-    }
-
-    #[tokio::test]
-    async fn an_actor_naming_no_workspace_resolves_its_own_row() {
-        // Work no workspace is behind — a settings check, an interactive
-        // request — must not pick up another workspace's account.
-        let seam = tokens(
-            StubProviderTokens::with_user_row(Some(github_row("manual", "ghp_user"))),
-            service_with(vec![]),
-        )
-        .with_credential_overrides(PinnedCredentials::holding(
-            "ws_1",
-            RepositoryProvider::Github,
-            "ghp_workspace",
-        ));
-
-        let token = seam
-            .token(&Actor::of("u1"), &github_account())
-            .await
-            .expect("the user's own row resolves");
-        assert_eq!(token, "ghp_user");
     }
 
     #[tokio::test]
@@ -1187,7 +1416,7 @@ mod tests {
         let error = seam
             .token(
                 &Actor::of("u1").on_workspace(Some("ws_1")),
-                &github_account(),
+                &GitHostAccount::Gitlab,
             )
             .await
             .expect_err("an unreadable pin is not an absent pin");

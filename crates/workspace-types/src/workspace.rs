@@ -341,12 +341,10 @@ crate::string_enum!(
 crate::string_enum!(
     /// A provider whose credential can be pinned to a Workspace.
     ///
-    /// Only providers whose sandbox credential is a single static environment
-    /// variable are listed here. Codex and the Claude OAuth token are refreshed
-    /// per-user, so a workspace-level copy would go stale with nothing to
-    /// rotate it.
+    /// Only single static env-var credentials: Codex and Claude OAuth tokens
+    /// refresh per user, so a pinned copy goes stale. GitHub is deliberately
+    /// absent: a pin would outrank the App connection that authors Task posts.
     WorkspaceCredentialProvider [Hash] {
-        Github => "github",
         Gitlab => "gitlab",
         Forgejo => "forgejo",
         Openai => "openai",
@@ -360,7 +358,7 @@ impl WorkspaceCredentialProvider {
     /// A pin for one is the token every call against that host presents, so
     /// it's resolved by `moatless_identity::git_host_tokens::GitHostTokens`
     /// rather than only delivered as an environment variable.
-    pub const GIT_HOSTS: &'static [Self] = &[Self::Github, Self::Gitlab, Self::Forgejo];
+    pub const GIT_HOSTS: &'static [Self] = &[Self::Gitlab, Self::Forgejo];
 
     /// A Forgejo pin is single-valued though a deployment may hold repositories
     /// on several Forgejo hosts, so it authenticates against all of them.
@@ -369,7 +367,6 @@ impl WorkspaceCredentialProvider {
     /// `forgejo:{host}`, which a pin deliberately outranks.
     pub fn env_key(self) -> &'static str {
         match self {
-            Self::Github => "GITHUB_TOKEN",
             Self::Gitlab => "GITLAB_TOKEN",
             Self::Forgejo => "FORGEJO_TOKEN",
             Self::Openai => "OPENAI_API_KEY",
@@ -386,13 +383,15 @@ impl WorkspaceCredentialProvider {
     }
 }
 
-impl From<crate::repository::RepositoryProvider> for WorkspaceCredentialProvider {
-    fn from(provider: crate::repository::RepositoryProvider) -> Self {
+impl WorkspaceCredentialProvider {
+    /// The pin a Workspace may hold for `host`; `None` for GitHub, which a
+    /// Workspace cannot pin.
+    pub fn git_host(host: crate::repository::RepositoryProvider) -> Option<Self> {
         use crate::repository::RepositoryProvider as Host;
-        match provider {
-            Host::Github => Self::Github,
-            Host::Gitlab => Self::Gitlab,
-            Host::Forgejo => Self::Forgejo,
+        match host {
+            Host::Github => None,
+            Host::Gitlab => Some(Self::Gitlab),
+            Host::Forgejo => Some(Self::Forgejo),
         }
     }
 }

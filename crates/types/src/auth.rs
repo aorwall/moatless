@@ -91,6 +91,9 @@ pub struct AuthConfig {
     /// Required GitHub organization login. When set, only members of this org
     /// can log in.
     pub github_required_org: Option<String>,
+    /// Refuse GitHub personal access tokens (env: `GITHUB_PATS_DISABLED`), so
+    /// every GitHub call goes through the App's own credentials.
+    pub github_pats_disabled: bool,
     /// Auth0 domain (e.g., "myapp.us.auth0.com")
     pub auth0_domain: Option<String>,
     /// Auth0 client ID
@@ -316,6 +319,7 @@ impl fmt::Debug for AuthConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AuthConfig")
             .field("provider", &self.provider)
+            .field("github_pats_disabled", &self.github_pats_disabled)
             .field("auth0_domain", &self.auth0_domain)
             .field("auth0_client_id", &self.auth0_client_id)
             .field(

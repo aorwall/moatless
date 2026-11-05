@@ -41,6 +41,16 @@ pub enum GitHostTokenError {
     Store(#[from] StoreError),
 }
 
+/// A token that writes to one GitHub repository as the App its driver signed in
+/// through, so the App, not the driver, authors what it posts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppAuthoredToken {
+    pub token: String,
+    /// The driver's GitHub login. GitHub records no driver on what an App
+    /// posts, so the caller credits this login in the text itself.
+    pub driver_login: String,
+}
+
 /// The one way to a git-host token.
 ///
 /// Only two credentials are ever tried, at any scope: the actor's Workspace pin
@@ -64,4 +74,19 @@ pub trait GitHostTokenIssuer: Send + Sync {
     /// [`Self::token`] — and answers for the credential `actor` would
     /// actually present, so one missing row kind can't read as "not connected".
     async fn github_is_usable(&self, actor: &Actor) -> Result<(), GitHostTokenError>;
+
+    /// An installation token of the App `actor` connected GitHub through,
+    /// scoped to `owner/repository` and capped by `actor`'s role there.
+    ///
+    /// `Ok(None)` means write with [`Self::token`] instead: a credential that
+    /// is not an App sign-in, or a run-as acting for a person. A driver below
+    /// write access, or an App not installed on `owner`, is `Forbidden`.
+    async fn github_app_authored(
+        &self,
+        _actor: &Actor,
+        _owner: &str,
+        _repository: &str,
+    ) -> Result<Option<AppAuthoredToken>, GitHostTokenError> {
+        Ok(None)
+    }
 }

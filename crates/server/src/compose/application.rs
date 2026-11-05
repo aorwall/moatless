@@ -210,6 +210,7 @@ impl AppState {
                 config.http.github,
             )),
             config.auth.github_app_oauth().is_some(),
+            config.auth.github_pats_disabled,
         );
         let sandbox_callers = Arc::new(crate::proxy::caller::SandboxCallers::new(
             ports.sandbox_graph.sandbox_ingress(),

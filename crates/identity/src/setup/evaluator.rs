@@ -20,6 +20,8 @@ pub struct SetupContext<'a> {
     pub is_admin: bool,
     pub(crate) provider_tokens: &'a dyn ProviderTokenDao,
     pub secrets: Option<&'a SecretService>,
+    /// `AuthConfig::github_pats_disabled`.
+    pub github_pats_disabled: bool,
 }
 
 #[async_trait]
@@ -63,6 +65,7 @@ mod tests {
             is_admin,
             provider_tokens: tokens,
             secrets: None,
+            github_pats_disabled: false,
         }
     }
 

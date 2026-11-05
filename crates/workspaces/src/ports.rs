@@ -283,8 +283,12 @@ impl moatless_identity::git_credential_overrides::GitCredentialOverrides
         workspace_id: &str,
         provider: moatless_types::git_host::RepositoryProvider,
     ) -> Result<Option<String>, StoreError> {
-        let key = moatless_workspace_types::workspace::WorkspaceCredentialProvider::from(provider)
-            .env_key();
+        let Some(pin) =
+            moatless_workspace_types::workspace::WorkspaceCredentialProvider::git_host(provider)
+        else {
+            return Ok(None);
+        };
+        let key = pin.env_key();
         let mut env = WorkspaceCredentialReader::resolve_env(self, workspace_id).await?;
         Ok(env.remove(key).filter(|token| !token.is_empty()))
     }

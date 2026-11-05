@@ -491,8 +491,8 @@ mod tests {
         svc.set(
             &ctx("owner"),
             "ws_1",
-            WorkspaceCredentialProvider::Github,
-            "ghp_workspace",
+            WorkspaceCredentialProvider::Gitlab,
+            "glpat_workspace",
         )
         .await
         .expect("owner may set");
@@ -501,18 +501,19 @@ mod tests {
         use moatless_types::git_host::RepositoryProvider;
 
         assert_eq!(
-            svc.token("ws_1", RepositoryProvider::Github)
+            svc.token("ws_1", RepositoryProvider::Gitlab)
                 .await
                 .unwrap()
                 .as_deref(),
-            Some("ghp_workspace")
+            Some("glpat_workspace")
         );
         assert_eq!(
-            svc.token("ws_1", RepositoryProvider::Gitlab).await.unwrap(),
-            None
+            svc.token("ws_1", RepositoryProvider::Github).await.unwrap(),
+            None,
+            "a Workspace cannot pin GitHub"
         );
         assert_eq!(
-            svc.token("another_workspace", RepositoryProvider::Github)
+            svc.token("another_workspace", RepositoryProvider::Gitlab)
                 .await
                 .unwrap(),
             None

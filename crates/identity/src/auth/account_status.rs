@@ -23,6 +23,7 @@ pub(super) async fn current_user(
         is_admin: identity.role == UserRole::Admin,
         provider_tokens: state.provider_tokens_dao.as_ref(),
         secrets: Some(state.secrets.as_ref()),
+        github_pats_disabled: state.config.auth.github_pats_disabled,
     };
     let user_id_str = identity.user_id.to_string();
     let (providers, setup) = tokio::join!(

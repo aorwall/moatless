@@ -18,6 +18,8 @@ pub(super) struct RecordedGithubRequest {
     pub(super) method: String,
     pub(super) uri: String,
     pub(super) authorization: Option<String>,
+    /// The request body, empty when it is not UTF-8.
+    pub(super) body: String,
 }
 
 pub(super) enum StubResponse {
@@ -104,10 +106,15 @@ where
             .get("authorization")
             .and_then(|value| value.to_str().ok())
             .map(str::to_string);
+        let body = axum::body::to_bytes(request.into_body(), usize::MAX)
+            .await
+            .map(|bytes| String::from_utf8(bytes.to_vec()).unwrap_or_default())
+            .unwrap_or_default();
         state.requests.lock().await.push(RecordedGithubRequest {
             method: method.to_string(),
             uri: uri.clone(),
             authorization,
+            body,
         });
 
         (state.responder)(method, &path, &uri).into_response()

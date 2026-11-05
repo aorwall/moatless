@@ -8,6 +8,7 @@ use super::schemas::{
     SetupAction, SetupActionKind, SetupRequirement, SetupRequirementId, SetupRequirementStatus,
     SetupSeverity,
 };
+use crate::auth::credentials::GITHUB_OAUTH_STASH_KEY;
 use crate::auth::models::GithubTokenPresence;
 use moatless_core::secret_keys::GITHUB_TOKEN;
 use moatless_types::access_control::Scope;
@@ -77,17 +78,27 @@ async fn classify(
     let Some(secrets) = ctx.secrets else {
         return SetupRequirementStatus::Broken;
     };
-    match secrets
-        .secret_exists(
-            Scope::User,
-            Some(user_id),
-            GITHUB_TOKEN,
-            Some(SecretKind::ProviderToken),
+    // A refused PAT is never presented, only the App sign-in stashed behind
+    // it; with none, the remedy is connecting through the App.
+    let (key, kind, absent) = if ctx.github_pats_disabled {
+        (
+            GITHUB_OAUTH_STASH_KEY,
+            SecretKind::Internal,
+            SetupRequirementStatus::Missing,
         )
+    } else {
+        (
+            GITHUB_TOKEN,
+            SecretKind::ProviderToken,
+            SetupRequirementStatus::Broken,
+        )
+    };
+    match secrets
+        .secret_exists(Scope::User, Some(user_id), key, Some(kind))
         .await
     {
         Ok(true) => SetupRequirementStatus::Satisfied,
-        Ok(false) => SetupRequirementStatus::Broken,
+        Ok(false) => absent,
         Err(e) => {
             warn!(
                 error = %e,
@@ -121,12 +132,22 @@ mod tests {
         secrets: Option<&SecretService>,
         is_admin: bool,
     ) -> SetupRequirement {
+        evaluate_with(tokens, secrets, is_admin, false).await
+    }
+
+    async fn evaluate_with(
+        tokens: &StubProviderTokens,
+        secrets: Option<&SecretService>,
+        is_admin: bool,
+        github_pats_disabled: bool,
+    ) -> SetupRequirement {
         GithubTokenRequirement
             .evaluate(&SetupContext {
                 user_id: "u1",
                 is_admin,
                 provider_tokens: tokens,
                 secrets,
+                github_pats_disabled,
             })
             .await
     }
@@ -182,6 +203,41 @@ mod tests {
         let secrets = service_with(vec![]);
         let req = evaluate(&tokens, Some(&secrets), false).await;
         assert_eq!(req.status, SetupRequirementStatus::Broken);
+    }
+
+    #[tokio::test]
+    async fn a_refused_pat_is_set_up_only_by_the_app_sign_in_behind_it() {
+        let tokens = StubProviderTokens::with_user_row(Some(github_row(
+            crate::auth::provider_tokens::AUTH_METHOD_SECRET_REF,
+            SECRET_REF_TOKEN_PLACEHOLDER,
+        )));
+        let pat = secret(
+            "user",
+            Some("u1"),
+            "provider_token",
+            GITHUB_TOKEN,
+            "ghp_real",
+        );
+        let stash = secret(
+            "user",
+            Some("u1"),
+            "internal",
+            GITHUB_OAUTH_STASH_KEY,
+            "ghu_stashed",
+        );
+
+        let pat_only = service_with(vec![pat.clone()]);
+        let req = evaluate_with(&tokens, Some(&pat_only), false, true).await;
+        assert_eq!(
+            req.status,
+            SetupRequirementStatus::Missing,
+            "the PAT alone is refused, so connecting through the App is the remedy"
+        );
+        assert_eq!(req.actions.len(), 1);
+
+        let behind = service_with(vec![pat, stash]);
+        let req = evaluate_with(&tokens, Some(&behind), false, true).await;
+        assert_eq!(req.status, SetupRequirementStatus::Satisfied);
     }
 
     #[tokio::test]

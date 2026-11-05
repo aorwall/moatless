@@ -24,6 +24,7 @@ mod merged;
 mod outbound;
 mod post_merge;
 pub mod push_claim;
+mod reaction_api;
 mod reactions;
 mod rejection;
 mod reply_keys;
