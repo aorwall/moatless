@@ -506,12 +506,9 @@ impl TaskForkService {
 fn validate_side_chat_source(
     parent: Option<&super::relations::TaskRelation>,
 ) -> Result<(), TaskError> {
-    if parent.is_some_and(|parent| {
-        parent.is_side_chat()
-            || parent.relation_type == moatless_types::task::TaskRelationType::CreatedBy
-    }) {
+    if parent.is_some_and(super::relations::TaskRelation::is_side_chat) {
         return Err(TaskError::Conflict(
-            "Side chats cannot start from a side chat or a child task".to_string(),
+            "Side chats cannot start from a side chat".to_string(),
         ));
     }
     Ok(())
@@ -522,11 +519,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn side_chats_refuse_nested_and_spawned_sources_but_allow_ordinary_forks() {
+    fn side_chats_refuse_nested_sources_but_allow_child_tasks_and_ordinary_forks() {
         use super::super::relations::{TaskRelation, TaskRelationType};
         assert!(validate_side_chat_source(None).is_ok());
         for (kind, side_chat, allowed) in [
-            (TaskRelationType::CreatedBy, false, false),
+            (TaskRelationType::CreatedBy, false, true),
             (TaskRelationType::ForkedFrom, true, false),
             (TaskRelationType::ForkedFrom, false, true),
         ] {
