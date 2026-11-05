@@ -179,10 +179,8 @@ Notes:
   ```
 - A loop holds a bound task's inbound events and delivers a burst as one turn.
   `messageBufferSeconds` caps the hold from the burst's first event (default
-  60 for `github_pr`, off elsewhere). `messageQuietSeconds` is how long it waits
-  for the next event (default 10). Set it to minutes when each turn is costly
-  and pushes come in runs, such as a review loop: `messageQuietSeconds: 300`
-  with `messageBufferSeconds: 900`. A brand-new task's first turn is never held.
+  60 for `github_pr`, off elsewhere); each event waits 10 s for the next. A
+  brand-new task's first turn is never held.
 - A `github_pr` loop's `adapterConfig.ignored_events` also takes
   `review_verdict`: an approval or change request with no body. Only the ignore
   list reads it, so an include list naming `pull_request_review` keeps them.

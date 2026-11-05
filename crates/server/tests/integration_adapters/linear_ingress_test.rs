@@ -188,7 +188,6 @@ async fn seed_rule(state: &AppState, pool: &PgPool) {
             stop_when_done: None,
             room: None,
             message_buffer_seconds: None,
-            message_quiet_seconds: None,
             allow_direct_send: false,
             close_task_on_close: false,
             adapter_config: None,

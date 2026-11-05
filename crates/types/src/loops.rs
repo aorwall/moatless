@@ -186,10 +186,6 @@ pub struct SubscriptionMatch {
     /// declaring nothing, which falls back to the per-adapter environment
     /// default; `0` delivers every event on its own.
     pub message_buffer_seconds: Option<i32>,
-    /// Quiet period in seconds: a burst flushes once this long passes after
-    /// its newest event, never later than `message_buffer_seconds` allows.
-    /// `None` is the Loop declaring nothing, so `QUIET_PERIOD` applies.
-    pub message_quiet_seconds: Option<i32>,
     /// See [`LoopContext::room`].
     pub room: Option<RoomSpec>,
     pub allow_direct_send: bool,

@@ -98,7 +98,6 @@ pub fn delivery_only_subscription(
         node_selector: None,
         stop_when_done: None,
         message_buffer_seconds: None,
-        message_quiet_seconds: None,
         room: None,
         allow_direct_send: false,
         adapter_config: None,

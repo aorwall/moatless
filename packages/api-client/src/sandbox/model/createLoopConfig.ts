@@ -29,11 +29,6 @@ export interface CreateLoopConfig {
      */
   messageBufferSeconds?: number | null;
   /**
-     * See [`LoopConfig::message_quiet_seconds`].
-     * @nullable
-     */
-  messageQuietSeconds?: number | null;
-  /**
      * See [`LoopConfig::model`].
      * @nullable
      */

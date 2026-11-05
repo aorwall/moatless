@@ -12632,14 +12632,6 @@
             "format": "int32",
             "description": "See [`LoopConfig::message_buffer_seconds`]."
           },
-          "messageQuietSeconds": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "description": "See [`LoopConfig::message_quiet_seconds`]."
-          },
           "model": {
             "type": [
               "string",
@@ -15307,14 +15299,6 @@
             ],
             "format": "int32",
             "description": "Longest, in seconds, inbound Adapter events for one Binding are held so\nthose arriving together reach the Task as a single message; a lone\nevent leaves after a short quiet period. `None` inherits\nthe deployment default for the Loop's adapter kind (60 for `github_pr`,\noff elsewhere); `0` delivers every event on its own."
-          },
-          "messageQuietSeconds": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "description": "Seconds a window waits for the next event before it closes, each event\nrestarting the wait up to `message_buffer_seconds`. `None` keeps the\nbuilt-in 10."
           },
           "model": {
             "type": [
@@ -20696,14 +20680,6 @@
             ],
             "format": "int32",
             "description": "See [`LoopConfig::message_buffer_seconds`]. `Some(None)` clears the\noverride."
-          },
-          "messageQuietSeconds": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "description": "See [`LoopConfig::message_quiet_seconds`]. `Some(None)` clears the\noverride."
           },
           "model": {
             "type": [

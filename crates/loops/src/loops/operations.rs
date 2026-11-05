@@ -278,7 +278,6 @@ impl Loops {
                     node_selector: req.config.node_selector.clone(),
                     stop_when_done: req.config.stop_when_done,
                     message_buffer_seconds: req.config.message_buffer_seconds,
-                    message_quiet_seconds: req.config.message_quiet_seconds,
                     room: None,
                     fallback_to_other_agent: req.config.fallback_to_other_agent.unwrap_or(true),
                 },
@@ -651,9 +650,6 @@ fn next_config(
         message_buffer_seconds: rule
             .message_buffer_seconds
             .unwrap_or(current.config.message_buffer_seconds),
-        message_quiet_seconds: rule
-            .message_quiet_seconds
-            .unwrap_or(current.config.message_quiet_seconds),
         room: None,
         fallback_to_other_agent: rule
             .fallback_to_other_agent
@@ -739,7 +735,6 @@ mod tests {
                 node_selector: None,
                 stop_when_done: None,
                 message_buffer_seconds: None,
-                message_quiet_seconds: None,
                 fallback_to_other_agent: true,
             },
             source: LoopSourceRow::Manual,

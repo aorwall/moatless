@@ -85,7 +85,6 @@ pub(crate) fn loop_response(record: &LoopRecord) -> Loop {
             node_selector: record.config.node_selector.clone(),
             stop_when_done: record.config.stop_when_done,
             message_buffer_seconds: record.config.message_buffer_seconds,
-            message_quiet_seconds: record.config.message_quiet_seconds,
             fallback_to_other_agent: record.config.fallback_to_other_agent,
         },
         source,

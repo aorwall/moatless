@@ -758,7 +758,6 @@ fn schedule_upsert(repo: &Repository) -> ManagedLoopUpsert {
         settle_after_hours: None,
         stop_when_done: None,
         message_buffer_seconds: None,
-        message_quiet_seconds: None,
         room: None,
         fallback_to_other_agent: true,
         adapter: None,

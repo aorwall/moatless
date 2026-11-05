@@ -35,8 +35,6 @@ pub struct LoopSpawnConfig {
     pub stop_when_done: Option<bool>,
     /// See [`moatless_types::loops::SubscriptionMatch::message_buffer_seconds`].
     pub message_buffer_seconds: Option<i32>,
-    /// See [`moatless_types::loops::SubscriptionMatch::message_quiet_seconds`].
-    pub message_quiet_seconds: Option<i32>,
     /// See [`moatless_types::loops::LoopContext::room`].
     pub room: Option<RoomSpec>,
     pub scope: Scope,
@@ -123,8 +121,6 @@ pub(crate) struct LoopConfigRow {
     pub stop_when_done: Option<bool>,
     /// See [`moatless_types::loops::SubscriptionMatch::message_buffer_seconds`].
     pub message_buffer_seconds: Option<i32>,
-    /// See [`moatless_types::loops::SubscriptionMatch::message_quiet_seconds`].
-    pub message_quiet_seconds: Option<i32>,
     /// See [`NewLoopConfig::fallback_to_other_agent`].
     pub fallback_to_other_agent: bool,
 }
@@ -214,8 +210,6 @@ pub struct NewLoopConfig {
     pub stop_when_done: Option<bool>,
     /// See [`moatless_types::loops::SubscriptionMatch::message_buffer_seconds`].
     pub message_buffer_seconds: Option<i32>,
-    /// See [`moatless_types::loops::SubscriptionMatch::message_quiet_seconds`].
-    pub message_quiet_seconds: Option<i32>,
     /// See [`moatless_types::loops::LoopContext::room`]. Written on insert
     /// only: `LOOP.md` is its one author, and an HTTP update leaves it alone.
     pub room: Option<RoomSpec>,
@@ -306,8 +300,6 @@ pub struct ManagedLoopUpsert {
     pub stop_when_done: Option<bool>,
     /// See [`moatless_types::loops::SubscriptionMatch::message_buffer_seconds`].
     pub message_buffer_seconds: Option<i32>,
-    /// See [`moatless_types::loops::SubscriptionMatch::message_quiet_seconds`].
-    pub message_quiet_seconds: Option<i32>,
     /// See [`moatless_types::loops::LoopContext::room`].
     pub room: Option<RoomSpec>,
     /// See [`NewLoopConfig::fallback_to_other_agent`].

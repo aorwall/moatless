@@ -114,9 +114,6 @@ pub struct LoopFrontmatter {
     /// buffering off.
     #[serde(default)]
     pub message_buffer_seconds: Option<i32>,
-    /// See [`moatless_types::loops::SubscriptionMatch::message_quiet_seconds`].
-    #[serde(default)]
-    pub message_quiet_seconds: Option<i32>,
     /// The Task Room every task this Loop spawns gets
     /// ([`moatless_types::loops::RoomSpec`]).
     #[serde(default)]
