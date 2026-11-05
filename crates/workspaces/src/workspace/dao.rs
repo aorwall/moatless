@@ -244,11 +244,11 @@ impl WorkspaceDao for PgWorkspaceDao {
                    language_servers, network_profile, node_selector, default_model,
                    default_effort, source, source_repository_id, source_key,
                    source_config_path, scope, owner_user_id, run_as_user_id,
-                   created_by, deleted
+                   created_by, deleted, services
                ) VALUES (
                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
                    $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26,
-                   $27
+                   $27, $28
                )"#,
         )
         .bind(&row.id)
@@ -284,6 +284,7 @@ impl WorkspaceDao for PgWorkspaceDao {
         .bind(&row.run_as_user_id)
         .bind(&row.created_by)
         .bind(row.deleted)
+        .bind(encode_column(row.services.as_ref(), "services")?)
         .execute(&self.0)
         .await?;
         Ok(())
@@ -404,6 +405,7 @@ impl WorkspaceDao for PgWorkspaceDao {
         push_set!(language_servers);
         push_set!(network_profile);
         push_set!(node_selector);
+        push_set!(services);
         push_set!(default_model);
         push_set!(default_effort);
         push_set!(source);
@@ -468,6 +470,7 @@ impl WorkspaceDao for PgWorkspaceDao {
         bind_json!(language_servers);
         bind_opt!(network_profile);
         bind_json!(node_selector);
+        bind_json!(services);
         bind_opt!(default_model);
         bind_opt!(default_effort);
         if let Some(source) = patch.source {

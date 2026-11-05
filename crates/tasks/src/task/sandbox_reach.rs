@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use moatless_core::http_auth::SandboxReach;
-use moatless_workspaces::workspace::agent_admin::AgentAdminGrants;
+use moatless_workspaces::workspace::grants::WorkspaceGrants;
 use moka::future::Cache;
 use tracing::warn;
 
@@ -24,7 +24,7 @@ const MAX_CACHED_ADMIN_ANSWERS: u64 = 10_000;
 pub struct SandboxReachStore {
     tasks: Arc<PgTaskDao>,
     messages: Arc<dyn MessageDao>,
-    agent_admin: Arc<AgentAdminGrants>,
+    agent_admin: Arc<WorkspaceGrants>,
     admin_cache: Cache<String, bool>,
 }
 
@@ -32,7 +32,7 @@ impl SandboxReachStore {
     pub(crate) fn new(
         tasks: Arc<PgTaskDao>,
         messages: Arc<dyn MessageDao>,
-        agent_admin: Arc<AgentAdminGrants>,
+        agent_admin: Arc<WorkspaceGrants>,
     ) -> Self {
         Self {
             tasks,

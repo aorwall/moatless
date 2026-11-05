@@ -891,6 +891,7 @@ mod tests {
                 language_servers: None,
                 network_profile: None,
                 node_selector: None,
+                services: Vec::new(),
                 run_as_user_id: run_as.map(str::to_string),
                 deleted: false,
             }))

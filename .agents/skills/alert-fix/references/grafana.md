@@ -6,8 +6,11 @@ and `loki`, never the `-prod` ones, and filter on `namespace="moatless"`.
 
 ```bash
 : "${GRAFANA_TOKEN:?GRAFANA_TOKEN is not set in this sandbox; say so in the alert thread}"
-G=https://g-0000000000.grafana-workspace.eu-central-1.amazonaws.com
+G=${GRAFANA_URL:-https://g-0000000000.grafana-workspace.eu-central-1.amazonaws.com}
 ```
+
+In a Workspace with the `grafana` service proxy on, `GRAFANA_URL` is the pod's
+relay and `GRAFANA_TOKEN` a placeholder the backend replaces.
 
 If `GRAFANA_TOKEN` is missing, investigate with `kubectl -n moatless` only and say
 in the reply that metrics were not available.

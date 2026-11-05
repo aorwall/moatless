@@ -1,11 +1,12 @@
 use crate::code_intel;
 use crate::config::Config;
 use crate::credentials::broker::{self, BrokerState};
-use crate::credentials::{gh_config, github_proxy};
+use crate::credentials::{gh_config, github_proxy, service_relay};
 use crate::grpc_server::SandboxServiceImpl;
 use crate::state::SandboxState;
 use crate::supervisor::{Criticality, SHUTDOWN_JOIN_DEADLINE};
 use crate::{preview_proxy, shutdown};
+use moatless_types::credential_key::SERVICE_RELAY_ADDR;
 use moatless_types::sandbox::SANDBOX_PREVIEW_PROXY_PORT;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -114,6 +115,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     spawn_github_proxy(&state, &registrar).await;
+    spawn_service_relay(&state, &registrar).await;
 
     // Before init, so the sockets exist by the time the agent's first `LSP`
     // call starts `moat lsp-proxy`. Optional: without them the agent loses
@@ -230,6 +232,23 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     outcome?;
     Ok(())
+}
+
+/// Serve the service relay a pod's tools reach the backend's service proxies
+/// through. Optional: without it only those tools fail, each with a refused
+/// connection.
+async fn spawn_service_relay(state: &SandboxState, registrar: &crate::supervisor::Registrar) {
+    let relay = service_relay::ServiceRelayState::new(
+        Arc::clone(&state.backend_client),
+        state.config.backend_api_url.as_deref(),
+        state.config.http.github,
+    );
+    match service_relay::serve(relay, SERVICE_RELAY_ADDR, state.lifecycle_cancel.clone()).await {
+        Ok(task) => registrar.supervise("service-relay", Criticality::Optional, task),
+        Err(e) => {
+            tracing::warn!(error = %e, "Failed to spawn the service relay — service proxies are unreachable");
+        }
+    }
 }
 
 /// Serve `gh`'s socket and point `gh` at it, before init runs `gh api user`.

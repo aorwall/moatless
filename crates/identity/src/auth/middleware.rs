@@ -137,6 +137,12 @@ fn is_exempt(path: &str) -> bool {
         return true;
     }
 
+    // The service proxy. Not public: the route verifies the pod's task token
+    // from its Bearer header itself, as the GitHub proxy does.
+    if path.starts_with("/proxy/") {
+        return true;
+    }
+
     // The model gateway. Not public: the route verifies the pod's task token
     // from its `x-api-key` or Bearer header itself, and resolves the model
     // credential from the sandbox that token names.

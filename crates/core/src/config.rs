@@ -173,6 +173,16 @@ fn parse_declared_plugins(raw: Option<String>) -> Result<Vec<DeclaredPlugin>, Co
         .map_err(|e| ConfigError::Invalid(format!("PLUGIN_REPOSITORIES_JSON: {e}")))
 }
 
+/// `SERVICE_PROXIES_JSON` and whether their secrets are kept from pods.
+#[derive(Debug, Clone, Default)]
+pub struct ServiceProxyConfig {
+    pub services: crate::service_proxies::ServiceProxies,
+    /// `SERVICE_PROXY_BROKER_SECRETS`: drop each service's secret from every
+    /// channel into a pod. Off by default, so a service can be defined and its
+    /// tools switched over while the secret still reaches pods.
+    pub broker_secrets: bool,
+}
+
 /// Read an environment variable as a boolean (true if "true" or "1").
 fn env_bool(key: &str, default: bool) -> bool {
     match env::var(key) {
@@ -797,6 +807,7 @@ pub struct Config {
     pub skill: SkillConfig,
     /// The Plugins the deployment owns; see `Plugins::reconcile_declared`.
     pub declared_plugins: Vec<DeclaredPlugin>,
+    pub service_proxies: ServiceProxyConfig,
     pub secrets: SecretsConfig,
     pub codex_oauth: CodexOAuthConfig,
     pub otel: OtelConfig,
@@ -1080,6 +1091,13 @@ impl Config {
             },
 
             declared_plugins: parse_declared_plugins(env_opt("PLUGIN_REPOSITORIES_JSON"))?,
+            service_proxies: ServiceProxyConfig {
+                services: crate::service_proxies::ServiceProxies::parse(
+                    env_opt("SERVICE_PROXIES_JSON").as_deref(),
+                )
+                .map_err(ConfigError::Invalid)?,
+                broker_secrets: env_bool("SERVICE_PROXY_BROKER_SECRETS", false),
+            },
             secrets: SecretsConfig {
                 encryption_key: env_opt("SECRETS_ENCRYPTION_KEY"),
                 kms_key_id: env_opt("SECRETS_KMS_KEY_ID").or_else(|| env_opt("AWS_KMS_KEY_ID")),
@@ -1118,6 +1136,10 @@ impl Config {
         self.workspace_sync
             .identity_grants
             .check(&self.sandbox.identities())
+            .map_err(|e| ConfigError::Invalid(format!("WORKSPACE_IDENTITY_GRANTS: {e}")))?;
+        self.workspace_sync
+            .identity_grants
+            .check_services(|name| self.service_proxies.services.get(name).is_some())
             .map_err(|e| ConfigError::Invalid(format!("WORKSPACE_IDENTITY_GRANTS: {e}")))?;
 
         // Production must authenticate sandbox gRPC calls: without the signing
@@ -1516,6 +1538,7 @@ impl Config {
             decision: DecisionConfig { provider: None },
             skill: SkillConfig { cache_ttl_secs: 60 },
             declared_plugins: vec![],
+            service_proxies: ServiceProxyConfig::default(),
             secrets: SecretsConfig {
                 encryption_key: Some("0123456789abcdef0123456789abcdef".to_string()),
                 kms_key_id: None,

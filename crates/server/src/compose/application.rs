@@ -233,6 +233,14 @@ impl AppState {
             crate::github_proxy::GITHUB_UPLOADS_BASE,
             config.http.github_proxy,
         ));
+        let service_proxy = Arc::new(crate::service_proxy::ServiceProxyGateway::new(
+            sandbox_callers.clone(),
+            ports.service_access.clone(),
+            workspace_resolver.clone(),
+            workspace_credentials.clone(),
+            secrets.clone(),
+            config.http.github_proxy,
+        ));
         let model_gateway = Arc::new(crate::model_gateway::ModelGateway::new(
             sandbox_callers,
             workspace_resolver.clone(),
@@ -417,6 +425,7 @@ impl AppState {
             forgejo_instances,
             git_proxy,
             github_proxy,
+            service_proxy,
             model_gateway,
             agent_harness_access,
             app_administration,

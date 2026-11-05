@@ -30,3 +30,10 @@ pub const GH_TOKEN: &str = "GH_TOKEN";
 /// `Name <email>` of the person a Task's work is for, sent only when the
 /// sandbox commits as another identity.
 pub const GIT_CO_AUTHOR: &str = "GIT_CO_AUTHOR";
+
+/// Where a pod's service relay listens; the backend hands each enabled service's
+/// URL under it.
+pub const SERVICE_RELAY_ADDR: &str = "127.0.0.1:7781";
+
+/// [`SERVICE_RELAY_ADDR`] as the origin a tool calls.
+pub const SERVICE_RELAY_ORIGIN: &str = "http://127.0.0.1:7781";

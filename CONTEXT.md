@@ -64,7 +64,15 @@ the repository alone as primary. An entry with `"key": "default"` in its
 A deployment's `WORKSPACE_IDENTITY_GRANTS` entry that lets one repository's
 Workspace keep the admin-only `sandboxServiceAccount`, `networkProfile` or
 `nodeSelector` its git entry declares, and optionally makes it private to one
-user. An ungranted value is dropped with a sync warning.
+user. An ungranted value is dropped with a sync warning. Its `services` list
+opens an `availability: granted` **Service proxy** to that Workspace.
+
+**Service proxy**:
+An upstream API, defined in `SERVICE_PROXIES_JSON`, that a pod reaches at
+`http://127.0.0.1:7781/{name}` through the backend, which checks the request
+against the definition's rules and injects the credential. A Workspace opts in
+by listing the name in `services`.
+_Avoid_: integration (that is an **Adapter**)
 
 **Org sync**:
 The backend job that registers every repository of a configured GitHub

@@ -32,6 +32,7 @@ pub mod repository_sync;
 pub mod sandbox;
 pub mod sandbox_driver;
 pub mod secret_cli;
+pub mod service_proxy;
 pub mod sse;
 pub mod startup;
 pub mod state;

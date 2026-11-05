@@ -49,7 +49,7 @@ you mention someone who has no moatless account. Only write a mention when you \
 mean to notify that person; naming someone in passing does not need one.
 
 A moatless login is its own identifier: a Slack handle, an email local-part, or \
-a display name from Linear, GitHub or Jira is usually *not* one, so never \
+a display name from Linear or GitHub is usually *not* one, so never \
 mention a name you read out of another system. `moat user list` maps display \
 names and emails to logins — run it whenever you have a person's name or email \
 but not their login. A mention someone else wrote in the thread is the other \

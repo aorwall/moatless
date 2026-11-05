@@ -19,6 +19,7 @@ axum = { workspace = true, features = ["macros", "ws"] }
 http-body-util = { workspace = true }
 
 # Caching
+moka = { workspace = true, features = ["future"] }
 
 # TLS crypto provider (installed in main before any TLS use). The Kubernetes SDK
 # (kube/k8s-openapi) moved to moatless-sandbox-k8s with the provider it served.

@@ -140,6 +140,8 @@ pub struct AppState {
     pub git_proxy: Arc<GitProxy>,
     /// Resolves a proxied GitHub API request to an upstream and a token.
     pub github_proxy: Arc<GitHubProxy>,
+    /// Resolves a pod's service proxy request to an upstream and a credential.
+    pub service_proxy: Arc<crate::service_proxy::ServiceProxyGateway>,
     /// Resolves a pod's model request to an upstream and a credential.
     pub model_gateway: Arc<ModelGateway>,
     /// Codex credential and device-login workflows.
@@ -532,6 +534,12 @@ impl axum::extract::FromRef<AppState> for Arc<GitProxy> {
 impl axum::extract::FromRef<AppState> for Arc<GitHubProxy> {
     fn from_ref(state: &AppState) -> Self {
         state.github_proxy.clone()
+    }
+}
+
+impl axum::extract::FromRef<AppState> for Arc<crate::service_proxy::ServiceProxyGateway> {
+    fn from_ref(state: &AppState) -> Self {
+        state.service_proxy.clone()
     }
 }
 

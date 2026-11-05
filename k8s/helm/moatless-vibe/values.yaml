@@ -550,7 +550,8 @@ workspaceSync:
   # when a grant for that repository and Workspace key names the same value;
   # `ownerUserId` makes the Workspace private to that user. `agentAdmin: true`
   # lets an administrator driver's sandbox token keep the admin role and reach
-  # admin routes (see `sandboxTokenScope`).
+  # admin routes (see `sandboxTokenScope`). `services: [grafana]` opens an
+  # `availability: granted` service proxy (see `serviceProxies`).
   # e.g. [{repository: soaplabs/soap-specs, workspace: default,
   #        sandboxServiceAccount: moatless-soap-nonprod-admin}]
   identityGrants: []
@@ -558,6 +559,21 @@ workspaceSync:
   # refuses it and caps the role. Set `enforce` once the logs are clean and the
   # admin Workspaces carry `agentAdmin`.
   sandboxTokenScope: log
+
+# Upstream APIs a pod reaches through the backend, which injects the credential.
+# A Workspace opts in with `services: [name]` in `.moatless/workspaces.json`;
+# an `availability: granted` service (the default) also needs the name in its
+# `workspaceSync.identityGrants` entry. A pod reaches one at
+# `http://127.0.0.1:7781/{name}`, handed under `expose.urlEnv`.
+# e.g. grafana: {upstream: https://grafana.example.com,
+#   credential: {secret: GRAFANA_TOKEN, inject: {style: bearer}},
+#   expose: {urlEnv: GRAFANA_URL, tokenEnv: GRAFANA_TOKEN},
+#   rules: [{methods: [GET], path: "/api/**"}]}
+serviceProxies: {}
+# -- `true` withholds each `serviceProxies` credential from every pod, which then
+# reaches the upstream only through its proxy. Leave `false` until the tools
+# that call an upstream directly use its `expose.urlEnv`.
+brokerServiceSecrets: false
 
 # Application configuration
 config:

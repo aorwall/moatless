@@ -118,6 +118,9 @@ pub struct MoatlessWorkspaceEntry {
     pub node_selector: Option<BTreeMap<String, String>>,
     /// See [`crate::workspace::git_skills`].
     pub skills: Option<SkillActivations>,
+    /// The service proxies the Workspace opts into. Only an opt-in: a service
+    /// whose availability is `granted` also needs a grant, read per request.
+    pub services: Option<Vec<String>>,
     #[serde(flatten)]
     pub unknown: UnknownKeys,
 }
@@ -787,6 +790,7 @@ struct RunConfig {
     scripts: Option<Vec<ScriptConfig>>,
     resources: Option<ResourceConfig>,
     language_servers: Option<Vec<LanguageServer>>,
+    services: Option<Vec<String>>,
 }
 
 /// A repository placement whose URL has already been resolved to a repo id.
@@ -867,6 +871,7 @@ fn run_config_from_entry(entry: &MoatlessWorkspaceEntry) -> RunConfig {
                 .filter_map(|id| id.parse::<LanguageServer>().ok())
                 .collect()
         }),
+        services: entry.services.clone(),
     }
 }
 
@@ -922,6 +927,7 @@ impl GitSyncService {
                     // would otherwise name the account its Tasks act as.
                     run_as_user_id: None,
                     node_selector: desired.run.node_selector.clone(),
+                    services: desired.run.services.clone(),
                     created_by: repo.created_by.clone(),
                     deleted: false,
                     created_at: None,
@@ -945,6 +951,7 @@ impl GitSyncService {
             // Absent from the patch, so a reconcile leaves whatever an admin set.
             run_as_user_id: None,
             node_selector: Some(desired.run.node_selector.clone()),
+            services: Some(desired.run.services.clone()),
             icon: Some(desired.run.icon.clone()),
             default_model: Some(desired.run.default_model.clone()),
             default_effort: Some(desired.run.default_effort.clone()),

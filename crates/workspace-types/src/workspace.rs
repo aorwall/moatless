@@ -97,6 +97,9 @@ pub struct Workspace {
     /// labels would strand the pod on the taint they pair with. Selects
     /// platform-owned capacity; provisions none.
     pub node_selector: Option<BTreeMap<String, String>>,
+    /// The service proxies this Workspace opts into, by name. An opt-in
+    /// grants nothing a definition's availability withholds.
+    pub services: Option<Vec<String>>,
     // --- Task defaults ---
     /// Model catalog id (`opus`, `sonnet`) a new Task on this Workspace starts
     /// with. An open string: the catalog is deployment configuration.

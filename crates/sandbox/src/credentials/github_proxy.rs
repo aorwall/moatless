@@ -167,7 +167,7 @@ async fn forward(State(state): State<GitHubProxyState>, request: Request) -> Res
 
 /// Whether a header crosses the proxy. Hop-by-hop headers describe one
 /// connection, and `Host` is the socket's, rebuilt from the target URL.
-fn forwards(name: &HeaderName) -> bool {
+pub(crate) fn forwards(name: &HeaderName) -> bool {
     !matches!(
         name.as_str(),
         "connection"

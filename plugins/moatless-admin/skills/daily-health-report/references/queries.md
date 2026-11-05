@@ -5,7 +5,7 @@ Every check `collect.mjs` runs, in the form that returns the right answer, plus 
 ## Setup
 
 ```bash
-G=https://g-0000000000.grafana-workspace.eu-central-1.amazonaws.com
+G=${GRAFANA_URL:-https://g-0000000000.grafana-workspace.eu-central-1.amazonaws.com}
 L="$G/api/datasources/proxy/uid/loki/loki/api/v1/query_range"
 P="$G/api/datasources/proxy/uid/prometheus/api/v1"
 D=2026-09-16

@@ -157,6 +157,31 @@ pub async fn resolve_task_openai_credentials(
     credentials
 }
 
+/// The value of `key` a service proxy presents for `actor`: a Workspace pin,
+/// else the actor's user-scoped secret, else the global one.
+pub async fn resolve_brokered_secret(
+    actor: &Actor,
+    key: &str,
+    secrets: Option<&Arc<dyn SecretResolver>>,
+    workspace_credentials: &HashMap<String, String>,
+) -> Option<String> {
+    if let Some(pinned) = workspace_credentials.get(key) {
+        return Some(pinned.clone());
+    }
+    resolve_scoped_secrets(secrets, actor.user_id(), "")
+        .await
+        .remove(key)
+}
+
+/// Refuses a `SERVICE_PROXIES_JSON` whose secret or exposed env name is a key
+/// the platform owns or another proxy brokers: brokering it would strip it from
+/// every pod.
+pub fn check_service_proxy_keys(
+    services: &moatless_core::service_proxies::ServiceProxies,
+) -> Result<(), String> {
+    services.check_keys(|key| is_platform_owned_key(key) || is_proxied_credential_key(key))
+}
+
 /// Whether `key` names a credential only the backend's proxies and model
 /// gateway present. A Workspace pins `GITHUB_TOKEN` like any other provider
 /// key.
@@ -757,6 +782,7 @@ mod tests {
                 language_servers: None,
                 network_profile: None,
                 node_selector: None,
+                services: Vec::new(),
                 run_as_user_id: run_as.clone(),
                 deleted: false,
             }))

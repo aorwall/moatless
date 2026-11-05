@@ -68,6 +68,9 @@ pub struct HandlerDbPorts {
     pub tags: Arc<moatless_tasks::tag::operations::Tags>,
     /// The cache `FetchPlugin` serves plugin files from.
     pub plugin_archives: Arc<moatless_workspaces::plugin::archive::PluginArchives>,
+    /// Hands a pod its enabled services' relay URLs, and withholds the secrets
+    /// they broker.
+    pub service_access: Arc<crate::service_proxy::ServiceAccess>,
 }
 
 /// Durable-admission writers.

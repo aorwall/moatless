@@ -111,6 +111,9 @@ pub struct Ports {
     /// Provider credentials pinned to a Workspace (`workspace_credentials`).
     /// The highest-precedence source of a sandbox's provider credentials.
     pub workspace_credentials: Arc<WorkspaceCredentialService>,
+    /// Which service proxies a Workspace has on; read by the proxy route and
+    /// by `GetCredentials`, which hands their relay URLs.
+    pub service_access: Arc<crate::service_proxy::ServiceAccess>,
     pub tags: Arc<Tags>,
     /// Uploads: the object, the metadata row, and who may read one back.
     pub files: Arc<Files>,
@@ -250,6 +253,15 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
     );
     let workspace_resolver =
         moatless_workspaces::compose::syncing_workspace_resolver(pool.clone(), plugin_sync.clone());
+    let service_access = Arc::new(crate::service_proxy::ServiceAccess::new(
+        Arc::new(config.service_proxies.services.clone()),
+        config.service_proxies.broker_secrets,
+        workspace_resolver.clone(),
+        moatless_workspaces::compose::workspace_grants(
+            pool.clone(),
+            config.workspace_sync.identity_grants.clone(),
+        ),
+    ));
 
     // The tasks band's own construction root owns its stores; this process takes
     // the capabilities over them, and `AppState` consumes the graph to assemble
@@ -320,6 +332,7 @@ pub fn compose(pool: DbPool, config: &Config, s3: Option<moatless_s3::S3Storage>
         skill_fetcher,
         plugin_sync,
         workspace_credentials,
+        service_access,
         tags,
         tag_resolver,
         files: moatless_core::file_storage::compose::files(

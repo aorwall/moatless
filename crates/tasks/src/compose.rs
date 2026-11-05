@@ -123,7 +123,7 @@ impl TaskGraph {
         Arc::new(crate::task::sandbox_reach::SandboxReachStore::new(
             self.tasks.clone(),
             self.messages.clone(),
-            moatless_workspaces::compose::agent_admin_grants(self.db.clone(), identity_grants),
+            moatless_workspaces::compose::workspace_grants(self.db.clone(), identity_grants),
         ))
     }
 

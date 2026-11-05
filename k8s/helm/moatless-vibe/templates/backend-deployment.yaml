@@ -98,6 +98,12 @@ spec:
               value: {{ . | quote }}
             {{- end }}
             {{- end }}
+            {{- if .Values.serviceProxies }}
+            - name: SERVICE_PROXIES_JSON
+              value: {{ toJson .Values.serviceProxies | quote }}
+            {{- end }}
+            - name: SERVICE_PROXY_BROKER_SECRETS
+              value: {{ .Values.brokerServiceSecrets | default false | quote }}
             {{- with .Values.backend.otel.otlpEndpoint }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ . | quote }}

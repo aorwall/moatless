@@ -309,6 +309,7 @@ pub fn grpc_service(
                 Arc::new(GitHostSkillFetcher::new(config.http.plugin_archive)),
                 p.git_host_tokens.clone(),
             ),
+            service_access: p.service_access.clone(),
         }
     });
 

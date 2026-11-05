@@ -13,7 +13,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 
 const exec = promisify(execFile);
-const GRAFANA = "https://g-0000000000.grafana-workspace.eu-central-1.amazonaws.com";
+const GRAFANA = process.env.GRAFANA_URL || "https://g-0000000000.grafana-workspace.eu-central-1.amazonaws.com";
 const NS = "moatless";
 
 const argv = process.argv.slice(2);

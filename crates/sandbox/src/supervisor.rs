@@ -43,6 +43,7 @@ const REGISTRANTS: &[&str] = &[
     "language-server-sockets",
     "memory-watch",
     "preview-proxy",
+    "service-relay",
     "shutdown-driver",
     "transcript-sync",
     "workspace-sync",

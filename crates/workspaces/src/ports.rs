@@ -90,6 +90,7 @@ fn project(workspace: Workspace) -> ResolvedWorkspace {
         language_servers: workspace.language_servers,
         network_profile: workspace.network_profile,
         node_selector: workspace.node_selector,
+        services: workspace.services.unwrap_or_default(),
         run_as_user_id: workspace.run_as_user_id,
         deleted: workspace.deleted,
     }

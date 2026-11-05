@@ -179,6 +179,19 @@ pub(super) async fn get_credentials(
         }
     }
 
+    if let Some(handlers) = handlers {
+        // Brokered secrets are dropped before the Workspace is read, so a
+        // failed read leaves the pod without its service URLs, never with a
+        // secret.
+        if let Err(error) = handlers
+            .service_access
+            .shape_pod_credentials(targets.workspace_id.as_deref(), &mut credentials)
+            .await
+        {
+            warn!(%error, task_id = %req.task_id, "Failed to resolve the workspace's service proxies");
+        }
+    }
+
     if let Some(user_token) = service.mint_user_auth_token(&grant) {
         credentials.insert(CredentialKey::USER_AUTH_TOKEN.to_string(), user_token);
     }

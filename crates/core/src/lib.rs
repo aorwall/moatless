@@ -29,6 +29,7 @@ pub mod http_config;
 pub mod leader;
 pub mod metrics;
 mod model_gateway_config;
+pub mod proxy_rules;
 mod s3_config;
 pub mod secret_keys;
 
@@ -38,6 +39,7 @@ pub mod db_enum;
 pub(crate) mod message_buffer_config;
 pub mod sandbox_identities;
 pub mod sandbox_jwt;
+pub mod service_proxies;
 mod user_agent;
 pub mod workspace_identity_grants;
 pub mod workspace_repository;

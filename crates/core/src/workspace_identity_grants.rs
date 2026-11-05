@@ -28,6 +28,10 @@ pub struct WorkspaceIdentityGrant {
     /// `sandbox_scope`). Never read from git, like every field here.
     #[serde(default)]
     pub agent_admin: bool,
+    /// The `availability: granted` service proxies the Workspace may use once
+    /// its `workspaces.json` entry lists them too.
+    #[serde(default)]
+    pub services: Vec<String>,
 }
 
 /// Every grant this deployment makes, read from `WORKSPACE_IDENTITY_GRANTS`.
@@ -58,6 +62,28 @@ impl WorkspaceIdentityGrants {
             }
         }
         Ok(())
+    }
+
+    /// Refuses a grant naming a service `defined` does not hold.
+    pub fn check_services(&self, defined: impl Fn(&str) -> bool) -> Result<(), String> {
+        for grant in &self.0 {
+            if let Some(service) = grant.services.iter().find(|s| !defined(s)) {
+                return Err(format!(
+                    "{}/{}: services names `{service}`, which SERVICE_PROXIES_JSON does not define",
+                    grant.repository, grant.workspace
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// True iff some grant names a service or sets
+    /// [`WorkspaceIdentityGrant::agent_admin`], so a Workspace's grant is
+    /// worth reading.
+    pub fn grants_proxy_access(&self) -> bool {
+        self.0
+            .iter()
+            .any(|g| g.agent_admin || !g.services.is_empty())
     }
 
     /// True iff some grant sets [`WorkspaceIdentityGrant::agent_admin`].
@@ -147,6 +173,18 @@ mod tests {
 
         assert!(grants.find("a/b", "admin").unwrap().agent_admin);
         assert!(grants.grants_agent_admin());
+    }
+
+    #[test]
+    fn a_grant_naming_an_undefined_service_is_refused() {
+        let grants = WorkspaceIdentityGrants::parse(
+            r#"[{"repository":"a/b","workspace":"default","services":["grafana","jira"]}]"#,
+        )
+        .unwrap();
+        assert!(grants.grants_proxy_access());
+        let err = grants.check_services(|s| s == "grafana").unwrap_err();
+        assert!(err.contains("`jira`"), "{err}");
+        assert!(grants.check_services(|_| true).is_ok());
     }
 
     #[test]

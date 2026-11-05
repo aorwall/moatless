@@ -11,7 +11,7 @@ DEFAULT_LIMIT=""           # resolved from the cluster unless --default-limit is
 DEFAULT_REQUEST=""         # likewise, unless --default-request is given
 FALLBACK_LIMIT=16Gi        # backend config.rs + Helm chart default, if the cluster can't be read
 FALLBACK_REQUEST=2Gi       # same source: env_str("K8S_RESOURCE_REQUEST_MEMORY", "2Gi")
-GRAFANA=https://g-0000000000.grafana-workspace.eu-central-1.amazonaws.com
+GRAFANA=${GRAFANA_URL:-https://g-0000000000.grafana-workspace.eu-central-1.amazonaws.com}
 
 usage() {
   cat <<EOF

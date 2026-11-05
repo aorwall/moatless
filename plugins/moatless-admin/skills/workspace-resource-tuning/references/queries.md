@@ -16,7 +16,7 @@ Ad-hoc queries for digging past what `scripts/workspace-report.sh` reports.
 Everything below assumes this helper. `GRAFANA_TOKEN` comes from `.envrc`.
 
 ```bash
-G=https://g-0000000000.grafana-workspace.eu-central-1.amazonaws.com
+G=${GRAFANA_URL:-https://g-0000000000.grafana-workspace.eu-central-1.amazonaws.com}
 q() { curl -s -G "$G/api/datasources/proxy/uid/prometheus/api/v1/query" \
         -H "Authorization: Bearer $GRAFANA_TOKEN" --data-urlencode "query=$1"; }
 ```
