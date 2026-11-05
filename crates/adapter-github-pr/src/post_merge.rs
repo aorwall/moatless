@@ -11,6 +11,7 @@ use moatless_types::adapter::AdapterKind;
 use moatless_types::adapter::{Audience, InboundMessage};
 use moatless_types::loops::SubscriptionMatch;
 
+use super::api::WorkflowRunSummary;
 use super::router::GithubPrInboundRouter;
 use super::subject::GithubPrSubject;
 
@@ -105,6 +106,53 @@ pub(super) fn candidate(event_type: &str, payload: &serde_json::Value) -> Option
     })
 }
 
+/// Conclusions that leave a pipeline green. `cancelled` is deliberately
+/// absent: a cancelled run proves nothing passed.
+const PASSING_CONCLUSIONS: &[&str] = &["success", "skipped", "neutral"];
+
+/// The workflow names, when every run a push of the commit started has
+/// completed and passed; `None` while one runs or after one failed.
+pub(super) fn pipeline_passed(runs: &[WorkflowRunSummary]) -> Option<Vec<String>> {
+    let passed = !runs.is_empty()
+        && runs.iter().all(|run| {
+            run.status == "completed"
+                && run
+                    .conclusion
+                    .as_deref()
+                    .is_some_and(|c| PASSING_CONCLUSIONS.contains(&c))
+        });
+    passed.then(|| {
+        let mut names: Vec<String> = runs.iter().map(|run| run.name.clone()).collect();
+        names.sort();
+        names.dedup();
+        names
+    })
+}
+
+/// Render the notice that a merged PR's whole post-merge pipeline passed.
+pub(super) fn pipeline_passed_text(
+    run: &PostMergeRun,
+    workflows: &[String],
+    owner: &str,
+    repo: &str,
+    pr_number: u64,
+) -> String {
+    let short_sha = &run.head_sha[..7.min(run.head_sha.len())];
+    let mut text = format!(
+        "## ✅ Post-merge pipeline passed\n\n\
+         Every workflow the `{branch}` branch push ran for merged PR \
+         {owner}/{repo}#{pr_number} passed.\n\
+         **Commit:** `{short_sha}`\n\
+         **Workflows:** {workflows}\n",
+        branch = run.head_branch,
+        workflows = workflows.join(", "),
+    );
+    if !run.html_url.is_empty() {
+        let _ = writeln!(text, "**Last run:** {}", run.html_url);
+    }
+    text
+}
+
 /// Render the post-merge CI notification body.
 pub(super) fn post_merge_ci_text(
     run: &PostMergeRun,
@@ -134,12 +182,11 @@ pub(super) fn post_merge_ci_text(
 }
 
 impl GithubPrInboundRouter {
-    /// Post-merge CI notification: on a base-branch `workflow_run` completing,
-    /// resolve the merged PR from the commit sha and notify every task still
-    /// connected to it.
+    /// Notify a merged PR's tasks of a base-branch run: a failure at once, a
+    /// pass only once [`pipeline_passed`] holds for the commit.
     ///
-    /// Skips (`Ok(())`) when the run misses the default branch, lacks a merged
-    /// PR, or binds no task; any other failure retries.
+    /// Skips (`Ok(())`) off the default branch, without a merged PR or active
+    /// Binding, or mid-pipeline; any other failure retries.
     pub(super) async fn run_post_merge(
         &self,
         connection: &AdapterConnection,
@@ -203,6 +250,43 @@ impl GithubPrInboundRouter {
             return Ok(());
         }
 
+        let (text, external_event_id) = if execution.run.conclusion == "success" {
+            let runs = api
+                .list_push_runs_for_commit(
+                    &execution.owner,
+                    &execution.repo,
+                    &execution.run.head_sha,
+                )
+                .await?;
+            let Some(workflows) = pipeline_passed(&runs) else {
+                debug!(
+                    subject_key,
+                    sha = %execution.run.head_sha,
+                    "Post-merge pipeline not yet passed; the last run to finish notifies"
+                );
+                return Ok(());
+            };
+            (
+                pipeline_passed_text(
+                    &execution.run,
+                    &workflows,
+                    &execution.owner,
+                    &execution.repo,
+                    pr_number,
+                ),
+                super::external_id::pipeline_passed(
+                    &execution.owner,
+                    &execution.repo,
+                    &execution.run.head_sha,
+                ),
+            )
+        } else {
+            (
+                post_merge_ci_text(&execution.run, &execution.owner, &execution.repo, pr_number),
+                super::external_id::workflow_run(execution.run.run_id),
+            )
+        };
+
         let notice = InboundMessage {
             adapter_kind: AdapterKind::GithubPr,
             source_id: rule.source_matcher.clone(),
@@ -212,7 +296,7 @@ impl GithubPrInboundRouter {
             author: None,
             sender_external_id: None,
             requester: None,
-            text: post_merge_ci_text(&execution.run, &execution.owner, &execution.repo, pr_number),
+            text,
             file_ids: vec![],
             attachments: Vec::new(),
             thread_properties: serde_json::json!({
@@ -221,7 +305,7 @@ impl GithubPrInboundRouter {
                 "pr_number": pr_number,
             }),
             adapter_context: serde_json::json!({}),
-            external_event_id: Some(super::external_id::workflow_run(execution.run.run_id)),
+            external_event_id: Some(external_event_id),
             source_task_id: None,
             audience: Audience::SubjectProducer,
             replies_to: Vec::new(),
@@ -241,7 +325,63 @@ impl GithubPrInboundRouter {
 
 #[cfg(test)]
 mod tests {
-    use super::{PostMergeRun, candidate, post_merge_ci_text};
+    use super::{
+        PostMergeRun, WorkflowRunSummary, candidate, pipeline_passed, pipeline_passed_text,
+        post_merge_ci_text,
+    };
+
+    fn run(name: &str, status: &str, conclusion: Option<&str>) -> WorkflowRunSummary {
+        WorkflowRunSummary {
+            name: name.into(),
+            status: status.into(),
+            conclusion: conclusion.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn the_pipeline_passes_only_once_every_push_run_completed_green() {
+        let passed = [
+            run("CI", "completed", Some("success")),
+            run("Docs", "completed", Some("skipped")),
+            run("CI", "completed", Some("success")),
+        ];
+        assert_eq!(
+            pipeline_passed(&passed),
+            Some(vec!["CI".to_string(), "Docs".to_string()])
+        );
+
+        for unfinished in [
+            vec![],
+            vec![
+                run("CI", "completed", Some("success")),
+                run("Deploy", "in_progress", None),
+            ],
+            vec![
+                run("CI", "completed", Some("success")),
+                run("Deploy", "completed", Some("failure")),
+            ],
+            vec![run("CI", "completed", Some("cancelled"))],
+        ] {
+            assert_eq!(pipeline_passed(&unfinished), None, "{unfinished:?}");
+        }
+    }
+
+    #[test]
+    fn the_pipeline_notice_names_the_commit_and_its_workflows() {
+        let last = PostMergeRun {
+            run_id: 1,
+            name: "Deploy".into(),
+            conclusion: "success".into(),
+            head_sha: "abcdef012345".into(),
+            head_branch: "main".into(),
+            html_url: "https://x/run/1".into(),
+        };
+        let text = pipeline_passed_text(&last, &["CI".into(), "Deploy".into()], "o", "r", 42);
+        assert!(text.contains("✅ Post-merge pipeline passed"));
+        assert!(text.contains("o/r#42"));
+        assert!(text.contains("`abcdef0`"));
+        assert!(text.contains("**Workflows:** CI, Deploy"));
+    }
 
     fn workflow_run_payload(
         action: &str,

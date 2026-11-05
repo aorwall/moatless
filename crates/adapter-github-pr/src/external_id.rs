@@ -143,6 +143,13 @@ pub(super) fn workflow_run(id: u64) -> String {
     format!("github:wfrun:{id}")
 }
 
+/// `github:wfpass:<owner>/<repo>:<sha>` - every push workflow on a base-branch
+/// commit passed. Keyed by the commit, so the two runs finishing last
+/// together notify a task once.
+pub(super) fn pipeline_passed(owner: &str, repo: &str, sha: &str) -> String {
+    format!("github:wfpass:{owner}/{repo}:{sha}")
+}
+
 /// `github:conflict:<owner>/<repo>#<number>:<sha>` - merge-conflict
 /// notification.
 ///

@@ -164,6 +164,17 @@ impl CommitPr {
     }
 }
 
+/// A workflow run as returned by `GET /actions/runs`: the subset that says
+/// whether it is still running and how it ended.
+#[derive(Debug, Clone, Deserialize)]
+pub(super) struct WorkflowRunSummary {
+    pub(super) name: String,
+    pub(super) status: String,
+    /// `None` until the run completes.
+    #[serde(default)]
+    pub(super) conclusion: Option<String>,
+}
+
 /// One file-scoped finding attached to a check run, as returned by
 /// `GET /check-runs/{id}/annotations`.
 ///
@@ -439,6 +450,55 @@ impl GithubPrApi {
         resp.json::<Vec<CommitPr>>().await.map_err(|e| {
             SharedAdapterError::provider_response_invalid("GitHub get_pulls_for_commit", e).into()
         })
+    }
+
+    /// List the workflow runs a push of `sha` started, latest attempt each.
+    ///
+    /// One page of 100: a commit starting more workflows than that reads as
+    /// not yet passed, so the pipeline notice is withheld rather than wrong.
+    pub(super) async fn list_push_runs_for_commit(
+        &self,
+        owner: &str,
+        repo: &str,
+        sha: &str,
+    ) -> Result<Vec<WorkflowRunSummary>, AdapterError> {
+        #[derive(Deserialize)]
+        struct Page {
+            total_count: usize,
+            workflow_runs: Vec<WorkflowRunSummary>,
+        }
+        let url = format!("{}/repos/{owner}/{repo}/actions/runs", self.base_url);
+        let resp = self
+            .request(reqwest::Method::GET, &url)
+            .query(&[("head_sha", sha), ("event", "push"), ("per_page", "100")])
+            .send()
+            .await
+            .map_err(|e| {
+                SharedAdapterError::provider_unreachable("GitHub list_push_runs_for_commit", e)
+            })?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let headers = resp.headers().clone();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(rejection(
+                "GitHub list_push_runs_for_commit",
+                status,
+                &headers,
+                &text,
+            ));
+        }
+        let page: Page = resp.json().await.map_err(|e| {
+            SharedAdapterError::provider_response_invalid("GitHub list_push_runs_for_commit", e)
+        })?;
+        let mut runs = page.workflow_runs;
+        if page.total_count > runs.len() {
+            runs.push(WorkflowRunSummary {
+                name: "(beyond the first page)".into(),
+                status: "unknown".into(),
+                conclusion: None,
+            });
+        }
+        Ok(runs)
     }
 
     /// List the annotations a completed check run left on the diff.

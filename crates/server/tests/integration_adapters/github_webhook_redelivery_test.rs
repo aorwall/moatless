@@ -123,6 +123,11 @@ async fn request_counting_github_stub_with_mergeable_state(
                 }]))
                 .into_response()
             }
+            (Method::GET, "/repos/acme/widgets/actions/runs") => Json(serde_json::json!({
+                "total_count": 1,
+                "workflow_runs": [{"name": "CI", "status": "completed", "conclusion": "success"}]
+            }))
+            .into_response(),
             _ => (
                 StatusCode::NOT_FOUND,
                 Json(serde_json::json!({"message": format!("unexpected {uri}")})),
@@ -1255,8 +1260,9 @@ async fn durable_workflows_preserve_audience_fallback_and_github_call_budgets(po
             "/repos/acme/widgets/pulls/42",
             "/repos/acme/widgets",
             "/repos/acme/widgets/commits/deadbeef/pulls",
+            "/repos/acme/widgets/actions/runs?head_sha=deadbeef&event=push&per_page=100",
         ],
-        "post-merge execution reads the default branch before the commit-to-PR list"
+        "post-merge execution reads the default branch, then the commit-to-PR list, then the commit's runs"
     );
 
     let mut wrong_branch = post_merge_request("delivery-post-merge-wrong-branch", 70);
@@ -1286,6 +1292,7 @@ async fn durable_workflows_preserve_audience_fallback_and_github_call_budgets(po
             "/repos/acme/widgets/pulls/42",
             "/repos/acme/widgets",
             "/repos/acme/widgets/commits/deadbeef/pulls",
+            "/repos/acme/widgets/actions/runs?head_sha=deadbeef&event=push&per_page=100",
             "/repos/acme/widgets",
         ],
         "a non-default branch spends the repository read but no commit-to-PR read"
@@ -1397,10 +1404,12 @@ async fn durable_workflows_preserve_audience_fallback_and_github_call_budgets(po
             "/repos/acme/widgets/pulls/42",
             "/repos/acme/widgets",
             "/repos/acme/widgets/commits/deadbeef/pulls",
+            "/repos/acme/widgets/actions/runs?head_sha=deadbeef&event=push&per_page=100",
             "/repos/acme/widgets",
             "/repos/acme/widgets/pulls/42",
             "/repos/acme/widgets",
             "/repos/acme/widgets/commits/deadbeef/pulls",
+            "/repos/acme/widgets/actions/runs?head_sha=deadbeef&event=push&per_page=100",
         ],
         "each fallback workflow keeps the same request budget and order"
     );
