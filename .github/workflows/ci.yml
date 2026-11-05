@@ -64,7 +64,10 @@ env:
 jobs:
   mini-swe-bridge:
     name: mini-swe-agent bridge contracts
+    needs: detect-changes
+    if: needs.detect-changes.outputs.mini-swe-bridge == 'true'
     runs-on: ci-runners
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -119,6 +122,7 @@ jobs:
       sandbox-image: ${{ steps.filter.outputs.sandbox-image }}
       dockerfile-e2e: ${{ steps.filter.outputs.dockerfile-e2e }}
       helm: ${{ steps.filter.outputs.helm }}
+      mini-swe-bridge: ${{ steps.filter.outputs.mini-swe-bridge }}
       cargo-manifest: ${{ steps.filter.outputs.cargo-manifest }}
       # Narrows rust-test's package set; no deep fetch needed.
       changed-files: ${{ steps.filter.outputs.everything_files }}
@@ -231,6 +235,12 @@ jobs:
               - '.github/scripts/apt-https-mirrors.sh'
             helm:
               - 'k8s/helm/**'
+            # `cli-versions.env` pins the mini-swe-agent, litellm and mcp
+            # versions the bridge test installs.
+            mini-swe-bridge:
+              - 'crates/sandbox/src/agent/harness/mini_swe/*.py'
+              - 'docker/cli-versions.env'
+              - '.github/workflows/ci.yml'
 
       # The dependency closure of `sandbox` and `moat`, rather than `crates/**`:
       # a backend-only change republishes no sandbox image.
