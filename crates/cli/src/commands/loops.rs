@@ -184,6 +184,13 @@ pub enum LoopsAction {
         /// default applies again.
         #[arg(long)]
         clear_message_buffer_seconds: bool,
+        /// Seconds a buffer window waits for the next event before it closes,
+        /// each event restarting the wait up to --message-buffer-seconds.
+        #[arg(long)]
+        message_quiet_seconds: Option<i32>,
+        /// Drop the quiet-period override, so the built-in 10 seconds applies.
+        #[arg(long)]
+        clear_message_quiet_seconds: bool,
         #[arg(long)]
         connection_id: Option<String>,
         #[arg(long)]
@@ -323,6 +330,11 @@ pub struct CreateConfigArgs {
     /// adapter kind's deployment default.
     #[arg(long)]
     message_buffer_seconds: Option<i32>,
+    /// Seconds a buffer window waits for the next event before it closes, each
+    /// event restarting the wait up to --message-buffer-seconds. Omitted keeps
+    /// the built-in 10.
+    #[arg(long)]
+    message_quiet_seconds: Option<i32>,
 }
 
 pub async fn run_loops(
@@ -436,6 +448,8 @@ pub async fn run_loops(
             fallback_to_other_agent,
             message_buffer_seconds,
             clear_message_buffer_seconds,
+            message_quiet_seconds,
+            clear_message_quiet_seconds,
             connection_id,
             source_matcher,
             source_name,
@@ -497,6 +511,8 @@ pub async fn run_loops(
                 fallback_to_other_agent,
                 message_buffer_seconds,
                 clear_message_buffer_seconds,
+                message_quiet_seconds,
+                clear_message_quiet_seconds,
             )?;
             let source = update_source(
                 connection_id,
@@ -596,6 +612,7 @@ fn create_config(args: CreateConfigArgs) -> Result<CreateLoopConfig, ClientError
         node_selector: parse_node_selector(args.node_selector.as_deref())?,
         stop_when_done: args.stop_when_done,
         message_buffer_seconds: args.message_buffer_seconds,
+        message_quiet_seconds: args.message_quiet_seconds,
         fallback_to_other_agent: args.fallback_to_other_agent,
         agent_properties: None,
     })
@@ -632,6 +649,8 @@ fn update_config(
     fallback_to_other_agent: Option<bool>,
     message_buffer_seconds: Option<i32>,
     clear_message_buffer_seconds: bool,
+    message_quiet_seconds: Option<i32>,
+    clear_message_quiet_seconds: bool,
 ) -> Result<Option<UpdateLoopConfig>, ClientError> {
     let tag_ids = fold_list(tag_ids, clear_tags, "tag", "clear-tags")?;
     let skills = fold_list(skills, clear_skills, "skill", "clear-skills")?;
@@ -673,6 +692,11 @@ fn update_config(
             clear_message_buffer_seconds,
             "message-buffer-seconds",
         )?,
+        message_quiet_seconds: fold_clearable(
+            message_quiet_seconds,
+            clear_message_quiet_seconds,
+            "message-quiet-seconds",
+        )?,
         fallback_to_other_agent,
         agent_properties: None,
     };
@@ -691,6 +715,7 @@ fn update_config(
         && config.node_selector.is_none()
         && config.stop_when_done.is_none()
         && config.message_buffer_seconds.is_none()
+        && config.message_quiet_seconds.is_none()
         && config.fallback_to_other_agent.is_none()
     {
         Ok(None)
@@ -1172,6 +1197,8 @@ mod tests {
             false,
             None,
             None,
+            None,
+            false,
             None,
             false,
         )

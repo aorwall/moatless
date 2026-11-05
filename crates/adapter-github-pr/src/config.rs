@@ -31,8 +31,13 @@ pub(super) const PR_MERGED: &str = "pr_merged";
 /// notices.
 pub(super) const CHECK_RUN_TRIGGER: &str = "check_run_trigger";
 
+/// Derived event name for a body-less `pull_request_review` verdict. Only
+/// `ignored_events` reads it, deliberately: a loop whose include list names
+/// `pull_request_review` keeps receiving verdicts.
+pub(super) const REVIEW_VERDICT: &str = "review_verdict";
+
 /// Every event name a loop's include/ignore list can name: the GitHub webhook
-/// event types this adapter handles, plus the three derived signals above.
+/// event types this adapter handles, plus the derived signals above.
 ///
 /// `workflow_run` produces no message of its own — it is only ever the carrier
 /// for [`POST_MERGE`] — but naming it here is not a typo.
@@ -48,6 +53,7 @@ pub(super) const KNOWN_EVENTS: &[&str] = &[
     POST_MERGE,
     PR_MERGED,
     CHECK_RUN_TRIGGER,
+    REVIEW_VERDICT,
 ];
 
 /// What creates a Task under a loop.
@@ -172,11 +178,7 @@ impl GithubPrRuleConfig {
     /// and does not name it. An empty `events_filter` means "all events". Both
     /// lists are compared case-insensitively.
     pub(super) fn event_filtered_out(&self, event: &str) -> bool {
-        if self
-            .ignored_events
-            .iter()
-            .any(|e| e.eq_ignore_ascii_case(event))
-        {
+        if self.explicitly_ignores(event) {
             return true;
         }
         !self.events_filter.is_empty()
@@ -184,6 +186,14 @@ impl GithubPrRuleConfig {
                 .events_filter
                 .iter()
                 .any(|e| e.eq_ignore_ascii_case(event))
+    }
+
+    /// True when `event` is in `ignored_events`, whatever `events_filter`
+    /// holds. For a derived event that refines one the include list names.
+    pub(super) fn explicitly_ignores(&self, event: &str) -> bool {
+        self.ignored_events
+            .iter()
+            .any(|e| e.eq_ignore_ascii_case(event))
     }
 
     /// True when `sender` (a `sender.login`) is in `ignored_senders`
@@ -331,6 +341,7 @@ mod tests {
             stop_when_done: None,
             room: None,
             message_buffer_seconds: None,
+            message_quiet_seconds: None,
             allow_direct_send: false,
             adapter_config,
             ongoing_task_id: None,

@@ -181,7 +181,7 @@ pub(super) async fn normalize(
             "issue_comment" => normalize_issue_comment(payload, context).await,
             "pull_request_review_comment" => normalize_review_comment(payload, context).await,
             "pull_request_review" => {
-                normalize_review(payload, context, &mut status_observations).await
+                normalize_review(payload, context, &config, &mut status_observations).await
             }
             "check_run" => normalize_check_run(payload, context).await,
             "check_suite" => normalize_check_suite(payload, context, &config).await,
@@ -559,6 +559,7 @@ async fn normalize_review_comment(
 async fn normalize_review(
     payload: &serde_json::Value,
     context: &NormalizeContext<'_>,
+    config: &GithubPrRuleConfig,
     observations: &mut Vec<WebhookStatusObservation>,
 ) -> Result<PrimaryWebhook, AdapterError> {
     if payload.get("action").and_then(serde_json::Value::as_str) != Some("submitted") {
@@ -596,6 +597,11 @@ async fn normalize_review(
     let is_verdict = matches!(review_state, "approved" | "changes_requested");
     if review_body.is_empty() && !is_verdict {
         return Ok(PrimaryWebhook::Ignore(IgnoredWebhook::EmptyReview));
+    }
+    // After the decision observation above, so an ignored verdict still
+    // updates the PR's review status.
+    if review_body.is_empty() && config.explicitly_ignores(super::config::REVIEW_VERDICT) {
+        return Ok(PrimaryWebhook::Ignore(IgnoredWebhook::EventFiltered));
     }
     let state_label = match review_state {
         "approved" => "Approved",

@@ -37,6 +37,13 @@ export interface LoopConfig {
      */
   messageBufferSeconds?: number | null;
   /**
+     * Seconds a window waits for the next event before it closes, each event
+     * restarting the wait up to `message_buffer_seconds`. `None` keeps the
+     * built-in 10.
+     * @nullable
+     */
+  messageQuietSeconds?: number | null;
+  /**
      * Model the spawned Tasks run on, from the `agent_profile` entry's catalog
      * models. `None` means "inherit the platform default the sandbox resolves
      * for `agent_profile`". Flows into `tasks.model` when this Loop spawns a

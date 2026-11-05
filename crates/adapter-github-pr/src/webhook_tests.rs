@@ -43,6 +43,7 @@ fn fake_rule() -> SubscriptionMatch {
         stop_when_done: None,
         room: None,
         message_buffer_seconds: None,
+        message_quiet_seconds: None,
         allow_direct_send: false,
         adapter_config: None,
         ongoing_task_id: None,
@@ -535,6 +536,49 @@ async fn review_verdict_preserves_observation_message_and_audience() {
     assert_eq!(message.audience, Audience::Everyone);
     assert_eq!(message.external_event_id.as_deref(), Some("github:rv:77"));
     assert!(message.text.contains("Changes Requested"));
+}
+
+/// A review loop that ignores `review_verdict` gets no turn for a body-less
+/// approval, but the PR's review status still records it, and a verdict that
+/// says something is still delivered.
+#[tokio::test]
+async fn an_ignored_review_verdict_drops_only_body_less_verdicts() {
+    let mut rule = fake_rule();
+    rule.adapter_config = Some(serde_json::json!({"ignored_events": ["review_verdict"]}));
+    let review = |body: &str| {
+        serde_json::json!({
+            "action": "submitted",
+            "sender": {"login": "reviewer"},
+            "pull_request": {"number": 42},
+            "review": {"id": 77, "state": "approved", "body": body}
+        })
+    };
+
+    let bare = normalize_payload("pull_request_review", &review(""), &rule).await;
+    assert_eq!(bare.status_observations.len(), 1);
+    assert!(matches!(
+        bare.primary,
+        Ok(PrimaryWebhook::Ignore(IgnoredWebhook::EventFiltered))
+    ));
+
+    let with_body = normalize_payload("pull_request_review", &review("ship it"), &rule).await;
+    assert!(message(with_body.primary).text.contains("ship it"));
+}
+
+/// Naming `pull_request_review` in the include list keeps body-less verdicts:
+/// only `ignored_events` reads `review_verdict`.
+#[tokio::test]
+async fn an_include_list_does_not_drop_review_verdicts() {
+    let mut rule = fake_rule();
+    rule.event_filter = serde_json::json!(["pull_request_review"]);
+    let payload = serde_json::json!({
+        "action": "submitted",
+        "sender": {"login": "reviewer"},
+        "pull_request": {"number": 42},
+        "review": {"id": 77, "state": "approved", "body": ""}
+    });
+    let normalized = normalize_payload("pull_request_review", &payload, &rule).await;
+    assert!(message(normalized.primary).text.contains("Approved"));
 }
 
 #[tokio::test]

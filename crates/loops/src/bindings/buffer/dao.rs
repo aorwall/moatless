@@ -13,7 +13,7 @@ use moatless_core::db::DbPool;
 use moatless_types::adapter::InboundMessage;
 
 use super::combine::MAX_PARTS_PER_MESSAGE;
-use super::policy::QUIET_PERIOD;
+use super::policy::BufferHold;
 
 /// Attempts a buffered event gets before it is abandoned. Spent per flush of the
 /// whole binding, so a poison event cannot hold a subject's later events back
@@ -75,18 +75,18 @@ impl MessageBufferStore {
 
     /// Hold `message` for `binding_id`, joining the window already open there.
     ///
-    /// Moves every unclaimed row to one deadline: [`QUIET_PERIOD`] from now,
-    /// capped at `window` after the window opened so a steady stream cannot
-    /// starve the flush. Never moves earlier, so a [`RETRY_BACKOFF`] holds.
+    /// Moves every unclaimed row to one deadline: `hold.quiet` from now,
+    /// capped at `hold.window` after the window opened so a steady stream
+    /// cannot starve the flush. Never moves earlier, so a [`RETRY_BACKOFF`]
+    /// holds.
     pub(crate) async fn push(
         &self,
         binding_id: &str,
         loop_id: &str,
         adapter_label: &str,
         message: &InboundMessage,
-        window: Duration,
+        hold: BufferHold,
     ) -> Result<(), sqlx::Error> {
-        let quiet = QUIET_PERIOD.min(window);
         sqlx::query(
             r#"WITH open_window AS (
                    SELECT MIN(flush_at) AS flush_at, MIN(created_at) AS opened_at
@@ -118,8 +118,8 @@ impl MessageBufferStore {
         .bind(loop_id)
         .bind(adapter_label)
         .bind(sqlx::types::Json(message))
-        .bind(quiet.as_secs_f64())
-        .bind(window.as_secs_f64())
+        .bind(hold.quiet.as_secs_f64())
+        .bind(hold.window.as_secs_f64())
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -287,6 +287,7 @@ mod tests {
     use moatless_types::adapter::{AdapterKind, Audience};
     use sqlx::PgPool;
 
+    use super::super::policy::QUIET_PERIOD;
     use super::*;
 
     const BINDING: &str = "tb_buffer_test";
@@ -351,7 +352,13 @@ mod tests {
 
     async fn push(store: &MessageBufferStore, binding: &str, text: &str, window: Duration) {
         store
-            .push(binding, LOOP_ID, "github_pr", &message(text), window)
+            .push(
+                binding,
+                LOOP_ID,
+                "github_pr",
+                &message(text),
+                BufferHold::new(window, QUIET_PERIOD),
+            )
             .await
             .expect("push admits the event");
     }
@@ -420,6 +427,24 @@ mod tests {
 
         let quiet = QUIET_PERIOD.as_secs_f64();
         assert_eq!(deadlines(&pool).await, [(quiet, quiet)]);
+    }
+
+    /// A Loop's own quiet period replaces the built-in one, so a push minutes
+    /// after the last still joins its turn.
+    #[sqlx::test]
+    async fn a_loop_quiet_period_holds_a_burst_minutes_apart(pool: PgPool) {
+        let store = store(pool.clone()).await;
+        let hold = BufferHold::new(Duration::from_mins(15), Duration::from_mins(5));
+        for (text, age_secs) in [("first push", 240.0), ("second push", 0.0)] {
+            store
+                .push(BINDING, LOOP_ID, "github_pr", &message(text), hold)
+                .await
+                .expect("push admits the event");
+            age(&pool, age_secs).await;
+        }
+
+        let since_newest: Vec<f64> = deadlines(&pool).await.iter().map(|d| d.1).collect();
+        assert_eq!(since_newest, [300.0; 2]);
     }
 
     /// Each event of a burst restarts the quiet period for the whole window.

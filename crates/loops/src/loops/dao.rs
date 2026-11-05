@@ -64,6 +64,7 @@ struct JoinedLoopRecordRow {
     node_selector: Option<sqlx::types::Json<std::collections::BTreeMap<String, String>>>,
     stop_when_done: Option<bool>,
     message_buffer_seconds: Option<i32>,
+    message_quiet_seconds: Option<i32>,
     fallback_to_other_agent: bool,
     adapter_kind: Option<String>,
     connection_id: Option<String>,
@@ -120,6 +121,7 @@ impl JoinedLoopRecordRow {
             node_selector: self.node_selector.map(|json| json.0),
             stop_when_done: self.stop_when_done,
             message_buffer_seconds: self.message_buffer_seconds,
+            message_quiet_seconds: self.message_quiet_seconds,
             fallback_to_other_agent: self.fallback_to_other_agent,
         };
         let source = match kind {
@@ -188,6 +190,7 @@ const LOOP_RECORD_SELECT: &str = r#"
            r.node_selector,
            r.stop_when_done,
            r.message_buffer_seconds,
+           r.message_quiet_seconds,
            r.fallback_to_other_agent,
            aes.adapter_kind,
            aes.connection_id,
@@ -382,7 +385,8 @@ impl LoopDao {
                        fallback_to_other_agent = $16,
                        memory_preload = $17,
                        settle_after_hours = $18,
-                       agent_properties = $19
+                       agent_properties = $19,
+                       message_quiet_seconds = $20
                    WHERE loop_id = $1"#,
             )
             .bind(id)
@@ -404,6 +408,7 @@ impl LoopDao {
             .bind(&config.memory_preload)
             .bind(config.settle_after_hours)
             .bind(sqlx::types::Json(&config.agent_properties))
+            .bind(config.message_quiet_seconds)
             .execute(&mut *tx)
             .await?;
         }
@@ -760,8 +765,10 @@ impl LoopDao {
                (loop_id, routing_mode, ongoing_task_id, prompt,
                 task_name, tag_ids, skills, run_as_user_id, agent_profile,
                 close_after_settled_days, model, workspace_id, node_selector, stop_when_done,
-                message_buffer_seconds, memory_preload, settle_after_hours, agent_properties)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+                message_buffer_seconds, memory_preload, settle_after_hours, agent_properties,
+                message_quiet_seconds)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+                       $19)
                ON CONFLICT (loop_id) DO UPDATE
                SET routing_mode      = EXCLUDED.routing_mode,
                    ongoing_task_id   = EXCLUDED.ongoing_task_id,
@@ -779,7 +786,8 @@ impl LoopDao {
                    message_buffer_seconds = EXCLUDED.message_buffer_seconds,
                    memory_preload    = EXCLUDED.memory_preload,
                    settle_after_hours = EXCLUDED.settle_after_hours,
-                   agent_properties  = EXCLUDED.agent_properties"#,
+                   agent_properties  = EXCLUDED.agent_properties,
+                   message_quiet_seconds = EXCLUDED.message_quiet_seconds"#,
         )
         .bind(&row.id)
         .bind(row.routing_mode.as_str())
@@ -799,6 +807,7 @@ impl LoopDao {
         .bind(&row.memory_preload)
         .bind(row.settle_after_hours)
         .bind(sqlx::types::Json(&row.agent_properties))
+        .bind(row.message_quiet_seconds)
         .execute(&mut *tx)
         .await?;
 
@@ -1167,6 +1176,7 @@ impl LoopDao {
                       r.node_selector,
                       r.stop_when_done,
                       r.message_buffer_seconds,
+                      r.message_quiet_seconds,
                       r.room,
                       t.scope,
                       t.owner_user_id,
@@ -1229,6 +1239,7 @@ const SUBSCRIPTION_MATCH_SELECT: &str = r#"
            r.node_selector,
            r.stop_when_done,
            r.message_buffer_seconds,
+           r.message_quiet_seconds,
            r.room,
            aes.allow_direct_send,
            aes.adapter_config AS adapter_config,
@@ -1331,6 +1342,7 @@ async fn replace_managed_loop_rows(
             node_selector: node_selector.map(|json| json.0),
             stop_when_done: input.stop_when_done,
             message_buffer_seconds: input.message_buffer_seconds,
+            message_quiet_seconds: input.message_quiet_seconds,
             room: input.room.clone(),
             fallback_to_other_agent: input.fallback_to_other_agent,
         },
@@ -1357,9 +1369,9 @@ async fn insert_config(
             task_name, tag_ids, skills, run_as_user_id, agent_profile,
             close_after_settled_days, model, workspace_id, node_selector, stop_when_done,
             message_buffer_seconds, fallback_to_other_agent, memory_preload,
-            settle_after_hours, room, agent_properties)
+            settle_after_hours, room, agent_properties, message_quiet_seconds)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-                   $18, $19, $20)"#,
+                   $18, $19, $20, $21)"#,
     )
     .bind(loop_id)
     .bind(config.routing_mode.as_str())
@@ -1381,6 +1393,7 @@ async fn insert_config(
     .bind(config.settle_after_hours)
     .bind(config.room.as_ref().map(sqlx::types::Json))
     .bind(sqlx::types::Json(&config.agent_properties))
+    .bind(config.message_quiet_seconds)
     .execute(&mut **tx)
     .await?;
     Ok(())

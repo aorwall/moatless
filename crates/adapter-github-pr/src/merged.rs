@@ -330,6 +330,7 @@ mod tests {
             stop_when_done: None,
             room: None,
             message_buffer_seconds: None,
+            message_quiet_seconds: None,
             allow_direct_send: false,
             adapter_config: None,
             ongoing_task_id: None,

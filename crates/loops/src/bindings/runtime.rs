@@ -7,7 +7,7 @@ use moatless_types::adapter::MessageBufferConfig;
 use tracing::{debug, info, warn};
 
 use crate::bindings::buffer::dao::{BufferedBatch, MessageBufferStore};
-use crate::bindings::buffer::policy::buffer_window;
+use crate::bindings::buffer::policy::buffer_hold;
 use crate::bindings::buffer::{Part, combine};
 use crate::bindings::operations::Bindings;
 use crate::bindings::recipients::{EventProvenance, resolve_recipients};
@@ -864,8 +864,8 @@ impl RoutingService {
         adapter_label: &str,
         is_new_task: bool,
     ) -> Result<(), AdapterError> {
-        let window = buffer_window(subscription, msg.adapter_kind, &self.buffer_defaults);
-        if window.is_zero() || is_new_task {
+        let hold = buffer_hold(subscription, msg.adapter_kind, &self.buffer_defaults);
+        if hold.window.is_zero() || is_new_task {
             return self
                 .deliver_now(
                     subscription,
@@ -877,15 +877,16 @@ impl RoutingService {
                 .await;
         }
 
-        // Always a Loop id: `buffer_window` gives a delivery-only Subscription
+        // Always a Loop id: `buffer_hold` gives a delivery-only Subscription
         // no window, and its id resolves to no row a flush could read back.
         self.message_buffer
-            .push(&binding.id, &subscription.id, adapter_label, msg, window)
+            .push(&binding.id, &subscription.id, adapter_label, msg, hold)
             .await?;
         debug!(
             task_id = %binding.task_id,
             provider = adapter_label,
-            window_secs = window.as_secs(),
+            window_secs = hold.window.as_secs(),
+            quiet_secs = hold.quiet.as_secs(),
             "Buffered an inbound event for its binding's window"
         );
         Ok(())

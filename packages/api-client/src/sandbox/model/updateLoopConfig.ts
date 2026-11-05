@@ -34,6 +34,12 @@ export interface UpdateLoopConfig {
      */
   messageBufferSeconds?: number | null;
   /**
+     * See [`LoopConfig::message_quiet_seconds`]. `Some(None)` clears the
+     * override.
+     * @nullable
+     */
+  messageQuietSeconds?: number | null;
+  /**
      * See [`LoopConfig::model`]. `Some(None)` clears the override.
      * @nullable
      */
