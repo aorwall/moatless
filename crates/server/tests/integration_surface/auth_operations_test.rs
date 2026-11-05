@@ -540,3 +540,30 @@ async fn oauth_rejects_missing_and_mismatched_state_before_provider_exchange(poo
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 }
+
+/// A sandbox token carries no cookie or API key: these reads answer from the
+/// identity `auth_middleware` attached, which is all such a caller has.
+#[sqlx::test]
+async fn reads_a_sandbox_token_reaches_answer_from_the_admitted_identity(pool: PgPool) {
+    let alice = seed_user(&pool, "alice", UserRole::User).await;
+    let admitted = moatless_types::auth::AuthIdentity {
+        user_id: alice,
+        login: "alice".to_string(),
+        role: UserRole::User,
+        provider: "user-token".to_string(),
+        group_id: None,
+    };
+    let app = router(&pool).layer(axum::Extension(admitted));
+
+    let me = request(&app, "GET", "/api/v1/auth/me", Value::Null, None).await;
+    assert_eq!(me.status(), StatusCode::OK);
+    assert_eq!(body_json(me).await["user"]["login"], "alice");
+
+    for path in [
+        "/api/v1/users/alice/provider-ids".to_string(),
+        format!("/api/v1/users/by-id/{alice}/provider-ids"),
+    ] {
+        let response = request(&app, "GET", &path, Value::Null, None).await;
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+    }
+}

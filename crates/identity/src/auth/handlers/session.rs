@@ -8,6 +8,7 @@ use crate::auth::error::AuthError;
 use crate::auth::sessions as session;
 use crate::auth::sessions::IssuedAuthSession;
 use crate::auth::state::AuthState;
+use axum::Extension;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
@@ -154,6 +155,22 @@ pub(super) async fn authenticate_request(
     }
 
     Err(AuthError::SessionExpired)
+}
+
+/// The caller `auth_middleware` already admitted, else [`authenticate_request`].
+///
+/// Use on a route a sandbox token may reach: `authenticate_request` knows no
+/// `X-User-Token`, so it 401s the sandbox even after the middleware let it in.
+/// The fallback serves an install that runs without the middleware.
+pub(super) async fn admitted_caller(
+    state: &AuthState,
+    headers: &HeaderMap,
+    admitted: Option<Extension<AuthIdentity>>,
+) -> Result<AuthIdentity, AuthError> {
+    match admitted {
+        Some(Extension(identity)) => Ok(identity),
+        None => authenticate_request(state, headers).await,
+    }
 }
 
 /// Verify authentication via session cookie or API key (Traefik `ForwardAuth`).

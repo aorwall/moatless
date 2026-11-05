@@ -1,18 +1,19 @@
 //! The caller's own profile, and the admin routes over users and their provider
 //! ids.
 
-use super::session::{authenticate_from_cookie, authenticate_request};
+use super::session::{admitted_caller, authenticate_from_cookie, authenticate_request};
 use crate::auth::error::AuthError;
 use crate::auth::schemas::{
     AdminUpdateUserRequest, CreateUserRequest, CreateUserResponse, ListUsersQuery, MessageResponse,
     SessionResponse, UpdateUserRequest, UserInfo, UserListItem, UserListResponse, format_datetime,
 };
 use crate::auth::state::AuthState;
-use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
+use axum::{Extension, Json};
 use moatless_api_schemas::error::ErrorBody;
 use moatless_api_schemas::user::{SetProviderIdRequest, UserProviderIdItem};
+use moatless_types::auth::AuthIdentity;
 
 /// Get current user session information.
 #[utoipa::path(
@@ -27,8 +28,9 @@ use moatless_api_schemas::user::{SetProviderIdRequest, UserProviderIdItem};
 pub(in crate::auth) async fn me_handler(
     State(state): State<AuthState>,
     headers: HeaderMap,
+    admitted: Option<Extension<AuthIdentity>>,
 ) -> Result<Json<SessionResponse>, AuthError> {
-    let identity = authenticate_request(&state, &headers).await?;
+    let identity = admitted_caller(&state, &headers, admitted).await?;
 
     crate::auth::account_status::current_user(&state, identity)
         .await
@@ -323,8 +325,9 @@ pub(in crate::auth) async fn list_user_provider_ids_by_id_handler(
     State(state): State<AuthState>,
     headers: HeaderMap,
     Path(user_id): Path<uuid::Uuid>,
+    admitted: Option<Extension<AuthIdentity>>,
 ) -> Result<Json<Vec<UserProviderIdItem>>, AuthError> {
-    authenticate_request(&state, &headers).await?;
+    admitted_caller(&state, &headers, admitted).await?;
     Ok(Json(
         crate::auth::accounts::list_user_provider_ids_by_id(&state, user_id).await?,
     ))
@@ -379,8 +382,9 @@ pub(in crate::auth) async fn list_user_provider_ids_handler(
     State(state): State<AuthState>,
     headers: HeaderMap,
     Path(login): Path<String>,
+    admitted: Option<Extension<AuthIdentity>>,
 ) -> Result<Json<Vec<UserProviderIdItem>>, AuthError> {
-    authenticate_request(&state, &headers).await?;
+    admitted_caller(&state, &headers, admitted).await?;
     Ok(Json(
         crate::auth::accounts::list_user_provider_ids(&state, login).await?,
     ))
