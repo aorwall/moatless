@@ -393,17 +393,53 @@ impl GithubPrApi {
             "{}/repos/{owner}/{repo}/issues/{number}/assignees",
             self.base_url
         );
+        self.post_expecting_success(
+            "GitHub add_assignee",
+            &url,
+            serde_json::json!({ "assignees": [login] }),
+        )
+        .await
+    }
+
+    /// Request `login`'s review on a pull request. GitHub refuses the pull
+    /// request's own author, which is why only an App-authored one asks.
+    pub(super) async fn request_review(
+        &self,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        login: &str,
+    ) -> Result<(), AdapterError> {
+        let url = format!(
+            "{}/repos/{owner}/{repo}/pulls/{number}/requested_reviewers",
+            self.base_url
+        );
+        self.post_expecting_success(
+            "GitHub request_review",
+            &url,
+            serde_json::json!({ "reviewers": [login] }),
+        )
+        .await
+    }
+
+    /// POST `body` to `url`, reading nothing back but success.
+    async fn post_expecting_success(
+        &self,
+        operation: &'static str,
+        url: &str,
+        body: serde_json::Value,
+    ) -> Result<(), AdapterError> {
         let resp = self
-            .request(reqwest::Method::POST, &url)
-            .json(&serde_json::json!({ "assignees": [login] }))
+            .request(reqwest::Method::POST, url)
+            .json(&body)
             .send()
             .await
-            .map_err(|e| SharedAdapterError::provider_unreachable("GitHub add_assignee", e))?;
+            .map_err(|e| SharedAdapterError::provider_unreachable(operation, e))?;
         if !resp.status().is_success() {
             let status = resp.status();
             let headers = resp.headers().clone();
             let text = resp.text().await.unwrap_or_default();
-            return Err(rejection("GitHub add_assignee", status, &headers, &text));
+            return Err(rejection(operation, status, &headers, &text));
         }
         Ok(())
     }

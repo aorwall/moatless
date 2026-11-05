@@ -95,7 +95,7 @@ pub(crate) async fn create_pr(
         },
     };
     if let (Some(driver), false) = (writer.driver_login.as_deref(), created.opened_existing) {
-        assign_driver(api, &owner, &repo, created.number, driver).await;
+        hand_to_driver(api, &owner, &repo, created.number, driver).await;
     }
 
     let binding_id = if let Some(task_id) = req.task_id.as_deref() {
@@ -508,18 +508,25 @@ fn with_requester(body: &str, requester: Option<&str>) -> String {
     }
 }
 
-/// Assign `driver` to the pull request the App opened for them, so GitHub
-/// itself shows whose it is. Best effort: the pull request already exists, and
-/// the body credits the driver either way.
-async fn assign_driver(
+/// Assign `driver` to the pull request the App opened for them and request
+/// their review, so GitHub itself shows whose it is. Best effort, each on its
+/// own: the pull request already exists, and the body credits the driver.
+async fn hand_to_driver(
     api: &super::api::GithubPrApi,
     owner: &str,
     repo: &str,
     number: u64,
     driver: &str,
 ) {
-    if let Err(e) = api.add_assignee(owner, repo, number, driver).await {
+    let (assigned, review) = tokio::join!(
+        api.add_assignee(owner, repo, number, driver),
+        api.request_review(owner, repo, number, driver),
+    );
+    if let Err(e) = assigned {
         warn!(owner, repo, number, driver, error = %e, "Failed to assign the driver to the pull request");
+    }
+    if let Err(e) = review {
+        warn!(owner, repo, number, driver, error = %e, "Failed to request the driver's review");
     }
 }
 
@@ -621,6 +628,49 @@ async fn bind_task_to_pr(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn the_driver_is_assigned_and_asked_to_review() {
+        use super::super::test_support::{StubResponse, start_github_api_stub};
+        use axum::http::{Method, StatusCode};
+
+        let stub = start_github_api_stub(|method, path, uri| match (method, path) {
+            (Method::POST, "/repos/acme/repo/issues/7/assignees")
+            | (Method::POST, "/repos/acme/repo/pulls/7/requested_reviewers") => {
+                StubResponse::json(StatusCode::CREATED, serde_json::json!({}))
+            }
+            _ => StubResponse::not_found(uri),
+        })
+        .await;
+        let api = super::super::api::GithubPrApi::new(
+            super::super::api::http_client(moatless_core::config::HttpConfig::default().github),
+            "ghs_app",
+            stub.base_url(),
+        );
+
+        hand_to_driver(&api, "acme", "repo", 7, "ada").await;
+
+        let mut bodies: Vec<(String, serde_json::Value)> = stub
+            .recorded_requests()
+            .await
+            .into_iter()
+            .map(|r| (r.uri, serde_json::from_str(&r.body).unwrap()))
+            .collect();
+        bodies.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(
+            bodies,
+            vec![
+                (
+                    "/repos/acme/repo/issues/7/assignees".to_string(),
+                    serde_json::json!({"assignees": ["ada"]})
+                ),
+                (
+                    "/repos/acme/repo/pulls/7/requested_reviewers".to_string(),
+                    serde_json::json!({"reviewers": ["ada"]})
+                ),
+            ]
+        );
+    }
 
     #[test]
     fn pr_body_includes_footer_when_task_url_present() {
