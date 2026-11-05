@@ -44,7 +44,8 @@
         "storage": "60Gi"
       },
       "sandboxServiceAccount": "moatless-admin",
-      "networkProfile": "moatless-admin"
+      "networkProfile": "moatless-admin",
+      "systemPrompt": "After a PR you opened on soaplabs/moatless merges, deploy it once the post-merge pipeline passes, and verify it:\n\n1. Skip the deploy when the run's `Build & push backend image` job was skipped: no new image was published.\n2. `kubectl rollout restart deployment/moatless-vibe-backend -n moatless` and wait for `rollout status`. It runs `aorwall/moatless-backend:latest` with `imagePullPolicy: Always`.\n3. Check the new pods' `imageID` against `curl -s https://hub.docker.com/v2/repositories/aorwall/moatless-backend/tags/latest | jq -r .digest` (this image has no `docker buildx`), then exercise the change on https://moatless.xyz.\n4. Roll back only with the user's agreement: `:latest` has no previous tag to return to."
     },
     {
       "key": "moatless-feedback",
