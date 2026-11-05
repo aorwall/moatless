@@ -431,8 +431,8 @@ fn build_managed_command_note(config: &Config) -> Option<String> {
          Your shell tool kills a long command — Claude Code's Bash tool at 2 \
          minutes unless you pass a longer `timeout`, and never past 10 minutes \
          whatever you pass — and this session cannot background one. For work \
-         that outlives a single shell call — a slow build or test suite, a dev \
-         server — start it with `moat cmd run --cwd <dir> \"<command>\"` \
+         that outlives a single shell call — a slow build or test suite — \
+         start it with `moat cmd run --cwd <dir> \"<command>\"` \
          instead of blocking a turn on `sleep` polling. \
          `--cwd` defaults to your shell tool's current \
          directory, so pass it explicitly to pin the command to the directory \
@@ -454,7 +454,13 @@ fn build_managed_command_note(config: &Config) -> Option<String> {
          running when you report where your work stands. A command is killed \
          at its deadline (4h by default); pass `--timeout <seconds>` to lower \
          it for something that should finish fast, or raise it for a server \
-         meant to run the whole session."
+         meant to run the whole session.\n\n\
+         A server someone opens in a browser, such as a dev server, starts as \
+         a task Script instead: `moat tasks scripts $TASK_ID run <name> \
+         --port <port> --command \"<command>\"`. The preview proxy routes \
+         only a Script's declared port, so the same server under `moat cmd \
+         run` serves locally while its preview URL answers 404. Running the \
+         name again attaches rather than starting a second copy."
             .to_string(),
     )
 }
@@ -1354,6 +1360,7 @@ mod tests {
         assert!(subprocess.contains("moat cmd run --cwd <dir>"));
         assert!(subprocess.contains("that wake is guaranteed"));
         assert!(subprocess.contains("kill it once the work that needed it is done"));
+        assert!(subprocess.contains("moat tasks scripts $TASK_ID run <name>"));
 
         let tmux = build_prompt_append(&test_config(true), &test_request());
         assert!(!tmux.contains("## Long-running commands"));
