@@ -167,14 +167,16 @@ fn gateway_with(
         .expect_provider_token()
         .returning(|_, _| Ok(None));
     ModelGateway::new(
-        moatless_sandbox_control::compose::sandbox_graph(pool).sandbox_ingress(),
-        Arc::new(StaticTokenGenerations::one("sandbox-1", 2, "user-1")),
+        Arc::new(crate::proxy::caller::SandboxCallers::new(
+            moatless_sandbox_control::compose::sandbox_graph(pool).sandbox_ingress(),
+            Arc::new(StaticTokenGenerations::one("sandbox-1", 2, "user-1")),
+            Some(SECRET.to_string()),
+        )),
         Arc::new(workspaces),
         Arc::new(workspace_credentials),
         Arc::new(secrets),
         Arc::new(provider_tokens),
         codex,
-        Some(SECRET.to_string()),
         ModelGatewayConfig::default(),
         ProviderBases {
             chatgpt: chatgpt_base.to_string(),
@@ -187,6 +189,7 @@ fn gateway_with(
 fn scope() -> super::super::service::SandboxScope {
     super::super::service::SandboxScope {
         sandbox: "sandbox-1".to_string(),
+        token_user: "user-1".to_string(),
         user: "user-1".to_string(),
         workspace: "workspace-1".to_string(),
         run_as: None,

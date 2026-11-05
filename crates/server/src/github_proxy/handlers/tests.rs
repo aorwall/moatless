@@ -19,6 +19,7 @@ use moatless_workspace_types::repository::{
 };
 
 use super::*;
+use crate::proxy::caller::SandboxCallers;
 
 const SECRET: &str = "github-proxy-test-secret";
 
@@ -108,16 +109,18 @@ fn proxy(
         .connect_lazy("postgres://unused@127.0.0.1:1/unused")
         .unwrap();
     GitHubProxy::new(
-        moatless_sandbox_control::compose::sandbox_graph(pool).sandbox_ingress(),
-        Arc::new(StaticTokenGenerations::one(
-            "sandbox-1",
-            GENERATION,
-            "user-1",
+        Arc::new(SandboxCallers::new(
+            moatless_sandbox_control::compose::sandbox_graph(pool).sandbox_ingress(),
+            Arc::new(StaticTokenGenerations::one(
+                "sandbox-1",
+                GENERATION,
+                "user-1",
+            )),
+            Some(SECRET.to_string()),
         )),
         workspaces,
         credentials,
         tokens,
-        Some(SECRET.to_string()),
         api_base,
         api_base,
         moatless_core::config::HttpConfig::default().git_proxy,
@@ -127,6 +130,7 @@ fn proxy(
 fn scope() -> SandboxScope {
     SandboxScope {
         sandbox: "sandbox-1".to_string(),
+        token_user: "user-1".to_string(),
         user: "user-1".to_string(),
         workspace: "workspace-1".to_string(),
         run_as: None,
@@ -506,21 +510,6 @@ fn the_first_segment_names_the_upstream_and_the_rest_is_forwarded() {
         ))
     );
     assert_eq!(split("/github/evil.example.com/steal"), None);
-}
-
-#[test]
-fn neither_the_task_token_nor_a_hop_by_hop_header_is_forwarded() {
-    assert!(!forwards(&header::HOST));
-    assert!(!forwards(&header::TRANSFER_ENCODING));
-    assert!(forwards(&header::ACCEPT));
-    assert!(forwards(&HeaderName::from_static("x-github-api-version")));
-    assert_eq!(
-        bearer_token(&HeaderMap::from_iter([(
-            header::AUTHORIZATION,
-            HeaderValue::from_static("Bearer task-jwt"),
-        )])),
-        Some("task-jwt")
-    );
 }
 
 #[expect(

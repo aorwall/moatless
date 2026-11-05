@@ -179,14 +179,16 @@ fn gateway() -> ModelGateway {
         .connect_lazy("postgres://unused@127.0.0.1:1/unused")
         .unwrap();
     ModelGateway::new(
-        moatless_sandbox_control::compose::sandbox_graph(pool).sandbox_ingress(),
-        Arc::new(StaticTokenGenerations::one("sandbox-1", 2, "user-1")),
+        Arc::new(crate::proxy::caller::SandboxCallers::new(
+            moatless_sandbox_control::compose::sandbox_graph(pool).sandbox_ingress(),
+            Arc::new(StaticTokenGenerations::one("sandbox-1", 2, "user-1")),
+            Some(SECRET.to_string()),
+        )),
         Arc::new(MockWorkspaceResolver::new()),
         Arc::new(MockWorkspaceCredentialReader::new()),
         Arc::new(MockSecretResolver::new()),
         Arc::new(MockHarnessCredentials::new()),
         Arc::new(FixedCodex(None)),
-        Some(SECRET.to_string()),
         ModelGatewayConfig::default(),
         ProviderBases::default(),
         moatless_core::config::HttpConfig::default().model_gateway,

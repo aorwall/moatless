@@ -211,36 +211,35 @@ impl AppState {
             )),
             config.auth.github_app_oauth().is_some(),
         );
-        let git_proxy = Arc::new(crate::git_proxy::GitProxy::new(
+        let sandbox_callers = Arc::new(crate::proxy::caller::SandboxCallers::new(
             ports.sandbox_graph.sandbox_ingress(),
             ports.sandbox_graph.token_generations(),
+            config.sandbox.task_token_secret.clone(),
+        ));
+        let git_proxy = Arc::new(crate::git_proxy::GitProxy::new(
+            sandbox_callers.clone(),
             workspace_resolver.clone(),
             repository_reader.clone(),
             user_directory.clone(),
             git_host_tokens.clone(),
-            config.sandbox.task_token_secret.clone(),
             config.http.git_proxy,
         ));
         let github_proxy = Arc::new(crate::github_proxy::GitHubProxy::new(
-            ports.sandbox_graph.sandbox_ingress(),
-            ports.sandbox_graph.token_generations(),
+            sandbox_callers.clone(),
             workspace_resolver.clone(),
             workspace_credentials.clone(),
             git_host_tokens.clone(),
-            config.sandbox.task_token_secret.clone(),
             &config.github_api_base,
             crate::github_proxy::GITHUB_UPLOADS_BASE,
             config.http.github_proxy,
         ));
         let model_gateway = Arc::new(crate::model_gateway::ModelGateway::new(
-            ports.sandbox_graph.sandbox_ingress(),
-            ports.sandbox_graph.token_generations(),
+            sandbox_callers,
             workspace_resolver.clone(),
             workspace_credentials.clone(),
             secrets.clone(),
             harness_credentials.clone(),
             credential_sync.clone(),
-            config.sandbox.task_token_secret.clone(),
             config.model_gateway.clone(),
             crate::model_gateway::ProviderBases::default(),
             config.http.model_gateway,

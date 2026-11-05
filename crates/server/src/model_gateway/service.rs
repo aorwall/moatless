@@ -5,9 +5,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use moatless_core::config::ModelGatewayConfig;
-use moatless_core::sandbox_jwt::{
-    GenerationError, TokenGenerations, check_generation, verify_user_auth_token,
-};
 use moatless_core::secret_keys::CODEX_AUTH_JSON;
 use moatless_ports::identity::{HarnessCredentials, SecretResolver};
 use moatless_ports::sandbox::CodexCredentials;
@@ -21,7 +18,8 @@ use moatless_workspace_ports::{WorkspaceCredentialReader, WorkspaceResolver};
 use tracing::warn;
 
 use super::openai;
-use crate::sandbox::lifecycle::SandboxIngress;
+pub use crate::proxy::caller::SandboxScope;
+use crate::proxy::caller::{CallerError, SandboxCallers};
 
 /// Anthropic's API root, which a task's own Anthropic credential is sent to.
 pub const ANTHROPIC_API_BASE: &str = "https://api.anthropic.com";
@@ -51,18 +49,6 @@ impl Default for ProviderBases {
     }
 }
 
-/// The sandbox a verified task token was minted for.
-#[derive(Debug, Clone)]
-pub struct SandboxScope {
-    pub sandbox: String,
-    /// The Sandbox's driver, else its owner, which a run-as identity
-    /// overrides.
-    pub user: String,
-    pub workspace: String,
-    /// The Sandbox row's run-as identity, ahead of the Workspace's.
-    pub run_as: Option<String>,
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum GatewayError {
     /// Every rejection of the caller's own task token.
@@ -79,16 +65,12 @@ pub enum GatewayError {
 /// Resolves a pod's model request to an upstream and the credential to
 /// present there.
 pub struct ModelGateway {
-    sandboxes: Arc<SandboxIngress>,
-    token_generations: Arc<dyn TokenGenerations>,
+    callers: Arc<SandboxCallers>,
     workspaces: Arc<dyn WorkspaceResolver>,
     workspace_credentials: Arc<dyn WorkspaceCredentialReader>,
     secrets: Arc<dyn SecretResolver>,
     harness_credentials: Arc<dyn HarnessCredentials>,
     codex: Arc<dyn CodexCredentials>,
-    /// `None` in a deployment that mints no task tokens, which refuses every
-    /// request rather than admitting an unverifiable one.
-    task_token_secret: Option<String>,
     pub(super) config: ModelGatewayConfig,
     pub(super) bases: ProviderBases,
     pub(super) http: reqwest::Client,
@@ -119,27 +101,23 @@ impl ModelGateway {
         reason = "one port per lookup the credential resolution makes"
     )]
     pub(crate) fn new(
-        sandboxes: Arc<SandboxIngress>,
-        token_generations: Arc<dyn TokenGenerations>,
+        callers: Arc<SandboxCallers>,
         workspaces: Arc<dyn WorkspaceResolver>,
         workspace_credentials: Arc<dyn WorkspaceCredentialReader>,
         secrets: Arc<dyn SecretResolver>,
         harness_credentials: Arc<dyn HarnessCredentials>,
         codex: Arc<dyn CodexCredentials>,
-        task_token_secret: Option<String>,
         config: ModelGatewayConfig,
         bases: ProviderBases,
         timeouts: HttpStreamTimeouts,
     ) -> Self {
         Self {
-            sandboxes,
-            token_generations,
+            callers,
             workspaces,
             workspace_credentials,
             secrets,
             harness_credentials,
             codex,
-            task_token_secret,
             config,
             bases,
             http: http_client(timeouts),
@@ -151,62 +129,15 @@ impl ModelGateway {
         &self,
         task_token: Option<&str>,
     ) -> Result<SandboxScope, GatewayError> {
-        let task_token = task_token
-            .ok_or_else(|| GatewayError::Unauthorized("No task token was presented".to_string()))?;
-        let secret = self.task_token_secret.as_deref().ok_or_else(|| {
-            GatewayError::Unauthorized(
-                "This deployment verifies no task tokens, so it serves no model gateway"
-                    .to_string(),
-            )
-        })?;
-        let claims = verify_user_auth_token(task_token, secret)
-            .map_err(|e| GatewayError::Unauthorized(format!("Invalid task token: {e}")))?;
-        let sandbox_id = claims.sandbox_id.clone().ok_or_else(|| {
-            GatewayError::Unauthorized("The task token names no sandbox".to_string())
-        })?;
-        check_generation(
-            self.token_generations.as_ref(),
-            &sandbox_id,
-            claims.generation,
-        )
-        .await
-        .map_err(|e| match e {
-            GenerationError::Stale { .. } | GenerationError::NoSandbox => {
-                GatewayError::Unauthorized(e.to_string())
-            }
-            GenerationError::Lookup(_) => GatewayError::Upstream(e.to_string()),
-        })?;
-
-        let workspace_id = self
-            .sandboxes
-            .workspace_id(&sandbox_id)
+        self.callers
+            .authenticate(task_token)
             .await
-            .map_err(|e| {
-                warn!(error = %e, sandbox_id, "Failed to read the sandbox for a model request");
-                GatewayError::Upstream("Failed to read the sandbox".to_string())
-            })?
-            .ok_or_else(|| {
-                GatewayError::Unauthorized(
-                    "The task token names a sandbox that no longer exists".to_string(),
-                )
-            })?;
-        // Fails closed rather than degrading to the token's user: that is the
-        // driver only while the read agrees.
-        let identity = self
-            .sandboxes
-            .identity(&sandbox_id)
-            .await
-            .map_err(|e| {
-                warn!(error = %e, sandbox_id, "Failed to read the sandbox identity");
-                GatewayError::Upstream("Failed to read the sandbox".to_string())
-            })?
-            .unwrap_or_default();
-        Ok(SandboxScope {
-            sandbox: sandbox_id,
-            user: identity.acting_user_id.unwrap_or(claims.user_id),
-            workspace: workspace_id,
-            run_as: identity.pinned_run_as,
-        })
+            .map_err(|e| match e {
+                CallerError::Unauthorized(_) | CallerError::SandboxGone => {
+                    GatewayError::Unauthorized(e.to_string())
+                }
+                CallerError::Upstream(message) => GatewayError::Upstream(message),
+            })
     }
 
     /// The Anthropic credentials `scope`'s actor calls upstream with.

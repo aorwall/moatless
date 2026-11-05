@@ -2,9 +2,6 @@
 
 use std::sync::Arc;
 
-use moatless_core::sandbox_jwt::{
-    GenerationError, TokenGenerations, check_generation, verify_user_auth_token,
-};
 use moatless_core::secret_keys::GITHUB_TOKEN;
 use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer};
 use moatless_sandbox_control::secrets::{
@@ -15,7 +12,7 @@ use moatless_workspace_ports::{WorkspaceCredentialReader, WorkspaceResolver};
 use moatless_workspace_types::repository::GitHostRepo;
 use tracing::{debug, warn};
 
-use crate::sandbox::lifecycle::SandboxIngress;
+use crate::proxy::caller::{CallerError, SandboxCallers, SandboxScope};
 
 /// GitHub's release-asset upload host, which `gh release upload` posts to.
 pub const GITHUB_UPLOADS_BASE: &str = "https://uploads.github.com";
@@ -41,19 +38,6 @@ impl GitHubUpstream {
     }
 }
 
-/// The sandbox a verified task token was minted for, and the identities its
-/// GitHub token resolves against.
-#[derive(Debug, Clone)]
-pub struct SandboxScope {
-    pub sandbox: String,
-    /// The Sandbox's driver, else its owner, which a run-as identity
-    /// overrides.
-    pub user: String,
-    pub workspace: String,
-    /// The run-as identity the Sandbox row pins, ahead of the Workspace's.
-    pub run_as: Option<String>,
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum GitHubProxyError {
     /// Every rejection of the caller's own task token.
@@ -70,14 +54,10 @@ pub enum GitHubProxyError {
 
 /// Resolves a proxied GitHub API request to an upstream URL and a token.
 pub struct GitHubProxy {
-    sandboxes: Arc<SandboxIngress>,
-    token_generations: Arc<dyn TokenGenerations>,
+    callers: Arc<SandboxCallers>,
     workspaces: Arc<dyn WorkspaceResolver>,
     workspace_credentials: Arc<dyn WorkspaceCredentialReader>,
     git_host_tokens: Arc<dyn GitHostTokenIssuer>,
-    /// `None` in a deployment that mints no task tokens, which refuses every
-    /// proxied request rather than admitting an unverifiable one.
-    task_token_secret: Option<String>,
     /// [`GitHubUpstream::Api`]'s root, without a trailing `/`.
     api_base: String,
     /// [`GitHubUpstream::Uploads`]'s root, without a trailing `/`.
@@ -106,28 +86,20 @@ fn http_client(timeouts: HttpStreamTimeouts) -> reqwest::Client {
 }
 
 impl GitHubProxy {
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "one port per lookup the token resolution makes"
-    )]
     pub(crate) fn new(
-        sandboxes: Arc<SandboxIngress>,
-        token_generations: Arc<dyn TokenGenerations>,
+        callers: Arc<SandboxCallers>,
         workspaces: Arc<dyn WorkspaceResolver>,
         workspace_credentials: Arc<dyn WorkspaceCredentialReader>,
         git_host_tokens: Arc<dyn GitHostTokenIssuer>,
-        task_token_secret: Option<String>,
         api_base: &str,
         uploads_base: &str,
         timeouts: HttpStreamTimeouts,
     ) -> Self {
         Self {
-            sandboxes,
-            token_generations,
+            callers,
             workspaces,
             workspace_credentials,
             git_host_tokens,
-            task_token_secret,
             api_base: api_base.trim_end_matches('/').to_string(),
             uploads_base: uploads_base.trim_end_matches('/').to_string(),
             http: http_client(timeouts),
@@ -148,63 +120,15 @@ impl GitHubProxy {
         &self,
         task_token: Option<&str>,
     ) -> Result<SandboxScope, GitHubProxyError> {
-        let task_token = task_token.ok_or_else(|| {
-            GitHubProxyError::Unauthorized("No task token was presented".to_string())
-        })?;
-        let secret = self.task_token_secret.as_deref().ok_or_else(|| {
-            GitHubProxyError::Unauthorized(
-                "This deployment verifies no task tokens, so it proxies no GitHub traffic"
-                    .to_string(),
-            )
-        })?;
-        let claims = verify_user_auth_token(task_token, secret)
-            .map_err(|e| GitHubProxyError::Unauthorized(format!("Invalid task token: {e}")))?;
-        let sandbox_id = claims.sandbox_id.clone().ok_or_else(|| {
-            GitHubProxyError::Unauthorized("The task token names no sandbox".to_string())
-        })?;
-        check_generation(
-            self.token_generations.as_ref(),
-            &sandbox_id,
-            claims.generation,
-        )
-        .await
-        .map_err(|e| match e {
-            GenerationError::Stale { .. } | GenerationError::NoSandbox => {
-                GitHubProxyError::Unauthorized(e.to_string())
-            }
-            GenerationError::Lookup(_) => GitHubProxyError::Upstream(e.to_string()),
-        })?;
-
-        let workspace_id = self
-            .sandboxes
-            .workspace_id(&sandbox_id)
+        self.callers
+            .authenticate(task_token)
             .await
-            .map_err(|e| {
-                warn!(error = %e, sandbox_id, "Failed to read the sandbox for a proxied GitHub request");
-                GitHubProxyError::Upstream("Failed to read the sandbox".to_string())
-            })?
-            .ok_or_else(|| {
-                GitHubProxyError::Unauthorized(
-                    "The task token names a sandbox that no longer exists".to_string(),
-                )
-            })?;
-        // Fails closed rather than degrading to the token's user: that is the
-        // driver only while the read agrees.
-        let identity = self
-            .sandboxes
-            .identity(&sandbox_id)
-            .await
-            .map_err(|e| {
-                warn!(error = %e, sandbox_id, "Failed to read the sandbox identity");
-                GitHubProxyError::Upstream("Failed to read the sandbox".to_string())
-            })?
-            .unwrap_or_default();
-        Ok(SandboxScope {
-            sandbox: sandbox_id,
-            user: identity.acting_user_id.unwrap_or(claims.user_id),
-            workspace: workspace_id,
-            run_as: identity.pinned_run_as,
-        })
+            .map_err(|e| match e {
+                CallerError::Unauthorized(_) | CallerError::SandboxGone => {
+                    GitHubProxyError::Unauthorized(e.to_string())
+                }
+                CallerError::Upstream(message) => GitHubProxyError::Upstream(message),
+            })
     }
 
     /// The Workspace's pinned token, else the run-as identity's for

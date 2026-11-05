@@ -1,10 +1,11 @@
 //! Forwarding one model request upstream and streaming the answer back.
 
 use axum::body::Body;
-use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, header};
-use axum::response::{IntoResponse, Response};
+use axum::http::{HeaderMap, HeaderName, Method, header};
+use axum::response::Response;
 use futures::TryStreamExt;
-use tracing::warn;
+
+use crate::proxy::forward::{forwards, stream_back};
 
 /// An upstream request, before the credential is attached: the caller's
 /// headers minus hop-by-hop ones and its credentials, and its body streamed.
@@ -36,42 +37,7 @@ pub fn upstream_request(
 /// unbuffered, so an SSE event reaches the agent as the provider sends it and
 /// a `429` keeps its rate-limit headers.
 pub async fn relay(request: reqwest::RequestBuilder) -> Result<Response, reqwest::Error> {
-    let response = request.send().await?;
-    let status = StatusCode::from_u16(response.status().as_u16())
-        .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-    let mut out = Response::builder().status(status);
-    for (name, value) in response.headers() {
-        // `reqwest` already dechunked the body, so a forwarded length or
-        // transfer encoding would describe bytes the stream no longer carries.
-        if forwards(name) && name != header::CONTENT_LENGTH {
-            if let Ok(value) = HeaderValue::from_bytes(value.as_bytes()) {
-                out = out.header(name.clone(), value);
-            }
-        }
-    }
-    Ok(out
-        .body(Body::from_stream(response.bytes_stream()))
-        .unwrap_or_else(|error| {
-            warn!(%error, "Failed to build a model gateway response");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
-        }))
-}
-
-/// Whether a header crosses the gateway. Hop-by-hop headers describe one
-/// connection, and `Host` names the backend rather than the provider.
-fn forwards(name: &HeaderName) -> bool {
-    !matches!(
-        name.as_str(),
-        "connection"
-            | "keep-alive"
-            | "proxy-authenticate"
-            | "proxy-authorization"
-            | "te"
-            | "trailer"
-            | "transfer-encoding"
-            | "upgrade"
-            | "host"
-    )
+    Ok(stream_back(request.send().await?, "model_gateway"))
 }
 
 /// The headers a caller presents its task token in, or that name an account

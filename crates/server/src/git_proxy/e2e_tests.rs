@@ -101,13 +101,15 @@ async fn proxy(env: &Env, repository_id: &str) -> GitProxy {
     users.expect_git_identity().returning(|_| Ok(None));
 
     GitProxy::new(
-        graph.sandbox_ingress(),
-        graph.token_generations(),
+        Arc::new(crate::proxy::caller::SandboxCallers::new(
+            graph.sandbox_ingress(),
+            graph.token_generations(),
+            Some(SECRET.to_string()),
+        )),
         Arc::new(workspaces),
         Arc::new(repositories),
         Arc::new(users),
         Arc::new(tokens),
-        Some(SECRET.to_string()),
         moatless_core::config::HttpConfig::default().git_proxy,
     )
 }

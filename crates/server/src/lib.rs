@@ -25,6 +25,7 @@ pub mod git_proxy;
 pub mod github_proxy;
 mod http_trace;
 pub mod model_gateway;
+mod proxy;
 pub mod reaper;
 mod reaper_decisions;
 pub mod repository_sync;

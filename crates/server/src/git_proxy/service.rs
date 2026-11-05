@@ -3,9 +3,6 @@
 
 use std::sync::Arc;
 
-use moatless_core::sandbox_jwt::{
-    GenerationError, TokenGenerations, check_generation, verify_user_auth_token,
-};
 use moatless_ports::identity::{CommitIdentity, GitHostTokenError, GitHostTokenIssuer};
 use moatless_sandbox_control::secrets::{resolve_task_actor, resolve_task_git_token};
 use moatless_types::access_control::{Actor, ScopeContext, ScopedResource};
@@ -14,7 +11,7 @@ use moatless_workspace_ports::{RepositoryReader, WorkspaceResolver};
 use moatless_workspace_types::repository::{GitHostRepo, Repository};
 use tracing::warn;
 
-use crate::sandbox::lifecycle::SandboxIngress;
+use crate::proxy::caller::{CallerError, SandboxCallers, SandboxScope};
 
 /// Where one proxied request goes, and what it presents on arrival.
 pub struct Upstream {
@@ -76,15 +73,6 @@ impl Upstream {
     }
 }
 
-/// Who a verified task token speaks for.
-#[expect(clippy::struct_field_names, reason = "each field is a row id")]
-struct Caller {
-    /// The token's own `userId`, the Sandbox's driver.
-    user_id: String,
-    sandbox_id: String,
-    workspace_id: String,
-}
-
 /// What git shows, as `remote:` lines, when `upstream`'s host answers 404.
 ///
 /// Safe to name the repository: the proxy only reaches the host for one the
@@ -136,15 +124,11 @@ pub enum GitProxyError {
 
 /// Resolves a proxied git request to an upstream and a credential.
 pub struct GitProxy {
-    sandboxes: Arc<SandboxIngress>,
-    token_generations: Arc<dyn TokenGenerations>,
+    callers: Arc<SandboxCallers>,
     workspaces: Arc<dyn WorkspaceResolver>,
     repositories: Arc<dyn RepositoryReader>,
     users: Arc<dyn CommitIdentity>,
     git_host_tokens: Arc<dyn GitHostTokenIssuer>,
-    /// `None` in a deployment that mints no task tokens, which refuses every
-    /// proxied request rather than admitting an unverifiable one.
-    task_token_secret: Option<String>,
     pub(crate) http: reqwest::Client,
 }
 
@@ -167,28 +151,20 @@ fn http_client(timeouts: HttpStreamTimeouts) -> reqwest::Client {
 }
 
 impl GitProxy {
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "one port per lookup the credential resolution makes"
-    )]
     pub(crate) fn new(
-        sandboxes: Arc<SandboxIngress>,
-        token_generations: Arc<dyn TokenGenerations>,
+        callers: Arc<SandboxCallers>,
         workspaces: Arc<dyn WorkspaceResolver>,
         repositories: Arc<dyn RepositoryReader>,
         users: Arc<dyn CommitIdentity>,
         git_host_tokens: Arc<dyn GitHostTokenIssuer>,
-        task_token_secret: Option<String>,
         timeouts: HttpStreamTimeouts,
     ) -> Self {
         Self {
-            sandboxes,
-            token_generations,
+            callers,
             workspaces,
             repositories,
             users,
             git_host_tokens,
-            task_token_secret,
             // `FORWARDED_REQUEST_HEADERS` copies git's own `User-Agent` over
             // this default, so it covers only a client that sends none. See
             // `moatless_core::USER_AGENT`.
@@ -210,10 +186,10 @@ impl GitProxy {
         let caller = self.authenticate(task_token).await?;
         let placed = self
             .workspaces
-            .placements(&caller.workspace_id)
+            .placements(&caller.workspace)
             .await
             .map_err(|e| {
-                warn!(error = %e, workspace_id = %caller.workspace_id, "Failed to read the workspace placements");
+                warn!(error = %e, workspace_id = %caller.workspace, "Failed to read the workspace placements");
                 GitProxyError::Upstream("Failed to read the workspace".to_string())
             })?
             .into_iter()
@@ -225,7 +201,7 @@ impl GitProxy {
             None => usable_repository(
                 &self.repositories,
                 &self.users,
-                &caller.user_id,
+                &caller.token_user,
                 repository_id,
             )
             .await
@@ -235,7 +211,7 @@ impl GitProxy {
         let repo = git_host_repo(&repository)
             .ok_or(GitProxyError::NotFound)?
             .clone();
-        let actor = self.actor(&caller).await?;
+        let actor = self.actor(&caller).await;
 
         // Through the resolver the pre-provision preflight uses, so a clone this
         // proxy refuses is one `preflight_validate_git_credential` would have
@@ -254,7 +230,7 @@ impl GitProxy {
             &repo,
             Credential::Token(token),
             &actor,
-            caller.workspace_id,
+            caller.workspace,
         ))
     }
 
@@ -272,89 +248,37 @@ impl GitProxy {
     ) -> Result<Upstream, GitProxyError> {
         let repo = github_repo(owner, name).ok_or(GitProxyError::NotFound)?;
         let caller = self.authenticate(task_token).await?;
-        let actor = self.actor(&caller).await?;
+        let actor = self.actor(&caller).await;
         let resolved = self
             .git_host_tokens
             .token(&actor, &repo.credential_account())
             .await;
         let credential = github_credential(resolved, push, repo.host())?;
-        Ok(Upstream::new(
-            &repo,
-            credential,
-            &actor,
-            caller.workspace_id,
-        ))
+        Ok(Upstream::new(&repo, credential, &actor, caller.workspace))
     }
 
     /// The Sandbox and Workspace a task token names.
-    async fn authenticate(&self, task_token: &str) -> Result<Caller, GitProxyError> {
-        let secret = self.task_token_secret.as_deref().ok_or_else(|| {
-            GitProxyError::Unauthorized(
-                "This deployment verifies no task tokens, so it proxies no git traffic".to_string(),
-            )
-        })?;
-        let claims = verify_user_auth_token(task_token, secret)
-            .map_err(|e| GitProxyError::Unauthorized(format!("Invalid task token: {e}")))?;
-        // `generate_user_auth_token` binds the token to a Sandbox, not to a
-        // Task: a shared Sandbox runs several Member tasks off one pod and one
-        // checkout, so the Sandbox is what a clone belongs to.
-        let sandbox_id = claims.sandbox_id.ok_or_else(|| {
-            GitProxyError::Unauthorized("The task token names no sandbox".to_string())
-        })?;
-        check_generation(
-            self.token_generations.as_ref(),
-            &sandbox_id,
-            claims.generation,
-        )
-        .await
-        .map_err(|e| match e {
-            GenerationError::Stale { .. } | GenerationError::NoSandbox => {
-                GitProxyError::Unauthorized(e.to_string())
-            }
-            GenerationError::Lookup(_) => GitProxyError::Upstream(e.to_string()),
-        })?;
-
-        let workspace_id = self
-            .sandboxes
-            .workspace_id(&sandbox_id)
+    async fn authenticate(&self, task_token: &str) -> Result<SandboxScope, GitProxyError> {
+        self.callers
+            .authenticate(Some(task_token))
             .await
-            .map_err(|e| {
-                warn!(error = %e, sandbox_id, "Failed to read the sandbox for a proxied git request");
-                GitProxyError::Upstream("Failed to read the sandbox".to_string())
-            })?
-            .ok_or(GitProxyError::NotFound)?;
-        Ok(Caller {
-            user_id: claims.user_id,
-            sandbox_id,
-            workspace_id,
-        })
+            .map_err(|e| match e {
+                CallerError::Unauthorized(message) => GitProxyError::Unauthorized(message),
+                CallerError::SandboxGone => GitProxyError::NotFound,
+                CallerError::Upstream(message) => GitProxyError::Upstream(message),
+            })
     }
 
     /// The identity whose credential a request from `caller` presents, on
     /// behalf of the Sandbox's driver.
-    ///
-    /// Fails closed rather than degrading to the token's user: that is the
-    /// driver only while the read agrees.
-    async fn actor(&self, caller: &Caller) -> Result<Actor, GitProxyError> {
-        let identity = self
-            .sandboxes
-            .identity(&caller.sandbox_id)
-            .await
-            .map_err(|e| {
-                warn!(error = %e, sandbox_id = %caller.sandbox_id, "Failed to read the sandbox identity");
-                GitProxyError::Upstream("Failed to read the sandbox".to_string())
-            })?
-            .unwrap_or_default();
-        Ok(resolve_task_actor(
+    async fn actor(&self, caller: &SandboxScope) -> Actor {
+        resolve_task_actor(
             Some(&self.workspaces),
-            Some(&caller.workspace_id),
-            identity.pinned_run_as.as_deref(),
-            identity
-                .acting_user_id
-                .as_deref()
-                .unwrap_or(&caller.user_id),
+            Some(&caller.workspace),
+            caller.run_as.as_deref(),
+            &caller.user,
         )
-        .await)
+        .await
     }
 
     /// The body answering a 404 from `upstream`'s host; see [`refusal_message`].
@@ -741,17 +665,19 @@ mod tests {
             .connect_lazy("postgres://unused@127.0.0.1:1/unused")
             .unwrap();
         GitProxy::new(
-            moatless_sandbox_control::compose::sandbox_graph(pool).sandbox_ingress(),
-            Arc::new(StaticTokenGenerations::one(
-                "sandbox-1",
-                generation,
-                POD_USER,
+            Arc::new(SandboxCallers::new(
+                moatless_sandbox_control::compose::sandbox_graph(pool).sandbox_ingress(),
+                Arc::new(StaticTokenGenerations::one(
+                    "sandbox-1",
+                    generation,
+                    POD_USER,
+                )),
+                Some(SECRET.to_string()),
             )),
             Arc::new(MockWorkspaceResolver::new()),
             Arc::new(MockRepositoryReader::new()),
             Arc::new(MockCommitIdentity::new()),
             Arc::new(MockGitHostTokenIssuer::new()),
-            Some(SECRET.to_string()),
             moatless_core::config::HttpConfig::default().git_proxy,
         )
     }

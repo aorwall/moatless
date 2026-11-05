@@ -4,13 +4,15 @@ use std::sync::Arc;
 
 use axum::body::Body;
 use axum::extract::State;
-use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri, header};
+use axum::http::{HeaderMap, Method, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use futures::TryStreamExt;
 use tracing::{info, warn};
 
-use crate::github_proxy::service::{GitHubProxy, GitHubProxyError, GitHubUpstream, SandboxScope};
+use crate::github_proxy::service::{GitHubProxy, GitHubProxyError, GitHubUpstream};
 use crate::github_proxy::target;
+use crate::proxy::caller::SandboxScope;
+use crate::proxy::forward::{bearer_token, forwards, stream_back};
 
 /// `ANY /github/{upstream}/{path}` — one `gh` request, forwarded to
 /// `upstream` with the sandbox's GitHub token in place of the task token.
@@ -103,32 +105,15 @@ pub(super) async fn forward(
             return GitHubProxyError::Upstream("GitHub is unreachable".to_string()).into_response();
         }
     };
-    let status = StatusCode::from_u16(response.status().as_u16())
-        .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     info!(
         sandbox_id = %scope.sandbox,
         %method,
         ?upstream,
         path = path_and_query.split('?').next().unwrap_or_default(),
-        status = status.as_u16(),
+        status = response.status().as_u16(),
         "Proxied a GitHub request"
     );
-
-    let mut out = Response::builder().status(status);
-    for (name, value) in response.headers() {
-        // `reqwest` already dechunked the body, so a forwarded length or
-        // transfer encoding would describe bytes the stream no longer carries.
-        if forwards(name) && name != header::CONTENT_LENGTH {
-            if let Ok(value) = HeaderValue::from_bytes(value.as_bytes()) {
-                out = out.header(name.clone(), value);
-            }
-        }
-    }
-    out.body(Body::from_stream(response.bytes_stream()))
-        .unwrap_or_else(|error| {
-            warn!(%error, "Failed to build a proxied GitHub response");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
-        })
+    stream_back(response, "github")
 }
 
 /// Bounds the GraphQL body buffered to read the repository its variables
@@ -139,34 +124,6 @@ fn is_graphql(upstream: GitHubUpstream, method: &Method, path_and_query: &str) -
     upstream == GitHubUpstream::Api
         && method == Method::POST
         && path_and_query.split('?').next() == Some("/graphql")
-}
-
-/// Whether a header crosses the proxy. Hop-by-hop headers describe one
-/// connection, and `Host` names the backend rather than GitHub.
-fn forwards(name: &HeaderName) -> bool {
-    !matches!(
-        name.as_str(),
-        "connection"
-            | "keep-alive"
-            | "proxy-authenticate"
-            | "proxy-authorization"
-            | "te"
-            | "trailer"
-            | "transfer-encoding"
-            | "upgrade"
-            | "host"
-    )
-}
-
-/// The token of an `Authorization: Bearer` header, which is how the sandbox's
-/// `github.sock` presents the pod's task token.
-fn bearer_token(headers: &HeaderMap) -> Option<&str> {
-    headers
-        .get(header::AUTHORIZATION)?
-        .to_str()
-        .ok()?
-        .strip_prefix("Bearer ")
-        .map(str::trim)
 }
 
 impl IntoResponse for GitHubProxyError {
