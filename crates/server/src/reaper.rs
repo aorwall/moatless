@@ -20,7 +20,7 @@ use tracing::{debug, info, warn};
 
 use crate::reaper_decisions::{
     CloseDecision, ReapDecision, decide_close, decide_cold, decide_reap, decide_settle,
-    fold_latest_activity, fold_reap_floor, fold_ttl_minutes,
+    fold_latest_activity, fold_reap_floor, fold_ttl_minutes, silent_since,
 };
 
 use crate::event_handler::agent_handlers::AgentErrorPorts;
@@ -59,6 +59,13 @@ const RECONCILE_STUCK_TURN_THRESHOLD_SECS: i64 = 5 * 60;
 /// Covers a node loss: node-controller grace, pod GC, a new node, and the
 /// workspace restore before the new sandbox asks to recover.
 const ORPHANED_TURN_RECOVERY_WINDOW_SECS: i64 = 15 * 60;
+
+/// How long a running agent may emit no `agent` event before the reaper logs
+/// its turn as silent, which the Moatless Agent Turn Silent alert reads.
+///
+/// A healthy turn emits `context_window` on every model response, and a
+/// foreground command times out within 10 minutes.
+const SILENT_TURN_THRESHOLD_SECS: i64 = 30 * 60;
 
 /// The deployment-wide knobs one cycle runs against. Grouped because they are
 /// read once at spawn and threaded whole through the cycle; each is overridable
@@ -393,6 +400,8 @@ struct ReaperSnapshot {
     /// running, or already cold.
     stopped_since: HashMap<String, DateTime<Utc>>,
     agent_lifecycle: HashMap<String, (String, DateTime<Utc>)>,
+    /// See [`moatless_tasks::task_event::dao::TaskEventDao::get_latest_agent_activity`].
+    agent_activity: HashMap<String, DateTime<Utc>>,
     default_ttl_minutes: i32,
     default_settle_after_hours: i32,
     default_close_after_settled_days: i32,
@@ -446,7 +455,10 @@ impl TaskReaper {
             "Task reaper considering tasks"
         );
 
-        let latest_times = self.load_latest_activity_times(&all_ids).await?;
+        let agent_activity = self.load_agent_activity(&all_ids).await;
+        let latest_times = self
+            .load_latest_activity_times(&all_ids, &agent_activity)
+            .await?;
         let ttl_map = load_ttl_map(&self.tasks, &all_ids).await;
         let settle_map = load_settle_map(&self.tasks, &all_ids).await;
         let close_map = load_close_map(&self.tasks, &all_ids).await;
@@ -467,6 +479,7 @@ impl TaskReaper {
             cold_map,
             stopped_since,
             agent_lifecycle,
+            agent_activity,
             default_ttl_minutes: defaults.ttl_minutes,
             default_settle_after_hours: defaults.settle_after_hours,
             default_close_after_settled_days: defaults.close_after_settled_days,
@@ -500,20 +513,28 @@ impl TaskReaper {
             })
     }
 
+    /// Failure yields an empty map: the idle floor then omits tool-call
+    /// activity, and no turn is reported silent this cycle.
+    async fn load_agent_activity(&self, all_ids: &[String]) -> HashMap<String, DateTime<Utc>> {
+        self.task_events
+            .get_latest_agent_activity(all_ids)
+            .await
+            .unwrap_or_else(|e| {
+                warn!(error = %e, "Failed to fetch agent activity times, idle floor omits tool-call activity");
+                HashMap::new()
+            })
+    }
+
     async fn load_latest_activity_times(
         &self,
         all_ids: &[String],
+        agent_activity: &HashMap<String, DateTime<Utc>>,
     ) -> Result<HashMap<String, DateTime<Utc>>, ReaperError> {
         let mut latest_times = self.messages.get_latest_message_times(all_ids).await?;
 
         // A single long turn emits no new conversation message and no lifecycle
         // transition, so agent activity keeps the idle floor fresh during tool calls.
-        match self.task_events.get_latest_agent_activity(all_ids).await {
-            Ok(activity_times) => merge_newest(&mut latest_times, activity_times),
-            Err(e) => {
-                warn!(error = %e, "Failed to fetch agent activity times, idle floor omits tool-call activity");
-            }
-        }
+        merge_newest(&mut latest_times, agent_activity.clone());
 
         match self.tasks.get_sandbox_started_times(all_ids).await {
             Ok(started_times) => merge_newest(&mut latest_times, started_times),
@@ -629,8 +650,42 @@ impl TaskReaper {
         let closed = self.apply_task_decisions(&snapshot, &mut stats).await;
         self.apply_sandbox_decisions(&snapshot, &closed, &mut stats)
             .await;
+        self.report_silent_turns(&snapshot).await;
 
         stats
+    }
+
+    /// Log each Member whose agent reports `running` but has emitted no `agent`
+    /// event for [`SILENT_TURN_THRESHOLD_SECS`]. Only reports: nothing else
+    /// acts on a running agent, so the turn holds its sandbox until someone
+    /// does.
+    async fn report_silent_turns(&self, snapshot: &ReaperSnapshot) {
+        let threshold = chrono::Duration::seconds(SILENT_TURN_THRESHOLD_SECS);
+        for task_id in snapshot.sandboxes.iter().flat_map(|s| &s.members) {
+            let Some(last_activity) = silent_since(
+                snapshot.agent_lifecycle.get(task_id),
+                snapshot.agent_activity.get(task_id).copied(),
+                threshold,
+                snapshot.now,
+            ) else {
+                continue;
+            };
+            // The live status rules out a turn parked on a question, which
+            // also emits nothing while it waits.
+            let Some(status) = agent_status_snapshot(self.connector.as_ref(), task_id).await else {
+                continue;
+            };
+            if status.status != "running" {
+                continue;
+            }
+            warn!(
+                task_id = %task_id,
+                last_activity = %last_activity,
+                silent_minutes = (snapshot.now - last_activity).num_minutes(),
+                busy_processes = status.busy_processes,
+                "Agent turn silent: agent reports running but has emitted no agent event"
+            );
+        }
     }
 
     /// The per-Task pass: auto-close a settled Open task, auto-settle an idle

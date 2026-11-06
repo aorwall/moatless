@@ -2,7 +2,7 @@
 //! what it stops, closes and reclaims, and which turn it reconciles.
 
 use super::*;
-use crate::reaper_decisions::{compute_reap_floor, is_terminal_agent_sub_type};
+use crate::reaper_decisions::{compute_reap_floor, is_terminal_agent_sub_type, silent_since};
 
 /// The reconcile event's shape. The id must be deterministic per `(task, turn)`
 /// so a cycle that repeats while the terminal event is still missing upserts
@@ -524,6 +524,59 @@ fn no_agent_event_falls_back_to_activity_floor() {
         decide_reap(60, floor_none, now),
         ReapDecision::Skip("no activity timestamp")
     );
+}
+
+// =========================================================================
+// silent_since
+// =========================================================================
+
+fn thirty_minutes() -> chrono::Duration {
+    chrono::Duration::minutes(30)
+}
+
+#[test]
+fn a_running_agent_with_no_event_past_the_threshold_is_silent() {
+    let now = Utc::now();
+    let last = now - chrono::Duration::hours(16);
+    let event = ("started".to_string(), now - chrono::Duration::hours(17));
+    assert_eq!(
+        silent_since(Some(&event), Some(last), thirty_minutes(), now),
+        Some(last)
+    );
+}
+
+#[test]
+fn a_running_agent_with_a_recent_event_is_not_silent() {
+    let now = Utc::now();
+    let event = ("started".to_string(), now - chrono::Duration::hours(3));
+    let recent = now - chrono::Duration::minutes(5);
+    assert_eq!(
+        silent_since(Some(&event), Some(recent), thirty_minutes(), now),
+        None
+    );
+}
+
+#[test]
+fn a_just_started_run_is_not_silent_on_an_old_activity_time() {
+    let now = Utc::now();
+    let event = ("started".to_string(), now - chrono::Duration::minutes(2));
+    let previous_run = now - chrono::Duration::days(1);
+    assert_eq!(
+        silent_since(Some(&event), Some(previous_run), thirty_minutes(), now),
+        None
+    );
+}
+
+#[test]
+fn an_ended_run_or_no_run_is_never_silent() {
+    let now = Utc::now();
+    let old = now - chrono::Duration::days(1);
+    let ended = ("completed".to_string(), old);
+    assert_eq!(
+        silent_since(Some(&ended), Some(old), thirty_minutes(), now),
+        None
+    );
+    assert_eq!(silent_since(None, Some(old), thirty_minutes(), now), None);
 }
 
 #[test]

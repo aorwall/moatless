@@ -642,3 +642,9 @@ of its own.
 | A file Slack will not share still reports a successful send | `crates/adapter-slack/src/outbound.rs::share_files` only `warn!`s, so `moat send --file` prints "Sent" when no file arrived | When a share fails for a cause other than a user-id channel. Return the share outcome in `DestinationPostResult` and print it in the CLI |
 | `moat send --user` refuses `--file` | `crates/cli/src/commands/send.rs::run` and `SendDmRequest`, which carries no `file_ids` | When someone needs to DM a file by login instead of `--to dm:<id>` |
 | A large upload fails with a bare 500 | `crates/cli/src/commands/input.rs::upload_files` against the upload endpoint; a 4.5 MB CSV failed, a 1.9 MB zip did not | When a user needs to send a file over a few MB. Find the limit and answer 413 with it |
+
+## Silent agent turns
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| A silent turn is only reported, never resumed | `crates/server/src/reaper.rs::report_silent_turns` logs; a person restarts the sandbox | When Moatless Agent Turn Silent fires more than a few times a week. Interrupt the turn past a second, longer threshold so recovery resumes it |

@@ -49,6 +49,7 @@ ignores a pod's first 5 minutes, when it fills its pool after a rollout.
 | Sandbox Evicted | a `moatless-ws-*` pod became `Evicted` | `kubectl describe` the pod: ephemeral storage or memory pressure | the `sandbox-troubleshooting` skill; gitops for sandbox resources |
 | Sandbox OOMKilled | a `moatless-ws-*` container ran out of memory | which workspace and task the pod belongs to; the `workspace-resource-tuning` skill, if available | gitops or the workspace's resources, rarely moatless |
 | Model Credentials Exhausted | every credential the model hub (cliproxy) holds for a model is in cooldown, so agents on it stall or fail | cliproxy logs `\|= "are in cooldown"` for the reason and `remaining`; which Loops run that model | needs a person: add a credential or move the Loops to another agent |
+| Agent Turn Silent | a task's agent reports `running` but has emitted no agent event for 30 minutes, so its turn is likely hung (the reaper logs `Agent turn silent`) | the sandbox log for a 429 or `Reconnecting` retry; `moat tasks diagnose <task>`; Model Credentials Exhausted firing at the same time | restart the sandbox to resume the turn; a repeat without a 429 is a harness bug to fix |
 | Agent Runs Failing | more than 20% of agent runs errored in 1h, and at least 3 | `moatless_agent_runs_total` by `agent_profile`; LLM provider status | moatless, or the provider |
 
 ## UI and logs

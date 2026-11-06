@@ -46,6 +46,25 @@ pub(crate) fn compute_reap_floor(
     }
 }
 
+/// When a running agent last emitted an `agent` event, if that is more than
+/// `threshold` before `now`; `None` for an agent that is not running.
+///
+/// Reads agent events alone, deliberately: a dead turn keeps receiving user
+/// and child-task messages, and counting them would hide it.
+pub(crate) fn silent_since(
+    agent_event: Option<&(String, DateTime<Utc>)>,
+    agent_activity: Option<DateTime<Utc>>,
+    threshold: chrono::Duration,
+    now: DateTime<Utc>,
+) -> Option<DateTime<Utc>> {
+    let (sub_type, started_at) = agent_event?;
+    if is_terminal_agent_sub_type(sub_type) {
+        return None;
+    }
+    let last = agent_activity.map_or(*started_at, |at| at.max(*started_at));
+    (now - last > threshold).then_some(last)
+}
+
 /// The idle-stop floor for a whole Sandbox: the newest [`compute_reap_floor`]
 /// across its Members.
 ///
