@@ -29,6 +29,10 @@ page looks; this skill owns how it is published and how it saves data.
    `sessionStorage` and cookies throw or are empty. Keep state in memory, or in
    records (see below) when it must survive a reload.
 
+   Put `<base target="_blank">` in the `<head>`. Without it, a link on a page
+   opened from its URL loads inside the frame, where most sites refuse to
+   render. An inline page's links already open in a new tab.
+
 3. **Publish and give the person the printed URL.**
 
    ```bash

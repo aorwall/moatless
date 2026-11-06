@@ -130,3 +130,11 @@ fn the_viewer_knows_whether_a_fork_can_cut_at_the_publishing_turn() {
     view.version = 1;
     assert_eq!(data(&render(&view, false, "u", "n"))["turnKnown"], false);
 }
+
+#[test]
+fn the_pages_frame_lets_its_links_open_unsandboxed_tabs() {
+    let html = render(&view("Report"), false, "https://ui.example", "n");
+    assert!(html.contains(
+        r#"<iframe id="page" title="Artifact page" sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox">"#
+    ));
+}
