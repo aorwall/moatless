@@ -3,11 +3,13 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::body::Body;
 use axum::extract::State;
-use axum::http::{HeaderMap, Method, StatusCode, Uri};
+use axum::http::{HeaderMap, Method, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
+use chrono::{DateTime, Utc};
 use moatless_core::secret_keys::{CODEX_AUTH_JSON, OPENAI_API_KEY, OPENAI_BASE_URL};
 use tracing::{info, warn};
 
@@ -239,7 +241,7 @@ async fn forward(
                 status = response.status().as_u16(),
                 "Proxied a model request"
             );
-            response
+            fail_long_throttle(response, Utc::now())
         }
         Err(error) => {
             warn!(%error, sandbox_id = %scope.sandbox, path, "A model request did not reach its upstream");
@@ -248,6 +250,61 @@ async fn forward(
             ))
         }
     }
+}
+
+/// The longest `Retry-After` Codex is left to wait out. Codex sleeps the full
+/// header with its Turn still open, so a hub's days-long credential cooldown
+/// froze every Codex task while it showed as running.
+const LONGEST_WAITED_RETRY: Duration = Duration::from_secs(60);
+
+/// `response`, unless it is a 429 whose `Retry-After` is past
+/// [`LONGEST_WAITED_RETRY`]: that becomes OpenAI's `usage_limit_reached`, which
+/// Codex fails the Turn on rather than sleeping, so the harness reports a
+/// usage limit and a Loop can fall back to its other agent.
+fn fail_long_throttle(response: Response, now: DateTime<Utc>) -> Response {
+    if response.status() != StatusCode::TOO_MANY_REQUESTS {
+        return response;
+    }
+    let Some(wait) = retry_after(response.headers(), now) else {
+        return response;
+    };
+    if wait <= LONGEST_WAITED_RETRY {
+        return response;
+    }
+    let wait_secs = i64::try_from(wait.as_secs()).unwrap_or(i64::MAX);
+    warn!(
+        retry_after_secs = wait_secs,
+        "The model provider throttled a request for longer than Codex should wait; failing the Turn as a usage limit"
+    );
+    let mut out = (
+        StatusCode::TOO_MANY_REQUESTS,
+        axum::Json(serde_json::json!({
+            "error": {
+                "type": "usage_limit_reached",
+                "message": format!("The model provider asked to retry in {wait_secs} seconds"),
+                "resets_at": now.timestamp().saturating_add(wait_secs),
+            },
+        })),
+    )
+        .into_response();
+    // The provider's own rate-limit readings stay; Codex reports them.
+    for (name, value) in response.headers() {
+        if name.as_str().starts_with("x-codex-") {
+            out.headers_mut().append(name.clone(), value.clone());
+        }
+    }
+    out
+}
+
+/// A `Retry-After` header as a wait from `now`, in either of its forms:
+/// delay-seconds or an HTTP-date.
+fn retry_after(headers: &HeaderMap, now: DateTime<Utc>) -> Option<Duration> {
+    let value = headers.get(header::RETRY_AFTER)?.to_str().ok()?.trim();
+    if let Ok(secs) = value.parse::<u64>() {
+        return Some(Duration::from_secs(secs));
+    }
+    let at = DateTime::parse_from_rfc2822(value).ok()?;
+    (at.with_timezone(&Utc) - now).to_std().ok()
 }
 
 /// `request` presenting `credential`, and the kind it logs as.

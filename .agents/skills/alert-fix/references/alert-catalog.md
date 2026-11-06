@@ -48,6 +48,7 @@ ignores a pod's first 5 minutes, when it fills its pool after a rollout.
 | Workspace Sync Failing | any failed workspace upload or download to S3 in 30m | `moatless_workspace_sync_total` by direction and outcome | moatless |
 | Sandbox Evicted | a `moatless-ws-*` pod became `Evicted` | `kubectl describe` the pod: ephemeral storage or memory pressure | the `sandbox-troubleshooting` skill; gitops for sandbox resources |
 | Sandbox OOMKilled | a `moatless-ws-*` container ran out of memory | which workspace and task the pod belongs to; the `workspace-resource-tuning` skill, if available | gitops or the workspace's resources, rarely moatless |
+| Model Credentials Exhausted | every credential the model hub (cliproxy) holds for a model is in cooldown, so agents on it stall or fail | cliproxy logs `\|= "are in cooldown"` for the reason and `remaining`; which Loops run that model | needs a person: add a credential or move the Loops to another agent |
 | Agent Runs Failing | more than 20% of agent runs errored in 1h, and at least 3 | `moatless_agent_runs_total` by `agent_profile`; LLM provider status | moatless, or the provider |
 
 ## UI and logs

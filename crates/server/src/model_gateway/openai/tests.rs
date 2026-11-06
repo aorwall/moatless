@@ -459,3 +459,67 @@ fn api_only_ignores_a_subscription_and_uses_the_key_or_hub() {
     );
     assert!(resolve_upstream(&values, &bases(), None, None).is_err());
 }
+
+/// A 429 as the hub answers one: its own error shape and a `Retry-After`.
+fn throttled(retry_after: &str) -> Response {
+    (
+        StatusCode::TOO_MANY_REQUESTS,
+        [
+            (header::RETRY_AFTER.as_str(), retry_after),
+            ("x-codex-primary-used-percent", "100"),
+        ],
+        "{\"error\":{\"type\":\"model_cooldown\"}}",
+    )
+        .into_response()
+}
+
+fn noon() -> DateTime<Utc> {
+    DateTime::parse_from_rfc3339("2026-11-06T12:00:00Z")
+        .unwrap()
+        .with_timezone(&Utc)
+}
+
+#[tokio::test]
+async fn a_days_long_throttle_reaches_codex_as_a_usage_limit_it_fails_on() {
+    let response = fail_long_throttle(throttled("349693"), noon());
+
+    assert!(response.headers().get(header::RETRY_AFTER).is_none());
+    assert_eq!(response.headers()["x-codex-primary-used-percent"], "100");
+    let (status, body) = error_of(response).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(body["error"]["type"], "usage_limit_reached");
+    assert_eq!(body["error"]["resets_at"], noon().timestamp() + 349_693);
+}
+
+#[tokio::test]
+async fn a_throttle_given_as_an_http_date_is_measured_from_now() {
+    let response = fail_long_throttle(throttled("Fri, 06 Nov 2026 13:00:00 GMT"), noon());
+
+    let (_, body) = error_of(response).await;
+    assert_eq!(body["error"]["type"], "usage_limit_reached");
+    assert_eq!(body["error"]["resets_at"], noon().timestamp() + 3600);
+}
+
+#[tokio::test]
+async fn a_short_throttle_is_left_for_codex_to_retry() {
+    let response = fail_long_throttle(throttled("60"), noon());
+
+    assert_eq!(response.headers()[header::RETRY_AFTER], "60");
+    let (_, body) = error_of(response).await;
+    assert_eq!(body["error"]["type"], "model_cooldown");
+}
+
+#[tokio::test]
+async fn only_a_429_is_reshaped() {
+    let unavailable = (
+        StatusCode::SERVICE_UNAVAILABLE,
+        [(header::RETRY_AFTER, "349693")],
+        "{}",
+    )
+        .into_response();
+
+    let response = fail_long_throttle(unavailable, noon());
+
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(response.headers()[header::RETRY_AFTER], "349693");
+}
