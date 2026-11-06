@@ -7,7 +7,9 @@ use axum::Router;
 use axum::routing::any;
 use moatless_core::sandbox_jwt::{StaticTokenGenerations, generate_user_auth_token};
 use moatless_core::secret_keys::GITHUB_TOKEN;
-use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer, MockGitHostTokenIssuer};
+use moatless_ports::identity::{
+    AppAuthoredToken, GitHostTokenError, GitHostTokenIssuer, MockGitHostTokenIssuer,
+};
 use moatless_types::access_control::Scope;
 use moatless_types::git_host::GitHostAccount;
 use moatless_workspace_ports::{
@@ -97,6 +99,9 @@ fn issuer(live: &LiveToken) -> Arc<dyn GitHostTokenIssuer> {
     tokens
         .expect_token()
         .returning(move |_, _| Ok(live.lock().unwrap().clone()));
+    tokens
+        .expect_github_app_authored()
+        .returning(|_, _, _| Ok(None));
     Arc::new(tokens)
 }
 
@@ -432,6 +437,9 @@ fn per_repository_issuer(refused: &'static str) -> Arc<dyn GitHostTokenIssuer> {
         }
         Ok(format!("ghs_{repository}"))
     });
+    tokens
+        .expect_github_app_authored()
+        .returning(|_, _, _| Ok(None));
     Arc::new(tokens)
 }
 
@@ -668,4 +676,147 @@ async fn a_write_elsewhere_or_an_unlisted_mutation_is_refused_under_enforce() {
     )
     .await;
     assert_eq!(read.status(), StatusCode::NOT_FOUND);
+}
+
+/// An issuer for a driver `ada` signed in through the App: the App writes on
+/// every repository but `refused`, where `ada` lacks write access.
+fn app_issuer(refused: &'static str) -> Arc<dyn GitHostTokenIssuer> {
+    let mut tokens = MockGitHostTokenIssuer::new();
+    tokens
+        .expect_token()
+        .returning(|_, _| Ok("ghu_ada".to_string()));
+    tokens
+        .expect_github_app_authored()
+        .returning(move |actor, owner, repository| {
+            if repository == refused {
+                return Err(GitHostTokenError::Forbidden {
+                    actor: actor.clone(),
+                    account: Box::new(GitHostAccount::Github {
+                        owner: owner.to_string(),
+                        repository: Some(repository.to_string()),
+                    }),
+                    source: "ada needs write access".into(),
+                });
+            }
+            Ok(Some(AppAuthoredToken {
+                token: format!("ghs_app_{repository}"),
+                driver_login: "ada".to_string(),
+            }))
+        });
+    Arc::new(tokens)
+}
+
+/// A GitHub answering a node lookup with `owner/sibling`, and every other
+/// request with the token and the body it was sent.
+async fn recording_github() -> String {
+    serve(
+        Router::new().fallback(any(|headers: HeaderMap, body: Bytes| async move {
+            let body: serde_json::Value = serde_json::from_slice(&body).unwrap_or_default();
+            if body["query"]
+                .as_str()
+                .is_some_and(|q| q.contains("node(id"))
+            {
+                return axum::Json(serde_json::json!({
+                    "data": { "node": { "repository": { "nameWithOwner": "owner/sibling" } } }
+                }));
+            }
+            let presented = headers
+                .get(header::AUTHORIZATION)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+            axum::Json(serde_json::json!({ "message": presented, "sent": body }))
+        })),
+    )
+    .await
+}
+
+async fn sent(proxy: &GitHubProxy, method: Method, path: &str, body: &str) -> serde_json::Value {
+    let response = send(proxy, method, path, body).await;
+    let body = axum::body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
+    serde_json::from_slice(&body).unwrap()
+}
+
+/// The comment on soap-backend#1693 from 2026-11-05: `gh api` posted it with
+/// the driver's own token after `moat gh pr reply` failed, so it showed the
+/// driver as its author.
+#[tokio::test]
+async fn an_app_signed_drivers_comment_is_sent_as_the_app_and_credits_them() {
+    let base = recording_github().await;
+    let proxy = proxy(
+        workspaces(github_repository(), HashMap::new()),
+        app_issuer("private"),
+        &base,
+    );
+    let credit = "hi\n\nDriven by [@ada](https://github.com/ada)";
+
+    let rest = sent(
+        &proxy,
+        Method::POST,
+        "/repos/owner/repo/pulls/1/comments/2/replies",
+        r#"{"body":"hi"}"#,
+    )
+    .await;
+    assert_eq!(rest["message"], "Bearer ghs_app_repo");
+    assert_eq!(rest["sent"]["body"], credit);
+
+    let mutation = serde_json::json!({
+        "query": "mutation($input: AddCommentInput!) { addComment(input: $input) { clientMutationId } }",
+        "variables": { "input": { "subjectId": "PR_kw", "body": "hi" } }
+    })
+    .to_string();
+    let graphql = sent(&proxy, Method::POST, "/graphql", &mutation).await;
+    assert_eq!(
+        graphql["message"], "Bearer ghs_app_sibling",
+        "a mutation naming only a node is sent for the node's repository"
+    );
+    assert_eq!(graphql["sent"]["variables"]["input"]["body"], credit);
+
+    let mixed = serde_json::json!({
+        "query": "mutation($input: AddCommentInput!, $merge: MergePullRequestInput!) { \
+            addComment(input: $input) { clientMutationId } \
+            mergePullRequest(input: $merge) { clientMutationId } }",
+        "variables": { "input": { "subjectId": "PR_kw", "body": "hi" } }
+    })
+    .to_string();
+    assert_eq!(
+        sent(&proxy, Method::POST, "/graphql", &mixed).await["message"],
+        "Bearer ghu_ada",
+        "a document running any mutation that does not author keeps the driver's token"
+    );
+
+    let label = sent(
+        &proxy,
+        Method::POST,
+        "/repos/owner/repo/issues/1/labels",
+        r#"{"labels":["bug"]}"#,
+    )
+    .await;
+    assert_eq!(
+        label["message"], "Bearer ghu_ada",
+        "a write GitHub shows no author for keeps the driver's token"
+    );
+}
+
+#[tokio::test]
+async fn a_driver_below_write_access_is_told_rather_than_posting_as_themselves() {
+    let base = recording_github().await;
+    let proxy = proxy(
+        workspaces(github_repository(), HashMap::new()),
+        app_issuer("private"),
+        &base,
+    );
+
+    let response = send(
+        &proxy,
+        Method::POST,
+        "/repos/owner/private/issues/1/comments",
+        r#"{"body":"hi"}"#,
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(message(response).await, "ada needs write access");
 }

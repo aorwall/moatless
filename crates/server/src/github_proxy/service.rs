@@ -3,13 +3,14 @@
 use std::sync::Arc;
 
 use moatless_core::secret_keys::GITHUB_TOKEN;
-use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer};
+use moatless_ports::identity::{AppAuthoredToken, GitHostTokenError, GitHostTokenIssuer};
 use moatless_sandbox_control::secrets::{
     resolve_task_actor, resolve_task_github_token, resolve_workspace_credentials,
 };
+use moatless_types::access_control::Actor;
 use moatless_types::http::HttpStreamTimeouts;
 use moatless_workspace_ports::{WorkspaceCredentialReader, WorkspaceResolver};
-use moatless_workspace_types::repository::GitHostRepo;
+use moatless_workspace_types::repository::{GitHostRepo, Repository, RepositoryProvider};
 use tracing::{debug, warn};
 
 use crate::github_policy::GitHubPolicy;
@@ -151,26 +152,10 @@ impl GitHubProxy {
         scope: &SandboxScope,
         requested: Option<&GitHostRepo>,
     ) -> Result<String, GitHubProxyError> {
-        let pinned = resolve_workspace_credentials(
-            Some(&self.workspace_credentials),
-            Some(&scope.workspace),
-        )
-        .await
-        .map_err(|e| {
-            warn!(error = %e, workspace_id = %scope.workspace, "Failed to read the workspace credentials");
-            GitHubProxyError::Upstream("Failed to read the workspace credentials".to_string())
-        })?;
-        if let Some(token) = pinned.get(GITHUB_TOKEN) {
-            return Ok(token.clone());
+        if let Some(token) = self.pinned(scope).await? {
+            return Ok(token);
         }
-
-        let actor = resolve_task_actor(
-            Some(&self.workspaces),
-            Some(&scope.workspace),
-            scope.run_as.as_deref(),
-            &scope.user,
-        )
-        .await;
+        let actor = self.actor(scope).await;
         // A capped identity's primary-repository token cannot see a sibling
         // repository. Falling back keeps a public repository the identity has
         // no role on, or an owner without the App, readable as before.
@@ -187,18 +172,7 @@ impl GitHubProxy {
             }
         }
 
-        let repository = self
-            .workspaces
-            .placements(&scope.workspace)
-            .await
-            .map_err(|e| {
-                warn!(error = %e, workspace_id = %scope.workspace, "Failed to read the workspace placements");
-                GitHubProxyError::Upstream("Failed to read the workspace".to_string())
-            })?
-            .into_iter()
-            .next()
-            .and_then(|placement| placement.repository);
-
+        let repository = self.primary_repository(scope).await?;
         match resolve_task_github_token(Some(&self.git_host_tokens), &actor, repository.as_ref())
             .await
         {
@@ -210,6 +184,112 @@ impl GitHubProxy {
                     .to_string(),
             )),
         }
+    }
+
+    /// The App's token for a write that authors on `repository`, else the
+    /// primary repository, when the run-as identity signed in through the
+    /// GitHub App; `None` means send it with [`Self::token`].
+    pub async fn app_authored(
+        &self,
+        scope: &SandboxScope,
+        repository: Option<GitHostRepo>,
+    ) -> Result<Option<AppAuthoredToken>, GitHubProxyError> {
+        if self.pinned(scope).await?.is_some() {
+            return Ok(None);
+        }
+        let repository = match repository {
+            Some(repository) => Some(repository),
+            None => self
+                .primary_repository(scope)
+                .await?
+                .and_then(|primary| primary.remote?.host_repo),
+        };
+        let Some(repository) = repository.filter(|r| r.provider() == RepositoryProvider::Github)
+        else {
+            return Ok(None);
+        };
+        let actor = self.actor(scope).await;
+        self.git_host_tokens
+            .github_app_authored(&actor, repository.owner(), repository.name())
+            .await
+            .map_err(|error| {
+                warn!(%error, repository = %repository, "No App token for a proxied GitHub write");
+                match error {
+                    GitHostTokenError::Forbidden { source, .. } => {
+                        GitHubProxyError::NoGitHubIdentity(source.to_string())
+                    }
+                    error => credential_error(&error),
+                }
+            })
+    }
+
+    /// The repository GraphQL node `id` belongs to, asked as `scope`'s own
+    /// identity; `None` when GitHub does not say.
+    pub async fn repository_of_node(&self, scope: &SandboxScope, id: &str) -> Option<GitHostRepo> {
+        const QUERY: &str = "query($id: ID!) { node(id: $id) { \
+            ... on Repository { nameWithOwner } \
+            ... on RepositoryNode { repository { nameWithOwner } } \
+            ... on PullRequestReviewThread { pullRequest { repository { nameWithOwner } } } } }";
+        let token = self.token(scope, None).await.ok()?;
+        let response = self
+            .http
+            .post(self.upstream_url(GitHubUpstream::Api, "/graphql"))
+            .bearer_auth(token)
+            .json(&serde_json::json!({ "query": QUERY, "variables": { "id": id } }))
+            .send()
+            .await
+            .ok()?;
+        let json: serde_json::Value = response.json().await.ok()?;
+        let node = json.pointer("/data/node")?;
+        let slug = [
+            "/nameWithOwner",
+            "/repository/nameWithOwner",
+            "/pullRequest/repository/nameWithOwner",
+        ]
+        .iter()
+        .find_map(|pointer| node.pointer(pointer)?.as_str())?;
+        let (owner, name) = slug.split_once('/')?;
+        Some(GitHostRepo::github(owner, name))
+    }
+
+    async fn pinned(&self, scope: &SandboxScope) -> Result<Option<String>, GitHubProxyError> {
+        let pinned = resolve_workspace_credentials(
+            Some(&self.workspace_credentials),
+            Some(&scope.workspace),
+        )
+        .await
+        .map_err(|e| {
+            warn!(error = %e, workspace_id = %scope.workspace, "Failed to read the workspace credentials");
+            GitHubProxyError::Upstream("Failed to read the workspace credentials".to_string())
+        })?;
+        Ok(pinned.get(GITHUB_TOKEN).cloned())
+    }
+
+    async fn actor(&self, scope: &SandboxScope) -> Actor {
+        resolve_task_actor(
+            Some(&self.workspaces),
+            Some(&scope.workspace),
+            scope.run_as.as_deref(),
+            &scope.user,
+        )
+        .await
+    }
+
+    async fn primary_repository(
+        &self,
+        scope: &SandboxScope,
+    ) -> Result<Option<Repository>, GitHubProxyError> {
+        Ok(self
+            .workspaces
+            .placements(&scope.workspace)
+            .await
+            .map_err(|e| {
+                warn!(error = %e, workspace_id = %scope.workspace, "Failed to read the workspace placements");
+                GitHubProxyError::Upstream("Failed to read the workspace".to_string())
+            })?
+            .into_iter()
+            .next()
+            .and_then(|placement| placement.repository))
     }
 }
 

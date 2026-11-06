@@ -108,6 +108,15 @@ impl GitHubPolicy {
         rest::needs_body(method, path)
     }
 
+    /// Whether a GraphQL request runs a mutation and every one it runs is in
+    /// `mutations`; an unreadable one runs none.
+    pub(crate) fn graphql_runs_only(body: &[u8], mutations: &[&str]) -> bool {
+        graphql::Document::parse(body).is_ok_and(|document| {
+            let mut names = document.mutation_names().peekable();
+            names.peek().is_some() && names.all(|m| mutations.contains(&m))
+        })
+    }
+
     /// A GraphQL request's refusal, if any.
     pub(crate) async fn check_graphql(
         &self,

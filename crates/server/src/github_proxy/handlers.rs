@@ -10,10 +10,11 @@ use futures::{StreamExt, TryStreamExt};
 use tracing::{info, warn};
 
 use moatless_core::proxy_rules::NormalPath;
+use moatless_workspace_types::repository::GitHostRepo;
 
 use crate::github_policy::{GitHubPolicy, Refusal, Request as PolicyRequest};
 use crate::github_proxy::service::{GitHubProxy, GitHubProxyError, GitHubUpstream};
-use crate::github_proxy::target;
+use crate::github_proxy::{authorship, target};
 use crate::proxy::caller::SandboxScope;
 use crate::proxy::forward::{bearer_token, forwards, stream_back};
 
@@ -71,7 +72,9 @@ pub(super) async fn forward(
     headers: &HeaderMap,
     body: Body,
 ) -> Response {
-    let (requested, body) = if is_graphql(upstream, &method, path_and_query) {
+    let graphql = is_graphql(upstream, &method, path_and_query);
+    // `authored` holds the body of a write GitHub shows an author for.
+    let (requested, body, authored) = if graphql {
         let Ok(bytes) = axum::body::to_bytes(body, GRAPHQL_BODY_LIMIT).await else {
             return too_large("The GraphQL request body is too large");
         };
@@ -80,26 +83,53 @@ pub(super) async fn forward(
                 return refused;
             }
         }
-        (target::from_graphql(&bytes), reqwest::Body::from(bytes))
+        let authored =
+            GitHubPolicy::graphql_runs_only(&bytes, authorship::MUTATIONS).then(|| bytes.clone());
+        (
+            target::from_graphql(&bytes),
+            reqwest::Body::from(bytes),
+            authored,
+        )
     } else if !GitHubPolicy::is_write(method.as_str()) {
         (
             target::from_path(path_and_query),
             reqwest::Body::wrap_stream(body.into_data_stream().map_err(std::io::Error::other)),
+            None,
         )
+    } else if authorship::rest_authors(&method, path_and_query) {
+        // Over the limit it cannot be a comment GitHub accepts, so it goes on
+        // unread as any other write.
+        let (body, authored) = match buffer(body, REVIEW_BODY_LIMIT).await {
+            Buffered::Whole(bytes) => (Body::from(bytes.clone()), Some(bytes)),
+            Buffered::Over(body) => (body, None),
+            Buffered::Failed => return StatusCode::BAD_REQUEST.into_response(),
+        };
+        match check_rest(proxy, scope, &method, path_and_query, body).await {
+            Ok(body) => (target::from_path(path_and_query), body, authored),
+            Err(refused) => return *refused,
+        }
     } else {
         match check_rest(proxy, scope, &method, path_and_query, body).await {
-            Ok(body) => (target::from_path(path_and_query), body),
+            Ok(body) => (target::from_path(path_and_query), body, None),
             Err(refused) => return *refused,
         }
     };
-    let token = match proxy.token(scope, requested.as_ref()).await {
-        Ok(token) => token,
+    let Sending {
+        token,
+        body,
+        credited,
+    } = match sending(proxy, scope, graphql, requested.as_ref(), body, authored).await {
+        Ok(sending) => sending,
         Err(e) => return e.into_response(),
     };
     let url = proxy.upstream_url(upstream, path_and_query);
     let mut request = proxy.http.request(method.clone(), &url).body(body);
     for (name, value) in headers {
-        if forwards(name) && name != header::AUTHORIZATION {
+        // A credited body is longer than the client's `Content-Length` says.
+        if forwards(name)
+            && name != header::AUTHORIZATION
+            && !(credited && name == header::CONTENT_LENGTH)
+        {
             request = request.header(name, value);
         }
     }
@@ -121,6 +151,48 @@ pub(super) async fn forward(
         "Proxied a GitHub request"
     );
     stream_back(response, "github")
+}
+
+/// The token and body a request goes upstream with.
+struct Sending {
+    token: String,
+    body: reqwest::Body,
+    /// The body was rewritten to credit the driver.
+    credited: bool,
+}
+
+/// `authored`, the body of a write GitHub shows an author for, goes as the App
+/// the driver signed in through and credits them; anything else goes as
+/// [`GitHubProxy::token`] picks.
+async fn sending(
+    proxy: &GitHubProxy,
+    scope: &SandboxScope,
+    graphql: bool,
+    requested: Option<&GitHostRepo>,
+    body: reqwest::Body,
+    authored: Option<Bytes>,
+) -> Result<Sending, GitHubProxyError> {
+    if let Some(bytes) = authored {
+        let repository = match (requested, graphql) {
+            (None, true) => match authorship::graphql_subject(&bytes) {
+                Some(id) => proxy.repository_of_node(scope, &id).await,
+                None => None,
+            },
+            _ => requested.cloned(),
+        };
+        if let Some(app) = proxy.app_authored(scope, repository).await? {
+            return Ok(Sending {
+                token: app.token,
+                body: reqwest::Body::from(authorship::credit(&bytes, graphql, &app.driver_login)),
+                credited: true,
+            });
+        }
+    }
+    Ok(Sending {
+        token: proxy.token(scope, requested).await?,
+        body,
+        credited: false,
+    })
 }
 
 /// Run a REST write past the policy, buffering its body only when the policy
@@ -147,6 +219,7 @@ async fn check_rest(
             Buffered::Whole(bytes) => bytes,
             Buffered::Failed => return Err(Box::new(StatusCode::BAD_REQUEST.into_response())),
             Buffered::Over(body) => {
+                let body = stream(body);
                 let refusal = Refusal::new(
                     "review_unreadable",
                     "The review body is over 1 MiB, too large for the GitHub proxy to read its event",
@@ -181,7 +254,7 @@ async fn check_rest(
 enum Buffered {
     Whole(Bytes),
     /// Over the limit: what was read, chained ahead of the rest.
-    Over(reqwest::Body),
+    Over(Body),
     /// The client's body failed mid-read.
     Failed,
 }
@@ -197,9 +270,7 @@ async fn buffer(body: Body, limit: usize) -> Buffered {
         buf.extend_from_slice(&chunk);
         if buf.len() > limit {
             let head = futures::stream::once(async move { Ok::<_, axum::Error>(Bytes::from(buf)) });
-            return Buffered::Over(reqwest::Body::wrap_stream(
-                head.chain(stream).map_err(std::io::Error::other),
-            ));
+            return Buffered::Over(Body::from_stream(head.chain(stream)));
         }
     }
     Buffered::Whole(Bytes::from(buf))

@@ -165,6 +165,11 @@ impl Document {
         Ok(out)
     }
 
+    /// The root field of every mutation in the document.
+    pub(super) fn mutation_names(&self) -> impl Iterator<Item = &str> {
+        self.mutations.iter().map(|m| m.name.as_str())
+    }
+
     /// Whether the document holds anything but queries.
     pub(super) fn writes(&self) -> bool {
         !self.mutations.is_empty() || self.subscription

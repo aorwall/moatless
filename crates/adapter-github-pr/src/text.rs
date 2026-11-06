@@ -334,7 +334,7 @@ pub(super) fn truncate_on_char_boundary(s: &str, max: usize) -> &str {
 ///
 /// The login is a profile link rather than a bare `@login`: GitHub mentions
 /// nobody inside a link, so the driver is not notified of every comment.
-pub(super) fn credit_driver(body: &str, driver_login: Option<&str>) -> String {
+pub fn credit_driver(body: &str, driver_login: Option<&str>) -> String {
     let Some(login) = driver_login else {
         return body.to_string();
     };

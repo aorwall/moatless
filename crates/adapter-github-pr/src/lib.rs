@@ -40,6 +40,7 @@ mod text;
 mod webhook;
 
 pub use ingress::{DEFAULT_BRANCH_PUSH, REPOSITORY_CHANGE};
+pub use text::credit_driver;
 
 mod mutations;
 pub mod pull_request_conversation;

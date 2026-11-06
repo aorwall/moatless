@@ -7,6 +7,7 @@
 //! an installation token that expired since the last call is never the one
 //! presented.
 
+mod authorship;
 mod handlers;
 mod routes;
 mod service;
