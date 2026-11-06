@@ -325,6 +325,7 @@ pub(super) async fn recover_interrupted_run(
         service.ingress.as_ref().map(|i| i.task_turns.as_ref()),
         service.events.as_deref(),
         &req.task_id,
+        &service.backend_config.sandbox.default_codex_model,
     )
     .await
     .map_err(|error| Status::internal(error.to_string()))?;

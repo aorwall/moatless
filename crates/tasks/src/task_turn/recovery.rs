@@ -2,7 +2,8 @@
 
 use super::operations::TaskTurns;
 use crate::{
-    message::models::InterruptedTurn, message::operations::Messages, task::operations::TaskCommands,
+    message::enricher::effective_model, message::models::InterruptedTurn,
+    message::operations::Messages, task::operations::TaskCommands,
 };
 use moatless_core::events::EventPublisher;
 use moatless_types::{access_control::ScopeContext, agent::AgentSubType};
@@ -24,17 +25,22 @@ pub enum RecoveryError {
 }
 
 /// Recover a turn after the caller has authorized sandbox access to `task_id`.
+///
+/// The replayed model is resolved as dispatch resolved it
+/// ([`effective_model`]), with `default_codex_model` the configured default.
 pub async fn recover_interrupted_turn(
     tasks: Option<&TaskCommands>,
     messages: Option<&Messages>,
     task_turns: Option<&TaskTurns>,
     events: Option<&dyn EventPublisher>,
     task_id: &str,
+    default_codex_model: &str,
 ) -> Result<Option<RecoveredTurn>, RecoveryError> {
     let Some(messages) = messages else {
         return Ok(None);
     };
-    let Some((interrupted, task)) = gated_interrupted_turn(tasks, messages, task_id).await? else {
+    let Some((mut interrupted, task)) = gated_interrupted_turn(tasks, messages, task_id).await?
+    else {
         return Ok(None);
     };
 
@@ -111,6 +117,16 @@ pub async fn recover_interrupted_turn(
     };
 
     let task_agent_profile = task.as_ref().map(|t| t.agent_profile.to_string());
+    // The row holds only a model the message chose; a Codex replay without one
+    // is refused on the pod with `invalid_configuration`.
+    if let Some(task) = &task {
+        interrupted.model = effective_model(
+            interrupted.model.take(),
+            task.model.clone(),
+            task.agent_profile,
+            default_codex_model,
+        );
+    }
 
     if let Some(publisher) = events {
         publisher
@@ -318,7 +334,8 @@ mod tests {
                 Some(&transcript(MockMessageDao::new())),
                 Some(&turn_ops(MockTaskTurnDao::new())),
                 None,
-                "task"
+                "task",
+                "gpt-test"
             )
             .await
             .unwrap()
@@ -363,7 +380,8 @@ mod tests {
                     Some(&messages),
                     Some(&turns),
                     None,
-                    "task"
+                    "task",
+                    "gpt-test"
                 )
                 .await
                 .unwrap()
@@ -396,17 +414,68 @@ mod tests {
         let events = RecordingPublisher::new();
         let messages = transcript(messages);
         let turns = turn_ops(turns);
-        let recovered =
-            recover_interrupted_turn(None, Some(&messages), Some(&turns), Some(&events), "task")
-                .await
-                .unwrap()
-                .unwrap();
+        let recovered = recover_interrupted_turn(
+            None,
+            Some(&messages),
+            Some(&turns),
+            Some(&events),
+            "task",
+            "gpt-test",
+        )
+        .await
+        .unwrap()
+        .unwrap();
         assert_eq!(recovered.interrupted.run_id.as_deref(), Some("run"));
         assert_eq!(recovered.interrupted.effort.as_deref(), Some("high"));
         assert_eq!(
             events.events(),
             vec![RecordedEvent::Agent(AgentSubType::RecoveryStarted)]
         );
+    }
+
+    /// A Codex turn dispatched on the default model records none, so the
+    /// replay must resolve it again.
+    #[tokio::test]
+    async fn a_codex_replay_carries_the_model_dispatch_resolved() {
+        for (task_model, expected) in [(None, "gpt-test"), (Some("gpt-6-luna"), "gpt-6-luna")] {
+            let mut tasks = MockTaskDao::new();
+            tasks.expect_find_by_id().return_once(move |_, _| {
+                Ok(Some(Task {
+                    status: TaskStatus::Open,
+                    model: task_model.map(str::to_string),
+                    ..closed_task()
+                }))
+            });
+            tasks
+                .expect_get_sandbox_intents()
+                .return_once(|_| Ok(std::collections::HashMap::new()));
+            let mut messages = MockMessageDao::new();
+            messages.expect_find_interrupted_turn().return_once(|_| {
+                Ok(Some(InterruptedTurn {
+                    model: None,
+                    ..interrupted(0)
+                }))
+            });
+            let mut turns = MockTaskTurnDao::new();
+            turns
+                .expect_increment_recovery_attempts()
+                .return_once(|_, _| Ok(1));
+            let (messages, turns) = (transcript(messages), turn_ops(turns));
+
+            let recovered = recover_interrupted_turn(
+                Some(&commands(tasks)),
+                Some(&messages),
+                Some(&turns),
+                None,
+                "task",
+                "gpt-test",
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+            assert_eq!(recovered.interrupted.model.as_deref(), Some(expected));
+        }
     }
 
     #[tokio::test]
@@ -422,10 +491,17 @@ mod tests {
         let events = RecordingPublisher::new();
         let messages = transcript(messages);
         assert!(
-            recover_interrupted_turn(None, Some(&messages), Some(&turns), Some(&events), "task")
-                .await
-                .unwrap()
-                .is_none()
+            recover_interrupted_turn(
+                None,
+                Some(&messages),
+                Some(&turns),
+                Some(&events),
+                "task",
+                "gpt-test"
+            )
+            .await
+            .unwrap()
+            .is_none()
         );
         assert_eq!(
             events.events(),
@@ -446,9 +522,15 @@ mod tests {
         let events = RecordingPublisher::new();
         let messages = transcript(messages);
         let turns = turn_ops(turns);
-        let result =
-            recover_interrupted_turn(None, Some(&messages), Some(&turns), Some(&events), "task")
-                .await;
+        let result = recover_interrupted_turn(
+            None,
+            Some(&messages),
+            Some(&turns),
+            Some(&events),
+            "task",
+            "gpt-test",
+        )
+        .await;
         assert!(matches!(
             result,
             Err(RecoveryError::RecordAttempt(sqlx::Error::PoolClosed))
@@ -464,7 +546,7 @@ mod tests {
             .return_once(|_| Ok(Some(interrupted(0))));
         let messages = transcript(messages);
         assert!(
-            recover_interrupted_turn(None, Some(&messages), None, None, "task")
+            recover_interrupted_turn(None, Some(&messages), None, None, "task", "gpt-test")
                 .await
                 .unwrap()
                 .is_none()
