@@ -846,8 +846,11 @@ impl CoordinatorService {
                 .as_deref()
                 .and_then(|p| resolve_agent_harness(p).ok())
         };
+        // The kept model names the other harness's catalog: a fallback Send
+        // carries none, so keeping it sends Claude Code a Codex model.
         if family(&config) != family(&self.config) {
             self.agent_state.clear_session_id().await;
+            self.last_model = None;
         }
         info!(
             from = ?self.config.agent_profile,

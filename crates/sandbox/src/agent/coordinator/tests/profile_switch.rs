@@ -130,10 +130,83 @@ async fn a_new_profile_waits_for_the_running_turn() {
     cancel.cancel();
 }
 
+/// A fallback's Send names no model: the one the other harness's turn ran
+/// must not carry over, or the new harness asks for a model it cannot serve.
+#[tokio::test]
+async fn a_harness_switch_drops_the_other_harness_model() {
+    for (from, model, to) in [
+        ("codex", "gpt-6.1-sol", "claude-code"),
+        ("claude-code", "claude-opus-5-5", "codex"),
+    ] {
+        let cancel = CancellationToken::new();
+        let agent_state = Arc::new(AgentState::new());
+        let recorder: Arc<tokio::sync::Mutex<Vec<Input>>> =
+            Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let completes = || {
+            Script::new(vec![
+                Step::SessionReady(SessionId("sess".to_string())),
+                Step::AcceptInput,
+                Step::Completed,
+            ])
+        };
+        let factory_recorder = Arc::clone(&recorder);
+        let factory: HarnessFactory = Box::new(move |_, _| {
+            Ok(HarnessRuntime::scripted_recording(
+                completes(),
+                Arc::clone(&factory_recorder),
+            ))
+        });
+        let mut config = minimal_config();
+        config.agent_profile = Some(from.to_string());
+        let (service, events) = service(
+            HarnessRuntime::scripted_recording(completes(), Arc::clone(&recorder)),
+            Arc::new(config),
+            Arc::clone(&agent_state),
+            cancel.clone(),
+            factory,
+        );
+        let (tx, rx) = mpsc::channel::<AgentCommand>(64);
+        tokio::spawn(service.run(rx, Heartbeat::new()));
+
+        let (ack_tx, first_ack) = oneshot::channel();
+        tx.try_send(send_on("go", Some(model), None, ack_tx))
+            .expect("channel open");
+        first_ack.await.expect("the first turn is acked");
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while agent_state.status().await != AgentStatus::Idle {
+            assert!(tokio::time::Instant::now() < deadline, "turn never ended");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+
+        let (ack_tx, _second_ack) = oneshot::channel();
+        tx.try_send(send_on("fallback", None, Some(to), ack_tx))
+            .expect("channel open");
+        let second = loop {
+            if let Some(input) = recorder.lock().await.get(1) {
+                break input.clone();
+            }
+            assert!(tokio::time::Instant::now() < deadline, "no fallback input");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        };
+        assert_eq!(second.model, None, "{from} -> {to} kept {model}");
+        drop(events);
+        cancel.cancel();
+    }
+}
+
 fn send(text: &str, agent_profile: Option<&str>, ack: oneshot::Sender<RunAck>) -> AgentCommand {
+    send_on(text, None, agent_profile, ack)
+}
+
+fn send_on(
+    text: &str,
+    model: Option<&str>,
+    agent_profile: Option<&str>,
+    ack: oneshot::Sender<RunAck>,
+) -> AgentCommand {
     AgentCommand::Send {
         text: text.to_string(),
-        model: None,
+        model: model.map(str::to_string),
         agent_mode: None,
         effort: None,
         resume_session_id: None,
