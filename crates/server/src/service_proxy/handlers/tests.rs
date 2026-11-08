@@ -35,6 +35,10 @@ type Seen = Arc<Mutex<Vec<(String, Option<String>)>>>;
 async fn fake_upstream(seen: Seen) -> String {
     let app = Router::new()
         .route(
+            "/gateway-timeout",
+            any(|| async { StatusCode::GATEWAY_TIMEOUT }),
+        )
+        .route(
             "/redirect",
             any(|| async {
                 (
@@ -72,6 +76,7 @@ fn services(upstream: &str) -> Arc<ServiceProxies> {
             "rules": [
                 { "methods": ["GET"], "path": "/api/health" },
                 { "methods": ["GET"], "path": "/redirect" },
+                { "methods": ["GET"], "path": "/gateway-timeout" },
                 { "methods": ["POST"], "path": "/api/ds/query",
                   "body": { "pointer": "/kind", "oneOf": ["read"] } }
             ]
@@ -341,6 +346,27 @@ async fn no_resolvable_secret_is_a_424_naming_the_key_and_the_identity() {
         body.contains("GRAFANA_TOKEN") && body.contains("user-1"),
         "{body}"
     );
+}
+
+#[tokio::test]
+async fn an_upstream_5xx_is_relayed_marked_as_the_upstreams_failure() {
+    let upstream = fake_upstream(Seen::default()).await;
+    let gateway = gateway(
+        &upstream,
+        &["grafana"],
+        &[("GRAFANA_TOKEN", GRAFANA_SECRET)],
+    );
+    let failed = send(&gateway, "grafana", Method::GET, "/gateway-timeout", "").await;
+    assert_eq!(failed.status(), StatusCode::GATEWAY_TIMEOUT);
+    assert!(
+        failed
+            .extensions()
+            .get::<RelayedUpstreamFailure>()
+            .is_some()
+    );
+
+    let ok = send(&gateway, "grafana", Method::GET, "/api/health", "").await;
+    assert!(ok.extensions().get::<RelayedUpstreamFailure>().is_none());
 }
 
 #[tokio::test]

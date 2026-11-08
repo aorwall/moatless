@@ -8,6 +8,7 @@ use axum::http::{HeaderMap, HeaderName, Method, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use moatless_core::proxy_rules::{NormalPath, Verdict};
 use moatless_core::service_proxies::{Injection, ServiceProxy};
+use moatless_types::http::RelayedUpstreamFailure;
 use tracing::{info, warn};
 
 use super::service::{ServiceProxyError, ServiceProxyGateway};
@@ -135,7 +136,11 @@ pub(super) async fn forward(
         &rule,
         response.status().as_u16(),
     );
-    Ok(stream_back(response, "service"))
+    let mut relayed = stream_back(response, "service");
+    if relayed.status().is_server_error() {
+        relayed.extensions_mut().insert(RelayedUpstreamFailure);
+    }
+    Ok(relayed)
 }
 
 fn log_forwarded(
