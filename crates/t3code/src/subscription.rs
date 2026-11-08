@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::future::Future;
 
+use crate::rpc::outbound::OutboundSender;
 use serde_json::{Value, json};
-use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::warn;
 
@@ -12,7 +12,7 @@ use crate::{MAX_ACTIVE_STREAMS, MAX_DETACHED_REQUESTS, RequestId, failure_exit, 
 #[derive(Clone, Debug)]
 pub(crate) struct StreamSink {
     request_id: RequestId,
-    frames: mpsc::Sender<Value>,
+    frames: OutboundSender,
 }
 
 impl StreamSink {
@@ -21,14 +21,7 @@ impl StreamSink {
     }
 
     pub(crate) async fn send_values(&self, values: Vec<Value>) -> bool {
-        self.frames
-            .send(json!({
-                "_tag": "Chunk",
-                "requestId": self.request_id.wire(),
-                "values": values,
-            }))
-            .await
-            .is_ok()
+        self.frames.send(chunk(&self.request_id, values)).await
     }
 
     pub(crate) fn request_id(&self) -> &RequestId {
@@ -72,11 +65,11 @@ impl Drop for StreamState {
 #[derive(Debug)]
 pub(crate) struct StreamSet {
     streams: HashMap<String, StreamState>,
-    frames: mpsc::Sender<Value>,
+    frames: OutboundSender,
 }
 
 impl StreamSet {
-    pub(crate) fn new(frames: mpsc::Sender<Value>) -> Self {
+    pub(crate) fn new(frames: OutboundSender) -> Self {
         Self {
             streams: HashMap::new(),
             frames,
@@ -212,11 +205,11 @@ impl Drop for DetachedRequest {
 #[derive(Debug)]
 pub(crate) struct DetachedSet {
     running: HashMap<String, DetachedRequest>,
-    frames: mpsc::Sender<Value>,
+    frames: OutboundSender,
 }
 
 impl DetachedSet {
-    pub(crate) fn new(frames: mpsc::Sender<Value>) -> Self {
+    pub(crate) fn new(frames: OutboundSender) -> Self {
         Self {
             running: HashMap::new(),
             frames,
@@ -247,7 +240,7 @@ impl DetachedSet {
             id.as_str().to_string(),
             DetachedRequest(tokio::spawn(async move {
                 for frame in request.await {
-                    if frames.send(frame).await.is_err() {
+                    if !frames.send(frame).await {
                         return;
                     }
                 }
@@ -283,11 +276,12 @@ impl DetachedSet {
 }
 
 fn chunk(id: &RequestId, values: Vec<Value>) -> Value {
-    json!({
+    let mut frame = json!({
         "_tag": "Chunk",
         "requestId": id.wire(),
-        "values": values
-    })
+    });
+    frame["values"] = Value::Array(values);
+    frame
 }
 
 #[cfg(test)]
@@ -299,8 +293,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_stalled_reader_cannot_queue_unlimited_snapshot_bytes() {
+        let (frames, _reader) = crate::rpc::outbound::channel(crate::rpc::socket::OUTBOUND_FRAMES);
+        let sink = StreamSink {
+            request_id: request_id("1"),
+            frames,
+        };
+        let mut refused = false;
+        for _ in 0..8 {
+            if !sink
+                .send(json!({ "snapshot": "x".repeat(8 * 1024 * 1024) }))
+                .await
+            {
+                refused = true;
+                break;
+            }
+        }
+        assert!(
+            refused,
+            "a stalled reader retained over 32 MiB of snapshots"
+        );
+    }
+
+    #[tokio::test]
     async fn a_finished_producer_gives_its_slot_back() {
-        let (frames, mut pushed) = mpsc::channel(8);
+        let (frames, mut pushed) = crate::rpc::outbound::channel(8);
         let mut streams = StreamSet::new(frames);
         streams.start_produced(&request_id("1"), None, |_| async { Ok(()) });
         while streams.contains("1") && pushed.recv().await.is_none() {}
@@ -314,13 +331,13 @@ mod tests {
 
     #[tokio::test]
     async fn a_failed_producer_sends_one_terminal_failure() {
-        let (frames, mut pushed) = mpsc::channel(8);
+        let (frames, mut pushed) = crate::rpc::outbound::channel(8);
         let mut streams = StreamSet::new(frames);
         streams.start_produced(&request_id("1"), None, |_| async move {
             Err(StreamFailure::message("stream failed"))
         });
 
-        let terminal = pushed.recv().await.expect("a terminal frame");
+        let terminal = pushed.recv().await.expect("a terminal frame").into_value();
 
         assert_eq!(terminal["_tag"], "Exit");
         assert_eq!(terminal["requestId"], "1");

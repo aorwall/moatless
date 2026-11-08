@@ -11,6 +11,7 @@ use crate::rpc::errors::authorization_error;
 use crate::rpc::errors::unsupported_exit;
 use crate::rpc::metrics::answered;
 use crate::rpc::metrics::request_root_span;
+use crate::rpc::outbound::OutboundSender;
 use crate::rpc::table::Handler;
 use crate::rpc::table::Method;
 use crate::rpc::table::MethodTable;
@@ -26,7 +27,6 @@ use std::future::ready;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::PoisonError;
-use tokio::sync::mpsc;
 use tracing::warn;
 
 pub(crate) const MAX_MESSAGES_PER_FRAME: usize = 128;
@@ -159,7 +159,7 @@ pub(crate) struct ProtocolSession {
 }
 
 impl ProtocolSession {
-    pub(crate) fn new(frames: mpsc::Sender<Value>, methods: &'static MethodTable) -> Self {
+    pub(crate) fn new(frames: OutboundSender, methods: &'static MethodTable) -> Self {
         Self {
             streams: StreamSet::new(frames.clone()),
             detached: DetachedSet::new(frames),

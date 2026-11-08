@@ -919,17 +919,17 @@ fn state_over(
 /// detached request answers on this channel, not its caller — use
 /// [`connection`] for tests on a [`Handler::Detached`](crate::rpc::table::Handler) method.
 pub(super) fn session() -> ProtocolSession {
-    ProtocolSession::new(mpsc::channel(OUTBOUND_FRAMES).0, methods())
+    ProtocolSession::new(crate::rpc::outbound::channel(OUTBOUND_FRAMES).0, methods())
 }
 
 /// A session holding the frame channel `serve_websocket` writes to the socket.
 pub(super) struct Connection {
     pub(super) session: ProtocolSession,
-    pushed: mpsc::Receiver<Value>,
+    pushed: tokio::sync::mpsc::Receiver<crate::rpc::outbound::QueuedFrame>,
 }
 
 pub(super) fn connection() -> Connection {
-    let (frames, pushed) = mpsc::channel(OUTBOUND_FRAMES);
+    let (frames, pushed) = crate::rpc::outbound::channel(OUTBOUND_FRAMES);
     Connection {
         session: ProtocolSession::new(frames, methods()),
         pushed,
@@ -955,7 +955,10 @@ impl Connection {
     }
 
     pub(super) fn next_pushed(&mut self) -> Option<Value> {
-        self.pushed.try_recv().ok()
+        self.pushed
+            .try_recv()
+            .ok()
+            .map(crate::rpc::outbound::QueuedFrame::into_value)
     }
 
     /// Wait for the next frame a subscription's producer task pushed.
@@ -967,6 +970,7 @@ impl Connection {
             .await
             .expect("the producer pushed a frame")
             .expect("the frame channel is open")
+            .into_value()
     }
 }
 

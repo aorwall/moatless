@@ -83,7 +83,6 @@ use std::env;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Notify;
-use tokio::sync::mpsc;
 use uuid::Uuid;
 
 /// A readable open Task. Inert but for the id: the gates read whether a scoped

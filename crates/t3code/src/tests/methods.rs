@@ -160,7 +160,7 @@ async fn an_ordered_transition_waits_for_the_one_before_it() {
                 Vec::new()
             },
         );
-    let (frames, _pushed) = mpsc::channel(OUTBOUND_FRAMES);
+    let (frames, _pushed) = crate::rpc::outbound::channel(OUTBOUND_FRAMES);
     let mut session = ProtocolSession::new(frames, Box::leak(Box::new(table)));
     let batch: Vec<Value> = ["test.slowTransition", "test.transition", "test.read"]
         .iter()

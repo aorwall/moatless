@@ -5,7 +5,6 @@ use moatless_core::change_feed::listing::{EnvironmentIdentity, ListingChange};
 use moatless_ports::task::MockTaskReader;
 use moatless_types::access_control::ScopeContext;
 use serde_json::json;
-use tokio::sync::mpsc;
 
 use super::*;
 use crate::config::{AgentModelDefaults, OrchestrationProtocol};
@@ -104,7 +103,7 @@ async fn reads_with(subscribers: usize) -> Arc<Database> {
     let cancel = CancellationToken::new();
     let poller = ChangePoller::new(changes.clone(), db.dao()).spawn(cancel.clone());
 
-    let (frames, _pushed) = mpsc::channel(1024);
+    let (frames, _pushed) = crate::rpc::outbound::channel(1024);
     let mut streams = StreamSet::new(frames);
     let mut threads = Vec::new();
     for subscriber in 0..subscribers {
@@ -247,7 +246,7 @@ async fn a_shell_behind_by_more_than_one_batch_reads_the_rest_without_another_mo
     let changes = ChangeWatch::new();
     let cancel = CancellationToken::new();
     let poller = ChangePoller::new(changes.clone(), db.dao()).spawn(cancel.clone());
-    let (frames, _pushed) = mpsc::channel(16);
+    let (frames, _pushed) = crate::rpc::outbound::channel(16);
     let mut streams = StreamSet::new(frames);
     let feed = ShellFeed::resuming_from(identity(), 7).speaking(OrchestrationProtocol::V2);
     let reads = db.reads();

@@ -508,7 +508,6 @@ mod tests {
     };
     use moatless_types::sandbox::{CommandSummary, ManagedCommandState};
     use moatless_types::task::TaskStatus;
-    use tokio::sync::mpsc;
 
     use moatless_ports::task::MockTaskReader;
 
@@ -711,7 +710,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_status_that_has_not_moved_since_the_seed_sends_nothing() {
         let observer = Arc::new(MovingStatus::at(false));
-        let (frames, mut received) = mpsc::channel(8);
+        let (frames, mut received) = crate::rpc::outbound::channel(8);
         let request_id: crate::RequestId = serde_json::from_value(json!(1)).expect("a numeric id");
         let mut streams = crate::subscription::StreamSet::new(frames);
         let watched = observer.clone();
@@ -734,7 +733,7 @@ mod tests {
 
         observer.moved.store(true, Ordering::SeqCst);
         tokio::time::sleep(STATUS_POLL_INTERVAL * 2).await;
-        let frame = received.try_recv().expect("the move is news");
+        let frame = received.try_recv().expect("the move is news").into_value();
         assert_eq!(frame["values"][0]["sandboxStatus"], "ready");
     }
 
@@ -816,7 +815,7 @@ mod tests {
             .expect("a readable task");
         assert!(seeded.get("commands").is_none());
 
-        let (tx, mut received) = mpsc::channel(4);
+        let (tx, mut received) = crate::rpc::outbound::channel(4);
         let request_id: crate::RequestId = serde_json::from_value(json!(1)).expect("a numeric id");
         let mut streams = crate::subscription::StreamSet::new(tx);
         streams.start_produced(&request_id, None, move |sink| {
@@ -838,7 +837,10 @@ mod tests {
 
         observer.register("mvn verify");
         tokio::time::sleep(STATUS_POLL_INTERVAL * 2).await;
-        let frame = received.try_recv().expect("the new command is news");
+        let frame = received
+            .try_recv()
+            .expect("the new command is news")
+            .into_value();
         assert_eq!(frame["values"][0]["commands"][0]["label"], "mvn verify");
 
         tokio::time::sleep(STATUS_POLL_INTERVAL * 2).await;
