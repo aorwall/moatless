@@ -418,7 +418,7 @@ async fn a_read_by_id_reuses_the_generic_plan(pool: PgPool) {
 
     let (generic, custom): (i64, i64) = sqlx::query_as(
         "SELECT generic_plans, custom_plans FROM pg_prepared_statements
-         WHERE statement LIKE 'WITH listed AS MATERIALIZED%'",
+         WHERE statement LIKE 'WITH picked AS MATERIALIZED%'",
     )
     .fetch_one(&single)
     .await
@@ -488,4 +488,95 @@ async fn the_followed_listing_keeps_the_newest_and_reads_the_rest_by_id(pool: Pg
         .await
         .expect("by id");
     assert_eq!(past_the_cap.len(), 1);
+}
+
+/// The archive picks its page from `tasks_listing_pick_idx` alone, so its cost
+/// before the cap is the index, not a heap row per followed closed Task.
+#[sqlx::test]
+async fn the_archive_picks_its_page_without_reading_the_task_rows(pool: PgPool) {
+    use super::listed_dao::{Page, Reach, bind, statement};
+
+    let repo = make_repository_row("repo-1", USER_1);
+    moatless_workspaces::compose::seed_repository(&pool, &repo)
+        .await
+        .expect("seed repo");
+    for n in 0..400 {
+        let mut task = make_task_row(&format!("archived-{n:03}"), USER_1);
+        task.status = TaskStatus::Closed;
+        seed_task(&pool, &task).await.expect("seed task");
+    }
+    // About 1.5 kB of incompressible prompt keeps each row inline, so the heap
+    // is a hundred pages against the index's few. Under ~2 kB TOAST moves the
+    // text out, the heap shrinks to 39 pages and a `Seq Scan` costs less.
+    sqlx::query(
+        "UPDATE tasks SET description = (SELECT string_agg(md5(task_id || n), '')
+                                         FROM generate_series(1, 46) n),
+                          updated_at = now() - substring(task_id FROM 10)::int * interval '1 minute'",
+    )
+    .execute(&pool)
+    .await
+    .expect("widen the rows");
+    sqlx::query("INSERT INTO task_follows (user_id, task_id) SELECT $1, task_id FROM tasks ON CONFLICT DO NOTHING")
+        .bind(USER_1)
+        .execute(&pool)
+        .await
+        .expect("follow every task");
+    // Sets the visibility map an index-only scan needs, as autovacuum does.
+    sqlx::query("VACUUM ANALYZE tasks, task_follows")
+        .execute(&pool)
+        .await
+        .expect("vacuum");
+
+    let viewer = ScopeContext::user(USER_1.to_string());
+    let page = Page {
+        cap: super::ARCHIVED_LIMIT + 1,
+        before: None,
+    };
+    let sql = statement(
+        Reach::Followed,
+        &[TaskStatus::Closed],
+        false,
+        None,
+        Some(&page),
+    );
+    let (plan,): (serde_json::Value,) = bind(
+        sqlx::query_as(sqlx::AssertSqlSafe(format!("EXPLAIN (FORMAT JSON) {sql}"))),
+        &viewer,
+        None,
+        None,
+        None,
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("explain the archive page");
+
+    let capped = first_cte(&plan[0]["Plan"]).expect("the statement opens with a CTE");
+    let mut scans = Vec::new();
+    task_scans(capped, &mut scans);
+    assert!(!scans.is_empty(), "the capped CTE reads tasks: {capped:#}");
+    assert!(
+        scans.iter().all(|scan| scan == "Index Only Scan"),
+        "the capped CTE reads the tasks heap: {scans:?}"
+    );
+}
+
+fn first_cte(node: &serde_json::Value) -> Option<&serde_json::Value> {
+    let children = node["Plans"].as_array()?;
+    children
+        .iter()
+        .find(|child| {
+            child["Subplan Name"]
+                .as_str()
+                .is_some_and(|name| name.starts_with("CTE "))
+        })
+        .or_else(|| children.iter().find_map(first_cte))
+}
+
+fn task_scans(node: &serde_json::Value, scans: &mut Vec<String>) {
+    if node["Relation Name"] == "tasks" {
+        scans.push(node["Node Type"].as_str().unwrap_or_default().to_string());
+    }
+    for child in node["Plans"].as_array().into_iter().flatten() {
+        task_scans(child, scans);
+    }
 }

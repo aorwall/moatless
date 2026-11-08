@@ -2,7 +2,9 @@
 
 use std::time::{Duration, Instant};
 
-use sqlx::AssertSqlSafe;
+use sqlx::postgres::PgArguments;
+use sqlx::query::QueryAs;
+use sqlx::{AssertSqlSafe, Postgres};
 use tokio::sync::Semaphore;
 use tracing::warn;
 
@@ -124,6 +126,43 @@ async fn read(
     browse: Option<&ListingFilter>,
     page: Option<Page<'_>>,
 ) -> Result<Vec<ListedTask>, sqlx::Error> {
+    let before = page.as_ref().and_then(|page| page.before);
+    let sql = statement(reach, statuses, task_ids.is_some(), browse, page.as_ref());
+    let query = bind(
+        sqlx::query_as::<_, ListedTask>(AssertSqlSafe(sql)),
+        viewer,
+        task_ids,
+        browse,
+        before,
+    );
+    // A narrowed read is a key lookup whatever the ids, so it takes the cached
+    // generic plan. Under `auto` Postgres never switches to one for this
+    // statement and plans its ~25 relations on every call, 5-400 ms against
+    // ~1 ms to execute, once a second per open thread via `ThreadFeed::poll`.
+    let (setting, value) = match task_ids {
+        Some(_) => ("plan_cache_mode", "force_generic_plan"),
+        None => ("statement_timeout", FULL_LISTING_STATEMENT_TIMEOUT),
+    };
+    let mut tx = pool.begin().await?;
+    sqlx::query("SELECT set_config($1, $2, true)")
+        .bind(setting)
+        .bind(value)
+        .execute(&mut *tx)
+        .await?;
+    let rows = query.fetch_all(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(rows)
+}
+
+/// The SQL of [`read`]; [`bind`] fills its parameters in the order it
+/// allocates them.
+pub(super) fn statement(
+    reach: Reach,
+    statuses: &[TaskStatus],
+    narrowed: bool,
+    browse: Option<&ListingFilter>,
+    page: Option<&Page<'_>>,
+) -> String {
     // `$1`/`$2` are the access filter's admin flag and user id; `$3` is
     // the follower. The read rule is a shared fragment, not a copy, so a
     // change to "may read" reaches this listing too. The status filter
@@ -143,9 +182,11 @@ async fn read(
         next_param += 1;
         next_param
     };
-    let narrowed = task_ids
-        .map(|_| format!("\n                 AND t.task_id = ANY(${})", param()))
-        .unwrap_or_default();
+    let narrowed = if narrowed {
+        format!("\n                 AND t.task_id = ANY(${})", param())
+    } else {
+        String::new()
+    };
     // Each browse filter becomes a clause only when set, not a `$n IS
     // NULL OR` pair: an unset one must disappear so the index behind it
     // stays reachable. Predicates only — the cap is appended after them
@@ -173,8 +214,7 @@ async fn read(
     // Keyset rather than `OFFSET`, so a Task closed between two pages
     // shifts no row across the boundary. `-infinity` stands in for a NULL
     // `updated_at`, which `NULLS LAST` sorts in the same place.
-    let before = page.as_ref().and_then(|page| page.before);
-    if before.is_some() {
+    if page.and_then(|page| page.before).is_some() {
         let (at, id) = (param(), param());
         predicates.push(format!(
                 "AND (COALESCE(t.updated_at, '-infinity') < COALESCE(${at}::timestamptz, '-infinity')
@@ -186,11 +226,10 @@ async fn read(
         .iter()
         .flat_map(|predicate| ["\n                 ", predicate.as_str()])
         .collect::<String>();
-    // The cap is inside the CTE, which is also where the order it takes the
+    // The cap is inside `picked`, which is also where the order it takes the
     // newest rows by has to live: the outer `ORDER BY` runs after the
     // laterals, and ordering there would cap an arbitrary set.
     let capped = page
-        .as_ref()
         .map(|Page { cap, .. }| {
             format!(
                 "\n                 ORDER BY t.updated_at DESC NULLS LAST, \
@@ -216,13 +255,25 @@ async fn read(
                    WHERE"
         ),
     };
-    let sql = format!(
-        r#"WITH listed AS MATERIALIZED (
+    // `picked` reads only columns `tasks_listing_pick_idx` covers, so it never
+    // visits the heap; `listed` fetches whole rows for the picked ones alone.
+    // Picking with `t.*` read every followed Task's row to keep 201, and timed
+    // out a viewer following thousands. A picking clause on a column the index
+    // does not cover brings that back: add the column to its `INCLUDE`.
+    format!(
+        r#"WITH picked AS MATERIALIZED (
+                   SELECT t.task_id
+                   {follows} t.status IN ({statuses})
+                     AND {}{narrowed}{predicates}{capped}
+               ),
+               listed AS MATERIALIZED (
                    SELECT t.*, tf.settled_override, tf.settled_at, tf.snoozed_until, tf.snoozed_at,
                           tf.pinned_at, tf.pin_order_key, tf.active_order_key,
                           tf.auto_settle_disabled_at
-                   {follows} t.status IN ({statuses})
-                     AND {}{narrowed}{predicates}{capped}
+                   FROM picked
+                   JOIN tasks t ON t.task_id = picked.task_id
+                   LEFT JOIN task_follows tf
+                     ON tf.task_id = t.task_id AND tf.user_id = ${follower}
                )
                SELECT
                    t.task_id,
@@ -480,9 +531,18 @@ async fn read(
                -- nothing observes.
                ORDER BY t.updated_at DESC NULLS LAST, t.task_id ASC"#,
         access.sql(),
-    );
+    )
+}
 
-    let mut query = sqlx::query_as::<_, ListedTask>(AssertSqlSafe(sql))
+/// Binds [`statement`]'s parameters, in the order it allocated them.
+pub(super) fn bind<'q, O>(
+    query: QueryAs<'q, Postgres, O, PgArguments>,
+    viewer: &'q ScopeContext,
+    task_ids: Option<&[String]>,
+    browse: Option<&ListingFilter>,
+    before: Option<&ListingCursor>,
+) -> QueryAs<'q, Postgres, O, PgArguments> {
+    let mut query = query
         .bind(viewer.is_admin)
         .bind(&viewer.user_id)
         .bind(&viewer.user_id)
@@ -503,23 +563,7 @@ async fn read(
     if let Some(before) = before {
         query = query.bind(before.updated_at).bind(before.task_id.clone());
     }
-    // A narrowed read is a key lookup whatever the ids, so it takes the cached
-    // generic plan. Under `auto` Postgres never switches to one for this
-    // statement and plans its ~25 relations on every call, 5-400 ms against
-    // ~1 ms to execute, once a second per open thread via `ThreadFeed::poll`.
-    let (setting, value) = match task_ids {
-        Some(_) => ("plan_cache_mode", "force_generic_plan"),
-        None => ("statement_timeout", FULL_LISTING_STATEMENT_TIMEOUT),
-    };
-    let mut tx = pool.begin().await?;
-    sqlx::query("SELECT set_config($1, $2, true)")
-        .bind(setting)
-        .bind(value)
-        .execute(&mut *tx)
-        .await?;
-    let rows = query.fetch_all(&mut *tx).await?;
-    tx.commit().await?;
-    Ok(rows)
+    query
 }
 
 /// The listing's `LEFT JOIN LATERAL … parent`: each row's first parent edge,
