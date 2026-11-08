@@ -1,7 +1,7 @@
 //! Artifact DAO — queries for `task_artifacts`.
 
 use async_trait::async_trait;
-use sqlx::PgConnection;
+use sqlx::{AssertSqlSafe, PgConnection};
 use uuid::Uuid;
 
 use super::models::{Artifact, ArtifactVersion, DataAccess, NewFork, Reservation};
@@ -11,6 +11,13 @@ use moatless_core::db::DbPool;
 use moatless_types::activity::ArtifactShown;
 use moatless_types::event::EventType;
 use moatless_types::task::{TaskSubType, Visibility};
+
+// Wildcards change cached result metadata when a migration adds or drops an
+// unrelated column; both reads and `RETURNING` need a stable result shape.
+const ARTIFACT_COLUMNS: &str = "artifact_id, task_id, slug, title, reserved_version,
+    latest_version, published_versions, inline_versions, accepts_data, notify_on_data,
+    record_rules, collections, visibility, forked_from_artifact_id, forked_from_version,
+    created_by, created_at, updated_at";
 
 /// DAO trait for Artifact persistence. Callers check Task access first:
 /// `task_artifacts` carries no scope columns of its own.
@@ -113,7 +120,7 @@ impl ArtifactDao for PgArtifactDao {
         shown: Option<ArtifactShown>,
     ) -> Result<Option<Artifact>, sqlx::Error> {
         let mut tx = self.0.begin().await?;
-        let row = sqlx::query_as::<_, Artifact>(
+        let row = sqlx::query_as::<_, Artifact>(AssertSqlSafe(format!(
             r#"UPDATE task_artifacts SET
                    title = CASE WHEN $2 > latest_version THEN $3 ELSE title END,
                    latest_version = GREATEST(latest_version, $2),
@@ -131,8 +138,8 @@ impl ArtifactDao for PgArtifactDao {
                                       ELSE collections END,
                    updated_at = now()
                WHERE artifact_id = $1
-               RETURNING *"#,
-        )
+               RETURNING {ARTIFACT_COLUMNS}"#,
+        )))
         .bind(artifact_id)
         .bind(version)
         .bind(title)
@@ -170,11 +177,11 @@ impl ArtifactDao for PgArtifactDao {
         artifact_id: &str,
         visibility: Visibility,
     ) -> Result<Option<Artifact>, sqlx::Error> {
-        sqlx::query_as::<_, Artifact>(
+        sqlx::query_as::<_, Artifact>(AssertSqlSafe(format!(
             r#"UPDATE task_artifacts SET visibility = $2
                WHERE artifact_id = $1 AND latest_version > 0
-               RETURNING *"#,
-        )
+               RETURNING {ARTIFACT_COLUMNS}"#,
+        )))
         .bind(artifact_id)
         .bind(visibility.as_str())
         .fetch_optional(&self.0)
@@ -182,18 +189,20 @@ impl ArtifactDao for PgArtifactDao {
     }
 
     async fn find_by_id(&self, artifact_id: &str) -> Result<Option<Artifact>, sqlx::Error> {
-        sqlx::query_as::<_, Artifact>("SELECT * FROM task_artifacts WHERE artifact_id = $1")
-            .bind(artifact_id)
-            .fetch_optional(&self.0)
-            .await
+        sqlx::query_as::<_, Artifact>(AssertSqlSafe(format!(
+            "SELECT {ARTIFACT_COLUMNS} FROM task_artifacts WHERE artifact_id = $1"
+        )))
+        .bind(artifact_id)
+        .fetch_optional(&self.0)
+        .await
     }
 
     async fn list_for_task(&self, task_id: &str) -> Result<Vec<Artifact>, sqlx::Error> {
-        sqlx::query_as::<_, Artifact>(
-            r#"SELECT * FROM task_artifacts
+        sqlx::query_as::<_, Artifact>(AssertSqlSafe(format!(
+            r#"SELECT {ARTIFACT_COLUMNS} FROM task_artifacts
                WHERE task_id = $1 AND latest_version > 0
                ORDER BY updated_at DESC, artifact_id"#,
-        )
+        )))
         .bind(task_id)
         .fetch_all(&self.0)
         .await
@@ -211,14 +220,14 @@ impl ArtifactDao for PgArtifactDao {
 
     async fn insert_fork(&self, fork: &NewFork) -> Result<Artifact, sqlx::Error> {
         let mut tx = self.0.begin().await?;
-        let row = sqlx::query_as::<_, Artifact>(
+        let row = sqlx::query_as::<_, Artifact>(AssertSqlSafe(format!(
             r#"INSERT INTO task_artifacts
                    (artifact_id, task_id, slug, title, created_by, reserved_version,
                     latest_version, published_versions, accepts_data, record_rules,
                     visibility, forked_from_artifact_id, forked_from_version)
-               VALUES ($1, $2, $3, $4, $5, 1, 1, '{1}', $6, $7, 'private', $8, $9)
-               RETURNING *"#,
-        )
+               VALUES ($1, $2, $3, $4, $5, 1, 1, '{{1}}', $6, $7, 'private', $8, $9)
+               RETURNING {ARTIFACT_COLUMNS}"#,
+        )))
         .bind(&fork.artifact_id)
         .bind(&fork.task_id)
         .bind(&fork.slug)

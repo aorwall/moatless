@@ -30,7 +30,20 @@ impl PgTaskDao {
         ctx: &ScopeContext,
         grant: &moatless_core::db::access_control::AccessFilter,
     ) -> Result<Option<Task>, sqlx::Error> {
-        let sql = format!("SELECT * FROM tasks WHERE task_id = $1 AND {}", grant.sql());
+        // `SELECT *` changes cached result metadata on additive migrations,
+        // breaking surviving replicas with `cached plan must not change result type`.
+        let sql = format!(
+            "SELECT task_id, short_id, created_at, last_message_at, agent_profile,
+                    repository_id, workspace_id, sandbox_id, checkout_mode, status,
+                    total_cost_usd, site_url, template_id, vibe, name, description,
+                    site_id, site_provider, branch, model, created_by, reporter_user_id,
+                    visibility, scope, owner_user_id, run_as_user_id, created_at_db,
+                    updated_at, append_system_prompt, headless, ttl_minutes,
+                    close_after_settled_days, settle_after_hours, loop_id, skills,
+                    memory_preload, agent_properties
+             FROM tasks WHERE task_id = $1 AND {}",
+            grant.sql()
+        );
         let row: Option<TaskRow> = sqlx::query_as(AssertSqlSafe(sql))
             .bind(task_id)
             .bind(ctx.is_admin)
@@ -65,3 +78,7 @@ impl PgTaskDao {
         Ok(row.map(|row| row.status))
     }
 }
+
+#[cfg(all(test, feature = "db-tests"))]
+#[path = "access_dao_db_tests.rs"]
+mod access_dao_db_tests;

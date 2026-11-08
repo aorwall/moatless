@@ -13,6 +13,16 @@ use moatless_types::access_control::{ScopeContext, ScopedEntity};
 const ACTIVE_OR_GIT_TOMBSTONE: &str = "((deleted IS NULL OR deleted = false) OR \
     (deleted = true AND source = 'manual' AND source_repository_id IS NOT NULL AND source_key IS NOT NULL))";
 
+// A wildcard changes cached result metadata when another replica adds an
+// unrelated column, breaking shell and thread snapshots on surviving readers.
+const WORKSPACE_COLUMNS: &str = "w.id, w.name, w.description, w.icon, w.kind,
+    w.docker_image, w.docker_access, w.sandbox_service_account, w.system_prompt,
+    w.setup_commands, w.env_vars, w.scripts, w.resources, w.language_servers,
+    w.network_profile, w.node_selector, w.services, w.default_model, w.default_effort,
+    w.source, w.source_repository_id, w.source_key, w.source_config_path,
+    w.scope, w.owner_user_id, w.run_as_user_id, w.created_by, w.deleted,
+    w.created_at, w.updated_at";
+
 /// DAO trait for workspace persistence.
 // reason: `credentials::service` gates its writes on the owning workspace row,
 // so its unit tests need a workspace read they can steer.
@@ -149,7 +159,7 @@ impl WorkspaceDao for PgWorkspaceDao {
         let access =
             moatless_core::db::access_control::access_filter(ScopedEntity::Resource, "", 2);
         let sql = format!(
-            "SELECT * FROM workspaces \
+            "SELECT {WORKSPACE_COLUMNS} FROM workspaces w \
              WHERE id = $1 \
              AND {ACTIVE_OR_GIT_TOMBSTONE} \
              AND {}",
@@ -165,17 +175,17 @@ impl WorkspaceDao for PgWorkspaceDao {
     }
 
     async fn find_by_repository(&self, repository_id: &str) -> Result<Vec<Workspace>, sqlx::Error> {
-        let rows: Vec<WorkspaceRow> = sqlx::query_as(
+        let rows: Vec<WorkspaceRow> = sqlx::query_as(AssertSqlSafe(format!(
             // Grouped, not a plain join: only `mount_name` and `is_primary` are
             // unique per workspace, so a workspace placing this repository at
             // two mounts would otherwise be returned twice.
-            r#"SELECT w.* FROM workspaces w
+            r#"SELECT {WORKSPACE_COLUMNS} FROM workspaces w
                JOIN workspace_repos r ON r.workspace_id = w.id
                WHERE r.repository_id = $1
                  AND (w.deleted IS NULL OR w.deleted = false)
                GROUP BY w.id
                ORDER BY bool_or(r.is_primary) DESC, w.created_at ASC, w.id ASC"#,
-        )
+        )))
         .bind(repository_id)
         .fetch_all(&self.0)
         .await?;
@@ -294,7 +304,7 @@ impl WorkspaceDao for PgWorkspaceDao {
         let access =
             moatless_core::db::access_control::access_filter(ScopedEntity::Resource, "", 1);
         let sql = format!(
-            "SELECT * FROM workspaces \
+            "SELECT {WORKSPACE_COLUMNS} FROM workspaces w \
              WHERE {ACTIVE_OR_GIT_TOMBSTONE} \
              AND {} \
              ORDER BY name ASC",
@@ -323,7 +333,7 @@ impl WorkspaceDao for PgWorkspaceDao {
         // `deleted` narrows only the readable half: a workspace named by a
         // readable task still lists even once a sync has tombstoned it.
         let sql = format!(
-            "SELECT *, {} AS readable FROM workspaces \
+            "SELECT {WORKSPACE_COLUMNS}, {} AS readable FROM workspaces w \
              WHERE ((deleted IS NULL OR deleted = false) AND {}) \
              OR id = ANY(${ids_param}) \
              ORDER BY name ASC",

@@ -17,6 +17,117 @@ async fn reserve(dao: &PgArtifactDao, id: &str, slug: &str, title: &str) -> (Str
     (r.artifact_id, r.reserved_version)
 }
 
+async fn cached_reader(pool: &PgPool) -> PgArtifactDao {
+    let reader = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .max_lifetime(None)
+        .idle_timeout(None)
+        .connect_with((*pool.connect_options()).clone())
+        .await
+        .unwrap();
+    PgArtifactDao(reader)
+}
+
+async fn publish(dao: &PgArtifactDao) {
+    reserve(dao, "art-a", "report", "Report").await;
+    dao.commit_version(
+        "art-a",
+        1,
+        "Report",
+        &DataAccess::default(),
+        Some(Visibility::Public),
+        None,
+    )
+    .await
+    .unwrap()
+    .unwrap();
+}
+
+#[sqlx::test]
+async fn cached_artifact_lookup_survives_unrelated_column_changes(pool: PgPool) {
+    seed_bare_task(&pool, "task-1", "open").await;
+    let dao = cached_reader(&pool).await;
+    publish(&dao).await;
+    for change in [
+        "ALTER TABLE task_artifacts ADD COLUMN rollout_metadata text",
+        "ALTER TABLE task_artifacts DROP COLUMN rollout_metadata",
+    ] {
+        let before = dao.find_by_id("art-a").await.unwrap().unwrap();
+        sqlx::query(change).execute(&pool).await.unwrap();
+        for _ in 0..2 {
+            let after = dao.find_by_id("art-a").await.unwrap().unwrap();
+            assert_eq!(after.artifact_id, before.artifact_id);
+            assert_eq!(after.title, before.title);
+            assert_eq!(after.published_versions, before.published_versions);
+        }
+    }
+    dao.0.close().await;
+}
+
+#[sqlx::test]
+async fn cached_artifact_listing_survives_unrelated_column_changes(pool: PgPool) {
+    seed_bare_task(&pool, "task-1", "open").await;
+    let dao = cached_reader(&pool).await;
+    publish(&dao).await;
+    for change in [
+        "ALTER TABLE task_artifacts ADD COLUMN rollout_metadata text",
+        "ALTER TABLE task_artifacts DROP COLUMN rollout_metadata",
+    ] {
+        assert_eq!(dao.list_for_task("task-1").await.unwrap().len(), 1);
+        sqlx::query(change).execute(&pool).await.unwrap();
+        for _ in 0..2 {
+            let rows = dao.list_for_task("task-1").await.unwrap();
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].artifact_id, "art-a");
+            assert_eq!(rows[0].visibility, Visibility::Public);
+        }
+    }
+    dao.0.close().await;
+}
+
+#[sqlx::test]
+async fn cached_artifact_writes_survive_unrelated_column_changes(pool: PgPool) {
+    seed_bare_task(&pool, "task-1", "open").await;
+    let dao = cached_reader(&pool).await;
+    publish(&dao).await;
+    for (index, change) in [
+        "ALTER TABLE task_artifacts ADD COLUMN rollout_metadata text",
+        "ALTER TABLE task_artifacts DROP COLUMN rollout_metadata",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        dao.set_visibility("art-a", Visibility::Private)
+            .await
+            .unwrap()
+            .unwrap();
+        let mut fork = NewFork {
+            artifact_id: format!("fork-before-{index}"),
+            task_id: "task-1".into(),
+            slug: format!("fork-before-{index}"),
+            title: "Fork".into(),
+            created_by: "user-1".into(),
+            data: DataAccess::default(),
+            source_artifact_id: "art-a".into(),
+            source_version: 1,
+        };
+        dao.insert_fork(&fork).await.unwrap();
+        sqlx::query(change).execute(&pool).await.unwrap();
+        publish(&dao).await;
+        let row = dao
+            .set_visibility("art-a", Visibility::Public)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.visibility, Visibility::Public);
+        fork.artifact_id = format!("fork-after-{index}");
+        fork.slug = fork.artifact_id.clone();
+        let row = dao.insert_fork(&fork).await.unwrap();
+        assert_eq!(row.forked_from_artifact_id.as_deref(), Some("art-a"));
+    }
+    dao.0.close().await;
+}
+
 #[sqlx::test]
 async fn republishing_a_slug_reserves_the_next_version_of_the_same_artifact(pool: PgPool) {
     seed_bare_task(&pool, "task-1", "open").await;

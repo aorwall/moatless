@@ -20,6 +20,84 @@ fn scope_ctx(user_id: &str) -> ScopeContext {
     ScopeContext::user(user_id)
 }
 
+async fn assert_workspace_reads(dao: &PgWorkspaceDao, ctx: &ScopeContext) {
+    let listed = dao
+        .list_readable_including(ctx, &["ws-other".into()])
+        .await
+        .unwrap();
+    assert_eq!(listed.len(), 2);
+    let owned = listed
+        .iter()
+        .find(|row| row.workspace.id == "ws-owned")
+        .unwrap();
+    assert!(owned.readable);
+    assert_eq!(owned.workspace.services, Some(vec!["grafana".into()]));
+    let referenced = listed
+        .iter()
+        .find(|row| row.workspace.id == "ws-other")
+        .unwrap();
+    assert!(!referenced.readable);
+
+    let found = dao.find_by_id("ws-owned", ctx).await.unwrap().unwrap();
+    assert_eq!(found.services, owned.workspace.services);
+    assert!(dao.find_by_id("ws-other", ctx).await.unwrap().is_none());
+    let readable = dao.list(ctx).await.unwrap();
+    assert_eq!(readable.len(), 1);
+    assert_eq!(readable[0].id, "ws-owned");
+    let by_repo = dao.find_by_repository("repo-1").await.unwrap();
+    assert_eq!(by_repo.len(), 1);
+    assert_eq!(by_repo[0].id, "ws-owned");
+}
+
+#[sqlx::test]
+async fn cached_workspace_reads_survive_unrelated_column_changes(pool: PgPool) {
+    let dao = PgWorkspaceDao(pool.clone());
+    let mut owned = make_workspace_row("ws-owned", "user-1");
+    owned.services = Some(vec!["grafana".into()]);
+    dao.insert_workspace(&owned).await.unwrap();
+    dao.insert_workspace(&make_workspace_row("ws-other", "user-2"))
+        .await
+        .unwrap();
+    dao.add_repo(
+        &make_workspace_repo_row("wsr-1", "ws-owned", "repo-1", true, 0),
+        &scope_ctx("user-1"),
+    )
+    .await
+    .unwrap();
+    let reader = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .max_lifetime(None)
+        .idle_timeout(None)
+        .connect_with((*pool.connect_options()).clone())
+        .await
+        .unwrap();
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&reader)
+        .await
+        .unwrap();
+    let dao = PgWorkspaceDao(reader.clone());
+    let ctx = scope_ctx("user-1");
+
+    for change in [
+        "ALTER TABLE workspaces ADD COLUMN rollout_metadata text",
+        "ALTER TABLE workspaces DROP COLUMN rollout_metadata",
+    ] {
+        assert_workspace_reads(&dao, &ctx).await;
+        sqlx::query(change).execute(&pool).await.unwrap();
+        for _ in 0..2 {
+            assert_workspace_reads(&dao, &ctx).await;
+        }
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i32>("SELECT pg_backend_pid()")
+            .fetch_one(&reader)
+            .await
+            .unwrap(),
+        pid
+    );
+    reader.close().await;
+}
+
 // =========================================================================
 // find_by_id_scoped / insert — access control
 // =========================================================================
