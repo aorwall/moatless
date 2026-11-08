@@ -34,7 +34,7 @@ ignores a pod's first 5 minutes, when it fills its pool after a rollout.
 
 | Rule | Fires when | Look first | Fix usually in |
 |---|---|---|---|
-| Adapter Delivery Stalled | the oldest pending delivery is older than 3m for 2m | `moatless_adapter_delivery_oldest_pending_seconds`; delivery worker logs | moatless |
+| Adapter Delivery Stalled | a due, unclaimed delivery has waited past its `next_attempt_at` for over 3m, for 2m; a delivery deferred to a quota reset is not counted | `moatless_adapter_delivery_oldest_pending_seconds`; delivery worker logs | moatless |
 | Adapter Delivery Failed | a delivery ended `terminal` in 15m | Loki for the adapter and kind on the `asset` label | moatless |
 | Adapter Delivery Rejected | admitted outcome `error` or `at_capacity` in 15m | `moatless_adapter_delivery_admitted_total` by outcome | moatless |
 | Adapter API Errors | in 15m: 5 `client_error`, or 1 `server_error`, `error` (older pods) or `auth_error` call to an adapter's API | `client_error` is a caller's bad request; `server_error` the provider failing or throttling; `auth_error` usually an expired or revoked credential | the caller, needs a person (credential), or moatless |

@@ -805,6 +805,46 @@ mod db_tests {
         assert_eq!(attempts, 3);
     }
 
+    /// The 2026-11-05 false Stalled alert: a record deferred to a quota reset
+    /// is waiting on purpose, so it must not age the stall gauge, while one
+    /// that is due and unclaimed still must, from when it became due.
+    #[sqlx::test]
+    async fn only_a_due_pending_record_ages_the_stall_gauge(pool: PgPool) {
+        let store = store(pool.clone());
+        store.admit(request(KIND, "evt-deferred")).await.unwrap();
+        sqlx::query(
+            "UPDATE adapter_delivery SET admitted_at = NOW() - INTERVAL '10 minutes', \
+             next_attempt_at = NOW() + INTERVAL '30 minutes' WHERE event_id = 'evt-deferred'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let backlog = store.backlog().await.unwrap();
+        assert_eq!(backlog.pending, 1);
+        assert_eq!(
+            backlog.oldest_pending_secs, 0,
+            "a deferred record is not stalled"
+        );
+
+        store.admit(request(KIND, "evt-due")).await.unwrap();
+        sqlx::query(
+            "UPDATE adapter_delivery SET admitted_at = NOW() - INTERVAL '20 minutes', \
+             next_attempt_at = NOW() - INTERVAL '5 minutes' WHERE event_id = 'evt-due'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let backlog = store.backlog().await.unwrap();
+        assert_eq!(backlog.pending, 2);
+        assert!(
+            (299..=330).contains(&backlog.oldest_pending_secs),
+            "aged from `next_attempt_at`, not `admitted_at`: {}",
+            backlog.oldest_pending_secs
+        );
+    }
+
     /// Admission is bounded: past the configured backlog the seam refuses the
     /// work rather than accepting what it cannot promise to run.
     #[sqlx::test]

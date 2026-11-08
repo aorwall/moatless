@@ -22,9 +22,10 @@ pub(crate) struct Backlog {
     pub(crate) pending: i64,
     pub(crate) claimed: i64,
     pub(crate) failed: i64,
-    /// Age of the oldest record still waiting, in seconds. Zero when nothing is
-    /// waiting. This is the number that says "the worker is gone" when the
-    /// worker's own liveness signal cannot.
+    /// Seconds the longest-due unclaimed record has waited past its
+    /// `next_attempt_at`; zero when nothing is due. A record deferred to a
+    /// future `next_attempt_at` (backoff, quota reset) is waiting on purpose
+    /// and is deliberately not counted, rather than paging as a stall.
     pub(crate) oldest_pending_secs: i64,
 }
 
@@ -319,7 +320,9 @@ impl AdapterDeliveryStore {
                    COUNT(*) FILTER (WHERE status = 'pending')   AS pending,
                    COUNT(*) FILTER (WHERE status = 'claimed')   AS claimed,
                    COUNT(*) FILTER (WHERE status = 'failed')    AS failed,
-                   MIN(admitted_at) FILTER (WHERE status = 'pending') AS oldest_pending
+                   MIN(next_attempt_at) FILTER (
+                       WHERE status = 'pending' AND next_attempt_at <= NOW()
+                   ) AS oldest_pending
                FROM adapter_delivery"#,
         )
         .fetch_one(&self.pool)
@@ -331,7 +334,7 @@ impl AdapterDeliveryStore {
             claimed: row.try_get::<Option<i64>, _>("claimed")?.unwrap_or(0),
             failed: row.try_get::<Option<i64>, _>("failed")?.unwrap_or(0),
             oldest_pending_secs: oldest_pending
-                .map_or(0, |admitted| (Utc::now() - admitted).num_seconds().max(0)),
+                .map_or(0, |due| (Utc::now() - due).num_seconds().max(0)),
         })
     }
 
