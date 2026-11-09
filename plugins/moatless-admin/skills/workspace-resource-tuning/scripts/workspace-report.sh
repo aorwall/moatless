@@ -30,7 +30,8 @@ $FALLBACK_LIMIT are the last resort. Guessing the limit low inflates every "% of
 limit" and invents RAISE verdicts; treating an inherited request as zero
 suppresses every request verdict, which is what most rows inherit.
 
-Requires: GRAFANA_TOKEN (see .envrc), the 'moat' CLI, jq. kubectl optional.
+Requires: GRAFANA_URL (a sandbox's relay) or GRAFANA_TOKEN (see .envrc), the
+'moat' CLI, jq. kubectl optional.
 EOF
 }
 
@@ -46,8 +47,13 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-[ -n "${GRAFANA_TOKEN:-}" ] || {
-  echo "GRAFANA_TOKEN is not set — export it in .envrc" >&2; exit 1; }
+# The relay behind GRAFANA_URL drops any Authorization header and injects its own.
+GRAFANA_AUTH=()
+if [ -z "${GRAFANA_URL:-}" ]; then
+  [ -n "${GRAFANA_TOKEN:-}" ] || {
+    echo "Neither GRAFANA_URL nor GRAFANA_TOKEN is set — export GRAFANA_TOKEN in .envrc" >&2; exit 1; }
+  GRAFANA_AUTH=(-H "Authorization: Bearer $GRAFANA_TOKEN")
+fi
 command -v jq >/dev/null || { echo "jq not found" >&2; exit 1; }
 
 # The CLI may be on PATH or built locally in the moatless checkout.
@@ -102,7 +108,7 @@ fi
 
 promq() {
   curl -s -G "$GRAFANA/api/datasources/proxy/uid/prometheus/api/v1/query" \
-    -H "Authorization: Bearer $GRAFANA_TOKEN" --data-urlencode "query=$1"
+    ${GRAFANA_AUTH[@]+"${GRAFANA_AUTH[@]}"} --data-urlencode "query=$1"
 }
 
 # pod -> taskid-prefix, MiB. The pod name embeds moatless.io/task-id, not

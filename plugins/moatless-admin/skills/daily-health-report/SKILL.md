@@ -12,7 +12,8 @@ One HTML page covering one UTC day of the `moatless` namespace, written for a pe
 **1. Collect the day.** The collector runs every check and writes both the raw JSON and the aggregates the tiles need.
 
 ```bash
-export GRAFANA_TOKEN=…                     # already in .envrc; never print it
+# In a sandbox, GRAFANA_URL is the relay and no token is needed. On a laptop,
+# export GRAFANA_TOKEN from .envrc instead; never print it.
 mkdir -p scratchpad/data && cd scratchpad
 node <skill>/scripts/collect.mjs 2026-09-16 --out data
 ```
@@ -146,7 +147,7 @@ The three cards go in one `<div class="space-y-4">`, passed to `section({ headin
 - **`toolCalls` in `/statistics` is a lifetime total with no timestamps.** The collector tallies it over the tasks that ran on the day, so a task that resumed brings its earlier days' calls with it. Read the tool table as "the tasks that worked that day, over their whole lives", and do not put a per-day rate on it.
 - **The collector stops at `CAP` (5,000) rows** and warns only when the oldest row it pulled is newer than the day being collected. A warning means the day is truncated and `CAP` has to rise; hitting the cap silently is normal.
 - **Node writes to disk emit no viewer event.** The first build is fine because the tab is not open yet; any later revision must go through the Edit tool, or the reader's open tab silently keeps the old page.
-- **Never print `GRAFANA_TOKEN`**, in a log line, a command echo, or the page.
+- **Never print `GRAFANA_TOKEN`**, in a log line, a command echo, or the page. In a sandbox, never send it either: call `$GRAFANA_URL` with no `Authorization` header, as the backend injects the credential.
 
 ## Done when
 

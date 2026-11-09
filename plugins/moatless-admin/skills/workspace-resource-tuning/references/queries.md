@@ -13,12 +13,15 @@ Ad-hoc queries for digging past what `scripts/workspace-report.sh` reports.
 
 ## Grafana wrapper
 
-Everything below assumes this helper. `GRAFANA_TOKEN` comes from `.envrc`.
+Everything below assumes this helper. In a sandbox `GRAFANA_URL` is the relay,
+which injects the credential, so send no `Authorization` header. On a laptop,
+set `G` to the workspace URL and add `-H "Authorization: Bearer $GRAFANA_TOKEN"`
+with the token from `.envrc`.
 
 ```bash
-G=${GRAFANA_URL:-https://g-0000000000.grafana-workspace.eu-central-1.amazonaws.com}
+G=$GRAFANA_URL
 q() { curl -s -G "$G/api/datasources/proxy/uid/prometheus/api/v1/query" \
-        -H "Authorization: Bearer $GRAFANA_TOKEN" --data-urlencode "query=$1"; }
+        --data-urlencode "query=$1"; }
 ```
 
 The datasource proxy returns native Prometheus JSON, which is far easier to

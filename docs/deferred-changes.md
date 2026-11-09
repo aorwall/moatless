@@ -397,7 +397,6 @@ Gaps left by the first scoped-collection change, each reached from `crates/tasks
 
 | Deferred | Anchor | Entry condition |
 |---|---|---|
-| A defined service's secret still reaches pods | `crates/core/src/config.rs::ServiceProxyConfig::broker_secrets` defaults to `false`, so `GetCredentials` keeps handing `GRAFANA_TOKEN` | When every skill that reads `GRAFANA_TOKEN` calls `$GRAFANA_URL` and `grafana` is `availability: all`. Then set Helm `brokerServiceSecrets: true` |
 | Each proxied request reads every scoped secret of its user | `crates/sandbox-control/src/secrets.rs::resolve_brokered_secret` calls `resolve_scoped_secrets`, which decrypts the user's whole set to take one key | When the service proxy's request rate shows in secret-store latency, or `SecretResolver` gains a single-key read |
 | A body rule reads the last of duplicate JSON keys | `crates/core/src/proxy_rules.rs::BodyRule` reads through `serde_json`, which keeps the last; an upstream keeping the first would act on a value no rule checked | When a body rule guards a field whose other value would grant more than the rule allows. Then refuse a body with duplicate keys |
 | A WebSocket upgrade is not proxied | `crates/server/src/service_proxy/handlers.rs::forward` buffers one request body and streams one response; Grafana Live and other upgrades fail | When a tool behind a service proxy needs a WebSocket |

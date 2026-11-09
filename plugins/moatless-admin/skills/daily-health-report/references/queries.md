@@ -5,7 +5,11 @@ Every check `collect.mjs` runs, in the form that returns the right answer, plus 
 ## Setup
 
 ```bash
-G=${GRAFANA_URL:-https://g-0000000000.grafana-workspace.eu-central-1.amazonaws.com}
+# In a sandbox: the relay injects the credential, so send no Authorization header.
+G=$GRAFANA_URL; AUTH=()
+# On a laptop instead (GRAFANA_TOKEN from .envrc):
+# G=https://g-0000000000.grafana-workspace.eu-central-1.amazonaws.com
+# AUTH=(-H "Authorization: Bearer $GRAFANA_TOKEN")
 L="$G/api/datasources/proxy/uid/loki/loki/api/v1/query_range"
 P="$G/api/datasources/proxy/uid/prometheus/api/v1"
 D=2026-09-16
@@ -106,7 +110,7 @@ Add a needle when a fix needs its rate over the day; a one-off count does not ne
 Once a count points somewhere, read the lines. This is what turns a metric into a fix worth writing up:
 
 ```bash
-curl -s -G "$L" -H "Authorization: Bearer $GRAFANA_TOKEN" \
+curl -s -G "$L" ${AUTH[@]+"${AUTH[@]}"} \
   --data-urlencode 'query={namespace="moatless", service_name="moatless"} |= "preflight"' \
   --data-urlencode "start=$DAY0" --data-urlencode "end=$DAY1" \
   --data-urlencode "limit=200" --data-urlencode "direction=backward" \

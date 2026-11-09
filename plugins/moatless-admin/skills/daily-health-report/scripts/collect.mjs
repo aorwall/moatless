@@ -4,7 +4,8 @@
 //
 //   node collect.mjs 2026-09-16 [--out ./data] [--only api|stats|loki]
 //
-// Needs GRAFANA_TOKEN in the environment and an authenticated `moat`. Every
+// Needs an authenticated `moat`, and GRAFANA_URL (a sandbox's relay, which
+// injects the credential) or GRAFANA_TOKEN (a laptop's .envrc). Every
 // number it prints is also written to <out>/digest.json; nothing here decides
 // what is worth reporting.
 
@@ -14,6 +15,8 @@ import { promisify } from "node:util";
 
 const exec = promisify(execFile);
 const GRAFANA = process.env.GRAFANA_URL || "https://g-0000000000.grafana-workspace.eu-central-1.amazonaws.com";
+// The relay drops any Authorization header, so only a direct call sends one.
+const GRAFANA_HEADERS = process.env.GRAFANA_URL ? {} : { Authorization: `Bearer ${process.env.GRAFANA_TOKEN}` };
 const NS = "moatless";
 
 const argv = process.argv.slice(2);
@@ -24,8 +27,8 @@ if (!DATE) {
   console.error("usage: collect.mjs <YYYY-MM-DD> [--out DIR] [--only api|stats|loki]");
   process.exit(2);
 }
-if (!process.env.GRAFANA_TOKEN) {
-  console.error("GRAFANA_TOKEN is not set — export it before running (it is in .envrc).");
+if (!process.env.GRAFANA_URL && !process.env.GRAFANA_TOKEN) {
+  console.error("Neither GRAFANA_URL nor GRAFANA_TOKEN is set — outside a sandbox, export GRAFANA_TOKEN from .envrc.");
   process.exit(2);
 }
 
@@ -108,7 +111,7 @@ async function loki(query, { step = 3600, limit = null, start = DAY0 + 3600, end
     p.set("step", String(step));
   }
   const res = await fetch(`${GRAFANA}/api/datasources/proxy/uid/loki/loki/api/v1/query_range?${p}`, {
-    headers: { Authorization: `Bearer ${process.env.GRAFANA_TOKEN}` },
+    headers: GRAFANA_HEADERS,
   });
   const text = await res.text();
   let d;

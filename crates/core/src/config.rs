@@ -178,8 +178,8 @@ fn parse_declared_plugins(raw: Option<String>) -> Result<Vec<DeclaredPlugin>, Co
 pub struct ServiceProxyConfig {
     pub services: crate::service_proxies::ServiceProxies,
     /// `SERVICE_PROXY_BROKER_SECRETS`: drop each service's secret from every
-    /// channel into a pod. Off by default, so a service can be defined and its
-    /// tools switched over while the secret still reaches pods.
+    /// channel into a pod. On by default; `false` hands the secret on as well,
+    /// for a tool that still calls its upstream directly.
     pub broker_secrets: bool,
 }
 
@@ -1103,7 +1103,7 @@ impl Config {
                     env_opt("SERVICE_PROXIES_JSON").as_deref(),
                 )
                 .map_err(ConfigError::Invalid)?,
-                broker_secrets: env_bool("SERVICE_PROXY_BROKER_SECRETS", false),
+                broker_secrets: env_bool("SERVICE_PROXY_BROKER_SECRETS", true),
             },
             gitlab_token_to_pods: env_bool("GITLAB_TOKEN_TO_PODS", true),
             github_proxy_policy_mode: match env_opt("GITHUB_PROXY_POLICY_MODE") {

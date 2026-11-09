@@ -107,7 +107,7 @@ spec:
               value: {{ toJson .Values.serviceProxies | quote }}
             {{- end }}
             - name: SERVICE_PROXY_BROKER_SECRETS
-              value: {{ .Values.brokerServiceSecrets | default false | quote }}
+              value: {{ .Values.brokerServiceSecrets | quote }}
             - name: GITLAB_TOKEN_TO_PODS
               value: {{ .Values.gitlabTokenToPods | quote }}
             {{- with .Values.backend.otel.otlpEndpoint }}

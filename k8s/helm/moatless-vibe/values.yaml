@@ -579,9 +579,9 @@ workspaceSync:
 #   rules: [{methods: [GET], path: "/api/**"}]}
 serviceProxies: {}
 # -- `true` withholds each `serviceProxies` credential from every pod, which then
-# reaches the upstream only through its proxy. Leave `false` until the tools
-# that call an upstream directly use its `expose.urlEnv`.
-brokerServiceSecrets: false
+# reaches the upstream only through its proxy. `false` also hands the secret to
+# every pod, for a tool that still calls an upstream directly.
+brokerServiceSecrets: true
 # -- `false` stops handing pods a GitLab token: they clone and push GitLab
 # through the backend git proxy instead. Set it once no running sandbox uses an
 # image older than that proxy route.
