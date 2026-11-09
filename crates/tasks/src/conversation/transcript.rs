@@ -13,6 +13,7 @@ use serde_json::Value;
 
 use super::transcript_dao;
 use crate::activities::dao as activities;
+use crate::activities::outputs::OutputCache;
 
 /// One Message of a Task's transcript, with the columns a transcript is
 /// rendered from and nothing else.
@@ -143,11 +144,15 @@ pub const TRANSCRIPT_LIMIT: i64 = 1_000;
 /// transcript is rendered with.
 pub struct TranscriptReads {
     pool: DbPool,
+    outputs: OutputCache,
 }
 
 impl TranscriptReads {
     pub(crate) fn new(pool: DbPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            outputs: OutputCache::new(),
+        }
     }
 
     /// One Task's transcript, oldest first, capped at [`TRANSCRIPT_LIMIT`].
@@ -168,12 +173,16 @@ impl TranscriptReads {
         // are exactly what the cap must not drop. `None` — an empty
         // conversation, or one whose newest rows predate `created_at` — reads
         // the activities whole, which for an empty conversation is none.
-        let activities = activities::for_task_since(
+        let activities = activities::for_task_since_without_output(
             &self.pool,
             task_id,
             entries.first().and_then(|entry| entry.created_at),
         )
         .await?;
+        let activities = self
+            .outputs
+            .restore(&self.pool, task_id, activities)
+            .await?;
 
         // Uncapped, unlike the Messages above: one `i32` per turn, and a
         // checkpoint the rewind will refuse is a control that refuses when

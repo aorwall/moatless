@@ -9,6 +9,7 @@
 
 pub(crate) mod dao;
 pub mod mapping;
+pub(crate) mod outputs;
 pub mod pruner;
 pub mod view;
 

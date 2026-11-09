@@ -652,3 +652,10 @@ of its own.
 | Deferred | Anchor | Entry condition |
 |---|---|---|
 | A silent turn is only reported, never resumed | `crates/server/src/reaper.rs::report_silent_turns` logs; a person restarts the sandbox | When Moatless Agent Turn Silent fires more than a few times a week. Interrupt the turn past a second, longer threshold so recovery resumes it |
+
+## Tool call outputs
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| Calls settled before migration 0236 keep their output in `payload` | `crates/tasks/src/activities/dao.rs::for_task_since_without_output` strips it with `payload - 'result'`, which still decompresses such a row on every read; on 2026-11-09 the oldest window measured 0.3–0.6 s of server time for 6k rows | When a task whose transcript window holds pre-0236 rows is read often enough to show in the writer's slow log. Move the output into `result`/`typed_result` in batches, outside a startup migration |
+| A thread subscription re-projects and re-sends its whole window on each move | `crates/t3code/src/rpc/watch.rs::watch_thread_v2` rebuilds through `thread_detail_v2_under`; the outputs come from `activities::outputs::OutputCache`, but the projection and the frame are still whole | When a long thread's re-projection shows in the backend's CPU or a client's frame size. Needs a delta in the T3 contract (`soaplabs/t3code`) |

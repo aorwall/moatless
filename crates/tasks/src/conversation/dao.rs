@@ -213,10 +213,10 @@ pub(crate) async fn settle(
                is_error        = $4,
                detail          = $8,
                result_event_id = $9,
-               payload         = payload
+               result          = $6,
+               typed_result    = NULLIF(jsonb_strip_nulls($7::jsonb), 'null'::jsonb),
+               payload         = payload - 'result' - 'typedResult'
                                    || jsonb_build_object('status', $5::text)
-                                   || jsonb_build_object('result', $6::jsonb)
-                                   || jsonb_strip_nulls(jsonb_build_object('typedResult', $7::jsonb))
            WHERE a.task_id = $1 AND a.tool_use_id = $2
              AND (NOT a.frozen OR a.created_at >= (
                      SELECT f.open_since FROM conversation_frozen f WHERE f.task_id = a.task_id))"#,
@@ -771,10 +771,10 @@ pub(crate) async fn settle_seeded(
                status   = $3,
                is_error = $4,
                detail   = $7,
-               payload  = payload
+               result   = $6,
+               typed_result = NULLIF(jsonb_strip_nulls($8::jsonb), 'null'::jsonb),
+               payload  = payload - 'result' - 'typedResult'
                             || jsonb_build_object('status', $5::text)
-                            || jsonb_build_object('result', $6::jsonb)
-                            || jsonb_strip_nulls(jsonb_build_object('typedResult', $8::jsonb))
             WHERE task_id = $1 AND tool_use_id = $2"#,
     )
     .bind(&outcome.task_id)

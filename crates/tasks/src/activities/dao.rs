@@ -3,6 +3,7 @@
 
 use chrono::{DateTime, Utc};
 use moatless_types::activity::ActivityStatus;
+use serde_json::Value;
 use sqlx::{Row, postgres::PgRow};
 
 use moatless_core::db::DbPool;
@@ -19,19 +20,40 @@ macro_rules! known_kinds {
     };
 }
 
+/// `payload` with the call's output put back: a settled call keeps it in
+/// `result` and `typed_result`, one settled before those columns in `payload`.
+macro_rules! with_output {
+    () => {
+        "payload \
+           || CASE WHEN result IS NULL THEN '{}'::jsonb \
+                   ELSE jsonb_build_object('result', result) END \
+           || CASE WHEN typed_result IS NULL THEN '{}'::jsonb \
+                   ELSE jsonb_build_object('typedResult', typed_result) END"
+    };
+}
+
 /// The columns every read of this table selects, in one place so queries cannot
-/// drift into different row shapes.
-macro_rules! read_activities {
-    ($predicate:literal) => {
+/// drift into different row shapes. `$payload` is [`with_output`] or the
+/// payload without it.
+macro_rules! select_activities {
+    ($payload:expr, $predicate:literal) => {
         concat!(
             "SELECT activity_id::text AS activity_id, task_id, position, ordinal, ",
             "message_uuid::text AS message_uuid, parent_tool_use_id AS parent_uuid, ",
-            "kind, status, tool_use_id, summary, payload, detail, is_error, created_at ",
+            "kind, status, tool_use_id, summary, ",
+            $payload,
+            " AS payload, detail, is_error, created_at, xmin::text AS version ",
             "FROM conversation_activities WHERE ",
             known_kinds!(),
             " AND ",
             $predicate
         )
+    };
+}
+
+macro_rules! read_activities {
+    ($predicate:literal) => {
+        select_activities!(with_output!(), $predicate)
     };
 }
 
@@ -66,6 +88,59 @@ pub(crate) async fn for_task_since(
     .fetch_all(pool)
     .await
     .map(|rows| rows.into_iter().map(|row| row.0).collect())
+}
+
+/// [`for_task_since`] without any call's output, each row with the version
+/// [`outputs`] answers against. A transcript window's outputs are most of its
+/// bytes, and the same on every re-read of a live thread.
+pub(crate) async fn for_task_since_without_output(
+    pool: &DbPool,
+    task_id: &str,
+    since: Option<DateTime<Utc>>,
+) -> Result<Vec<(Activity, String)>, sqlx::Error> {
+    sqlx::query_as::<_, VersionedActivity>(select_activities!(
+        "payload - 'result' - 'typedResult'",
+        "task_id = $1 AND parent_tool_use_id IS NULL \
+         AND ($2::timestamptz IS NULL OR created_at >= $2) \
+         ORDER BY position, ordinal, activity_id"
+    ))
+    .bind(task_id)
+    .bind(since)
+    .fetch_all(pool)
+    .await
+    .map(|rows| rows.into_iter().map(|row| (row.0, row.1)).collect())
+}
+
+/// One call's output, as of the row version it was read at.
+#[derive(Debug, sqlx::FromRow)]
+pub(crate) struct StoredOutput {
+    pub(crate) activity_id: String,
+    /// `xmin`: any write to the row moves it.
+    pub(crate) version: String,
+    pub(crate) result: Option<Value>,
+    pub(crate) typed_result: Option<Value>,
+}
+
+/// The outputs of the named activities, by primary key.
+pub(crate) async fn outputs(
+    pool: &DbPool,
+    task_id: &str,
+    activity_ids: &[String],
+) -> Result<Vec<StoredOutput>, sqlx::Error> {
+    if activity_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    sqlx::query_as(
+        r#"SELECT activity_id::text AS activity_id, xmin::text AS version,
+                  COALESCE(result, payload -> 'result') AS result,
+                  COALESCE(typed_result, payload -> 'typedResult') AS typed_result
+             FROM conversation_activities
+            WHERE task_id = $1 AND activity_id = ANY($2::text[]::uuid[])"#,
+    )
+    .bind(task_id)
+    .bind(activity_ids)
+    .fetch_all(pool)
+    .await
 }
 
 /// One subagent's activities, behind the `Agent` call that spawned it.
@@ -140,6 +215,15 @@ pub(crate) async fn find_tool_call(
 }
 
 struct StoredActivity(Activity);
+
+struct VersionedActivity(Activity, String);
+
+impl sqlx::FromRow<'_, PgRow> for VersionedActivity {
+    fn from_row(row: &PgRow) -> Result<Self, sqlx::Error> {
+        let stored = <StoredActivity as sqlx::FromRow<'_, PgRow>>::from_row(row)?;
+        Ok(Self(stored.0, row.try_get("version")?))
+    }
+}
 
 impl sqlx::FromRow<'_, PgRow> for StoredActivity {
     fn from_row(row: &PgRow) -> Result<Self, sqlx::Error> {
