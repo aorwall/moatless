@@ -187,6 +187,7 @@ fn test_config() -> Config {
         transcript_sync_interval: None,
         workspace_sync_interval: None,
         workspace_limit: None,
+        kubectl_unauthenticated: false,
         shell: "/bin/bash".to_string(),
     }
 }

@@ -562,6 +562,7 @@ fn test_config(dir: &std::path::Path) -> Config {
         transcript_sync_interval: None,
         workspace_sync_interval: None,
         workspace_limit: None,
+        kubectl_unauthenticated: false,
         shell: "/bin/bash".to_string(),
     }
 }

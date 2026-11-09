@@ -310,7 +310,13 @@ async fn dispatch_pending_messages_for_context(
     };
 
     // Frontloading turns the requested skills into the prompt's leading preamble.
-    let mut text = crate::agent::skills::frontload_skills(&state.config, &skills, &text).await;
+    let mut text = crate::agent::skills::frontload_skills(
+        &state.config,
+        &skills,
+        &text,
+        &context.missing_skills_reported,
+    )
+    .await;
 
     // Every requested skill may have failed to resolve, leaving a skills-only
     // delivery with an empty prompt: nothing to send, so don't open a turn.

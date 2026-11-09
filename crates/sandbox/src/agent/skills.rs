@@ -9,6 +9,7 @@
 //! preamble, so the agent knows which copy it was handed. Repo before plugin
 //! matches how the backend merges the two for the picker.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use tracing::{debug, warn};
@@ -35,7 +36,13 @@ struct SkillRoot {
 ///
 /// A name that resolves nowhere is skipped and listed in a notice before
 /// `prompt`, so the agent can report it rather than work without the rules.
-pub(crate) async fn frontload_skills(config: &Config, skills: &[String], prompt: &str) -> String {
+/// `reported` holds the names already noticed; each is named once, then added.
+pub(crate) async fn frontload_skills(
+    config: &Config,
+    skills: &[String],
+    prompt: &str,
+    reported: &std::sync::Mutex<HashSet<String>>,
+) -> String {
     if skills.is_empty() {
         return prompt.to_string();
     }
@@ -53,15 +60,24 @@ pub(crate) async fn frontload_skills(config: &Config, skills: &[String], prompt:
             out.push_str(&preamble(&label, &body));
         } else {
             warn!(skill = %name, "Skill not found in any skill root; skipping");
-            missing.push(format!("`{name}`"));
+            missing.push(name);
         }
     }
     // Stays empty for the dispatcher's empty-prompt check in
     // `dispatch_pending_messages_for_context`.
     let nothing_to_send = out.is_empty() && prompt.is_empty();
-    if !missing.is_empty() && !nothing_to_send {
+    if nothing_to_send {
+        missing.clear();
+    } else {
+        let mut reported = reported
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        missing.retain(|name| reported.insert((*name).clone()));
+    }
+    if !missing.is_empty() {
+        let names: Vec<String> = missing.iter().map(|name| format!("`{name}`")).collect();
         out.push_str("Not installed in this sandbox, so not loaded: ");
-        out.push_str(&missing.join(", "));
+        out.push_str(&names.join(", "));
         out.push_str(". Tell the user these skills are missing before you work without them.\n\n");
     }
 
@@ -346,6 +362,11 @@ fn preamble(label: &str, body: &str) -> String {
 mod tests {
     use super::*;
 
+    /// [`frontload_skills`] with nothing reported yet.
+    async fn frontload(config: &Config, skills: &[String], prompt: &str) -> String {
+        frontload_skills(config, skills, prompt, &Default::default()).await
+    }
+
     /// A `Config` whose repo and home dirs point into `root`.
     fn config_in(root: &Path, agent_profile: &str) -> Config {
         let mut config = crate::config::test_support::minimal_config();
@@ -449,7 +470,7 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let config = config_in(tmp.path(), "claude-code");
         assert_eq!(
-            frontload_skills(&config, &[], "do the thing").await,
+            frontload(&config, &[], "do the thing").await,
             "do the thing"
         );
     }
@@ -464,7 +485,7 @@ mod tests {
             "# E2E\nRun the suite.",
         );
 
-        let out = frontload_skills(&config, &["e2e-testing".to_string()], "go").await;
+        let out = frontload(&config, &["e2e-testing".to_string()], "go").await;
         assert_eq!(
             out,
             "Activated .agents/skills/e2e-testing:\n\n# E2E\nRun the suite.\n\ngo"
@@ -486,7 +507,7 @@ mod tests {
              # PR Review Workflow\nReview it.",
         );
 
-        let out = frontload_skills(&config, &["pr-review".to_string()], "go").await;
+        let out = frontload(&config, &["pr-review".to_string()], "go").await;
         assert_eq!(
             out,
             "Activated .agents/skills/pr-review:\n\n# PR Review Workflow\nReview it.\n\ngo"
@@ -505,7 +526,7 @@ mod tests {
             "---\nname: ruled\n---\n\n# Steps\n\n---\n\n## More\nKeep this.",
         );
 
-        let out = frontload_skills(&config, &["ruled".to_string()], "go").await;
+        let out = frontload(&config, &["ruled".to_string()], "go").await;
         assert_eq!(
             out,
             "Activated .agents/skills/ruled:\n\n# Steps\n\n---\n\n## More\nKeep this.\n\ngo"
@@ -522,13 +543,13 @@ mod tests {
         // to tell where the frontmatter would have ended.
         write_skill(&skills, "unclosed", "---\nname: unclosed\n\n# Body");
 
-        let out = frontload_skills(&config, &["plain".to_string()], "go").await;
+        let out = frontload(&config, &["plain".to_string()], "go").await;
         assert_eq!(
             out,
             "Activated .agents/skills/plain:\n\n# Plain\n\n---\n\nStill here.\n\ngo"
         );
 
-        let out = frontload_skills(&config, &["unclosed".to_string()], "go").await;
+        let out = frontload(&config, &["unclosed".to_string()], "go").await;
         assert_eq!(
             out,
             "Activated .agents/skills/unclosed:\n\n---\nname: unclosed\n\n# Body\n\ngo"
@@ -556,7 +577,7 @@ mod tests {
         );
 
         for name in ["empty", "unterminated"] {
-            let out = frontload_skills(&config, &[name.to_string()], "go").await;
+            let out = frontload(&config, &[name.to_string()], "go").await;
             assert_eq!(out, format!("Activated .agents/skills/{name}:\n\n\n\ngo"));
         }
     }
@@ -571,7 +592,7 @@ mod tests {
         write_skill(&repo.join(".claude/skills"), "shared", "claude copy");
         write_skill(&repo.join(".agents/skills"), "shared", "agents copy");
 
-        let out = frontload_skills(&config, &["shared".to_string()], "go").await;
+        let out = frontload(&config, &["shared".to_string()], "go").await;
         assert!(out.starts_with("Activated .claude/skills/shared:"), "{out}");
         assert!(out.contains("claude copy"), "{out}");
         assert!(!out.contains("agents copy"), "{out}");
@@ -586,7 +607,7 @@ mod tests {
         let home = tmp.path().join("home/.claude/skills");
         write_skill(&home, "from-plugin", "plugin body");
 
-        let out = frontload_skills(&config, &["from-plugin".to_string()], "go").await;
+        let out = frontload(&config, &["from-plugin".to_string()], "go").await;
         assert_eq!(
             out,
             format!(
@@ -611,7 +632,7 @@ mod tests {
             "codex body",
         );
 
-        let out = frontload_skills(&config, &["picked".to_string()], "go").await;
+        let out = frontload(&config, &["picked".to_string()], "go").await;
         assert!(out.contains("codex body"), "{out}");
         assert!(!out.contains("claude body"), "{out}");
     }
@@ -624,8 +645,7 @@ mod tests {
         write_skill(&repo_skills, "first", "one");
         write_skill(&repo_skills, "second", "two");
 
-        let out =
-            frontload_skills(&config, &["second".to_string(), "first".to_string()], "go").await;
+        let out = frontload(&config, &["second".to_string(), "first".to_string()], "go").await;
         assert_eq!(
             out,
             "Activated .agents/skills/second:\n\ntwo\n\n\
@@ -645,7 +665,7 @@ mod tests {
             "body",
         );
 
-        let out = frontload_skills(&config, &["ghost".to_string(), "real".to_string()], "go").await;
+        let out = frontload(&config, &["ghost".to_string(), "real".to_string()], "go").await;
         assert_eq!(
             out,
             "Activated .agents/skills/real:\n\nbody\n\n\
@@ -654,12 +674,28 @@ mod tests {
         );
     }
 
+    /// A Loop's skills ride every delivery; repeating the notice each turn
+    /// made the agent report the same missing skill once per message.
+    #[tokio::test]
+    async fn a_missing_skill_is_named_on_the_first_turn_only() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let config = config_in(tmp.path(), "claude-code");
+        let reported = Default::default();
+        let ghost = ["ghost".to_string()];
+
+        let first = frontload_skills(&config, &ghost, "go", &reported).await;
+        let second = frontload_skills(&config, &ghost, "again", &reported).await;
+
+        assert!(first.contains("`ghost`"), "{first}");
+        assert_eq!(second, "again");
+    }
+
     #[tokio::test]
     async fn a_skills_only_delivery_that_resolves_nothing_stays_empty() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let config = config_in(tmp.path(), "claude-code");
 
-        let out = frontload_skills(&config, &["ghost".to_string()], "").await;
+        let out = frontload(&config, &["ghost".to_string()], "").await;
         assert_eq!(out, "");
     }
 
@@ -674,7 +710,7 @@ mod tests {
         );
 
         for name in ["..", "../skills", "a/b", ""] {
-            let out = frontload_skills(&config, &[name.to_string()], "go").await;
+            let out = frontload(&config, &[name.to_string()], "go").await;
             assert_eq!(out, "go", "name {name:?} should resolve nothing");
         }
     }
@@ -693,7 +729,7 @@ mod tests {
             "python3 \"${CLAUDE_PLUGIN_ROOT}/skills/pr-review/scripts/review-scope.py\"",
         );
 
-        let out = frontload_skills(&config, &["pr-review".to_string()], "go").await;
+        let out = frontload(&config, &["pr-review".to_string()], "go").await;
         assert_eq!(
             out,
             format!(
@@ -775,7 +811,7 @@ mod tests {
         let skills = tmp.path().join("workspace/repo/.agents/skills");
         write_skill(&skills, "house-style", "Write plainly.");
         write_skill(&skills, "e2e-testing", "Run the suite.");
-        let first_prompt = frontload_skills(&config, &["house-style".to_string()], "hi").await;
+        let first_prompt = frontload(&config, &["house-style".to_string()], "hi").await;
         let conversation =
             serde_json::json!({ "message": { "content": first_prompt } }).to_string();
 

@@ -32,7 +32,8 @@ pub(super) fn collect(workspace_dir: &Path) -> FileSet {
 }
 
 /// A git repo root is enumerated through git and not descended into; every
-/// other directory is walked. A clone whose fetch never finished is left out,
+/// other directory is walked, keeping its files and symlinks. A clone whose
+/// fetch never finished is left out,
 /// so init reclones it ([`clone_fetch_incomplete`]).
 fn collect_tree(set: &mut FileSet, dir: &Path) {
     if clone_fetch_incomplete(dir) {
@@ -51,7 +52,9 @@ fn collect_tree(set: &mut FileSet, dir: &Path) {
         };
         if meta.is_dir() {
             collect_tree(set, &path);
-        } else if meta.is_file() {
+        } else if meta.is_file() || meta.is_symlink() {
+            // Stored as a link, never followed: a venv's `bin/python` and
+            // `node_modules/.bin` are symlinks, and losing them breaks the tool.
             set.files.push(path);
         }
     }
@@ -232,6 +235,30 @@ mod tests {
             !names
                 .iter()
                 .any(|name| name.ends_with("index.lock") || name.ends_with("main.lock")),
+            "{names:?}"
+        );
+    }
+
+    /// `node_modules/.bin/bun` and a venv's `bin/python` live outside any repo.
+    #[test]
+    fn a_symlink_outside_a_repo_is_collected_and_not_followed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bin = tmp.path().join(".tools/node_modules/.bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::create_dir_all(tmp.path().join("venv/lib")).unwrap();
+        std::fs::write(tmp.path().join("venv/lib/site.py"), b"").unwrap();
+        std::os::unix::fs::symlink("../bun/bin/bun.exe", bin.join("bun")).unwrap();
+        std::os::unix::fs::symlink("lib", tmp.path().join("venv/lib64")).unwrap();
+
+        let names = names_under(tmp.path(), &collect(tmp.path()).files);
+
+        assert!(
+            names.contains(&".tools/node_modules/.bin/bun".to_string()),
+            "{names:?}"
+        );
+        assert!(names.contains(&"venv/lib64".to_string()), "{names:?}");
+        assert!(
+            !names.iter().any(|name| name.starts_with("venv/lib64/")),
             "{names:?}"
         );
     }

@@ -2,6 +2,7 @@
 
 use super::*;
 
+mod symlinks;
 mod worktree;
 use std::sync::atomic::{AtomicUsize, Ordering};
 

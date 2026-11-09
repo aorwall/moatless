@@ -299,6 +299,9 @@ pub fn build_prompt_append(config: &Config, request: &AgentRunRequest) -> String
     if let Some(note) = build_managed_command_note(config) {
         sections.push(note);
     }
+    if let Some(note) = super::kubernetes_note::build(config.kubectl_unauthenticated) {
+        sections.push(note);
+    }
     if let Some(repo_instructions) = build_repo_instructions_section(config) {
         sections.push(repo_instructions);
     }

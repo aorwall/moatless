@@ -7,6 +7,7 @@ pub mod dispatcher;
 pub mod handle;
 pub mod harness;
 pub mod heartbeat;
+pub mod kubernetes_note;
 pub mod options;
 pub mod permission_handler;
 pub mod prompt;

@@ -36,22 +36,24 @@ const MAX_REFS: usize = 2_000;
 const DIFF_TIMEOUT_SECS: u64 = 30;
 const METADATA_TIMEOUT_SECS: u64 = 5;
 
-/// Arguments every patch here is produced with.
+/// Arguments every patch here is produced with, by `subcommand`: `diff-index`
+/// for the working tree (see `git::run_git_capture`), else `diff`.
 ///
 /// `--no-color`/`--no-ext-diff`/`--no-textconv` keep repo config from rewriting
-/// the patch; `core.quotepath=false` keeps non-ASCII paths readable, not
-/// octal-escaped.
-const PATCH_ARGS: &[&str] = &[
-    "-c",
-    "core.quotepath=false",
-    "diff",
-    "--patch",
-    "--no-color",
-    "--no-ext-diff",
-    "--no-textconv",
-    "--no-renames",
-    "--minimal",
-];
+/// the patch; `core.quotepath=false` keeps non-ASCII paths readable.
+fn patch_args(subcommand: &'static str) -> Vec<&'static str> {
+    vec![
+        "-c",
+        "core.quotepath=false",
+        subcommand,
+        "--patch",
+        "--no-color",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-renames",
+        "--minimal",
+    ]
+}
 
 /// Both diff scopes of one workspace, and what each repository was compared
 /// against. `working_tree` is what is not committed; `branch` is what this
@@ -175,7 +177,7 @@ pub async fn diff_preview(
 /// One repository's uncommitted changes: tracked against HEAD, plus every
 /// untracked file as a whole-file addition.
 async fn working_tree_patch(repo: &GitRepo, prefixes: &[String], ignore_whitespace: bool) -> Patch {
-    let mut args: Vec<&str> = PATCH_ARGS.to_vec();
+    let mut args: Vec<&str> = patch_args("diff-index");
     args.extend(prefixes.iter().map(String::as_str));
     if ignore_whitespace {
         args.push("--ignore-all-space");
@@ -218,7 +220,7 @@ async fn untracked_patch(repo: &GitRepo, prefixes: &[String]) -> Patch {
         if patch.is_full() {
             break;
         }
-        let mut args: Vec<&str> = PATCH_ARGS.to_vec();
+        let mut args: Vec<&str> = patch_args("diff");
         args.extend(prefixes.iter().map(String::as_str));
         args.extend(["--no-index", "--", "/dev/null", path]);
         // `--no-index` exits 1 exactly when the two sides differ, which for a
@@ -242,7 +244,7 @@ async fn branch_patch(
     ignore_whitespace: bool,
 ) -> Patch {
     let range = format!("{base_ref}...HEAD");
-    let mut args: Vec<&str> = PATCH_ARGS.to_vec();
+    let mut args: Vec<&str> = patch_args("diff");
     args.extend(prefixes.iter().map(String::as_str));
     if ignore_whitespace {
         args.push("--ignore-all-space");
@@ -403,7 +405,14 @@ fn parse_ahead_behind(field: &str) -> (u32, u32) {
 async fn working_tree_files(workspace_dir: &str, repo_dir: &str) -> Vec<WorkingTreeFile> {
     let numstat = capture(
         repo_dir,
-        &["-c", "core.quotepath=false", "diff", "HEAD", "--numstat"],
+        &[
+            "-c",
+            "core.quotepath=false",
+            "diff-index",
+            "-M",
+            "--numstat",
+            "HEAD",
+        ],
         METADATA_TIMEOUT_SECS,
     )
     .await;
@@ -412,7 +421,7 @@ async fn working_tree_files(workspace_dir: &str, repo_dir: &str) -> Vec<WorkingT
         Ok(output) if output.succeeded() => accumulate_numstat(&output.stdout, &mut totals),
         _ => {
             for args in [
-                ["-c", "core.quotepath=false", "diff", "--numstat"].as_slice(),
+                ["-c", "core.quotepath=false", "diff-files", "--numstat"].as_slice(),
                 [
                     "-c",
                     "core.quotepath=false",
@@ -982,6 +991,60 @@ mod tests {
                 !ignored.working_tree.diff.contains(header),
                 "a whitespace-only edit survived --ignore-all-space: {}",
                 ignored.working_tree.diff
+            );
+        }
+
+        /// A stat-dirty file makes porcelain `git diff` rewrite the index under
+        /// `index.lock`, racing the agent's own `git commit`.
+        #[tokio::test]
+        async fn reading_a_stat_dirty_tree_never_rewrites_the_index() {
+            use std::os::unix::fs::MetadataExt;
+
+            let workspace = workspace();
+            let repo = workspace.path().join("repo");
+            // Back to its committed content, but with a newer mtime than the index.
+            std::fs::write(repo.join("tracked.txt"), "one\ntwo\n").expect("revert");
+            std::fs::File::options()
+                .write(true)
+                .open(repo.join("tracked.txt"))
+                .and_then(|file| {
+                    let mtime = file.metadata()?.modified()?;
+                    file.set_modified(mtime + std::time::Duration::from_secs(5))
+                })
+                .expect("a stat-dirty file");
+            let index_inode = || {
+                std::fs::metadata(repo.join(".git/index"))
+                    .expect("an index")
+                    .ino()
+            };
+            let before = index_inode();
+
+            let preview = diff_preview(root(&workspace), None, false).await;
+            let status = status(root(&workspace), repo.to_str().expect("a utf-8 path")).await;
+            let detailed = git::get_git_diff_detailed(root(&workspace)).await;
+
+            assert_eq!(index_inode(), before, "a read replaced .git/index");
+            // Plumbing skips no stat-dirty entry itself; content-identical
+            // must still read as unchanged (checked against git 2.43).
+            assert!(
+                !preview.working_tree.diff.contains("a/repo/tracked.txt"),
+                "{}",
+                preview.working_tree.diff
+            );
+            assert!(
+                !status
+                    .working_tree_files
+                    .iter()
+                    .any(|file| file.path == "repo/tracked.txt"),
+                "a phantom 0/0 entry: {:?}",
+                status.working_tree_files
+            );
+            assert!(
+                !detailed
+                    .files
+                    .iter()
+                    .any(|file| file.filename == "repo/tracked.txt"),
+                "a phantom entry in the detailed diff"
             );
         }
 

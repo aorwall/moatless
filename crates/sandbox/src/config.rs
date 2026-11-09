@@ -214,6 +214,9 @@ pub struct Config {
     /// The workspace volume's size limit as the pod builder wrote it (`20Gi`),
     /// or `None` in a runtime that caps nothing.
     pub workspace_limit: Option<String>,
+    /// Running in Kubernetes with no service-account token mounted, so
+    /// `kubectl` has no credentials (`crate::agent::kubernetes_note`).
+    pub kubectl_unauthenticated: bool,
     /// The shell a terminal runs (env: `SHELL`, default `/bin/bash`).
     pub shell: String,
 
@@ -682,6 +685,8 @@ impl Config {
                 .ok()
                 .map(|raw| raw.trim().to_string())
                 .filter(|raw| !raw.is_empty()),
+            kubectl_unauthenticated: env::var_os("KUBERNETES_SERVICE_HOST").is_some()
+                && !Path::new(crate::agent::kubernetes_note::SERVICE_ACCOUNT_TOKEN).exists(),
             shell: env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string()),
 
             home_dir,
@@ -798,6 +803,7 @@ pub(crate) mod test_support {
             transcript_sync_interval: Some(Duration::from_secs(DEFAULT_SYNC_INTERVAL_SECS)),
             workspace_sync_interval: Some(Duration::from_secs(DEFAULT_SYNC_INTERVAL_SECS)),
             workspace_limit: None,
+            kubectl_unauthenticated: false,
             shell: "/bin/bash".to_string(),
             home_dir: "/tmp/home".to_string(),
             codex_home_dir: "/tmp/home/.codex".to_string(),

@@ -106,6 +106,10 @@ pub(super) async fn run_git_capture(
             .args(args)
             .current_dir(workspace_dir)
             .env("GIT_TERMINAL_PROMPT", "0")
+            // A held or kill-orphaned `index.lock` fails the agent's `git commit`.
+            // Porcelain `git diff` ignores this and rewrites a stat-dirty index,
+            // so diff the working tree with `diff-index`/`diff-files` instead.
+            .env("GIT_OPTIONAL_LOCKS", "0")
             .kill_on_drop(true)
             .output(),
     )
@@ -313,7 +317,12 @@ async fn get_git_status(
 
 /// Get numstat data for a compare reference.
 async fn get_numstat(workspace_dir: &str, compare_base: &str) -> HashMap<String, (i32, i32, bool)> {
-    let output = run_git_quiet(workspace_dir, &["diff", "--numstat", compare_base], 10).await;
+    let output = run_git_quiet(
+        workspace_dir,
+        &["diff-index", "-M", "--numstat", compare_base],
+        10,
+    )
+    .await;
 
     let mut map = HashMap::new();
     for line in output.lines() {
@@ -342,7 +351,12 @@ async fn get_diff_string(workspace_dir: &str) -> (String, String) {
     let compare_ref = get_best_compare_reference(workspace_dir).await;
     let compare_base = compare_ref.reference;
 
-    let diff_output = run_git_quiet(workspace_dir, &["diff", &compare_base], 30).await;
+    let diff_output = run_git_quiet(
+        workspace_dir,
+        &["diff-index", "-M", "--patch", &compare_base],
+        30,
+    )
+    .await;
 
     let untracked_diff = get_untracked_files_diff(workspace_dir).await;
     let combined = if untracked_diff.is_empty() {
@@ -574,7 +588,14 @@ pub async fn get_file_change_info(workspace_dir: &str, file_path: &str) -> FileC
 
     let numstat_output = run_git_quiet(
         workspace_dir,
-        &["diff", "--numstat", compare_base, "--", file_path],
+        &[
+            "diff-index",
+            "-M",
+            "--numstat",
+            compare_base,
+            "--",
+            file_path,
+        ],
         10,
     )
     .await;
@@ -595,7 +616,14 @@ pub async fn get_file_change_info(workspace_dir: &str, file_path: &str) -> FileC
 
     let status_output = run_git_quiet(
         workspace_dir,
-        &["diff", "--name-status", compare_base, "--", file_path],
+        &[
+            "diff-index",
+            "-M",
+            "--name-status",
+            compare_base,
+            "--",
+            file_path,
+        ],
         10,
     )
     .await;

@@ -164,7 +164,12 @@ The label only seeds step 6, so a wrong one costs little.
    | `in-progress` | Joins it; the fix is coming, and step 3 closes it with the rest |
    | `deferred`, `deferUntil` not yet reached | Joins it, and the cluster stays off the page |
    | `deferred`, `deferUntil` reached | Joins it and reopens it: `status: proposed`, `deferUntil` cleared |
-   | `fixed`, `closed` or `rejected` | Reopens it: `status: proposed`, `recurred: true`, keep `decision` and `pr` so the page shows the earlier outcome |
+   | `fixed`, `closed` or `rejected` | Reopens it: `status: proposed`, `recurred: true`, keep `decision`, `pr` and `mergedAt` so the page shows the earlier outcome |
+
+   A reopen also sets `bucket`, `priority.rank` and `childTaskId` to null:
+   step 8 skips a cluster left in `close`, and `scripts/create-fix-task.sh`
+   leaves out any cluster whose `childTaskId` is set, so a stale one is never
+   fixed again.
 2. **Group the rest by owner and label, then merge groups that share a root
    cause.**
 
@@ -210,7 +215,7 @@ items arrive and fixes merge. Put each cluster in one `bucket`:
 
 | Bucket | Holds |
 |---|---|
-| `close` | A merged PR already fixed it, or it is `noise`. The decision it needs is close or reject, not a fix |
+| `close` | A merged PR already fixed it, or it is `noise`. The `pr` a `recurred` cluster keeps did not fix it. The decision it needs is close or reject, not a fix |
 | `fix` | The top ten by score, at most. Fewer is fine when the rest score low |
 | `later` | Everything else, still open for a decision |
 

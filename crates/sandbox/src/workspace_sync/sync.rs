@@ -1139,8 +1139,9 @@ pub(super) fn rel_from(root: &Path, path: &Path) -> String {
 /// Recursively append everything under `dir` to the archive, keyed at paths
 /// relative to `root`. Returns whether anything was added.
 ///
-/// A git repo root goes to [`append_repo`], an unfetched one nowhere; symlinks
-/// and non-regular files are skipped so the walk can't loop or escape `root`.
+/// A git repo root goes to [`append_repo`], an unfetched one nowhere. A
+/// symlink is stored as a link entry and never followed, so the walk can't
+/// loop or escape `root`; other non-regular files are skipped.
 fn append_tree<W: std::io::Write>(builder: &mut tar::Builder<W>, root: &Path, dir: &Path) -> bool {
     if file_set::is_repo_root(dir) {
         return !file_set::clone_fetch_incomplete(dir)
@@ -1166,6 +1167,11 @@ fn append_tree<W: std::io::Write>(builder: &mut tar::Builder<W>, root: &Path, di
         } else if meta.is_file() {
             let name = rel_from(root, &path);
             if !name.is_empty() && builder.append_path_with_name(&path, &name).is_ok() {
+                any = true;
+            }
+        } else if meta.is_symlink() {
+            let name = rel_from(root, &path);
+            if !name.is_empty() && append_symlink(builder, &name, &path) {
                 any = true;
             }
         }
@@ -1370,7 +1376,8 @@ pub(super) fn fingerprint_now(workspace_dir: &Path) -> Option<u64> {
 /// Metadata twin of [`append_tree`]: a git repo root is enumerated via
 /// [`fingerprint_repo`] and not descended into.
 ///
-/// Symlinks/special files are skipped, matching the tar walk.
+/// Symlinks count as entries and special files are skipped, matching the tar
+/// walk.
 fn fingerprint_tree(entries: &mut Vec<(String, u64, u128)>, root: &Path, dir: &Path) {
     if file_set::is_repo_root(dir) {
         if !file_set::clone_fetch_incomplete(dir) {
@@ -1387,7 +1394,7 @@ fn fingerprint_tree(entries: &mut Vec<(String, u64, u128)>, root: &Path, dir: &P
         };
         if meta.is_dir() {
             fingerprint_tree(entries, root, &path);
-        } else if meta.is_file() {
+        } else if meta.is_file() || meta.is_symlink() {
             let name = rel_from(root, &path);
             if !name.is_empty() {
                 entries.push((name, meta.len(), mtime_nanos(&meta)));

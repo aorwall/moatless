@@ -408,6 +408,7 @@ fn build_fixture(root: &Path) {
     // Outside any repo: kept whole, no gitignore to honor.
     std::fs::create_dir_all(root.join("notes")).expect("notes");
     std::fs::write(root.join("notes/plan.md"), "# plan").expect("note");
+    std::os::unix::fs::symlink("plan.md", root.join("notes/current.md")).expect("note link");
     let mut executable = std::fs::metadata(root.join("notes/plan.md"))
         .expect("note metadata")
         .permissions();
