@@ -518,8 +518,8 @@ pub(super) const REPLY_INSTRUCTIONS: &str = "## Linear Agent Notes\n\
      - Your final reply is posted as a comment on the Linear issue. The \
        agent session is finalized automatically when the task completes, \
        by emitting a `response` activity carrying your last assistant \
-       message — you do not need to do this by hand. Use \
-       `moat messages reply` once to post.\n\
+       message — you do not need to do this by hand, and a \
+       `moat messages reply` would post the reply a second time.\n\
      - Markdown is supported. Linear URLs auto-render as mentions.\n\
      - The Moatless task URL is already linked via the session's \
        external URLs — no need to include it in the reply body.\n\

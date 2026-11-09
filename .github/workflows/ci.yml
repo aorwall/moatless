@@ -1549,17 +1549,26 @@ jobs:
   # Actions cache entries survive until LRU eviction against the repo's 10 GB
   # budget — where each one evicts a Rust dependency cache instead.
   #
-  # Runs after every consumer, on success or failure, and never fails the run.
+  # Runs after every consumer and never fails the run. Deliberately keeps the
+  # keys when any job here failed or was cancelled, rather than always dropping:
+  # "Re-run failed jobs" reruns only the failed consumer, and it then fails on
+  # `fail-on-cache-miss`. `rust-test` and `build-sandbox-base` gate consumers.
   cleanup-run-caches:
     name: Drop per-run handoff caches
     needs:
       - build-rust
       - generate-ts-client
       - type-check
+      - rust-test
       - build-backend-image
       - build-sandbox-tools
+      - build-sandbox-base
       - build-sandbox
-    if: always() && needs.build-rust.result != 'skipped'
+    if: >-
+      always() &&
+      needs.build-rust.result != 'skipped' &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled')
     runs-on: ci-runners
     permissions:
       actions: write
