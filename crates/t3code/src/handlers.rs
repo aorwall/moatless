@@ -89,7 +89,7 @@ pub(crate) fn shell_failure_response(
     identity: &UiRpcAuthIdentity,
 ) -> Response {
     match error {
-        ListingError::AtCapacity => {
+        ListingError::AtCapacity | ListingError::TimedOut => {
             let mut response = (
                 StatusCode::SERVICE_UNAVAILABLE,
                 [(header::RETRY_AFTER, "1")],

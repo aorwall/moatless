@@ -305,16 +305,16 @@ pub(crate) fn branch_list_exit(
 /// The client is told the listing could not be built; the cause is logged once
 /// here rather than shipped to the browser.
 ///
-/// A `Die` either way, since the listing methods declare no error. A refusal
-/// at capacity counts as [`rpc_metrics::capped`] and logs nothing more: the
-/// listing gate already warned.
+/// A `Die` either way, since the listing methods declare no error. Shed load
+/// — a refusal at capacity or a statement timeout — counts as
+/// [`rpc_metrics::capped`] and logs nothing more: the listing already warned.
 pub(crate) fn shell_failure_exit(
     request_id: &RequestId,
     error: &ListingError,
     identity: &UiRpcAuthIdentity,
 ) -> Value {
     match error {
-        ListingError::AtCapacity => {
+        ListingError::AtCapacity | ListingError::TimedOut => {
             rpc_metrics::capped();
             failure_exit(request_id, LISTING_BUSY)
         }

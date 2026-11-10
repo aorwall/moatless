@@ -3,6 +3,7 @@
 
 use super::fixtures::*;
 use super::*;
+use crate::rpc::errors::LISTING_BUSY;
 
 /// An unfiltered browse must be refused before it queries every readable Task.
 /// `state()` sets no `expect_list_browsable`, so mockall panics if the database
@@ -181,6 +182,31 @@ async fn an_archive_read_refused_at_capacity_is_counted_as_capped() {
 
     assert_eq!(frame["exit"]["cause"][0]["_tag"], "Die");
     assert_eq!(outcome.as_deref(), Some("capped"));
+}
+
+/// The listing's own `statement_timeout` cancelling it is the same load
+/// shedding as the permit, so it too is `capped` and not a defect.
+#[tokio::test]
+async fn an_archive_read_its_statement_timeout_cancelled_is_counted_as_capped() {
+    let (frame, outcome) =
+        archived_shell_outcome(state_with_listing_failing(|| ListingError::TimedOut)).await;
+
+    assert_eq!(frame["exit"]["cause"][0]["_tag"], "Die");
+    assert_eq!(frame["exit"]["cause"][0]["defect"], LISTING_BUSY);
+    assert_eq!(outcome.as_deref(), Some("capped"));
+}
+
+#[tokio::test]
+async fn a_shell_bootstrap_its_statement_timeout_cancelled_is_a_marked_503() {
+    let response = shell_over_http(state_with_listing_failing(|| ListingError::TimedOut)).await;
+
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert!(
+        response
+            .extensions()
+            .get::<moatless_types::http::RefusedAtCapacity>()
+            .is_some()
+    );
 }
 
 #[tokio::test]

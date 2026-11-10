@@ -94,12 +94,7 @@ async fn a_blocked_full_listing_cannot_monopolize_the_pool(pool: PgPool) {
         .expect("the database statement timeout did not fire")
         .expect("listing task panicked")
         .expect_err("the blocked listing unexpectedly completed");
-    match timed_out {
-        ListingError::Database(sqlx::Error::Database(error)) => {
-            assert_eq!(error.code().as_deref(), Some("57014"), "{error}");
-        }
-        other => panic!("expected PostgreSQL query cancellation, got {other:?}"),
-    }
+    assert!(matches!(timed_out, ListingError::TimedOut), "{timed_out:?}");
 
     blocker.rollback().await.unwrap();
 

@@ -48,7 +48,8 @@ pub(crate) const LISTING_REJECTIONS: &str = "moatless_ui_shell_listing_rejection
 
 /// The unnarrowed [`read`], behind the replica's permit: refused with
 /// [`ListingError::AtCapacity`] once another held it for
-/// [`FULL_LISTING_QUEUE_WAIT`].
+/// [`FULL_LISTING_QUEUE_WAIT`], and [`ListingError::TimedOut`] once it runs
+/// past [`FULL_LISTING_STATEMENT_TIMEOUT`].
 pub(crate) async fn list(
     pool: &DbPool,
     permits: &Semaphore,
@@ -82,21 +83,36 @@ pub(crate) async fn list(
     };
     let started = Instant::now();
     let result = read(pool, viewer, reach, statuses, None, browse, Some(page)).await;
+    let elapsed = started.elapsed();
+    let timed_out = matches!(
+        &result,
+        Err(sqlx::Error::Database(error)) if error.code().as_deref() == Some("57014")
+    );
     let outcome = match &result {
         Ok(_) => "ok",
-        Err(sqlx::Error::Database(error)) if error.code().as_deref() == Some("57014") => {
+        Err(_) if timed_out => {
             metrics::counter!(
                 LISTING_REJECTIONS,
                 "reason" => "statement_timeout",
                 "kind" => kind
             )
             .increment(1);
+            warn!(
+                user_id = %viewer.user_id,
+                kind,
+                statuses = ?statuses,
+                elapsed_secs = elapsed.as_secs_f64(),
+                "T3 UI full listing cancelled by its statement timeout"
+            );
             "statement_timeout"
         }
         Err(_) => "error",
     };
     metrics::histogram!(LISTING_DURATION, "outcome" => outcome, "kind" => kind)
-        .record(started.elapsed().as_secs_f64());
+        .record(elapsed.as_secs_f64());
+    if timed_out {
+        return Err(ListingError::TimedOut);
+    }
     Ok(result?)
 }
 

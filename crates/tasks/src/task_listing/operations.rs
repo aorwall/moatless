@@ -23,6 +23,10 @@ pub enum ListingError {
     /// and asking again shortly is expected to succeed.
     #[error("another full listing held this replica's permit for the whole wait")]
     AtCapacity,
+    /// The full listing's own `statement_timeout` cancelled it: shed load, as
+    /// [`ListingError::AtCapacity`] is, not a broken read.
+    #[error("the full listing ran past its statement timeout")]
+    TimedOut,
     /// The pool or the database failed the read.
     #[error(transparent)]
     Database(#[from] sqlx::Error),
