@@ -521,11 +521,7 @@ async fn the_archive_picks_its_page_without_reading_the_task_rows(pool: PgPool) 
         .execute(&pool)
         .await
         .expect("follow every task");
-    // Sets the visibility map an index-only scan needs, as autovacuum does.
-    sqlx::query("VACUUM ANALYZE tasks, task_follows")
-        .execute(&pool)
-        .await
-        .expect("vacuum");
+    vacuum_until_all_visible(&pool).await;
 
     let viewer = ScopeContext::user(USER_1.to_string());
     let page = Page {
@@ -558,6 +554,31 @@ async fn the_archive_picks_its_page_without_reading_the_task_rows(pool: PgPool) 
         scans.iter().all(|scan| scan == "Index Only Scan"),
         "the capped CTE reads the tasks heap: {scans:?}"
     );
+}
+
+/// Sets the visibility map an index-only scan needs, as autovacuum does.
+///
+/// `VACUUM` marks no page all-visible while a snapshot in this database
+/// predates its rows, such as an autoanalyze worker's under CI load. Then
+/// `relallvisible` stays 0 and the plan is a `Seq Scan`, so retry until every
+/// page is marked rather than vacuum once.
+async fn vacuum_until_all_visible(pool: &PgPool) {
+    for _ in 0..100 {
+        sqlx::query("VACUUM ANALYZE tasks, task_follows")
+            .execute(pool)
+            .await
+            .expect("vacuum");
+        let (pages, all_visible): (i32, i32) =
+            sqlx::query_as("SELECT relpages, relallvisible FROM pg_class WHERE relname = 'tasks'")
+                .fetch_one(pool)
+                .await
+                .expect("read the visibility map size");
+        if all_visible >= pages {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    panic!("a snapshot in this database kept tasks from becoming all-visible for 10s");
 }
 
 fn first_cte(node: &serde_json::Value) -> Option<&serde_json::Value> {
