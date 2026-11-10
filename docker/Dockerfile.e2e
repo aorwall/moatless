@@ -17,7 +17,7 @@
 # Build/run is orchestrated by docker-compose/playwright-runner.sh.
 
 # renovate: datasource=npm depName=@playwright/test
-ARG PLAYWRIGHT_VERSION=1.64.1
+ARG PLAYWRIGHT_VERSION=1.65.0
 FROM mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-noble
 
 COPY .github/scripts/apt-https-mirrors.sh /usr/local/bin/apt-https-mirrors.sh

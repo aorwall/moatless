@@ -162,7 +162,7 @@ RUN ARCH=$(dpkg --print-architecture) && \
 # that read Helm values and other manifests. Ubuntu's `yq` package is a
 # different, incompatible Python tool, so this is a pinned binary.
 # renovate: datasource=github-releases depName=mikefarah/yq
-ARG YQ_VERSION=v4.54.1
+ARG YQ_VERSION=v4.54.2
 RUN ARCH=$(dpkg --print-architecture) && \
     curl -fsSL "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${ARCH}" -o /usr/local/bin/yq && \
     chmod +x /usr/local/bin/yq && \
@@ -352,7 +352,7 @@ RUN npm install -g pnpm@11.9.0 yarn typescript@7 tsx
 # VP_NODE_MANAGER=no skips the installer's interactive prompt and leaves the
 # nodesource Node above in charge; the opt-in path shims node/npm/npx ahead of it.
 # renovate: datasource=npm depName=vite-plus
-ARG VITE_PLUS_VERSION=1.4.0
+ARG VITE_PLUS_VERSION=1.5.0
 ENV VP_HOME=/opt/vite-plus
 ENV PATH="$VP_HOME/bin:$PATH"
 RUN curl -fsSL https://vite.plus | VP_VERSION="${VITE_PLUS_VERSION}" VP_NODE_MANAGER=no bash \
@@ -369,7 +369,7 @@ RUN curl -fsSL https://vite.plus | VP_VERSION="${VITE_PLUS_VERSION}" VP_NODE_MAN
 # is unreadable to moatless, so a repo's own first install wiped the bake.
 # The floor — the newest build the image offers, full chromium and shell.
 # renovate: datasource=npm depName=playwright
-ARG PLAYWRIGHT_VERSION=1.64.1
+ARG PLAYWRIGHT_VERSION=1.65.0
 # Older builds named consumers still resolve, headless shell only. Which repo
 # holds which is `docker/playwright-consumers.json`; CI's `playwright-pins` job
 # fails on a consumer resolving a build absent from this list, and warns on an
@@ -377,7 +377,7 @@ ARG PLAYWRIGHT_VERSION=1.64.1
 ARG PLAYWRIGHT_COMPAT_VERSIONS="1.63.0 1.60.0 1.58.1"
 # Drives `playwright-cli`; `1.62.0` added the `cli` subcommand it calls.
 # renovate: datasource=npm depName=playwright
-ARG PLAYWRIGHT_CLI_VERSION=1.64.1
+ARG PLAYWRIGHT_CLI_VERSION=1.65.0
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 RUN apt-get update \
     && apt-get install -y --no-install-recommends xvfb dbus \
@@ -482,7 +482,7 @@ RUN mkdir -p /opt/bun/install/cache \
 # invoke as `ast-grep`. The archive's second binary is named `sg` and is left
 # unpacked: on PATH it would shadow util-linux's `sg`.
 # renovate: datasource=github-releases depName=ast-grep/ast-grep
-ARG AST_GREP_VERSION=0.51.0
+ARG AST_GREP_VERSION=0.51.1
 RUN ARCH=$(dpkg --print-architecture) && \
     AG_ARCH=$([ "$ARCH" = "amd64" ] && echo "x86_64" || echo "aarch64") && \
     curl -fsSL "https://github.com/ast-grep/ast-grep/releases/download/${AST_GREP_VERSION}/app-${AG_ARCH}-unknown-linux-gnu.zip" -o /tmp/ast-grep.zip && \
