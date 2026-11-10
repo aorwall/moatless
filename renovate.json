@@ -14,6 +14,12 @@
       "matchManagers": ["cargo"],
       "matchPackageNames": ["utoipa-axum"],
       "allowedVersions": ">=0.2 <0.3"
+    },
+    {
+      "description": "check-playwright-pins.sh compares the exact Dockerfile ARGs to bun.lock. `bump` moves these caret ranges, and so the lock, in the PR that bumps the ARGs, rather than leaving bun.lock on a build the images no longer bake.",
+      "matchManagers": ["bun", "npm"],
+      "matchPackageNames": ["playwright", "playwright-core", "@playwright/test"],
+      "rangeStrategy": "bump"
     }
   ],
   "customManagers": [
