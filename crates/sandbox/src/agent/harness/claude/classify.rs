@@ -46,7 +46,10 @@ fn is_session_unavailable(error: &SdkError) -> bool {
 
 fn classify_sdk_error(error: &SdkError) -> (ErrorClass, SessionImpact) {
     match error {
-        SdkError::CliNotFound { .. } | SdkError::InvalidConfig { .. } | SdkError::SpawnError(_) => {
+        SdkError::CliNotFound { .. }
+        | SdkError::InvalidConfig { .. }
+        | SdkError::SpawnError(_)
+        | SdkError::ArgumentTooLong { .. } => {
             (ErrorClass::InvalidConfiguration, SessionImpact::Unknown)
         }
         SdkError::JsonError(_) | SdkError::JsonParseError { .. } => {

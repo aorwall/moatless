@@ -46,6 +46,7 @@
 //! ```
 
 pub mod api;
+mod arg_limits;
 pub mod client;
 mod config_dir;
 pub mod error;

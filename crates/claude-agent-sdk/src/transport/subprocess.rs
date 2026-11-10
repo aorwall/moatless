@@ -15,7 +15,13 @@ use crate::api::content::ContentBlock;
 use crate::api::control::{ControlResponseInner, IncomingControlRequestInner, RawStdoutMessage};
 use crate::api::messages::{ResultMessage, SdkMessage};
 use crate::api::options::{ClaudeOptions, OutputFormat, SystemPrompt};
+use crate::arg_limits::{MAX_ARG_STRLEN, spawn_error, spill_oversized_prompts};
 use crate::error::{Result, SdkError};
+use tempfile::NamedTempFile;
+
+/// Half of [`MAX_ARG_STRLEN`], so a prompt grown by a few repositories' instruction
+/// files moves to a file before it reaches the cap.
+const INLINE_PROMPT_LIMIT: usize = MAX_ARG_STRLEN / 2;
 
 /// Manages the Claude CLI subprocess: spawning, reading NDJSON, writing, and
 /// cleanup.
@@ -27,13 +33,16 @@ pub(crate) struct SubprocessTransport {
     _stderr_task: JoinHandle<Vec<String>>,
     /// Shared buffer for real-time stderr access (e.g. on init timeout).
     stderr_buffer: Arc<Mutex<Vec<String>>>,
+    /// See [`spill_oversized_prompts`]: dropping these deletes the files.
+    _prompt_files: Vec<NamedTempFile>,
 }
 
 impl SubprocessTransport {
     /// Spawn the Claude CLI subprocess with the given options.
     pub(crate) async fn spawn(options: &ClaudeOptions) -> Result<Self> {
         let cli_path = resolve_cli_path(options)?;
-        let args = build_cli_args(options);
+        let mut args = build_cli_args(options);
+        let prompt_files = spill_oversized_prompts(&mut args, INLINE_PROMPT_LIMIT)?;
         let cancellation_token = options.cancellation_token.clone().unwrap_or_default();
 
         info!(cli_path = %cli_path, args = ?args, "Spawning Claude CLI");
@@ -68,7 +77,8 @@ impl SubprocessTransport {
                     path: cli_path.clone(),
                 }
             } else {
-                SdkError::SpawnError(e)
+                let env = options.env.iter().flatten();
+                spawn_error(e, &args, env.map(|(k, v)| (k.as_str(), v.as_str())))
             }
         })?;
 
@@ -106,6 +116,7 @@ impl SubprocessTransport {
             cancellation_token,
             _stderr_task: stderr_task,
             stderr_buffer,
+            _prompt_files: prompt_files,
         })
     }
 
@@ -907,6 +918,40 @@ mod tests {
     use super::*;
     use crate::api::permissions::PermissionMode;
     use std::collections::HashMap;
+
+    fn append_prompt_options(prompt: String) -> ClaudeOptions {
+        ClaudeOptions {
+            cli_path: Some("/bin/echo".to_string()),
+            system_prompt: Some(SystemPrompt::Preset {
+                prompt_type: "preset".to_string(),
+                preset: "claude_code".to_string(),
+                append: Some(prompt),
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn spawn_passes_a_prompt_over_the_kernel_arg_cap_through_a_file() {
+        let options = append_prompt_options("x".repeat(MAX_ARG_STRLEN + 1));
+
+        let mut transport = SubprocessTransport::spawn(&options)
+            .await
+            .expect("an oversized prompt must not hit E2BIG");
+
+        assert_eq!(transport._prompt_files.len(), 1);
+        transport.close().await;
+    }
+
+    #[tokio::test]
+    async fn spawn_keeps_a_small_prompt_inline() {
+        let mut transport = SubprocessTransport::spawn(&append_prompt_options("Be brief.".into()))
+            .await
+            .unwrap();
+
+        assert!(transport._prompt_files.is_empty());
+        transport.close().await;
+    }
 
     #[test]
     fn build_args_default() {

@@ -11,13 +11,18 @@ use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
 
 use crate::api::options::ClaudeOptions;
+use crate::arg_limits::{spawn_error, spill_oversized_prompts};
 use crate::error::{Result, SdkError};
+use tempfile::NamedTempFile;
 
 use super::args::build_tmux_cli_args;
 
 /// Default tmux window dimensions for the detached session.
 const TMUX_WIDTH: u32 = 220;
 const TMUX_HEIGHT: u32 = 50;
+/// Half of tmux's 16384-byte `MAX_IMSGSIZE`, which caps the whole `new-session`
+/// argv; a longer prompt fails "command too long".
+const INLINE_PROMPT_LIMIT: usize = 8 * 1024;
 
 /// One spawned tmux + claude session.
 ///
@@ -30,6 +35,8 @@ pub(crate) struct TmuxSession {
     /// Every tmux command for this session is pinned to it — see
     /// [`tmux_socket_path`] for why we don't use tmux's shared default socket.
     pub(crate) socket: PathBuf,
+    /// See [`spill_oversized_prompts`]: dropping these deletes the files.
+    _prompt_files: Vec<NamedTempFile>,
 }
 
 impl TmuxSession {
@@ -49,7 +56,8 @@ impl TmuxSession {
             &uuid::Uuid::new_v4().simple().to_string()[..8]
         );
         let socket = tmux_socket_path(&session_name);
-        let args = build_tmux_cli_args(options, settings_json);
+        let mut args = build_tmux_cli_args(options, settings_json);
+        let prompt_files = spill_oversized_prompts(&mut args, INLINE_PROMPT_LIMIT)?;
         info!(
             session_name = %session_name,
             socket = %socket.display(),
@@ -96,7 +104,8 @@ impl TmuxSession {
             if e.kind() == std::io::ErrorKind::NotFound {
                 SdkError::TmuxNotFound
             } else {
-                SdkError::SpawnError(e)
+                let env = child_env_vars(options);
+                spawn_error(e, &args, env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
             }
         })?;
         if !output.status.success() {
@@ -117,6 +126,7 @@ impl TmuxSession {
         Ok(Self {
             session_name,
             socket,
+            _prompt_files: prompt_files,
         })
     }
 
@@ -369,6 +379,7 @@ mod tests {
         let session = TmuxSession {
             session_name: "claude-sdk-test-no-such-session".to_string(),
             socket: tmux_socket_path("claude-sdk-test-no-such-session"),
+            _prompt_files: Vec::new(),
         };
         assert_eq!(session.capture_pane_stripped().await, None);
         // Prevent Drop from running `tmux kill-session` against a live server.
@@ -461,6 +472,30 @@ mod tests {
         let session = TmuxSession::spawn(&options, Some(&harness.settings_json))
             .await
             .expect("prompt alone (no large env) must stay well under tmux's MAX_IMSGSIZE");
+        session.kill().await;
+    }
+
+    #[tokio::test]
+    async fn new_session_succeeds_with_a_prompt_over_the_kernel_arg_cap() {
+        if which_tmux().is_none() {
+            eprintln!("tmux not on PATH — skipping");
+            return;
+        }
+
+        let options = ClaudeOptions {
+            cli_path: Some("/bin/echo".to_string()),
+            cwd: Some(std::env::temp_dir().to_string_lossy().into_owned()),
+            system_prompt: Some(crate::api::options::SystemPrompt::Preset {
+                prompt_type: "preset".to_string(),
+                preset: "claude_code".to_string(),
+                append: Some("x".repeat(crate::arg_limits::MAX_ARG_STRLEN + 1)),
+            }),
+            ..Default::default()
+        };
+
+        let session = TmuxSession::spawn(&options, None)
+            .await
+            .expect("an oversized prompt must reach the CLI through a file");
         session.kill().await;
     }
 

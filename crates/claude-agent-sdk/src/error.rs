@@ -6,6 +6,17 @@ pub enum SdkError {
     #[error("Failed to spawn CLI process: {0}")]
     SpawnError(#[from] std::io::Error),
 
+    /// `execve` returned `E2BIG`; `arg` names the largest argv value or env variable.
+    #[error(
+        "Failed to spawn CLI process: argument list too long: {arg} is {bytes} bytes \
+         (Linux caps one at 131072; argv totals {total_bytes} bytes)"
+    )]
+    ArgumentTooLong {
+        arg: String,
+        bytes: usize,
+        total_bytes: usize,
+    },
+
     #[error("JSON error: {0}")]
     JsonError(#[from] serde_json::Error),
 
