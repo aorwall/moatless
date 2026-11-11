@@ -498,6 +498,7 @@ mod tests {
                 created_by: None,
                 reporter_user_id: None,
                 run_as_user_id: None,
+                loop_id: None,
                 ttl_minutes: 0,
             }
         }

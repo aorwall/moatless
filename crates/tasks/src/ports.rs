@@ -49,6 +49,7 @@ fn descriptor(task: moatless_types::task::Task) -> TaskDescriptor {
         created_by: task.created_by,
         reporter_user_id: task.reporter_user_id,
         run_as_user_id: task.run_as_user_id,
+        loop_id: task.loop_id,
         ttl_minutes: task.ttl_minutes,
     }
 }

@@ -421,7 +421,9 @@ message (falls back to the Loop's user)
 The verified person who requested a Loop-created Task's work, recorded as
 `reporter_user_id` independently of its `created_by` attribution and personal
 follows. Used for commit co-authorship, after a person who drives the Task,
-and the default "Reported by" attribution on Linear issues the Task files. Scheduled and unmapped events have no Reporter.
+and the default "Reported by" and assignee on Linear issues the Task files,
+after its driver. Scheduled and unmapped events have no Reporter, and a Loop
+Task's owner is never made the Linear reporter in its place.
 
 **Check-run trigger**:
 A completed GitHub check run, from a trusted App and matching a `github_pr`

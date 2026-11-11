@@ -1,6 +1,7 @@
 use super::agent_api::{LinearAgentApi, LookupKind};
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_ports::identity::{ProviderIdentityLink, UserDisplay};
+use moatless_types::attribution::Attribution;
 use serde_json::{Value, json};
 use tracing::warn;
 
@@ -157,31 +158,48 @@ pub(super) fn user_from_node(node: &Value) -> Option<ResolvedUser> {
     Some(ResolvedUser { id, url, app })
 }
 
-/// Resolve an explicit reporter, else the Task's verified reporter's Linear user.
+/// Resolve an explicit reporter, else the non-app Linear user of the first
+/// person `attribution` credits who has one.
 pub(super) async fn resolve_issue_reporter(
     api: &LinearAgentApi,
     users: &dyn UserDisplay,
     identity: &dyn ProviderIdentityLink,
     explicit: Option<&str>,
-    task_reporter: Option<&str>,
+    attribution: &Attribution,
 ) -> Result<Option<ResolvedUser>, AdapterError> {
     if let Some(explicit) = explicit {
         return resolve_user_required(api, identity, explicit)
             .await
             .map(Some);
     }
-    let Some(user_id) = task_reporter.and_then(|id| uuid::Uuid::parse_str(id).ok()) else {
-        return Ok(None);
-    };
+    for person in attribution.credited() {
+        let Ok(user_id) = uuid::Uuid::parse_str(person) else {
+            continue;
+        };
+        if let Some(user) = linear_user_of(api, users, identity, &user_id).await? {
+            return Ok(Some(user));
+        }
+    }
+    Ok(None)
+}
+
+/// A Moatless user's non-app Linear user: their stored `linear` id, else their
+/// email.
+async fn linear_user_of(
+    api: &LinearAgentApi,
+    users: &dyn UserDisplay,
+    identity: &dyn ProviderIdentityLink,
+    user_id: &uuid::Uuid,
+) -> Result<Option<ResolvedUser>, AdapterError> {
     if let Some(id) = identity
-        .provider_id_for_user(LINEAR_PROVIDER, &user_id)
+        .provider_id_for_user(LINEAR_PROVIDER, user_id)
         .await?
     {
         if let Some(user) = user_by_id(api, &id).await? {
             return Ok((!user.app).then_some(user));
         }
     }
-    let Some(email) = users.email(&user_id).await? else {
+    let Some(email) = users.email(user_id).await? else {
         return Ok(None);
     };
     Ok(user_by_email_or_name(api, &email)
@@ -389,7 +407,7 @@ pub(super) async fn default_assignee_from_caller(
     }
 }
 
-/// The caller's Moatless display name, for `issueCreate`'s `createAsUser`.
+/// `user_id`'s Moatless display name, for `issueCreate`'s `createAsUser`.
 /// Falls back to `login` on every miss, so it never fails issue creation.
 pub(super) async fn creator_name(users: &dyn UserDisplay, user_id: &str, login: &str) -> String {
     let Ok(uid) = user_id.parse::<uuid::Uuid>() else {
@@ -476,6 +494,7 @@ mod tests {
     use moatless_ports::identity::{
         AppToken, MockAppCredentials, MockProviderIdentityLink, MockUserDisplay,
     };
+    use moatless_types::attribution::Attribution;
     use moatless_types::store::StoreError;
     use serde_json::json;
 
@@ -532,6 +551,41 @@ mod tests {
         .await
     }
 
+    fn reported_by(reporter: &uuid::Uuid) -> Attribution {
+        Attribution {
+            reporter: Some(reporter.to_string()),
+            ..Attribution::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn a_driver_without_a_linear_user_yields_to_the_reporter() {
+        let stub = stub_answering_every_user_query().await;
+        let api = api_at(stub.base_url());
+        let (driver, reporter) = (uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
+        let mut identity = MockProviderIdentityLink::new();
+        identity
+            .expect_provider_id_for_user()
+            .returning(move |_, user| Ok((*user == reporter).then(|| MAPPED_ID.into())));
+        let mut users = MockUserDisplay::new();
+        users
+            .expect_email()
+            .withf(move |user| *user == driver)
+            .times(1)
+            .returning(|_| Ok(None));
+        let attribution = Attribution {
+            driver: Some(driver.to_string()),
+            ..reported_by(&reporter)
+        };
+
+        let user = resolve_issue_reporter(&api, &users, &identity, None, &attribution)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(user.id, MAPPED_ID);
+    }
+
     #[tokio::test]
     async fn an_issue_uses_its_tasks_reporter_through_the_stored_linear_link() {
         let stub = stub_answering_every_user_query().await;
@@ -549,7 +603,7 @@ mod tests {
             &MockUserDisplay::new(),
             &identity,
             None,
-            Some(&reporter.to_string()),
+            &reported_by(&reporter),
         )
         .await
         .unwrap()
@@ -575,11 +629,10 @@ mod tests {
             .withf(move |user| *user == reporter)
             .returning(|_| Ok(Some("reporter@example.com".into())));
 
-        let user =
-            resolve_issue_reporter(&api, &users, &identity, None, Some(&reporter.to_string()))
-                .await
-                .unwrap()
-                .unwrap();
+        let user = resolve_issue_reporter(&api, &users, &identity, None, &reported_by(&reporter))
+            .await
+            .unwrap()
+            .unwrap();
 
         assert_eq!(user.id, DIRECTORY_ID);
         assert_eq!(stub.graphql_operations(), vec!["users".to_string()]);
@@ -595,7 +648,7 @@ mod tests {
             &MockUserDisplay::new(),
             &MockProviderIdentityLink::new(),
             Some(MAPPED_ID),
-            Some(DIRECTORY_ID),
+            &reported_by(&uuid::Uuid::new_v4()),
         )
         .await
         .unwrap()
@@ -616,7 +669,7 @@ mod tests {
                 &MockUserDisplay::new(),
                 &MockProviderIdentityLink::new(),
                 None,
-                None
+                &Attribution::default()
             )
             .await
             .unwrap()

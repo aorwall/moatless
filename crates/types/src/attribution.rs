@@ -18,6 +18,20 @@ pub struct Attribution {
 }
 
 impl Attribution {
+    /// Who a write `caller` makes for a Task with `owner` and `reporter`
+    /// credits; with no Task, `owner` is `None` and the caller is credited.
+    ///
+    /// A pod authenticates as its Sandbox's driver, else its owner, so a
+    /// `caller` other than the owner is the driver.
+    pub fn of_caller(caller: &str, owner: Option<&str>, reporter: Option<&str>) -> Self {
+        let owner = owner.unwrap_or(caller);
+        Self {
+            driver: (caller != owner).then(|| caller.to_string()),
+            reporter: reporter.map(str::to_string),
+            owner: Some(owner.to_string()),
+        }
+    }
+
     /// The people to credit, most specific first and each once: the driver,
     /// then the Reporter, then the owner.
     ///
@@ -68,6 +82,24 @@ mod tests {
     fn a_loop_task_nobody_drove_credits_its_reporter_before_its_owner() {
         let undriven = attribution(None, Some("grace"), Some("loop-bot"));
         assert_eq!(undriven.credited().next(), Some("grace"));
+    }
+
+    #[test]
+    fn a_caller_other_than_the_owner_is_the_driver() {
+        assert_eq!(
+            Attribution::of_caller("ada", Some("loop-bot"), Some("grace")),
+            attribution(Some("ada"), Some("grace"), Some("loop-bot"))
+        );
+        assert_eq!(
+            Attribution::of_caller("loop-bot", Some("loop-bot"), None).driver,
+            None,
+            "the owner's own pod drives nobody else's work"
+        );
+        assert_eq!(
+            Attribution::of_caller("ada", None, None).owner.as_deref(),
+            Some("ada"),
+            "a write naming no Task credits its caller"
+        );
     }
 
     #[test]

@@ -496,19 +496,12 @@ async fn task_actor(
     Ok((actor, task_attribution(&ctx.user_id, task.as_ref())))
 }
 
-/// Who a write `caller` makes for `task` credits.
-///
-/// The pod authenticates as its Sandbox's driver, else its owner, so a
-/// `caller` other than the owner is the driver.
 fn task_attribution(caller: &str, task: Option<&TaskDescriptor>) -> Attribution {
-    let owner = task
-        .and_then(|task| task.owner_user_id.as_deref().or(task.created_by.as_deref()))
-        .unwrap_or(caller);
-    Attribution {
-        driver: (caller != owner).then(|| caller.to_string()),
-        reporter: task.and_then(|task| task.reporter_user_id.clone()),
-        owner: Some(owner.to_string()),
-    }
+    Attribution::of_caller(
+        caller,
+        task.and_then(|task| task.owner_user_id.as_deref().or(task.created_by.as_deref())),
+        task.and_then(|task| task.reporter_user_id.as_deref()),
+    )
 }
 
 /// Credit `requester` in a pull request body opened under someone else's
@@ -649,43 +642,6 @@ async fn bind_task_to_pr(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn task(owner: &str, reporter: Option<&str>) -> TaskDescriptor {
-        TaskDescriptor {
-            task_id: "t1".to_string(),
-            status: moatless_types::task::TaskStatus::Open,
-            name: None,
-            owner_user_id: Some(owner.to_string()),
-            workspace_id: None,
-            created_by: Some(owner.to_string()),
-            reporter_user_id: reporter.map(str::to_string),
-            run_as_user_id: None,
-            ttl_minutes: 0,
-        }
-    }
-
-    #[test]
-    fn a_caller_other_than_the_owner_is_the_driver() {
-        let loop_task = task("loop-bot", Some("grace"));
-        assert_eq!(
-            task_attribution("ada", Some(&loop_task)),
-            Attribution {
-                driver: Some("ada".to_string()),
-                reporter: Some("grace".to_string()),
-                owner: Some("loop-bot".to_string()),
-            }
-        );
-        assert_eq!(
-            task_attribution("loop-bot", Some(&loop_task)).driver,
-            None,
-            "the owner's own pod drives nobody else's work"
-        );
-        assert_eq!(
-            task_attribution("ada", None).owner.as_deref(),
-            Some("ada"),
-            "a write naming no Task credits its caller"
-        );
-    }
 
     #[tokio::test]
     async fn the_driver_is_assigned_and_asked_to_review() {

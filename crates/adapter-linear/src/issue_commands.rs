@@ -19,8 +19,9 @@ use moatless_loops::adapters::access::{ensure_task_access_only, ensure_task_acce
 use moatless_loops::bindings::operations::Bindings;
 use moatless_loops::bindings::recently_sent::RecentlySent;
 use moatless_ports::identity::{ProviderIdentityLink, UserDisplay};
-use moatless_ports::task::{ExternalEvent, TaskReader, TranscriptAppend};
+use moatless_ports::task::{ExternalEvent, TaskDescriptor, TaskReader, TranscriptAppend};
 use moatless_types::adapter::{AdapterConnection, TaskBinding};
+use moatless_types::attribution::Attribution;
 
 use super::SUBJECT_KIND_ISSUE;
 use super::adapter::LinearAdapter;
@@ -101,13 +102,13 @@ pub(crate) async fn create_issue(
         Some(&team_id),
     )
     .await?;
+    let attribution = issue_attribution(&ctx.user_id, task.as_ref());
     let reporter = resolve_issue_reporter(
         &api,
         users.as_ref(),
         identity.as_ref(),
         req.reporter.as_deref(),
-        task.as_ref()
-            .and_then(|task| task.reporter_user_id.as_deref()),
+        &attribution,
     )
     .await?;
     // Explicit assignee hard-fails on miss; when omitted, default to the
@@ -145,7 +146,12 @@ pub(crate) async fn create_issue(
     let mut input = json!({
         "teamId": team_id,
         "title": req.title,
-        "createAsUser": creator_name(users.as_ref(), &ctx.user_id, &login).await,
+        "createAsUser": creator_name(
+            users.as_ref(),
+            attribution.credited().next().unwrap_or(&ctx.user_id),
+            &login,
+        )
+        .await,
     });
     // Prepend a `Reported by <profile-url>` line (renders as a real user
     // mention) whether or not a description was supplied. Also subscribe the
@@ -382,6 +388,25 @@ fn description_warnings(sent: Option<&str>, issue: &Value) -> Vec<String> {
     sent.and_then(|sent| lost_words_warning(sent, stored))
         .into_iter()
         .collect()
+}
+
+/// Who an issue `caller` files for `task` credits as its reporter and creator.
+///
+/// A Loop Task's owner is the Loop's user, who did not ask for the work, so it
+/// is credited only through a driver or Reporter rather than as the owner.
+fn issue_attribution(caller: &str, task: Option<&TaskDescriptor>) -> Attribution {
+    let Some(task) = task else {
+        return Attribution::of_caller(caller, None, None);
+    };
+    let mut attribution = Attribution::of_caller(
+        caller,
+        task.owner_user_id.as_deref().or(task.created_by.as_deref()),
+        task.reporter_user_id.as_deref(),
+    );
+    if task.loop_id.is_some() {
+        attribution.owner = None;
+    }
+    attribution
 }
 
 /// What Linear does with an `assigneeId` it will not honour, for the error a
@@ -938,6 +963,32 @@ mod tests {
 
     const REQUESTED: &str = "96aece86-e8ab-40fb-a33b-fd9fabc7d679";
     const CANCELED: &str = "23123317-0000-0000-0000-000000000000";
+
+    #[test]
+    fn a_loop_tasks_owner_is_credited_only_as_its_driver_or_reporter() {
+        let task = |loop_id: Option<&str>| TaskDescriptor {
+            task_id: "t1".to_string(),
+            status: moatless_types::task::TaskStatus::Open,
+            name: None,
+            owner_user_id: Some("owner".to_string()),
+            workspace_id: None,
+            created_by: None,
+            reporter_user_id: None,
+            run_as_user_id: None,
+            loop_id: loop_id.map(str::to_string),
+            ttl_minutes: 0,
+        };
+        let credited = |caller, task: &TaskDescriptor| {
+            issue_attribution(caller, Some(task))
+                .credited()
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(credited("owner", &task(None)), ["owner"]);
+        assert!(credited("owner", &task(Some("l1"))).is_empty());
+        assert_eq!(credited("ada", &task(Some("l1"))), ["ada"]);
+    }
 
     fn issue_in_state(id: &str, name: &str) -> Value {
         json!({ "identifier": "SP-2982", "state": { "id": id, "name": name } })

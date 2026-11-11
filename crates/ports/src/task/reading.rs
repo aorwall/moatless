@@ -20,6 +20,8 @@ pub struct TaskDescriptor {
     pub reporter_user_id: Option<String>,
     /// See [`moatless_types::task::Task::run_as_user_id`].
     pub run_as_user_id: Option<String>,
+    /// The Loop that created the Task; `None` for a Task a person started.
+    pub loop_id: Option<String>,
     /// How long the Task's Sandbox may sit idle before it is stopped; `0`
     /// disables the idle stop.
     pub ttl_minutes: i32,
