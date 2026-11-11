@@ -941,7 +941,7 @@ impl Config {
                 cache_host_root: env_str("K8S_SANDBOX_CACHE_HOST_ROOT", "/mnt/cache"),
                 docker_dind_image: env_str(
                     "K8S_SANDBOX_DOCKER_DIND_IMAGE",
-                    "111111111111.dkr.ecr.eu-north-1.amazonaws.com/mirror/docker.io/library/docker:29-dind",
+                    "111111111111.dkr.ecr.eu-north-1.amazonaws.com/mirror/docker.io/library/docker:29.8.2-dind",
                 ),
                 docker_dind_storage_size: env_str("K8S_SANDBOX_DOCKER_DIND_STORAGE_SIZE", "10Gi"),
                 docker_dind_cpu_request: env_str("K8S_SANDBOX_DOCKER_DIND_CPU_REQUEST", "500m"),
