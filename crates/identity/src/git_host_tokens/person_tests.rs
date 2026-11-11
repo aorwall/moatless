@@ -288,7 +288,6 @@ async fn a_person_signed_in_through_the_app_writes_as_the_app() {
         authored,
         Some(AppAuthoredToken {
             token: "ghs_capped".to_string(),
-            driver_login: "ada".to_string(),
         })
     );
     assert_eq!(
@@ -420,4 +419,30 @@ async fn a_connected_person_has_a_noreply_address_github_credits() {
         "no numeric GitHub id to address"
     );
     assert_eq!(tokens.github_noreply_email("u_nobody").await.unwrap(), None);
+}
+
+#[tokio::test]
+async fn the_first_credited_person_with_their_own_login_is_named() {
+    let (tokens, _) = issuer(&[("u_ada", person_row("ada"))]).await;
+    let credited = |driver: &str| Attribution {
+        driver: Some(driver.to_string()),
+        owner: Some("u_ada".to_string()),
+        ..Attribution::default()
+    };
+
+    assert_eq!(
+        tokens
+            .credited_github_login(&credited("bot"))
+            .await
+            .unwrap(),
+        Some(("u_ada".to_string(), "ada".to_string())),
+        "an installed bot has no login of its own, so the owner is named"
+    );
+    assert_eq!(
+        tokens
+            .credited_github_login(&Attribution::default())
+            .await
+            .unwrap(),
+        None
+    );
 }

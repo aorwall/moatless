@@ -223,6 +223,26 @@ impl GitHubProxy {
             })
     }
 
+    /// The GitHub login an authored write names in its text: whom `scope`'s
+    /// [`Attribution`](moatless_types::attribution::Attribution) credits,
+    /// unless GitHub already shows them as its author, which a write `by_app`
+    /// never does.
+    pub async fn credited_login(&self, scope: &SandboxScope, by_app: bool) -> Option<String> {
+        let credited = self
+            .git_host_tokens
+            .credited_github_login(&scope.attribution)
+            .await
+            .unwrap_or_else(|error| {
+                warn!(%error, sandbox_id = %scope.sandbox, "Failed to read who a GitHub write credits");
+                None
+            });
+        let (person, login) = credited?;
+        if by_app {
+            return Some(login);
+        }
+        (self.actor(scope).await.user_id() != person).then_some(login)
+    }
+
     /// The repository GraphQL node `id` belongs to, asked as `scope`'s own
     /// identity; `None` when GitHub does not say.
     pub async fn repository_of_node(&self, scope: &SandboxScope, id: &str) -> Option<GitHostRepo> {

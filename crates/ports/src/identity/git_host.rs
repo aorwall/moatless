@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use moatless_types::access_control::Actor;
+use moatless_types::attribution::Attribution;
 use moatless_types::git_host::{GitHostAccount, RepositoryProvider};
 use moatless_types::store::StoreError;
 
@@ -45,12 +46,12 @@ pub enum GitHostTokenError {
 
 /// A token that writes to one GitHub repository as the App its driver signed in
 /// through, so the App, not the driver, authors what it posts.
+///
+/// GitHub records no driver on what an App posts: the caller credits the
+/// person [`GitHostTokenIssuer::credited_github_login`] names in the text itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppAuthoredToken {
     pub token: String,
-    /// The driver's GitHub login. GitHub records no driver on what an App
-    /// posts, so the caller credits this login in the text itself.
-    pub driver_login: String,
 }
 
 /// The one way to a git-host token.
@@ -109,6 +110,17 @@ pub trait GitHostTokenIssuer: Send + Sync {
     /// to their account whatever emails they have verified; `Ok(None)` when
     /// they have not connected GitHub.
     async fn github_noreply_email(&self, _user_id: &str) -> Result<Option<String>, StoreError> {
+        Ok(None)
+    }
+
+    /// The first person `attribution` credits who signed in to GitHub as
+    /// themselves, as `(user_id, login)`: whom a GitHub write names as the
+    /// human behind it. A bot connected through an App installation has no
+    /// login of its own and is skipped.
+    async fn credited_github_login(
+        &self,
+        _attribution: &Attribution,
+    ) -> Result<Option<(String, String)>, StoreError> {
         Ok(None)
     }
 }

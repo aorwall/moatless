@@ -173,6 +173,7 @@ fn gateway(upstream: &str, opted_in: &[&str], secrets: &[(&str, &str)]) -> Servi
 
 fn scope() -> SandboxScope {
     SandboxScope {
+        attribution: Default::default(),
         sandbox: "sandbox-1".to_string(),
         token_user: "user-1".to_string(),
         user: "user-1".to_string(),

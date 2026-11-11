@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use tracing::debug;
+use tracing::{debug, warn};
 
 use moatless_adapter_model::binding::BindingContext;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
@@ -10,6 +10,7 @@ use moatless_ports::identity::ProviderIdentityLink;
 use moatless_ports::identity::{GitHostTokenError, GitHostTokenIssuer};
 use moatless_types::access_control::Actor;
 use moatless_types::adapter::TaskBinding;
+use moatless_types::attribution::Attribution;
 use moatless_types::http::HttpTimeouts;
 use moatless_types::loops::SubscriptionMatch;
 use moatless_workspace_types::repository::GitHostRepo;
@@ -27,13 +28,25 @@ pub(super) struct GithubPrAuth {
     http: reqwest::Client,
 }
 
-/// A client that writes to one repository, and the driver to credit when the
-/// App it authenticates as, rather than the driver, authors what it posts.
+/// A client that writes to one repository, and the person it credits.
 pub(super) struct RepoWriter {
     pub(super) api: GithubPrApi,
-    /// GitHub login of the driver the App writes for; `None` when the client
-    /// writes as the identity itself, which GitHub already shows.
-    pub(super) driver_login: Option<String>,
+    /// GitHub login of the person the write credits, per
+    /// [`GitHostTokenIssuer::credited_github_login`].
+    credited_login: Option<String>,
+    /// GitHub shows someone other than `credited_login` as the author: the
+    /// App, or a run-as bot.
+    names_credited: bool,
+}
+
+impl RepoWriter {
+    /// The login the write's text names, and its pull request is handed to;
+    /// `None` when GitHub already shows that person as its author.
+    pub(super) fn credit(&self) -> Option<&str> {
+        self.credited_login
+            .as_deref()
+            .filter(|_| self.names_credited)
+    }
 }
 
 pub(super) struct AuthenticatedGithub {
@@ -89,7 +102,11 @@ impl GithubPrAuth {
         repo: &GitHostRepo,
     ) -> Result<RepoWriter, AdapterError> {
         let actor = outbound_actor(author_user_id, binding, rule)?;
-        self.writer_for(&actor, repo).await
+        let attribution = Attribution {
+            owner: Some(actor.user_id().to_string()),
+            ..Attribution::default()
+        };
+        self.writer_for(&actor, repo, &attribution).await
     }
 
     pub(super) async fn client_for_reaction(
@@ -111,27 +128,40 @@ impl GithubPrAuth {
     }
 
     /// A client that writes to `repo` as the App `actor` signed in through,
-    /// else as `actor`, per [`GitHostTokenIssuer::github_app_authored`].
+    /// else as `actor`, per [`GitHostTokenIssuer::github_app_authored`], and
+    /// credits the person `attribution` names.
     pub(super) async fn writer_for(
         &self,
         actor: &Actor,
         repo: &GitHostRepo,
+        attribution: &Attribution,
     ) -> Result<RepoWriter, AdapterError> {
         let authored = self
             .git_host_tokens
             .github_app_authored(actor, repo.owner(), repo.name())
             .await
             .map_err(|source| adapter_error(actor, source))?;
-        match authored {
-            Some(authored) => Ok(RepoWriter {
-                api: self.client(&authored.token),
-                driver_login: Some(authored.driver_login),
-            }),
-            None => Ok(RepoWriter {
-                api: self.client_for(actor, repo).await?,
-                driver_login: None,
-            }),
-        }
+        let credited = self
+            .git_host_tokens
+            .credited_github_login(attribution)
+            .await
+            .unwrap_or_else(|error| {
+                warn!(%error, repository = %repo, "Failed to read who a GitHub write credits");
+                None
+            });
+        let names_credited = authored.is_some()
+            || credited
+                .as_ref()
+                .is_some_and(|(person, _)| person != actor.user_id());
+        let api = match authored {
+            Some(authored) => self.client(&authored.token),
+            None => self.client_for(actor, repo).await?,
+        };
+        Ok(RepoWriter {
+            api,
+            credited_login: credited.map(|(_, login)| login),
+            names_credited,
+        })
     }
 
     /// Mint a GitHub client from `actor`'s OWN row, scoped to `repo`.
@@ -304,13 +334,13 @@ pub(super) async fn resolve_task_github_api(
 /// [`GithubPrAuth::writer_for`].
 pub(super) async fn resolve_task_github_writer(
     adapter: &GithubPrAdapter,
-    actor: &Actor,
+    (actor, attribution): &(Actor, Attribution),
     owner: &str,
     repo_name: &str,
 ) -> Result<RepoWriter, AdapterError> {
     adapter
         .auth()
-        .writer_for(actor, &GitHostRepo::github(owner, repo_name))
+        .writer_for(actor, &GitHostRepo::github(owner, repo_name), attribution)
         .await
 }
 

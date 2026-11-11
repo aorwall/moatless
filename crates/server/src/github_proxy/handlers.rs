@@ -162,7 +162,8 @@ struct Sending {
 }
 
 /// `authored`, the body of a write GitHub shows an author for, goes as the App
-/// the driver signed in through and credits them; anything else goes as
+/// the driver signed in through, and credits whom
+/// [`GitHubProxy::credited_login`] names; anything else goes as
 /// [`GitHubProxy::token`] picks.
 async fn sending(
     proxy: &GitHubProxy,
@@ -180,13 +181,24 @@ async fn sending(
             },
             _ => requested.cloned(),
         };
-        if let Some(app) = proxy.app_authored(scope, repository).await? {
-            return Ok(Sending {
-                token: app.token,
-                body: reqwest::Body::from(authorship::credit(&bytes, graphql, &app.driver_login)),
+        let app = proxy.app_authored(scope, repository).await?;
+        let credit = proxy.credited_login(scope, app.is_some()).await;
+        let token = match app {
+            Some(app) => app.token,
+            None => proxy.token(scope, requested).await?,
+        };
+        return Ok(match credit {
+            Some(login) => Sending {
+                token,
+                body: reqwest::Body::from(authorship::credit(&bytes, graphql, &login)),
                 credited: true,
-            });
-        }
+            },
+            None => Sending {
+                token,
+                body,
+                credited: false,
+            },
+        });
     }
     Ok(Sending {
         token: proxy.token(scope, requested).await?,

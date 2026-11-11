@@ -5,6 +5,7 @@ use std::sync::Arc;
 use moatless_core::sandbox_jwt::{
     GenerationError, TokenGenerations, check_generation, verify_user_auth_token,
 };
+use moatless_types::attribution::Attribution;
 use tracing::warn;
 
 use crate::sandbox::lifecycle::SandboxIngress;
@@ -22,6 +23,8 @@ pub struct SandboxScope {
     pub workspace: String,
     /// The run-as identity the Sandbox row pins, ahead of the Workspace's.
     pub run_as: Option<String>,
+    /// Who a write from the Sandbox credits.
+    pub attribution: Attribution,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -114,6 +117,7 @@ impl SandboxCallers {
             })?
             .unwrap_or_default();
         Ok(SandboxScope {
+            attribution: identity.attribution(),
             sandbox: sandbox_id,
             user: identity
                 .acting_user_id

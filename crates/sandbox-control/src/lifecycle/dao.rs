@@ -44,6 +44,8 @@ pub struct SandboxShape {
     pub run_as_pinned: bool,
     /// The person whose message started the current turn.
     pub driver_user_id: Option<String>,
+    /// The founding Task's Reporter.
+    pub reporter_user_id: Option<String>,
     /// Whether the Sandbox's founding Task is public, which grants its driver
     /// write.
     pub public: bool,
@@ -427,7 +429,7 @@ impl LifecycleDao for PgLifecycleDao {
         sqlx::query_as(
             r#"SELECT s.workspace_id, s.scope, s.owner_user_id, s.run_as_user_id,
                       (t.run_as_user_id IS NOT NULL) AS run_as_pinned,
-                      s.driver_user_id,
+                      s.driver_user_id, t.reporter_user_id,
                       COALESCE(t.visibility = 'public', false) AS public,
                       s.branch, s.headless, s.agent_profile, s.use_tmux,
                       s.node_selector, s.stop_when_done, s.token_generation
@@ -863,6 +865,7 @@ mod tests {
             run_as_user_id: Some(run_as.to_string()),
             run_as_pinned: pinned,
             driver_user_id: Some("visitor".to_string()),
+            reporter_user_id: None,
             public: true,
             branch: None,
             headless: false,

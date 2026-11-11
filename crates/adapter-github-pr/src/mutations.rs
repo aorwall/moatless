@@ -16,8 +16,9 @@ use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::footer::FOOTER_MARKER;
 use moatless_loops::adapters::access::{ensure_task_access_only, ensure_task_access_with};
 use moatless_loops::bindings::recently_sent::RecentlySent;
-use moatless_ports::task::{ExternalEvent, TaskReader, TranscriptAppend};
+use moatless_ports::task::{ExternalEvent, TaskDescriptor, TaskReader, TranscriptAppend};
 use moatless_types::access_control::Actor;
+use moatless_types::attribution::Attribution;
 
 use super::adapter::GithubPrAdapter;
 use super::api::MAX_COMMENT_LENGTH;
@@ -66,9 +67,13 @@ pub(crate) async fn create_pr(
         &credit_driver(
             &with_requester(
                 req.body.as_deref().unwrap_or(""),
-                actor.person().map(|_| login),
+                actor
+                    .0
+                    .person()
+                    .filter(|_| writer.credit().is_none())
+                    .map(|_| login),
             ),
-            writer.driver_login.as_deref(),
+            writer.credit(),
         ),
         task_footer_url(adapter.frontend_url(), req.task_id.as_deref()).as_deref(),
     );
@@ -94,7 +99,7 @@ pub(crate) async fn create_pr(
             _ => return Err(create_error),
         },
     };
-    if let (Some(driver), false) = (writer.driver_login.as_deref(), created.opened_existing) {
+    if let (Some(driver), false) = (writer.credit(), created.opened_existing) {
         hand_to_driver(api, &owner, &repo, created.number, driver).await;
     }
 
@@ -210,7 +215,7 @@ pub(crate) async fn post_comment(
         tasks.as_ref(),
         adapter.frontend_url(),
         req.task_id.as_deref(),
-        &credit_driver(&req.body, writer.driver_login.as_deref()),
+        &credit_driver(&req.body, writer.credit()),
     )
     .await;
     let comment_id = api.post_comment(&owner, &repo, number, &body).await?;
@@ -280,7 +285,7 @@ pub(crate) async fn reply_to_review_comment(
         tasks.as_ref(),
         adapter.frontend_url(),
         req.task_id.as_deref(),
-        &credit_driver(&req.body, writer.driver_login.as_deref()),
+        &credit_driver(&req.body, writer.credit()),
     )
     .await;
     let new_id = api
@@ -335,7 +340,7 @@ pub(crate) async fn bind_pr(
     req: GithubBindPrRequest,
 ) -> Result<GithubBindPrResponse, AdapterError> {
     let adapter = require_provider(github_pr_provider)?;
-    let actor = task_actor(tasks.as_ref(), &ctx, Some(&req.task_id)).await?;
+    let (actor, _) = task_actor(tasks.as_ref(), &ctx, Some(&req.task_id)).await?;
     let api = resolve_task_github_api(&adapter, &actor, &owner, &repo).await?;
     let pr = api.get_pr(&owner, &repo, number).await?;
     let html_url = pr
@@ -469,7 +474,7 @@ async fn record_durable_event(
 }
 
 /// Authorize the caller against the Task and answer the identity a write for it
-/// acts as, per [`task_write_actor`].
+/// acts as, per [`task_write_actor`], and who it credits.
 ///
 /// Same `NotFound`-on-denied rule the routes always had; a route naming no Task
 /// authorizes nothing and acts as the caller.
@@ -477,17 +482,33 @@ async fn task_actor(
     tasks: &dyn TaskReader,
     ctx: &moatless_types::access_control::ScopeContext,
     task_id: Option<&str>,
-) -> Result<Actor, AdapterError> {
+) -> Result<(Actor, Attribution), AdapterError> {
     let task = match task_id {
         Some(task_id) => Some(ensure_task_access_with(tasks, ctx, task_id).await?),
         None => None,
     };
-    Ok(task_write_actor(
+    let actor = task_write_actor(
         &ctx.user_id,
         task.as_ref()
             .and_then(|task| task.run_as_user_id.as_deref()),
         task.as_ref().and_then(|task| task.workspace_id.as_deref()),
-    ))
+    );
+    Ok((actor, task_attribution(&ctx.user_id, task.as_ref())))
+}
+
+/// Who a write `caller` makes for `task` credits.
+///
+/// The pod authenticates as its Sandbox's driver, else its owner, so a
+/// `caller` other than the owner is the driver.
+fn task_attribution(caller: &str, task: Option<&TaskDescriptor>) -> Attribution {
+    let owner = task
+        .and_then(|task| task.owner_user_id.as_deref().or(task.created_by.as_deref()))
+        .unwrap_or(caller);
+    Attribution {
+        driver: (caller != owner).then(|| caller.to_string()),
+        reporter: task.and_then(|task| task.reporter_user_id.clone()),
+        owner: Some(owner.to_string()),
+    }
 }
 
 /// Credit `requester` in a pull request body opened under someone else's
@@ -628,6 +649,43 @@ async fn bind_task_to_pr(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn task(owner: &str, reporter: Option<&str>) -> TaskDescriptor {
+        TaskDescriptor {
+            task_id: "t1".to_string(),
+            status: moatless_types::task::TaskStatus::Open,
+            name: None,
+            owner_user_id: Some(owner.to_string()),
+            workspace_id: None,
+            created_by: Some(owner.to_string()),
+            reporter_user_id: reporter.map(str::to_string),
+            run_as_user_id: None,
+            ttl_minutes: 0,
+        }
+    }
+
+    #[test]
+    fn a_caller_other_than_the_owner_is_the_driver() {
+        let loop_task = task("loop-bot", Some("grace"));
+        assert_eq!(
+            task_attribution("ada", Some(&loop_task)),
+            Attribution {
+                driver: Some("ada".to_string()),
+                reporter: Some("grace".to_string()),
+                owner: Some("loop-bot".to_string()),
+            }
+        );
+        assert_eq!(
+            task_attribution("loop-bot", Some(&loop_task)).driver,
+            None,
+            "the owner's own pod drives nobody else's work"
+        );
+        assert_eq!(
+            task_attribution("ada", None).owner.as_deref(),
+            Some("ada"),
+            "a write naming no Task credits its caller"
+        );
+    }
 
     #[tokio::test]
     async fn the_driver_is_assigned_and_asked_to_review() {

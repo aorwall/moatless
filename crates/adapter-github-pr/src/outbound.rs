@@ -53,7 +53,7 @@ impl AdapterBindingReply for GithubPrAdapter {
 
         // The `Moatless task:` footer (carrying the task URL) doubles as the
         // echo-filter source on the way back in — no hidden marker needed.
-        let mut body = credit_driver(&message.text, writer.driver_login.as_deref());
+        let mut body = credit_driver(&message.text, writer.credit());
         if let Some(ref footer) = message.footer {
             body.push_str(footer);
         }
@@ -93,7 +93,7 @@ impl AdapterMessageReply for GithubPrAdapter {
                     .await?;
 
                 // The `Moatless task:` footer doubles as the echo-filter source.
-                let mut body = credit_driver(&message.text, writer.driver_login.as_deref());
+                let mut body = credit_driver(&message.text, writer.credit());
                 if let Some(ref footer) = message.footer {
                     body.push_str(footer);
                 }
@@ -215,9 +215,12 @@ mod tests {
             .returning(|_, _, _| {
                 Ok(Some(moatless_ports::identity::AppAuthoredToken {
                     token: "ghs_app".to_string(),
-                    driver_login: "ada".to_string(),
                 }))
             });
+        tokens
+            .expect_credited_github_login()
+            .withf(|attribution| attribution.owner.as_deref() == Some("owner-user"))
+            .returning(|_| Ok(Some(("owner-user".to_string(), "ada".to_string()))));
         let provider = GithubPrAdapter::new(
             None,
             "https://app.example.com".to_string(),

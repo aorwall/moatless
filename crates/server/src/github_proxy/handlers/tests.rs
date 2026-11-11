@@ -11,6 +11,7 @@ use moatless_ports::identity::{
     AppAuthoredToken, GitHostTokenError, GitHostTokenIssuer, MockGitHostTokenIssuer,
 };
 use moatless_types::access_control::Scope;
+use moatless_types::attribution::Attribution;
 use moatless_types::git_host::GitHostAccount;
 use moatless_workspace_ports::{
     MockWorkspaceCredentialReader, MockWorkspaceResolver, RepoPlacement, WorkspaceCredentialReader,
@@ -102,6 +103,9 @@ fn issuer(live: &LiveToken) -> Arc<dyn GitHostTokenIssuer> {
     tokens
         .expect_github_app_authored()
         .returning(|_, _, _| Ok(None));
+    tokens
+        .expect_credited_github_login()
+        .returning(|_| Ok(None));
     Arc::new(tokens)
 }
 
@@ -154,6 +158,10 @@ fn proxy_under(
 
 fn scope() -> SandboxScope {
     SandboxScope {
+        attribution: Attribution {
+            owner: Some("user-1".to_string()),
+            ..Attribution::default()
+        },
         sandbox: "sandbox-1".to_string(),
         token_user: "user-1".to_string(),
         user: "user-1".to_string(),
@@ -440,6 +448,9 @@ fn per_repository_issuer(refused: &'static str) -> Arc<dyn GitHostTokenIssuer> {
     tokens
         .expect_github_app_authored()
         .returning(|_, _, _| Ok(None));
+    tokens
+        .expect_credited_github_login()
+        .returning(|_| Ok(None));
     Arc::new(tokens)
 }
 
@@ -700,9 +711,11 @@ fn app_issuer(refused: &'static str) -> Arc<dyn GitHostTokenIssuer> {
             }
             Ok(Some(AppAuthoredToken {
                 token: format!("ghs_app_{repository}"),
-                driver_login: "ada".to_string(),
             }))
         });
+    tokens
+        .expect_credited_github_login()
+        .returning(|_| Ok(Some(("user-1".to_string(), "ada".to_string()))));
     Arc::new(tokens)
 }
 
@@ -819,4 +832,57 @@ async fn a_driver_below_write_access_is_told_rather_than_posting_as_themselves()
 
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
     assert_eq!(message(response).await, "ada needs write access");
+}
+
+/// A bot run-as with no App sign-in: GitHub shows the bot as the author, so
+/// the text names the driver it works for.
+#[tokio::test]
+async fn a_bot_run_as_comment_credits_the_driver_it_works_for() {
+    let base = recording_github().await;
+    let mut tokens = MockGitHostTokenIssuer::new();
+    tokens
+        .expect_token()
+        .returning(|_, _| Ok("ghs_bot".to_string()));
+    tokens
+        .expect_github_app_authored()
+        .returning(|_, _, _| Ok(None));
+    tokens
+        .expect_credited_github_login()
+        .withf(|attribution| attribution.driver.as_deref() == Some("driver"))
+        .returning(|_| Ok(Some(("driver".to_string(), "ada".to_string()))));
+    let proxy = proxy(
+        workspaces(github_repository(), HashMap::new()),
+        Arc::new(tokens),
+        &base,
+    );
+    let scope = SandboxScope {
+        run_as: Some("bot".to_string()),
+        user: "driver".to_string(),
+        attribution: Attribution {
+            driver: Some("driver".to_string()),
+            ..Attribution::default()
+        },
+        ..scope()
+    };
+
+    let response = forward(
+        &proxy,
+        &scope,
+        GitHubUpstream::Api,
+        Method::POST,
+        "/repos/owner/repo/issues/1/comments",
+        &HeaderMap::new(),
+        Body::from(r#"{"body":"hi"}"#),
+    )
+    .await;
+    let body = axum::body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
+    let sent: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(sent["message"], "Bearer ghs_bot");
+    assert_eq!(
+        sent["sent"]["body"],
+        "hi\n\nDriven by [@ada](https://github.com/ada)"
+    );
 }

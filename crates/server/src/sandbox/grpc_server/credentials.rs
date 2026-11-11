@@ -15,6 +15,7 @@ use crate::sandbox::secrets::{
 use moatless_core::sandbox_jwt as jwt;
 use moatless_core::secret_keys;
 use moatless_types::access_control::{Actor, ScopeContext};
+use moatless_types::attribution::Attribution;
 use moatless_types::credential_key;
 use moatless_workspace_ports::WorkspaceResolver;
 use moatless_workspace_types::repository::{GitHostRepo, RepositoryProvider};
@@ -177,9 +178,10 @@ pub(super) async fn get_credentials(
         }
         None => None,
     };
-    let attribution = targets
-        .identity
-        .attribution(task.as_ref().and_then(|t| t.reporter_user_id.clone()));
+    let attribution = Attribution {
+        reporter: task.as_ref().and_then(|t| t.reporter_user_id.clone()),
+        ..targets.identity.attribution()
+    };
     let github_repository = match (handlers, targets.workspace_id.as_deref()) {
         (Some(handlers), Some(workspace_id)) => {
             primary_github_repository(&handlers.workspace_resolver, workspace_id).await

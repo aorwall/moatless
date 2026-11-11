@@ -10,9 +10,10 @@ use moatless_core::secret_keys::{
 };
 use tracing::warn;
 
-use crate::commit_author::{Attribution, fill_co_author, fill_commit_author};
+use crate::commit_author::{fill_co_author, fill_commit_author};
 use moatless_core::secret_keys::is_reserved_key;
 use moatless_types::access_control::Actor;
+use moatless_types::attribution::Attribution;
 use moatless_types::credential_key::{GH_TOKEN, GIT_CO_AUTHOR, GIT_TOKEN};
 use moatless_workspace_types::repository::GitHostRepo;
 use moatless_workspace_types::repository::RepositoryProvider as GitHostProvider;

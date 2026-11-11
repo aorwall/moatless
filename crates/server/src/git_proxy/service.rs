@@ -794,6 +794,7 @@ mod tests {
             Credential::Token("t".to_string()),
             &Actor::of("user-1"),
             SandboxScope {
+                attribution: Default::default(),
                 sandbox: "sandbox-1".to_string(),
                 token_user: "user-1".to_string(),
                 user: "user-1".to_string(),
@@ -969,7 +970,6 @@ mod tests {
         let issuer = issuer(|| {
             Ok(Some(AppAuthoredToken {
                 token: "ghs_app".to_string(),
-                driver_login: "ada".to_string(),
             }))
         });
         let repo = GitHostRepo::github("acme", "widgets");

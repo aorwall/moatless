@@ -36,6 +36,7 @@ use crate::forgejo::oauth::ForgejoOAuth;
 use crate::secret::service::SecretService;
 use moatless_types::access_control::Actor;
 use moatless_types::access_control::Scope;
+use moatless_types::attribution::Attribution;
 use moatless_types::secret::SecretKind;
 
 /// The one way to obtain a git-host token.
@@ -307,6 +308,23 @@ impl GitHostTokens {
             })
     }
 
+    /// The GitHub login `user_id` signed in as themselves; `None` for a bot
+    /// connected through an App installation.
+    async fn own_github_login(&self, user_id: &str) -> Result<Option<String>, StoreError> {
+        let row = self
+            .provider_tokens
+            .find_github_row(user_id)
+            .await
+            .map_err(|e| StoreError::with_source(format!("read {user_id}'s GitHub row"), e))?;
+        Ok(match row {
+            Some(row) if row.auth_method.as_deref() == Some(AUTH_METHOD_APP_INSTALLATION) => None,
+            // The App sign-in the PAT stands in front of names the person.
+            Some(row) if self.blocks_pat(&row) => metadata_login(&row, "oauth_login"),
+            Some(row) => github_login(&row),
+            None => None,
+        })
+    }
+
     /// Serves [`GitHostTokenIssuer::github_app_authored`] for an actor whose
     /// own row is a login-App user token.
     async fn app_authored_token(
@@ -363,10 +381,7 @@ impl GitHostTokens {
                 )
                 .into(),
             })?;
-        Ok(Some(AppAuthoredToken {
-            token,
-            driver_login: login,
-        }))
+        Ok(Some(AppAuthoredToken { token }))
     }
 
     /// An App-installation row mints an installation-wide token: it can reach
@@ -864,6 +879,18 @@ impl GitHostTokenIssuer for GitHostTokens {
             .await
             .map_err(|e| StoreError::with_source(format!("read {user_id}'s GitHub row"), e))?;
         Ok(row.as_ref().and_then(noreply_email))
+    }
+
+    async fn credited_github_login(
+        &self,
+        attribution: &Attribution,
+    ) -> Result<Option<(String, String)>, StoreError> {
+        for person in attribution.credited() {
+            if let Some(login) = self.own_github_login(person).await? {
+                return Ok(Some((person.to_string(), login)));
+            }
+        }
+        Ok(None)
     }
 }
 

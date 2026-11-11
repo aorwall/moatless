@@ -18,6 +18,7 @@ pub(crate) use string_enum::{string_enum, string_enum_mapping};
 pub mod access_control;
 pub mod adapter;
 pub mod agent;
+pub mod attribution;
 pub mod auth;
 pub mod credential_key;
 pub mod event;

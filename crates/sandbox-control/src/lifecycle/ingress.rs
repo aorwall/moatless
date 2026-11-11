@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::commit_author::Attribution;
+use moatless_types::attribution::Attribution;
 use moatless_types::store::StoreError;
 
 use super::dao::LifecycleDao;
@@ -22,14 +22,16 @@ pub struct SandboxIdentity {
     /// See [`super::dao::SandboxShape::driver_user_id`].
     pub driver_user_id: Option<String>,
     pub owner_user_id: Option<String>,
+    /// The founding Task's Reporter; a Member Task names its own.
+    pub reporter_user_id: Option<String>,
 }
 
 impl SandboxIdentity {
-    /// Who the Sandbox's outward writes credit, given its Task's Reporter.
-    pub fn attribution(&self, reporter: Option<String>) -> Attribution {
+    /// Who the Sandbox's outward writes credit.
+    pub fn attribution(&self) -> Attribution {
         Attribution {
             driver: self.driver_user_id.clone(),
-            reporter,
+            reporter: self.reporter_user_id.clone(),
             owner: self.owner_user_id.clone(),
         }
     }
@@ -77,6 +79,7 @@ impl SandboxIngress {
                 acting_user_id: shape.acting_user_id().map(str::to_string),
                 driver_user_id: shape.driver_user_id.clone(),
                 owner_user_id: shape.owner_user_id.clone(),
+                reporter_user_id: shape.reporter_user_id.clone(),
             }))
     }
 

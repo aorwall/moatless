@@ -188,6 +188,7 @@ fn gateway_with(
 
 fn scope() -> super::super::service::SandboxScope {
     super::super::service::SandboxScope {
+        attribution: Default::default(),
         sandbox: "sandbox-1".to_string(),
         token_user: "user-1".to_string(),
         user: "user-1".to_string(),
