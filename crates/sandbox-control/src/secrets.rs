@@ -10,6 +10,7 @@ use moatless_core::secret_keys::{
 };
 use tracing::warn;
 
+use crate::commit_author::{Attribution, fill_co_author, fill_commit_author};
 use moatless_core::secret_keys::is_reserved_key;
 use moatless_types::access_control::Actor;
 use moatless_types::credential_key::{GH_TOKEN, GIT_CO_AUTHOR, GIT_TOKEN};
@@ -33,8 +34,12 @@ pub struct TaskCredentialInputs<'a> {
     /// Taken whole (not just a user id) so the git-host token resolved here
     /// matches what every other caller resolves for this task.
     pub actor: &'a Actor,
-    /// The Task's reporter, credited ahead of the actor's current driver.
-    pub reporter_user_id: Option<&'a str>,
+    /// Who the Task's commits credit as co-author: the first person
+    /// [`Attribution::credited`] names that is not the commit's own author.
+    pub attribution: &'a Attribution,
+    /// The Workspace's primary repository when it is on GitHub, whose App
+    /// authors the commits; see [`fill_commit_author`](crate::commit_author).
+    pub github_repository: Option<&'a GitHostRepo>,
     pub secrets: Option<&'a Arc<dyn SecretResolver>>,
     /// The one way to a git-host token. Supplied once at the composition root,
     /// so this struct threads no credential ports of its own.
@@ -67,9 +72,11 @@ pub struct TaskCredentialInputs<'a> {
 /// No GitHub, Forgejo or model credential is ever returned, whatever its
 /// source: the pod reaches each through a backend proxy or the model gateway,
 /// which holds the credential instead of handing it to the pod.
-pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMap<String, String> {
-    let mut credentials: HashMap<String, String> = input.workspace_credentials;
-    for (key, value) in input.workspace_env_vars {
+pub async fn resolve_task_credentials(
+    mut input: TaskCredentialInputs<'_>,
+) -> HashMap<String, String> {
+    let mut credentials: HashMap<String, String> = std::mem::take(&mut input.workspace_credentials);
+    for (key, value) in std::mem::take(&mut input.workspace_env_vars) {
         // Guarded here too, for the same reason `fill_missing_from_scoped`
         // guards its own merge: this is where a platform-owned key would
         // take effect, and `fill_git_host_tokens` below fills only an
@@ -86,10 +93,8 @@ pub async fn resolve_task_credentials(input: TaskCredentialInputs<'_>) -> HashMa
         fill_git_host_tokens(&mut credentials, input.git_host_tokens, input.actor).await;
     }
 
-    fill_git_identity(&mut credentials, input.users, user_id).await;
-    if let Some(person) = input.reporter_user_id.or_else(|| input.actor.person()) {
-        fill_co_author(&mut credentials, input.users, person).await;
-    }
+    let author = fill_commit_author(&mut credentials, &input).await;
+    fill_co_author(&mut credentials, &input, author).await;
 
     let scoped = resolve_scoped_secrets(input.secrets, user_id, input.task_id).await;
 
@@ -530,82 +535,6 @@ async fn fill_claude_token(
     }
 }
 
-/// Source the git author identity for the task's sandbox from the owning
-/// `users` row, as `GIT_USER_NAME`/`GIT_USER_EMAIL` env vars.
-///
-/// Bot users get both fields from the row; human users get only the email
-/// override (when set), leaving the name to GitHub-API resolution.
-async fn fill_git_identity(
-    credentials: &mut HashMap<String, String>,
-    users: Option<&Arc<dyn CommitIdentity>>,
-    user_id: &str,
-) {
-    let Some(users) = users else { return };
-    // An actor that is not a user (the `system` sentinel, a `bot:` value) has
-    // no git identity, and neither does one whose row is gone.
-    let user = match users.git_identity(user_id).await {
-        Ok(Some(u)) => u,
-        Ok(None) => return,
-        Err(e) => {
-            warn!(error = %e, user_id, "Failed to look up user for git identity");
-            return;
-        }
-    };
-    if user.is_bot {
-        credentials.insert(GIT_USER_NAME.to_string(), user.login);
-        if let Some(email) = user.email {
-            credentials.insert(GIT_USER_EMAIL.to_string(), email);
-        }
-        return;
-    }
-    // Human user: their Moatless account email when set, else the sandbox's
-    // GitHub-API resolution at init. The name falls back to the login rather
-    // than to that resolution: it is fixed at init, so after a driver switch
-    // it would name the previous driver.
-    let name = user
-        .name
-        .filter(|name| !name.trim().is_empty())
-        .unwrap_or(user.login);
-    credentials.insert(GIT_USER_NAME.to_string(), name);
-    if let Some(email) = user.email {
-        credentials.insert(GIT_USER_EMAIL.to_string(), email);
-    }
-}
-
-/// Set [`GIT_CO_AUTHOR`] to `person`'s account name, falling back to their
-/// login, and email.
-///
-/// Left unset for a bot, for a person with no email, and for a name or email
-/// that could break out of the one trailer line the sandbox writes it into.
-async fn fill_co_author(
-    credentials: &mut HashMap<String, String>,
-    users: Option<&Arc<dyn CommitIdentity>>,
-    person: &str,
-) {
-    let Some(users) = users else { return };
-    let user = match users.git_identity(person).await {
-        Ok(Some(u)) if !u.is_bot => u,
-        Ok(_) => return,
-        Err(e) => {
-            warn!(error = %e, person, "Failed to look up the co-author's git identity");
-            return;
-        }
-    };
-    let Some(email) = user.email else { return };
-    let name = user
-        .name
-        .filter(|n| !n.trim().is_empty())
-        .unwrap_or(user.login);
-    let unsafe_char = |c: char| c.is_control() || c == '<' || c == '>';
-    if name.contains(unsafe_char) || email.contains(unsafe_char) || email.trim().is_empty() {
-        return;
-    }
-    credentials.insert(
-        GIT_CO_AUTHOR.to_string(),
-        format!("{} <{}>", name.trim(), email.trim()),
-    );
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -684,7 +613,7 @@ mod tests {
     // pinned Workspace credential outranks every other source.
 
     use moatless_ports::identity::{
-        MockCommitIdentity, MockGitHostTokenIssuer, MockHarnessCredentials, MockSecretResolver,
+        MockGitHostTokenIssuer, MockHarnessCredentials, MockSecretResolver,
     };
 
     fn github_repository(scope: moatless_types::access_control::Scope) -> Repository {
@@ -744,6 +673,12 @@ mod tests {
         Arc::new(secrets)
     }
 
+    const NO_ATTRIBUTION: Attribution = Attribution {
+        driver: None,
+        reporter: None,
+        owner: None,
+    };
+
     /// Inputs for the whole-chain test, with credentials pinned to the task's
     /// workspace.
     fn workspace_github_inputs<'a>(
@@ -755,7 +690,8 @@ mod tests {
         TaskCredentialInputs {
             task_id: "t1",
             actor,
-            reporter_user_id: None,
+            attribution: &NO_ATTRIBUTION,
+            github_repository: None,
             secrets,
             git_host_tokens: Some(git_host_tokens),
             users: None,
@@ -1267,105 +1203,6 @@ mod tests {
         );
     }
 
-    /// A `CommitIdentity` reporting one git author identity for every lookup.
-    fn users_returning(
-        login: &'static str,
-        name: Option<&'static str>,
-        email: Option<&'static str>,
-        is_bot: bool,
-    ) -> Arc<dyn CommitIdentity> {
-        let mut users = MockCommitIdentity::new();
-        users.expect_git_identity().returning(move |_| {
-            Ok(Some(moatless_ports::identity::GitIdentity {
-                is_bot,
-                login: login.to_string(),
-                name: name.map(str::to_string),
-                email: email.map(str::to_string),
-            }))
-        });
-        Arc::new(users)
-    }
-
-    async fn co_author_of(users: &Arc<dyn CommitIdentity>) -> Option<String> {
-        let mut credentials = HashMap::new();
-        fill_co_author(&mut credentials, Some(users), "ada").await;
-        credentials.remove(GIT_CO_AUTHOR)
-    }
-
-    #[tokio::test]
-    async fn the_person_behind_a_run_as_identity_is_the_co_author() {
-        let named = users_returning("ada", Some("Ada Lovelace"), Some("ada@example.com"), false);
-        assert_eq!(
-            co_author_of(&named).await.as_deref(),
-            Some("Ada Lovelace <ada@example.com>")
-        );
-        let unnamed = users_returning("ada", None, Some("ada@example.com"), false);
-        assert_eq!(
-            co_author_of(&unnamed).await.as_deref(),
-            Some("ada <ada@example.com>"),
-            "a person with no account name is credited by login"
-        );
-    }
-
-    #[tokio::test]
-    async fn the_reporter_is_credited_without_changing_the_execution_identity() {
-        let mut users = MockCommitIdentity::new();
-        users.expect_git_identity().returning(|user| {
-            Ok(Some(moatless_ports::identity::GitIdentity {
-                is_bot: user == "bot",
-                login: user.to_string(),
-                name: Some(user.to_string()),
-                email: Some(format!("{user}@example.com")),
-            }))
-        });
-        let users: Arc<dyn CommitIdentity> = Arc::new(users);
-        let actor = Actor::of("bot").on_behalf_of(Some("current-driver"));
-
-        let credentials = resolve_task_credentials(TaskCredentialInputs {
-            task_id: "t1",
-            actor: &actor,
-            reporter_user_id: Some("reporter"),
-            secrets: None,
-            git_host_tokens: None,
-            users: Some(&users),
-            workspace_credentials: HashMap::new(),
-            workspace_env_vars: HashMap::new(),
-            gitlab_token_to_pods: true,
-        })
-        .await;
-
-        assert_eq!(
-            credentials.get(GIT_USER_NAME).map(String::as_str),
-            Some("bot")
-        );
-        assert_eq!(
-            credentials.get(GIT_USER_EMAIL).map(String::as_str),
-            Some("bot@example.com")
-        );
-        assert_eq!(
-            credentials.get(GIT_CO_AUTHOR).map(String::as_str),
-            Some("reporter <reporter@example.com>")
-        );
-        assert_eq!(actor.person(), Some("current-driver"));
-    }
-
-    #[tokio::test]
-    async fn no_co_author_without_an_address_github_can_credit() {
-        for users in [
-            users_returning("ada", Some("Ada"), None, false),
-            users_returning("bot", Some("Bot"), Some("bot@example.com"), true),
-            users_returning(
-                "ada",
-                Some("Ada\nSigned-off-by: x"),
-                Some("ada@example.com"),
-                false,
-            ),
-            users_returning("ada", Some("Ada"), Some("ada@example.com> <x@y"), false),
-        ] {
-            assert_eq!(co_author_of(&users).await, None);
-        }
-    }
-
     #[test]
     fn only_the_backend_names_a_co_author() {
         assert!(is_platform_owned_key(GIT_CO_AUTHOR));
@@ -1378,88 +1215,5 @@ mod tests {
             )]),
         );
         assert!(credentials.is_empty());
-    }
-
-    #[tokio::test]
-    async fn human_user_name_and_email_override() {
-        // A regular (non-bot) user with both an account name and email should
-        // have both flow through as GIT_USER_NAME / GIT_USER_EMAIL.
-        let users = users_returning(
-            "alice",
-            Some("Alice Example"),
-            Some("alice@example.com"),
-            /* is_bot */ false,
-        );
-
-        let mut credentials = HashMap::new();
-        fill_git_identity(&mut credentials, Some(&users), "u1").await;
-
-        assert_eq!(
-            credentials.get(GIT_USER_NAME).map(String::as_str),
-            Some("Alice Example")
-        );
-        assert_eq!(
-            credentials.get(GIT_USER_EMAIL).map(String::as_str),
-            Some("alice@example.com")
-        );
-    }
-
-    #[tokio::test]
-    async fn human_user_without_a_name_commits_under_their_login() {
-        let users = users_returning(
-            "alice",
-            None,
-            Some("alice@example.com"),
-            /* is_bot */ false,
-        );
-
-        let mut credentials = HashMap::new();
-        fill_git_identity(&mut credentials, Some(&users), "u1").await;
-
-        assert_eq!(
-            credentials.get(GIT_USER_EMAIL).map(String::as_str),
-            Some("alice@example.com")
-        );
-        assert_eq!(
-            credentials.get(GIT_USER_NAME).map(String::as_str),
-            Some("alice")
-        );
-    }
-
-    #[tokio::test]
-    async fn human_user_without_an_email_leaves_it_to_the_sandbox() {
-        let users = users_returning("alice", None, None, /* is_bot */ false);
-
-        let mut credentials = HashMap::new();
-        fill_git_identity(&mut credentials, Some(&users), "u1").await;
-
-        assert!(!credentials.contains_key(GIT_USER_EMAIL));
-        assert_eq!(
-            credentials.get(GIT_USER_NAME).map(String::as_str),
-            Some("alice")
-        );
-    }
-
-    #[tokio::test]
-    async fn bot_user_sets_login_name_and_email() {
-        // Bots keep the existing behavior: name is the login, plus email.
-        let users = users_returning(
-            "acme[bot]",
-            None,
-            Some("acme[bot]@users.noreply.github.com"),
-            /* is_bot */ true,
-        );
-
-        let mut credentials = HashMap::new();
-        fill_git_identity(&mut credentials, Some(&users), "u1").await;
-
-        assert_eq!(
-            credentials.get(GIT_USER_NAME).map(String::as_str),
-            Some("acme[bot]")
-        );
-        assert_eq!(
-            credentials.get(GIT_USER_EMAIL).map(String::as_str),
-            Some("acme[bot]@users.noreply.github.com")
-        );
     }
 }

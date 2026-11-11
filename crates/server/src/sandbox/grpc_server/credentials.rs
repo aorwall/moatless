@@ -1,5 +1,7 @@
 //! The credentials a sandbox is issued.
 
+use std::sync::Arc;
+
 use tonic::{Request, Response, Status};
 use tracing::{debug, info, warn};
 
@@ -14,6 +16,8 @@ use moatless_core::sandbox_jwt as jwt;
 use moatless_core::secret_keys;
 use moatless_types::access_control::{Actor, ScopeContext};
 use moatless_types::credential_key;
+use moatless_workspace_ports::WorkspaceResolver;
+use moatless_workspace_types::repository::{GitHostRepo, RepositoryProvider};
 
 use super::authorize::TaskGrant;
 use super::state::BackendSandboxServiceImpl;
@@ -76,6 +80,29 @@ async fn task_actor(
         person,
     )
     .await
+}
+
+/// The Workspace's primary repository, its first placement, when it is on
+/// GitHub; `None` when it is elsewhere or unreadable, which commits as the
+/// run-as identity.
+async fn primary_github_repository(
+    workspaces: &Arc<dyn WorkspaceResolver>,
+    workspace_id: &str,
+) -> Option<GitHostRepo> {
+    let placements = workspaces
+        .placements(workspace_id)
+        .await
+        .map_err(|error| {
+            warn!(%error, workspace_id, "Failed to read the workspace placements for the commit author");
+        })
+        .ok()?;
+    placements
+        .into_iter()
+        .next()?
+        .repository?
+        .remote?
+        .host_repo
+        .filter(|repo| repo.provider() == RepositoryProvider::Github)
 }
 
 /// Return credentials for sandbox initialization: the task token, the git
@@ -150,7 +177,15 @@ pub(super) async fn get_credentials(
         }
         None => None,
     };
-    let reporter_user_id = task.as_ref().and_then(|t| t.reporter_user_id.clone());
+    let attribution = targets
+        .identity
+        .attribution(task.as_ref().and_then(|t| t.reporter_user_id.clone()));
+    let github_repository = match (handlers, targets.workspace_id.as_deref()) {
+        (Some(handlers), Some(workspace_id)) => {
+            primary_github_repository(&handlers.workspace_resolver, workspace_id).await
+        }
+        _ => None,
+    };
     // Workspace-scoped configuration travels on this channel and not only the
     // pod spec: the per-turn map overlays the pod env, so a workspace var
     // delivered solely through the plan loses to a user- or global-scoped secret.
@@ -162,7 +197,8 @@ pub(super) async fn get_credentials(
     let mut credentials = resolve_task_credentials(TaskCredentialInputs {
         task_id: &req.task_id,
         actor: &actor,
-        reporter_user_id: reporter_user_id.as_deref(),
+        attribution: &attribution,
+        github_repository: github_repository.as_ref(),
         secrets: handlers.map(|h| &h.secrets),
         git_host_tokens: handlers.map(|h| &h.git_host_tokens),
         users: handlers.map(|h| &h.commit_identity),

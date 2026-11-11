@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use moatless_types::store::StoreError;
 
 /// The git author identity a user's commits and pushes attribute to.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitIdentity {
     pub is_bot: bool,
     pub login: String,

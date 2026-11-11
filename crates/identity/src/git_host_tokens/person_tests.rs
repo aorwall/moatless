@@ -71,6 +71,14 @@ async fn github() -> (SocketAddr, Requests) {
                 }
             }),
         )
+        .route(
+            "/app",
+            get(|| async { Json(serde_json::json!({ "slug": "moatless" })) }),
+        )
+        .route(
+            "/users/{login}",
+            get(|| async { Json(serde_json::json!({ "id": 99 })) }),
+        )
         .with_state(requests.clone());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -359,4 +367,57 @@ async fn an_app_sign_in_recording_no_login_asks_to_reconnect() {
         .await
         .expect_err("no driver to credit");
     assert!(error.to_string().contains("reconnect GitHub"), "{error}");
+}
+
+#[tokio::test]
+async fn a_person_signed_in_through_the_app_commits_as_the_app_bot() {
+    let (tokens, _) = issuer(&[("u_ada", person_row("ada"))]).await;
+
+    let author = tokens
+        .github_app_commit_author(&Actor::of("u_ada"), "acme", "repo")
+        .await
+        .unwrap()
+        .expect("the App authors what it pushes");
+
+    assert!(author.is_bot);
+    assert_eq!(author.login, "moatless[bot]");
+    assert_eq!(
+        author.email.as_deref(),
+        Some("99+moatless[bot]@users.noreply.github.com")
+    );
+}
+
+#[tokio::test]
+async fn a_bot_running_a_persons_work_commits_as_itself() {
+    let (tokens, _) = issuer(&[("u_ada", person_row("ada"))]).await;
+    let actor = Actor::of("review-bot").on_behalf_of(Some("u_ada"));
+
+    let author = tokens
+        .github_app_commit_author(&actor, "acme", "repo")
+        .await
+        .unwrap();
+
+    assert_eq!(author, None);
+}
+
+#[tokio::test]
+async fn a_connected_person_has_a_noreply_address_github_credits() {
+    let mut ada = person_row("ada");
+    ada.provider_user_id = Some("1234".to_string());
+    let (tokens, _) = issuer(&[("u_ada", ada), ("u_eve", person_row("eve"))]).await;
+
+    assert_eq!(
+        tokens
+            .github_noreply_email("u_ada")
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("1234+ada@users.noreply.github.com")
+    );
+    assert_eq!(
+        tokens.github_noreply_email("u_eve").await.unwrap(),
+        None,
+        "no numeric GitHub id to address"
+    );
+    assert_eq!(tokens.github_noreply_email("u_nobody").await.unwrap(), None);
 }

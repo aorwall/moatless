@@ -10,7 +10,9 @@ use tracing::warn;
 
 use crate::git_credential_overrides::GitCredentialOverrides;
 use moatless_core::secret_keys::{GITHUB_TOKEN, forgejo_token_key};
-use moatless_ports::identity::{AppAuthoredToken, GitHostTokenError, GitHostTokenIssuer};
+use moatless_ports::identity::{
+    AppAuthoredToken, GitHostTokenError, GitHostTokenIssuer, GitIdentity,
+};
 use moatless_types::git_host::{GitHostAccount, RepositoryProvider};
 use moatless_types::store::StoreError;
 
@@ -823,6 +825,58 @@ impl GitHostTokenIssuer for GitHostTokens {
     ) -> Result<Option<AppAuthoredToken>, GitHostTokenError> {
         self.app_authored_token(actor, owner, repository).await
     }
+
+    async fn github_app_commit_author(
+        &self,
+        actor: &Actor,
+        owner: &str,
+        repository: &str,
+    ) -> Result<Option<GitIdentity>, GitHostTokenError> {
+        if self
+            .app_authored_token(actor, owner, repository)
+            .await?
+            .is_none()
+        {
+            return Ok(None);
+        }
+        // `app_authored_token` answers only with the login App configured.
+        let Some(app) = self.github_apps.default_service() else {
+            return Ok(None);
+        };
+        let bot = app.get_bot_identity().await.map_err(|e| {
+            broken(
+                actor,
+                &format!("the GitHub App's bot identity is unreadable: {e}"),
+            )
+        })?;
+        Ok(Some(GitIdentity {
+            is_bot: true,
+            name: Some(bot.login.clone()),
+            login: bot.login,
+            email: Some(bot.email),
+        }))
+    }
+
+    async fn github_noreply_email(&self, user_id: &str) -> Result<Option<String>, StoreError> {
+        let row = self
+            .provider_tokens
+            .find_github_row(user_id)
+            .await
+            .map_err(|e| StoreError::with_source(format!("read {user_id}'s GitHub row"), e))?;
+        Ok(row.as_ref().and_then(noreply_email))
+    }
+}
+
+/// The noreply address GitHub links to `row`'s account: its numeric id and
+/// login, as GitHub's own `{id}+{login}@users.noreply.github.com`.
+fn noreply_email(row: &ProviderToken) -> Option<String> {
+    let id = row
+        .provider_user_id
+        .as_deref()
+        .filter(|id| !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()))?;
+    let login = github_login(row)
+        .filter(|login| login.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))?;
+    Some(format!("{id}+{login}@users.noreply.github.com"))
 }
 
 #[cfg(test)]

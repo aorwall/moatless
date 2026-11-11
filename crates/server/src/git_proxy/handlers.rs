@@ -371,16 +371,11 @@ async fn resolve(
 ) -> Result<Upstream, GitProxyError> {
     let token = basic_password(headers)
         .ok_or_else(|| GitProxyError::Unauthorized("No task token was presented".to_string()))?;
+    let push = service == GitService::ReceivePack;
     let upstream = match target {
-        Target::Registered(repository_id) => proxy.resolve(repository_id, &token).await?,
-        Target::GitHub { owner, name } => {
-            let push = service == GitService::ReceivePack;
-            proxy.resolve_github(owner, name, &token, push).await?
-        }
-        Target::GitLab { host, path } => {
-            let push = service == GitService::ReceivePack;
-            proxy.resolve_gitlab(host, path, &token, push).await?
-        }
+        Target::Registered(repository_id) => proxy.resolve(repository_id, &token, push).await?,
+        Target::GitHub { owner, name } => proxy.resolve_github(owner, name, &token, push).await?,
+        Target::GitLab { host, path } => proxy.resolve_gitlab(host, path, &token, push).await?,
     };
     info!(
         repository = %target.label(),

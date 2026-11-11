@@ -3,6 +3,8 @@ use moatless_types::access_control::Actor;
 use moatless_types::git_host::{GitHostAccount, RepositoryProvider};
 use moatless_types::store::StoreError;
 
+use super::GitIdentity;
+
 /// Why an identity has no usable token for a repository.
 ///
 /// [`Self::NoCredential`] is the only "not connected" answer; a dangling
@@ -87,6 +89,26 @@ pub trait GitHostTokenIssuer: Send + Sync {
         _owner: &str,
         _repository: &str,
     ) -> Result<Option<AppAuthoredToken>, GitHostTokenError> {
+        Ok(None)
+    }
+
+    /// The git author of commits `actor` makes for `owner/repository`: the
+    /// bot of the App that [`Self::github_app_authored`] pushes them with.
+    ///
+    /// `Ok(None)` when that push would present `actor`'s own token instead.
+    async fn github_app_commit_author(
+        &self,
+        _actor: &Actor,
+        _owner: &str,
+        _repository: &str,
+    ) -> Result<Option<GitIdentity>, GitHostTokenError> {
+        Ok(None)
+    }
+
+    /// `user_id`'s `{id}+{login}@users.noreply.github.com`, which GitHub links
+    /// to their account whatever emails they have verified; `Ok(None)` when
+    /// they have not connected GitHub.
+    async fn github_noreply_email(&self, _user_id: &str) -> Result<Option<String>, StoreError> {
         Ok(None)
     }
 }

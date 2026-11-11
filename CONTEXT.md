@@ -420,8 +420,8 @@ message (falls back to the Loop's user)
 **Reporter**:
 The verified person who requested a Loop-created Task's work, recorded as
 `reporter_user_id` independently of its `created_by` attribution and personal
-follows. Used for commit co-authorship and the default "Reported by" attribution
-on Linear issues the Task files. Scheduled and unmapped events have no Reporter.
+follows. Used for commit co-authorship, after a person who drives the Task,
+and the default "Reported by" attribution on Linear issues the Task files. Scheduled and unmapped events have no Reporter.
 
 **Check-run trigger**:
 A completed GitHub check run, from a trusted App and matching a `github_pr`

@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use crate::commit_author::Attribution;
 use moatless_types::store::StoreError;
 
 use super::dao::LifecycleDao;
@@ -18,6 +19,20 @@ pub struct SandboxIdentity {
     pub pinned_run_as: Option<String>,
     /// The driver, else the owner: the person the Sandbox acts for.
     pub acting_user_id: Option<String>,
+    /// See [`super::dao::SandboxShape::driver_user_id`].
+    pub driver_user_id: Option<String>,
+    pub owner_user_id: Option<String>,
+}
+
+impl SandboxIdentity {
+    /// Who the Sandbox's outward writes credit, given its Task's Reporter.
+    pub fn attribution(&self, reporter: Option<String>) -> Attribution {
+        Attribution {
+            driver: self.driver_user_id.clone(),
+            reporter,
+            owner: self.owner_user_id.clone(),
+        }
+    }
 }
 
 /// What the Sandbox's gRPC service reads off its own row, beside the intent
@@ -60,6 +75,8 @@ impl SandboxIngress {
                 run_as_user_id: shape.run_as_user_id.clone(),
                 pinned_run_as: shape.pinned_run_as().map(str::to_string),
                 acting_user_id: shape.acting_user_id().map(str::to_string),
+                driver_user_id: shape.driver_user_id.clone(),
+                owner_user_id: shape.owner_user_id.clone(),
             }))
     }
 

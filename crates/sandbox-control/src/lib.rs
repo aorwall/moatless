@@ -14,6 +14,7 @@
 //! named traits: `moatless-identity`/`moatless-workspaces` aren't real deps.
 
 pub mod auto_provision;
+pub mod commit_author;
 pub mod compose;
 pub mod event_dedup;
 pub mod file_handlers;

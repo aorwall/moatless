@@ -2,7 +2,8 @@
 //! told to add them.
 //!
 //! The backend sends [`GIT_CO_AUTHOR`] only when the sandbox commits as an
-//! identity other than the Task's owner, so its absence means nobody to credit.
+//! identity other than the person the Task credits, so its absence means
+//! nobody to credit.
 
 use std::collections::HashMap;
 
