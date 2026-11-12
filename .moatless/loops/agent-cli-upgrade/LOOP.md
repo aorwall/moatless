@@ -153,7 +153,9 @@ Act on each line of its `== changes` section, `alias: ours -> latest`:
    `(>pin)` against the pin this run ends with, and `routable` must be `yes`.
 
    When either fails, leave the alias and say which in the PR body. A model the
-   proxy does not list fails every turn that picks it.
+   proxy does not list fails every turn that picks it. `routable` reads a model
+   list, so `yes` is only a hint: the moved id must still answer in section 4's
+   Claude transport run.
 2. **Set `ClaudeModel::api_id` to `latest` and `label` to the probe's `name`
    verbatim.**
 
@@ -210,7 +212,7 @@ CLIs into a temp prefix and point the transport E2E at them.
 
 Install both even when only one moved — the other's version is then the pin
 already in `cli-versions.env`, which keeps one command shape for every run.
-Which transport gates the PR is the rule below the block. When section 3b moved
+Which transport gates which CLI is the rule below the block. When section 3b moved
 an alias, set `CLAUDE_TEST_MODEL` to the new id, so the run proves the model
 answers through the CLI and not only through `curl`.
 
@@ -235,31 +237,41 @@ verifies the pin already in the image.
 transport, so skipping them leaves that transport unverified — say so in the PR
 body rather than implying the whole suite ran.
 
-Both CLIs run on the proxy this pod already points them at. The environment
-holds `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, `OPENAI_BASE_URL` and
-`OPENAI_API_KEY`, and the harness renders the routed Codex `config.toml` from
-them. Export no further credential, and keep the `unset` in the block: the
+Both CLIs run on the backend's model gateway, the way a pod's agents do: the
+harness's `gateway()` reads `BACKEND_API_URL` and the task token in
+`/run/moatless/.user_auth_token`. This pod's `ANTHROPIC_API_KEY` and
+`OPENAI_API_KEY` may be set but empty; the gateway path does not need them.
+Export no further credential, and keep the `unset` in the block: the
 backend injects the task user's `CODEX_AUTH_JSON` into this pod, and it or a
 `CLAUDE_CODE_OAUTH_TOKEN` sends the CLI to `api.openai.com` or
-`api.anthropic.com`, which no deployment uses, and this pod's proxy key fails
-there. Never pass a credential on a command line, where `moat cmd list` would
-show it. A missing credential does not skip the test: Claude fails the turn and
-Codex 401s through five reconnects, so an empty variable reads as a broken CLI.
-Echo the four variables as non-empty before you trust a failure. A bump verified
-only by `clippy` is a bump nobody checked.
+`api.anthropic.com`, which no deployment uses. Never pass a credential on a
+command line, where `moat cmd list` would show it.
 
-**The gate covers the CLIs this run is bumping and the Claude models it
-moves, and only those.** When one CLI
-is already at `latest`, its transport is not evidence about this change: its
-result goes in the PR body as context, and a failure there does not hold the
-PR. A failing transport for a CLI you *are* bumping is the result of the run —
-report which CLI and which transport, open no PR, and do not work around it by
-reverting to the old pin.
+A missing credential does not skip the test, so it reads as a broken CLI.
+Before you trust a failure, check that `BACKEND_API_URL` is non-empty and the
+token file exists. Then ask the gateway for the model with `curl` and the token.
+`unknown provider for model` means the gateway has no account for that provider
+(see `docs/deferred-changes.md`), not that the CLI broke. A bump verified only by
+`clippy` is a bump nobody checked.
 
-That distinction is what a credential failure turns on. A dead credential for
-the CLI being bumped leaves the bump unverified, so it blocks. A dead credential
-for a CLI that is not moving blocks nothing — say so in the PR body, and file
-`moat feedback --category environment` so the sign-in gets repaired.
+**Gate each CLI on its own transport.** A CLI's bump ships only when its
+transport passed on the candidate binary. The Claude model moves from section
+3b ride on the Claude transport. One CLI failing never holds another CLI that
+passed: ship the ones that passed, and leave the one that failed at its old pin.
+
+Leave a held CLI's every pin copy at the old version, and for Codex, leave
+section 3's catalog changes out too. Name it in the PR body with the
+transport, the failure, and whether it was the CLI or a credential. A CLI
+already at `latest` is not on trial: its transport result is context for the
+PR body.
+
+When the cause is a credential or a gateway with no account for the provider,
+file `moat feedback --category environment` so it gets repaired, unless
+`docs/deferred-changes.md` already records it. When the CLI itself broke, a
+real regression, quote the error in the run's report.
+
+Open no PR only when every CLI you set out to bump was held and no Claude model
+moved. Then report each one's failure.
 
 **Never end this run by asking a question.** Nobody is watching a 06:00 schedule,
 so a run that stops for an answer stops until a person finds it. Decide with the
@@ -271,16 +283,18 @@ One commit, conventional-commit title, header at most 100 characters:
 
 ```
 chore: bump claude-code to <ver> and codex to <ver>
+chore: bump claude-code to <ver> and move <alias> to <model id>
 chore: move the claude catalog to <model ids>     # no pin moved
 ```
 
-Name only the CLIs that moved. Use no scope. The code-review loop's
-`ignored_title_patterns` skips `chore(deps`, and this PR needs a review before
-a human merges it.
+Name only the CLIs that moved, and leave a held CLI out of the title. Use no
+scope. The code-review loop's `ignored_title_patterns` skips `chore(deps`, and
+this PR needs a review before a human merges it.
 
 The body carries what a reviewer cannot get from the diff:
 
-- Both version ranges, old → new.
+- Each CLI's version range, old → new, or the published version it was held
+  at and why.
 - Every Codex model added, removed or re-defaulted, and the `model/list` field
   that says so. A changed `DEFAULT_CODEX_MODEL` is the line to lead with — it
   changes what every task running "Default" costs.
@@ -288,9 +302,7 @@ The body carries what a reviewer cannot get from the diff:
   alias the probe flagged but this run left, and why: `minCli` or `routable`.
 - Every price corrected without a model move, old → new.
 - The E2E result per transport: passed, failed, or not run for an explicitly
-  named reason. When the failure is a credential, section 4 says whether it
-  holds the PR: it does for a CLI this run bumps, and it does not for one
-  already at `latest`.
+  named reason. A failure holds only its own CLI (section 4).
 
 Create it with `moat gh pr create`, never bare `gh`.
 

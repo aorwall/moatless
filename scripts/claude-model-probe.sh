@@ -13,7 +13,8 @@
 #
 # `minCli` is the Claude Code version the model needs, which the pinned
 # `CLAUDE_CLI_VERSION` must reach; `routable` is whether the proxy at
-# `ANTHROPIC_BASE_URL` lists it. The Anthropic pricing rows for each `latest`
+# `ANTHROPIC_BASE_URL`, or else the backend gateway, lists it (`?`: neither
+# answered). The Anthropic pricing rows for each `latest`
 # name follow, beside the price the catalog charges now.
 
 set -euo pipefail
@@ -62,6 +63,14 @@ routable_ids=""
 if [ -n "${ANTHROPIC_BASE_URL:-}" ] && [ -n "${ANTHROPIC_API_KEY:-}" ]; then
   routable_ids=$(curl -fsS -m 30 "$ANTHROPIC_BASE_URL/v1/models?limit=1000" \
     -H "x-api-key: $ANTHROPIC_API_KEY" -H "anthropic-version: 2023-06-01" \
+    | jq -r '.data[].id' 2>/dev/null || true)
+fi
+# The backend gateway's Anthropic route has no `/v1/models`, and a pod's key
+# variables can be empty, so ask its OpenAI-side list with the task token.
+token_file=${MOATLESS_E2E_TOKEN_FILE:-/run/moatless/.user_auth_token}
+if [ -z "$routable_ids" ] && [ -n "${BACKEND_API_URL:-}" ] && [ -s "$token_file" ]; then
+  routable_ids=$(curl -fsS -m 30 "$BACKEND_API_URL/llm/openai/v1/models" \
+    -H "Authorization: Bearer $(cat "$token_file")" \
     | jq -r '.data[].id' 2>/dev/null || true)
 fi
 
