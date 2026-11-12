@@ -4,7 +4,10 @@ use moatless_types::adapter::Audience;
 use moatless_types::loops::RoutingMode;
 use moatless_types::loops::SubscriptionMatch;
 
-use super::{IgnoredWebhook, NormalizeContext, PrimaryWebhook, normalize, title_is_ignored};
+use super::{
+    IgnoredWebhook, NormalizeContext, PrimaryWebhook, filter_event, normalize, title_is_ignored,
+};
+use crate::config::{FilterKey, GithubPrRuleConfig, MERGE_CONFLICT};
 use crate::status::WebhookStatusObservation;
 
 /// An identity port with nothing in it: normalization attributes an unmapped
@@ -472,7 +475,8 @@ async fn ignoring_the_merge_notice_leaves_the_close_alone() {
     rule.adapter_config = Some(serde_json::json!({"ignored_events": ["pr_merged"]}));
     let normalized = normalize_payload("pull_request", &payload, &rule).await;
 
-    assert!(normalized.merged_candidate.is_none());
+    // Still derived: the loop's filter mutes only its own Tasks, at routing.
+    assert!(normalized.merged_candidate.is_some());
     assert!(matches!(
         normalized.primary,
         Ok(PrimaryWebhook::CloseTask(_))
@@ -537,11 +541,11 @@ async fn review_verdict_preserves_observation_message_and_audience() {
     assert!(message.text.contains("Changes Requested"));
 }
 
-/// A review loop that ignores `review_verdict` gets no turn for a body-less
-/// approval, but the PR's review status still records it, and a verdict that
-/// says something is still delivered.
+/// A review loop that ignores `review_verdict` mutes a body-less approval for
+/// its own Tasks only: the message is still produced for the PR's author, the
+/// review status records it, and a verdict that says something is not muted.
 #[tokio::test]
-async fn an_ignored_review_verdict_drops_only_body_less_verdicts() {
+async fn an_ignored_review_verdict_mutes_only_body_less_verdicts() {
     let mut rule = fake_rule();
     rule.adapter_config = Some(serde_json::json!({"ignored_events": ["review_verdict"]}));
     let review = |body: &str| {
@@ -553,15 +557,22 @@ async fn an_ignored_review_verdict_drops_only_body_less_verdicts() {
         })
     };
 
+    let config = GithubPrRuleConfig::from_rule(&rule);
+    let mutes = |payload: &serde_json::Value| {
+        config.mutes(&FilterKey::new(
+            filter_event("pull_request_review", payload),
+            "reviewer",
+        ))
+    };
+
     let bare = normalize_payload("pull_request_review", &review(""), &rule).await;
     assert_eq!(bare.status_observations.len(), 1);
-    assert!(matches!(
-        bare.primary,
-        Ok(PrimaryWebhook::Ignore(IgnoredWebhook::EventFiltered))
-    ));
+    assert!(message(bare.primary).text.contains("Approved"));
+    assert!(mutes(&review("")));
 
     let with_body = normalize_payload("pull_request_review", &review("ship it"), &rule).await;
     assert!(message(with_body.primary).text.contains("ship it"));
+    assert!(!mutes(&review("ship it")));
 }
 
 /// Naming `pull_request_review` in the include list keeps body-less verdicts:
@@ -739,7 +750,7 @@ async fn partial_pr_payload_retains_observation_before_documented_no_effect_prim
 }
 
 #[tokio::test]
-async fn config_filters_return_reasons_and_suppress_all_candidates() {
+async fn only_a_default_ignored_sender_suppresses_the_message() {
     let payload = serde_json::json!({
         "action": "opened",
         "sender": {"login": "linear-code[bot]"},
@@ -759,16 +770,17 @@ async fn config_filters_return_reasons_and_suppress_all_candidates() {
         "sender": {"login": "alice"},
         "pull_request": {"number": 42}
     });
+    // An include list shapes only the loop's own Tasks' inbox, so the message
+    // and its derived work are still produced for every other Task.
     let mut rule = fake_rule();
     rule.event_filter = serde_json::json!(["issue_comment"]);
     let filtered = normalize_payload("pull_request", &accepted_sender, &rule).await;
-    assert!(matches!(
-        filtered.primary,
-        Ok(PrimaryWebhook::Ignore(IgnoredWebhook::EventFiltered))
-    ));
-    // Neither derived signal is allowlisted either, so nothing is scheduled.
-    assert!(filtered.post_merge_candidate.is_none());
-    assert!(filtered.merge_conflict_candidate.is_none());
+    assert!(matches!(filtered.primary, Ok(PrimaryWebhook::Message(_))));
+    assert!(filtered.merge_conflict_candidate.is_some());
+    let config = GithubPrRuleConfig::from_rule(&rule);
+    assert!(config.mutes(&FilterKey::new("pull_request", "alice")));
+    assert!(config.mutes(&FilterKey::new(MERGE_CONFLICT, "alice")));
+    assert!(!config.mutes(&FilterKey::new("issue_comment", "alice")));
 }
 
 #[tokio::test]
@@ -783,10 +795,14 @@ async fn ignoring_a_derived_signal_keeps_the_events_it_is_derived_from() {
     rule.adapter_config = Some(serde_json::json!({"ignored_events": ["merge_conflict"]}));
     let normalized = normalize_payload("pull_request", &payload, &rule).await;
 
-    // The conflict check is not scheduled — no GitHub call, no FYI message...
-    assert!(normalized.merge_conflict_candidate.is_none());
-    // ...while the PR event itself still produces its message.
+    // The conflict check is still scheduled for the PR's author; only the
+    // loop's own Tasks are muted...
+    assert!(normalized.merge_conflict_candidate.is_some());
+    let config = GithubPrRuleConfig::from_rule(&rule);
+    assert!(config.mutes(&FilterKey::new(MERGE_CONFLICT, "alice")));
+    // ...while the PR event itself reaches them too.
     assert!(matches!(normalized.primary, Ok(PrimaryWebhook::Message(_))));
+    assert!(!config.mutes(&FilterKey::new("pull_request", "alice")));
 }
 
 #[tokio::test]
@@ -813,11 +829,10 @@ async fn allowlisting_only_a_derived_signal_still_schedules_it() {
             .pr_number,
         42
     );
-    // The pull_request message itself is not allowlisted, so it stays filtered.
-    assert!(matches!(
-        normalized.primary,
-        Ok(PrimaryWebhook::Ignore(IgnoredWebhook::EventFiltered))
-    ));
+    // The pull_request message is produced for other Tasks, and muted for
+    // the loop's own.
+    assert!(matches!(normalized.primary, Ok(PrimaryWebhook::Message(_))));
+    assert!(GithubPrRuleConfig::from_rule(&rule).mutes(&FilterKey::new("pull_request", "alice")));
 }
 
 #[tokio::test]
@@ -934,9 +949,10 @@ fn the_pull_request_author_is_read_from_whichever_row_the_event_carries() {
 }
 
 /// A CI bot both comments and pushes baseline commits: scoping its ignore to
-/// `issue_comment` must still deliver the push a review has to see.
+/// `issue_comment` mutes its comments for the loop's own Tasks, while the
+/// comment still reaches the PR's author and the push reaches everyone.
 #[tokio::test]
-async fn a_scoped_ignored_sender_drops_its_comments_but_not_its_pushes() {
+async fn a_scoped_ignored_sender_mutes_its_comments_but_not_its_pushes() {
     let mut rule = fake_rule();
     rule.adapter_config = Some(serde_json::json!({"ignored_senders": [
         {"login": "github-actions[bot]", "events": ["issue_comment"]}
@@ -951,8 +967,11 @@ async fn a_scoped_ignored_sender_drops_its_comments_but_not_its_pushes() {
         normalize_payload("issue_comment", &comment, &rule)
             .await
             .primary,
-        Ok(PrimaryWebhook::Ignore(IgnoredWebhook::IgnoredSender))
+        Ok(PrimaryWebhook::Message(_))
     ));
+    let config = GithubPrRuleConfig::from_rule(&rule);
+    assert!(config.mutes(&FilterKey::new("issue_comment", "github-actions[bot]")));
+    assert!(!config.mutes(&FilterKey::new("pull_request", "github-actions[bot]")));
 
     let push = serde_json::json!({
         "action": "synchronize",

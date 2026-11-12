@@ -191,6 +191,7 @@ impl GithubPrInboundRouter {
         &self,
         connection: &AdapterConnection,
         rule: &SubscriptionMatch,
+        filter: &crate::config::FilterKey,
         execution: &Execution,
     ) -> Result<(), AdapterError> {
         let Some(adapter) = self.adapter.as_ref() else {
@@ -312,7 +313,10 @@ impl GithubPrInboundRouter {
         };
 
         info!(subject_key, "Delivering post-merge CI notification");
-        if let Err(error) = self.route_event(connection, Some(rule), notice).await {
+        if let Err(error) = self
+            .route_event(connection, Some(rule), filter, notice)
+            .await
+        {
             warn!(
                 subject_key,
                 %error,

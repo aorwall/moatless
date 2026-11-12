@@ -81,6 +81,10 @@ pub(crate) struct DeliveryContext {
     /// `owner/repo`, used to synthesize the delivery-only loop config when the
     /// repo has no subscription of its own.
     pub(crate) repo_full_name: String,
+    /// What each bound Task's own loop filters this work's message against.
+    /// Absent on a record admitted before it existed, which mutes nothing.
+    #[serde(default, skip_serializing_if = "crate::config::FilterKey::is_unset")]
+    pub(crate) filter: crate::config::FilterKey,
 }
 
 impl DeliveryContext {
@@ -235,7 +239,12 @@ async fn execute_pr_message(
 ) -> Result<(), AdapterDeliveryFailure> {
     let (connection, trigger) = payload.context.resolve(&router).await?;
     router
-        .route_event(&connection, trigger.as_ref(), payload.message)
+        .route_event(
+            &connection,
+            trigger.as_ref(),
+            &payload.context.filter,
+            payload.message,
+        )
         .await
         .map_err(AdapterDeliveryFailure::from)
 }
@@ -278,7 +287,12 @@ async fn execute_pr_merged(
         .context
         .rule_for_parse(&connection, trigger.as_ref());
     router
-        .run_pr_merged(&connection, &rule, &payload.execution)
+        .run_pr_merged(
+            &connection,
+            &rule,
+            &payload.context.filter,
+            &payload.execution,
+        )
         .await
         .map_err(AdapterDeliveryFailure::from)
 }
@@ -293,7 +307,12 @@ async fn execute_post_merge(
         .context
         .rule_for_parse(&connection, trigger.as_ref());
     router
-        .run_post_merge(&connection, &rule, &payload.execution)
+        .run_post_merge(
+            &connection,
+            &rule,
+            &payload.context.filter,
+            &payload.execution,
+        )
         .await
         .map_err(AdapterDeliveryFailure::from)
 }
@@ -308,7 +327,12 @@ async fn execute_merge_conflict(
         .context
         .rule_for_parse(&connection, trigger.as_ref());
     router
-        .run_merge_conflict(&connection, &rule, &payload.execution)
+        .run_merge_conflict(
+            &connection,
+            &rule,
+            &payload.context.filter,
+            &payload.execution,
+        )
         .await
         .map_err(AdapterDeliveryFailure::from)
 }
@@ -320,7 +344,12 @@ async fn execute_check_run(
 ) -> Result<(), AdapterDeliveryFailure> {
     let (connection, trigger) = payload.context.resolve(&router).await?;
     router
-        .run_check_run(&connection, trigger.as_ref(), &payload.execution)
+        .run_check_run(
+            &connection,
+            trigger.as_ref(),
+            &payload.context.filter,
+            &payload.execution,
+        )
         .await
         .map_err(AdapterDeliveryFailure::from)
 }
@@ -354,11 +383,14 @@ mod tests {
 
     use super::*;
 
+    use crate::config::FilterKey;
+
     fn context() -> DeliveryContext {
         DeliveryContext {
             connection_id: "conn-1".to_string(),
             loop_id: Some("trigger-1".to_string()),
             repo_full_name: "acme/widgets".to_string(),
+            filter: FilterKey::new("check_run", "octocat"),
         }
     }
 
@@ -567,6 +599,7 @@ mod tests {
         // unrounded.
         assert_eq!(back.execution.check_run_id, 103_925_595_227);
         assert_eq!(back.execution.annotations_count, 4);
+        assert_eq!(back.context.filter, FilterKey::new("check_run", "octocat"));
         assert_eq!(serde_json::to_value(&back).expect("serialize"), stored);
     }
 

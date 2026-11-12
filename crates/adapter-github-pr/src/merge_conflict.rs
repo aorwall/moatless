@@ -77,6 +77,7 @@ impl GithubPrInboundRouter {
         &self,
         connection: &AdapterConnection,
         rule: &SubscriptionMatch,
+        filter: &crate::config::FilterKey,
         execution: &Execution,
     ) -> Result<(), AdapterError> {
         let subject = GithubPrSubject::new(&execution.owner, &execution.repo, execution.pr_number);
@@ -161,32 +162,34 @@ impl GithubPrInboundRouter {
             replies_to: Vec::new(),
         };
 
-        self.record_state_and_notify(
-            connection,
-            rule,
-            &subject_key,
-            mergeable,
-            pr_is_open,
-            &conflict_message,
-        )
-        .await;
+        if !self.record_state(&subject_key, mergeable, pr_is_open).await {
+            return Ok(());
+        }
+        info!(subject_key, "Delivering merge-conflict notification");
+        if let Err(error) = self
+            .route_event(connection, Some(rule), filter, conflict_message)
+            .await
+        {
+            warn!(
+                subject_key,
+                %error,
+                "Failed to deliver merge-conflict notification"
+            );
+        }
         Ok(())
     }
 
-    /// Persist mergeability and notify only on an open PR's transition to
-    /// conflict.
+    /// Persist mergeability, and say whether this is an open PR's transition
+    /// to conflict, the only state worth a notice.
     ///
     /// Both are deliberately best-effort: the durable execution retries
     /// failures that prevent the check, not an FYI that was already decided.
-    async fn record_state_and_notify(
+    async fn record_state(
         &self,
-        connection: &AdapterConnection,
-        rule: &SubscriptionMatch,
         subject_key: &str,
         mergeable: MergeableState,
         pr_is_open: bool,
-        conflict_message: &InboundMessage,
-    ) {
+    ) -> bool {
         let binding_repo = self.task_bindings.clone();
         let bindings = match binding_repo
             .for_subject("github", "github_pr", subject_key)
@@ -199,7 +202,7 @@ impl GithubPrInboundRouter {
                     %error,
                     "Failed to load bindings for mergeable-state update"
                 );
-                return;
+                return false;
             }
         };
 
@@ -220,21 +223,7 @@ impl GithubPrInboundRouter {
             }
         }
 
-        if !(pr_is_open && mergeable.is_conflicted() && is_news) {
-            return;
-        }
-
-        info!(subject_key, "Delivering merge-conflict notification");
-        if let Err(error) = self
-            .route_event(connection, Some(rule), conflict_message.clone())
-            .await
-        {
-            warn!(
-                subject_key,
-                %error,
-                "Failed to deliver merge-conflict notification"
-            );
-        }
+        pr_is_open && mergeable.is_conflicted() && is_news
     }
 }
 

@@ -44,6 +44,7 @@ impl GithubPrInboundRouter {
         &self,
         connection: &AdapterConnection,
         trigger: Option<&SubscriptionMatch>,
+        filter: &crate::config::FilterKey,
         execution: &Execution,
     ) -> Result<(), AdapterError> {
         let mut message = execution.message.clone();
@@ -67,7 +68,7 @@ impl GithubPrInboundRouter {
             }
         }
 
-        self.route_event(connection, trigger, message).await
+        self.route_event(connection, trigger, filter, message).await
     }
 
     /// Read the annotations as the same user the notice is attributed to, which

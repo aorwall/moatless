@@ -23,7 +23,7 @@ use moatless_types::adapter::AdapterConnection;
 use moatless_types::loops::SubscriptionMatch;
 
 use super::adapter::GithubPrAdapter;
-use super::config::GithubPrRuleConfig;
+use super::config::{FilterKey, GithubPrRuleConfig};
 use super::webhook::{NormalizeContext, PrimaryWebhook};
 
 /// Transport facts extracted from one GitHub webhook request.
@@ -178,38 +178,13 @@ pub(crate) async fn receive(
         None => super::routing::delivery_only_rule(&connection, repo_full_name),
     };
 
-    // Global trigger policy gates the complete delivery, including primary,
-    // post-merge, and merge-conflict work. Normalization retains the same
-    // value-only checks so it is complete when exercised directly, and is also
-    // where the derived signals are filtered by their own names.
-    let rule_config = GithubPrRuleConfig::from_rule(&rule_for_parse);
+    // No loop filter gates the delivery here: each one applies only to the
+    // Tasks its own loop opened, in `GithubPrInboundRouter::unmuted`, so a
+    // Task bound by `moat gh pr create` still hears its CI fail.
     let sender_login = payload
         .pointer("/sender/login")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("");
-    // A filtered raw event can still be the carrier for a derived signal the
-    // loop named, so reject here only when nothing at all can come of it.
-    // Normalization applies the same filter per effect.
-    if rule_config.event_filtered_out(event_type)
-        && rule_config.event_filtered_out(super::config::MERGE_CONFLICT)
-        && rule_config.event_filtered_out(super::config::POST_MERGE)
-        && rule_config.event_filtered_out(super::config::PR_MERGED)
-        && rule_config.event_filtered_out(super::config::CHECK_RUN_TRIGGER)
-        && !super::webhook::is_pr_close(event_type, &payload)
-    {
-        debug!(
-            event_type,
-            "GitHub webhook ignored: event filtered by trigger"
-        );
-        return Ok(Outcome::ignored(event_type, "event_filtered"));
-    }
-    if rule_config.is_ignored_sender(sender_login) {
-        debug!(
-            sender_login,
-            event_type, "GitHub webhook ignored: sender in ignored_senders"
-        );
-        return Ok(Outcome::ignored(event_type, "ignored_sender"));
-    }
 
     let (owner, repo) = repo_full_name.split_once('/').ok_or_else(|| {
         ingress(SharedAdapterError::BadRequest("Missing repository.full_name".into()).into())
@@ -258,6 +233,14 @@ pub(crate) async fn receive(
         connection_id: connection.id.clone(),
         loop_id: rule.as_ref().map(|r| r.id.clone()),
         repo_full_name: repo_full_name.to_string(),
+        filter: FilterKey::new(
+            super::webhook::filter_event(event_type, &payload),
+            sender_login,
+        ),
+    };
+    let derived_context = |event: &str| super::delivery::DeliveryContext {
+        filter: FilterKey::new(event, sender_login),
+        ..delivery_context.clone()
     };
     let event_id = delivery_event_id(delivery_id, body);
     let mut plan = Vec::with_capacity(4);
@@ -356,7 +339,7 @@ pub(crate) async fn receive(
                 super::delivery::kind::PR_MERGED,
                 event_id.clone(),
                 &super::delivery::PrMergedDelivery {
-                    context: delivery_context.clone(),
+                    context: derived_context(super::config::PR_MERGED),
                     execution: super::merged::Execution {
                         owner: owner.to_string(),
                         repo: repo.to_string(),
@@ -379,7 +362,7 @@ pub(crate) async fn receive(
                 super::delivery::kind::POST_MERGE,
                 event_id.clone(),
                 &super::delivery::PostMergeDelivery {
-                    context: delivery_context.clone(),
+                    context: derived_context(super::config::POST_MERGE),
                     execution: super::post_merge::Execution {
                         // Kept alongside `repo_full_name` because the ingress path
                         // splits these facts before admission; the durable
@@ -406,7 +389,7 @@ pub(crate) async fn receive(
                 super::delivery::kind::MERGE_CONFLICT,
                 event_id,
                 &super::delivery::MergeConflictDelivery {
-                    context: delivery_context,
+                    context: derived_context(super::config::MERGE_CONFLICT),
                     execution: super::merge_conflict::Execution {
                         owner: owner.to_string(),
                         repo: repo.to_string(),

@@ -121,6 +121,26 @@ pub(super) fn pr_author_login(payload: &serde_json::Value) -> Option<&str> {
         .and_then(serde_json::Value::as_str)
 }
 
+/// The [`super::config::KNOWN_EVENTS`] name a loop's filters match this
+/// webhook's primary message under: [`super::config::REVIEW_VERDICT`] for a
+/// body-less approval or change request, else `event_type`.
+pub(super) fn filter_event<'a>(event_type: &'a str, payload: &serde_json::Value) -> &'a str {
+    let review = |key: &str| {
+        payload
+            .pointer(&format!("/review/{key}"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+    };
+    if event_type == "pull_request_review"
+        && review("body").is_empty()
+        && matches!(review("state"), "approved" | "changes_requested")
+    {
+        super::config::REVIEW_VERDICT
+    } else {
+        event_type
+    }
+}
+
 impl NormalizeContext<'_> {
     /// The pull request an event in this delivery happened on. Every id and
     /// subject key built here names the repository, so a number is never on its
@@ -147,34 +167,46 @@ pub(super) async fn normalize(
             "Loop names events that do not exist; they filter nothing"
         );
     }
-    // An ignored sender suppresses every effect of the event, derived included.
-    if config.is_ignored_sender(context.sender_login) {
+    let inert = super::config::inert_filter_entries(context.rule.adapter_config.as_ref());
+    if !inert.is_empty() {
+        warn!(
+            loop_id = %context.rule.id,
+            ?inert,
+            "Loop's ignored_senders or ignored_events holds entries that are not strings; \
+             they filter nothing"
+        );
+    }
+    // A default-ignored sender the loop did not opt back in to reaches no
+    // Task. Any other sender the loop ignores still reaches every other Task,
+    // so it gates only the loop's own effects: opening and closing its Tasks
+    // here, and its Tasks' inbox in `GithubPrInboundRouter::unmuted`.
+    let sender_ignored = config.is_ignored_sender(context.sender_login);
+    if sender_ignored
+        && super::config::FilterKey::new(event_type, context.sender_login)
+            .sender_is_default_ignored()
+    {
         return ignored(IgnoredWebhook::IgnoredSender);
     }
 
-    // Each derived signal is gated by its own name only. The raw event is just
-    // the carrier — a conflict has no webhook of its own — so filtering out the
-    // carrier's message must not cancel a signal the loop asked to receive.
-    let merge_conflict_candidate = (!config.event_filtered_out(super::config::MERGE_CONFLICT))
-        .then(|| super::merge_conflict::candidate(event_type, payload))
+    let merge_conflict_candidate = super::merge_conflict::candidate(event_type, payload);
+    let post_merge_candidate = super::post_merge::candidate(event_type, payload);
+    let merged_candidate = super::merged::candidate(event_type, payload);
+    let closed_candidate = (!sender_ignored)
+        .then(|| closed_candidate(event_type, payload, context))
         .flatten();
-    let post_merge_candidate = (!config.event_filtered_out(super::config::POST_MERGE))
-        .then(|| super::post_merge::candidate(event_type, payload))
-        .flatten();
-    let merged_candidate = (!config.event_filtered_out(super::config::PR_MERGED))
-        .then(|| super::merged::candidate(event_type, payload))
-        .flatten();
-    let closed_candidate = closed_candidate(event_type, payload, context);
     let mut status_observations = Vec::new();
 
-    let primary = if let Some(request) =
-        super::check_run_trigger::normalize(event_type, payload, context, &config)
-    {
+    let trigger = (!sender_ignored)
+        .then(|| super::check_run_trigger::normalize(event_type, payload, context, &config))
+        .flatten();
+    let primary = if let Some(request) = trigger {
         Ok(request)
-    } else if config.event_filtered_out(event_type) {
+    } else if is_pr_close(event_type, payload)
+        && (sender_ignored || config.event_filtered_out(event_type))
+    {
+        // Only the loop's own auto-close is withheld; `closed_candidate`
+        // still closes the Tasks whose Binding opted in.
         Ok(PrimaryWebhook::Ignore(IgnoredWebhook::EventFiltered))
-    } else if config.ignores_sender_event(context.sender_login, event_type) {
-        Ok(PrimaryWebhook::Ignore(IgnoredWebhook::IgnoredSender))
     } else {
         match event_type {
             "pull_request" => {
@@ -183,7 +215,7 @@ pub(super) async fn normalize(
             "issue_comment" => normalize_issue_comment(payload, context).await,
             "pull_request_review_comment" => normalize_review_comment(payload, context).await,
             "pull_request_review" => {
-                normalize_review(payload, context, &config, &mut status_observations).await
+                normalize_review(payload, context, &mut status_observations).await
             }
             "check_run" => normalize_check_run(payload, context).await,
             "check_suite" => normalize_check_suite(payload, context, &config).await,
@@ -561,7 +593,6 @@ async fn normalize_review_comment(
 async fn normalize_review(
     payload: &serde_json::Value,
     context: &NormalizeContext<'_>,
-    config: &GithubPrRuleConfig,
     observations: &mut Vec<WebhookStatusObservation>,
 ) -> Result<PrimaryWebhook, AdapterError> {
     if payload.get("action").and_then(serde_json::Value::as_str) != Some("submitted") {
@@ -599,11 +630,6 @@ async fn normalize_review(
     let is_verdict = matches!(review_state, "approved" | "changes_requested");
     if review_body.is_empty() && !is_verdict {
         return Ok(PrimaryWebhook::Ignore(IgnoredWebhook::EmptyReview));
-    }
-    // After the decision observation above, so an ignored verdict still
-    // updates the PR's review status.
-    if review_body.is_empty() && config.explicitly_ignores(super::config::REVIEW_VERDICT) {
-        return Ok(PrimaryWebhook::Ignore(IgnoredWebhook::EventFiltered));
     }
     let state_label = match review_state {
         "approved" => "Approved",

@@ -181,14 +181,20 @@ Notes:
   `messageBufferSeconds` caps the hold from the burst's first event (default
   60 for `github_pr`, off elsewhere); each event waits 10 s for the next. A
   brand-new task's first turn is never held.
-- A `github_pr` loop's `adapterConfig.ignored_events` also takes
-  `review_verdict`: an approval or change request with no body. Only the ignore
-  list reads it, so an include list naming `pull_request_review` keeps them.
-- An `ignored_senders` entry is a login, which drops every event from that
-  sender, or `{login, events}`, which drops only those events from it:
+- A `github_pr` loop's `eventFilter`, `adapterConfig.ignored_events` and
+  `adapterConfig.ignored_senders` filter only the tasks that loop opened. A task
+  bound some other way, such as the one that ran `moat gh pr create`, still gets
+  its CI failures, conflicts and post-merge notices. The loop's filters also
+  stop the loop opening or closing its own tasks.
+- An `ignored_senders` entry is a login, which filters every event from that
+  sender, or `{login, events}`, which filters only those events from it:
   `{login: github-actions[bot], events: [issue_comment, pull_request_review]}`
   silences a CI bot's comments while its pushes still wake the loop. An explicit
-  list replaces the `linear-code[bot]` default, so list it too.
+  list replaces the `linear-code[bot]` default, so list it too. An entry that is
+  neither is logged as a warning and filters nothing.
+- `ignored_events` also takes `review_verdict`: an approval or change request
+  with no body. Only the ignore list reads it, so an include list naming
+  `pull_request_review` keeps them.
 - `slack` loops resolve their **connection** from `teamId` (the Slack workspace id,
   e.g. `T0000000001`); if `teamId` is omitted and exactly one slack connection
   exists it's used, otherwise the loop is **skipped** with a reason. `sourceMatcher`

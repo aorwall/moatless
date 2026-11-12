@@ -107,7 +107,8 @@ impl CheckRunTriggerConfig {
 /// Extracted GitHub-specific knobs from an `SubscriptionMatch`.
 #[derive(Debug, Clone)]
 pub(super) struct GithubPrRuleConfig {
-    /// Events to process, named from [`KNOWN_EVENTS`]. Empty means all of them.
+    /// Events the loop's own Tasks receive, named from [`KNOWN_EVENTS`]. Empty
+    /// means all of them; see [`Self::mutes`].
     pub events_filter: Vec<String>,
     /// Events never processed, named from [`KNOWN_EVENTS`]. Applied after
     /// `events_filter`, so a name here wins over the same name there. Lets a
@@ -118,10 +119,10 @@ pub(super) struct GithubPrRuleConfig {
     /// Emit an inbound message when a `check_suite` completes successfully.
     /// Failures are always reported via `check_run` regardless of this flag.
     pub notify_on_success: bool,
-    /// Senders whose webhook events are dropped (case-insensitive against
-    /// `sender.login`). An entry without `events` drops ALL event types,
-    /// including `pull_request` opened/closed, so that sender can neither
-    /// create nor close tasks; see [`IgnoredSender`].
+    /// Senders whose events the loop's own Tasks never receive
+    /// (case-insensitive against `sender.login`). An entry without `events`
+    /// also stops that sender opening or closing the loop's Tasks; see
+    /// [`IgnoredSender`].
     pub ignored_senders: Vec<IgnoredSender>,
     /// Regex patterns matched case-insensitively against the PR title.
     ///
@@ -227,6 +228,92 @@ impl GithubPrRuleConfig {
             .iter()
             .filter(move |s| !sender.is_empty() && s.login.eq_ignore_ascii_case(sender))
     }
+
+    /// Whether this loop's filters keep `event` from the Tasks the loop opened.
+    ///
+    /// Never asked for any other Task: a loop's filters shape its own Tasks'
+    /// inbox, so applying them to a Task `moat gh pr create` bound would hide
+    /// that Task's CI failures from it.
+    pub(super) fn mutes(&self, event: &FilterKey) -> bool {
+        let event_muted = if event.event.is_empty() {
+            false
+        } else if event.event == REVIEW_VERDICT {
+            self.explicitly_ignores(REVIEW_VERDICT)
+                || self.event_filtered_out("pull_request_review")
+        } else {
+            self.event_filtered_out(&event.event)
+        };
+        // A verdict is a `pull_request_review`, so a scoped entry naming that
+        // event silences it too.
+        let sender_event = if event.event == REVIEW_VERDICT {
+            "pull_request_review"
+        } else {
+            &event.event
+        };
+        event_muted || self.ignores_sender_event(&event.sender, sender_event)
+    }
+}
+
+/// What a loop's event and sender filters are matched against, carried with a
+/// delivery so routing can apply each bound Task's own loop's filters.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct FilterKey {
+    /// A [`KNOWN_EVENTS`] name; empty for a delivery admitted before this
+    /// field existed, which no loop's filter mutes.
+    #[serde(default)]
+    pub(crate) event: String,
+    /// The webhook's `sender.login`.
+    #[serde(default)]
+    pub(crate) sender: String,
+}
+
+impl FilterKey {
+    pub(crate) fn new(event: &str, sender: &str) -> Self {
+        Self {
+            event: event.to_string(),
+            sender: sender.to_string(),
+        }
+    }
+
+    /// Whether this key is the one a record admitted without it reads as.
+    pub(crate) fn is_unset(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// Whether `sender` is one no Task hears from, whatever loop it came from.
+    pub(super) fn sender_is_default_ignored(&self) -> bool {
+        DEFAULT_IGNORED_SENDERS
+            .iter()
+            .any(|s| s.eq_ignore_ascii_case(&self.sender))
+    }
+}
+
+/// Entries of `ignored_events` that are not strings, and of `ignored_senders`
+/// that are neither a login nor an object with a string `login`.
+///
+/// Each one filters nothing, so the caller warns rather than let it read as a
+/// working filter.
+pub(super) fn inert_filter_entries(
+    adapter_config: Option<&serde_json::Value>,
+) -> Vec<&serde_json::Value> {
+    let entries = |key: &str| {
+        adapter_config
+            .and_then(|config| config.get(key))
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+    };
+    let sender_is_inert = |entry: &serde_json::Value| {
+        !entry.is_string()
+            && entry
+                .get("login")
+                .and_then(serde_json::Value::as_str)
+                .is_none()
+    };
+    entries("ignored_events")
+        .filter(|entry| !entry.is_string())
+        .chain(entries("ignored_senders").filter(|entry| sender_is_inert(entry)))
+        .collect()
 }
 
 /// Parse `ignored_senders` from a `adapter_config` JSONB value: absent key,
@@ -758,5 +845,59 @@ mod tests {
             ..trigger
         };
         assert!(any_conclusion.matches("gate", Some(7), "failure"));
+    }
+
+    /// A sender only the loop ignores mutes the loop's own Tasks, a scoped
+    /// entry only for the events it names, a verdict as a review; the check is
+    /// case-insensitive, like the list it reads.
+    #[test]
+    fn a_loop_ignored_sender_mutes_its_tasks() {
+        let rule = rule_with_adapter_config(
+            serde_json::json!([]),
+            false,
+            false,
+            Some(serde_json::json!({"ignored_senders": [
+                "renovate[bot]",
+                {"login": "github-actions[bot]", "events": ["issue_comment", "pull_request_review"]},
+            ]})),
+        );
+        let config = GithubPrRuleConfig::from_rule(&rule);
+        assert!(config.mutes(&FilterKey::new("pull_request", "Renovate[bot]")));
+        assert!(config.mutes(&FilterKey::new("issue_comment", "GitHub-Actions[bot]")));
+        assert!(config.mutes(&FilterKey::new(REVIEW_VERDICT, "github-actions[bot]")));
+        assert!(!config.mutes(&FilterKey::new("pull_request", "github-actions[bot]")));
+        assert!(!config.mutes(&FilterKey::new("issue_comment", "alice")));
+    }
+
+    /// A delivery admitted before `FilterKey` existed carries an empty event,
+    /// which an include list must not mute.
+    #[test]
+    fn an_empty_filter_key_mutes_nothing_an_include_list_names() {
+        let rule = rule_with(serde_json::json!(["check_run"]), false, false);
+        let config = GithubPrRuleConfig::from_rule(&rule);
+        assert!(config.mutes(&FilterKey::new("issue_comment", "")));
+        assert!(!config.mutes(&FilterKey::default()));
+    }
+
+    /// An entry the parser skips is reported rather than read as a working
+    /// filter; a scoped `{login, events}` sender is not one of them.
+    #[test]
+    fn unparsed_filter_entries_are_reported_as_inert() {
+        let config = serde_json::json!({
+            "ignored_senders": [
+                "linear-code[bot]",
+                {"login": "github-actions[bot]", "events": ["issue_comment"]},
+                {"events": ["issue_comment"]},
+            ],
+            "ignored_events": ["check_run", 7],
+        });
+        assert_eq!(
+            inert_filter_entries(Some(&config)),
+            [
+                &serde_json::json!(7),
+                &serde_json::json!({"events": ["issue_comment"]})
+            ]
+        );
+        assert!(inert_filter_entries(None).is_empty());
     }
 }

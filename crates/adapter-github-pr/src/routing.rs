@@ -1,6 +1,7 @@
 //! GitHub PR routing on top of provider connections, task loops, and task
 //! bindings.
 
+use std::collections::HashMap;
 use std::fmt::Write as _;
 
 use tracing::{debug, info, warn};
@@ -24,6 +25,7 @@ use moatless_types::loops::SubscriptionMatch;
 use moatless_types::task::TaskStatus;
 use moatless_types::task::Visibility;
 
+use super::config::{FilterKey, GithubPrRuleConfig};
 use super::router::GithubPrInboundRouter;
 use super::subject::GithubPrSubject;
 use super::webhook::PrCloseInfo;
@@ -119,8 +121,7 @@ fn bindings_holding_open(binding: &TaskBinding, rows: &[TaskBinding]) -> usize {
 /// Whether a pull request opening creates a Task under `rule`. Under a
 /// `create_on: check_run` loop only a trigger check run does.
 fn opening_creates_task(rule: &SubscriptionMatch) -> bool {
-    super::config::GithubPrRuleConfig::from_rule(rule).create_on
-        == super::config::CreateOn::PrOpened
+    GithubPrRuleConfig::from_rule(rule).create_on == super::config::CreateOn::PrOpened
 }
 
 /// What the event says of the task named as its author: that it opened the
@@ -163,6 +164,7 @@ impl GithubPrInboundRouter {
         &self,
         connection: &AdapterConnection,
         rule: Option<&SubscriptionMatch>,
+        filter: &FilterKey,
         mut msg: InboundMessage,
     ) -> Result<(), AdapterError> {
         if let Some(rule) = rule {
@@ -299,7 +301,9 @@ impl GithubPrInboundRouter {
         // and a task never receives back an event it is named as the author of.
         let is_pr_open_event = msg.external_event_id.as_deref().is_some_and(|id| {
             super::external_id::is_opened(id) || super::external_id::is_reopened(id)
-        }) && rule.is_none_or(opening_creates_task);
+        }) && rule.is_none_or(|rule| {
+            opening_creates_task(rule) && !GithubPrRuleConfig::from_rule(rule).mutes(filter)
+        });
 
         // The binding of a task this very event created, so the shared router can
         // tell it apart from one that was already bound.
@@ -397,6 +401,7 @@ impl GithubPrInboundRouter {
         // a second time.
         let bound = bindings.len();
         bindings.retain(|b| b.watching);
+        let bindings = self.unmuted(rule, filter, bindings).await?;
         if bindings.is_empty() && bound > 0 {
             debug!(
                 subject_key = %subject_key,
@@ -445,6 +450,62 @@ impl GithubPrInboundRouter {
         )
         .await?;
         Ok(())
+    }
+
+    /// `bindings` less those of Tasks a loop opened whose own loop filters
+    /// `filter` out. Every other Binding is kept whatever any loop filters; see
+    /// [`super::config::GithubPrRuleConfig::mutes`].
+    pub(super) async fn unmuted(
+        &self,
+        rule: Option<&SubscriptionMatch>,
+        filter: &FilterKey,
+        bindings: Vec<TaskBinding>,
+    ) -> Result<Vec<TaskBinding>, AdapterError> {
+        let mut configs: HashMap<String, Option<GithubPrRuleConfig>> = HashMap::new();
+        let mut kept = Vec::with_capacity(bindings.len());
+        for binding in bindings {
+            let Some(loop_id) = binding
+                .loop_id
+                .clone()
+                .filter(|_| binding.origin == ORIGIN_ADAPTER_EVENT)
+            else {
+                kept.push(binding);
+                continue;
+            };
+            if !configs.contains_key(&loop_id) {
+                let config = match rule.filter(|rule| rule.id == loop_id) {
+                    Some(rule) => Some(GithubPrRuleConfig::from_rule(rule)),
+                    None => self
+                        .loops
+                        .subscription(&loop_id)
+                        .await?
+                        .map(|rule| GithubPrRuleConfig::from_rule(&rule)),
+                };
+                configs.insert(loop_id.clone(), config);
+            }
+            if configs[&loop_id]
+                .as_ref()
+                .is_some_and(|config| config.mutes(filter))
+            {
+                info!(
+                    task_id = %binding.task_id,
+                    loop_id = %loop_id,
+                    event = %filter.event,
+                    sender = %filter.sender,
+                    "Withheld a GitHub event from a loop's Task: its loop filters the event out"
+                );
+                record_inbound(
+                    ADAPTER_LABEL,
+                    "ignored",
+                    inbound_reason::LOOP_FILTERED,
+                    &loop_id,
+                    &binding.connection_id,
+                );
+                continue;
+            }
+            kept.push(binding);
+        }
+        Ok(kept)
     }
 
     /// Close the Tasks [`closes_with_pr`] picks for this pull request.
@@ -1055,6 +1116,33 @@ pub(crate) mod tests {
                 Arc::new(crate::check_run_trigger::MockTriggerWorkspaces::new()),
                 None,
             )
+        }
+
+        /// A loop's filters withhold an event from the Tasks it opened and from
+        /// no other: the Task that wrote the pull request still hears its CI
+        /// fail.
+        #[tokio::test]
+        async fn a_loops_filters_withhold_events_only_from_its_own_tasks() {
+            let mut rule = rule(true);
+            rule.adapter_config = Some(serde_json::json!({"ignored_events": ["check_run"]}));
+            let author = TaskBinding {
+                id: "tb_2".into(),
+                task_id: "task-2".into(),
+                origin: CONNECTED_THREAD_BINDING_ORIGIN.into(),
+                ..binding()
+            };
+
+            let kept = router(MockMessageAcceptor::new(), MockTaskFinisher::new())
+                .unmuted(
+                    Some(&rule),
+                    &crate::config::FilterKey::new("check_run", "moatless-soap[bot]"),
+                    vec![binding(), author],
+                )
+                .await
+                .expect("the loop is the rule, so nothing is read");
+
+            let kept: Vec<&str> = kept.iter().map(|b| b.task_id.as_str()).collect();
+            assert_eq!(kept, ["task-2"]);
         }
 
         /// A trigger's close reaches the Tasks it created; a Task connected to

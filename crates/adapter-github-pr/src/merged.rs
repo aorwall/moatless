@@ -148,6 +148,7 @@ impl GithubPrInboundRouter {
         &self,
         connection: &AdapterConnection,
         rule: &SubscriptionMatch,
+        filter: &crate::config::FilterKey,
         execution: &Execution,
     ) -> Result<(), AdapterError> {
         let merged = &execution.merged;
@@ -162,6 +163,7 @@ impl GithubPrInboundRouter {
             .into_iter()
             .filter(|binding| binding.active && !auto_close_owns(rule, binding))
             .collect();
+        let recipients = self.unmuted(Some(rule), filter, recipients).await?;
         if recipients.is_empty() {
             debug!(
                 subject_key,
