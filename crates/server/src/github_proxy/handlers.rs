@@ -13,11 +13,11 @@ use moatless_core::proxy_rules::NormalPath;
 use moatless_workspace_types::repository::GitHostRepo;
 
 use crate::github_policy::{GitHubPolicy, Refusal, Request as PolicyRequest};
-use crate::github_proxy::authorship::{self, AppWrite};
+use crate::github_proxy::authorship;
 use crate::github_proxy::service::{GitHubProxy, GitHubProxyError, GitHubUpstream};
 use crate::github_proxy::target;
 use crate::proxy::caller::SandboxScope;
-use crate::proxy::forward::{bearer_token, forwards, stream_back};
+use crate::proxy::forward::{bearer_token, forwards, respond, stream_back};
 
 /// `ANY /github/{upstream}/{path}` — one `gh` request, forwarded to
 /// `upstream` with the sandbox's GitHub token in place of the task token.
@@ -74,8 +74,7 @@ pub(super) async fn forward(
     body: Body,
 ) -> Response {
     let graphql = is_graphql(upstream, &method, path_and_query);
-    // `authored` holds the body of a write the App sends, and what it is.
-    let (requested, body, authored) = if graphql {
+    let (requested, body, write) = if graphql {
         let Ok(bytes) = axum::body::to_bytes(body, GRAPHQL_BODY_LIMIT).await else {
             return too_large("The GraphQL request body is too large");
         };
@@ -84,16 +83,14 @@ pub(super) async fn forward(
                 return refused;
             }
         }
-        let authored = if GitHubPolicy::graphql_runs_only(&bytes, authorship::MUTATIONS) {
-            Some((bytes.clone(), AppWrite::Authors))
-        } else {
-            GitHubPolicy::graphql_runs_only(&bytes, authorship::MERGE_MUTATIONS)
-                .then(|| (bytes.clone(), AppWrite::Merges))
-        };
+        let write = GitHubPolicy::graphql_mutates(&bytes).then(|| Write {
+            credits: GitHubPolicy::graphql_runs_only(&bytes, authorship::MUTATIONS),
+            bytes: bytes.clone(),
+        });
         (
             target::from_graphql(&bytes),
             reqwest::Body::from(bytes),
-            authored,
+            write,
         )
     } else if !GitHubPolicy::is_write(method.as_str()) {
         (
@@ -101,118 +98,200 @@ pub(super) async fn forward(
             reqwest::Body::wrap_stream(body.into_data_stream().map_err(std::io::Error::other)),
             None,
         )
-    } else if let Some(write) = authorship::rest_app_write(&method, path_and_query) {
-        // Over the limit it cannot be a comment GitHub accepts, so it goes on
-        // unread as any other write.
-        let (body, authored) = match buffer(body, REVIEW_BODY_LIMIT).await {
-            Buffered::Whole(bytes) => (Body::from(bytes.clone()), Some((bytes, write))),
+    } else {
+        // Over the limit it goes on unread, as the run-as identity.
+        let (body, write) = match buffer(body, REVIEW_BODY_LIMIT).await {
+            Buffered::Whole(bytes) => (
+                Body::from(bytes.clone()),
+                Some(Write {
+                    credits: authorship::rest_authors(&method, path_and_query),
+                    bytes,
+                }),
+            ),
             Buffered::Over(body) => (body, None),
             Buffered::Failed => return StatusCode::BAD_REQUEST.into_response(),
         };
         match check_rest(proxy, scope, &method, path_and_query, body).await {
-            Ok(body) => (target::from_path(path_and_query), body, authored),
-            Err(refused) => return *refused,
-        }
-    } else {
-        match check_rest(proxy, scope, &method, path_and_query, body).await {
-            Ok(body) => (target::from_path(path_and_query), body, None),
+            Ok(body) => (target::from_path(path_and_query), body, write),
             Err(refused) => return *refused,
         }
     };
-    let Sending {
-        token,
-        body,
-        credited,
-    } = match sending(proxy, scope, graphql, requested.as_ref(), body, authored).await {
-        Ok(sending) => sending,
-        Err(e) => return e.into_response(),
+    let request = Outbound {
+        proxy,
+        scope,
+        upstream,
+        method: &method,
+        path_and_query,
+        headers,
     };
-    let url = proxy.upstream_url(upstream, path_and_query);
-    let mut request = proxy.http.request(method.clone(), &url).body(body);
-    for (name, value) in headers {
-        // A credited body is longer than the client's `Content-Length` says.
-        if forwards(name)
-            && name != header::AUTHORIZATION
-            && !(credited && name == header::CONTENT_LENGTH)
-        {
-            request = request.header(name, value);
+    let Some(write) = write else {
+        let token = match proxy.token(scope, requested.as_ref()).await {
+            Ok(token) => token,
+            Err(e) => return e.into_response(),
+        };
+        return match request.send(token, body, false).await {
+            Ok(response) => stream_back(response, "github"),
+            Err(refused) => *refused,
+        };
+    };
+    match send_write(&request, graphql, requested.as_ref(), &write).await {
+        Ok(response) => response,
+        Err(refused) => *refused,
+    }
+}
+
+/// A write's body, held whole so the App can send it and the run-as identity
+/// resend it.
+struct Write {
+    bytes: Bytes,
+    /// It posts text, which credits whom [`GitHubProxy::credited_login`] names.
+    credits: bool,
+}
+
+/// One request's destination and the client's headers for it.
+struct Outbound<'a> {
+    proxy: &'a GitHubProxy,
+    scope: &'a SandboxScope,
+    upstream: GitHubUpstream,
+    method: &'a Method,
+    path_and_query: &'a str,
+    headers: &'a HeaderMap,
+}
+
+impl Outbound<'_> {
+    /// Send it once with `token`; `rewritten` drops the client's
+    /// `Content-Length`, which no longer describes `body`.
+    async fn send(
+        &self,
+        token: String,
+        body: reqwest::Body,
+        rewritten: bool,
+    ) -> Result<reqwest::Response, Box<Response>> {
+        let url = self.proxy.upstream_url(self.upstream, self.path_and_query);
+        let mut request = self
+            .proxy
+            .http
+            .request(self.method.clone(), &url)
+            .body(body);
+        for (name, value) in self.headers {
+            if forwards(name)
+                && name != header::AUTHORIZATION
+                && !(rewritten && name == header::CONTENT_LENGTH)
+            {
+                request = request.header(name, value);
+            }
+        }
+        let response = request.bearer_auth(token).send().await.map_err(|error| {
+            warn!(%error, upstream = ?self.upstream, "A proxied GitHub request did not reach GitHub");
+            Box::new(
+                GitHubProxyError::Upstream("GitHub is unreachable".to_string()).into_response(),
+            )
+        })?;
+        info!(
+            sandbox_id = %self.scope.sandbox,
+            method = %self.method,
+            upstream = ?self.upstream,
+            path = self.path_and_query.split('?').next().unwrap_or_default(),
+            status = response.status().as_u16(),
+            "Proxied a GitHub request"
+        );
+        Ok(response)
+    }
+
+    /// `write`'s body, credited when it posts text and someone is named.
+    async fn body(&self, write: &Write, graphql: bool, by_app: bool) -> (reqwest::Body, bool) {
+        let login = if write.credits {
+            self.proxy.credited_login(self.scope, by_app).await
+        } else {
+            None
+        };
+        match login {
+            Some(login) => (
+                reqwest::Body::from(authorship::credit(&write.bytes, graphql, &login)),
+                true,
+            ),
+            None => (reqwest::Body::from(write.bytes.clone()), false),
         }
     }
-    request = request.bearer_auth(token);
-
-    let response = match request.send().await {
-        Ok(response) => response,
-        Err(error) => {
-            warn!(%error, ?upstream, "A proxied GitHub request did not reach GitHub");
-            return GitHubProxyError::Upstream("GitHub is unreachable".to_string()).into_response();
-        }
-    };
-    info!(
-        sandbox_id = %scope.sandbox,
-        %method,
-        ?upstream,
-        path = path_and_query.split('?').next().unwrap_or_default(),
-        status = response.status().as_u16(),
-        "Proxied a GitHub request"
-    );
-    stream_back(response, "github")
 }
 
-/// The token and body a request goes upstream with.
-struct Sending {
-    token: String,
-    body: reqwest::Body,
-    /// The body was rewritten to credit the driver.
-    credited: bool,
-}
-
-/// `authored`, the body of a write GitHub shows an actor for, goes as the App
-/// the driver signed in through; one that [`AppWrite::Authors`] credits whom
-/// [`GitHubProxy::credited_login`] names. Anything else goes as
-/// [`GitHubProxy::token`] picks.
-async fn sending(
-    proxy: &GitHubProxy,
-    scope: &SandboxScope,
+/// Send a write as the App, per [`GitHubProxy::app_write`], and resend it as
+/// [`GitHubProxy::token`] picks when there is no App token or GitHub refuses
+/// the App, as for a permission its installation lacks.
+async fn send_write(
+    request: &Outbound<'_>,
     graphql: bool,
     requested: Option<&GitHostRepo>,
-    body: reqwest::Body,
-    authored: Option<(Bytes, AppWrite)>,
-) -> Result<Sending, GitHubProxyError> {
-    if let Some((bytes, write)) = authored {
-        let repository = match (requested, graphql) {
-            (None, true) => match authorship::graphql_subject(&bytes) {
-                Some(id) => proxy.repository_of_node(scope, &id).await,
-                None => None,
-            },
-            _ => requested.cloned(),
-        };
-        let app = proxy.app_authored(scope, repository).await?;
-        let credit = match write {
-            AppWrite::Authors => proxy.credited_login(scope, app.is_some()).await,
-            AppWrite::Merges => None,
-        };
-        let token = match app {
-            Some(app) => app.token,
-            None => proxy.token(scope, requested).await?,
-        };
-        return Ok(match credit {
-            Some(login) => Sending {
-                token,
-                body: reqwest::Body::from(authorship::credit(&bytes, graphql, &login)),
-                credited: true,
-            },
-            None => Sending {
-                token,
-                body,
-                credited: false,
-            },
-        });
+    write: &Write,
+) -> Result<Response, Box<Response>> {
+    let (proxy, scope) = (request.proxy, request.scope);
+    let repository = match (requested, graphql) {
+        (None, true) => match authorship::graphql_subject(&write.bytes) {
+            Some(id) => proxy.repository_of_node(scope, &id).await,
+            None => None,
+        },
+        _ => requested.cloned(),
+    };
+    // A REST write naming no repository, such as a gist, has none to scope an
+    // App token to.
+    let app = match (&repository, graphql) {
+        (None, false) => None,
+        _ => proxy
+            .app_write(scope, repository)
+            .await
+            .map_err(|e| Box::new(e.into_response()))?,
+    };
+    if let Some(app) = app {
+        let (body, rewritten) = request.body(write, graphql, true).await;
+        let response = request.send(app.token, body, rewritten).await?;
+        match app_refused(response, graphql).await {
+            Ok(answered) => return Ok(answered),
+            Err((status, message)) => warn!(
+                status,
+                message,
+                path = request.path_and_query.split('?').next().unwrap_or_default(),
+                "GitHub refused a write as the App; resending it as the run-as identity"
+            ),
+        }
     }
-    Ok(Sending {
-        token: proxy.token(scope, requested).await?,
-        body,
-        credited: false,
-    })
+    let token = proxy
+        .token(scope, requested)
+        .await
+        .map_err(|e| Box::new(e.into_response()))?;
+    let (body, rewritten) = request.body(write, graphql, false).await;
+    let response = request.send(token, body, rewritten).await?;
+    Ok(stream_back(response, "github"))
+}
+
+/// GitHub's answer to a write sent as the App, or `Err` with its status and
+/// message when GitHub refused the App and wrote nothing: a REST 403 or 404
+/// that is no rate limit, or a GraphQL `FORBIDDEN` with no mutation's result.
+async fn app_refused(
+    response: reqwest::Response,
+    graphql: bool,
+) -> Result<Response, (u16, String)> {
+    let status = response.status();
+    let refusable = graphql || matches!(status.as_u16(), 403 | 404);
+    if !refusable || rate_limited(response.headers()) {
+        return Ok(stream_back(response, "github"));
+    }
+    let headers = response.headers().clone();
+    let Ok(bytes) = response.bytes().await else {
+        return Err((status.as_u16(), "unreadable answer".to_string()));
+    };
+    if !graphql || authorship::graphql_forbidden(&bytes) {
+        return Err((status.as_u16(), authorship::refusal_message(&bytes)));
+    }
+    Ok(respond(status, &headers, Body::from(bytes), "github"))
+}
+
+/// Whether GitHub answered with a rate limit, which the run-as identity's
+/// token would only spend more of.
+fn rate_limited(headers: &reqwest::header::HeaderMap) -> bool {
+    headers.contains_key(reqwest::header::RETRY_AFTER)
+        || headers
+            .get("x-ratelimit-remaining")
+            .is_some_and(|remaining| remaining == "0")
 }
 
 /// Run a REST write past the policy, buffering its body only when the policy

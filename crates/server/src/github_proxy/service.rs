@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use moatless_core::secret_keys::GITHUB_TOKEN;
-use moatless_ports::identity::{AppAuthoredToken, GitHostTokenError, GitHostTokenIssuer};
+use moatless_ports::identity::{AppWriteToken, GitHostTokenError, GitHostTokenIssuer};
 use moatless_sandbox_control::secrets::{
     resolve_task_actor, resolve_task_github_token, resolve_workspace_credentials,
 };
@@ -186,14 +186,14 @@ impl GitHubProxy {
         }
     }
 
-    /// The App's token for a write that authors on `repository`, else the
-    /// primary repository, when the run-as identity signed in through the
-    /// GitHub App; `None` means send it with [`Self::token`].
-    pub async fn app_authored(
+    /// The App's token for a write on `repository`, else the primary
+    /// repository, per [`GitHostTokenIssuer::github_app_write`]; `None` means
+    /// send it with [`Self::token`].
+    pub async fn app_write(
         &self,
         scope: &SandboxScope,
         repository: Option<GitHostRepo>,
-    ) -> Result<Option<AppAuthoredToken>, GitHubProxyError> {
+    ) -> Result<Option<AppWriteToken>, GitHubProxyError> {
         if self.pinned(scope).await?.is_some() {
             return Ok(None);
         }
@@ -210,7 +210,7 @@ impl GitHubProxy {
         };
         let actor = self.actor(scope).await;
         self.git_host_tokens
-            .github_app_authored(&actor, repository.owner(), repository.name())
+            .github_app_write(&actor, repository.owner(), repository.name())
             .await
             .map_err(|error| {
                 warn!(%error, repository = %repository, "No App token for a proxied GitHub write");

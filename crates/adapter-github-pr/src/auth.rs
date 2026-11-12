@@ -115,8 +115,10 @@ impl GithubPrAuth {
         acting_user_id: &str,
         repo: &GitHostRepo,
     ) -> Result<GithubPrApi, AdapterError> {
-        self.client_for(&reaction_actor(binding, acting_user_id), repo)
-            .await
+        let (api, _) = self
+            .app_or_own(&reaction_actor(binding, acting_user_id), repo)
+            .await?;
+        Ok(api)
     }
 
     pub(super) async fn client_for_live_status(
@@ -127,20 +129,15 @@ impl GithubPrAuth {
         self.client_for(&Actor::of(acting_user), repo).await
     }
 
-    /// A client that writes to `repo` as the App `actor` signed in through,
-    /// else as `actor`, per [`GitHostTokenIssuer::github_app_authored`], and
-    /// credits the person `attribution` names.
+    /// A client that writes to `repo` per [`Self::app_or_own`], and credits
+    /// the person `attribution` names.
     pub(super) async fn writer_for(
         &self,
         actor: &Actor,
         repo: &GitHostRepo,
         attribution: &Attribution,
     ) -> Result<RepoWriter, AdapterError> {
-        let authored = self
-            .git_host_tokens
-            .github_app_authored(actor, repo.owner(), repo.name())
-            .await
-            .map_err(|source| adapter_error(actor, source))?;
+        let (api, by_app) = self.app_or_own(actor, repo).await?;
         let credited = self
             .git_host_tokens
             .credited_github_login(attribution)
@@ -149,18 +146,33 @@ impl GithubPrAuth {
                 warn!(%error, repository = %repo, "Failed to read who a GitHub write credits");
                 None
             });
-        let names_credited = authored.is_some()
+        let names_credited = by_app
             || credited
                 .as_ref()
                 .is_some_and(|(person, _)| person != actor.user_id());
-        let api = match authored {
-            Some(authored) => self.client(&authored.token),
-            None => self.client_for(actor, repo).await?,
-        };
         Ok(RepoWriter {
             api,
             credited_login: credited.map(|(_, login)| login),
             names_credited,
+        })
+    }
+
+    /// A client that writes to `repo` as the App `actor` signed in through,
+    /// else as `actor`, per [`GitHostTokenIssuer::github_app_write`]; `true`
+    /// when it is the App.
+    async fn app_or_own(
+        &self,
+        actor: &Actor,
+        repo: &GitHostRepo,
+    ) -> Result<(GithubPrApi, bool), AdapterError> {
+        let app = self
+            .git_host_tokens
+            .github_app_write(actor, repo.owner(), repo.name())
+            .await
+            .map_err(|source| adapter_error(actor, source))?;
+        Ok(match app {
+            Some(app) => (self.client(&app.token), true),
+            None => (self.client_for(actor, repo).await?, false),
         })
     }
 

@@ -208,12 +208,12 @@ mod tests {
         .await;
         let mut tokens = moatless_ports::identity::MockGitHostTokenIssuer::new();
         tokens
-            .expect_github_app_authored()
+            .expect_github_app_write()
             .withf(|actor, owner, repo| {
                 actor.user_id() == "owner-user" && owner == "soaplabs" && repo == "repo"
             })
             .returning(|_, _, _| {
-                Ok(Some(moatless_ports::identity::AppAuthoredToken {
+                Ok(Some(moatless_ports::identity::AppWriteToken {
                     token: "ghs_app".to_string(),
                 }))
             });

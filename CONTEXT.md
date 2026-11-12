@@ -299,6 +299,10 @@ One is configured by the deployment and used for signing in; the rest are
 registered by admins so work can run as a bot. Referenced by its App key — the
 short stable name chosen at registration, which an Adapter connection and a Bot
 user both point at.
+A driver signed in through the configured App writes as it: every push, commit,
+`gh` write and adapter write a Task makes to a repository the App is installed
+on shows the App as its actor, with the driver credited, and falls back to the
+driver's own token only where GitHub refuses the App.
 _Avoid_: bare "app", integration, GitHub App connection. Never a bare "key" for
 the identifier — that already means a Secret's name and an API key.
 

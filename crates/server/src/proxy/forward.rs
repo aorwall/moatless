@@ -36,10 +36,27 @@ pub fn bearer_token(headers: &HeaderMap) -> Option<&str> {
 /// The upstream's status, headers and body, streamed back unbuffered.
 /// `proxy` names the proxy in the log line a failed build writes.
 pub fn stream_back(response: reqwest::Response, proxy: &'static str) -> Response {
-    let status = StatusCode::from_u16(response.status().as_u16())
-        .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    let status = response.status();
+    let headers = response.headers().clone();
+    respond(
+        status,
+        &headers,
+        Body::from_stream(response.bytes_stream()),
+        proxy,
+    )
+}
+
+/// An upstream answer the proxy already read whole, sent back as
+/// [`stream_back`] would have.
+pub fn respond(
+    status: reqwest::StatusCode,
+    headers: &reqwest::header::HeaderMap,
+    body: Body,
+    proxy: &'static str,
+) -> Response {
+    let status = StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     let mut out = Response::builder().status(status);
-    for (name, value) in response.headers() {
+    for (name, value) in headers {
         // `reqwest` already dechunked the body, so a forwarded length or
         // transfer encoding would describe bytes the stream no longer carries.
         if forwards(name) && name != header::CONTENT_LENGTH {
@@ -48,11 +65,10 @@ pub fn stream_back(response: reqwest::Response, proxy: &'static str) -> Response
             }
         }
     }
-    out.body(Body::from_stream(response.bytes_stream()))
-        .unwrap_or_else(|error| {
-            warn!(%error, proxy, "Failed to build a proxied response");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
-        })
+    out.body(body).unwrap_or_else(|error| {
+        warn!(%error, proxy, "Failed to build a proxied response");
+        StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    })
 }
 
 #[cfg(test)]

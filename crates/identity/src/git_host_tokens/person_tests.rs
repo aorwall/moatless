@@ -280,13 +280,13 @@ async fn a_person_signed_in_through_the_app_writes_as_the_app() {
     let (tokens, requests) = issuer(&[("u_ada", person_row("ada"))]).await;
 
     let authored = tokens
-        .github_app_authored(&Actor::of("u_ada"), "acme", "repo")
+        .github_app_write(&Actor::of("u_ada"), "acme", "repo")
         .await
         .unwrap();
 
     assert_eq!(
         authored,
-        Some(AppAuthoredToken {
+        Some(AppWriteToken {
             token: "ghs_capped".to_string(),
         })
     );
@@ -310,7 +310,7 @@ async fn a_driver_not_signed_in_through_the_app_writes_as_themselves() {
         (Actor::of("u_nobody"), "never connected"),
     ] {
         let authored = tokens
-            .github_app_authored(&actor, "acme", "repo")
+            .github_app_write(&actor, "acme", "repo")
             .await
             .unwrap_or_else(|e| panic!("{why}: {e}"));
         assert_eq!(authored, None, "{why}");
@@ -326,7 +326,7 @@ async fn a_driver_below_write_access_is_told_to_ask_for_it() {
         ("u_eve", "eve", "no role at all"),
     ] {
         let error = tokens
-            .github_app_authored(&Actor::of(actor), "acme", "repo")
+            .github_app_write(&Actor::of(actor), "acme", "repo")
             .await
             .expect_err(why);
         let GitHostTokenError::Forbidden { source, .. } = &error else {
@@ -348,7 +348,7 @@ async fn an_owner_the_app_is_not_installed_on_is_refused_not_bypassed() {
     let (tokens, _) = issuer(&[("u_ada", person_row("ada"))]).await;
 
     let error = tokens
-        .github_app_authored(&Actor::of("u_ada"), "openai", "plugins")
+        .github_app_write(&Actor::of("u_ada"), "openai", "plugins")
         .await
         .expect_err("the driver's own token reaches no further than the App");
     assert!(
@@ -357,15 +357,17 @@ async fn an_owner_the_app_is_not_installed_on_is_refused_not_bypassed() {
     );
 }
 
+/// The sign-in is unusable for the App, but the person's own token still
+/// writes: only an actor no token could write for is refused.
 #[tokio::test]
-async fn an_app_sign_in_recording_no_login_asks_to_reconnect() {
+async fn an_app_sign_in_recording_no_login_writes_as_the_person() {
     let (tokens, _) = issuer(&[("u_anon", github_row(AUTH_METHOD_APP_USER, "ghu_x"))]).await;
 
-    let error = tokens
-        .github_app_authored(&Actor::of("u_anon"), "acme", "repo")
+    let written = tokens
+        .github_app_write(&Actor::of("u_anon"), "acme", "repo")
         .await
-        .expect_err("no driver to credit");
-    assert!(error.to_string().contains("reconnect GitHub"), "{error}");
+        .expect("falls back rather than refusing");
+    assert_eq!(written, None);
 }
 
 #[tokio::test]

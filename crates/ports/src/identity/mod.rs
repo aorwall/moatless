@@ -28,4 +28,4 @@ pub use secret::{SecretCatalog, SecretResolver};
 mod git_host;
 #[cfg(feature = "test-support")]
 pub use git_host::MockGitHostTokenIssuer;
-pub use git_host::{AppAuthoredToken, GitHostTokenError, GitHostTokenIssuer};
+pub use git_host::{AppWriteToken, GitHostTokenError, GitHostTokenIssuer};

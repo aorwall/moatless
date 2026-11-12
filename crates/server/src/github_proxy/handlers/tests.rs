@@ -8,7 +8,7 @@ use axum::routing::any;
 use moatless_core::sandbox_jwt::{StaticTokenGenerations, generate_user_auth_token};
 use moatless_core::secret_keys::GITHUB_TOKEN;
 use moatless_ports::identity::{
-    AppAuthoredToken, GitHostTokenError, GitHostTokenIssuer, MockGitHostTokenIssuer,
+    AppWriteToken, GitHostTokenError, GitHostTokenIssuer, MockGitHostTokenIssuer,
 };
 use moatless_types::access_control::Scope;
 use moatless_types::attribution::Attribution;
@@ -101,7 +101,7 @@ fn issuer(live: &LiveToken) -> Arc<dyn GitHostTokenIssuer> {
         .expect_token()
         .returning(move |_, _| Ok(live.lock().unwrap().clone()));
     tokens
-        .expect_github_app_authored()
+        .expect_github_app_write()
         .returning(|_, _, _| Ok(None));
     tokens
         .expect_credited_github_login()
@@ -446,7 +446,7 @@ fn per_repository_issuer(refused: &'static str) -> Arc<dyn GitHostTokenIssuer> {
         Ok(format!("ghs_{repository}"))
     });
     tokens
-        .expect_github_app_authored()
+        .expect_github_app_write()
         .returning(|_, _, _| Ok(None));
     tokens
         .expect_credited_github_login()
@@ -697,7 +697,7 @@ fn app_issuer(refused: &'static str) -> Arc<dyn GitHostTokenIssuer> {
         .expect_token()
         .returning(|_, _| Ok("ghu_ada".to_string()));
     tokens
-        .expect_github_app_authored()
+        .expect_github_app_write()
         .returning(move |actor, owner, repository| {
             if repository == refused {
                 return Err(GitHostTokenError::Forbidden {
@@ -709,7 +709,7 @@ fn app_issuer(refused: &'static str) -> Arc<dyn GitHostTokenIssuer> {
                     source: "ada needs write access".into(),
                 });
             }
-            Ok(Some(AppAuthoredToken {
+            Ok(Some(AppWriteToken {
                 token: format!("ghs_app_{repository}"),
             }))
         });
@@ -720,25 +720,50 @@ fn app_issuer(refused: &'static str) -> Arc<dyn GitHostTokenIssuer> {
 }
 
 /// A GitHub answering a node lookup with `owner/sibling`, and every other
-/// request with the token and the body it was sent.
+/// request with the token and the body it was sent. It refuses the App a
+/// REST `.../hooks` write and a GraphQL `addLabelsToLabelable`, as an
+/// installation without that permission is refused.
 async fn recording_github() -> String {
     serve(
-        Router::new().fallback(any(|headers: HeaderMap, body: Bytes| async move {
+        Router::new().fallback(any(|uri: Uri, headers: HeaderMap, body: Bytes| async move {
             let body: serde_json::Value = serde_json::from_slice(&body).unwrap_or_default();
-            if body["query"]
-                .as_str()
-                .is_some_and(|q| q.contains("node(id"))
-            {
+            let query = body["query"].as_str().unwrap_or_default();
+            if query.contains("node(id") {
                 return axum::Json(serde_json::json!({
                     "data": { "node": { "repository": { "nameWithOwner": "owner/sibling" } } }
-                }));
+                }))
+                .into_response();
             }
             let presented = headers
                 .get(header::AUTHORIZATION)
                 .and_then(|v| v.to_str().ok())
                 .unwrap_or_default()
                 .to_string();
-            axum::Json(serde_json::json!({ "message": presented, "sent": body }))
+            if presented.starts_with("Bearer ghs_app") {
+                if uri.path().ends_with("/rate-limited") {
+                    return (
+                        StatusCode::FORBIDDEN,
+                        [("x-ratelimit-remaining", "0")],
+                        axum::Json(serde_json::json!({ "message": "API rate limit exceeded" })),
+                    )
+                        .into_response();
+                }
+                if uri.path().ends_with("/hooks") {
+                    return (
+                        StatusCode::FORBIDDEN,
+                        axum::Json(serde_json::json!({ "message": "Resource not accessible by integration" })),
+                    )
+                        .into_response();
+                }
+                if query.contains("addLabelsToLabelable") {
+                    return axum::Json(serde_json::json!({
+                        "data": { "addLabelsToLabelable": null },
+                        "errors": [{ "type": "FORBIDDEN", "message": "Resource not accessible by integration" }]
+                    }))
+                    .into_response();
+                }
+            }
+            axum::Json(serde_json::json!({ "message": presented, "sent": body })).into_response()
         })),
     )
     .await
@@ -794,10 +819,11 @@ async fn an_app_signed_drivers_comment_is_sent_as_the_app_and_credits_them() {
         "variables": { "input": { "subjectId": "PR_kw", "body": "hi" } }
     })
     .to_string();
+    let mixed = sent(&proxy, Method::POST, "/graphql", &mixed).await;
+    assert_eq!(mixed["message"], "Bearer ghs_app_sibling");
     assert_eq!(
-        sent(&proxy, Method::POST, "/graphql", &mixed).await["message"],
-        "Bearer ghu_ada",
-        "a document running any mutation that does not author keeps the driver's token"
+        mixed["sent"]["variables"]["input"]["body"], "hi",
+        "a document running a mutation that posts no text is not credited"
     );
 
     let label = sent(
@@ -807,10 +833,71 @@ async fn an_app_signed_drivers_comment_is_sent_as_the_app_and_credits_them() {
         r#"{"labels":["bug"]}"#,
     )
     .await;
+    assert_eq!(label["message"], "Bearer ghs_app_repo");
     assert_eq!(
-        label["message"], "Bearer ghu_ada",
-        "a write GitHub shows no author for keeps the driver's token"
+        label["sent"],
+        serde_json::json!({ "labels": ["bug"] }),
+        "a write that posts no text is sent as the App, uncredited"
     );
+}
+
+/// An App installation lacking a permission the driver's own token has: the
+/// write still lands, as the driver.
+#[tokio::test]
+async fn a_write_github_refuses_the_app_is_resent_as_the_driver() {
+    let base = recording_github().await;
+    let proxy = proxy(
+        workspaces(github_repository(), HashMap::new()),
+        app_issuer("private"),
+        &base,
+    );
+
+    let hook = sent(
+        &proxy,
+        Method::POST,
+        "/repos/owner/repo/hooks",
+        r#"{"name":"web"}"#,
+    )
+    .await;
+    assert_eq!(hook["message"], "Bearer ghu_ada");
+    assert_eq!(hook["sent"], serde_json::json!({ "name": "web" }));
+
+    let label = serde_json::json!({
+        "query": "mutation($input: AddLabelsToLabelableInput!) { addLabelsToLabelable(input: $input) { clientMutationId } }",
+        "variables": { "input": { "labelableId": "PR_kw", "labelIds": ["L_1"] } }
+    })
+    .to_string();
+    assert_eq!(
+        sent(&proxy, Method::POST, "/graphql", &label).await["message"],
+        "Bearer ghu_ada"
+    );
+}
+
+#[tokio::test]
+async fn a_rate_limited_app_write_is_answered_not_resent() {
+    let base = recording_github().await;
+    let proxy = proxy(
+        workspaces(github_repository(), HashMap::new()),
+        app_issuer("private"),
+        &base,
+    );
+
+    let response = send(&proxy, Method::POST, "/repos/owner/repo/rate-limited", "{}").await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(message(response).await, "API rate limit exceeded");
+}
+
+#[tokio::test]
+async fn a_write_naming_no_repository_goes_as_the_driver() {
+    let base = recording_github().await;
+    let proxy = proxy(
+        workspaces(github_repository(), HashMap::new()),
+        app_issuer("private"),
+        &base,
+    );
+
+    let gist = sent(&proxy, Method::POST, "/gists", r#"{"files":{}}"#).await;
+    assert_eq!(gist["message"], "Bearer ghu_ada");
 }
 
 #[tokio::test]
@@ -844,7 +931,7 @@ async fn a_bot_run_as_comment_credits_the_driver_it_works_for() {
         .expect_token()
         .returning(|_, _| Ok("ghs_bot".to_string()));
     tokens
-        .expect_github_app_authored()
+        .expect_github_app_write()
         .returning(|_, _, _| Ok(None));
     tokens
         .expect_credited_github_login()

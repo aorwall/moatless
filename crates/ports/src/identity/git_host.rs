@@ -45,12 +45,12 @@ pub enum GitHostTokenError {
 }
 
 /// A token that writes to one GitHub repository as the App its driver signed in
-/// through, so the App, not the driver, authors what it posts.
+/// through, so GitHub shows the App, not the driver, as the actor.
 ///
-/// GitHub records no driver on what an App posts: the caller credits the
-/// person [`GitHostTokenIssuer::credited_github_login`] names in the text itself.
+/// GitHub records no driver on what an App writes: a write that posts text
+/// credits the person [`GitHostTokenIssuer::credited_github_login`] names in it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AppAuthoredToken {
+pub struct AppWriteToken {
     pub token: String,
 }
 
@@ -78,23 +78,22 @@ pub trait GitHostTokenIssuer: Send + Sync {
     /// actually present, so one missing row kind can't read as "not connected".
     async fn github_is_usable(&self, actor: &Actor) -> Result<(), GitHostTokenError>;
 
-    /// An installation token of the App `actor` connected GitHub through,
-    /// scoped to `owner/repository` and capped by `actor`'s role there.
-    ///
-    /// `Ok(None)` means write with [`Self::token`] instead: a credential that
-    /// is not an App sign-in, or a run-as acting for a person. A driver below
-    /// write access, or an App not installed on `owner`, is `Forbidden`.
-    async fn github_app_authored(
+    /// The App's token, capped by `actor`'s role, that every GitHub write a
+    /// Task makes to `owner/repository` is sent with. `Ok(None)` means write
+    /// with [`Self::token`]: not an App sign-in, a run-as acting for a person,
+    /// or a failed mint. `Forbidden` is a driver below write access or an
+    /// owner without the App, where their own token could not write either.
+    async fn github_app_write(
         &self,
         _actor: &Actor,
         _owner: &str,
         _repository: &str,
-    ) -> Result<Option<AppAuthoredToken>, GitHostTokenError> {
+    ) -> Result<Option<AppWriteToken>, GitHostTokenError> {
         Ok(None)
     }
 
     /// The git author of commits `actor` makes for `owner/repository`: the
-    /// bot of the App that [`Self::github_app_authored`] pushes them with.
+    /// bot of the App when [`Self::github_app_write`] pushes them.
     ///
     /// `Ok(None)` when that push would present `actor`'s own token instead.
     async fn github_app_commit_author(

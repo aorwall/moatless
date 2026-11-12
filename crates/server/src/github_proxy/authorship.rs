@@ -1,6 +1,6 @@
-//! The proxied writes GitHub shows an actor for. A driver signed in through
-//! the GitHub App sends them as the App, those that post text credited in it,
-//! so `gh` in a sandbox posts and merges the way the adapter's own replies do.
+//! What the App sends a proxied write as: which writes post text that credits
+//! the driver, the repository a GraphQL write acts on, and whether GitHub
+//! refused the App.
 
 use axum::body::Bytes;
 use axum::http::Method;
@@ -19,7 +19,7 @@ const REST: &[&str] = &[
     "issues/*/comments",
 ];
 
-/// The GraphQL mutations that author.
+/// The GraphQL mutations that post text that credits the driver.
 pub(super) const MUTATIONS: &[&str] = &[
     "addComment",
     "addPullRequestReview",
@@ -31,34 +31,6 @@ pub(super) const MUTATIONS: &[&str] = &[
     "submitPullRequestReview",
 ];
 
-/// What a write the App sends shows of the driver.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum AppWrite {
-    /// Posts text, which [`credit`] credits the driver in.
-    Authors,
-    /// Merges a pull request. Never credited: its body is the merge commit's
-    /// message, and setting one replaces the one GitHub writes, with the
-    /// squashed commits' `Co-authored-by` trailers.
-    Merges,
-}
-
-/// The REST merge, after `/repos/{owner}/{name}/`, and its method.
-const REST_MERGE: (&str, &str) = ("PUT", "pulls/*/merge");
-
-/// The GraphQL mutations that merge, or enable a merge GitHub runs later as
-/// whoever enabled it.
-pub(super) const MERGE_MUTATIONS: &[&str] = &["enablePullRequestAutoMerge", "mergePullRequest"];
-
-/// The [`AppWrite`] a REST request is, if any.
-pub(super) fn rest_app_write(method: &Method, path_and_query: &str) -> Option<AppWrite> {
-    if rest_authors(method, path_and_query) {
-        return Some(AppWrite::Authors);
-    }
-    let (merge_method, merge) = REST_MERGE;
-    (method.as_str() == merge_method && repo_path_matches(path_and_query, merge))
-        .then_some(AppWrite::Merges)
-}
-
 /// The `input` fields naming the node a GraphQL mutation acts on, in the
 /// order they are tried.
 const SUBJECT_FIELDS: &[&str] = &[
@@ -66,11 +38,14 @@ const SUBJECT_FIELDS: &[&str] = &[
     "pullRequestId",
     "pullRequestReviewId",
     "pullRequestReviewThreadId",
+    "issueId",
+    "labelableId",
+    "assignableId",
     "repositoryId",
 ];
 
-/// Whether a REST request authors.
-fn rest_authors(method: &Method, path_and_query: &str) -> bool {
+/// Whether a REST request posts text that credits the driver.
+pub(super) fn rest_authors(method: &Method, path_and_query: &str) -> bool {
     method == Method::POST
         && REST
             .iter()
@@ -100,6 +75,32 @@ pub(super) fn graphql_subject(body: &[u8]) -> Option<String> {
     SUBJECT_FIELDS
         .iter()
         .find_map(|field| input.get(field)?.as_str().map(str::to_string))
+}
+
+/// Whether a GraphQL answer is GitHub refusing the token and writing nothing:
+/// a `FORBIDDEN` error and no mutation's result.
+pub(super) fn graphql_forbidden(answer: &[u8]) -> bool {
+    let Ok(json) = serde_json::from_slice::<Value>(answer) else {
+        return false;
+    };
+    let forbidden = json["errors"]
+        .as_array()
+        .is_some_and(|errors| errors.iter().any(|e| e["type"] == "FORBIDDEN"));
+    let wrote = json["data"]
+        .as_object()
+        .is_some_and(|data| data.values().any(|result| !result.is_null()));
+    forbidden && !wrote
+}
+
+/// GitHub's reason in a REST or GraphQL refusal, such as "Resource not
+/// accessible by integration"; empty when it gives none.
+pub(super) fn refusal_message(answer: &[u8]) -> String {
+    let json: Value = serde_json::from_slice(answer).unwrap_or_default();
+    json["message"]
+        .as_str()
+        .or_else(|| json.pointer("/errors/0/message").and_then(Value::as_str))
+        .unwrap_or_default()
+        .to_string()
 }
 
 /// `body` with `driver` credited in the text it posts: a REST body's `body`,
@@ -146,20 +147,27 @@ mod tests {
     }
 
     #[test]
-    fn a_merge_goes_as_the_app_uncredited() {
+    fn only_a_forbidden_answer_that_wrote_nothing_is_a_refusal() {
+        let forbidden = r#"{"data":{"addLabelsToLabelable":null},"errors":[{"type":"FORBIDDEN","message":"Resource not accessible by integration"}]}"#;
+        assert!(graphql_forbidden(forbidden.as_bytes()));
+        assert!(graphql_forbidden(
+            br#"{"data":null,"errors":[{"type":"FORBIDDEN"}]}"#
+        ));
+        assert!(!graphql_forbidden(
+            br#"{"data":{"a":{"id":1},"b":null},"errors":[{"type":"FORBIDDEN"}]}"#
+        ));
+        assert!(!graphql_forbidden(
+            br#"{"data":null,"errors":[{"type":"NOT_FOUND"}]}"#
+        ));
+        assert!(!graphql_forbidden(b"not json"));
         assert_eq!(
-            rest_app_write(&Method::PUT, "/repos/o/r/pulls/282/merge"),
-            Some(AppWrite::Merges)
+            refusal_message(forbidden.as_bytes()),
+            "Resource not accessible by integration"
         );
         assert_eq!(
-            rest_app_write(&Method::POST, "/repos/o/r/pulls/1/reviews"),
-            Some(AppWrite::Authors)
+            refusal_message(br#"{"message":"Must have admin rights"}"#),
+            "Must have admin rights"
         );
-        assert_eq!(
-            rest_app_write(&Method::GET, "/repos/o/r/pulls/282/merge"),
-            None
-        );
-        assert_eq!(rest_app_write(&Method::PUT, "/repos/o/r/pulls/282"), None);
     }
 
     #[test]

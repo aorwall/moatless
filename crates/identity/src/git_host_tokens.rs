@@ -10,9 +10,7 @@ use tracing::warn;
 
 use crate::git_credential_overrides::GitCredentialOverrides;
 use moatless_core::secret_keys::{GITHUB_TOKEN, forgejo_token_key};
-use moatless_ports::identity::{
-    AppAuthoredToken, GitHostTokenError, GitHostTokenIssuer, GitIdentity,
-};
+use moatless_ports::identity::{AppWriteToken, GitHostTokenError, GitHostTokenIssuer, GitIdentity};
 use moatless_types::git_host::{GitHostAccount, RepositoryProvider};
 use moatless_types::store::StoreError;
 
@@ -325,14 +323,31 @@ impl GitHostTokens {
         })
     }
 
-    /// Serves [`GitHostTokenIssuer::github_app_authored`] for an actor whose
-    /// own row is a login-App user token.
-    async fn app_authored_token(
+    /// Serves [`GitHostTokenIssuer::github_app_write`], whose error rule this
+    /// applies to [`Self::app_token_for_sign_in`].
+    async fn app_write_token(
         &self,
         actor: &Actor,
         owner: &str,
         repository: &str,
-    ) -> Result<Option<AppAuthoredToken>, GitHostTokenError> {
+    ) -> Result<Option<AppWriteToken>, GitHostTokenError> {
+        match self.app_token_for_sign_in(actor, owner, repository).await {
+            Err(error @ GitHostTokenError::Forbidden { .. }) => Err(error),
+            Err(error) => {
+                warn!(%error, owner, repository, "No App token for a GitHub write; writing as the actor");
+                Ok(None)
+            }
+            minted => minted,
+        }
+    }
+
+    /// The App token for an actor whose own row is a login-App user token.
+    async fn app_token_for_sign_in(
+        &self,
+        actor: &Actor,
+        owner: &str,
+        repository: &str,
+    ) -> Result<Option<AppWriteToken>, GitHostTokenError> {
         if actor.person().is_some() {
             return Ok(None);
         }
@@ -381,7 +396,7 @@ impl GitHostTokens {
                 )
                 .into(),
             })?;
-        Ok(Some(AppAuthoredToken { token }))
+        Ok(Some(AppWriteToken { token }))
     }
 
     /// An App-installation row mints an installation-wide token: it can reach
@@ -832,13 +847,13 @@ impl GitHostTokenIssuer for GitHostTokens {
         self.github_credential_is_usable(actor).await
     }
 
-    async fn github_app_authored(
+    async fn github_app_write(
         &self,
         actor: &Actor,
         owner: &str,
         repository: &str,
-    ) -> Result<Option<AppAuthoredToken>, GitHostTokenError> {
-        self.app_authored_token(actor, owner, repository).await
+    ) -> Result<Option<AppWriteToken>, GitHostTokenError> {
+        self.app_write_token(actor, owner, repository).await
     }
 
     async fn github_app_commit_author(
@@ -848,13 +863,13 @@ impl GitHostTokenIssuer for GitHostTokens {
         repository: &str,
     ) -> Result<Option<GitIdentity>, GitHostTokenError> {
         if self
-            .app_authored_token(actor, owner, repository)
+            .app_write_token(actor, owner, repository)
             .await?
             .is_none()
         {
             return Ok(None);
         }
-        // `app_authored_token` answers only with the login App configured.
+        // `app_write_token` answers only with the login App configured.
         let Some(app) = self.github_apps.default_service() else {
             return Ok(None);
         };

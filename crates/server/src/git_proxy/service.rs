@@ -191,7 +191,7 @@ impl GitProxy {
     }
 
     /// Resolve `repository_id` for the sandbox `task_token` was minted for;
-    /// `push` is a `receive-pack`, sent per [`app_authored_push`].
+    /// `push` is a `receive-pack`, sent per [`app_push_token`].
     ///
     /// The credential is the *run-as* identity's, not the token's `userId`.
     /// Authorization checks the Workspace's placements first, then every
@@ -235,7 +235,7 @@ impl GitProxy {
         // Through the resolver the pre-provision preflight uses, so a clone this
         // proxy refuses is one `preflight_validate_git_credential` would have
         // refused before any pod existed.
-        if let Some(token) = app_authored_push(&self.git_host_tokens, &actor, &repo, push).await {
+        if let Some(token) = app_push_token(&self.git_host_tokens, &actor, &repo, push).await? {
             return Ok(Upstream::new(
                 &repo,
                 Credential::Token(token),
@@ -263,7 +263,7 @@ impl GitProxy {
 
     /// Resolve `{owner}/{name}` on github.com, registered or not, for the
     /// sandbox `task_token` was minted for; `push` is a `receive-pack`, sent
-    /// per [`app_authored_push`].
+    /// per [`app_push_token`].
     ///
     /// No placement or repository row is consulted: the run-as identity's own
     /// GitHub credential is the whole authorization ([`host_credential`]).
@@ -277,7 +277,7 @@ impl GitProxy {
         let repo = github_repo(owner, name).ok_or(GitProxyError::NotFound)?;
         let caller = self.authenticate(task_token).await?;
         let actor = self.actor(&caller).await;
-        if let Some(token) = app_authored_push(&self.git_host_tokens, &actor, &repo, push).await {
+        if let Some(token) = app_push_token(&self.git_host_tokens, &actor, &repo, push).await? {
             return Ok(Upstream::new(
                 &repo,
                 Credential::Token(token),
@@ -466,31 +466,22 @@ async fn gitlab_host_allowed(
         }))
 }
 
-/// The App's installation token when `push` goes to GitHub `repo`, so GitHub
-/// shows the App rather than the driver as the pusher; `None` sends the run-as
-/// token.
-///
-/// Any error falls back to the run-as token rather than refusing: GitHub then
-/// answers the push for that token, as it did before the App could push.
-async fn app_authored_push(
+/// The App's installation token when `push` goes to GitHub `repo`, per
+/// [`GitHostTokenIssuer::github_app_write`]; `None` sends the run-as token.
+async fn app_push_token(
     issuer: &Arc<dyn GitHostTokenIssuer>,
     actor: &Actor,
     repo: &GitHostRepo,
     push: bool,
-) -> Option<String> {
+) -> Result<Option<String>, GitProxyError> {
     if !push || repo.provider() != RepositoryProvider::Github {
-        return None;
+        return Ok(None);
     }
-    match issuer
-        .github_app_authored(actor, repo.owner(), repo.name())
+    let app = issuer
+        .github_app_write(actor, repo.owner(), repo.name())
         .await
-    {
-        Ok(app) => app.map(|app| app.token),
-        Err(error) => {
-            warn!(%error, repository = %repo, "No App token for a proxied push, pushing as the run-as identity");
-            None
-        }
-    }
+        .map_err(|error| credential_error(&error, repo.host()))?;
+    Ok(app.map(|app| app.token))
 }
 
 /// The identity's token, or anonymous for a fetch it has no token to reach:
@@ -533,7 +524,7 @@ fn credential_error(error: &GitHostTokenError, host: &str) -> GitProxyError {
 mod tests {
     use super::*;
     use moatless_core::sandbox_jwt::{StaticTokenGenerations, generate_user_auth_token};
-    use moatless_ports::identity::{AppAuthoredToken, MockCommitIdentity, MockGitHostTokenIssuer};
+    use moatless_ports::identity::{AppWriteToken, MockCommitIdentity, MockGitHostTokenIssuer};
     use moatless_types::access_control::Scope;
     use moatless_types::store::StoreError;
     use moatless_workspace_ports::{MockRepositoryReader, MockWorkspaceResolver};
@@ -956,11 +947,11 @@ mod tests {
     }
 
     fn issuer(
-        answer: fn() -> Result<Option<AppAuthoredToken>, GitHostTokenError>,
+        answer: fn() -> Result<Option<AppWriteToken>, GitHostTokenError>,
     ) -> Arc<dyn GitHostTokenIssuer> {
         let mut issuer = MockGitHostTokenIssuer::new();
         issuer
-            .expect_github_app_authored()
+            .expect_github_app_write()
             .returning(move |_, _, _| answer());
         Arc::new(issuer)
     }
@@ -968,13 +959,13 @@ mod tests {
     #[tokio::test]
     async fn a_github_push_presents_the_app_token() {
         let issuer = issuer(|| {
-            Ok(Some(AppAuthoredToken {
+            Ok(Some(AppWriteToken {
                 token: "ghs_app".to_string(),
             }))
         });
         let repo = GitHostRepo::github("acme", "widgets");
-        let token = app_authored_push(&issuer, &Actor::of("user-1"), &repo, true).await;
-        assert_eq!(token.as_deref(), Some("ghs_app"));
+        let token = app_push_token(&issuer, &Actor::of("user-1"), &repo, true).await;
+        assert_eq!(token.unwrap().as_deref(), Some("ghs_app"));
     }
 
     #[tokio::test]
@@ -982,19 +973,32 @@ mod tests {
         let repo = GitHostRepo::github("acme", "widgets");
         let not_app = issuer(|| Ok(None));
         assert_eq!(
-            app_authored_push(&not_app, &Actor::of("user-1"), &repo, true).await,
+            app_push_token(&not_app, &Actor::of("user-1"), &repo, true)
+                .await
+                .unwrap(),
             None
         );
+    }
+
+    #[tokio::test]
+    async fn a_push_by_a_driver_below_write_access_is_refused() {
+        let repo = GitHostRepo::github("acme", "widgets");
         let below_write = issuer(|| {
             Err(GitHostTokenError::Forbidden {
                 actor: Actor::of("user-1"),
-                account: Box::new(GitHostAccount::Gitlab),
+                account: Box::new(GitHostAccount::Github {
+                    owner: "acme".to_string(),
+                    repository: Some("widgets".to_string()),
+                }),
                 source: "read only".into(),
             })
         });
-        assert_eq!(
-            app_authored_push(&below_write, &Actor::of("user-1"), &repo, true).await,
-            None
+        let refused = app_push_token(&below_write, &Actor::of("user-1"), &repo, true)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(refused, GitProxyError::Unauthorized(_)),
+            "{refused}"
         );
     }
 
@@ -1003,7 +1007,9 @@ mod tests {
         let issuer: Arc<dyn GitHostTokenIssuer> = Arc::new(MockGitHostTokenIssuer::new());
         let repo = GitHostRepo::github("acme", "widgets");
         assert_eq!(
-            app_authored_push(&issuer, &Actor::of("user-1"), &repo, false).await,
+            app_push_token(&issuer, &Actor::of("user-1"), &repo, false)
+                .await
+                .unwrap(),
             None
         );
     }
@@ -1013,7 +1019,9 @@ mod tests {
         let issuer: Arc<dyn GitHostTokenIssuer> = Arc::new(MockGitHostTokenIssuer::new());
         let repo = GitHostRepo::new(RepositoryProvider::Gitlab, "gitlab.com", "acme", "widgets");
         assert_eq!(
-            app_authored_push(&issuer, &Actor::of("user-1"), &repo, true).await,
+            app_push_token(&issuer, &Actor::of("user-1"), &repo, true)
+                .await
+                .unwrap(),
             None
         );
     }
