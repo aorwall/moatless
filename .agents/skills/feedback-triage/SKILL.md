@@ -17,7 +17,8 @@ task's PR merges.
 
 Older open feedback is left alone. Items stay open after their week passes,
 and no run reads them again: what matters is what agents hit now, and a cause
-that still bites shows up again in fresh feedback.
+that still bites shows up again in fresh feedback. A cluster keeps every item
+it ever held, so a fix that merges closes the earlier reports too.
 
 ```
 1. State      → known clusters and earlier runs from loop memory
@@ -80,7 +81,8 @@ A cluster entry's data, which is also the page record `clusters/<slug>`:
 {"slug": "sandbox-restart-loses-build-state", "title": "…", "label": "tool-bug",
  "owner": "moatless", "ownerReason": "…", "reportedFrom": ["moatless"],
  "summary": "…", "brief": "…", "existing": [{"label": "#953 merged", "url": "…"}],
- "members": ["<feedbackId>", "…"], "samples": [{"feedbackId": "…", "comment": "…"}],
+ "members": ["<feedbackId>", "…"], "allMembers": ["<feedbackId>", "…"],
+ "samples": [{"feedbackId": "…", "comment": "…"}],
  "count": 3, "firstSeen": "<createdAt>", "lastSeen": "<createdAt>",
  "bucket": "fix", "priority": {"impact": 4, "ease": 2, "score": 6, "rank": 1,
  "why": "…", "reasons": {"impact": "…", "ease": "…"}},
@@ -90,6 +92,10 @@ A cluster entry's data, which is also the page record `clusters/<slug>`:
  "pr": "…", "mergedAt": "…",
  "deferUntil": "<YYYY-MM-DD>", "followUp": "…", "recurred": false}
 ```
+
+`members` holds this window's items; `allMembers` every item the cluster ever
+held, which is what a close closes. An entry written before `allMembers`
+existed reads as `allMembers // members`.
 
 `status` is `proposed`, `in-progress`, `fixed`, `closed`, `rejected` or
 `deferred`. Steps 2 and 3 set it; step 6 sets it back to `proposed` when a
@@ -153,8 +159,9 @@ The label only seeds step 6, so a wrong one costs little.
    whatever its label: a slug is stable for the life of the cluster, and a
    later run finds earlier decisions under it. `members`, `count`, `samples`,
    `firstSeen` and `lastSeen` describe this window only, so rewrite them from
-   the batch rather than adding to the stored ones. A known cluster with no
-   member in the window stays in memory and off the page.
+   the batch rather than adding to the stored ones. Add the window's members
+   to `allMembers` and never remove one: a merged fix closes them all. A known
+   cluster with no member in the window stays in memory and off the page.
 
    The known cluster's `status` decides what a match does:
 

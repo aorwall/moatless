@@ -34,7 +34,9 @@ leave `decision` alone, since `medianDaysApprovalToMerge` reads its
 `actedAt`. Say so on the page and in the reply, and name
 `moat tasks cancel <childTaskId>` for a person who wants it stopped.
 
-Set each member's status one call at a time, and put the evidence in the note:
+"Every member" means every id in the entry's `allMembers // members` that
+`scripts/open-ids.sh` lists as open, so an item already closed keeps its own
+note. Set each one's status one call at a time, and put the evidence in the note:
 
 ```bash
 moat feedback status "$id" --status fixed \
