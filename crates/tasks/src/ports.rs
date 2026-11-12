@@ -334,9 +334,7 @@ impl TaskOpener for crate::task::creation::TaskCreationService {
         let (owner_user_id, run_as_user_id) = owner_and_run_as(
             self.users.as_ref(),
             workspace.run_as_user_id.as_deref(),
-            req.reporter_user_id
-                .clone()
-                .or_else(|| req.created_by.clone()),
+            req.created_by.clone(),
             req.run_as_user_id,
         )
         .await?;
@@ -404,9 +402,10 @@ impl TaskOpener for crate::task::creation::TaskCreationService {
 
 /// The owner and Task-level run-as of a Loop's [`NewTask`].
 ///
-/// A reporter owns it only under a bot run-as, rather than a human whose
-/// provider tokens and secrets would then sit in someone else's Task. A
-/// Workspace run-as drops the Loop's: a Task-level one would outrank it.
+/// The creator owns it, never the reporter: a reporter owning the Task would
+/// get owner rights over another user's Loop run, and `access_filter` already
+/// lets them read and message it. A Workspace run-as drops the Loop's: a
+/// Task-level one would outrank it.
 async fn owner_and_run_as(
     users: &dyn UserResolver,
     workspace_run_as: Option<&str>,
@@ -618,6 +617,7 @@ mod tests {
     use super::owner_and_run_as;
 
     const LOOP_USER: &str = "6f1c1f0e-0000-4000-8000-000000000001";
+    const CREATOR: &str = "creator";
 
     fn loop_user(is_bot: bool) -> MockUserResolver {
         let mut users = MockUserResolver::new();
@@ -638,7 +638,7 @@ mod tests {
         owner_and_run_as(
             users,
             workspace_run_as,
-            Some("ada".to_string()),
+            Some(CREATOR.to_string()),
             Some(LOOP_USER.to_string()),
         )
         .await
@@ -646,10 +646,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_requester_owns_a_task_that_runs_as_the_loops_bot() {
+    async fn the_creator_owns_a_task_that_runs_as_the_loops_bot() {
         assert_eq!(
             split(&loop_user(true), None).await,
-            (Some("ada".to_string()), Some(LOOP_USER.to_string()))
+            (Some(CREATOR.to_string()), Some(LOOP_USER.to_string()))
         );
     }
 
@@ -665,7 +665,7 @@ mod tests {
     async fn a_workspace_run_as_outranks_the_loops() {
         assert_eq!(
             split(&MockUserResolver::new(), Some("machine")).await,
-            (Some("ada".to_string()), None)
+            (Some(CREATOR.to_string()), None)
         );
     }
 }

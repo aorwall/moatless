@@ -412,12 +412,8 @@ _Avoid_: trigger source, adapter-event trigger, TaskTrigger, TaskRoute
 **Requester**:
 The Moatless user an Adapter verified wrote the event that opens a Task
 (`InboundMessage::requester`): a mapped Slack sender, a Linear session's
-creator. Recorded as the Task's Reporter.
-When the Loop runs as a bot, or its Workspace sets a run-as user, the Task is
-owned by them: its commits credit them as
-co-author, and its git-host token is capped by their own connection and
-repository role, so a Requester who has not connected GitHub, or has no role on
-the repository, is refused. Otherwise the Loop's own user keeps the Task.
+creator. Recorded as the Task's Reporter, never its owner: the Loop's run-as
+user creates and owns the Task, and the Requester reads and messages it.
 _Avoid_: sender (the external writer, verified or not), `user_id` on an inbound
 message (falls back to the Loop's user)
 

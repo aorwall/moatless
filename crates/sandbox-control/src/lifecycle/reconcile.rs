@@ -123,6 +123,7 @@ mod tests {
             visibility: Visibility::Private,
             scope: Scope::User,
             owner_user_id: Some("user-1".to_string()),
+            reporter_user_id: None,
             sandbox_id: "t1".to_string(),
             workspace_id: "ws_repo-x".to_string(),
             headless: false,

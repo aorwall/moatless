@@ -58,6 +58,8 @@ pub enum ScopedEntity {
 pub struct ScopedResource {
     pub scope: Scope,
     pub owner_user_id: Option<String>,
+    /// A Task's Reporter, who reads and writes it without owning it.
+    pub reporter_user_id: Option<String>,
 }
 
 impl ScopedResource {
@@ -68,6 +70,7 @@ impl ScopedResource {
         Self {
             scope,
             owner_user_id: owner_user_id.map(Into::into),
+            reporter_user_id: None,
         }
     }
 
@@ -75,7 +78,19 @@ impl ScopedResource {
         Self {
             scope,
             owner_user_id: owner_user_id.map(str::to_string),
+            reporter_user_id: None,
         }
+    }
+
+    /// The same resource, with `reporter` granted read and write.
+    #[must_use]
+    pub fn reported_by(mut self, reporter: Option<&str>) -> Self {
+        self.reporter_user_id = reporter.map(str::to_string);
+        self
+    }
+
+    fn reported_by_user(&self, user_id: &str) -> bool {
+        self.reporter_user_id.as_deref() == Some(user_id)
     }
 }
 
@@ -132,7 +147,7 @@ impl ScopeContext {
     /// Task visibility is not an input here: the public-task read arm lives in
     /// the persistence filter and in callers that already hold the row.
     pub fn can_read(&self, resource: &ScopedResource) -> bool {
-        if self.is_admin {
+        if self.is_admin || resource.reported_by_user(&self.user_id) {
             return true;
         }
         match resource.scope {
@@ -146,10 +161,12 @@ impl ScopeContext {
 
     /// Check if this context can write (change or operate) a resource.
     ///
-    /// Ownership, plus the public-task arm. `visibility` is `None` for every
-    /// entity but a Task, which has no other way to grant write.
+    /// Ownership, plus the public-task and Reporter arms. `visibility` is
+    /// `None` for every entity but a Task.
     pub fn can_write(&self, resource: &ScopedResource, visibility: Option<Visibility>) -> bool {
-        visibility == Some(Visibility::Public) || self.is_owner(resource)
+        visibility == Some(Visibility::Public)
+            || resource.reported_by_user(&self.user_id)
+            || self.is_owner(resource)
     }
 
     /// Check if this context owns a resource: its owner on a `user` row, or an
@@ -358,6 +375,17 @@ mod tests {
         // principal can reach any scoped row regardless of owner.
         assert!(ctx.can_read(&ScopedResource::borrowed(Scope::User, Some("someone"))));
         assert!(ctx.can_write(&ScopedResource::borrowed(Scope::Global, None), None));
+    }
+
+    #[test]
+    fn a_reporter_reads_and_writes_without_owning() {
+        let task =
+            ScopedResource::borrowed(Scope::User, Some("loop-user")).reported_by(Some("ada"));
+        let ada = ScopeContext::user("ada");
+        assert!(ada.can_read(&task));
+        assert!(ada.can_write(&task, Some(Visibility::Private)));
+        assert!(!ada.is_owner(&task));
+        assert!(!ScopeContext::user("bob").can_read(&task));
     }
 
     #[test]

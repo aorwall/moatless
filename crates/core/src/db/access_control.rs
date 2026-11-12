@@ -6,6 +6,16 @@ fn has_visibility(entity: ScopedEntity) -> bool {
     matches!(entity, ScopedEntity::Task)
 }
 
+/// The Task arms that grant read and write but not ownership: a public Task,
+/// and a Task whose Reporter is the caller.
+fn task_arms(entity: ScopedEntity, prefix: &str, user_param: usize) -> String {
+    if has_visibility(entity) {
+        format!(" OR {prefix}visibility = 'public' OR {prefix}reporter_user_id = ${user_param}")
+    } else {
+        String::new()
+    }
+}
+
 /// Access-control predicate and the next positional parameter index.
 pub struct AccessFilter {
     sql: String,
@@ -29,14 +39,10 @@ impl AccessFilter {
 /// from `start`: `is_admin` then `user_id`, bound from `ScopeContext`.
 ///
 /// `prefix` is the table alias (e.g. `"t."`); the entity decides whether
-/// `visibility = 'public'` is included.
+/// [`task_arms`] are included.
 pub fn access_filter(entity: ScopedEntity, prefix: &str, start: usize) -> AccessFilter {
     let (p1, p2) = (start, start + 1);
-    let vis = if has_visibility(entity) {
-        format!(" OR {prefix}visibility = 'public'")
-    } else {
-        String::new()
-    };
+    let vis = task_arms(entity, prefix, p2);
     let sql = format!(
         "(${p1}{vis} OR {prefix}scope = 'global' \
          OR ({prefix}scope = 'user' AND COALESCE({prefix}owner_user_id, {prefix}created_by) = ${p2}))"
@@ -50,16 +56,12 @@ pub fn access_filter(entity: ScopedEntity, prefix: &str, start: usize) -> Access
 /// Build a write (mutation) SQL filter, using 2 positional parameters from
 /// `start`: `is_admin` then `user_id`, bound from `ScopeContext`.
 ///
-/// [`owner_filter`] plus the public-task arm, which the entity gates exactly as
+/// [`owner_filter`] plus [`task_arms`], which the entity gates exactly as
 /// [`access_filter`] does. Embedding it in a mutation's `WHERE` makes check and
 /// write atomic, with `rows_affected == 0` mapping to `NotFound`.
 pub fn write_filter(entity: ScopedEntity, prefix: &str, start: usize) -> AccessFilter {
     let (p1, p2) = (start, start + 1);
-    let vis = if has_visibility(entity) {
-        format!(" OR {prefix}visibility = 'public'")
-    } else {
-        String::new()
-    };
+    let vis = task_arms(entity, prefix, p2);
     let sql = format!(
         "(${p1}{vis} OR ({prefix}scope = 'user' \
          AND COALESCE({prefix}owner_user_id, {prefix}created_by) = ${p2}))"
@@ -97,7 +99,7 @@ mod tests {
         let f = access_filter(ScopedEntity::Task, "", 1);
         assert_eq!(
             f.sql(),
-            "($1 OR visibility = 'public' OR scope = 'global' \
+            "($1 OR visibility = 'public' OR reporter_user_id = $2 OR scope = 'global' \
              OR (scope = 'user' AND COALESCE(owner_user_id, created_by) = $2))"
         );
         assert_eq!(f.next_param(), 3);
@@ -130,7 +132,7 @@ mod tests {
         let f = access_filter(ScopedEntity::Task, "t.", 1);
         assert_eq!(
             f.sql(),
-            "($1 OR t.visibility = 'public' OR t.scope = 'global' \
+            "($1 OR t.visibility = 'public' OR t.reporter_user_id = $2 OR t.scope = 'global' \
              OR (t.scope = 'user' AND COALESCE(t.owner_user_id, t.created_by) = $2))"
         );
     }
@@ -156,11 +158,11 @@ mod tests {
     }
 
     #[test]
-    fn write_filter_task_adds_the_public_arm_to_the_owner_fragment() {
+    fn write_filter_task_adds_the_public_and_reporter_arms_to_the_owner_fragment() {
         let f = write_filter(ScopedEntity::Task, "", 1);
         assert_eq!(
             f.sql(),
-            "($1 OR visibility = 'public' \
+            "($1 OR visibility = 'public' OR reporter_user_id = $2 \
              OR (scope = 'user' AND COALESCE(owner_user_id, created_by) = $2))"
         );
         assert_eq!(f.next_param(), 3);

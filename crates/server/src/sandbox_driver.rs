@@ -10,7 +10,7 @@ use moatless_sandbox_control::lifecycle::{DriverChange, SandboxIngress, TokenGen
 use moatless_sandbox_control::notify::CredentialBroadcast;
 use moatless_tasks::task_event::models::InsertTaskEvent;
 use moatless_tasks::task_event::operations::TaskEvents;
-use moatless_types::access_control::{ScopeContext, ScopedResource};
+use moatless_types::access_control::ScopeContext;
 use moatless_types::credential_key::USER_AUTH_TOKEN;
 
 /// Switches a Sandbox's driver, then pushes the new driver's task token to the
@@ -70,7 +70,7 @@ impl SandboxDrivers {
         };
         let admin = matches!(self.users.is_platform_admin(user_id).await, Ok(true));
         let ctx = ScopeContext::new(user_id.to_string(), admin);
-        let resource = ScopedResource::borrowed(intent.scope, intent.owner_user_id.as_deref());
+        let resource = intent.scoped_resource();
         if !ctx.can_write(&resource, Some(intent.visibility)) {
             return Err(DriveError::Forbidden(format!(
                 "{user_id} cannot write task {task_id}, so cannot drive its sandbox"

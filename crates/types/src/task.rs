@@ -495,5 +495,6 @@ impl Task {
             self.scope,
             self.owner_user_id.as_deref().or(self.created_by.as_deref()),
         )
+        .reported_by(self.reporter_user_id.as_deref())
     }
 }

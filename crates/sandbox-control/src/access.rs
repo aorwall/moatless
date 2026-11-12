@@ -143,6 +143,7 @@ mod authz_tests {
             visibility,
             scope,
             owner_user_id: owner_user_id.map(|u| uid(u).to_string()),
+            reporter_user_id: None,
             sandbox_id: "task-1".to_string(),
             workspace_id: "ws-1".to_string(),
             headless: false,
@@ -184,6 +185,19 @@ mod authz_tests {
             )
             .is_ok()
         );
+    }
+
+    #[test]
+    fn the_reporter_reads_and_writes_but_does_not_own() {
+        let mut reported = private(Some("loop-user"));
+        reported.reporter_user_id = Some(uid("reporter").to_string());
+        let reporter = Some(ctx("reporter", false));
+        assert!(ensure_can_read(&reporter, &reported, "task-1").is_ok());
+        assert!(ensure_can_write(&reporter, &reported, "task-1").is_ok());
+        assert!(matches!(
+            ensure_is_owner(&reporter, &reported, "task-1"),
+            Err(SandboxError::Forbidden(_))
+        ));
     }
 
     #[test]

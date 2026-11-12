@@ -48,6 +48,8 @@ pub struct TaskIntent {
     pub visibility: Visibility,
     pub scope: Scope,
     pub owner_user_id: Option<String>,
+    /// The Task's Reporter, who reads and writes the Sandbox without owning it.
+    pub reporter_user_id: Option<String>,
     pub sandbox_id: String,
     pub workspace_id: String,
     /// Whether the Sandbox runs without a person watching it; see
@@ -66,6 +68,7 @@ impl TaskIntent {
     /// The Sandbox as an access-control subject.
     pub fn scoped_resource(&self) -> ScopedResource {
         ScopedResource::borrowed(self.scope, self.owner_user_id.as_deref())
+            .reported_by(self.reporter_user_id.as_deref())
     }
 }
 
