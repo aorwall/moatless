@@ -426,12 +426,14 @@ jobs:
   playwright-pins:
     name: Playwright pin drift
     runs-on: ci-runners
+    # Skipped until the `E2E_GITHUB_PAT` secret exists: see docs/deferred-changes.md.
+    env:
+      GH_TOKEN: ${{ secrets.E2E_GITHUB_PAT }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        if: env.GH_TOKEN != ''
       - name: Compare the Playwright pins with the lockfiles that decide them
-        env:
-          GH_TOKEN: ${{ secrets.E2E_GITHUB_PAT }}
-          PLAYWRIGHT_PINS_FORK: ${{ github.event.pull_request.head.repo.fork == true }}
+        if: env.GH_TOKEN != ''
         run: ./.github/scripts/check-playwright-pins.sh
 
   # ── Rust lint + tests ──

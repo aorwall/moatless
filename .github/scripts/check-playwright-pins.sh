@@ -10,9 +10,7 @@
 # sandbox egress rules block. Nothing else compares the two sides.
 #
 # Reading a private consumer needs GH_TOKEN with repo:read. Without one the
-# remote consumers are skipped: with a warning locally or on a fork PR
-# (`PLAYWRIGHT_PINS_FORK=true`), and as an error on any other CI run, because a
-# skip there passes a floor bump that drops a build a consumer still resolves.
+# remote consumers are skipped with a warning; CI skips the whole job instead.
 
 set -euo pipefail
 
@@ -48,12 +46,7 @@ while read -r repo lockfile is_local; do
 		fi
 		content=$(cat "$lockfile")
 	elif [ -z "${GH_TOKEN:-}" ]; then
-		if [ "${GITHUB_ACTIONS:-}" = "true" ] && [ "${PLAYWRIGHT_PINS_FORK:-}" != "true" ]; then
-			echo "::error::Skipped $repo — GH_TOKEN is unset, so its $lockfile cannot be read. Set the E2E_GITHUB_PAT Actions secret to a token that reads it"
-			failed=1
-		else
-			echo "::warning::Skipped $repo — GH_TOKEN is unset, so its $lockfile cannot be read"
-		fi
+		echo "::warning::Skipped $repo — GH_TOKEN is unset, so its $lockfile cannot be read"
 		skipped=1
 		continue
 	# The raw media type, deliberately: the JSON one populates `content` only at
