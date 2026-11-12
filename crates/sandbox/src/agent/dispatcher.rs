@@ -275,10 +275,10 @@ async fn dispatch_pending_messages_for_context(
         return;
     }
 
-    // Skills are pasted only into a turn that starts a session; a resumed one
-    // got them on its first turn, and an in-memory record of what was sent dies
-    // with the pod. A standing skill leads every fresh session. Applied after
-    // the gate above, so a standing skill cannot open a turn on its own.
+    // A standing skill leads every fresh session. A resumed one gets only the
+    // skills this delivery names, which the backend limits to the turn's own:
+    // the Task's skills ride only a delivery that starts a session. Applied
+    // after the gate above, so a standing skill cannot open a turn on its own.
     let skills = if is_slash_command(&text) {
         // A preamble ahead of `/compact` turns the command into plain text.
         if !skills.is_empty() {
@@ -289,7 +289,7 @@ async fn dispatch_pending_messages_for_context(
         }
         Vec::new()
     } else if resume_session_id.is_some() {
-        Vec::new()
+        skills
     } else {
         let loaded = if let Some(text) = continued_session_text(
             &state,

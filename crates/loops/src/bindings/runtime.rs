@@ -873,6 +873,7 @@ impl RoutingService {
                     std::slice::from_ref(msg),
                     adapter_label,
                     is_new_task,
+                    Vec::new(),
                 )
                 .await;
         }
@@ -891,11 +892,10 @@ impl RoutingService {
         Ok(())
     }
 
-    /// Deliver `msg` to `binding` at once, activating `skills` in place of
-    /// `subscription`'s when the binding serves it (see `serves_loop`).
+    /// Deliver `msg` to `binding` at once, activating `skills` with it when the
+    /// binding serves `subscription` (see `serves_loop`).
     ///
-    /// Bypasses the buffer deliberately: a flush re-reads the Loop and would
-    /// send its skills rather than these.
+    /// Bypasses the buffer deliberately: a flush delivers no skills.
     pub async fn deliver_with_skills(
         &self,
         subscription: &SubscriptionMatch,
@@ -904,16 +904,13 @@ impl RoutingService {
         adapter_label: &str,
         skills: Vec<String>,
     ) -> Result<(), AdapterError> {
-        let subscription = SubscriptionMatch {
-            skills,
-            ..subscription.clone()
-        };
         self.deliver_now(
-            &subscription,
+            subscription,
             binding,
             std::slice::from_ref(msg),
             adapter_label,
             false,
+            skills,
         )
         .await
     }
@@ -954,6 +951,7 @@ impl RoutingService {
             &batch.messages,
             &batch.adapter_label,
             false,
+            Vec::new(),
         )
         .await
     }
@@ -962,8 +960,8 @@ impl RoutingService {
     /// still runnable, else one derived from the Binding's connection.
     ///
     /// The connection deliberately, not a stopped Loop's own config: an
-    /// unbuffered event routes that way too, losing the Loop's `skills`. `None`
-    /// only when the connection is gone.
+    /// unbuffered event routes that way too. `None` only when the connection
+    /// is gone.
     async fn flush_route(
         &self,
         binding: &TaskBinding,
@@ -987,7 +985,7 @@ impl RoutingService {
         )))
     }
 
-    /// Compose `msgs` into one turn and hand it to the Task.
+    /// Compose `msgs` into one turn activating `skills` and hand it to the Task.
     ///
     /// Thread context is fetched once for the whole batch and excludes every
     /// buffered event, so the newest message is not preceded by a quotation of
@@ -999,6 +997,7 @@ impl RoutingService {
         msgs: &[InboundMessage],
         adapter_label: &str,
         is_new_task: bool,
+        skills: Vec<String>,
     ) -> Result<(), AdapterError> {
         let Some(last) = msgs.last() else {
             return Ok(());
@@ -1100,11 +1099,10 @@ impl RoutingService {
                     sender_id: last.sender_external_id.clone(),
                 },
                 sent_by: Some(last.user_id.clone()),
-                // A `routing_mode: ongoing` Loop fires into an already-open
-                // task, so the task's own skills are held back during
-                // resume; the Loop still means them, so send them here.
+                // Never the Loop's own `skills`: its Task holds them, sent into
+                // each fresh session; sent per event, each wake pasted them again.
                 skills: if serves_loop(binding, &subscription.id) {
-                    config.skills.clone()
+                    skills
                 } else {
                     Vec::new()
                 },
@@ -1126,8 +1124,8 @@ impl RoutingService {
     }
 }
 
-/// Whether `binding`'s task does the work of Loop `loop_id`, and so gets that
-/// Loop's skills with its events: only when the Loop spawned it. A task that
+/// Whether `binding`'s task does the work of Loop `loop_id`, and so gets the
+/// skills that Loop's triggers add: only when the Loop spawned it. A task that
 /// opened, joined or commented on a pull request a review Loop watches binds
 /// under that Loop too, and is its author, not its reviewer.
 fn serves_loop(binding: &TaskBinding, loop_id: &str) -> bool {
