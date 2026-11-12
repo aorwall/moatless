@@ -1,6 +1,6 @@
-//! The proxied writes GitHub shows an author for. A driver signed in through
-//! the GitHub App sends them as the App, credited in the text, so `gh` in a
-//! sandbox posts the way the adapter's own replies do.
+//! The proxied writes GitHub shows an actor for. A driver signed in through
+//! the GitHub App sends them as the App, those that post text credited in it,
+//! so `gh` in a sandbox posts and merges the way the adapter's own replies do.
 
 use axum::body::Bytes;
 use axum::http::Method;
@@ -31,6 +31,34 @@ pub(super) const MUTATIONS: &[&str] = &[
     "submitPullRequestReview",
 ];
 
+/// What a write the App sends shows of the driver.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum AppWrite {
+    /// Posts text, which [`credit`] credits the driver in.
+    Authors,
+    /// Merges a pull request. Never credited: its body is the merge commit's
+    /// message, and setting one replaces the one GitHub writes, with the
+    /// squashed commits' `Co-authored-by` trailers.
+    Merges,
+}
+
+/// The REST merge, after `/repos/{owner}/{name}/`, and its method.
+const REST_MERGE: (&str, &str) = ("PUT", "pulls/*/merge");
+
+/// The GraphQL mutations that merge, or enable a merge GitHub runs later as
+/// whoever enabled it.
+pub(super) const MERGE_MUTATIONS: &[&str] = &["enablePullRequestAutoMerge", "mergePullRequest"];
+
+/// The [`AppWrite`] a REST request is, if any.
+pub(super) fn rest_app_write(method: &Method, path_and_query: &str) -> Option<AppWrite> {
+    if rest_authors(method, path_and_query) {
+        return Some(AppWrite::Authors);
+    }
+    let (merge_method, merge) = REST_MERGE;
+    (method.as_str() == merge_method && repo_path_matches(path_and_query, merge))
+        .then_some(AppWrite::Merges)
+}
+
 /// The `input` fields naming the node a GraphQL mutation acts on, in the
 /// order they are tried.
 const SUBJECT_FIELDS: &[&str] = &[
@@ -42,23 +70,27 @@ const SUBJECT_FIELDS: &[&str] = &[
 ];
 
 /// Whether a REST request authors.
-pub(super) fn rest_authors(method: &Method, path_and_query: &str) -> bool {
-    if method != Method::POST {
-        return false;
-    }
+fn rest_authors(method: &Method, path_and_query: &str) -> bool {
+    method == Method::POST
+        && REST
+            .iter()
+            .any(|pattern| repo_path_matches(path_and_query, pattern))
+}
+
+/// Whether `path_and_query` is `/repos/{owner}/{name}/` then `pattern`, where
+/// `*` is one segment.
+fn repo_path_matches(path_and_query: &str, pattern: &str) -> bool {
     let path = path_and_query.split('?').next().unwrap_or_default();
     let Some(rest) = path.strip_prefix("/repos/") else {
         return false;
     };
     let segments: Vec<&str> = rest.trim_end_matches('/').split('/').skip(2).collect();
-    REST.iter().any(|pattern| {
-        let pattern: Vec<&str> = pattern.split('/').collect();
-        pattern.len() == segments.len()
-            && pattern
-                .iter()
-                .zip(&segments)
-                .all(|(p, s)| *p == "*" || p == s)
-    })
+    let pattern: Vec<&str> = pattern.split('/').collect();
+    pattern.len() == segments.len()
+        && pattern
+            .iter()
+            .zip(&segments)
+            .all(|(p, s)| *p == "*" || p == s)
 }
 
 /// The node id a GraphQL mutation's `input` names.
@@ -111,6 +143,23 @@ mod tests {
         assert!(!post("/repos/o/r/pulls/comments/2/reactions"));
         assert!(!post("/user/repos"));
         assert!(!rest_authors(&Method::PATCH, "/repos/o/r/pulls/1"));
+    }
+
+    #[test]
+    fn a_merge_goes_as_the_app_uncredited() {
+        assert_eq!(
+            rest_app_write(&Method::PUT, "/repos/o/r/pulls/282/merge"),
+            Some(AppWrite::Merges)
+        );
+        assert_eq!(
+            rest_app_write(&Method::POST, "/repos/o/r/pulls/1/reviews"),
+            Some(AppWrite::Authors)
+        );
+        assert_eq!(
+            rest_app_write(&Method::GET, "/repos/o/r/pulls/282/merge"),
+            None
+        );
+        assert_eq!(rest_app_write(&Method::PUT, "/repos/o/r/pulls/282"), None);
     }
 
     #[test]

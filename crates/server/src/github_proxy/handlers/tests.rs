@@ -886,3 +886,37 @@ async fn a_bot_run_as_comment_credits_the_driver_it_works_for() {
         "hi\n\nDriven by [@ada](https://github.com/ada)"
     );
 }
+
+/// soaplabs/t3code#282 from 2026-11-12: `gh pr merge` in a sandbox merged it
+/// with the driver's token, so GitHub showed the driver as merging it.
+#[tokio::test]
+async fn an_app_signed_drivers_merge_is_sent_as_the_app_uncredited() {
+    let base = recording_github().await;
+    let proxy = proxy(
+        workspaces(github_repository(), HashMap::new()),
+        app_issuer("private"),
+        &base,
+    );
+
+    let merge = serde_json::json!({
+        "query": "mutation($input: MergePullRequestInput!) { mergePullRequest(input: $input) { clientMutationId } }",
+        "variables": { "input": { "pullRequestId": "PR_kw", "mergeMethod": "MERGE" } }
+    })
+    .to_string();
+    let graphql = sent(&proxy, Method::POST, "/graphql", &merge).await;
+    assert_eq!(graphql["message"], "Bearer ghs_app_sibling");
+    assert!(
+        graphql["sent"]["variables"]["input"].get("body").is_none(),
+        "a merge's body would replace the merge commit message GitHub writes"
+    );
+
+    let rest = sent(
+        &proxy,
+        Method::PUT,
+        "/repos/owner/repo/pulls/282/merge",
+        r#"{"merge_method":"merge"}"#,
+    )
+    .await;
+    assert_eq!(rest["message"], "Bearer ghs_app_repo");
+    assert_eq!(rest["sent"], serde_json::json!({ "merge_method": "merge" }));
+}

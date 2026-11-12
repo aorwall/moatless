@@ -13,8 +13,9 @@ use moatless_core::proxy_rules::NormalPath;
 use moatless_workspace_types::repository::GitHostRepo;
 
 use crate::github_policy::{GitHubPolicy, Refusal, Request as PolicyRequest};
+use crate::github_proxy::authorship::{self, AppWrite};
 use crate::github_proxy::service::{GitHubProxy, GitHubProxyError, GitHubUpstream};
-use crate::github_proxy::{authorship, target};
+use crate::github_proxy::target;
 use crate::proxy::caller::SandboxScope;
 use crate::proxy::forward::{bearer_token, forwards, stream_back};
 
@@ -73,7 +74,7 @@ pub(super) async fn forward(
     body: Body,
 ) -> Response {
     let graphql = is_graphql(upstream, &method, path_and_query);
-    // `authored` holds the body of a write GitHub shows an author for.
+    // `authored` holds the body of a write the App sends, and what it is.
     let (requested, body, authored) = if graphql {
         let Ok(bytes) = axum::body::to_bytes(body, GRAPHQL_BODY_LIMIT).await else {
             return too_large("The GraphQL request body is too large");
@@ -83,8 +84,12 @@ pub(super) async fn forward(
                 return refused;
             }
         }
-        let authored =
-            GitHubPolicy::graphql_runs_only(&bytes, authorship::MUTATIONS).then(|| bytes.clone());
+        let authored = if GitHubPolicy::graphql_runs_only(&bytes, authorship::MUTATIONS) {
+            Some((bytes.clone(), AppWrite::Authors))
+        } else {
+            GitHubPolicy::graphql_runs_only(&bytes, authorship::MERGE_MUTATIONS)
+                .then(|| (bytes.clone(), AppWrite::Merges))
+        };
         (
             target::from_graphql(&bytes),
             reqwest::Body::from(bytes),
@@ -96,11 +101,11 @@ pub(super) async fn forward(
             reqwest::Body::wrap_stream(body.into_data_stream().map_err(std::io::Error::other)),
             None,
         )
-    } else if authorship::rest_authors(&method, path_and_query) {
+    } else if let Some(write) = authorship::rest_app_write(&method, path_and_query) {
         // Over the limit it cannot be a comment GitHub accepts, so it goes on
         // unread as any other write.
         let (body, authored) = match buffer(body, REVIEW_BODY_LIMIT).await {
-            Buffered::Whole(bytes) => (Body::from(bytes.clone()), Some(bytes)),
+            Buffered::Whole(bytes) => (Body::from(bytes.clone()), Some((bytes, write))),
             Buffered::Over(body) => (body, None),
             Buffered::Failed => return StatusCode::BAD_REQUEST.into_response(),
         };
@@ -161,9 +166,9 @@ struct Sending {
     credited: bool,
 }
 
-/// `authored`, the body of a write GitHub shows an author for, goes as the App
-/// the driver signed in through, and credits whom
-/// [`GitHubProxy::credited_login`] names; anything else goes as
+/// `authored`, the body of a write GitHub shows an actor for, goes as the App
+/// the driver signed in through; one that [`AppWrite::Authors`] credits whom
+/// [`GitHubProxy::credited_login`] names. Anything else goes as
 /// [`GitHubProxy::token`] picks.
 async fn sending(
     proxy: &GitHubProxy,
@@ -171,9 +176,9 @@ async fn sending(
     graphql: bool,
     requested: Option<&GitHostRepo>,
     body: reqwest::Body,
-    authored: Option<Bytes>,
+    authored: Option<(Bytes, AppWrite)>,
 ) -> Result<Sending, GitHubProxyError> {
-    if let Some(bytes) = authored {
+    if let Some((bytes, write)) = authored {
         let repository = match (requested, graphql) {
             (None, true) => match authorship::graphql_subject(&bytes) {
                 Some(id) => proxy.repository_of_node(scope, &id).await,
@@ -182,7 +187,10 @@ async fn sending(
             _ => requested.cloned(),
         };
         let app = proxy.app_authored(scope, repository).await?;
-        let credit = proxy.credited_login(scope, app.is_some()).await;
+        let credit = match write {
+            AppWrite::Authors => proxy.credited_login(scope, app.is_some()).await,
+            AppWrite::Merges => None,
+        };
         let token = match app {
             Some(app) => app.token,
             None => proxy.token(scope, requested).await?,
