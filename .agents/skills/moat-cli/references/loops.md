@@ -184,6 +184,11 @@ Notes:
 - A `github_pr` loop's `adapterConfig.ignored_events` also takes
   `review_verdict`: an approval or change request with no body. Only the ignore
   list reads it, so an include list naming `pull_request_review` keeps them.
+- An `ignored_senders` entry is a login, which drops every event from that
+  sender, or `{login, events}`, which drops only those events from it:
+  `{login: github-actions[bot], events: [issue_comment, pull_request_review]}`
+  silences a CI bot's comments while its pushes still wake the loop. An explicit
+  list replaces the `linear-code[bot]` default, so list it too.
 - `slack` loops resolve their **connection** from `teamId` (the Slack workspace id,
   e.g. `T0000000001`); if `teamId` is omitted and exactly one slack connection
   exists it's used, otherwise the loop is **skipped** with a reason. `sourceMatcher`

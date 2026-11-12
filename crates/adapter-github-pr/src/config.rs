@@ -56,6 +56,18 @@ pub(super) const KNOWN_EVENTS: &[&str] = &[
     REVIEW_VERDICT,
 ];
 
+/// One `adapter_config.ignored_senders` entry: either a bare login, or
+/// `{login, events}` naming the [`KNOWN_EVENTS`] it drops from that sender.
+///
+/// A scoped entry drops only the named events' own messages, so a CI bot's
+/// comments can be ignored while its pushes still wake a review.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct IgnoredSender {
+    pub login: String,
+    /// Empty drops every event, derived signals included.
+    pub events: Vec<String>,
+}
+
 /// What creates a Task under a loop.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(super) enum CreateOn {
@@ -106,12 +118,11 @@ pub(super) struct GithubPrRuleConfig {
     /// Emit an inbound message when a `check_suite` completes successfully.
     /// Failures are always reported via `check_run` regardless of this flag.
     pub notify_on_success: bool,
-    /// Sender logins whose webhook events are dropped entirely
-    /// (case-insensitive against `sender.login`).
-    ///
-    /// Applies to ALL event types, including `pull_request` opened/closed, so
-    /// an ignored sender can neither create nor close tasks.
-    pub ignored_senders: Vec<String>,
+    /// Senders whose webhook events are dropped (case-insensitive against
+    /// `sender.login`). An entry without `events` drops ALL event types,
+    /// including `pull_request` opened/closed, so that sender can neither
+    /// create nor close tasks; see [`IgnoredSender`].
+    pub ignored_senders: Vec<IgnoredSender>,
     /// Regex patterns matched case-insensitively against the PR title.
     ///
     /// A PR whose title matches any pattern never creates a review task
@@ -165,6 +176,7 @@ impl GithubPrRuleConfig {
         self.events_filter
             .iter()
             .chain(&self.ignored_events)
+            .chain(self.ignored_senders.iter().flat_map(|s| &s.events))
             .map(String::as_str)
             .filter(|name| {
                 !KNOWN_EVENTS
@@ -196,41 +208,56 @@ impl GithubPrRuleConfig {
             .any(|e| e.eq_ignore_ascii_case(event))
     }
 
-    /// True when `sender` (a `sender.login`) is in `ignored_senders`
-    /// (case-insensitive). An empty sender never matches.
+    /// True when an unscoped `ignored_senders` entry names `sender` (a
+    /// `sender.login`), so the whole delivery is dropped. An empty sender
+    /// never matches.
     pub(super) fn is_ignored_sender(&self, sender: &str) -> bool {
-        !sender.is_empty()
-            && self
-                .ignored_senders
-                .iter()
-                .any(|s| s.eq_ignore_ascii_case(sender))
+        self.sender_entries(sender).any(|s| s.events.is_empty())
+    }
+
+    /// True when an `ignored_senders` entry for `sender` drops `event`'s own
+    /// message: an unscoped entry, or a scoped one that names `event`.
+    pub(super) fn ignores_sender_event(&self, sender: &str, event: &str) -> bool {
+        self.sender_entries(sender)
+            .any(|s| s.events.is_empty() || s.events.iter().any(|e| e.eq_ignore_ascii_case(event)))
+    }
+
+    fn sender_entries<'a>(&'a self, sender: &'a str) -> impl Iterator<Item = &'a IgnoredSender> {
+        self.ignored_senders
+            .iter()
+            .filter(move |s| !sender.is_empty() && s.login.eq_ignore_ascii_case(sender))
     }
 }
 
 /// Parse `ignored_senders` from a `adapter_config` JSONB value: absent key,
 /// null config, or non-array value fall back to `DEFAULT_IGNORED_SENDERS`; an
-/// explicit array replaces the default verbatim (`[]` opts out).
-///
-/// Shared by webhook ingress and the `fetch_context` comment backfill, which
-/// has only a `LoopContext`, not a full `SubscriptionMatch`.
-pub(super) fn ignored_senders(adapter_config: Option<&serde_json::Value>) -> Vec<String> {
-    adapter_config
+/// explicit array replaces the default verbatim (`[]` opts out). An entry that
+/// is neither a string nor an object with a string `login` is skipped.
+fn ignored_senders(adapter_config: Option<&serde_json::Value>) -> Vec<IgnoredSender> {
+    let unscoped = |login: &str| IgnoredSender {
+        login: login.to_string(),
+        events: Vec::new(),
+    };
+    let Some(entries) = adapter_config
         .and_then(|pc| pc.get("ignored_senders"))
         .and_then(|v| v.as_array())
-        .map_or_else(
-            || {
-                DEFAULT_IGNORED_SENDERS
-                    .iter()
-                    .copied()
-                    .map(String::from)
-                    .collect()
-            },
-            |arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect()
-            },
-        )
+    else {
+        return DEFAULT_IGNORED_SENDERS
+            .iter()
+            .map(|l| unscoped(l))
+            .collect();
+    };
+    entries
+        .iter()
+        .filter_map(|entry| match entry {
+            serde_json::Value::String(login) => Some(unscoped(login)),
+            serde_json::Value::Object(_) => Some(IgnoredSender {
+                login: entry.get("login")?.as_str()?.to_string(),
+                events: string_array(Some(entry), "events"),
+            }),
+            _ => None,
+        })
+        .collect()
 }
 
 /// Parse an opt-in string array out of a `adapter_config` JSONB value. An
@@ -394,7 +421,14 @@ mod tests {
     fn null_adapter_config_uses_default_ignored_senders() {
         let rule = rule_with(serde_json::json!([]), true, false);
         let cfg = GithubPrRuleConfig::from_rule(&rule);
-        assert_eq!(cfg.ignored_senders, vec!["linear-code[bot]"]);
+        assert_eq!(logins(&cfg), vec!["linear-code[bot]"]);
+    }
+
+    fn logins(cfg: &GithubPrRuleConfig) -> Vec<&str> {
+        cfg.ignored_senders
+            .iter()
+            .map(|s| s.login.as_str())
+            .collect()
     }
 
     #[test]
@@ -418,7 +452,7 @@ mod tests {
             Some(serde_json::json!({"ignored_senders": ["dependabot[bot]"]})),
         );
         let cfg = GithubPrRuleConfig::from_rule(&rule);
-        assert_eq!(cfg.ignored_senders, vec!["dependabot[bot]"]);
+        assert_eq!(logins(&cfg), vec!["dependabot[bot]"]);
     }
 
     #[test]
@@ -430,7 +464,7 @@ mod tests {
             Some(serde_json::json!({"ignored_senders": "linear-code[bot]"})),
         );
         let cfg = GithubPrRuleConfig::from_rule(&rule);
-        assert_eq!(cfg.ignored_senders, vec!["linear-code[bot]"]);
+        assert_eq!(logins(&cfg), vec!["linear-code[bot]"]);
     }
 
     #[test]
@@ -608,6 +642,43 @@ mod tests {
         assert!(cfg.is_ignored_sender("dependabot[bot]"));
         assert!(cfg.is_ignored_sender("DEPENDABOT[BOT]"));
         assert!(!cfg.is_ignored_sender("octocat"));
+    }
+
+    #[test]
+    fn scoped_ignored_sender_drops_only_the_named_events() {
+        let rule = rule_with_adapter_config(
+            serde_json::json!([]),
+            true,
+            false,
+            Some(serde_json::json!({"ignored_senders": [
+                {"login": "GitHub-Actions[bot]", "events": ["issue_comment"]},
+                "renovate[bot]",
+                {"events": ["issue_comment"]},
+                7
+            ]})),
+        );
+        let cfg = GithubPrRuleConfig::from_rule(&rule);
+        assert_eq!(logins(&cfg), vec!["GitHub-Actions[bot]", "renovate[bot]"]);
+        assert!(!cfg.is_ignored_sender("github-actions[bot]"));
+        assert!(cfg.ignores_sender_event("github-actions[bot]", "Issue_Comment"));
+        assert!(!cfg.ignores_sender_event("github-actions[bot]", "pull_request"));
+        assert!(cfg.is_ignored_sender("renovate[bot]"));
+        assert!(cfg.ignores_sender_event("renovate[bot]", "pull_request"));
+        assert!(!cfg.ignores_sender_event("", "issue_comment"));
+    }
+
+    #[test]
+    fn scoped_ignored_sender_events_are_checked_for_typos() {
+        let rule = rule_with_adapter_config(
+            serde_json::json!([]),
+            true,
+            false,
+            Some(serde_json::json!({"ignored_senders": [
+                {"login": "github-actions[bot]", "events": ["issue_comments"]}
+            ]})),
+        );
+        let cfg = GithubPrRuleConfig::from_rule(&rule);
+        assert_eq!(cfg.unknown_event_names(), vec!["issue_comments"]);
     }
 
     #[test]

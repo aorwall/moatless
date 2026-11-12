@@ -932,3 +932,46 @@ fn the_pull_request_author_is_read_from_whichever_row_the_event_carries() {
     });
     assert_eq!(super::pr_author_login(&check_run), None);
 }
+
+/// A CI bot both comments and pushes baseline commits: scoping its ignore to
+/// `issue_comment` must still deliver the push a review has to see.
+#[tokio::test]
+async fn a_scoped_ignored_sender_drops_its_comments_but_not_its_pushes() {
+    let mut rule = fake_rule();
+    rule.adapter_config = Some(serde_json::json!({"ignored_senders": [
+        {"login": "github-actions[bot]", "events": ["issue_comment"]}
+    ]}));
+    let comment = serde_json::json!({
+        "action": "created",
+        "sender": {"login": "github-actions[bot]"},
+        "issue": {"number": 42, "pull_request": {"url": "x"}},
+        "comment": {"id": 123, "body": "CI run recorded 6 screenshot mismatches"}
+    });
+    assert!(matches!(
+        normalize_payload("issue_comment", &comment, &rule)
+            .await
+            .primary,
+        Ok(PrimaryWebhook::Ignore(IgnoredWebhook::IgnoredSender))
+    ));
+
+    let push = serde_json::json!({
+        "action": "synchronize",
+        "sender": {"login": "github-actions[bot]"},
+        "before": "abc123",
+        "after": "fed987",
+        "pull_request": {
+            "number": 42,
+            "state": "open",
+            "title": "test: baselines",
+            "html_url": "https://github.com/soaplabs/repo/pull/42",
+            "head": {"ref": "feature", "sha": "fed987"},
+            "base": {"ref": "main", "sha": "def456"}
+        }
+    });
+    assert!(matches!(
+        normalize_payload("pull_request", &push, &rule)
+            .await
+            .primary,
+        Ok(PrimaryWebhook::Message(_))
+    ));
+}

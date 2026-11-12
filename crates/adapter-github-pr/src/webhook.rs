@@ -173,6 +173,8 @@ pub(super) async fn normalize(
         Ok(request)
     } else if config.event_filtered_out(event_type) {
         Ok(PrimaryWebhook::Ignore(IgnoredWebhook::EventFiltered))
+    } else if config.ignores_sender_event(context.sender_login, event_type) {
+        Ok(PrimaryWebhook::Ignore(IgnoredWebhook::IgnoredSender))
     } else {
         match event_type {
             "pull_request" => {

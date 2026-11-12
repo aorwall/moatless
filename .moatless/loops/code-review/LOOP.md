@@ -8,6 +8,12 @@ closeAfterSettledDays: 1
 # sourceMatcher defaults to this repo's owner/repo; the org's
 # GitHub App connection is resolved automatically.
 adapterConfig:
+  # Approvals, CI results and CI bots' comments carry nothing to review.
+  ignored_events: [check_run, check_suite, review_verdict]
+  ignored_senders:
+    - linear-code[bot]
+    - login: github-actions[bot]
+      events: [issue_comment, pull_request_review, pull_request_review_comment]
   ignored_title_patterns:
     - '^chore\(deps'
     - '^deps[:(]'
