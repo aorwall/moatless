@@ -271,8 +271,9 @@ pub(super) fn statement(
                    WHERE"
         ),
     };
-    // `picked` reads only columns `tasks_listing_pick_idx` covers, so it never
-    // visits the heap; `listed` fetches whole rows for the picked ones alone.
+    // `picked` reads only columns `tasks_listing_pick_reporter_idx` covers, so
+    // it never visits the heap; `listed` fetches whole rows for the picked
+    // ones alone.
     // Picking with `t.*` read every followed Task's row to keep 201, and timed
     // out a viewer following thousands. A picking clause on a column the index
     // does not cover brings that back: add the column to its `INCLUDE`.

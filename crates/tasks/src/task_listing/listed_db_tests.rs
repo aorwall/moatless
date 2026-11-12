@@ -490,8 +490,9 @@ async fn the_followed_listing_keeps_the_newest_and_reads_the_rest_by_id(pool: Pg
     assert_eq!(past_the_cap.len(), 1);
 }
 
-/// The archive picks its page from `tasks_listing_pick_idx` alone, so its cost
-/// before the cap is the index, not a heap row per followed closed Task.
+/// The archive picks its page from `tasks_listing_pick_reporter_idx` alone, so
+/// its cost before the cap is the index, not a heap row per followed closed
+/// Task.
 #[sqlx::test]
 async fn the_archive_picks_its_page_without_reading_the_task_rows(pool: PgPool) {
     use super::listed_dao::{Page, Reach, bind, statement};
