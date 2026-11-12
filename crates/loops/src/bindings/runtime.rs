@@ -1127,12 +1127,12 @@ impl RoutingService {
 }
 
 /// Whether `binding`'s task does the work of Loop `loop_id`, and so gets that
-/// Loop's skills with its events: the Loop spawned it, or it bound under the
-/// Loop for more than a comment. A task that only commented on a reviewed pull
-/// request is not its reviewer.
+/// Loop's skills with its events: only when the Loop spawned it. A task that
+/// opened, joined or commented on a pull request a review Loop watches binds
+/// under that Loop too, and is its author, not its reviewer.
 fn serves_loop(binding: &TaskBinding, loop_id: &str) -> bool {
     binding.origin == ORIGIN_ADAPTER_EVENT
-        || (binding.loop_id.as_deref() == Some(loop_id) && !hears_only_replies(binding))
+        && binding.loop_id.as_deref().is_none_or(|id| id == loop_id)
 }
 
 /// One event, the bindings on its subject, and what routing already knows
@@ -1250,31 +1250,25 @@ mod tests {
         }
     }
 
-    /// The review Loop's skills go to the task it spawned and to a task that
-    /// bound under it for more than a comment, never to one that only
-    /// commented on a pull request the Loop reviews.
+    /// The review Loop's skills go only to the task it spawned, never to one
+    /// that opened, joined or commented on a pull request the Loop reviews.
     #[test]
-    fn loop_skills_reach_only_the_tasks_that_serve_the_loop() {
+    fn loop_skills_reach_only_the_tasks_the_loop_spawned() {
         let cases = [
             (ORIGIN_ADAPTER_EVENT, Some("lp_review"), None, true),
             (ORIGIN_ADAPTER_EVENT, None, None, true),
+            (ORIGIN_ADAPTER_EVENT, Some("lp_other"), None, false),
             (
                 ORIGIN_CONNECTED_THREAD,
                 Some("lp_review"),
                 Some("creator"),
-                true,
+                false,
             ),
-            (ORIGIN_CONNECTED_THREAD, Some("lp_review"), None, true),
+            (ORIGIN_CONNECTED_THREAD, Some("lp_review"), None, false),
             (
                 ORIGIN_CONNECTED_THREAD,
                 Some("lp_review"),
                 Some("commenter"),
-                false,
-            ),
-            (
-                ORIGIN_CONNECTED_THREAD,
-                Some("lp_other"),
-                Some("creator"),
                 false,
             ),
             (ORIGIN_CONNECTED_THREAD, None, Some("creator"), false),

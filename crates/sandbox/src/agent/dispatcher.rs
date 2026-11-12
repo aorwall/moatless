@@ -276,9 +276,8 @@ async fn dispatch_pending_messages_for_context(
     }
 
     // A skill an activation record marked to frontload leads every fresh
-    // session on top of whatever the turn asked for; a resumed one still
-    // carries it, which is the rule the backend already applies to a task's own
-    // skills. Applied after the gate above, so a standing skill cannot open a
+    // session on top of whatever the turn asked for, and a resumed one already
+    // holds it. Applied after the gate above, so a standing skill cannot open a
     // turn on a delivery that has nothing in it.
     let skills = if is_slash_command(&text) {
         // A preamble ahead of `/compact` turns the command into plain text.
@@ -290,9 +289,9 @@ async fn dispatch_pending_messages_for_context(
         }
         Vec::new()
     } else if resume_session_id.is_some() {
-        skills
+        crate::agent::skills::without_standing(&state.config, skills)
     } else {
-        let loaded = match continued_session_text(
+        let loaded = if let Some(text) = continued_session_text(
             &state,
             task_id,
             agent_profile.as_deref(),
@@ -301,10 +300,15 @@ async fn dispatch_pending_messages_for_context(
         )
         .await
         {
-            Some(text) => {
-                crate::agent::skills::standing_skills_loaded_in(&state.config, &text).await
-            }
-            None => Vec::new(),
+            crate::agent::skills::standing_skills_loaded_in(&state.config, &text).await
+        } else {
+            // A new conversation has seen no notice yet.
+            context
+                .skills_noticed
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clear();
+            Vec::new()
         };
         crate::agent::skills::with_always_frontloaded(&state.config, skills, &loaded)
     };
@@ -314,7 +318,7 @@ async fn dispatch_pending_messages_for_context(
         &state.config,
         &skills,
         &text,
-        &context.missing_skills_reported,
+        &context.skills_noticed,
     )
     .await;
 

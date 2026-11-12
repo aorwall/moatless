@@ -539,9 +539,11 @@ A Skill reaches an agent as a name, never as text on the wire. An Inbox item's
 `delivery_options.skills` carries what one send activates, `tasks.skills` what
 every fresh agent session on the Task re-activates (a Loop's `skills`), and the
 backend unions the two onto `PendingAgentDelivery.skills`. Only the pod resolves
-the body: it reads the `SKILL.md` from the repo's own skill roots or the
-harness's installed home skills dir and prepends `Activated <root>/<name>:` plus
-that body to the turn (`crates/sandbox/src/agent/skills.rs`).
+the `SKILL.md`, from the repo's own skill roots, the harness's home skills dir or
+an installed Plugin. A Skill an Activation marks `frontload` is pasted as
+`Activated <root>/<name>:` plus its body into each fresh session; any other is
+named in one notice with its `SKILL.md` path, for the agent to read
+(`crates/sandbox/src/agent/skills.rs`).
 
 _Known debt_: the wire variant for a repository skill is `SkillSource::Workspace`,
 named before Repository and Workspace were separated. It means Repository. Rename
@@ -572,8 +574,8 @@ Only Plugin Skills have Activations. A Repository's own Skills always load in
 work on that Repository; there is no record that withholds them.
 
 An Activation decides whether a Plugin Skill is *available* at all. It is not what
-puts a Skill into a turn — that is the `skills` list above, and the pod's
-"Activated …" line names that, not this record.
+puts a Skill into a turn — that is the `skills` list above — except that its
+`frontload` flag makes the pod paste the body into every fresh session.
 _Avoid_: scope (means tenancy elsewhere in this codebase), link, enable flag
 
 **Marketplace**:

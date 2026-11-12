@@ -48,10 +48,10 @@ pub struct TaskContext {
     /// A `<sandbox-restart-note>` the next dispatched turn leads with, set when
     /// a queued message took precedence over replaying an interrupted turn.
     restart_note: Arc<std::sync::Mutex<Option<String>>>,
-    /// Requested skills this pod has already told the agent are not installed.
-    /// A Loop's skills ride every delivery, so without this each turn repeats
-    /// the notice and the agent reports it once per message.
-    pub(crate) missing_skills_reported: Arc<std::sync::Mutex<HashSet<String>>>,
+    /// Requested skills a notice already named in this session, as one to read
+    /// or as not installed. A Loop's skills ride every delivery, so without
+    /// this each turn repeats the notice and the agent acts on it again.
+    pub(crate) skills_noticed: Arc<std::sync::Mutex<HashSet<String>>>,
     /// Tracks credential failures observed on this task's agent stderr.
     pub credential_failures: CredentialFailureDetector,
     /// Last system prompt fetched for this task. Used as a fallback when
@@ -87,7 +87,7 @@ impl TaskContext {
             dispatch_lock: Default::default(),
             self_queued: Default::default(),
             restart_note: Default::default(),
-            missing_skills_reported: Default::default(),
+            skills_noticed: Default::default(),
             credential_failures,
             system_prompt_cache,
         }

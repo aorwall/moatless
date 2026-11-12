@@ -239,9 +239,10 @@ Notes:
   it and sync resolves the repository's own Workspace, primary placement first; a
   repository placed in none is **skipped**.
 - `skills` lists skill names by directory name under `.claude/skills/` or
-  `.agents/skills/`. Every task the loop spawns activates them: the sandbox reads
-  each `SKILL.md` and frontloads its body ahead of the prompt on each fresh agent
-  session, so a restart does not lose them. Names are not validated at sync time —
+  `.agents/skills/`. Every task the loop spawns activates them: the sandbox names
+  each `SKILL.md` for the agent to read, once per agent session. To paste a body
+  into every fresh session instead, mark the skill `frontload` on the loop's
+  Workspace (`moat plugins enable … --frontload`). Names are not validated at sync time —
   a skill exists on the pod that runs the task, not in the database — and one that
   resolves nowhere is logged and skipped.
 - **A `LOOP.md` cannot make a loop run.** Git carries configuration only: a
