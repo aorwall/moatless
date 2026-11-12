@@ -327,6 +327,17 @@ async fn dispatch_pending_messages_for_context(
     if text.is_empty() {
         return;
     }
+    if !is_slash_command(&text) {
+        if let Some(notice) = crate::agent::skill_refs::unresolved_notice(
+            &state.config,
+            &text,
+            &context.skills_noticed,
+        )
+        .await
+        {
+            text.insert_str(0, &notice);
+        }
+    }
 
     // A preamble ahead of `/compact` turns the command into plain text, so the
     // note waits for the next turn.

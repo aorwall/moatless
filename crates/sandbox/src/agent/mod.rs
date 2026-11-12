@@ -13,6 +13,7 @@ pub mod permission_handler;
 pub mod prompt;
 pub mod queued_injector;
 pub mod scheduled_job;
+pub(crate) mod skill_refs;
 pub(crate) mod skills;
 pub mod types;
 pub mod wakeup_job;

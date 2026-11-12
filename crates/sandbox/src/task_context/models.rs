@@ -49,7 +49,8 @@ pub struct TaskContext {
     /// a queued message took precedence over replaying an interrupted turn.
     restart_note: Arc<std::sync::Mutex<Option<String>>>,
     /// Requested skills a notice already named in this session, as one to read
-    /// or as not installed. A Loop's skills ride every delivery, so without
+    /// or as not installed, and the `namespace:skill` references
+    /// `agent::skill_refs` reported as not delivered. A Loop's skills ride every delivery, so without
     /// this each turn repeats the notice and the agent acts on it again.
     pub(crate) skills_noticed: Arc<std::sync::Mutex<HashSet<String>>>,
     /// Tracks credential failures observed on this task's agent stderr.

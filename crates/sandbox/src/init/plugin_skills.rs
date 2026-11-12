@@ -246,6 +246,50 @@ pub(crate) fn plugin_skill_dirs(
     dirs
 }
 
+/// One `name:` an agent addresses a delivered plugin's skills under, as
+/// `factory:spec` addresses component `factory` of plugin `soaplabs`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PluginNamespace {
+    pub(crate) name: String,
+    pub(crate) plugin: String,
+    pub(crate) git_url: String,
+    /// Where the namespace's skills live in the plugin's repository.
+    pub(crate) repo_skills_dir: String,
+    pub(crate) skills_dir: PathBuf,
+}
+
+/// Every namespace an installed plugin under `plugins_root` declares, whether
+/// or not [`keep_only`] left any skill in it. Blocking, like
+/// [`plugin_skill_dirs`].
+pub(crate) fn plugin_namespaces(
+    plugins_root: &Path,
+    plugins: &[PluginDelivery],
+) -> Vec<PluginNamespace> {
+    let mut namespaces = Vec::new();
+    for plugin in plugins {
+        let path = plugins_root.join(&plugin.name);
+        if !path.is_dir() {
+            continue;
+        }
+        for (name, root) in plugin_components(&path, &plugin.name) {
+            let skills_dir = root.join(resolve_plugin_skills_subdir(&root));
+            let repo_skills_dir = skills_dir
+                .strip_prefix(&path)
+                .unwrap_or(&skills_dir)
+                .display()
+                .to_string();
+            namespaces.push(PluginNamespace {
+                name,
+                plugin: plugin.name.clone(),
+                git_url: plugin.git_url.clone(),
+                repo_skills_dir,
+                skills_dir,
+            });
+        }
+    }
+    namespaces
+}
+
 fn stage_plugin_component(
     plugin_path: &Path,
     plugin_name: &str,
