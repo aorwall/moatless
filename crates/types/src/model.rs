@@ -36,7 +36,7 @@ impl ClaudeModel {
             Self::Opus => "claude-opus-5-5",
             Self::Sonnet => "claude-sonnet-5-5",
             Self::Haiku => "claude-haiku-5-5",
-            Self::Fable => "claude-fable-5-1",
+            Self::Fable => "claude-fable-5-2",
         }
     }
 
@@ -45,7 +45,7 @@ impl ClaudeModel {
             Self::Opus => "Claude Opus 5.5",
             Self::Sonnet => "Claude Sonnet 5.5",
             Self::Haiku => "Claude Haiku 5.5",
-            Self::Fable => "Claude Fable 5.1",
+            Self::Fable => "Claude Fable 5.2",
         }
     }
 
@@ -56,7 +56,7 @@ impl ClaudeModel {
             Self::Opus => ModelPrice::new(4.0, 5.0, 0.2, 20.0),
             Self::Sonnet => ModelPrice::new(2.0, 2.5, 0.1, 10.0),
             Self::Haiku => ModelPrice::new(0.1, 0.125, 0.01, 0.5),
-            Self::Fable => ModelPrice::new(10.0, 12.5, 0.25, 50.0),
+            Self::Fable => ModelPrice::new(8.0, 10.0, 0.2, 40.0),
         }
     }
 
@@ -203,12 +203,13 @@ impl ModelPrice {
 }
 
 /// Earlier Claude ids no catalog model names, most specific first:
-/// `sonnet-5` must precede `sonnet`, which it also contains.
+/// `sonnet-5` must precede `sonnet`, and `fable-5-1` `fable`, as each contains the next.
 const EARLIER_CLAUDE: &[(&str, ModelPrice)] = &[
     ("sonnet-5", ModelPrice::new(2.0, 2.5, 0.2, 10.0)),
     ("sonnet", ModelPrice::new(3.0, 3.75, 0.3, 15.0)),
     ("opus", ModelPrice::new(5.0, 6.25, 0.5, 25.0)),
     ("haiku", ModelPrice::new(1.0, 1.25, 0.1, 5.0)),
+    ("fable-5-1", ModelPrice::new(10.0, 12.5, 0.25, 50.0)),
     ("fable", ModelPrice::new(10.0, 12.5, 1.0, 50.0)),
 ];
 /// Codex ids before the GPT-5.6 family. Cache-write is not a tier there (the
@@ -259,7 +260,7 @@ mod tests {
         );
         assert_eq!(price_for("haiku"), Some(ClaudeModel::Haiku.price()));
         assert_eq!(
-            price_for("claude-fable-5-1[1m]"),
+            price_for("claude-fable-5-2[1m]"),
             Some(ClaudeModel::Fable.price())
         );
         assert_eq!(price_for("gpt-5.6-sol"), Some(CodexModel::Gpt56Sol.price()));
@@ -272,6 +273,7 @@ mod tests {
         assert_eq!(price_for("claude-opus-5"), earlier("opus"));
         assert_eq!(price_for("claude-opus-4-8"), earlier("opus"));
         assert_eq!(price_for("claude-haiku-4-5-20251001"), earlier("haiku"));
+        assert_eq!(price_for("claude-fable-5-1"), earlier("fable-5-1"));
         assert_eq!(price_for("claude-fable-5"), earlier("fable"));
         assert_eq!(price_for("gpt-5-codex"), Some(EARLIER_CODEX));
         assert_eq!(price_for("gpt-6-nova"), None);
