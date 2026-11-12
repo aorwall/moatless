@@ -16,6 +16,8 @@
 # Environment:
 #   CLAUDE_CODE_OAUTH_TOKEN  - OAuth token for Claude API (preferred)
 #   ANTHROPIC_API_KEY        - API key for Claude API (alternative)
+#   ANTHROPIC_BASE_URL       - A CLIProxyAPI hub to send Claude to (CI sets it)
+#   OPENAI_BASE_URL          - The hub's `/v1`, for Codex
 #   CLAUDE_CLI_VERSION       - Override the pinned Claude CLI version (default: 2.1.319)
 #   SKIP_BUILD=1             - Skip Docker image build step
 #   SKIP_COMPILE=1           - Skip Rust cross-compilation step
@@ -319,10 +321,12 @@ docker run --rm \
     --platform "$DOCKER_PLATFORM" \
     -e CLAUDE_CODE_OAUTH_TOKEN \
     -e ANTHROPIC_API_KEY \
+    -e ANTHROPIC_BASE_URL \
     -e CLAUDE_SDK_E2E=1 \
     -e CLAUDE_TMUX_E2E \
     -e CODEX_E2E \
     -e OPENAI_API_KEY \
+    -e OPENAI_BASE_URL \
     -e CODEX_AUTH_JSON \
     -e CODEX_TEST_MODEL \
     "${DOCKER_EXTRA_ARGS[@]}" \

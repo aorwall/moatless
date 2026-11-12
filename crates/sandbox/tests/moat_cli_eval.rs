@@ -36,6 +36,8 @@ use serde_json::Value;
 use tempfile::TempDir;
 use tokio::process::Command;
 
+#[path = "support/codex_hub.rs"]
+mod codex_hub;
 #[path = "moat_cli_eval/deterministic.rs"]
 mod deterministic;
 #[path = "moat_cli_eval/evaluation.rs"]
@@ -1010,6 +1012,18 @@ fn prepare_trial(
 
     let config = build_config(&tmp, agent);
     if agent == EvalAgent::Codex {
+        if let Some(base_url) = std::env::var("OPENAI_BASE_URL")
+            .ok()
+            .filter(|u| !u.trim().is_empty())
+        {
+            fs::create_dir_all(&config.codex_home_dir)
+                .map_err(|error| format!("create Codex home: {error}"))?;
+            fs::write(
+                Path::new(&config.codex_home_dir).join("config.toml"),
+                codex_hub::config_toml(Some(&base_url)),
+            )
+            .map_err(|error| format!("stage Codex config: {error}"))?;
+        }
         if let Ok(auth_json) = std::env::var("CODEX_AUTH_JSON") {
             fs::write(
                 Path::new(&config.codex_home_dir).join("auth.json"),
@@ -1053,7 +1067,11 @@ fn prepare_trial(
         ),
     ]);
     let credential_names: &[&str] = match agent {
-        EvalAgent::ClaudeCode => &["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"],
+        EvalAgent::ClaudeCode => &[
+            "CLAUDE_CODE_OAUTH_TOKEN",
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_BASE_URL",
+        ],
         EvalAgent::Codex => &["OPENAI_API_KEY"],
     };
     for name in credential_names {

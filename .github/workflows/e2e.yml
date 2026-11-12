@@ -10,10 +10,13 @@ name: E2E (manual)
 # and the data lives in one schema on a Postgres service container. A test the
 # profile cannot run skips with the capability named (see the e2e-testing skill).
 #
-# Required repo secrets (set the ones you need for the parts you enable):
-#   CLAUDE_CODE_OAUTH_TOKEN | ANTHROPIC_API_KEY  — Claude chains, SDK, and CLI eval
-#   OPENAI_API_KEY | CODEX_AUTH_JSON             — Codex chains, SDK, and CLI eval
-#   E2E_GITHUB_PAT                               — repo-clone / Playwright api suite
+# Every model call goes through the deployment's CLIProxyAPI hub, so the run
+# holds no provider key of its own. Each job puts the hub key on both
+# `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`, beside base URLs that name the hub.
+# Required repo secrets:
+#   CLIPROXY_API_KEY  — an inference api-key minted in the hub's management UI
+#   E2E_GITHUB_PAT    — repo-clone / Playwright api suite
+# `vars.CLIPROXY_URL` overrides the hub's public URL.
 #
 # Runner: the playwright suite runs on ci-runners-large, in the sandbox base
 # image, which ships the `claude` and `codex` CLIs the sandboxes spawn.
@@ -72,6 +75,8 @@ env:
   CARGO_NET_RETRY: 10
   RUSTUP_MAX_RETRIES: 10
 
+  CLIPROXY_URL: ${{ vars.CLIPROXY_URL || 'https://cliproxy.staging.moatless.xyz' }}
+
 jobs:
   # ── The binaries the suite runs against ──
   #
@@ -105,7 +110,7 @@ jobs:
         continue-on-error: true
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
-          role-to-assume: ${{ vars.SCCACHE_AWS_ROLE }}
+          role-to-assume: ${{ github.ref == 'refs/heads/main' && vars.SCCACHE_AWS_ROLE || vars.SCCACHE_AWS_READ_ROLE }}
           aws-region: ${{ vars.SCCACHE_S3_REGION || 'eu-north-1' }}
 
       - name: Install mold linker
@@ -152,7 +157,7 @@ jobs:
       - name: Build the real-CLI trajectory tests (ci profile)
         if: inputs.run_trajectory_cli
         run: |
-          cargo test --profile ci -p moatless-sandbox --test trajectory_e2e --no-run 2>&1 | tee /tmp/no-run.log
+          cargo test --profile ci -p moatless-sandbox --test trajectory_e2e --no-run --color never 2>&1 | tee /tmp/no-run.log
           exe="$(sed -n 's/.*Executable tests\/trajectory_e2e.rs (\(.*\))$/\1/p' /tmp/no-run.log)"
           test -x "$exe"
           cp "$exe" target/ci/trajectory_e2e
@@ -235,11 +240,17 @@ jobs:
 
       # The harness reads only DATABASE_URL from the base env and sources the
       # rest into the backend. The local provider refuses to start a sandbox
-      # without TASK_TOKEN_SECRET; everything else takes its default.
+      # without TASK_TOKEN_SECRET; everything else takes its default. The
+      # gateway calls the suite's hub base URLs only when they equal its
+      # MODEL_GATEWAY_HUB_URL.
       - name: Write the base env
+        env:
+          CLIPROXY_API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
         run: |
           {
             echo "DATABASE_URL=postgresql://moatless:moatless@postgres:5432/moatless"
+            echo "MODEL_GATEWAY_HUB_URL=${CLIPROXY_URL}"
+            echo "MODEL_GATEWAY_HUB_KEY=${CLIPROXY_API_KEY}"
             python3 -c 'import base64, os; print("SECRETS_ENCRYPTION_KEY=" + base64.b64encode(os.urandom(32)).decode())'
             python3 -c 'import secrets; print("TASK_TOKEN_SECRET=" + secrets.token_hex(32))'
           } > "$RUNNER_TEMP/backend.env"
@@ -250,9 +261,10 @@ jobs:
           LOCAL_E2E_BIN_DIR: /tmp/e2e-binaries
           E2E_WORKERS: ${{ inputs.workers }}
           GITHUB_PAT: ${{ secrets.E2E_GITHUB_PAT }}
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ env.CLIPROXY_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
+          OPENAI_BASE_URL: ${{ env.CLIPROXY_URL }}/v1
+          OPENAI_API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
         # --keep leaves the backend and sandbox logs for the upload below; the
         # service container, and its schema, go with the job.
         run: scripts/local-e2e/run.sh --skip-build --keep
@@ -290,10 +302,10 @@ jobs:
           TRAJECTORY_E2E: '1'
           # Claude Code refuses to skip permissions under root without it.
           IS_SANDBOX: '1'
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+          ANTHROPIC_BASE_URL: ${{ env.CLIPROXY_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
+          OPENAI_BASE_URL: ${{ env.CLIPROXY_URL }}/v1
+          OPENAI_API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
         run: |
           chmod +x /tmp/trajectory-e2e/trajectory_e2e
           /tmp/trajectory-e2e/trajectory_e2e --ignored --nocapture
@@ -307,8 +319,8 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Run claude-agent-sdk smoke test in Docker
         env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ env.CLIPROXY_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
         run: ./crates/claude-agent-sdk/scripts/test-docker.sh smoke
 
   claude-sandbox-transport:
@@ -317,10 +329,15 @@ jobs:
     runs-on: ${{ vars.E2E_RUST_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      # The image builds on the sandbox base image and fills a hosted runner's
+      # disk ("no space left on device") without this.
+      - name: Free hosted-runner disk
+        if: runner.environment == 'github-hosted'
+        run: sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
       - name: Run Claude sandbox transport E2E in Docker
         env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ env.CLIPROXY_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
         run: ./crates/claude-agent-sdk/scripts/test-docker.sh sandbox-transport
 
   # Session continuity across sandbox replacement is a chain of the api suite
@@ -337,10 +354,16 @@ jobs:
     runs-on: ${{ vars.E2E_RUST_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      # The image builds on the sandbox base image and fills a hosted runner's
+      # disk ("no space left on device") without this.
+      - name: Free hosted-runner disk
+        if: runner.environment == 'github-hosted'
+        run: sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
       - name: Run Codex CLI E2E in Docker
         env:
           # The sandbox base image is pulled by the harness (SANDBOX_BASE arg).
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: ${{ env.CLIPROXY_URL }}/v1
+          OPENAI_API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
         run: ./crates/claude-agent-sdk/scripts/test-docker.sh codex-transport
 
   # ── Agent discovery of the moat CLI in the production sandbox image ──
@@ -352,10 +375,10 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Run moat CLI agent evaluation in Docker
         env:
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+          ANTHROPIC_BASE_URL: ${{ env.CLIPROXY_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
+          OPENAI_BASE_URL: ${{ env.CLIPROXY_URL }}/v1
+          OPENAI_API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
         run: ./crates/claude-agent-sdk/scripts/test-docker.sh agent-cli-eval
       - name: Upload moat CLI agent evaluation report
         if: always()

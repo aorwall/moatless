@@ -53,6 +53,7 @@ which replaces the run summary.
 | `LOCAL_E2E_BIN_DIR` | Where `moatless-backend`, `sandbox` and `moat` are. Defaults to `target/debug`. |
 | `ANTHROPIC_API_KEY` / `CLAUDE_CODE_OAUTH_TOKEN` | Passed to each sandbox; enables the Claude chains. |
 | `OPENAI_API_KEY` | Seeds the Codex connection; enables the Codex chains. |
+| `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` | Stored as Secrets beside the keys. The gateway calls them only when they are the base env's `MODEL_GATEWAY_HUB_URL` and its `/v1`. |
 | `GITHUB_PAT` | Enables the chains that create real GitHub repositories. |
 | `E2E_WORKERS` | Playwright workers. |
 
@@ -72,8 +73,11 @@ Run workflow). `build-binaries` compiles the three binaries with
 
 - runs in `moatless-sandbox-base:latest`, which ships the agent CLIs;
 - starts `postgres:16` as a service container;
-- writes a two-line base env: `DATABASE_URL` and a generated
-  `SECRETS_ENCRYPTION_KEY`;
+- writes a base env: `DATABASE_URL`, generated `SECRETS_ENCRYPTION_KEY` and
+  `TASK_TOKEN_SECRET`, and the CLIProxyAPI hub as `MODEL_GATEWAY_HUB_URL` and
+  `MODEL_GATEWAY_HUB_KEY`;
+- passes the hub key as both `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`, with
+  base URLs naming the hub, so the run holds no provider key;
 - runs `run.sh --skip-build --keep`;
 - uploads `test-results/`, the backend log and each sandbox's log.
 

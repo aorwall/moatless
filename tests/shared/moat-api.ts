@@ -419,7 +419,16 @@ export class MoatApi {
     const claude = process.env.CLAUDE_CODE_OAUTH_TOKEN
       ? 'CLAUDE_CODE_OAUTH_TOKEN'
       : 'ANTHROPIC_API_KEY'
-    for (const key of new Set([claude, 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY'])) {
+    // The base URLs carry a CLIProxyAPI hub, which the backend's gateway calls
+    // only when they equal its `MODEL_GATEWAY_HUB_URL`.
+    const keys = [
+      claude,
+      'ANTHROPIC_API_KEY',
+      'ANTHROPIC_BASE_URL',
+      'OPENAI_API_KEY',
+      'OPENAI_BASE_URL',
+    ]
+    for (const key of new Set(keys)) {
       const value = process.env[key]
       if (value) {
         this.expect(

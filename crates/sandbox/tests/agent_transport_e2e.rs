@@ -104,6 +104,10 @@ fn auth_credentials() -> HashMap<String, String> {
     if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
         creds.insert("ANTHROPIC_API_KEY".to_string(), key);
     }
+    // The CI hub; Codex takes its base URL from `config.toml` instead.
+    if let Ok(url) = std::env::var("ANTHROPIC_BASE_URL") {
+        creds.insert("ANTHROPIC_BASE_URL".to_string(), url);
+    }
     // Codex CLI auth: an API key is forwarded to the app-server child env;
     // CODEX_AUTH_JSON (ChatGPT-account tokens) is written to ~/.codex/auth.json.
     if let Ok(key) = std::env::var("OPENAI_API_KEY") {
