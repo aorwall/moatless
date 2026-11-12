@@ -3,7 +3,6 @@
 	"consumers": [
 		{ "repo": "soaplabs/moatless", "lockfile": "bun.lock", "local": true },
 		{ "repo": "soaplabs/soap-frontend", "lockfile": "bun.lock" },
-		{ "repo": "soaplabs/soap-specs", "lockfile": "bun.lock" },
-		{ "repo": "soaplabs/t3code", "lockfile": "pnpm-lock.yaml" }
+		{ "repo": "soaplabs/soap-specs", "lockfile": "package-lock.json" }
 	]
 }

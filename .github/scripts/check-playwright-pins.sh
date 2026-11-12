@@ -65,12 +65,12 @@ while read -r repo lockfile is_local; do
 	# (`"likec4/playwright/playwright-core"`) is deliberately not read: nothing
 	# in the repo imports it. The gap that leaves is a workspace member whose
 	# own pin lost the hoist to a different one.
-	# A pnpm lockfile has no hoisted entry, so every resolved copy counts there.
 	case "$lockfile" in
-	*pnpm-lock.yaml)
+	*package-lock.json)
 		wanted=$(printf '%s' "$content" |
-			{ grep -oE "^  '?(playwright|playwright-core|@playwright/test)@[0-9]+\.[0-9]+\.[0-9]+'?:" || true; } |
-			sed -E "s/.*@([0-9]+\.[0-9]+\.[0-9]+)'?:$/\1/" | sort -u)
+			jq -r '.packages // {} | to_entries[]
+				| select(.key | test("^node_modules/(playwright|playwright-core|@playwright/test)$"))
+				| .value.version' | sort -u)
 		;;
 	*)
 		wanted=$(printf '%s' "$content" |
