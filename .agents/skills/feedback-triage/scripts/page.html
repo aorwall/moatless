@@ -125,6 +125,29 @@
     .cluster { grid-template-columns: 2.2rem minmax(0, 1fr); }
     .rank { font-size: 1.5rem; }
   }
+  .trend { display: grid; gap: 8px; }
+  .trend .plot { position: relative; display: grid; grid-template-columns: 2.2rem minmax(0, 1fr); gap: 0 6px; }
+  .trend .yaxis { position: relative; height: 140px; font: 0.72rem/1 var(--font-data); color: var(--ink-2); }
+  .trend .yaxis span { position: absolute; right: 0; transform: translateY(50%); }
+  .trend .bars { position: relative; height: 140px; display: flex; align-items: flex-end; gap: 2px; border-bottom: 1px solid var(--ink-2); }
+  .trend .grid { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--rule); pointer-events: none; }
+  .trend .bar { position: relative; flex: 1 1 0; height: 100%; display: flex; align-items: flex-end; cursor: default; outline: none; }
+  .trend .stack { display: flex; flex-direction: column-reverse; gap: 2px; width: 100%; border-radius: 4px 4px 0 0; overflow: hidden; }
+  .trend .stack i { display: block; min-height: 1px; }
+  .trend .stack i.open { background: var(--signal); }
+  .trend .stack i.closed { background: var(--ink-2); opacity: 0.45; }
+  .trend .bar:hover .stack, .trend .bar:focus-visible .stack { outline: 2px solid var(--ink); outline-offset: 1px; }
+  .trend .xaxis { grid-column: 2; display: flex; gap: 2px; font: 0.72rem/1 var(--font-data); color: var(--ink-2); padding-top: 4px; }
+  .trend .xaxis span { flex: 1 1 0; white-space: nowrap; overflow: visible; }
+  .trend .tip { position: absolute; z-index: 2; pointer-events: none; transform: translate(-50%, calc(-100% - 8px)); background: var(--sheet); color: var(--ink); border: 1px solid var(--rule); border-radius: 6px; padding: 6px 8px; font-size: 0.82rem; white-space: nowrap; box-shadow: 0 2px 8px rgb(0 0 0 / 0.12); }
+  .trend .key { display: flex; gap: 14px; font-size: 0.82rem; color: var(--ink-2); }
+  .trend .key b { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; background: var(--signal); }
+  .trend .key b.closed { background: var(--ink-2); opacity: 0.45; }
+  .trend table { border-collapse: collapse; font-size: 0.85rem; margin-top: 8px; }
+  .trend th, .trend td { text-align: right; padding: 2px 10px; border-bottom: 1px solid var(--rule); }
+  .trend th:first-child, .trend td:first-child { text-align: left; }
+  .trend details summary { cursor: pointer; color: var(--ink-2); font-size: 0.85rem; }
+
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
@@ -134,6 +157,12 @@
     <span class="eyebrow" id="eyebrow">Feedback triage</span>
     <h1 id="title">Feedback triage</h1>
     <p class="muted" id="lede">Loading the run…</p>
+  </header>
+  <section class="trend" id="trend-section" hidden aria-labelledby="trend-title">
+    <header><h3 id="trend-title">Feedback reported per day</h3></header>
+    <div id="trend"></div>
+  </section>
+  <header>
     <p class="muted">
       Each cluster groups recent feedback that shares one root cause, and names the repository
       that owns its fix. If the owner is wrong, say so in your note. Only a decision from a
@@ -167,7 +196,7 @@
   const api = window.moatless && window.moatless.artifact;
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-  const state = { clusters: new Map(), decisions: new Map(), notices: new Map(), confirms: new Map(), groups: null, meta: null, people: {}, admins: null };
+  const state = { clusters: new Map(), decisions: new Map(), notices: new Map(), confirms: new Map(), groups: null, meta: null, trend: null, people: {}, admins: null };
   // Cluster text marks commands and paths with backticks.
   const prose = (s) => esc(s).replace(/`([^`]+)`/g, "<code>$1</code>");
   const day = (iso) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
@@ -323,6 +352,54 @@
     </article>`;
   }
 
+  // `meta/trend` days are UTC dates, oldest first; `open` is the part of `count` still open now.
+  function renderTrend() {
+    const t = state.trend;
+    const days = (t && t.days) || [];
+    $("trend-section").hidden = !days.length;
+    if (!days.length) return;
+    const max = Math.max(1, ...days.map((d) => d.count));
+    const step = [1, 2, 5, 10, 20, 25, 50, 100].find((s) => max / s <= 4) || Math.ceil(max / 4);
+    const top = Math.ceil(max / step) * step;
+    const ticks = Array.from({ length: top / step + 1 }, (_, i) => i * step);
+    const label = (iso) => new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", weekday: "short", timeZone: "UTC" });
+    const bars = days.map((d) => {
+      const open = d.open ?? 0;
+      const closed = d.count - open;
+      const text = `${label(d.date)}: ${d.count} reported, ${open} still open, ${closed} closed`;
+      // Each segment's share of the stack, so the 2px gap between them does not skew the total height.
+      const seg = (n, cls) => (n ? `<i class="${cls}" style="flex:${n} 1 0"></i>` : "");
+      return `<span class="bar" role="listitem" tabindex="0" data-tip="${esc(text)}" aria-label="${esc(text)}"><span class="stack" style="height:${(d.count / top) * 100}%">${seg(open, "open")}${seg(closed, "closed")}</span></span>`;
+    }).join("");
+    const grid = ticks.slice(1).map((v) => `<span class="grid" style="bottom:${(v / top) * 100}%"></span>`).join("");
+    const yaxis = ticks.map((v) => `<span class="tnum" style="bottom:${(v / top) * 100}%">${v}</span>`).join("");
+    const xaxis = days.map((d) => `<span>${new Date(`${d.date}T00:00:00Z`).getUTCDay() === 1 ? esc(day(d.date)) : ""}</span>`).join("");
+    const total = days.reduce((n, d) => n + d.count, 0);
+    const stillOpen = days.reduce((n, d) => n + (d.open ?? 0), 0);
+    const rows = days.slice().reverse().map((d) => `<tr><td>${esc(label(d.date))}</td><td class="tnum">${d.count}</td><td class="tnum">${d.open ?? 0}</td></tr>`).join("");
+    $("trend").innerHTML = `<div class="plot"><div class="yaxis" aria-hidden="true">${yaxis}</div><div class="bars" role="list" aria-label="Feedback reported per day">${grid}${bars}</div><div class="xaxis" aria-hidden="true">${xaxis}</div></div>
+      <div class="key"><span><b></b>Still open</span><span><b class="closed"></b>Closed</span><span class="tnum">${total} reported in ${days.length} days, ${stillOpen} still open</span></div>
+      <details><summary>Show as a table</summary><table><thead><tr><th>Day (UTC)</th><th>Reported</th><th>Still open</th></tr></thead><tbody>${rows}</tbody></table></details>`;
+    const plot = $("trend").querySelector(".bars");
+    const tip = document.createElement("span");
+    tip.className = "tip";
+    tip.hidden = true;
+    plot.append(tip);
+    const show = (bar) => {
+      tip.textContent = bar.dataset.tip;
+      tip.hidden = false;
+      const x = bar.offsetLeft + bar.offsetWidth / 2;
+      tip.style.left = `${Math.min(Math.max(x, tip.offsetWidth / 2), plot.clientWidth - tip.offsetWidth / 2)}px`;
+      tip.style.top = `${bar.offsetTop + bar.offsetHeight - bar.firstElementChild.offsetHeight}px`;
+    };
+    for (const bar of plot.querySelectorAll(".bar")) {
+      bar.addEventListener("mouseenter", () => show(bar));
+      bar.addEventListener("focus", () => show(bar));
+      bar.addEventListener("mouseleave", () => { tip.hidden = true; });
+      bar.addEventListener("blur", () => { tip.hidden = true; });
+    }
+  }
+
   function render() {
     const m = state.meta;
     const all = [...state.clusters.entries()];
@@ -362,6 +439,7 @@
     }
     renderSent();
     renderGroups();
+    renderTrend();
   }
 
   function wire(el) {
@@ -445,6 +523,7 @@
         else if (r.key.startsWith("confirm/")) state.confirms.set(r.key, r);
         else if (r.key === "meta/groups") state.groups = r.data && r.data.proposedAt ? r.data : null;
         else if (r.key === "meta/run") state.meta = r.data;
+        else if (r.key === "meta/trend") state.trend = r.data;
         else if (r.key === "meta/people") state.people = r.data || {};
         else if (r.key === "meta/admins") state.admins = Array.isArray(r.data) ? r.data : null;
       }

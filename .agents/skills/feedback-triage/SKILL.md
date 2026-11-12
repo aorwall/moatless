@@ -284,6 +284,8 @@ moat artifact data save "$slug" meta/run "$(jq -c . meta.json)"
 moat artifact data save "$slug" meta/people "$(jq -c .people decisions.json)"
 moat artifact data save "$slug" meta/admins "$(jq -c .admins decisions.json)"
 moat artifact data save "$slug" meta/groups "$(jq -c '.items[0].data // {}' groups-get.json)"
+<skill>/scripts/trend.sh 28 > trend.json
+moat artifact data save "$slug" meta/trend "$(jq -c . trend.json)"
 for f in clusters/*.json; do moat artifact data save "$slug" "clusters/$(basename "$f" .json)" "$(jq -c . "$f")"; done
 ```
 
@@ -298,6 +300,9 @@ medianDaysApprovalToMerge, recurred}`:
   `fixed` through a PR, using `decision.actedAt` and the PR's `mergedAt`.
 - `recurred` counts the clusters this run reopened with `recurred: true`: a
   fix that merged but did not hold.
+
+`meta/trend` holds the feedback reported per UTC day over 28 days, every
+status, which the page draws at its top as bars stacked by still open and closed.
 
 `meta/people` maps user ids to logins, so the page names who decided, and
 `meta/admins` lists the admins' ids, so it counts only their decisions as
