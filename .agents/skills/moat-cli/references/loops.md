@@ -251,8 +251,8 @@ Notes:
   repository placed in none is **skipped**.
 - `skills` lists skill names by directory name under `.claude/skills/` or
   `.agents/skills/`. Every task the loop spawns activates them: the sandbox reads
-  each `SKILL.md` and pastes its body ahead of the prompt once per agent session,
-  so a restart does not lose them and a later wake does not repeat them. Names
+  each `SKILL.md` and pastes its body ahead of the prompt that starts the agent
+  session; a later wake resumes that session and is not sent them again. Names
   are not validated at sync time — a skill exists on the pod that runs the task,
   not in the database — and one that resolves nowhere is logged and skipped.
 - **A `LOOP.md` cannot make a loop run.** Git carries configuration only: a

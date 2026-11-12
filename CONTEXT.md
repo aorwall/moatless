@@ -541,7 +541,7 @@ every fresh agent session on the Task re-activates (a Loop's `skills`), and the
 backend unions the two onto `PendingAgentDelivery.skills`. Only the pod resolves
 the `SKILL.md`, from the repo's own skill roots, the harness's home skills dir or
 an installed Plugin, and pastes it as `Activated <root>/<name>:` plus its body
-the first time an agent session is asked for it, never again in that session. A
+into the turn that starts an agent session; a resumed session gets none. A
 Skill an Activation marks `frontload` is pasted into each fresh session unasked
 (`crates/sandbox/src/agent/skills.rs`).
 

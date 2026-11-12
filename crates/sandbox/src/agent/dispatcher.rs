@@ -275,10 +275,10 @@ async fn dispatch_pending_messages_for_context(
         return;
     }
 
-    // A skill an activation record marked to frontload leads every fresh
-    // session on top of whatever the turn asked for, and a resumed one already
-    // holds it. Applied after the gate above, so a standing skill cannot open a
-    // turn on a delivery that has nothing in it.
+    // Skills are pasted only into a turn that starts a session; a resumed one
+    // got them on its first turn, and an in-memory record of what was sent dies
+    // with the pod. A standing skill leads every fresh session. Applied after
+    // the gate above, so a standing skill cannot open a turn on its own.
     let skills = if is_slash_command(&text) {
         // A preamble ahead of `/compact` turns the command into plain text.
         if !skills.is_empty() {
@@ -289,7 +289,7 @@ async fn dispatch_pending_messages_for_context(
         }
         Vec::new()
     } else if resume_session_id.is_some() {
-        crate::agent::skills::without_standing(&state.config, skills)
+        Vec::new()
     } else {
         let loaded = if let Some(text) = continued_session_text(
             &state,
@@ -315,13 +315,7 @@ async fn dispatch_pending_messages_for_context(
 
     // Frontloading turns the requested skills into the prompt's leading preamble.
     let sent_before = context.skills_sent();
-    let mut text = crate::agent::skills::frontload_skills(
-        &state.config,
-        &skills,
-        &text,
-        &context.skills_noticed,
-    )
-    .await;
+    let mut text = crate::agent::skills::frontload_skills(&state.config, &skills, &text).await;
 
     // Every requested skill may have failed to resolve, leaving a skills-only
     // delivery with an empty prompt: nothing to send, so don't open a turn.

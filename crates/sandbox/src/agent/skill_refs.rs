@@ -22,8 +22,8 @@ const INSTRUCTION_FILES: [&str; 2] = ["AGENTS.md", "CLAUDE.md"];
 /// instruction files reference, whose namespace a delivered plugin declares,
 /// and whose `SKILL.md` is not on disk; `None` when there is none.
 ///
-/// `noticed` is the session's set from `frontload_skills`; a reference is
-/// keyed by its `namespace:skill` text, which no bare skill name collides with.
+/// `noticed` holds the `namespace:skill` references this session was already
+/// told about; each new one is added.
 pub(crate) async fn unresolved_notice(
     config: &Config,
     prompt: &str,

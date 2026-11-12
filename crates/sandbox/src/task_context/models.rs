@@ -48,10 +48,8 @@ pub struct TaskContext {
     /// A `<sandbox-restart-note>` the next dispatched turn leads with, set when
     /// a queued message took precedence over replaying an interrupted turn.
     restart_note: Arc<std::sync::Mutex<Option<String>>>,
-    /// Requested skills this session already received, as a pasted body or as
-    /// not installed, and the `namespace:skill` references `agent::skill_refs`
-    /// reported as not delivered. A Loop's skills ride every delivery, so
-    /// without this each wake pastes the same bodies again.
+    /// The `namespace:skill` references `agent::skill_refs` already reported
+    /// to this session as not delivered.
     pub(crate) skills_noticed: Arc<std::sync::Mutex<HashSet<String>>>,
     /// Tracks credential failures observed on this task's agent stderr.
     pub credential_failures: CredentialFailureDetector,
