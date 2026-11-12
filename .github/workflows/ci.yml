@@ -490,12 +490,14 @@ jobs:
 
       # sccache is an optimisation; a broken OIDC trust must not turn a build
       # red. On failure no credentials are exported and the setup script skips.
+      # Other refs take the read role: a ref that could write could plant
+      # objects in what main links into its images.
       - name: Authenticate to AWS for sccache
         if: vars.SCCACHE_S3_BUCKET != ''
         continue-on-error: true
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
-          role-to-assume: ${{ vars.SCCACHE_AWS_ROLE }}
+          role-to-assume: ${{ github.ref == 'refs/heads/main' && vars.SCCACHE_AWS_ROLE || vars.SCCACHE_AWS_READ_ROLE }}
           aws-region: ${{ vars.SCCACHE_S3_REGION || 'eu-north-1' }}
 
       - name: Configure sccache
@@ -634,7 +636,7 @@ jobs:
         continue-on-error: true
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
-          role-to-assume: ${{ vars.SCCACHE_AWS_ROLE }}
+          role-to-assume: ${{ github.ref == 'refs/heads/main' && vars.SCCACHE_AWS_ROLE || vars.SCCACHE_AWS_READ_ROLE }}
           aws-region: ${{ vars.SCCACHE_S3_REGION || 'eu-north-1' }}
 
       # Linking, not codegen, dominates this job. mold takes over /usr/bin/ld
@@ -925,7 +927,7 @@ jobs:
         continue-on-error: true
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
-          role-to-assume: ${{ vars.SCCACHE_AWS_ROLE }}
+          role-to-assume: ${{ github.ref == 'refs/heads/main' && vars.SCCACHE_AWS_ROLE || vars.SCCACHE_AWS_READ_ROLE }}
           aws-region: ${{ vars.SCCACHE_S3_REGION || 'eu-north-1' }}
 
       - name: Install mold linker
@@ -1216,6 +1218,7 @@ jobs:
       needs.build-rust.result == 'success' &&
       (github.event_name == 'workflow_dispatch' || needs.rust-test.result == 'success')
     runs-on: ci-runners
+    environment: dockerhub
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
@@ -1329,6 +1332,7 @@ jobs:
         (github.event_name == 'workflow_dispatch' && ! inputs.prune_rust_caches_dry_run)
       )
     runs-on: ci-runners-large
+    environment: dockerhub
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
@@ -1387,6 +1391,7 @@ jobs:
       ) &&
       needs.build-rust.result == 'success'
     runs-on: ci-runners
+    environment: dockerhub
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
@@ -1455,6 +1460,7 @@ jobs:
       (needs.build-sandbox-tools.result == 'success' || needs.build-sandbox-tools.result == 'skipped') &&
       (needs.build-sandbox-base.result == 'success' || needs.build-sandbox-base.result == 'skipped')
     runs-on: ci-runners
+    environment: dockerhub
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
@@ -1520,6 +1526,7 @@ jobs:
         needs.build-backend-image.result == 'success'
       )
     runs-on: ci-runners
+    environment: dockerhub
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 

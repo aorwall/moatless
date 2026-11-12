@@ -8,8 +8,10 @@
 #
 # Required to activate:
 #   vars.SCCACHE_S3_BUCKET   S3 bucket name — soap-platform-ci-sccache
-#   vars.SCCACHE_AWS_ROLE    ARN of GHA-SccacheRW-moatless, assumed via OIDC by
-#                            the calling job (see ci.yml)
+#   vars.SCCACHE_AWS_ROLE    ARN of GHA-SccacheRW-moatless, which only main can
+#                            assume via OIDC (see ci.yml)
+#   vars.SCCACHE_AWS_READ_ROLE  ARN of GHA-SccacheRead-moatless, for every other
+#                            ref
 #   vars.SCCACHE_S3_REGION   bucket region (defaults to eu-north-1, where the
 #                            platform ECR registry already lives)
 #
@@ -55,7 +57,9 @@ chmod +x "${install_dir}/sccache"
 
 export SCCACHE_BUCKET="${SCCACHE_S3_BUCKET}"
 export SCCACHE_REGION="${SCCACHE_S3_REGION:-eu-north-1}"
-export SCCACHE_S3_KEY_PREFIX="${SCCACHE_S3_KEY_PREFIX:-moatless/}"
+# Not `moatless/`: every Moatless sandbox writes that prefix, and these objects
+# link into the images main publishes.
+export SCCACHE_S3_KEY_PREFIX="${SCCACHE_S3_KEY_PREFIX:-ci/moatless/}"
 
 # Prove the bucket is reachable before any cargo invocation depends on it.
 # sccache probes `<prefix>/.sccache_check` when its server starts and treats a

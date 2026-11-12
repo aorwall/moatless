@@ -43,6 +43,7 @@ jobs:
   discover:
     name: Discover recipes needing a build
     runs-on: ci-runners
+    environment: dockerhub
     if: |
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.event == 'push' &&
@@ -96,6 +97,7 @@ jobs:
     needs: discover
     if: needs.discover.outputs.matrix != '{"include":[]}'
     runs-on: ci-runners-large
+    environment: dockerhub
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.discover.outputs.matrix) }}
