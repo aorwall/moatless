@@ -48,10 +48,10 @@ pub struct TaskContext {
     /// A `<sandbox-restart-note>` the next dispatched turn leads with, set when
     /// a queued message took precedence over replaying an interrupted turn.
     restart_note: Arc<std::sync::Mutex<Option<String>>>,
-    /// Requested skills a notice already named in this session, as one to read
-    /// or as not installed, and the `namespace:skill` references
-    /// `agent::skill_refs` reported as not delivered. A Loop's skills ride every delivery, so without
-    /// this each turn repeats the notice and the agent acts on it again.
+    /// Requested skills this session already received, as a pasted body or as
+    /// not installed, and the `namespace:skill` references `agent::skill_refs`
+    /// reported as not delivered. A Loop's skills ride every delivery, so
+    /// without this each wake pastes the same bodies again.
     pub(crate) skills_noticed: Arc<std::sync::Mutex<HashSet<String>>>,
     /// Tracks credential failures observed on this task's agent stderr.
     pub credential_failures: CredentialFailureDetector,
@@ -91,6 +91,26 @@ impl TaskContext {
             skills_noticed: Default::default(),
             credential_failures,
             system_prompt_cache,
+        }
+    }
+
+    /// The names [`Self::skills_noticed`] holds now.
+    pub(crate) fn skills_sent(&self) -> HashSet<String> {
+        self.skills_noticed
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Drop `names` from [`Self::skills_noticed`], so a turn that never reached
+    /// the agent sends them again on its redispatch.
+    pub(crate) fn forget_skills_sent(&self, names: &[String]) {
+        let mut sent = self
+            .skills_noticed
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for name in names {
+            sent.remove(name);
         }
     }
 

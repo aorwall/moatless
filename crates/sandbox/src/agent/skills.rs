@@ -10,7 +10,6 @@
 //! matches how the backend merges the two for the picker.
 
 use std::collections::HashSet;
-use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use tracing::{debug, warn};
@@ -39,57 +38,62 @@ impl SkillRoot {
     }
 }
 
-/// Prepend the turn's skills to `prompt`, in the order the backend listed them.
+/// Prepend each of the turn's skills to `prompt` as its `SKILL.md` body, in the
+/// order the backend listed them, and list a name that resolves nowhere in a
+/// notice.
 ///
-/// Only a standing skill (see [`with_always_frontloaded`]) is pasted in full;
-/// any other is named with its `SKILL.md` in one notice, an unresolved name in
-/// another. `noticed` holds the names a notice already carried this session.
+/// `pasted` holds the names this session already received, body or notice;
+/// each is sent once, then added, because a Loop's skills ride every delivery.
 pub(crate) async fn frontload_skills(
     config: &Config,
     skills: &[String],
     prompt: &str,
-    noticed: &std::sync::Mutex<HashSet<String>>,
+    pasted: &std::sync::Mutex<HashSet<String>>,
 ) -> String {
     if skills.is_empty() {
         return prompt.to_string();
     }
 
-    let standing: HashSet<&String> = standing_skill_names(config).collect();
     let roots = skill_roots(config).await;
-    let mut out = String::new();
-    let mut to_read = Vec::new();
+    let mut bodies = Vec::new();
     let mut missing = Vec::new();
-    for name in skills {
-        if !is_safe_skill_name(name) {
-            warn!(skill = %name, "Skipping skill with an unusable name");
-            continue;
-        }
-        let Some(root) = find_skill(&roots, name).await else {
-            warn!(skill = %name, "Skill not found in any skill root; skipping");
-            missing.push(name);
-            continue;
-        };
-        if !standing.contains(name) {
-            to_read.push((name, root));
-        } else if let Some((label, body)) = read_skill_in(root, name).await {
-            debug!(skill = %name, label = %label, body_len = body.len(), "Activated skill");
-            out.push_str(&preamble(&label, &body));
+    {
+        let already = pasted
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        for name in skills.iter().filter(|name| !already.contains(*name)) {
+            if !is_safe_skill_name(name) {
+                warn!(skill = %name, "Skipping skill with an unusable name");
+                continue;
+            }
+            let Some(root) = find_skill(&roots, name).await else {
+                warn!(skill = %name, "Skill not found in any skill root; skipping");
+                missing.push(name);
+                continue;
+            };
+            if let Some((label, body)) = read_skill_in(root, name).await {
+                debug!(skill = %name, label = %label, body_len = body.len(), "Activated skill");
+                bodies.push((name, preamble(&label, &body)));
+            }
         }
     }
     // Stays empty for the dispatcher's empty-prompt check in
-    // `dispatch_pending_messages_for_context`.
-    if out.is_empty() && to_read.is_empty() && prompt.is_empty() {
+    // `dispatch_pending_messages_for_context`, and records nothing as sent.
+    if bodies.is_empty() && prompt.is_empty() {
         return String::new();
     }
+    let mut out = String::new();
     {
-        let mut noticed = noticed
+        let mut pasted = pasted
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        to_read.retain(|(name, _)| noticed.insert((*name).clone()));
-        missing.retain(|name| noticed.insert((*name).clone()));
-    }
-    if !to_read.is_empty() {
-        out.push_str(&read_notice(&to_read));
+        for (name, body) in bodies {
+            if pasted.insert(name.clone()) {
+                out.push_str(&body);
+            }
+        }
+        missing.retain(|name| pasted.insert((*name).clone()));
     }
     if !missing.is_empty() {
         let names: Vec<String> = missing.iter().map(|name| format!("`{name}`")).collect();
@@ -103,28 +107,6 @@ pub(crate) async fn frontload_skills(
     }
     out.push_str(prompt);
     out
-}
-
-/// The notice naming each requested skill that is not pasted. It points at the
-/// file rather than the Skill tool: a skill with `disable-model-invocation`
-/// refuses the tool, and Codex has none.
-fn read_notice(skills: &[(&String, &SkillRoot)]) -> String {
-    let mut notice = String::from(
-        "Skills requested for this task: read each SKILL.md before you start and follow it. \
-         In a plugin skill, substitute the plugin root for `${CLAUDE_PLUGIN_ROOT}` and the \
-         skill's directory for `${CLAUDE_SKILL_DIR}`.\n",
-    );
-    for (name, root) in skills {
-        let path = root.dir.join(name.as_str()).join("SKILL.md");
-        let plugin_root = root
-            .plugin_root
-            .as_ref()
-            .map(|root| format!(" (plugin root {})", root.display()))
-            .unwrap_or_default();
-        let _ = writeln!(notice, "- `{name}`: {}{plugin_root}", path.display());
-    }
-    notice.push('\n');
-    notice
 }
 
 /// `requested` without the standing skills, for a resumed session: its fresh
@@ -418,18 +400,9 @@ fn preamble(label: &str, body: &str) -> String {
 mod tests {
     use super::*;
 
-    /// [`frontload_skills`] with `skills` standing and nothing noticed yet.
+    /// [`frontload_skills`] with nothing sent yet.
     async fn frontload(config: &Config, skills: &[String], prompt: &str) -> String {
-        let mut config = config.clone();
-        config
-            .plugins
-            .push(moatless_workspace_types::plugin::PluginDelivery {
-                name: "standing".to_string(),
-                git_url: "https://example.test/standing.git".to_string(),
-                skill_names: Vec::new(),
-                frontload_skill_names: skills.to_vec(),
-            });
-        frontload_skills(&config, skills, prompt, &Default::default()).await
+        frontload_skills(config, skills, prompt, &Default::default()).await
     }
 
     /// A `Config` whose repo and home dirs point into `root`.
@@ -888,65 +861,48 @@ mod tests {
         );
     }
 
+    /// A Loop's skills ride every delivery; pasting them each wake put the
+    /// same body into the session once per message.
     #[tokio::test]
-    async fn a_skill_not_marked_to_frontload_is_named_for_reading_instead() {
+    async fn a_skill_is_pasted_once_per_session() {
         let tmp = tempfile::tempdir().expect("tempdir");
-        let mut config = config_in(tmp.path(), "claude-code");
-        with_plugins(&mut config, &[("agentops", &[])]);
-        let repo_skills = tmp.path().join("workspace/repo/.agents/skills");
-        write_skill(&repo_skills, "e2e-testing", "SECRET_BODY");
-        let plugin = config.plugins_dir().join("agentops");
-        write_skill(&plugin.join("skills"), "pr-review", "PLUGIN_BODY");
+        let config = config_in(tmp.path(), "claude-code");
+        let skills = tmp.path().join("workspace/repo/.agents/skills");
+        write_skill(&skills, "review", "Review it.");
+        write_skill(&skills, "java", "Java rules.");
+        let sent = Default::default();
 
-        let out = frontload_skills(
+        let first = frontload_skills(&config, &["review".to_string()], "go", &sent).await;
+        let second = frontload_skills(
             &config,
-            &["e2e-testing".to_string(), "pr-review".to_string()],
-            "go",
-            &Default::default(),
+            &["review".to_string(), "java".to_string()],
+            "again",
+            &sent,
         )
         .await;
 
-        assert!(
-            !out.contains("SECRET_BODY") && !out.contains("PLUGIN_BODY"),
-            "{out}"
+        assert_eq!(
+            first,
+            "Activated .agents/skills/review:\n\nReview it.\n\ngo"
         );
-        assert!(
-            out.contains(&format!(
-                "- `e2e-testing`: {}\n",
-                repo_skills.join("e2e-testing/SKILL.md").display()
-            )),
-            "{out}"
+        assert_eq!(
+            second,
+            "Activated .agents/skills/java:\n\nJava rules.\n\nagain"
         );
-        assert!(
-            out.contains(&format!(
-                "- `pr-review`: {} (plugin root {})\n",
-                plugin.join("skills/pr-review/SKILL.md").display(),
-                plugin.display()
-            )),
-            "{out}"
-        );
-        assert!(out.ends_with("\n\ngo"), "{out}");
     }
 
-    /// A Loop's skills ride every delivery; naming them each turn would have
-    /// the agent read the same file once per message.
     #[tokio::test]
-    async fn a_skill_to_read_is_named_once_per_session() {
+    async fn a_skill_named_twice_in_one_turn_is_pasted_once() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let config = config_in(tmp.path(), "claude-code");
         write_skill(
             &tmp.path().join("workspace/repo/.agents/skills"),
             "review",
-            "body",
+            "Review it.",
         );
-        let noticed = Default::default();
-        let review = ["review".to_string()];
 
-        let first = frontload_skills(&config, &review, "go", &noticed).await;
-        let second = frontload_skills(&config, &review, "again", &noticed).await;
-
-        assert!(first.contains("`review`"), "{first}");
-        assert_eq!(second, "again");
+        let out = frontload(&config, &["review".to_string(), "review".to_string()], "go").await;
+        assert_eq!(out, "Activated .agents/skills/review:\n\nReview it.\n\ngo");
     }
 
     #[test]

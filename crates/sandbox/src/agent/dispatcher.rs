@@ -302,7 +302,7 @@ async fn dispatch_pending_messages_for_context(
         {
             crate::agent::skills::standing_skills_loaded_in(&state.config, &text).await
         } else {
-            // A new conversation has seen no notice yet.
+            // A new conversation holds no skill yet.
             context
                 .skills_noticed
                 .lock()
@@ -314,6 +314,7 @@ async fn dispatch_pending_messages_for_context(
     };
 
     // Frontloading turns the requested skills into the prompt's leading preamble.
+    let sent_before = context.skills_sent();
     let mut text = crate::agent::skills::frontload_skills(
         &state.config,
         &skills,
@@ -338,6 +339,12 @@ async fn dispatch_pending_messages_for_context(
             text.insert_str(0, &notice);
         }
     }
+    // What this turn recorded as sent, handed back if the turn never lands.
+    let sent_now: Vec<String> = context
+        .skills_sent()
+        .into_iter()
+        .filter(|name| !sent_before.contains(name))
+        .collect();
 
     // A preamble ahead of `/compact` turns the command into plain text, so the
     // note waits for the next turn.
@@ -426,6 +433,7 @@ async fn dispatch_pending_messages_for_context(
                 if let Some(note) = restart_note {
                     redelivery_context.set_restart_note(note);
                 }
+                redelivery_context.forget_skills_sent(&sent_now);
                 drop(permit);
                 drop(dispatch_guard);
                 schedule_redispatch(redelivery_state, redelivery_context).await;
