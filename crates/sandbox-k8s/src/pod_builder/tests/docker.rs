@@ -35,6 +35,11 @@ fn docker_access_adds_privileged_dind_sidecar_and_env() {
         args.contains("--feature=containerd-snapshotter=false"),
         "dind must use overlay2, or an SELinux xattr fails every unpack: {args}"
     );
+    let start = dind.command.as_ref().unwrap().join(" ");
+    assert!(
+        start.contains("context=") && start.contains("exec dockerd-entrypoint.sh \"$@\""),
+        "dind must label its volumes mount, or seeding a VOLUME fails: {start}"
+    );
     assert!(
         dind.volume_mounts
             .as_ref()

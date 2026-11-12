@@ -16,6 +16,17 @@ pub(super) fn docker_access_enabled(plan: &ProvisionPlan) -> bool {
     plan.repo_config.docker_access.unwrap_or(false)
 }
 
+/// Seeding an image's `VOLUME` copies `security.selinux`, which the dind's
+/// Bottlerocket `control_t` may not relabel (`EACCES`, fatal to moby). A
+/// `context=` overlay on `volumes` answers `ENOTSUP`, which moby skips; a node
+/// lacking `local_t` refuses the mount and dockerd starts without it.
+const DIND_START: &str = r#"D=/var/lib/docker; O="$D/.volumes-overlay"
+mkdir -p "$D/volumes" "$O/upper" "$O/work"
+mountpoint -q "$D/volumes" || mount -t overlay overlay \
+  -o "lowerdir=$D/volumes,upperdir=$O/upper,workdir=$O/work,context=system_u:object_r:local_t:s0" \
+  "$D/volumes" || echo "dind: no SELinux volumes overlay; seeding a VOLUME may fail" >&2
+exec dockerd-entrypoint.sh "$@""#;
+
 /// Build the privileged `dind` (docker-in-docker) sidecar container.
 ///
 /// Runs `dockerd` without TLS on `tcp://0.0.0.0:2375`, reachable only inside
@@ -50,8 +61,14 @@ pub(super) fn build_dind_container(config: &Config) -> Container {
         name: "dind".to_string(),
         image: Some(config.sandbox.docker_dind_image.clone()),
         image_pull_policy: Some(config.sandbox.image_pull_policy.clone()),
-        // Keep the image ENTRYPOINT (`dockerd-entrypoint.sh`), which performs the
-        // cgroup/iptables setup before exec'ing the `dockerd` we pass as args.
+        // `DIND_START` ends in the image's `dockerd-entrypoint.sh`, which does
+        // the cgroup/iptables setup before exec'ing the `dockerd` in args.
+        command: Some(vec![
+            "sh".to_string(),
+            "-c".to_string(),
+            DIND_START.to_string(),
+            "dind".to_string(),
+        ]),
         args: Some(vec![
             "dockerd".to_string(),
             "--host=tcp://0.0.0.0:2375".to_string(),
@@ -59,9 +76,9 @@ pub(super) fn build_dind_container(config: &Config) -> Container {
             "--tls=false".to_string(),
             // Back to the overlay2 graphdriver: Docker 29 defaults to the
             // containerd image store, whose copier treats a refused xattr as
-            // fatal, so on these SELinux-labelled nodes every layer unpack and
-            // every seed of a declared `VOLUME` dies with `failed to set xattr
-            // "security.selinux"`. overlay2's copier never asks for that one.
+            // fatal, so on these SELinux-labelled nodes every layer unpack dies
+            // with `failed to set xattr "security.selinux"`. A `VOLUME` seed
+            // still copies it whatever the driver: see `DIND_START`.
             "--feature=containerd-snapshotter=false".to_string(),
         ]),
         // Disable the entrypoint's automatic TLS cert generation so it listens
