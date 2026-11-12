@@ -374,7 +374,7 @@ ARG PLAYWRIGHT_VERSION=1.65.0
 # holds which is `docker/playwright-consumers.json`; CI's `playwright-pins` job
 # fails on a consumer resolving a build absent from this list, and warns on an
 # entry here no consumer resolves. Drop an entry when it warns.
-ARG PLAYWRIGHT_COMPAT_VERSIONS="1.63.0 1.60.0 1.58.1"
+ARG PLAYWRIGHT_COMPAT_VERSIONS="1.64.1 1.60.0 1.58.1"
 # Drives `playwright-cli`; `1.62.0` added the `cli` subcommand it calls.
 # renovate: datasource=npm depName=playwright
 ARG PLAYWRIGHT_CLI_VERSION=1.65.0

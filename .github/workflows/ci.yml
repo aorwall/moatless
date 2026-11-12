@@ -431,6 +431,7 @@ jobs:
       - name: Compare the Playwright pins with the lockfiles that decide them
         env:
           GH_TOKEN: ${{ secrets.E2E_GITHUB_PAT }}
+          PLAYWRIGHT_PINS_FORK: ${{ github.event.pull_request.head.repo.fork == true }}
         run: ./.github/scripts/check-playwright-pins.sh
 
   # ── Rust lint + tests ──

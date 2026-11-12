@@ -523,6 +523,36 @@ impl LinearAgentApi {
         Ok(id.to_string())
     }
 
+    /// Open a new agent session for the app on `issue_id`, returning its id.
+    pub async fn agent_session_create_on_issue(
+        &self,
+        issue_id: &str,
+    ) -> Result<String, AdapterError> {
+        let value = self
+            .graphql(serde_json::json!({
+                "query": "mutation($input: AgentSessionCreateOnIssue!) { \
+                    agentSessionCreateOnIssue(input: $input) { success agentSession { id } } \
+                }",
+                "variables": { "input": { "issueId": issue_id } }
+            }))
+            .await?;
+        require_mutation_success(
+            &value,
+            "/data/agentSessionCreateOnIssue",
+            "agentSessionCreateOnIssue",
+        )?;
+        value
+            .pointer("/data/agentSessionCreateOnIssue/agentSession/id")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| {
+                SharedAdapterError::AdapterApi(
+                    "Linear agentSessionCreateOnIssue missing agentSession.id".into(),
+                )
+                .into()
+            })
+    }
+
     /// Update the session's `externalUrls` so the moatless task is linked from
     /// the Linear Agent UI.
     pub async fn agent_session_update_external_urls(

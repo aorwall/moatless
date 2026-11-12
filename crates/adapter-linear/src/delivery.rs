@@ -636,9 +636,32 @@ impl LinearInboundRouter {
         )
         .await
         .map_err(AdapterDeliveryFailure::from)?;
-        super::issues::handle_issue_update(&self.issue_ports(), &api, &connection, &rules, &payload)
-            .await
-            .map_err(AdapterDeliveryFailure::from)
+        super::issues::handle_issue_update(
+            &self.issue_ports(),
+            &api,
+            &connection,
+            &rules,
+            &payload,
+        )
+        .await
+        .map_err(AdapterDeliveryFailure::from)?;
+        super::sessions::restart_session_on_reopen(
+            self.task_bindings.as_ref(),
+            self.tasks.as_ref(),
+            &self.config,
+            self.task_creation.as_ref(),
+            self.task_relations.as_ref(),
+            self.message_send.as_ref(),
+            &self.linear_active_turns,
+            self.identity.as_ref(),
+            &self.routing,
+            &api,
+            &connection,
+            &rules,
+            &payload,
+        )
+        .await
+        .map_err(AdapterDeliveryFailure::from)
     }
 
     async fn issue_labeled(

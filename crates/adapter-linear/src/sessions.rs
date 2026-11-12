@@ -1,12 +1,10 @@
-//! The two Linear agent-session workflows: a session created, and a prompt
-//! typed into one that already exists.
+//! The Linear agent-session workflows: a session created, a prompt typed into
+//! one that exists, and a session the app opens on a reopened issue.
 //!
-//! Both open a heartbeat activity before any slow work, since a session gets
-//! a visible panel — `created`'s heartbeat is in
-//! [`webhook::normalize`](super::webhook::normalize)/`ingress`,
-//! `prompted`'s here. `created` always spawns a Task (a mention is explicit);
-//! `prompted` routes into its already-bound Task — a missing Binding means
-//! that task closed already, not an error.
+//! `created` and `prompted` open a heartbeat before slow work (`created`'s in
+//! [`webhook::normalize`](super::webhook::normalize)). `created` always spawns
+//! a Task; `prompted` routes into its bound Task, and a missing Binding means
+//! that Task closed, not an error.
 
 use tracing::{info, warn};
 
@@ -16,6 +14,7 @@ use moatless_adapter_model::binding::{ADAPTER_EVENT_BINDING_ORIGIN, BindScope};
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::loops::LoopReader;
 use moatless_loops::bindings::operations::Bindings;
+use moatless_loops::bindings::runtime::RoutingService;
 use moatless_ports::identity::ProviderIdentityLink;
 use moatless_ports::sandbox::SandboxWaker;
 use moatless_ports::task::RelationRecorder;
@@ -29,6 +28,7 @@ use moatless_types::loops::SubscriptionMatch;
 use super::active_turns::ActiveLinearTurns;
 use super::agent_api::{ActivityKind, LinearAgentApi};
 use super::config::{LinearRuleConfig, rules_need_issue_fetch, select_spawn_rule};
+use super::delivery::IssueUpdateDelivery;
 use super::issues::{insert_event_task, transition_issue_state};
 use super::reference_resolution::LINEAR_PROVIDER;
 use super::subject::{ADAPTER, SUBJECT_KIND_SESSION as SUBJECT_KIND};
@@ -544,6 +544,165 @@ async fn provision_session_task(
     Ok(())
 }
 
+/// Subject kind of the creation claim on one reopen of an issue, keyed by the
+/// issue and Linear's clock. No Binding carries it.
+const REOPEN_SUBJECT_KIND: &str = "linear_issue_reopen";
+
+/// Open a new session and Task on an issue moved back to a non-terminal state
+/// while delegated to the app, once all its sessions have closed.
+///
+/// Linear opens a session only on a first delegation or a mention. An open
+/// session Task is skipped: `notify_bindings_of_state_change` tells it. A
+/// re-delegation that moves no state never reaches here (`issue_event`).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the session provisioning ports of `provision_selected_session_task` \
+              plus the routing claim; the same AppState-shaped bag"
+)]
+pub(super) async fn restart_session_on_reopen(
+    task_bindings: &Bindings,
+    tasks: &dyn TaskReader,
+    config: &Config,
+    task_creation: &dyn TaskOpener,
+    task_relations: &dyn RelationRecorder,
+    message_send: &dyn MessageAcceptor,
+    linear_active_turns: &ActiveLinearTurns,
+    identity: &dyn ProviderIdentityLink,
+    routing: &RoutingService,
+    api: &LinearAgentApi,
+    connection: &AdapterConnection,
+    rules: &[SubscriptionMatch],
+    update: &IssueUpdateDelivery,
+) -> Result<(), AdapterError> {
+    let issue = &update.issue;
+    let Some(rule) = rules.first() else {
+        return Ok(());
+    };
+    if !reopens(update, rules) {
+        return Ok(());
+    }
+    let sessions =
+        super::subject::bindings_on_issue(task_bindings, connection, SUBJECT_KIND, &issue.id)
+            .await?;
+    if !all_sessions_closed(&sessions) {
+        return Ok(());
+    }
+    let Some(app_user) = connection
+        .transport_config
+        .get("agent_viewer_id")
+        .and_then(serde_json::Value::as_str)
+    else {
+        warn!(connection_id = %connection.id, "Linear connection names no agent_viewer_id — cannot tell whether a reopened issue is delegated");
+        return Ok(());
+    };
+    let detail = api.get_issue(&issue.id).await?;
+    if detail
+        .pointer("/delegate/id")
+        .and_then(serde_json::Value::as_str)
+        != Some(app_user)
+    {
+        return Ok(());
+    }
+
+    let transition = update
+        .transition_id
+        .clone()
+        .unwrap_or_else(|| update.delivered_at.to_string());
+    let event_id = super::external_id::issue_state(&issue.id, &transition);
+    let claim_key = format!("{}:{transition}", issue.id);
+    if !routing
+        .claim_task_creation_once(
+            rule,
+            REOPEN_SUBJECT_KIND,
+            &claim_key,
+            ADAPTER_LABEL,
+            Some(&event_id),
+        )
+        .await?
+    {
+        return Ok(());
+    }
+
+    // Released on failure so the redelivery retries rather than finding the
+    // claim held and dropping the reopen.
+    let session_id = match api.agent_session_create_on_issue(&issue.id).await {
+        Ok(id) => id,
+        Err(e) => {
+            if let Err(release) = routing
+                .release_task_creation(&rule.id, REOPEN_SUBJECT_KIND, &claim_key)
+                .await
+            {
+                warn!(issue = %issue.identifier, error = %release, "Failed to release Linear reopen claim");
+            }
+            return Err(e);
+        }
+    };
+    info!(
+        issue = %issue.identifier,
+        session_id,
+        "Opened a Linear agent session on a reopened issue"
+    );
+    let session = AgentSession {
+        id: session_id,
+        issue: Some(AgentSessionIssue {
+            id: issue.id.clone(),
+            identifier: issue.identifier.clone(),
+            title: issue.title.clone(),
+            description: None,
+            url: issue.url.clone(),
+            team_id: issue.resolved_team_id().map(str::to_string),
+            team: None,
+            state: issue.state.clone(),
+        }),
+        comment: None,
+        creator: update.actor.clone(),
+        prompt_context: None,
+    };
+    // A `created` webhook for this session, if Linear sends one, converges on
+    // the binding guard in `provision_session_task`.
+    provision_selected_session_task(
+        task_bindings,
+        tasks,
+        config,
+        task_creation,
+        task_relations,
+        message_send,
+        linear_active_turns,
+        identity,
+        api,
+        connection,
+        rules,
+        &session,
+    )
+    .await
+}
+
+/// Whether `update` moved the issue into a state no rule closes on or starts a
+/// status-entry Task for, the latter owning that move.
+fn reopens(update: &IssueUpdateDelivery, rules: &[SubscriptionMatch]) -> bool {
+    let issue = &update.issue;
+    let previous = update
+        .updated_from
+        .as_ref()
+        .and_then(|v| v.get("stateId"))
+        .and_then(serde_json::Value::as_str);
+    let Some(current) = issue.state.as_ref() else {
+        return false;
+    };
+    if previous.is_none_or(|p| p == current.id) {
+        return false;
+    }
+    rules.iter().map(LinearRuleConfig::from_rule).all(|cfg| {
+        !cfg.is_terminal(issue.state_kind(), issue.state_name())
+            && !cfg.creates_on_status(issue.state_name())
+    })
+}
+
+/// Whether the issue had an agent session and every one has closed.
+fn all_sessions_closed(sessions: &[TaskBinding]) -> bool {
+    !sessions.is_empty() && sessions.iter().all(|b| !b.active)
+}
+
 /// The issue's workflow state, read from Linear when the session payload
 /// carries none with a type. `None` when the read fails.
 async fn current_issue_state(
@@ -580,6 +739,93 @@ fn moves_to_start_state(current: Option<&LinearWorkflowState>, start_state: &str
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::tests::rule_with;
+
+    fn moved_to(name: &str, kind: &str) -> IssueUpdateDelivery {
+        serde_json::from_value(serde_json::json!({
+            "connection_id": "pc_test",
+            "issue": {
+                "id": "issue-1",
+                "identifier": "SP-1",
+                "teamId": "team-uuid",
+                "state": { "id": "s-new", "name": name, "type": kind },
+            },
+            "updated_from": { "stateId": "s-done" },
+            "delivered_at": 1,
+        }))
+        .expect("delivery parses")
+    }
+
+    fn session_binding(active: bool) -> TaskBinding {
+        let now = chrono::Utc::now();
+        TaskBinding {
+            id: "ts_1".to_string(),
+            task_id: "task-1".to_string(),
+            adapter_kind: moatless_types::adapter::AdapterKind::Linear,
+            subject_kind: SUBJECT_KIND.to_string(),
+            subject_key: "session-1".to_string(),
+            connection_id: "pc_test".to_string(),
+            loop_id: None,
+            destination_config: serde_json::json!({ "issue_id": "issue-1" }),
+            metadata: serde_json::json!({}),
+            last_external_event_id: None,
+            origin: "ingress".to_string(),
+            created_at: now,
+            last_event_at: now,
+            external_status: None,
+            external_state_kind: None,
+            external_status_raw: None,
+            external_review_decision: None,
+            external_mergeable_state: None,
+            external_status_updated_at: None,
+            active,
+            deactivated_at: None,
+            watching: true,
+        }
+    }
+
+    #[test]
+    fn moving_an_issue_back_to_an_open_state_reopens_it() {
+        let rules = [rule_with(serde_json::json!({}), true)];
+        assert!(reopens(&moved_to("Ready", "unstarted"), &rules));
+        assert!(reopens(&moved_to("In Progress", "started"), &rules));
+    }
+
+    #[test]
+    fn a_move_into_a_terminal_state_or_no_move_is_not_a_reopen() {
+        let rules = [rule_with(serde_json::json!({}), true)];
+        assert!(!reopens(&moved_to("Done", "completed"), &rules));
+        assert!(!reopens(&moved_to("Canceled", "canceled"), &rules));
+        let mut unmoved = moved_to("Ready", "unstarted");
+        unmoved.updated_from = Some(serde_json::json!({ "stateId": "s-new" }));
+        assert!(!reopens(&unmoved, &rules));
+        unmoved.updated_from = None;
+        assert!(!reopens(&unmoved, &rules));
+    }
+
+    /// A status-entry rule starts its own Task on that move; a session on top
+    /// would be a second one.
+    #[test]
+    fn a_move_a_status_entry_rule_acts_on_is_left_to_it() {
+        let rules = [rule_with(
+            serde_json::json!({ "create_on_status_entry": true, "trigger_states": ["Ready"] }),
+            true,
+        )];
+        assert!(!reopens(&moved_to("Ready", "unstarted"), &rules));
+    }
+
+    #[test]
+    fn only_an_issue_whose_every_session_closed_gets_a_new_one() {
+        assert!(all_sessions_closed(&[session_binding(false)]));
+        assert!(
+            !all_sessions_closed(&[]),
+            "never delegated: Linear opens the first session"
+        );
+        assert!(
+            !all_sessions_closed(&[session_binding(false), session_binding(true)]),
+            "an open session Task hears the move itself"
+        );
+    }
 
     fn state(name: &str, kind: &str) -> LinearWorkflowState {
         LinearWorkflowState {
