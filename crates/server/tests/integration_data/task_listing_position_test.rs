@@ -431,6 +431,51 @@ async fn task_and_workspace_changes_interleave_in_position_order(pool: PgPool) {
     assert_eq!(changes_after(&pool, 0, 2).await.unwrap().len(), 2);
 }
 
+/// Migration 0240 gives every live Workspace a position after the head, so a
+/// client resuming from before it is replayed each project it may lack.
+#[sqlx::test]
+async fn the_backfill_records_each_live_workspace_after_the_head(pool: PgPool) {
+    let workspaces = compose::workspaces(pool.clone());
+    for id in ["ws-a", "ws-b", "ws-gone"] {
+        workspaces
+            .insert_workspace(&make_workspace_row(id, USER_1))
+            .await
+            .unwrap();
+    }
+    assert!(workspaces.soft_delete("ws-gone", &owner()).await.unwrap());
+    let mut tx = pool.begin().await.unwrap();
+    record_change(&mut tx, "task-a").await.unwrap();
+    tx.commit().await.unwrap();
+    let head = current_position(&pool).await.unwrap();
+
+    sqlx::raw_sql(include_str!(
+        "../../../core/migrations/0240_backfill_workspace_listing_changes.sql"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let backfilled: Vec<(i64, ListingSubject)> = changes_after(&pool, head, 10)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|change| (change.position, change.subject))
+        .collect();
+    let positions: Vec<i64> = backfilled.iter().map(|(position, _)| *position).collect();
+    assert_eq!(positions, vec![head + 1, head + 2]);
+    let mut subjects: Vec<ListingSubject> =
+        backfilled.into_iter().map(|(_, subject)| subject).collect();
+    subjects.sort();
+    assert_eq!(
+        subjects,
+        vec![
+            ListingSubject::Workspace("ws-a".to_string()),
+            ListingSubject::Workspace("ws-b".to_string()),
+        ]
+    );
+    assert_eq!(current_position(&pool).await.unwrap(), head + 2);
+}
+
 /// Migration 0130 contracts the record to exactly one non-null Task id while
 /// leaving the independently-owned position counter in place.
 #[sqlx::test]
