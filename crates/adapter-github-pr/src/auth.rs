@@ -17,6 +17,7 @@ use moatless_workspace_types::repository::GitHostRepo;
 
 use super::adapter::GithubPrAdapter;
 use super::api::GithubPrApi;
+use super::text::PullRequestCredits;
 
 pub(super) struct GithubPrAuth {
     /// The one way to a git-host token. This Adapter holds no credential of its
@@ -155,6 +156,14 @@ impl GithubPrAuth {
             credited_login: credited.map(|(_, login)| login),
             names_credited,
         })
+    }
+
+    /// Per [`pull_request_credits`].
+    pub(super) async fn pull_request_credits(
+        &self,
+        attribution: &Attribution,
+    ) -> PullRequestCredits {
+        pull_request_credits(self.git_host_tokens.as_ref(), attribution).await
     }
 
     /// A client that writes to `repo` as the App `actor` signed in through,
@@ -354,6 +363,32 @@ pub(super) async fn resolve_task_github_writer(
         .auth()
         .writer_for(actor, &GitHostRepo::github(owner, repo_name), attribution)
         .await
+}
+
+/// The GitHub logins of whom [`Attribution::pull_request_credits`] names; a
+/// person who has not signed in to GitHub as themselves is left out.
+pub async fn pull_request_credits(
+    tokens: &dyn GitHostTokenIssuer,
+    attribution: &Attribution,
+) -> PullRequestCredits {
+    let login = async |person: Option<&str>| {
+        let only = Attribution {
+            owner: Some(person?.to_string()),
+            ..Attribution::default()
+        };
+        match tokens.credited_github_login(&only).await {
+            Ok(credited) => credited.map(|(_, login)| login),
+            Err(error) => {
+                warn!(%error, "Failed to read whom a pull request credits");
+                None
+            }
+        }
+    };
+    let (reporter, driver) = attribution.pull_request_credits();
+    PullRequestCredits {
+        reporter: login(reporter).await,
+        driver: login(driver).await,
+    }
 }
 
 /// The identity a Task's GitHub write acts as: the Task's own run-as on behalf

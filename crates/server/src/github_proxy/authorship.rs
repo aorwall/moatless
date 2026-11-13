@@ -4,7 +4,7 @@
 
 use axum::body::Bytes;
 use axum::http::Method;
-use moatless_adapter_github_pr::credit_driver;
+use moatless_adapter_github_pr::{PullRequestCredits, credit_driver, credit_pull_request};
 use serde_json::Value;
 
 /// The REST `POST`s that author, as the segments after
@@ -50,6 +50,15 @@ pub(super) fn rest_authors(method: &Method, path_and_query: &str) -> bool {
         && REST
             .iter()
             .any(|pattern| repo_path_matches(path_and_query, pattern))
+}
+
+/// The GraphQL mutation that opens a pull request, whose description
+/// [`credit_opened_pull_request`] heads.
+pub(super) const OPENS_PULL_REQUEST: &str = "createPullRequest";
+
+/// Whether a REST request opens a pull request, as [`OPENS_PULL_REQUEST`].
+pub(super) fn rest_opens_pull_request(method: &Method, path_and_query: &str) -> bool {
+    method == Method::POST && repo_path_matches(path_and_query, "pulls")
 }
 
 /// Whether `path_and_query` is `/repos/{owner}/{name}/` then `pattern`, where
@@ -107,6 +116,23 @@ pub(super) fn refusal_message(answer: &[u8]) -> String {
 /// or a GraphQL mutation's `input.body`, added when absent. Every write
 /// [`rest_authors`] and [`MUTATIONS`] name takes one.
 pub(super) fn credit(body: &Bytes, graphql: bool, driver: &str) -> Bytes {
+    rewrite_text(body, graphql, |text| credit_driver(text, Some(driver)))
+}
+
+/// [`credit`] for a write that opens a pull request, per
+/// [`credit_pull_request`].
+pub(super) fn credit_opened_pull_request(
+    body: &Bytes,
+    graphql: bool,
+    credits: &PullRequestCredits,
+    driver: Option<&str>,
+) -> Bytes {
+    rewrite_text(body, graphql, |text| {
+        credit_pull_request(text, credits, driver)
+    })
+}
+
+fn rewrite_text(body: &Bytes, graphql: bool, rewrite: impl FnOnce(&str) -> String) -> Bytes {
     let Ok(mut json) = serde_json::from_slice::<Value>(body) else {
         return body.clone();
     };
@@ -122,7 +148,7 @@ pub(super) fn credit(body: &Bytes, graphql: bool, driver: &str) -> Bytes {
         .get("body")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    let credited = credit_driver(text, Some(driver));
+    let credited = rewrite(text);
     holder.insert("body".to_string(), Value::String(credited));
     serde_json::to_vec(&json).map_or_else(|_| body.clone(), Bytes::from)
 }

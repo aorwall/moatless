@@ -85,6 +85,10 @@ pub(super) async fn forward(
         }
         let write = GitHubPolicy::graphql_mutates(&bytes).then(|| Write {
             credits: GitHubPolicy::graphql_runs_only(&bytes, authorship::MUTATIONS),
+            opens_pull_request: GitHubPolicy::graphql_runs_only(
+                &bytes,
+                &[authorship::OPENS_PULL_REQUEST],
+            ),
             bytes: bytes.clone(),
         });
         (
@@ -105,6 +109,10 @@ pub(super) async fn forward(
                 Body::from(bytes.clone()),
                 Some(Write {
                     credits: authorship::rest_authors(&method, path_and_query),
+                    opens_pull_request: authorship::rest_opens_pull_request(
+                        &method,
+                        path_and_query,
+                    ),
                     bytes,
                 }),
             ),
@@ -146,6 +154,9 @@ struct Write {
     bytes: Bytes,
     /// It posts text, which credits whom [`GitHubProxy::credited_login`] names.
     credits: bool,
+    /// It opens a pull request, whose description also names whom
+    /// [`GitHubProxy::pull_request_credits`] does.
+    opens_pull_request: bool,
 }
 
 /// One request's destination and the client's headers for it.
@@ -205,6 +216,16 @@ impl Outbound<'_> {
         } else {
             None
         };
+        if write.opens_pull_request {
+            let credits = self.proxy.pull_request_credits(self.scope).await;
+            let credited = authorship::credit_opened_pull_request(
+                &write.bytes,
+                graphql,
+                &credits,
+                login.as_deref(),
+            );
+            return (reqwest::Body::from(credited), true);
+        }
         match login {
             Some(login) => (
                 reqwest::Body::from(authorship::credit(&write.bytes, graphql, &login)),

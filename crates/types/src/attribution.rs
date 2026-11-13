@@ -51,6 +51,22 @@ impl Attribution {
                 true
             })
     }
+
+    /// Whom a pull request's description names above its text, as
+    /// `(reporter, driver)`: the Reporter unless they own the Task, and the
+    /// driver unless they are its Reporter or owner.
+    pub fn pull_request_credits(&self) -> (Option<&str>, Option<&str>) {
+        let owner = self.owner.as_deref().filter(|o| !o.is_empty());
+        let reporter = self
+            .reporter
+            .as_deref()
+            .filter(|r| !r.is_empty() && Some(*r) != owner);
+        let driver = self
+            .driver
+            .as_deref()
+            .filter(|d| !d.is_empty() && Some(*d) != owner && Some(*d) != self.reporter.as_deref());
+        (reporter, driver)
+    }
 }
 
 #[cfg(test)]
@@ -100,6 +116,21 @@ mod tests {
             Some("ada"),
             "a write naming no Task credits its caller"
         );
+    }
+
+    #[test]
+    fn a_pull_request_names_a_reporter_other_than_the_owner_and_a_distinct_driver() {
+        let all = attribution(Some("ada"), Some("grace"), Some("loop-bot"));
+        assert_eq!(all.pull_request_credits(), (Some("grace"), Some("ada")));
+        let own = attribution(None, Some("loop-bot"), Some("loop-bot"));
+        assert_eq!(own.pull_request_credits(), (None, None));
+        let reporter_drives = attribution(Some("grace"), Some("grace"), Some("loop-bot"));
+        assert_eq!(
+            reporter_drives.pull_request_credits(),
+            (Some("grace"), None)
+        );
+        let owner_reports = attribution(Some("ada"), Some("bob"), Some("bob"));
+        assert_eq!(owner_reports.pull_request_credits(), (None, Some("ada")));
     }
 
     #[test]

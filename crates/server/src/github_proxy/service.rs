@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use moatless_adapter_github_pr::PullRequestCredits;
 use moatless_core::secret_keys::GITHUB_TOKEN;
 use moatless_ports::identity::{AppWriteToken, GitHostTokenError, GitHostTokenIssuer};
 use moatless_sandbox_control::secrets::{
@@ -241,6 +242,16 @@ impl GitHubProxy {
             return Some(login);
         }
         (self.actor(scope).await.user_id() != person).then_some(login)
+    }
+
+    /// Whom an opened pull request's description names above its text, per
+    /// [`moatless_adapter_github_pr::pull_request_credits`].
+    pub async fn pull_request_credits(&self, scope: &SandboxScope) -> PullRequestCredits {
+        moatless_adapter_github_pr::pull_request_credits(
+            self.git_host_tokens.as_ref(),
+            &scope.attribution,
+        )
+        .await
     }
 
     /// The repository GraphQL node `id` belongs to, asked as `scope`'s own

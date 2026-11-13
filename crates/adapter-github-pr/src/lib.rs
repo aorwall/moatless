@@ -39,8 +39,9 @@ mod test_support;
 mod text;
 mod webhook;
 
+pub use auth::pull_request_credits;
 pub use ingress::{DEFAULT_BRANCH_PUSH, REPOSITORY_CHANGE};
-pub use text::credit_driver;
+pub use text::{PullRequestCredits, credit_driver, credit_pull_request};
 
 mod mutations;
 pub mod pull_request_conversation;

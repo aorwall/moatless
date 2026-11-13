@@ -26,7 +26,7 @@ use super::auth::{resolve_task_github_api, resolve_task_github_writer, task_writ
 use super::external_id;
 use super::reply_keys;
 use super::subject::GithubPrSubject;
-use super::text::{credit_driver, truncate_on_char_boundary};
+use super::text::{credit_driver, credit_pull_request, truncate_on_char_boundary};
 
 /// Provider label recorded on an external event, and the `external_adapter` an
 /// inbound event is matched under.
@@ -63,8 +63,9 @@ pub(crate) async fn create_pr(
         None => api.get_repo_default_branch(&owner, &repo).await?,
     };
 
+    let credits = adapter.auth().pull_request_credits(&actor.1).await;
     let body = build_pr_body(
-        &credit_driver(
+        &credit_pull_request(
             &with_requester(
                 req.body.as_deref().unwrap_or(""),
                 actor
@@ -73,6 +74,7 @@ pub(crate) async fn create_pr(
                     .filter(|_| writer.credit().is_none())
                     .map(|_| login),
             ),
+            &credits,
             writer.credit(),
         ),
         task_footer_url(adapter.frontend_url(), req.task_id.as_deref()).as_deref(),

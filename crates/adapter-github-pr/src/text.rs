@@ -330,15 +330,13 @@ pub(super) fn truncate_on_char_boundary(s: &str, max: usize) -> &str {
 }
 
 /// `body` with a line crediting `driver_login`, the person an App posted it
-/// for; unchanged when there is none or the line is already there.
-///
-/// The login is a profile link rather than a bare `@login`: GitHub mentions
-/// nobody inside a link, so the driver is not notified of every comment.
+/// for, as a [`profile_link`]; unchanged when there is none or the line is
+/// already there.
 pub fn credit_driver(body: &str, driver_login: Option<&str>) -> String {
     let Some(login) = driver_login else {
         return body.to_string();
     };
-    let credit = format!("Driven by [@{login}](https://github.com/{login})");
+    let credit = format!("Driven by {}", profile_link(login));
     if body.contains(&credit) {
         body.to_string()
     } else if body.trim().is_empty() {
@@ -346,6 +344,56 @@ pub fn credit_driver(body: &str, driver_login: Option<&str>) -> String {
     } else {
         format!("{}\n\n{credit}", body.trim_end())
     }
+}
+
+/// The GitHub logins a pull request's description names above its text, per
+/// [`Attribution::pull_request_credits`](moatless_types::attribution::Attribution::pull_request_credits).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PullRequestCredits {
+    pub reporter: Option<String>,
+    pub driver: Option<String>,
+}
+
+impl PullRequestCredits {
+    fn names(&self, login: &str) -> bool {
+        [&self.reporter, &self.driver]
+            .into_iter()
+            .any(|named| named.as_deref() == Some(login))
+    }
+}
+
+/// A pull request description headed by `Reported by` and `Driven by` lines
+/// for `credits`, each added when absent, and closed by [`credit_driver`] for
+/// `author_credit` unless the head already names that login.
+pub fn credit_pull_request(
+    body: &str,
+    credits: &PullRequestCredits,
+    author_credit: Option<&str>,
+) -> String {
+    let head: Vec<String> = [
+        ("Reported by", credits.reporter.as_deref()),
+        ("Driven by", credits.driver.as_deref()),
+    ]
+    .into_iter()
+    .filter_map(|(label, login)| {
+        let line = format!("{label} {}", profile_link(login?));
+        (!body.contains(&line)).then_some(line)
+    })
+    .collect();
+    let headed = if head.is_empty() {
+        body.to_string()
+    } else if body.trim().is_empty() {
+        head.join(" · ")
+    } else {
+        format!("{}\n\n{}", head.join(" · "), body.trim_start())
+    };
+    credit_driver(&headed, author_credit.filter(|login| !credits.names(login)))
+}
+
+/// `login`'s profile as a link rather than a bare `@login`: GitHub mentions
+/// nobody inside a link, so the person is not notified of every write.
+fn profile_link(login: &str) -> String {
+    format!("[@{login}](https://github.com/{login})")
 }
 
 /// Task message for a PR that GitHub reports as having merge conflicts
@@ -643,5 +691,39 @@ mod tests {
             "Driven by [@ada](https://github.com/ada)"
         );
         assert_eq!(credit_driver("As myself.", None), "As myself.");
+    }
+
+    #[test]
+    fn a_pull_request_is_headed_by_its_reporter_and_driver_once() {
+        let credits = PullRequestCredits {
+            reporter: Some("grace".into()),
+            driver: Some("ada".into()),
+        };
+        let credited = credit_pull_request("Fixes the bug.", &credits, Some("ada"));
+        assert_eq!(
+            credited,
+            "Reported by [@grace](https://github.com/grace) · \
+             Driven by [@ada](https://github.com/ada)\n\nFixes the bug."
+        );
+        assert_eq!(
+            credit_pull_request(&credited, &credits, Some("ada")),
+            credited
+        );
+    }
+
+    #[test]
+    fn a_pull_request_naming_nobody_above_keeps_the_trailing_credit() {
+        let reporter_only = PullRequestCredits {
+            reporter: Some("grace".into()),
+            driver: None,
+        };
+        assert_eq!(
+            credit_pull_request("", &reporter_only, Some("grace")),
+            "Reported by [@grace](https://github.com/grace)"
+        );
+        assert_eq!(
+            credit_pull_request("Fix.", &PullRequestCredits::default(), Some("bob")),
+            credit_driver("Fix.", Some("bob"))
+        );
     }
 }
