@@ -15,7 +15,8 @@ use crate::api::PrInfo;
 pub(crate) const PR_TTL: Duration = Duration::from_secs(20);
 /// The hold when GitHub refuses for its rate limit without saying until when.
 const UNTIMED_HOLD: chrono::TimeDelta = chrono::TimeDelta::seconds(60);
-/// Pull-request slots kept before idle and stale ones are dropped.
+/// Pull-request slots past which idle and stale ones are dropped; slots in
+/// use or fresh stay, so this is a soft limit rather than a cap.
 const PR_SLOTS: usize = 256;
 
 /// A credential, by a hash of its token so no token is held twice.
@@ -56,7 +57,8 @@ impl ReadGuard {
     }
 
     /// Hold `token`'s requests until `retry_at`, or [`UNTIMED_HOLD`] from
-    /// `now`. True when it was not already held, so the caller logs once.
+    /// `now`, keeping a later hold already in place. True when it was not
+    /// already held, so the caller logs once.
     pub(crate) fn hold(
         &self,
         token: TokenKey,
@@ -68,9 +70,12 @@ impl ReadGuard {
             .held_until
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        let fresh = held.get(&token).is_none_or(|previous| *previous <= now);
+        let previous = held.get(&token).copied().filter(|previous| *previous > now);
+        // The later end wins: an untimed refusal racing a timed one must not
+        // cut the timed hold short.
+        let until = previous.map_or(until, |previous| previous.max(until));
         held.insert(token, until);
-        (fresh, until)
+        (previous.is_none(), until)
     }
 
     /// The slot that coalesces reads of one pull request with one credential:
@@ -120,6 +125,18 @@ mod tests {
         let (_, until) = guard.hold(token, None, now);
 
         assert_eq!(until, now + UNTIMED_HOLD);
+    }
+
+    #[test]
+    fn an_untimed_refusal_does_not_shorten_a_timed_hold() {
+        let guard = ReadGuard::default();
+        let token = TokenKey::of("ghp_a");
+        let now = DateTime::from_timestamp(1_793_000_000, 0).unwrap();
+        let reset = now + chrono::TimeDelta::minutes(10);
+
+        guard.hold(token, Some(reset), now);
+
+        assert_eq!(guard.hold(token, None, now), (false, reset));
     }
 
     mod over_http {
