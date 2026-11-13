@@ -171,7 +171,8 @@ The label only seeds step 6, so a wrong one costs little.
    | `in-progress` | Joins it; the fix is coming, and step 3 closes it with the rest |
    | `deferred`, `deferUntil` not yet reached | Joins it, and the cluster stays off the page |
    | `deferred`, `deferUntil` reached | Joins it and reopens it: `status: proposed`, `deferUntil` cleared |
-   | `fixed`, `closed` or `rejected` | Reopens it: `status: proposed`, `recurred: true`, keep `decision`, `pr` and `mergedAt` so the page shows the earlier outcome |
+   | `fixed`, the item's `createdAt` before `mergedAt` | Joins `allMembers` only, and the cluster stays `fixed` and off the page: close the item `fixed`, note `Fixed by <pr> (feedback-triage <slug>), reported before it merged`. It predates the fix, so it is no recurrence |
+   | `fixed` reported after `mergedAt` or with no `mergedAt`, `closed` or `rejected` | Reopens it: `status: proposed`, `recurred: true`, keep `decision`, `pr` and `mergedAt` so the page shows the earlier outcome |
 
    A reopen also sets `bucket`, `priority.rank` and `childTaskId` to null:
    step 8 skips a cluster left in `close`, and `scripts/create-fix-task.sh`
