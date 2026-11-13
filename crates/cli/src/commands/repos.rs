@@ -11,7 +11,7 @@ use moatless_workspace_types::schemas::repository::{
     CreateRepositoryRequest, RepositoryResponse, UpdateRepositoryRequest,
 };
 use moatless_workspace_types::workspace::{
-    derive_mount_name, proxy_clone_url, sanitize_mount_name,
+    derive_mount_name, github_remote_config, proxy_clone_url, sanitize_mount_name,
 };
 
 use crate::client::{ClientError, MoatClient};
@@ -154,7 +154,8 @@ pub async fn run(
             let url = clone_url(client.base_url(), &repo)?;
             let target = dir.unwrap_or_else(|| checkout_dir(&repo));
             let branch = branch.or_else(|| repo.default_branch.clone());
-            git_clone(&url, &target, branch.as_deref())?;
+            let config = clone_config(&repo);
+            git_clone(&url, &target, branch.as_deref(), &config)?;
             if let Some(task_id) = task_id {
                 // The clone already happened, so a refused record warns rather
                 // than failing it.
@@ -413,6 +414,21 @@ fn clone_url(base_url: &str, repo: &RepositoryResponse) -> Result<String, Client
     Ok(remote.url.clone())
 }
 
+/// The `git clone --config` values a clone of `repo` takes: the
+/// [`github_remote_config`] for a GitHub repository, which clones through the
+/// proxy and so names no GitHub repository in `origin`.
+fn clone_config(repo: &RepositoryResponse) -> Vec<String> {
+    let Some(remote) = repo.remote.as_ref() else {
+        return Vec::new();
+    };
+    match &remote.host_repo {
+        Some(host) if host.provider == RepositoryProvider::Github => {
+            github_remote_config(&remote.url).to_vec()
+        }
+        _ => Vec::new(),
+    }
+}
+
 /// The directory a clone lands in.
 ///
 /// Derived from the remote, not the URL git is given — a proxied URL ends in
@@ -428,9 +444,17 @@ fn checkout_dir(repo: &RepositoryResponse) -> String {
 ///
 /// `GIT_TERMINAL_PROMPT=0` turns a missing credential into an error rather than
 /// a prompt no agent shell answers.
-fn git_clone(url: &str, target: &str, branch: Option<&str>) -> Result<(), ClientError> {
+fn git_clone(
+    url: &str,
+    target: &str,
+    branch: Option<&str>,
+    config: &[String],
+) -> Result<(), ClientError> {
     let mut command = std::process::Command::new("git");
     command.env("GIT_TERMINAL_PROMPT", "0").arg("clone");
+    for setting in config {
+        command.args(["--config", setting]);
+    }
     if let Some(branch) = branch {
         command.args(["--branch", branch]);
     }
@@ -898,6 +922,37 @@ mod tests {
             Some("https://github.com/owner/repo.git"),
         );
         assert_eq!(clone_url(BASE_URL, &repo).unwrap(), proxied());
+    }
+
+    /// Without the `github` remote, the sandbox's push watcher cannot name the
+    /// repository a push to the proxied `origin` reached, and the Task is sent
+    /// its own push back.
+    #[test]
+    fn a_github_clone_names_its_repository_in_a_github_remote() {
+        let repo = repository(
+            Some(RepositoryProvider::Github),
+            Some("https://github.com/owner/repo.git"),
+        );
+        assert_eq!(
+            clone_config(&repo),
+            [
+                "remote.github.url=https://github.com/owner/repo.git",
+                "remote.github.fetch=+refs/heads/*:refs/remotes/github/*",
+                "remote.github.skipFetchAll=true",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_non_github_clone_adds_no_remote() {
+        let forgejo = repository(
+            Some(RepositoryProvider::Forgejo),
+            Some("https://git.example.com/owner/config-default.git"),
+        );
+        assert!(clone_config(&forgejo).is_empty());
+        assert!(
+            clone_config(&repository(None, Some("https://git.example.com/o/r.git"))).is_empty()
+        );
     }
 
     #[test]

@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use moatless_types::http::HttpTimeouts;
 use moatless_workspace_types::repository::GITLAB_HOST;
 use moatless_workspace_types::workspace::RepoCheckout;
+pub(crate) use moatless_workspace_types::workspace::{GITHUB_REMOTE, github_remote_config};
 use tokio::net::TcpStream;
 use tokio::process::Command;
 use tracing::{info, warn};
@@ -664,26 +665,6 @@ fn git_clone_args<'a>(url: &'a str, dest: &'a str, branch: Option<&'a str>) -> V
     args.push(url);
     args.push(dest);
     args
-}
-
-/// The remote naming the GitHub repository a proxied checkout's `origin`
-/// reaches.
-///
-/// Plain `gh` resolves its repository from a remote on a GitHub host and finds
-/// none in `origin`, and the push watcher claims a push to `origin` under this
-/// remote's `owner/repo`.
-pub(crate) const GITHUB_REMOTE: &str = "github";
-
-/// `git clone --config` values adding [`GITHUB_REMOTE`] at `upstream`, which
-/// [`route_github_through_proxy`] sends to the same proxy URL as `origin`.
-/// `gh` refuses a branch without the tracking refspec; `skipFetchAll` keeps
-/// `git fetch --all` from fetching the same repository twice.
-fn github_remote_config(upstream: &str) -> [String; 3] {
-    [
-        format!("remote.{GITHUB_REMOTE}.url={upstream}"),
-        format!("remote.{GITHUB_REMOTE}.fetch=+refs/heads/*:refs/remotes/{GITHUB_REMOTE}/*"),
-        format!("remote.{GITHUB_REMOTE}.skipFetchAll=true"),
-    ]
 }
 
 /// Clone one repository into `dest`.

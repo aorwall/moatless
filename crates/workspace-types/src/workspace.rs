@@ -251,6 +251,25 @@ pub fn proxy_clone_url(backend_api_url: &str, repository_id: &str) -> String {
     )
 }
 
+/// The remote naming the GitHub repository a proxied checkout's `origin`
+/// reaches.
+///
+/// Plain `gh` resolves its repository from a remote on a GitHub host and finds
+/// none in `origin`, and the sandbox's push watcher claims a push to `origin`
+/// under this remote's `owner/repo`: without it, a Task hears its own push.
+pub const GITHUB_REMOTE: &str = "github";
+
+/// `git clone --config` values adding [`GITHUB_REMOTE`] at `upstream`.
+/// `gh` refuses a branch without the tracking refspec; `skipFetchAll` keeps
+/// `git fetch --all` from fetching the same repository twice.
+pub fn github_remote_config(upstream: &str) -> [String; 3] {
+    [
+        format!("remote.{GITHUB_REMOTE}.url={upstream}"),
+        format!("remote.{GITHUB_REMOTE}.fetch=+refs/heads/*:refs/remotes/{GITHUB_REMOTE}/*"),
+        format!("remote.{GITHUB_REMOTE}.skipFetchAll=true"),
+    ]
+}
+
 /// The repository id in a [`proxy_clone_url`] against `backend_api_url`.
 ///
 /// Returns `None` when `url` names another origin — every checkout that clones
