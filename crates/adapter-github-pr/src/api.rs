@@ -1,5 +1,6 @@
 //! GitHub REST API client for PR interactions.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use reqwest::Client;
@@ -8,7 +9,9 @@ use tracing::warn;
 
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 
+use crate::read_guard::{PR_TTL, ReadGuard, TokenKey};
 use crate::rejection::{graphql_rate_limited, rejection};
+use moatless_core::github_client::github_throttle;
 use moatless_types::http::HttpTimeouts;
 
 /// Maximum comment length for GitHub's API (64 KB).
@@ -203,6 +206,7 @@ pub(super) struct GithubPrApi {
     client: Client,
     token: String,
     pub(super) base_url: String,
+    guard: Arc<ReadGuard>,
 }
 
 /// The client every [`GithubPrApi`] shares, bounded by `timeouts`.
@@ -231,11 +235,67 @@ pub(super) fn graphql_url(base_url: &str) -> String {
 
 impl GithubPrApi {
     /// A client for `token` against the REST root `base_url`.
+    #[cfg(test)]
     pub(super) fn new(client: Client, token: &str, base_url: impl Into<String>) -> Self {
+        Self::sharing(client, token, base_url, Arc::default())
+    }
+
+    /// [`Self::new`], holding back and remembering reads with `guard`.
+    pub(super) fn sharing(
+        client: Client,
+        token: &str,
+        base_url: impl Into<String>,
+        guard: Arc<ReadGuard>,
+    ) -> Self {
         Self {
             client,
             token: token.to_string(),
             base_url: base_url.into(),
+            guard,
+        }
+    }
+
+    fn token_key(&self) -> TokenKey {
+        TokenKey::of(&self.token)
+    }
+
+    /// Send `request` unless this token's quota is spent, and hold the token
+    /// back until GitHub's reset when the answer says it is.
+    ///
+    /// Only the headers classify a throttle here, since the body is the
+    /// caller's to read; GitHub marks every primary and secondary limit in them.
+    pub(super) async fn send(
+        &self,
+        request: reqwest::RequestBuilder,
+        operation: &str,
+    ) -> Result<reqwest::Response, AdapterError> {
+        let now = chrono::Utc::now();
+        if let Some(retry_at) = self.guard.held_until(self.token_key(), now) {
+            return Err(SharedAdapterError::RateLimited {
+                detail: format!("{operation} held back: GitHub's rate limit resets at {retry_at}"),
+                retry_at: Some(retry_at),
+            }
+            .into());
+        }
+        let resp = request
+            .send()
+            .await
+            .map_err(|e| SharedAdapterError::provider_unreachable(operation, e))?;
+        if let Some(throttle) = github_throttle(resp.status(), resp.headers(), "", now) {
+            self.hold(operation, throttle.retry_at, now);
+        }
+        Ok(resp)
+    }
+
+    fn hold(
+        &self,
+        operation: &str,
+        retry_at: Option<chrono::DateTime<chrono::Utc>>,
+        now: chrono::DateTime<chrono::Utc>,
+    ) {
+        let (fresh, until) = self.guard.hold(self.token_key(), retry_at, now);
+        if fresh {
+            warn!(%operation, %until, "GitHub rate limit reached; holding this credential's requests until it resets");
         }
     }
 
@@ -257,11 +317,12 @@ impl GithubPrApi {
     ) -> Result<serde_json::Value, AdapterError> {
         let url = graphql_url(&self.base_url);
         let resp = self
-            .request(reqwest::Method::POST, &url)
-            .json(&serde_json::json!({ "query": query, "variables": variables }))
-            .send()
-            .await
-            .map_err(|e| SharedAdapterError::provider_unreachable("GitHub GraphQL", e))?;
+            .send(
+                self.request(reqwest::Method::POST, &url)
+                    .json(&serde_json::json!({ "query": query, "variables": variables })),
+                "GitHub GraphQL",
+            )
+            .await?;
         if !resp.status().is_success() {
             let status = resp.status();
             let headers = resp.headers().clone();
@@ -280,12 +341,12 @@ impl GithubPrApi {
         if let Some(errors) = body.get("errors").filter(|errors| !errors.is_null()) {
             if data.is_null() {
                 if graphql_rate_limited(errors) {
+                    let now = chrono::Utc::now();
+                    let retry_at = moatless_core::github_client::github_retry_at(&headers, now);
+                    self.hold("GitHub GraphQL", retry_at, now);
                     return Err(SharedAdapterError::RateLimited {
                         detail: format!("GitHub GraphQL: {errors}"),
-                        retry_at: moatless_core::github_client::github_retry_at(
-                            &headers,
-                            chrono::Utc::now(),
-                        ),
+                        retry_at,
                     }
                     .into());
                 }
@@ -314,11 +375,12 @@ impl GithubPrApi {
         let body = crate::text::truncate_on_char_boundary(body, MAX_COMMENT_LENGTH);
 
         let resp = self
-            .request(reqwest::Method::POST, &url)
-            .json(&serde_json::json!({ "body": body }))
-            .send()
-            .await
-            .map_err(|e| SharedAdapterError::provider_unreachable("GitHub post_comment", e))?;
+            .send(
+                self.request(reqwest::Method::POST, &url)
+                    .json(&serde_json::json!({ "body": body })),
+                "GitHub post_comment",
+            )
+            .await?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -356,17 +418,18 @@ impl GithubPrApi {
         let url = format!("{}/repos/{owner}/{repo}/pulls", self.base_url);
 
         let resp = self
-            .request(reqwest::Method::POST, &url)
-            .json(&serde_json::json!({
-                "title": title,
-                "body": body,
-                "head": head,
-                "base": base,
-                "draft": draft,
-            }))
-            .send()
-            .await
-            .map_err(|e| SharedAdapterError::provider_unreachable("GitHub create_pr", e))?;
+            .send(
+                self.request(reqwest::Method::POST, &url)
+                    .json(&serde_json::json!({
+                        "title": title,
+                        "body": body,
+                        "head": head,
+                        "base": base,
+                        "draft": draft,
+                    })),
+                "GitHub create_pr",
+            )
+            .await?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -430,11 +493,11 @@ impl GithubPrApi {
         body: serde_json::Value,
     ) -> Result<(), AdapterError> {
         let resp = self
-            .request(reqwest::Method::POST, url)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| SharedAdapterError::provider_unreachable(operation, e))?;
+            .send(
+                self.request(reqwest::Method::POST, url).json(&body),
+                operation,
+            )
+            .await?;
         if !resp.status().is_success() {
             let status = resp.status();
             let headers = resp.headers().clone();
@@ -453,10 +516,8 @@ impl GithubPrApi {
         let url = format!("{}/repos/{owner}/{repo}", self.base_url);
 
         let resp = self
-            .request(reqwest::Method::GET, &url)
-            .send()
-            .await
-            .map_err(|e| SharedAdapterError::provider_unreachable("GitHub get_repo", e))?;
+            .send(self.request(reqwest::Method::GET, &url), "GitHub get_repo")
+            .await?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -491,12 +552,11 @@ impl GithubPrApi {
         let url = format!("{}/repos/{owner}/{repo}/commits/{sha}/pulls", self.base_url);
 
         let resp = self
-            .request(reqwest::Method::GET, &url)
-            .send()
-            .await
-            .map_err(|e| {
-                SharedAdapterError::provider_unreachable("GitHub get_pulls_for_commit", e)
-            })?;
+            .send(
+                self.request(reqwest::Method::GET, &url),
+                "GitHub get_pulls_for_commit",
+            )
+            .await?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -532,13 +592,15 @@ impl GithubPrApi {
         }
         let url = format!("{}/repos/{owner}/{repo}/actions/runs", self.base_url);
         let resp = self
-            .request(reqwest::Method::GET, &url)
-            .query(&[("head_sha", sha), ("event", "push"), ("per_page", "100")])
-            .send()
-            .await
-            .map_err(|e| {
-                SharedAdapterError::provider_unreachable("GitHub list_push_runs_for_commit", e)
-            })?;
+            .send(
+                self.request(reqwest::Method::GET, &url).query(&[
+                    ("head_sha", sha),
+                    ("event", "push"),
+                    ("per_page", "100"),
+                ]),
+                "GitHub list_push_runs_for_commit",
+            )
+            .await?;
         if !resp.status().is_success() {
             let status = resp.status();
             let headers = resp.headers().clone();
@@ -580,13 +642,12 @@ impl GithubPrApi {
         );
 
         let resp = self
-            .request(reqwest::Method::GET, &url)
-            .query(&[("per_page", "100")])
-            .send()
-            .await
-            .map_err(|e| {
-                SharedAdapterError::provider_unreachable("GitHub get_check_run_annotations", e)
-            })?;
+            .send(
+                self.request(reqwest::Method::GET, &url)
+                    .query(&[("per_page", "100")]),
+                "GitHub get_check_run_annotations",
+            )
+            .await?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -621,17 +682,15 @@ impl GithubPrApi {
         let head_filter = format!("{owner}:{head}");
 
         let resp = self
-            .request(reqwest::Method::GET, &url)
-            .query(&[
-                ("head", head_filter.as_str()),
-                ("state", "open"),
-                ("per_page", "1"),
-            ])
-            .send()
-            .await
-            .map_err(|e| {
-                SharedAdapterError::provider_unreachable("GitHub find_open_pr_for_head", e)
-            })?;
+            .send(
+                self.request(reqwest::Method::GET, &url).query(&[
+                    ("head", head_filter.as_str()),
+                    ("state", "open"),
+                    ("per_page", "1"),
+                ]),
+                "GitHub find_open_pr_for_head",
+            )
+            .await?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -670,13 +729,12 @@ impl GithubPrApi {
         let body = crate::text::truncate_on_char_boundary(body, MAX_COMMENT_LENGTH);
 
         let resp = self
-            .request(reqwest::Method::POST, &url)
-            .json(&serde_json::json!({ "body": body }))
-            .send()
-            .await
-            .map_err(|e| {
-                SharedAdapterError::provider_unreachable("GitHub reply_to_review_comment", e)
-            })?;
+            .send(
+                self.request(reqwest::Method::POST, &url)
+                    .json(&serde_json::json!({ "body": body })),
+                "GitHub reply_to_review_comment",
+            )
+            .await?;
 
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
             // GitHub answers 404 alike for a deleted comment, a conversation
@@ -726,10 +784,8 @@ impl GithubPrApi {
         let url = format!("{}/repos/{owner}/{repo}/pulls/{pr_number}", self.base_url);
 
         let resp = self
-            .request(reqwest::Method::GET, &url)
-            .send()
-            .await
-            .map_err(|e| SharedAdapterError::provider_unreachable("GitHub get_pr", e))?;
+            .send(self.request(reqwest::Method::GET, &url), "GitHub get_pr")
+            .await?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -741,6 +797,26 @@ impl GithubPrApi {
         resp.json()
             .await
             .map_err(|e| SharedAdapterError::provider_response_invalid("GitHub get_pr", e).into())
+    }
+
+    /// [`Self::get_pr`], answered from a read with this token in the last
+    /// [`PR_TTL`]; concurrent reads of one pull request share one request.
+    ///
+    /// For display only: a caller that acts on the state reads [`Self::get_pr`].
+    pub(super) async fn get_pr_recent(
+        &self,
+        owner: &str,
+        repo: &str,
+        pr_number: u64,
+    ) -> Result<PrInfo, AdapterError> {
+        let slot = self.guard.pr_slot(self.token_key(), owner, repo, pr_number);
+        let mut read = slot.lock().await;
+        if let Some((_, pr)) = read.as_ref().filter(|(at, _)| at.elapsed() < PR_TTL) {
+            return Ok(pr.clone());
+        }
+        let pr = self.get_pr(owner, repo, pr_number).await?;
+        *read = Some((std::time::Instant::now(), pr.clone()));
+        Ok(pr)
     }
 
     /// One page of a pull request's changed files, `per_page` at a time.
@@ -757,10 +833,11 @@ impl GithubPrApi {
             self.base_url
         );
         let resp = self
-            .request(reqwest::Method::GET, &url)
-            .send()
-            .await
-            .map_err(|e| SharedAdapterError::provider_unreachable("GitHub list_pr_files", e))?;
+            .send(
+                self.request(reqwest::Method::GET, &url),
+                "GitHub list_pr_files",
+            )
+            .await?;
         if !resp.status().is_success() {
             let status = resp.status();
             let headers = resp.headers().clone();
@@ -786,10 +863,11 @@ impl GithubPrApi {
             self.base_url
         );
         let resp = self
-            .request(reqwest::Method::GET, &url)
-            .send()
-            .await
-            .map_err(|e| SharedAdapterError::provider_unreachable("GitHub get_commit", e))?;
+            .send(
+                self.request(reqwest::Method::GET, &url),
+                "GitHub get_commit",
+            )
+            .await?;
         if !resp.status().is_success() {
             let status = resp.status();
             let headers = resp.headers().clone();
@@ -820,10 +898,11 @@ impl GithubPrApi {
             self.base_url
         );
         let resp = self
-            .request(reqwest::Method::GET, &url)
-            .send()
-            .await
-            .map_err(|e| SharedAdapterError::provider_unreachable("GitHub merge_base", e))?;
+            .send(
+                self.request(reqwest::Method::GET, &url),
+                "GitHub merge_base",
+            )
+            .await?;
         if !resp.status().is_success() {
             let status = resp.status();
             let headers = resp.headers().clone();
@@ -856,11 +935,12 @@ impl GithubPrApi {
             .extend(path.split('/'));
         url.query_pairs_mut().append_pair("ref", revision);
         let mut resp = self
-            .request(reqwest::Method::GET, url.as_str())
-            .header("Accept", "application/vnd.github.raw+json")
-            .send()
-            .await
-            .map_err(|e| SharedAdapterError::provider_unreachable("GitHub file_text", e))?;
+            .send(
+                self.request(reqwest::Method::GET, url.as_str())
+                    .header("Accept", "application/vnd.github.raw+json"),
+                "GitHub file_text",
+            )
+            .await?;
         if !resp.status().is_success() {
             let status = resp.status();
             let headers = resp.headers().clone();
@@ -931,10 +1011,11 @@ impl GithubPrApi {
     /// when removing.
     pub(super) async fn authenticated_login(&self) -> Result<String, AdapterError> {
         let resp = self
-            .request(reqwest::Method::GET, &format!("{}/user", self.base_url))
-            .send()
-            .await
-            .map_err(|e| SharedAdapterError::provider_unreachable("GitHub user", e))?;
+            .send(
+                self.request(reqwest::Method::GET, &format!("{}/user", self.base_url)),
+                "GitHub user",
+            )
+            .await?;
         if !resp.status().is_success() {
             let status = resp.status();
             let headers = resp.headers().clone();

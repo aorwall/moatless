@@ -43,11 +43,12 @@ impl GithubPrApi {
 
     async fn create_reaction(&self, url: &str, content: &str) -> Result<u64, AdapterError> {
         let resp = self
-            .request(reqwest::Method::POST, url)
-            .json(&serde_json::json!({ "content": content }))
-            .send()
-            .await
-            .map_err(|e| SharedAdapterError::provider_unreachable("GitHub create_reaction", e))?;
+            .send(
+                self.request(reqwest::Method::POST, url)
+                    .json(&serde_json::json!({ "content": content })),
+                "GitHub create_reaction",
+            )
+            .await?;
 
         let status = resp.status();
         // GitHub returns 200 (existing) or 201 (created); both contain the reaction body.
@@ -100,11 +101,12 @@ impl GithubPrApi {
 
     async fn list_reactions(&self, url: &str) -> Result<Vec<ReactionInfo>, AdapterError> {
         let resp = self
-            .request(reqwest::Method::GET, url)
-            .query(&[("per_page", "100")])
-            .send()
-            .await
-            .map_err(|e| SharedAdapterError::provider_unreachable("GitHub list_reactions", e))?;
+            .send(
+                self.request(reqwest::Method::GET, url)
+                    .query(&[("per_page", "100")]),
+                "GitHub list_reactions",
+            )
+            .await?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -150,10 +152,11 @@ impl GithubPrApi {
 
     async fn delete_reaction(&self, url: &str) -> Result<(), AdapterError> {
         let resp = self
-            .request(reqwest::Method::DELETE, url)
-            .send()
-            .await
-            .map_err(|e| SharedAdapterError::provider_unreachable("GitHub delete_reaction", e))?;
+            .send(
+                self.request(reqwest::Method::DELETE, url),
+                "GitHub delete_reaction",
+            )
+            .await?;
         if !resp.status().is_success() {
             let status = resp.status();
             let headers = resp.headers().clone();

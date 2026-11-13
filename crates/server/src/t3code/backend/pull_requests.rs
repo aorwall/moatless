@@ -194,8 +194,9 @@ impl AppStateBoundPullRequests {
 
 /// A GitHub API failure, mapped to what the attach-PR dialog is told.
 ///
-/// Unmatched references become `NotFound`; a bad credential or host refusal
-/// surfaces verbatim; anything else is a generic, logged failure.
+/// Unmatched references become `NotFound`; a bad credential, host refusal or
+/// spent quota surfaces to the viewer; anything else is a generic, logged
+/// failure.
 pub(super) fn pull_request_error(
     error: moatless_adapter_model::error::AdapterError,
 ) -> PullRequestError {
@@ -206,6 +207,15 @@ pub(super) fn pull_request_error(
         ),
         AdapterError::Shared(SharedAdapterError::AdapterApi(message)) => {
             PullRequestError::Unavailable(message)
+        }
+        AdapterError::Shared(SharedAdapterError::RateLimited { retry_at, .. }) => {
+            let when = retry_at.map_or_else(
+                || "shortly".to_string(),
+                |at| format!("after {} UTC", at.format("%H:%M")),
+            );
+            PullRequestError::Unavailable(format!(
+                "GitHub's API rate limit for this account is spent; try again {when}."
+            ))
         }
         other => PullRequestError::Failed(other.to_string()),
     }

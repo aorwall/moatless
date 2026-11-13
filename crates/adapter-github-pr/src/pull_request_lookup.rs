@@ -35,7 +35,7 @@ pub async fn resolve_reference_for_dialog(
         return Ok(None);
     };
     let api = resolve_github_api(adapter, user_id, workspace_id, &owner, &repo).await?;
-    let pr = api.get_pr(&owner, &repo, number).await?;
+    let pr = api.get_pr_recent(&owner, &repo, number).await?;
     Ok(Some(to_dialog_pull_request(&pr, &owner, &repo)))
 }
 
@@ -95,7 +95,7 @@ pub async fn pull_request_overview(
     number: u64,
 ) -> Result<PullRequestOverview, AdapterError> {
     let api = resolve_github_api(adapter, user_id, workspace_id, owner, repo).await?;
-    let pr = api.get_pr(owner, repo, number).await?;
+    let pr = api.get_pr_recent(owner, repo, number).await?;
     let dialog = to_dialog_pull_request(&pr, owner, repo);
     Ok(PullRequestOverview {
         number: pr.number,
@@ -223,7 +223,7 @@ pub async fn file_contents(
     // A root commit has no parent, so only a file it adds can be shown.
     let (old_revision, new_revision) = match scope {
         ContentsScope::PullRequest(number) => {
-            let pr = api.get_pr(owner, repo, number).await?;
+            let pr = api.get_pr_recent(owner, repo, number).await?;
             // Deliberately not `base.sha`: once the base branch has moved on,
             // its tip holds lines the hunks' left side never had.
             let base = api

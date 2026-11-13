@@ -27,6 +27,7 @@ pub(super) struct GithubPrAuth {
     /// call, so the root is held rather than a shared client.
     api_base: String,
     http: reqwest::Client,
+    reads: Arc<crate::read_guard::ReadGuard>,
 }
 
 /// A client that writes to one repository, and the person it credits.
@@ -65,6 +66,7 @@ impl GithubPrAuth {
             git_host_tokens,
             api_base,
             http: super::api::http_client(github),
+            reads: Arc::default(),
         }
     }
 
@@ -75,7 +77,7 @@ impl GithubPrAuth {
 
     /// The one place a REST client is built, so the root reaches every use case.
     fn client(&self, token: &str) -> GithubPrApi {
-        GithubPrApi::new(self.http.clone(), token, &self.api_base)
+        GithubPrApi::sharing(self.http.clone(), token, &self.api_base, self.reads.clone())
     }
 
     /// Mint a client for durable work `github_login` triggered.

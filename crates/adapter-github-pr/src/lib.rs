@@ -26,6 +26,7 @@ mod post_merge;
 pub mod push_claim;
 mod reaction_api;
 mod reactions;
+mod read_guard;
 mod rejection;
 mod reply_keys;
 pub mod router;

@@ -60,6 +60,39 @@ fn the_two_recognised_adapter_errors_stay_actionable() {
     ));
 }
 
+/// A spent GitHub quota is the viewer's to wait out, not this deployment's
+/// failure: as `Failed` every read until the reset logged at ERROR.
+#[test]
+fn a_spent_github_quota_says_when_to_try_again() {
+    use moatless_adapter_model::error::SharedAdapterError;
+
+    let limited = pull_request_error(
+        SharedAdapterError::RateLimited {
+            detail: "GitHub get_pr returned 403 Forbidden".into(),
+            retry_at: chrono::DateTime::from_timestamp(1_793_002_200, 0),
+        }
+        .into(),
+    );
+    assert!(matches!(
+        limited,
+        PullRequestError::Unavailable(message)
+            if message == "GitHub's API rate limit for this account is spent; try again after 08:10 UTC."
+    ));
+
+    let untimed = pull_request_error(
+        SharedAdapterError::RateLimited {
+            detail: "GitHub get_pr returned 429".into(),
+            retry_at: None,
+        }
+        .into(),
+    );
+    assert!(matches!(
+        untimed,
+        PullRequestError::Unavailable(message)
+            if message == "GitHub's API rate limit for this account is spent; try again shortly."
+    ));
+}
+
 /// A conflict is the one refusal a person can clear themselves, so it is the
 /// one whose wording has to survive the trip. `Rejected` rather than `Failed`
 /// because nothing failed: the request was understood and answered.
