@@ -727,7 +727,8 @@ async fn the_access_check_agrees_with_the_conversation_read(pool: PgPool) {
         (&stranger, "check-private", false),
         (&stranger, "check-public", true),
         (&owner, "check-closed", true),
-        (&owner, "check-error", false),
+        (&owner, "check-error", true),
+        (&stranger, "check-error", false),
         (&owner, "check-missing", false),
     ];
     for (viewer, task_id, expected) in cases {

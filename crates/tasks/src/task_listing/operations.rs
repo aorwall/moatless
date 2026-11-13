@@ -142,7 +142,7 @@ impl TaskListing {
         .await
     }
 
-    /// One Task the viewer may read, followed or not.
+    /// One Task the viewer may read, followed or not, at [`READABLE_STATUSES`].
     pub async fn readable_by_id(
         &self,
         viewer: &ScopeContext,
@@ -152,7 +152,7 @@ impl TaskListing {
             &self.pool,
             viewer,
             Reach::Readable,
-            LISTED_STATUSES,
+            READABLE_STATUSES,
             &[task_id.to_string()],
         )
         .await?
@@ -174,7 +174,7 @@ impl TaskListing {
             &self.pool,
             viewer,
             Reach::Readable,
-            LISTED_STATUSES,
+            READABLE_STATUSES,
             task_ids,
         )
         .await
@@ -275,6 +275,13 @@ pub const ARCHIVED_LIMIT: i64 = 200;
 /// A Task at any other status is in neither, and comes back absent
 /// from a re-read the same way one the viewer no longer follows does.
 pub const LISTED_STATUSES: &[TaskStatus] = &[TaskStatus::Open, TaskStatus::Closed];
+
+/// The statuses a Task opens at by id: [`LISTED_STATUSES`] plus `error`.
+///
+/// An errored Task stays out of the sidebar but must open from a link, since
+/// its agent can still be running and the error is what its owner came to see.
+pub const READABLE_STATUSES: &[TaskStatus] =
+    &[TaskStatus::Open, TaskStatus::Closed, TaskStatus::Error];
 
 /// `statuses` as the operand of an `IN`, in the enum's own spelling.
 pub fn status_list(statuses: &[TaskStatus]) -> String {

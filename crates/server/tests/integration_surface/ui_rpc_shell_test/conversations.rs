@@ -383,7 +383,7 @@ async fn a_conversation_with_no_project_is_left_out_of_the_listing(pool: PgPool)
 ///
 /// `error` is excluded along with `closed`, the narrow "open" the sidebar
 /// applies by default; nothing still running is hidden, since a Task returns to
-/// `open` the moment its agent produces anything.
+/// `open` when its agent starts a run.
 #[sqlx::test]
 async fn only_open_conversations_are_listed(pool: PgPool) {
     seed_live_project(&pool).await;

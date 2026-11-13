@@ -213,14 +213,8 @@ async fn a_thread_bound_to_no_pull_request_links_none(pool: PgPool) {
 async fn a_listing_row_for_a_conversation_out_of_reach_is_absent(pool: PgPool) {
     seed_live_project(&pool).await;
     seed_task(&pool, "t-private", "user-2", Some("ws-live")).await;
-    let mut errored = make_task_row("t-errored", "user-1");
-    errored.workspace_id = Some("ws-live".to_string());
-    errored.status = TaskStatus::Error;
-    moatless_tasks::task::test_support::seed_task(&pool, &errored)
-        .await
-        .unwrap();
 
-    for task_id in ["t-private", "t-errored", "t-never-existed"] {
+    for task_id in ["t-private", "t-never-existed"] {
         assert!(
             thread_shell_row(&pool, &viewer("user-1"), task_id)
                 .await
@@ -228,6 +222,30 @@ async fn a_listing_row_for_a_conversation_out_of_reach_is_absent(pool: PgPool) {
             "{task_id} disclosed a listing row"
         );
     }
+}
+
+/// An errored Task is out of the sidebar but still opens by id for whoever may
+/// read it: its agent can still be running.
+#[sqlx::test]
+async fn a_listing_row_for_an_errored_conversation_is_present(pool: PgPool) {
+    seed_live_project(&pool).await;
+    let mut errored = make_task_row("t-errored", "user-1");
+    errored.workspace_id = Some("ws-live".to_string());
+    errored.status = TaskStatus::Error;
+    moatless_tasks::task::test_support::seed_task(&pool, &errored)
+        .await
+        .unwrap();
+
+    assert!(
+        thread_shell_row(&pool, &viewer("user-1"), "t-errored")
+            .await
+            .is_some()
+    );
+    assert!(
+        thread_shell_row(&pool, &viewer("user-2"), "t-errored")
+            .await
+            .is_none()
+    );
 }
 
 /// Open and archived partition what a person follows: archiving is closing, so

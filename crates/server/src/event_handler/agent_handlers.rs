@@ -271,6 +271,36 @@ async fn stop_sandbox_when_done(tasks: &TaskCommands, sandbox: &Lifecycle, task_
     }
 }
 
+/// Handle `agent.started` event: a run began, so an `Error` left by a failed
+/// create or start no longer describes the Task.
+///
+/// Only an errored Task is written, so a normal run start adds no listing
+/// change. Without this the status waits for the run to end, and the T3 sidebar
+/// hides the Task for the whole run.
+pub async fn handle_agent_started(tasks: &TaskCommands, event: &AgentEvent) {
+    // reason: agent-lifecycle event handler runs as background system with no caller identity
+    #[allow(clippy::disallowed_methods)]
+    let sys_ctx = ScopeContext::system();
+    let status = match tasks.find_by_id(&event.task_id, &sys_ctx).await {
+        Ok(Some(task)) => task.status,
+        Ok(None) => return,
+        Err(e) => {
+            tracing::warn!(task_id = %event.task_id, error = %e, "Failed to read task status on agent start");
+            return;
+        }
+    };
+    if status != TaskStatus::Error {
+        return;
+    }
+    // `_if_not_closed`: a close that lands between the read and this write wins.
+    if let Err(e) = tasks
+        .update_status_if_not_closed(&event.task_id, TaskStatus::Open, &sys_ctx)
+        .await
+    {
+        tracing::warn!(task_id = %event.task_id, error = %e, "Failed to reopen errored task on agent start");
+    }
+}
+
 /// Handle `agent.session_init` event — the agent's session opened.
 ///
 /// Records the run's native turn id (Codex only) on the turn so a later fork

@@ -22,7 +22,8 @@ use async_trait::async_trait;
 use crate::common;
 
 use moatless_backend::event_handler::agent_handlers::{
-    handle_agent_completed, handle_agent_error, handle_agent_stopped, handle_sandbox_fatal,
+    handle_agent_completed, handle_agent_error, handle_agent_started, handle_agent_stopped,
+    handle_sandbox_fatal,
 };
 use moatless_backend::state::AppState;
 use moatless_ports::sandbox::SandboxWaker;
@@ -202,6 +203,30 @@ async fn update_status_if_not_closed_flips_open_and_error(pool: PgPool) {
 // =========================================================================
 // Terminal handlers keep a Closed task closed
 // =========================================================================
+
+/// Regression: a create that errored and was then started kept `Error` for its
+/// whole first run, hiding it from the T3 sidebar while its agent worked.
+#[sqlx::test]
+async fn started_reopens_errored_task(pool: PgPool) {
+    seed_with_status(&pool, "task-r", TaskStatus::Error).await;
+    let state = test_app_state(pool.clone());
+
+    let event = terminal_event("evt-r", "task-r", "started", serde_json::json!({}));
+    handle_agent_started(&state.tasks, &event).await;
+
+    assert_eq!(status_of(&pool, "task-r").await, TaskStatus::Open);
+}
+
+#[sqlx::test]
+async fn started_does_not_reopen_closed_task(pool: PgPool) {
+    seed_with_status(&pool, "task-rc", TaskStatus::Closed).await;
+    let state = test_app_state(pool.clone());
+
+    let event = terminal_event("evt-rc", "task-rc", "started", serde_json::json!({}));
+    handle_agent_started(&state.tasks, &event).await;
+
+    assert_eq!(status_of(&pool, "task-rc").await, TaskStatus::Closed);
+}
 
 #[sqlx::test]
 async fn completed_does_not_reopen_closed_task(pool: PgPool) {

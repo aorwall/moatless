@@ -245,9 +245,11 @@ impl EventDispatcher {
             EventKey::Sandbox(SandboxStatus::Error) => {
                 agent_handlers::handle_sandbox_fatal(&(&self.state).into(), event).await;
             }
-            // Agent process started inside the sandbox. Nothing generic to do —
-            // the Adapters that surface a live status subscribe to it.
-            EventKey::Agent(AgentSubType::Started) => {}
+            // Agent process started inside the sandbox. Adapters that surface a
+            // live status subscribe to it as well.
+            EventKey::Agent(AgentSubType::Started) => {
+                agent_handlers::handle_agent_started(&self.state.tasks, event).await;
+            }
             // Known SSE-only event types — forwarded to frontend but not processed here
             EventKey::Sandbox(_)
             | EventKey::Agent(

@@ -28,7 +28,7 @@ pub use moatless_tasks::task_listing::{
     ListedTask as Conversation, ListingCursor as ArchiveCursor, ListingError,
     ListingFilter as ConversationBrowse,
 };
-use moatless_tasks::task_listing::{LISTED_STATUSES, TaskListing};
+use moatless_tasks::task_listing::{READABLE_STATUSES, TaskListing};
 
 /// The stored tool call an answer names.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,8 +54,8 @@ pub trait ConversationDao: Send + Sync {
     /// first: at most [`moatless_tasks::task_listing::FOLLOWED_LIMIT`].
     ///
     /// `error` counts as not-open too, matching the Moatless sidebar's own
-    /// filter; a Task returns to `open` the instant its agent produces
-    /// anything, so nothing running is hidden.
+    /// filter; a Task returns to `open` when its agent starts a run, so
+    /// nothing running is hidden, and an errored one still opens by id.
     async fn list_followed(&self, viewer: &ScopeContext)
     -> Result<Vec<Conversation>, ListingError>;
 
@@ -99,7 +99,8 @@ pub trait ConversationDao: Send + Sync {
     /// it.
     ///
     /// What a link resolves through: a readable Task opens even when
-    /// unfollowed; writing to it is what acquires the Follow.
+    /// unfollowed, and at `error` too (`READABLE_STATUSES`); writing to it is
+    /// what acquires the Follow.
     async fn readable_by_id(
         &self,
         viewer: &ScopeContext,
@@ -344,7 +345,7 @@ impl ConversationDao for PgConversationDao {
             .readable_status(task_id, viewer)
             .await
             .map_err(store_read)?;
-        Ok(status.is_some_and(|status| LISTED_STATUSES.contains(&status)))
+        Ok(status.is_some_and(|status| READABLE_STATUSES.contains(&status)))
     }
 
     async fn writes_conversation(
