@@ -9,3 +9,4 @@ pub use config::ClaudeConfig;
 pub(crate) use persistent::ClaudePersistentProcess;
 pub(crate) use process::ClaudeProcess;
 use process::run_totals;
+pub(crate) use session::continued_transcript;

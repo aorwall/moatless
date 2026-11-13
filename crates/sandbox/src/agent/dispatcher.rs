@@ -276,9 +276,9 @@ async fn dispatch_pending_messages_for_context(
     }
 
     // A standing skill leads every fresh session. A resumed one gets only the
-    // skills this delivery names, which the backend limits to the turn's own:
-    // the Task's skills ride only a delivery that starts a session. Applied
-    // after the gate above, so a standing skill cannot open a turn on its own.
+    // skills this delivery names, which the backend limits to the turn's own.
+    // Applied after the gate above, so a standing skill cannot open a turn.
+    let mut starts_session = resume_session_id.is_none();
     let skills = if is_slash_command(&text) {
         // A preamble ahead of `/compact` turns the command into plain text.
         if !skills.is_empty() {
@@ -288,33 +288,29 @@ async fn dispatch_pending_messages_for_context(
             );
         }
         Vec::new()
-    } else if resume_session_id.is_some() {
+    } else if !starts_session {
         skills
     } else {
-        let loaded = if let Some(text) = continued_session_text(
+        let skills = crate::agent::skills::with_always_frontloaded(&state.config, skills);
+        match continued_session_text(
             &state,
             task_id,
             agent_profile.as_deref(),
             fork.is_some(),
             switch_harness,
+            start_fresh,
         )
         .await
         {
-            crate::agent::skills::standing_skills_loaded_in(&state.config, &text).await
-        } else {
-            // A new conversation holds no skill yet.
-            context
-                .skills_noticed
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .clear();
-            Vec::new()
-        };
-        crate::agent::skills::with_always_frontloaded(&state.config, skills, &loaded)
+            Some(conversation) => {
+                starts_session = false;
+                crate::agent::skills::not_loaded_in(&state.config, skills, &conversation).await
+            }
+            None => skills,
+        }
     };
 
     // Frontloading turns the requested skills into the prompt's leading preamble.
-    let sent_before = context.skills_sent();
     let mut text = crate::agent::skills::frontload_skills(&state.config, &skills, &text).await;
 
     // Every requested skill may have failed to resolve, leaving a skills-only
@@ -322,24 +318,15 @@ async fn dispatch_pending_messages_for_context(
     if text.is_empty() {
         return;
     }
+    // The instruction files' references are named once, on the turn that starts
+    // the session; a resumed turn is scanned for its own text only.
     if !is_slash_command(&text) {
-        if let Some(notice) = crate::agent::skill_refs::unresolved_notice(
-            &state.config,
-            &text,
-            &context.skills_noticed,
-        )
-        .await
+        if let Some(notice) =
+            crate::agent::skill_refs::unresolved_notice(&state.config, &text, starts_session).await
         {
             text.insert_str(0, &notice);
         }
     }
-    // What this turn recorded as sent, handed back if the turn never lands.
-    let sent_now: Vec<String> = context
-        .skills_sent()
-        .into_iter()
-        .filter(|name| !sent_before.contains(name))
-        .collect();
-
     // A preamble ahead of `/compact` turns the command into plain text, so the
     // note waits for the next turn.
     let restart_note = if is_slash_command(&text) {
@@ -427,7 +414,6 @@ async fn dispatch_pending_messages_for_context(
                 if let Some(note) = restart_note {
                     redelivery_context.set_restart_note(note);
                 }
-                redelivery_context.forget_skills_sent(&sent_now);
                 drop(permit);
                 drop(dispatch_guard);
                 schedule_redispatch(redelivery_state, redelivery_context).await;
@@ -469,26 +455,30 @@ async fn dispatch_pending_messages_for_context(
 /// definitively, without hammering `GetPendingMessages` in a tight loop.
 const REDISPATCH_BACKOFF: Duration = Duration::from_secs(15);
 
-/// The raw text of the conversation a turn with no resume id continues — a
-/// fork's cut or a harness switch — read from the trajectory. `None` for a
-/// fresh session, or when the trajectory cannot give it.
+/// The raw text a turn with no resume id continues: a fork's cut or a harness
+/// switch from the trajectory, else the transcript Claude's `--continue` picks
+/// up, since `build_resume` continues one even after the backend cleared the
+/// id. `None` for a fresh session or an unreadable trajectory.
 async fn continued_session_text(
     state: &SandboxState,
     task_id: &str,
     agent_profile: Option<&str>,
     fork: bool,
     switch_harness: bool,
+    start_fresh: bool,
 ) -> Option<String> {
+    let harness = agent_profile
+        .or(state.config.agent_profile.as_deref())
+        .and_then(|raw| resolve_agent_harness(raw).ok())?;
     let target = if fork {
         WriteTarget::Fork
     } else if switch_harness {
         WriteTarget::Switch
+    } else if !start_fresh && harness == moatless_types::agent::Harness::ClaudeCode {
+        return crate::agent::harness::claude_continued_transcript(&state.config).await;
     } else {
         return None;
     };
-    let harness = agent_profile
-        .or(state.config.agent_profile.as_deref())
-        .and_then(|raw| resolve_agent_harness(raw).ok())?;
     session_text(
         state.backend_client.as_ref(),
         harness.as_str(),

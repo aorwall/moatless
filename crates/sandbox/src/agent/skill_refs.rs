@@ -18,16 +18,14 @@ use crate::init::plugin_skills::PluginNamespace;
 /// The instruction files read at each checkout's root, beside the prompt.
 const INSTRUCTION_FILES: [&str; 2] = ["AGENTS.md", "CLAUDE.md"];
 
-/// A notice naming each `namespace:skill` that `prompt` or a checkout's
-/// instruction files reference, whose namespace a delivered plugin declares,
-/// and whose `SKILL.md` is not on disk; `None` when there is none.
-///
-/// `noticed` holds the `namespace:skill` references this session was already
-/// told about; each new one is added.
+/// A notice naming each `namespace:skill` that `prompt`, or with
+/// `with_instructions` a checkout's instruction files, reference, whose
+/// namespace a delivered plugin declares, and whose `SKILL.md` is not on disk;
+/// `None` when there is none.
 pub(crate) async fn unresolved_notice(
     config: &Config,
     prompt: &str,
-    noticed: &std::sync::Mutex<HashSet<String>>,
+    with_instructions: bool,
 ) -> Option<String> {
     let plugins = config.plugins.clone();
     let plugins_dir = config.plugins_dir();
@@ -39,7 +37,9 @@ pub(crate) async fn unresolved_notice(
             return Vec::new();
         }
         let mut sources = vec![("this message".to_string(), prompt)];
-        sources.extend(instruction_files(&repo_dirs));
+        if with_instructions {
+            sources.extend(instruction_files(&repo_dirs));
+        }
         unresolved(&namespaces, &sources)
     })
     .await
@@ -48,13 +48,6 @@ pub(crate) async fn unresolved_notice(
         Vec::new()
     });
 
-    let mut missing = missing;
-    {
-        let mut noticed = noticed
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        missing.retain(|m| noticed.insert(m.reference.clone()));
-    }
     if missing.is_empty() {
         return None;
     }
@@ -262,7 +255,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_notice_names_an_agents_md_reference_once_per_session() {
+    async fn an_agents_md_reference_is_named_only_with_the_instructions() {
         let tmp = tempfile::tempdir().unwrap();
         let mut config = crate::config::test_support::minimal_config();
         config.workspace_dir = tmp.path().join("workspace").display().to_string();
@@ -285,10 +278,8 @@ mod tests {
             "Verify with soaplabs:verify-app, follow soaplabs:kept.",
         )
         .unwrap();
-        let noticed = std::sync::Mutex::default();
-
-        let first = unresolved_notice(&config, "fix the bug", &noticed).await;
-        let again = unresolved_notice(&config, "fix the bug", &noticed).await;
+        let first = unresolved_notice(&config, "fix the bug", true).await;
+        let again = unresolved_notice(&config, "fix the bug", false).await;
 
         let first = first.expect("a notice for the pruned skill");
         assert!(first.contains(

@@ -32,6 +32,7 @@ mod contract_tests;
 mod persistent_tests;
 
 pub use claude::ClaudeConfig;
+pub(crate) use claude::continued_transcript as claude_continued_transcript;
 pub use codex::CodexConfig;
 pub use error::{ErrorClass, FailureStage, HarnessError, SessionImpact};
 pub use pi::PiConfig;
