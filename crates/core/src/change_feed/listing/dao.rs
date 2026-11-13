@@ -1,6 +1,8 @@
 //! Transactional change-feed persistence.
 
-use super::position::{EnvironmentIdentity, ListingChange, ListingHead, RETAINED_CHANGES};
+use super::position::{
+    EnvironmentIdentity, ListingChange, ListingHead, ListingSubject, RETAINED_CHANGES,
+};
 use moatless_types::task::TaskRelationType;
 use sqlx::{PgConnection, PgPool};
 
@@ -46,6 +48,31 @@ pub async fn record_change(tx: &mut PgConnection, task_id: &str) -> Result<i64, 
     Ok(position)
 }
 
+/// Record that `workspace_id`'s project row changed, returning its position.
+///
+/// Same counter and same rule as [`record_change`]: pass `&mut *tx`, and call
+/// it last.
+pub async fn record_workspace_change(
+    tx: &mut PgConnection,
+    workspace_id: &str,
+) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar(
+        r#"WITH allocated AS (
+               INSERT INTO task_listing_position (id, position)
+               VALUES (TRUE, 1)
+               ON CONFLICT (id) DO UPDATE
+                 SET position = task_listing_position.position + 1
+               RETURNING position
+           )
+           INSERT INTO workspace_listing_changes (position, workspace_id)
+           SELECT position, $1 FROM allocated
+           RETURNING position"#,
+    )
+    .bind(workspace_id)
+    .fetch_one(tx)
+    .await
+}
+
 /// The highest position this deployment has reached, and the database
 /// identity it reached it in.
 ///
@@ -78,7 +105,8 @@ pub async fn current_position(pool: &PgPool) -> Result<i64, sqlx::Error> {
     Ok(current_head(pool).await?.position)
 }
 
-/// Every change recorded after `after`, oldest first, capped at `limit`.
+/// Every change recorded after `after`, Task and Workspace alike, oldest
+/// first, capped at `limit`.
 ///
 /// Safe as a polling cursor only because commits happen in position order, so
 /// nothing can appear below a position already returned.
@@ -87,17 +115,36 @@ pub async fn changes_after(
     after: i64,
     limit: i64,
 ) -> Result<Vec<ListingChange>, sqlx::Error> {
-    sqlx::query_as(
-        r#"SELECT position, task_id
-           FROM task_listing_changes
-           WHERE position > $1
+    let rows: Vec<(i64, Option<String>, Option<String>)> = sqlx::query_as(
+        r#"(SELECT position, task_id, NULL::text AS workspace_id
+            FROM task_listing_changes
+            WHERE position > $1
+            ORDER BY position
+            LIMIT $2)
+           UNION ALL
+           (SELECT position, NULL::text, workspace_id
+            FROM workspace_listing_changes
+            WHERE position > $1
+            ORDER BY position
+            LIMIT $2)
            ORDER BY position
            LIMIT $2"#,
     )
     .bind(after)
     .bind(limit)
     .fetch_all(pool)
-    .await
+    .await?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|(position, task_id, workspace_id)| {
+            let subject = match (task_id, workspace_id) {
+                (Some(task_id), _) => ListingSubject::Task(task_id),
+                (None, Some(workspace_id)) => ListingSubject::Workspace(workspace_id),
+                (None, None) => return None,
+            };
+            Some(ListingChange { position, subject })
+        })
+        .collect())
 }
 
 /// Delete the changes that have fallen out of the retention window; returns how
@@ -107,7 +154,7 @@ pub async fn changes_after(
 /// racing prunes target the same rows and the second finds nothing. No lease,
 /// no leader.
 pub async fn prune_changes(pool: &PgPool) -> Result<u64, sqlx::Error> {
-    let deleted = sqlx::query(
+    let tasks = sqlx::query(
         r#"DELETE FROM task_listing_changes
            WHERE position <= (SELECT position FROM task_listing_position) - $1"#,
     )
@@ -115,5 +162,13 @@ pub async fn prune_changes(pool: &PgPool) -> Result<u64, sqlx::Error> {
     .execute(pool)
     .await?
     .rows_affected();
-    Ok(deleted)
+    let workspaces = sqlx::query(
+        r#"DELETE FROM workspace_listing_changes
+           WHERE position <= (SELECT position FROM task_listing_position) - $1"#,
+    )
+    .bind(RETAINED_CHANGES)
+    .execute(pool)
+    .await?
+    .rows_affected();
+    Ok(tasks + workspaces)
 }

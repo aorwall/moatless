@@ -118,6 +118,27 @@ pub(super) async fn reconnect(
     reconnect_to(pool, &environment, viewer, after).await
 }
 
+/// [`reconnect`], for a client speaking orchestration V2 — the current web
+/// client.
+pub(super) async fn reconnect_v2(
+    pool: &PgPool,
+    viewer: &ScopeContext,
+    after: Option<i64>,
+) -> (Vec<Value>, ShellFeed) {
+    let environment = reads(pool).listing_head().await.unwrap().identity;
+    let subscription = shell_subscription(
+        &reads(pool),
+        &defaults(),
+        viewer,
+        &environment,
+        after,
+        OrchestrationProtocol::V2,
+    )
+    .await
+    .unwrap();
+    (subscription.values, subscription.feed)
+}
+
 /// The same reconnection, for a deployment that started against `environment`
 /// and is now reading `pool`.
 ///

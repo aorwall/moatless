@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 use std::time::Duration;
 
-use moatless_core::change_feed::listing::{EnvironmentIdentity, ListingChange};
+use moatless_core::change_feed::listing::{EnvironmentIdentity, ListingChange, ListingSubject};
 use moatless_ports::task::MockTaskReader;
 use moatless_types::access_control::ScopeContext;
 use serde_json::json;
@@ -49,7 +49,7 @@ impl Database {
                 Ok((after + 1..=head.min(after + limit))
                     .map(|position| ListingChange {
                         position,
-                        task_id: "listed".to_string(),
+                        subject: ListingSubject::Task("listed".to_string()),
                     })
                     .collect())
             });

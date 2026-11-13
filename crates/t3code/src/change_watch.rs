@@ -207,7 +207,7 @@ impl ChangePoller {
                         .await?;
                     let task_ids: Vec<String> = changes
                         .iter()
-                        .map(|change| change.task_id.clone())
+                        .filter_map(|change| change.task_id().map(str::to_owned))
                         .collect();
                     self.watch.publish_listed(Some(&task_ids));
                     // A pruned window reads empty; the head is then as far as

@@ -7,8 +7,8 @@ use super::contract::{
     THREAD_REMOVED_REQUIRED, assert_decodable_snapshot_item, assert_decodable_upsert, assert_keys,
 };
 use super::feed::{
-    Held, delivered, ingress, one_item, one_row, other_peoples_work, reconnect, recorded_after,
-    start_turn, watching,
+    Held, delivered, ingress, one_item, one_row, other_peoples_work, reconnect, reconnect_v2,
+    recorded_after, start_turn, watching,
 };
 use super::harness::{head, reads, viewer};
 use super::restore::back_up_and_restore;
@@ -21,6 +21,8 @@ use moatless_tasks::task::models::TaskStatus;
 use moatless_tasks::task::models::Visibility;
 use moatless_types::access_control::Scope;
 use moatless_workspaces::compose;
+use moatless_workspaces::workspace::UpdateOutcome;
+use moatless_workspaces::workspace::models::WorkspacePatch;
 use serde_json::Value;
 use sqlx::PgPool;
 
@@ -383,7 +385,8 @@ async fn a_rebuilt_feed_describes_the_listing_it_sent_not_the_one_it_replaced(po
     assert_eq!(items[0]["kind"], "thread-removed");
     assert_eq!(items[0]["threadId"], "t-restore-only");
 
-    // Workspace removal is snapshot-owned and emits no live item.
+    // A project only the rebuild introduced, deleted: the rebuilt feed holds
+    // it, so it sends a listing without it.
     assert!(
         compose::workspaces(restored.pool.clone())
             .soft_delete("ws-restore-only", &watcher_viewer)
@@ -391,10 +394,63 @@ async fn a_rebuilt_feed_describes_the_listing_it_sent_not_the_one_it_replaced(po
             .unwrap()
     );
     let items = delivered(&restored.pool, &mut feed, &watcher_viewer).await;
-    assert!(
-        items.is_empty(),
-        "Workspace removal emitted shell items: {items:#?}"
-    );
+    assert_eq!(items.len(), 1, "expected one rebuild, got {items:#?}");
+    held.apply(&items[0]);
+    assert!(!held.projects.contains(&"ws-restore-only".to_string()));
 
     restored.discard().await;
+}
+
+/// Regression: a client resuming from a listing older than a Workspace was
+/// sent threads in it and never the project, so it could not send to them.
+/// The replay carries the project first, then the thread, and no snapshot.
+#[sqlx::test]
+async fn a_resumed_v2_client_is_replayed_a_project_created_while_away(pool: PgPool) {
+    seed_live_project(&pool).await;
+    let viewer = viewer("user-1");
+    let held = head(&pool).await.position;
+
+    compose::workspaces(pool.clone())
+        .insert_workspace(&make_workspace_row("ws-new", "user-1"))
+        .await
+        .unwrap();
+    seed_task(&pool, "t-new", "user-1", Some("ws-new")).await;
+
+    let (values, _feed) = reconnect_v2(&pool, &viewer, Some(held)).await;
+    let kinds: Vec<&str> = values
+        .iter()
+        .map(|item| item["kind"].as_str().unwrap())
+        .collect();
+    assert_eq!(kinds, ["project.updated", "thread.updated"], "{values:#?}");
+    assert_eq!(values[0]["project"]["id"], "ws-new");
+    assert_eq!(values[1]["thread"]["projectId"], "ws-new");
+    assert!(values[0]["sequence"].as_i64() < values[1]["sequence"].as_i64());
+}
+
+/// A rename reaches a watching V2 client as one `project.updated`; the same
+/// patch applied again, as every git re-sync does, records and sends nothing.
+#[sqlx::test]
+async fn a_renamed_project_reaches_a_v2_client_once(pool: PgPool) {
+    seed_live_project(&pool).await;
+    let viewer = viewer("user-1");
+    let (_, mut feed) = reconnect_v2(&pool, &viewer, Some(head(&pool).await.position)).await;
+    let rename = WorkspacePatch {
+        name: Some("Renamed".to_string()),
+        ..WorkspacePatch::default()
+    };
+
+    for _ in 0..2 {
+        assert_eq!(
+            compose::workspaces(pool.clone())
+                .update("ws-live", &rename, &viewer)
+                .await
+                .unwrap(),
+            UpdateOutcome::Applied
+        );
+    }
+
+    let items = delivered(&pool, &mut feed, &viewer).await;
+    assert_eq!(items.len(), 1, "{items:#?}");
+    assert_eq!(items[0]["kind"], "project.updated");
+    assert_eq!(items[0]["project"]["title"], "Renamed");
 }

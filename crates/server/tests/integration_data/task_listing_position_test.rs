@@ -22,6 +22,7 @@ use std::time::{Duration, Instant};
 
 use futures::future::BoxFuture;
 use moatless_core::change_feed::listing::ListingHead;
+use moatless_core::change_feed::listing::ListingSubject;
 use moatless_core::change_feed::listing::RESUME_WINDOW;
 use moatless_core::change_feed::listing::RETAINED_CHANGES;
 use moatless_core::change_feed::listing::Resume;
@@ -30,6 +31,7 @@ use moatless_core::change_feed::listing::current_head;
 use moatless_core::change_feed::listing::current_position;
 use moatless_core::change_feed::listing::prune_changes;
 use moatless_core::change_feed::listing::record_change;
+use moatless_core::change_feed::listing::record_workspace_change;
 use moatless_core::change_feed::listing::resume;
 use moatless_core::change_feed::listing::test_support::{Probe, probe_counter, waits_for_a_lock};
 use moatless_tasks::tag::test_support as tag_fixtures;
@@ -304,7 +306,7 @@ async fn a_committed_mutation_carries_its_record_with_it(pool: PgPool) {
 
     let changes = changes_after(&pool, 0, 10).await.unwrap();
     assert_eq!(changes.len(), 1);
-    assert_eq!(changes[0].task_id, "task-a");
+    assert_eq!(changes[0].task_id(), Some("task-a"));
     assert_eq!(changes[0].position, 1);
     assert_eq!(current_position(&pool).await.unwrap(), 1);
 }
@@ -337,7 +339,12 @@ async fn a_childs_change_is_read_for_its_parent(pool: PgPool) {
         .await
         .unwrap()
         .into_iter()
-        .map(|change| (change.position, change.task_id))
+        .map(|change| {
+            (
+                change.position,
+                change.task_id().unwrap_or_default().to_string(),
+            )
+        })
         .collect();
     assert_eq!(
         read,
@@ -348,12 +355,17 @@ async fn a_childs_change_is_read_for_its_parent(pool: PgPool) {
     );
 }
 
-/// Workspace state is snapshot-owned. Creating, updating, deleting, or
-/// tombstoning one must not consume a Task-listing position.
+/// Each Workspace mutation a project row shows records one Workspace change on
+/// the shared counter; an update that leaves every projected column alone, as
+/// a git re-sync does, records nothing.
 #[sqlx::test]
-async fn workspace_mutations_do_not_advance_the_task_listing(pool: PgPool) {
+async fn workspace_mutations_record_workspace_changes(pool: PgPool) {
     let workspaces = compose::workspaces(pool.clone());
     let viewer = owner();
+    let rename = |name: &str| WorkspacePatch {
+        name: Some(name.to_string()),
+        ..WorkspacePatch::default()
+    };
 
     workspaces
         .insert_workspace(&make_workspace_row("ws-manual", USER_1))
@@ -361,29 +373,62 @@ async fn workspace_mutations_do_not_advance_the_task_listing(pool: PgPool) {
         .unwrap();
     assert_eq!(
         workspaces
-            .update(
-                "ws-manual",
-                &WorkspacePatch {
-                    name: Some("Renamed".to_string()),
-                    ..WorkspacePatch::default()
-                },
-                &viewer,
-            )
+            .update("ws-manual", &rename("Renamed"), &viewer)
+            .await
+            .unwrap(),
+        UpdateOutcome::Applied
+    );
+    // Same name again: applied, and nothing a client would see moved.
+    assert_eq!(
+        workspaces
+            .update("ws-manual", &rename("Renamed"), &viewer)
             .await
             .unwrap(),
         UpdateOutcome::Applied
     );
     assert!(workspaces.soft_delete("ws-manual", &viewer).await.unwrap());
+    // Already deleted: refused, and not recorded twice.
+    assert!(!workspaces.soft_delete("ws-manual", &viewer).await.unwrap());
 
-    let mut git = make_workspace_row("ws-git", USER_1);
-    git.source = moatless_workspace_types::workspace::WorkspaceSource::Git;
-    git.source_repository_id = Some("repo-a".to_string());
-    git.source_key = Some("api".to_string());
-    workspaces.insert_workspace(&git).await.unwrap();
-    assert!(workspaces.soft_delete("ws-git", &viewer).await.unwrap());
+    let subjects: Vec<(i64, ListingSubject)> = changes_after(&pool, 0, 10)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|change| (change.position, change.subject))
+        .collect();
+    let workspace = || ListingSubject::Workspace("ws-manual".to_string());
+    assert_eq!(
+        subjects,
+        vec![(1, workspace()), (2, workspace()), (3, workspace())]
+    );
+    assert_eq!(current_position(&pool).await.unwrap(), 3);
+}
 
-    assert_eq!(current_position(&pool).await.unwrap(), 0);
-    assert!(changes_after(&pool, 0, 10).await.unwrap().is_empty());
+/// Task and Workspace changes share one numbering, read back in one order.
+#[sqlx::test]
+async fn task_and_workspace_changes_interleave_in_position_order(pool: PgPool) {
+    let mut tx = pool.begin().await.unwrap();
+    record_change(&mut tx, "task-a").await.unwrap();
+    record_workspace_change(&mut tx, "ws-a").await.unwrap();
+    record_change(&mut tx, "task-b").await.unwrap();
+    tx.commit().await.unwrap();
+
+    let subjects: Vec<ListingSubject> = changes_after(&pool, 0, 10)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|change| change.subject)
+        .collect();
+    assert_eq!(
+        subjects,
+        vec![
+            ListingSubject::Task("task-a".to_string()),
+            ListingSubject::Workspace("ws-a".to_string()),
+            ListingSubject::Task("task-b".to_string()),
+        ]
+    );
+    // The limit applies to the merged read, not to each table.
+    assert_eq!(changes_after(&pool, 0, 2).await.unwrap().len(), 2);
 }
 
 /// Migration 0130 contracts the record to exactly one non-null Task id while
@@ -626,7 +671,7 @@ async fn a_writer_blocked_on_a_task_row_is_not_holding_the_counter(pool: PgPool)
     // And the ingress still recorded its own change, after the rename let go.
     assert_eq!(current_position(&pool).await.unwrap(), 2);
     let changes = changes_after(&pool, 0, 10).await.unwrap();
-    assert_eq!(changes[1].task_id, "task-a");
+    assert_eq!(changes[1].task_id(), Some("task-a"));
     assert_eq!(changes[1].position, 2);
 }
 

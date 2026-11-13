@@ -549,8 +549,9 @@ async fn a_long_agent_turn_does_not_reorder_the_sidebar(pool: PgPool) {
 // Projects
 // -------------------------------------------------------------------------
 
+/// A V1 client has no project item, so a rename reaches it as the listing.
 #[sqlx::test]
-async fn renaming_a_project_waits_for_the_next_snapshot(pool: PgPool) {
+async fn renaming_a_project_sends_a_v1_client_the_listing(pool: PgPool) {
     seed_live_project(&pool).await;
     seed_task(&pool, "t-live", "user-1", Some("ws-live")).await;
 
@@ -574,8 +575,14 @@ async fn renaming_a_project_waits_for_the_next_snapshot(pool: PgPool) {
         UpdateOutcome::Applied
     );
 
-    assert_eq!(recorded_after(&pool, watched_from).await, 0);
-    assert!(delivered(&pool, &mut feed, &viewer).await.is_empty());
+    assert_eq!(recorded_after(&pool, watched_from).await, 1);
+    let items = delivered(&pool, &mut feed, &viewer).await;
+    assert_eq!(items.len(), 1, "expected one rebuild, got {items:#?}");
+    assert_eq!(items[0]["kind"], "snapshot");
+    assert_eq!(
+        items[0]["snapshot"]["projects"][0]["title"],
+        "Renamed project"
+    );
 
     // Durable, not just delivered: a client opening a fresh subscription reads
     // the same title out of the database.
@@ -583,8 +590,10 @@ async fn renaming_a_project_waits_for_the_next_snapshot(pool: PgPool) {
     assert_eq!(reopened["title"], "Renamed project");
 }
 
+/// Created and deleted between two polls: the client never held it, so the
+/// deletion it last saw leaves nothing to say.
 #[sqlx::test]
-async fn creating_and_deleting_a_project_waits_for_the_next_snapshot(pool: PgPool) {
+async fn a_project_created_and_deleted_between_polls_sends_nothing(pool: PgPool) {
     seed_live_project(&pool).await;
 
     let viewer = viewer("user-1");
@@ -604,18 +613,16 @@ async fn creating_and_deleting_a_project_waits_for_the_next_snapshot(pool: PgPoo
             .unwrap()
     );
 
-    assert_eq!(recorded_after(&pool, watched_from).await, 0);
+    assert_eq!(recorded_after(&pool, watched_from).await, 2);
     assert!(delivered(&pool, &mut feed, &viewer).await.is_empty());
     assert_eq!(Held::opening(&pool, &viewer).await.projects, ["ws-live"]);
 }
 
-/// Tombstoning a git-declared workspace sets `deleted` and flips `source` to
-/// `manual`, but the row survives.
-///
-/// The shell listing excludes it via `list_readable_including`, so this records
-/// nothing; a client only drops it on the next unrelated snapshot.
+/// Tombstoning a git-declared workspace keeps the row but leaves it out of
+/// `list_readable_including`, so a client holding it is sent a listing
+/// without it.
 #[sqlx::test]
-async fn tombstoning_a_git_declared_project_waits_for_the_next_snapshot(pool: PgPool) {
+async fn tombstoning_a_git_declared_project_takes_it_off_the_listing(pool: PgPool) {
     let repo = compose::workspaces(pool.clone());
     let mut declared = make_workspace_row("ws-git", "user-1");
     declared.source = moatless_workspace_types::workspace::WorkspaceSource::Git;
@@ -624,18 +631,15 @@ async fn tombstoning_a_git_declared_project_waits_for_the_next_snapshot(pool: Pg
     repo.insert_workspace(&declared).await.unwrap();
 
     let viewer = viewer("user-1");
-    let (mut feed, held) = watcher(&pool, &viewer).await;
+    let (mut feed, mut held) = watcher(&pool, &viewer).await;
     assert_eq!(held.projects, ["ws-git"]);
     let watched_from = head(&pool).await.position;
 
     assert!(repo.soft_delete("ws-git", &viewer).await.unwrap());
-    assert_eq!(
-        recorded_after(&pool, watched_from).await,
-        0,
-        "a Workspace tombstone advanced the Task listing"
-    );
-    assert!(delivered(&pool, &mut feed, &viewer).await.is_empty());
-    assert!(Held::opening(&pool, &viewer).await.projects.is_empty());
+    assert_eq!(recorded_after(&pool, watched_from).await, 1);
+    let items = held.poll(&pool, &mut feed, &viewer).await;
+    assert_eq!(items.len(), 1, "expected one rebuild, got {items:#?}");
+    assert!(held.projects.is_empty());
 }
 
 /// Tombstoning a Workspace leaves any Task running in it untouched.
@@ -672,13 +676,14 @@ async fn a_tombstoned_project_keeps_the_conversations_still_running_in_it(pool: 
     );
 }
 
-/// Deleting a repository bulk-deletes every workspace its git tree declared;
-/// Task listing is untouched until the next snapshot.
+/// Deleting a repository bulk-deletes every workspace its git tree declared,
+/// one recorded change each, and a client holding them is sent a listing
+/// without them.
 ///
 /// Driven through the mounted HTTP route, not the query underneath, since the
 /// delete statement lives in the handler and a direct call would miss it.
 #[sqlx::test]
-async fn deleting_a_repository_does_not_advance_the_task_listing(pool: PgPool) {
+async fn deleting_a_repository_takes_its_workspaces_off_the_listing(pool: PgPool) {
     seed_team(&pool, &format!("personal-{USER_1}")).await;
     compose::seed_repository(&pool, &make_repository_row("repo-gone", USER_1))
         .await
@@ -715,22 +720,16 @@ async fn deleting_a_repository_does_not_advance_the_task_listing(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
-    assert_eq!(
-        recorded_after(&pool, watched_from).await,
-        0,
-        "repository-driven Workspace deletion advanced the Task listing"
-    );
+    assert_eq!(recorded_after(&pool, watched_from).await, 2);
 
     let items = held.poll(&pool, &mut feed, &viewer).await;
-    assert!(
-        items.is_empty(),
-        "Workspace deletion emitted shell items: {items:#?}"
-    );
-    assert_eq!(held.projects, ["ws-api", "ws-kept", "ws-web"]);
-    assert_eq!(Held::opening(&pool, &viewer).await.projects, ["ws-kept"]);
+    assert_eq!(items.len(), 1, "expected one rebuild, got {items:#?}");
+    assert_eq!(items[0]["kind"], "snapshot");
+    assert_eq!(held.projects, ["ws-kept"]);
 }
 
-/// A Workspace someone else owns changes without entering the Task feed.
+/// A Workspace someone else owns changes, recorded, and a client that can
+/// neither read nor hold it is told nothing.
 #[sqlx::test]
 async fn a_project_change_reaches_only_the_clients_holding_it(pool: PgPool) {
     seed_workspaces(&pool).await;
@@ -764,7 +763,7 @@ async fn a_project_change_reaches_only_the_clients_holding_it(pool: PgPool) {
             .unwrap()
     );
 
-    assert_eq!(recorded_after(&pool, watched_from).await, 0);
+    assert_eq!(recorded_after(&pool, watched_from).await, 2);
     assert_eq!(
         delivered(&pool, &mut feed, &watcher_viewer).await,
         Vec::<Value>::new(),
@@ -773,9 +772,10 @@ async fn a_project_change_reaches_only_the_clients_holding_it(pool: PgPool) {
 }
 
 /// A project a viewer cannot read but holds because they follow work inside it
-/// is still snapshot-owned. Its mutations emit no live project events.
+/// changes by snapshot, never by a project item: the snapshot keeps it listed,
+/// narrowed, for as long as the followed conversation names it.
 #[sqlx::test]
-async fn a_referenced_project_change_waits_for_the_next_snapshot(pool: PgPool) {
+async fn a_referenced_project_change_is_sent_as_a_snapshot(pool: PgPool) {
     seed_workspaces(&pool).await;
     let mut theirs = make_task_row("t-theirs", "user-2");
     theirs.workspace_id = Some("ws-other".to_string());
@@ -836,17 +836,22 @@ async fn a_referenced_project_change_waits_for_the_next_snapshot(pool: PgPool) {
             .await
             .unwrap()
     );
+    assert_eq!(recorded_after(&pool, watched_from).await, 2);
     let items = held.poll(&pool, &mut feed, &watcher_viewer).await;
-    assert!(
-        items.is_empty(),
-        "Workspace changes emitted shell items: {items:#?}"
-    );
-    assert_eq!(recorded_after(&pool, watched_from).await, 0);
-    assert!(held.projects.contains(&"ws-other".to_string()));
+    assert_eq!(items.len(), 1, "expected one rebuild, got {items:#?}");
+    assert_eq!(items[0]["kind"], "snapshot");
     // Still listed after the delete: the conversation user-1 follows names it.
+    assert!(held.projects.contains(&"ws-other".to_string()));
+    let sent = items[0]["snapshot"]["projects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|project| project["id"] == "ws-other")
+        .unwrap();
+    assert_eq!(sent["title"], "Renamed elsewhere");
     assert_eq!(
-        project(&pool, &watcher_viewer, "ws-other").await["title"],
-        "Renamed elsewhere",
-        "the next snapshot carries the change the feed withheld"
+        sent["scripts"],
+        json!([]),
+        "the narrowing withheld the scripts"
     );
 }

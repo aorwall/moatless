@@ -17,7 +17,7 @@ use crate::config::OrchestrationProtocol;
 use crate::dao::ConversationDao;
 use crate::dao::ListingError;
 use crate::reads::T3Reads;
-use moatless_core::change_feed::listing::{EnvironmentIdentity, ListingHead};
+use moatless_core::change_feed::listing::{EnvironmentIdentity, ListingHead, ListingSubject};
 use moatless_types::access_control::ScopeContext;
 
 use crate::transcript::Transcript;
@@ -140,37 +140,80 @@ impl ShellFeed {
         // past a batch that was never built is a batch nobody is told about.
         let batch_end = last.position;
 
-        // One delivery per Task, at the highest position its burst reached,
+        // One delivery per subject, at the highest position its burst reached,
         // re-sorted by the position each survivor kept.
-        let mut latest: HashMap<&str, i64> = HashMap::new();
+        let mut latest: HashMap<&ListingSubject, i64> = HashMap::new();
         for change in &changes {
             latest
-                .entry(change.task_id.as_str())
+                .entry(&change.subject)
                 .and_modify(|position| *position = (*position).max(change.position))
                 .or_insert(change.position);
         }
-        let mut coalesced: Vec<(&str, i64)> = latest.into_iter().collect();
-        coalesced.sort_by_key(|(id, position)| (*position, *id));
+        let mut coalesced: Vec<(&ListingSubject, i64)> = latest.into_iter().collect();
+        coalesced.sort_by_key(|(subject, position)| (*position, *subject));
 
-        let task_ids: Vec<String> = coalesced.iter().map(|(id, _)| (*id).to_string()).collect();
+        let mut task_ids: Vec<String> = Vec::new();
+        let mut changed_workspaces: Vec<String> = Vec::new();
+        for (subject, _) in &coalesced {
+            match subject {
+                ListingSubject::Task(id) => task_ids.push(id.clone()),
+                ListingSubject::Workspace(id) => changed_workspaces.push(id.clone()),
+            }
+        }
         let rows = conversations
             .list_followed_by_ids(viewer, &task_ids)
             .await?;
 
-        // The Workspaces these changed Tasks reference are still needed to
-        // project the Task rows and decide whether the client can group them.
-        let wanted: Vec<String> = rows
+        // The Workspaces these changed Tasks reference, to project their rows
+        // and decide whether the client can group them, plus the changed
+        // Workspaces themselves, read whatever their state so the loop below
+        // can tell a live readable one from one gone out of reach.
+        let mut wanted: Vec<String> = rows
             .iter()
             .filter_map(|row| row.workspace_id.clone())
             .collect();
+        wanted.extend(changed_workspaces);
         let projects = workspaces.list_readable_including(viewer, &wanted).await?;
 
         let by_id: HashMap<&str, &_> = rows.iter().map(|row| (row.task_id.as_str(), row)).collect();
         let mut items = Vec::new();
         let mut delivered_threads: Vec<&str> = Vec::new();
         let mut dropped_threads: Vec<&str> = Vec::new();
+        let mut delivered_projects: HashSet<&str> = HashSet::new();
 
-        for (id, position) in coalesced {
+        for (subject, position) in coalesced {
+            let id = match subject {
+                ListingSubject::Workspace(workspace_id) => {
+                    let listed = projects
+                        .iter()
+                        .find(|project| project.workspace.id == *workspace_id);
+                    match listed {
+                        Some(listed) if listed.readable && !listed.workspace.deleted => {
+                            match self.protocol {
+                                OrchestrationProtocol::V2 => {
+                                    items.push(projection::project_updated_v2(listed, position));
+                                    delivered_projects.insert(workspace_id.as_str());
+                                }
+                                // V1 has no project item; its snapshot carries the project.
+                                OrchestrationProtocol::V1 => {
+                                    return self.resynchronize(reads, defaults, viewer).await;
+                                }
+                            }
+                        }
+                        // Deleted, or out of reach, and possibly still held: only
+                        // a snapshot knows whether a followed thread keeps it
+                        // listed, so it decides rather than a `project.removed`.
+                        _ if self.grouped.contains(workspace_id.as_str()) => {
+                            return self.resynchronize(reads, defaults, viewer).await;
+                        }
+                        // Never this viewer's to see: nothing to say, and saying
+                        // anything would disclose the id.
+                        _ => {}
+                    }
+                    continue;
+                }
+                ListingSubject::Task(task_id) => task_id.as_str(),
+            };
             let row = by_id.get(id);
             let project_id = row.and_then(|row| {
                 row.workspace_id
@@ -179,7 +222,9 @@ impl ShellFeed {
             });
             match (row, project_id) {
                 (Some(row), Some(project_id)) => {
-                    if !self.grouped.contains(project_id) {
+                    if !self.grouped.contains(project_id)
+                        && !delivered_projects.contains(project_id)
+                    {
                         // Entered a project this client has no group for, and
                         // the pair cannot go out at one position.
                         return self.resynchronize(reads, defaults, viewer).await;
@@ -227,6 +272,9 @@ impl ShellFeed {
         }
         for id in dropped_threads {
             self.threads.remove(id);
+        }
+        for id in delivered_projects {
+            self.grouped.insert(id.to_string());
         }
         // Last, with the items built and nothing fallible left between here and
         // the caller. See `batch_end`.

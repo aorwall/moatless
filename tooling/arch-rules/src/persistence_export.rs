@@ -73,7 +73,11 @@ pub const CONCERNS: &[Concern] = &[
         name: "listing feed",
         owner: "moatless-core",
         roots: &["crates/core/src/change_feed/listing/dao"],
-        tables: &["task_listing_changes", "task_listing_position"],
+        tables: &[
+            "task_listing_changes",
+            "task_listing_position",
+            "workspace_listing_changes",
+        ],
         slice: 1,
     },
     Concern {
@@ -503,6 +507,10 @@ const FEED_OPERATIONS: &[(&str, &str)] = &[
     ("moatless-core", "change_feed::listing::current_position"),
     ("moatless-core", "change_feed::listing::prune_changes"),
     ("moatless-core", "change_feed::listing::record_change"),
+    (
+        "moatless-core",
+        "change_feed::listing::record_workspace_change",
+    ),
     ("moatless-core", "change_feed::preview::current_position"),
     ("moatless-core", "change_feed::preview::opens_after"),
     ("moatless-core", "change_feed::preview::prune_opens"),

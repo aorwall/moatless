@@ -364,6 +364,15 @@ pub(crate) fn thread_removed_v2(task_id: &str, sequence: i64) -> Value {
     })
 }
 
+/// One project, re-read and sent whole, at the position that carried it.
+pub(crate) fn project_updated_v2(workspace: &ListedWorkspace, sequence: i64) -> Value {
+    json!({
+        "kind": "project.updated",
+        "sequence": sequence,
+        "project": project(workspace)
+    })
+}
+
 /// `OrchestrationV2ShellThreadStatus`: `idle` plus the run-status vocabulary.
 pub(super) fn shell_status(conversation: &Conversation) -> &'static str {
     if turn_is_open(conversation) {

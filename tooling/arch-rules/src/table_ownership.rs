@@ -90,6 +90,7 @@ pub const TABLES: &[(&str, &str)] = &[
     ("user_provider_ids", "moatless-identity"),
     ("users", "moatless-identity"),
     ("workspace_credentials", "moatless-workspaces"),
+    ("workspace_listing_changes", "moatless-core"),
     ("workspace_repos", "moatless-workspaces"),
     ("workspaces", "moatless-workspaces"),
 ];

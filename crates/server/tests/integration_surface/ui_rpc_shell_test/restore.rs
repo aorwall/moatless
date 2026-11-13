@@ -276,7 +276,7 @@ async fn a_counter_reset_on_the_same_database_is_caught_by_the_position_guard(po
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::query("TRUNCATE task_listing_changes")
+    sqlx::query("TRUNCATE task_listing_changes, workspace_listing_changes")
         .execute(&pool)
         .await
         .unwrap();

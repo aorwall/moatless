@@ -4,8 +4,11 @@ mod dao;
 mod position;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
-pub use dao::{changes_after, current_head, current_position, prune_changes, record_change};
+pub use dao::{
+    changes_after, current_head, current_position, prune_changes, record_change,
+    record_workspace_change,
+};
 pub use position::{
-    EnvironmentIdentity, ListingChange, ListingHead, RESUME_WINDOW, RETAINED_CHANGES, Resume,
-    resume,
+    EnvironmentIdentity, ListingChange, ListingHead, ListingSubject, RESUME_WINDOW,
+    RETAINED_CHANGES, Resume, resume,
 };

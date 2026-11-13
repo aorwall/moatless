@@ -51,6 +51,7 @@ pub(crate) use shell::thread_upserted;
 pub(crate) use v2::Lineage;
 pub(crate) use v2::archived_shell_snapshot_v2;
 pub(crate) use v2::listed_threads_v2;
+pub(crate) use v2::project_updated_v2;
 pub(crate) use v2::queued_message_uuid;
 pub(crate) use v2::shell_snapshot_v2;
 pub(crate) use v2::thread_projection;

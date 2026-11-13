@@ -1,4 +1,5 @@
-//! The durable record that a Task's listing-visible state changed.
+//! The durable record that a Task's listing row or a Workspace's project row
+//! changed.
 //!
 //! One counter row for the whole deployment, held until commit. See the module
 //! doc on [`super::super`] for why the hold is what makes commit order and
@@ -99,11 +100,29 @@ pub fn resume(
     Resume::From(after)
 }
 
+/// What a recorded change names: a Task's listing row, or a Workspace's project
+/// row.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum ListingSubject {
+    Task(String),
+    Workspace(String),
+}
+
 /// One recorded change: what moved, and where it sits relative to every other.
-#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListingChange {
     pub position: i64,
-    pub task_id: String,
+    pub subject: ListingSubject,
+}
+
+impl ListingChange {
+    /// The Task this change names, if it names one.
+    pub fn task_id(&self) -> Option<&str> {
+        match &self.subject {
+            ListingSubject::Task(task_id) => Some(task_id),
+            ListingSubject::Workspace(_) => None,
+        }
+    }
 }
 
 #[cfg(test)]

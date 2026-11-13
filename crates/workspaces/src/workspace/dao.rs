@@ -7,8 +7,22 @@ use super::models::{
     ListedWorkspace, ListedWorkspaceRow, ScriptConfig, UpdateOutcome, Workspace, WorkspacePatch,
     WorkspaceRepo, WorkspaceRepoRow, WorkspaceRow, encode_column,
 };
+use moatless_core::change_feed::listing;
 use moatless_core::db::DbPool;
 use moatless_types::access_control::{ScopeContext, ScopedEntity};
+
+/// The columns a T3 project row or the Workspace read rule is built from. A
+/// change to one is a listing change; a change to any other is not.
+const PROJECTED_COLUMNS: &[&str] = &[
+    "name",
+    "icon",
+    "scope",
+    "owner_user_id",
+    "default_model",
+    "default_effort",
+    "scripts",
+    "source",
+];
 
 const ACTIVE_OR_GIT_TOMBSTONE: &str = "((deleted IS NULL OR deleted = false) OR \
     (deleted = true AND source = 'manual' AND source_repository_id IS NOT NULL AND source_key IS NOT NULL))";
@@ -106,10 +120,11 @@ pub(crate) trait WorkspaceDao: Send + Sync {
         workspace_id: &str,
     ) -> Result<Option<String>, sqlx::Error>;
 
-    /// Insert a workspace row.
+    /// Insert a workspace row, recording a listing change.
     async fn insert_workspace(&self, row: &Workspace) -> Result<(), sqlx::Error>;
 
-    /// Apply a partial update, scoped to caller control.
+    /// Apply a partial update, scoped to caller control, recording a listing
+    /// change when a [`PROJECTED_COLUMNS`] value moved.
     async fn update(
         &self,
         id: &str,
@@ -117,8 +132,9 @@ pub(crate) trait WorkspaceDao: Send + Sync {
         ctx: &ScopeContext,
     ) -> Result<UpdateOutcome, sqlx::Error>;
 
-    /// Soft-delete a workspace, scoped to caller control. Returns `false` when
-    /// already deleted, missing, or caller cannot control the row.
+    /// Soft-delete a workspace, scoped to caller control, recording a listing
+    /// change. Returns `false` when already deleted, missing, or caller cannot
+    /// control the row.
     async fn soft_delete(&self, id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error>;
 
     /// Insert a `workspace_repo` placement, gated on caller controlling the
@@ -246,6 +262,7 @@ impl WorkspaceDao for PgWorkspaceDao {
     }
 
     async fn insert_workspace(&self, row: &Workspace) -> Result<(), sqlx::Error> {
+        let mut tx = self.0.begin().await?;
         sqlx::query(
             r#"INSERT INTO workspaces (
                    id, name, description, icon, kind,
@@ -295,9 +312,12 @@ impl WorkspaceDao for PgWorkspaceDao {
         .bind(&row.created_by)
         .bind(row.deleted)
         .bind(encode_column(row.services.as_ref(), "services")?)
-        .execute(&self.0)
+        .execute(&mut *tx)
         .await?;
-        Ok(())
+        // A new project is a listing change before any thread runs in it: a
+        // resumed client otherwise never learns it exists.
+        listing::record_workspace_change(&mut tx, &row.id).await?;
+        tx.commit().await
     }
 
     async fn list(&self, ctx: &ScopeContext) -> Result<Vec<Workspace>, sqlx::Error> {
@@ -432,9 +452,28 @@ impl WorkspaceDao for PgWorkspaceDao {
 
         let control =
             moatless_core::db::access_control::write_filter(ScopedEntity::Resource, "", idx);
+        // `before` is aliased column by column so the unqualified names in the
+        // `SET` and the write filter still resolve to `workspaces` alone.
+        let before_columns = PROJECTED_COLUMNS
+            .iter()
+            .map(|column| format!("{column} AS before_{column}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let projected_before = PROJECTED_COLUMNS
+            .iter()
+            .map(|column| format!("before.before_{column}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let projected_after = PROJECTED_COLUMNS
+            .iter()
+            .map(|column| format!("workspaces.{column}"))
+            .collect::<Vec<_>>()
+            .join(", ");
         let sql = format!(
             "UPDATE workspaces SET {} \
-             WHERE id = $1 AND (deleted IS NULL OR deleted = false) AND {}",
+             FROM (SELECT {before_columns} FROM workspaces WHERE id = $1 FOR UPDATE) AS before \
+             WHERE id = $1 AND (deleted IS NULL OR deleted = false) AND {} \
+             RETURNING ({projected_before}) IS DISTINCT FROM ({projected_after})",
             sets.join(", "),
             control.sql()
         );
@@ -494,12 +533,19 @@ impl WorkspaceDao for PgWorkspaceDao {
         q = q.bind(ctx.is_admin);
         q = q.bind(&ctx.user_id);
 
-        let result = q.execute(&self.0).await?;
-        if result.rows_affected() > 0 {
-            Ok(UpdateOutcome::Applied)
-        } else {
-            Ok(UpdateOutcome::NoMatch)
+        let mut tx = self.0.begin().await?;
+        let Some(row) = q.fetch_optional(&mut *tx).await? else {
+            return Ok(UpdateOutcome::NoMatch);
+        };
+        let projected_changed: bool = sqlx::Row::try_get(&row, 0)?;
+        // Only a change the project row shows: git sync re-applies every
+        // Workspace on each sync, and recording those would replay every
+        // project to every client.
+        if projected_changed {
+            listing::record_workspace_change(&mut tx, id).await?;
         }
+        tx.commit().await?;
+        Ok(UpdateOutcome::Applied)
     }
 
     async fn soft_delete(&self, id: &str, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
@@ -510,14 +556,20 @@ impl WorkspaceDao for PgWorkspaceDao {
              WHERE id = $1 AND (deleted IS NULL OR deleted = false) AND {}",
             control.sql()
         );
+        let mut tx = self.0.begin().await?;
         let result = sqlx::query(AssertSqlSafe(sql))
             .bind(id)
             .bind(chrono::Utc::now())
             .bind(ctx.is_admin)
             .bind(&ctx.user_id)
-            .execute(&self.0)
+            .execute(&mut *tx)
             .await?;
-        Ok(result.rows_affected() > 0)
+        let deleted = result.rows_affected() > 0;
+        if deleted {
+            listing::record_workspace_change(&mut tx, id).await?;
+        }
+        tx.commit().await?;
+        Ok(deleted)
     }
 
     async fn add_repo(&self, row: &WorkspaceRepo, ctx: &ScopeContext) -> Result<bool, sqlx::Error> {
@@ -551,20 +603,26 @@ impl WorkspaceDao for PgWorkspaceDao {
     }
 }
 
-/// Soft-delete the Git workspaces declared by a deleted repository.
+/// Soft-delete the Git workspaces declared by a deleted repository, recording a
+/// listing change for each.
 pub(crate) async fn delete_declared_workspaces(
     db: &moatless_core::db::DbPool,
     repository_id: &str,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query(
+    let mut tx = db.begin().await?;
+    let deleted: Vec<String> = sqlx::query_scalar(
         "UPDATE workspaces SET deleted = true, updated_at = now() \
          WHERE source_repository_id = $1 AND source = 'git' \
-           AND (deleted IS NULL OR deleted = false)",
+           AND (deleted IS NULL OR deleted = false) \
+         RETURNING id",
     )
     .bind(repository_id)
-    .execute(db)
+    .fetch_all(&mut *tx)
     .await?;
-    Ok(())
+    for workspace_id in &deleted {
+        listing::record_workspace_change(&mut tx, workspace_id).await?;
+    }
+    tx.commit().await
 }
 
 /// Read the active Git source keys reconciled for a repository.
@@ -605,16 +663,22 @@ pub(crate) async fn workspace_for_git_source(
     .await
 }
 
-/// Restore a workspace's tombstone before applying Git content.
+/// Restore a workspace's tombstone before applying Git content, recording a
+/// listing change when it was one.
 pub(crate) async fn restore_git_workspace(
     db: &DbPool,
     workspace_id: &str,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query("UPDATE workspaces SET deleted = false WHERE id = $1 AND deleted = true")
-        .bind(workspace_id)
-        .execute(db)
-        .await?;
-    Ok(())
+    let mut tx = db.begin().await?;
+    let restored =
+        sqlx::query("UPDATE workspaces SET deleted = false WHERE id = $1 AND deleted = true")
+            .bind(workspace_id)
+            .execute(&mut *tx)
+            .await?;
+    if restored.rows_affected() > 0 {
+        listing::record_workspace_change(&mut tx, workspace_id).await?;
+    }
+    tx.commit().await
 }
 
 /// Atomically replace Git placements and derive the workspace kind.

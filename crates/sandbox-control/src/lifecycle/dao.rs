@@ -1362,7 +1362,7 @@ mod db_tests {
             1,
             "the session moved and nothing recorded it"
         );
-        assert_eq!(changes[0].task_id, "t1");
+        assert_eq!(changes[0].task_id(), Some("t1"));
         let after_move = moatless_core::change_feed::listing::current_position(&pool)
             .await
             .unwrap();
