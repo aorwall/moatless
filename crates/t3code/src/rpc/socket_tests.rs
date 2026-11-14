@@ -100,3 +100,91 @@ async fn overload_ends_a_connection_even_while_its_socket_write_is_blocked() {
         .expect("overload must interrupt the blocked socket write")
         .unwrap();
 }
+
+#[tokio::test]
+async fn a_frame_being_answered_still_answers_the_heartbeat_and_holds_the_rest_in_order() {
+    let (client, mut incoming) = futures::channel::mpsc::unbounded();
+    let (mut sink, mut replies) = futures::channel::mpsc::unbounded::<Message>();
+    let (finish, finished) = oneshot::channel::<()>();
+    let handling = async move {
+        finished.await.unwrap();
+        ProtocolOutput {
+            frames: vec![json!({"answered": true})],
+            eof: false,
+        }
+    };
+    let mut held = VecDeque::new();
+    let driving = async {
+        client
+            .unbounded_send(Ok(Message::Text(r#"{"_tag":"Ping"}"#.into())))
+            .unwrap();
+        assert_eq!(replies.next().await, Some(Message::Text(PONG.into())));
+        client
+            .unbounded_send(Ok(Message::Text(r#"{"_tag":"Request","id":"7"}"#.into())))
+            .unwrap();
+        client
+            .unbounded_send(Ok(Message::Ping(vec![1].into())))
+            .unwrap();
+        assert_eq!(replies.next().await, Some(Message::Pong(vec![1].into())));
+        client
+            .unbounded_send(Ok(Message::Text(r#"[{"_tag":"Ping"}]"#.into())))
+            .unwrap();
+        assert_eq!(replies.next().await, Some(Message::Text(PONG.into())));
+        finish.send(()).unwrap();
+    };
+
+    let (output, ()) = tokio::join!(
+        keeping_alive(handling, &mut incoming, &mut sink, &mut held),
+        driving
+    );
+
+    assert_eq!(output.frames, vec![json!({"answered": true})]);
+    let held: Vec<_> = held
+        .into_iter()
+        .map(|message| message.unwrap().unwrap())
+        .collect();
+    assert_eq!(
+        held,
+        vec![Message::Text(r#"{"_tag":"Request","id":"7"}"#.into())]
+    );
+}
+
+#[test]
+fn only_a_frame_of_nothing_but_pings_is_answered_out_of_order() {
+    assert!(only_pings(br#"{"_tag":"Ping"}"#));
+    assert!(only_pings(br#"[{"_tag":"Ping"},{"_tag":"Ping"}]"#));
+    assert!(!only_pings(
+        br#"[{"_tag":"Ping"},{"_tag":"Request","id":"1"}]"#
+    ));
+    assert!(!only_pings(b"[]"));
+    assert!(!only_pings(b"not json"));
+}
+
+#[tokio::test]
+async fn a_full_hold_stops_reading_so_the_socket_backs_up() {
+    let (client, mut incoming) = futures::channel::mpsc::unbounded();
+    let (mut sink, _replies) = futures::channel::mpsc::unbounded::<Message>();
+    for id in 0..MAX_HELD + 10 {
+        client
+            .unbounded_send(Ok(Message::Text(format!(r#"{{"id":"{id}"}}"#).into())))
+            .unwrap();
+    }
+    let (finish, finished) = oneshot::channel::<()>();
+    let handling = async move {
+        finished.await.unwrap();
+        ProtocolOutput::default()
+    };
+    let mut held = VecDeque::new();
+    let releasing = async {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        finish.send(()).unwrap();
+    };
+
+    tokio::join!(
+        keeping_alive(handling, &mut incoming, &mut sink, &mut held),
+        releasing
+    );
+
+    assert_eq!(held.len(), MAX_HELD);
+    assert_eq!(incoming.size_hint().0, 10);
+}
