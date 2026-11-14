@@ -25,6 +25,9 @@ pub struct SandboxScope {
     pub run_as: Option<String>,
     /// Who a write from the Sandbox credits.
     pub attribution: Attribution,
+    /// The token's `taskId`: the Sandbox's own Task, not a Member Task it also
+    /// runs. `None` for a token minted without one.
+    pub task: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -123,6 +126,7 @@ impl SandboxCallers {
                 .acting_user_id
                 .unwrap_or_else(|| claims.user_id.clone()),
             token_user: claims.user_id,
+            task: claims.task_id,
             workspace: workspace_id,
             run_as: identity.pinned_run_as,
         })

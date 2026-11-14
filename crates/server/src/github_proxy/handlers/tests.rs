@@ -167,6 +167,7 @@ fn scope() -> SandboxScope {
         user: "user-1".to_string(),
         workspace: "workspace-1".to_string(),
         run_as: None,
+        task: None,
     }
 }
 

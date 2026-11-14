@@ -23,6 +23,8 @@ pub(crate) struct RefUpdate {
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct Commands {
     pub updates: Vec<RefUpdate>,
+    /// The commit each branch update moves its branch to.
+    pub pushed_branch_shas: Vec<String>,
     capabilities: Vec<String>,
 }
 
@@ -83,6 +85,9 @@ pub(crate) fn parse(buf: &[u8]) -> Parsed {
         let (Some(_old), Some(new), Some(name)) = (parts.next(), parts.next(), parts.next()) else {
             return Parsed::Invalid(format!("`{command}` is not `<old> <new> <ref>`"));
         };
+        if name.starts_with("refs/heads/") && !is_zero_id(new) {
+            commands.pushed_branch_shas.push(new.to_string());
+        }
         commands.updates.push(RefUpdate {
             name: name.to_string(),
             delete: is_zero_id(new),
@@ -252,6 +257,8 @@ mod tests {
                 },
             ]
         );
+        // Only the update that moves a branch names a commit to claim.
+        assert_eq!(commands.pushed_branch_shas, vec![NEW.to_string()]);
         assert_eq!(parse(&bytes[..10]), Parsed::NeedMore);
         assert!(matches!(parse(b"zzzz"), Parsed::Invalid(_)));
     }

@@ -225,15 +225,18 @@ impl AppState {
                 config.workspace_sync.identity_grants.clone(),
             ),
         ));
-        let git_proxy = Arc::new(crate::git_proxy::GitProxy::new(
-            sandbox_callers.clone(),
-            workspace_resolver.clone(),
-            repository_reader.clone(),
-            user_directory.clone(),
-            git_host_tokens.clone(),
-            github_policy.clone(),
-            config.http.git_proxy,
-        ));
+        let git_proxy = Arc::new(
+            crate::git_proxy::GitProxy::new(
+                sandbox_callers.clone(),
+                workspace_resolver.clone(),
+                repository_reader.clone(),
+                user_directory.clone(),
+                git_host_tokens.clone(),
+                github_policy.clone(),
+                config.http.git_proxy,
+            )
+            .with_push_claims(transcript.clone()),
+        );
         let github_proxy = Arc::new(crate::github_proxy::GitHubProxy::new(
             sandbox_callers.clone(),
             workspace_resolver.clone(),

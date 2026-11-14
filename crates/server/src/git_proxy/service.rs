@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use moatless_ports::identity::{CommitIdentity, GitHostTokenError, GitHostTokenIssuer};
+use moatless_ports::task::TranscriptAppend;
 use moatless_sandbox_control::secrets::{resolve_task_actor, resolve_task_git_token};
 use moatless_types::access_control::{Actor, ScopeContext, ScopedResource};
 use moatless_types::git_host::GitHostAccount;
@@ -40,6 +41,8 @@ pub struct Upstream {
     pub workspace_id: String,
     /// The Sandbox the task token names, for the policy's log line.
     pub sandbox_id: String,
+    /// The Task a push is claimed for; see [`SandboxScope::task`].
+    pub task_id: Option<String>,
 }
 
 /// What a proxied request presents to its host.
@@ -83,6 +86,7 @@ impl Upstream {
             run_as_user_id: actor.user_id().to_string(),
             workspace_id: caller.workspace,
             sandbox_id: caller.sandbox,
+            task_id: caller.task,
         }
     }
 }
@@ -145,6 +149,8 @@ pub struct GitProxy {
     git_host_tokens: Arc<dyn GitHostTokenIssuer>,
     /// Decides which refs a push may update.
     pub(crate) policy: Arc<GitHubPolicy>,
+    /// Where a pushed commit is claimed for its Task; `None` claims nothing.
+    transcript: Option<Arc<dyn TranscriptAppend>>,
     pub(crate) http: reqwest::Client,
 }
 
@@ -183,10 +189,49 @@ impl GitProxy {
             users,
             git_host_tokens,
             policy,
+            transcript: None,
             // `FORWARDED_REQUEST_HEADERS` copies git's own `User-Agent` over
             // this default, so it covers only a client that sends none. See
             // `moatless_core::USER_AGENT`.
             http: http_client(timeouts),
+        }
+    }
+
+    /// Claim pushes through `transcript`; see [`Self::claim_pushed_commits`].
+    pub(crate) fn with_push_claims(mut self, transcript: Arc<dyn TranscriptAppend>) -> Self {
+        self.transcript = Some(transcript);
+        self
+    }
+
+    /// Claim each commit a push moves a GitHub branch to, as the push watcher
+    /// does, so its `synchronize` webhook is not delivered back to the Task.
+    ///
+    /// Called before the push is forwarded: the webhook can beat the response.
+    /// Covers what the watcher misses, such as a single-branch clone, which
+    /// writes no reflog for a branch it never fetched.
+    pub(crate) async fn claim_pushed_commits(&self, upstream: &Upstream, shas: &[String]) {
+        let (Some(transcript), Some(task_id), Some((owner, repo))) = (
+            self.transcript.as_ref(),
+            upstream.task_id.as_deref(),
+            upstream.path.split_once('/'),
+        ) else {
+            return;
+        };
+        if upstream.host != "github.com" {
+            return;
+        }
+        for sha in shas {
+            if let Err(error) = moatless_adapter_github_pr::push_claim::record(
+                transcript.as_ref(),
+                task_id,
+                owner,
+                repo,
+                sha,
+            )
+            .await
+            {
+                warn!(%error, task_id, repository = %upstream.path, sha, "Failed to claim a proxied push");
+            }
         }
     }
 
@@ -525,6 +570,7 @@ mod tests {
     use super::*;
     use moatless_core::sandbox_jwt::{StaticTokenGenerations, generate_user_auth_token};
     use moatless_ports::identity::{AppWriteToken, MockCommitIdentity, MockGitHostTokenIssuer};
+    use moatless_ports::task::MockTranscriptAppend;
     use moatless_types::access_control::Scope;
     use moatless_types::store::StoreError;
     use moatless_workspace_ports::{MockRepositoryReader, MockWorkspaceResolver};
@@ -627,6 +673,7 @@ mod tests {
             run_as_user_id: POD_USER.to_string(),
             workspace_id: "ws_1".to_string(),
             sandbox_id: "sandbox-1".to_string(),
+            task_id: None,
         }
     }
 
@@ -791,6 +838,7 @@ mod tests {
                 user: "user-1".to_string(),
                 workspace: "ws_1".to_string(),
                 run_as: None,
+                task: None,
             },
         );
         assert_eq!(upstream.username, "oauth2");
@@ -883,6 +931,10 @@ mod tests {
     /// A proxy whose sandbox row is unreadable, so a token that passes every
     /// check fails on the read with `Upstream`.
     fn proxy(generation: i64) -> GitProxy {
+        proxy_claiming(generation, MockTranscriptAppend::new())
+    }
+
+    fn proxy_claiming(generation: i64, transcript: MockTranscriptAppend) -> GitProxy {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://unused@127.0.0.1:1/unused")
             .unwrap();
@@ -907,6 +959,7 @@ mod tests {
             ),
             moatless_core::config::HttpConfig::default().git_proxy,
         )
+        .with_push_claims(Arc::new(transcript))
     }
 
     #[tokio::test]
@@ -1024,5 +1077,45 @@ mod tests {
                 .unwrap(),
             None
         );
+    }
+
+    /// A push through the proxy claims each branch commit for the token's Task,
+    /// under the id a `synchronize` webhook looks its author up by; a push
+    /// with no Task, or to another host, claims nothing.
+    #[tokio::test]
+    async fn a_proxied_github_push_claims_its_commits_for_the_task() {
+        let mut transcript = MockTranscriptAppend::new();
+        transcript
+            .expect_record_external_event()
+            .withf(|task_id, event| {
+                task_id == "task-1"
+                    && event.external_id == "github:push:soaplabs/repo:abc123"
+                    && event.source_name.as_deref() == Some("soaplabs/repo")
+            })
+            .times(1)
+            .returning(|_, _| Ok(()));
+        let proxy = proxy_claiming(1, transcript);
+        let upstream = |host: &str, task: Option<&str>| Upstream {
+            base_url: String::new(),
+            credential: Credential::Token("t".to_string()),
+            username: "x-access-token",
+            host: host.to_string(),
+            path: "soaplabs/repo".to_string(),
+            run_as_user_id: "user-1".to_string(),
+            workspace_id: "ws_1".to_string(),
+            sandbox_id: "sandbox-1".to_string(),
+            task_id: task.map(str::to_string),
+        };
+        let shas = ["abc123".to_string()];
+
+        proxy
+            .claim_pushed_commits(&upstream("github.com", Some("task-1")), &shas)
+            .await;
+        proxy
+            .claim_pushed_commits(&upstream("github.com", None), &shas)
+            .await;
+        proxy
+            .claim_pushed_commits(&upstream("gitlab.com", Some("task-1")), &shas)
+            .await;
     }
 }

@@ -341,6 +341,9 @@ async fn check_push(
             .refuses(&request(&format!("{label}:{ref_name}")), refusal);
     }
     if !enforce {
+        proxy
+            .claim_pushed_commits(upstream, &commands.pushed_branch_shas)
+            .await;
         return Ok(replay(buf, stream));
     }
     // Read to the end so git sees the report rather than a reset connection.
