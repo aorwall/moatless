@@ -14370,6 +14370,13 @@
           "htmlUrl": {
             "type": "string"
           },
+          "notifiedEvents": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The adapter event names (`check_run`, `pr_merged`, `post_merge`, …)\nwhose notices reach the bound task. Empty when nothing was bound."
+          },
           "number": {
             "type": "integer",
             "format": "int64",

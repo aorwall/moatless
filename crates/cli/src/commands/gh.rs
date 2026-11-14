@@ -6,6 +6,7 @@
 
 mod api;
 mod dispatch;
+mod notified;
 mod pr_edit;
 mod pr_followups;
 mod pr_view;

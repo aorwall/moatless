@@ -53,6 +53,10 @@ pub struct GithubCreatePrResponse {
     /// action reports this as `opened_existing`.
     #[serde(default)]
     pub opened_existing: bool,
+    /// The adapter event names (`check_run`, `pr_merged`, `post_merge`, …)
+    /// whose notices reach the bound task. Empty when nothing was bound.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notified_events: Vec<String>,
 }
 
 /// `POST /api/v1/github/repos/{owner}/{repo}/issues/{number}/comments` — post a

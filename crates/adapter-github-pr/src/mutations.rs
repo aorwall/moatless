@@ -18,7 +18,9 @@ use moatless_loops::adapters::access::{ensure_task_access_only, ensure_task_acce
 use moatless_loops::bindings::recently_sent::RecentlySent;
 use moatless_ports::task::{ExternalEvent, TaskDescriptor, TaskReader, TranscriptAppend};
 use moatless_types::access_control::Actor;
+use moatless_types::adapter::TaskBinding;
 use moatless_types::attribution::Attribution;
+use moatless_types::loops::SubscriptionMatch;
 
 use super::adapter::GithubPrAdapter;
 use super::api::MAX_COMMENT_LENGTH;
@@ -105,8 +107,8 @@ pub(crate) async fn create_pr(
         hand_to_driver(api, &owner, &repo, created.number, driver).await;
     }
 
-    let binding_id = if let Some(task_id) = req.task_id.as_deref() {
-        let bid = bind_task_to_pr(
+    let (binding_id, notified_events) = if let Some(task_id) = req.task_id.as_deref() {
+        let bound = connect_pr_binding(
             connector.as_deref(),
             &owner,
             &repo,
@@ -128,9 +130,15 @@ pub(crate) async fn create_pr(
             &repo,
         )
         .await;
-        bid
+        match bound {
+            Some((rule, binding)) => (
+                Some(binding.id.clone()),
+                super::routing::notified_events(rule.as_ref(), &binding),
+            ),
+            None => (None, Vec::new()),
+        }
     } else {
-        None
+        (None, Vec::new())
     };
 
     Ok(GithubCreatePrResponse {
@@ -140,6 +148,7 @@ pub(crate) async fn create_pr(
         state: created.state,
         binding_id,
         opened_existing: created.opened_existing,
+        notified_events,
     })
 }
 
@@ -607,6 +616,22 @@ async fn bind_task_to_pr(
     user_id: &str,
     scope: &BindScope,
 ) -> Option<String> {
+    connect_pr_binding(connector, owner, repo, pr_number, task_id, user_id, scope)
+        .await
+        .map(|(_, binding)| binding.id)
+}
+
+/// The bound pull request's Subscription, when one matches, and the Binding.
+/// `None` when nothing was bound; the cause is logged.
+async fn connect_pr_binding(
+    connector: Option<&moatless_loops::loops::firing::listen::Connector>,
+    owner: &str,
+    repo: &str,
+    pr_number: u64,
+    task_id: &str,
+    user_id: &str,
+    scope: &BindScope,
+) -> Option<(Option<SubscriptionMatch>, TaskBinding)> {
     let Some(connector) = connector else {
         warn!(
             task_id,
@@ -632,7 +657,7 @@ async fn bind_task_to_pr(
                 binding_id = %binding.id,
                 "Connected GitHub PR binding via typed API"
             );
-            Some(binding.id)
+            Some((rule, binding))
         }
         Err(e) => {
             warn!(task_id, pr_number, error = %e, "Failed to connect GitHub PR binding via typed API");

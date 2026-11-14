@@ -11,6 +11,7 @@ use moatless_api_schemas::github::{
     GithubCommentRequest, GithubCreatePrRequest, GithubReplyRequest,
 };
 
+use super::notified;
 use super::pr_edit::{self, PrEditArgs};
 use super::pr_followups;
 use super::pr_view::{self, PrViewArgs};
@@ -227,6 +228,7 @@ pub(super) async fn run_pr_create(
         None => current_git_branch()?,
     };
     let task_id = args.task.or_else(|| cfg.task_id().map(str::to_string));
+    let task_requested = task_id.is_some();
     let body = read_body(args.body, args.body_file.as_deref())?;
     let req = GithubCreatePrRequest {
         title: args.title,
@@ -271,6 +273,11 @@ pub(super) async fn run_pr_create(
         println!("{verb}: {}", resp.html_url);
         if let Some(bid) = &resp.binding_id {
             println!("Bound to task via: {bid}");
+        }
+        if task_requested {
+            for line in notified::notice(resp.binding_id.is_some(), &resp.notified_events) {
+                println!("{line}");
+            }
         }
     });
     Ok(())

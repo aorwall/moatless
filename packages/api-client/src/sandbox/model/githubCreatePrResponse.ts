@@ -17,6 +17,11 @@ export interface GithubCreatePrResponse {
      */
   bindingId?: string | null;
   htmlUrl: string;
+  /**
+     * The adapter event names (`check_run`, `pr_merged`, `post_merge`, …)
+     * whose notices reach the bound task. Empty when nothing was bound.
+     */
+  notifiedEvents?: string[];
   /** @minimum 0 */
   number: number;
   /**

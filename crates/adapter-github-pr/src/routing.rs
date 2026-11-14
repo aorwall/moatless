@@ -86,6 +86,54 @@ pub(super) fn closes_with_pr(
     (trigger_closes && created_by_trigger) || (binding.active && closes_on_subject_close(binding))
 }
 
+/// What a bound Task can be told about its pull request. Approvals and passing
+/// check suites are absent: [`FilterKey::mutes_unlooped_task`] withholds them.
+const BOUND_TASK_EVENTS: &[&str] = &[
+    "issue_comment",
+    "pull_request_review_comment",
+    "pull_request_review",
+    "check_run",
+    super::config::MERGE_CONFLICT,
+    super::config::PR_MERGED,
+    super::config::POST_MERGE,
+];
+
+/// The [`BOUND_TASK_EVENTS`] that will reach `binding`'s Task, so the agent
+/// waits for them rather than polling GitHub.
+///
+/// A Task `rule` opened hears what its loop's filters keep; a Task closing with
+/// the pull request hears nothing after the merge.
+pub(super) fn notified_events(
+    rule: Option<&SubscriptionMatch>,
+    binding: &TaskBinding,
+) -> Vec<String> {
+    if !binding.active {
+        return Vec::new();
+    }
+    let own_loop = rule
+        .filter(|rule| {
+            binding.origin == ADAPTER_EVENT_BINDING_ORIGIN
+                && binding.loop_id.as_deref() == Some(rule.id.as_str())
+        })
+        .map(GithubPrRuleConfig::from_rule);
+    let closes = match rule {
+        Some(rule) => closes_with_pr(rule, rule.close_task_on_close, binding),
+        None => closes_on_subject_close(binding),
+    };
+    BOUND_TASK_EVENTS
+        .iter()
+        .filter(|event| {
+            !(closes && [super::config::PR_MERGED, super::config::POST_MERGE].contains(event))
+        })
+        .filter(|event| {
+            !own_loop
+                .as_ref()
+                .is_some_and(|config| config.mutes(&FilterKey::new(event, "")))
+        })
+        .map(|event| (*event).to_string())
+        .collect()
+}
+
 /// The `metadata` key [`GithubPrInboundRouter::close_subject`] sets on every
 /// Binding of a closed pull request, and a `reopened` event clears.
 const PR_CLOSED_KEY: &str = "pr_closed";
@@ -1231,6 +1279,43 @@ pub(crate) mod tests {
             assert!(closes_with_pr(&rule, false, &connected));
             connected.active = false;
             assert!(!closes_with_pr(&rule, true, &connected));
+        }
+
+        /// What `moat gh pr create` reports: a connected Task hears the merge
+        /// and its post-merge pipeline unless it closes with the PR, and a
+        /// loop's own Task hears only what its filters keep.
+        #[test]
+        fn a_bound_task_is_told_which_events_reach_it() {
+            let connected = TaskBinding {
+                origin: CONNECTED_THREAD_BINDING_ORIGIN.into(),
+                loop_id: None,
+                ..binding()
+            };
+            let all = notified_events(None, &connected);
+            assert!(all.contains(&"check_run".to_string()));
+            assert!(all.contains(&"pr_merged".to_string()));
+            assert!(all.contains(&"post_merge".to_string()));
+
+            let closing = TaskBinding {
+                metadata: serde_json::json!({ "close_on_subject_close": true }),
+                ..connected.clone()
+            };
+            let heard = notified_events(Some(&rule(false)), &closing);
+            assert!(heard.contains(&"check_run".to_string()));
+            assert!(!heard.contains(&"pr_merged".to_string()));
+            assert!(!heard.contains(&"post_merge".to_string()));
+
+            let mut filtering = rule(false);
+            filtering.adapter_config =
+                Some(serde_json::json!({ "ignored_events": ["post_merge"] }));
+            assert!(!notified_events(Some(&filtering), &binding()).contains(&"post_merge".into()));
+            assert!(notified_events(Some(&filtering), &connected).contains(&"post_merge".into()));
+
+            let inactive = TaskBinding {
+                active: false,
+                ..connected
+            };
+            assert!(notified_events(None, &inactive).is_empty());
         }
 
         /// The bug this guards: a spared Task must still hear its PR closed
