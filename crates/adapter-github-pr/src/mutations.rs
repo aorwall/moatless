@@ -390,11 +390,7 @@ pub(crate) async fn record_external_event(
 ) -> Result<GithubExternalEventResponse, AdapterError> {
     ensure_task_access_only(tasks.as_ref(), &ctx, &req.task_id).await?;
 
-    let external_id = match &req.subject {
-        GithubExternalEventSubject::ReviewComment(id) => external_id::review_comment(*id),
-        GithubExternalEventSubject::Review(id) => external_id::review(*id),
-        GithubExternalEventSubject::IssueComment(id) => external_id::issue_comment(*id),
-    };
+    let external_id = subject_external_id(&req)?;
     recently_sent.note(&req.task_id, &external_id);
     let recorded = record_durable_event(
         messages.as_ref(),
@@ -411,6 +407,30 @@ pub(crate) async fn record_external_event(
         "Recorded a GitHub event the task made directly"
     );
     Ok(GithubExternalEventResponse { recorded })
+}
+
+/// The id a recorded subject is filed under; a [`GithubExternalEventSubject::Push`]
+/// uses the push watcher's [`external_id::push`] claim, so `synchronize` aliases
+/// onto it.
+fn subject_external_id(req: &GithubExternalEventRequest) -> Result<String, AdapterError> {
+    Ok(match &req.subject {
+        GithubExternalEventSubject::ReviewComment(id) => external_id::review_comment(*id),
+        GithubExternalEventSubject::Review(id) => external_id::review(*id),
+        GithubExternalEventSubject::IssueComment(id) => external_id::issue_comment(*id),
+        GithubExternalEventSubject::Push(sha) => {
+            let (owner, repo) = req
+                .source_name
+                .as_deref()
+                .and_then(|name| name.split_once('/'))
+                .filter(|(owner, repo)| !owner.is_empty() && !repo.is_empty() && !sha.is_empty())
+                .ok_or_else(|| {
+                    SharedAdapterError::BadRequest(
+                        "a push needs a sha and source_name `owner/repo`".into(),
+                    )
+                })?;
+            external_id::push(owner, repo, sha)
+        }
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -755,5 +775,21 @@ mod tests {
         let out = build_pr_body(&long_body, Some(url));
         assert!(out.len() <= MAX_COMMENT_LENGTH);
         assert!(out.contains(FOOTER_MARKER));
+    }
+
+    /// A push made through the API is filed where a `synchronize` webhook for
+    /// the same sha looks for the author; with no repository it is refused.
+    #[test]
+    fn a_recorded_push_is_filed_under_the_push_claim_synchronize_aliases() {
+        let req = |source_name: Option<&str>| GithubExternalEventRequest {
+            task_id: "t_1".into(),
+            subject: GithubExternalEventSubject::Push("be1d882".into()),
+            source_name: source_name.map(str::to_string),
+        };
+
+        let id = subject_external_id(&req(Some("acme/widgets"))).expect("a repository is named");
+        assert!(external_id::aliases("github:pr:synchronize:acme/widgets#7:be1d882").contains(&id));
+        assert!(subject_external_id(&req(None)).is_err());
+        assert!(subject_external_id(&req(Some("acme"))).is_err());
     }
 }

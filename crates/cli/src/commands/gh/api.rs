@@ -79,6 +79,11 @@ pub(super) async fn run_api(
     let (args, skip_record) = strip_no_record(args);
     let args = args.as_slice();
     let Some(created) = parse_api_creation(&args[1..]) else {
+        if let Some(write) = super::branch_write::parse(&args[1..]) {
+            if let Some(task_id) = cfg.task_id().filter(|_| !skip_record) {
+                return super::branch_write::run(client, cfg, args, gh_repo, task_id, &write).await;
+            }
+        }
         return passthrough(cfg, args, gh_repo);
     };
     let Some(task_id) = cfg.task_id().map(str::to_string) else {
@@ -196,7 +201,7 @@ fn ids_in_comment_list(body: &[u8]) -> Vec<u64> {
 /// `gh api` flags whose value is the following argument. Skipping that argument
 /// is what keeps a value spelled like a flag (`-f body=--jq`) from being read as
 /// one.
-const API_VALUE_FLAGS: &[&str] = &[
+pub(super) const API_VALUE_FLAGS: &[&str] = &[
     "-f",
     "-F",
     "--field",
@@ -217,7 +222,7 @@ const API_VALUE_FLAGS: &[&str] = &[
 ];
 
 /// The index of every argument that is a flag rather than a value one consumes.
-fn api_flag_indices(args: &[String]) -> Vec<usize> {
+pub(super) fn api_flag_indices(args: &[String]) -> Vec<usize> {
     let mut indices = Vec::new();
     let mut i = 0;
     while i < args.len() {
@@ -238,7 +243,7 @@ fn api_flag_indices(args: &[String]) -> Vec<usize> {
 ///
 /// `gh api` prints what the filter yields and nothing else, so the created id is
 /// gone before [`parse_created_id`] sees it.
-fn output_replacing_flag(args: &[String]) -> Option<String> {
+pub(super) fn output_replacing_flag(args: &[String]) -> Option<String> {
     api_flag_indices(args).into_iter().find_map(|i| {
         let arg = args[i].as_str();
         let long = arg.split('=').next().unwrap_or(arg);
@@ -293,10 +298,15 @@ fn parse_api_creation(args: &[String]) -> Option<ApiCreation> {
 }
 
 /// Whether a `gh api` argument list issues a POST.
+fn api_posts(args: &[String]) -> bool {
+    api_method(args) == "POST"
+}
+
+/// The HTTP method a `gh api` argument list sends, upper-cased.
 ///
 /// `gh api` sends GET unless the call carries a body (`-f`/`-F`/`--input`); an
 /// explicit `--method`/`-X` overrides either way.
-fn api_posts(args: &[String]) -> bool {
+pub(super) fn api_method(args: &[String]) -> String {
     let mut explicit: Option<String> = None;
     let mut has_body = false;
 
@@ -323,7 +333,7 @@ fn api_posts(args: &[String]) -> bool {
         }
     }
 
-    explicit.map_or(has_body, |method| method == "POST")
+    explicit.unwrap_or_else(|| if has_body { "POST" } else { "GET" }.to_string())
 }
 
 /// Decompose a `gh api` endpoint argument into the repository it targets and

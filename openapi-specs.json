@@ -14498,9 +14498,29 @@
                 "minimum": 0
               }
             }
+          },
+          {
+            "type": "object",
+            "description": "The commit sha a branch was moved to through the API rather than `git\npush`, such as `PATCH …/git/refs/{ref}`. Needs `source_name`.",
+            "required": [
+              "value",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "push"
+                ]
+              },
+              "value": {
+                "type": "string",
+                "description": "The commit sha a branch was moved to through the API rather than `git\npush`, such as `PATCH …/git/refs/{ref}`. Needs `source_name`."
+              }
+            }
           }
         ],
-        "description": "What a `moat` command created on GitHub outside the typed API.\n\nNamed by what was created, not by an external event id — that id format is\nthe Adapter's vocabulary. Each shape carries the numeric id GitHub returned."
+        "description": "What a `moat` command created on GitHub outside the typed API.\n\nNamed by what was created, not by an external event id — that id format is\nthe Adapter's vocabulary. Each shape carries the id or sha GitHub returned."
       },
       "GithubReplyRequest": {
         "type": "object",

@@ -10,7 +10,7 @@
  * What a `moat` command created on GitHub outside the typed API.
  *
  * Named by what was created, not by an external event id — that id format is
- * the Adapter's vocabulary. Each shape carries the numeric id GitHub returned.
+ * the Adapter's vocabulary. Each shape carries the id or sha GitHub returned.
  */
 export type GithubExternalEventSubject = {
   kind: 'reviewComment';
@@ -36,4 +36,11 @@ export type GithubExternalEventSubject = {
      * @minimum 0
      */
   value: number;
+} | {
+  kind: 'push';
+  /**
+     * The commit sha a branch was moved to through the API rather than `git
+     * push`, such as `PATCH …/git/refs/{ref}`. Needs `source_name`.
+     */
+  value: string;
 };

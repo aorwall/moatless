@@ -124,7 +124,7 @@ pub struct GithubBindPrResponse {
 /// What a `moat` command created on GitHub outside the typed API.
 ///
 /// Named by what was created, not by an external event id — that id format is
-/// the Adapter's vocabulary. Each shape carries the numeric id GitHub returned.
+/// the Adapter's vocabulary. Each shape carries the id or sha GitHub returned.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase", tag = "kind", content = "value")]
@@ -138,6 +138,9 @@ pub enum GithubExternalEventSubject {
     /// `POST repos/{owner}/{repo}/issues/{n}/comments` — a conversation comment
     /// on a pull request or an issue.
     IssueComment(u64),
+    /// The commit sha a branch was moved to through the API rather than `git
+    /// push`, such as `PATCH …/git/refs/{ref}`. Needs `source_name`.
+    Push(String),
 }
 
 /// `POST /api/v1/github/external-events` — record an event this Task made.

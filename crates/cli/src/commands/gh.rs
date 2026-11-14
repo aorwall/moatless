@@ -5,6 +5,7 @@
 //! footer on an edited body. [`dispatch`] says where each call goes.
 
 mod api;
+mod branch_write;
 mod dispatch;
 mod notified;
 mod pr_edit;
