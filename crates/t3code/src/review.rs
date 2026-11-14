@@ -63,6 +63,80 @@ pub async fn diff_preview(
     }))
 }
 
+/// The contract's `ReviewDiffFileContentsInput`, past its `cwd`. Optional
+/// throughout so a malformed request gets [`diff_file_contents`]'s typed
+/// refusal rather than a decode Die.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffFileContentsInput {
+    pub source_kind: Option<String>,
+    pub change_type: Option<String>,
+    pub base_ref: Option<String>,
+    pub old_path: Option<String>,
+    pub new_path: Option<String>,
+}
+
+/// Both sides of one file of a [`diff_preview`] source, whole
+/// (`review.getDiffFileContents`).
+///
+/// A `commit` source is refused: [`sources`] never offers one. The working
+/// tree's `baseRef` is always `HEAD`, so only the branch range sends its own.
+pub async fn diff_file_contents(
+    conversations: &dyn ConversationDao,
+    sandboxes: &dyn SandboxConnector,
+    viewer: &ScopeContext,
+    cwd: &str,
+    input: &DiffFileContentsInput,
+) -> Result<Value, WorkspaceAccessError> {
+    let refused = |detail: &str| {
+        Err(WorkspaceAccessError::Sandbox(SandboxError::BadRequest(
+            detail.to_string(),
+        )))
+    };
+    let scope = match input.source_kind.as_deref() {
+        Some("working-tree") => sandbox_proto::GitDiffScope::WorkingTree,
+        Some("branch-range") => sandbox_proto::GitDiffScope::Branch,
+        _ => return refused("Only the working tree and branch range can be expanded."),
+    };
+    let path = |path: &Option<String>| {
+        path.as_deref()
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+            .map(str::to_string)
+    };
+    let (Some(old_path), Some(new_path)) = (path(&input.old_path), path(&input.new_path)) else {
+        return refused("A file read needs an oldPath and a newPath.");
+    };
+    let change_type = input.change_type.as_deref();
+    let base_ref = match scope {
+        sandbox_proto::GitDiffScope::Branch => path(&input.base_ref),
+        _ => None,
+    };
+
+    let task_id = workspace::addressed_conversation(conversations, viewer, cwd).await?;
+    let contents = sandboxes
+        .sandbox_client(&task_id)
+        .await
+        .map_err(workspace::sandbox_access)?
+        .get_git_diff_file_contents(sandbox_proto::GetGitDiffFileContentsRequest {
+            scope: scope.into(),
+            base_ref,
+            old_path,
+            new_path,
+            added: change_type == Some("new"),
+            deleted: change_type == Some("deleted"),
+            task_id: Some(task_id.clone()),
+        })
+        .await
+        .map_err(|status| {
+            workspace::sandbox_access(classify_grpc_error(status, "get_git_diff_file_contents"))
+        })?;
+    Ok(json!({
+        "oldContents": contents.old_contents,
+        "newContents": contents.new_contents,
+    }))
+}
+
 /// The two sources the panel's scope selector switches between.
 ///
 /// Both are always present, patch or no patch — the selector reads its options

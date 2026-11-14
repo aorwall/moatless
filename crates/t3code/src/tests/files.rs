@@ -25,6 +25,16 @@ async fn a_refused_file_request_fails_with_the_method_s_own_error() {
             json!({ "cwd": "/moatless/workspaces/ws-a", "relativePath": "src/a.ts", "line": 3, "column": 7 }),
             "ProjectGoToDefinitionError",
         ),
+        (
+            "projects.searchContents",
+            json!({ "cwd": "/moatless/workspaces/ws-a", "query": "needle", "limit": 10, "caseSensitive": false, "wholeWord": false, "useRegex": false }),
+            "ProjectSearchContentsError",
+        ),
+        (
+            "projects.listEntries",
+            json!({ "cwd": "/moatless/workspaces/ws-a", "directoryPath": "src" }),
+            "ProjectListEntriesError",
+        ),
     ] {
         let mut connection = connection();
         let output = connection
@@ -39,7 +49,68 @@ async fn a_refused_file_request_fails_with_the_method_s_own_error() {
             "This conversation has no sandbox, so it has no workspace yet.",
             "a project root is the cwd a thread with no worktree sends"
         );
+        assert!(
+            exit["cause"][0]["error"].get("failure").is_none(),
+            "{tag}: a conversation with no sandbox is not one folder that failed to list"
+        );
     }
+}
+
+/// A chip's metadata is never refused: a path outside every worktree, or one
+/// naming a conversation the viewer cannot read, answers `null` in its place.
+#[tokio::test]
+async fn metadata_for_paths_nobody_can_read_is_null_in_request_order() {
+    let mut connection = connection();
+    let output = connection
+        .exchange(
+            &request(
+                "9",
+                "filesystem.getMetadata",
+                json!({ "paths": ["/etc/passwd", "/moatless/tasks/task-a/src/a.rs"] }),
+            ),
+            &state(),
+            &viewer(),
+        )
+        .await;
+    let exit = &output.frames[0]["exit"];
+    assert_eq!(exit["_tag"], "Success");
+    assert_eq!(exit["value"], json!({ "entries": [null, null] }));
+}
+
+/// The diff panel renders a `GitCommandError`'s detail, so a refused
+/// expansion arrives as one, naming the Sandbox call rather than `git`.
+#[tokio::test]
+async fn a_refused_diff_file_read_is_a_git_command_error() {
+    let mut connection = connection();
+    let output = connection
+        .exchange(
+            &request(
+                "10",
+                "review.getDiffFileContents",
+                json!({
+                    "cwd": "/moatless/tasks/task-a",
+                    "sourceKind": "commit",
+                    "changeType": "change",
+                    "baseRef": null,
+                    "headRef": "abc",
+                    "oldPath": "a.rs",
+                    "newPath": "a.rs",
+                }),
+            ),
+            &state(),
+            &viewer(),
+        )
+        .await;
+    let error = &output.frames[0]["exit"]["cause"][0]["error"];
+    assert_eq!(error["_tag"], "GitCommandError");
+    assert_eq!(error["command"], "sandbox.GetGitDiffFileContents");
+    assert!(
+        error["detail"]
+            .as_str()
+            .unwrap()
+            .contains("working tree and branch range"),
+        "{error}"
+    );
 }
 
 /// A `cwd` naming a conversation the viewer's listing does not contain is

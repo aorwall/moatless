@@ -114,6 +114,11 @@ pub(super) fn vcs_methods() -> MethodTable {
             pull_requests_thread_comments,
         )
         .detached(
+            "review.getDiffFileContents",
+            Scope::ReviewWrite,
+            review_get_diff_file_contents,
+        )
+        .detached(
             "review.getDiffPreview",
             Scope::ReviewWrite,
             review_get_diff_preview,
@@ -281,6 +286,50 @@ pub(super) async fn review_get_diff_preview(
     .await
     {
         Ok(preview) => vec![success_exit(&id, preview)],
+        Err(error) => vec![review_failure_exit(&id, tag, &cwd, &error, &identity)],
+    }
+}
+
+/// The contract's `ReviewDiffFileContentsInput`; `cwd` is optional for the
+/// reason [`VcsStatusInput`]'s is.
+#[derive(Deserialize)]
+pub(super) struct ReviewDiffFileContentsInput {
+    cwd: Option<String>,
+    #[serde(flatten)]
+    file: review::DiffFileContentsInput,
+}
+
+pub(super) async fn review_get_diff_file_contents(
+    request: Request<ReviewDiffFileContentsInput>,
+) -> Vec<Value> {
+    let Request {
+        id,
+        tag,
+        payload,
+        state,
+        identity,
+        ..
+    } = request;
+    let Some(cwd) = workspace_cwd(payload.cwd.as_deref()) else {
+        // No cwd is why this failed, so there is none to report.
+        return vec![review_failure_exit(
+            &id,
+            tag,
+            "",
+            &WorkspaceAccessError::Unaddressable,
+            &identity,
+        )];
+    };
+    match review::diff_file_contents(
+        state.reads.conversations(),
+        state.sandboxes.as_ref(),
+        &viewer_scope(&identity),
+        &cwd,
+        &payload.file,
+    )
+    .await
+    {
+        Ok(contents) => vec![success_exit(&id, contents)],
         Err(error) => vec![review_failure_exit(&id, tag, &cwd, &error, &identity)],
     }
 }

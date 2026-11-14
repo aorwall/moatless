@@ -36,6 +36,16 @@ pub(crate) fn task_id_from_cwd(cwd: &str) -> Option<&str> {
         .filter(|task_id| !task_id.is_empty() && !task_id.contains('/'))
 }
 
+/// The conversation an absolute path under its nominal worktree belongs to,
+/// and the path relative to that worktree (empty for the worktree itself).
+pub(crate) fn split_worktree_path(path: &str) -> Option<(&str, &str)> {
+    let rest = path
+        .strip_prefix(NOMINAL_WORKTREE_PREFIX)?
+        .strip_prefix('/')?;
+    let (task_id, relative) = rest.split_once('/').unwrap_or((rest, ""));
+    (!task_id.is_empty()).then_some((task_id, relative))
+}
+
 /// Whether a `cwd` is a project's root rather than a conversation's worktree.
 ///
 /// The client falls back to the project root for a thread reporting no
@@ -89,5 +99,21 @@ mod tests {
             workspace_id_from_project_root("/moatless/workspaces/"),
             None
         );
+    }
+
+    /// A file chip names an absolute path under a thread's worktree, which is
+    /// read back as the Task and the path inside it.
+    #[test]
+    fn a_path_under_a_worktree_splits_into_its_task_and_relative_path() {
+        assert_eq!(
+            split_worktree_path("/moatless/tasks/task-1/repo/src/a.rs"),
+            Some(("task-1", "repo/src/a.rs"))
+        );
+        assert_eq!(
+            split_worktree_path(&nominal_worktree("task-1")),
+            Some(("task-1", ""))
+        );
+        assert_eq!(split_worktree_path("/moatless/tasks/"), None);
+        assert_eq!(split_worktree_path("/home/me/a.rs"), None);
     }
 }

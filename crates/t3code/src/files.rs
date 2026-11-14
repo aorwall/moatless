@@ -7,11 +7,13 @@
 //! **A read is addressed from the workspace root, and a mention is not** — see
 //! [`crate::checkout::nested_match`] and [`crate::checkout::rooted_match`].
 
+use moatless_ports::sandbox::SandboxError;
 use serde_json::{Value, json};
-use tracing::warn;
+use tracing::{debug, warn};
 
-use super::checkout::{Body, Checkout, Sources};
+use super::checkout::{Body, Checkout, PathKind, PathStat, Sources};
 use super::workspace::{self, WorkspaceAccessError};
+use crate::nominal_path;
 use crate::reads::T3Reads;
 use moatless_types::access_control::ScopeContext;
 use sandbox_proto::client::{SandboxConnector, classify_grpc_error};
@@ -29,16 +31,21 @@ const MAX_ENTRIES: usize = 25_000;
 /// the whole file's size.
 const MAX_FILE_BYTES: usize = 1024 * 1024;
 
-/// One conversation's whole file tree, in the shape the contract's
-/// `projects.listEntries` returns.
+/// One conversation's file tree, in the shape the contract's
+/// `projects.listEntries` returns: one directory's children when `directory`
+/// names one, else the whole tree.
 pub async fn list_entries(
     reads: &T3Reads,
     sources: Sources<'_>,
     viewer: &ScopeContext,
     cwd: &str,
+    directory: Option<&str>,
 ) -> Result<Value, WorkspaceAccessError> {
     let conversations = reads.conversations();
     let task_id = workspace::addressed_conversation(conversations, viewer, cwd).await?;
+    if let Some(directory) = directory {
+        return list_directory(sources, &task_id, directory).await;
+    }
     // Recursive, because the contract has no second call: the client is given
     // the whole tree once and expands it locally. This is the same shape
     // Moatless's own file view fetches.
@@ -56,6 +63,44 @@ pub async fn list_entries(
     let entries: Vec<Value> = share_cap(&files, MAX_ENTRIES)
         .into_iter()
         .filter_map(entry)
+        .collect();
+    Ok(json!({ "entries": entries, "truncated": truncated }))
+}
+
+/// One directory's immediate children, gitignored ones marked `ignored`.
+async fn list_directory(
+    sources: Sources<'_>,
+    task_id: &str,
+    directory: &str,
+) -> Result<Value, WorkspaceAccessError> {
+    let directory = directory.trim_matches('/');
+    let unbrowsable = directory
+        .split('/')
+        .any(|segment| segment == ".." || segment == ".git");
+    if unbrowsable {
+        return Err(WorkspaceAccessError::Sandbox(SandboxError::BadRequest(
+            format!("{directory} is not a folder this workspace lists."),
+        )));
+    }
+    let children = Checkout::open(sources, task_id)
+        .await?
+        .children(directory)
+        .await?;
+    let truncated = children.len() > MAX_ENTRIES;
+    let entries: Vec<Value> = children
+        .into_iter()
+        .filter(|child| !child.path.is_empty())
+        .take(MAX_ENTRIES)
+        .map(|child| {
+            let mut entry = json!({
+                "path": child.path,
+                "kind": if child.is_dir { "directory" } else { "file" },
+            });
+            if child.ignored {
+                entry["ignored"] = json!(true);
+            }
+            entry
+        })
         .collect();
     Ok(json!({ "entries": entries, "truncated": truncated }))
 }
@@ -210,6 +255,144 @@ pub async fn search_entries(
     Ok(json!({ "entries": entries, "truncated": truncated }))
 }
 
+/// What `projects.searchContents` asks for, past its `cwd`.
+pub struct ContentQuery<'a> {
+    pub query: &'a str,
+    pub limit: usize,
+    pub case_sensitive: bool,
+    pub whole_word: bool,
+    pub use_regex: bool,
+}
+
+/// Lines in the conversation's files that match `query`
+/// (`projects.searchContents`).
+///
+/// Needs a running Sandbox, deliberately: the stored mirror can only be
+/// searched by downloading every file in it, so a stopped one is refused as
+/// not running rather than answered slowly.
+pub async fn search_contents(
+    reads: &T3Reads,
+    sandboxes: &dyn SandboxConnector,
+    viewer: &ScopeContext,
+    cwd: &str,
+    query: &ContentQuery<'_>,
+) -> Result<Value, WorkspaceAccessError> {
+    let conversations = reads.conversations();
+    let task_id = workspace::addressed_conversation(conversations, viewer, cwd).await?;
+    let found = sandboxes
+        .sandbox_client(&task_id)
+        .await
+        .map_err(WorkspaceAccessError::NotRunning)?
+        .search_file_contents(sandbox_proto::SearchFileContentsRequest {
+            query: query.query.to_string(),
+            case_sensitive: query.case_sensitive,
+            whole_word: query.whole_word,
+            use_regex: query.use_regex,
+            max_results: i32::try_from(query.limit).unwrap_or(i32::MAX),
+            task_id: Some(task_id.clone()),
+        })
+        .await
+        .map_err(|status| {
+            WorkspaceAccessError::Sandbox(classify_grpc_error(status, "search_file_contents"))
+        })?;
+    Ok(content_matches(found))
+}
+
+/// A Sandbox's content search in the contract's `ProjectSearchContentsResult`
+/// shape, dropping a match the contract would refuse to decode.
+fn content_matches(found: sandbox_proto::SearchFileContentsResponse) -> Value {
+    let matches: Vec<Value> = found
+        .matches
+        .into_iter()
+        .filter(|found| !found.path.trim().is_empty() && found.line_number > 0)
+        .map(|found| {
+            json!({
+                "path": found.path,
+                "lineNumber": found.line_number,
+                "lineContent": found.line_content,
+                "matchRanges": found
+                    .ranges
+                    .iter()
+                    .map(|range| json!({ "start": range.start, "end": range.end }))
+                    .collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    let mut result = json!({ "matches": matches, "truncated": found.truncated });
+    if let Some(reason) = found.regex_error {
+        result["regexFallbackError"] = json!(reason);
+    }
+    result
+}
+
+/// What each absolute path names (`filesystem.getMetadata`), `null` for one
+/// that is missing, unreadable, or not under a conversation's nominal
+/// worktree this viewer may read.
+///
+/// Never fails as a whole: the client falls back to an extension-derived
+/// icon for a `null`, which is the right answer to every refusal here.
+pub async fn file_metadata(
+    reads: &T3Reads,
+    sources: Sources<'_>,
+    viewer: &ScopeContext,
+    paths: &[String],
+) -> Value {
+    let mut entries = vec![Value::Null; paths.len()];
+    let mut by_task: Vec<(&str, Vec<(usize, String)>)> = Vec::new();
+    for (index, path) in paths.iter().enumerate() {
+        let Some((task_id, relative)) = nominal_path::split_worktree_path(path) else {
+            continue;
+        };
+        let relative = relative.trim_end_matches('/').to_string();
+        match by_task.iter_mut().find(|(task, _)| *task == task_id) {
+            Some((_, wanted)) => wanted.push((index, relative)),
+            None => by_task.push((task_id, vec![(index, relative)])),
+        }
+    }
+    for (task_id, wanted) in by_task {
+        let cwd = nominal_path::nominal_worktree(task_id);
+        let Ok(task_id) =
+            workspace::addressed_conversation(reads.conversations(), viewer, &cwd).await
+        else {
+            continue;
+        };
+        let relatives: Vec<String> = wanted.iter().map(|(_, path)| path.clone()).collect();
+        let stats = match Checkout::open(sources, &task_id).await {
+            Ok(checkout) => checkout.stat(&relatives).await,
+            Err(error) => Err(error),
+        };
+        let stats = match stats {
+            Ok(stats) => stats,
+            Err(error) => {
+                debug!(?error, %task_id, "No file metadata for a conversation's paths");
+                continue;
+            }
+        };
+        for ((index, _), stat) in wanted.iter().zip(stats) {
+            entries[*index] = stat.map_or(Value::Null, metadata_entry);
+        }
+    }
+    json!({ "entries": entries })
+}
+
+/// One `FilesystemEntryMetadata`; absent keys stay absent, as `optionalKey`
+/// requires.
+fn metadata_entry(stat: PathStat) -> Value {
+    let kind = match stat.kind {
+        PathKind::File => "file",
+        PathKind::Directory => "directory",
+        PathKind::Other => "other",
+    };
+    let mut entry = json!({ "kind": kind });
+    if let Some(size) = stat.size {
+        entry["byteLength"] = json!(size);
+    }
+    if let Some(media_type) = stat.media_type.filter(|media| !media.trim().is_empty()) {
+        entry["mimeType"] = json!(media_type);
+    }
+    entry
+}
+
 /// A file written into the conversation's worktree (`projects.writeFile`).
 ///
 /// Gated by [`workspace::written_conversation`], not `addressed_`; never
@@ -349,6 +532,64 @@ fn truncate_on_char_boundary(contents: &str, max_bytes: usize) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The contract decodes `matchRanges` as UTF-16 offsets and refuses a
+    /// blank path or a zero line, so those never reach it.
+    #[test]
+    fn a_sandbox_content_search_becomes_the_contract_result() {
+        let found = sandbox_proto::SearchFileContentsResponse {
+            matches: vec![
+                sandbox_proto::FileContentMatch {
+                    path: "repo/a.rs".into(),
+                    line_number: 2,
+                    line_content: "let needle = 1;".into(),
+                    ranges: vec![sandbox_proto::ContentMatchRange { start: 4, end: 10 }],
+                },
+                sandbox_proto::FileContentMatch {
+                    path: " ".into(),
+                    line_number: 1,
+                    line_content: String::new(),
+                    ranges: Vec::new(),
+                },
+            ],
+            truncated: true,
+            regex_error: Some("unclosed group".into()),
+        };
+        assert_eq!(
+            content_matches(found),
+            json!({
+                "matches": [{
+                    "path": "repo/a.rs",
+                    "lineNumber": 2,
+                    "lineContent": "let needle = 1;",
+                    "matchRanges": [{ "start": 4, "end": 10 }],
+                }],
+                "truncated": true,
+                "regexFallbackError": "unclosed group",
+            })
+        );
+    }
+
+    /// `byteLength` and `mimeType` are `optionalKey`: absent, never `null`.
+    #[test]
+    fn metadata_omits_what_it_does_not_know() {
+        assert_eq!(
+            metadata_entry(PathStat {
+                kind: PathKind::Directory,
+                size: None,
+                media_type: None,
+            }),
+            json!({ "kind": "directory" })
+        );
+        assert_eq!(
+            metadata_entry(PathStat {
+                kind: PathKind::File,
+                size: Some(3),
+                media_type: Some("image/png".into()),
+            }),
+            json!({ "kind": "file", "byteLength": 3, "mimeType": "image/png" })
+        );
+    }
 
     #[test]
     fn a_trailing_slash_is_the_whole_of_the_file_directory_distinction() {

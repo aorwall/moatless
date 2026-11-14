@@ -90,6 +90,40 @@ pub async fn read_file(workspace_dir: &str, path: &str) -> Result<ReadResult, Fi
     }
 }
 
+/// What one workspace path is, as [`stat`] finds it.
+#[derive(Debug, PartialEq, Eq)]
+pub enum PathStat {
+    /// Missing, outside the workspace, or unreadable.
+    Missing,
+    File {
+        size: u64,
+        media_type: Option<String>,
+    },
+    Directory,
+    Other,
+}
+
+/// What each workspace-relative path is, in the order given.
+pub async fn stat(workspace_dir: &str, paths: &[String]) -> Vec<PathStat> {
+    let mut stats = Vec::with_capacity(paths.len());
+    for path in paths {
+        let Ok(full_path) = validate_path(workspace_dir, path) else {
+            stats.push(PathStat::Missing);
+            continue;
+        };
+        stats.push(match fs::metadata(&full_path).await {
+            Ok(metadata) if metadata.is_file() => PathStat::File {
+                size: metadata.len(),
+                media_type: media_type_from_extension(path),
+            },
+            Ok(metadata) if metadata.is_dir() => PathStat::Directory,
+            Ok(_) => PathStat::Other,
+            Err(_) => PathStat::Missing,
+        });
+    }
+    stats
+}
+
 /// Write content to a file in the workspace.
 ///
 /// Creates parent directories if they don't exist.
@@ -154,6 +188,38 @@ pub async fn read_file_with_changes(
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    /// A path that escapes the workspace is answered like a missing one, so
+    /// the answer says nothing about what lies outside it.
+    #[tokio::test]
+    async fn stat_answers_every_path_in_order() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("logo.png"), [1, 2, 3]).unwrap();
+        std::fs::create_dir(tmp.path().join("src")).unwrap();
+
+        let stats = stat(
+            tmp.path().to_str().unwrap(),
+            &[
+                "src".into(),
+                "logo.png".into(),
+                "gone.txt".into(),
+                "../etc/passwd".into(),
+            ],
+        )
+        .await;
+        assert_eq!(
+            stats,
+            vec![
+                PathStat::Directory,
+                PathStat::File {
+                    size: 3,
+                    media_type: Some("image/png".into())
+                },
+                PathStat::Missing,
+                PathStat::Missing,
+            ]
+        );
+    }
 
     #[tokio::test]
     async fn read_existing_file() {

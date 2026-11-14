@@ -1,5 +1,6 @@
 //! Filesystem and search RPCs served over gRPC.
 
+pub mod content_search;
 pub mod git;
 pub mod read_write;
 pub mod review;

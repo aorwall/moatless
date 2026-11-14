@@ -656,6 +656,57 @@ impl SandboxClient {
         }
     }
 
+    /// Lines matching a content query. The sandbox stops its own search at
+    /// its deadline and answers truncated, so this one only covers transport.
+    pub async fn search_file_contents(
+        &self,
+        request: crate::SearchFileContentsRequest,
+    ) -> Result<crate::SearchFileContentsResponse, tonic::Status> {
+        let mut client = self.client.clone();
+        match tokio::time::timeout(
+            Duration::from_secs(30),
+            client.search_file_contents(request),
+        )
+        .await
+        {
+            Ok(result) => result.map(tonic::Response::into_inner),
+            Err(_) => Err(tonic::Status::deadline_exceeded(
+                "Search file contents gRPC request timed out",
+            )),
+        }
+    }
+
+    pub async fn stat_files(
+        &self,
+        request: crate::StatFilesRequest,
+    ) -> Result<crate::StatFilesResponse, tonic::Status> {
+        let mut client = self.client.clone();
+        match tokio::time::timeout(SHORT_RPC_TIMEOUT, client.stat_files(request)).await {
+            Ok(result) => result.map(tonic::Response::into_inner),
+            Err(_) => Err(tonic::Status::deadline_exceeded(
+                "Stat files gRPC request timed out",
+            )),
+        }
+    }
+
+    pub async fn get_git_diff_file_contents(
+        &self,
+        request: crate::GetGitDiffFileContentsRequest,
+    ) -> Result<crate::GetGitDiffFileContentsResponse, tonic::Status> {
+        let mut client = self.client.clone();
+        match tokio::time::timeout(
+            Duration::from_secs(30),
+            client.get_git_diff_file_contents(request),
+        )
+        .await
+        {
+            Ok(result) => result.map(tonic::Response::into_inner),
+            Err(_) => Err(tonic::Status::deadline_exceeded(
+                "Git diff file contents gRPC request timed out",
+            )),
+        }
+    }
+
     /// Both review diff scopes of the sandbox workspace.
     ///
     /// Given a longer deadline than other file calls: a patch is the whole

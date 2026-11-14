@@ -13,6 +13,7 @@ use crate::projection;
 use crate::rpc::envelope::failure_exit;
 use crate::rpc::envelope::success_exit;
 use crate::rpc::envelope::typed_failure_exit;
+use crate::rpc::errors::directory_failure_exit;
 use crate::rpc::errors::file_failure_exit;
 use crate::rpc::metrics as rpc_metrics;
 use crate::rpc::session::SEARCH_ENTRIES_LIMIT;
@@ -43,6 +44,11 @@ pub(super) fn project_methods() -> MethodTable {
             Scope::OrchestrationOperate,
             attachments_delete,
         )
+        .detached(
+            "filesystem.getMetadata",
+            Scope::OrchestrationRead,
+            filesystem_get_metadata,
+        )
         .declared("projects.add", Scope::OrchestrationOperate)
         .detached(
             "projects.goToDefinition",
@@ -66,6 +72,11 @@ pub(super) fn project_methods() -> MethodTable {
         )
         .declared("projects.remove", Scope::OrchestrationOperate)
         .detached(
+            "projects.searchContents",
+            Scope::OrchestrationRead,
+            projects_search_contents,
+        )
+        .detached(
             "projects.searchEntries",
             Scope::OrchestrationRead,
             projects_search_entries,
@@ -83,8 +94,32 @@ pub(super) fn project_methods() -> MethodTable {
 /// request missing one gets the typed refusal `file_failure_exit` gives
 /// [`WorkspaceAccessError::Unaddressable`] rather than a decode Die.
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) struct ProjectListEntriesInput {
     cwd: Option<String>,
+    directory_path: Option<String>,
+}
+
+/// The contract's `ProjectSearchContentsInput`.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ProjectSearchContentsInput {
+    cwd: Option<String>,
+    query: Option<String>,
+    limit: Option<u64>,
+    #[serde(default)]
+    case_sensitive: bool,
+    #[serde(default)]
+    whole_word: bool,
+    #[serde(default)]
+    use_regex: bool,
+}
+
+/// The contract's `FilesystemGetMetadataInput`.
+#[derive(Deserialize)]
+pub(super) struct FilesystemGetMetadataInput {
+    #[serde(default)]
+    paths: Vec<String>,
 }
 
 /// The contract's `ProjectGoToDefinitionInput`.
@@ -131,6 +166,14 @@ pub(super) struct AssetCreateUrlInput {
     resource: Value,
 }
 
+/// How many content matches one search answers when the client does not say,
+/// and the contract's `PROJECT_SEARCH_CONTENTS_MAX_LIMIT`.
+const SEARCH_CONTENTS_LIMIT: usize = 100;
+const SEARCH_CONTENTS_MAX: usize = 500;
+
+/// The contract's `FILESYSTEM_METADATA_BATCH_LIMIT`.
+const FILESYSTEM_METADATA_BATCH_LIMIT: usize = 64;
+
 /// `relative_path` trimmed, or `None` when that leaves nothing.
 fn relative_path(relative_path: Option<&str>) -> Option<&str> {
     relative_path.map(str::trim).filter(|path| !path.is_empty())
@@ -153,17 +196,94 @@ pub(super) async fn projects_list_entries(request: Request<ProjectListEntriesInp
             &identity,
         )];
     };
+    let directory = payload.directory_path.as_deref().map(str::trim);
     match files::list_entries(
         &state.reads,
         state.file_sources(),
         &viewer_scope(&identity),
         &cwd,
+        directory,
     )
     .await
     {
         Ok(listing) => vec![success_exit(&id, listing)],
+        Err(error) if directory.is_some() => {
+            vec![directory_failure_exit(&id, tag, &error, &identity)]
+        }
         Err(error) => vec![file_failure_exit(&id, tag, &error, &identity)],
     }
+}
+
+/// Answered only from a running Sandbox; see [`files::search_contents`].
+pub(super) async fn projects_search_contents(
+    request: Request<ProjectSearchContentsInput>,
+) -> Vec<Value> {
+    let Request {
+        id,
+        tag,
+        payload,
+        state,
+        identity,
+        ..
+    } = request;
+    // Untrimmed: whitespace in a content query is part of what is searched.
+    let query = payload.query.as_deref().filter(|query| !query.is_empty());
+    let (Some(cwd), Some(query)) = (workspace_cwd(payload.cwd.as_deref()), query) else {
+        return vec![file_failure_exit(
+            &id,
+            tag,
+            &WorkspaceAccessError::Unaddressable,
+            &identity,
+        )];
+    };
+    let limit = payload.limit.map_or(SEARCH_CONTENTS_LIMIT, |limit| {
+        usize::try_from(limit).map_or(SEARCH_CONTENTS_MAX, |limit| limit.min(SEARCH_CONTENTS_MAX))
+    });
+    let query = files::ContentQuery {
+        query,
+        limit,
+        case_sensitive: payload.case_sensitive,
+        whole_word: payload.whole_word,
+        use_regex: payload.use_regex,
+    };
+    match files::search_contents(
+        &state.reads,
+        state.sandboxes.as_ref(),
+        &viewer_scope(&identity),
+        &cwd,
+        &query,
+    )
+    .await
+    {
+        Ok(found) => vec![success_exit(&id, found)],
+        Err(error) => vec![file_failure_exit(&id, tag, &error, &identity)],
+    }
+}
+
+/// Never refused: every path the viewer may not see answers `null`.
+pub(super) async fn filesystem_get_metadata(
+    request: Request<FilesystemGetMetadataInput>,
+) -> Vec<Value> {
+    let Request {
+        id,
+        payload,
+        state,
+        identity,
+        ..
+    } = request;
+    let paths: Vec<String> = payload
+        .paths
+        .into_iter()
+        .take(FILESYSTEM_METADATA_BATCH_LIMIT)
+        .collect();
+    let metadata = files::file_metadata(
+        &state.reads,
+        state.file_sources(),
+        &viewer_scope(&identity),
+        &paths,
+    )
+    .await;
+    vec![success_exit(&id, metadata)]
 }
 
 pub(super) async fn projects_go_to_definition(

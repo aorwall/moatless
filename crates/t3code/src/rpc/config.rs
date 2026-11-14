@@ -17,7 +17,6 @@ use serde_json::json;
 const UNSUPPORTED_SURFACES: &[&str] = &[
     "turnDiffs",
     "projectManagement",
-    "workspaceSearchContents",
     "openInEditor",
     "serverAdministration",
     "providerConfiguration",

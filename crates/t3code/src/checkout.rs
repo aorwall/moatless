@@ -7,7 +7,9 @@
 //! [`crate::files::write_file`] takes the connector on its own.
 
 use base64::Engine;
-use moatless_ports::sandbox::{SandboxError, SnapshotError, WorkspaceSnapshotSource};
+use moatless_ports::sandbox::{
+    SandboxError, SnapshotEntry, SnapshotError, WorkspaceSnapshotSource,
+};
 use moatless_sandbox_runtime::workspace_copy::{self, OpenError, WorkspaceCopy};
 use sandbox_proto::client::{SandboxConnector, classify_grpc_error};
 use tracing::warn;
@@ -32,6 +34,40 @@ pub struct Sources<'a> {
 pub(crate) struct Checkout<'a> {
     task_id: String,
     backing: WorkspaceCopy<'a>,
+}
+
+/// One entry of [`Checkout::children`], at its workspace-relative path.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Child {
+    pub path: String,
+    pub is_dir: bool,
+    /// A repository's ignore rules exclude it.
+    pub ignored: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PathKind {
+    File,
+    Directory,
+    Other,
+}
+
+/// What [`Checkout::stat`] found at a path. The mirror stores no media type.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct PathStat {
+    pub kind: PathKind,
+    pub size: Option<u64>,
+    pub media_type: Option<String>,
+}
+
+impl PathStat {
+    fn directory() -> Self {
+        Self {
+            kind: PathKind::Directory,
+            size: None,
+            media_type: None,
+        }
+    }
 }
 
 /// One file, as either backing returned it.
@@ -111,6 +147,139 @@ impl<'a> Checkout<'a> {
                         }
                     })
                     .collect())
+            }
+        }
+    }
+
+    /// The immediate children of the workspace-relative `directory`, the
+    /// workspace root when empty.
+    ///
+    /// Ignored entries are kept and marked: the live walk is listed with and
+    /// without the ignore rules. The mirror stored only the non-ignored set,
+    /// so from it nothing is marked.
+    pub(crate) async fn children(
+        &self,
+        directory: &str,
+    ) -> Result<Vec<Child>, WorkspaceAccessError> {
+        let directory = if directory.is_empty() { "." } else { directory };
+        match &self.backing {
+            WorkspaceCopy::Live(client) => {
+                let task_id = Some(self.task_id.as_str());
+                let (all, kept) = tokio::join!(
+                    client.list_files_for_task(task_id, directory, false, false),
+                    client.list_files_for_task(task_id, directory, false, true),
+                );
+                let all = all.map_err(|status| sandbox_failed(status, "list_files"))?;
+                let kept: std::collections::HashSet<String> = kept
+                    .map_err(|status| sandbox_failed(status, "list_files"))?
+                    .into_iter()
+                    .collect();
+                Ok(all
+                    .into_iter()
+                    .map(|path| Child {
+                        ignored: !kept.contains(&path),
+                        is_dir: path.ends_with('/'),
+                        path: path.trim_end_matches('/').to_string(),
+                    })
+                    .collect())
+            }
+            WorkspaceCopy::Stored {
+                source,
+                unreachable,
+            } => {
+                let listing = source
+                    .list(&self.task_id, directory, false)
+                    .await
+                    .map_err(|error| self.stored_failed(error, directory, unreachable))?;
+                Ok(listing
+                    .entries
+                    .into_iter()
+                    .map(|entry| Child {
+                        path: entry.path,
+                        is_dir: entry.is_dir,
+                        ignored: false,
+                    })
+                    .collect())
+            }
+        }
+    }
+
+    /// What each workspace-relative path is, in the order given; `None` for one
+    /// that is not there.
+    pub(crate) async fn stat(
+        &self,
+        paths: &[String],
+    ) -> Result<Vec<Option<PathStat>>, WorkspaceAccessError> {
+        match &self.backing {
+            WorkspaceCopy::Live(client) => {
+                let response = client
+                    .stat_files(sandbox_proto::StatFilesRequest {
+                        paths: paths.to_vec(),
+                        task_id: Some(self.task_id.clone()),
+                    })
+                    .await
+                    .map_err(|status| sandbox_failed(status, "stat_files"))?;
+                Ok(response
+                    .entries
+                    .into_iter()
+                    .map(|stat| {
+                        let kind = match sandbox_proto::FileStatKind::try_from(stat.kind).ok()? {
+                            sandbox_proto::FileStatKind::File => PathKind::File,
+                            sandbox_proto::FileStatKind::Directory => PathKind::Directory,
+                            sandbox_proto::FileStatKind::Other => PathKind::Other,
+                            sandbox_proto::FileStatKind::Unspecified => return None,
+                        };
+                        Some(PathStat {
+                            kind,
+                            size: stat.size,
+                            media_type: stat.media_type,
+                        })
+                    })
+                    .collect())
+            }
+            // The mirror has no stat; each path's parent is listed instead, once
+            // per distinct parent.
+            WorkspaceCopy::Stored {
+                source,
+                unreachable,
+            } => {
+                let mut parents: std::collections::HashMap<&str, Vec<SnapshotEntry>> =
+                    std::collections::HashMap::new();
+                let mut stats = Vec::with_capacity(paths.len());
+                for path in paths {
+                    if path.is_empty() {
+                        stats.push(Some(PathStat::directory()));
+                        continue;
+                    }
+                    let parent = path.rsplit_once('/').map_or(".", |(parent, _)| parent);
+                    if !parents.contains_key(parent) {
+                        let entries = match source.list(&self.task_id, parent, false).await {
+                            Ok(listing) => listing.entries,
+                            Err(SnapshotError::NotFound) => Vec::new(),
+                            Err(error) => {
+                                return Err(self.stored_failed(error, parent, unreachable));
+                            }
+                        };
+                        parents.insert(parent, entries);
+                    }
+                    stats.push(
+                        parents[parent]
+                            .iter()
+                            .find(|entry| &entry.path == path)
+                            .map(|entry| {
+                                if entry.is_dir {
+                                    PathStat::directory()
+                                } else {
+                                    PathStat {
+                                        kind: PathKind::File,
+                                        size: Some(entry.size),
+                                        media_type: None,
+                                    }
+                                }
+                            }),
+                    );
+                }
+                Ok(stats)
             }
         }
     }
@@ -378,6 +547,76 @@ mod tests {
         assert_eq!(
             stored(source).await.listing().await.unwrap(),
             vec!["repo/".to_string(), "repo/main.rs".to_string()]
+        );
+    }
+
+    /// The mirror stored only what the ignore rules keep, so a stopped Task's
+    /// folder lists without marking anything ignored.
+    #[tokio::test]
+    async fn a_stored_folder_lists_its_children_unmarked() {
+        let mut source = MockWorkspaceSnapshotSource::new();
+        source
+            .expect_list()
+            .withf(|_, path, recursive| path == "repo" && !*recursive)
+            .returning(|_, _, _| Ok(listing(&[("repo/src", true), ("repo/a.rs", false)])));
+
+        assert_eq!(
+            stored(source).await.children("repo").await.unwrap(),
+            vec![
+                Child {
+                    path: "repo/src".into(),
+                    is_dir: true,
+                    ignored: false
+                },
+                Child {
+                    path: "repo/a.rs".into(),
+                    is_dir: false,
+                    ignored: false
+                },
+            ]
+        );
+    }
+
+    /// Each parent is listed once however many of its children are asked
+    /// about, and a path the parent does not hold is `None`.
+    #[tokio::test]
+    async fn a_stored_stat_lists_each_parent_once() {
+        let mut source = MockWorkspaceSnapshotSource::new();
+        source
+            .expect_list()
+            .withf(|_, path, _| path == "repo")
+            .times(1)
+            .returning(|_, _, _| Ok(listing(&[("repo/src", true), ("repo/a.rs", false)])));
+        source
+            .expect_list()
+            .withf(|_, path, _| path == ".")
+            .times(1)
+            .returning(|_, _, _| Ok(listing(&[("repo", true)])));
+
+        let stats = stored(source)
+            .await
+            .stat(&[
+                "repo/a.rs".into(),
+                "repo/src".into(),
+                "repo/gone.rs".into(),
+                "repo".into(),
+                String::new(),
+            ])
+            .await
+            .unwrap();
+        assert_eq!(
+            stats,
+            vec![
+                Some(PathStat {
+                    kind: PathKind::File,
+                    size: Some(4),
+                    media_type: None
+                }),
+                Some(PathStat::directory()),
+                None,
+                Some(PathStat::directory()),
+                Some(PathStat::directory()),
+            ]
         );
     }
 

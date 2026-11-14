@@ -657,6 +657,12 @@ service SandboxService {
   rpc WriteFile(WriteFileRequest) returns (WriteFileResponse);
   rpc ListFiles(ListFilesRequest) returns (ListFilesResponse);
   rpc SearchFilesByName(SearchFilesByNameRequest) returns (SearchFilesByNameResponse);
+  // Lines matching a query, found by ripgrep under each repository's ignore
+  // rules. FAILED_PRECONDITION when ripgrep is not installed.
+  rpc SearchFileContents(SearchFileContentsRequest) returns (SearchFileContentsResponse);
+  // What each workspace path is, in request order; a missing one is answered,
+  // not refused.
+  rpc StatFiles(StatFilesRequest) returns (StatFilesResponse);
   // Where the symbol at a position is defined, answered by a language server
   // the sandbox starts from the Workspace's `languageServers`.
   // FAILED_PRECONDITION when no configured server handles the file.
@@ -667,6 +673,9 @@ service SandboxService {
   rpc GetGitDiffPreview(GetGitDiffPreviewRequest) returns (GetGitDiffPreviewResponse);
   rpc GetGitStatus(GetGitStatusRequest) returns (GetGitStatusResponse);
   rpc ListGitRefs(ListGitRefsRequest) returns (ListGitRefsResponse);
+  // Both sides of one file of a GetGitDiffPreview scope, whole. FAILED_PRECONDITION
+  // for a binary or oversized side, or a branch scope with no base to read from.
+  rpc GetGitDiffFileContents(GetGitDiffFileContentsRequest) returns (GetGitDiffFileContentsResponse);
 
   // Interactive terminal sessions. The sandbox owns the process because the
   // checkout and credentials live there; callers address sessions by the T3
@@ -1193,6 +1202,65 @@ message FileNameMatch {
   int32 matches = 2;
 }
 
+message SearchFileContentsRequest {
+  // Searched as written; whitespace is significant.
+  string query = 1;
+  bool case_sensitive = 2;
+  bool whole_word = 3;
+  // Off: `query` is a literal string.
+  bool use_regex = 4;
+  int32 max_results = 5;  // 0 = default (100)
+  optional string task_id = 6;
+}
+
+message SearchFileContentsResponse {
+  repeated FileContentMatch matches = 1;
+  // More matched than `matches` carries, or the search stopped at its deadline.
+  bool truncated = 2;
+  // Why `query` is not a valid pattern; set only when `use_regex` was asked for,
+  // and the search then ran it as a literal.
+  optional string regex_error = 3;
+}
+
+message FileContentMatch {
+  string path = 1;  // workspace-relative
+  uint32 line_number = 2;  // 1-based
+  // The line without its terminator, cut to a bounded length.
+  string line_content = 3;
+  repeated ContentMatchRange ranges = 4;
+}
+
+// UTF-16 code-unit offsets into `line_content`, end exclusive.
+message ContentMatchRange {
+  uint32 start = 1;
+  uint32 end = 2;
+}
+
+message StatFilesRequest {
+  repeated string paths = 1;  // workspace-relative
+  optional string task_id = 2;
+}
+
+message StatFilesResponse {
+  // One per requested path, in request order.
+  repeated FileStat entries = 1;
+}
+
+enum FileStatKind {
+  // Missing, outside the workspace, or unreadable.
+  FILE_STAT_KIND_UNSPECIFIED = 0;
+  FILE_STAT_KIND_FILE = 1;
+  FILE_STAT_KIND_DIRECTORY = 2;
+  FILE_STAT_KIND_OTHER = 3;
+}
+
+message FileStat {
+  FileStatKind kind = 1;
+  // Set for a file.
+  optional uint64 size = 2;
+  optional string media_type = 3;
+}
+
 // ── Git review ───────────────────────────────────────────────────
 //
 // Two scopes a reviewer reads: what is not committed yet, and what this branch
@@ -1202,6 +1270,34 @@ message FileNameMatch {
 //
 // Branch state and refs are per-repository namespaces — one HEAD, one set of
 // branch names — so they answer for the primary repository alone.
+
+// The two scopes GetGitDiffPreview returns.
+enum GitDiffScope {
+  GIT_DIFF_SCOPE_UNSPECIFIED = 0;
+  // HEAD against the working tree.
+  GIT_DIFF_SCOPE_WORKING_TREE = 1;
+  // The merge base with the repository's base against HEAD.
+  GIT_DIFF_SCOPE_BRANCH = 2;
+}
+
+message GetGitDiffFileContentsRequest {
+  GitDiffScope scope = 1;
+  // As GetGitDiffPreviewRequest's; read only for the branch scope.
+  optional string base_ref = 2;
+  // Workspace-relative, as the patch names them.
+  string old_path = 3;
+  string new_path = 4;
+  // The file is new, so it has no old side; read as empty.
+  bool added = 5;
+  // The file is gone, so it has no new side; read as empty.
+  bool deleted = 6;
+  optional string task_id = 7;
+}
+
+message GetGitDiffFileContentsResponse {
+  string old_contents = 1;
+  string new_contents = 2;
+}
 
 message GetGitDiffPreviewRequest {
   // Diff against this ref instead of each repository's detected base. A

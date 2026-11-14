@@ -689,6 +689,190 @@ async fn quiet(dir: &str, args: &[&str], timeout_secs: u64) -> String {
     }
 }
 
+// ─── One file behind a patch ─────────────────────────────────────
+
+/// The most one side of [`diff_file_contents`] carries, matching the reference
+/// server's expansion limit.
+const DIFF_FILE_MAX_BYTES: usize = 1024 * 1024;
+
+/// The [`DiffPreview`] scope a file was named by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiffScope {
+    WorkingTree,
+    Branch,
+}
+
+/// One file of a [`DiffPreview`] scope, at the workspace-relative paths its
+/// patch names. `added` and `deleted` say which side the patch has none of.
+#[derive(Debug)]
+pub struct DiffFileRequest<'a> {
+    pub scope: DiffScope,
+    pub base_ref: Option<&'a str>,
+    pub old_path: &'a str,
+    pub new_path: &'a str,
+    pub added: bool,
+    pub deleted: bool,
+}
+
+/// Why [`diff_file_contents`] has no contents to give.
+#[derive(Debug, thiserror::Error)]
+pub enum DiffFileError {
+    #[error("{0}")]
+    NotFound(String),
+    /// The request is understood and has no text answer: a binary or
+    /// oversized side, a path outside every repository, no base to read from.
+    #[error("{0}")]
+    Refused(String),
+    #[error("{0}")]
+    Git(String),
+}
+
+/// Both sides of one file in `request.scope`, whole.
+///
+/// The ends are the ones [`diff_preview`] took that scope's patch between:
+/// HEAD and the file on disk, or the merge base with the resolved base and
+/// HEAD. A side the patch has none of reads as empty.
+pub async fn diff_file_contents(
+    workspace_dir: &str,
+    request: &DiffFileRequest<'_>,
+) -> Result<(String, String), DiffFileError> {
+    let repos = git::discover_git_repos(workspace_dir).await;
+    let named = if request.deleted {
+        request.old_path
+    } else {
+        request.new_path
+    };
+    let repo = repo_holding(&repos, named).ok_or_else(|| {
+        DiffFileError::Refused(format!(
+            "{named} is not inside a repository in this workspace."
+        ))
+    })?;
+    let old_revision = match request.scope {
+        DiffScope::WorkingTree => "HEAD".to_string(),
+        DiffScope::Branch => branch_merge_base(repo, request.base_ref).await?,
+    };
+    let old = if request.added {
+        String::new()
+    } else {
+        blob_at(repo, &old_revision, request.old_path).await?
+    };
+    let new = match (request.deleted, request.scope) {
+        (true, _) => String::new(),
+        (false, DiffScope::WorkingTree) => on_disk(workspace_dir, request.new_path).await?,
+        (false, DiffScope::Branch) => blob_at(repo, "HEAD", request.new_path).await?,
+    };
+    Ok((old, new))
+}
+
+/// The repository whose directory holds the workspace-relative `path`, the
+/// deepest one when they nest.
+fn repo_holding<'r>(repos: &'r [GitRepo], path: &str) -> Option<&'r GitRepo> {
+    repos
+        .iter()
+        .filter(|repo| in_repo(repo, path).is_some())
+        .max_by_key(|repo| repo.prefix.len())
+}
+
+/// `path` relative to `repo`'s root, if it lies inside it.
+fn in_repo<'p>(repo: &GitRepo, path: &'p str) -> Option<&'p str> {
+    if repo.prefix.is_empty() {
+        return Some(path);
+    }
+    path.strip_prefix(repo.prefix.as_str())?.strip_prefix('/')
+}
+
+/// Where the branch scope's patch starts for `repo`: the merge base of HEAD
+/// with `base_ref`, or with the base [`detect_base_ref`] picks without one.
+async fn branch_merge_base(
+    repo: &GitRepo,
+    base_ref: Option<&str>,
+) -> Result<String, DiffFileError> {
+    let base = if let Some(requested) = base_ref {
+        verified_ref(&repo.abs_path, requested).await
+    } else {
+        let head_ref = current_branch(&repo.abs_path).await;
+        detect_base_ref(&repo.abs_path, head_ref.as_deref()).await
+    }
+    .ok_or_else(|| {
+        DiffFileError::Refused("This repository has no base branch to compare against.".into())
+    })?;
+    let merge_base = quiet(
+        &repo.abs_path,
+        &["merge-base", &base, "HEAD"],
+        METADATA_TIMEOUT_SECS,
+    )
+    .await
+    .trim()
+    .to_string();
+    if merge_base.is_empty() {
+        return Err(DiffFileError::Refused(format!(
+            "This branch shares no history with {base}."
+        )));
+    }
+    Ok(merge_base)
+}
+
+/// The text of the workspace-relative `path` as `revision` of `repo` holds it.
+async fn blob_at(repo: &GitRepo, revision: &str, path: &str) -> Result<String, DiffFileError> {
+    let Some(relative) =
+        in_repo(repo, path).filter(|relative| !relative.split('/').any(|segment| segment == ".."))
+    else {
+        return Err(DiffFileError::Refused(format!(
+            "{path} is not inside the repository it was diffed in."
+        )));
+    };
+    let object = format!("{revision}:{relative}");
+    let output = capture(
+        &repo.abs_path,
+        &["cat-file", "blob", &object],
+        DIFF_TIMEOUT_SECS,
+    )
+    .await
+    .map_err(|error| DiffFileError::Git(error.to_string()))?;
+    if !output.succeeded() {
+        // `cat-file` exits 128 for a path the revision does not hold, and that
+        // is the one failure a person can act on.
+        return Err(DiffFileError::NotFound(format!("{path} at {revision}")));
+    }
+    expandable(path, output.stdout.into_bytes())
+}
+
+/// The text of the workspace-relative `path` in the working tree.
+async fn on_disk(workspace_dir: &str, path: &str) -> Result<String, DiffFileError> {
+    let full_path = super::validate_path(workspace_dir, path)
+        .map_err(|error| DiffFileError::Refused(error.to_string()))?;
+    let metadata = tokio::fs::metadata(&full_path)
+        .await
+        .map_err(|_| DiffFileError::NotFound(path.to_string()))?;
+    if !metadata.is_file() {
+        return Err(DiffFileError::Refused(format!("{path} is not a file.")));
+    }
+    if metadata.len() > DIFF_FILE_MAX_BYTES as u64 {
+        return Err(too_large(path));
+    }
+    let bytes = tokio::fs::read(&full_path)
+        .await
+        .map_err(|error| DiffFileError::Git(format!("Could not read {path}: {error}")))?;
+    expandable(path, bytes)
+}
+
+/// `bytes` as text, or the refusal a binary or oversized side gets.
+fn expandable(path: &str, bytes: Vec<u8>) -> Result<String, DiffFileError> {
+    if bytes.len() > DIFF_FILE_MAX_BYTES {
+        return Err(too_large(path));
+    }
+    if bytes.contains(&0) {
+        return Err(DiffFileError::Refused(format!(
+            "Cannot expand binary file {path}."
+        )));
+    }
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+fn too_large(path: &str) -> DiffFileError {
+    DiffFileError::Refused(format!("{path} exceeds the 1 MB expansion limit."))
+}
+
 // ─── Patch assembly ──────────────────────────────────────────────
 
 /// A patch under construction, and the byte budget it stops at.
@@ -947,6 +1131,115 @@ mod tests {
                 !preview.branch.diff.contains("untracked.txt"),
                 "branch scope carries only what is committed: {}",
                 preview.branch.diff
+            );
+        }
+
+        fn file_request(scope: DiffScope, path: &str) -> DiffFileRequest<'_> {
+            DiffFileRequest {
+                scope,
+                base_ref: None,
+                old_path: path,
+                new_path: path,
+                added: false,
+                deleted: false,
+            }
+        }
+
+        /// The two sides are the ends the panel's patch was taken between, so
+        /// an expanded hunk lines up with the lines around it.
+        #[tokio::test]
+        async fn a_working_tree_file_reads_head_against_the_disk() {
+            let workspace = workspace();
+            let (old, new) = diff_file_contents(
+                root(&workspace),
+                &file_request(DiffScope::WorkingTree, "repo/tracked.txt"),
+            )
+            .await
+            .expect("both sides read");
+            assert_eq!(old, "one\ntwo\n");
+            assert_eq!(new, "one\nTWO\n");
+        }
+
+        #[tokio::test]
+        async fn a_new_file_has_an_empty_old_side() {
+            let workspace = workspace();
+            let request = DiffFileRequest {
+                added: true,
+                ..file_request(DiffScope::WorkingTree, "repo/untracked.txt")
+            };
+            let (old, new) = diff_file_contents(root(&workspace), &request)
+                .await
+                .expect("the new side reads");
+            assert_eq!((old.as_str(), new.as_str()), ("", "fresh\n"));
+        }
+
+        /// The branch scope is committed work only: the uncommitted edit to
+        /// `tracked.txt` is not on either side.
+        #[tokio::test]
+        async fn a_branch_file_reads_the_merge_base_against_head() {
+            let workspace = workspace();
+            let (old, new) = diff_file_contents(
+                root(&workspace),
+                &file_request(DiffScope::Branch, "repo/tracked.txt"),
+            )
+            .await
+            .expect("both sides read");
+            assert_eq!((old.as_str(), new.as_str()), ("one\ntwo\n", "one\ntwo\n"));
+
+            let request = DiffFileRequest {
+                added: true,
+                ..file_request(DiffScope::Branch, "repo/committed.txt")
+            };
+            let (old, new) = diff_file_contents(root(&workspace), &request)
+                .await
+                .expect("the committed file reads");
+            assert_eq!((old.as_str(), new.as_str()), ("", "committed\n"));
+        }
+
+        #[tokio::test]
+        async fn a_file_name_holding_two_dots_is_not_a_parent_segment() {
+            let workspace = workspace();
+            let repo = workspace.path().join("repo");
+            std::fs::write(repo.join("a..b.txt"), "dots\n").expect("a dotted file");
+            git(&repo, &["add", "a..b.txt"]);
+            git(&repo, &["commit", "-qm", "dots"]);
+            let request = DiffFileRequest {
+                added: true,
+                ..file_request(DiffScope::Branch, "repo/a..b.txt")
+            };
+            let (_, new) = diff_file_contents(root(&workspace), &request)
+                .await
+                .expect("the dotted file reads");
+            assert_eq!(new, "dots\n");
+        }
+
+        #[tokio::test]
+        async fn a_binary_side_is_refused_rather_than_mangled() {
+            let workspace = workspace();
+            std::fs::write(workspace.path().join("repo/blob.bin"), [0u8, 1, 2])
+                .expect("a binary file");
+            let request = DiffFileRequest {
+                added: true,
+                ..file_request(DiffScope::WorkingTree, "repo/blob.bin")
+            };
+            let refused = diff_file_contents(root(&workspace), &request).await;
+            assert!(
+                matches!(&refused, Err(DiffFileError::Refused(message)) if message.contains("binary")),
+                "{refused:?}"
+            );
+        }
+
+        #[tokio::test]
+        async fn a_path_outside_every_repository_is_refused() {
+            let workspace = workspace();
+            let refused = diff_file_contents(
+                root(&workspace),
+                &file_request(DiffScope::WorkingTree, "elsewhere/file.txt"),
+            )
+            .await;
+            assert!(
+                matches!(refused, Err(DiffFileError::Refused(_))),
+                "{refused:?}"
             );
         }
 

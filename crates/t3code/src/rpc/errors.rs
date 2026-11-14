@@ -60,9 +60,34 @@ pub(crate) fn file_failure_exit(
     error: &WorkspaceAccessError,
     identity: &UiRpcAuthIdentity,
 ) -> Value {
+    typed_failure_exit(request_id, file_failure(tag, error, identity))
+}
+
+/// [`file_failure_exit`] for a `projects.listEntries` of one directory.
+///
+/// A Sandbox failure there carries `directory_list_failed`, which the file
+/// tree shows beside the one folder it could not open; a refusal about the
+/// conversation as a whole carries no literal.
+pub(crate) fn directory_failure_exit(
+    request_id: &RequestId,
+    tag: &str,
+    error: &WorkspaceAccessError,
+    identity: &UiRpcAuthIdentity,
+) -> Value {
+    let mut failure = file_failure(tag, error, identity);
+    if matches!(error, WorkspaceAccessError::Sandbox(_)) {
+        failure["failure"] = json!("directory_list_failed");
+    }
+    typed_failure_exit(request_id, failure)
+}
+
+/// The error body of [`file_failure_exit`], logged at the level its kind
+/// deserves.
+fn file_failure(tag: &str, error: &WorkspaceAccessError, identity: &UiRpcAuthIdentity) -> Value {
     let error_tag = match tag {
         "projects.goToDefinition" => "ProjectGoToDefinitionError",
         "projects.readFile" => "ProjectReadFileError",
+        "projects.searchContents" => "ProjectSearchContentsError",
         "projects.searchEntries" => "ProjectSearchEntriesError",
         "projects.writeFile" => "ProjectWriteFileError",
         _ => "ProjectListEntriesError",
@@ -77,10 +102,7 @@ pub(crate) fn file_failure_exit(
     } else {
         warn!(?error, %tag, user_id = %identity.user_id, "T3 UI workspace file request failed");
     }
-    typed_failure_exit(
-        request_id,
-        json!({ "_tag": error_tag, "message": error.message() }),
-    )
+    json!({ "_tag": error_tag, "message": error.message() })
 }
 
 /// Why a review request could not be answered, as the failure its method
@@ -112,6 +134,7 @@ pub(crate) fn review_failure_exit(
     let command = match tag {
         "vcs.listRefs" => "sandbox.ListGitRefs",
         "vcs.refreshStatus" => "sandbox.GetGitStatus",
+        "review.getDiffFileContents" => "sandbox.GetGitDiffFileContents",
         _ => "sandbox.GetGitDiffPreview",
     };
     typed_failure_exit(

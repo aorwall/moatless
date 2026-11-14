@@ -792,6 +792,87 @@ impl SandboxService for SandboxServiceImpl {
         }))
     }
 
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
+    async fn search_file_contents(
+        &self,
+        request: Request<sandbox_proto::SearchFileContentsRequest>,
+    ) -> Result<Response<sandbox_proto::SearchFileContentsResponse>, Status> {
+        let req = request.into_inner();
+        let context = self.resolve_member_context(req.task_id.as_deref()).await?;
+        let query = files::content_search::ContentQuery {
+            query: &req.query,
+            case_sensitive: req.case_sensitive,
+            whole_word: req.whole_word,
+            use_regex: req.use_regex,
+            max_results: req.max_results,
+        };
+        let found = files::content_search::search_contents(&context.workspace_dir, &query)
+            .await
+            .map_err(|error| match error {
+                files::content_search::ContentSearchError::NotInstalled => {
+                    Status::failed_precondition(error.to_string())
+                }
+                files::content_search::ContentSearchError::Failed(_) => {
+                    Status::internal(error.to_string())
+                }
+            })?;
+        Ok(Response::new(sandbox_proto::SearchFileContentsResponse {
+            matches: found
+                .matches
+                .into_iter()
+                .map(|found| sandbox_proto::FileContentMatch {
+                    path: found.path,
+                    line_number: found.line_number,
+                    line_content: found.line_content,
+                    ranges: found
+                        .ranges
+                        .into_iter()
+                        .map(|(start, end)| sandbox_proto::ContentMatchRange { start, end })
+                        .collect(),
+                })
+                .collect(),
+            truncated: found.truncated,
+            regex_error: found.regex_error,
+        }))
+    }
+
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
+    async fn stat_files(
+        &self,
+        request: Request<sandbox_proto::StatFilesRequest>,
+    ) -> Result<Response<sandbox_proto::StatFilesResponse>, Status> {
+        let req = request.into_inner();
+        if req.paths.len() > MAX_STAT_PATHS {
+            return Err(Status::invalid_argument(format!(
+                "At most {MAX_STAT_PATHS} paths per request"
+            )));
+        }
+        let context = self.resolve_member_context(req.task_id.as_deref()).await?;
+        let stats = files::read_write::stat(&context.workspace_dir, &req.paths).await;
+        Ok(Response::new(sandbox_proto::StatFilesResponse {
+            entries: stats
+                .into_iter()
+                .map(|stat| {
+                    use files::read_write::PathStat;
+                    use sandbox_proto::FileStatKind;
+                    let (kind, size, media_type) = match stat {
+                        PathStat::Missing => (FileStatKind::Unspecified, None, None),
+                        PathStat::File { size, media_type } => {
+                            (FileStatKind::File, Some(size), media_type)
+                        }
+                        PathStat::Directory => (FileStatKind::Directory, None, None),
+                        PathStat::Other => (FileStatKind::Other, None, None),
+                    };
+                    sandbox_proto::FileStat {
+                        kind: kind.into(),
+                        size,
+                        media_type,
+                    }
+                })
+                .collect(),
+        }))
+    }
+
     // ── Git review ───────────────────────────────────────────────
     //
     // Diffs span every repository in the workspace and carry
@@ -828,6 +909,44 @@ impl SandboxService for SandboxServiceImpl {
                 })
                 .collect(),
         }))
+    }
+
+    #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
+    async fn get_git_diff_file_contents(
+        &self,
+        request: Request<sandbox_proto::GetGitDiffFileContentsRequest>,
+    ) -> Result<Response<sandbox_proto::GetGitDiffFileContentsResponse>, Status> {
+        use files::review::{DiffFileError, DiffScope};
+        let req = request.into_inner();
+        let scope = match sandbox_proto::GitDiffScope::try_from(req.scope) {
+            Ok(sandbox_proto::GitDiffScope::WorkingTree) => DiffScope::WorkingTree,
+            Ok(sandbox_proto::GitDiffScope::Branch) => DiffScope::Branch,
+            _ => return Err(Status::invalid_argument("Unknown diff scope")),
+        };
+        let context = self.resolve_member_context(req.task_id.as_deref()).await?;
+        let (old_contents, new_contents) = files::review::diff_file_contents(
+            &context.workspace_dir,
+            &files::review::DiffFileRequest {
+                scope,
+                base_ref: req.base_ref.as_deref(),
+                old_path: &req.old_path,
+                new_path: &req.new_path,
+                added: req.added,
+                deleted: req.deleted,
+            },
+        )
+        .await
+        .map_err(|error| match error {
+            DiffFileError::NotFound(message) => Status::not_found(message),
+            DiffFileError::Refused(message) => Status::failed_precondition(message),
+            DiffFileError::Git(message) => Status::internal(message),
+        })?;
+        Ok(Response::new(
+            sandbox_proto::GetGitDiffFileContentsResponse {
+                old_contents,
+                new_contents,
+            },
+        ))
     }
 
     #[tracing::instrument(skip_all, fields(request_id = %uuid::Uuid::new_v4(), task_id = %self.state.config.task_id))]
@@ -977,6 +1096,9 @@ fn tree_node_to_proto(node: files::tree::FileTreeNode) -> sandbox_proto::FileTre
         children: node.children.into_iter().map(tree_node_to_proto).collect(),
     }
 }
+
+/// The most paths one `StatFiles` call answers; the client batches 64.
+const MAX_STAT_PATHS: usize = 256;
 
 fn file_error_to_status(e: files::FileError) -> Status {
     match e {

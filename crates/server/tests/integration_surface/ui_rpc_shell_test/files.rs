@@ -45,6 +45,7 @@ async fn the_listings_worktree_path_addresses_that_conversations_files(pool: PgP
         },
         &owner,
         &cwd,
+        None,
     )
     .await
     .expect_err("the stub connector has no sandbox to answer with");
@@ -120,6 +121,7 @@ async fn a_project_root_is_answered_as_a_conversation_with_no_sandbox(pool: PgPo
         },
         &owner,
         &cwd,
+        None,
     )
     .await
     .expect_err("a project has no files of its own");
