@@ -5,7 +5,8 @@ use moatless_types::loops::RoutingMode;
 use moatless_types::loops::SubscriptionMatch;
 
 use super::{
-    IgnoredWebhook, NormalizeContext, PrimaryWebhook, filter_event, normalize, title_is_ignored,
+    IgnoredWebhook, NormalizeContext, PrimaryWebhook, filter_event, filter_key, normalize,
+    title_is_ignored,
 };
 use crate::config::{FilterKey, GithubPrRuleConfig, MERGE_CONFLICT};
 use crate::status::WebhookStatusObservation;
@@ -993,4 +994,19 @@ async fn a_scoped_ignored_sender_mutes_its_comments_but_not_its_pushes() {
             .primary,
         Ok(PrimaryWebhook::Message(_))
     ));
+}
+
+/// Only an approval, with or without a body, is keyed as one: a change
+/// request still reaches the Task that wrote the change.
+#[test]
+fn the_filter_key_marks_approvals_whatever_their_body() {
+    let review = |state: &str, body: &str| serde_json::json!({"review": {"id": 77, "state": state, "body": body}});
+    let key = |payload: &serde_json::Value| filter_key("pull_request_review", payload, "reviewer");
+
+    assert!(key(&review("approved", "")).approval);
+    let with_body = key(&review("approved", "## Code Review"));
+    assert!(with_body.approval);
+    assert_eq!(with_body.event, "pull_request_review");
+    assert!(!key(&review("changes_requested", "")).approval);
+    assert!(!filter_key("issue_comment", &review("approved", ""), "reviewer").approval);
 }

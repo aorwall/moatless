@@ -233,10 +233,7 @@ pub(crate) async fn receive(
         connection_id: connection.id.clone(),
         loop_id: rule.as_ref().map(|r| r.id.clone()),
         repo_full_name: repo_full_name.to_string(),
-        filter: FilterKey::new(
-            super::webhook::filter_event(event_type, &payload),
-            sender_login,
-        ),
+        filter: super::webhook::filter_key(event_type, &payload, sender_login),
     };
     let derived_context = |event: &str| super::delivery::DeliveryContext {
         filter: FilterKey::new(event, sender_login),

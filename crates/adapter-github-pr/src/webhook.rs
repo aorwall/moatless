@@ -121,10 +121,27 @@ pub(super) fn pr_author_login(payload: &serde_json::Value) -> Option<&str> {
         .and_then(serde_json::Value::as_str)
 }
 
+/// What routing filters this webhook's primary message by; see
+/// [`super::config::FilterKey`].
+pub(super) fn filter_key(
+    event_type: &str,
+    payload: &serde_json::Value,
+    sender_login: &str,
+) -> super::config::FilterKey {
+    super::config::FilterKey {
+        approval: event_type == "pull_request_review"
+            && payload
+                .pointer("/review/state")
+                .and_then(serde_json::Value::as_str)
+                == Some("approved"),
+        ..super::config::FilterKey::new(filter_event(event_type, payload), sender_login)
+    }
+}
+
 /// The [`super::config::KNOWN_EVENTS`] name a loop's filters match this
 /// webhook's primary message under: [`super::config::REVIEW_VERDICT`] for a
 /// body-less approval or change request, else `event_type`.
-pub(super) fn filter_event<'a>(event_type: &'a str, payload: &serde_json::Value) -> &'a str {
+fn filter_event<'a>(event_type: &'a str, payload: &serde_json::Value) -> &'a str {
     let review = |key: &str| {
         payload
             .pointer(&format!("/review/{key}"))

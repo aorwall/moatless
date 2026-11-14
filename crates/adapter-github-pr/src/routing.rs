@@ -406,7 +406,7 @@ impl GithubPrInboundRouter {
             debug!(
                 subject_key = %subject_key,
                 muted = bound,
-                "Every binding on this pull request has its watch off; nothing to deliver"
+                "Every binding on this pull request has its watch off or withholds this event; nothing to deliver"
             );
             return Ok(());
         }
@@ -453,8 +453,9 @@ impl GithubPrInboundRouter {
     }
 
     /// `bindings` less those of Tasks a loop opened whose own loop filters
-    /// `filter` out. Every other Binding is kept whatever any loop filters; see
-    /// [`super::config::GithubPrRuleConfig::mutes`].
+    /// `filter` out, and those of every other Task when
+    /// [`FilterKey::mutes_unlooped_task`]. No loop's filters reach a Task it
+    /// did not open; see [`super::config::GithubPrRuleConfig::mutes`].
     pub(super) async fn unmuted(
         &self,
         rule: Option<&SubscriptionMatch>,
@@ -469,6 +470,22 @@ impl GithubPrInboundRouter {
                 .clone()
                 .filter(|_| binding.origin == ORIGIN_ADAPTER_EVENT)
             else {
+                if filter.mutes_unlooped_task() {
+                    info!(
+                        task_id = %binding.task_id,
+                        event = %filter.event,
+                        sender = %filter.sender,
+                        "Withheld a GitHub event from a Task no loop opened: an approval or a passing check suite"
+                    );
+                    record_inbound(
+                        ADAPTER_LABEL,
+                        "ignored",
+                        inbound_reason::UNLOOPED_QUIET,
+                        binding.loop_id.as_deref().unwrap_or(""),
+                        &binding.connection_id,
+                    );
+                    continue;
+                }
                 kept.push(binding);
                 continue;
             };
@@ -1143,6 +1160,56 @@ pub(crate) mod tests {
 
             let kept: Vec<&str> = kept.iter().map(|b| b.task_id.as_str()).collect();
             assert_eq!(kept, ["task-2"]);
+        }
+
+        /// An approval or a passing check suite reaches only Tasks a loop
+        /// opened, whose loop decides; the author's Task hears neither, but
+        /// still hears a change request.
+        #[tokio::test]
+        async fn approvals_and_passing_suites_skip_tasks_no_loop_opened() {
+            let author = TaskBinding {
+                id: "tb_2".into(),
+                task_id: "task-2".into(),
+                origin: CONNECTED_THREAD_BINDING_ORIGIN.into(),
+                ..binding()
+            };
+            let router = router(MockMessageAcceptor::new(), MockTaskFinisher::new());
+            let recipients = |filter: crate::config::FilterKey| {
+                let bindings = vec![binding(), author.clone()];
+                let router = &router;
+                let rule = rule(true);
+                async move {
+                    router
+                        .unmuted(Some(&rule), &filter, bindings)
+                        .await
+                        .expect("the loop is the rule, so nothing is read")
+                        .into_iter()
+                        .map(|b| b.task_id)
+                        .collect::<Vec<_>>()
+                }
+            };
+            let approval = crate::config::FilterKey {
+                approval: true,
+                ..crate::config::FilterKey::new("pull_request_review", "soap-reviewer[bot]")
+            };
+
+            assert_eq!(recipients(approval).await, ["task-1"]);
+            assert_eq!(
+                recipients(crate::config::FilterKey::new(
+                    "check_suite",
+                    "github-actions[bot]"
+                ))
+                .await,
+                ["task-1"]
+            );
+            assert_eq!(
+                recipients(crate::config::FilterKey::new(
+                    crate::config::REVIEW_VERDICT,
+                    "soap-reviewer[bot]"
+                ))
+                .await,
+                ["task-1", "task-2"]
+            );
         }
 
         /// A trigger's close reaches the Tasks it created; a Task connected to

@@ -18,6 +18,9 @@ pub const DUPLICATE_RECEIPT: &str = "duplicate_receipt";
 pub const CREATION_CLAIMED: &str = "creation_claimed";
 /// The binding's Task was opened by a loop whose own filters exclude the event.
 pub const LOOP_FILTERED: &str = "loop_filtered";
+/// The binding's Task was not opened by a loop, and the event (an approval, a
+/// passing check suite) asks nothing of it.
+pub const UNLOOPED_QUIET: &str = "unlooped_quiet";
 /// The audience named someone else, so this binding holds nothing.
 pub const NOT_IN_AUDIENCE: &str = "not_in_audience";
 /// The binding's task only commented, and the event answers nothing it wrote.

@@ -184,8 +184,9 @@ Notes:
 - A `github_pr` loop's `eventFilter`, `adapterConfig.ignored_events` and
   `adapterConfig.ignored_senders` filter only the tasks that loop opened. A task
   bound some other way, such as the one that ran `moat gh pr create`, still gets
-  its CI failures, conflicts and post-merge notices. The loop's filters also
-  stop the loop opening or closing its own tasks.
+  its CI failures, conflicts and post-merge notices, but never an approval or
+  a passing check suite. The loop's filters also stop the loop opening or
+  closing its own tasks.
 - An `ignored_senders` entry is a login, which filters every event from that
   sender, or `{login, events}`, which filters only those events from it:
   `{login: github-actions[bot], events: [issue_comment, pull_request_review]}`

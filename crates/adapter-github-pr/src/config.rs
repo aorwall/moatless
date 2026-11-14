@@ -265,6 +265,9 @@ pub(crate) struct FilterKey {
     /// The webhook's `sender.login`.
     #[serde(default)]
     pub(crate) sender: String,
+    /// A submitted review in state `approved`, with a body or without.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) approval: bool,
 }
 
 impl FilterKey {
@@ -272,7 +275,14 @@ impl FilterKey {
         Self {
             event: event.to_string(),
             sender: sender.to_string(),
+            approval: false,
         }
+    }
+
+    /// Whether a Task no loop opened is spared this event: an approval or a
+    /// passing `check_suite` asks nothing of the Task that wrote the change.
+    pub(super) fn mutes_unlooped_task(&self) -> bool {
+        self.approval || self.event == "check_suite"
     }
 
     /// Whether this key is the one a record admitted without it reads as.
