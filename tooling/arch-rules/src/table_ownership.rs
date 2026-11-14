@@ -105,9 +105,15 @@ fn allowed(consumer: &str, table: &str, write: bool) -> bool {
         || (consumer == "moatless-t3code"
             && matches!(table, "task_bindings" | "loops" | "users")
             && !write)
-        // The Task listing is one statement: a row's Binding pull requests and
-        // owner name are joins in it, not reads through `loops` or `identity`.
-        || (consumer == "moatless-tasks" && matches!(table, "task_bindings" | "users") && !write)
+        // The Task listing is one statement: a row's Binding pull requests,
+        // owner name and running command labels are joins in it, not reads
+        // through `loops`, `identity` or `sandbox-control`.
+        || (consumer == "moatless-tasks"
+            && matches!(
+                table,
+                "task_bindings" | "users" | "sandbox_unreported_commands"
+            )
+            && !write)
         // `record_change` records a changed Task's parents too, for every
         // caller, including `sandbox-control`, which cannot reach `tasks`.
         || (consumer == "moatless-core" && table == "task_relations" && !write)

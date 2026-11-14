@@ -64,6 +64,10 @@ pub struct ListedTask {
     /// `moat cmd` commands the Sandbox is running, as its pod last reported.
     /// `0` for a Task with no Sandbox row, which can be running nothing.
     pub running_commands: i32,
+    /// The labels of those commands, oldest first. Mirrored by a separate
+    /// write, so it can briefly hold fewer than `running_commands`.
+    #[sqlx(json)]
+    pub running_command_labels: Vec<String>,
     /// See `listed_dao::listed_children_join`.
     pub child_count: i64,
     #[sqlx(json)]

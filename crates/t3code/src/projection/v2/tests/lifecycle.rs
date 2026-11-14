@@ -133,11 +133,13 @@ fn a_command_outliving_its_turn_is_pending_background_work() {
     let mut idle = open_turn(conversation("task-1"), 1, "completed");
     idle.turn_ended_at = Some(Utc::now());
     idle.running_commands = 2;
+    // The second label has not been mirrored yet, so the count still decides.
+    idle.running_command_labels = vec!["moat gh run watch 4358 -R soaplabs/soap-infra".into()];
     let tasks = shell(&idle)["pendingBackgroundTasks"].clone();
     assert_eq!(
         tasks,
         json!([
-            { "taskId": "task-1:command:1", "description": "Background command", "kind": "background_task" },
+            { "taskId": "task-1:command:1", "description": "moat gh run watch 4358 -R soaplabs/soap-infra", "kind": "background_task" },
             { "taskId": "task-1:command:2", "description": "Background command", "kind": "background_task" }
         ])
     );

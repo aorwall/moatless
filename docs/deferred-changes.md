@@ -676,3 +676,10 @@ of its own.
 | Deferred | Anchor | Entry condition |
 |---|---|---|
 | A fork of a long thread takes tens of seconds inside the request | `crates/tasks/src/conversation/replay.rs::Projector::inherit` runs `replay_dao::lineage_lines`, a recursive CTE that walks one `trajectory_events` row per step through an `OR` join, then replays every line before `thread.fork` answers. On 2026-11-14 a 253-turn source took 28 s, with the CTE alone logged at 2.3 s and 12.4 s. `crates/t3code/src/rpc/socket.rs::keeping_alive` keeps the socket open meanwhile, and T3 shows a progress toast | When a fork outlasts T3's 90 s `FORK_ARRIVAL_TIMEOUT_MS`, or the CTE shows in the writer's slow log outside forks. Start from `EXPLAIN ANALYZE` of `lineage_lines` on a long source, then consider inheriting asynchronously after the Task row exists |
+
+## Background commands in T3
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| Stop on T3's background-work row leaves `moat cmd` commands running | T3 sends `thread.turn.interrupt` from that row only while no turn runs; `crates/server/src/t3code/backend/commands.rs::interrupt` answers with `task_service::stop_agent`, which stops a turn and never reaches the sandbox's `CommandRegistry::kill`. The projected commands come from `crates/t3code/src/projection/v2_lifecycle.rs::pending_background_tasks` | When someone uses Stop on that row expecting a command to die, or a stuck `moat cmd` needs killing from the UI. Kill the Task's running commands when an interrupt finds no open turn |
+| A background command shows no elapsed time | T3's `backgroundWorkNowItem` (`soaplabs/t3code` `ThreadActivityBanners.tsx`) reads a start time only from a matching turn item, and `pending_background_tasks` names none; the label comes from `sandbox_unreported_commands`, which also holds `startedAtUnixMs` | When people ask how long a waiting command has run. Needs a start time on the pending task in the T3 contract, or a turn item per `moat cmd` |

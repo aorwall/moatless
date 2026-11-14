@@ -316,6 +316,7 @@ pub(super) fn statement(
                    s.started_at               AS sandbox_started_at,
                    s.desired_state_updated_at AS sandbox_updated_at,
                    COALESCE(s.running_commands, 0) AS running_commands,
+                   COALESCE(commands.labels, '[]'::jsonb) AS running_command_labels,
                    COALESCE(children.child_count, 0) AS child_count,
                    COALESCE(children.running_children, '[]'::jsonb) AS running_children,
                    person.latest_user_message_at,
@@ -357,6 +358,16 @@ pub(super) fn statement(
                    ORDER BY tt.turn_number DESC
                    LIMIT 1
                ) turn ON TRUE
+               -- `queued` and `running` are the pod's non-terminal states;
+               -- `running_labels` in sandbox-control names the same two.
+               LEFT JOIN LATERAL (
+                   SELECT jsonb_agg(c->>'label' ORDER BY (c->>'startedAtUnixMs')::bigint, c->>'id')
+                          AS labels
+                   FROM sandbox_unreported_commands u,
+                        jsonb_array_elements(u.commands) c
+                   WHERE u.task_id = t.task_id
+                     AND c->>'state' IN ('queued', 'running')
+               ) commands ON TRUE
                LEFT JOIN LATERAL (
                    SELECT (e.payload::jsonb)->>'error' AS turn_error,
                           (e.payload::jsonb)->>'reason' AS turn_error_reason,

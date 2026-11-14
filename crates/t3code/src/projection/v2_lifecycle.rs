@@ -216,16 +216,23 @@ pub(super) fn run_ending_items(
 /// The `moat cmd` commands and spawned children that will wake this Task once
 /// its Turn has ended, which the client shows as Waiting. Commands are
 /// `background_task` rather than `command`: the client lets a `command` finish
-/// the thread, and a `moat cmd` wakes the agent. The Sandbox reports only how
-/// many commands run, so each is named by its place in that count.
+/// the thread, and a `moat cmd` wakes the agent. `running_commands` decides how
+/// many; a command whose label has not been mirrored yet goes unnamed.
 pub(super) fn pending_background_tasks(conversation: &Conversation) -> Value {
     if turn_is_open(conversation) {
         return json!([]);
     }
-    let commands = (1..=conversation.running_commands.max(0)).map(|index| {
+    let count = usize::try_from(conversation.running_commands).unwrap_or(0);
+    let commands = (0..count).map(|index| {
+        let label = conversation
+            .running_command_labels
+            .get(index)
+            .map(|label| label.trim())
+            .filter(|label| !label.is_empty())
+            .unwrap_or("Background command");
         json!({
-            "taskId": format!("{}:command:{index}", conversation.task_id),
-            "description": "Background command",
+            "taskId": format!("{}:command:{}", conversation.task_id, index + 1),
+            "description": label,
             "kind": "background_task"
         })
     });

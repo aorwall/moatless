@@ -740,6 +740,7 @@ mod tests {
             sandbox_started_at: None,
             sandbox_updated_at: None,
             running_commands: 0,
+            running_command_labels: Vec::new(),
             latest_user_message_at: None,
             latest_queued_message_at: None,
             assistant_model: None,

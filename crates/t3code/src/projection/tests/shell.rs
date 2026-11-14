@@ -135,6 +135,7 @@ fn a_parked_plan_reads_as_pending_user_input_the_way_a_parked_question_does() {
 fn a_running_moat_cmd_command_makes_the_row_read_as_working() {
     let thread = one_thread(&Conversation {
         running_commands: 1,
+        running_command_labels: Vec::new(),
         ..conversation("task-a", "ws-a")
     });
 
@@ -160,10 +161,12 @@ fn background_liveness_reports_the_axis_not_the_count() {
     // command must not change what the row says.
     let one = one_thread(&Conversation {
         running_commands: 1,
+        running_command_labels: Vec::new(),
         ..conversation("task-a", "ws-a")
     });
     let many = one_thread(&Conversation {
         running_commands: 7,
+        running_command_labels: Vec::new(),
         ..conversation("task-a", "ws-a")
     });
 

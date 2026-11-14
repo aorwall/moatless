@@ -265,6 +265,17 @@ where
 
 /// Reconstruct the persisted correlation marker from its three columns. Present
 /// iff `sandbox_operation_kind` is set.
+/// The labels of the commands in `commands` still at work, in their order.
+/// `queued` and `running` are the pod's non-terminal states, the same two
+/// `listed_dao` names when it lists them.
+fn running_labels(commands: &[OutstandingCommand]) -> Vec<&str> {
+    commands
+        .iter()
+        .filter(|command| matches!(command.state.as_str(), "queued" | "running"))
+        .map(|command| command.label.as_str())
+        .collect()
+}
+
 fn marker_from_columns(
     kind: Option<String>,
     generation: Option<i64>,
@@ -726,12 +737,25 @@ impl LifecycleDao for PgLifecycleDao {
     ) -> Result<(), StoreError> {
         let payload = serde_json::to_value(commands)
             .map_err(|e| StoreError::with_source("encode the unreported commands", e))?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| StoreError::with_source("begin unreported-commands transaction", e))?;
+
+        let previous: Option<serde_json::Value> = sqlx::query_scalar(
+            "SELECT commands FROM sandbox_unreported_commands WHERE task_id = $1 FOR UPDATE",
+        )
+        .bind(task_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| StoreError::with_source("lock the unreported commands", e))?;
 
         // The revision predicate makes a late write harmless: the pod
         // writes off its registry lock, so an older, larger set can land
         // after a newer one and resurrect a command already told to the
         // agent. Strict `<`: a resent revision is a no-op, not a rewrite.
-        sqlx::query(
+        let applied = sqlx::query(
             r#"INSERT INTO sandbox_unreported_commands (task_id, commands, revision)
                VALUES ($1, $2, $3)
                ON CONFLICT (task_id) DO UPDATE SET
@@ -743,10 +767,31 @@ impl LifecycleDao for PgLifecycleDao {
         .bind(task_id)
         .bind(&payload)
         .bind(revision)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
-        .map(|_| ())
-        .map_err(|e| StoreError::with_source("persist the unreported commands", e))
+        .map_err(|e| StoreError::with_source("persist the unreported commands", e))?
+        .rows_affected()
+            > 0;
+
+        // The listing names each running command, and
+        // `record_running_commands` wakes clients only when the count crosses
+        // zero, so a changed set is announced here.
+        let before = previous
+            .and_then(|stored| serde_json::from_value::<Vec<OutstandingCommand>>(stored).ok())
+            .unwrap_or_default();
+        if applied && running_labels(&before) != running_labels(commands) {
+            moatless_core::change_feed::conversation::record_session_change(&mut tx, task_id)
+                .await
+                .map_err(|e| {
+                    StoreError::with_source("record conversation change for commands", e)
+                })?;
+            moatless_core::change_feed::listing::record_change(&mut tx, task_id)
+                .await
+                .map_err(|e| StoreError::with_source("record listing change for commands", e))?;
+        }
+        tx.commit()
+            .await
+            .map_err(|e| StoreError::with_source("commit unreported-commands transaction", e))
     }
 
     async fn take_unreported_commands(

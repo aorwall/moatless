@@ -359,6 +359,61 @@ fn cmd(id: &str, state: &str) -> OutstandingCommand {
     }
 }
 
+async fn listing_changes(pool: &PgPool, task_id: &str) -> i64 {
+    commands_state(pool, task_id).await.1
+}
+
+/// A command set moving while the count stays busy still reaches the client,
+/// since it names each running command; a write that leaves the running
+/// labels as they were, or that loses on revision, announces nothing.
+#[sqlx::test]
+async fn unreported_commands_announce_a_changed_running_set(
+    opts: PgPoolOptions,
+    conn: PgConnectOptions,
+) {
+    let (store_pool, lock_pool) = pools(&opts, &conn).await;
+    seed(&store_pool, "t1", "open", "running").await;
+    let h = build(store_pool, lock_pool, RecordingRuntime::new(), 1);
+
+    h.store
+        .record_unreported_commands("t1", &[cmd("a", "running")], 1)
+        .await
+        .unwrap();
+    assert_eq!(listing_changes(&h.pool, "t1").await, 1);
+
+    h.store
+        .record_unreported_commands("t1", &[cmd("a", "running"), cmd("b", "queued")], 2)
+        .await
+        .unwrap();
+    assert_eq!(
+        listing_changes(&h.pool, "t1").await,
+        2,
+        "a queued command joined"
+    );
+
+    h.store
+        .record_unreported_commands("t1", &[cmd("a", "running"), cmd("b", "queued")], 3)
+        .await
+        .unwrap();
+    assert_eq!(listing_changes(&h.pool, "t1").await, 2, "same running set");
+
+    h.store
+        .record_unreported_commands("t1", &[cmd("a", "exited"), cmd("b", "running")], 4)
+        .await
+        .unwrap();
+    assert_eq!(listing_changes(&h.pool, "t1").await, 3, "`a` finished");
+
+    h.store
+        .record_unreported_commands("t1", &[cmd("c", "running")], 2)
+        .await
+        .unwrap();
+    assert_eq!(
+        listing_changes(&h.pool, "t1").await,
+        3,
+        "a stale revision is dropped"
+    );
+}
+
 #[sqlx::test]
 async fn unreported_commands_is_absolute_guarded_by_revision_and_cleared_by_the_take(
     opts: PgPoolOptions,
