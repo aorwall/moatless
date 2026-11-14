@@ -72,6 +72,9 @@ pub struct T3UiRpcConfig {
     /// `T3_UI_RPC_REVIEW_GUIDE_FORK_AUTHOR`: whether a guided review forks the
     /// Task bound to the pull request rather than starting a fresh one.
     pub review_guide_fork_author: bool,
+    /// `T3_UI_RPC_SCRATCH_WORKSPACE`: the id of the Workspace a thread with no
+    /// project runs in. Unset, a viewer's only readable blank Workspace is it.
+    pub scratch_workspace: Option<String>,
 }
 
 #[allow(clippy::missing_fields_in_debug)]
@@ -92,6 +95,7 @@ impl fmt::Debug for T3UiRpcConfig {
                 &self.orchestration_protocol_version,
             )
             .field("review_guide_fork_author", &self.review_guide_fork_author)
+            .field("scratch_workspace", &self.scratch_workspace)
             .finish()
     }
 }

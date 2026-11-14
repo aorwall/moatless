@@ -57,6 +57,11 @@ pub(super) fn sandbox_methods() -> MethodTable {
         )
         .session("scripts.run", Scope::OrchestrationRead, scripts_run)
         .detached("subtasks.list", Scope::OrchestrationRead, subtasks_list)
+        .session(
+            "worktreeSetup.cancel",
+            Scope::OrchestrationOperate,
+            worktree_setup_cancel,
+        )
 }
 
 /// The contract's `SandboxStatusInput`, and every other `sandbox.*` input that
@@ -175,6 +180,25 @@ pub(super) async fn sandbox_stop(request: Request<SandboxStatusInput>) -> Vec<Va
     let viewer = viewer_scope(&identity);
     match sandbox::stop(&state.sandbox, &viewer, &task_id).await {
         Ok(status) => vec![success_exit(&id, status)],
+        Err(error) => vec![sandbox_failure_exit(&id, scope, tag, &error, &identity)],
+    }
+}
+
+/// `worktreeSetup.cancel`: stops the Task's Sandbox while its start is still
+/// running ([`sandbox::cancel_setup`]).
+pub(super) async fn worktree_setup_cancel(request: Request<SandboxStatusInput>) -> Vec<Value> {
+    let Request {
+        id,
+        tag,
+        scope,
+        payload: SandboxStatusInput { thread_id: task_id },
+        state,
+        identity,
+        ..
+    } = request;
+    let viewer = viewer_scope(&identity);
+    match sandbox::cancel_setup(&state.sandbox, &viewer, &task_id).await {
+        Ok(cancelled) => vec![success_exit(&id, json!({ "cancelled": cancelled }))],
         Err(error) => vec![sandbox_failure_exit(&id, scope, tag, &error, &identity)],
     }
 }

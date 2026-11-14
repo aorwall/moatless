@@ -15,6 +15,7 @@ use crate::activities::mapping::{
     ToolOutcome, agent_switched, compaction, context_window_updated, map_content, sandbox_activity,
     user_input_resolved,
 };
+use crate::activities::start_steps::is_start_step;
 use crate::inbox::{InboxItem, InboxOrigin, RunStamp};
 use crate::message::models::MessageType;
 use crate::task_event::models::InsertTaskEvent;
@@ -518,6 +519,9 @@ impl Projector {
                 _ => {}
             },
             EventType::Sandbox => {
+                if is_start_step(event.sub_type, event.payload) {
+                    return Ok(());
+                }
                 let (coarse, is_error) = match SandboxStatus::try_from(event.sub_type) {
                     Ok(SandboxStatus::Error) => ("error", true),
                     Ok(

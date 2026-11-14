@@ -842,6 +842,7 @@ fn state_over(
             usage_limit_sources: false,
             orchestration_protocol_version: 1,
             review_guide_fork_author: false,
+            scratch_workspace: None,
         }),
         environment: Arc::new(stub_identity()),
         session_cookie_name: Arc::from("moatless_session"),
@@ -878,6 +879,7 @@ fn state_over(
             operator: Arc::new(UnreachableSandboxes),
             diagnostics: Arc::new(UnreachableSandboxes),
             poll_gate: crate::poll_gate::PollGate::new(4),
+            events: Arc::new(crate::sandbox_setup::LoggedEvents::default()),
         },
         subtasks: SubtasksState {
             relations: Arc::new(NoChildTasks),

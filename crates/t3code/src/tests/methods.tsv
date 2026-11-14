@@ -37,6 +37,7 @@ preview.refresh	orchestration:operate	session	session	same
 preview.reportStatus	orchestration:operate	session	session	same
 preview.resize	orchestration:operate	session	session	same
 projects.add	orchestration:operate	declared	declared	-
+projects.ensureScratch	orchestration:read	detached	detached	same
 projects.goToDefinition	orchestration:read	detached	detached	same
 projects.listEntries	orchestration:read	detached	detached	same
 projects.mutate	orchestration:operate	session	session	same
@@ -59,7 +60,6 @@ pullRequests.summary	orchestration:read	detached	detached	same
 pullRequests.threadComments	orchestration:read	detached	detached	same
 review.getDiffFileContents	review:write	detached	detached	same
 review.getDiffPreview	review:write	detached	detached	same
-secrets.answerRequest	orchestration:operate	session	session	same
 sandbox.cleanup	orchestration:operate	session	session	same
 sandbox.listDiagnostics	orchestration:read	detached	detached	same
 sandbox.redeploy	orchestration:operate	session	session	same
@@ -72,6 +72,7 @@ sandbox.subscribeDetail	orchestration:read	stream	stream	same
 sandbox.subscribeStatus	orchestration:read	stream	stream	same
 scripts.listForThread	orchestration:read	detached	detached	same
 scripts.run	orchestration:read	session	session	same
+secrets.answerRequest	orchestration:operate	session	session	same
 server.discoverSourceControl	orchestration:read	detached	detached	same
 server.getConfig	orchestration:read	detached	detached	same
 server.getSettings	orchestration:read	session	session	same
@@ -98,6 +99,7 @@ subscribeServerLifecycle	orchestration:read	stream	stream	same
 subscribeTerminalEvents	terminal:operate	stream	stream	same
 subscribeTerminalMetadata	terminal:operate	stream	stream	same
 subscribeVcsStatus	orchestration:read	stream	stream	same
+subscribeWorktreeSetup	orchestration:read	stream	stream	same
 subtasks.list	orchestration:read	detached	detached	same
 terminal.attach	terminal:operate	stream	stream	same
 terminal.clear	terminal:operate	session	session	same
@@ -116,3 +118,4 @@ vcs.pull	orchestration:operate	declared	declared	-
 vcs.refreshStatus	orchestration:read	detached	detached	same
 vcs.removeWorktree	orchestration:operate	declared	declared	-
 vcs.switchRef	orchestration:operate	session	session	same
+worktreeSetup.cancel	orchestration:operate	session	session	same

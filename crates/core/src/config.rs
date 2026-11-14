@@ -743,6 +743,9 @@ fn t3_ui_rpc_from_env() -> Result<T3UiRpcConfig, ConfigError> {
             "T3_UI_RPC_REVIEW_GUIDE_FORK_AUTHOR",
             &env_str("T3_UI_RPC_REVIEW_GUIDE_FORK_AUTHOR", ""),
         )?,
+        scratch_workspace: env_opt("T3_UI_RPC_SCRATCH_WORKSPACE")
+            .map(|id| id.trim().to_string())
+            .filter(|id| !id.is_empty()),
     })
 }
 

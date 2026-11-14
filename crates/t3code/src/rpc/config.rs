@@ -5,6 +5,7 @@ use crate::config::T3_ENVIRONMENT_LABEL;
 use crate::config::UiRpcConfig;
 use crate::oauth;
 use crate::providers;
+use crate::scratch;
 use crate::state::UiRpcState;
 use moatless_types::ui_rpc::UiRpcAuthIdentity;
 use moatless_types::ui_rpc::UiRpcAuthMethod;
@@ -255,7 +256,7 @@ pub(crate) async fn server_config(
     if let Some(endpoint) = state.client_traces.endpoint() {
         observability["otlpTracesUrl"] = json!(endpoint);
     }
-    json!({
+    let mut config = json!({
         "environment": descriptor(&state.rpc),
         "auth": auth_descriptor(state),
         "cwd": "/moatless",
@@ -281,7 +282,19 @@ pub(crate) async fn server_config(
         },
         "shellResumeCompletionMarker": true,
         "threadResumeCompletionMarker": true
-    })
+    });
+    // `optionalKey`: absent, the client offers no way to start a thread
+    // without a project.
+    if let Some(workspace_id) = scratch::scratch_workspace(
+        state.reads.workspaces(),
+        &viewer_scope(identity),
+        state.rpc.scratch_workspace.as_deref(),
+    )
+    .await
+    {
+        config["scratchWorkspaceRoot"] = json!(scratch::scratch_root(&workspace_id));
+    }
+    config
 }
 
 /// The config stream's carrier for hub quota.

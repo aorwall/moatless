@@ -667,12 +667,13 @@ jobs:
         run: .github/scripts/measure-rust-cache.sh debug
 
       # install-action apt-installs jq itself, which needs HTTPS sources here.
-      # psql tunes the db-tests tier's server.
+      # psql tunes the db-tests tier's server; moatless-sandbox's
+      # `against_ripgrep` tests run the real `rg`.
       - name: Install apt prerequisites
         run: |
           .github/scripts/apt-https-mirrors.sh
           apt-get update
-          apt-get install -y --no-install-recommends jq postgresql-client
+          apt-get install -y --no-install-recommends jq postgresql-client ripgrep
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2.90.2

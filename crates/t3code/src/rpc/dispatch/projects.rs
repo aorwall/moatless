@@ -20,10 +20,12 @@ use crate::rpc::session::SEARCH_ENTRIES_LIMIT;
 use crate::rpc::session::SEARCH_ENTRIES_MAX;
 use crate::rpc::table::MethodTable;
 use crate::rpc::table::Request;
+use crate::scratch;
 use crate::snapshots::workspace_cwd;
 use crate::v2_commands;
 use crate::workspace::WorkspaceAccessError;
 use serde::Deserialize;
+use serde::de::IgnoredAny;
 use serde_json::Value;
 use serde_json::json;
 
@@ -50,6 +52,11 @@ pub(super) fn project_methods() -> MethodTable {
             filesystem_get_metadata,
         )
         .declared("projects.add", Scope::OrchestrationOperate)
+        .detached(
+            "projects.ensureScratch",
+            Scope::OrchestrationRead,
+            projects_ensure_scratch,
+        )
         .detached(
             "projects.goToDefinition",
             Scope::OrchestrationRead,
@@ -530,6 +537,35 @@ pub(super) async fn attachments_delete(request: Request<AttachmentDeleteInput>) 
         Ok(()) => vec![success_exit(&id, Value::Null)],
         Err(message) => vec![failure_exit(&id, message)],
     }
+}
+
+/// `projects.ensureScratch`: finds the viewer's scratch Workspace
+/// ([`scratch::scratch_workspace`]) and never creates one, since a Workspace is
+/// declared in git.
+pub(super) async fn projects_ensure_scratch(request: Request<IgnoredAny>) -> Vec<Value> {
+    let Request {
+        id,
+        state,
+        identity,
+        ..
+    } = request;
+    let Some(workspace_id) = scratch::scratch_workspace(
+        state.reads.workspaces(),
+        &viewer_scope(&identity),
+        state.rpc.scratch_workspace.as_deref(),
+    )
+    .await
+    else {
+        rpc_metrics::refused();
+        return vec![typed_failure_exit(
+            &id,
+            json!({
+                "_tag": "OrchestrationDispatchCommandError",
+                "message": "No Workspace without a repository is set up for you, so a thread cannot start without a project.",
+            }),
+        )];
+    };
+    vec![success_exit(&id, json!({ "projectId": workspace_id }))]
 }
 
 /// `projects.mutate`: a project is a Moatless Workspace, so only an update of its

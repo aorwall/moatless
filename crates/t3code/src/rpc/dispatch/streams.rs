@@ -89,6 +89,11 @@ pub(super) fn stream_methods() -> MethodTable {
             |session, request| Box::pin(session.subscribe_terminal_metadata(request)),
         )
         .stream(
+            "subscribeWorktreeSetup",
+            Scope::OrchestrationRead,
+            |session, request| Box::pin(session.subscribe_worktree_setup(request)),
+        )
+        .stream(
             "subscribeVcsStatus",
             Scope::OrchestrationRead,
             |session, request| Box::pin(session.subscribe_vcs_status(request)),
@@ -192,6 +197,33 @@ impl ProtocolSession {
         self.streams
             .start_produced(&id, Some(vec![seeded.clone()]), move |sink| {
                 sandbox::watch_detail(sink, scope, sandbox, viewer, task_id, seeded)
+            })
+    }
+
+    /// A Task's Sandbox start as worktree setup progress; see
+    /// [`crate::sandbox_setup`].
+    pub(super) async fn subscribe_worktree_setup(
+        &mut self,
+        request: Request<SandboxStatusInput>,
+    ) -> Vec<Value> {
+        let Request {
+            id,
+            tag,
+            scope,
+            payload: SandboxStatusInput { thread_id: task_id },
+            state,
+            identity,
+            ..
+        } = request;
+        let viewer = viewer_scope(&identity);
+        let seeded = match sandbox::setup(&state.sandbox, &viewer, &task_id).await {
+            Ok(setup) => setup,
+            Err(error) => return vec![sandbox_failure_exit(&id, scope, tag, &error, &identity)],
+        };
+        let sandbox = state.sandbox.clone();
+        self.streams
+            .start_produced(&id, Some(vec![seeded.clone()]), move |sink| {
+                sandbox::watch_setup(sink, scope, sandbox, viewer, task_id, seeded)
             })
     }
 

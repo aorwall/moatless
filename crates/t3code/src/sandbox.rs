@@ -11,6 +11,7 @@ use tracing::warn;
 
 use crate::oauth::Scope;
 use crate::poll_gate::{PollGate, first_tick};
+use crate::sandbox_setup::{self, SandboxEventLog};
 use crate::subscription::{StreamFailure, StreamResult, StreamSink};
 use moatless_ports::sandbox::{
     ClusterDiagnostics, SandboxError, SandboxIntentReader, SandboxObserver, SandboxOperator,
@@ -46,6 +47,8 @@ pub struct SandboxState {
     pub diagnostics: Arc<dyn ClusterDiagnostics>,
     /// Shared with [`crate::reads::T3Reads::poll_gate`]: one bound per replica.
     pub(crate) poll_gate: PollGate,
+    /// The Task's `sandbox` events, which [`setup`] stages a start from.
+    pub(crate) events: Arc<dyn SandboxEventLog>,
 }
 
 /// Why a sandbox lifecycle request could not be answered.
@@ -169,6 +172,49 @@ pub async fn status(
     Ok(payload)
 }
 
+/// The newest start of a Task's Sandbox as the contract's
+/// `WorktreeSetupStreamEvent`; see [`sandbox_setup::snapshot`].
+pub async fn setup(
+    state: &SandboxState,
+    viewer: &ScopeContext,
+    task_id: &str,
+) -> Result<Value, SandboxRpcError> {
+    let events = state
+        .poll_gate
+        .run(async {
+            readable_task(state, viewer, task_id).await?;
+            state
+                .events
+                .recent_sandbox_events(task_id, sandbox_setup::START_EVENT_WINDOW)
+                .await
+                .map_err(SandboxRpcError::Database)
+        })
+        .await?;
+    Ok(sandbox_setup::snapshot(
+        task_id,
+        &events,
+        chrono::Utc::now(),
+    ))
+}
+
+/// Stops a start still running, answering whether there was one to stop.
+pub async fn cancel_setup(
+    state: &SandboxState,
+    viewer: &ScopeContext,
+    task_id: &str,
+) -> Result<bool, SandboxRpcError> {
+    let _task = written_task(state, viewer, task_id).await?;
+    if !sandbox_setup::is_running(&setup(state, viewer, task_id).await?) {
+        return Ok(false);
+    }
+    state
+        .stopper
+        .stop(task_id, SandboxStopReason::User)
+        .await
+        .map_err(SandboxRpcError::Sandbox)?;
+    Ok(true)
+}
+
 /// Everything the sandbox panel shows beside lifecycle state: image,
 /// containers, runtime events, and idle-stop TTL. Read gate, not control gate:
 /// reports only.
@@ -272,6 +318,8 @@ enum Watched {
     Status,
     /// `sandbox.subscribeDetail`: the sandbox panel's wider read.
     Detail,
+    /// `subscribeWorktreeSetup`: the newest start's stages.
+    Setup,
 }
 
 impl Watched {
@@ -280,12 +328,13 @@ impl Watched {
         match self {
             Self::Status => "sandbox.subscribeStatus",
             Self::Detail => "sandbox.subscribeDetail",
+            Self::Setup => "subscribeWorktreeSetup",
         }
     }
 
     fn interval(self) -> Duration {
         match self {
-            Self::Status => STATUS_POLL_INTERVAL,
+            Self::Status | Self::Setup => STATUS_POLL_INTERVAL,
             Self::Detail => DETAIL_POLL_INTERVAL,
         }
     }
@@ -299,6 +348,7 @@ impl Watched {
         match self {
             Self::Status => status(state, viewer, task_id).await,
             Self::Detail => detail(state, viewer, task_id).await,
+            Self::Setup => setup(state, viewer, task_id).await,
         }
     }
 }
@@ -329,6 +379,18 @@ pub async fn watch_detail(
     seeded: Value,
 ) -> StreamResult {
     watch(Watched::Detail, sink, scope, state, viewer, task_id, seeded).await
+}
+
+/// The same push for the newest start's stages; see [`watch_status`].
+pub async fn watch_setup(
+    sink: StreamSink,
+    scope: Scope,
+    state: SandboxState,
+    viewer: ScopeContext,
+    task_id: String,
+    seeded: Value,
+) -> StreamResult {
+    watch(Watched::Setup, sink, scope, state, viewer, task_id, seeded).await
 }
 
 async fn watch(
@@ -646,6 +708,7 @@ mod tests {
             operator: Arc::new(UnreachableStarter),
             diagnostics: Arc::new(UnreachableStarter),
             poll_gate: PollGate::new(1),
+            events: Arc::new(crate::sandbox_setup::LoggedEvents::default()),
         }
     }
 

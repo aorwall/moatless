@@ -100,6 +100,7 @@ pub async fn mount(
         environment_id: environment_id(&environment),
         orchestration_protocol_version: settings.orchestration_protocol_version,
         review_guide_fork_author: settings.review_guide_fork_author,
+        scratch_workspace: settings.scratch_workspace,
         allowed_origins: settings.allowed_origins,
         otlp_traces_enabled,
         attachment_uploads: session_jwt_secret.is_some(),
@@ -169,6 +170,7 @@ pub async fn mount(
             operator,
             diagnostics,
             poll_gate: reads.poll_gate().clone(),
+            events: graph.task_events.clone(),
         },
         subtasks: SubtasksState {
             relations,
@@ -216,6 +218,7 @@ pub struct T3Graph {
     reads: T3Reads,
     usage: Arc<dyn ports::UsageReporter>,
     review_guides: Arc<moatless_tasks::review_guide::operations::ReviewGuides>,
+    task_events: Arc<moatless_tasks::task_event::operations::TaskEvents>,
 }
 
 /// Build the T3 read projections over `db`.
@@ -232,6 +235,7 @@ pub fn t3_graph(db: UiRpcDbPool, tasks: &TaskGraph) -> T3Graph {
     let usage = tasks.turn_usage();
     T3Graph {
         review_guides: tasks.review_guides(),
+        task_events: tasks.task_events(),
         pool: db.clone(),
         reads: T3Reads::new(
             conversations,

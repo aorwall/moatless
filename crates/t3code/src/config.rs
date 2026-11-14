@@ -39,6 +39,9 @@ pub(crate) struct UiRpcConfig {
     pub(crate) orchestration_protocol_version: u8,
     /// See [`moatless_types::ui_rpc::T3UiRpcConfig::review_guide_fork_author`].
     pub(crate) review_guide_fork_author: bool,
+    /// See [`moatless_types::ui_rpc::T3UiRpcConfig::scratch_workspace`] and
+    /// [`crate::scratch`].
+    pub(crate) scratch_workspace: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]

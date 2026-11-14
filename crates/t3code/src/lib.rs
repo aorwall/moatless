@@ -41,6 +41,8 @@ mod review;
 mod routes;
 mod rpc;
 mod sandbox;
+mod sandbox_setup;
+mod scratch;
 pub mod scripts;
 mod skills;
 mod snapshots;
