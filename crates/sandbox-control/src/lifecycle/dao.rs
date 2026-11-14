@@ -263,8 +263,6 @@ where
         .map(|_| ())
 }
 
-/// Reconstruct the persisted correlation marker from its three columns. Present
-/// iff `sandbox_operation_kind` is set.
 /// The labels of the commands in `commands` still at work, in their order.
 /// `queued` and `running` are the pod's non-terminal states, the same two
 /// `listed_dao` names when it lists them.
@@ -276,6 +274,8 @@ fn running_labels(commands: &[OutstandingCommand]) -> Vec<&str> {
         .collect()
 }
 
+/// Reconstruct the persisted correlation marker from its three columns. Present
+/// iff `sandbox_operation_kind` is set.
 fn marker_from_columns(
     kind: Option<String>,
     generation: Option<i64>,
