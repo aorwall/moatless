@@ -12,4 +12,5 @@ pub mod conversation;
 pub mod events;
 pub mod listing;
 pub mod preview;
+pub mod pull_requests;
 pub mod terminal;

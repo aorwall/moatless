@@ -124,6 +124,10 @@ pub(super) struct PrFile {
     /// one too large for GitHub to diff.
     #[serde(default)]
     pub(super) patch: Option<String>,
+    #[serde(default)]
+    pub(super) additions: u64,
+    #[serde(default)]
+    pub(super) deletions: u64,
 }
 
 /// Largest file [`GithubPrApi::file_text`] reads.
@@ -202,6 +206,7 @@ pub(super) struct CheckAnnotation {
 }
 
 /// GitHub REST API client for PR operations.
+#[derive(Clone)]
 pub(super) struct GithubPrApi {
     client: Client,
     token: String,
@@ -452,14 +457,11 @@ impl GithubPrApi {
         number: u64,
         login: &str,
     ) -> Result<(), AdapterError> {
-        let url = format!(
-            "{}/repos/{owner}/{repo}/issues/{number}/assignees",
-            self.base_url
-        );
-        self.post_expecting_success(
+        self.rest_write(
             "GitHub add_assignee",
-            &url,
-            serde_json::json!({ "assignees": [login] }),
+            reqwest::Method::POST,
+            &format!("repos/{owner}/{repo}/issues/{number}/assignees"),
+            Some(serde_json::json!({ "assignees": [login] })),
         )
         .await
     }
@@ -473,38 +475,59 @@ impl GithubPrApi {
         number: u64,
         login: &str,
     ) -> Result<(), AdapterError> {
-        let url = format!(
-            "{}/repos/{owner}/{repo}/pulls/{number}/requested_reviewers",
-            self.base_url
-        );
-        self.post_expecting_success(
+        self.rest_write(
             "GitHub request_review",
-            &url,
-            serde_json::json!({ "reviewers": [login] }),
+            reqwest::Method::POST,
+            &format!("repos/{owner}/{repo}/pulls/{number}/requested_reviewers"),
+            Some(serde_json::json!({ "reviewers": [login] })),
         )
         .await
     }
 
-    /// POST `body` to `url`, reading nothing back but success.
-    async fn post_expecting_success(
+    /// Send `body` to `path` under the REST root with `method`, reading
+    /// nothing back but success.
+    pub(super) async fn rest_write(
         &self,
         operation: &'static str,
-        url: &str,
-        body: serde_json::Value,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<serde_json::Value>,
     ) -> Result<(), AdapterError> {
-        let resp = self
-            .send(
-                self.request(reqwest::Method::POST, url).json(&body),
-                operation,
-            )
-            .await?;
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let headers = resp.headers().clone();
-            let text = resp.text().await.unwrap_or_default();
-            return Err(rejection(operation, status, &headers, &text));
+        self.rest_send(operation, method, path, body, false).await
+    }
+
+    /// DELETE `path`, where a 404 means it was already gone.
+    pub(super) async fn rest_remove(
+        &self,
+        operation: &'static str,
+        path: &str,
+    ) -> Result<(), AdapterError> {
+        self.rest_send(operation, reqwest::Method::DELETE, path, None, true)
+            .await
+    }
+
+    async fn rest_send(
+        &self,
+        operation: &'static str,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<serde_json::Value>,
+        absent_ok: bool,
+    ) -> Result<(), AdapterError> {
+        let url = format!("{}/{path}", self.base_url);
+        let request = self.request(method, &url);
+        let request = match body {
+            Some(body) => request.json(&body),
+            None => request,
+        };
+        let resp = self.send(request, operation).await?;
+        let status = resp.status();
+        if status.is_success() || (absent_ok && status == reqwest::StatusCode::NOT_FOUND) {
+            return Ok(());
         }
-        Ok(())
+        let headers = resp.headers().clone();
+        let text = resp.text().await.unwrap_or_default();
+        Err(rejection(operation, status, &headers, &text))
     }
 
     /// Fetch a repository's default branch name.

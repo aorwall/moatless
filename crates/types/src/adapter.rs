@@ -648,6 +648,9 @@ pub struct AdapterConnection {
 // Binding
 // =============================================================================
 
+/// The `subject_kind` of a [`TaskBinding`] to a GitHub pull request.
+pub const GITHUB_PR_SUBJECT_KIND: &str = "github_pr";
+
 /// The live tie between a Task and an external subject reached through an
 /// Adapter — a GitHub PR, a Slack thread, or a Linear issue.
 #[derive(Debug, Clone)]

@@ -46,6 +46,9 @@ type ThreadSender = watch::Sender<Option<ThreadSignal>>;
 pub struct ChangeWatch {
     listing: Arc<watch::Sender<Option<ListingHead>>>,
     threads: Arc<Mutex<HashMap<String, ThreadSender>>>,
+    /// [`ConversationDao::pull_request_host_changes`], read only while a
+    /// receiver lives.
+    pull_requests: Arc<watch::Sender<Option<i64>>>,
 }
 
 impl ChangeWatch {
@@ -53,7 +56,13 @@ impl ChangeWatch {
         Self {
             listing: Arc::new(watch::Sender::new(None)),
             threads: Arc::default(),
+            pull_requests: Arc::new(watch::Sender::new(None)),
         }
+    }
+
+    /// The pull request host-change count, as of this replica's last read.
+    pub(crate) fn pull_requests(&self) -> watch::Receiver<Option<i64>> {
+        self.pull_requests.subscribe()
     }
 
     /// The listing head, as of this replica's last read.
@@ -182,6 +191,9 @@ impl ChangePoller {
                     if let Err(error) = self.poll_listing(&mut listing).await {
                         warn!(%error, "Failed to read the T3 UI listing head");
                     }
+                    if let Err(error) = self.poll_pull_requests().await {
+                        warn!(%error, "Failed to read the pull request host-change count");
+                    }
                 }
                 _ = thread_ticks.tick() => {
                     if let Err(error) = self.poll_threads().await {
@@ -232,6 +244,19 @@ impl ChangePoller {
             if moved {
                 *published = Some(head);
             }
+            moved
+        });
+        Ok(())
+    }
+
+    async fn poll_pull_requests(&self) -> Result<(), sqlx::Error> {
+        if self.watch.pull_requests.receiver_count() == 0 {
+            return Ok(());
+        }
+        let count = self.conversations.pull_request_host_changes().await?;
+        self.watch.pull_requests.send_if_modified(|published| {
+            let moved = *published != Some(count);
+            *published = Some(count);
             moved
         });
         Ok(())

@@ -5,8 +5,8 @@
 use moatless_types::access_control::ScopeContext;
 use moatless_types::pull_request_conversation::{
     DiffSide, FileChangeType, PullRequestActivity, PullRequestActor, PullRequestCheck,
-    PullRequestCheckStatus, PullRequestCommitEntry, PullRequestLabel, PullRequestRemark,
-    PullRequestRemarkKind, ReviewThread, ReviewThreadComment,
+    PullRequestCheckStatus, PullRequestCommitEntry, PullRequestLabel, PullRequestReaction,
+    PullRequestRemark, PullRequestRemarkKind, ReviewThread, ReviewThreadComment,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -222,7 +222,30 @@ fn activity_json(activity: &PullRequestActivity) -> Value {
         "reviewThreadsTruncated": activity.review_threads_truncated,
         "reviewThreads": activity.review_threads.iter().map(thread_json).collect::<Vec<_>>(),
         "commits": activity.commits.iter().map(commit_json).collect::<Vec<_>>(),
+        "reactions": reactions_json(&activity.reactions),
     })
+}
+
+fn reactions_json(reactions: &[PullRequestReaction]) -> Vec<Value> {
+    reactions
+        .iter()
+        .map(|reaction| {
+            json!({
+                "content": reaction.content,
+                "count": reaction.count,
+                "actors": reaction.actors,
+                "viewerHasReacted": reaction.viewer_has_reacted,
+            })
+        })
+        .collect()
+}
+
+/// Sets `canEdit` on `value` where the host said.
+fn with_can_edit(mut value: Value, can_edit: Option<bool>) -> Value {
+    if let Some(can_edit) = can_edit {
+        value["canEdit"] = json!(can_edit);
+    }
+    value
 }
 
 pub(crate) fn actor_json(actor: &PullRequestActor) -> Value {
@@ -263,7 +286,7 @@ pub(crate) fn check_json(check: &PullRequestCheck) -> Value {
 }
 
 fn remark_json(remark: &PullRequestRemark) -> Value {
-    json!({
+    let value = json!({
         "id": remark.id,
         "kind": match remark.kind {
             PullRequestRemarkKind::IssueComment => "issue-comment",
@@ -277,7 +300,9 @@ fn remark_json(remark: &PullRequestRemark) -> Value {
         "url": remark.url,
         "path": remark.path,
         "reviewState": remark.review_state,
-    })
+        "reactions": reactions_json(&remark.reactions),
+    });
+    with_can_edit(value, remark.can_edit)
 }
 
 fn thread_json(thread: &ReviewThread) -> Value {
@@ -297,18 +322,23 @@ fn thread_json(thread: &ReviewThread) -> Value {
     if let Some(cursor) = &thread.next_comments_cursor {
         value["nextCommentsCursor"] = json!(cursor);
     }
+    if let Some(can_resolve) = thread.can_resolve {
+        value["canResolve"] = json!(can_resolve);
+    }
     value
 }
 
 fn thread_comment_json(comment: &ReviewThreadComment) -> Value {
-    json!({
+    let value = json!({
         "id": comment.id,
         "author": comment.author.as_ref().map(actor_json),
         "body": comment.body,
         "createdAt": comment.created_at,
         "editedAt": comment.edited_at,
         "url": comment.url,
-    })
+        "reactions": reactions_json(&comment.reactions),
+    });
+    with_can_edit(value, comment.can_edit)
 }
 
 fn commit_json(commit: &PullRequestCommitEntry) -> Value {

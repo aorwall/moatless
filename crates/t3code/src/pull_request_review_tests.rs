@@ -41,7 +41,7 @@ fn run(task_id: Option<&str>, started_minutes_ago: i64) -> ReviewGuideRun {
 }
 
 #[test]
-fn detail_offers_the_diff_and_no_action() {
+fn detail_offers_nothing_the_viewer_may_not_do() {
     let detail = detail_json(
         &target(),
         "Acme",
@@ -49,7 +49,7 @@ fn detail_offers_the_diff_and_no_action() {
         &PullRequestStatus::default(),
     );
     assert_eq!(detail["capabilities"]["diff"], true);
-    assert_eq!(detail["capabilities"]["actions"], json!([]));
+    assert_eq!(detail["viewerPermissions"]["actions"], json!([]));
     assert_eq!(detail["viewerPermissions"]["comment"], false);
     assert_eq!(detail["workspaceRoot"], nominal_path::nominal_root("ws-1"));
     assert_eq!(detail["repository"], "Acme/App");
@@ -81,6 +81,7 @@ fn detail_carries_the_status_read_beside_it() {
             url: None,
             required: None,
         }],
+        viewer: None,
     };
     let detail = detail_json(&target(), "Acme", &overview(), &status);
     assert_eq!(
@@ -288,4 +289,63 @@ async fn a_pull_request_in_a_repository_a_task_works_in_is_reached_through_the_p
         .await
         .unwrap();
     assert_eq!(reached.as_deref(), Some("ws-1"));
+}
+
+#[test]
+fn a_writer_is_offered_what_github_lets_them_do() {
+    use moatless_types::pull_request_conversation::PullRequestViewerRights;
+    let status = PullRequestStatus {
+        viewer: Some(PullRequestViewerRights {
+            can_write: true,
+            can_triage: true,
+            can_update: true,
+            can_merge_now: true,
+            auto_merge_allowed: true,
+            squash_merge_allowed: true,
+            auto_merge_method: Some("squash".into()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let detail = detail_json(&target(), "Acme", &overview(), &status);
+    let permissions = &detail["viewerPermissions"];
+    // Mergeable now, so no auto-merge to arm; the branch is not theirs.
+    assert_eq!(
+        permissions["actions"],
+        json!([
+            "merge",
+            "disable-auto-merge",
+            "ready",
+            "draft",
+            "close",
+            "reopen"
+        ])
+    );
+    assert_eq!(permissions["resolve"], true);
+    assert_eq!(permissions["labels"], true);
+    assert!(permissions.get("updateMethods").is_none());
+    assert_eq!(
+        detail["mergeCapabilities"],
+        json!({ "merge": false, "squash": true, "rebase": false })
+    );
+    assert_eq!(detail["autoMergeEnabled"], true);
+    assert_eq!(detail["autoMergeMethod"], "squash");
+}
+
+#[test]
+fn an_author_cannot_approve_their_own_pull_request() {
+    use moatless_types::pull_request_conversation::PullRequestViewerRights;
+    let status = PullRequestStatus {
+        viewer: Some(PullRequestViewerRights {
+            did_author: true,
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let detail = detail_json(&target(), "Acme", &overview(), &status);
+    let permissions = &detail["viewerPermissions"];
+    assert_eq!(permissions["verdicts"], json!(["comment"]));
+    assert_eq!(permissions["resolve"], true);
+    assert_eq!(permissions["requestReviewers"], false);
+    assert_eq!(permissions["actions"], json!([]));
 }

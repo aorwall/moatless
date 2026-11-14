@@ -211,7 +211,7 @@ pub(super) async fn normalize(
     let closed_candidate = (!sender_ignored)
         .then(|| closed_candidate(event_type, payload, context))
         .flatten();
-    let mut status_observations = Vec::new();
+    let mut status_observations = checks_observations(event_type, payload, context);
 
     let trigger = (!sender_ignored)
         .then(|| super::check_run_trigger::normalize(event_type, payload, context, &config))
@@ -248,6 +248,30 @@ pub(super) async fn normalize(
         merged_candidate,
         closed_candidate,
     }
+}
+
+/// A completed check suite, for each pull request it ran on: their checks
+/// rollup is read again, whatever the Loop asks to be told of.
+fn checks_observations(
+    event_type: &str,
+    payload: &serde_json::Value,
+    context: &NormalizeContext<'_>,
+) -> Vec<WebhookStatusObservation> {
+    if event_type != "check_suite"
+        || payload.get("action").and_then(serde_json::Value::as_str) != Some("completed")
+    {
+        return Vec::new();
+    }
+    payload
+        .pointer("/check_suite/pull_requests")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|pr| pr.get("number").and_then(serde_json::Value::as_u64))
+        .map(|number| WebhookStatusObservation::ChecksCompleted {
+            subject: context.subject(number),
+        })
+        .collect()
 }
 
 /// Whether the webhook reports a pull request closing, merged or not.

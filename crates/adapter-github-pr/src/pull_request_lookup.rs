@@ -2,7 +2,9 @@
 use super::adapter::GithubPrAdapter;
 use super::auth::resolve_github_api;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
-use moatless_types::pull_request_conversation::{FileChangeType, FileContentsPair};
+use moatless_types::pull_request_conversation::{
+    FileChangeType, FileContentsPair, PullRequestFileStat,
+};
 
 /// A pull request resolved for the T3 attach-PR dialog and the creation-time
 /// binding, in the shape T3's `GitResolvedPullRequest` reports.
@@ -155,6 +157,38 @@ pub async fn pull_request_patch_page(
         .list_pr_files(owner, repo, number, page, FILES_PER_PAGE)
         .await?;
     Ok(patch_page(&files, page))
+}
+
+/// Pages [`pull_request_file_stats`] reads before giving up on the rest.
+const MAX_STAT_PAGES: u32 = 10;
+
+/// Every changed file of `owner/repo#number` with its line counts, or `None`
+/// past [`MAX_STAT_PAGES`] pages of them.
+pub async fn pull_request_file_stats(
+    adapter: &GithubPrAdapter,
+    user_id: &str,
+    workspace_id: Option<&str>,
+    owner: &str,
+    repo: &str,
+    number: u64,
+) -> Result<Option<Vec<PullRequestFileStat>>, AdapterError> {
+    let api = resolve_github_api(adapter, user_id, workspace_id, owner, repo).await?;
+    let mut stats = Vec::new();
+    for page in 1..=MAX_STAT_PAGES {
+        let files = api
+            .list_pr_files(owner, repo, number, page, FILES_PER_PAGE)
+            .await?;
+        let full = files.len() as u32 == FILES_PER_PAGE;
+        stats.extend(files.into_iter().map(|file| PullRequestFileStat {
+            path: file.filename,
+            additions: file.additions,
+            deletions: file.deletions,
+        }));
+        if !full {
+            return Ok(Some(stats));
+        }
+    }
+    Ok(None)
 }
 
 /// [`pull_request_patch_page`] for the one commit `sha` of `owner/repo`.

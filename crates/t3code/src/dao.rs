@@ -244,6 +244,10 @@ pub trait ConversationDao: Send + Sync {
         after: i64,
         limit: i64,
     ) -> Result<Vec<ListingChange>, sqlx::Error>;
+
+    /// How many times a bound pull request's host state has changed, per
+    /// [`moatless_core::change_feed::pull_requests`].
+    async fn pull_request_host_changes(&self) -> Result<i64, sqlx::Error>;
 }
 
 /// [`ConversationDao`] over Postgres; the listing reads go to [`TaskListing`].
@@ -478,6 +482,10 @@ impl ConversationDao for PgConversationDao {
         limit: i64,
     ) -> Result<Vec<ListingChange>, sqlx::Error> {
         moatless_core::change_feed::listing::changes_after(&self.pool, after, limit).await
+    }
+
+    async fn pull_request_host_changes(&self) -> Result<i64, sqlx::Error> {
+        moatless_core::change_feed::pull_requests::host_changes(&self.pool).await
     }
 }
 

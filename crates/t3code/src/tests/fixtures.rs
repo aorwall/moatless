@@ -393,6 +393,54 @@ impl ports::PullRequestReviewSource for UnreachablePullRequestReviews {
     {
         unreachable!("no test in this file reads a bound pull request")
     }
+    async fn write(
+        &self,
+        _viewer: &ScopeContext,
+        _repository: &str,
+        _number: u64,
+        _write: &moatless_types::pull_request_conversation::PullRequestWrite,
+    ) -> Result<(), ports::PullRequestError> {
+        unreachable!("no test in this file writes to a pull request")
+    }
+    async fn label_candidates(
+        &self,
+        _viewer: &ScopeContext,
+        _repository: &str,
+        _number: u64,
+    ) -> Result<
+        moatless_types::pull_request_conversation::Candidates<
+            moatless_types::pull_request_conversation::PullRequestLabelCandidate,
+        >,
+        ports::PullRequestError,
+    > {
+        unreachable!("no test in this file writes to a pull request")
+    }
+    async fn reviewer_candidates(
+        &self,
+        _viewer: &ScopeContext,
+        _repository: &str,
+        _number: u64,
+        _query: Option<&str>,
+    ) -> Result<
+        moatless_types::pull_request_conversation::Candidates<
+            moatless_types::pull_request_conversation::PullRequestReviewerCandidate,
+        >,
+        ports::PullRequestError,
+    > {
+        unreachable!("no test in this file writes to a pull request")
+    }
+    async fn file_stats(
+        &self,
+        _viewer: &ScopeContext,
+        _workspace_id: Option<&str>,
+        _repository: &str,
+        _number: u64,
+    ) -> Result<
+        Option<Vec<moatless_types::pull_request_conversation::PullRequestFileStat>>,
+        ports::PullRequestError,
+    > {
+        unreachable!("no test in this file writes to a pull request")
+    }
     async fn file_contents(
         &self,
         _viewer: &ScopeContext,

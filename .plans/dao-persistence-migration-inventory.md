@@ -12,10 +12,11 @@ A consumer count is the number of `use` declarations naming the concern's module
 |---|---|---|---|---|
 | [adapter connections](#adapter-connections) | moatless-adapter-model | 02 | 0 | 0 |
 | [file metadata](#file-metadata) | moatless-core | 01 | 0 | 0 |
-| [conversation feed](#conversation-feed) | moatless-core | 01 | 9 | 7 |
+| [conversation feed](#conversation-feed) | moatless-core | 01 | 10 | 7 |
 | [events feed](#events-feed) | moatless-core | 01 | 7 | 6 |
-| [listing feed](#listing-feed) | moatless-core | 01 | 5 | 8 |
+| [listing feed](#listing-feed) | moatless-core | 01 | 6 | 9 |
 | [preview feed](#preview-feed) | moatless-core | 01 | 4 | 4 |
+| [pull request host changes](#pull-request-host-changes) | moatless-core | 01 | 2 | 1 |
 | [terminal feed](#terminal-feed) | moatless-core | 01 | 4 | 0 |
 | [users](#users) | moatless-identity | 03 | 0 | 0 |
 | [teams](#teams) | moatless-identity | 03 | 0 | 0 |
@@ -65,7 +66,7 @@ A consumer count is the number of `use` declarations naming the concern's module
 - **Owner:** moatless-adapter-model
 - **Closing slice:** 02
 - **Persistence roots:** `crates/adapter-model/src/connections/dao.rs`, `crates/adapter-model/src/connections/dao/postgres.rs`, `crates/adapter-model/src/connections/dao/row.rs`
-- **Owning tables:** `adapter_connections`
+- **Owning tables:** `adapter_connections`, `adapter_connection_events`
 - **Exports:** none
 - **Constructors:** none
 - **Peer consumers:** none
@@ -88,7 +89,7 @@ A consumer count is the number of `use` declarations naming the concern's module
 - **Closing slice:** 01
 - **Persistence roots:** `crates/core/src/change_feed/conversation/dao.rs`
 - **Owning tables:** `task_conversation_changes`, `task_conversation_position`
-- **Exports:** `change_feed::conversation::allocate_position`, `change_feed::conversation::changes_from`, `change_feed::conversation::current_head`, `change_feed::conversation::current_heads`, `change_feed::conversation::prune_changes`, `change_feed::conversation::record_activity_change`, `change_feed::conversation::record_message_change`, `change_feed::conversation::record_revert_change`, `change_feed::conversation::record_session_change`
+- **Exports:** `change_feed::conversation::allocate_position`, `change_feed::conversation::changes_from`, `change_feed::conversation::current_head`, `change_feed::conversation::current_heads`, `change_feed::conversation::prune_changes`, `change_feed::conversation::record_activity_change`, `change_feed::conversation::record_message_change`, `change_feed::conversation::record_pull_request_change`, `change_feed::conversation::record_revert_change`, `change_feed::conversation::record_session_change`
 - **Constructors:** none
 - **Peer consumers:** moatless-tasks (5)
 - **Test-only consumers:** moatless-t3code (2)
@@ -109,11 +110,11 @@ A consumer count is the number of `use` declarations naming the concern's module
 - **Owner:** moatless-core
 - **Closing slice:** 01
 - **Persistence roots:** `crates/core/src/change_feed/listing/dao.rs`
-- **Owning tables:** `task_listing_changes`, `task_listing_position`
-- **Exports:** `change_feed::listing::changes_after`, `change_feed::listing::current_head`, `change_feed::listing::current_position`, `change_feed::listing::prune_changes`, `change_feed::listing::record_change`
+- **Owning tables:** `task_listing_changes`, `task_listing_position`, `workspace_listing_changes`
+- **Exports:** `change_feed::listing::changes_after`, `change_feed::listing::current_head`, `change_feed::listing::current_position`, `change_feed::listing::prune_changes`, `change_feed::listing::record_change`, `change_feed::listing::record_workspace_change`
 - **Constructors:** none
 - **Peer consumers:** moatless-tasks (1)
-- **Test-only consumers:** moatless-backend (7)
+- **Test-only consumers:** moatless-backend (8)
 
 ## preview feed
 
@@ -125,6 +126,17 @@ A consumer count is the number of `use` declarations naming the concern's module
 - **Constructors:** none
 - **Peer consumers:** none
 - **Test-only consumers:** moatless-backend (4)
+
+## pull request host changes
+
+- **Owner:** moatless-core
+- **Closing slice:** 01
+- **Persistence roots:** `crates/core/src/change_feed/pull_requests/dao.rs`
+- **Owning tables:** `pull_request_host_changes`
+- **Exports:** `change_feed::pull_requests::host_changes`, `change_feed::pull_requests::record_host_change`
+- **Constructors:** none
+- **Peer consumers:** none
+- **Test-only consumers:** moatless-loops (1)
 
 ## terminal feed
 

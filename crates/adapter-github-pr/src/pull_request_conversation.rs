@@ -11,8 +11,9 @@ use super::pull_request_search::{Nodes, PageInfo};
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_types::pull_request_conversation::{
     DiffSide, PullRequestActivity, PullRequestActor, PullRequestCheck, PullRequestCheckStatus,
-    PullRequestCommitEntry, PullRequestLabel, PullRequestRemark, PullRequestRemarkKind,
-    PullRequestStatus, ReviewThread, ReviewThreadComment, ReviewThreadCommentPage,
+    PullRequestCommitEntry, PullRequestLabel, PullRequestReaction, PullRequestRemark,
+    PullRequestRemarkKind, PullRequestStatus, PullRequestViewerRights, ReviewThread,
+    ReviewThreadComment, ReviewThreadCommentPage,
 };
 
 /// Pages [`pull_request_activity`] reads before reporting the rest truncated:
@@ -21,12 +22,24 @@ const MAX_ACTIVITY_PAGES: usize = 10;
 
 const ACTOR: &str = "__typename login avatarUrl ... on User { name }";
 
+/// A reaction group's fields; `reactors` is bounded rather than paged, since a
+/// hover names a few and counts the rest.
+const REACTIONS: &str = "content viewerHasReacted reactors(first: 10) { totalCount nodes { ... on User { login } ... on Bot { login } ... on Organization { login } ... on Mannequin { login } } }";
+
+/// `query` with its `ACTOR` and `REACTIONS` placeholders filled in.
+fn expand(query: &str) -> String {
+    query
+        .replace("ACTOR", ACTOR)
+        .replace("REACTIONS", REACTIONS)
+}
+
 /// Each connection is switched on only while it has more to give; the first
 /// page (`$head`) also reads what is not paged.
 const ACTIVITY_QUERY: &str = r#"query($owner: String!, $name: String!, $number: Int!, $head: Boolean!, $withComments: Boolean!, $commentsAfter: String, $withReviews: Boolean!, $reviewsAfter: String, $withThreads: Boolean!, $threadsAfter: String) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       author @include(if: $head) { ACTOR }
+      reactionGroups @include(if: $head) { REACTIONS }
       reviewRequests(first: 50) @include(if: $head) {
         nodes { requestedReviewer { __typename ... on User { login name avatarUrl } ... on Bot { login avatarUrl } ... on Team { combinedSlug name avatarUrl } } }
       }
@@ -37,20 +50,20 @@ const ACTIVITY_QUERY: &str = r#"query($owner: String!, $name: String!, $number: 
       comments(first: 100, after: $commentsAfter) @include(if: $withComments) {
         totalCount
         pageInfo { hasNextPage endCursor }
-        nodes { id body createdAt lastEditedAt url author { ACTOR } }
+        nodes { id body createdAt lastEditedAt url viewerCanUpdate reactionGroups { REACTIONS } author { ACTOR } }
       }
       reviews(first: 100, after: $reviewsAfter) @include(if: $withReviews) {
         pageInfo { hasNextPage endCursor }
-        nodes { id body state submittedAt lastEditedAt url author { ACTOR } }
+        nodes { id body state submittedAt lastEditedAt url viewerCanUpdate reactionGroups { REACTIONS } author { ACTOR } }
       }
       reviewThreads(first: 100, after: $threadsAfter) @include(if: $withThreads) {
         pageInfo { hasNextPage endCursor }
         nodes {
-          id isResolved isOutdated path line diffSide
+          id isResolved isOutdated path line diffSide viewerCanResolve viewerCanUnresolve
           comments(first: 10) {
             totalCount
             pageInfo { hasNextPage endCursor }
-            nodes { id body createdAt lastEditedAt url author { ACTOR } }
+            nodes { id body createdAt lastEditedAt url viewerCanUpdate reactionGroups { REACTIONS } author { ACTOR } }
           }
         }
       }
@@ -65,7 +78,7 @@ const THREAD_COMMENTS_QUERY: &str = r#"query($threadId: ID!, $cursor: String) {
       pullRequest { number repository { nameWithOwner } }
       comments(first: 100, after: $cursor) {
         pageInfo { hasNextPage endCursor }
-        nodes { id body createdAt lastEditedAt url author { ACTOR } }
+        nodes { id body createdAt lastEditedAt url viewerCanUpdate reactionGroups { REACTIONS } author { ACTOR } }
       }
     }
   }
@@ -73,7 +86,12 @@ const THREAD_COMMENTS_QUERY: &str = r#"query($threadId: ID!, $cursor: String) {
 
 const STATUS_QUERY: &str = r#"query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
+    mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed autoMergeAllowed viewerPermission
     pullRequest(number: $number) {
+      viewerCanUpdate viewerDidAuthor viewerCanUpdateBranch mergeStateStatus
+      autoMergeRequest { mergeMethod }
+      headRepository { viewerPermission }
+      headRef { id }
       labels(first: 100) { nodes { name color } }
       reviewRequests(first: 100) {
         nodes { requestedReviewer { __typename ... on User { login name avatarUrl } ... on Bot { login avatarUrl } ... on Team { combinedSlug name avatarUrl } } }
@@ -109,7 +127,7 @@ async fn read_activity(
     repo: &str,
     number: u64,
 ) -> Result<PullRequestActivity, AdapterError> {
-    let query = ACTIVITY_QUERY.replace("ACTOR", ACTOR);
+    let query = expand(ACTIVITY_QUERY);
     let mut read = ActivityRead::default();
     let (mut comments_after, mut reviews_after, mut threads_after) = (None, None, None);
     let (mut with_comments, mut with_reviews, mut with_threads) = (true, true, true);
@@ -138,6 +156,7 @@ async fn read_activity(
         reviews_after = read.take_reviews(pr.reviews);
         threads_after = read.take_threads(pr.review_threads);
         if page == 0 {
+            read.reactions = reactions(pr.reaction_groups);
             read.take_head(pr.author, pr.review_requests, pr.latest_reviews, pr.commits);
         }
         with_comments = with_comments && comments_after.is_some();
@@ -177,7 +196,7 @@ async fn read_thread_comments(
 ) -> Result<ReviewThreadCommentPage, AdapterError> {
     let data = api
         .graphql(
-            &THREAD_COMMENTS_QUERY.replace("ACTOR", ACTOR),
+            &expand(THREAD_COMMENTS_QUERY),
             serde_json::json!({ "threadId": thread_id, "cursor": cursor }),
         )
         .await?;
@@ -227,13 +246,27 @@ async fn read_status(
     repo: &str,
     number: u64,
 ) -> Result<PullRequestStatus, AdapterError> {
-    let pr: StatusPullRequest = pull_request_data(
-        api,
-        STATUS_QUERY,
-        serde_json::json!({ "owner": owner, "name": repo, "number": number }),
-    )
-    .await?;
+    let data: StatusData = decode(
+        api.graphql(
+            STATUS_QUERY,
+            serde_json::json!({ "owner": owner, "name": repo, "number": number }),
+        )
+        .await?,
+    )?;
+    let (settings, pr) = data
+        .repository
+        .and_then(|repository| {
+            let pr = repository.pull_request?;
+            Some((repository.settings, pr))
+        })
+        .ok_or_else(|| {
+            AdapterError::from(SharedAdapterError::AdapterApi(
+                "GitHub has no such pull request".to_string(),
+            ))
+        })?;
+    let viewer = Some(viewer_rights(&settings, &pr.viewer));
     Ok(PullRequestStatus {
+        viewer,
         labels: pr
             .labels
             .nodes
@@ -300,6 +333,7 @@ struct ActivityRead {
     /// Comments the read threads hold beyond their first page.
     unread_thread_comments: u64,
     threads: Vec<ReviewThread>,
+    reactions: Vec<PullRequestReaction>,
 }
 
 impl ActivityRead {
@@ -376,6 +410,8 @@ impl ActivityRead {
                     url: comment.url.clone(),
                     path: Some(thread.path.clone()),
                     review_state: None,
+                    can_edit: comment.can_edit,
+                    reactions: comment.reactions.clone(),
                 }));
             self.threads.push(thread);
         }
@@ -399,6 +435,7 @@ impl ActivityRead {
             review_threads: self.threads,
             review_threads_truncated: threads_cut,
             commits: self.commits,
+            reactions: self.reactions,
         }
     }
 }
@@ -427,6 +464,7 @@ struct PullRequestData<T> {
 #[serde(rename_all = "camelCase")]
 struct ActivityPullRequest {
     author: Option<RawActor>,
+    reaction_groups: Option<Vec<RawReactionGroup>>,
     review_requests: Option<Nodes<RawReviewRequest>>,
     latest_reviews: Option<Nodes<RawLatestReview>>,
     commits: Option<Nodes<RawCommitNode>>,
@@ -576,6 +614,8 @@ struct RawComment {
     last_edited_at: Option<String>,
     url: Option<String>,
     author: Option<RawActor>,
+    viewer_can_update: Option<bool>,
+    reaction_groups: Option<Vec<RawReactionGroup>>,
 }
 
 impl RawComment {
@@ -590,6 +630,8 @@ impl RawComment {
             url: self.url,
             path,
             review_state: None,
+            can_edit: self.viewer_can_update,
+            reactions: reactions(self.reaction_groups),
         }
     }
 
@@ -601,6 +643,8 @@ impl RawComment {
             created_at: self.created_at,
             edited_at: self.last_edited_at,
             url: self.url,
+            can_edit: self.viewer_can_update,
+            reactions: reactions(self.reaction_groups),
         }
     }
 }
@@ -624,6 +668,8 @@ struct RawReview {
     last_edited_at: Option<String>,
     url: Option<String>,
     author: Option<RawActor>,
+    viewer_can_update: Option<bool>,
+    reaction_groups: Option<Vec<RawReactionGroup>>,
 }
 
 impl RawReview {
@@ -645,6 +691,8 @@ impl RawReview {
             url: self.url,
             path: None,
             review_state: Some(self.state),
+            can_edit: self.viewer_can_update,
+            reactions: reactions(self.reaction_groups),
         })
     }
 }
@@ -667,6 +715,8 @@ struct RawThread {
     line: Option<u64>,
     diff_side: Option<String>,
     comments: RawCommentConnection,
+    viewer_can_resolve: Option<bool>,
+    viewer_can_unresolve: Option<bool>,
 }
 
 impl RawThread {
@@ -694,8 +744,76 @@ impl RawThread {
                 .max(u64::try_from(comments.len()).unwrap_or(u64::MAX)),
             next_comments_cursor: self.comments.page_info.next(),
             comments,
+            // Whichever way the thread would turn now.
+            can_resolve: if self.is_resolved {
+                self.viewer_can_unresolve
+            } else {
+                self.viewer_can_resolve
+            },
         }
     }
+}
+
+/// T3's names of GitHub's `ReactionContent`; others are left out.
+const REACTION_NAMES: [(&str, &str); 8] = [
+    ("THUMBS_UP", "thumbs-up"),
+    ("THUMBS_DOWN", "thumbs-down"),
+    ("LAUGH", "laugh"),
+    ("HOORAY", "hooray"),
+    ("CONFUSED", "confused"),
+    ("HEART", "heart"),
+    ("ROCKET", "rocket"),
+    ("EYES", "eyes"),
+];
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawReactionGroup {
+    content: String,
+    #[serde(default)]
+    viewer_has_reacted: bool,
+    reactors: RawReactors,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawReactors {
+    #[serde(default)]
+    total_count: u64,
+    #[serde(default)]
+    nodes: Vec<Option<RawMaybeLogin>>,
+}
+
+/// A reactor GitHub no longer names reads as `{}`.
+#[derive(Deserialize)]
+struct RawMaybeLogin {
+    login: Option<String>,
+}
+
+/// The groups anyone has reacted in, by T3's name.
+fn reactions(groups: Option<Vec<RawReactionGroup>>) -> Vec<PullRequestReaction> {
+    groups
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|group| group.reactors.total_count > 0)
+        .filter_map(|group| {
+            let (_, name) = REACTION_NAMES
+                .iter()
+                .find(|(github, _)| *github == group.content)?;
+            Some(PullRequestReaction {
+                content: (*name).to_string(),
+                count: group.reactors.total_count,
+                actors: group
+                    .reactors
+                    .nodes
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|reactor| reactor.login)
+                    .collect(),
+                viewer_has_reacted: group.viewer_has_reacted,
+            })
+        })
+        .collect()
 }
 
 #[derive(Deserialize)]
@@ -723,8 +841,103 @@ struct RawRepositoryName {
 }
 
 #[derive(Deserialize)]
+struct StatusData {
+    repository: Option<StatusRepository>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StatusRepository {
+    #[serde(flatten)]
+    settings: RepositorySettings,
+    pull_request: Option<StatusPullRequest>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RepositorySettings {
+    #[serde(default)]
+    merge_commit_allowed: bool,
+    #[serde(default)]
+    squash_merge_allowed: bool,
+    #[serde(default)]
+    rebase_merge_allowed: bool,
+    #[serde(default)]
+    auto_merge_allowed: bool,
+    viewer_permission: Option<String>,
+}
+
+/// What the status read says the viewer may do to the pull request itself.
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PullRequestViewer {
+    #[serde(default)]
+    viewer_can_update: bool,
+    #[serde(default)]
+    viewer_did_author: bool,
+    #[serde(default)]
+    viewer_can_update_branch: bool,
+    merge_state_status: Option<String>,
+    auto_merge_request: Option<RawAutoMerge>,
+    head_repository: Option<RawPermission>,
+    head_ref: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawAutoMerge {
+    merge_method: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawPermission {
+    viewer_permission: Option<String>,
+}
+
+/// GitHub answers `null` only to an App installation, whose rights no API
+/// reports: it is granted, and GitHub refuses what the App was not given.
+fn permission_at_least_write(permission: Option<&str>) -> bool {
+    permission.is_none_or(|permission| matches!(permission, "ADMIN" | "MAINTAIN" | "WRITE"))
+}
+
+fn viewer_rights(settings: &RepositorySettings, pr: &PullRequestViewer) -> PullRequestViewerRights {
+    let permission = settings.viewer_permission.as_deref();
+    let can_write = permission_at_least_write(permission);
+    PullRequestViewerRights {
+        can_write,
+        can_triage: can_write || permission == Some("TRIAGE"),
+        can_delete_branch: pr.head_ref.is_some()
+            && pr
+                .head_repository
+                .as_ref()
+                .is_some_and(|head| permission_at_least_write(head.viewer_permission.as_deref())),
+        can_update: pr.viewer_can_update,
+        did_author: pr.viewer_did_author,
+        can_update_branch: pr.viewer_can_update_branch,
+        // The states in which GitHub merges at once rather than arming
+        // auto-merge.
+        can_merge_now: matches!(
+            pr.merge_state_status.as_deref(),
+            Some("CLEAN" | "HAS_HOOKS" | "UNSTABLE")
+        ),
+        merge_commit_allowed: settings.merge_commit_allowed,
+        squash_merge_allowed: settings.squash_merge_allowed,
+        rebase_merge_allowed: settings.rebase_merge_allowed,
+        auto_merge_allowed: settings.auto_merge_allowed,
+        auto_merge_method: pr
+            .auto_merge_request
+            .as_ref()
+            .and_then(|request| request.merge_method.as_deref())
+            .map(str::to_ascii_lowercase),
+    }
+}
+
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct StatusPullRequest {
+    #[serde(flatten)]
+    viewer: PullRequestViewer,
     #[serde(default)]
     labels: Nodes<RawLabel>,
     #[serde(default)]

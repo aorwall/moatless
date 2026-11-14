@@ -31,6 +31,7 @@ use serde_json::Value;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::watch;
 use tracing::warn;
 
@@ -408,6 +409,36 @@ impl ReadableTasks {
 }
 
 /// Every preview event the viewer is allowed to see, until the socket closes.
+/// The shortest gap between two refreshes one client is told of. Each sends
+/// it to re-read every pull request it shows, against the viewer's own GitHub
+/// quota, so a burst of webhooks is answered once.
+const PULL_REQUEST_REFRESH_GAP: Duration = Duration::from_secs(5);
+
+/// `pullRequests.subscribeRefreshes`: the host-change count, each time it
+/// moves past the one this subscription opened at.
+///
+/// Not narrowed to what the viewer can read: the count names no pull request,
+/// and a client re-reads only its own.
+pub(crate) async fn watch_pull_request_refreshes(
+    sink: subscription::StreamSink,
+    mut changes: watch::Receiver<Option<i64>>,
+) -> StreamResult {
+    // The first read is where this client starts, not a change.
+    let Some(mut seen) = next_change(&mut changes, None, |_| true).await else {
+        return Ok(());
+    };
+    loop {
+        let Some(count) = next_change(&mut changes, Some(&seen), |count| *count > 0).await else {
+            return Ok(());
+        };
+        seen = count;
+        if !sink.send(json!(count)).await {
+            return Ok(());
+        }
+        tokio::time::sleep(PULL_REQUEST_REFRESH_GAP).await;
+    }
+}
+
 pub(crate) async fn watch_preview_events(
     sink: subscription::StreamSink,
     preview: crate::preview::PreviewState,

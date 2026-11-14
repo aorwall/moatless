@@ -14,7 +14,7 @@ use moatless_tasks::review_guide::models::{
 use moatless_tasks::review_guide::operations::ReviewGuides;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::agent::AgentProfile;
-use moatless_types::pull_request_conversation::PullRequestStatus;
+use moatless_types::pull_request_conversation::{PullRequestStatus, PullRequestViewerRights};
 use moatless_types::task::TurnStatus;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -194,8 +194,8 @@ async fn reach_through(
     .ok_or(PullRequestReviewError::Unknown)
 }
 
-/// `pullRequests.detail`: the pull request as its host reports it, offering
-/// no action — this backend reads a pull request and writes nothing to it.
+/// `pullRequests.detail`: the pull request as its host reports it, and what
+/// the viewer may do to it.
 pub(crate) async fn detail(
     ports: &ReviewPorts<'_>,
     viewer: &ScopeContext,
@@ -245,23 +245,8 @@ fn detail_json(
     let created_at = pr.created_at.clone().unwrap_or_else(|| now.clone());
     let mut detail = json!({
         "provider": "github",
-        "capabilities": {
-            "diff": true,
-            "comment": false,
-            "actions": [],
-            "mergeMethods": [],
-            "search": false,
-            "review": { "inlineComment": false, "reply": false, "resolve": false, "verdicts": [] },
-            "reviewers": { "request": false, "listCandidates": false },
-            "stacks": false,
-        },
-        "viewerPermissions": {
-            "actions": [],
-            "comment": false,
-            "resolve": false,
-            "verdicts": [],
-            "requestReviewers": false,
-        },
+        "capabilities": capabilities_json(),
+        "viewerPermissions": viewer_permissions_json(status.viewer.as_ref()),
         "projectId": target.project_id,
         "projectTitle": project_title,
         "workspaceRoot": nominal_path::nominal_root(target.project_id),
@@ -296,12 +281,102 @@ fn detail_json(
         "reviewers": status.requested_reviewers.iter().map(actor_json).collect::<Vec<_>>(),
         "labels": status.labels.iter().map(label_json).collect::<Vec<_>>(),
         "checks": status.checks.iter().map(check_json).collect::<Vec<_>>(),
-        "mergeCapabilities": { "merge": false, "squash": false, "rebase": false },
+        "mergeCapabilities": {
+            "merge": status.viewer.as_ref().is_some_and(|viewer| viewer.merge_commit_allowed),
+            "squash": status.viewer.as_ref().is_some_and(|viewer| viewer.squash_merge_allowed),
+            "rebase": status.viewer.as_ref().is_some_and(|viewer| viewer.rebase_merge_allowed),
+        },
     });
     if !pr.head_sha.trim().is_empty() {
         detail["headSha"] = json!(pr.head_sha);
     }
+    if let Some(viewer) = &status.viewer {
+        detail["autoMergeEnabled"] = json!(viewer.auto_merge_method.is_some());
+        if let Some(method) = &viewer.auto_merge_method {
+            detail["autoMergeMethod"] = json!(method);
+        }
+    }
     detail
+}
+
+/// What this backend can do to a GitHub pull request at all, whoever asks:
+/// `crate::pull_request_writes` serves each of these. Not `revert`,
+/// `approve-workflows`, stacks or viewed files, which it does not serve.
+fn capabilities_json() -> Value {
+    json!({
+        "diff": true,
+        "comment": true,
+        "actions": [
+            "merge", "ready", "draft", "close", "reopen", "delete-branch",
+            "update-branch", "enable-auto-merge", "disable-auto-merge",
+        ],
+        "mergeMethods": ["merge", "squash", "rebase"],
+        "deleteBranch": true,
+        "updateMethods": ["merge", "rebase"],
+        "search": false,
+        "reactions": true,
+        "review": {
+            "inlineComment": true,
+            "rangeComment": true,
+            "reply": true,
+            "resolve": true,
+            "verdicts": ["comment", "approve", "request-changes"],
+        },
+        "reviewers": { "request": true, "listCandidates": true, "searchCandidates": true },
+        "edit": { "changeRequest": true, "comment": true },
+        "stacks": false,
+        "labels": true,
+    })
+}
+
+/// What `viewer` may do, as upstream's `gitHubViewerPermissions` decides it;
+/// nothing where the read did not say.
+fn viewer_permissions_json(viewer: Option<&PullRequestViewerRights>) -> Value {
+    let Some(viewer) = viewer else {
+        return json!({
+            "actions": [],
+            "comment": false,
+            "resolve": false,
+            "verdicts": [],
+            "requestReviewers": false,
+        });
+    };
+    let mut actions = Vec::new();
+    if viewer.can_delete_branch {
+        actions.push("delete-branch");
+    }
+    if viewer.can_write {
+        actions.push("merge");
+        if viewer.auto_merge_allowed && !viewer.can_merge_now {
+            actions.push("enable-auto-merge");
+        }
+        // Kept where the repository has since turned auto-merge off.
+        actions.push("disable-auto-merge");
+    }
+    if viewer.can_update {
+        actions.extend(["ready", "draft", "close", "reopen"]);
+    }
+    if viewer.can_update_branch {
+        actions.push("update-branch");
+    }
+    let mut permissions = json!({
+        "actions": actions,
+        "comment": true,
+        "resolve": viewer.can_write || viewer.did_author,
+        // GitHub refuses an author's own approval or change request.
+        "verdicts": if viewer.did_author {
+            json!(["comment"])
+        } else {
+            json!(["comment", "approve", "request-changes"])
+        },
+        "requestReviewers": viewer.can_write,
+        "labels": viewer.can_triage,
+        "editChangeRequest": viewer.can_update,
+    });
+    if viewer.can_update_branch {
+        permissions["updateMethods"] = json!(["merge", "rebase"]);
+    }
+    permissions
 }
 
 /// The HTTP `pull-requests/diff` route: one page of the change, or of its

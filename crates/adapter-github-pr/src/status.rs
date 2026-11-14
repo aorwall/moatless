@@ -11,6 +11,7 @@ use std::sync::Arc;
 use moatless_loops::bindings::operations::Bindings;
 
 use super::adapter::GithubPrAdapter;
+use super::api::GithubPrApi;
 use super::pull_request_conversation::pull_request_data;
 use super::pull_request_search::Nodes;
 use super::signals::ReviewDecision;
@@ -26,19 +27,41 @@ pub(super) enum WebhookStatusObservation {
         subject_key: String,
         decision: ReviewDecision,
     },
+    /// A check suite finished on the pull request's head, which no payload
+    /// field reports the rollup of: it is read live.
+    ChecksCompleted { subject: GithubPrSubject },
+}
+
+impl WebhookStatusObservation {
+    /// Whether applying this reads the pull request from GitHub.
+    pub(super) fn reads_live(&self) -> bool {
+        matches!(self, Self::ChecksCompleted { .. })
+    }
+
+    /// The pull request it is about, as its Bindings key it.
+    pub(super) fn subject_key(&self) -> String {
+        match self {
+            Self::PullRequest { subject_key, .. } | Self::ReviewDecision { subject_key, .. } => {
+                subject_key.clone()
+            }
+            Self::ChecksCompleted { subject } => subject.key(),
+        }
+    }
 }
 
 /// Apply a normalized webhook observation best-effort and off the response
 /// path.
+///
+/// `live` reads what a [`WebhookStatusObservation::reads_live`] one needs; the
+/// observation is dropped without it.
 pub(super) fn apply_webhook_observation(
     repository: Arc<Bindings>,
     observation: WebhookStatusObservation,
+    live: Option<GithubPrApi>,
 ) {
     tokio::spawn(async move {
-        let subject_key = match &observation {
-            WebhookStatusObservation::PullRequest { subject_key, .. }
-            | WebhookStatusObservation::ReviewDecision { subject_key, .. } => subject_key,
-        };
+        let subject_key = observation.subject_key();
+        let subject_key = subject_key.as_str();
         let bindings = match repository
             .for_subject("github", "github_pr", subject_key)
             .await
@@ -54,8 +77,35 @@ pub(super) fn apply_webhook_observation(
             }
         };
 
+        if bindings.is_empty() {
+            return;
+        }
+        // Read once for every Task bound to the pull request.
+        let live_status = match (&observation, &live) {
+            (WebhookStatusObservation::ChecksCompleted { subject }, Some(api)) => {
+                match read_live_status(api, subject).await {
+                    Some(status) => Some(status),
+                    None => return,
+                }
+            }
+            (WebhookStatusObservation::ChecksCompleted { .. }, None) => return,
+            _ => None,
+        };
         for binding in bindings {
             let result = match &observation {
+                WebhookStatusObservation::ChecksCompleted { .. } => {
+                    let Some(status) = live_status.as_ref() else {
+                        continue;
+                    };
+                    repository
+                        .merge_external_status(
+                            &binding.id,
+                            status.status.as_deref(),
+                            status.state_kind.as_deref(),
+                            &status.raw,
+                        )
+                        .await
+                }
                 WebhookStatusObservation::PullRequest { status, .. } => {
                     repository
                         .merge_external_status(
@@ -81,6 +131,22 @@ pub(super) fn apply_webhook_observation(
             }
         }
     });
+}
+
+/// `subject`'s status read live, or `None` (logged) when it cannot be.
+async fn read_live_status(api: &GithubPrApi, subject: &GithubPrSubject) -> Option<ExternalStatus> {
+    let variables = serde_json::json!({
+        "owner": subject.owner(),
+        "name": subject.repo(),
+        "number": subject.pr_number(),
+    });
+    match pull_request_data::<LivePullRequest>(api, LIVE_STATUS_QUERY, variables).await {
+        Ok(pr) => Some(status_from_live_read(&pr)),
+        Err(error) => {
+            warn!(subject = %subject.key(), %error, "Failed to read a pull request's checks after its suite completed");
+            None
+        }
+    }
 }
 
 /// Normalized state kinds a PR can no longer move away from on its own. A

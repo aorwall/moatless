@@ -305,10 +305,10 @@ impl PgTaskBindingDao {
         .bind(row.last_event_at)
         .fetch_one(&mut *tx)
         .await?;
-        // Last in the transaction: `record_change` takes the listing counter,
-        // and a writer that takes it before its own row is the deadlock the
-        // ordering prevents. See `moatless_core::change_feed::listing`.
-        moatless_core::change_feed::listing::record_change(&mut tx, &row.task_id).await?;
+        // Last in the transaction: the change feeds take their counters, and a
+        // writer that takes one before its own row is the deadlock the
+        // ordering prevents. See `moatless_core::change_feed`.
+        record_link_change(&mut tx, &row.task_id, &row.subject_kind).await?;
         tx.commit().await?;
         Ok(TaskBinding::from(row))
     }
@@ -341,8 +341,7 @@ impl PgTaskBindingDao {
         .rows_affected()
             > 0;
         if changed {
-            // Ordered as in [`Self::upsert`].
-            moatless_core::change_feed::listing::record_change(&mut tx, task_id).await?;
+            record_link_change(&mut tx, task_id, subject_kind).await?;
         }
         tx.commit().await?;
         Ok(changed)
@@ -388,8 +387,7 @@ impl PgTaskBindingDao {
             .bind(watching)
             .execute(&mut *tx)
             .await?;
-            // Ordered as in [`Self::upsert`].
-            moatless_core::change_feed::listing::record_change(&mut tx, task_id).await?;
+            record_link_change(&mut tx, task_id, subject_kind).await?;
         }
         tx.commit().await?;
         Ok(Some(changed))
@@ -423,8 +421,7 @@ impl PgTaskBindingDao {
         .rows_affected()
             > 0;
         if deleted {
-            // Ordered as in [`Self::upsert`].
-            moatless_core::change_feed::listing::record_change(&mut tx, task_id).await?;
+            record_link_change(&mut tx, task_id, subject_kind).await?;
         }
         tx.commit().await?;
         Ok(deleted)
@@ -554,21 +551,16 @@ impl PgTaskBindingDao {
         state_kind: Option<&str>,
         raw: &serde_json::Value,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r#"UPDATE task_bindings
-               SET external_status            = $2,
-                   external_state_kind        = $3,
-                   external_status_raw        = $4,
-                   external_status_updated_at = now()
-               WHERE id = $1"#,
+        self.write_subject_state(
+            id,
+            SubjectState::Status {
+                status,
+                state_kind,
+                raw,
+                merge: false,
+            },
         )
-        .bind(id)
-        .bind(status)
-        .bind(state_kind)
-        .bind(raw)
-        .execute(&self.0)
-        .await?;
-        Ok(())
+        .await
     }
 
     pub(crate) async fn merge_external_status(
@@ -578,21 +570,16 @@ impl PgTaskBindingDao {
         state_kind: Option<&str>,
         raw: &serde_json::Value,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r#"UPDATE task_bindings
-               SET external_status            = $2,
-                   external_state_kind        = $3,
-                   external_status_raw        = COALESCE(external_status_raw, '{}'::jsonb) || $4,
-                   external_status_updated_at = now()
-               WHERE id = $1"#,
+        self.write_subject_state(
+            id,
+            SubjectState::Status {
+                status,
+                state_kind,
+                raw,
+                merge: true,
+            },
         )
-        .bind(id)
-        .bind(status)
-        .bind(state_kind)
-        .bind(raw)
-        .execute(&self.0)
-        .await?;
-        Ok(())
+        .await
     }
 
     /// Persist the PR's latest review decision (approved / `changes_requested`
@@ -602,16 +589,8 @@ impl PgTaskBindingDao {
         id: &str,
         review_decision: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r#"UPDATE task_bindings
-               SET external_review_decision = $2
-               WHERE id = $1"#,
-        )
-        .bind(id)
-        .bind(review_decision)
-        .execute(&self.0)
-        .await?;
-        Ok(())
+        self.write_subject_state(id, SubjectState::ReviewDecision(review_decision))
+            .await
     }
 
     /// Persist the PR's mergeable state (clean / dirty / …) onto a binding.
@@ -621,17 +600,107 @@ impl PgTaskBindingDao {
         id: &str,
         mergeable_state: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r#"UPDATE task_bindings
-               SET external_mergeable_state = $2
-               WHERE id = $1"#,
-        )
-        .bind(id)
-        .bind(mergeable_state)
-        .execute(&self.0)
-        .await?;
+        self.write_subject_state(id, SubjectState::MergeableState(mergeable_state))
+            .await
+    }
+
+    /// Write `state` and, when an active pull request Binding's shown state
+    /// moved, tell its readers.
+    ///
+    /// Compared rather than always recorded: a live read that finds nothing
+    /// new must not wake every open thread, nor the re-read that wrote it.
+    async fn write_subject_state(
+        &self,
+        id: &str,
+        state: SubjectState<'_>,
+    ) -> Result<(), sqlx::Error> {
+        let assignments = match state {
+            SubjectState::Status { merge: false, .. } => {
+                "external_status = $2, external_state_kind = $3, external_status_raw = $4, \
+                 external_status_updated_at = now()"
+            }
+            SubjectState::Status { merge: true, .. } => {
+                "external_status = $2, external_state_kind = $3, \
+                 external_status_raw = COALESCE(b.external_status_raw, '{}'::jsonb) || $4, \
+                 external_status_updated_at = now()"
+            }
+            SubjectState::ReviewDecision(_) => "external_review_decision = $2",
+            SubjectState::MergeableState(_) => "external_mergeable_state = $2",
+        };
+        let sql = format!(
+            r#"WITH old AS (
+                   SELECT id, external_status, external_state_kind, external_status_raw,
+                          external_review_decision, external_mergeable_state
+                   FROM task_bindings WHERE id = $1 FOR UPDATE
+               )
+               UPDATE task_bindings b SET {assignments}
+               FROM old WHERE b.id = old.id
+               RETURNING b.task_id,
+                         b.active AND b.subject_kind = '{PULL_REQUEST_SUBJECT}' AND (
+                             old.external_status IS DISTINCT FROM b.external_status
+                             OR old.external_state_kind IS DISTINCT FROM b.external_state_kind
+                             OR old.external_status_raw IS DISTINCT FROM b.external_status_raw
+                             OR old.external_review_decision
+                                 IS DISTINCT FROM b.external_review_decision
+                             OR old.external_mergeable_state
+                                 IS DISTINCT FROM b.external_mergeable_state
+                         ) AS moved"#
+        );
+        let query = sqlx::query_as::<_, (String, bool)>(AssertSqlSafe(sql)).bind(id);
+        let query = match state {
+            SubjectState::Status {
+                status,
+                state_kind,
+                raw,
+                ..
+            } => query.bind(status).bind(state_kind).bind(raw),
+            SubjectState::ReviewDecision(value) | SubjectState::MergeableState(value) => {
+                query.bind(value)
+            }
+        };
+        let mut tx = self.0.begin().await?;
+        let written = query.fetch_optional(&mut *tx).await?;
+        if let Some((task_id, true)) = written {
+            moatless_core::change_feed::pull_requests::record_host_change(&mut tx).await?;
+            record_link_change(&mut tx, &task_id, PULL_REQUEST_SUBJECT).await?;
+        }
+        tx.commit().await?;
         Ok(())
     }
+}
+
+/// One write [`PgTaskBindingDao::write_subject_state`] makes.
+#[derive(Clone, Copy)]
+enum SubjectState<'a> {
+    /// `merge` keeps the keys `raw` omits.
+    Status {
+        status: Option<&'a str>,
+        state_kind: Option<&'a str>,
+        raw: &'a serde_json::Value,
+        merge: bool,
+    },
+    ReviewDecision(Option<&'a str>),
+    MergeableState(Option<&'a str>),
+}
+
+/// The one Binding subject kind a T3 thread shows as a link.
+const PULL_REQUEST_SUBJECT: &str = moatless_types::adapter::GITHUB_PR_SUBJECT_KIND;
+
+/// Tell `task_id`'s readers that a Binding of it moved: its open thread too
+/// when the Binding is a pull request link, which the thread carries.
+///
+/// Call last in the transaction, after the Binding's own row; see
+/// [`moatless_core::change_feed`] for the order.
+async fn record_link_change(
+    tx: &mut sqlx::PgConnection,
+    task_id: &str,
+    subject_kind: &str,
+) -> Result<(), sqlx::Error> {
+    if subject_kind == PULL_REQUEST_SUBJECT {
+        moatless_core::change_feed::conversation::record_pull_request_change(tx, task_id).await?;
+    }
+    moatless_core::change_feed::listing::record_change(tx, task_id).await?;
+    Ok(())
 }
 
 #[cfg(all(test, feature = "db-tests"))]
@@ -773,5 +842,29 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(commented.metadata["close_on_subject_close"], true);
+    }
+
+    /// Only a write that moves what a thread shows tells its readers: the
+    /// live re-read a refresh triggers writes the same state back.
+    #[sqlx::test]
+    async fn an_unchanged_status_tells_no_reader(pool: PgPool) {
+        use moatless_core::change_feed::pull_requests::host_changes;
+        let dao = dao(pool.clone()).await;
+        let bound = dao.upsert(&row(serde_json::json!({}))).await.unwrap();
+        let before = host_changes(&pool).await.unwrap();
+        let raw = serde_json::json!({ "checks_state": "pending" });
+        dao.update_external_status(&bound.id, Some("open"), Some("open"), &raw)
+            .await
+            .unwrap();
+        let moved = host_changes(&pool).await.unwrap();
+        assert!(moved > before);
+        dao.update_external_status(&bound.id, Some("open"), Some("open"), &raw)
+            .await
+            .unwrap();
+        assert_eq!(host_changes(&pool).await.unwrap(), moved);
+        dao.update_review_decision(&bound.id, Some("approved"))
+            .await
+            .unwrap();
+        assert!(host_changes(&pool).await.unwrap() > moved);
     }
 }

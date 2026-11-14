@@ -88,6 +88,13 @@ pub const CONCERNS: &[Concern] = &[
         slice: 1,
     },
     Concern {
+        name: "pull request host changes",
+        owner: "moatless-core",
+        roots: &["crates/core/src/change_feed/pull_requests/dao"],
+        tables: &["pull_request_host_changes"],
+        slice: 1,
+    },
+    Concern {
         name: "terminal feed",
         owner: "moatless-core",
         roots: &["crates/core/src/change_feed/terminal/dao"],
@@ -489,6 +496,10 @@ const FEED_OPERATIONS: &[(&str, &str)] = &[
     ),
     (
         "moatless-core",
+        "change_feed::conversation::record_pull_request_change",
+    ),
+    (
+        "moatless-core",
         "change_feed::conversation::record_revert_change",
     ),
     (
@@ -515,6 +526,11 @@ const FEED_OPERATIONS: &[(&str, &str)] = &[
     ("moatless-core", "change_feed::preview::opens_after"),
     ("moatless-core", "change_feed::preview::prune_opens"),
     ("moatless-core", "change_feed::preview::record_open"),
+    ("moatless-core", "change_feed::pull_requests::host_changes"),
+    (
+        "moatless-core",
+        "change_feed::pull_requests::record_host_change",
+    ),
     ("moatless-core", "change_feed::terminal::current_position"),
     ("moatless-core", "change_feed::terminal::prune_starts"),
     ("moatless-core", "change_feed::terminal::record_start"),

@@ -118,9 +118,8 @@ pub(crate) fn descriptor(config: &UiRpcConfig) -> Value {
             // single reference a client from before this key reads instead.
             "threadPullRequests": true,
             // `pullRequests.list` over each readable project's primary GitHub
-            // repository, and `detail`, `reviewGuide`, `generateReviewGuide`
-            // and the HTTP diff for its pull requests or a bound Task's.
-            // Conversation and every write to the host are refused.
+            // repository, its pull requests' reads, and their writes made with
+            // the viewer's own credential. Stacks and viewed files are refused.
             "pullRequests": true,
             // `thread.pin`, `thread.unpin`, `thread.pin.reorder` and
             // `thread.active.reorder`, stored per viewer on their follow.

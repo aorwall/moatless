@@ -21,6 +21,7 @@ use moatless_loops::bindings::operations::Bindings;
 use moatless_ports::identity::ProviderIdentityLink;
 use moatless_types::adapter::AdapterConnection;
 use moatless_types::loops::SubscriptionMatch;
+use moatless_workspace_types::repository::GitHostRepo;
 
 use super::adapter::GithubPrAdapter;
 use super::config::{FilterKey, GithubPrRuleConfig};
@@ -224,8 +225,41 @@ pub(crate) async fn receive(
 
     // Observations apply before `primary`'s error is surfaced, so a partial
     // failure still updates PR status.
+    // A live read spends the Loop owner's quota, as the rest of this delivery's
+    // GitHub reads do; with no credential the observation is dropped. Only a
+    // pull request some Task is bound to is read.
+    let mut reads_bound = false;
+    for observation in normalized
+        .status_observations
+        .iter()
+        .filter(|observation| observation.reads_live())
+    {
+        if task_bindings
+            .for_subject("github", "github_pr", &observation.subject_key())
+            .await
+            .is_ok_and(|bindings| !bindings.is_empty())
+        {
+            reads_bound = true;
+            break;
+        }
+    }
+    let live = if reads_bound {
+        github_provider
+            .auth()
+            .client_for_live_status(
+                rule_for_parse.effective_user_id(),
+                &GitHostRepo::github(owner, repo),
+            )
+            .await
+            .inspect_err(|error| {
+                debug!(%error, repo = repo_full_name, "No GitHub credential to read checks with");
+            })
+            .ok()
+    } else {
+        None
+    };
     for observation in normalized.status_observations {
-        super::status::apply_webhook_observation(task_bindings.clone(), observation);
+        super::status::apply_webhook_observation(task_bindings.clone(), observation, live.clone());
     }
     let primary = normalized.primary.map_err(ingress)?;
 

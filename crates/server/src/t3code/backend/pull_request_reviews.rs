@@ -10,6 +10,7 @@ use moatless_adapter_github_pr::pull_request_search::{self, ListedPullRequest};
 use moatless_adapter_github_pr::{
     pull_request_conversation, pull_request_lookup,
     pull_request_search::{Involvement, PullRequestSearch},
+    pull_request_writes,
 };
 use moatless_t3code::ports::{
     ChangedFile, CommandRefusal, PullRequestError, PullRequestListItem, PullRequestListPage,
@@ -21,7 +22,9 @@ use moatless_tasks::task::service as task_service;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::agent::AgentProfile;
 use moatless_types::pull_request_conversation::{
-    FileContentsPair, PullRequestActivity, PullRequestStatus, ReviewThreadCommentPage,
+    Candidates, FileContentsPair, PullRequestActivity, PullRequestFileStat,
+    PullRequestLabelCandidate, PullRequestReviewerCandidate, PullRequestStatus, PullRequestWrite,
+    ReviewThreadCommentPage,
 };
 use moatless_workspace_types::repository::RepositoryProvider;
 use std::sync::Arc;
@@ -294,6 +297,89 @@ impl PullRequestReviewSource for AppStateBoundPullRequests {
     ) -> Result<PullRequestStatus, PullRequestError> {
         let (owner, repo) = owner_repo(repository)?;
         pull_request_conversation::pull_request_status(
+            self.github_pr()?.as_ref(),
+            &viewer.user_id,
+            workspace_id,
+            owner,
+            repo,
+            number,
+        )
+        .await
+        .map_err(pull_request_error)
+    }
+
+    async fn write(
+        &self,
+        viewer: &ScopeContext,
+        repository: &str,
+        number: u64,
+        write: &PullRequestWrite,
+    ) -> Result<(), PullRequestError> {
+        let (owner, repo) = owner_repo(repository)?;
+        // No Workspace: its pinned credential would make the write as the
+        // account it names rather than the viewer.
+        pull_request_writes::write_pull_request(
+            self.github_pr()?.as_ref(),
+            &viewer.user_id,
+            None,
+            owner,
+            repo,
+            number,
+            write,
+        )
+        .await
+        .map_err(pull_request_error)
+    }
+
+    async fn label_candidates(
+        &self,
+        viewer: &ScopeContext,
+        repository: &str,
+        number: u64,
+    ) -> Result<Candidates<PullRequestLabelCandidate>, PullRequestError> {
+        let (owner, repo) = owner_repo(repository)?;
+        pull_request_writes::label_candidates(
+            self.github_pr()?.as_ref(),
+            &viewer.user_id,
+            None,
+            owner,
+            repo,
+            number,
+        )
+        .await
+        .map_err(pull_request_error)
+    }
+
+    async fn reviewer_candidates(
+        &self,
+        viewer: &ScopeContext,
+        repository: &str,
+        number: u64,
+        query: Option<&str>,
+    ) -> Result<Candidates<PullRequestReviewerCandidate>, PullRequestError> {
+        let (owner, repo) = owner_repo(repository)?;
+        pull_request_writes::reviewer_candidates(
+            self.github_pr()?.as_ref(),
+            &viewer.user_id,
+            None,
+            owner,
+            repo,
+            number,
+            query,
+        )
+        .await
+        .map_err(pull_request_error)
+    }
+
+    async fn file_stats(
+        &self,
+        viewer: &ScopeContext,
+        workspace_id: Option<&str>,
+        repository: &str,
+        number: u64,
+    ) -> Result<Option<Vec<PullRequestFileStat>>, PullRequestError> {
+        let (owner, repo) = owner_repo(repository)?;
+        pull_request_lookup::pull_request_file_stats(
             self.github_pr()?.as_ref(),
             &viewer.user_id,
             workspace_id,

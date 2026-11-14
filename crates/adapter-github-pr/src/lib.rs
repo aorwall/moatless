@@ -48,3 +48,4 @@ mod mutations;
 pub mod pull_request_conversation;
 pub mod pull_request_lookup;
 pub mod pull_request_search;
+pub mod pull_request_writes;

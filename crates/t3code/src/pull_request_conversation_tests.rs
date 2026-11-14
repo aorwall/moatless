@@ -1,6 +1,6 @@
 use moatless_types::pull_request_conversation::{
-    PullRequestActivity, PullRequestActor, PullRequestCommitEntry, PullRequestRemark,
-    PullRequestRemarkKind, ReviewThread, ReviewThreadComment,
+    PullRequestActivity, PullRequestActor, PullRequestCommitEntry, PullRequestReaction,
+    PullRequestRemark, PullRequestRemarkKind, ReviewThread, ReviewThreadComment,
 };
 use serde_json::json;
 
@@ -24,6 +24,13 @@ fn activity_takes_t3s_wire_shape() {
         created_at: "2026-10-01T09:00:00Z".into(),
         edited_at: None,
         url: None,
+        can_edit: Some(true),
+        reactions: vec![PullRequestReaction {
+            content: "heart".into(),
+            count: 2,
+            actors: vec!["bob".into()],
+            viewer_has_reacted: true,
+        }],
     };
     let activity = PullRequestActivity {
         author: Some(alice()),
@@ -38,6 +45,8 @@ fn activity_takes_t3s_wire_shape() {
             url: None,
             path: Some("src/lib.rs".into()),
             review_state: None,
+            can_edit: None,
+            reactions: vec![],
         }],
         remark_count: 3,
         remarks_truncated: true,
@@ -51,6 +60,7 @@ fn activity_takes_t3s_wire_shape() {
             comments: vec![comment],
             comment_count: 3,
             next_comments_cursor: Some("tc1".into()),
+            can_resolve: Some(false),
         }],
         review_threads_truncated: false,
         commits: vec![PullRequestCommitEntry {
@@ -61,6 +71,7 @@ fn activity_takes_t3s_wire_shape() {
             deletions: None,
             authors: vec![alice()],
         }],
+        reactions: vec![],
     };
     let value = activity_json(&activity);
     assert_eq!(value["comments"][0]["kind"], "review-comment");
@@ -75,6 +86,13 @@ fn activity_takes_t3s_wire_shape() {
     assert_eq!(value["commits"][0]["additions"], 3);
     assert!(value["commits"][0].get("deletions").is_none());
     assert!(value["author"].get("isBot").is_none());
+    assert!(value["comments"][0].get("canEdit").is_none());
+    assert_eq!(thread["canResolve"], false);
+    assert_eq!(thread["comments"][0]["canEdit"], true);
+    assert_eq!(
+        thread["comments"][0]["reactions"],
+        json!([{"content": "heart", "count": 2, "actors": ["bob"], "viewerHasReacted": true}])
+    );
 }
 
 #[test]

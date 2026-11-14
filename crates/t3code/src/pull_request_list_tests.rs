@@ -245,6 +245,54 @@ impl PullRequestReviewSource for ProjectRepositories {
     > {
         unreachable!("no test here reads a pull request")
     }
+    async fn write(
+        &self,
+        _viewer: &ScopeContext,
+        _repository: &str,
+        _number: u64,
+        _write: &moatless_types::pull_request_conversation::PullRequestWrite,
+    ) -> Result<(), crate::ports::PullRequestError> {
+        unreachable!("no test here writes to a pull request")
+    }
+    async fn label_candidates(
+        &self,
+        _viewer: &ScopeContext,
+        _repository: &str,
+        _number: u64,
+    ) -> Result<
+        moatless_types::pull_request_conversation::Candidates<
+            moatless_types::pull_request_conversation::PullRequestLabelCandidate,
+        >,
+        crate::ports::PullRequestError,
+    > {
+        unreachable!("no test here writes to a pull request")
+    }
+    async fn reviewer_candidates(
+        &self,
+        _viewer: &ScopeContext,
+        _repository: &str,
+        _number: u64,
+        _query: Option<&str>,
+    ) -> Result<
+        moatless_types::pull_request_conversation::Candidates<
+            moatless_types::pull_request_conversation::PullRequestReviewerCandidate,
+        >,
+        crate::ports::PullRequestError,
+    > {
+        unreachable!("no test here writes to a pull request")
+    }
+    async fn file_stats(
+        &self,
+        _viewer: &ScopeContext,
+        _workspace_id: Option<&str>,
+        _repository: &str,
+        _number: u64,
+    ) -> Result<
+        Option<Vec<moatless_types::pull_request_conversation::PullRequestFileStat>>,
+        crate::ports::PullRequestError,
+    > {
+        unreachable!("no test here writes to a pull request")
+    }
     async fn file_contents(
         &self,
         _viewer: &ScopeContext,

@@ -8,7 +8,7 @@ use moatless_types::adapter::TaskBinding;
 use super::adapter::GithubPrAdapter;
 
 /// Subject kind for GitHub PRs (`task_bindings.subject_kind`).
-pub(super) const SUBJECT_KIND: &str = "github_pr";
+pub(super) const SUBJECT_KIND: &str = moatless_types::adapter::GITHUB_PR_SUBJECT_KIND;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct GithubPrSubject {

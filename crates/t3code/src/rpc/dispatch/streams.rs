@@ -49,6 +49,11 @@ pub(super) fn stream_methods() -> MethodTable {
             |session, request| Box::pin(session.orchestration_subscribe_thread(request)),
         )
         .stream(
+            "pullRequests.subscribeRefreshes",
+            Scope::OrchestrationRead,
+            |session, request| Box::pin(session.pull_requests_subscribe_refreshes(request)),
+        )
+        .stream(
             "sandbox.subscribeDetail",
             Scope::OrchestrationRead,
             |session, request| Box::pin(session.sandbox_subscribe_detail(request)),
@@ -414,6 +419,16 @@ impl ProtocolSession {
         let user_id = request.identity.user_id.to_string();
         self.streams.start_produced(&request.id, None, move |sink| {
             crate::access::watch_access(sink, pairing, changes, user_id)
+        })
+    }
+
+    pub(super) async fn pull_requests_subscribe_refreshes(
+        &mut self,
+        request: Request<IgnoredAny>,
+    ) -> Vec<Value> {
+        let changes = request.state.changes.pull_requests();
+        self.streams.start_produced(&request.id, None, move |sink| {
+            watch::watch_pull_request_refreshes(sink, changes)
         })
     }
 

@@ -9,7 +9,8 @@ use chrono::{DateTime, Utc};
 use moatless_api_schemas::agent::AgentDescriptor;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::pull_request_conversation::{
-    FileChangeType, FileContentsPair, PullRequestActivity, PullRequestStatus,
+    Candidates, FileChangeType, FileContentsPair, PullRequestActivity, PullRequestFileStat,
+    PullRequestLabelCandidate, PullRequestReviewerCandidate, PullRequestStatus, PullRequestWrite,
     ReviewThreadCommentPage,
 };
 use moatless_types::store::StoreError;
@@ -685,6 +686,46 @@ pub trait PullRequestReviewSource: Send + Sync {
         repository: &str,
         number: u64,
     ) -> Result<PullRequestStatus, PullRequestError>;
+
+    /// Make `write` to the pull request as `viewer`, with the viewer's own
+    /// git-host credential and never a Workspace's or the App's: one who has
+    /// none is refused with [`PullRequestError::Unavailable`] saying so.
+    async fn write(
+        &self,
+        viewer: &ScopeContext,
+        repository: &str,
+        number: u64,
+        write: &PullRequestWrite,
+    ) -> Result<(), PullRequestError>;
+
+    /// The repository's labels, as `viewer` reads them with their own
+    /// credential, marked with whether the pull request carries each.
+    async fn label_candidates(
+        &self,
+        viewer: &ScopeContext,
+        repository: &str,
+        number: u64,
+    ) -> Result<Candidates<PullRequestLabelCandidate>, PullRequestError>;
+
+    /// The people who could review the pull request matching `query`, as
+    /// `viewer` reads them with their own credential.
+    async fn reviewer_candidates(
+        &self,
+        viewer: &ScopeContext,
+        repository: &str,
+        number: u64,
+        query: Option<&str>,
+    ) -> Result<Candidates<PullRequestReviewerCandidate>, PullRequestError>;
+
+    /// Each changed file's line counts; `None` when there are too many to
+    /// read.
+    async fn file_stats(
+        &self,
+        viewer: &ScopeContext,
+        workspace_id: Option<&str>,
+        repository: &str,
+        number: u64,
+    ) -> Result<Option<Vec<PullRequestFileStat>>, PullRequestError>;
 
     /// One changed file of the pull request, or of `file.commit`, before and
     /// after the change.

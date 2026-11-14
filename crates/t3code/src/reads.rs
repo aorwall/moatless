@@ -291,5 +291,9 @@ mod refusal {
         ) -> Result<Vec<ListingChange>, sqlx::Error> {
             self.0.listing_changes_after(after, limit).await
         }
+
+        async fn pull_request_host_changes(&self) -> Result<i64, sqlx::Error> {
+            self.0.pull_request_host_changes().await
+        }
     }
 }

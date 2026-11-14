@@ -14,6 +14,8 @@ use crate::pull_request_list;
 use crate::pull_request_list::PullRequestListInput;
 use crate::pull_request_review;
 use crate::pull_request_review::PullRequestRef;
+use crate::pull_request_writes;
+use crate::pull_request_writes::{WriteInput, WriteMethod};
 use crate::review;
 use crate::review::VcsListRefsInput;
 use crate::rpc::envelope::RequestId;
@@ -30,6 +32,7 @@ use crate::rpc::table::MethodTable;
 use crate::rpc::table::Request;
 use crate::snapshots::workspace_cwd;
 use crate::workspace::WorkspaceAccessError;
+use moatless_types::pull_request_conversation::PullRequestWrite;
 use serde::Deserialize;
 use serde::de::IgnoredAny;
 use serde_json::Value;
@@ -57,6 +60,21 @@ pub(super) fn vcs_methods() -> MethodTable {
             "pullRequests.activity",
             Scope::OrchestrationRead,
             pull_requests_activity,
+        )
+        .detached(
+            "pullRequests.changeBreakdown",
+            Scope::OrchestrationRead,
+            pull_requests_change_breakdown,
+        )
+        .detached(
+            "pullRequests.checks",
+            Scope::OrchestrationRead,
+            pull_requests_checks,
+        )
+        .detached(
+            "pullRequests.comment",
+            Scope::OrchestrationOperate,
+            pull_requests_comment,
         )
         .detached(
             "pullRequests.detail",
@@ -89,6 +107,11 @@ pub(super) fn vcs_methods() -> MethodTable {
             pull_requests_list,
         )
         .detached(
+            "pullRequests.labelCandidates",
+            Scope::OrchestrationRead,
+            pull_requests_label_candidates,
+        )
+        .detached(
             "pullRequests.listStats",
             Scope::OrchestrationRead,
             pull_requests_list_stats,
@@ -99,9 +122,54 @@ pub(super) fn vcs_methods() -> MethodTable {
             pull_requests_preview,
         )
         .detached(
+            "pullRequests.replyToThread",
+            Scope::OrchestrationOperate,
+            pull_requests_reply_to_thread,
+        )
+        .detached(
+            "pullRequests.requestReviewers",
+            Scope::OrchestrationOperate,
+            pull_requests_request_reviewers,
+        )
+        .detached(
             "pullRequests.reviewGuide",
             Scope::OrchestrationRead,
             pull_requests_review_guide,
+        )
+        .detached(
+            "pullRequests.reviewerCandidates",
+            Scope::OrchestrationRead,
+            pull_requests_reviewer_candidates,
+        )
+        .detached(
+            "pullRequests.runAction",
+            Scope::OrchestrationOperate,
+            pull_requests_run_action,
+        )
+        .detached(
+            "pullRequests.setLabels",
+            Scope::OrchestrationOperate,
+            pull_requests_set_labels,
+        )
+        .detached(
+            "pullRequests.setReaction",
+            Scope::OrchestrationOperate,
+            pull_requests_set_reaction,
+        )
+        .detached(
+            "pullRequests.setThreadResolution",
+            Scope::OrchestrationOperate,
+            pull_requests_set_thread_resolution,
+        )
+        .detached(
+            "pullRequests.stack",
+            Scope::OrchestrationRead,
+            pull_requests_stack,
+        )
+        .detached(
+            "pullRequests.submitReview",
+            Scope::OrchestrationOperate,
+            pull_requests_submit_review,
         )
         .detached(
             "pullRequests.summary",
@@ -112,6 +180,16 @@ pub(super) fn vcs_methods() -> MethodTable {
             "pullRequests.threadComments",
             Scope::OrchestrationRead,
             pull_requests_thread_comments,
+        )
+        .detached(
+            "pullRequests.update",
+            Scope::OrchestrationOperate,
+            pull_requests_update,
+        )
+        .detached(
+            "pullRequests.updateComment",
+            Scope::OrchestrationOperate,
+            pull_requests_update_comment,
         )
         .detached(
             "review.getDiffFileContents",
@@ -378,6 +456,11 @@ enum PullRequestRead {
         cursor: Option<String>,
     },
     DiffFileContents(PullRequestDiffFileContentsInput),
+    Checks,
+    ChangeBreakdown,
+    LabelCandidates,
+    ReviewerCandidates(Option<String>),
+    Write(WriteMethod, Box<WriteInput>),
 }
 
 /// The read a request for `reference` alone is.
@@ -426,6 +509,87 @@ pub(super) async fn pull_requests_diff_file_contents(
     .await
 }
 
+pub(super) async fn pull_requests_checks(request: Request<PullRequestRef>) -> Vec<Value> {
+    pull_request_read(request, plain(PullRequestRead::Checks)).await
+}
+
+pub(super) async fn pull_requests_change_breakdown(request: Request<PullRequestRef>) -> Vec<Value> {
+    pull_request_read(request, plain(PullRequestRead::ChangeBreakdown)).await
+}
+
+pub(super) async fn pull_requests_label_candidates(request: Request<PullRequestRef>) -> Vec<Value> {
+    pull_request_read(request, plain(PullRequestRead::LabelCandidates)).await
+}
+
+pub(super) async fn pull_requests_reviewer_candidates(request: Request<WriteInput>) -> Vec<Value> {
+    pull_request_read(request, |mut input| {
+        let query = input.query().map(str::to_string);
+        (
+            std::mem::take(&mut input.reference),
+            PullRequestRead::ReviewerCandidates(query),
+        )
+    })
+    .await
+}
+
+/// No stacks here: the capabilities say so, and every pull request answers
+/// as in none.
+pub(super) async fn pull_requests_stack(request: Request<IgnoredAny>) -> Vec<Value> {
+    vec![success_exit(&request.id, Value::Null)]
+}
+
+/// A write `method` makes, split from the pull request it names.
+fn write_of(method: WriteMethod) -> impl FnOnce(WriteInput) -> (PullRequestRef, PullRequestRead) {
+    move |mut input| {
+        (
+            std::mem::take(&mut input.reference),
+            PullRequestRead::Write(method, Box::new(input)),
+        )
+    }
+}
+
+pub(super) async fn pull_requests_comment(request: Request<WriteInput>) -> Vec<Value> {
+    pull_request_read(request, write_of(WriteMethod::Comment)).await
+}
+
+pub(super) async fn pull_requests_reply_to_thread(request: Request<WriteInput>) -> Vec<Value> {
+    pull_request_read(request, write_of(WriteMethod::ReplyToThread)).await
+}
+
+pub(super) async fn pull_requests_set_thread_resolution(
+    request: Request<WriteInput>,
+) -> Vec<Value> {
+    pull_request_read(request, write_of(WriteMethod::SetThreadResolution)).await
+}
+
+pub(super) async fn pull_requests_submit_review(request: Request<WriteInput>) -> Vec<Value> {
+    pull_request_read(request, write_of(WriteMethod::SubmitReview)).await
+}
+
+pub(super) async fn pull_requests_set_reaction(request: Request<WriteInput>) -> Vec<Value> {
+    pull_request_read(request, write_of(WriteMethod::SetReaction)).await
+}
+
+pub(super) async fn pull_requests_update(request: Request<WriteInput>) -> Vec<Value> {
+    pull_request_read(request, write_of(WriteMethod::Update)).await
+}
+
+pub(super) async fn pull_requests_update_comment(request: Request<WriteInput>) -> Vec<Value> {
+    pull_request_read(request, write_of(WriteMethod::UpdateComment)).await
+}
+
+pub(super) async fn pull_requests_set_labels(request: Request<WriteInput>) -> Vec<Value> {
+    pull_request_read(request, write_of(WriteMethod::SetLabels)).await
+}
+
+pub(super) async fn pull_requests_request_reviewers(request: Request<WriteInput>) -> Vec<Value> {
+    pull_request_read(request, write_of(WriteMethod::RequestReviewers)).await
+}
+
+pub(super) async fn pull_requests_run_action(request: Request<WriteInput>) -> Vec<Value> {
+    pull_request_read(request, write_of(WriteMethod::RunAction)).await
+}
+
 pub(super) async fn pull_requests_detail(request: Request<PullRequestRef>) -> Vec<Value> {
     pull_request_read(request, plain(PullRequestRead::Detail)).await
 }
@@ -440,8 +604,8 @@ pub(super) async fn pull_requests_generate_review_guide(
     pull_request_read(request, plain(PullRequestRead::GenerateReviewGuide)).await
 }
 
-/// A pull request's detail and guided review, split by `read` into the pull
-/// request it names and what is read of it.
+/// A pull request's reads and writes, split by `read` into the pull request
+/// it names and what is read of or written to it.
 async fn pull_request_read<P>(
     request: Request<P>,
     read: impl FnOnce(P) -> (PullRequestRef, PullRequestRead),
@@ -522,6 +686,31 @@ async fn pull_request_read<P>(
                         "A file read needs a changeType, oldPath and newPath, and a commit id if any.",
                     )];
                 }
+            }
+        }
+        PullRequestRead::Checks => pull_request_writes::checks(&ports, &viewer, &target).await,
+        PullRequestRead::ChangeBreakdown => {
+            pull_request_writes::change_breakdown(&ports, &viewer, &target).await
+        }
+        PullRequestRead::LabelCandidates => {
+            pull_request_writes::label_candidates(&ports, &viewer, &target).await
+        }
+        PullRequestRead::ReviewerCandidates(query) => {
+            pull_request_writes::reviewer_candidates(&ports, &viewer, &target, query.as_deref())
+                .await
+        }
+        PullRequestRead::Write(method, input) => {
+            let write = match input.into_write(method) {
+                Ok(write) => write,
+                Err(detail) => return vec![bad_reference(&id, tag, detail)],
+            };
+            match write {
+                PullRequestWrite::Action(action) => {
+                    pull_request_writes::run_action(&ports, &viewer, &target, action).await
+                }
+                write => pull_request_writes::write(&ports, &viewer, &target, &write)
+                    .await
+                    .map(|()| Value::Null),
             }
         }
     };

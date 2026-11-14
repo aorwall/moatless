@@ -34,6 +34,18 @@ pub async fn record_session_change(
     allocate(tx, task_id, None, None, None).await
 }
 
+/// Record that the Task's pull request links, or a linked pull request's host
+/// state, moved.
+///
+/// Names no Message, so a reader re-reads the conversation's own row, which
+/// carries the links. Same `tx` and ordering rules as [`record_message_change`].
+pub async fn record_pull_request_change(
+    tx: &mut PgConnection,
+    task_id: &str,
+) -> Result<i64, sqlx::Error> {
+    allocate(tx, task_id, None, None, None).await
+}
+
 /// Record that an activity happened on no Message — a Sandbox lifecycle change
 /// or a context-window reading.
 ///

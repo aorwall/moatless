@@ -314,9 +314,7 @@ async fn close_metadata_and_pr_status_are_normalized_together() {
             assert_eq!(status.state_kind.as_deref(), Some("merged"));
             assert_eq!(status.raw["title"], "feat: done");
         }
-        WebhookStatusObservation::ReviewDecision { .. } => {
-            panic!("expected pull-request status")
-        }
+        _ => panic!("expected pull-request status"),
     }
     match normalized.primary.expect("close should normalize") {
         PrimaryWebhook::CloseTask(close) => {
@@ -532,9 +530,7 @@ async fn review_verdict_preserves_observation_message_and_audience() {
             assert_eq!(subject_key, "soaplabs/repo#42");
             assert_eq!(decision.as_str(), "changes_requested");
         }
-        WebhookStatusObservation::PullRequest { .. } => {
-            panic!("expected review decision")
-        }
+        _ => panic!("expected review decision"),
     }
     let message = message(normalized.primary);
     assert_eq!(message.audience, Audience::Everyone);
@@ -1009,4 +1005,34 @@ fn the_filter_key_marks_approvals_whatever_their_body() {
     assert_eq!(with_body.event, "pull_request_review");
     assert!(!key(&review("changes_requested", "")).approval);
     assert!(!filter_key("issue_comment", &review("approved", ""), "reviewer").approval);
+}
+
+#[tokio::test]
+async fn a_completed_check_suite_rereads_each_of_its_pull_requests() {
+    let payload = serde_json::json!({
+        "action": "completed",
+        "sender": {"login": "github-actions[bot]"},
+        "check_suite": {"pull_requests": [{"number": 42}, {"number": 43}]}
+    });
+    let normalized = normalize_payload("check_suite", &payload, &fake_rule()).await;
+    let subjects: Vec<String> = normalized
+        .status_observations
+        .iter()
+        .map(|observation| match observation {
+            WebhookStatusObservation::ChecksCompleted { subject } => subject.key(),
+            _ => panic!("expected a checks reread"),
+        })
+        .collect();
+    assert_eq!(subjects, ["soaplabs/repo#42", "soaplabs/repo#43"]);
+}
+
+#[tokio::test]
+async fn a_requested_check_suite_rereads_nothing() {
+    let payload = serde_json::json!({
+        "action": "requested",
+        "sender": {"login": "github-actions[bot]"},
+        "check_suite": {"pull_requests": [{"number": 42}]}
+    });
+    let normalized = normalize_payload("check_suite", &payload, &fake_rule()).await;
+    assert!(normalized.status_observations.is_empty());
 }
