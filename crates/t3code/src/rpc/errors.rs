@@ -585,12 +585,28 @@ pub(crate) fn sandbox_stream_refusal(request_id: &RequestId, scope: Scope) -> Va
 /// Every RPC declares `UnsupportedMethodError`, so this decodes wherever it
 /// lands and the client can say which method is absent.
 pub(crate) fn unsupported_exit(request_id: &RequestId, tag: &str) -> Value {
+    unsupported_exit_because(
+        request_id,
+        tag,
+        format!("{tag} is not available on this server."),
+    )
+}
+
+/// [`unsupported_exit`] for a method served only in part, saying which part.
+///
+/// Keep the name: t3code's `unsupported-methods.mjs` keeps a method's union
+/// entry only while its handler reaches a call named `unsupported_exit*`.
+pub(crate) fn unsupported_exit_because(
+    request_id: &RequestId,
+    tag: &str,
+    message: impl Into<String>,
+) -> Value {
     typed_failure_exit(
         request_id,
         json!({
             "_tag": "UnsupportedMethodError",
             "method": tag,
-            "message": format!("{tag} is not available on this server."),
+            "message": message.into(),
         }),
     )
 }

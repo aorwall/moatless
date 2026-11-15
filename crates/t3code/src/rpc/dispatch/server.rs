@@ -12,6 +12,7 @@ use crate::rpc::config::server_config;
 use crate::rpc::envelope::failure_exit;
 use crate::rpc::envelope::success_exit;
 use crate::rpc::envelope::typed_failure_exit;
+use crate::rpc::errors::unsupported_exit_because;
 use crate::rpc::session::resolve_workspace_skills;
 use crate::rpc::table::MethodTable;
 use crate::rpc::table::Request;
@@ -123,12 +124,7 @@ pub(super) async fn server_update_settings(
         shared,
         ..
     } = request;
-    let refused = |message: String| {
-        vec![typed_failure_exit(
-            &id,
-            json!({ "_tag": "UnsupportedMethodError", "method": tag, "message": message }),
-        )]
-    };
+    let refused = |message: String| vec![unsupported_exit_because(&id, tag, message)];
     if payload.provider_instance_mutation.is_some() {
         return refused("Provider instances are configured by this deployment.".into());
     }
