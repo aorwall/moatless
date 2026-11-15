@@ -27,6 +27,7 @@ use tokio_util::sync::CancellationToken;
 use moatless_adapter_model::delivery::AdapterDeliveryRequest;
 use moatless_backend::state::AppState;
 use moatless_loops::bindings::test_support::upsert_binding;
+use moatless_tasks::message::test_support as message_fixtures;
 use moatless_tasks::task::test_support as task_fixtures;
 use moatless_types::access_control::Scope;
 use moatless_types::adapter::{AdapterKind, TaskBinding};
@@ -342,6 +343,33 @@ async fn a_loop_with_the_window_at_zero_delivers_each_event_on_its_own(pool: PgP
             .all(|text| !text.contains("--- message 1 of")),
         "a lone event renders as it did before buffering existed: {messages:?}"
     );
+}
+
+/// An Adapter's message that lands mid-turn is held for the next turn: a fetch
+/// made while a turn runs (`hold_queued`) leaves it pending.
+#[sqlx::test]
+async fn an_adapter_message_waits_for_the_active_turn_to_end(pool: PgPool) {
+    let state = test_app_state_with_adapters(pool.clone(), test_config());
+    seed_bound_thread(&state, &pool, 0).await;
+
+    route(
+        &state,
+        &pool,
+        &[("slack:ts:1700000000.000101", "a comment mid-turn")],
+    )
+    .await;
+
+    let mid_turn = message_fixtures::deliverable_user_messages(&pool, TASK, true)
+        .await
+        .expect("fetch mid-turn");
+    assert!(
+        mid_turn.is_empty(),
+        "a running turn is not steered: {mid_turn:?}"
+    );
+    let idle = message_fixtures::deliverable_user_messages(&pool, TASK, false)
+        .await
+        .expect("fetch idle");
+    assert_eq!(idle.len(), 1, "the next turn takes it: {idle:?}");
 }
 
 /// A Loop deactivated while its window is open. The Binding keeps receiving,

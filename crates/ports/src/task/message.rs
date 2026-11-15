@@ -41,7 +41,9 @@ pub struct InboundTurn {
 /// Accepting a turn onto an existing Task.
 ///
 /// Distinct from [`super::TranscriptAppend`], which writes one row and runs no
-/// flow; this deduplicates, persists, and hands the turn to the agent.
+/// flow; this deduplicates, persists, and hands the turn to the agent. The turn
+/// waits for an active turn to end and opens the next one, rather than steering
+/// into work its external writer cannot see.
 #[cfg_attr(feature = "test-support", mockall::automock)]
 #[async_trait]
 pub trait MessageAcceptor: Send + Sync {

@@ -467,7 +467,8 @@ impl MessageAcceptor for crate::message::send::MessageSendService {
             turn.sent_by.as_deref(),
             &turn.skills,
             None,
-            false,
+            // `queue`: see `MessageAcceptor`.
+            true,
             None,
             None,
         )
