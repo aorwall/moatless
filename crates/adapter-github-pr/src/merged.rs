@@ -101,8 +101,15 @@ fn string_at(value: &serde_json::Value, pointer: &str) -> String {
         .to_string()
 }
 
-/// Render the merged-PR notification body.
-pub(super) fn merged_text(merged: &MergedPr, owner: &str, repo: &str) -> String {
+/// Render the merged-PR notification body. `post_merge_follows` adds that the
+/// pipeline result is still to come: an agent told only of the merge watches
+/// the runs itself.
+pub(super) fn merged_text(
+    merged: &MergedPr,
+    owner: &str,
+    repo: &str,
+    post_merge_follows: bool,
+) -> String {
     let mut text = format!(
         "## ✅ Pull Request Merged: {owner}/{repo}#{pr_number}\n\n\
          **Title:** {title}\n",
@@ -126,7 +133,21 @@ pub(super) fn merged_text(merged: &MergedPr, owner: &str, repo: &str) -> String 
     if !merged.html_url.is_empty() {
         let _ = writeln!(text, "**Link:** {}", merged.html_url);
     }
+    if post_merge_follows {
+        text.push_str(
+            "\nA message with the post-merge pipeline result follows: one when every \
+             workflow on the merge commit passes, or one per run that fails. Wait for it \
+             rather than watching runs with `gh run watch`.\n",
+        );
+    }
     text
+}
+
+/// Whether `binding`'s Task also hears the post-merge pipeline result.
+fn hears_post_merge(rule: &SubscriptionMatch, binding: &TaskBinding) -> bool {
+    super::routing::notified_events(Some(rule), binding)
+        .iter()
+        .any(|event| event == super::config::POST_MERGE)
 }
 
 /// True when the PR close owns this Binding's Task.
@@ -172,62 +193,76 @@ impl GithubPrInboundRouter {
             return Ok(());
         }
 
-        let notice = InboundMessage {
-            adapter_kind: AdapterKind::GithubPr,
-            source_id: rule.source_matcher.clone(),
-            thread_id: Some(merged.pr_number.to_string()),
-            message_thread_id: merged.pr_number.to_string(),
-            user_id: super::auth::resolve_sender_user(
-                &merged.merged_by,
-                merged.pr_author_login.as_deref(),
-                rule,
-                self.users.as_ref(),
-            )
-            .await,
-            author: moatless_types::adapter::author_handle(&merged.merged_by),
-            sender_external_id: None,
-            requester: None,
-            text: merged_text(merged, &execution.owner, &execution.repo),
-            file_ids: vec![],
-            attachments: Vec::new(),
-            thread_properties: serde_json::json!({
-                "owner": execution.owner,
-                "repo": execution.repo,
-                "pr_number": merged.pr_number,
-            }),
-            adapter_context: serde_json::json!({}),
-            external_event_id: Some(super::external_id::pr_merged(&GithubPrSubject::new(
-                &execution.owner,
-                &execution.repo,
-                merged.pr_number,
-            ))),
-            source_task_id: None,
-            audience: Audience::Everyone,
-            replies_to: Vec::new(),
-            event: Some(super::config::inbound_event(super::config::PR_MERGED)),
-        };
-
-        info!(
-            subject_key,
-            recipients = recipients.len(),
-            "Delivering merged-PR notification"
-        );
-        route_subject_event(
-            &self.routing,
-            connection,
+        let user_id = super::auth::resolve_sender_user(
+            &merged.merged_by,
+            merged.pr_author_login.as_deref(),
             rule,
-            &notice,
-            SubjectEvent {
-                adapter_label: ADAPTER_LABEL,
-                binding_provider: ADAPTER,
-                subject_kind: SUBJECT_KIND,
-                subject_key: &subject_key,
-                bindings: recipients,
-                made_by: None,
-                new_task_binding_id: None,
-            },
+            self.users.as_ref(),
         )
-        .await?;
+        .await;
+        let (told, untold): (Vec<_>, Vec<_>) = recipients
+            .into_iter()
+            .partition(|binding| hears_post_merge(rule, binding));
+        for (post_merge_follows, bindings) in [(true, told), (false, untold)] {
+            if bindings.is_empty() {
+                continue;
+            }
+            let notice = InboundMessage {
+                adapter_kind: AdapterKind::GithubPr,
+                source_id: rule.source_matcher.clone(),
+                thread_id: Some(merged.pr_number.to_string()),
+                message_thread_id: merged.pr_number.to_string(),
+                user_id: user_id.clone(),
+                author: moatless_types::adapter::author_handle(&merged.merged_by),
+                sender_external_id: None,
+                requester: None,
+                text: merged_text(
+                    merged,
+                    &execution.owner,
+                    &execution.repo,
+                    post_merge_follows,
+                ),
+                file_ids: vec![],
+                attachments: Vec::new(),
+                thread_properties: serde_json::json!({
+                    "owner": execution.owner,
+                    "repo": execution.repo,
+                    "pr_number": merged.pr_number,
+                }),
+                adapter_context: serde_json::json!({}),
+                external_event_id: Some(super::external_id::pr_merged(&GithubPrSubject::new(
+                    &execution.owner,
+                    &execution.repo,
+                    merged.pr_number,
+                ))),
+                source_task_id: None,
+                audience: Audience::Everyone,
+                replies_to: Vec::new(),
+                event: Some(super::config::inbound_event(super::config::PR_MERGED)),
+            };
+            info!(
+                subject_key,
+                recipients = bindings.len(),
+                post_merge_follows,
+                "Delivering merged-PR notification"
+            );
+            route_subject_event(
+                &self.routing,
+                connection,
+                rule,
+                &notice,
+                SubjectEvent {
+                    adapter_label: ADAPTER_LABEL,
+                    binding_provider: ADAPTER,
+                    subject_kind: SUBJECT_KIND,
+                    subject_key: &subject_key,
+                    bindings,
+                    made_by: None,
+                    new_task_binding_id: None,
+                },
+            )
+            .await?;
+        }
         Ok(())
     }
 }
@@ -413,7 +448,7 @@ mod tests {
     fn merged_text_names_the_pull_request_and_omits_what_the_payload_lacks() {
         let merged = candidate("pull_request", &closed_payload(true, Some("alice")))
             .expect("a merged close is a candidate");
-        let text = merged_text(&merged, "soaplabs", "repo");
+        let text = merged_text(&merged, "soaplabs", "repo", false);
         assert!(text.contains("## ✅ Pull Request Merged: soaplabs/repo#42"));
         assert!(text.contains("**Title:** feat: land it"));
         assert!(text.contains("**Merged by:** @alice"));
@@ -429,7 +464,7 @@ mod tests {
             merge_commit_sha: String::new(),
             ..merged
         };
-        let text = merged_text(&bare, "soaplabs", "repo");
+        let text = merged_text(&bare, "soaplabs", "repo", false);
         assert!(text.contains("## ✅ Pull Request Merged: soaplabs/repo#42"));
         for absent in [
             "**Merged by:**",
@@ -439,6 +474,27 @@ mod tests {
         ] {
             assert!(!text.contains(absent), "{absent}");
         }
+    }
+
+    #[test]
+    fn a_task_that_hears_the_pipeline_result_is_told_to_wait_for_it() {
+        let merged = candidate("pull_request", &closed_payload(true, Some("alice")))
+            .expect("a merged close is a candidate");
+        assert!(
+            merged_text(&merged, "soaplabs", "repo", true)
+                .contains("Wait for it rather than watching runs with `gh run watch`.")
+        );
+        assert!(!merged_text(&merged, "soaplabs", "repo", false).contains("gh run watch"));
+
+        let mut filtering = rule("ir_1", false);
+        filtering.adapter_config = Some(serde_json::json!({ "ignored_events": ["post_merge"] }));
+        let own = binding(ADAPTER_EVENT_BINDING_ORIGIN, Some("ir_1"));
+        assert!(!hears_post_merge(&filtering, &own));
+        assert!(hears_post_merge(
+            &filtering,
+            &binding("connected_thread", None)
+        ));
+        assert!(hears_post_merge(&rule("ir_1", false), &own));
     }
 
     /// The recipient split is what keeps this kind and `github.close`
