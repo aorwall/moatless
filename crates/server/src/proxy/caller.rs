@@ -25,8 +25,9 @@ pub struct SandboxScope {
     pub run_as: Option<String>,
     /// Who a write from the Sandbox credits.
     pub attribution: Attribution,
-    /// The token's `taskId`: the Sandbox's own Task, not a Member Task it also
-    /// runs. `None` for a token minted without one.
+    /// The Task a write from the Sandbox is recorded for: the token's
+    /// `taskId`, else the founding Task, whose id the Sandbox takes, even when
+    /// a Member Task made the write.
     pub task: Option<String>,
 }
 
@@ -121,14 +122,45 @@ impl SandboxCallers {
             .unwrap_or_default();
         Ok(SandboxScope {
             attribution: identity.attribution(),
-            sandbox: sandbox_id,
             user: identity
                 .acting_user_id
                 .unwrap_or_else(|| claims.user_id.clone()),
             token_user: claims.user_id,
-            task: claims.task_id,
+            task: recorded_task(claims.task_id, &sandbox_id),
+            sandbox: sandbox_id,
             workspace: workspace_id,
             run_as: identity.pinned_run_as,
         })
+    }
+}
+
+/// [`SandboxScope::task`] for a token naming `task_id` and `sandbox_id`.
+///
+/// `generate_user_auth_token` mints no `taskId`: without the fallback neither
+/// proxy records what a Task made, and every push and comment it makes is
+/// delivered back to it as someone else's.
+fn recorded_task(task_id: Option<String>, sandbox_id: &str) -> Option<String> {
+    task_id.or_else(|| Some(sandbox_id.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use moatless_core::sandbox_jwt::generate_user_auth_token;
+
+    use super::*;
+
+    #[test]
+    fn a_minted_task_token_records_writes_for_the_founding_task() {
+        let token = generate_user_auth_token("user-1", "user", "task-1", 0, "secret", 600).unwrap();
+        let claims = verify_user_auth_token(&token, "secret").unwrap();
+        let sandbox_id = claims.sandbox_id.unwrap();
+        assert_eq!(
+            recorded_task(claims.task_id, &sandbox_id).as_deref(),
+            Some("task-1")
+        );
+        assert_eq!(
+            recorded_task(Some("member-1".into()), &sandbox_id).as_deref(),
+            Some("member-1")
+        );
     }
 }
