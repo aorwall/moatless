@@ -80,6 +80,7 @@ const THREAD_OPTIONAL: &[&str] = &[
     "pinOrderKey",
     "activeOrderKey",
     "autoSettleDisabledAt",
+    "tags",
 ];
 const THREAD_NON_EMPTY: &[&str] = &["id", "projectId", "title"];
 
@@ -271,6 +272,7 @@ pub(super) const DETAIL_OPTIONAL: &[&str] = &[
     "pinOrderKey",
     "activeOrderKey",
     "autoSettleDisabledAt",
+    "tags",
 ];
 
 // `OrchestrationMessage` (`:227-236`).

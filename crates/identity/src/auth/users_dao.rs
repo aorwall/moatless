@@ -31,6 +31,22 @@ pub trait UserDao: Send + Sync {
     /// EXCLUDED.status` to the `DO UPDATE SET`, or a login would re-enable a
     /// disabled account.
     async fn upsert_user(&self, user: &User) -> Result<(), sqlx::Error>;
+    /// One top-level entry of `users.settings`; `None` when the user or the
+    /// entry is absent.
+    async fn settings_entry(
+        &self,
+        user_id: &Uuid,
+        key: &str,
+    ) -> Result<Option<serde_json::Value>, sqlx::Error>;
+    /// Shallow-merges the object `patch` into the `key` entry in one statement,
+    /// so two writers of different fields keep both. The merged entry, or
+    /// `None` when no such user exists.
+    async fn merge_settings_entry(
+        &self,
+        user_id: &Uuid,
+        key: &str,
+        patch: &serde_json::Value,
+    ) -> Result<Option<serde_json::Value>, sqlx::Error>;
     /// List the directory, `Disabled` rows included only when asked.
     async fn list_users(&self, include_disabled: bool) -> Result<Vec<User>, sqlx::Error>;
     async fn list_bot_users_by_app_key(&self) -> Result<HashMap<String, String>, sqlx::Error>;
@@ -155,6 +171,47 @@ impl UserDao for PgUserDao {
         .execute(&self.0)
         .await?;
         Ok(())
+    }
+
+    async fn settings_entry(
+        &self,
+        user_id: &Uuid,
+        key: &str,
+    ) -> Result<Option<serde_json::Value>, sqlx::Error> {
+        sqlx::query_scalar("SELECT settings -> $2 FROM users WHERE id = $1")
+            .bind(user_id)
+            .bind(key)
+            .fetch_optional(&self.0)
+            .await
+            .map(Option::flatten)
+    }
+
+    async fn merge_settings_entry(
+        &self,
+        user_id: &Uuid,
+        key: &str,
+        patch: &serde_json::Value,
+    ) -> Result<Option<serde_json::Value>, sqlx::Error> {
+        // `jsonb_typeof` guards a non-object entry, which `||` would turn into
+        // an array rather than merge.
+        sqlx::query_scalar(
+            r#"
+            UPDATE users
+            SET settings = jsonb_set(
+                settings,
+                ARRAY[$2],
+                CASE WHEN jsonb_typeof(settings -> $2) = 'object'
+                     THEN settings -> $2 ELSE '{}'::jsonb END || $3
+            )
+            WHERE id = $1
+            RETURNING settings -> $2
+            "#,
+        )
+        .bind(user_id)
+        .bind(key)
+        .bind(patch)
+        .fetch_optional(&self.0)
+        .await
     }
 
     async fn list_users(&self, include_disabled: bool) -> Result<Vec<User>, sqlx::Error> {

@@ -134,6 +134,7 @@ pub(crate) async fn ui_rpc(
             }),
             commands: Arc::new(t3code::backend::AppStateCommands(app_state.clone())),
             attachments: Arc::new(t3code::backend::AppStateAttachments(app_state.clone())),
+            viewer_settings: app_state.user_directory.clone(),
             artifacts: Arc::new(moatless_t3code::owners::TaskArtifacts {
                 tasks: app_state.tasks.clone(),
                 artifacts: app_state.artifacts.clone(),

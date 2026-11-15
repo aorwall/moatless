@@ -1130,6 +1130,27 @@ pub trait UsageReporter: Send + Sync {
     ) -> Result<Vec<UsageBucket>, StoreError>;
 }
 
+/// One viewer's own stored T3 settings: a JSON object only they read or write.
+///
+/// Which keys it may hold is `server_settings`'s decision; this stores whatever
+/// it is given.
+#[async_trait]
+pub trait ViewerSettingsStore: Send + Sync {
+    /// The stored object; empty when the viewer saved nothing.
+    async fn read(
+        &self,
+        user_id: &Uuid,
+    ) -> Result<serde_json::Map<String, serde_json::Value>, StoreError>;
+
+    /// Merges `patch` over the stored object, field by field in one write, and
+    /// returns the result.
+    async fn merge(
+        &self,
+        user_id: &Uuid,
+        patch: serde_json::Map<String, serde_json::Value>,
+    ) -> Result<serde_json::Map<String, serde_json::Value>, StoreError>;
+}
+
 #[cfg(test)]
 mod tests {
     use super::AttachmentKind;

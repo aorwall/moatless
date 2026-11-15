@@ -335,6 +335,7 @@ pub(super) fn statement(
                    t.active_order_key,
                    t.auto_settle_disabled_at,
                    COALESCE(pr.pull_requests, '[]'::jsonb) AS pull_requests,
+                   COALESCE(tagged.names, '[]'::jsonb) AS tags,
                    parent.task_id AS parent_task_id,
                    parent.relation_type AS parent_relation,
                    parent.fork_at_turn,
@@ -547,6 +548,12 @@ pub(super) fn statement(
                          AND b.subject_key ~ '{PULL_REQUEST_KEY_PATTERN}'
                    ) bound
                ) pr ON TRUE
+               LEFT JOIN LATERAL (
+                   SELECT jsonb_agg(tg.name ORDER BY tg.name) AS names
+                   FROM task_tags tt
+                   JOIN tags tg ON tg.tag_id = tt.tag_id
+                   WHERE tt.task_id = t.task_id
+               ) tagged ON TRUE
                {parent_join}
                {children_join}
                -- Determinism for this query's own output, and nothing more.

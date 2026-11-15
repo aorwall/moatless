@@ -692,3 +692,10 @@ of its own.
 | Deferred | Anchor | Entry condition |
 |---|---|---|
 | A one-off notice in the same delivery batch as a burst event can overtake it | `crates/loops/src/adapters/delivery/worker.rs` runs every record of one `claim_due` batch concurrently, so `crates/loops/src/bindings/runtime.rs::deliver_to_binding` may see a notice that does not arrive in bursts (e.g. `pr_merged`) before the comment admitted just ahead of it. With no window open yet, the notice is delivered at once and the comment is held, rather than both joining one turn | When a Task reports a merge notice arriving before the review or comment that preceded it. Order a Binding's records within a batch, or have a notice join a window its batch is about to open |
+
+## T3 viewer settings
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| A saved setting reaches only the connection that saved it | `crates/t3code/src/rpc/dispatch/server.rs::server_update_settings` pushes `settingsUpdated` on its own session's `config_stream`; a viewer's other tabs and devices read the change on their next `server.getConfig`, after a reload | When a settings control ships in the client, so a change in one tab is expected in another. Fan the push out per user, the way `access::AccessChanges` nudges Authorized clients |
+| Tag hiding has no control in the client | Upstream sets `hiddenThreadTags` / `hideTaggedThreads` by hand-editing `settings.json`; Moatless serves them over `server.updateSettings` (`crates/t3code/src/server_settings.rs::stored_patch`) and nothing in `soaplabs/t3code` sends one | When people ask to hide tagged threads without a script. A fork-owned row on Settings → General, fed by the Moatless tag list |

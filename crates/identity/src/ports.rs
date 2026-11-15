@@ -91,6 +91,33 @@ impl UserDirectory {
         })
     }
 
+    /// The user's `key` entry of their own settings; `None` when unset or when
+    /// no such user exists.
+    pub async fn settings_entry(
+        &self,
+        user_id: &Uuid,
+        key: &str,
+    ) -> Result<Option<serde_json::Value>, StoreError> {
+        self.users.settings_entry(user_id, key).await.map_err(|e| {
+            StoreError::with_source(format!("read the {key} settings of user {user_id}"), e)
+        })
+    }
+
+    /// See [`UserDao::merge_settings_entry`].
+    pub async fn merge_settings_entry(
+        &self,
+        user_id: &Uuid,
+        key: &str,
+        patch: &serde_json::Value,
+    ) -> Result<Option<serde_json::Value>, StoreError> {
+        self.users
+            .merge_settings_entry(user_id, key, patch)
+            .await
+            .map_err(|e| {
+                StoreError::with_source(format!("write the {key} settings of user {user_id}"), e)
+            })
+    }
+
     /// Resolve an actor id string to its row. A string that is neither a uuid
     /// nor a legacy provider id is an error, so callers can tell it apart from
     /// a user that does not exist.

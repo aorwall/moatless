@@ -126,6 +126,10 @@ pub(crate) fn translate(command: &Value) -> Result<Translated, CommandRefusal> {
         // Kept by the client itself; Moatless has no column for either.
         "thread.runtime-mode.set" | "thread.interaction-mode.set" => Ok(Translated::Discarded),
         "thread.merge_back" => merge_back(command),
+        "thread.tag.set" => refused(
+            tag,
+            "A thread's tags are its Task's: set them with `moat set-tags` or the Moatless UI.",
+        ),
         other => refused(other, "This server does not implement that action."),
     }
 }

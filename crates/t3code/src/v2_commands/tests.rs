@@ -382,3 +382,16 @@ fn merge_back_maps_a_run_of_the_source_and_refuses_foreign_or_queued_runs() {
         ));
     }
 }
+
+#[test]
+fn a_tag_write_is_refused_and_names_where_tags_are_set() {
+    let CommandRefusal::Unsupported { reason, .. } = refusal(json!({
+        "type": "thread.tag.set",
+        "threadId": "task-1",
+        "tag": "private",
+        "tagged": true,
+    })) else {
+        panic!("expected an unsupported refusal");
+    };
+    assert!(reason.contains("moat set-tags"), "{reason}");
+}

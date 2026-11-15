@@ -103,7 +103,7 @@ server.signalProcess	orchestration:operate	declared	declared	-
 server.updateProvider	orchestration:operate	declared	declared	-
 server.updateServer	orchestration:operate	declared	declared	-
 server.updateServerWithProgress	orchestration:operate	declared	declared	-
-server.updateSettings	orchestration:operate	declared	declared	-
+server.updateSettings	orchestration:operate	session	session	same
 server.upsertKeybinding	orchestration:operate	declared	declared	-
 shell.openInEditor	orchestration:operate	declared	declared	-
 sourceControl.cloneRepository	orchestration:operate	declared	declared	-

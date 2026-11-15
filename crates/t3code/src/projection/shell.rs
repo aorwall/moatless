@@ -228,7 +228,10 @@ pub(super) fn conversation_row(
         "pinOrderKey": nullable_order_key(conversation.pin_order_key.as_deref()),
         "activeOrderKey": nullable_order_key(conversation.active_order_key.as_deref()),
         "autoSettleDisabledAt": nullable_instant(conversation.auto_settle_disabled_at),
-        "visibility": conversation.visibility.as_str()
+        "visibility": conversation.visibility.as_str(),
+        // The Task's own tags, so `hiddenThreadTags` matches what `moat
+        // set-tags` wrote. Read-only: `thread.tag.set` is refused.
+        "tags": conversation.tags
     }) else {
         unreachable!("a json! object literal is an object")
     };

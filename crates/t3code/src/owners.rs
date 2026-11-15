@@ -31,7 +31,7 @@ use crate::ports::{
     AgentCatalogSource, ArtifactVisibilityError, ArtifactVisibilitySetter, BranchListError,
     ChildTask, GithubIdentity, ParentTask, RepositoryBranchSource, SecretRequestAnswerError,
     SecretRequestAnswerer, SkillCatalog, SourceControlAuthSource, TaskRelationSource,
-    WorkspaceScriptSource, WorkspaceSkill,
+    ViewerSettingsStore, WorkspaceScriptSource, WorkspaceSkill,
 };
 use crate::providers;
 
@@ -322,5 +322,38 @@ impl SecretRequestAnswerer for TaskSecretRequests {
                     SecretRequestAnswerError::Failed(moatless_core::error::causal_chain(&other))
                 }
             })
+    }
+}
+
+/// The `users.settings` entry T3's settings live under, beside other surfaces'.
+const T3_SETTINGS_KEY: &str = "t3";
+
+#[async_trait]
+impl ViewerSettingsStore for moatless_identity::ports::UserDirectory {
+    async fn read(
+        &self,
+        user_id: &Uuid,
+    ) -> Result<serde_json::Map<String, serde_json::Value>, StoreError> {
+        Ok(match self.settings_entry(user_id, T3_SETTINGS_KEY).await? {
+            Some(serde_json::Value::Object(stored)) => stored,
+            _ => serde_json::Map::new(),
+        })
+    }
+
+    async fn merge(
+        &self,
+        user_id: &Uuid,
+        patch: serde_json::Map<String, serde_json::Value>,
+    ) -> Result<serde_json::Map<String, serde_json::Value>, StoreError> {
+        match self
+            .merge_settings_entry(user_id, T3_SETTINGS_KEY, &serde_json::Value::Object(patch))
+            .await?
+        {
+            Some(serde_json::Value::Object(merged)) => Ok(merged),
+            Some(_) => Err(StoreError::new("the merged T3 settings are not an object")),
+            None => Err(StoreError::new(format!(
+                "no user {user_id} to save settings for"
+            ))),
+        }
     }
 }

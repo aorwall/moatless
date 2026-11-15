@@ -392,3 +392,19 @@ fn a_blank_order_key_is_reported_as_none() {
     };
     assert_eq!(one_thread(&conversation)["pinOrderKey"], Value::Null);
 }
+
+#[test]
+fn a_row_carries_the_tasks_tags() {
+    assert_eq!(
+        one_thread(&running_conversation("task-a", "ws-a"))["tags"],
+        json!([])
+    );
+    let conversation = Conversation {
+        tags: vec!["private".to_string(), "review".to_string()],
+        ..running_conversation("task-a", "ws-a")
+    };
+    assert_eq!(
+        one_thread(&conversation)["tags"],
+        json!(["private", "review"])
+    );
+}

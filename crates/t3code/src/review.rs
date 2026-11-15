@@ -1444,6 +1444,7 @@ mod tests {
             active_order_key: None,
             auto_settle_disabled_at: None,
             pull_requests: None,
+            tags: Vec::new(),
         }
     }
 

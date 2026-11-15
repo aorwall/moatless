@@ -270,15 +270,7 @@ pub(crate) async fn server_config(
         ),
         "availableEditors": [],
         "observability": observability,
-        // Partial: the client fills every other server setting with its
-        // default. Guided reviews are written by a Task the viewer starts.
-        // `providerInstances` enables Pi explicitly: T3 resolves a provider's
-        // enabled state from settings, not from the provider's own `enabled`,
-        // and treats an unconfigured Pi as off, which hides it from the picker.
-        "settings": {
-            "reviewGuidesEnabled": true,
-            "providerInstances": { "pi": { "driver": "pi", "enabled": true }, "mini-swe": { "driver": "mini-swe", "enabled": true } }
-        },
+        "settings": crate::server_settings::viewer_settings(state, identity).await,
         "shellResumeCompletionMarker": true,
         "threadResumeCompletionMarker": true
     });

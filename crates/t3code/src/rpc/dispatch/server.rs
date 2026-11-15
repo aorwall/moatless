@@ -9,15 +9,21 @@ use crate::rpc::config::now_rfc3339;
 use crate::rpc::config::platform_arch;
 use crate::rpc::config::platform_os;
 use crate::rpc::config::server_config;
+use crate::rpc::envelope::failure_exit;
 use crate::rpc::envelope::success_exit;
 use crate::rpc::envelope::typed_failure_exit;
 use crate::rpc::session::resolve_workspace_skills;
 use crate::rpc::table::MethodTable;
 use crate::rpc::table::Request;
+use crate::server_settings::PatchRefusal;
+use crate::server_settings::settings_object;
+use crate::server_settings::stored_patch;
+use crate::server_settings::viewer_settings;
 use crate::usage;
 use crate::usage::UsageSummaryInput;
 use serde::Deserialize;
 use serde::de::IgnoredAny;
+use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 use tracing::warn;
@@ -71,7 +77,11 @@ pub(super) fn server_methods() -> MethodTable {
             "server.updateServerWithProgress",
             Scope::OrchestrationOperate,
         )
-        .declared("server.updateSettings", Scope::OrchestrationOperate)
+        .session(
+            "server.updateSettings",
+            Scope::OrchestrationOperate,
+            server_update_settings,
+        )
         .declared("server.upsertKeybinding", Scope::OrchestrationOperate)
         .declared("shell.openInEditor", Scope::OrchestrationOperate)
         .declared("sourceControl.cloneRepository", Scope::OrchestrationOperate)
@@ -86,7 +96,81 @@ pub(super) async fn server_probe(request: Request<IgnoredAny>) -> Vec<Value> {
 }
 
 pub(super) async fn server_get_settings(request: Request<IgnoredAny>) -> Vec<Value> {
-    vec![success_exit(&request.id, json!({}))]
+    let settings = viewer_settings(&request.state, &request.identity).await;
+    vec![success_exit(&request.id, settings)]
+}
+
+/// The contract's `server.updateSettings` payload.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ServerUpdateSettingsInput {
+    patch: Map<String, Value>,
+    provider_instance_mutation: Option<IgnoredAny>,
+}
+
+/// Saves the settings a viewer keeps for themselves; see
+/// [`stored_patch`] for which. Answers, and pushes on this connection's
+/// open config stream, the whole settings object as it now reads.
+pub(super) async fn server_update_settings(
+    request: Request<ServerUpdateSettingsInput>,
+) -> Vec<Value> {
+    let Request {
+        id,
+        tag,
+        payload,
+        state,
+        identity,
+        shared,
+        ..
+    } = request;
+    let refused = |message: String| {
+        vec![typed_failure_exit(
+            &id,
+            json!({ "_tag": "UnsupportedMethodError", "method": tag, "message": message }),
+        )]
+    };
+    if payload.provider_instance_mutation.is_some() {
+        return refused("Provider instances are configured by this deployment.".into());
+    }
+    let patch = match stored_patch(&payload.patch) {
+        Ok(patch) => patch,
+        Err(PatchRefusal::Unsupported(keys)) => {
+            return refused(format!(
+                "This server does not save {}.",
+                keys.iter()
+                    .map(|key| format!("`{key}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        Err(PatchRefusal::Invalid { key, message }) => {
+            return vec![failure_exit(&id, format!("`{key}` {message}"))];
+        }
+    };
+    let stored = match state.viewer_settings.merge(&identity.user_id, patch).await {
+        Ok(stored) => stored,
+        Err(error) => {
+            warn!(%tag, user_id = %identity.user_id, %error, "T3 viewer settings write failed");
+            return vec![failure_exit(
+                &id,
+                "This deployment could not save the settings.",
+            )];
+        }
+    };
+    let settings = settings_object(stored);
+    let mut frames = vec![success_exit(&id, settings.clone())];
+    if let Some(stream) = shared.config_stream.opened() {
+        frames.push(json!({
+            "_tag": "Chunk",
+            "requestId": stream.wire(),
+            "values": [{
+                "version": 1,
+                "type": "settingsUpdated",
+                "payload": { "settings": settings }
+            }]
+        }));
+    }
+    frames
 }
 
 /// Accepted and dropped, never refused.

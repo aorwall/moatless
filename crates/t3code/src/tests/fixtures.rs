@@ -573,6 +573,32 @@ impl ports::UsageReporter for UnreachableUsage {
     }
 }
 
+/// Every viewer's settings in one map: the tests here sign in one viewer.
+#[derive(Default)]
+pub(super) struct MemorySettings(std::sync::Mutex<serde_json::Map<String, Value>>);
+
+#[async_trait]
+impl ports::ViewerSettingsStore for MemorySettings {
+    async fn read(
+        &self,
+        _user_id: &uuid::Uuid,
+    ) -> Result<serde_json::Map<String, Value>, moatless_types::store::StoreError> {
+        #[allow(clippy::unwrap_used)]
+        Ok(self.0.lock().unwrap().clone())
+    }
+
+    async fn merge(
+        &self,
+        _user_id: &uuid::Uuid,
+        patch: serde_json::Map<String, Value>,
+    ) -> Result<serde_json::Map<String, Value>, moatless_types::store::StoreError> {
+        #[allow(clippy::unwrap_used)]
+        let mut stored = self.0.lock().unwrap();
+        stored.extend(patch);
+        Ok(stored.clone())
+    }
+}
+
 struct UnreachableCommands;
 
 #[async_trait]
@@ -955,6 +981,7 @@ fn state_over(
         artifacts: Arc::new(ports::MockArtifactVisibilitySetter::new()),
         secret_requests: Arc::new(ports::MockSecretRequestAnswerer::new()),
         usage: Arc::new(UnreachableUsage),
+        viewer_settings: Arc::new(MemorySettings::default()),
         model_defaults: Arc::new(AgentModelDefaults::default()),
         terminal: terminal::TerminalHub::default(),
         client_traces: observability::ClientTraceForwarder::new(

@@ -98,6 +98,8 @@ pub(crate) struct UiRpcState {
     pub(crate) secret_requests: Arc<dyn ports::SecretRequestAnswerer>,
     /// Token and cost totals behind `server.getUsageSummary`.
     pub(crate) usage: Arc<dyn ports::UsageReporter>,
+    /// The settings each viewer saves for themselves.
+    pub(crate) viewer_settings: Arc<dyn ports::ViewerSettingsStore>,
     /// In-process fan-out for terminal metadata and events observed through
     /// this backend instance.
     pub(crate) terminal: terminal::TerminalHub,

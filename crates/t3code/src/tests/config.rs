@@ -259,3 +259,93 @@ async fn a_resolved_cwd_reaches_an_open_config_stream() {
         "git-workflow"
     );
 }
+
+/// What the sidebar's tag filter reads: saved once, it comes back in the next
+/// config a reload asks for, and an open config stream hears it at once.
+#[tokio::test]
+async fn saved_tag_hiding_reaches_the_config_stream_and_the_next_config() {
+    let mut connection = connection();
+    let state = state();
+    connection
+        .exchange(
+            &request("1", "subscribeServerConfig", json!({})),
+            &state,
+            &viewer(),
+        )
+        .await;
+    let saved = connection
+        .exchange(
+            &request(
+                "2",
+                "server.updateSettings",
+                json!({ "patch": { "hideTaggedThreads": true, "hiddenThreadTags": [" private"] } }),
+            ),
+            &state,
+            &viewer(),
+        )
+        .await;
+    assert_eq!(saved.frames[0]["exit"]["_tag"], "Success");
+    assert_eq!(
+        saved.frames[0]["exit"]["value"]["hiddenThreadTags"],
+        json!(["private"])
+    );
+    let pushed = &saved.frames[1];
+    assert_eq!(pushed["requestId"], "1");
+    assert_eq!(pushed["values"][0]["type"], "settingsUpdated");
+    assert_eq!(
+        pushed["values"][0]["payload"]["settings"]["hideTaggedThreads"],
+        true
+    );
+
+    let reloaded = connection
+        .exchange(
+            &request("3", "server.getConfig", json!({})),
+            &state,
+            &viewer(),
+        )
+        .await;
+    let settings = &reloaded.frames[0]["exit"]["value"]["settings"];
+    assert_eq!(settings["hideTaggedThreads"], true);
+    assert_eq!(settings["hiddenThreadTags"], json!(["private"]));
+    assert_eq!(settings["providerInstances"]["pi"]["enabled"], true);
+}
+
+/// Every other setting belongs to the deployment, so a patch naming one saves
+/// nothing, including the fields beside it this server does keep.
+#[tokio::test]
+async fn a_settings_patch_naming_a_deployment_setting_saves_nothing() {
+    let mut connection = connection();
+    let state = state();
+    let refused = connection
+        .exchange(
+            &request(
+                "1",
+                "server.updateSettings",
+                json!({ "patch": { "hideTaggedThreads": true, "enableAssistantStreaming": true } }),
+            ),
+            &state,
+            &viewer(),
+        )
+        .await;
+    let error = &refused.frames[0]["exit"]["cause"][0]["error"];
+    assert_eq!(error["_tag"], "UnsupportedMethodError");
+    assert!(
+        error["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("enableAssistantStreaming"),
+        "{error}"
+    );
+    let read = connection
+        .exchange(
+            &request("2", "server.getSettings", json!({})),
+            &state,
+            &viewer(),
+        )
+        .await;
+    assert!(
+        read.frames[0]["exit"]["value"]
+            .get("hideTaggedThreads")
+            .is_none()
+    );
+}

@@ -294,3 +294,46 @@ async fn native_uuid_foreign_keys_resolve_and_enforce(pool: PgPool) {
         "team_members.user_id FK must reject an unknown user"
     );
 }
+
+/// A merge keeps the entry's other fields and every other entry, and names no
+/// user it cannot find.
+#[sqlx::test]
+async fn a_settings_entry_merge_keeps_what_it_does_not_name(pool: PgPool) {
+    let repo = PgUserDao(pool.clone());
+    let id = Uuid::new_v4();
+    let user = make_user(id, "settings-user", "github", "4242");
+    repo.upsert_user(&user).await.unwrap();
+    sqlx::query("UPDATE users SET settings = $2 WHERE id = $1")
+        .bind(id)
+        .bind(serde_json::json!({ "other": { "kept": true }, "t3": "not an object" }))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let merged = repo
+        .merge_settings_entry(&id, "t3", &serde_json::json!({ "a": 1 }))
+        .await
+        .unwrap();
+    assert_eq!(merged, Some(serde_json::json!({ "a": 1 })));
+    repo.merge_settings_entry(&id, "t3", &serde_json::json!({ "b": [2] }))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        repo.settings_entry(&id, "t3").await.unwrap(),
+        Some(serde_json::json!({ "a": 1, "b": [2] }))
+    );
+    assert_eq!(
+        repo.settings_entry(&id, "other").await.unwrap(),
+        Some(serde_json::json!({ "kept": true }))
+    );
+    assert_eq!(repo.settings_entry(&id, "absent").await.unwrap(), None);
+    let nobody = Uuid::new_v4();
+    assert_eq!(repo.settings_entry(&nobody, "t3").await.unwrap(), None);
+    assert_eq!(
+        repo.merge_settings_entry(&nobody, "t3", &serde_json::json!({}))
+            .await
+            .unwrap(),
+        None
+    );
+}

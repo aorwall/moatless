@@ -127,6 +127,10 @@ pub struct ListedTask {
     /// merged or closed, then newest number: t3code's `primary_pull_request`
     /// restates that order, and the two must agree on which is primary.
     pub pull_requests: Option<Json<Vec<ListedPullRequest>>>,
+
+    /// The Task's tag names, sorted; empty when it has none.
+    #[sqlx(json)]
+    pub tags: Vec<String>,
 }
 
 impl ListedTask {

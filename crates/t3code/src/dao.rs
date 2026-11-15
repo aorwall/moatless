@@ -611,5 +611,6 @@ pub(crate) fn running_conversation(task_id: &str) -> crate::dao::Conversation {
         active_order_key: None,
         auto_settle_disabled_at: None,
         pull_requests: None,
+        tags: Vec::new(),
     }
 }

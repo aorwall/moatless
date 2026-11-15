@@ -663,6 +663,7 @@ pub(super) fn conversation(agent_profile: AgentProfile) -> Conversation {
         active_order_key: None,
         auto_settle_disabled_at: None,
         pull_requests: None,
+        tags: Vec::new(),
     }
 }
 

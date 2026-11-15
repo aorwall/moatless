@@ -46,6 +46,7 @@ mod sandbox;
 mod sandbox_setup;
 mod scratch;
 pub mod scripts;
+mod server_settings;
 mod skills;
 mod snapshots;
 mod startup_scripts;
