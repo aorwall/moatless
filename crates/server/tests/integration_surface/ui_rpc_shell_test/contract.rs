@@ -46,6 +46,7 @@ const THREAD_OPTIONAL: &[&str] = &[
     "pinOrderKey",
     "activeOrderKey",
     "autoSettleDisabledAt",
+    "tags",
 ];
 
 const THREAD_NON_EMPTY: &[&str] = &["id", "projectId", "title"];
