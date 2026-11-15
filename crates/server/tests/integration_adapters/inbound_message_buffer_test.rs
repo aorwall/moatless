@@ -393,19 +393,24 @@ async fn an_event_that_does_not_arrive_in_bursts_joins_the_window_open_on_its_bi
     let state = test_app_state_with_adapters(pool.clone(), test_config());
     seed_bound_thread(&state, &pool, 60).await;
 
+    // Two calls: one worker run claims both at once, in either order, and a
+    // notice handled first finds no window to join.
     route_payloads(
         &state,
         &pool,
-        &[
-            (
-                "slack:ts:1700000000.000101",
-                event("slack:ts:1700000000.000101", "approved"),
-            ),
-            (
-                "slack:ts:1700000000.000102",
-                single_event("slack:ts:1700000000.000102", "merged"),
-            ),
-        ],
+        &[(
+            "slack:ts:1700000000.000101",
+            event("slack:ts:1700000000.000101", "approved"),
+        )],
+    )
+    .await;
+    route_payloads(
+        &state,
+        &pool,
+        &[(
+            "slack:ts:1700000000.000102",
+            single_event("slack:ts:1700000000.000102", "merged"),
+        )],
     )
     .await;
 
