@@ -162,8 +162,20 @@ async fn replica(pool: &PgPool) -> AppState {
     registered_replica(pool, None).await
 }
 
-async fn registered_replica(pool: &PgPool, webhook_secret: Option<&str>) -> AppState {
+/// These tests count each event's own turn, so a comment held for the GitHub PR
+/// buffer window would count as none. `inbound_message_buffer_test` owns the
+/// window.
+fn unbuffered_config() -> moatless_core::config::Config {
     let mut config = test_config();
+    config
+        .message_buffer
+        .per_kind_seconds
+        .insert("GITHUB_PR".to_string(), 0);
+    config
+}
+
+async fn registered_replica(pool: &PgPool, webhook_secret: Option<&str>) -> AppState {
+    let mut config = unbuffered_config();
     config.auth.frontend_url = "https://app.example.com".to_string();
     config.github_pr.webhook_secret = webhook_secret.map(str::to_string);
     test_app_state_with_adapters(pool.clone(), config)
@@ -171,7 +183,7 @@ async fn registered_replica(pool: &PgPool, webhook_secret: Option<&str>) -> AppS
 
 /// A replica whose GitHub REST calls go to the stub at `base_url`.
 async fn stubbed_replica(pool: &PgPool, base_url: &str) -> AppState {
-    let mut config = test_config();
+    let mut config = unbuffered_config();
     config.auth.frontend_url = "https://app.example.com".to_string();
     config.github_api_base = base_url.to_string();
     test_app_state_with_adapters(pool.clone(), config)
