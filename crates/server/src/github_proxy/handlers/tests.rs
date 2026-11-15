@@ -1008,3 +1008,29 @@ async fn an_app_signed_drivers_merge_is_sent_as_the_app_uncredited() {
     assert_eq!(rest["message"], "Bearer ghs_app_repo");
     assert_eq!(rest["sent"], serde_json::json!({ "merge_method": "merge" }));
 }
+
+#[tokio::test]
+async fn a_write_answer_that_breaks_off_is_handed_on_rather_than_replaced() {
+    let chunks: Vec<Result<Bytes, std::io::Error>> = vec![
+        Ok(Bytes::from_static(b"{\"id\":")),
+        Err(std::io::Error::other("reset")),
+    ];
+    let Answer::Partial(body) = read_answer(Body::from_stream(futures::stream::iter(chunks))).await
+    else {
+        panic!("a broken answer is not whole");
+    };
+    let mut stream = body.into_data_stream();
+    assert_eq!(
+        stream.next().await.unwrap().unwrap(),
+        Bytes::from_static(b"{\"id\":")
+    );
+    assert!(stream.next().await.unwrap().is_err());
+}
+
+#[tokio::test]
+async fn a_whole_write_answer_is_read() {
+    let Answer::Whole(bytes) = read_answer(Body::from("{\"id\":42}")).await else {
+        panic!("a small answer is read whole");
+    };
+    assert_eq!(bytes, Bytes::from_static(b"{\"id\":42}"));
+}

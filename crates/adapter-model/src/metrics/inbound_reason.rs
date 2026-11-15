@@ -25,6 +25,8 @@ pub const UNLOOPED_QUIET: &str = "unlooped_quiet";
 pub const NOT_IN_AUDIENCE: &str = "not_in_audience";
 /// The binding's task only commented, and the event answers nothing it wrote.
 pub const NOT_A_REPLY: &str = "not_a_reply";
+/// The binding's watch was turned off, so no event on the subject wakes it.
+pub const WATCH_OFF: &str = "watch_off";
 /// Every binding on a subject that had some was passed over, so the event
 /// reached no task at all. The one outcome that is nobody's correct answer.
 pub const NO_RECIPIENTS: &str = "no_recipients";

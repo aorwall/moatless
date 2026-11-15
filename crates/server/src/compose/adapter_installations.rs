@@ -222,7 +222,6 @@ impl GithubPrInstallation {
                 state.task_bindings.clone(),
                 state.user_directory.clone(),
                 state.routing.clone(),
-                state.transcript.clone(),
                 state.relation_recorder.clone(),
                 state.task_reader.clone(),
                 state.loop_task_opener.clone(),

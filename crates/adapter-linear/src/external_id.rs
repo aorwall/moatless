@@ -35,6 +35,27 @@ pub(super) fn issue_state(issue_id: &str, transition_id: &str) -> String {
     format!("linear:issue-state:{issue_id}:{transition_id}")
 }
 
+/// A state an `issueUpdate` moved the issue to, as the Task that ran it
+/// records it: the previous state is not in the answer, so this omits it.
+pub(super) fn issue_moved(issue_id: &str, state_id: &str, updated_at: &str) -> String {
+    format!("linear:issue-moved:{issue_id}:{state_id}:{updated_at}")
+}
+
+/// Every id an inbound `external_id` is also recorded under: an
+/// [`issue_state`] id is also the [`issue_moved`] id its mover recorded.
+pub(super) fn aliases(external_id: &str) -> Vec<String> {
+    let mut ids = vec![external_id.to_string()];
+    if let Some(rest) = external_id.strip_prefix("linear:issue-state:") {
+        let mut parts = rest.splitn(4, ':');
+        if let (Some(issue), Some(_previous), Some(state), Some(clock)) =
+            (parts.next(), parts.next(), parts.next(), parts.next())
+        {
+            ids.push(issue_moved(issue, state, clock));
+        }
+    }
+    ids
+}
+
 /// The inbound prompt of a task spawned from a mention or assignment.
 pub(super) fn session_created(session_id: &str) -> String {
     format!("linear:session:created:{session_id}")
@@ -55,6 +76,18 @@ pub(super) fn issue_labeled(issue_id: &str, clock: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_state_change_aliases_onto_the_move_its_task_recorded() {
+        assert_eq!(
+            aliases("linear:issue-state:issue-1:st-old:st-new:2026-08-10T03:20:08.000Z"),
+            vec![
+                "linear:issue-state:issue-1:st-old:st-new:2026-08-10T03:20:08.000Z".to_string(),
+                issue_moved("issue-1", "st-new", "2026-08-10T03:20:08.000Z"),
+            ]
+        );
+        assert_eq!(aliases("linear:comment:c-1"), vec!["linear:comment:c-1"]);
+    }
 
     /// The six formats, as literal strings.
     ///

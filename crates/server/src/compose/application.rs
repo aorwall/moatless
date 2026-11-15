@@ -1,7 +1,6 @@
 //! Assemble application services over the process ports.
 
 use crate::adapter_installations::AdapterInstallations;
-use crate::adapters::self_echo::SelfEchoFilter;
 use crate::agent_harness_access::{AgentHarnessAccess, ProviderCodexDeviceLogin};
 use crate::app_administration::ProviderGitHubAppProver;
 use crate::compose::Ports;
@@ -13,7 +12,7 @@ use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
 use moatless_identity::adapter_apps::administration::AppAdministration;
 use moatless_identity::git_host_access::ProviderGitHostTokenValidator;
-use moatless_loops::bindings::recently_sent::RecentlySent;
+use moatless_loops::bindings::own_events::OwnEvents;
 use moatless_loops::compose::{ExternalReplyInputs, OutboundSenderInputs, RoutingInputs};
 use moatless_ports::identity::GitHostTokenIssuer;
 use moatless_ports::sandbox::{PreflightPort, SandboxJoiner};
@@ -131,8 +130,8 @@ impl AppState {
             config.github_api_base.clone(),
         );
 
-        // Hoisted so the self-echo filter and the struct literal share one cache.
-        let recently_sent = Arc::new(RecentlySent::new());
+        // One instance: its in-memory window only answers for what it recorded.
+        let own_events = Arc::new(OwnEvents::new(transcript.clone(), adapters.clone()));
 
         let skills = moatless_workspaces::compose::skills(
             pool.clone(),
@@ -190,7 +189,7 @@ impl AppState {
             preflight: preflight.clone(),
             events: events.clone(),
             files: files.clone(),
-            self_echo: Arc::new(SelfEchoFilter::new(recently_sent.clone(), adapters.clone())),
+            self_echo: own_events.clone(),
             config: config.clone(),
         });
 
@@ -235,18 +234,21 @@ impl AppState {
                 github_policy.clone(),
                 config.http.git_proxy,
             )
-            .with_push_claims(transcript.clone()),
+            .with_own_events(own_events.clone()),
         );
-        let github_proxy = Arc::new(crate::github_proxy::GitHubProxy::new(
-            sandbox_callers.clone(),
-            workspace_resolver.clone(),
-            workspace_credentials.clone(),
-            git_host_tokens.clone(),
-            &config.github_api_base,
-            crate::github_proxy::GITHUB_UPLOADS_BASE,
-            github_policy,
-            config.http.github_proxy,
-        ));
+        let github_proxy = Arc::new(
+            crate::github_proxy::GitHubProxy::new(
+                sandbox_callers.clone(),
+                workspace_resolver.clone(),
+                workspace_credentials.clone(),
+                git_host_tokens.clone(),
+                &config.github_api_base,
+                crate::github_proxy::GITHUB_UPLOADS_BASE,
+                github_policy,
+                config.http.github_proxy,
+            )
+            .with_own_events(own_events.clone()),
+        );
         let service_proxy = Arc::new(crate::service_proxy::ServiceProxyGateway::new(
             sandbox_callers.clone(),
             ports.service_access.clone(),
@@ -301,7 +303,7 @@ impl AppState {
             ));
         let routing = loop_graph.routing(RoutingInputs {
             adapter_connections: connection_routing.clone(),
-            messages: transcript.clone(),
+            own_events: own_events.clone(),
             tasks: task_reader.clone(),
             task_creation: loop_task_opener.clone(),
             message_send: message_send.clone(),
@@ -312,13 +314,13 @@ impl AppState {
 
         // Outbound reply delivery owns the ports its send path reads. The
         // `OutboundSender` is built here and handed to `ExternalReplyService`
-        // (the SelfEchoFilter/RoutingService pattern), so neither struct's
+        // (the OwnEvents/RoutingService pattern), so neither struct's
         // constructor takes more than the ports it holds and neither names
         // `AppState`.
         let outbound_sender = loop_graph.outbound_sender(OutboundSenderInputs {
             adapter_connections: connection_routing.clone(),
             tasks: task_reader.clone(),
-            recently_sent: recently_sent.clone(),
+            own_events: own_events.clone(),
             messages: transcript.clone(),
             task_turns: turn_counter.clone(),
             auth_config: auth_config.clone(),
@@ -332,7 +334,7 @@ impl AppState {
             connection_routing: connection_routing.clone(),
             messages: transcript.clone(),
             tasks: task_reader.clone(),
-            recently_sent: recently_sent.clone(),
+            own_events: own_events.clone(),
             task_turns: turn_counter.clone(),
             outbound: outbound_sender,
             notice_replies: Arc::new(moatless_tasks::artifact::notice_reply::NoticeReplies::new(
@@ -443,7 +445,7 @@ impl AppState {
             model_gateway,
             agent_harness_access,
             app_administration,
-            recently_sent,
+            own_events,
         }
     }
 }

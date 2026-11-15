@@ -15,8 +15,8 @@ use moatless_adapter_model::binding::{BindReason, BindScope};
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_adapter_model::footer::FOOTER_MARKER;
 use moatless_loops::adapters::access::{ensure_task_access_only, ensure_task_access_with};
-use moatless_loops::bindings::recently_sent::RecentlySent;
-use moatless_ports::task::{ExternalEvent, TaskDescriptor, TaskReader, TranscriptAppend};
+use moatless_loops::bindings::own_events::OwnEvents;
+use moatless_ports::task::{ExternalEvent, TaskDescriptor, TaskReader};
 use moatless_types::access_control::Actor;
 use moatless_types::adapter::TaskBinding;
 use moatless_types::attribution::Attribution;
@@ -42,14 +42,13 @@ fn require_provider(
 
 #[expect(
     clippy::too_many_arguments,
-    reason = "the authorized mutation receives separate provider, binding, transcript, task, and caller dependencies"
+    reason = "the authorized mutation receives separate provider, binding, own-event, task, and caller dependencies"
 )]
 pub(crate) async fn create_pr(
     connector: Option<Arc<moatless_loops::loops::firing::listen::Connector>>,
     github_pr_provider: Option<Arc<GithubPrAdapter>>,
     tasks: Arc<dyn TaskReader>,
-    recently_sent: Arc<RecentlySent>,
-    messages: Arc<dyn TranscriptAppend>,
+    own_events: Arc<OwnEvents>,
     ctx: moatless_types::access_control::ScopeContext,
     login: &str,
     (owner, repo): (String, String),
@@ -122,8 +121,7 @@ pub(crate) async fn create_pr(
         )
         .await;
         note_external_event(
-            recently_sent.as_ref(),
-            messages.as_ref(),
+            own_events.as_ref(),
             task_id,
             &external_id::pr_opened(&GithubPrSubject::new(&owner, &repo, created.number)),
             &owner,
@@ -203,16 +201,11 @@ impl CreatedPr {
     }
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the authorized mutation receives separate provider, binding, transcript, task, and caller dependencies"
-)]
 pub(crate) async fn post_comment(
     connector: Option<Arc<moatless_loops::loops::firing::listen::Connector>>,
     github_pr_provider: Option<Arc<GithubPrAdapter>>,
     tasks: Arc<dyn TaskReader>,
-    recently_sent: Arc<RecentlySent>,
-    messages: Arc<dyn TranscriptAppend>,
+    own_events: Arc<OwnEvents>,
     ctx: moatless_types::access_control::ScopeContext,
     (owner, repo, number): (String, String, u64),
     req: GithubCommentRequest,
@@ -235,8 +228,7 @@ pub(crate) async fn post_comment(
         // Note the echo dedup BEFORE the (slower) binding upsert so the
         // inbound webhook can't race past it.
         note_external_event(
-            recently_sent.as_ref(),
-            messages.as_ref(),
+            own_events.as_ref(),
             task_id,
             &external_id::issue_comment(comment_id),
             &owner,
@@ -273,16 +265,11 @@ pub(crate) async fn post_comment(
     })
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the authorized mutation receives separate provider, binding, transcript, task, and caller dependencies"
-)]
 pub(crate) async fn reply_to_review_comment(
     connector: Option<Arc<moatless_loops::loops::firing::listen::Connector>>,
     github_pr_provider: Option<Arc<GithubPrAdapter>>,
     tasks: Arc<dyn TaskReader>,
-    recently_sent: Arc<RecentlySent>,
-    messages: Arc<dyn TranscriptAppend>,
+    own_events: Arc<OwnEvents>,
     ctx: moatless_types::access_control::ScopeContext,
     (owner, repo, number, comment_id): (String, String, u64, u64),
     req: GithubReplyRequest,
@@ -307,8 +294,7 @@ pub(crate) async fn reply_to_review_comment(
         // Note the echo dedup BEFORE the (slower) binding upsert so the
         // inbound webhook can't race past it.
         note_external_event(
-            recently_sent.as_ref(),
-            messages.as_ref(),
+            own_events.as_ref(),
             task_id,
             &external_id::review_comment(new_id),
             &owner,
@@ -383,22 +369,23 @@ pub(crate) async fn bind_pr(
 /// being recorded inline.
 pub(crate) async fn record_external_event(
     tasks: Arc<dyn TaskReader>,
-    recently_sent: Arc<RecentlySent>,
-    messages: Arc<dyn TranscriptAppend>,
+    own_events: Arc<OwnEvents>,
     ctx: moatless_types::access_control::ScopeContext,
     req: GithubExternalEventRequest,
 ) -> Result<GithubExternalEventResponse, AdapterError> {
     ensure_task_access_only(tasks.as_ref(), &ctx, &req.task_id).await?;
 
-    let external_id = subject_external_id(&req)?;
-    recently_sent.note(&req.task_id, &external_id);
-    let recorded = record_durable_event(
-        messages.as_ref(),
-        &req.task_id,
-        &external_id,
-        req.source_name.as_deref(),
-    )
-    .await;
+    let external_id = subject_external_id(&req.subject);
+    let recorded = own_events
+        .record_best_effort(
+            &req.task_id,
+            ExternalEvent {
+                external_id,
+                provider: ADAPTER_LABEL.to_string(),
+                source_name: req.source_name.clone(),
+            },
+        )
+        .await;
 
     info!(
         task_id = %req.task_id,
@@ -409,28 +396,13 @@ pub(crate) async fn record_external_event(
     Ok(GithubExternalEventResponse { recorded })
 }
 
-/// The id a recorded subject is filed under; a [`GithubExternalEventSubject::Push`]
-/// uses the push watcher's [`external_id::push`] claim, so `synchronize` aliases
-/// onto it.
-fn subject_external_id(req: &GithubExternalEventRequest) -> Result<String, AdapterError> {
-    Ok(match &req.subject {
+/// The id a recorded subject is filed under.
+fn subject_external_id(subject: &GithubExternalEventSubject) -> String {
+    match subject {
         GithubExternalEventSubject::ReviewComment(id) => external_id::review_comment(*id),
         GithubExternalEventSubject::Review(id) => external_id::review(*id),
         GithubExternalEventSubject::IssueComment(id) => external_id::issue_comment(*id),
-        GithubExternalEventSubject::Push(sha) => {
-            let (owner, repo) = req
-                .source_name
-                .as_deref()
-                .and_then(|name| name.split_once('/'))
-                .filter(|(owner, repo)| !owner.is_empty() && !repo.is_empty() && !sha.is_empty())
-                .ok_or_else(|| {
-                    SharedAdapterError::BadRequest(
-                        "a push needs a sha and source_name `owner/repo`".into(),
-                    )
-                })?;
-            external_id::push(owner, repo, sha)
-        }
-    })
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -452,56 +424,20 @@ fn compose_footer(existing: &str, task_url: &str) -> String {
     }
 }
 
-/// Record `external_id` as `task_id`'s own work, in memory and durably.
-///
-/// The in-memory note closes the race where the webhook lands before anything
-/// commits; the durable row still answers after a restart or on a replica that
-/// didn't serve this request.
+/// Record `external_id` on `owner/repo` as `task_id`'s own work.
 async fn note_external_event(
-    recently_sent: &RecentlySent,
-    messages: &dyn TranscriptAppend,
+    own_events: &OwnEvents,
     task_id: &str,
     external_id: &str,
     owner: &str,
     repo: &str,
 ) {
-    recently_sent.note(task_id, external_id);
-    record_durable_event(
-        messages,
-        task_id,
-        external_id,
-        Some(&format!("{owner}/{repo}")),
-    )
-    .await;
-}
-
-/// The durable half, and whether it landed.
-///
-/// Best effort: a failure costs one echoed event on a replica that didn't serve
-/// this request, since the in-memory note already landed here.
-async fn record_durable_event(
-    messages: &dyn TranscriptAppend,
-    task_id: &str,
-    external_id: &str,
-    source_name: Option<&str>,
-) -> bool {
-    match messages
-        .record_external_event(
+    own_events
+        .record_best_effort(
             task_id,
-            &ExternalEvent {
-                external_id: external_id.to_string(),
-                provider: ADAPTER_LABEL.to_string(),
-                source_name: source_name.map(str::to_string),
-            },
+            super::own_event::on_repo(external_id.to_string(), owner, repo),
         )
-        .await
-    {
-        Ok(()) => true,
-        Err(e) => {
-            warn!(task_id, external_id, error = %e, "Failed to record a GitHub event the task made");
-            false
-        }
-    }
+        .await;
 }
 
 /// Authorize the caller against the Task and answer the identity a write for it
@@ -775,21 +711,5 @@ mod tests {
         let out = build_pr_body(&long_body, Some(url));
         assert!(out.len() <= MAX_COMMENT_LENGTH);
         assert!(out.contains(FOOTER_MARKER));
-    }
-
-    /// A push made through the API is filed where a `synchronize` webhook for
-    /// the same sha looks for the author; with no repository it is refused.
-    #[test]
-    fn a_recorded_push_is_filed_under_the_push_claim_synchronize_aliases() {
-        let req = |source_name: Option<&str>| GithubExternalEventRequest {
-            task_id: "t_1".into(),
-            subject: GithubExternalEventSubject::Push("be1d882".into()),
-            source_name: source_name.map(str::to_string),
-        };
-
-        let id = subject_external_id(&req(Some("acme/widgets"))).expect("a repository is named");
-        assert!(external_id::aliases("github:pr:synchronize:acme/widgets#7:be1d882").contains(&id));
-        assert!(subject_external_id(&req(None)).is_err());
-        assert!(subject_external_id(&req(Some("acme"))).is_err());
     }
 }

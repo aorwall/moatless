@@ -255,8 +255,7 @@ pub fn proxy_clone_url(backend_api_url: &str, repository_id: &str) -> String {
 /// reaches.
 ///
 /// Plain `gh` resolves its repository from a remote on a GitHub host and finds
-/// none in `origin`, and the sandbox's push watcher claims a push to `origin`
-/// under this remote's `owner/repo`: without it, a Task hears its own push.
+/// none in `origin`.
 pub const GITHUB_REMOTE: &str = "github";
 
 /// `git clone --config` values adding [`GITHUB_REMOTE`] at `upstream`.

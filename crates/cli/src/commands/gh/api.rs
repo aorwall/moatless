@@ -79,11 +79,6 @@ pub(super) async fn run_api(
     let (args, skip_record) = strip_no_record(args);
     let args = args.as_slice();
     let Some(created) = parse_api_creation(&args[1..]) else {
-        if let Some(write) = super::branch_write::parse(&args[1..]) {
-            if let Some(task_id) = cfg.task_id().filter(|_| !skip_record) {
-                return super::branch_write::run(client, cfg, args, gh_repo, task_id, &write).await;
-            }
-        }
         return passthrough(cfg, args, gh_repo);
     };
     let Some(task_id) = cfg.task_id().map(str::to_string) else {

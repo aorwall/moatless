@@ -7,7 +7,6 @@ mod commands;
 mod credentials;
 mod dispatch;
 mod events;
-mod git_push;
 mod messages;
 mod plugins;
 mod state;

@@ -351,25 +351,4 @@ async fn start_background_tasks(state: &SandboxState, registrar: &crate::supervi
             );
         }
     }
-
-    // Watch each checkout's remote reflogs so a sha this task pushes is claimed
-    // before GitHub's `pull_request.synchronize` webhook for it arrives.
-    spawn_git_push_watcher(state, registrar);
-}
-
-fn spawn_git_push_watcher(state: &SandboxState, registrar: &crate::supervisor::Registrar) {
-    let watcher_task = crate::git_push_watcher::spawn(
-        state.config.task_id.clone(),
-        state.config.repo_dirs(),
-        state.config.workspace_dir.clone(),
-        state.config.backend_api_url.clone(),
-        std::sync::Arc::clone(&state.backend_client),
-        state.lifecycle_cancel.clone(),
-    );
-
-    // Optional: losing the watcher costs the task its own push notifications
-    // back in its chat. It costs the running turn nothing else, so it is not
-    // worth a restart — but it should be named rather than logged as an
-    // anonymous panic.
-    registrar.supervise("git-push-watcher", Criticality::Optional, watcher_task);
 }

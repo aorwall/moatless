@@ -223,6 +223,9 @@ async fn run_core_init(state: &SandboxState) -> Result<WorkspaceOrigin, InitErro
     if let Err(e) = git::configure_git(&state.config, &git_credentials).await {
         warn!(error = %e, "Git configuration failed (non-fatal)");
     }
+    git::route_github_through_proxy(&state.config)
+        .await
+        .map_err(InitError::Permanent)?;
 
     // 4. For the `s3` backend, try restoring a full-repo snapshot from S3
     //    before cloning: one carrying `.git` is a complete repo at the

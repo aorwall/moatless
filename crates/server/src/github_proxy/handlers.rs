@@ -13,7 +13,10 @@ use moatless_core::proxy_rules::NormalPath;
 use moatless_workspace_types::repository::GitHostRepo;
 
 use crate::github_policy::{GitHubPolicy, Refusal, Request as PolicyRequest};
+use moatless_adapter_github_pr::own_event;
+
 use crate::github_proxy::authorship;
+use crate::github_proxy::made;
 use crate::github_proxy::service::{GitHubProxy, GitHubProxyError, GitHubUpstream};
 use crate::github_proxy::target;
 use crate::proxy::caller::SandboxScope;
@@ -131,6 +134,7 @@ pub(super) async fn forward(
         method: &method,
         path_and_query,
         headers,
+        plain: write.is_some(),
     };
     let Some(write) = write else {
         let token = match proxy.token(scope, requested.as_ref()).await {
@@ -143,9 +147,97 @@ pub(super) async fn forward(
         };
     };
     match send_write(&request, graphql, requested.as_ref(), &write).await {
-        Ok(response) => response,
+        Ok((response, repository)) => {
+            record_made(&request, graphql, repository.as_ref(), response).await
+        }
         Err(refused) => *refused,
     }
+}
+
+/// Above any answer GitHub gives a write; past it nothing is recorded.
+const WRITE_ANSWER_LIMIT: usize = 16 * 1024 * 1024;
+
+enum Answer {
+    Whole(Bytes),
+    /// The bytes read so far, then the rest of the stream, which an error or
+    /// [`WRITE_ANSWER_LIMIT`] stopped reading.
+    Partial(Body),
+}
+
+/// GitHub's answer whole, or handed on as read. Never an error response of
+/// its own: the write already landed, so one would invite a duplicating retry.
+async fn read_answer(body: Body) -> Answer {
+    let mut stream = body.into_data_stream();
+    let mut read = Vec::new();
+    let mut size = 0;
+    while let Some(chunk) = stream.next().await {
+        match chunk {
+            Ok(chunk) => {
+                size += chunk.len();
+                read.push(Ok::<_, axum::Error>(chunk));
+                if size > WRITE_ANSWER_LIMIT {
+                    break;
+                }
+            }
+            Err(error) => {
+                read.push(Err(error));
+                break;
+            }
+        }
+    }
+    if size <= WRITE_ANSWER_LIMIT && read.iter().all(Result::is_ok) {
+        let mut whole = Vec::with_capacity(size);
+        for chunk in read.into_iter().flatten() {
+            whole.extend_from_slice(&chunk);
+        }
+        return Answer::Whole(Bytes::from(whole));
+    }
+    Answer::Partial(Body::from_stream(futures::stream::iter(read).chain(stream)))
+}
+
+/// Record what a successful write made as the Sandbox's Task's own, then hand
+/// GitHub's answer back unchanged.
+///
+/// After the answer rather than before: the id or sha exists only in it, so a
+/// webhook beating the answer here is delivered.
+async fn record_made(
+    request: &Outbound<'_>,
+    graphql: bool,
+    repository: Option<&GitHostRepo>,
+    response: Response,
+) -> Response {
+    let (Some(own_events), Some(task_id), Some(repository)) = (
+        request.proxy.own_events.as_ref(),
+        request.scope.task.as_deref(),
+        repository,
+    ) else {
+        return response;
+    };
+    if !response.status().is_success() {
+        return response;
+    }
+    let (parts, body) = response.into_parts();
+    let bytes = match read_answer(body).await {
+        Answer::Whole(bytes) => bytes,
+        Answer::Partial(body) => {
+            warn!("GitHub's answer to a proxied write was not read whole; recording nothing");
+            return Response::from_parts(parts, body);
+        }
+    };
+    let made = if graphql {
+        made::from_graphql(&bytes)
+    } else {
+        made::from_rest(request.method, request.path_and_query, &bytes)
+    };
+    for made in &made {
+        own_events
+            .record_best_effort(
+                task_id,
+                own_event::event(repository.owner(), repository.name(), made),
+            )
+            .await;
+    }
+    Response::from_parts(parts, Body::from(bytes))
 }
 
 /// A write's body, held whole so the App can send it and the run-as identity
@@ -167,6 +259,8 @@ struct Outbound<'a> {
     method: &'a Method,
     path_and_query: &'a str,
     headers: &'a HeaderMap,
+    /// Asks for an unencoded answer, which [`record_made`] reads.
+    plain: bool,
 }
 
 impl Outbound<'_> {
@@ -188,6 +282,7 @@ impl Outbound<'_> {
             if forwards(name)
                 && name != header::AUTHORIZATION
                 && !(rewritten && name == header::CONTENT_LENGTH)
+                && !(self.plain && name == header::ACCEPT_ENCODING)
             {
                 request = request.header(name, value);
             }
@@ -244,7 +339,7 @@ async fn send_write(
     graphql: bool,
     requested: Option<&GitHostRepo>,
     write: &Write,
-) -> Result<Response, Box<Response>> {
+) -> Result<(Response, Option<GitHostRepo>), Box<Response>> {
     let (proxy, scope) = (request.proxy, request.scope);
     let repository = match (requested, graphql) {
         (None, true) => match authorship::graphql_subject(&write.bytes) {
@@ -258,7 +353,7 @@ async fn send_write(
     let app = match (&repository, graphql) {
         (None, false) => None,
         _ => proxy
-            .app_write(scope, repository)
+            .app_write(scope, repository.clone())
             .await
             .map_err(|e| Box::new(e.into_response()))?,
     };
@@ -266,7 +361,7 @@ async fn send_write(
         let (body, rewritten) = request.body(write, graphql, true).await;
         let response = request.send(app.token, body, rewritten).await?;
         match app_refused(response, graphql).await {
-            Ok(answered) => return Ok(answered),
+            Ok(answered) => return Ok((answered, repository)),
             Err((status, message)) => warn!(
                 status,
                 message,
@@ -281,7 +376,7 @@ async fn send_write(
         .map_err(|e| Box::new(e.into_response()))?;
     let (body, rewritten) = request.body(write, graphql, false).await;
     let response = request.send(token, body, rewritten).await?;
-    Ok(stream_back(response, "github"))
+    Ok((stream_back(response, "github"), repository))
 }
 
 /// GitHub's answer to a write sent as the App, or `Err` with its status and

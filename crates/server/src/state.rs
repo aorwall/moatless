@@ -27,8 +27,8 @@ use moatless_identity::forgejo::{ForgejoAccess, ForgejoInstances};
 use moatless_identity::git_host_access::GitHostAccess;
 use moatless_identity::secret::service::SecretService;
 use moatless_loops::bindings::operations::Bindings;
+use moatless_loops::bindings::own_events::OwnEvents;
 use moatless_loops::bindings::ports::BindingDirectory;
-use moatless_loops::bindings::recently_sent::RecentlySent;
 use moatless_loops::loops::operations::Loops;
 use moatless_loops::loops::sync::LoopSyncService;
 use moatless_ports::identity::GitHostTokenIssuer;
@@ -148,10 +148,8 @@ pub struct AppState {
     pub agent_harness_access: Arc<AgentHarnessAccess>,
     /// Installation-wide Adapter and GitHub App workflows.
     pub app_administration: Arc<AppAdministration>,
-    /// Short-lived in-memory cache of `(task_id, external_event_id)` we just
-    /// sent outbound — closes the race where the inbound webhook lands before
-    /// `set_external_event_id` commits. See [`RecentlySent`].
-    pub recently_sent: Arc<RecentlySent>,
+    /// The external events each Task made; see [`OwnEvents`].
+    pub own_events: Arc<OwnEvents>,
 
     // =========================================================================
     // DAO trait objects
@@ -670,9 +668,9 @@ impl axum::extract::FromRef<AppState>
     }
 }
 
-impl axum::extract::FromRef<AppState> for Arc<RecentlySent> {
+impl axum::extract::FromRef<AppState> for Arc<OwnEvents> {
     fn from_ref(state: &AppState) -> Self {
-        state.recently_sent.clone()
+        state.own_events.clone()
     }
 }
 

@@ -239,7 +239,7 @@ pub struct Config {
     pub repos: Vec<RepoCheckout>,
     /// The GitHub URL each checkout cloning through the backend proxy stands
     /// in for, by mount name. The clone records it as the
-    /// [`GITHUB_REMOTE`](crate::init::git::GITHUB_REMOTE) remote.
+    /// [`GITHUB_REMOTE`](moatless_workspace_types::workspace::GITHUB_REMOTE) remote.
     pub github_upstreams: HashMap<String, String>,
     /// Raw `REPO_CONFIG` JSON (for entrypoint compat)
     pub repo_config_raw: Option<String>,
@@ -301,8 +301,7 @@ fn parse_repo_checkouts(
 /// Point every checkout [`proxied_clone_url`] names at the backend proxy.
 ///
 /// Returns the `clone_url` each rewritten GitHub checkout had, by mount name:
-/// `gh` and the push watcher still need the GitHub repository the proxy
-/// stands in for.
+/// `gh` still needs the GitHub repository the proxy stands in for.
 fn route_through_proxy(
     repos: &mut [RepoCheckout],
     backend_api_url: Option<&str>,

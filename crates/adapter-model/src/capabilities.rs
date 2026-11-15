@@ -216,6 +216,12 @@ pub trait AdapterInboundPresentation: Send + Sync {
         vec![external_id.to_string()]
     }
 
+    /// Whether `external_id` can name the Task that made it. An id every
+    /// recipient shares (a check run, rerun on one commit) names a recipient.
+    fn names_producer(&self, _external_id: &str) -> bool {
+        true
+    }
+
     fn inbound_message_prefix(&self, _msg: &InboundMessage) -> Option<String> {
         None
     }

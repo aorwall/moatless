@@ -223,7 +223,7 @@ impl GithubPrInboundRouter {
                 subject_kind: SUBJECT_KIND,
                 subject_key: &subject_key,
                 bindings: recipients,
-                author_task_id: None,
+                made_by: None,
                 new_task_binding_id: None,
             },
         )

@@ -86,6 +86,10 @@ pub struct LinearIssueCreateRequest {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct LinearIssueUpdateRequest {
+    /// The Task making the update, whose state change is then not delivered
+    /// back to it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     /// New description. An empty or whitespace-only string is rejected — a

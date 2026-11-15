@@ -21,8 +21,8 @@ pub struct SubjectEvent<'a> {
     pub subject_kind: &'a str,
     pub subject_key: &'a str,
     pub bindings: Vec<TaskBinding>,
-    /// Task provenance names as the author of the event.
-    pub author_task_id: Option<&'a str>,
+    /// The Task that made the event; see [`RoutingService::made_by`].
+    pub made_by: Option<&'a str>,
     /// Binding created by this event, if any.
     pub new_task_binding_id: Option<&'a str>,
 }
@@ -47,7 +47,7 @@ pub async fn route_subject_event(
                 subject_kind: event.subject_kind,
                 subject_key: event.subject_key,
                 bindings: event.bindings,
-                author_task_id: event.author_task_id,
+                made_by: event.made_by,
                 new_task_binding_id: event.new_task_binding_id,
             },
         )

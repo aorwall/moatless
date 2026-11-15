@@ -51,7 +51,10 @@ fn routing(pool: PgPool, status: TaskStatus) -> Arc<RoutingService> {
     let connections = moatless_adapter_model::compose::adapter_connections(pool.clone());
     crate::compose::loop_graph(pool).routing(crate::compose::RoutingInputs {
         adapter_connections: connections.routing(),
-        messages: Arc::new(MockTranscriptAppend::new()),
+        own_events: Arc::new(crate::bindings::own_events::OwnEvents::new(
+            Arc::new(MockTranscriptAppend::new()),
+            None,
+        )),
         tasks: Arc::new(tasks),
         task_creation: Arc::new(MockTaskOpener::new()),
         message_send: Arc::new(MockMessageAcceptor::new()),

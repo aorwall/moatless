@@ -242,37 +242,17 @@ impl GithubPrInboundRouter {
         let source_name = format!("{}/{}", subject.owner(), subject.repo());
         let binding_repo = self.task_bindings.clone();
 
-        // Provenance: who wrote this, via the `Moatless task:` footer link the
-        // adapter parsed off the body, else a recorded event id — never an
-        // identity. Asked only on this PR: an old row's bare number can repeat
-        // across repos, so this scopes the lookup to the subject, not the
-        // string alone.
-        let origin_task_id = match msg.source_task_id.clone() {
-            Some(task_id) => Some(task_id),
-            // Every rerun on one commit shares a check-run id, so its
-            // `task_inbox` row names the Task it reached, not an author: matching
-            // it would skip that Task as a self-echo and re-bind it if unbound.
-            None => match msg
-                .external_event_id
-                .as_deref()
-                .filter(|id| !super::external_id::is_check_run(id))
-            {
-                Some(ext_id) => {
-                    let candidates = self.routing.external_id_aliases(ADAPTER_LABEL, ext_id);
-                    self.messages
-                        .find_author_on_subject(
-                            &candidates,
-                            EventSubject {
-                                adapter: ADAPTER_LABEL,
-                                source_name: &source_name,
-                                subject_key: &subject_key,
-                            },
-                        )
-                        .await?
-                }
-                None => None,
-            },
-        };
+        let origin_task_id = self
+            .routing
+            .made_by(
+                &msg,
+                EventSubject {
+                    adapter: ADAPTER_LABEL,
+                    source_name: &source_name,
+                    subject_key: &subject_key,
+                },
+            )
+            .await?;
 
         // Tasks post as their owner, so a sender match on a task's own
         // comment would make every task of that owner answer a commenter
@@ -492,7 +472,7 @@ impl GithubPrInboundRouter {
                 subject_kind: SUBJECT_KIND,
                 subject_key: &subject_key,
                 bindings,
-                author_task_id: origin_task_id.as_deref(),
+                made_by: origin_task_id.as_deref(),
                 new_task_binding_id: new_task_binding_id.as_deref(),
             },
         )
@@ -1158,7 +1138,10 @@ pub(crate) mod tests {
 
             let routing = loop_graph.routing(moatless_loops::compose::RoutingInputs {
                 adapter_connections: connections.routing(),
-                messages: Arc::new(MockTranscriptAppend::new()),
+                own_events: Arc::new(moatless_loops::bindings::own_events::OwnEvents::new(
+                    Arc::new(MockTranscriptAppend::new()),
+                    None,
+                )),
                 tasks: Arc::new(MockTaskReader::new()),
                 task_creation: Arc::new(MockTaskOpener::new()),
                 message_send: Arc::new(MockMessageAcceptor::new()),
@@ -1173,7 +1156,6 @@ pub(crate) mod tests {
                 loop_graph.bindings(),
                 Arc::new(users),
                 routing,
-                Arc::new(MockTranscriptAppend::new()),
                 Arc::new(MockRelationRecorder::new()),
                 Arc::new(tasks),
                 Arc::new(MockTaskOpener::new()),

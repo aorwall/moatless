@@ -51,6 +51,12 @@ export interface LinearIssueUpdateRequest {
   project?: string | null;
   /** @nullable */
   state?: string | null;
+  /**
+     * The Task making the update, whose state change is then not delivered
+     * back to it.
+     * @nullable
+     */
+  taskId?: string | null;
   /** @nullable */
   title?: string | null;
 }

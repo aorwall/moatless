@@ -33,8 +33,8 @@ use crate::bindings::connect::Connector;
 use crate::bindings::dao::PgTaskBindingDao;
 use crate::bindings::operations::Bindings;
 use crate::bindings::outbound::OutboundSender;
+use crate::bindings::own_events::OwnEvents;
 use crate::bindings::ports::BindingDirectory;
-use crate::bindings::recently_sent::RecentlySent;
 use crate::bindings::reply::ExternalReplyService;
 use crate::bindings::runtime::RoutingService;
 use crate::loops::dao::LoopDao;
@@ -158,7 +158,7 @@ impl LoopGraph {
             inputs.adapter_connections,
             self.loops.clone(),
             self.bindings.clone(),
-            inputs.messages,
+            inputs.own_events,
             inputs.tasks,
             inputs.task_creation,
             inputs.message_send,
@@ -178,7 +178,7 @@ impl LoopGraph {
             inputs.adapter_connections,
             self.loops.clone(),
             inputs.tasks,
-            inputs.recently_sent,
+            inputs.own_events,
             inputs.messages,
             inputs.task_turns,
             inputs.auth_config,
@@ -198,7 +198,7 @@ impl LoopGraph {
             inputs.messages,
             inputs.tasks,
             self.loops.clone(),
-            inputs.recently_sent,
+            inputs.own_events,
             inputs.task_turns,
             inputs.outbound,
             inputs.notice_replies,
@@ -234,7 +234,7 @@ pub struct ScheduleRunnerInputs {
 /// The foreign ports the inbound-routing subgraph reads.
 pub struct RoutingInputs {
     pub adapter_connections: Arc<ConnectionRouting>,
-    pub messages: Arc<dyn TranscriptAppend>,
+    pub own_events: Arc<OwnEvents>,
     pub tasks: Arc<dyn TaskReader>,
     pub task_creation: Arc<dyn TaskOpener>,
     pub message_send: Arc<dyn MessageAcceptor>,
@@ -248,7 +248,7 @@ pub struct RoutingInputs {
 pub struct OutboundSenderInputs {
     pub adapter_connections: Arc<ConnectionRouting>,
     pub tasks: Arc<dyn TaskReader>,
-    pub recently_sent: Arc<RecentlySent>,
+    pub own_events: Arc<OwnEvents>,
     pub messages: Arc<dyn TranscriptAppend>,
     pub task_turns: Arc<dyn TurnCounter>,
     pub auth_config: Arc<AuthConfig>,
@@ -265,7 +265,7 @@ pub struct ExternalReplyInputs {
     pub connection_routing: Arc<ConnectionRouting>,
     pub messages: Arc<dyn TranscriptAppend>,
     pub tasks: Arc<dyn TaskReader>,
-    pub recently_sent: Arc<RecentlySent>,
+    pub own_events: Arc<OwnEvents>,
     pub task_turns: Arc<dyn TurnCounter>,
     pub outbound: Arc<OutboundSender>,
     pub notice_replies: Arc<NoticeReplies>,

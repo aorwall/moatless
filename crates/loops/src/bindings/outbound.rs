@@ -13,7 +13,7 @@ use moatless_types::loops::SubscriptionMatch;
 
 use crate::bindings::metrics::record_outbound;
 use crate::bindings::operations::Bindings;
-use crate::bindings::recently_sent::RecentlySent;
+use crate::bindings::own_events::OwnEvents;
 use crate::loops::dao::LoopDao;
 use moatless_adapter_model::connections::ConnectionRouting;
 use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
@@ -64,7 +64,7 @@ pub struct OutboundSender {
     adapter_connections: Arc<ConnectionRouting>,
     loops: Arc<LoopDao>,
     tasks: Arc<dyn TaskReader>,
-    recently_sent: Arc<RecentlySent>,
+    own_events: Arc<OwnEvents>,
     messages: Arc<dyn TranscriptAppend>,
     task_turns: Arc<dyn TurnCounter>,
     auth_config: Arc<AuthConfig>,
@@ -83,7 +83,7 @@ impl OutboundSender {
         adapter_connections: Arc<ConnectionRouting>,
         loops: Arc<LoopDao>,
         tasks: Arc<dyn TaskReader>,
-        recently_sent: Arc<RecentlySent>,
+        own_events: Arc<OwnEvents>,
         messages: Arc<dyn TranscriptAppend>,
         task_turns: Arc<dyn TurnCounter>,
         auth_config: Arc<AuthConfig>,
@@ -96,7 +96,7 @@ impl OutboundSender {
             adapter_connections,
             loops,
             tasks,
-            recently_sent,
+            own_events,
             messages,
             task_turns,
             auth_config,
@@ -111,7 +111,7 @@ impl OutboundSender {
     /// Loads the binding, connection, and optional subscription loop, then
     /// calls `send_reply_for_binding`; persists a visible assistant stub up
     /// front, tags it with the returned external id, populates the
-    /// `recently_sent` race-window cache, and advances the binding cursor.
+    /// `own_events` race window, and advances the binding cursor.
     pub(crate) async fn send_to_binding(
         &self,
         providers: &Adapters,
@@ -250,7 +250,7 @@ impl OutboundSender {
         )
         .await;
         if let Some(ref ext_id) = external_id {
-            self.recently_sent.note(task_id, ext_id);
+            self.own_events.note(task_id, ext_id);
             if let Err(e) = binding_repo.advance_cursor(&binding.id, ext_id).await {
                 warn!(
                     binding_id = %binding.id,

@@ -7,18 +7,19 @@
 )]
 //! A Task's own `git push` must not come back to it as a notification.
 //!
-//! A push bypasses the backend, so the `pull_request.synchronize` webhook that
-//! follows carries no `Moatless task:` footer and no typed route naming the
-//! Task. The sandbox files a claim on the sha instead, keyed by repository and
-//! sha (no PR number exists yet); routing later has the full `synchronize` id,
-//! number included. The alias is what joins the two, asserted end to end here.
+//! The `pull_request.synchronize` webhook a push causes carries no `Moatless
+//! task:` footer. The proxy that carried the push records the sha instead,
+//! keyed by repository and sha (no PR number exists yet); routing later has the
+//! full `synchronize` id, number included. The alias joins the two, asserted
+//! end to end here.
 
 use std::sync::Arc;
 
 use crate::common;
 
+use moatless_adapter_github_pr::own_event::{self, Made};
 use moatless_adapter_model::capabilities::AdapterInboundPresentation;
-use moatless_ports::task::EventSubject;
+use moatless_ports::task::{EventSubject, TranscriptAppend};
 use moatless_tasks::task::test_support as task_fixtures;
 use moatless_workspaces::compose;
 use sqlx::PgPool;
@@ -67,15 +68,13 @@ async fn a_pushed_sha_names_its_task_when_the_synchronize_event_arrives(pool: Pg
     seed_task(&pool, "task-1", "user-1").await;
     let transcript = moatless_tasks::message::test_support::transcript(&pool);
 
-    moatless_adapter_github_pr::push_claim::record(
-        transcript.as_ref(),
-        "task-1",
-        "soaplabs",
-        "soap-knowledge",
-        SHA,
-    )
-    .await
-    .unwrap();
+    transcript
+        .record_external_event(
+            "task-1",
+            &own_event::event("soaplabs", "soap-knowledge", &Made::Push(SHA.to_string())),
+        )
+        .await
+        .unwrap();
 
     let ids = adapter().external_id_aliases(&format!(
         "github:pr:synchronize:soaplabs/soap-knowledge#101:{SHA}"
@@ -132,15 +131,13 @@ async fn a_claim_answers_only_for_the_repository_it_was_filed_in(pool: PgPool) {
     seed_task(&pool, "task-1", "user-1").await;
     let transcript = moatless_tasks::message::test_support::transcript(&pool);
 
-    moatless_adapter_github_pr::push_claim::record(
-        transcript.as_ref(),
-        "task-1",
-        "soaplabs",
-        "soap-knowledge",
-        SHA,
-    )
-    .await
-    .unwrap();
+    transcript
+        .record_external_event(
+            "task-1",
+            &own_event::event("soaplabs", "soap-knowledge", &Made::Push(SHA.to_string())),
+        )
+        .await
+        .unwrap();
 
     let ids = adapter().external_id_aliases(&format!(
         "github:pr:synchronize:acme/soap-knowledge#101:{SHA}"

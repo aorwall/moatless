@@ -1,5 +1,5 @@
 //! Per-task gate suppressing stray Linear activity emission after a turn ends.
-//! Mirrors `bindings::recently_sent::RecentlySent`.
+//! Mirrors the in-memory window of `bindings::own_events::OwnEvents`.
 //!
 //! Opens on an inbound webhook route or an `Agent(Started)` event; closes when
 //! the terminal `agent.completed`/`stopped`/`error` handler posts its final

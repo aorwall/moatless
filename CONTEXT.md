@@ -323,6 +323,14 @@ contributor or commenter — and each Adapter maps its own actions onto those
 roles. A commenter hears only what its Adapter marks as answering its writing.
 _Avoid_: task connection, connection, thread
 
+**Own event**:
+An external event a Task made through an Adapter's outbound half — a reply, a
+push, a comment or a state move — recorded when it was made, so the inbound
+event it causes is not delivered back to the Task that made it. Every outbound
+path records one; inbound routing asks which Task made an event and passes it
+over.
+_Avoid_: authorship, provenance, push claim, self-echo cache
+
 **Task Room**:
 A conversation space an Adapter opens for one Task and binds it to for the
 Task's life — on Slack, a code channel. A Loop declares it with `room` in

@@ -907,7 +907,7 @@ async fn a_broker_origin_clone_keeps_no_token_and_fetches_after_a_rotation() {
 }
 
 /// A proxied GitHub checkout records the repository it stands in for, so
-/// `gh` and the push watcher can name it.
+/// `gh` can name it.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_proxied_github_clone_records_its_github_remote() {
     let tmp = tempfile::tempdir().unwrap();
@@ -1068,7 +1068,7 @@ async fn github_urls_fetch_and_push_through_the_proxy_with_the_task_token() {
         "https://github.com/Acme/API.git".to_string(),
     )]);
 
-    // What `configure_git` writes, into a global config of the test's own.
+    // What `route_github_through_proxy` writes, into a global config of the test's own.
     let global = tmp.path().join("gitconfig");
     let set = |args: &[&str]| {
         let mut command = std::process::Command::new("git");
@@ -1205,4 +1205,32 @@ fn a_gitlab_url_is_rewritten_to_the_backend_git_proxy() {
     config.backend_api_url = None;
     assert!(gitlab_proxy_rewrite(&config).is_none());
     assert!(!broker_origins(&config).contains(&"https://gitlab.com".to_string()));
+}
+
+#[test]
+fn github_urls_in_every_form_git_accepts() {
+    let expected = Some(("soaplabs".to_string(), "soap-knowledge".to_string()));
+    for url in [
+        "https://github.com/soaplabs/soap-knowledge.git",
+        "https://github.com/soaplabs/soap-knowledge",
+        "https://github.com/soaplabs/soap-knowledge/",
+        "git@github.com:soaplabs/soap-knowledge.git",
+        "ssh://git@github.com/soaplabs/soap-knowledge.git",
+        "https://x-access-token:ghs_secret@github.com/soaplabs/soap-knowledge.git",
+    ] {
+        assert_eq!(github_repo_from_url(url), expected, "{url}");
+    }
+}
+
+#[test]
+fn a_non_github_remote_names_no_repository() {
+    assert_eq!(
+        github_repo_from_url("https://gitlab.com/acme/widgets.git"),
+        None
+    );
+    assert_eq!(
+        github_repo_from_url("git@bitbucket.org:acme/widgets.git"),
+        None
+    );
+    assert_eq!(github_repo_from_url("https://github.com/acme"), None);
 }

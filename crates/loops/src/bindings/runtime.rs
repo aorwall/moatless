@@ -10,6 +10,7 @@ use crate::bindings::buffer::dao::{BufferedBatch, MessageBufferStore};
 use crate::bindings::buffer::policy::buffer_window;
 use crate::bindings::buffer::{Part, combine};
 use crate::bindings::operations::Bindings;
+use crate::bindings::own_events::OwnEvents;
 use crate::bindings::recipients::{EventProvenance, resolve_recipients};
 use crate::loops::dao::LoopDao;
 use crate::loops::firing::inbound;
@@ -24,7 +25,6 @@ use moatless_adapter_model::registry::Adapters;
 use moatless_ports::sandbox::SandboxWaker;
 use moatless_ports::task::MessageAcceptor;
 use moatless_ports::task::TaskReader;
-use moatless_ports::task::TranscriptAppend;
 use moatless_ports::task::{EventSubject, InboundTurn, TaskOpenError, TaskOpener, TurnOrigin};
 use moatless_tasks::message::wake::wake_for_message;
 use moatless_types::access_control::ScopeContext;
@@ -53,7 +53,7 @@ pub struct RoutingService {
     adapter_connections: Arc<ConnectionRouting>,
     loops: Arc<LoopDao>,
     task_bindings: Arc<Bindings>,
-    messages: Arc<dyn TranscriptAppend>,
+    own_events: Arc<OwnEvents>,
     tasks: Arc<dyn TaskReader>,
     task_creation: Arc<dyn TaskOpener>,
     message_send: Arc<dyn MessageAcceptor>,
@@ -104,7 +104,7 @@ impl RoutingService {
         adapter_connections: Arc<ConnectionRouting>,
         loops: Arc<LoopDao>,
         task_bindings: Arc<Bindings>,
-        messages: Arc<dyn TranscriptAppend>,
+        own_events: Arc<OwnEvents>,
         tasks: Arc<dyn TaskReader>,
         task_creation: Arc<dyn TaskOpener>,
         message_send: Arc<dyn MessageAcceptor>,
@@ -118,7 +118,7 @@ impl RoutingService {
             adapter_connections,
             loops,
             task_bindings,
-            messages,
+            own_events,
             tasks,
             task_creation,
             message_send,
@@ -204,30 +204,16 @@ impl RoutingService {
         }
 
         let binding_repo = self.task_bindings.clone();
-        // Provenance: the task an adapter recovered from the event body, else
-        // the task an already-recorded event identifier names — never an
-        // identity. The identifier is asked about only on this subject: a
-        // provider numbering events per subject (not globally) reuses one id
-        // across subjects, so a task holding it elsewhere didn't write this.
-        let origin_task_id = match msg.source_task_id.clone() {
-            Some(task_id) => Some(task_id),
-            None => match msg.external_event_id.as_deref() {
-                Some(ext_id) => {
-                    let candidates = self.external_id_aliases(adapter_label, ext_id);
-                    self.messages
-                        .find_author_on_subject(
-                            &candidates,
-                            EventSubject {
-                                adapter: adapter_label,
-                                source_name: &msg.source_id,
-                                subject_key,
-                            },
-                        )
-                        .await?
-                }
-                None => None,
-            },
-        };
+        let origin_task_id = self
+            .made_by(
+                &msg,
+                EventSubject {
+                    adapter: adapter_label,
+                    source_name: &msg.source_id,
+                    subject_key,
+                },
+            )
+            .await?;
 
         let mut bindings = binding_repo
             .for_subject(adapter_label, subject_kind, subject_key)
@@ -405,7 +391,7 @@ impl RoutingService {
                 subject_kind,
                 subject_key,
                 bindings,
-                author_task_id: origin_task_id.as_deref(),
+                made_by: origin_task_id.as_deref(),
                 new_task_binding_id: new_task_binding_id.as_deref(),
             },
         )
@@ -431,7 +417,7 @@ impl RoutingService {
             subject_kind,
             subject_key,
             bindings,
-            author_task_id,
+            made_by,
             new_task_binding_id,
         } = subject;
 
@@ -446,7 +432,7 @@ impl RoutingService {
             &msg.audience,
             &bindings,
             EventProvenance {
-                author_task_id,
+                made_by,
                 parent_author_task_id: parent_author_task_id.as_deref(),
                 replies_to: &msg.replies_to,
             },
@@ -469,7 +455,7 @@ impl RoutingService {
             // identity the task *posts as*, which on GitHub is the owner's own
             // credential, so matching it mutes the owner's reviews on the very
             // pull requests their agent opened.
-            if author_task_id == Some(binding.task_id.as_str()) {
+            if made_by == Some(binding.task_id.as_str()) {
                 debug!(
                     task_id = %binding.task_id,
                     subject_key,
@@ -494,7 +480,9 @@ impl RoutingService {
             // is gone); marking here would make a review reaching no task
             // falsely report success — the exact fault this signal catches.
             if !recipient_ids.contains(&binding.id) {
-                let reason = if hears_only_replies(&binding) {
+                let reason = if !binding.watching {
+                    inbound_reason::WATCH_OFF
+                } else if hears_only_replies(&binding) {
                     inbound_reason::NOT_A_REPLY
                 } else {
                     inbound_reason::NOT_IN_AUDIENCE
@@ -591,11 +579,13 @@ impl RoutingService {
         }
 
         // Every task on the subject only commented and this answers none of
-        // them: nothing was owed, so this is no lost event.
-        if passed_over
-            .iter()
-            .all(|(_, reason)| *reason == inbound_reason::NOT_A_REPLY)
-        {
+        // them, or has its watch off: nothing was owed, so this is no lost event.
+        if passed_over.iter().all(|(_, reason)| {
+            matches!(
+                *reason,
+                inbound_reason::NOT_A_REPLY | inbound_reason::WATCH_OFF
+            )
+        }) {
             return Ok(None);
         }
 
@@ -649,18 +639,32 @@ impl RoutingService {
         else {
             return Ok(None);
         };
-        let candidates = self.external_id_aliases(adapter_label, parent_id);
-        Ok(self.messages.find_comment_author(&candidates).await?)
+        Ok(self
+            .own_events
+            .comment_made_by(adapter_label, parent_id)
+            .await?)
     }
 
-    pub fn external_id_aliases(&self, adapter_label: &str, external_id: &str) -> Vec<String> {
-        self.adapters
-            .as_ref()
-            .and_then(|providers| providers.inbound_presentation_by_name(adapter_label))
-            .map_or_else(
-                || vec![external_id.to_string()],
-                |presentation| presentation.external_id_aliases(external_id),
-            )
+    /// What every Task made, for an Adapter routing outside [`Self::fan_out`].
+    pub fn own_events(&self) -> &OwnEvents {
+        &self.own_events
+    }
+
+    /// The Task that made `msg`: the one its Adapter recovered from the body,
+    /// else the one [`OwnEvents::made_by`] names. Never an identity: Tasks
+    /// post as their owner.
+    pub async fn made_by(
+        &self,
+        msg: &InboundMessage,
+        subject: EventSubject<'_>,
+    ) -> Result<Option<String>, AdapterError> {
+        if let Some(task_id) = &msg.source_task_id {
+            return Ok(Some(task_id.clone()));
+        }
+        let Some(external_id) = msg.external_event_id.as_deref() else {
+            return Ok(None);
+        };
+        Ok(self.own_events.made_by(external_id, subject).await?)
     }
 
     async fn should_create_binding_task(
@@ -1029,8 +1033,8 @@ impl RoutingService {
         let thread_context = match (&presentation, on_a_thread) {
             (Some(presentation), true) => {
                 let mut exclude_ids = self
-                    .messages
-                    .external_event_ids(&binding.task_id)
+                    .own_events
+                    .made(&binding.task_id)
                     .await
                     .unwrap_or_default();
                 exclude_ids.extend(msgs.iter().filter_map(|msg| msg.external_event_id.clone()));
@@ -1166,11 +1170,8 @@ pub struct Fanout<'a> {
     pub subject_key: &'a str,
     /// The active bindings on the subject, walked in this order.
     pub bindings: Vec<TaskBinding>,
-    /// The task provenance names as the author of the event — a footer, a claim
-    /// the task recorded when it acted, or an event identifier already recorded
-    /// against it. Never an identity: a task is passed over only where it can
-    /// be *named* as the author of what arrived.
-    pub author_task_id: Option<&'a str>,
+    /// The Task [`RoutingService::made_by`] names, passed over as the maker.
+    pub made_by: Option<&'a str>,
     /// The binding whose task this very event created, if any. Its delivery
     /// does not wake a sandbox that task creation is already provisioning.
     pub new_task_binding_id: Option<&'a str>,

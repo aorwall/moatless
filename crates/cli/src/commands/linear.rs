@@ -420,6 +420,7 @@ async fn run_issue(
         } => {
             let description = one_text("description", description, description_file.as_deref())?;
             let req = LinearIssueUpdateRequest {
+                task_id: cfg.task_id().map(str::to_string),
                 title,
                 description,
                 clear_description: clear_description.then_some(true),
@@ -464,6 +465,7 @@ async fn run_issue(
                     .ok()
             };
             let req = LinearIssueUpdateRequest {
+                task_id: cfg.task_id().map(str::to_string),
                 state: Some(state),
                 ..Default::default()
             };

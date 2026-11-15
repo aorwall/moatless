@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use moatless_types::http::HttpTimeouts;
 use moatless_workspace_types::repository::GITLAB_HOST;
 use moatless_workspace_types::workspace::RepoCheckout;
-pub(crate) use moatless_workspace_types::workspace::{GITHUB_REMOTE, github_remote_config};
+pub(crate) use moatless_workspace_types::workspace::github_remote_config;
 use tokio::net::TcpStream;
 use tokio::process::Command;
 use tracing::{info, warn};
@@ -31,7 +31,6 @@ pub async fn configure_git(config: &Config, credentials: &GitCredentials) -> Res
     if let Some(origin) = &proxy_origin {
         wire_broker_git_helper(origin).await;
     }
-    route_github_through_proxy(config).await;
     route_gitlab_through_proxy(config).await;
 
     if !is_github && credentials.get(GIT_TOKEN).is_none() && proxy_origin.is_none() {
@@ -97,28 +96,33 @@ pub const GITHUB_REMOTE_HELPER_PATH: &str = "/usr/local/bin/git-remote-git+https
 const GITHUB_HELPER_BASE: &str = "git+https://github.com/";
 
 /// Route every github.com fetch and push through the backend git proxy, so the
-/// pod needs no GitHub token, `git@github.com:` URLs included.
+/// pod needs no GitHub token, `git@github.com:` URLs included. Rewrites to
+/// [`GITHUB_HELPER_BASE`] rather than the proxy URL, which `gh` refuses.
 ///
-/// Rewrites to [`GITHUB_HELPER_BASE`] rather than the proxy URL: `gh` reads
-/// the rewritten URL from `git remote -v`, and refuses a proxy URL as no
-/// GitHub repository.
-async fn route_github_through_proxy(config: &Config) {
+/// Fails when a proxied GitHub repository cannot be routed: a push around the
+/// proxy is recorded for no Task, so its webhook echoes back to the maker.
+pub async fn route_github_through_proxy(config: &Config) -> Result<(), String> {
+    let required = !config.github_upstreams.is_empty();
     if !Path::new(GITHUB_REMOTE_HELPER_PATH).exists() {
+        if required {
+            return Err(format!(
+                "GitHub remote helper {GITHUB_REMOTE_HELPER_PATH} is missing"
+            ));
+        }
         info!(
             path = GITHUB_REMOTE_HELPER_PATH,
             "GitHub remote helper not present — github.com URLs reach GitHub directly"
         );
-        return;
+        return Ok(());
     }
     let Some(settings) = github_proxy_settings(config) else {
         info!("No backend URL — github.com URLs reach GitHub directly");
-        return;
+        return Ok(());
     };
     for (key, value) in &settings {
-        if let Err(e) = run_command("git", &["config", "--global", key, value]).await {
-            warn!(error = %e, key, "Failed to map a GitHub repository to the git proxy");
-            return;
-        }
+        run_command("git", &["config", "--global", key, value])
+            .await
+            .map_err(|e| format!("Failed to map {key} to the git proxy: {e}"))?;
     }
     let rewrite = format!("url.{GITHUB_HELPER_BASE}.insteadOf");
     // An earlier image rewrote SSH to plain HTTPS; git applies one rewrite, so
@@ -135,9 +139,9 @@ async fn route_github_through_proxy(config: &Config) {
     .await;
     let _ = run_command("git", &["config", "--global", "--unset-all", &rewrite]).await;
     for base in ["https://github.com/", "git@github.com:"] {
-        if let Err(e) = run_command("git", &["config", "--global", "--add", &rewrite, base]).await {
-            warn!(error = %e, base, "Failed to route GitHub URLs through the git proxy");
-        }
+        run_command("git", &["config", "--global", "--add", &rewrite, base])
+            .await
+            .map_err(|e| format!("Failed to route {base} through the git proxy: {e}"))?;
     }
     // A submodule fetch runs with `GIT_PROTOCOL_FROM_USER=0`, which refuses an
     // unknown scheme unless it is allowed outright.
@@ -147,6 +151,32 @@ async fn route_github_through_proxy(config: &Config) {
     )
     .await;
     info!("Routed github.com through the backend git proxy");
+    Ok(())
+}
+
+/// `owner` and `repo` of a github.com remote, in any URL form git accepts.
+/// `None` for every other host.
+pub(crate) fn github_repo_from_url(url: &str) -> Option<(String, String)> {
+    let rest = if let Some(rest) = url.strip_prefix("git@github.com:") {
+        rest
+    } else {
+        let scheme_less = url
+            .strip_prefix("https://")
+            .or_else(|| url.strip_prefix("http://"))
+            .or_else(|| url.strip_prefix("ssh://git@"))
+            .unwrap_or(url);
+        // A credential-bearing URL (`https://x-access-token:TOKEN@github.com/…`)
+        // carries the host after the last `@`.
+        let host_and_path = scheme_less.rsplit_once('@').map_or(scheme_less, |(_, h)| h);
+        host_and_path.strip_prefix("github.com/")?
+    };
+
+    let path = rest.trim_end_matches('/').trim_end_matches(".git");
+    let (owner, name) = path.split_once('/')?;
+    if owner.is_empty() || name.is_empty() || name.contains('/') {
+        return None;
+    }
+    Some((owner.to_string(), name.to_string()))
 }
 
 /// The `git config` keys [`GITHUB_REMOTE_HELPER_PATH`] resolves a GitHub URL
@@ -167,7 +197,7 @@ pub(crate) fn github_proxy_settings(config: &Config) -> Option<Vec<(String, Stri
         let Some(upstream) = config.github_upstreams.get(&repo.mount_name) else {
             continue;
         };
-        let Some((owner, name)) = crate::git_push_watcher::github_repo_from_url(upstream) else {
+        let Some((owner, name)) = github_repo_from_url(upstream) else {
             continue;
         };
         settings.push((
@@ -332,7 +362,7 @@ struct CloneSource<'a> {
     /// as permanent.
     token: Option<&'a str>,
     /// The GitHub URL a proxied checkout stands in for, recorded as the
-    /// [`GITHUB_REMOTE`] remote.
+    /// [`GITHUB_REMOTE`](moatless_workspace_types::workspace::GITHUB_REMOTE) remote.
     github_upstream: Option<&'a str>,
     /// The origins the credential broker answers ([`broker_origins`]).
     broker_origins: &'a [String],

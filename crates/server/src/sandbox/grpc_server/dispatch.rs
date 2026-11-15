@@ -15,16 +15,16 @@ use sandbox_proto::{
     GetSystemPromptRequest, GetSystemPromptResponse, GetWorkspaceRepositoryAccessRequest,
     GetWorkspaceRepositoryAccessResponse, GetWorkspaceSyncUrlsRequest,
     GetWorkspaceSyncUrlsResponse, PublishEventRequest, PublishEventResponse, ReadTrajectoryRequest,
-    RecordGitPushRequest, RecordGitPushResponse, RecordUnreportedCommandsRequest,
-    RecordUnreportedCommandsResponse, RecoverInterruptedRunRequest, RecoverInterruptedRunResponse,
-    ReportWorkspaceSyncRequest, ReportWorkspaceSyncResponse, TakeUnreportedCommandsRequest,
-    TakeUnreportedCommandsResponse, TranscriptChunk, UploadTranscriptResponse,
+    RecordUnreportedCommandsRequest, RecordUnreportedCommandsResponse,
+    RecoverInterruptedRunRequest, RecoverInterruptedRunResponse, ReportWorkspaceSyncRequest,
+    ReportWorkspaceSyncResponse, TakeUnreportedCommandsRequest, TakeUnreportedCommandsResponse,
+    TranscriptChunk, UploadTranscriptResponse,
 };
 
 use super::state::BackendSandboxServiceImpl;
 use super::{
-    commands, credentials, events, git_push, messages, plugins, stop_cause, trajectory,
-    transcripts, uploads, workspace_sync,
+    commands, credentials, events, messages, plugins, stop_cause, trajectory, transcripts, uploads,
+    workspace_sync,
 };
 
 #[tonic::async_trait]
@@ -130,13 +130,6 @@ impl BackendSandboxService for BackendSandboxServiceImpl {
         request: Request<ReportWorkspaceSyncRequest>,
     ) -> Result<Response<ReportWorkspaceSyncResponse>, Status> {
         workspace_sync::report_workspace_sync(self, request).await
-    }
-
-    async fn record_git_push(
-        &self,
-        request: Request<RecordGitPushRequest>,
-    ) -> Result<Response<RecordGitPushResponse>, Status> {
-        git_push::record_git_push(self, request).await
     }
 
     async fn record_unreported_commands(

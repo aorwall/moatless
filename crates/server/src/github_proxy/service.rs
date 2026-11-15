@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use moatless_adapter_github_pr::PullRequestCredits;
 use moatless_core::secret_keys::GITHUB_TOKEN;
+use moatless_loops::bindings::own_events::OwnEvents;
 use moatless_ports::identity::{AppWriteToken, GitHostTokenError, GitHostTokenIssuer};
 use moatless_sandbox_control::secrets::{
     resolve_task_actor, resolve_task_github_token, resolve_workspace_credentials,
@@ -68,6 +69,8 @@ pub struct GitHubProxy {
     /// Decides which writes a sandbox may send.
     pub(crate) policy: Arc<GitHubPolicy>,
     pub(crate) http: reqwest::Client,
+    /// Where a write's [`made`](super::made) is recorded; `None` records nothing.
+    pub(crate) own_events: Option<Arc<OwnEvents>>,
 }
 
 /// Idle, not total: a release asset streams for as long as it is big.
@@ -114,7 +117,14 @@ impl GitHubProxy {
             uploads_base: uploads_base.trim_end_matches('/').to_string(),
             policy,
             http: http_client(timeouts),
+            own_events: None,
         }
+    }
+
+    /// Record what each write made through `own_events`.
+    pub(crate) fn with_own_events(mut self, own_events: Arc<OwnEvents>) -> Self {
+        self.own_events = Some(own_events);
+        self
     }
 
     /// The upstream URL for `path_and_query`, which starts with `/`.

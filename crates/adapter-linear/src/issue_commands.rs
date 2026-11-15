@@ -17,9 +17,9 @@ use moatless_adapter_model::error::{AdapterError, SharedAdapterError};
 use moatless_core::config::Config;
 use moatless_loops::adapters::access::{ensure_task_access_only, ensure_task_access_with};
 use moatless_loops::bindings::operations::Bindings;
-use moatless_loops::bindings::recently_sent::RecentlySent;
+use moatless_loops::bindings::own_events::OwnEvents;
 use moatless_ports::identity::{ProviderIdentityLink, UserDisplay};
-use moatless_ports::task::{ExternalEvent, TaskDescriptor, TaskReader, TranscriptAppend};
+use moatless_ports::task::{ExternalEvent, TaskDescriptor, TaskReader};
 use moatless_types::adapter::{AdapterConnection, TaskBinding};
 use moatless_types::attribution::Attribution;
 
@@ -253,9 +253,16 @@ pub(crate) async fn create_issue(
     })
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each port is one the update path reads; bundling them would re-bag \
+              the AppState these functions exist to unbag"
+)]
 pub(crate) async fn update_issue(
     linear: Option<Arc<LinearAdapter>>,
     identity: Arc<dyn ProviderIdentityLink>,
+    tasks: Arc<dyn TaskReader>,
+    own_events: Arc<OwnEvents>,
     ctx: moatless_types::access_control::ScopeContext,
     id: String,
     params: LinearConnectionParams,
@@ -264,6 +271,9 @@ pub(crate) async fn update_issue(
     let linear = require_linear(linear)?;
     let (_connection, api) =
         resolve_linear_api(&linear, &ctx, params.connection_id.as_deref()).await?;
+    if let Some(task_id) = req.task_id.as_deref() {
+        ensure_task_access_only(tasks.as_ref(), &ctx, task_id).await?;
+    }
 
     let description = description_to_write(req.description.as_deref(), req.clear_description)?;
 
@@ -355,6 +365,9 @@ pub(crate) async fn update_issue(
     annotate_issue(identity.as_ref(), &mut issue).await;
     if let Some(requested) = state_id.as_deref() {
         require_applied(&issue, "state", "/state", Some(requested), "")?;
+        if let Some(task_id) = req.task_id.as_deref() {
+            note_move_as_own(own_events.as_ref(), task_id, &issue).await;
+        }
     }
     if let Some(requested) = assignee_id.as_ref() {
         require_applied(
@@ -503,8 +516,7 @@ pub(crate) async fn create_comment(
     linear: Option<Arc<LinearAdapter>>,
     tasks: Arc<dyn TaskReader>,
     task_bindings: Arc<Bindings>,
-    recently_sent: Arc<RecentlySent>,
-    messages: Arc<dyn TranscriptAppend>,
+    own_events: Arc<OwnEvents>,
     ctx: moatless_types::access_control::ScopeContext,
     id: String,
     params: LinearConnectionParams,
@@ -551,14 +563,7 @@ pub(crate) async fn create_comment(
         .to_string();
 
     let binding_id = if let Some(task_id) = req.task_id.as_deref() {
-        note_comment_as_own(
-            recently_sent.as_ref(),
-            messages.as_ref(),
-            task_id,
-            &comment_id,
-            &issue_uuid,
-        )
-        .await;
+        note_comment_as_own(own_events.as_ref(), task_id, &comment_id, &issue_uuid).await;
 
         attach_moatless_task(
             linear.require_config()?,
@@ -798,32 +803,44 @@ pub(crate) async fn lookup(
 /// comment reaches the task that wrote it. Best effort — the durable half only
 /// matters on a replica that did not serve this request.
 async fn note_comment_as_own(
-    recently_sent: &RecentlySent,
-    messages: &dyn TranscriptAppend,
+    own_events: &OwnEvents,
     task_id: &str,
     comment_id: &str,
     issue_uuid: &str,
 ) {
-    let external_id = super::external_id::comment(comment_id);
-    recently_sent.note(task_id, &external_id);
-    if let Err(e) = messages
-        .record_external_event(
+    own_events
+        .record_best_effort(
             task_id,
-            &ExternalEvent {
-                external_id,
+            ExternalEvent {
+                external_id: super::external_id::comment(comment_id),
                 provider: LINEAR_PROVIDER.to_string(),
                 source_name: Some(issue_uuid.to_string()),
             },
         )
-        .await
-    {
-        warn!(
+        .await;
+}
+
+/// Record the state an `issueUpdate` moved `issue` to as `task_id`'s own, so
+/// the `Issue` webhook it causes is not delivered back to it. Best effort, as
+/// [`note_comment_as_own`].
+async fn note_move_as_own(own_events: &OwnEvents, task_id: &str, issue: &Value) {
+    let (Some(issue_id), Some(state_id), Some(updated_at)) = (
+        issue.get("id").and_then(Value::as_str),
+        issue.pointer("/state/id").and_then(Value::as_str),
+        issue.get("updatedAt").and_then(Value::as_str),
+    ) else {
+        return;
+    };
+    own_events
+        .record_best_effort(
             task_id,
-            comment_id,
-            error = %e,
-            "Failed to record the Linear comment this task posted"
-        );
-    }
+            ExternalEvent {
+                external_id: super::external_id::issue_moved(issue_id, state_id, updated_at),
+                provider: LINEAR_PROVIDER.to_string(),
+                source_name: Some(issue_id.to_string()),
+            },
+        )
+        .await;
 }
 
 /// Point `task_id` at the comment it just posted, or at the whole issue when

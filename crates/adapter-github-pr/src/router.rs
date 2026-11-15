@@ -20,7 +20,7 @@ use moatless_ports::task::MessageAcceptor;
 use moatless_ports::task::RelationRecorder;
 use moatless_ports::task::TaskFinisher;
 use moatless_ports::task::TaskOpener;
-use moatless_ports::task::{TaskReader, TranscriptAppend};
+use moatless_ports::task::TaskReader;
 use moatless_types::store::StoreError;
 
 use super::adapter::GithubPrAdapter;
@@ -53,8 +53,6 @@ pub struct GithubPrInboundRouter {
     pub(super) users: Arc<dyn ProviderIdentityLink>,
     /// Generic fan-out + external-id aliasing.
     pub(super) routing: Arc<RoutingService>,
-    /// External-event-id → task lookup for author attachment.
-    pub(super) messages: Arc<dyn TranscriptAppend>,
     /// Records the related-to relation on review-task spawn.
     pub(super) task_relations: Arc<dyn RelationRecorder>,
     /// Task rows — the close pre-check (already-closed / not-found skip).
@@ -81,7 +79,7 @@ impl GithubPrInboundRouter {
     /// Wire the router from the composition root's ports.
     #[expect(
         clippy::too_many_arguments,
-        reason = "the inbound-routing substrate is genuinely wide — fourteen downward ports the delivery handlers read. Bundling them into a sub-struct would only shuffle the same fields behind a one-use type; the width is paid once here at construction rather than threaded through register, every delivery closure, and every handler, which is the whole point of a constructed-once service."
+        reason = "the inbound-routing substrate is genuinely wide — thirteen downward ports the delivery handlers read. Bundling them into a sub-struct would only shuffle the same fields behind a one-use type; the width is paid once here at construction rather than threaded through register, every delivery closure, and every handler, which is the whole point of a constructed-once service."
     )]
     pub fn new(
         adapter_connections: Arc<dyn ConnectionLookup>,
@@ -89,7 +87,6 @@ impl GithubPrInboundRouter {
         task_bindings: Arc<Bindings>,
         users: Arc<dyn ProviderIdentityLink>,
         routing: Arc<RoutingService>,
-        messages: Arc<dyn TranscriptAppend>,
         task_relations: Arc<dyn RelationRecorder>,
         tasks: Arc<dyn TaskReader>,
         task_creation: Arc<dyn TaskOpener>,
@@ -105,7 +102,6 @@ impl GithubPrInboundRouter {
             task_bindings,
             users,
             routing,
-            messages,
             task_relations,
             tasks,
             task_creation,

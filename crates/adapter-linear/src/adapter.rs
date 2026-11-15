@@ -540,6 +540,10 @@ impl AdapterInboundPresentation for LinearAdapter {
     fn thread_reply_hint(&self, _msg: &InboundMessage) -> Option<String> {
         Some("[Linear Agent prompt]".to_string())
     }
+
+    fn external_id_aliases(&self, external_id: &str) -> Vec<String> {
+        super::external_id::aliases(external_id)
+    }
 }
 
 #[async_trait::async_trait]

@@ -9,6 +9,7 @@
 
 mod authorship;
 mod handlers;
+mod made;
 mod routes;
 mod service;
 mod target;

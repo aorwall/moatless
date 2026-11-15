@@ -77,7 +77,7 @@
   "single-implementation-trait::moatless_ports::task::turn::TurnStateReader implemented by moatless_tasks::ports::TurnLedger",
   "single-implementation-trait::moatless_t3code::activity::T3ActivityViewExt implemented by moatless_types::activity::ActivityView",
   "single-implementation-trait::moatless_tasks::feedback::dao::FeedbackDao implemented by moatless_tasks::feedback::dao::PgFeedbackDao",
-  "single-implementation-trait::moatless_tasks::message::send::SelfEchoGuard implemented by moatless_loops::adapters::self_echo::SelfEchoFilter",
+  "single-implementation-trait::moatless_tasks::message::send::SelfEchoGuard implemented by moatless_loops::bindings::own_events::OwnEvents",
   "table-ownership::moatless_loops::bindings::dao::impl  for PgTaskBindingDao -> tasks (moatless-tasks)",
   "table-ownership::moatless_sandbox_control::lifecycle::dao::impl LifecycleDao for PgLifecycleDao -> task_events (moatless-tasks)",
   "table-ownership::moatless_tasks::task::dao::impl TaskDao for PgTaskDao -> workspaces (moatless-workspaces)"

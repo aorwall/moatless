@@ -924,9 +924,8 @@ mod tests {
         assert_eq!(clone_url(BASE_URL, &repo).unwrap(), proxied());
     }
 
-    /// Without the `github` remote, the sandbox's push watcher cannot name the
-    /// repository a push to the proxied `origin` reached, and the Task is sent
-    /// its own push back.
+    /// Without the `github` remote, plain `gh` finds no GitHub repository in
+    /// the proxied `origin`.
     #[test]
     fn a_github_clone_names_its_repository_in_a_github_remote() {
         let repo = repository(

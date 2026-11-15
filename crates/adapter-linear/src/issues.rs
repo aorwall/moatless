@@ -21,7 +21,7 @@ use moatless_ports::sandbox::SandboxWaker;
 use moatless_ports::task::TaskFinisher;
 use moatless_ports::task::TaskOpener;
 use moatless_ports::task::TaskReader;
-use moatless_ports::task::{InboundTurn, MessageAcceptor, TurnOrigin};
+use moatless_ports::task::{EventSubject, InboundTurn, MessageAcceptor, TurnOrigin};
 use moatless_types::adapter::{AdapterConnection, TaskBinding};
 use moatless_types::loops::{RoutingMode, SubscriptionMatch};
 use moatless_types::task::Visibility;
@@ -835,6 +835,30 @@ async fn notify_bindings_of_state_change(
     let new_state = issue.state_name();
     let external_event_id = super::external_id::issue_state(&issue.id, transition_id);
     let mut notified = HashSet::new();
+    // The Task that moved the issue is passed over, as `fan_out` passes over a
+    // maker. A failed lookup delivers: hearing its own move costs a turn, and
+    // missing someone else's move costs the work.
+    match ports
+        .routing
+        .own_events()
+        .made_by(
+            &external_event_id,
+            EventSubject {
+                adapter: ADAPTER_LABEL,
+                source_name: &issue.id,
+                subject_key: &issue.id,
+            },
+        )
+        .await
+    {
+        Ok(Some(task_id)) => {
+            notified.insert(task_id);
+        }
+        Ok(None) => {}
+        Err(e) => {
+            warn!(issue = %issue.identifier, error = %e, "Failed to look up who moved a Linear issue");
+        }
+    }
 
     for subject_kind in [SUBJECT_KIND, super::SUBJECT_KIND_ISSUE] {
         let bindings = match super::subject::bindings_on_issue(

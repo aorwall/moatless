@@ -31,9 +31,10 @@ const ADAPTER_LABEL: &str = moatless_types::adapter::AdapterKind::Linear.as_str(
 /// Route a `Comment.create` payload to the bound tasks listening on its issue.
 /// No recipient → no-op.
 ///
-/// Own replies are excluded twice: the footer names the authoring task, and
-/// `send_reply_for_binding` records each reply's id in
-/// `task_outbound_events.external_event_id`, the key the forward below builds.
+/// Own comments are excluded twice: the footer names the Task that made it,
+/// and every outbound path records its id in [`OwnEvents`].
+///
+/// [`OwnEvents`]: moatless_loops::bindings::own_events::OwnEvents
 #[expect(
     clippy::too_many_arguments,
     reason = "the six downward ports this comment router reads (config, routing, \
@@ -62,10 +63,19 @@ pub(super) async fn handle_comment_created(
     // `LinearAdapter::send_reply_for_binding`); recovering that id is how the
     // resolver drops the comment for its own authoring task. The footer is
     // visible, so the body is forwarded unchanged.
-    let author_task_id = moatless_adapter_model::footer::parse_task_id_from_body(
+    let external_event_id = super::external_id::comment(&comment.id);
+    let made_by = match moatless_adapter_model::footer::parse_task_id_from_body(
         &config.auth.frontend_url,
         &comment.body,
-    );
+    ) {
+        Some(task_id) => Some(task_id),
+        None => {
+            routing
+                .own_events()
+                .comment_made_by(ADAPTER_LABEL, &external_event_id)
+                .await?
+        }
+    };
     let forwarded_body = comment.body.as_str();
 
     let audience = comment_audience(comment);
@@ -77,7 +87,7 @@ pub(super) async fn handle_comment_created(
     let recipients = recipients_for_comment(
         &bindings,
         comment.parent_id.as_deref(),
-        author_task_id.as_deref(),
+        made_by.as_deref(),
         parent_author_task_id.as_deref(),
     );
 
@@ -87,7 +97,7 @@ pub(super) async fn handle_comment_created(
             comment_id = %comment.id,
             parent_id = comment.parent_id.as_deref().unwrap_or(""),
             parent_author_task_id = parent_author_task_id.as_deref().unwrap_or(""),
-            author_task_id = author_task_id.as_deref().unwrap_or(""),
+            made_by = made_by.as_deref().unwrap_or(""),
             bound_tasks = bindings.len(),
             "Comment.create resolved to no Linear recipient — ignoring"
         );
@@ -123,7 +133,6 @@ pub(super) async fn handle_comment_created(
             }
         }
 
-        let external_event_id = super::external_id::comment(&comment.id);
         if let Err(e) = message_send
             .accept(InboundTurn {
                 task_id: binding.task_id.clone(),
@@ -166,18 +175,18 @@ pub(super) async fn handle_comment_created(
 
 /// The bound tasks a `Comment.create` is delivered to, scoped by binding shape.
 ///
-/// `author_task_id` is excluded first, so a task never hears back what it
-/// authored; the rest is [`hears_comment`].
+/// `made_by` is excluded first, so a task never hears back what it made; the
+/// rest is [`hears_comment`].
 fn recipients_for_comment<'b>(
     bindings: &'b [TaskBinding],
     comment_parent_id: Option<&str>,
-    author_task_id: Option<&str>,
+    made_by: Option<&str>,
     parent_author_task_id: Option<&str>,
 ) -> Vec<&'b TaskBinding> {
     let mut seen_tasks = std::collections::HashSet::new();
     bindings
         .iter()
-        .filter(|binding| author_task_id != Some(binding.task_id.as_str()))
+        .filter(|binding| made_by != Some(binding.task_id.as_str()))
         .filter(|binding| hears_comment(binding, comment_parent_id, parent_author_task_id))
         .filter(|binding| seen_tasks.insert(binding.task_id.clone()))
         .collect()

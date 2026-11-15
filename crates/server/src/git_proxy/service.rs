@@ -3,8 +3,9 @@
 
 use std::sync::Arc;
 
+use moatless_adapter_github_pr::own_event::{self, Made};
+use moatless_loops::bindings::own_events::OwnEvents;
 use moatless_ports::identity::{CommitIdentity, GitHostTokenError, GitHostTokenIssuer};
-use moatless_ports::task::TranscriptAppend;
 use moatless_sandbox_control::secrets::{resolve_task_actor, resolve_task_git_token};
 use moatless_types::access_control::{Actor, ScopeContext, ScopedResource};
 use moatless_types::git_host::GitHostAccount;
@@ -150,7 +151,7 @@ pub struct GitProxy {
     /// Decides which refs a push may update.
     pub(crate) policy: Arc<GitHubPolicy>,
     /// Where a pushed commit is claimed for its Task; `None` claims nothing.
-    transcript: Option<Arc<dyn TranscriptAppend>>,
+    own_events: Option<Arc<OwnEvents>>,
     pub(crate) http: reqwest::Client,
 }
 
@@ -189,7 +190,7 @@ impl GitProxy {
             users,
             git_host_tokens,
             policy,
-            transcript: None,
+            own_events: None,
             // `FORWARDED_REQUEST_HEADERS` copies git's own `User-Agent` over
             // this default, so it covers only a client that sends none. See
             // `moatless_core::USER_AGENT`.
@@ -197,21 +198,19 @@ impl GitProxy {
         }
     }
 
-    /// Claim pushes through `transcript`; see [`Self::claim_pushed_commits`].
-    pub(crate) fn with_push_claims(mut self, transcript: Arc<dyn TranscriptAppend>) -> Self {
-        self.transcript = Some(transcript);
+    /// Record pushes through `own_events`; see [`Self::claim_pushed_commits`].
+    pub(crate) fn with_own_events(mut self, own_events: Arc<OwnEvents>) -> Self {
+        self.own_events = Some(own_events);
         self
     }
 
-    /// Claim each commit a push moves a GitHub branch to, as the push watcher
-    /// does, so its `synchronize` webhook is not delivered back to the Task.
+    /// Record each commit a push moves a GitHub branch to as the Task's own,
+    /// so its `synchronize` webhook is not delivered back to the Task.
     ///
     /// Called before the push is forwarded: the webhook can beat the response.
-    /// Covers what the watcher misses, such as a single-branch clone, which
-    /// writes no reflog for a branch it never fetched.
     pub(crate) async fn claim_pushed_commits(&self, upstream: &Upstream, shas: &[String]) {
-        let (Some(transcript), Some(task_id), Some((owner, repo))) = (
-            self.transcript.as_ref(),
+        let (Some(own_events), Some(task_id), Some((owner, repo))) = (
+            self.own_events.as_ref(),
             upstream.task_id.as_deref(),
             upstream.path.split_once('/'),
         ) else {
@@ -221,17 +220,12 @@ impl GitProxy {
             return;
         }
         for sha in shas {
-            if let Err(error) = moatless_adapter_github_pr::push_claim::record(
-                transcript.as_ref(),
-                task_id,
-                owner,
-                repo,
-                sha,
-            )
-            .await
-            {
-                warn!(%error, task_id, repository = %upstream.path, sha, "Failed to claim a proxied push");
-            }
+            own_events
+                .record_best_effort(
+                    task_id,
+                    own_event::event(owner, repo, &Made::Push(sha.clone())),
+                )
+                .await;
         }
     }
 
@@ -959,7 +953,7 @@ mod tests {
             ),
             moatless_core::config::HttpConfig::default().git_proxy,
         )
-        .with_push_claims(Arc::new(transcript))
+        .with_own_events(Arc::new(OwnEvents::new(Arc::new(transcript), None)))
     }
 
     #[tokio::test]
@@ -1079,9 +1073,9 @@ mod tests {
         );
     }
 
-    /// A push through the proxy claims each branch commit for the token's Task,
-    /// under the id a `synchronize` webhook looks its author up by; a push
-    /// with no Task, or to another host, claims nothing.
+    /// A push through the proxy records each branch commit as the token's
+    /// Task's own, under the id a `synchronize` webhook looks its maker up by;
+    /// a push with no Task, or to another host, records nothing.
     #[tokio::test]
     async fn a_proxied_github_push_claims_its_commits_for_the_task() {
         let mut transcript = MockTranscriptAppend::new();

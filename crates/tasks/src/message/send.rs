@@ -459,7 +459,7 @@ impl MessageSendService {
                 tracing::debug!(
                     task_id = %task_id,
                     external_event_id = %ext_id,
-                    "Filtered self-echo via recently_sent cache"
+                    "Filtered self-echo via the in-memory own-events window"
                 );
                 return Ok(None);
             }

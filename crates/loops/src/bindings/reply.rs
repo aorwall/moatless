@@ -12,9 +12,9 @@ use crate::bindings::access::ensure_task_access_with;
 use crate::bindings::operations::Bindings;
 use crate::bindings::outbound;
 use crate::bindings::outbound::OutboundSender;
+use crate::bindings::own_events::OwnEvents;
 use crate::bindings::projection::binding_descriptor;
 use crate::bindings::projection::binding_reply_target;
-use crate::bindings::recently_sent::RecentlySent;
 use crate::loops::dao::LoopDao;
 
 use moatless_adapter_model::connections::{AdapterConnections, ConnectionRouting};
@@ -42,7 +42,7 @@ pub struct ExternalReplyService {
     messages: Arc<dyn TranscriptAppend>,
     tasks: Arc<dyn TaskReader>,
     loops: Arc<LoopDao>,
-    recently_sent: Arc<RecentlySent>,
+    own_events: Arc<OwnEvents>,
     task_turns: Arc<dyn TurnCounter>,
     outbound: Arc<OutboundSender>,
     notice_replies: Arc<NoticeReplies>,
@@ -60,7 +60,7 @@ impl ExternalReplyService {
         messages: Arc<dyn TranscriptAppend>,
         tasks: Arc<dyn TaskReader>,
         loops: Arc<LoopDao>,
-        recently_sent: Arc<RecentlySent>,
+        own_events: Arc<OwnEvents>,
         task_turns: Arc<dyn TurnCounter>,
         outbound: Arc<OutboundSender>,
         notice_replies: Arc<NoticeReplies>,
@@ -73,7 +73,7 @@ impl ExternalReplyService {
             messages,
             tasks,
             loops,
-            recently_sent,
+            own_events,
             task_turns,
             outbound,
             notice_replies,
@@ -288,7 +288,7 @@ impl ExternalReplyService {
             .await;
 
         if let Some(ref external_id) = external_id {
-            self.recently_sent.note(&msg.task_id, external_id);
+            self.own_events.note(&msg.task_id, external_id);
             if let Err(e) = self
                 .task_bindings
                 .advance_cursor(&binding.id, external_id)

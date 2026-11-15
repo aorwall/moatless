@@ -237,6 +237,10 @@ impl AdapterInboundPresentation for GithubPrAdapter {
     fn external_id_aliases(&self, external_id: &str) -> Vec<String> {
         super::external_id::aliases(external_id)
     }
+
+    fn names_producer(&self, external_id: &str) -> bool {
+        !super::external_id::is_check_run(external_id)
+    }
 }
 
 #[cfg(test)]

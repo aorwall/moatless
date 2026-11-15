@@ -109,14 +109,6 @@ service BackendSandboxService {
   // Auth via gRPC metadata.
   rpc ReportWorkspaceSync(ReportWorkspaceSyncRequest) returns (ReportWorkspaceSyncResponse);
 
-  // Claim a commit sha this task pushed to a GitHub remote, so the
-  // `pull_request.synchronize` webhook for it is not delivered back to the task
-  // that produced it. A `git push` reaches GitHub directly, so this call is the
-  // only thing that can name the task behind that event. Called by the
-  // sandbox's push watcher as the push completes, which is ahead of the
-  // webhook. Auth via gRPC metadata.
-  rpc RecordGitPush(RecordGitPushRequest) returns (RecordGitPushResponse);
-
   // Mirror the `moat cmd` commands that still owe the agent an outcome, so a
   // replacement pod can name what the restart destroyed. Absolute, like
   // `agent.commands_changed`'s count: the registry dies with its pod, so a
@@ -274,17 +266,6 @@ message ReportWorkspaceSyncRequest {
 }
 
 message ReportWorkspaceSyncResponse {}
-
-message RecordGitPushRequest {
-  string task_id = 1;
-  // Repository owner (org or user) parsed off the pushed remote's URL.
-  string owner = 2;
-  string repo = 3;
-  // Full 40-character commit sha the remote-tracking ref was moved to.
-  string sha = 4;
-}
-
-message RecordGitPushResponse {}
 
 // A chunk of a transcript tar archive. For UploadTranscript the `task_id` is read
 // from the first chunk (later chunks may leave it empty); `data` carries the bytes.

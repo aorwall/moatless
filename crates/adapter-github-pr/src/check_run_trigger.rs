@@ -590,7 +590,7 @@ impl GithubPrInboundRouter {
                 subject_key: &subject_key,
                 new_task_binding_id: Some(&binding_id),
                 bindings: vec![binding],
-                author_task_id: None,
+                made_by: None,
             },
         )
         .await?;

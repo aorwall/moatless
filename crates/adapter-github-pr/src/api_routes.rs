@@ -10,9 +10,8 @@ use moatless_api_schemas::github::{
     GithubExternalEventResponse, GithubReplyRequest,
 };
 use moatless_core::http_auth::AuthUser;
-use moatless_loops::bindings::recently_sent::RecentlySent;
+use moatless_loops::bindings::own_events::OwnEvents;
 use moatless_ports::task::TaskReader;
-use moatless_ports::task::TranscriptAppend;
 use std::sync::Arc;
 
 #[utoipa::path(
@@ -31,16 +30,11 @@ use std::sync::Arc;
         (status = 502, description = "GitHub API error / no usable GitHub token", body = moatless_api_schemas::error::ErrorBody),
     )
 )]
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the authorized mutation receives separate provider, binding, transcript, task, and caller dependencies"
-)]
 pub async fn create_pr(
     State(connector): State<Option<Arc<moatless_loops::loops::firing::listen::Connector>>>,
     State(github_pr_provider): State<Option<Arc<GithubPrAdapter>>>,
     State(tasks): State<Arc<dyn TaskReader>>,
-    State(recently_sent): State<Arc<RecentlySent>>,
-    State(messages): State<Arc<dyn TranscriptAppend>>,
+    State(own_events): State<Arc<OwnEvents>>,
     auth: AuthUser,
     Path((owner, repo)): Path<(String, String)>,
     Json(req): Json<GithubCreatePrRequest>,
@@ -49,8 +43,7 @@ pub async fn create_pr(
         connector,
         github_pr_provider,
         tasks,
-        recently_sent,
-        messages,
+        own_events,
         auth.scope_context(),
         &auth.login,
         (owner, repo),
@@ -77,16 +70,11 @@ pub async fn create_pr(
         (status = 502, description = "GitHub API error / no usable GitHub token", body = moatless_api_schemas::error::ErrorBody),
     )
 )]
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the authorized mutation receives separate provider, binding, transcript, task, and caller dependencies"
-)]
 pub async fn post_comment(
     State(connector): State<Option<Arc<moatless_loops::loops::firing::listen::Connector>>>,
     State(github_pr_provider): State<Option<Arc<GithubPrAdapter>>>,
     State(tasks): State<Arc<dyn TaskReader>>,
-    State(recently_sent): State<Arc<RecentlySent>>,
-    State(messages): State<Arc<dyn TranscriptAppend>>,
+    State(own_events): State<Arc<OwnEvents>>,
     auth: AuthUser,
     Path((owner, repo, number)): Path<(String, String, u64)>,
     Json(req): Json<GithubCommentRequest>,
@@ -95,8 +83,7 @@ pub async fn post_comment(
         connector,
         github_pr_provider,
         tasks,
-        recently_sent,
-        messages,
+        own_events,
         auth.scope_context(),
         (owner, repo, number),
         req,
@@ -123,16 +110,11 @@ pub async fn post_comment(
         (status = 502, description = "GitHub API error / no usable GitHub token", body = moatless_api_schemas::error::ErrorBody),
     )
 )]
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the authorized mutation receives separate provider, binding, transcript, task, and caller dependencies"
-)]
 pub async fn reply_to_review_comment(
     State(connector): State<Option<Arc<moatless_loops::loops::firing::listen::Connector>>>,
     State(github_pr_provider): State<Option<Arc<GithubPrAdapter>>>,
     State(tasks): State<Arc<dyn TaskReader>>,
-    State(recently_sent): State<Arc<RecentlySent>>,
-    State(messages): State<Arc<dyn TranscriptAppend>>,
+    State(own_events): State<Arc<OwnEvents>>,
     auth: AuthUser,
     Path((owner, repo, number, comment_id)): Path<(String, String, u64, u64)>,
     Json(req): Json<GithubReplyRequest>,
@@ -141,8 +123,7 @@ pub async fn reply_to_review_comment(
         connector,
         github_pr_provider,
         tasks,
-        recently_sent,
-        messages,
+        own_events,
         auth.scope_context(),
         (owner, repo, number, comment_id),
         req,
@@ -209,18 +190,11 @@ pub use super::pull_request_lookup::{
 /// being recorded inline.
 pub async fn record_external_event(
     State(tasks): State<Arc<dyn TaskReader>>,
-    State(recently_sent): State<Arc<RecentlySent>>,
-    State(messages): State<Arc<dyn TranscriptAppend>>,
+    State(own_events): State<Arc<OwnEvents>>,
     auth: AuthUser,
     Json(req): Json<GithubExternalEventRequest>,
 ) -> Result<Json<GithubExternalEventResponse>, AdapterError> {
-    super::mutations::record_external_event(
-        tasks,
-        recently_sent,
-        messages,
-        auth.scope_context(),
-        req,
-    )
-    .await
-    .map(Json)
+    super::mutations::record_external_event(tasks, own_events, auth.scope_context(), req)
+        .await
+        .map(Json)
 }
