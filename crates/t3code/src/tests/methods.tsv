@@ -18,10 +18,14 @@ git.resolvePullRequest	orchestration:operate	detached	detached	same
 git.runStackedAction	orchestration:operate	session	session	same
 orchestration.dispatchCommand	orchestration:operate	session	session	own
 orchestration.getArchivedShellSnapshot	orchestration:read	detached	detached	same
+orchestration.getThreadLinkMetadata	orchestration:read	unsupported	detached	-
 orchestration.getThreadProjection	orchestration:read	unsupported	detached	-
+orchestration.getThreadTitles	orchestration:read	unsupported	detached	-
 orchestration.getTurnItem	orchestration:read	unsupported	detached	-
 orchestration.launchThread	orchestration:operate	unsupported	session	-
 orchestration.replayEvents	orchestration:read	session	unsupported	-
+orchestration.searchThread	orchestration:read	unsupported	detached	-
+orchestration.searchThreadStream	orchestration:read	unsupported	stream	-
 orchestration.searchThreads	orchestration:read	detached	detached	same
 orchestration.subscribeArchivedShell	orchestration:read	unsupported	stream	-
 orchestration.subscribeShell	orchestration:read	stream	stream	same

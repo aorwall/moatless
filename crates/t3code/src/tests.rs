@@ -125,6 +125,7 @@ mod sandbox_status;
 mod scripts;
 mod secret_requests;
 mod subscriptions;
+mod thread_reads;
 mod trace_context;
 mod vcs;
 mod workspace_assets;

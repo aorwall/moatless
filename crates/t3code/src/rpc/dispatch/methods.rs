@@ -10,6 +10,7 @@ static METHODS: LazyLock<MethodTable> = LazyLock::new(|| {
         .merge(super::secrets::secret_methods())
         .merge(super::orchestration::orchestration_methods())
         .merge(super::orchestration_v2::orchestration_v2_methods())
+        .merge(super::thread_reads::thread_read_methods())
         .merge(super::streams::stream_methods())
         .merge(super::sandbox::sandbox_methods())
         .merge(super::projects::project_methods())

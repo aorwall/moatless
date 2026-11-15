@@ -167,6 +167,16 @@ pub trait ConversationDao: Send + Sync {
     /// keep in step with the first.
     async fn transcript(&self, task_id: &str) -> Result<Transcript, sqlx::Error>;
 
+    /// The oldest `limit` top-level Messages after the one whose `id` is
+    /// `after` (from the first for `None`), oldest first, with no activities.
+    /// Unscoped for the reason [`ConversationDao::transcript`] is.
+    async fn messages_after(
+        &self,
+        task_id: &str,
+        after: Option<i32>,
+        limit: i64,
+    ) -> Result<Vec<TranscriptEntry>, sqlx::Error>;
+
     /// The names of the Tasks a transcript's Messages came from, by task id.
     ///
     /// Scoped, unlike [`ConversationDao::transcript`]: these are *other* Tasks
@@ -415,6 +425,15 @@ impl ConversationDao for PgConversationDao {
     async fn transcript(&self, task_id: &str) -> Result<Transcript, sqlx::Error> {
         let window = self.transcripts.read(task_id).await?;
         crate::transcript::resolve(&self.pool, &*self.activities, task_id, window).await
+    }
+
+    async fn messages_after(
+        &self,
+        task_id: &str,
+        after: Option<i32>,
+        limit: i64,
+    ) -> Result<Vec<TranscriptEntry>, sqlx::Error> {
+        self.transcripts.messages_after(task_id, after, limit).await
     }
 
     async fn source_task_names(

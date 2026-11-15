@@ -4386,6 +4386,7 @@ dependencies = [
  "mockall",
  "opentelemetry",
  "opentelemetry_sdk",
+ "pulldown-cmark",
  "rand 0.10.1",
  "reqwest",
  "sandbox-proto",

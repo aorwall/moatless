@@ -16,6 +16,8 @@ jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
 metrics = { workspace = true }
 # The T3 socket accepts a W3C traceparent per request and links each RPC span to
 # it, so the client's trace and this backend's are one trace in Tempo.
+# Find in thread counts a message's rendered text, not its Markdown source.
+pulldown-cmark = { version = "0.13", default-features = false }
 opentelemetry = { version = "0.33", default-features = false, features = ["trace"] }
 rand = { workspace = true }
 # Forwards the T3 client's own OTLP/JSON span batches to a collector — see

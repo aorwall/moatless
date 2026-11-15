@@ -687,6 +687,14 @@ of its own.
 | Stop on T3's background-work row leaves `moat cmd` commands running | T3 sends `thread.turn.interrupt` from that row only while no turn runs; `crates/server/src/t3code/backend/commands.rs::interrupt` answers with `task_service::stop_agent`, which stops a turn and never reaches the sandbox's `CommandRegistry::kill`. The projected commands come from `crates/t3code/src/projection/v2_lifecycle.rs::pending_background_tasks` | When someone uses Stop on that row expecting a command to die, or a stuck `moat cmd` needs killing from the UI. Kill the Task's running commands when an interrupt finds no open turn |
 | A background command shows no elapsed time | T3's `backgroundWorkNowItem` (`soaplabs/t3code` `ThreadActivityBanners.tsx`) reads a start time only from a matching turn item, and `pending_background_tasks` names none; the label comes from `sandbox_unreported_commands`, which also holds `startedAtUnixMs` | When people ask how long a waiting command has run. Needs a start time on the pending task in the T3 contract, or a turn item per `moat cmd` |
 
+## Find in thread and workflow scripts in T3
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| `orchestration.getWorkflowScript` is refused | `crates/t3code/src/rpc/dispatch/thread_reads.rs` registers the other thread reads but not this one; the `soaplabs/t3code` contract keeps `UnsupportedMethodError` in its error union. No web or mobile client calls it, Moatless never sets `workflowScript` on a message, and the script lives in the Sandbox, which may be stopped | When a T3 client calls `getWorkflowScript`. Serve it from the Sandbox file the tool call names, failing with the contract's error when the Sandbox is gone |
+| Find counts a few rows differently from what the client renders | `crates/t3code/src/projection/find.rs::searchable_segments` searches a `$skill` token as written rather than its chip's display name (the input's `skills` is not read), counts a file link by its Markdown text rather than its shortened label, and searches neither proposed plans nor steered Messages still pending | When someone reports find stepping to the wrong highlight or skipping a match. Render the same labels server-side, or have the client clamp to the occurrences it highlights |
+| A V1 connection sees `threadFind`, `threadFindProgressive` and `threadLinkMetadata` | `crates/t3code/src/rpc/config.rs::server_config` sets them from the deployment's `serves_orchestration_v2`, while the methods are registered V2-only | When a deployment serves V1 and V2 clients together and a V1 client calls one of these methods |
+
 ## Inbound message buffer ordering
 
 | Deferred | Anchor | Entry condition |

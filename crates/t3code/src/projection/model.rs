@@ -1,6 +1,6 @@
 //! Which model and agent a conversation reports running.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, Mutex, PoisonError};
 
 use serde_json::{Value, json};
@@ -12,6 +12,8 @@ use crate::AgentModelDefaults;
 use crate::agent::catalog;
 use crate::dao::Conversation;
 use crate::providers;
+use crate::transcript::Transcript;
+use moatless_types::agent::Harness;
 use moatless_workspaces::workspace::models::Workspace;
 
 /// The last resort of the model chain, and the only invented value in the row.
@@ -123,6 +125,59 @@ pub(super) fn provider_instance(conversation: &Conversation) -> &'static str {
         .agent_profile
         .harness()
         .map_or(UNKNOWN_INSTANCE, providers::instance_for)
+}
+
+/// Each turn's `ModelSelection`, by turn number: the harness and model of its
+/// newest agent Message, and the effort its user Message asked for.
+///
+/// No effort asked keeps the previous turn's on the same instance,
+/// deliberately: most senders never name one, and each would read as a switch.
+pub(super) fn turn_model_selections(transcript: &Transcript) -> HashMap<i32, Value> {
+    let mut ran: HashMap<i32, (&'static str, &str)> = HashMap::new();
+    let mut asked: HashMap<i32, &str> = HashMap::new();
+    for message in &transcript.messages {
+        let Some(turn) = message.turn_number else {
+            continue;
+        };
+        if let (Some(harness), Some(model)) = (
+            message.harness.as_deref().and_then(Harness::parse),
+            message
+                .model
+                .as_deref()
+                .filter(|model| !model.trim().is_empty()),
+        ) {
+            ran.insert(turn, (providers::instance_for(harness), model));
+        }
+        if let Some(effort) = message
+            .effort
+            .as_deref()
+            .map(str::trim)
+            .filter(|e| !e.is_empty())
+        {
+            asked.entry(turn).or_insert(effort);
+        }
+    }
+    let mut turns: Vec<i32> = ran.keys().copied().collect();
+    turns.sort_unstable();
+    let mut previous: Option<(&str, Option<&str>)> = None;
+    let mut selections = HashMap::new();
+    for turn in turns {
+        let (instance, model) = ran[&turn];
+        let inherited = previous
+            .filter(|(previous_instance, _)| *previous_instance == instance)
+            .and_then(|(_, effort)| effort);
+        let effort = asked.get(&turn).copied().or(inherited);
+        let mut selection = json!({ "instanceId": instance, "model": model });
+        if let Some(effort) = effort {
+            selection["options"] = json!([{
+                "id": providers::effort_option_id(instance),
+                "value": effort,
+            }]);
+        }
+        selections.insert(turn, selection);
+        previous = Some((instance, effort));
+    }
+    selections
 }
 
 /// The Workspace's default model, in the `ModelSelection` shape T3 sends back.

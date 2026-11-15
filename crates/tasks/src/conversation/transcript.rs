@@ -83,6 +83,13 @@ pub struct TranscriptEntry {
     /// `completed` or `errored` on the notice a child Task's run ending sent
     /// this, its parent; `None` on every other Message.
     pub child_outcome: Option<String>,
+    /// The harness that wrote an agent Message; `None` on every other row.
+    pub harness: Option<String>,
+    /// The model an agent Message says produced it; `None` on every other row.
+    pub model: Option<String>,
+    /// The reasoning effort a user Message asked for, in the agent's own
+    /// vocabulary. `None` where the sender expressed no preference.
+    pub effort: Option<String>,
 }
 
 /// The rows one transcript read returns.
@@ -277,6 +284,18 @@ impl TranscriptReads {
             turns,
             ..TranscriptWindow::default()
         })
+    }
+
+    /// The oldest `limit` top-level Messages after the one at `after` (from
+    /// the first for `None`), without activities or turns. A reader pages a
+    /// whole conversation with it by passing the last entry's `id` back.
+    pub async fn messages_after(
+        &self,
+        task_id: &str,
+        after: Option<i32>,
+        limit: i64,
+    ) -> Result<Vec<TranscriptEntry>, sqlx::Error> {
+        transcript_dao::after_position(&self.pool, task_id, after, limit).await
     }
 
     /// The interactive calls the resolved rows in `found` answer, where the

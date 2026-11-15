@@ -286,6 +286,9 @@ pub fn providers(
             // refused in `commands::dispatch` rather than turned off here: this
             // flag is per provider and would take both with it.
             "supportsConversationRollback": true,
+            // The client reserves the meter's space only where this is true;
+            // mini-swe-agent's harness sends no `context-window.updated`.
+            "reportsContextWindow": instance != MINI_SWE_INSTANCE,
             "availability": "available",
             "models": models,
             "slashCommands": [],

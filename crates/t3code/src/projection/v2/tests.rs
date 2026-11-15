@@ -97,6 +97,9 @@ fn message(
             file_contexts: None,
             child_outcome: None,
             sent_by: None,
+            harness: None,
+            model: None,
+            effort: None,
         },
         binding_url: None,
         binding_label: None,
@@ -1517,6 +1520,7 @@ fn a_shell_reports_what_its_activity_run_is_doing() {
 }
 
 mod lifecycle;
+mod model_switch;
 
 fn secret_requested(activity_id: &str, request_id: &str) -> Activity {
     let mut row = activity(

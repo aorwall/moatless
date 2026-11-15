@@ -906,6 +906,31 @@ fn state_over(
     workspaces
         .expect_list_readable_including()
         .returning(|_, _| Ok(Vec::new()));
+    state_from(attachments, conversations, workspaces)
+}
+
+/// A V2 deployment reading only from `conversations` and `workspaces`, which
+/// carry every expectation a case needs and no stub's.
+pub(super) fn state_reading(
+    conversations: MockConversationDao,
+    workspaces: MockWorkspaceListing,
+) -> UiRpcState {
+    let mut state = state_from(
+        Arc::new(RecordingAttachments::default()),
+        conversations,
+        workspaces,
+    );
+    let mut rpc = (*state.rpc).clone();
+    rpc.orchestration_protocol_version = 2;
+    state.rpc = Arc::new(rpc);
+    state
+}
+
+fn state_from(
+    attachments: Arc<dyn ports::AttachmentStore>,
+    conversations: MockConversationDao,
+    workspaces: MockWorkspaceListing,
+) -> UiRpcState {
     let conversations: Arc<dyn ConversationDao> = Arc::new(conversations);
     UiRpcState {
         rpc: Arc::new(UiRpcConfig {

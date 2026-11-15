@@ -274,6 +274,13 @@ pub(crate) async fn server_config(
         "shellResumeCompletionMarker": true,
         "threadResumeCompletionMarker": true
     });
+    // `optionalKey`, and only V2 answers the methods behind them
+    // (`thread_reads`), so a V1 deployment leaves them out.
+    if state.rpc.serves_orchestration_v2() {
+        config["threadFind"] = json!(true);
+        config["threadFindProgressive"] = json!(true);
+        config["threadLinkMetadata"] = json!(true);
+    }
     // `optionalKey`: absent, the client offers no way to start a thread
     // without a project.
     if let Some(workspace_id) = scratch::scratch_workspace(

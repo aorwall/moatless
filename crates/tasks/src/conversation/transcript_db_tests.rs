@@ -138,3 +138,54 @@ async fn a_rewritten_output_is_read_again_rather_than_served_from_the_cache(pool
         (json!("b.rs"), json!("b.rs"))
     );
 }
+
+/// Three agent Messages, read two at a time from the first by passing the
+/// last `id` back, each naming its harness and model.
+#[sqlx::test]
+async fn messages_after_pages_a_conversation_oldest_first(pool: PgPool) {
+    settled_call(&pool, "a.rs").await;
+    let reply = |item: &str, words: &str| NewEvent {
+        kind: "line".into(),
+        harness_item_id: Some(item.into()),
+        harness_turn_id: None,
+        payload: "{}".into(),
+        content: json!({ "role": "assistant", "model": "claude-opus-4-5",
+                         "blocks": [{ "type": "text", "text": words }] }),
+    };
+    let lines = [
+        reply("msg_2", "one"),
+        reply("msg_3", "two"),
+        reply("msg_4", "three"),
+    ];
+    PgTrajectoryDao(pool.clone())
+        .append(AppendRequest {
+            task_id: TASK,
+            harness: Harness::ClaudeCode,
+            harness_session_id: "s",
+            first_seq: 2,
+            lines: &lines,
+            turn_number: Some(1),
+            subagent_parent: None,
+            own_from_seq: None,
+        })
+        .await
+        .unwrap();
+    let reads = TranscriptReads::new(pool.clone());
+    let texts = |page: &[super::transcript::TranscriptEntry]| -> Vec<String> {
+        page.iter()
+            .filter_map(|entry| entry.message_text.clone())
+            .collect()
+    };
+
+    let first = reads.messages_after(TASK, None, 2).await.unwrap();
+    let after = first.last().map(|entry| entry.id);
+    let rest = reads.messages_after(TASK, after, 2).await.unwrap();
+
+    let mut all = texts(&first);
+    all.extend(texts(&rest));
+    assert_eq!(all, ["one", "two", "three"]);
+    assert_eq!(first.len() + rest.len(), 3);
+    let reply = &first[0];
+    assert_eq!(reply.model.as_deref(), Some("claude-opus-4-5"));
+    assert!(reply.harness.is_some());
+}

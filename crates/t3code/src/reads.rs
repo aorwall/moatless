@@ -86,6 +86,7 @@ mod refusal {
     use async_trait::async_trait;
     use moatless_core::change_feed::conversation::{ConversationChange, ConversationHead};
     use moatless_core::change_feed::listing::ListingChange;
+    use moatless_tasks::conversation::transcript::TranscriptEntry;
     use moatless_types::access_control::ScopeContext;
     use std::collections::HashMap;
 
@@ -224,6 +225,15 @@ mod refusal {
 
         async fn transcript(&self, task_id: &str) -> Result<Transcript, sqlx::Error> {
             self.0.transcript(task_id).await
+        }
+
+        async fn messages_after(
+            &self,
+            task_id: &str,
+            after: Option<i32>,
+            limit: i64,
+        ) -> Result<Vec<TranscriptEntry>, sqlx::Error> {
+            self.0.messages_after(task_id, after, limit).await
         }
 
         async fn source_task_names(

@@ -48,7 +48,10 @@ macro_rules! transcript_rows {
                   END AS source_task_id,
                   COALESCE(i.sent_by, m.legacy ->> 'sent_by') AS sent_by,
                   i.delivery_options -> 'contexts' AS contexts,
-                  i.delivery_options ->> 'childOutcome' AS child_outcome
+                  i.delivery_options ->> 'childOutcome' AS child_outcome,
+                  m.harness,
+                  COALESCE(m.model, m.legacy ->> 'assistant_message_model') AS model,
+                  COALESCE(i.delivery_options ->> 'effort', m.legacy ->> 'effort') AS effort
              FROM conversation_messages m
              LEFT JOIN task_inbox i ON i.id = m.inbox_id
             WHERE m.task_id = $1 AND m.parent_tool_use_id IS NULL
@@ -69,7 +72,8 @@ const TRANSCRIPT_COLUMNS: &str = r#"m.id, m.uuid, m.message_type, m.message_role
                       m.created_at, m.external_adapter, m.external_source_name,
                       m.external_subject_key, m.external_event_id,
                       m.external_author, m.source_task_id, m.sent_by,
-                      files.file_contexts, m.child_outcome"#;
+                      files.file_contexts, m.child_outcome,
+                      m.harness, m.model, m.effort"#;
 
 /// The uploads a Message carries, from its inbox item's `file` contexts.
 const TRANSCRIPT_FILES_JOIN: &str = r#"LEFT JOIN LATERAL (
@@ -189,6 +193,32 @@ pub(super) async fn by_uuids(
     sqlx::query_as::<_, TranscriptEntry>(AssertSqlSafe(sql))
         .bind(task_id)
         .bind(uuids)
+        .fetch_all(pool)
+        .await
+}
+
+/// The oldest `limit` top-level Messages positioned after `after` (from the
+/// first for `None`), oldest first.
+pub(super) async fn after_position(
+    pool: &DbPool,
+    task_id: &str,
+    after: Option<i32>,
+    limit: i64,
+) -> Result<Vec<TranscriptEntry>, sqlx::Error> {
+    // The cap inside, like `newest`: `position`'s unique index makes it a
+    // bounded scan rather than a read of the whole conversation.
+    let sql = format!(
+        r#"SELECT {TRANSCRIPT_COLUMNS}
+           FROM ({} AND m.position > COALESCE($2, -1)
+                 ORDER BY m.position LIMIT $3) m
+           {TRANSCRIPT_FILES_JOIN}
+           ORDER BY m.position"#,
+        transcript_rows!(),
+    );
+    sqlx::query_as::<_, TranscriptEntry>(AssertSqlSafe(sql))
+        .bind(task_id)
+        .bind(after)
+        .bind(limit)
         .fetch_all(pool)
         .await
 }

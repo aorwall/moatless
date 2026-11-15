@@ -14,6 +14,7 @@ use serde_json::{Map, Value, json};
 
 use super::model::model_selection;
 use super::model::provider_instance;
+use super::model::turn_model_selections;
 use super::origin::OriginContext;
 use super::project::project;
 use super::scalar::created_at;
@@ -898,6 +899,8 @@ pub(crate) fn turn_items_and_messages(
     let mut timeline: Vec<(TimelineKey, Value)> = Vec::new();
     let mut messages = Vec::new();
     let steered = steered_run_id(conversation, transcript);
+    let selections = turn_model_selections(transcript);
+    let mut shown_selection: Option<&Value> = None;
 
     for (index, message) in transcript.messages.iter().enumerate() {
         let pending = is_pending(message);
@@ -941,7 +944,7 @@ pub(crate) fn turn_items_and_messages(
             "updatedAt": at
         });
         let notice = notification(message, &text);
-        let item = match (&notice, role.as_str()) {
+        let mut item = match (&notice, role.as_str()) {
             (Some(notice), _) => layered(
                 layered(base, json!({ "type": "notification" })),
                 notice.clone(),
@@ -971,6 +974,15 @@ pub(crate) fn turn_items_and_messages(
             ),
             _ => layered(base, json!({ "type": "system_notice", "message": text })),
         };
+        if item["type"] == "user_message" {
+            let selection = message.turn_number.and_then(|turn| selections.get(&turn));
+            if let (Some(from), Some(to)) = (shown_selection, selection) {
+                if from != to {
+                    item["modelSwitch"] = json!({ "from": from, "to": to });
+                }
+            }
+            shown_selection = selection.or(shown_selection);
+        }
         if !queued {
             timeline.push(((at.clone(), 1, index), item));
         }
