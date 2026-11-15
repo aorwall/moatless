@@ -50,6 +50,9 @@ For a new adapter, follow [wiring](references/new-adapter-wiring.md).
 - Several buffered events reach the Task as one turn carrying one
   `external_event_id`, the newest. An adapter whose replies must reach a
   specific event renders that event's own id into each part's body.
+- Name each event's kind in `InboundMessage::event`, marking whether it arrives
+  in bursts. An unnamed event takes its Adapter kind's whole buffer window, so a
+  one-off notice left unnamed waits out a window no burst will fill.
 - A system scope bypass needs a local lint allowance with the reason required by
   the owning crate's AGENTS.md.
 

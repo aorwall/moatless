@@ -570,6 +570,7 @@ pub(super) async fn normalize(
             // task bound to the channel or thread, as it always has.
             audience: Audience::Everyone,
             replies_to: Vec::new(),
+            event: None,
         }),
         effects,
     })

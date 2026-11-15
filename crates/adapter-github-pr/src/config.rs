@@ -1,5 +1,6 @@
 //! Typed view of GitHub PR subscription-loop fields used by the webhook parser.
 
+use moatless_types::adapter::InboundEvent;
 use moatless_types::loops::SubscriptionMatch;
 
 /// Senders ignored by default when `adapter_config.ignored_senders` is not set.
@@ -55,6 +56,24 @@ pub(super) const KNOWN_EVENTS: &[&str] = &[
     CHECK_RUN_TRIGGER,
     REVIEW_VERDICT,
 ];
+
+/// The [`KNOWN_EVENTS`] name `name` as an inbound event kind.
+///
+/// Only comments and reviews arrive in bursts: one review posts a webhook per
+/// comment within seconds. Every other event is one notice, held only to join
+/// a burst already waiting on its Binding.
+pub(super) fn inbound_event(name: &str) -> InboundEvent {
+    InboundEvent {
+        name: name.to_string(),
+        arrives_in_bursts: matches!(
+            name,
+            "issue_comment"
+                | "pull_request_review_comment"
+                | "pull_request_review"
+                | REVIEW_VERDICT
+        ),
+    }
+}
 
 /// One `adapter_config.ignored_senders` entry: either a bare login, or
 /// `{login, events}` naming the [`KNOWN_EVENTS`] it drops from that sender.
@@ -425,6 +444,31 @@ mod tests {
     use chrono::Utc;
     use moatless_types::access_control::Scope;
     use moatless_types::adapter::AdapterKind;
+
+    /// Comments and reviews are held for a burst; a notice such as a passed
+    /// post-merge run is not.
+    #[test]
+    fn only_comments_and_reviews_arrive_in_bursts() {
+        for name in [
+            "issue_comment",
+            "pull_request_review_comment",
+            "pull_request_review",
+            REVIEW_VERDICT,
+        ] {
+            assert!(inbound_event(name).arrives_in_bursts, "{name}");
+        }
+        for name in [
+            "pull_request",
+            "check_run",
+            "check_suite",
+            MERGE_CONFLICT,
+            POST_MERGE,
+            PR_MERGED,
+            CHECK_RUN_TRIGGER,
+        ] {
+            assert!(!inbound_event(name).arrives_in_bursts, "{name}");
+        }
+    }
 
     fn rule_with(
         events_filter: serde_json::Value,

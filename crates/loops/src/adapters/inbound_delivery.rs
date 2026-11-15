@@ -154,6 +154,7 @@ mod tests {
                 source_task_id: None,
                 audience: Audience::Everyone,
                 replies_to: Vec::new(),
+                event: None,
             },
         }
     }

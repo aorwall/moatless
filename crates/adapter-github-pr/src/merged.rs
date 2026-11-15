@@ -204,6 +204,7 @@ impl GithubPrInboundRouter {
             source_task_id: None,
             audience: Audience::Everyone,
             replies_to: Vec::new(),
+            event: Some(super::config::inbound_event(super::config::PR_MERGED)),
         };
 
         info!(

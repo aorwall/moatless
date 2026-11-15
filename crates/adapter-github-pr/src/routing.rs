@@ -786,6 +786,7 @@ impl GithubPrInboundRouter {
             source_task_id: None,
             audience: Audience::Everyone,
             replies_to: Vec::new(),
+            event: Some(super::config::inbound_event("pull_request")),
         }
     }
 
@@ -952,6 +953,7 @@ pub(crate) mod tests {
             source_task_id: Some("t_1".into()),
             audience: Audience::Everyone,
             replies_to: Vec::new(),
+            event: None,
         }
     }
 

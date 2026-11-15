@@ -105,6 +105,7 @@ pub(crate) fn parse_inbound(
             // goes to every task bound to the source, as it always has.
             audience: Audience::Everyone,
             replies_to: Vec::new(),
+            event: None,
         },
     })
 }

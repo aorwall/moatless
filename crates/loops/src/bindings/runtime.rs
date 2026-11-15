@@ -852,10 +852,10 @@ impl RoutingService {
 
     /// Hold this event for its Binding's window, or deliver it on its own.
     ///
-    /// The seam every Adapter's inbound events pass through, so buffering is
-    /// configured here rather than per provider. A brand-new Task is never
-    /// buffered: it is created with no first turn, so holding its only event
-    /// would leave a fresh sandbox idle for the length of the window.
+    /// The seam every Adapter's inbound events pass through. A brand-new Task
+    /// is never buffered: it has no first turn, so holding its only event would
+    /// idle a fresh sandbox for the window. An event with no window of its own
+    /// joins one already open on the Binding.
     async fn deliver_to_binding(
         &self,
         subscription: &SubscriptionMatch,
@@ -864,8 +864,21 @@ impl RoutingService {
         adapter_label: &str,
         is_new_task: bool,
     ) -> Result<(), AdapterError> {
-        let window = buffer_window(subscription, msg.adapter_kind, &self.buffer_defaults);
+        let window = buffer_window(
+            subscription,
+            msg.adapter_kind,
+            msg.event.as_ref(),
+            &self.buffer_defaults,
+        );
         if window.is_zero() || is_new_task {
+            if !is_new_task
+                && self
+                    .message_buffer
+                    .join_open_window(&binding.id, &subscription.id, adapter_label, msg)
+                    .await?
+            {
+                return Ok(());
+            }
             return self
                 .deliver_now(
                     subscription,
@@ -878,8 +891,8 @@ impl RoutingService {
                 .await;
         }
 
-        // Always a Loop id: `buffer_window` gives a delivery-only Subscription
-        // no window, and its id resolves to no row a flush could read back.
+        // A delivery-only id resolves to no Loop; `flush_route` derives its
+        // Subscription from the Binding's connection again.
         self.message_buffer
             .push(&binding.id, &subscription.id, adapter_label, msg, window)
             .await?;

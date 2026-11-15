@@ -269,6 +269,7 @@ mod tests {
             source_task_id: None,
             audience: moatless_types::adapter::Audience::Everyone,
             replies_to: vec![],
+            event: None,
         };
         create_task_for_external_message(&opener, &loop_running_as("bot"), &msg, None, None, None)
             .await

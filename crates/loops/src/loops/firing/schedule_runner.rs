@@ -197,6 +197,7 @@ impl ScheduleRunner {
             source_task_id: None,
             audience: Audience::Everyone,
             replies_to: Vec::new(),
+            event: None,
         };
 
         let mut is_new_task = false;
@@ -433,6 +434,7 @@ mod tests {
             source_task_id: None,
             audience: Audience::Everyone,
             replies_to: Vec::new(),
+            event: None,
         }
     }
 

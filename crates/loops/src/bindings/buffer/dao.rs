@@ -125,6 +125,34 @@ impl MessageBufferStore {
         Ok(())
     }
 
+    /// Hold `message` in the window already open on `binding_id`, keeping its
+    /// deadline; `false`, writing nothing, when none is open. An event that is
+    /// not held on its own still lands after, and with, the burst ahead of it.
+    pub(crate) async fn join_open_window(
+        &self,
+        binding_id: &str,
+        loop_id: &str,
+        adapter_label: &str,
+        message: &InboundMessage,
+    ) -> Result<bool, sqlx::Error> {
+        let joined = sqlx::query(
+            r#"INSERT INTO inbound_message_buffer
+                   (id, binding_id, loop_id, adapter_label, message, flush_at)
+               SELECT $1, $2, $3, $4, $5, MIN(flush_at)
+               FROM inbound_message_buffer
+               WHERE binding_id = $2 AND claimed_at IS NULL
+               HAVING COUNT(*) > 0"#,
+        )
+        .bind(format!("imb_{}", uuid::Uuid::new_v4()))
+        .bind(binding_id)
+        .bind(loop_id)
+        .bind(adapter_label)
+        .bind(sqlx::types::Json(message))
+        .execute(&self.pool)
+        .await?;
+        Ok(joined.rows_affected() > 0)
+    }
+
     /// Claim the buffered events of up to `bindings` due bindings, counting the
     /// attempt.
     ///
@@ -341,6 +369,7 @@ mod tests {
             source_task_id: None,
             audience: Audience::Everyone,
             replies_to: Vec::new(),
+            event: None,
         }
     }
 

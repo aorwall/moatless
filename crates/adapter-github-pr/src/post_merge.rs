@@ -310,6 +310,7 @@ impl GithubPrInboundRouter {
             source_task_id: None,
             audience: Audience::SubjectProducer,
             replies_to: Vec::new(),
+            event: Some(super::config::inbound_event(super::config::POST_MERGE)),
         };
 
         info!(subject_key, "Delivering post-merge CI notification");

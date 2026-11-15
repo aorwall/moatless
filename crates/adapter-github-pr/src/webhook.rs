@@ -216,7 +216,7 @@ pub(super) async fn normalize(
     let trigger = (!sender_ignored)
         .then(|| super::check_run_trigger::normalize(event_type, payload, context, &config))
         .flatten();
-    let primary = if let Some(request) = trigger {
+    let mut primary = if let Some(request) = trigger {
         Ok(request)
     } else if is_pr_close(event_type, payload)
         && (sender_ignored || config.event_filtered_out(event_type))
@@ -239,6 +239,12 @@ pub(super) async fn normalize(
             _ => Ok(PrimaryWebhook::Ignore(IgnoredWebhook::UnsupportedEvent)),
         }
     };
+    let event = super::config::inbound_event(filter_event(event_type, payload));
+    match &mut primary {
+        Ok(PrimaryWebhook::Message(message)) => message.event = Some(event),
+        Ok(PrimaryWebhook::CheckRun(execution)) => execution.message.event = Some(event),
+        _ => {}
+    }
 
     NormalizedWebhook {
         status_observations,
@@ -898,6 +904,7 @@ async fn inbound_message(
         source_task_id: None,
         audience,
         replies_to: Vec::new(),
+        event: None,
     }
 }
 

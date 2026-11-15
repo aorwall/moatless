@@ -160,6 +160,7 @@ impl GithubPrInboundRouter {
             source_task_id: None,
             audience: Audience::SubjectProducer,
             replies_to: Vec::new(),
+            event: Some(super::config::inbound_event(super::config::MERGE_CONFLICT)),
         };
 
         if !self.record_state(&subject_key, mergeable, pr_is_open).await {

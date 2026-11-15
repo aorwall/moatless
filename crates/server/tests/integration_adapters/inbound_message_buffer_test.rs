@@ -176,14 +176,33 @@ async fn seed_bound_thread(state: &AppState, pool: &PgPool, window: i32) {
 /// Routing is what decides to buffer, so nothing below has happened until this
 /// returns.
 async fn route(state: &AppState, pool: &PgPool, events: &[(&str, &str)]) {
-    for (external_event_id, text) in events {
+    let payloads: Vec<_> = events
+        .iter()
+        .map(|(id, text)| (*id, event(id, text)))
+        .collect();
+    route_payloads(state, pool, &payloads).await;
+}
+
+/// An event of a kind that is one notice, not part of a burst.
+fn single_event(external_event_id: &str, text: &str) -> serde_json::Value {
+    let mut payload = event(external_event_id, text);
+    payload["message"]["event"] = serde_json::json!({
+        "name": "post_merge",
+        "arrives_in_bursts": false,
+    });
+    payload
+}
+
+/// [`route`], for payloads built by hand.
+async fn route_payloads(state: &AppState, pool: &PgPool, events: &[(&str, serde_json::Value)]) {
+    for (external_event_id, payload) in events {
         state
             .adapter_delivery
             .admit(AdapterDeliveryRequest {
                 adapter: "slack",
                 kind: KIND,
                 event_id: (*external_event_id).to_string(),
-                payload: event(external_event_id, text),
+                payload: payload.clone(),
             })
             .await
             .expect("admit the event");
@@ -342,6 +361,66 @@ async fn a_loop_with_the_window_at_zero_delivers_each_event_on_its_own(pool: PgP
             .iter()
             .all(|text| !text.contains("--- message 1 of")),
         "a lone event renders as it did before buffering existed: {messages:?}"
+    );
+}
+
+/// A notice that is not part of a burst is not held for the Loop's window.
+#[sqlx::test]
+async fn an_event_that_does_not_arrive_in_bursts_is_delivered_at_once(pool: PgPool) {
+    let state = test_app_state_with_adapters(pool.clone(), test_config());
+    seed_bound_thread(&state, &pool, 60).await;
+
+    route_payloads(
+        &state,
+        &pool,
+        &[(
+            "slack:ts:1700000000.000101",
+            single_event("slack:ts:1700000000.000101", "post-merge passed"),
+        )],
+    )
+    .await;
+
+    assert_eq!(buffered(&pool).await, 0, "nothing was held");
+    assert_eq!(delivered_messages(&pool).await, ["post-merge passed"]);
+}
+
+/// The same notice behind a held burst joins it, so it neither overtakes the
+/// burst nor opens a turn of its own.
+#[sqlx::test]
+async fn an_event_that_does_not_arrive_in_bursts_joins_the_window_open_on_its_binding(
+    pool: PgPool,
+) {
+    let state = test_app_state_with_adapters(pool.clone(), test_config());
+    seed_bound_thread(&state, &pool, 60).await;
+
+    route_payloads(
+        &state,
+        &pool,
+        &[
+            (
+                "slack:ts:1700000000.000101",
+                event("slack:ts:1700000000.000101", "approved"),
+            ),
+            (
+                "slack:ts:1700000000.000102",
+                single_event("slack:ts:1700000000.000102", "merged"),
+            ),
+        ],
+    )
+    .await;
+
+    assert_eq!(buffered(&pool).await, 2, "the notice joined the window");
+    assert!(delivered_messages(&pool).await.is_empty());
+
+    flush_windows(&state, &pool).await;
+
+    let messages = delivered_messages(&pool).await;
+    assert_eq!(messages.len(), 1, "one turn, got {messages:?}");
+    let combined = &messages[0];
+    let at = |part: &str| combined.find(part).expect("both parts are in the turn");
+    assert!(
+        at("approved") < at("merged"),
+        "the burst comes first: {combined}"
     );
 }
 

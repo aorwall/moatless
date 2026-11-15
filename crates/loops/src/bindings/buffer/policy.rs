@@ -1,15 +1,13 @@
 //! How long an Adapter's inbound events are held before they are combined.
 //!
-//! The window is the longest a burst is held. Three authorities, narrowest
-//! first: the Loop's own `loop_configs.message_buffer_seconds`, the
-//! deployment's [`MessageBufferConfig`](moatless_types::adapter::MessageBufferConfig),
-//! then the built-in default per [`AdapterKind`]. All three belong to a Loop,
-//! so a subject routed without one is not buffered at all. [`buffer_window`]
-//! owns which Adapter the latter two are keyed on.
+//! The window is the longest a burst is held. [`buffer_window`] owns the order
+//! of the authorities that set it, from a per-event deployment window down to
+//! the built-in default per [`AdapterKind`].
 
 use std::time::Duration;
 
 use moatless_types::adapter::AdapterKind;
+use moatless_types::adapter::InboundEvent;
 use moatless_types::adapter::MessageBufferConfig;
 use moatless_types::loops::SubscriptionMatch;
 
@@ -34,21 +32,32 @@ fn builtin_window(adapter: AdapterKind) -> Duration {
     }
 }
 
-/// The window an event on `event_kind` waits out under `subscription`.
+/// The window an `event` on `event_kind` waits out under `subscription`.
 ///
 /// `event_kind` is the event's own Adapter, deliberately not
 /// `subscription.adapter_kind`, which holds the connection's kind: a GitHub PR
 /// Loop reads `github` there and never reaches the `github_pr` default. A
-/// delivery-only Subscription has no Loop and so no window: never buffered.
+/// delivery-only Subscription has no Loop window, so the deployment's applies.
 pub(crate) fn buffer_window(
     subscription: &SubscriptionMatch,
     event_kind: AdapterKind,
+    event: Option<&InboundEvent>,
     deployment: &MessageBufferConfig,
 ) -> Duration {
-    if subscription.is_delivery_only() {
-        return Duration::ZERO;
+    if let Some(event) = event {
+        let key = format!("{}_{}", event_kind.as_str(), event.name).to_uppercase();
+        if let Some(seconds) = deployment.per_kind_seconds.get(&key) {
+            return clamp(*seconds);
+        }
+        if !event.arrives_in_bursts {
+            return Duration::ZERO;
+        }
     }
     configured_window(subscription.message_buffer_seconds, event_kind, deployment)
+}
+
+fn clamp(seconds: i32) -> Duration {
+    Duration::from_secs(u64::from(seconds.max(0).unsigned_abs())).min(MAX_WINDOW)
 }
 
 /// The window for an event on `adapter`, under `loop_override`.
@@ -60,13 +69,9 @@ fn configured_window(
     adapter: AdapterKind,
     deployment: &MessageBufferConfig,
 ) -> Duration {
-    let seconds = loop_override
+    loop_override
         .or_else(|| deployment_default(adapter, deployment))
-        .map_or_else(
-            || builtin_window(adapter),
-            |seconds| Duration::from_secs(u64::from(seconds.max(0).unsigned_abs())),
-        );
-    seconds.min(MAX_WINDOW)
+        .map_or_else(|| builtin_window(adapter).min(MAX_WINDOW), clamp)
 }
 
 /// The deployment's default for `adapter`.
@@ -123,15 +128,78 @@ mod tests {
         subscription
     }
 
-    /// The repo has no Loop, so nothing holds its events and nothing can
-    /// configure a hold: the built-in minute for `github_pr` does not apply.
+    fn event(name: &str, arrives_in_bursts: bool) -> InboundEvent {
+        InboundEvent {
+            name: name.to_string(),
+            arrives_in_bursts,
+        }
+    }
+
+    /// A PR a Task opened itself has no Loop, and its review comments still
+    /// arrive in bursts: the built-in minute applies.
     #[test]
-    fn a_subject_with_no_loop_is_not_buffered() {
+    fn a_subject_with_no_loop_takes_the_deployment_window() {
         let delivery_only =
             delivery_only_subscription(&connection(), AdapterKind::GithubPr, "acme/widget");
 
         assert_eq!(
-            buffer_window(&delivery_only, AdapterKind::GithubPr, &none()),
+            buffer_window(&delivery_only, AdapterKind::GithubPr, None, &none()),
+            Duration::from_mins(1)
+        );
+    }
+
+    /// A passed post-merge run is one notice: nothing follows it to combine.
+    #[test]
+    fn an_event_that_does_not_arrive_in_bursts_is_not_held_even_under_a_loop_window() {
+        assert_eq!(
+            buffer_window(
+                &loop_subscription(Some(30)),
+                AdapterKind::GithubPr,
+                Some(&event("post_merge", false)),
+                &none()
+            ),
+            Duration::ZERO
+        );
+        assert_eq!(
+            buffer_window(
+                &loop_subscription(Some(30)),
+                AdapterKind::GithubPr,
+                Some(&event("issue_comment", true)),
+                &none()
+            ),
+            Duration::from_secs(30)
+        );
+    }
+
+    /// `ADAPTER_MESSAGE_BUFFER_SECONDS_GITHUB_PR_<EVENT>` decides that event
+    /// in both directions, over its kind and over the Loop.
+    #[test]
+    fn the_per_event_window_outranks_the_events_kind_and_the_loop() {
+        let deployment = MessageBufferConfig {
+            global_seconds: None,
+            per_kind_seconds: [
+                ("GITHUB_PR_POST_MERGE".to_string(), 20),
+                ("GITHUB_PR_ISSUE_COMMENT".to_string(), 0),
+            ]
+            .into(),
+        };
+        let subscription = loop_subscription(Some(30));
+        assert_eq!(
+            buffer_window(
+                &subscription,
+                AdapterKind::GithubPr,
+                Some(&event("post_merge", false)),
+                &deployment
+            ),
+            Duration::from_secs(20)
+        );
+        assert_eq!(
+            buffer_window(
+                &subscription,
+                AdapterKind::GithubPr,
+                Some(&event("issue_comment", true)),
+                &deployment
+            ),
             Duration::ZERO
         );
     }
@@ -141,11 +209,21 @@ mod tests {
     #[test]
     fn a_pr_event_takes_the_pr_window_under_a_github_subscription() {
         assert_eq!(
-            buffer_window(&loop_subscription(None), AdapterKind::GithubPr, &none()),
+            buffer_window(
+                &loop_subscription(None),
+                AdapterKind::GithubPr,
+                None,
+                &none()
+            ),
             Duration::from_mins(1)
         );
         assert_eq!(
-            buffer_window(&loop_subscription(Some(5)), AdapterKind::GithubPr, &none()),
+            buffer_window(
+                &loop_subscription(Some(5)),
+                AdapterKind::GithubPr,
+                None,
+                &none()
+            ),
             Duration::from_secs(5)
         );
     }

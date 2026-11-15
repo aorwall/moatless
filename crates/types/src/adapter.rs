@@ -143,6 +143,22 @@ pub struct InboundMessage {
     /// task hears nothing but replies reads them.
     #[serde(default)]
     pub replies_to: Vec<String>,
+    /// What kind of event this is, which picks its buffer window. `None` takes
+    /// the Adapter kind's window, as every event did before kinds were named.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event: Option<InboundEvent>,
+}
+
+/// An inbound event's kind, as the Adapter that parsed it names it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct InboundEvent {
+    /// The Adapter's own event name, e.g. GitHub PR's `issue_comment`. Keys the
+    /// `ADAPTER_MESSAGE_BUFFER_SECONDS_<KIND>_<NAME>` override.
+    pub name: String,
+    /// Whether events of this kind arrive several at a time, as a review's
+    /// comments do. One that does not is held only to join a window already
+    /// open on its Binding.
+    pub arrives_in_bursts: bool,
 }
 
 /// A file an inbound event names but does not carry: the Adapter fetches its
@@ -708,6 +724,8 @@ pub struct MessageBufferConfig {
     /// `ADAPTER_MESSAGE_BUFFER_SECONDS`: the default for every Adapter kind.
     pub global_seconds: Option<i32>,
     /// `ADAPTER_MESSAGE_BUFFER_SECONDS_<KIND>`, keyed by the upper-cased
-    /// `AdapterKind` string; outranks `global_seconds`.
+    /// `AdapterKind` string; outranks `global_seconds`. A `<KIND>_<EVENT>` key,
+    /// the upper-cased [`InboundEvent::name`], outranks everything for that
+    /// event, a Loop's window included.
     pub per_kind_seconds: BTreeMap<String, i32>,
 }
