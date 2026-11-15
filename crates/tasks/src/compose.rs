@@ -333,6 +333,7 @@ impl TaskGraph {
                 sandbox,
                 task_bindings.clone(),
                 events,
+                crate::inbox::InboxService::new(self.db.clone()),
             )),
             task_presenter: Arc::new(TaskPresenter::new(
                 self.tags.clone(),

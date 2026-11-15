@@ -68,6 +68,15 @@ impl SandboxLifecycle for RecordingSandbox {
     }
 }
 
+/// Fails every read fast, so a close's best-effort disposal only logs.
+fn unreachable_inbox() -> crate::inbox::InboxService {
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .acquire_timeout(std::time::Duration::from_millis(100))
+        .connect_lazy("postgres://inbox:inbox@127.0.0.1:1/inbox")
+        .expect("connect_lazy only parses the URL");
+    crate::inbox::InboxService::new(pool)
+}
+
 /// `TaskBindings` fake answering only `deactivate_for_task`: records
 /// requested task ids and replays a queued outcome — everything
 /// [`deactivate_task_bindings`] can observe. Other methods panic.
@@ -235,6 +244,7 @@ async fn closing_a_parent_closes_side_chats_but_keeps_ordinary_forks() {
         }),
         Arc::new(bindings),
         None,
+        unreachable_inbox(),
     );
     closer
         .close_for(&ScopeContext::user("owner"), "parent")

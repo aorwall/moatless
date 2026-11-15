@@ -606,8 +606,8 @@ conversation, never from a source directly. A UI concept only — there is no
 Every message addressed to the Agent (`task_inbox`), whoever sent it: a person,
 another Task, an Adapter, the platform, or the Sandbox waking its own Agent.
 Its `origin` fixes which sender columns it carries. An item is `pending` until
-a Turn delivers it, and what the Chat shows is the item as sent, never the
-CLI's copy of it.
+a Turn delivers it or a cancel or close of its Task cancels it, and what the
+Chat shows is the item as sent, never the CLI's copy of it.
 _Avoid_: reading a prompt back from the Trajectory
 
 **Projector**:

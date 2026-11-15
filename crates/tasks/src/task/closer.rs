@@ -21,6 +21,7 @@ use super::models::TaskPatch;
 use super::models::TaskStatus;
 use super::relations::TaskRelationDao;
 use super::service::publish_user_stop;
+use crate::inbox::InboxService;
 use crate::message::send::MessageSendService;
 use crate::task::bindings::TaskBindings;
 use crate::task::models::SandboxStopReason;
@@ -39,6 +40,7 @@ pub struct TaskCloser {
     pub(crate) sandbox: Arc<dyn SandboxLifecycle>,
     pub(crate) task_bindings: Arc<dyn TaskBindings>,
     pub(crate) events: Option<Arc<dyn EventPublisher>>,
+    pub(crate) inbox: InboxService,
 }
 
 /// The event-shaping overrides a caller layers onto a close.
@@ -90,6 +92,7 @@ impl TaskCloser {
         sandbox: Arc<dyn SandboxLifecycle>,
         task_bindings: Arc<dyn TaskBindings>,
         events: Option<Arc<dyn EventPublisher>>,
+        inbox: InboxService,
     ) -> Self {
         Self {
             tasks,
@@ -98,6 +101,7 @@ impl TaskCloser {
             sandbox,
             task_bindings,
             events,
+            inbox,
         }
     }
 
@@ -146,6 +150,12 @@ impl TaskCloser {
                 &sys_ctx,
             )
             .await?;
+
+        // After `Closed`, which refuses every later send, so nothing can land
+        // pending behind the disposal. A failure leaves the items pending.
+        if let Err(e) = self.inbox.dispose_pending(&[task_id.to_string()]).await {
+            tracing::warn!(task_id, error = %e, "Failed to cancel pending messages on close");
+        }
 
         // Remove the sandbox (best-effort on close). Preserve S3 archives when
         // configured so the task can later be revived via reopen; a failure leaves

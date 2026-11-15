@@ -13,6 +13,7 @@ use axum::http::StatusCode;
 use sqlx::PgPool;
 use tower::ServiceExt;
 
+use moatless_tasks::message::test_support as message_fixtures;
 use moatless_tasks::task::models::TaskPatch;
 use moatless_tasks::task::models::TaskStatus;
 use moatless_tasks::task::relations::TaskRelation;
@@ -333,6 +334,39 @@ async fn close_parent_with_children_closes_descendants(pool: PgPool) {
         .unwrap()
         .unwrap();
     assert_eq!(child.status, TaskStatus::Closed);
+}
+
+/// A close cancels what was still waiting for each closed Task's agent: no
+/// later turn can deliver it, so leaving it `pending` would strand it.
+#[sqlx::test]
+async fn close_cancels_the_pending_messages_of_every_closed_task(pool: PgPool) {
+    seed_parent_and_child(&pool).await;
+    for task_id in ["task-parent", "task-child"] {
+        message_fixtures::queue_named(&pool, task_id, task_id, "## Pull Request Closed").await;
+    }
+    let app = build_router(pool.clone());
+    let req = authed_json_request(
+        "POST",
+        "/api/v1/tasks/task-parent/close",
+        USER_1,
+        serde_json::json!({"closeChildren": true}),
+    );
+
+    let resp = app.oneshot(req).await.unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let statuses: Vec<(String, String)> =
+        sqlx::query_as("SELECT task_id, status FROM task_inbox ORDER BY task_id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        statuses,
+        [
+            ("task-child".to_string(), "cancelled".to_string()),
+            ("task-parent".to_string(), "cancelled".to_string()),
+        ]
+    );
 }
 
 #[sqlx::test]
