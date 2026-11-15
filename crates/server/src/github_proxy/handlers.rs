@@ -333,7 +333,8 @@ impl Outbound<'_> {
 
 /// Send a write as the App, per [`GitHubProxy::app_write`], and resend it as
 /// [`GitHubProxy::token`] picks when there is no App token or GitHub refuses
-/// the App, as for a permission its installation lacks.
+/// the App, as for a permission its installation lacks. A pull request the
+/// App would open goes per [`open_as_driver`] first.
 async fn send_write(
     request: &Outbound<'_>,
     graphql: bool,
@@ -358,9 +359,14 @@ async fn send_write(
             .map_err(|e| Box::new(e.into_response()))?,
     };
     if let Some(app) = app {
+        if write.opens_pull_request {
+            if let Some(opened) = open_as_driver(request, graphql, requested, write).await? {
+                return Ok((opened, repository));
+            }
+        }
         let (body, rewritten) = request.body(write, graphql, true).await;
         let response = request.send(app.token, body, rewritten).await?;
-        match app_refused(response, graphql).await {
+        match refused(response, graphql).await {
             Ok(answered) => return Ok((answered, repository)),
             Err((status, message)) => warn!(
                 status,
@@ -379,13 +385,41 @@ async fn send_write(
     Ok((stream_back(response, "github"), repository))
 }
 
-/// GitHub's answer to a write sent as the App, or `Err` with its status and
-/// message when GitHub refused the App and wrote nothing: a REST 403 or 404
-/// that is no rate limit, or a GraphQL `FORBIDDEN` with no mutation's result.
-async fn app_refused(
-    response: reqwest::Response,
+/// Open a pull request the App would open with the driver's own token, so
+/// GitHub shows the driver as its author; `None` when they have no token or
+/// GitHub refuses it, and the App opens it instead.
+async fn open_as_driver(
+    request: &Outbound<'_>,
     graphql: bool,
-) -> Result<Response, (u16, String)> {
+    requested: Option<&GitHostRepo>,
+    write: &Write,
+) -> Result<Option<Response>, Box<Response>> {
+    let token = match request.proxy.token(request.scope, requested).await {
+        Ok(token) => token,
+        Err(error) => {
+            warn!(%error, "No driver token to open a pull request with; opening it as the App");
+            return Ok(None);
+        }
+    };
+    let (body, rewritten) = request.body(write, graphql, false).await;
+    let response = request.send(token, body, rewritten).await?;
+    match refused(response, graphql).await {
+        Ok(answered) => Ok(Some(answered)),
+        Err((status, message)) => {
+            warn!(
+                status,
+                message,
+                "GitHub refused to open a pull request as the driver; opening it as the App"
+            );
+            Ok(None)
+        }
+    }
+}
+
+/// GitHub's answer to a write, or `Err` with its status and message when
+/// GitHub refused the token and wrote nothing: a REST 403 or 404 that is no
+/// rate limit, or a GraphQL `FORBIDDEN` with no mutation's result.
+async fn refused(response: reqwest::Response, graphql: bool) -> Result<Response, (u16, String)> {
     let status = response.status();
     let refusable = graphql || matches!(status.as_u16(), 403 | 404);
     if !refusable || rate_limited(response.headers()) {

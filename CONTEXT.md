@@ -302,7 +302,9 @@ user both point at.
 A driver signed in through the configured App writes as it: every push, commit,
 `gh` write and adapter write a Task makes to a repository the App is installed
 on shows the App as its actor, with the driver credited, and falls back to the
-driver's own token only where GitHub refuses the App.
+driver's own token only where GitHub refuses the App. A pull request is the
+exception: the driver opens it with their own token, so GitHub shows them as
+its author, and the App opens it only where GitHub refuses the driver.
 _Avoid_: bare "app", integration, GitHub App connection. Never a bare "key" for
 the identifier — that already means a Secret's name and an API key.
 

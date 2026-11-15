@@ -24,7 +24,10 @@ use moatless_types::loops::SubscriptionMatch;
 
 use super::adapter::GithubPrAdapter;
 use super::api::MAX_COMMENT_LENGTH;
-use super::auth::{resolve_task_github_api, resolve_task_github_writer, task_write_actor};
+use super::auth::{
+    RepoWriter, resolve_pull_request_openers, resolve_task_github_api, resolve_task_github_writer,
+    task_write_actor,
+};
 use super::external_id;
 use super::reply_keys;
 use super::subject::GithubPrSubject;
@@ -56,54 +59,42 @@ pub(crate) async fn create_pr(
 ) -> Result<GithubCreatePrResponse, AdapterError> {
     let adapter = require_provider(github_pr_provider)?;
     let actor = task_actor(tasks.as_ref(), &ctx, req.task_id.as_deref()).await?;
-    let writer = resolve_task_github_writer(&adapter, &actor, &owner, &repo).await?;
-    let api = &writer.api;
+    let (opener, fallback) = resolve_pull_request_openers(&adapter, &actor, &owner, &repo).await?;
 
     let base = match req.base.as_deref() {
         Some(b) => b.to_string(),
-        None => api.get_repo_default_branch(&owner, &repo).await?,
+        None => opener.api.get_repo_default_branch(&owner, &repo).await?,
     };
 
     let credits = adapter.auth().pull_request_credits(&actor.1).await;
-    let body = build_pr_body(
-        &credit_pull_request(
-            &with_requester(
-                req.body.as_deref().unwrap_or(""),
-                actor
-                    .0
-                    .person()
-                    .filter(|_| writer.credit().is_none())
-                    .map(|_| login),
+    let footer = task_footer_url(adapter.frontend_url(), req.task_id.as_deref());
+    let open = async |writer: &RepoWriter| {
+        let body = build_pr_body(
+            &credit_pull_request(
+                &with_requester(
+                    req.body.as_deref().unwrap_or(""),
+                    actor
+                        .0
+                        .person()
+                        .filter(|_| writer.credit().is_none())
+                        .map(|_| login),
+                ),
+                &credits,
+                writer.credit(),
             ),
-            &credits,
-            writer.credit(),
-        ),
-        task_footer_url(adapter.frontend_url(), req.task_id.as_deref()).as_deref(),
-    );
-
-    let created = match api
-        .create_pr(
-            &owner,
-            &repo,
-            &req.title,
-            &body,
-            &req.head,
-            &base,
-            req.draft.unwrap_or(false),
-        )
-        .await
-    {
-        Ok(pr) => CreatedPr::from_created(&pr, &req.title)?,
-        // A head branch with an already-open pull request isn't a failure:
-        // GitHub answers 422, and we bind the existing pull request instead.
-        // Any other create failure passes through unchanged.
-        Err(create_error) => match api.find_open_pr_for_head(&owner, &repo, &req.head).await {
-            Ok(Some(existing)) => CreatedPr::from_existing(&existing, &owner, &repo),
-            _ => return Err(create_error),
-        },
+            footer.as_deref(),
+        );
+        open_pr(&writer.api, (&owner, &repo), &req, &body, &base).await
     };
-    if let (Some(driver), false) = (writer.credit(), created.opened_existing) {
-        hand_to_driver(api, &owner, &repo, created.number, driver).await;
+    let (created, opener) = match (open(&opener).await, fallback) {
+        (Err(error), Some(fallback)) => {
+            warn!(owner, repo, %error, "GitHub refused to open a pull request as the driver; opening it as the App");
+            (open(&fallback).await?, fallback)
+        }
+        (created, _) => (created?, opener),
+    };
+    if let (Some(driver), false) = (opener.credit(), created.opened_existing) {
+        hand_to_driver(&opener.api, &owner, &repo, created.number, driver).await;
     }
 
     let (binding_id, notified_events) = if let Some(task_id) = req.task_id.as_deref() {
@@ -148,6 +139,36 @@ pub(crate) async fn create_pr(
         opened_existing: created.opened_existing,
         notified_events,
     })
+}
+
+/// Open `req`'s pull request with `api`, or find the one its head branch
+/// already has open: GitHub answers that with 422, which is no failure.
+async fn open_pr(
+    api: &super::api::GithubPrApi,
+    (owner, repo): (&str, &str),
+    req: &GithubCreatePrRequest,
+    body: &str,
+    base: &str,
+) -> Result<CreatedPr, AdapterError> {
+    let create_error = match api
+        .create_pr(
+            owner,
+            repo,
+            &req.title,
+            body,
+            &req.head,
+            base,
+            req.draft.unwrap_or(false),
+        )
+        .await
+    {
+        Ok(pr) => return CreatedPr::from_created(&pr, &req.title),
+        Err(create_error) => create_error,
+    };
+    match api.find_open_pr_for_head(owner, repo, &req.head).await {
+        Ok(Some(existing)) => Ok(CreatedPr::from_existing(&existing, owner, repo)),
+        _ => Err(create_error),
+    }
 }
 
 /// The pull request the create endpoint answers with, whether GitHub created it

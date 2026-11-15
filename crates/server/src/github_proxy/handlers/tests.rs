@@ -723,7 +723,8 @@ fn app_issuer(refused: &'static str) -> Arc<dyn GitHostTokenIssuer> {
 /// A GitHub answering a node lookup with `owner/sibling`, and every other
 /// request with the token and the body it was sent. It refuses the App a
 /// REST `.../hooks` write and a GraphQL `addLabelsToLabelable`, as an
-/// installation without that permission is refused.
+/// installation without that permission is refused, and the driver a pull
+/// request on `owner/locked`.
 async fn recording_github() -> String {
     serve(
         Router::new().fallback(any(|uri: Uri, headers: HeaderMap, body: Bytes| async move {
@@ -740,6 +741,13 @@ async fn recording_github() -> String {
                 .and_then(|v| v.to_str().ok())
                 .unwrap_or_default()
                 .to_string();
+            if presented == "Bearer ghu_ada" && uri.path() == "/repos/owner/locked/pulls" {
+                return (
+                    StatusCode::FORBIDDEN,
+                    axum::Json(serde_json::json!({ "message": "Resource not accessible by integration" })),
+                )
+                    .into_response();
+            }
             if presented.starts_with("Bearer ghs_app") {
                 if uri.path().ends_with("/rate-limited") {
                     return (
@@ -871,6 +879,62 @@ async fn a_write_github_refuses_the_app_is_resent_as_the_driver() {
     assert_eq!(
         sent(&proxy, Method::POST, "/graphql", &label).await["message"],
         "Bearer ghu_ada"
+    );
+}
+
+/// Every pull request a driver signed in through the App opened showed the
+/// App as its author: it is opened with the driver's own token first.
+#[tokio::test]
+async fn an_app_signed_drivers_pull_request_is_opened_as_the_driver() {
+    let base = recording_github().await;
+    let proxy = proxy(
+        workspaces(github_repository(), HashMap::new()),
+        app_issuer("private"),
+        &base,
+    );
+
+    let rest = sent(
+        &proxy,
+        Method::POST,
+        "/repos/owner/repo/pulls",
+        r#"{"title":"t","head":"h","base":"main","body":"hi"}"#,
+    )
+    .await;
+    assert_eq!(rest["message"], "Bearer ghu_ada");
+    assert_eq!(
+        rest["sent"]["body"], "hi",
+        "GitHub already shows the driver as its author"
+    );
+
+    let mutation = serde_json::json!({
+        "query": "mutation($input: CreatePullRequestInput!) { createPullRequest(input: $input) { clientMutationId } }",
+        "variables": { "input": { "repositoryId": "R_kw", "headRefName": "h", "baseRefName": "main", "title": "t", "body": "hi" } }
+    })
+    .to_string();
+    let graphql = sent(&proxy, Method::POST, "/graphql", &mutation).await;
+    assert_eq!(graphql["message"], "Bearer ghu_ada");
+}
+
+#[tokio::test]
+async fn a_pull_request_github_refuses_the_driver_is_opened_as_the_app() {
+    let base = recording_github().await;
+    let proxy = proxy(
+        workspaces(github_repository(), HashMap::new()),
+        app_issuer("private"),
+        &base,
+    );
+
+    let opened = sent(
+        &proxy,
+        Method::POST,
+        "/repos/owner/locked/pulls",
+        r#"{"title":"t","head":"h","base":"main","body":"hi"}"#,
+    )
+    .await;
+    assert_eq!(opened["message"], "Bearer ghs_app_locked");
+    assert_eq!(
+        opened["sent"]["body"],
+        "hi\n\nDriven by [@ada](https://github.com/ada)"
     );
 }
 

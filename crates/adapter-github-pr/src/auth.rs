@@ -39,6 +39,9 @@ pub(super) struct RepoWriter {
     /// GitHub shows someone other than `credited_login` as the author: the
     /// App, or a run-as bot.
     names_credited: bool,
+    /// It writes with the App's token, where the driver's own would show them
+    /// as a pull request's author.
+    by_app: bool,
 }
 
 impl RepoWriter {
@@ -157,7 +160,38 @@ impl GithubPrAuth {
             api,
             credited_login: credited.map(|(_, login)| login),
             names_credited,
+            by_app,
         })
+    }
+
+    /// The writer to open a pull request with, and the one to retry with when
+    /// GitHub refuses it: `actor`'s own token ahead of the App
+    /// [`Self::writer_for`] picks, so GitHub shows the driver as its author.
+    pub(super) async fn pull_request_openers(
+        &self,
+        actor: &Actor,
+        repo: &GitHostRepo,
+        attribution: &Attribution,
+    ) -> Result<(RepoWriter, Option<RepoWriter>), AdapterError> {
+        let writer = self.writer_for(actor, repo, attribution).await?;
+        if !writer.by_app {
+            return Ok((writer, None));
+        }
+        match self.client_for(actor, repo).await {
+            Ok(api) => {
+                let own = RepoWriter {
+                    api,
+                    credited_login: None,
+                    names_credited: false,
+                    by_app: false,
+                };
+                Ok((own, Some(writer)))
+            }
+            Err(error) => {
+                warn!(%error, repository = %repo, "No driver token to open a pull request with; opening it as the App");
+                Ok((writer, None))
+            }
+        }
     }
 
     /// Per [`pull_request_credits`].
@@ -350,6 +384,20 @@ pub(super) async fn resolve_task_github_api(
     adapter
         .auth()
         .client_for(actor, &GitHostRepo::github(owner, repo_name))
+        .await
+}
+
+/// Resolve the writers to open a pull request on `owner/repo_name` with, per
+/// [`GithubPrAuth::pull_request_openers`].
+pub(super) async fn resolve_pull_request_openers(
+    adapter: &GithubPrAdapter,
+    (actor, attribution): &(Actor, Attribution),
+    owner: &str,
+    repo_name: &str,
+) -> Result<(RepoWriter, Option<RepoWriter>), AdapterError> {
+    adapter
+        .auth()
+        .pull_request_openers(actor, &GitHostRepo::github(owner, repo_name), attribution)
         .await
 }
 
@@ -706,5 +754,64 @@ mod tests {
             error.to_string().contains("unknown GitHub App key"),
             "got {error}"
         );
+    }
+
+    fn app_signed_auth(own_token: bool) -> GithubPrAuth {
+        let mut tokens = moatless_ports::identity::MockGitHostTokenIssuer::new();
+        tokens.expect_github_app_write().returning(|_, _, _| {
+            Ok(Some(moatless_ports::identity::AppWriteToken {
+                token: "ghs_app".to_string(),
+            }))
+        });
+        tokens
+            .expect_credited_github_login()
+            .returning(|_| Ok(Some(("ada-id".to_string(), "ada".to_string()))));
+        tokens.expect_token().returning(move |actor, _| {
+            if own_token {
+                Ok("ghu_ada".to_string())
+            } else {
+                Err(GitHostTokenError::NoCredential {
+                    actor: actor.clone(),
+                    provider: moatless_types::git_host::RepositoryProvider::Github,
+                    host: None,
+                })
+            }
+        });
+        GithubPrAuth::new(
+            Arc::new(tokens),
+            moatless_core::config::DEFAULT_GITHUB_API_BASE.to_string(),
+            moatless_core::config::HttpConfig::default().github,
+        )
+    }
+
+    #[tokio::test]
+    async fn the_driver_opens_a_pull_request_the_app_would_open() {
+        let (opener, fallback) = app_signed_auth(true)
+            .pull_request_openers(
+                &Actor::of("ada-id"),
+                &GitHostRepo::github("acme", "repo"),
+                &Attribution::of_caller("ada-id", None, None),
+            )
+            .await
+            .unwrap();
+        assert!(!opener.by_app);
+        assert_eq!(opener.credit(), None, "GitHub shows ada as its author");
+        let fallback = fallback.expect("the App opens it when GitHub refuses ada");
+        assert!(fallback.by_app);
+        assert_eq!(fallback.credit(), Some("ada"));
+    }
+
+    #[tokio::test]
+    async fn a_driver_without_a_token_leaves_the_pull_request_to_the_app() {
+        let (opener, fallback) = app_signed_auth(false)
+            .pull_request_openers(
+                &Actor::of("ada-id"),
+                &GitHostRepo::github("acme", "repo"),
+                &Attribution::of_caller("ada-id", None, None),
+            )
+            .await
+            .unwrap();
+        assert!(opener.by_app);
+        assert!(fallback.is_none());
     }
 }
