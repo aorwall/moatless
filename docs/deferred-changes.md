@@ -686,3 +686,9 @@ of its own.
 |---|---|---|
 | Stop on T3's background-work row leaves `moat cmd` commands running | T3 sends `thread.turn.interrupt` from that row only while no turn runs; `crates/server/src/t3code/backend/commands.rs::interrupt` answers with `task_service::stop_agent`, which stops a turn and never reaches the sandbox's `CommandRegistry::kill`. The projected commands come from `crates/t3code/src/projection/v2_lifecycle.rs::pending_background_tasks` | When someone uses Stop on that row expecting a command to die, or a stuck `moat cmd` needs killing from the UI. Kill the Task's running commands when an interrupt finds no open turn |
 | A background command shows no elapsed time | T3's `backgroundWorkNowItem` (`soaplabs/t3code` `ThreadActivityBanners.tsx`) reads a start time only from a matching turn item, and `pending_background_tasks` names none; the label comes from `sandbox_unreported_commands`, which also holds `startedAtUnixMs` | When people ask how long a waiting command has run. Needs a start time on the pending task in the T3 contract, or a turn item per `moat cmd` |
+
+## Inbound message buffer ordering
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| A one-off notice in the same delivery batch as a burst event can overtake it | `crates/loops/src/adapters/delivery/worker.rs` runs every record of one `claim_due` batch concurrently, so `crates/loops/src/bindings/runtime.rs::deliver_to_binding` may see a notice that does not arrive in bursts (e.g. `pr_merged`) before the comment admitted just ahead of it. With no window open yet, the notice is delivered at once and the comment is held, rather than both joining one turn | When a Task reports a merge notice arriving before the review or comment that preceded it. Order a Binding's records within a batch, or have a notice join a window its batch is about to open |
