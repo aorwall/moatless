@@ -125,4 +125,13 @@ impl TaskTurns {
             .set_agent_turn_id(task_id, turn_number, agent_turn_id)
             .await
     }
+
+    /// See [`TaskTurnDao::mark_stop_unresponsive`].
+    pub async fn mark_stop_unresponsive(
+        &self,
+        task_id: &str,
+        at: DateTime<Utc>,
+    ) -> Result<bool, sqlx::Error> {
+        self.store.mark_stop_unresponsive(task_id, at).await
+    }
 }

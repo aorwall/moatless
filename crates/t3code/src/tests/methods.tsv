@@ -17,6 +17,7 @@ git.preparePullRequestThread	orchestration:operate	detached	detached	same
 git.resolvePullRequest	orchestration:operate	detached	detached	same
 git.runStackedAction	orchestration:operate	session	session	same
 orchestration.dispatchCommand	orchestration:operate	session	session	own
+orchestration.forceStopThread	orchestration:operate	unsupported	detached	-
 orchestration.getArchivedShellSnapshot	orchestration:read	detached	detached	same
 orchestration.getThreadLinkMetadata	orchestration:read	unsupported	detached	-
 orchestration.getThreadProjection	orchestration:read	unsupported	detached	-

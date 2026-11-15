@@ -646,6 +646,14 @@ impl ports::ThreadCommandSink for UnreachableCommands {
     ) -> Result<(), ports::CommandRefusal> {
         unreachable!("no test in this file stops a thread")
     }
+    async fn force_stop(
+        &self,
+        _viewer: &ScopeContext,
+        _task_id: &str,
+        _turn_number: Option<i32>,
+    ) -> Result<moatless_tasks::task::service::ForceStop, ports::CommandRefusal> {
+        unreachable!("no test in this file force stops a thread")
+    }
     async fn set_idle_timeout(
         &self,
         _viewer: &ScopeContext,

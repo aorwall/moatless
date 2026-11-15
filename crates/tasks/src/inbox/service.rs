@@ -121,10 +121,10 @@ impl InboxService {
         &self,
         task_id: &str,
         id: Uuid,
-        before: Option<Uuid>,
+        slot: dao::QueueSlot,
     ) -> Result<bool, sqlx::Error> {
         let mut tx = self.0.begin().await?;
-        let moved = dao::reorder_queued(&mut tx, task_id, id, before).await?;
+        let moved = dao::reorder_queued(&mut tx, task_id, id, slot).await?;
         if moved.is_empty() {
             return Ok(false);
         }

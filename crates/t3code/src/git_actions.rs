@@ -506,6 +506,15 @@ mod tests {
         ) -> Result<(), crate::ports::CommandRefusal> {
             unreachable!("a git action never stops a thread")
         }
+        async fn force_stop(
+            &self,
+            _viewer: &ScopeContext,
+            _task_id: &str,
+            _turn_number: Option<i32>,
+        ) -> Result<moatless_tasks::task::service::ForceStop, crate::ports::CommandRefusal>
+        {
+            unreachable!("a git action never force stops a thread")
+        }
         async fn set_idle_timeout(
             &self,
             _viewer: &ScopeContext,

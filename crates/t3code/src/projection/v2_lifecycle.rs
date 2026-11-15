@@ -213,6 +213,39 @@ pub(super) fn run_ending_items(
         .collect()
 }
 
+/// A `run_interrupt_request` for the open turn whose agent did not confirm a
+/// Stop, with the instant it sorts at. Its `unresponsiveAt` is what makes the
+/// client offer Force stop; a confirmed Stop closes the turn instead, which
+/// [`run_ending_items`] reports.
+pub(super) fn unresponsive_stop_item(conversation: &Conversation) -> Option<(String, Value)> {
+    let at = conversation.turn_stop_unresponsive_at?;
+    let turn_number = conversation.turn_number?;
+    if !turn_is_open(conversation) {
+        return None;
+    }
+    let at = instant(at);
+    let run_id = turn_id(&conversation.task_id, turn_number);
+    let item = json!({
+        "id": format!("item:interrupt-request:{run_id}"),
+        "threadId": conversation.task_id,
+        "runId": run_id,
+        "nodeId": root_node_id(&run_id),
+        "providerThreadId": provider_thread_id(&conversation.task_id),
+        "providerTurnId": Value::Null,
+        "nativeItemRef": Value::Null,
+        "parentItemId": Value::Null,
+        "status": "running",
+        "title": "Stop requested",
+        "startedAt": at,
+        "completedAt": Value::Null,
+        "updatedAt": at,
+        "type": "run_interrupt_request",
+        "message": "The agent did not confirm the stop",
+        "unresponsiveAt": at
+    });
+    Some((at, item))
+}
+
 /// The `moat cmd` commands and spawned children that will wake this Task once
 /// its Turn has ended, which the client shows as Waiting. Commands are
 /// `background_task` rather than `command`: the client lets a `command` finish

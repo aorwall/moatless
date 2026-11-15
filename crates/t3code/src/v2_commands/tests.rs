@@ -16,6 +16,14 @@ fn renamed_commands_keep_their_fields_under_the_v1_type() {
     let command = v1(json!({ "type": "run.interrupt", "threadId": "task-1", "commandId": "c1" }));
     assert_eq!(command["type"], json!("thread.turn.interrupt"));
     assert_eq!(command["threadId"], json!("task-1"));
+    let stop = v1(json!({
+        "type": "thread.stop",
+        "threadId": "task-1",
+        "commandId": "c2",
+        "stopDelegatedTasks": true
+    }));
+    assert_eq!(stop["type"], json!("thread.turn.interrupt"));
+    assert_eq!(stop["threadId"], json!("task-1"));
     assert_eq!(
         v1(json!({ "type": "thread.model-selection.set", "threadId": "task-1" }))["type"],
         json!("thread.meta.update")
@@ -266,6 +274,16 @@ fn queued_run_commands_name_the_message_their_run_waits_to_deliver() {
         "beforeRunId": null
     }));
     assert_eq!(to_end["beforeMessageId"], Value::Null);
+
+    let start = v1(json!({
+        "type": "queued-run.start",
+        "threadId": "task-1",
+        "commandId": "c1",
+        "runId": "task-1:queued:msg-2"
+    }));
+    assert_eq!(start["type"], json!("thread.queuedTurn.start"));
+    assert_eq!(start["messageId"], json!("msg-2"));
+    assert_eq!(start["threadId"], json!("task-1"));
 
     assert!(matches!(
         refusal(json!({ "type": "queued-run.cancel", "runId": "task-1:3" })),

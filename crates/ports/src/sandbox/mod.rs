@@ -14,8 +14,8 @@ pub use observation::{
 
 mod lifecycle;
 pub use lifecycle::{
-    SandboxIntentReader, SandboxLifecycle, SandboxOpError, SandboxOperator, SandboxStarter,
-    SandboxStopper,
+    AgentStopOutcome, SandboxIntentReader, SandboxLifecycle, SandboxOpError, SandboxOperator,
+    SandboxStarter, SandboxStopper,
 };
 
 mod preflight;

@@ -730,6 +730,7 @@ mod tests {
             turn_status: Some("active".into()),
             turn_started_at: None,
             turn_ended_at: None,
+            turn_stop_unresponsive_at: None,
             turn_error: None,
             turn_error_reason: None,
             turn_error_resets_at: None,

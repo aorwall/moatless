@@ -42,6 +42,8 @@ pub struct ListedTask {
     pub turn_status: Option<String>,
     pub turn_started_at: Option<DateTime<Utc>>,
     pub turn_ended_at: Option<DateTime<Utc>>,
+    /// When the agent left a person's Stop of the newest Turn unconfirmed.
+    pub turn_stop_unresponsive_at: Option<DateTime<Utc>>,
     /// The error text the newest Turn ended with: `None` unless its status is
     /// `error`, so the next Turn starting or completing clears it.
     pub turn_error: Option<String>,

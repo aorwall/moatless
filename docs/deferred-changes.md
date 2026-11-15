@@ -707,3 +707,12 @@ of its own.
 |---|---|---|
 | A saved setting reaches only the connection that saved it | `crates/t3code/src/rpc/dispatch/server.rs::server_update_settings` pushes `settingsUpdated` on its own session's `config_stream`; a viewer's other tabs and devices read the change on their next `server.getConfig`, after a reload | When a settings control ships in the client, so a change in one tab is expected in another. Fan the push out per user, the way `access::AccessChanges` nudges Authorized clients |
 | Tag hiding has no control in the client | Upstream sets `hiddenThreadTags` / `hideTaggedThreads` by hand-editing `settings.json`; Moatless serves them over `server.updateSettings` (`crates/t3code/src/server_settings.rs::stored_patch`) and nothing in `soaplabs/t3code` sends one | When people ask to hide tagged threads without a script. A fork-owned row on Settings → General, fed by the Moatless tag list |
+
+## Turn control from T3
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| Send now runs the chosen message together with the rest of the queue | `crates/tasks/src/message/service.rs::start_queued_message` moves the message to the front and wakes the sandbox, whose idle fetch (`crates/tasks/src/task_context/enricher.rs::delivery_slice`) takes every pending message as one turn | When someone queues several messages after a Stop and expects Send now to run only one. Needs a per-message hold the idle fetch honours |
+| `thread.stop` ignores `stopDelegatedTasks` | `crates/t3code/src/v2_commands.rs::translate` maps it onto `thread.turn.interrupt`, which stops only this Task's turn; child Tasks keep running | When T3 sends `stopDelegatedTasks: true` from a control people use. Cancel the descendants the way `moat tasks cancel` does |
+| Force stop on a sole sandbox waits for the graceful StopAgent first | `crates/tasks/src/task/service.rs::force_stop_agent` calls `SandboxLifecycle::stop`, whose run stop issues StopAgent with its 10 s `SHORT_RPC_TIMEOUT` before releasing the pod, though the agent already ignored one | When Force stop's delay is reported as slow. Give `stop` a reason that skips the graceful step |
+| `runtime-request.delivery.fail` is not served | Upstream's `OrchestrationV2InternalCommand` (`soaplabs/t3code` `packages/contracts`); no client sends it, and every Moatless question blocks its turn, so `crates/t3code/src/projection/v2.rs::pending_runtime_request` always projects `blocking: true` | When a Moatless agent can ask a question without blocking its turn, or a T3 client starts sending the command |

@@ -211,14 +211,24 @@ pub(crate) async fn edit_queued(
     Ok(edited.is_some())
 }
 
-/// Move one pending `queue` item to just before `before`, or to the end when
-/// `before` is `None`, renumbering every pending `queue` item of `task_id`.
-/// Returns the renumbered ids, empty when `id` is not one of them.
+/// Where [`reorder_queued`] puts an item among the pending `queue` items.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum QueueSlot {
+    /// Ahead of every other, which is the first a fetch between turns takes.
+    First,
+    /// Just before this item, or at the end when it is not waiting.
+    Before(Uuid),
+    Last,
+}
+
+/// Move one pending `queue` item to `slot`, renumbering every pending `queue`
+/// item of `task_id`. Returns the renumbered ids, empty when `id` is not one of
+/// them.
 pub(crate) async fn reorder_queued(
     tx: &mut Transaction<'_, Postgres>,
     task_id: &str,
     id: Uuid,
-    before: Option<Uuid>,
+    slot: QueueSlot,
 ) -> Result<Vec<Uuid>, sqlx::Error> {
     // Locked, so two reorders of one queue cannot interleave their renumbering.
     let mut order: Vec<Uuid> = sqlx::query_scalar(
@@ -234,9 +244,14 @@ pub(crate) async fn reorder_queued(
         return Ok(Vec::new());
     };
     order.remove(from);
-    let to = before
-        .and_then(|before| order.iter().position(|queued| *queued == before))
-        .unwrap_or(order.len());
+    let to = match slot {
+        QueueSlot::First => 0,
+        QueueSlot::Before(before) => order
+            .iter()
+            .position(|queued| *queued == before)
+            .unwrap_or(order.len()),
+        QueueSlot::Last => order.len(),
+    };
     order.insert(to, id);
     sqlx::query(
         r#"UPDATE task_inbox i

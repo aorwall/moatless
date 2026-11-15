@@ -126,6 +126,12 @@ pub(crate) fn descriptor(config: &UiRpcConfig) -> Value {
             "threadPinning": true,
             "threadPinReorder": true,
             "threadActiveReorder": true,
+            // `thread.stop`, which ends this Task's turn without the client
+            // naming a run; child Tasks keep running.
+            "threadStop": true,
+            // `orchestration.forceStopThread`, offered once a Stop's turn item
+            // carries `unresponsiveAt`. It stops the Sandbox to kill the agent.
+            "threadForceStop": true,
             // `regenerateTitle` on `thread.meta.update`, which asks the agent
             // to rename the Task. Absent, a client hides the action.
             "threadTitleRegeneration": true,

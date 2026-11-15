@@ -79,7 +79,9 @@ pub(crate) fn translate(command: &Value) -> Result<Translated, CommandRefusal> {
         | "thread.pull-request.link"
         | "thread.pull-request.unlink" => renamed(tag),
         "thread.metadata.update" | "thread.model-selection.set" => renamed("thread.meta.update"),
-        "run.interrupt" => renamed("thread.turn.interrupt"),
+        // `stopDelegatedTasks` is moot: a Stop here ends this Task's agent
+        // alone, and a child Task keeps running until it is stopped itself.
+        "run.interrupt" | "thread.stop" => renamed("thread.turn.interrupt"),
         "provider-session.detach" => renamed("thread.session.stop"),
         "message.dispatch" => message_dispatch(command),
         "queued-message.promote-to-steer" => {
@@ -109,7 +111,9 @@ pub(crate) fn translate(command: &Value) -> Result<Translated, CommandRefusal> {
         "checkpoint.rollback" => checkpoint_rollback(command),
         "thread.fork" => fork(command),
         "thread.visit" | "thread.mark-unread" => renamed(tag),
-        "queued-run.cancel" | "queued-run.edit" | "queued-run.reorder" => queued_run(command),
+        "queued-run.cancel" | "queued-run.edit" | "queued-run.reorder" | "queued-run.start" => {
+            queued_run(command)
+        }
         "queue.resume" => renamed("thread.queue.resume"),
         "thread.user-input.dismiss" => {
             let mut v1 = Map::new();
@@ -157,6 +161,7 @@ fn queued_run(command: &Value) -> Result<Translated, CommandRefusal> {
     v1.insert("messageId".into(), message_of("runId")?);
     let v1_tag = match tag {
         "queued-run.cancel" => "thread.queuedTurn.cancel",
+        "queued-run.start" => "thread.queuedTurn.start",
         "queued-run.edit" => {
             copy(command, &mut v1, &["text", "context", "attachments"]);
             "thread.queuedTurn.edit"

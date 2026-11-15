@@ -20,6 +20,7 @@ pub(super) fn conversation(task_id: &str, workspace_id: &str) -> Conversation {
         turn_status: None,
         turn_started_at: None,
         turn_ended_at: None,
+        turn_stop_unresponsive_at: None,
         turn_error: None,
         turn_error_reason: None,
         turn_error_resets_at: None,

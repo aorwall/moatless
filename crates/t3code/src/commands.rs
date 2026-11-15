@@ -105,6 +105,7 @@ pub async fn dispatch(
         "thread.queuedTurn.cancel"
         | "thread.queuedTurn.edit"
         | "thread.queuedTurn.reorder"
+        | "thread.queuedTurn.start"
         | "thread.queue.resume" => change_queue(ctx, viewer, &tag, command).await?,
         "thread.visit" => {
             let visited_at = command
@@ -898,6 +899,9 @@ async fn change_queue(
                 .get("beforeMessageId")
                 .and_then(Value::as_str)
                 .map(str::to_string),
+        },
+        "thread.queuedTurn.start" => QueueChange::Start {
+            message_uuid: message_uuid()?,
         },
         _ => QueueChange::Resume,
     };

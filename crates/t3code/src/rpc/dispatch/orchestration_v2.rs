@@ -12,6 +12,7 @@ use crate::config::OrchestrationProtocol;
 use crate::dao::ListingError;
 use crate::oauth::Scope;
 use crate::projection::Compactions;
+use crate::projection::turn_number_of_run;
 use crate::rpc::envelope::RequestId;
 use crate::rpc::envelope::failure_exit;
 use crate::rpc::envelope::success_exit;
@@ -26,6 +27,7 @@ use crate::snapshots::archived_shell_page;
 use crate::snapshots::thread_detail_v2;
 use crate::state::UiRpcState;
 use crate::subscriptions::OrchestrationV2SubscribeThreadInput;
+use moatless_tasks::task::service::ForceStop;
 use moatless_types::access_control::ScopeContext;
 use moatless_types::ui_rpc::UiRpcAuthIdentity;
 use serde::Deserialize;
@@ -53,6 +55,11 @@ pub(super) fn orchestration_v2_methods() -> MethodTable {
             "orchestration.getTurnItem",
             Scope::OrchestrationRead,
             orchestration_get_turn_item,
+        )
+        .detached(
+            "orchestration.forceStopThread",
+            Scope::OrchestrationOperate,
+            orchestration_force_stop_thread,
         )
         .session(
             "orchestration.launchThread",
@@ -117,6 +124,14 @@ pub(crate) struct OrchestrationV2ThreadLaunchInitialMessage {
     text: Option<Value>,
     context: Option<Value>,
     attachments: Option<Value>,
+}
+
+/// The contract's `OrchestrationV2ForceStopThreadInput`.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct OrchestrationV2ForceStopThreadInput {
+    thread_id: String,
+    run_id: Option<String>,
 }
 
 /// The contract's `OrchestrationV2GetThreadProjectionInput`.
@@ -247,6 +262,57 @@ pub(super) async fn orchestration_launch_thread(
             )]
         }
     }
+}
+
+/// `orchestration.forceStopThread`: see [`ForceStop`] for each outcome. A run
+/// that names no turn of this thread, such as one still queued, guards nothing.
+pub(super) async fn orchestration_force_stop_thread(
+    request: Request<OrchestrationV2ForceStopThreadInput>,
+) -> Vec<Value> {
+    let Request {
+        id,
+        payload: OrchestrationV2ForceStopThreadInput { thread_id, run_id },
+        state,
+        identity,
+        ..
+    } = request;
+    let turn_number = run_id.as_deref().and_then(|run| {
+        run.strip_prefix(thread_id.as_str())
+            .filter(|rest| rest.starts_with(':'))
+            .and_then(|_| turn_number_of_run(run))
+    });
+    let failure = |reason: Option<&str>| {
+        let mut error = json!({
+            "_tag": "OrchestrationV2ForceStopThreadError",
+            "threadId": thread_id,
+        });
+        if let Some(reason) = reason {
+            error["reason"] = json!(reason);
+        }
+        vec![typed_failure_exit(&id, error)]
+    };
+    let outcome = state
+        .commands
+        .force_stop(&viewer_scope(&identity), &thread_id, turn_number)
+        .await;
+    let (outcome, shared_with) = match outcome {
+        Ok(ForceStop::Released) => ("released", Vec::new()),
+        Ok(ForceStop::Shared(others)) => ("shared", others),
+        Ok(ForceStop::Superseded) => return failure(Some("superseded")),
+        Err(refusal) => {
+            warn!(
+                user_id = %identity.user_id,
+                task_id = %thread_id,
+                reason = %refusal.message(),
+                "T3 UI force stop refused"
+            );
+            return failure(None);
+        }
+    };
+    vec![success_exit(
+        &id,
+        json!({ "outcome": outcome, "sharedWithThreadIds": shared_with }),
+    )]
 }
 
 /// The V1 command a launch is carried out as: a bootstrapped

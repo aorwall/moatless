@@ -75,6 +75,15 @@ pub enum SandboxOpError {
     Internal(String),
 }
 
+/// What a graceful [`SandboxLifecycle::stop_agent`] came back with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentStopOutcome {
+    /// The agent confirmed the stop, or no sandbox answered, which runs no agent.
+    Stopped,
+    /// The sandbox took the stop but its agent did not confirm it in time.
+    Unresponsive,
+}
+
 /// The durable sandbox-lifecycle contract the tasks band drives.
 ///
 /// Deliberately not [`SandboxStarter`]/[`SandboxStopper`]/
@@ -93,8 +102,9 @@ pub trait SandboxLifecycle: Send + Sync {
     /// lifecycle transition, so the next turn runs in the same sandbox.
     ///
     /// Best-effort, like [`Self::stop`]: an unreachable sandbox has no agent
-    /// running anyway. The caller's terminal `agent.stopped` closes the turn.
-    async fn stop_agent(&self, task_id: &str, reason: SandboxStopReason);
+    /// running anyway. On [`AgentStopOutcome::Stopped`] the caller's terminal
+    /// `agent.stopped` closes the turn.
+    async fn stop_agent(&self, task_id: &str, reason: SandboxStopReason) -> AgentStopOutcome;
 
     /// Remove the Task's sandbox, applying the archive-retention policy. The
     /// caller deletes the Task row only on success.

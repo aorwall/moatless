@@ -22,10 +22,11 @@ use super::schemas::CreateTaskRequest;
 use crate::agent::catalog;
 use crate::credential_sync::CredentialSync;
 use crate::message::send::MessageSendService;
+use crate::task_turn::operations::TaskTurns;
 use moatless_core::config::Config;
 use moatless_core::events::EventPublisher;
 use moatless_ports::identity::{SecretCatalog, UserResolver};
-use moatless_ports::sandbox::SandboxLifecycle;
+use moatless_ports::sandbox::{AgentStopOutcome, SandboxLifecycle};
 use moatless_types::access_control::ensure_can_use_repository;
 use moatless_types::access_control::{ScopeContext, ScopedResource};
 use moatless_types::agent::AgentProfile;
@@ -127,26 +128,98 @@ pub async fn stop_task(
     Ok(())
 }
 
-/// Stop the agent mid-turn, leaving the sandbox running. The narrower half of
-/// [`stop_task`]: same `StopAgent` and terminal event, without the `Stopped`
-/// intent, so running Scripts stay up.
+/// Stop the agent mid-turn, leaving the sandbox and its Scripts running.
+///
+/// An agent that does not confirm keeps its Turn open, stamped by
+/// [`TaskTurns::mark_stop_unresponsive`]: it is still working, and the stamp
+/// is what offers [`force_stop_agent`].
 pub async fn stop_agent(
     tasks: &TaskCommands,
+    turns: &TaskTurns,
     sandbox: &dyn SandboxLifecycle,
     events: Option<&dyn EventPublisher>,
     scope_ctx: &ScopeContext,
     task_id: &str,
-) -> Result<(), TaskError> {
+) -> Result<AgentStopOutcome, TaskError> {
     require_write(tasks, scope_ctx, task_id).await?;
 
-    sandbox
+    let outcome = sandbox
         .stop_agent(task_id, crate::task::models::SandboxStopReason::User)
         .await;
+    match outcome {
+        AgentStopOutcome::Stopped => {
+            publish_user_stop(events, task_id).await;
+            tracing::info!(task_id = %task_id, "Agent stop requested");
+        }
+        AgentStopOutcome::Unresponsive => {
+            turns
+                .mark_stop_unresponsive(task_id, chrono::Utc::now())
+                .await?;
+            tracing::warn!(task_id = %task_id, "Agent did not confirm its stop");
+        }
+    }
+    Ok(outcome)
+}
 
+/// What [`force_stop_agent`] did.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ForceStop {
+    /// The Sandbox was stopped, which ends every process the agent started.
+    Released,
+    /// The Sandbox also holds these other open Tasks, so only this Task's Turn
+    /// was closed and the Sandbox was left running.
+    Shared(Vec<String>),
+    /// A Turn newer than the one asked about has started; nothing was stopped.
+    Superseded,
+}
+
+/// End an agent that ignored [`stop_agent`] by stopping its Sandbox.
+///
+/// Its Turn then closes as a stop. The Task stays open with its Sandbox
+/// `Stopped`, so the next Message starts it again; queued Messages stay pending
+/// for that turn.
+///
+/// `turn_number` is the Turn the person saw ignore Stop, if they named one.
+pub async fn force_stop_agent(
+    tasks: &TaskCommands,
+    turns: &TaskTurns,
+    sandbox: &dyn SandboxLifecycle,
+    events: Option<&dyn EventPublisher>,
+    scope_ctx: &ScopeContext,
+    task_id: &str,
+    turn_number: Option<i32>,
+) -> Result<ForceStop, TaskError> {
+    let task = require_write(tasks, scope_ctx, task_id).await?;
+    if let Some(asked) = turn_number {
+        if turns
+            .latest_turn_number(task_id)
+            .await?
+            .is_some_and(|latest| latest > asked)
+        {
+            return Ok(ForceStop::Superseded);
+        }
+    }
+
+    let sandbox_id = task.sandbox_id.as_deref().unwrap_or(task_id).to_string();
+    let others: Vec<String> = tasks
+        .list_sandbox_members(&[sandbox_id])
+        .await?
+        .into_iter()
+        .map(|(member, _)| member)
+        .filter(|member| member != task_id)
+        .collect();
+    if !others.is_empty() {
+        publish_user_stop(events, task_id).await;
+        tracing::warn!(task_id = %task_id, shared_with = ?others, "Force stop closed the turn of a shared sandbox");
+        return Ok(ForceStop::Shared(others));
+    }
+
+    sandbox
+        .stop(task_id, crate::task::models::SandboxStopReason::User)
+        .await?;
     publish_user_stop(events, task_id).await;
-
-    tracing::info!(task_id = %task_id, "Agent stop requested");
-    Ok(())
+    tracing::warn!(task_id = %task_id, "Agent force stopped by stopping its sandbox");
+    Ok(ForceStop::Released)
 }
 
 /// Existence hiding: a task the caller may not write is reported the same way
@@ -155,7 +228,7 @@ async fn require_write(
     tasks: &TaskCommands,
     scope_ctx: &ScopeContext,
     task_id: &str,
-) -> Result<(), TaskError> {
+) -> Result<Task, TaskError> {
     let task = tasks
         .find_by_id(task_id, scope_ctx)
         .await?
@@ -169,7 +242,7 @@ async fn require_write(
     ) {
         return Err(TaskError::NotFound(task_id.to_string()));
     }
-    Ok(())
+    Ok(task)
 }
 
 pub(crate) async fn publish_user_stop(events: Option<&dyn EventPublisher>, task_id: &str) {
@@ -650,6 +723,10 @@ pub async fn update_ttl(
 
     Ok(row)
 }
+
+#[cfg(test)]
+#[path = "service_stop_tests.rs"]
+mod stop_tests;
 
 #[cfg(test)]
 mod tests {

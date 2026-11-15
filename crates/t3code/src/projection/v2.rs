@@ -49,6 +49,7 @@ use super::v2_lifecycle::settled_run_status;
 use super::v2_lifecycle::shell_error_fields;
 use super::v2_lifecycle::token_usage_by_run;
 use super::v2_lifecycle::turn_outcomes;
+use super::v2_lifecycle::unresponsive_stop_item;
 use super::v2_provider::attempt_id;
 use super::v2_provider::attempts;
 use super::v2_provider::provider_session;
@@ -326,10 +327,12 @@ fn pending_runtime_request(conversation: &Conversation) -> Value {
     let at = conversation
         .updated_at
         .unwrap_or_else(|| created_at(conversation));
+    // Every question here parks the agent until it is answered.
     json!({
         "id": format!("{}:pending-question", conversation.task_id),
         "kind": "user_input",
-        "createdAt": instant(at)
+        "createdAt": instant(at),
+        "blocking": true
     })
 }
 
@@ -1121,6 +1124,9 @@ pub(crate) fn turn_items_and_messages(
     );
     for (index, (at, item)) in endings.into_iter().enumerate() {
         timeline.push(((at, 3, index), item));
+    }
+    if let Some((at, item)) = unresponsive_stop_item(conversation) {
+        timeline.push(((at, 3, usize::MAX), item));
     }
 
     timeline.sort_by(|(left, _), (right, _)| left.cmp(right));

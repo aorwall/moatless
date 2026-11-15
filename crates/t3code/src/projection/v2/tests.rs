@@ -26,6 +26,7 @@ fn conversation(task_id: &str) -> Conversation {
         turn_status: None,
         turn_started_at: None,
         turn_ended_at: None,
+        turn_stop_unresponsive_at: None,
         turn_error: None,
         turn_error_reason: None,
         turn_error_resets_at: None,
@@ -698,6 +699,7 @@ fn a_pending_question_is_a_user_input_request_on_the_shell() {
         &Lineage::root("task-1"),
     );
     assert_eq!(shell["pendingRuntimeRequest"]["kind"], json!("user_input"));
+    assert_eq!(shell["pendingRuntimeRequest"]["blocking"], json!(true));
 }
 
 fn shell(conversation: &Conversation) -> Value {

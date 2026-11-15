@@ -308,6 +308,7 @@ pub(super) fn statement(
                    turn.status                AS turn_status,
                    turn.started_at            AS turn_started_at,
                    turn.ended_at              AS turn_ended_at,
+                   turn.stop_unresponsive_at  AS turn_stop_unresponsive_at,
                    failure.turn_error,
                    failure.turn_error_reason,
                    failure.turn_error_resets_at,
@@ -353,7 +354,8 @@ pub(super) fn statement(
                LEFT JOIN task_read_receipts receipt
                  ON receipt.task_id = t.task_id AND receipt.user_id = ${follower}
                LEFT JOIN LATERAL (
-                   SELECT tt.turn_number, tt.status, tt.started_at, tt.ended_at
+                   SELECT tt.turn_number, tt.status, tt.started_at, tt.ended_at,
+                          tt.stop_unresponsive_at
                    FROM task_turns tt
                    WHERE tt.task_id = t.task_id
                    ORDER BY tt.turn_number DESC

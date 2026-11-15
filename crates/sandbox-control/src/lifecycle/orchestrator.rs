@@ -17,7 +17,7 @@ use tracing::Instrument;
 
 use moatless_ports::sandbox as core_sandbox;
 
-use moatless_ports::sandbox::{SandboxLifecycle, SandboxOpError};
+use moatless_ports::sandbox::{AgentStopOutcome, SandboxLifecycle, SandboxOpError};
 use moatless_sandbox_runtime::error::SandboxError;
 use moatless_types::access_control::{Scope, ScopedResource};
 use moatless_types::sandbox::{SandboxDesiredState, SandboxStopReason};
@@ -105,7 +105,7 @@ struct OperationRun {
 pub trait AgentStopPort: Send + Sync {
     /// `reason` is forwarded to the sandbox so the terminal `agent.stopped`
     /// event attributes the stop to its initiator (user, idle reaper, ...).
-    async fn stop_agent(&self, task_id: &str, reason: SandboxStopReason);
+    async fn stop_agent(&self, task_id: &str, reason: SandboxStopReason) -> AgentStopOutcome;
 }
 
 /// The narrow internal workspace-sync port.
@@ -1256,10 +1256,10 @@ impl SandboxLifecycle for Lifecycle {
             .map_err(op_error)
     }
 
-    async fn stop_agent(&self, task_id: &str, reason: SandboxStopReason) {
+    async fn stop_agent(&self, task_id: &str, reason: SandboxStopReason) -> AgentStopOutcome {
         // No lock and no generation: the agent stopping changes nothing this
         // orchestrator owns, so it cannot conflict with a transition in flight.
-        self.agent_stop.stop_agent(task_id, reason).await;
+        self.agent_stop.stop_agent(task_id, reason).await
     }
 
     async fn remove(

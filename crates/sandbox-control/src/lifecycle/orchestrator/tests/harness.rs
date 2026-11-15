@@ -246,8 +246,13 @@ pub(super) struct RecordingAgentStop {
 }
 #[async_trait]
 impl AgentStopPort for RecordingAgentStop {
-    async fn stop_agent(&self, _task_id: &str, _reason: SandboxStopReason) {
+    async fn stop_agent(
+        &self,
+        _task_id: &str,
+        _reason: SandboxStopReason,
+    ) -> moatless_ports::sandbox::AgentStopOutcome {
         self.log.lock().expect("lock").push("stop_agent".into());
+        moatless_ports::sandbox::AgentStopOutcome::Stopped
     }
 }
 

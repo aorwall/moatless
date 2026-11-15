@@ -138,7 +138,13 @@ impl LifecycleEventSink for CollectSink {
 struct NoopAgentStop;
 #[async_trait]
 impl AgentStopPort for NoopAgentStop {
-    async fn stop_agent(&self, _t: &str, _reason: SandboxStopReason) {}
+    async fn stop_agent(
+        &self,
+        _t: &str,
+        _reason: SandboxStopReason,
+    ) -> moatless_ports::sandbox::AgentStopOutcome {
+        moatless_ports::sandbox::AgentStopOutcome::Stopped
+    }
 }
 
 #[derive(Default)]

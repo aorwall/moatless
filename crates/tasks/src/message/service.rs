@@ -198,3 +198,31 @@ pub async fn resume_queue(
     }
     Ok(())
 }
+
+/// Move one Message a stop left waiting to the head of the queue, then
+/// [`resume_queue`].
+///
+/// A fetch between turns takes every waiting Message as one turn, so the rest
+/// follow it in that turn. `false`, waking nothing, when it is no longer
+/// waiting.
+pub async fn start_queued_message(
+    tasks: &TaskCommands,
+    message_send: &MessageSendService,
+    sandbox_waker: &dyn SandboxWaker,
+    sender: &Sender<'_>,
+    task_id: &str,
+    message_uuid: &str,
+) -> Result<bool, MessageError> {
+    tasks
+        .find_by_id(task_id, sender.scope)
+        .await?
+        .ok_or_else(|| MessageError::NotFound(task_id.to_string()))?;
+    if !message_send
+        .move_queued_first(task_id, message_uuid)
+        .await?
+    {
+        return Ok(false);
+    }
+    resume_queue(tasks, message_send, sandbox_waker, sender, task_id).await?;
+    Ok(true)
+}

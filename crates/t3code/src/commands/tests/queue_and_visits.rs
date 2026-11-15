@@ -59,6 +59,10 @@ async fn each_queue_command_reaches_the_sink_as_its_change() {
             "reorder msg-1 before=None",
         ),
         (queue_command("thread.queue.resume", json!({})), "resume"),
+        (
+            queue_command("thread.queuedTurn.start", json!({})),
+            "start msg-1",
+        ),
     ] {
         let (result, calls) = run(command).await;
         assert!(result.is_ok(), "{change}: {result:?}");

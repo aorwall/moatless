@@ -151,6 +151,14 @@ impl TaskTurnDao for RecordingTurns {
     ) -> Result<(), sqlx::Error> {
         unreachable!("reset_recovery_attempts is the recovery path")
     }
+
+    async fn mark_stop_unresponsive(
+        &self,
+        _task_id: &str,
+        _at: DateTime<Utc>,
+    ) -> Result<bool, sqlx::Error> {
+        unreachable!("mark_stop_unresponsive is the Stop path")
+    }
 }
 
 // =========================================================================

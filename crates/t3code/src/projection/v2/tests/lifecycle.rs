@@ -329,3 +329,39 @@ fn a_child_outcome_is_a_notification_and_never_a_queued_run() {
     assert_eq!(notices[0]["summary"], json!("Child task `task-2` errored."));
     assert_eq!(notices[0]["detail"], json!("Error: boom"));
 }
+
+fn interrupt_requests(conversation: &Conversation) -> Vec<Value> {
+    let names = HashMap::new();
+    let transcript = Transcript {
+        messages: vec![message("msg-1", Some(1), "first", MessageType::User)],
+        ..Transcript::default()
+    };
+    let (items, _) = turn_items_and_messages(conversation, &transcript, &origins(&names));
+    items
+        .into_iter()
+        .filter(|item| item["type"] == json!("run_interrupt_request"))
+        .collect()
+}
+
+/// A Stop the agent left unconfirmed keeps its run open and carries
+/// `unresponsiveAt`, which is what the client offers Force stop for.
+#[test]
+fn an_unconfirmed_stop_is_an_unresponsive_interrupt_request_on_the_open_run() {
+    let mut conversation = awake(open_turn(conversation("task-1"), 1, "active"));
+    assert!(interrupt_requests(&conversation).is_empty());
+
+    let at = Utc::now();
+    conversation.turn_stop_unresponsive_at = Some(at);
+    let requests = interrupt_requests(&conversation);
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["runId"], json!("task-1:1"));
+    assert_eq!(requests[0]["unresponsiveAt"], json!(instant(at)));
+    assert_eq!(requests[0]["startedAt"], json!(instant(at)));
+
+    let mut stopped = open_turn(conversation.clone(), 1, "stopped");
+    stopped.turn_ended_at = Some(Utc::now());
+    assert!(
+        interrupt_requests(&stopped).is_empty(),
+        "a closed turn reports its interrupt result instead"
+    );
+}

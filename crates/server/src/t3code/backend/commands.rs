@@ -526,10 +526,31 @@ impl ThreadCommandSink for AppStateCommands {
     async fn interrupt(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal> {
         task_service::stop_agent(
             self.0.tasks.as_ref(),
+            self.0.task_turns.as_ref(),
             self.0.sandbox.as_ref(),
             self.0.events.as_deref(),
             viewer,
             task_id,
+        )
+        .await
+        .map(drop)
+        .map_err(|e| create_refusal(task_id, e))
+    }
+
+    async fn force_stop(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+        turn_number: Option<i32>,
+    ) -> Result<task_service::ForceStop, CommandRefusal> {
+        task_service::force_stop_agent(
+            self.0.tasks.as_ref(),
+            self.0.task_turns.as_ref(),
+            self.0.sandbox.as_ref(),
+            self.0.events.as_deref(),
+            viewer,
+            task_id,
+            turn_number,
         )
         .await
         .map_err(|e| create_refusal(task_id, e))
@@ -682,6 +703,17 @@ impl ThreadCommandSink for AppStateCommands {
     ) -> Result<(), CommandRefusal> {
         let send = self.0.message_send.as_ref();
         let changed = match change {
+            QueueChange::Start { message_uuid } => {
+                message_service::start_queued_message(
+                    self.0.tasks.as_ref(),
+                    send,
+                    self.0.sandbox_waker.as_ref(),
+                    &Self::sender(viewer),
+                    task_id,
+                    &message_uuid,
+                )
+                .await
+            }
             QueueChange::Resume => {
                 return message_service::resume_queue(
                     self.0.tasks.as_ref(),

@@ -7,7 +7,7 @@ use std::sync::Arc;
 use crate::conversation::projector::Projector;
 use crate::inbox::{
     AdapterChannel, ChildOutcome, DeliveryOptions, ExternalSender, InboxContext, InboxItem,
-    InboxOrigin, InboxService, NewInboxItem, RecordNotice,
+    InboxOrigin, InboxService, NewInboxItem, QueueSlot, RecordNotice,
 };
 use crate::message::dao::MessageDao;
 use crate::message::models::MessageType;
@@ -377,9 +377,26 @@ impl MessageSendService {
         before: Option<&str>,
     ) -> Result<bool, MessageError> {
         let id = parse_message_id(message_uuid)?;
-        let before = before.map(parse_message_id).transpose()?;
+        let slot = match before.map(parse_message_id).transpose()? {
+            Some(before) => QueueSlot::Before(before),
+            None => QueueSlot::Last,
+        };
         self.inbox
-            .reorder_queued(task_id, id, before)
+            .reorder_queued(task_id, id, slot)
+            .await
+            .map_err(MessageError::PersistMessage)
+    }
+
+    /// Move a waiting `queue` Message ahead of every other, so the next fetch
+    /// between turns opens with it. `false` when it is not one still waiting.
+    pub async fn move_queued_first(
+        &self,
+        task_id: &str,
+        message_uuid: &str,
+    ) -> Result<bool, MessageError> {
+        let id = parse_message_id(message_uuid)?;
+        self.inbox
+            .reorder_queued(task_id, id, QueueSlot::First)
             .await
             .map_err(MessageError::PersistMessage)
     }

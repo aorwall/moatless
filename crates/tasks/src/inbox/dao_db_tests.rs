@@ -396,7 +396,7 @@ async fn a_waiting_queue_item_can_be_removed_edited_and_moved(pool: PgPool) {
     );
     assert!(
         inbox
-            .reorder_queued("t1", ids[2], Some(ids[1]))
+            .reorder_queued("t1", ids[2], QueueSlot::Before(ids[1]))
             .await
             .unwrap()
     );
@@ -405,8 +405,20 @@ async fn a_waiting_queue_item_can_be_removed_edited_and_moved(pool: PgPool) {
     let mut later = user_item("t1", ids[3], "3");
     later.options.queue = true;
     queue_message(&pool, later).await.unwrap();
-    assert!(inbox.reorder_queued("t1", ids[2], None).await.unwrap());
+    assert!(
+        inbox
+            .reorder_queued("t1", ids[2], QueueSlot::Last)
+            .await
+            .unwrap()
+    );
     assert_eq!(texts().await, ["one, again", "3", "2"]);
+    assert!(
+        inbox
+            .reorder_queued("t1", ids[2], QueueSlot::First)
+            .await
+            .unwrap()
+    );
+    assert_eq!(texts().await, ["2", "one, again", "3"]);
 
     assert!(
         !inbox

@@ -66,6 +66,10 @@ pub(super) enum Call {
     Stop {
         task_id: String,
     },
+    ForceStop {
+        task_id: String,
+        turn_number: Option<i32>,
+    },
     Archive {
         task_id: String,
     },
@@ -305,6 +309,18 @@ impl ThreadCommandSink for RecordingSink {
         });
         Ok(())
     }
+    async fn force_stop(
+        &self,
+        _viewer: &ScopeContext,
+        task_id: &str,
+        turn_number: Option<i32>,
+    ) -> Result<moatless_tasks::task::service::ForceStop, CommandRefusal> {
+        self.0.lock().unwrap().push(Call::ForceStop {
+            task_id: task_id.to_string(),
+            turn_number,
+        });
+        Ok(moatless_tasks::task::service::ForceStop::Released)
+    }
     async fn set_idle_timeout(
         &self,
         _viewer: &ScopeContext,
@@ -501,6 +517,7 @@ impl ThreadCommandSink for RecordingSink {
                 before,
             } => format!("reorder {message_uuid} before={before:?}"),
             QueueChange::Resume => "resume".to_string(),
+            QueueChange::Start { message_uuid } => format!("start {message_uuid}"),
         };
         self.0.lock().unwrap().push(Call::ChangeQueue {
             task_id: task_id.to_string(),
@@ -632,6 +649,7 @@ pub(super) fn conversation(agent_profile: AgentProfile) -> Conversation {
         turn_status: None,
         turn_started_at: None,
         turn_ended_at: None,
+        turn_stop_unresponsive_at: None,
         turn_error: None,
         turn_error_reason: None,
         turn_error_resets_at: None,

@@ -249,6 +249,10 @@ pub enum QueueChange {
     },
     /// Deliver what a stop left waiting.
     Resume,
+    /// Deliver what a stop left waiting, this message first.
+    Start {
+        message_uuid: String,
+    },
 }
 
 /// The agent catalog, as this viewer can use it.
@@ -945,6 +949,16 @@ pub trait ThreadCommandSink: Send + Sync {
     /// released and the working copy is left for the next start; the client
     /// sends this to release a thread, never to end a turn.
     async fn stop(&self, viewer: &ScopeContext, task_id: &str) -> Result<(), CommandRefusal>;
+
+    /// End an agent that ignored [`Self::interrupt`], as
+    /// [`force_stop_agent`](moatless_tasks::task::service::force_stop_agent)
+    /// describes. `turn_number` is the Turn the viewer saw ignore it.
+    async fn force_stop(
+        &self,
+        viewer: &ScopeContext,
+        task_id: &str,
+        turn_number: Option<i32>,
+    ) -> Result<moatless_tasks::task::service::ForceStop, CommandRefusal>;
 
     /// Set how long this thread's Sandbox may sit idle before Moatless stops
     /// it. `0` disables the idle stop; the value lives on the Task, which is

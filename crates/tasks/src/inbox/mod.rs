@@ -10,6 +10,7 @@ mod service;
 mod trigger_db_tests;
 pub mod view;
 
+pub(crate) use dao::QueueSlot;
 pub use models::{
     AdapterChannel, ChildOutcome, DeliveryOptions, ExternalSender, InboxContext, InboxItem,
     InboxOrigin, InboxStatus, NewInboxItem, RecordNotice, RunStamp,

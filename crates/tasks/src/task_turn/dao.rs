@@ -238,6 +238,14 @@ pub trait TaskTurnDao: Send + Sync {
         task_id: &str,
         turn_number: i32,
     ) -> Result<(), sqlx::Error>;
+
+    /// Stamp the Task's newest turn as one whose agent ignored a Stop, keeping
+    /// the first stamp. `false` when that turn is not `active`.
+    async fn mark_stop_unresponsive(
+        &self,
+        task_id: &str,
+        at: DateTime<Utc>,
+    ) -> Result<bool, sqlx::Error>;
 }
 
 /// The next free turn number for a task.
@@ -778,6 +786,27 @@ impl TaskTurnDao for PgTaskTurnDao {
         .bind(agent_turn_id)
         .execute(&self.0)
         .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn mark_stop_unresponsive(
+        &self,
+        task_id: &str,
+        at: DateTime<Utc>,
+    ) -> Result<bool, sqlx::Error> {
+        let mut tx = self.0.begin().await?;
+        let result = sqlx::query(
+            r#"UPDATE task_turns
+                  SET stop_unresponsive_at = COALESCE(stop_unresponsive_at, $2)
+                WHERE task_id = $1 AND status = 'active'
+                  AND turn_number = (SELECT MAX(turn_number) FROM task_turns WHERE task_id = $1)"#,
+        )
+        .bind(task_id)
+        .bind(at)
+        .execute(&mut *tx)
+        .await?;
+        record_turn_change(&mut tx, task_id, result.rows_affected()).await?;
+        tx.commit().await?;
         Ok(result.rows_affected() > 0)
     }
 }

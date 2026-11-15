@@ -228,6 +228,58 @@ async fn interruption_is_stamped_once_and_cleared_on_resume_or_close(pool: PgPoo
     assert_eq!(interrupted_at(&pool, task).await, None);
 }
 
+async fn stop_unresponsive_at(
+    pool: &PgPool,
+    task_id: &str,
+    turn_number: i32,
+) -> Option<chrono::DateTime<Utc>> {
+    sqlx::query_scalar(
+        "SELECT stop_unresponsive_at FROM task_turns WHERE task_id = $1 AND turn_number = $2",
+    )
+    .bind(task_id)
+    .bind(turn_number)
+    .fetch_one(pool)
+    .await
+    .expect("read stop_unresponsive_at")
+}
+
+/// Only the newest turn, and only while it runs, takes the stamp; a repeated
+/// Stop keeps the first, which is when the agent first ignored one.
+#[sqlx::test]
+async fn an_unconfirmed_stop_stamps_only_the_newest_open_turn_once(pool: PgPool) {
+    let repo = PgTaskTurnDao(pool.clone());
+    let task = "task-turn-unresponsive";
+    let first = Utc::now() - Duration::minutes(2);
+
+    assert!(!repo.mark_stop_unresponsive(task, first).await.unwrap());
+
+    repo.project_turn(task, 1, None, TurnTransition::Open, first)
+        .await
+        .unwrap();
+    repo.project_turn(
+        task,
+        1,
+        None,
+        TurnTransition::Terminal(TurnStatus::Completed),
+        first,
+    )
+    .await
+    .unwrap();
+    assert!(
+        !repo.mark_stop_unresponsive(task, first).await.unwrap(),
+        "a closed turn has no agent left to ignore a stop"
+    );
+
+    repo.project_turn(task, 2, None, TurnTransition::Open, first)
+        .await
+        .unwrap();
+    assert!(repo.mark_stop_unresponsive(task, first).await.unwrap());
+    assert!(repo.mark_stop_unresponsive(task, Utc::now()).await.unwrap());
+    let stamped = stop_unresponsive_at(&pool, task, 2).await.expect("stamped");
+    assert_eq!(stamped.timestamp(), first.timestamp());
+    assert_eq!(stop_unresponsive_at(&pool, task, 1).await, None);
+}
+
 /// A row interrupted before the column existed gets its window started.
 #[sqlx::test]
 async fn an_unstamped_interrupted_row_is_stamped(pool: PgPool) {
