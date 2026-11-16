@@ -72,8 +72,6 @@ pub struct ListedTask {
     pub running_command_labels: Vec<String>,
     /// See `listed_dao::listed_children_join`.
     pub child_count: i64,
-    #[sqlx(json)]
-    pub running_children: Vec<RunningChild>,
 
     /// When a person last wrote: the newest `user` row that is not a sandbox
     /// wake (inbox `origin = 'sandbox'`); the agent's tool results are `system`.
@@ -159,13 +157,6 @@ impl ListedTask {
             }
         }
     }
-}
-
-/// A spawned child Task still at work, as `listed_dao::listed_children_join` lists it.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct RunningChild {
-    pub task_id: String,
-    pub name: Option<String>,
 }
 
 /// One GitHub pull request bound to a Task, as the listing query aggregates it.

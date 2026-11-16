@@ -600,7 +600,6 @@ pub(crate) fn running_conversation(task_id: &str) -> crate::dao::Conversation {
         turn_error_reason: None,
         turn_error_resets_at: None,
         child_count: 0,
-        running_children: Vec::new(),
         sandbox_desired_state_raw: Some(
             moatless_types::sandbox::SandboxDesiredState::Running
                 .as_str()

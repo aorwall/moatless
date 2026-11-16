@@ -246,11 +246,11 @@ pub(super) fn unresponsive_stop_item(conversation: &Conversation) -> Option<(Str
     Some((at, item))
 }
 
-/// The `moat cmd` commands and spawned children that will wake this Task once
-/// its Turn has ended, which the client shows as Waiting. Commands are
+/// The `moat cmd` commands that will wake this Task once its Turn has ended,
+/// which the client shows as Waiting. Children are deliberately left out
+/// rather than inherited: a parent would read Waiting while any child works.
 /// `background_task` rather than `command`: the client lets a `command` finish
-/// the thread, and a `moat cmd` wakes the agent. `running_commands` decides how
-/// many; a command whose label has not been mirrored yet goes unnamed.
+/// the thread. A command whose label has not been mirrored yet goes unnamed.
 pub(super) fn pending_background_tasks(conversation: &Conversation) -> Value {
     if turn_is_open(conversation) {
         return json!([]);
@@ -269,23 +269,7 @@ pub(super) fn pending_background_tasks(conversation: &Conversation) -> Value {
             "kind": "background_task"
         })
     });
-    let children = conversation.running_children.iter().map(|child| {
-        let mut entry = json!({
-            "taskId": child.task_id,
-            "kind": "subagent",
-            "childThreadId": child.task_id
-        });
-        if let Some(name) = child
-            .name
-            .as_deref()
-            .map(str::trim)
-            .filter(|name| !name.is_empty())
-        {
-            entry["description"] = json!(name);
-        }
-        entry
-    });
-    Value::Array(commands.chain(children).collect())
+    Value::Array(commands.collect())
 }
 
 /// One context-window reading as V2's token usage. `None` for a reading with

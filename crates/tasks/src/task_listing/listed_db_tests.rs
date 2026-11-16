@@ -321,12 +321,6 @@ async fn a_listed_row_names_a_readable_parent_and_counts_its_children(pool: PgPo
         .execute(&pool)
         .await
         .expect("unfollow");
-    sqlx::query(
-        "INSERT INTO task_turns (task_id, turn_number, status) VALUES ('child', 1, 'active')",
-    )
-    .execute(&pool)
-    .await
-    .expect("child runs a turn");
 
     let viewer = ScopeContext::user(USER_1.to_string());
     let rows = listing_over(&pool).followed(&viewer).await.unwrap();
@@ -374,15 +368,6 @@ async fn a_listed_row_names_a_readable_parent_and_counts_its_children(pool: PgPo
         "the spawned child and ordinary fork, excluding the side chat"
     );
     assert_eq!(
-        row("parent")
-            .running_children
-            .iter()
-            .map(|child| child.task_id.as_str())
-            .collect::<Vec<_>>(),
-        vec!["child"],
-        "a fork is counted but never at work"
-    );
-    assert_eq!(
         listing_over(&pool)
             .readable_by_id(&viewer, "parent")
             .await
@@ -392,7 +377,6 @@ async fn a_listed_row_names_a_readable_parent_and_counts_its_children(pool: PgPo
         2
     );
     assert_eq!(row("child").child_count, 0);
-    assert!(row("child").running_children.is_empty());
 }
 
 /// A read by id reuses the statement's generic plan rather than planning it

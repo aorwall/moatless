@@ -3,7 +3,6 @@ use crate::projection::v2_items::command_exit_code;
 use crate::projection::v2_items::plans;
 use crate::transcript::TranscriptEntry;
 use chrono::Utc;
-use moatless_tasks::task_listing::RunningChild;
 use moatless_types::agent::AgentProfile;
 use moatless_types::message::MessageRole;
 use moatless_types::task::Visibility;
@@ -31,7 +30,6 @@ fn conversation(task_id: &str) -> Conversation {
         turn_error_reason: None,
         turn_error_resets_at: None,
         child_count: 0,
-        running_children: Vec::new(),
         sandbox_desired_state_raw: None,
         sandbox_stop_reason_raw: None,
         sandbox_started_at: None,
@@ -1326,15 +1324,10 @@ fn ended_turn(status: &str) -> Conversation {
 fn background_work_is_reported_only_once_the_turn_has_ended() {
     let mut running = open_turn(conversation("task-1"), 1, "active");
     running.running_commands = 1;
-    running.running_children = vec![RunningChild {
-        task_id: "child-1".to_string(),
-        name: Some("Write tests".to_string()),
-    }];
     assert_eq!(shell(&running)["pendingBackgroundTasks"], json!([]));
 
     let mut ended = ended_turn("completed");
     ended.running_commands = running.running_commands;
-    ended.running_children = running.running_children.clone();
     assert_eq!(
         shell(&ended)["pendingBackgroundTasks"],
         json!([
@@ -1342,12 +1335,6 @@ fn background_work_is_reported_only_once_the_turn_has_ended() {
                 "taskId": "task-1:command:1",
                 "kind": "background_task",
                 "description": "Background command"
-            },
-            {
-                "taskId": "child-1",
-                "kind": "subagent",
-                "childThreadId": "child-1",
-                "description": "Write tests"
             }
         ])
     );

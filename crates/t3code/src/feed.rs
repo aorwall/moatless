@@ -735,7 +735,6 @@ mod tests {
             turn_error_reason: None,
             turn_error_resets_at: None,
             child_count: 0,
-            running_children: Vec::new(),
             sandbox_desired_state_raw: Some(SandboxDesiredState::Running.as_str().to_string()),
             sandbox_stop_reason_raw: None,
             sandbox_started_at: None,
