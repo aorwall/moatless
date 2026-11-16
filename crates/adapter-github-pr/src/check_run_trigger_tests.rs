@@ -430,16 +430,96 @@ fn the_growth_turn_names_the_check_the_skills_and_the_rules() {
     };
     let skills = ["pr-review-infra".to_string()];
     assert_eq!(
-        growth_text(
+        repeat_text(
             &execution_with(Some("Look at Terraform."), vec![infra]),
-            &skills
+            &skills,
+            false
         ),
         "The soap-review-request check added pr-review-infra for 0123456 (rule infra).\n\n\
          Look at Terraform."
     );
     assert_eq!(
-        growth_text(&execution_with(None, vec![]), &skills),
+        repeat_text(&execution_with(None, vec![]), &skills, false),
         "The soap-review-request check added pr-review-infra for 0123456."
+    );
+}
+
+/// The check's output is what tells the Task why it is asked again, such as
+/// a raised tier, which the push event for the same head does not carry.
+#[test]
+fn a_new_head_turn_carries_the_checks_output() {
+    assert_eq!(
+        repeat_text(&execution_with(None, vec![]), &[], true),
+        "The soap-review-request check requested a review of 0123456.\
+         \n## Triggered by check: soap-review-request\n\n**Conclusion:** neutral\n\
+         \n### Output\n**Review requested**\n2 rules matched\n"
+    );
+}
+
+fn binding_holding(head: Option<&str>, skills: &[&str]) -> TaskBinding {
+    let mut binding = review_binding("task", "tr_gate", true);
+    binding.metadata = serde_json::json!({ "requested_skills": skills });
+    if let Some(head) = head {
+        binding.metadata["requested_head"] = serde_json::json!(head);
+    }
+    binding
+}
+
+fn request_at(head: &str, skills: &[&str]) -> Execution {
+    let mut request = execution_with(None, vec![]);
+    request.head_sha = head.to_string();
+    request.skills = skills.iter().map(ToString::to_string).collect();
+    request
+}
+
+/// A gate asks again on a new head with the same skills when it raises the
+/// tier; dropping that request left the reviewer silent on soap-tm#520.
+#[test]
+fn a_repeat_trigger_on_a_new_head_is_delivered_without_a_new_skill() {
+    let binding = binding_holding(Some("head1"), &["java-review"]);
+    assert_eq!(
+        repeat_delta(&binding, &[], &request_at("head2", &["java-review"])),
+        Some((vec![], true))
+    );
+}
+
+#[test]
+fn a_repeat_trigger_on_the_same_head_without_a_new_skill_is_dropped() {
+    let binding = binding_holding(Some("head1"), &["java-review"]);
+    assert_eq!(
+        repeat_delta(&binding, &[], &request_at("head1", &["java-review"])),
+        None
+    );
+    let loop_skill = ["java-review".to_string()];
+    assert_eq!(
+        repeat_delta(
+            &binding_holding(Some("head1"), &[]),
+            &loop_skill,
+            &request_at("head1", &["java-review"])
+        ),
+        None
+    );
+}
+
+#[test]
+fn a_repeat_trigger_on_the_same_head_with_a_new_skill_adds_it() {
+    let binding = binding_holding(Some("head1"), &["java-review"]);
+    assert_eq!(
+        repeat_delta(
+            &binding,
+            &[],
+            &request_at("head1", &["java-review", "infra-terraform"])
+        ),
+        Some((vec!["infra-terraform".to_string()], false))
+    );
+}
+
+#[test]
+fn a_binding_with_no_recorded_head_treats_every_head_as_new() {
+    let binding = binding_holding(None, &["java-review"]);
+    assert_eq!(
+        repeat_delta(&binding, &[], &request_at("head1", &["java-review"])),
+        Some((vec![], true))
     );
 }
 

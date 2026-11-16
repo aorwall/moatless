@@ -35,6 +35,10 @@ pub(super) const MARKER_PREFIX: &str = "<!-- moatless-request:v1 ";
 /// a repeat trigger can tell which of its skills are new.
 const REQUESTED_SKILLS_KEY: &str = "requested_skills";
 
+/// Binding `metadata` key holding the head the last delivered trigger named,
+/// so a repeat trigger can tell a new head from a redelivery.
+const REQUESTED_HEAD_KEY: &str = "requested_head";
+
 /// One rule of the triggering App that matched the PR, and its skills.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(super) struct MatchedRule {
@@ -313,6 +317,28 @@ fn requested_skills(binding: &TaskBinding) -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn requested_head(binding: &TaskBinding) -> Option<&str> {
+    binding
+        .metadata
+        .get(REQUESTED_HEAD_KEY)
+        .and_then(serde_json::Value::as_str)
+}
+
+/// The skills a repeat trigger adds to the open Task and whether it names a
+/// head the Task was not asked about, or `None` when it adds neither. A
+/// Binding stored before heads were recorded counts every head as new.
+fn repeat_delta(
+    binding: &TaskBinding,
+    loop_skills: &[String],
+    request: &Execution,
+) -> Option<(Vec<String>, bool)> {
+    let mut held = requested_skills(binding);
+    held.extend(loop_skills.iter().cloned());
+    let fresh = new_skills(&request.skills, &held);
+    let new_head = requested_head(binding) != Some(request.head_sha.as_str());
+    (new_head || !fresh.is_empty()).then_some((fresh, new_head))
+}
+
 /// The ids of the matched rules that asked for any of `skills`, or `None`
 /// when no rule names them.
 fn rules_asking_for(matched: &[MatchedRule], skills: &[String]) -> Option<String> {
@@ -324,17 +350,34 @@ fn rules_asking_for(matched: &[MatchedRule], skills: &[String]) -> Option<String
     (!ids.is_empty()).then(|| ids.join(", "))
 }
 
-/// The turn telling an open Task a later trigger added `fresh` skills.
-fn growth_text(request: &Execution, fresh: &[String]) -> String {
+/// The turn a repeat trigger sends the open Task: the `fresh` skills it
+/// added, and on a `new_head` the check's output, which says why the trigger
+/// asked again — such as a raised tier — where the push event cannot.
+fn repeat_text(request: &Execution, fresh: &[String], new_head: bool) -> String {
     let sha7: String = request.head_sha.chars().take(7).collect();
-    let rules = rules_asking_for(&request.matched, fresh)
-        .map(|ids| format!(" (rule {ids})"))
-        .unwrap_or_default();
-    let mut text = format!(
-        "The {} check added {} for {sha7}{rules}.",
-        request.check_name,
-        fresh.join(", "),
-    );
+    let mut text = if fresh.is_empty() {
+        format!(
+            "The {} check requested a review of {sha7}.",
+            request.check_name
+        )
+    } else {
+        let rules = rules_asking_for(&request.matched, fresh)
+            .map(|ids| format!(" (rule {ids})"))
+            .unwrap_or_default();
+        format!(
+            "The {} check added {} for {sha7}{rules}.",
+            request.check_name,
+            fresh.join(", "),
+        )
+    };
+    if new_head {
+        text.push_str(&check_run_trigger_text(&CheckRunTriggerText {
+            name: &request.check_name,
+            conclusion: &request.conclusion,
+            output_title: &request.output_title,
+            output_summary: &request.output_summary,
+        }));
+    }
     if let Some(message) = &request.message {
         text.push_str("\n\n");
         text.push_str(message);
@@ -361,8 +404,8 @@ fn first_turn_text(opened: &str, request: &Execution) -> String {
 }
 
 impl GithubPrInboundRouter {
-    /// Open the Task a trusted check run triggered, or add the skills a repeat
-    /// trigger names that the Task does not hold yet.
+    /// Open the Task a trusted check run triggered, or send the open Task a
+    /// repeat trigger that names a new head or a skill it does not hold yet.
     pub(super) async fn run_check_run_trigger(
         &self,
         connection: &AdapterConnection,
@@ -384,7 +427,7 @@ impl GithubPrInboundRouter {
             .for_subject(ADAPTER, SUBJECT_KIND, &subject_key)
             .await?;
         if let Some(binding) = open_trigger_binding(bindings, &rule.id) {
-            return self.add_trigger_skills(rule, &binding, request).await;
+            return self.deliver_repeat_trigger(rule, &binding, request).await;
         }
         let Some(pr) = self.current_pr(rule, request).await? else {
             return Ok(());
@@ -566,7 +609,10 @@ impl GithubPrInboundRouter {
         self.task_bindings
             .merge_metadata(
                 &binding.id,
-                &serde_json::json!({ REQUESTED_SKILLS_KEY: request.skills }),
+                &serde_json::json!({
+                    REQUESTED_SKILLS_KEY: request.skills,
+                    REQUESTED_HEAD_KEY: request.head_sha,
+                }),
             )
             .await?;
         info!(
@@ -597,31 +643,31 @@ impl GithubPrInboundRouter {
         Ok(())
     }
 
-    /// Add the trigger's new skills to the open Task: one turn carrying
-    /// them, or nothing when it asks for none the Task lacks.
-    async fn add_trigger_skills(
+    /// Send the open Task one turn for a repeat trigger that names a new head
+    /// or a skill it lacks; drop one that names neither, a redelivery.
+    ///
+    /// A new head is delivered even with no new skill, rather than left to the
+    /// push event: the trigger can follow the Task's own handling of that push,
+    /// as when a gate raises the tier and dismisses the approval.
+    async fn deliver_repeat_trigger(
         &self,
         rule: &SubscriptionMatch,
         binding: &TaskBinding,
         request: &Execution,
     ) -> Result<(), AdapterError> {
-        let mut held = requested_skills(binding);
-        held.extend(rule.skills.iter().cloned());
-        let fresh = new_skills(&request.skills, &held);
-        if fresh.is_empty() {
-            debug!(task_id = %binding.task_id, head = %request.head_sha, "Check-run trigger dropped: it asks for no new skill");
+        let Some((fresh, new_head)) = repeat_delta(binding, &rule.skills, request) else {
+            debug!(task_id = %binding.task_id, head = %request.head_sha, "Check-run trigger dropped: same head and no new skill");
             return Ok(());
-        }
+        };
         if self.current_pr(rule, request).await?.is_none() {
             return Ok(());
         }
-        let text = growth_text(request, &fresh);
-        let message = self
-            .trigger_message(rule, request, "", text, Some(&fresh))
-            .await;
-        // Delivered before the skills are recorded: recorded first, a failed
-        // delivery's retry finds no new skill and drops the turn. A repeat
-        // delivery is deduped on the event id, which names the skills.
+        let text = repeat_text(request, &fresh, new_head);
+        let added = (!fresh.is_empty()).then_some(fresh.as_slice());
+        let message = self.trigger_message(rule, request, "", text, added).await;
+        // Delivered before the head and skills are recorded: recorded first, a
+        // failed delivery's retry finds nothing new and drops the turn. A
+        // repeat delivery is deduped on the event id, which names both.
         self.routing
             .deliver_with_skills(rule, binding, &message, ADAPTER_LABEL, fresh.clone())
             .await?;
@@ -630,10 +676,13 @@ impl GithubPrInboundRouter {
         self.task_bindings
             .merge_metadata(
                 &binding.id,
-                &serde_json::json!({ REQUESTED_SKILLS_KEY: stored }),
+                &serde_json::json!({
+                    REQUESTED_SKILLS_KEY: stored,
+                    REQUESTED_HEAD_KEY: request.head_sha,
+                }),
             )
             .await?;
-        info!(task_id = %binding.task_id, skills = ?fresh, "Added a check-run trigger's skills to its Task");
+        info!(task_id = %binding.task_id, head = %request.head_sha, skills = ?fresh, "Delivered a repeat check-run trigger to its Task");
         Ok(())
     }
 
