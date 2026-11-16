@@ -83,7 +83,7 @@ mod tests {
             axum::http::Method::POST,
             "https://example.com/v1/responses",
             &headers,
-            axum::body::Body::empty(),
+            axum::body::Bytes::new(),
         )
         .build()
         .unwrap();

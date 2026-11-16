@@ -228,6 +228,10 @@ async fn forward(
 
     let query = uri.query().map(|q| format!("?{q}")).unwrap_or_default();
     let url = format!("{}{path}{query}", upstream.base);
+    let body = match stream::buffered(body).await {
+        Ok(body) => body,
+        Err(unread) => return unread.into_response(),
+    };
     let (request, kind) = authorized_request(
         stream::upstream_request(&gateway.http, method, &url, headers, body),
         upstream.credential,
@@ -244,7 +248,7 @@ async fn forward(
             fail_long_throttle(response, Utc::now())
         }
         Err(error) => {
-            warn!(%error, sandbox_id = %scope.sandbox, path, "A model request did not reach its upstream");
+            warn!(error = %moatless_core::error::causal_chain(&error), sandbox_id = %scope.sandbox, path, "A model request did not reach its upstream");
             error_response(&GatewayError::Upstream(
                 "The model provider is unreachable".to_string(),
             ))

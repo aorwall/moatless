@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use axum::Router;
+use axum::body::Bytes;
 use axum::http::{HeaderValue, header};
 use axum::routing::{get, post};
 use moatless_core::config::ModelGatewayConfig;
@@ -368,7 +369,7 @@ fn chatgpt_request(
         method,
         url,
         &codex_headers(),
-        Body::from(body),
+        Bytes::from_static(body.as_bytes()),
     );
     let credential = Credential::ChatGpt {
         access_token: access_token.to_string(),

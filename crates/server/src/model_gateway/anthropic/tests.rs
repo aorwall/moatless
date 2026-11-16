@@ -138,7 +138,7 @@ async fn an_oauth_request_sends_one_merged_beta_header_and_no_task_token() {
         &gateway().http,
         "https://api.anthropic.com/v1/messages",
         &headers,
-        Body::empty(),
+        Bytes::new(),
         Credential::OAuth("oauth".into()),
     );
     let request = request.build().unwrap();
@@ -163,7 +163,7 @@ async fn the_callers_session_and_network_path_stay_at_the_backend() {
         Method::POST,
         "https://api.anthropic.com/v1/messages",
         &headers,
-        Body::empty(),
+        Bytes::new(),
     )
     .build()
     .unwrap();
@@ -274,7 +274,7 @@ async fn the_upstream_status_headers_and_stream_pass_through() {
         Method::POST,
         &format!("{base}/v1/messages"),
         &headers,
-        Body::from("{\"model\":\"claude\"}"),
+        Bytes::from_static(b"{\"model\":\"claude\"}"),
     )
     .header("x-api-key", "upstream-key");
 

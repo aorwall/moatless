@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use axum::body::Body;
+use axum::body::{Body, Bytes};
 use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
@@ -154,6 +154,10 @@ async fn forward(
 
     let query = uri.query().map(|q| format!("?{q}")).unwrap_or_default();
     let url = format!("{}{path}{query}", upstream.base);
+    let body = match stream::buffered(body).await {
+        Ok(body) => body,
+        Err(unread) => return unread.into_response(),
+    };
     let (request, kind) =
         authorized_request(&gateway.http, &url, headers, body, upstream.credential);
     match stream::relay(request).await {
@@ -168,7 +172,7 @@ async fn forward(
             response
         }
         Err(error) => {
-            warn!(%error, sandbox_id = %scope.sandbox, path, "A model request did not reach its upstream");
+            warn!(error = %moatless_core::error::causal_chain(&error), sandbox_id = %scope.sandbox, path, "A model request did not reach its upstream");
             error_response(&GatewayError::Upstream(
                 "The model provider is unreachable".to_string(),
             ))
@@ -182,7 +186,7 @@ fn authorized_request(
     http: &reqwest::Client,
     url: &str,
     headers: &HeaderMap,
-    body: Body,
+    body: Bytes,
     credential: Credential,
 ) -> (reqwest::RequestBuilder, &'static str) {
     match credential {
