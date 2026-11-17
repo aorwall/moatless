@@ -173,14 +173,14 @@ fn opening_creates_task(rule: &SubscriptionMatch) -> bool {
 }
 
 /// What the event says of the task named as its author: that it opened the
-/// pull request or pushed to it, or else commented, with what a reply to that
-/// comment carries.
+/// pull request, pushed to it or edited it, or else commented, with what a
+/// reply to that comment carries.
 fn origin_scope(msg: &InboundMessage) -> BindScope {
     let event_id = msg.external_event_id.as_deref().unwrap_or_default();
     if super::external_id::is_opened(event_id) {
         return BindScope::because(BindReason::Creator);
     }
-    if super::external_id::is_synchronize(event_id) {
+    if super::external_id::is_synchronize(event_id) || super::external_id::is_edited(event_id) {
         return BindScope::because(BindReason::Contributor);
     }
     let reply_keys = msg

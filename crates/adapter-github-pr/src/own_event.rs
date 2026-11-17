@@ -18,6 +18,17 @@ pub enum Made {
     IssueComment(u64),
     ReviewComment(u64),
     Review(u64),
+    /// A pull request field the Task set, as [`Made::pull_request_edit`]
+    /// digests it; its `edited` aliases onto it.
+    PullRequestEdit(String),
+}
+
+impl Made {
+    /// The Task set the pull request's `field` (`title`, `body` or `base`, the
+    /// base branch's name) to `value`.
+    pub fn pull_request_edit(field: &str, value: &str) -> Self {
+        Self::PullRequestEdit(external_id::edit_digest(field, value))
+    }
 }
 
 /// The record `made` on `owner/repo` is filed under.
@@ -27,6 +38,7 @@ pub fn event(owner: &str, repo: &str, made: &Made) -> ExternalEvent {
         Made::IssueComment(id) => external_id::issue_comment(*id),
         Made::ReviewComment(id) => external_id::review_comment(*id),
         Made::Review(id) => external_id::review(*id),
+        Made::PullRequestEdit(digest) => external_id::pr_edit(owner, repo, digest),
     };
     on_repo(external_id, owner, repo)
 }
@@ -52,6 +64,20 @@ mod tests {
         assert!(
             external_id::aliases("github:pr:synchronize:acme/widgets#7:be1d882")
                 .contains(&pushed.external_id)
+        );
+    }
+
+    #[test]
+    fn an_edit_is_filed_where_its_edited_looks_for_the_maker() {
+        let made = Made::pull_request_edit("title", "feat: x");
+        let edited = event("acme", "widgets", &made);
+        let Made::PullRequestEdit(digest) = made else {
+            unreachable!()
+        };
+
+        assert!(
+            external_id::aliases(&format!("github:pr:edited:acme/widgets#7:{digest}"))
+                .contains(&edited.external_id)
         );
     }
 }

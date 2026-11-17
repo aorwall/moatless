@@ -17,8 +17,9 @@ use super::signals::ReviewDecision;
 use super::status::{PullRequestFields, WebhookStatusObservation, github_external_status};
 use super::subject::GithubPrSubject;
 use super::text::{
-    CheckRunFailedText, PrOpenedText, ReviewCommentText, check_run_failed_text, issue_comment_text,
-    pr_opened_text, pr_synchronized_text, review_comment_text, review_text,
+    CheckRunFailedText, PrEdit, PrOpenedText, ReviewCommentText, check_run_failed_text,
+    issue_comment_text, pr_edited_text, pr_opened_text, pr_synchronized_text, review_comment_text,
+    review_text,
 };
 
 /// Everything downstream workflows can derive from one raw webhook.
@@ -360,6 +361,10 @@ async fn normalize_pull_request(
         return normalize_pull_request_sync(payload, context).await;
     }
 
+    if action == "edited" {
+        return Ok(normalize_pull_request_edited(payload, context).await);
+    }
+
     if action == "closed" {
         if config.close_task_on_close {
             let close = closed_candidate("pull_request", payload, context)
@@ -524,6 +529,61 @@ async fn normalize_pull_request_sync(
         )
         .await,
     )))
+}
+
+/// An edit to the title, description or base branch, keyed on the digest of
+/// the changed field's new value so the Task that wrote it is named by its
+/// `pr_edit` claim. The description wins the key when one edit changes several.
+async fn normalize_pull_request_edited(
+    payload: &serde_json::Value,
+    context: &NormalizeContext<'_>,
+) -> PrimaryWebhook {
+    let changes = payload.get("changes");
+    let changed = |field: &str| changes.and_then(|c| c.get(field)).is_some();
+    let from = |pointer: &str| {
+        changes
+            .and_then(|c| c.pointer(pointer))
+            .and_then(serde_json::Value::as_str)
+    };
+    let Some(pr) = payload.get("pull_request") else {
+        return PrimaryWebhook::Ignore(IgnoredWebhook::UnsupportedAction);
+    };
+    let Some(pr_number) = pr.get("number").and_then(serde_json::Value::as_u64) else {
+        return PrimaryWebhook::Ignore(IgnoredWebhook::UnsupportedAction);
+    };
+    let at = |pointer: &str| {
+        pr.pointer(pointer)
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+    };
+    let edit = PrEdit {
+        sender: context.sender_login,
+        pr_number,
+        html_url: at("/html_url"),
+        title: changed("title").then(|| (from("/title/from").unwrap_or(""), at("/title"))),
+        body: changed("body"),
+        base: changed("base").then(|| (from("/base/ref/from").unwrap_or(""), at("/base/ref"))),
+    };
+    let digest = if edit.body {
+        super::external_id::edit_digest("body", at("/body"))
+    } else if edit.title.is_some() {
+        super::external_id::edit_digest("title", at("/title"))
+    } else if edit.base.is_some() {
+        super::external_id::edit_digest("base", at("/base/ref"))
+    } else {
+        return PrimaryWebhook::Ignore(IgnoredWebhook::UnsupportedAction);
+    };
+    PrimaryWebhook::Message(Box::new(
+        inbound_message(
+            context,
+            pr_number,
+            Some(pr_number.to_string()),
+            pr_edited_text(&edit),
+            Audience::Everyone,
+            super::external_id::pr_edited(&context.subject(pr_number), &digest),
+        )
+        .await,
+    ))
 }
 
 async fn normalize_issue_comment(

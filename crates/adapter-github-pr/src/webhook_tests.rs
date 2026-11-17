@@ -360,6 +360,69 @@ async fn a_pull_request_webhook_records_updated_at_and_clears_checks_only_on_a_n
     }
 }
 
+fn edited(changes: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({
+        "action": "edited",
+        "sender": {"login": "alice"},
+        "changes": changes,
+        "pull_request": {
+            "number": 42,
+            "state": "open",
+            "title": "feat: y",
+            "body": "Plan: 1 to add",
+            "html_url": "https://github.com/soaplabs/repo/pull/42",
+            "head": {"ref": "feature", "sha": "abc123"},
+            "base": {"ref": "main", "sha": "def456"}
+        }
+    })
+}
+
+/// A description edit reaches every bound Task, keyed on the new description
+/// so the Task that wrote it is named by its claim.
+#[tokio::test]
+async fn an_edited_description_is_a_message_keyed_on_the_new_description() {
+    let payload = edited(serde_json::json!({"body": {"from": "Plan: pending"}}));
+    let normalized = normalize_payload("pull_request", &payload, &fake_rule()).await;
+    let Ok(PrimaryWebhook::Message(message)) = normalized.primary else {
+        panic!("expected a message");
+    };
+    assert_eq!(message.audience, Audience::Everyone);
+    assert_eq!(
+        message.external_event_id.as_deref(),
+        Some(
+            crate::external_id::pr_edited(
+                &crate::subject::GithubPrSubject::new("soaplabs", "repo", 42),
+                &crate::external_id::edit_digest("body", "Plan: 1 to add"),
+            )
+            .as_str()
+        )
+    );
+    assert!(message.text.contains("edited the description of PR #42"));
+}
+
+#[tokio::test]
+async fn an_edited_title_alone_is_keyed_on_the_new_title() {
+    let payload = edited(serde_json::json!({"title": {"from": "feat: x"}}));
+    let normalized = normalize_payload("pull_request", &payload, &fake_rule()).await;
+    let Ok(PrimaryWebhook::Message(message)) = normalized.primary else {
+        panic!("expected a message");
+    };
+    let digest = crate::external_id::edit_digest("title", "feat: y");
+    assert!(message.external_event_id.unwrap().ends_with(&digest));
+    assert!(message.text.contains("feat: x → feat: y"));
+}
+
+#[tokio::test]
+async fn an_edit_changing_nothing_a_task_reads_is_ignored() {
+    let payload = edited(serde_json::json!({}));
+    let normalized = normalize_payload("pull_request", &payload, &fake_rule()).await;
+    assert!(matches!(
+        normalized.primary,
+        Ok(PrimaryWebhook::Ignore(IgnoredWebhook::UnsupportedAction))
+    ));
+    assert_eq!(normalized.status_observations.len(), 1);
+}
+
 #[tokio::test]
 async fn a_merged_pull_request_is_a_candidate_whatever_the_close_does() {
     let payload = serde_json::json!({

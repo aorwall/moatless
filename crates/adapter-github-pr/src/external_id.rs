@@ -57,6 +57,44 @@ pub(super) fn pr_synchronize(subject: &GithubPrSubject, sha: &str) -> String {
 /// The prefix [`aliases`] recognises a `synchronize` id by.
 const SYNCHRONIZE_PREFIX: &str = "github:pr:synchronize:";
 
+/// The prefix [`aliases`] recognises an `edited` id by.
+const EDITED_PREFIX: &str = "github:pr:edited:";
+
+/// `github:pr:edited:<owner>/<repo>#<number>:<digest>`, where `digest` is
+/// [`edit_digest`] of the field the edit changed.
+pub(super) fn pr_edited(subject: &GithubPrSubject, digest: &str) -> String {
+    pr_event("edited", subject, Some(digest))
+}
+
+/// `github:pr-edit:<owner>/<repo>:<digest>` - a pull request field the Task
+/// wrote. No PR number: a GraphQL edit names the PR by node id only, so
+/// [`aliases`] reattaches it to the `edited` event instead.
+pub(super) fn pr_edit(owner: &str, repo: &str, digest: &str) -> String {
+    pr_edit_on(&format!("{owner}/{repo}"), digest)
+}
+
+fn pr_edit_on(repo_full_name: &str, digest: &str) -> String {
+    format!("github:pr-edit:{repo_full_name}:{digest}")
+}
+
+/// A pull request `field` (`title`, `body` or `base`) holding `value`, the same
+/// whether read off the proxied write or the webhook. `\r` is dropped: the web
+/// editor saves CRLF where an API client sends LF.
+pub(super) fn edit_digest(field: &str, value: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(field.as_bytes());
+    hasher.update([0]);
+    hasher.update(value.replace('\r', "").as_bytes());
+    hex::encode(&hasher.finalize()[..12])
+}
+
+/// Whether `external_id` names a pull request's title, description or base
+/// being edited.
+pub(super) fn is_edited(external_id: &str) -> bool {
+    external_id.starts_with(EDITED_PREFIX)
+}
+
 /// Whether `external_id` names a pull request being opened.
 pub(super) fn is_opened(external_id: &str) -> bool {
     external_id.starts_with("github:pr:opened:")
@@ -185,7 +223,8 @@ pub(super) fn comment_target_from_id(external_id: &str) -> Option<CommentTarget>
 /// The ids a stored row may carry for the same event.
 ///
 /// A `synchronize` id aliases onto the [`push`] claim for the same sha (naming
-/// the Task that pushed); a PR-level id never aliases its old ambiguous
+/// the Task that pushed), and an `edited` id onto the [`pr_edit`] claim for the
+/// same digest; a PR-level id never aliases its old ambiguous
 /// number-only shape — migration `0148` rewrote those rows instead.
 pub(super) fn aliases(external_id: &str) -> Vec<String> {
     // Ahead of the digit test below: a sha is hex, so a `synchronize` id would
@@ -196,6 +235,17 @@ pub(super) fn aliases(external_id: &str) -> Vec<String> {
             if let Some((repo_full_name, _number)) = subject_key.rsplit_once('#') {
                 if !sha.is_empty() && !repo_full_name.is_empty() {
                     out.push(push_on(repo_full_name, sha));
+                }
+            }
+        }
+        return out;
+    }
+    if let Some(rest) = external_id.strip_prefix(EDITED_PREFIX) {
+        let mut out = vec![external_id.to_string()];
+        if let Some((subject_key, digest)) = rest.rsplit_once(':') {
+            if let Some((repo_full_name, _number)) = subject_key.rsplit_once('#') {
+                if !digest.is_empty() && !repo_full_name.is_empty() {
+                    out.push(pr_edit_on(repo_full_name, digest));
                 }
             }
         }
@@ -340,6 +390,24 @@ mod tests {
         assert!(comment_target_from_id("github:pr:opened:7").is_none());
         assert!(comment_target_from_id("github:ic:abc").is_none());
         assert!(comment_target_from_id("nonsense").is_none());
+    }
+
+    #[test]
+    fn an_edit_aliases_onto_the_claim_for_the_same_field_value() {
+        let digest = edit_digest("body", "Plan: 1 to add");
+        let edited = pr_edited(&subject("widgets", 7), &digest);
+
+        assert!(is_edited(&edited));
+        assert_eq!(
+            aliases(&edited),
+            vec![edited.clone(), pr_edit("acme", "widgets", &digest)]
+        );
+    }
+
+    #[test]
+    fn an_edit_digest_ignores_line_endings_but_not_the_field() {
+        assert_eq!(edit_digest("body", "a\r\nb"), edit_digest("body", "a\nb"));
+        assert_ne!(edit_digest("body", "x"), edit_digest("title", "x"));
     }
 
     /// A PR-level id is never aliased onto the number-only string, in either

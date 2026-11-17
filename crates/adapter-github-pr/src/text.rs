@@ -72,6 +72,54 @@ pub(super) fn pr_synchronized_text(
     text
 }
 
+/// What a `pull_request` `edited` webhook changed, for [`pr_edited_text`].
+pub(super) struct PrEdit<'a> {
+    pub(super) sender: &'a str,
+    pub(super) pr_number: u64,
+    pub(super) html_url: &'a str,
+    /// The old and new title.
+    pub(super) title: Option<(&'a str, &'a str)>,
+    pub(super) body: bool,
+    /// The old and new base branch.
+    pub(super) base: Option<(&'a str, &'a str)>,
+}
+
+/// Task message for an edited PR title, description or base branch. The
+/// description is not inlined, as in [`pr_opened_text`]: it is read live.
+pub(super) fn pr_edited_text(e: &PrEdit<'_>) -> String {
+    let parts: Vec<&str> = [
+        e.title.map(|_| "title"),
+        e.body.then_some("description"),
+        e.base.map(|_| "base branch"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let mut text = format!(
+        "**@{}** edited the {} of PR #{}\n",
+        e.sender,
+        parts.join(" and "),
+        e.pr_number
+    );
+    if !e.html_url.is_empty() {
+        let _ = writeln!(text, "{}", e.html_url);
+    }
+    if let Some((from, to)) = e.title {
+        let _ = write!(text, "\n**Title:** {from} → {to}\n");
+    }
+    if let Some((from, to)) = e.base {
+        let _ = write!(text, "\n**Base:** `{from}` → `{to}`\n");
+    }
+    if e.body {
+        let _ = write!(
+            text,
+            "\nRead the new description: `moat gh pr view {}`\n",
+            e.pr_number
+        );
+    }
+    text
+}
+
 /// Task message for an `issue_comment` webhook. Carries the PR/issue number and
 /// the numeric comment id so the agent can reply via `moat gh pr reply` / the
 /// GitHub API without guessing ids.
@@ -429,6 +477,22 @@ pub(super) fn merge_conflict_text(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pr_edited_text_names_each_change_and_points_at_the_live_description() {
+        let text = pr_edited_text(&PrEdit {
+            sender: "alice",
+            pr_number: 42,
+            html_url: "https://github.com/o/r/pull/42",
+            title: Some(("feat: x", "feat: y")),
+            body: true,
+            base: None,
+        });
+        assert!(text.starts_with("**@alice** edited the title and description of PR #42\n"));
+        assert!(text.contains("**Title:** feat: x → feat: y"));
+        assert!(text.contains("`moat gh pr view 42`"));
+        assert!(!text.contains("Base"));
+    }
 
     #[test]
     fn pr_opened_text_is_minimal_with_live_read_instructions() {

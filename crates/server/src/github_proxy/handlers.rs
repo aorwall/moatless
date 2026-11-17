@@ -148,7 +148,7 @@ pub(super) async fn forward(
     };
     match send_write(&request, graphql, requested.as_ref(), &write).await {
         Ok((response, repository)) => {
-            record_made(&request, graphql, repository.as_ref(), response).await
+            record_made(&request, &write, graphql, repository.as_ref(), response).await
         }
         Err(refused) => *refused,
     }
@@ -202,6 +202,7 @@ async fn read_answer(body: Body) -> Answer {
 /// webhook beating the answer here is delivered.
 async fn record_made(
     request: &Outbound<'_>,
+    write: &Write,
     graphql: bool,
     repository: Option<&GitHostRepo>,
     response: Response,
@@ -225,9 +226,9 @@ async fn record_made(
         }
     };
     let made = if graphql {
-        made::from_graphql(&bytes)
+        made::from_graphql(&write.bytes, &bytes)
     } else {
-        made::from_rest(request.method, request.path_and_query, &bytes)
+        made::from_rest(request.method, request.path_and_query, &write.bytes, &bytes)
     };
     for made in &made {
         own_events
