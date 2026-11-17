@@ -6,18 +6,19 @@ pub(crate) const SERVICE_ACCOUNT_TOKEN: &str =
 
 /// The note for a pod in Kubernetes with no service-account token mounted.
 ///
-/// The pod builder mounts a token only for a workspace that names a
-/// `sandboxServiceAccount`. Without this note a skill that assumes one spends
-/// the turn on port-forwards and preview setup that cannot authenticate.
+/// A token is mounted only when the workspace or the sandbox's role identity
+/// (`SANDBOX_ROLE_IDENTITIES_JSON`) names a service account. Without this note
+/// a skill that assumes one spends the turn on port-forwards and preview setup
+/// that cannot authenticate.
 pub(crate) fn build(kubectl_unauthenticated: bool) -> Option<String> {
     kubectl_unauthenticated.then(|| {
         "## Kubernetes\n\
-         This sandbox has no Kubernetes credentials: its workspace names no \
-         `sandboxServiceAccount`, so no service-account token is mounted and \
-         every `kubectl` call fails. A step that needs the cluster — a \
-         port-forward, a preview environment, an ArgoCD check, a secret read \
-         — cannot run here; say so in your result rather than retrying, and \
-         verify another way where one exists."
+         This sandbox has no Kubernetes credentials: neither its workspace \
+         nor its user's role grants a service account, so no token is \
+         mounted and every `kubectl` call fails. A step that needs the \
+         cluster — a port-forward, a preview environment, an ArgoCD check, \
+         a secret read — cannot run here; say so in your result rather than \
+         retrying, and verify another way where one exists."
             .to_string()
     })
 }

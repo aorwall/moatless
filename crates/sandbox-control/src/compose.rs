@@ -62,8 +62,9 @@ impl SandboxGraph {
         &self,
         workspaces: Arc<dyn WorkspaceResolver>,
         users: Arc<dyn CommitIdentity>,
+        roles: moatless_core::sandbox_identities::RoleIdentities,
     ) -> ProvisionDeps {
-        ProvisionDeps::new(self.store.clone(), workspaces, users)
+        ProvisionDeps::new(self.store.clone(), workspaces, users, roles)
     }
 
     /// The `sandboxes` row as the Sandbox's own gRPC service reads and records

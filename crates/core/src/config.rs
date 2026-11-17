@@ -515,6 +515,8 @@ pub struct SandboxConfig {
     /// [`SandboxConfig::identities`]. Env
     /// `K8S_ALLOWED_SANDBOX_SERVICE_ACCOUNTS` (comma-separated).
     pub allowed_service_accounts: Vec<String>,
+    /// See [`crate::sandbox_identities::RoleIdentities`].
+    pub role_identities: crate::sandbox_identities::RoleIdentities,
     /// `NO_PROXY` value paired with [`SandboxConfig::egress_proxy_url`] so
     /// in-cluster traffic (gRPC, DNS, kube-apiserver, link-local metadata)
     /// bypasses the proxy.
@@ -958,6 +960,10 @@ impl Config {
                 egress_proxy_profiles: env_csv("SANDBOX_EGRESS_PROXY_PROFILES"),
                 network_profiles: env_csv("SANDBOX_NETWORK_PROFILES"),
                 allowed_service_accounts: env_csv("K8S_ALLOWED_SANDBOX_SERVICE_ACCOUNTS"),
+                role_identities: crate::sandbox_identities::RoleIdentities::parse(
+                    env_opt("SANDBOX_ROLE_IDENTITIES_JSON").as_deref(),
+                )
+                .map_err(|e| ConfigError::Invalid(format!("SANDBOX_ROLE_IDENTITIES_JSON: {e}")))?,
                 egress_proxy_no_proxy: env_str(
                     "SANDBOX_EGRESS_PROXY_NO_PROXY",
                     "localhost,127.0.0.1,::1,.svc,.svc.cluster.local,.cluster.local,\
@@ -1463,6 +1469,7 @@ impl Config {
                 egress_proxy_profiles: vec![],
                 network_profiles: vec![],
                 allowed_service_accounts: vec![],
+                role_identities: crate::sandbox_identities::RoleIdentities::default(),
                 egress_proxy_no_proxy: "localhost,.svc.cluster.local".into(),
                 local_passthrough_env: vec![],
             },

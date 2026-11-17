@@ -13,9 +13,10 @@ use tracing::{info, warn};
 
 use moatless_workspace_types::workspace::ResourceConfig;
 
-use crate::lifecycle::dao::LifecycleDao;
+use crate::lifecycle::dao::{LifecycleDao, SandboxShape};
 use crate::preflight::preflight_validate_sandbox_control;
 use crate::secrets::{is_model_credential_key, is_platform_owned_key};
+use moatless_core::sandbox_identities::RoleIdentities;
 use moatless_ports::identity::CommitIdentity;
 use moatless_sandbox_runtime::error::SandboxError;
 use moatless_sandbox_runtime::provisioning::{ProvisionRequest, RepoConfig};
@@ -94,6 +95,7 @@ pub(crate) async fn build_provision_request(
     sandboxes: &dyn LifecycleDao,
     workspaces: &dyn WorkspaceResolver,
     users: &dyn CommitIdentity,
+    roles: &RoleIdentities,
     sandbox_id: &str,
 ) -> Result<ProvisionRequest, SandboxError> {
     // 1. Read the Sandbox row — the whole pod shape, no member task involved.
@@ -206,6 +208,8 @@ pub(crate) async fn build_provision_request(
         repo_config.node_selector = Some(selector.0.clone());
     }
 
+    apply_role_identity(&mut repo_config, roles, users, &shape, sandbox_id).await;
+
     // The profile the pod boots its first harness with; a delivery naming
     // another rebuilds it. The transport is fixed for the Sandbox lifetime.
     // Inserted after the workspace env so the Sandbox's selection overrides any
@@ -281,6 +285,72 @@ pub(crate) async fn build_provision_request(
         user_id,
         token_generation: shape.token_generation,
     })
+}
+
+/// Gives a sandbox whose Workspace names neither `sandbox_service_account` nor
+/// `network_profile` the identity of its people's role ([`RoleIdentities`]).
+///
+/// A Workspace naming either keeps both as named, deliberately: overwriting a
+/// lone `networkProfile` would take a `sealed-egress` sandbox off its seal.
+async fn apply_role_identity(
+    repo_config: &mut RepoConfig,
+    roles: &RoleIdentities,
+    users: &dyn CommitIdentity,
+    shape: &SandboxShape,
+    sandbox_id: &str,
+) {
+    if repo_config.sandbox_service_account.is_some() || repo_config.network_profile.is_some() {
+        return;
+    }
+    let admin = roles.admin.is_some() && sandbox_people_are_admins(users, shape, sandbox_id).await;
+    if let Some(identity) = roles.for_role(admin) {
+        repo_config.sandbox_service_account = Some(identity.service_account.clone());
+        repo_config
+            .network_profile
+            .clone_from(&identity.network_profile);
+    }
+}
+
+/// Whether the sandbox may run as the `admin` role identity: an interactive,
+/// private sandbox whose owner and run-as identity are both platform admins.
+///
+/// Headless and public sandboxes stay on `user` rather than their owner's
+/// role: a Loop or another user drives them, and the pod's identity outlives
+/// any one turn's driver. A failed lookup also answers `false`.
+async fn sandbox_people_are_admins(
+    users: &dyn CommitIdentity,
+    shape: &SandboxShape,
+    sandbox_id: &str,
+) -> bool {
+    if shape.headless || shape.public {
+        return false;
+    }
+    let (Some(owner), Some(run_as)) = (
+        shape.owner_user_id.as_deref(),
+        shape.run_as_user_id.as_deref(),
+    ) else {
+        return false;
+    };
+    let mut people = vec![owner];
+    if run_as != owner {
+        people.push(run_as);
+    }
+    for user_id in people {
+        match users.is_platform_admin(user_id).await {
+            Ok(true) => {}
+            Ok(false) => return false,
+            Err(e) => {
+                warn!(
+                    sandbox_id,
+                    user_id,
+                    error = %e,
+                    "Auto-provision: role lookup failed; using the user identity"
+                );
+                return false;
+            }
+        }
+    }
+    true
 }
 
 /// A workspace repository placement with the git-pointer fields of its
@@ -767,5 +837,123 @@ mod tests {
         );
         let mounts: Vec<&str> = checkouts.iter().map(|c| c.mount_name.as_str()).collect();
         assert_eq!(mounts, vec!["api", "web"]);
+    }
+
+    mod role_identity {
+        use super::super::*;
+        use moatless_core::sandbox_identities::SandboxIdentity;
+        use moatless_ports::identity::MockCommitIdentity;
+        use moatless_types::access_control::Scope;
+
+        fn roles() -> RoleIdentities {
+            let identity = |name: &str| SandboxIdentity {
+                service_account: format!("sa-{name}"),
+                network_profile: Some(name.to_string()),
+            };
+            RoleIdentities {
+                admin: Some(identity("operator")),
+                user: Some(identity("reader")),
+            }
+        }
+
+        fn shape() -> SandboxShape {
+            SandboxShape {
+                workspace_id: "ws".to_string(),
+                scope: Scope::Global,
+                owner_user_id: Some("owner".to_string()),
+                run_as_user_id: Some("owner".to_string()),
+                run_as_pinned: false,
+                driver_user_id: None,
+                reporter_user_id: None,
+                public: false,
+                branch: None,
+                headless: false,
+                agent_profile: None,
+                use_tmux: false,
+                node_selector: None,
+                stop_when_done: false,
+                token_generation: 1,
+            }
+        }
+
+        fn admins(ids: &'static [&'static str]) -> MockCommitIdentity {
+            let mut users = MockCommitIdentity::new();
+            users
+                .expect_is_platform_admin()
+                .returning(move |id| Ok(ids.contains(&id)));
+            users
+        }
+
+        async fn applied(shape: &SandboxShape, users: &MockCommitIdentity) -> RepoConfig {
+            let mut config = minimal_repo_config("ws");
+            apply_role_identity(&mut config, &roles(), users, shape, "sb").await;
+            config
+        }
+
+        #[tokio::test]
+        async fn an_admins_private_interactive_sandbox_runs_as_admin() {
+            let config = applied(&shape(), &admins(&["owner"])).await;
+            assert_eq!(
+                config.sandbox_service_account.as_deref(),
+                Some("sa-operator")
+            );
+            assert_eq!(config.network_profile.as_deref(), Some("operator"));
+        }
+
+        #[tokio::test]
+        async fn a_non_admin_runs_as_user() {
+            let config = applied(&shape(), &admins(&[])).await;
+            assert_eq!(config.sandbox_service_account.as_deref(), Some("sa-reader"));
+            assert_eq!(config.network_profile.as_deref(), Some("reader"));
+        }
+
+        #[tokio::test]
+        async fn headless_public_or_mixed_sandboxes_run_as_user() {
+            let users = admins(&["owner"]);
+            let headless = SandboxShape {
+                headless: true,
+                ..shape()
+            };
+            let public = SandboxShape {
+                public: true,
+                ..shape()
+            };
+            let run_as_other = SandboxShape {
+                run_as_user_id: Some("bot".to_string()),
+                ..shape()
+            };
+            for shape in [headless, public, run_as_other] {
+                let config = applied(&shape, &users).await;
+                assert_eq!(config.sandbox_service_account.as_deref(), Some("sa-reader"));
+            }
+        }
+
+        #[tokio::test]
+        async fn a_workspace_identity_wins() {
+            let users = admins(&["owner"]);
+            for (account, profile) in [(Some("sa-ai"), None), (None, Some("sealed-egress"))] {
+                let mut config = minimal_repo_config("ws");
+                config.sandbox_service_account = account.map(String::from);
+                config.network_profile = profile.map(String::from);
+                apply_role_identity(&mut config, &roles(), &users, &shape(), "sb").await;
+                assert_eq!(config.sandbox_service_account.as_deref(), account);
+                assert_eq!(config.network_profile.as_deref(), profile);
+            }
+        }
+
+        #[tokio::test]
+        async fn no_role_identities_leave_the_default() {
+            let mut config = minimal_repo_config("ws");
+            let users = admins(&["owner"]);
+            apply_role_identity(
+                &mut config,
+                &RoleIdentities::default(),
+                &users,
+                &shape(),
+                "sb",
+            )
+            .await;
+            assert_eq!(config.sandbox_service_account, None);
+        }
     }
 }

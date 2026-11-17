@@ -61,8 +61,11 @@ pub(crate) async fn build(
                 ) as Arc<dyn moatless_ports::sandbox::WorkspaceSnapshotSource>
             });
     let provision_deps = ports.map(|p| {
-        p.sandbox_graph
-            .provision_deps(p.workspace_resolver.clone(), p.user_directory.clone())
+        p.sandbox_graph.provision_deps(
+            p.workspace_resolver.clone(),
+            p.user_directory.clone(),
+            config.sandbox.role_identities.clone(),
+        )
     });
     // Build the configured runtime/observer/connector adapter once. The rich
     // 13-field read the HTTP routes need is the backend-local

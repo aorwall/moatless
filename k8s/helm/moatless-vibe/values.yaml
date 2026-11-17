@@ -1359,6 +1359,14 @@ sandboxAccess:
   apiServerCidrs: []
   # -- Port the kube-apiserver listens on.
   apiServerPort: 443
+  # -- The profile (a key of `profiles`, enabled) a sandbox runs as when its
+  # workspace names neither `sandboxServiceAccount` nor `networkProfile`. `admin`
+  # applies only to a private, interactive sandbox whose owner and run-as user
+  # are platform admins; every other sandbox gets `user`. Empty leaves that role
+  # on the default service account, with no cluster access.
+  roleDefaults:
+    admin: ""
+    user: ""
   # -- Access profiles. The map key is the pod label a workspace selects with
   # `networkProfile`, so the NetworkPolicy selector cannot drift from the name.
   # Add your own entry to define a new identity; `access` must be one of the

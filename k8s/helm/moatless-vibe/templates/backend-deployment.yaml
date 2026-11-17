@@ -481,6 +481,10 @@ spec:
             - name: K8S_ALLOWED_SANDBOX_SERVICE_ACCOUNTS
               value: {{ . | quote }}
             {{- end }}
+            {{- with include "moatless-vibe.sandboxRoleIdentities" . }}
+            - name: SANDBOX_ROLE_IDENTITIES_JSON
+              value: {{ . | quote }}
+            {{- end }}
             - name: K8S_RESOURCE_LIMIT_CPU
               value: {{ .Values.kubernetes.sandboxResources.limits.cpu | quote }}
             - name: K8S_RESOURCE_LIMIT_MEMORY

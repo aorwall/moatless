@@ -388,6 +388,14 @@ Gaps left by the first scoped-collection change, each reached from `crates/tasks
 | A Workspace run-as naming the Task's owner yields to the driver | `crates/sandbox-control/src/lifecycle/dao.rs::SandboxShape::pinned_run_as` counts only a Task pin when the row's run-as equals the owner: reading `workspaces` there is another crate's table | When the Sandbox row records whether its run-as came from a pin |
 | Plugin picks follow the run-as, not the driver | `crates/server/src/sandbox/grpc_server/plugins.rs` and `crates/sandbox-control/src/auto_provision.rs` resolve plugins for `run_as_user_id` | When a driver needs their own plugins on someone else's Task |
 
+## Role identities
+
+`crates/sandbox-control/src/auto_provision.rs::apply_role_identity` picks a Sandbox's service account from its people's role when its Workspace names none.
+
+| Deferred | Anchor | Entry condition |
+|---|---|---|
+| A running Sandbox keeps its role identity after its people's role changes | `apply_role_identity` runs only when a pod is built; nothing restarts a pod when `users.role` changes, so a demoted admin's Sandbox keeps the `admin` service account until it stops | When a role is revoked from someone with long-lived Sandboxes, or when the `admin` identity gains a write outside nonprod |
+
 ## Sandbox token scope
 
 `crates/identity/src/auth/sandbox_scope.rs` decides what a sandbox `X-User-Token` reaches. It ships under `SANDBOX_TOKEN_SCOPE=log`.

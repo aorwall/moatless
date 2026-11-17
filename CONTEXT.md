@@ -60,6 +60,13 @@ The Workspace with key `default` that every registered repository has, with
 the repository alone as primary. An entry with `"key": "default"` in its
 `.moatless/workspaces.json` overrides its settings.
 
+**Role identity**:
+The service account and network profile a Sandbox runs as when its Workspace
+names neither, picked by its people's role from `SANDBOX_ROLE_IDENTITIES_JSON`.
+`admin` goes only to a private, interactive Sandbox whose owner and run-as user
+are platform admins; every other Sandbox gets `user`. An **Identity grant**
+overrides it.
+
 **Identity grant**:
 A deployment's `WORKSPACE_IDENTITY_GRANTS` entry that lets one repository's
 Workspace keep the admin-only `sandboxServiceAccount`, `networkProfile` or

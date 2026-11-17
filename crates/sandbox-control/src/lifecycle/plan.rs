@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use crate::auto_provision::build_provision_request;
+use moatless_core::sandbox_identities::RoleIdentities;
 use moatless_ports::identity::CommitIdentity;
 use moatless_sandbox_runtime::provisioning::ProvisionRequest;
 use moatless_workspace_ports::WorkspaceResolver;
@@ -19,12 +20,14 @@ use moatless_sandbox_runtime::runtime::map_sandbox_error;
 ///
 /// `sandboxes` is the sole source of a pod's shape, `workspaces` supplies run
 /// configuration and repository placements, and `users` resolves the
-/// platform-admin flag every plan is gated on.
+/// platform-admin flag every plan is gated on, and `roles` picks the identity
+/// a sandbox whose Workspace names none runs as.
 #[derive(Clone)]
 pub struct ProvisionDeps {
     sandboxes: Arc<dyn LifecycleDao>,
     workspaces: Arc<dyn WorkspaceResolver>,
     users: Arc<dyn CommitIdentity>,
+    roles: Arc<RoleIdentities>,
 }
 
 impl ProvisionDeps {
@@ -32,11 +35,13 @@ impl ProvisionDeps {
         sandboxes: Arc<dyn LifecycleDao>,
         workspaces: Arc<dyn WorkspaceResolver>,
         users: Arc<dyn CommitIdentity>,
+        roles: RoleIdentities,
     ) -> Self {
         Self {
             sandboxes,
             workspaces,
             users,
+            roles: Arc::new(roles),
         }
     }
 
@@ -45,6 +50,7 @@ impl ProvisionDeps {
             self.sandboxes.as_ref(),
             self.workspaces.as_ref(),
             self.users.as_ref(),
+            &self.roles,
             sandbox_id,
         )
         .await
@@ -96,6 +102,7 @@ mod db_tests {
             // The seeded task is user-scoped and owned by its creator, so the
             // control gate never reaches for the platform-admin flag.
             Arc::new(non_admin()),
+            RoleIdentities::default(),
         )
     }
 

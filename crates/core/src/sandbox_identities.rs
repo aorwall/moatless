@@ -44,6 +44,47 @@ impl SandboxIdentities {
     }
 }
 
+/// A service account and the network profile that lets it reach the API server.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SandboxIdentity {
+    pub service_account: String,
+    pub network_profile: Option<String>,
+}
+
+/// The identity a sandbox gets from its people's role when its Workspace names
+/// neither a `sandboxServiceAccount` nor a `networkProfile`.
+///
+/// Env `SANDBOX_ROLE_IDENTITIES_JSON`, `{"admin": {...}, "user": {...}}`. A
+/// missing role leaves that role's sandboxes on the deployment default.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RoleIdentities {
+    pub admin: Option<SandboxIdentity>,
+    pub user: Option<SandboxIdentity>,
+}
+
+impl RoleIdentities {
+    /// Parses the env value; blank is empty. Malformed JSON is an error rather
+    /// than empty: read as empty, it would silently drop every sandbox's access.
+    pub fn parse(raw: Option<&str>) -> Result<Self, String> {
+        match raw.map(str::trim).filter(|r| !r.is_empty()) {
+            None => Ok(Self::default()),
+            Some(raw) => serde_json::from_str(raw).map_err(|e| e.to_string()),
+        }
+    }
+
+    /// The identity for a sandbox whose people are all admins (`admin`), else
+    /// the `user` one.
+    pub fn for_role(&self, admin: bool) -> Option<&SandboxIdentity> {
+        if admin {
+            self.admin.as_ref()
+        } else {
+            self.user.as_ref()
+        }
+    }
+}
+
 /// `Err` carries the comma-joined `allowed` list for the message.
 ///
 /// Compares untrimmed: the value is stored as sent, and Kubernetes rejects a
@@ -98,6 +139,23 @@ mod tests {
                 .is_err(),
             "a padded name is not the listed account"
         );
+    }
+
+    #[test]
+    fn role_identities_parse_and_pick_by_role() {
+        let roles = RoleIdentities::parse(Some(
+            r#"{"admin":{"serviceAccount":"op","networkProfile":"op"},
+                "user":{"serviceAccount":"reader"}}"#,
+        ))
+        .unwrap();
+        assert_eq!(roles.for_role(true).unwrap().service_account, "op");
+        assert_eq!(roles.for_role(false).unwrap().service_account, "reader");
+        assert_eq!(roles.for_role(false).unwrap().network_profile, None);
+        assert_eq!(
+            RoleIdentities::parse(Some("  ")).unwrap(),
+            RoleIdentities::default()
+        );
+        assert!(RoleIdentities::parse(Some("{\"admins\":{}}")).is_err());
     }
 
     #[test]

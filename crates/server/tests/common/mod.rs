@@ -318,6 +318,7 @@ fn build_app_state(
         plan: sandbox_graph.provision_deps(
             ports.workspace_resolver.clone(),
             ports.user_directory.clone(),
+            Default::default(),
         ),
         default_sandbox_image: "mock-sandbox:latest".into(),
         // No publisher and no S3 in the handler tests, so no publication and no

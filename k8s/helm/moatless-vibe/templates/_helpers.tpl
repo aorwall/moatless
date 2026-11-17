@@ -369,6 +369,26 @@ workspace naming it mounts its token, and by default it is the backend SA.
 {{- end -}}
 
 {{/*
+SANDBOX_ROLE_IDENTITIES_JSON from sandboxAccess.roleDefaults, or empty when no
+role names a profile. Fails on a role naming a profile that is not enabled:
+the backend would mount a ServiceAccount that does not exist.
+*/}}
+{{- define "moatless-vibe.sandboxRoleIdentities" -}}
+{{- $out := dict -}}
+{{- $defaults := .Values.sandboxAccess.roleDefaults | default dict -}}
+{{- range $role := list "admin" "user" }}
+{{- with index $defaults $role }}
+{{- $profile := index $.Values.sandboxAccess.profiles . | default dict }}
+{{- if not $profile.enabled }}
+{{- fail (printf "sandboxAccess.roleDefaults.%s names %q, which is not an enabled sandboxAccess profile" $role .) }}
+{{- end }}
+{{- $_ := set $out $role (dict "serviceAccount" $profile.serviceAccount "networkProfile" .) }}
+{{- end }}
+{{- end -}}
+{{- if $out }}{{ $out | toJson }}{{ end -}}
+{{- end -}}
+
+{{/*
 Ingress rules for a sandbox pod: backend (gRPC + health), Traefik preview, and
 extraIngress. Shared by the base and the sealed-egress policies, rendered at
 the `ingress:` list indent.
