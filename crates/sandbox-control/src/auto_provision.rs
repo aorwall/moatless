@@ -311,18 +311,18 @@ async fn apply_role_identity(
     }
 }
 
-/// Whether the sandbox may run as the `admin` role identity: an interactive,
-/// private sandbox whose owner and run-as identity are both platform admins.
+/// Whether the sandbox may run as the `admin` role identity: a private sandbox
+/// no Loop opened, whose owner and run-as identity are both platform admins.
 ///
-/// Headless and public sandboxes stay on `user` rather than their owner's
-/// role: a Loop or another user drives them, and the pod's identity outlives
-/// any one turn's driver. A failed lookup also answers `false`.
+/// Loop-opened and public sandboxes stay on `user`: a Loop or another user
+/// drives them. It checks the Loop rather than `headless`, which an admin's
+/// agent sets on every child. A failed lookup also answers `false`.
 async fn sandbox_people_are_admins(
     users: &dyn CommitIdentity,
     shape: &SandboxShape,
     sandbox_id: &str,
 ) -> bool {
-    if shape.headless || shape.public {
+    if shape.loop_opened || shape.public {
         return false;
     }
     let (Some(owner), Some(run_as)) = (
@@ -866,6 +866,7 @@ mod tests {
                 driver_user_id: None,
                 reporter_user_id: None,
                 public: false,
+                loop_opened: false,
                 branch: None,
                 headless: false,
                 agent_profile: None,
@@ -892,13 +893,19 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn an_admins_private_interactive_sandbox_runs_as_admin() {
-            let config = applied(&shape(), &admins(&["owner"])).await;
-            assert_eq!(
-                config.sandbox_service_account.as_deref(),
-                Some("sa-operator")
-            );
-            assert_eq!(config.network_profile.as_deref(), Some("operator"));
+        async fn an_admins_private_sandbox_runs_as_admin_even_headless() {
+            for headless in [false, true] {
+                let shape = SandboxShape {
+                    headless,
+                    ..shape()
+                };
+                let config = applied(&shape, &admins(&["owner"])).await;
+                assert_eq!(
+                    config.sandbox_service_account.as_deref(),
+                    Some("sa-operator")
+                );
+                assert_eq!(config.network_profile.as_deref(), Some("operator"));
+            }
         }
 
         #[tokio::test]
@@ -909,10 +916,10 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn headless_public_or_mixed_sandboxes_run_as_user() {
+        async fn loop_opened_public_or_mixed_sandboxes_run_as_user() {
             let users = admins(&["owner"]);
-            let headless = SandboxShape {
-                headless: true,
+            let loop_opened = SandboxShape {
+                loop_opened: true,
                 ..shape()
             };
             let public = SandboxShape {
@@ -923,7 +930,7 @@ mod tests {
                 run_as_user_id: Some("bot".to_string()),
                 ..shape()
             };
-            for shape in [headless, public, run_as_other] {
+            for shape in [loop_opened, public, run_as_other] {
                 let config = applied(&shape, &users).await;
                 assert_eq!(config.sandbox_service_account.as_deref(), Some("sa-reader"));
             }

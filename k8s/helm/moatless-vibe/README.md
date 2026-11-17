@@ -648,7 +648,7 @@ and no second identity to fall back to.
 |-----------|-------------|---------|
 | `sandboxAccess.apiServerCidrs` | kube-apiserver ClusterIP(s), shared by all profiles. **Required once any profile is enabled** | `[]` |
 | `sandboxAccess.apiServerPort` | kube-apiserver port | `443` |
-| `sandboxAccess.roleDefaults.admin` | Enabled profile key for a private, interactive sandbox whose owner and run-as user are platform admins, when its workspace names no identity | `""` |
+| `sandboxAccess.roleDefaults.admin` | Enabled profile key for a private sandbox no Loop opened, whose owner and run-as user are platform admins, when its workspace names no identity | `""` |
 | `sandboxAccess.roleDefaults.user` | Enabled profile key for every other sandbox whose workspace names no identity | `""` |
 | `sandboxAccess.profiles.<key>.enabled` | Create this profile's SA, RBAC and NetworkPolicy | `false` |
 | `sandboxAccess.profiles.<key>.access` | `cluster-read` or `namespace-admin` | — |

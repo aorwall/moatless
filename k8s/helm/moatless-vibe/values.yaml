@@ -1363,7 +1363,7 @@ sandboxAccess:
   apiServerPort: 443
   # -- The profile (a key of `profiles`, enabled) a sandbox runs as when its
   # workspace names neither `sandboxServiceAccount` nor `networkProfile`. `admin`
-  # applies only to a private, interactive sandbox whose owner and run-as user
+  # applies only to a private sandbox no Loop opened, whose owner and run-as user
   # are platform admins; every other sandbox gets `user`. Empty leaves that role
   # on the default service account, with no cluster access.
   roleDefaults:

@@ -49,6 +49,8 @@ pub struct SandboxShape {
     /// Whether the Sandbox's founding Task is public, which grants its driver
     /// write.
     pub public: bool,
+    /// Whether a Loop opened the Sandbox's founding Task.
+    pub loop_opened: bool,
     pub branch: Option<String>,
     pub headless: bool,
     pub agent_profile: Option<String>,
@@ -457,6 +459,7 @@ impl LifecycleDao for PgLifecycleDao {
                       (t.run_as_user_id IS NOT NULL) AS run_as_pinned,
                       s.driver_user_id, t.reporter_user_id,
                       COALESCE(t.visibility = 'public', false) AS public,
+                      (t.loop_id IS NOT NULL) AS loop_opened,
                       s.branch, s.headless, s.agent_profile, s.use_tmux,
                       s.node_selector, s.stop_when_done, s.token_generation,
                       s.service_account
@@ -942,6 +945,7 @@ mod tests {
             driver_user_id: Some("visitor".to_string()),
             reporter_user_id: None,
             public: true,
+            loop_opened: false,
             branch: None,
             headless: false,
             agent_profile: None,

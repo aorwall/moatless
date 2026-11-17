@@ -63,7 +63,7 @@ the repository alone as primary. An entry with `"key": "default"` in its
 **Role identity**:
 The service account and network profile a Sandbox runs as when its Workspace
 names neither, picked by its people's role from `SANDBOX_ROLE_IDENTITIES_JSON`.
-`admin` goes only to a private, interactive Sandbox whose owner and run-as user
+`admin` goes only to a private Sandbox no Loop opened, whose owner and run-as user
 are platform admins; every other Sandbox gets `user`. An **Identity grant**
 overrides it.
 
