@@ -104,6 +104,13 @@ async fn load_failure_is_intent_load_not_write() {
         async fn mark_storage_reclaimed(&self, _t: &str) -> Result<(), StoreError> {
             Ok(())
         }
+        async fn record_service_account(
+            &self,
+            _sandbox_id: &str,
+            _account: Option<&str>,
+        ) -> Result<(), StoreError> {
+            Ok(())
+        }
         async fn record_running_commands(&self, _t: &str, _running: i32) -> Result<(), StoreError> {
             Ok(())
         }

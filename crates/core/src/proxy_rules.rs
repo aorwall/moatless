@@ -214,6 +214,10 @@ pub struct RuleSpec {
     pub path: String,
     #[serde(default)]
     pub body: Option<BodyRule>,
+    /// Limits the rule to sandboxes whose pod runs as one of these Kubernetes
+    /// service accounts. Absent means every caller.
+    #[serde(default)]
+    pub service_accounts: Option<Vec<String>>,
 }
 
 /// One allow rule, parsed.
@@ -222,6 +226,7 @@ pub struct Rule {
     methods: Vec<String>,
     path: PathGlob,
     body: Option<BodyRule>,
+    service_accounts: Option<Vec<String>>,
 }
 
 impl Rule {
@@ -235,12 +240,31 @@ impl Rule {
             methods: methods.iter().map(|m| m.to_ascii_uppercase()).collect(),
             path: PathGlob::parse(path)?,
             body,
+            service_accounts: None,
         })
+    }
+
+    /// Limit the rule to callers running as one of `accounts`. An empty or
+    /// blank list is refused: it would read as "everyone" to a reviewer and
+    /// match no one.
+    pub fn for_service_accounts(mut self, accounts: Vec<String>) -> Result<Self, String> {
+        if accounts.is_empty() || accounts.iter().any(|a| a.trim().is_empty()) {
+            return Err(format!(
+                "rule `{}` has an empty serviceAccounts entry or list",
+                self.path()
+            ));
+        }
+        self.service_accounts = Some(accounts);
+        Ok(self)
     }
 
     pub fn from_spec(spec: &RuleSpec) -> Result<Self, String> {
         let methods: Vec<&str> = spec.methods.iter().map(String::as_str).collect();
-        Self::new(&methods, &spec.path, spec.body.clone())
+        let rule = Self::new(&methods, &spec.path, spec.body.clone())?;
+        match &spec.service_accounts {
+            Some(accounts) => rule.for_service_accounts(accounts.clone()),
+            None => Ok(rule),
+        }
     }
 
     pub fn path(&self) -> &str {
@@ -250,10 +274,18 @@ impl Rule {
     pub fn needs_body(&self) -> bool {
         self.body.is_some()
     }
+
+    /// Whether a caller whose pod runs as `account` may use the rule. A caller
+    /// with no recorded account never passes a limited rule.
+    fn admits(&self, account: Option<&str>) -> bool {
+        self.service_accounts
+            .as_ref()
+            .is_none_or(|accounts| account.is_some_and(|a| accounts.iter().any(|x| x == a)))
+    }
 }
 
-/// An ordered allow list: the first rule whose method and path match decides,
-/// and no match denies.
+/// An ordered allow list: the first rule whose method and path match and whose
+/// service accounts admit the caller decides, and no match denies.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct RuleSet(Vec<Rule>);
 
@@ -275,14 +307,22 @@ impl RuleSet {
 
     /// Whether a request for `method` and `path` needs its body read before
     /// [`Self::check`] can answer.
-    pub fn needs_body(&self, method: &str, path: &NormalPath) -> bool {
-        self.first(method, path).is_some_and(Rule::needs_body)
+    pub fn needs_body(&self, method: &str, path: &NormalPath, account: Option<&str>) -> bool {
+        self.first(method, path, account)
+            .is_some_and(Rule::needs_body)
     }
 
-    /// The verdict for one request. `body` is `None` when it was streamed
-    /// unread, which a rule with a body rule refuses.
-    pub fn check(&self, method: &str, path: &NormalPath, body: Option<&[u8]>) -> Verdict {
-        match self.first(method, path) {
+    /// The verdict for one request from a pod running as `account`. `body` is
+    /// `None` when it was streamed unread, which a rule with a body rule
+    /// refuses.
+    pub fn check(
+        &self,
+        method: &str,
+        path: &NormalPath,
+        account: Option<&str>,
+        body: Option<&[u8]>,
+    ) -> Verdict {
+        match self.first(method, path, account) {
             None => Verdict::NoRule,
             Some(rule) => match &rule.body {
                 Some(body_rule) if !body.is_some_and(|b| body_rule.matches(b)) => {
@@ -293,9 +333,11 @@ impl RuleSet {
         }
     }
 
-    fn first(&self, method: &str, path: &NormalPath) -> Option<&Rule> {
+    fn first(&self, method: &str, path: &NormalPath, account: Option<&str>) -> Option<&Rule> {
         self.0.iter().find(|rule| {
-            rule.methods.iter().any(|m| m.eq_ignore_ascii_case(method)) && rule.path.matches(path)
+            rule.methods.iter().any(|m| m.eq_ignore_ascii_case(method))
+                && rule.path.matches(path)
+                && rule.admits(account)
         })
     }
 }
@@ -395,23 +437,26 @@ mod tests {
     fn the_first_rule_matching_method_and_path_decides() {
         let rules = rules();
         assert_eq!(
-            rules.check("GET", &path("/repos/o/r/pulls/1"), None),
+            rules.check("GET", &path("/repos/o/r/pulls/1"), None, None),
             Verdict::Allow("/repos/**".to_string())
         );
         assert_eq!(
-            rules.check("DELETE", &path("/repos/o/r"), None),
+            rules.check("DELETE", &path("/repos/o/r"), None, None),
             Verdict::NoRule
         );
-        assert_eq!(rules.check("GET", &path("/user"), None), Verdict::NoRule);
+        assert_eq!(
+            rules.check("GET", &path("/user"), None, None),
+            Verdict::NoRule
+        );
     }
 
     #[test]
     fn a_body_rule_reads_the_json_pointer() {
         let rules = rules();
         let reviews = path("/repos/o/r/pulls/1/reviews");
-        assert!(rules.needs_body("POST", &reviews));
-        assert!(!rules.needs_body("GET", &reviews));
-        let check = |body: &str| rules.check("POST", &reviews, Some(body.as_bytes()));
+        assert!(rules.needs_body("POST", &reviews, None));
+        assert!(!rules.needs_body("GET", &reviews, None));
+        let check = |body: &str| rules.check("POST", &reviews, None, Some(body.as_bytes()));
         assert!(matches!(check(r#"{"event":"COMMENT"}"#), Verdict::Allow(_)));
         assert!(matches!(check(r#"{"body":"pending"}"#), Verdict::Allow(_)));
         assert!(matches!(
@@ -420,8 +465,45 @@ mod tests {
         ));
         assert!(matches!(check("not json"), Verdict::BodyRefused(_)));
         assert!(matches!(
-            rules.check("POST", &reviews, None),
+            rules.check("POST", &reviews, None, None),
             Verdict::BodyRefused(_)
         ));
+    }
+
+    #[test]
+    fn a_limited_rule_admits_only_its_service_accounts() {
+        let rules = RuleSet::new(vec![
+            Rule::new(&["GET"], "/api/datasources/proxy/uid/*/**", None)
+                .unwrap()
+                .for_service_accounts(vec!["moatless-ops".to_string()])
+                .unwrap(),
+            Rule::new(&["GET"], "/api/datasources/proxy/uid/loki/**", None).unwrap(),
+        ]);
+        let prod = path("/api/datasources/proxy/uid/loki-prod/loki/api/v1/labels");
+        let nonprod = path("/api/datasources/proxy/uid/loki/loki/api/v1/labels");
+        let check = |p: &NormalPath, account| rules.check("GET", p, account, None);
+        assert!(matches!(
+            check(&prod, Some("moatless-ops")),
+            Verdict::Allow(_)
+        ));
+        assert_eq!(check(&prod, Some("moatless-user")), Verdict::NoRule);
+        assert_eq!(check(&prod, None), Verdict::NoRule);
+        // A caller the limited rule skips falls through to the next rule.
+        assert_eq!(
+            check(&nonprod, None),
+            Verdict::Allow("/api/datasources/proxy/uid/loki/**".to_string())
+        );
+    }
+
+    #[test]
+    fn an_empty_service_account_list_is_refused() {
+        let rule = || Rule::new(&["GET"], "/x", None).unwrap();
+        assert!(rule().for_service_accounts(vec![]).is_err());
+        assert!(rule().for_service_accounts(vec![" ".to_string()]).is_err());
+        let spec: RuleSpec = serde_json::from_value(serde_json::json!({
+            "methods": ["GET"], "path": "/x", "serviceAccounts": []
+        }))
+        .unwrap();
+        assert!(Rule::from_spec(&spec).is_err());
     }
 }

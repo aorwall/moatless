@@ -195,6 +195,7 @@ fn scope() -> super::super::service::SandboxScope {
         user: "user-1".to_string(),
         workspace: "workspace-1".to_string(),
         run_as: None,
+        service_account: None,
         task: None,
     }
 }

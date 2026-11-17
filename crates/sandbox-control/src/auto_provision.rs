@@ -873,6 +873,7 @@ mod tests {
                 node_selector: None,
                 stop_when_done: false,
                 token_generation: 1,
+                service_account: None,
             }
         }
 

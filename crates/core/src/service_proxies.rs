@@ -403,6 +403,27 @@ mod tests {
     }
 
     #[test]
+    fn a_rule_limited_to_service_accounts_parses_and_an_empty_list_fails() {
+        let limited_to = |accounts: serde_json::Value| {
+            let mut service = grafana();
+            service["rules"][1]["serviceAccounts"] = accounts;
+            service
+        };
+        let services = parse_one(limited_to(serde_json::json!(["moatless-ops"]))).unwrap();
+        let rules = &services.get("grafana").unwrap().rules;
+        let query = crate::proxy_rules::NormalPath::parse("/api/ds/query").unwrap();
+        assert!(matches!(
+            rules.check("POST", &query, Some("moatless-ops"), None),
+            crate::proxy_rules::Verdict::Allow(_)
+        ));
+        assert_eq!(
+            rules.check("POST", &query, Some("moatless-user"), None),
+            crate::proxy_rules::Verdict::NoRule
+        );
+        assert!(parse_one(limited_to(serde_json::json!([]))).is_err());
+    }
+
+    #[test]
     fn a_secret_or_env_name_the_platform_owns_is_refused() {
         let services =
             parse_one(with(grafana(), "/credential/secret", "GITHUB_TOKEN".into())).unwrap();

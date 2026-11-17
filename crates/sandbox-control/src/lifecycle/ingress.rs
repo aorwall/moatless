@@ -24,6 +24,8 @@ pub struct SandboxIdentity {
     pub owner_user_id: Option<String>,
     /// The founding Task's Reporter; a Member Task names its own.
     pub reporter_user_id: Option<String>,
+    /// See [`super::dao::LifecycleDao::record_service_account`].
+    pub service_account: Option<String>,
 }
 
 impl SandboxIdentity {
@@ -80,6 +82,7 @@ impl SandboxIngress {
                 driver_user_id: shape.driver_user_id.clone(),
                 owner_user_id: shape.owner_user_id.clone(),
                 reporter_user_id: shape.reporter_user_id.clone(),
+                service_account: shape.service_account.clone(),
             }))
     }
 

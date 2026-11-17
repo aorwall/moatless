@@ -62,6 +62,8 @@ pub struct SandboxShape {
     /// The generation a task token for this Sandbox is minted at. See
     /// [`moatless_core::sandbox_jwt::check_generation`].
     pub token_generation: i64,
+    /// See [`LifecycleDao::record_service_account`].
+    pub service_account: Option<String>,
 }
 
 impl SandboxShape {
@@ -184,6 +186,15 @@ pub trait LifecycleDao: Send + Sync {
     /// Notifies the listing only when the count crosses zero: the sidebar
     /// renders "is anything running", and a 2→3 move wakes no client.
     async fn record_running_commands(&self, task_id: &str, running: i32) -> Result<(), StoreError>;
+
+    /// Record the service account the Sandbox's pod is about to be built with,
+    /// `None` for the deployment default. Written before the build, so a
+    /// failed build leaves no running pod the row could misdescribe.
+    async fn record_service_account(
+        &self,
+        sandbox_id: &str,
+        account: Option<&str>,
+    ) -> Result<(), StoreError>;
 
     /// Mirror the commands a pod says still owe its agent an outcome, on a
     /// row no failed workspace-snapshot restore touches, so a replacement
@@ -447,7 +458,8 @@ impl LifecycleDao for PgLifecycleDao {
                       s.driver_user_id, t.reporter_user_id,
                       COALESCE(t.visibility = 'public', false) AS public,
                       s.branch, s.headless, s.agent_profile, s.use_tmux,
-                      s.node_selector, s.stop_when_done, s.token_generation
+                      s.node_selector, s.stop_when_done, s.token_generation,
+                      s.service_account
                FROM sandboxes s
                LEFT JOIN tasks t ON t.task_id = s.sandbox_id
                WHERE s.sandbox_id = $1"#,
@@ -670,6 +682,20 @@ impl LifecycleDao for PgLifecycleDao {
         .await
         .map(|_| ())
         .map_err(|e| StoreError::with_source("mark storage reclaimed", e))
+    }
+
+    async fn record_service_account(
+        &self,
+        sandbox_id: &str,
+        account: Option<&str>,
+    ) -> Result<(), StoreError> {
+        sqlx::query("UPDATE sandboxes SET service_account = $2 WHERE sandbox_id = $1")
+            .bind(sandbox_id)
+            .bind(account)
+            .execute(&self.pool)
+            .await
+            .map(|_| ())
+            .map_err(|e| StoreError::with_source("record sandbox service account", e))
     }
 
     async fn record_running_commands(
@@ -923,6 +949,7 @@ mod tests {
             node_selector: None,
             stop_when_done: false,
             token_generation: 1,
+            service_account: None,
         };
         assert_eq!(shape("owner", false).pinned_run_as(), None);
         assert_eq!(shape("owner", true).pinned_run_as(), Some("owner"));

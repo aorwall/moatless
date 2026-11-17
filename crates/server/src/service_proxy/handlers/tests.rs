@@ -77,6 +77,7 @@ fn services(upstream: &str) -> Arc<ServiceProxies> {
                 { "methods": ["GET"], "path": "/api/health" },
                 { "methods": ["GET"], "path": "/redirect" },
                 { "methods": ["GET"], "path": "/gateway-timeout" },
+                { "methods": ["GET"], "path": "/api/prod/**", "serviceAccounts": ["moatless-ops"] },
                 { "methods": ["POST"], "path": "/api/ds/query",
                   "body": { "pointer": "/kind", "oneOf": ["read"] } }
             ]
@@ -179,12 +180,24 @@ fn scope() -> SandboxScope {
         user: "user-1".to_string(),
         workspace: "workspace-1".to_string(),
         run_as: None,
+        service_account: None,
         task: None,
     }
 }
 
 async fn send(
     gateway: &ServiceProxyGateway,
+    name: &str,
+    method: Method,
+    path: &str,
+    body: &str,
+) -> Response {
+    send_as(gateway, &scope(), name, method, path, body).await
+}
+
+async fn send_as(
+    gateway: &ServiceProxyGateway,
+    scope: &SandboxScope,
     name: &str,
     method: Method,
     path: &str,
@@ -197,7 +210,7 @@ async fn send(
     );
     match forward(
         gateway,
-        &scope(),
+        scope,
         name,
         method,
         path,
@@ -282,6 +295,45 @@ async fn a_request_no_rule_allows_is_refused_before_the_upstream() {
     )
     .await;
     assert_eq!(allowed.status(), StatusCode::OK);
+    assert_eq!(seen.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_rule_limited_to_service_accounts_forwards_only_for_their_pods() {
+    let seen = Seen::default();
+    let upstream = fake_upstream(Arc::clone(&seen)).await;
+    let gateway = gateway(
+        &upstream,
+        &["grafana"],
+        &[("GRAFANA_TOKEN", GRAFANA_SECRET)],
+    );
+    let running_as = |account: Option<&str>| SandboxScope {
+        service_account: account.map(str::to_string),
+        ..scope()
+    };
+
+    for account in [None, Some("moatless-user")] {
+        let response = send_as(
+            &gateway,
+            &running_as(account),
+            "grafana",
+            Method::GET,
+            "/api/prod/x",
+            "",
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{account:?}");
+    }
+    let ops = send_as(
+        &gateway,
+        &running_as(Some("moatless-ops")),
+        "grafana",
+        Method::GET,
+        "/api/prod/x",
+        "",
+    )
+    .await;
+    assert_eq!(ops.status(), StatusCode::OK);
     assert_eq!(seen.lock().unwrap().len(), 1);
 }
 

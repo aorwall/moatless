@@ -189,6 +189,13 @@ impl LifecycleDao for InMemoryLifecycleDao {
         *self.storage_reclaimed.lock().expect("lock") = true;
         Ok(())
     }
+    async fn record_service_account(
+        &self,
+        _sandbox_id: &str,
+        _account: Option<&str>,
+    ) -> Result<(), StoreError> {
+        Ok(())
+    }
     async fn record_running_commands(
         &self,
         _task_id: &str,

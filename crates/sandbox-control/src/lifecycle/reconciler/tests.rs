@@ -88,6 +88,13 @@ impl LifecycleDao for MemberStore {
     async fn mark_storage_reclaimed(&self, _task_id: &str) -> Result<(), StoreError> {
         panic!("member registration test must not mark storage reclaimed")
     }
+    async fn record_service_account(
+        &self,
+        _sandbox_id: &str,
+        _account: Option<&str>,
+    ) -> Result<(), StoreError> {
+        panic!("member registration test must not record a service account")
+    }
     async fn record_running_commands(
         &self,
         _task_id: &str,

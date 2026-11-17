@@ -167,6 +167,7 @@ fn scope() -> SandboxScope {
         user: "user-1".to_string(),
         workspace: "workspace-1".to_string(),
         run_as: None,
+        service_account: None,
         task: None,
     }
 }
@@ -1009,6 +1010,7 @@ async fn a_bot_run_as_comment_credits_the_driver_it_works_for() {
     );
     let scope = SandboxScope {
         run_as: Some("bot".to_string()),
+        service_account: None,
         user: "driver".to_string(),
         attribution: Attribution {
             driver: Some("driver".to_string()),

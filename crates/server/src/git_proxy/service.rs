@@ -863,6 +863,7 @@ mod tests {
                 user: "user-1".to_string(),
                 workspace: "ws_1".to_string(),
                 run_as: None,
+                service_account: None,
                 task: None,
             },
         );

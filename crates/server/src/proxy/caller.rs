@@ -23,6 +23,9 @@ pub struct SandboxScope {
     pub workspace: String,
     /// The run-as identity the Sandbox row pins, ahead of the Workspace's.
     pub run_as: Option<String>,
+    /// The service account the Sandbox row records for its pod, which a
+    /// service-proxy rule's `serviceAccounts` matches. `None` for the default.
+    pub service_account: Option<String>,
     /// Who a write from the Sandbox credits.
     pub attribution: Attribution,
     /// The Task a write from the Sandbox is recorded for: the token's
@@ -130,6 +133,7 @@ impl SandboxCallers {
             sandbox: sandbox_id,
             workspace: workspace_id,
             run_as: identity.pinned_run_as,
+            service_account: identity.service_account,
         })
     }
 }

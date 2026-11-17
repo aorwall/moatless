@@ -57,6 +57,21 @@ impl ProvisionDeps {
         .map_err(map_sandbox_error)
     }
 
+    /// Record the service account `sandbox_id`'s pod is about to be built
+    /// with. See [`LifecycleDao::record_service_account`].
+    pub async fn record_service_account(
+        &self,
+        sandbox_id: &str,
+        account: Option<&str>,
+    ) -> Result<(), RuntimeError> {
+        self.sandboxes
+            .record_service_account(sandbox_id, account)
+            .await
+            .map_err(|e| {
+                RuntimeError::Infrastructure(format!("record sandbox service account: {e}"))
+            })
+    }
+
     pub async fn sandbox_id_for_task(&self, task_id: &str) -> Result<String, RuntimeError> {
         Ok(self.intent(task_id).await?.sandbox_id)
     }
@@ -140,5 +155,28 @@ mod db_tests {
             .expect("a workspace with no placements still provisions");
         assert!(request.plan.repos.is_empty());
         assert_eq!(request.plan.git_clone_url, "");
+    }
+
+    #[sqlx::test]
+    async fn a_recorded_service_account_reads_back_on_the_shape(pool: PgPool) {
+        seed_task_with(&pool, "t1", "open", "running").await;
+        let deps = deps_from_pool(&pool);
+        let account = || async {
+            deps.sandboxes
+                .sandbox_shape("t1")
+                .await
+                .expect("read the shape")
+                .expect("the seeded sandbox has a row")
+                .service_account
+        };
+        assert_eq!(account().await, None);
+        deps.record_service_account("t1", Some("moatless-ops"))
+            .await
+            .expect("record the account");
+        assert_eq!(account().await.as_deref(), Some("moatless-ops"));
+        deps.record_service_account("t1", None)
+            .await
+            .expect("clear the account");
+        assert_eq!(account().await, None);
     }
 }

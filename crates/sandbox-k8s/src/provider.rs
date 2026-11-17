@@ -75,6 +75,22 @@ where
 }
 
 impl K8sSandboxAdapter {
+    /// Record the service account a pod for `task_id` is about to be built or
+    /// started with. Called before every build: a service-proxy rule naming
+    /// accounts trusts the row, so a stale one would grant the wrong pod.
+    async fn record_service_account(
+        &self,
+        task_id: &str,
+        plan: &ProvisionPlan,
+    ) -> Result<(), SandboxError> {
+        let Some(deps) = self.plan.as_ref() else {
+            return Ok(());
+        };
+        deps.record_service_account(task_id, plan.repo_config.sandbox_service_account.as_deref())
+            .await
+            .map_err(|e| SandboxError::Internal(e.to_string()))
+    }
+
     fn require_plan(
         &self,
     ) -> Result<&ProvisionDeps, moatless_sandbox_runtime::runtime::RuntimeError> {
@@ -183,6 +199,7 @@ impl K8sSandboxAdapter {
                     // races that attach into a Multi-Attach stall. Wait for
                     // it to terminate first; a timeout reads as an env error.
                     deployment::wait_for_pods_deleted(&self.k8s, task_id).await?;
+                    self.record_service_account(task_id, plan).await?;
                     let minted = pod_builder::mint_sandbox_tokens(
                         &self.config,
                         task_id,
@@ -230,6 +247,7 @@ impl K8sSandboxAdapter {
                             deployment::deployment_workspace_claim(&existing_deployment)
                         }
                     };
+                    self.record_service_account(task_id, plan).await?;
                     deployment::redeploy_with_plan(
                         &self.k8s,
                         &self.config,
@@ -307,6 +325,7 @@ impl K8sSandboxAdapter {
         //    Service and IngressRoutes — K8s garbage collection then cascades
         //    their deletion when the Deployment is deleted, so a transient
         //    failure mid-cleanup can't orphan them.
+        self.record_service_account(task_id, plan).await?;
         let deployment = deployment::create_sandbox_deployment(&self.k8s, task_id, pod).await?;
         let owner = deployment
             .uid
@@ -910,6 +929,10 @@ impl StorageFallback for K8sSandboxAdapter {
 
         let ctx = RuntimeOperationContext::new(generation);
         info!(task_id, %generation, "attach-failure fallback: rebuilding Deployment on emptyDir");
+        if let Err(e) = self.record_service_account(task_id, &request.plan).await {
+            warn!(task_id, error = %e, "attach-failure fallback: could not record the service account");
+            return StorageFallbackOutcome::Failed;
+        }
         match deployment::redeploy_with_plan(
             &self.k8s,
             &self.config,

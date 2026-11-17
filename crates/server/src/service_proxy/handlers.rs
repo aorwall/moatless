@@ -85,7 +85,12 @@ pub(super) async fn forward(
     let body = axum::body::to_bytes(body, service.limits.request_body_bytes)
         .await
         .map_err(|_| ServiceProxyError::TooLarge(service.limits.request_body_bytes))?;
-    let rule = match service.rules.check(method.as_str(), &path, Some(&body)) {
+    let rule = match service.rules.check(
+        method.as_str(),
+        &path,
+        scope.service_account.as_deref(),
+        Some(&body),
+    ) {
         Verdict::Allow(rule) => rule,
         verdict => {
             let reason = match verdict {
