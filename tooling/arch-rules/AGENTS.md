@@ -4,7 +4,7 @@
 cargo run -p moatless-arch-rules --bin arch-report                      # the to-do list
 cargo run -p moatless-arch-rules --bin arch-report -- --json            # stable IDs and locations
 cargo run -p moatless-arch-rules --bin arch-report -- --update-baseline # accept what is there now
-cargo run -p moatless-arch-rules --bin arch-report -- --persistence-inventory # rewrite the DAO migration inventory
+cargo run -p moatless-arch-rules --bin arch-report -- --persistence-inventory # print the DAO migration inventory
 cargo run -p moatless-arch-rules --bin arch-report -- --comments               # every over-ceiling comment block
 cargo run -p moatless-arch-rules --bin arch-report -- --comments --since main  # only the ones this branch added
 cargo run -p moatless-arch-rules --bin arch-report -- --comments --findings b.ndjson # what CI comments with

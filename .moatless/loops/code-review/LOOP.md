@@ -85,21 +85,12 @@ author, branches, description, and often the diff) arrives as the task message.
    below. Load only what the diff needs.
 4. **Check CI** — `moat gh pr checks <number>` (see CI Verification). Do **not** build or
    test locally.
-5. **Check plan alignment and archival** — if the PR implements a tracked plan
-   or part of one, read the relevant `.plans/<slug>.md` or
-   `.plans/completed/<slug>.md` and verify the diff matches the plan's intended
-   behaviour, scope, constraints, and testing expectations. Flag meaningful
-   deviations unless the PR description explicitly updates or supersedes that
-   part of the plan. If the PR completes the plan, verify the plan moved from
-   `.plans/<slug>.md` to `.plans/completed/<slug>.md`; treat an implemented plan
-   left active at the top level as a review issue unless the PR clearly leaves
-   follow-up work that still needs the active path.
-6. **Review** the checked-out code against the guidelines and general quality.
-7. **Post inline comments** for line-specific issues via `moat gh api`.
-8. **Resolve** review threads whose issue has left the diff (see Lifecycle Actions).
-9. **Submit `APPROVE`** when no outstanding issues remain (see Approving).
-10. **Send the summary review** via `moat gh pr comment` — **mandatory, exactly once**.
-11. **Record the run** as one record in the Loop's `review-runs` collection (see
+5. **Review** the checked-out code against the guidelines and general quality.
+6. **Post inline comments** for line-specific issues via `moat gh api`.
+7. **Resolve** review threads whose issue has left the diff (see Lifecycle Actions).
+8. **Submit `APPROVE`** when no outstanding issues remain (see Approving).
+9. **Send the summary review** via `moat gh pr comment` — **mandatory, exactly once**.
+10. **Record the run** as one record in the Loop's `review-runs` collection (see
     Recording the Run). A reply to a comment is not a run: record nothing.
 
 > Always write `moat gh …`, never bare `gh …`. `moat gh` proxies the summary comment
@@ -153,7 +144,7 @@ Apply to every changed file, on top of the domain rules.
 - Missing authorization on new endpoints; PII in logs or error responses.
 
 ### Docs that must move with the code
-- A removed symbol or a changed domain concept: grep `.plans/` and `CONTEXT.md` for
+- A removed symbol or a changed domain concept: grep `CONTEXT.md` and `docs/` for
   it, and flag prose the diff made false.
 - A gap the PR body lists as not covered needs a `docs/deferred-changes.md` entry.
 - A shortened comment still carries its trap (code that looks redundant) and the
@@ -252,10 +243,6 @@ compliant or not applicable; `[ ]` = issue, with a `file:line` reference in ital
 - [x] Behavior not implementation; the unit under test is not mocked
 - [x] Correct framework/tier (Vitest for TS, `cargo test` for Rust)
 
-#### Plans  <!-- only if PR implements, completes, or edits a .plans spec -->
-- [x] Implementation aligns with the referenced plan's behaviour, scope, constraints, and testing expectations
-- [x] Completed plans moved from `.plans/<slug>.md` to `.plans/completed/<slug>.md`
-
 #### Helm / Docker  <!-- only if k8s/helm or docker changed -->
 - [x] values↔template consistency; security contexts; sandbox isolation intact
 - [x] No hardcoded secrets
@@ -335,7 +322,7 @@ Write `/tmp/review-run.json` with this shape:
 ```
 
 - `domains`: of `typescript`, `rust`, `cli`, `proto`, `tests`, `helm`, `docker`,
-  `deps`, `migrations`, `plans`, `general`.
+  `deps`, `migrations`, `general`.
 - `outcome`: `approved` when you submitted `APPROVE`, else `commented`.
 - `ci`: `passing`, `failing` or `pending`.
 - `checks`: one entry per checklist item of a touched domain, by the ids below,
@@ -352,8 +339,6 @@ Write `/tmp/review-run.json` with this shape:
 | utoipa OpenAPI annotations; parameterized SQLx | `rust-openapi-sqlx` |
 | Behavior not implementation; unit not mocked | `tests-behavior` |
 | Correct framework/tier | `tests-tier` |
-| Implementation aligns with the plan | `plans-aligned` |
-| Completed plans moved to `.plans/completed/` | `plans-archived` |
 | values↔template; security contexts; isolation | `helm-consistency` |
 | No hardcoded secrets | `helm-no-secrets` |
 

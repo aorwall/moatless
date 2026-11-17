@@ -116,5 +116,4 @@ var in the `env` map of the feature's `feature.json` instead, and
 **The recipe's own JSON is not enough to make the tag content-addressed.**
 `generate-recipe.sh` folds in a hash of each feature's files and the resolved
 digest of the base. An `install.sh` fix or a base rebuild then produces a new
-tag, instead of a silent skip as "already built". See
-`.plans/custom-sandbox-images.md`.
+tag, instead of a silent skip as "already built".

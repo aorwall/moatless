@@ -11,11 +11,7 @@ pub(super) fn run(update: bool, json: bool, inventory: bool) -> Result<()> {
     let ws = Workspace::load(&root)?;
 
     if inventory {
-        // The inventory stays in `.plans/` while its plan sits in `.plans/completed/`.
-        // Move it and this write lands somewhere nothing reads.
-        let path = root.join(".plans/dao-persistence-migration-inventory.md");
-        std::fs::write(&path, persistence_export::inventory(&ws)?)?;
-        println!("Wrote {}", path.display());
+        print!("{}", persistence_export::inventory(&ws)?);
         return Ok(());
     }
 

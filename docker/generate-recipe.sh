@@ -3,8 +3,7 @@
 #
 # A recipe is {"base": "sandbox"|"sandbox-base", "features": {<id>: {<option>: <value>, ...}}}.
 # Single source of truth for build-sandboxes.yml's discover and build
-# steps, so a tag computed by one always matches the other. See
-# .plans/custom-sandbox-images.md.
+# steps, so a tag computed by one always matches the other.
 #
 # The tag folds in more than the literal recipe bytes on purpose:
 #   - the resolved digest of <base>:latest, so a sandbox/sandbox-base rebuild

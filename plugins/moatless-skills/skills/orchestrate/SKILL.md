@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # Orchestrate
 
-Drive a feature from idea to merged PRs: clarify → spec → review → tickets → spawn → monitor → code-review → loop.
+Drive a feature from idea to merged PRs: clarify → spec → review → tickets → spawn → monitor → code-review → land.
 
 This skill spawns child Moatless tasks to implement work in parallel. Each child creates a PR and reports back; you run code review on each and advance blocked tickets as their dependencies land.
 
@@ -15,7 +15,7 @@ Three documents, each with a distinct audience.
 | Document | Path | Lives where | Read by |
 |---|---|---|---|
 | The page | A Moatless Artifact published from `/opt/moatless/workspace/scratchpad/<feature-slug>.html` | Moatless, outside the sandbox | The user, until the breakdown is agreed |
-| The spec | `<repo>/.plans/<feature-slug>.md` | **Committed to the stack root branch** | The child agents — they read it from their own checkout |
+| The spec | `/opt/moatless/workspace/tickets/<feature-slug>/spec.md` | Orchestrator sandbox | The child agents — inlined into every spawn message |
 | Ticket files | `/opt/moatless/workspace/tickets/<feature-slug>/<NN>-<slug>.md` | Orchestrator sandbox | One per child, inlined as its spawn message body |
 
 ---
@@ -37,26 +37,9 @@ Three documents, each with a distinct audience.
 Done when the user has approved both the spec and the breakdown. Then:
 
 1. **The spec is the child tasks' only view.** They run in fresh sandboxes and cannot read the page, the ticket files, or anything else in your sandbox. Whatever is agreed on the page and not written into the spec is lost.
-2. **The approved spec is the first layer of the GitHub stack.** Write it to
-   `<repo>/.plans/<feature-slug>.md`, commit it on a spec branch, initialize a
-   stack rooted at the default branch, and submit that branch before any child
-   is spawned:
-
-   ```bash
-   SPEC_BRANCH=<feature-slug>-spec
-   git checkout -b "$SPEC_BRANCH" origin/main
-   mkdir -p .plans && cp <draft> .plans/<feature-slug>.md
-   git add .plans/<feature-slug>.md
-   git commit -m "docs: spec <feature-slug>"
-   moat gh stack init --base main "$SPEC_BRANCH"
-   moat gh stack submit --auto --open --task "$TASK_ID"
-   moat gh stack view --json
-   ```
-
-   Record the spec branch and spec PR URL. That PR is the bottom of the whole
-   feature stack; every ticket branch descends from it. Use `--auto` for
-   non-interactive submission, and keep `--open` only when the approved spec is
-   ready for review.
+2. **Save the approved spec** to
+   `/opt/moatless/workspace/tickets/<feature-slug>/spec.md`. It is never
+   committed: every child receives the current text in its spawn message.
 3. **Write ticket files to `/opt/moatless/workspace/tickets/<feature-slug>/<NN>-<slug>.md`**, numbered from `01` in dependency order — that is this skill's tracker. They stay in your sandbox; each one reaches its child by being inlined into the spawn message (see Phase 2).
 4. **Once the breakdown is approved, redraw the page with per-ticket cards** below its existing sections, so the page the user has open matches what is about to be spawned.
 
@@ -99,11 +82,10 @@ task always runs in a Workspace, and the CLI ignores `--repo`.
 
 Identify which tickets have no blockers (or whose blockers are already complete), then assign stack order before spawning. A GitHub stack is linear: a child can `moat gh stack add` only on top of an existing top branch. Spawn every unblocked ticket whose `STACK_BASE_BRANCH` already exists; in a single feature stack this often means spawning the next ticket as soon as the previous child has created its branch or PR. Preserve parallelism only when you intentionally create separate stacks or pre-created placeholder stack branches for independent work.
 
-**Inline the ticket; point at the spec.** A child cannot see your
-`/opt/moatless/workspace/tickets/` or `scratchpad/` files, so its ticket must be
-inlined. The spec is different — `--branch` checks the child out on a branch
-that already contains `.plans/<slug>.md`, so it reads the live file instead of a
-frozen copy. Give it the path, not the body.
+**Inline the spec and the ticket.** A child cannot see your
+`/opt/moatless/workspace/tickets/` or `scratchpad/` files, so both go into its
+spawn message, the spec first. The first ticket starts on the default branch
+and creates the stack root; every later one stacks on the branch below it.
 
 For each unblocked ticket:
 
@@ -113,21 +95,25 @@ CHILD_ID=$(moat tasks create \
   --parent $TASK_ID \
   --name "Ticket <NN>: <slug>" \
   --branch <STACK_BASE_BRANCH> \
-  --message "$(cat /opt/moatless/workspace/tickets/<slug>/<NN>-<file>.md)
+  --message "$(cat /opt/moatless/workspace/tickets/<slug>/spec.md)
+
+---
+$(cat /opt/moatless/workspace/tickets/<slug>/<NN>-<file>.md)
 
 ---
 ORCHESTRATOR_TASK_ID: $TASK_ID
-SPEC: .plans/<slug>.md              # in your checkout, already current — read it, do not ask for it
-STACK_ROOT_BRANCH: <spec-branch>    # bottom branch of the feature stack
+STACK_ROOT_BRANCH: <branch>         # bottom branch of the feature stack; the default branch for ticket 01
 STACK_BASE_BRANCH: <branch>         # what --branch put you on; add your ticket branch on top of it
 BASE_BRANCH: <branch>               # compatibility alias for STACK_BASE_BRANCH
 STACK_BASE_PR: <pr-url-or-number>   # PR for STACK_BASE_BRANCH; use it to recover local stack tracking
 STACK_BRANCH: ticket-<NN>-<slug>    # branch name to create with moat gh stack add
 
 Implement this ticket:
-1. Read the spec. If local stack tracking is missing, run
-   'moat gh stack checkout <STACK_BASE_PR>'. Run 'moat gh stack add
-   <STACK_BRANCH>' before coding. Do not use 'moat gh pr create'.
+1. Read the spec above. For ticket 01, run 'moat gh stack init --base
+   <STACK_BASE_BRANCH> <STACK_BRANCH>'. Otherwise, if local stack tracking is
+   missing, run 'moat gh stack checkout <STACK_BASE_PR>', then run
+   'moat gh stack add <STACK_BRANCH>'. Do this before coding. Do not use
+   'moat gh pr create'.
 2. Write a failing test or a reproducible check for each acceptance
    criterion, then make it pass, and run the repo's verification steps.
 3. If you learn something that changes the spec or later tickets, send it
@@ -145,28 +131,17 @@ echo "Spawned $CHILD_ID for ticket <NN>"
 
 (The create response's field is `taskId`, not `id`.)
 
-**You own the base branch and spec reconciliation.** A child reads the spec
-once, from the branch you started it on, and that branch does not move under
-it. When a child reports a finding that changes the spec or ticket plan,
-decide the change, amend the appropriate stack branch yourself, and spawn later
-children from a branch that contains it. Making sure a child starts from the
-right spec is your job, done *before* the `moat tasks create` call:
-
-- A ticket stacked on a dependency inherits that dependency's code and any
-  orchestrator-approved spec update already committed below it.
-- A ticket spawned onto some other branch does not. If a reviewed finding
-  changed the spec and this child needs the change, merge or cherry-pick that
-  update into the child's base branch and push **first**, then spawn.
-- Children spawned in the same wave cannot see each other's findings. Accept
-  that: reconcile at review time, when you are reading both PRs anyway.
-
-Never ask a child to rebase or re-pull to pick up a spec change. If it needs a
-different spec than the one it started with, tell it what changed in a
-`moat send`, or close it and re-spawn from a corrected branch.
+**You own spec reconciliation.** A child reads the spec once, from its spawn
+message. When a child reports a finding that changes the spec or ticket plan,
+decide the change and edit `spec.md`; every child spawned after that receives
+it. Children spawned in the same wave cannot see each other's findings. Accept
+that: reconcile at review time, when you are reading both PRs anyway. If a
+running child needs the change, tell it what changed in a `moat send`, or close
+it and re-spawn it.
 
 **Every ticket ships as its own stack layer** — one ticket, one branch, one PR.
-The first ticket stacks on the spec PR branch. Each later ticket stacks on the
-reviewed branch below it, not on the default branch. Children create their own
+The first ticket's branch is the stack root, based on the default branch. Each
+later ticket stacks on the reviewed branch below it, not on the default branch. Children create their own
 layer with `moat gh stack add <STACK_BRANCH>` and submit with
 `moat gh stack submit --auto --task $TASK_ID`, which pushes all active stack
 branches, creates or updates PRs, and links the GitHub stack. Record each
@@ -175,8 +150,8 @@ right `STACK_BASE_BRANCH` and `STACK_BASE_PR`.
 
 Use these stack commands deliberately:
 
-- `moat gh stack init --base main <spec-branch>` once, after spec approval, to
-  make the spec branch the stack root.
+- `moat gh stack init --base main <ticket-01-branch>` once, in the first
+  child, to make its branch the stack root.
 - `moat gh stack checkout <STACK_BASE_PR>` in child tasks when local stack
   tracking is missing.
 - `moat gh stack add <STACK_BRANCH>` in child tasks before implementation.
@@ -205,9 +180,8 @@ moat tasks children --json
 
 1. Run `/code-review` on the PR branch vs main:
    - Pin the fixed point as `main` (or the base branch)
-   - Identify the spec at `.plans/<slug>.md` on the PR's branch. If the child
-     reported a finding, review it against the orchestrator-approved spec state
-     for that stack layer.
+   - Review against `spec.md` as it stood when you spawned that child, plus
+     any change you sent it.
    - Run Standards + Spec review in parallel
 
 2. If review finds real issues, send feedback to the child:
@@ -219,7 +193,7 @@ moat tasks children --json
    Please fix these and push an update, then message me again when ready."
    ```
 
-3. If review passes (or after fixes are applied), mark the ticket complete and check whether any blocked tickets are now fully unblocked. Spawn the next stack layer on the reviewed PR's branch (`--branch <that branch>`) as soon as that branch exists — do not wait for the PR to merge. Stacking is also how the next child inherits any orchestrator-approved spec update committed below it; if you spawn it anywhere else, merge that update into the base first.
+3. If review passes (or after fixes are applied), mark the ticket complete and check whether any blocked tickets are now fully unblocked. Spawn the next stack layer on the reviewed PR's branch (`--branch <that branch>`) as soon as that branch exists — do not wait for the PR to merge.
 
 **When a child reports "Blocked on: <description>":**
 
@@ -229,37 +203,19 @@ Repeat until all tickets are complete and all PRs have passed review.
 
 ---
 
-## Phase 4 — Land and archive
+## Phase 4 — Land
 
 Once every ticket's PR has passed review, use the GitHub stack to land the
 feature. `moat gh stack merge` merges the stack in order; use the interactive
 flow when a human should choose the method, or `moat gh stack merge --yes
 --squash` only when the project convention and branch protection allow it.
 
-The final step after implementation is archiving the completed plan. Do not
-leave an implemented feature's spec at `.plans/<feature-slug>.md`.
-
-After the stack lands, retire the spec in a final documentation PR or a cleanup
-stack layer:
-
-```bash
-git mv .plans/<feature-slug>.md .plans/completed/<feature-slug>.md
-git commit -m "docs: complete <feature-slug>"
-```
-
-`.plans/` is therefore a list of what is in flight, and `.plans/completed/` the
-record of what shipped — with the final spec text, not the version anyone was
-spawned against. Do this **last**: the moment it moves, no further child can be
-spawned against `.plans/<slug>.md`. If a follow-up ticket is still open, leave
-the spec where it is.
-
-The ticket files under `/opt/moatless/workspace/tickets/` are scratch and are
-not archived. Anything in them worth keeping belongs in the spec.
+The spec and ticket files under `/opt/moatless/workspace/tickets/` are scratch.
+Anything in them a future reader needs belongs in the code, its comments or the
+PR bodies.
 
 Report to the user:
 
 - All tickets: title, PR URL, review outcome
-- Completed plan archived at `.plans/completed/<feature-slug>.md`, or why it
-  intentionally remains active
 - Any open items or follow-up work
 - Suggested next steps (merging the feature branch, deployment)

@@ -52,8 +52,8 @@ Run these after every change; pre-push runs only Biome and type-check.
 - **TypeScript:** `bun run type:check` and `bun run biome:check`.
 - **Lint ratchet:** fix the `biome-baseline.json` entries in any file you touch,
   then run `bun run lint:ratchet:update`. A new file must be clean.
-- **Docs:** when you remove a symbol or change a domain concept, grep `.plans/`
-  and `CONTEXT.md` for it, then run `./scripts/check-plan-assertions.sh`.
+- **Docs:** when you remove a symbol or change a domain concept, grep
+  `CONTEXT.md` and `docs/` for it.
 
 ## Writing code
 
@@ -105,9 +105,8 @@ item gets a one-line doc.
 
 ## Finding conventions
 
-- Treat code and tests as the authority, and documents as routing aids. Read
-  `.plans/` only when asked to implement or review that plan; an unplanned idea
-  goes in `docs/ideas/`.
+- Treat code and tests as the authority, and documents as routing aids. An
+  unplanned idea goes in `docs/ideas/`.
 - When you edit a path, read the `AGENTS.md` files in its directory and parents.
   Put a durable local rule in the nearest one, and do not restate a parent's.
 - An `AGENTS.md` holds what an agent must and must not do, where the code does

@@ -7,8 +7,7 @@
               fire when the db-tests feature is enabled"
 )]
 //! What each Linear workflow does, and what it costs — characterization tests
-//! for `.plans/linear-adapter-breakup.md` stages 12-15 that must pass unchanged
-//! through the module split.
+//! that must pass unchanged through a module split.
 //!
 //! Call budgets catch a refactor adding a round trip, read off the GraphQL
 //! operation name in each recorded body (`ProviderStub::graphql_operations`); a

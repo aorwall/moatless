@@ -23,7 +23,7 @@ pub const RULE: &str = "persistence-export";
 /// One persistence concern: where its stores sit, which tables it owns, and the
 /// migration slice that makes it private.
 pub struct Concern {
-    /// The concern's name in `.plans/completed/dao-persistence-migration.md`.
+    /// The concern's name in the persistence migration.
     pub name: &'static str,
     /// The crate that declares the stores.
     pub owner: &'static str,
@@ -34,8 +34,7 @@ pub struct Concern {
     /// exactly one concern, which is not the same as being read by one: a
     /// reader of somebody else's table is a `table-ownership` question.
     pub tables: &'static [&'static str],
-    /// The slice in `.plans/completed/dao-persistence-migration.md` that
-    /// privatizes it.
+    /// The persistence-migration slice that privatizes it.
     pub slice: u8,
 }
 
@@ -772,7 +771,7 @@ fn table_drift() -> Vec<Violation> {
     out
 }
 
-/// Render the inventory `.plans/dao-persistence-migration-inventory.md` holds.
+/// Render the persistence inventory as Markdown, for `arch-report --persistence-inventory`.
 ///
 /// The caller matrix each slice needs lives here rather than in [`CONCERNS`],
 /// as a snapshot the rule asserts nothing about.
@@ -944,7 +943,7 @@ fn consumers(imports: &[Consumer], owner: &str, reach: &[String]) -> Vec<(String
 fn render(sections: &[Section], unrooted: &[(String, String, String)]) -> Result<String> {
     let mut out = String::from(
         "# DAO persistence migration inventory\n\n\
-         `tooling/arch-rules/src/persistence_export.rs` generates this file and \
+         `tooling/arch-rules/src/persistence_export.rs` generates this report and \
          holds the concern table the `persistence-export` rule enforces. Regenerate it with:\n\n\
          ```bash\ncargo run -p moatless-arch-rules --bin arch-report -- --persistence-inventory\n```\n\n\
          A consumer count is the number of `use` declarations naming the concern's \
