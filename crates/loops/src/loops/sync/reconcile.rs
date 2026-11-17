@@ -217,21 +217,25 @@ impl LoopSyncService {
         summary.updated = reconciled.updated;
         summary.removed = reconciled.removed;
         summary.overrides_skipped = reconciled.overrides_skipped;
-        summary.skipped.extend(
-        reconciled
-            .skipped_overrides
-            .into_iter()
-            .map(|skip| LoopSyncSkip {
+        for skip in reconciled.skipped_overrides {
+            let reason = if skip.deleted {
+                "Git-origin Loop has a local deletion tombstone; reset it explicitly to restore"
+            } else if skip.source_absent {
+                warn!(
+                    repository_id = %repo.id,
+                    loop = %skip.source_key,
+                    "Overridden Loop's directory is gone from Git; the local override keeps the Loop"
+                );
+                "Loop directory no longer exists in Git, but a local override keeps the Loop; \
+                 delete or pause it if it should stop"
+            } else {
+                "Git-origin Loop has a local override; reset it explicitly to resume Git sync"
+            };
+            summary.skipped.push(LoopSyncSkip {
                 loop_name: skip.source_key,
-                reason: if skip.deleted {
-                    "Git-origin Loop has a local deletion tombstone; reset it explicitly to restore"
-                        .to_string()
-                } else {
-                    "Git-origin Loop has a local override; reset it explicitly to resume Git sync"
-                        .to_string()
-                },
-            }),
-    );
+                reason: reason.to_string(),
+            });
+        }
 
         Ok(summary)
     }

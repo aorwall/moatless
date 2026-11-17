@@ -321,4 +321,7 @@ pub struct ManagedLoopReconcileSummary {
 pub struct ManagedLoopOverrideSkip {
     pub source_key: String,
     pub deleted: bool,
+    /// The Loop's directory is gone from the repository, so only the local
+    /// row keeps the Loop alive.
+    pub source_absent: bool,
 }

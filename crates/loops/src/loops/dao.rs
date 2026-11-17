@@ -882,6 +882,7 @@ impl LoopDao {
                     summary.skipped_overrides.push(ManagedLoopOverrideSkip {
                         source_key: input.source_key.clone(),
                         deleted,
+                        source_absent: false,
                     });
                     continue;
                 }
@@ -959,6 +960,7 @@ impl LoopDao {
                 summary.skipped_overrides.push(ManagedLoopOverrideSkip {
                     source_key,
                     deleted,
+                    source_absent: true,
                 });
             }
         }

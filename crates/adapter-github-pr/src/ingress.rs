@@ -24,7 +24,7 @@ use moatless_types::loops::SubscriptionMatch;
 use moatless_workspace_types::repository::GitHostRepo;
 
 use super::adapter::GithubPrAdapter;
-use super::config::{FilterKey, GithubPrRuleConfig};
+use super::config::{CreateOn, FilterKey, GithubPrRuleConfig};
 use super::webhook::{NormalizeContext, PrimaryWebhook};
 
 /// Transport facts extracted from one GitHub webhook request.
@@ -108,9 +108,15 @@ pub(crate) async fn receive(
             ingress(SharedAdapterError::BadRequest("Missing repository.owner.login".into()).into())
         })?;
 
-    let resolved = resolve_provider_event(adapter_connections, loops, owner_login, repo_full_name)
-        .await
-        .map_err(ingress)?;
+    let resolved = resolve_provider_event(
+        adapter_connections,
+        loops,
+        owner_login,
+        repo_full_name,
+        event_type,
+    )
+    .await
+    .map_err(ingress)?;
     let Some((connection, rule)) = resolved else {
         debug!(
             repo = repo_full_name,
@@ -506,6 +512,7 @@ async fn resolve_provider_event(
     loops: &dyn LoopReader,
     org: &str,
     repo_full_name: &str,
+    event_type: &str,
 ) -> Result<Option<(AdapterConnection, Option<SubscriptionMatch>)>, AdapterError> {
     let connection = adapter_connections
         .by_scope_value(super::delivery::ADAPTER, org)
@@ -525,23 +532,47 @@ async fn resolve_provider_event(
         }
         same
     };
-    let mut rule = loops
+    let creates_on_check_run = |rule: &SubscriptionMatch| {
+        GithubPrRuleConfig::from_rule(rule).create_on == CreateOn::CheckRun
+    };
+    let exact = loops
         .subscription_for_source(super::delivery::ADAPTER, repo_full_name)
         .await?
         .filter(same_connection);
-    // An exact loop wins. The org's `<owner>/*` loop is only ever a check-run
-    // trigger, re-checked here so a row written past sync's check
-    // cannot turn every repository's PR openings into Tasks.
-    if rule.is_none() {
-        rule = loops
-            .subscription_for_source(super::delivery::ADAPTER, &super::routing::org_wildcard(org))
-            .await?
-            .filter(same_connection)
-            .filter(|rule| {
-                GithubPrRuleConfig::from_rule(rule).create_on == super::config::CreateOn::CheckRun
-            })
-            .map(|rule| super::routing::for_repository(rule, repo_full_name));
+    // An exact loop wins, except over a check run it would never create a
+    // Task from: there it yields to an active org check-run loop, rather than
+    // dropping every gate request on its repository unlogged.
+    if exact
+        .as_ref()
+        .is_some_and(|rule| event_type != "check_run" || creates_on_check_run(rule))
+    {
+        return Ok(Some((connection, exact)));
     }
+    // The org's `<owner>/*` loop is only ever a check-run trigger, re-checked
+    // here so a row written past sync's check cannot turn every repository's
+    // PR openings into Tasks.
+    let org_loop = loops
+        .subscription_for_source(super::delivery::ADAPTER, &super::routing::org_wildcard(org))
+        .await?
+        .filter(same_connection)
+        .filter(creates_on_check_run);
+    let rule = match (exact, org_loop) {
+        // An inactive org loop must not mute the CI the exact loop's Tasks hear.
+        (Some(exact), Some(org_loop)) if !org_loop.active => Some(exact),
+        (Some(exact), Some(org_loop)) => {
+            debug!(
+                exact_loop = %exact.id,
+                org_loop = %org_loop.id,
+                repo = repo_full_name,
+                "Exact loop does not create on check runs; check run goes to the org loop"
+            );
+            Some(super::routing::for_repository(org_loop, repo_full_name))
+        }
+        (None, org_loop) => {
+            org_loop.map(|rule| super::routing::for_repository(rule, repo_full_name))
+        }
+        (exact, None) => exact,
+    };
 
     Ok(Some((connection, rule)))
 }
@@ -873,9 +904,13 @@ mod tests {
     }
 
     async fn resolved_loop(loops: &ByMatcher) -> Option<SubscriptionMatch> {
+        resolved_loop_for(loops, "check_run").await
+    }
+
+    async fn resolved_loop_for(loops: &ByMatcher, event_type: &str) -> Option<SubscriptionMatch> {
         let connections =
             InMemoryConnections::new(vec![connection("conn-1", AdapterKind::Github, "acme")]);
-        resolve_provider_event(&connections, loops, "acme", "acme/widgets")
+        resolve_provider_event(&connections, loops, "acme", "acme/widgets", event_type)
             .await
             .expect("resolves")
             .expect("has a connection")
@@ -896,9 +931,54 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_exact_loop_wins_over_the_org_trigger_loop() {
+    async fn an_exact_loop_wins_over_the_org_trigger_loop_for_other_events() {
+        let rule = resolved_loop_for(
+            &ByMatcher(vec![
+                loop_for("tr_org", "acme/*", trigger_config()),
+                loop_for("tr_exact", "acme/widgets", serde_json::json!({})),
+            ]),
+            "pull_request",
+        )
+        .await
+        .expect("the exact loop");
+        assert_eq!(rule.id, "tr_exact");
+    }
+
+    #[tokio::test]
+    async fn an_exact_check_run_loop_wins_over_the_org_trigger_loop() {
         let rule = resolved_loop(&ByMatcher(vec![
             loop_for("tr_org", "acme/*", trigger_config()),
+            loop_for("tr_exact", "acme/widgets", trigger_config()),
+        ]))
+        .await
+        .expect("the exact loop");
+        assert_eq!(rule.id, "tr_exact");
+    }
+
+    /// An exact loop that never creates on check runs, even a paused one,
+    /// must not swallow the gate's check runs on its repository.
+    #[tokio::test]
+    async fn a_check_run_passes_an_exact_pr_opened_loop_to_the_org_trigger_loop() {
+        for active in [true, false] {
+            let mut exact = loop_for("tr_exact", "acme/widgets", serde_json::json!({}));
+            exact.active = active;
+            let rule = resolved_loop(&ByMatcher(vec![
+                loop_for("tr_org", "acme/*", trigger_config()),
+                exact,
+            ]))
+            .await
+            .expect("the org loop");
+            assert_eq!(rule.id, "tr_org");
+            assert_eq!(rule.source_matcher, "acme/widgets");
+        }
+    }
+
+    #[tokio::test]
+    async fn an_inactive_org_trigger_loop_leaves_the_check_run_to_the_exact_loop() {
+        let mut org = loop_for("tr_org", "acme/*", trigger_config());
+        org.active = false;
+        let rule = resolved_loop(&ByMatcher(vec![
+            org,
             loop_for("tr_exact", "acme/widgets", serde_json::json!({})),
         ]))
         .await

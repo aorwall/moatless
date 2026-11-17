@@ -771,6 +771,48 @@ fn schedule_upsert(repo: &Repository) -> ManagedLoopUpsert {
 }
 
 #[sqlx::test]
+async fn resync_flags_an_override_whose_directory_is_gone(pool: PgPool) {
+    let repo = make_repository_row("repo-override-gone", "user-1");
+    seed_team(&pool, "user-1").await;
+    compose::seed_repository(&pool, &repo).await.unwrap();
+    common::seed_workspace_placing(&pool, "ws-1", &repo.id, "user-1").await;
+    insert_github_connection(&pool, "test").await;
+
+    let state = test_app_state(pool.clone());
+    let auth = auth("user-1");
+    let loops = vec![parse_loop(GITHUB_LOOP, "java-review").unwrap()];
+    state
+        .loop_sync
+        .sync_loops(&repo, &auth, loops)
+        .await
+        .unwrap();
+    let loop_id: String = sqlx::query_scalar(
+        "SELECT id FROM loops \
+         WHERE source_repository_id = $1 AND source_key = 'java-review'",
+    )
+    .bind(&repo.id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let admin = ScopeContext::admin("admin-1");
+    state.loops.override_git(&admin, &loop_id).await.unwrap();
+
+    let summary = state
+        .loop_sync
+        .sync_loops(&repo, &auth, Vec::new())
+        .await
+        .unwrap();
+    assert_eq!(summary.removed, 0);
+    assert_eq!(summary.skipped.len(), 1);
+    assert_eq!(summary.skipped[0].loop_name, "java-review");
+    assert!(
+        summary.skipped[0]
+            .reason
+            .contains("no longer exists in Git")
+    );
+}
+
+#[sqlx::test]
 async fn resync_skips_an_override_and_preserves_its_approval(pool: PgPool) {
     let repo = make_repository_row("repo-override", "user-1");
     seed_team(&pool, "user-1").await;
