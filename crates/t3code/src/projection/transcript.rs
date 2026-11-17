@@ -310,12 +310,29 @@ pub(super) fn activity_anchor(
                 .created_at
                 .is_some_and(|created| created <= activity.created_at)
     });
-    let turn = match preceding {
-        Some(message) => turn_reference(conversation, message),
-        None => conversation.turn_number.map_or(Value::Null, |number| {
-            Value::String(turn_id(&conversation.task_id, number))
-        }),
+    // A Sandbox wake opens its Turn with no Message row, so the newest Turn
+    // already started also counts; otherwise a question asked after a `moat
+    // cmd` wake lands in the Turn before, which `request_status` reads as
+    // expired.
+    let started_by_then = window
+        .turn_outcomes
+        .iter()
+        .map(|turn| (turn.turn_number, turn.started_at))
+        .chain(
+            conversation
+                .turn_number
+                .map(|n| (n, conversation.turn_started_at)),
+        )
+        .filter(|(_, started)| started.is_some_and(|at| at <= activity.created_at))
+        .map(|(number, _)| number)
+        .max();
+    let number = match preceding.and_then(|message| message.turn_number) {
+        Some(number) => Some(started_by_then.map_or(number, |started| number.max(started))),
+        None => conversation.turn_number,
     };
+    let turn = number.map_or(Value::Null, |number| {
+        Value::String(turn_id(&conversation.task_id, number))
+    });
     (turn, instant(activity.created_at))
 }
 

@@ -1079,6 +1079,33 @@ fn a_notice_a_later_turn_took_does_not_pull_the_question_into_it() {
     assert_eq!(item["runId"], json!("task-1:18"));
 }
 
+/// A wake opens its turn with no message row; a live read has no outcomes.
+#[test]
+fn a_question_in_a_turn_a_sandbox_wake_opened_is_pending_in_that_turn() {
+    let start = Utc::now() - chrono::Duration::seconds(300);
+    let woke = start + chrono::Duration::seconds(180);
+    let mut conversation = open_turn(conversation("task-1"), 135, "active");
+    conversation.turn_started_at = Some(woke);
+    let mut reply = message("msg-reply", Some(134), "Validating", MessageType::Assistant);
+    reply.created_at = Some(start);
+    let mut question = asked("act-1", "req-1");
+    question.created_at = start + chrono::Duration::seconds(200);
+    let full_read = vec![turn_started(134, start), turn_started(135, woke)];
+    for turn_outcomes in [vec![], full_read] {
+        let transcript = Transcript {
+            messages: vec![reply.clone()],
+            activities: vec![question.clone()],
+            turn_outcomes,
+            ..Transcript::default()
+        };
+        let requests = runtime_requests(&conversation, &transcript);
+        assert_eq!(requests[0]["status"], json!("pending"));
+        let (items, _) =
+            turn_items_and_messages(&conversation, &transcript, &origins(&HashMap::new()));
+        assert_eq!(items.last().unwrap()["runId"], json!("task-1:135"));
+    }
+}
+
 #[test]
 fn runtime_request_is_resolved_with_its_answers_once_answered() {
     let conversation = open_turn(conversation("task-1"), 1, "active");
